@@ -1,8 +1,13 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
+
+import {
+  createReleaseManifest,
+  verifyReleaseManifest,
+} from '../../../scripts/release-manifest.mjs';
 
 const SCRIPT_PATH = resolve('scripts/release-manifest.mjs');
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
@@ -20,6 +25,11 @@ type Manifest = {
   tools: {
     wrangler: string;
   };
+  files: Array<{
+    path: string;
+    size: number;
+    sha256: string;
+  }>;
 };
 
 function createFixture(): { dist: string; manifest: string } {
@@ -49,10 +59,19 @@ function runManifest(
   if (validationProfile) env.RELEASE_VALIDATION_PROFILE = validationProfile;
   Object.assign(env, environment);
 
-  return spawnSync(process.execPath, [SCRIPT_PATH, mode, dist, manifest], {
-    encoding: 'utf8',
-    env,
-  });
+  try {
+    const options = {
+      distDirectory: dist,
+      manifestPath: manifest,
+      environment: env,
+      log: () => {},
+    };
+    if (mode === 'create') createReleaseManifest(options);
+    else verifyReleaseManifest(options);
+    return { status: 0, stderr: '' };
+  } catch (error) {
+    return { status: 1, stderr: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 afterEach(() => {
@@ -62,6 +81,47 @@ afterEach(() => {
 });
 
 describe('release manifest validation profile', () => {
+  it('preserves the executable CLI boundary', () => {
+    const { dist, manifest } = createFixture();
+    const environment = {
+      ...process.env,
+      GITHUB_SHA: COMMIT,
+      npm_config_user_agent: 'npm/10.9.0 node/v22.0.0 win32 x64',
+    };
+    const createResult = spawnSync(process.execPath, [SCRIPT_PATH, 'create', dist, manifest], {
+      encoding: 'utf8',
+      env: environment,
+    });
+    expect(createResult.status, createResult.stderr).toBe(0);
+    expect(existsSync(manifest)).toBe(true);
+    const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
+    expect(payload).toMatchObject({
+      schemaVersion: 2,
+      commit: COMMIT,
+      files: [
+        {
+          path: 'index.html',
+          size: Buffer.byteLength('<!doctype html>\n'),
+          sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        },
+      ],
+    });
+
+    const verifyResult = spawnSync(process.execPath, [SCRIPT_PATH, 'verify', dist, manifest], {
+      encoding: 'utf8',
+      env: environment,
+    });
+    expect(verifyResult.status, verifyResult.stderr).toBe(0);
+
+    writeFileSync(resolve(dist, 'index.html'), '<!doctype html><title>changed</title>\n', 'utf8');
+    const mismatchResult = spawnSync(process.execPath, [SCRIPT_PATH, 'verify', dist, manifest], {
+      encoding: 'utf8',
+      env: environment,
+    });
+    expect(mismatchResult.status).not.toBe(0);
+    expect(mismatchResult.stderr).toContain('Release artifact mismatch at index.html.');
+  });
+
   it('records and verifies the selected release validation profile', () => {
     const { dist, manifest } = createFixture();
 

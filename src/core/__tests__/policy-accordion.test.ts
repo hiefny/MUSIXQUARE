@@ -7,7 +7,23 @@ const FAQ_PATH = '.workshop/faq/faq.html';
 const PRIVACY_PATH = '.workshop/privacy/privacy.html';
 const TERMS_PATH = '.workshop/terms/terms.html';
 const SCRIPT_PATH = 'public/policy-accordion.js';
+const SITEMAP_PATH = 'public/sitemap.xml';
 const STYLE_PATH = 'public/legal-pages.css';
+
+const MONTH_NUMBER: Readonly<Record<string, string>> = Object.freeze({
+  January: '01',
+  February: '02',
+  March: '03',
+  April: '04',
+  May: '05',
+  June: '06',
+  July: '07',
+  August: '08',
+  September: '09',
+  October: '10',
+  November: '11',
+  December: '12',
+});
 
 async function readDocument(path: string, url: string): Promise<JSDOM> {
   return new JSDOM(await readFile(path, 'utf8'), {
@@ -17,7 +33,48 @@ async function readDocument(path: string, url: string): Promise<JSDOM> {
   });
 }
 
+function normalizedPolicyDate(document: Document): string {
+  const dateText = document.querySelector('.policy-date')?.textContent?.trim() ?? '';
+  const match =
+    /^(?:(?:Effective date|Last updated): |API version: v\d+ · Updated )([A-Z][a-z]+) (\d{1,2}), (\d{4})$/u.exec(
+      dateText,
+    );
+  if (!match) throw new Error(`Unrecognized policy date: ${dateText || '<missing>'}`);
+  const [, monthName, day, year] = match;
+  const month = MONTH_NUMBER[monthName];
+  if (!month) throw new Error(`Unrecognized policy month: ${monthName}`);
+  return `${year}-${month}-${day.padStart(2, '0')}`;
+}
+
 describe('policy-page accordions', () => {
+  it('keeps dated public-document metadata aligned with the sitemap', async () => {
+    const pages = await Promise.all([
+      readDocument(PRIVACY_PATH, 'https://musixquare.com/privacy'),
+      readDocument(TERMS_PATH, 'https://musixquare.com/terms'),
+      readDocument(FAQ_PATH, 'https://musixquare.com/faq'),
+      readDocument(DEVELOPER_DOC_PATH, 'https://musixquare.com/developers'),
+    ]);
+    const sitemap = new JSDOM(await readFile(SITEMAP_PATH, 'utf8'), {
+      contentType: 'application/xml',
+    });
+
+    for (const [route, page] of [
+      ['/privacy', pages[0]],
+      ['/terms', pages[1]],
+      ['/faq', pages[2]],
+      ['/developers', pages[3]],
+    ] as const) {
+      const sitemapEntries = Array.from(sitemap.window.document.querySelectorAll('url')).filter(
+        (entry) =>
+          entry.querySelector('loc')?.textContent?.trim() === `https://musixquare.com${route}`,
+      );
+      expect(sitemapEntries, route).toHaveLength(1);
+      expect(sitemapEntries[0]?.querySelector('lastmod')?.textContent?.trim(), route).toBe(
+        normalizedPolicyDate(page.window.document),
+      );
+    }
+  });
+
   it.each([
     [DEVELOPER_DOC_PATH, 'https://musixquare.com/developers', 11],
     [FAQ_PATH, 'https://musixquare.com/faq', 9],

@@ -345,36 +345,55 @@ export function sendToHost(msg: AnyProtocolMsg): boolean {
  * Wait for a host-side peer's connectionType to resolve from 'unknown'.
  * Returns the resolved type, or 'remote' on timeout (safety default).
  */
-let _peerConnTypeCounter = 0;
-function waitForPeerConnectionType(peerObj: ConnectedPeer, timeout: number): Promise<string> {
-  const id = ++_peerConnTypeCounter;
-  const intervalName = `peerConnType-interval-${id}`;
-  const timeoutName = `peerConnType-timeout-${id}`;
-  const peerId = peerObj.id; // Capture ID, not object — immutable state updates replace peer objects
+type ResolvedConnectionType = 'local' | 'remote';
 
+interface ConnectionTypeWaiter {
+  settleRemote: () => void;
+}
+
+let connectionTypeWaitEpoch = 0;
+const connectionTypeWaiters = new Set<ConnectionTypeWaiter>();
+
+function resolvedConnectionType(value: string | undefined): ResolvedConnectionType | null {
+  return value === 'local' || value === 'remote' ? value : null;
+}
+
+function waitForResolvedConnectionType(
+  timerPrefix: string,
+  id: number,
+  timeout: number,
+  check: () => string | undefined,
+): Promise<ResolvedConnectionType> {
+  const intervalName = `${timerPrefix}-interval-${id}`;
+  const timeoutName = `${timerPrefix}-timeout-${id}`;
+  const initial = resolvedConnectionType(check());
+  if (initial) return Promise.resolve(initial);
+
+  const waitEpoch = connectionTypeWaitEpoch;
   return new Promise((resolve) => {
-    // Poll by peer ID to avoid stale object reference after immutable state update
-    const check = (): string | undefined => {
-      const peers = getState('network.connectedPeers');
-      const current = peers.find((p) => p.id === peerId);
-      return current?.connectionType as string | undefined;
-    };
-    const current = check();
-    if (current && current !== 'unknown') return resolve(current);
+    let settled = false;
 
-    const cleanup = () => {
+    const cleanup = (): void => {
+      connectionTypeWaiters.delete(waiter);
       clearManagedTimer(intervalName);
       clearManagedTimer(timeoutName);
     };
+    const finish = (value: ResolvedConnectionType): void => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(value);
+    };
+
+    const waiter: ConnectionTypeWaiter = { settleRemote: () => finish('remote') };
+    connectionTypeWaiters.add(waiter);
 
     setManagedTimer(
       intervalName,
       () => {
-        const val = check();
-        if (val && val !== 'unknown') {
-          cleanup();
-          resolve(val);
-        }
+        if (settled || waitEpoch !== connectionTypeWaitEpoch) return;
+        const current = resolvedConnectionType(check());
+        if (current) finish(current);
       },
       100,
       { interval: true },
@@ -383,12 +402,32 @@ function waitForPeerConnectionType(peerObj: ConnectedPeer, timeout: number): Pro
     setManagedTimer(
       timeoutName,
       () => {
-        cleanup();
-        const final = check();
-        resolve(!final || final === 'unknown' ? 'remote' : final);
+        if (settled || waitEpoch !== connectionTypeWaitEpoch) return;
+        finish(resolvedConnectionType(check()) ?? 'remote');
       },
       timeout,
     );
+  });
+}
+
+/** Settle every room-owned connection-type wait before global timer teardown. */
+export function cancelConnectionTypeWaiters(): void {
+  connectionTypeWaitEpoch += 1;
+  for (const waiter of [...connectionTypeWaiters]) waiter.settleRemote();
+}
+
+let _peerConnTypeCounter = 0;
+function waitForPeerConnectionType(
+  peerObj: ConnectedPeer,
+  timeout: number,
+): Promise<ResolvedConnectionType> {
+  const id = ++_peerConnTypeCounter;
+  const peerId = peerObj.id; // Capture ID, not object; immutable state updates replace peer objects.
+
+  return waitForResolvedConnectionType('peerConnType', id, timeout, () => {
+    const peers = getState('network.connectedPeers');
+    const current = peers.find((candidate) => candidate.id === peerId);
+    return current?.connectionType;
   });
 }
 
@@ -463,40 +502,7 @@ export function isRemoteGuest(): boolean {
 let _guestConnTypeCounter = 0;
 export function waitForGuestConnectionType(timeout: number): Promise<'local' | 'remote'> {
   const id = ++_guestConnTypeCounter;
-  const intervalName = `guestConnType-interval-${id}`;
-  const timeoutName = `guestConnType-timeout-${id}`;
-
-  return new Promise((resolve) => {
-    const check = () => getState('network.connectionType');
-    const initial = check();
-    if (initial !== 'unknown') return resolve(initial as 'local' | 'remote');
-
-    const cleanup = () => {
-      clearManagedTimer(intervalName);
-      clearManagedTimer(timeoutName);
-    };
-
-    setManagedTimer(
-      intervalName,
-      () => {
-        const val = check();
-        if (val !== 'unknown') {
-          cleanup();
-          resolve(val as 'local' | 'remote');
-        }
-      },
-      100,
-      { interval: true },
-    );
-
-    setManagedTimer(
-      timeoutName,
-      () => {
-        cleanup();
-        const final = check();
-        resolve(final === 'unknown' ? 'remote' : (final as 'local' | 'remote'));
-      },
-      timeout,
-    );
-  });
+  return waitForResolvedConnectionType('guestConnType', id, timeout, () =>
+    getState('network.connectionType'),
+  );
 }

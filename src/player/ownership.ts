@@ -140,6 +140,7 @@ export function createSystemAudioTrackMeta(
       name: 'system-audio-receiving',
       title: title || 'Receiving System Audio',
       systemAudioPlaceholder: true,
+      systemAudioMode: 'receiving',
     };
   }
 
@@ -147,6 +148,7 @@ export function createSystemAudioTrackMeta(
     type: 'file',
     name: 'system-audio',
     title: title || 'System Audio Sharing',
+    systemAudioMode: 'sharing',
   };
 }
 

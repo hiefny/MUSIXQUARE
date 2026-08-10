@@ -113,7 +113,7 @@ const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
-const ADMIN_ASSET_VERSION = '8.3.25';
+const ADMIN_ASSET_VERSION = '8.3.26';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -5562,11 +5562,90 @@ async function listIncompleteOwnerTransferSagas(db) {
               intent_at, prepared_at, expires_at, updated_at
          FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
         WHERE state NOT IN ('complete', 'target_deleted', 'expired', 'superseded')
+          AND state IN (
+                'intent', 'prepared', 'committed', 'registry_active',
+                'old_owner_edge_retired', 'verified'
+              )
+          AND typeof(room_generation) = 'integer'
+          AND room_generation BETWEEN 0 AND ${Number.MAX_SAFE_INTEGER}
+          AND (claim_generation IS NULL OR (
+                typeof(claim_generation) = 'integer'
+                AND claim_generation BETWEEN 0 AND ${Number.MAX_SAFE_INTEGER}
+              ))
+          AND typeof(intent_at) = 'integer'
+          AND intent_at BETWEEN 0 AND ${Number.MAX_SAFE_INTEGER}
+          AND (prepared_at IS NULL OR (
+                typeof(prepared_at) = 'integer'
+                AND prepared_at BETWEEN 0 AND ${Number.MAX_SAFE_INTEGER}
+              ))
+          AND typeof(expires_at) = 'integer'
+          AND expires_at BETWEEN 1 AND ${Number.MAX_SAFE_INTEGER}
+          AND (prepared_at IS NULL OR expires_at > prepared_at)
+          AND typeof(updated_at) = 'integer'
+          AND updated_at BETWEEN intent_at AND ${Number.MAX_SAFE_INTEGER}
+          AND length(room_code) = 6
+          AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'
+          AND length(request_id) BETWEEN 16 AND 64
+          AND request_id NOT GLOB '*[^A-Za-z0-9_-]*'
+          AND length(target_account_id) = 27
+          AND substr(target_account_id, 1, 5) = 'acct_'
+          AND target_account_id NOT GLOB '*[^A-Za-z0-9_-]*'
+          AND (previous_owner_account_id IS NULL OR (
+                length(previous_owner_account_id) = 27
+                AND substr(previous_owner_account_id, 1, 5) = 'acct_'
+                AND previous_owner_account_id NOT GLOB '*[^A-Za-z0-9_-]*'
+                AND previous_owner_account_id <> target_account_id
+              ))
+          AND (
+                (transfer_id IS NULL
+                  AND claim_generation IS NULL
+                  AND previous_owner_account_id IS NULL
+                  AND fence_digest IS NULL
+                  AND prepared_at IS NULL
+                  AND state = 'intent')
+                OR
+                (transfer_id IS NOT NULL
+                  AND length(transfer_id) = 31
+                  AND substr(transfer_id, 1, 9) = 'transfer_'
+                  AND transfer_id NOT GLOB '*[^A-Za-z0-9_-]*'
+                  AND claim_generation IS NOT NULL
+                  AND fence_digest IS NOT NULL
+                  AND length(fence_digest) = 43
+                  AND fence_digest NOT GLOB '*[^A-Za-z0-9_-]*'
+                  AND prepared_at IS NOT NULL
+                  AND state <> 'intent')
+              )
         ORDER BY updated_at ASC, room_code ASC, room_generation ASC
         LIMIT 50`,
     )
     .all();
   return (result?.results || []).map(normalizeOwnerTransferSagaRow).filter(Boolean);
+}
+
+async function rotateIncompleteOwnerTransferSaga(db, saga, nowMs = Date.now()) {
+  const nextUpdatedAt = Math.max(nowMs, saga.updatedAtMs + 1);
+  if (!Number.isSafeInteger(nextUpdatedAt)) return false;
+  const result = await db
+    .prepare(
+      `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_SAGA_TABLE}
+          SET updated_at = ?8
+        WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3
+          AND target_account_id = ?4 AND transfer_id IS ?5
+          AND state = ?6 AND updated_at = ?7
+          AND state NOT IN ('complete', 'target_deleted', 'expired', 'superseded')`,
+    )
+    .bind(
+      saga.roomCode,
+      saga.roomGeneration,
+      saga.requestId,
+      saga.targetAccountId,
+      saga.transferId,
+      saga.state,
+      saga.updatedAtMs,
+      nextUpdatedAt,
+    )
+    .run();
+  return Number(result?.meta?.changes || 0) === 1;
 }
 
 async function commitAdoptedOwnerTransferSaga(env, saga, nowMs = Date.now()) {
@@ -5896,7 +5975,21 @@ async function reconcileOwnerTransferSagas(env, db, nowMs = Date.now()) {
   await expireOwnerTransferIssuances(env, db, nowMs);
   const sagas = await listIncompleteOwnerTransferSagas(db);
   const results = await Promise.allSettled(
-    sagas.map((saga) => reconcileOneOwnerTransferSaga(env, db, saga, nowMs)),
+    sagas.map(async (saga) => {
+      let changed = false;
+      try {
+        changed = await reconcileOneOwnerTransferSaga(env, db, saga, nowMs);
+        return changed;
+      } finally {
+        // A permanently mismatched or temporarily unavailable dependency must
+        // not monopolize the oldest LIMIT window forever. Rotate only the exact
+        // nonterminal row selected by this sweep; any concurrent progress,
+        // terminalization, or replacement makes the CAS a harmless no-op.
+        if (!changed) {
+          await rotateIncompleteOwnerTransferSaga(db, saga, nowMs).catch(() => false);
+        }
+      }
+    }),
   );
   return results.filter((result) => result.status === 'fulfilled' && result.value === true).length;
 }

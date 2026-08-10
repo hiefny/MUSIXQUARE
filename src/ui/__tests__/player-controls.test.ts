@@ -6,7 +6,7 @@ import { bus } from '../../core/events.ts';
 import { PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
-import { t } from '../../i18n/index.ts';
+import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
 import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
@@ -142,6 +142,30 @@ function setActiveStandardHost(): void {
   setState('network.sessionCode', '123456');
   setState('setup.sessionStarted', true);
 }
+
+describe('initPlayerControls storage errors', () => {
+  it('uses the active non-English unknown label when a filename is missing', async () => {
+    setLanguageMode('ja');
+    await vi.waitFor(() => {
+      expect(getResolvedLanguage()).toBe('ja');
+      expect(t('common.unknown')).toBe('不明');
+    });
+
+    try {
+      initPlayerControls();
+
+      bus.emit('storage:error', 'save failed', '');
+      bus.emit('storage:read-error', { error: 'read failed', filename: '' });
+
+      const unknown = t('common.unknown');
+      expect(showToast).toHaveBeenNthCalledWith(1, t('toast.file_save_error', { name: unknown }));
+      expect(showToast).toHaveBeenNthCalledWith(2, t('toast.file_read_error', { name: unknown }));
+    } finally {
+      setLanguageMode('en');
+      await vi.waitFor(() => expect(getResolvedLanguage()).toBe('en'));
+    }
+  });
+});
 
 describe('getRoleLabelByChannelMode', () => {
   it('returns Original for mode 0', () => {

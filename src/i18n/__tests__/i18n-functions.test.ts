@@ -196,6 +196,29 @@ describe('i18n functions', () => {
       expect(document.documentElement.getAttribute('lang')).toBe('ko');
     });
 
+    it('re-projects a live YouTube iframe accessibility title without component listeners', async () => {
+      localStorage.setItem('musixquare-lang', 'en');
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      document.body.innerHTML =
+        '<iframe id="youtube-frame" data-i18n-title="common.youtube_video"></iframe>';
+
+      const { setLanguageMode, initI18n } = await import('../index.ts');
+      const { default: en } = await vi.importActual<typeof import('../en.ts')>('../en.ts');
+      const { default: ko } = await vi.importActual<typeof import('../ko.ts')>('../ko.ts');
+      await initI18n();
+
+      const iframe = document.querySelector<HTMLIFrameElement>('#youtube-frame');
+      expect(iframe?.title).toBe(en['common.youtube_video']);
+
+      setLanguageMode('ko');
+      await vi.waitFor(() => {
+        expect(iframe?.title).toBe(ko['common.youtube_video']);
+      });
+    });
+
     it('falls back to system mode for invalid mode', async () => {
       Object.defineProperty(navigator, 'languages', {
         value: ['en-US'],

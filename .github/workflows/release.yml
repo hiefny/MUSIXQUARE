@@ -742,7 +742,11 @@ jobs:
               exit 1
             fi
           done
-          npm run smoke:live:pro-media-cors
+
+      - name: Smoke PRO media R2 CORS boundary
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'pro-room'
+        run: npm run smoke:live:pro-media-cors
 
       - name: Record current PRO room deployment
         timeout-minutes: 10

@@ -12,11 +12,12 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
-import { showLoader } from '../../ui/toast.ts';
+import { showLoader, showToast } from '../../ui/toast.ts';
 import { broadcast } from '../../network/peer.ts';
-import { setPlaybackFilePlaying } from '../../player/ownership.ts';
+import { setPlaybackFilePlaying, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { PlaylistItem } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
+import { SCRIPT_LOAD_TIMEOUT_MS } from '../constants.ts';
 
 const FILE_QUEUE_ITEM_ID = '66666666-6666-4666-8666-666666666666';
 const YOUTUBE_QUEUE_ITEM_ID = '77777777-7777-4777-8777-777777777777';
@@ -27,8 +28,12 @@ vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+const i18nFixture = vi.hoisted(() => ({ locale: 'en' as 'en' | 'ja' }));
+
 vi.mock('../../i18n/index.ts', () => ({
-  t: vi.fn((key: string) => key),
+  t: vi.fn((key: string) =>
+    i18nFixture.locale === 'ja' && key === 'common.youtube_video' ? 'YouTube動画' : key,
+  ),
 }));
 
 vi.mock('../../core/timers.ts', () => ({
@@ -112,6 +117,7 @@ vi.mock('../../ui/dom.ts', () => ({
 const setManagedTimerMock = vi.mocked(setManagedTimer);
 const clearManagedTimerMock = vi.mocked(clearManagedTimer);
 const showLoaderMock = vi.mocked(showLoader);
+const showToastMock = vi.mocked(showToast);
 const broadcastMock = vi.mocked(broadcast);
 
 /** Latest registered callback for a managed timer name (timers are mocked —
@@ -193,6 +199,7 @@ beforeEach(async () => {
   bus.clear();
   vi.clearAllMocks();
   vi.useFakeTimers();
+  i18nFixture.locale = 'en';
   const stateMod = await import('../_state.ts');
   stateMod.resetYouTubeModuleState();
 
@@ -212,6 +219,9 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   document.body.innerHTML = '';
+  document
+    .querySelectorAll('script[src*="youtube.com/iframe_api"]')
+    .forEach((script) => script.remove());
   delete (window as unknown as { YT?: unknown }).YT;
   delete (window as unknown as { onYouTubeIframeAPIReady?: unknown }).onYouTubeIframeAPIReady;
 });
@@ -248,6 +258,46 @@ async function armIndexingViaDeferredNavigation(
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 describe('YouTube indexing session lifecycle', () => {
+  it('projects the active non-English locale into the created iframe title', async () => {
+    const player = createMockYtPlayer();
+    installYtNamespace(player);
+    setPlaybackYouTubePlaying();
+    i18nFixture.locale = 'ja';
+    const iframe = document.createElement('iframe');
+    document.getElementById('youtube-player-container')?.appendChild(iframe);
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+
+    loadYouTubeVideo('localized01', null, false, 0);
+    expect(window.YT?.Player).toHaveBeenCalledOnce();
+    expect(iframe.title).toBe('');
+
+    frames.forEach((callback) => callback(0));
+    expect(iframe.title).toBe('YouTube動画');
+    expect(iframe.getAttribute('data-i18n-title')).toBe('common.youtube_video');
+  });
+
+  it('routes sync-owned iframe mutations through the initialized runtime bridge', async () => {
+    const stateMod = await import('../_state.ts');
+    await import('../iframe.ts');
+    const { hideYouTubeTapToPlayGateFromSync, invalidateYtDurationCacheFromSync } =
+      await import('../iframe-runtime-bridge.ts');
+    const overlay = document.createElement('button');
+    overlay.id = 'youtube-ios-sync-overlay';
+    document.body.appendChild(overlay);
+    stateMod.setCachedYtDuration(123);
+
+    invalidateYtDurationCacheFromSync();
+    hideYouTubeTapToPlayGateFromSync();
+
+    expect(stateMod.getCachedYtDuration()).toBe(0);
+    expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
+  });
+
   it('activates the complete host runtime when a retained player is reused', async () => {
     const stateMod = await import('../_state.ts');
     const syncMod = await import('../sync.ts');
@@ -695,20 +745,67 @@ describe('YouTube indexing session lifecycle', () => {
     );
   });
 
-  it('yt-load-timeout during indexing clears the session and hides the loader', async () => {
+  it('API script timeout during indexing clears the session and hides the loader', async () => {
     const stateMod = await import('../_state.ts');
-    // No window.YT: the load goes through runWhenYouTubeApiReady and arms the
-    // safety timeout; the API script never resolves in jsdom.
+    // No window.YT: the script attempt itself must own a real bounded deadline;
+    // managed outer timers are mocked in this suite and cannot rescue it.
     await armIndexingViaDeferredNavigation('vidEntry', 'PL_TIMEOUT');
     expect(stateMod.isYtIndexing()).toBe(true);
+    expect(stateMod.isYtScriptLoading()).toBe(true);
 
     showLoaderMock.mockClear();
-    const fireTimeout = lastTimerCallback('yt-load-timeout');
-    expect(fireTimeout).toBeDefined();
-    fireTimeout?.();
+    vi.advanceTimersByTime(SCRIPT_LOAD_TIMEOUT_MS);
 
     expect(stateMod.isYtIndexing()).toBe(false);
+    expect(stateMod.isYtScriptLoading()).toBe(false);
     expect(showLoaderMock).toHaveBeenCalledWith(false);
+    expect(showToastMock).toHaveBeenCalledWith('youtube.load_timeout');
+    expect(document.querySelector('script[src*="youtube.com/iframe_api"]')).toBeNull();
+  });
+
+  it('recovers from a hung script and fences late settlement away from the retry', async () => {
+    const stateMod = await import('../_state.ts');
+    await armIndexingViaDeferredNavigation('vidEntry', 'PL_HUNG');
+    const firstScript = document.querySelector<HTMLScriptElement>(
+      'script[src*="youtube.com/iframe_api"]',
+    );
+    const lateReady = window.onYouTubeIframeAPIReady;
+    expect(firstScript).not.toBeNull();
+
+    vi.advanceTimersByTime(SCRIPT_LOAD_TIMEOUT_MS);
+    expect(firstScript?.isConnected).toBe(false);
+    expect(stateMod.isYtScriptLoading()).toBe(false);
+
+    showToastMock.mockClear();
+    bus.emit('youtube:load', 'retryVideo', 'PL_RETRY', YOUTUBE_QUEUE_ITEM_ID, false, 0);
+    const secondScript = document.querySelector<HTMLScriptElement>(
+      'script[src*="youtube.com/iframe_api"]',
+    );
+    expect(secondScript).not.toBeNull();
+    expect(secondScript).not.toBe(firstScript);
+    expect(stateMod.isYtScriptLoading()).toBe(true);
+
+    const retryPlayer = createMockYtPlayer(['retryVideo']);
+    installYtNamespace(retryPlayer);
+    const playerConstructor = vi.mocked(window.YT!.Player);
+
+    // A removed predecessor can still have an already-queued event/callback.
+    // Neither may flush the current attempt before its own script loads.
+    firstScript?.dispatchEvent(new Event('load'));
+    lateReady?.();
+    expect(playerConstructor).not.toHaveBeenCalled();
+    expect(stateMod.getYouTubePlayer()).toBeNull();
+
+    secondScript?.dispatchEvent(new Event('load'));
+
+    expect(playerConstructor).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(retryPlayer);
+    expect(stateMod.isYtScriptLoading()).toBe(false);
+    expect(
+      showToastMock.mock.calls.filter(
+        ([message]) => message === 'youtube.load_timeout' || message === 'youtube.load_fail',
+      ),
+    ).toHaveLength(0);
   });
 
   it('a stale poll closure of a replaced session neither fires its callback nor clobbers the new session', async () => {

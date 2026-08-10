@@ -67,14 +67,9 @@ const SCC_BASELINE = [
   },
   {
     reason:
-      'youtube domain-internal init wiring cluster (player/iframe/handlers/sync); ' +
-      'single-domain, intentional until a youtube-internal refactor',
-    members: [
-      'src/youtube/handlers.ts',
-      'src/youtube/iframe.ts',
-      'src/youtube/player.ts',
-      'src/youtube/sync.ts',
-    ],
+      'youtube player/handlers command wiring; the iframe and sync runtimes are ' +
+      'now leaf-bridged and must never rejoin this SCC',
+    members: ['src/youtube/handlers.ts', 'src/youtube/player.ts'],
   },
 ];
 

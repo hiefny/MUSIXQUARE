@@ -14,7 +14,7 @@ vi.mock('../../core/wake-lock.ts', () => ({
 import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { detectConnectionType, getPeer, setPeer } from '../peer-state.ts';
 import {
   cancelPendingSessionSetup,
@@ -23,6 +23,7 @@ import {
   isTrustedSystemAudioMediaCall,
   leaveSession,
   safeSend,
+  waitForGuestConnectionType,
 } from '../peer.ts';
 import type { AnyProtocolMsg, DataConnection, PeerInstance } from '../../types/index.ts';
 import {
@@ -154,6 +155,25 @@ describe('leaveSession', () => {
     leaveSession();
 
     expect(wakeLockMocks.deactivateNoSleep).toHaveBeenCalledOnce();
+  });
+
+  it('preserves page-lifetime service-worker polling while clearing session timers', () => {
+    setManagedTimer('sw-update-check', vi.fn(), 60_000, { interval: true });
+    setManagedTimer('session-only-test', vi.fn(), 60_000, { interval: true });
+
+    leaveSession();
+
+    expect(getManagedTimer('sw-update-check')).not.toBeNull();
+    expect(getManagedTimer('session-only-test')).toBeNull();
+  });
+
+  it('settles connection-type waits before clearing session timers', async () => {
+    setState('network.connectionType', 'unknown');
+    const pending = waitForGuestConnectionType(60_000);
+
+    leaveSession();
+
+    await expect(pending).resolves.toBe('remote');
   });
 
   it('clears an abandoned login return on explicit leave but preserves it for pagehide', () => {

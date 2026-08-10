@@ -6,7 +6,7 @@
  * unrelated exports that happen to share a name no longer keep each other
  * alive. Value/type space and prod/test/self evidence are reported separately.
  *
- * The binding-aware 22/81 count baselines record the reviewed runtime and
+ * The binding-aware 22/80 count baselines record the reviewed runtime and
  * server-authority surfaces. Fully-dead exports remain forbidden, and both
  * counts are shrink-only.
  * Module reachability is report-only and includes static value imports,
@@ -30,13 +30,13 @@ import { join, resolve } from 'node:path';
 import { analyzeDeadExports } from './lib/dead-export-analyzer.mjs';
 
 const ROOT = join(fileURLToPath(new URL('.', import.meta.url)), '..');
-// Reviewed binding-by-binding on 2026-07-28. The test-only additions are
+// Reviewed binding-by-binding through 2026-08-10. The test-only additions are
 // explicit regression seams from server authority, stable audio routing, and
 // remote file delivery. The self-only additions are test-observed seams,
 // module-local API types, or the central event/type barrel; no fully-dead
 // export is allowed.
 const TEST_ONLY_BASELINE_COUNT = 22;
-const SELF_ONLY_BASELINE_COUNT = 81;
+const SELF_ONLY_BASELINE_COUNT = 80;
 
 function kindCounts(entries) {
   return entries.reduce(

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // Ratchet: keep the production import graph clean — app.ts import-terminal
@@ -11,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 // a subprocess so this .ts test doesn't depend on .mjs type resolution; a
 // non-zero exit means findings, and we surface the script's report.
 const script = fileURLToPath(new URL('../../../scripts/check-import-graph.mjs', import.meta.url));
+const youtubeIframe = fileURLToPath(new URL('../../youtube/iframe.ts', import.meta.url));
 
 describe('Production import graph', () => {
   it('has no bootstrap back-imports, new cycles, or ui-layering violations', () => {
@@ -22,5 +24,10 @@ describe('Production import graph', () => {
       throw new Error(`Import graph check failed:\n${e.stdout ?? ''}${e.stderr ?? ''}`);
     }
     expect(output).toContain('OK');
+  });
+
+  it('keeps the YouTube iframe runtime independent from the player coordinator', () => {
+    const source = readFileSync(youtubeIframe, 'utf8');
+    expect(source).not.toMatch(/\bfrom\s+['"]\.\/player\.ts['"]/);
   });
 });

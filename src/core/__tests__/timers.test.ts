@@ -67,4 +67,19 @@ describe('Managed Timers', () => {
     expect(getManagedTimer('chunkWatchdog')).toBeNull();
     expect(getManagedTimer('heartbeatMonitor')).toBeNull();
   });
+
+  it('preserves explicitly excepted page-lifetime timers', () => {
+    const pageLifetime = vi.fn();
+    const sessionLifetime = vi.fn();
+    setManagedTimer('sw-update-check', pageLifetime, 1000, { interval: true });
+    setManagedTimer('heartbeatMonitor', sessionLifetime, 1000, { interval: true });
+
+    clearAllManagedTimers({ except: ['sw-update-check'] });
+    vi.advanceTimersByTime(1000);
+
+    expect(pageLifetime).toHaveBeenCalledOnce();
+    expect(sessionLifetime).not.toHaveBeenCalled();
+    expect(getManagedTimer('sw-update-check')).not.toBeNull();
+    expect(getManagedTimer('heartbeatMonitor')).toBeNull();
+  });
 });

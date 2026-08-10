@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import {
+  createSystemAudioTrackMeta,
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
   setPlaybackIdle,
@@ -30,13 +31,21 @@ vi.mock('../video.ts', async (importOriginal) => {
 
 // Polyfill navigator.mediaSession for jsdom
 const _handlers: Record<string, (details?: Record<string, unknown>) => void> = {};
+const installActionHandler = (
+  action: MediaSessionAction,
+  handler: MediaSessionActionHandler | null,
+): void => {
+  if (handler) {
+    _handlers[action] = handler as unknown as (details?: Record<string, unknown>) => void;
+  } else {
+    delete _handlers[action];
+  }
+};
 Object.defineProperty(navigator, 'mediaSession', {
   value: {
     metadata: null,
     playbackState: 'none',
-    setActionHandler: vi.fn((action: string, handler: () => void) => {
-      _handlers[action] = handler;
-    }),
+    setActionHandler: vi.fn(installActionHandler),
   },
   configurable: true,
   writable: true,
@@ -61,6 +70,7 @@ import { setLocalFilePaused } from '../_state.ts';
 import { setLocalYouTubePaused } from '../../youtube/_state.ts';
 import { togglePlay, stopPlayback, skipTime, pause } from '../transport.ts';
 import { bindAudioContextInterruptionRecovery } from '../../audio/context-recovery.ts';
+import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
 
 const CURRENT_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const SECOND_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
@@ -88,6 +98,8 @@ beforeEach(() => {
   resetState();
   bus.clear();
   vi.clearAllMocks();
+  for (const action of Object.keys(_handlers)) delete _handlers[action];
+  vi.mocked(navigator.mediaSession.setActionHandler).mockImplementation(installActionHandler);
   setLocalFilePaused(false);
   setLocalYouTubePaused(false);
   navigator.mediaSession.metadata = null;
@@ -121,9 +133,81 @@ describe('updateMediaSessionMetadata', () => {
     expect(navigator.mediaSession.metadata).toBeNull();
   });
 
-  it('uses "Unknown Track" for item without name', () => {
+  it('uses the localized unknown label for an item without a name', () => {
     updateMediaSessionMetadata({ type: 'audio' } as never);
-    expect(navigator.mediaSession.metadata!.title).toBe('Unknown Track');
+    expect(navigator.mediaSession.metadata!.title).toBe(t('common.unknown'));
+  });
+
+  it('localizes fallback and system-audio titles in a non-English locale', async () => {
+    setLanguageMode('ja');
+    await vi.waitFor(() => {
+      expect(getResolvedLanguage()).toBe('ja');
+      expect(t('common.unknown')).toBe('不明');
+    });
+
+    try {
+      updateMediaSessionMetadata({ type: 'audio' } as never);
+      expect(navigator.mediaSession.metadata!.title).toBe(t('common.unknown'));
+
+      setState('youtube.currentSubIndex', 0);
+      updateMediaSessionMetadata({ type: 'youtube', playlistId: 'PL-test' } as never);
+      expect(navigator.mediaSession.metadata!.title).toBe(`${t('nav.playlist')} (1)`);
+
+      updateMediaSessionMetadata(createSystemAudioTrackMeta('sharing'));
+      expect(navigator.mediaSession.metadata!.title).toBe(t('system_audio.sharing'));
+
+      updateMediaSessionMetadata(createSystemAudioTrackMeta('receiving'));
+      expect(navigator.mediaSession.metadata!.title).toBe(t('system_audio.receiving'));
+    } finally {
+      setLanguageMode('en');
+      await vi.waitFor(() => expect(getResolvedLanguage()).toBe('en'));
+    }
+  });
+
+  it.each([
+    ['sharing', 'system_audio.sharing'],
+    ['receiving', 'system_audio.receiving'],
+  ] as const)(
+    're-publishes synthetic %s metadata when the active locale changes',
+    async (mode, key) => {
+      initMediaSession();
+      setState('player.currentTrackMeta', createSystemAudioTrackMeta(mode));
+      expect(navigator.mediaSession.metadata!.title).toBe(t(key));
+
+      setLanguageMode('ja');
+      try {
+        await vi.waitFor(() => {
+          expect(getResolvedLanguage()).toBe('ja');
+          expect(t('common.unknown')).toBe('不明');
+          expect(navigator.mediaSession.metadata!.title).toBe(t(key));
+        });
+      } finally {
+        setLanguageMode('en');
+        await vi.waitFor(() => expect(getResolvedLanguage()).toBe('en'));
+      }
+    },
+  );
+
+  it.each(['system-audio', 'system-audio-receiving'])(
+    'preserves the explicit title of an ordinary upload named %s',
+    (name) => {
+      updateMediaSessionMetadata({
+        type: 'file',
+        name,
+        title: 'User-provided upload title',
+      });
+
+      expect(navigator.mediaSession.metadata!.title).toBe('User-provided upload title');
+    },
+  );
+
+  it('preserves an explicit ordinary track title', () => {
+    updateMediaSessionMetadata({
+      type: 'file',
+      name: 'fallback-file-name.mp3',
+      title: 'Artist-provided title',
+    } as never);
+    expect(navigator.mediaSession.metadata!.title).toBe('Artist-provided title');
   });
 
   it('uses favicon for non-YouTube artwork', () => {
@@ -131,6 +215,44 @@ describe('updateMediaSessionMetadata', () => {
     const artwork = navigator.mediaSession.metadata!.artwork[0].src;
     expect(artwork).toBe('/favicon.svg');
     expect(new URL(artwork, 'https://musixquare.com/123456/').pathname).toBe('/favicon.svg');
+  });
+});
+
+describe('initMediaSession with partial browser support', () => {
+  it('keeps later actions and state observers when one action is unsupported', () => {
+    vi.mocked(navigator.mediaSession.setActionHandler).mockImplementation((action, handler) => {
+      if (action === 'seekbackward') throw new DOMException('unsupported', 'NotSupportedError');
+      if (handler) {
+        _handlers[action] = handler as unknown as (details?: Record<string, unknown>) => void;
+      }
+    });
+
+    expect(() => initMediaSession()).not.toThrow();
+
+    expect(_handlers.seekbackward).toBeUndefined();
+    expect(_handlers.seekforward).toBeTypeOf('function');
+    expect(_handlers.stop).toBeTypeOf('function');
+    expect(_handlers.nexttrack).toBeTypeOf('function');
+    setState('playback.activity', 'playing');
+    expect(navigator.mediaSession.playbackState).toBe('playing');
+  });
+
+  it('still initializes observers when every action is unsupported', () => {
+    vi.mocked(navigator.mediaSession.setActionHandler).mockImplementation(() => {
+      throw new DOMException('unsupported', 'NotSupportedError');
+    });
+
+    expect(() => initMediaSession()).not.toThrow();
+    expect(navigator.mediaSession.setActionHandler).toHaveBeenCalledTimes(7);
+
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'Observer Track.mp3',
+      title: 'Observer Track',
+    });
+    setState('playback.activity', 'paused');
+    expect(navigator.mediaSession.metadata?.title).toBe('Observer Track');
+    expect(navigator.mediaSession.playbackState).toBe('paused');
   });
 });
 

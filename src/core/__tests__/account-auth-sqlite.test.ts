@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  cleanupPendingAccountDeletions,
   handleAccountAuthRequest as handleMaybeAccountAuthRequest,
   recordAccountProRoomLink,
   resetAccountAuthCachesForTests,
@@ -212,6 +213,7 @@ async function seedAccount(
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   resetAccountAuthCachesForTests();
 });
 
@@ -775,6 +777,72 @@ afterEach(() => {
         assertion: null,
         deletionAssertion: expect.any(String),
       });
+    } finally {
+      db.close();
+    }
+  });
+
+  it('re-ages a failed deletion fence with an exact SQLite CAS before retrying it', async () => {
+    vi.useFakeTimers();
+    const now = 1_900_000_000_000;
+    vi.setSystemTime(now);
+    const db = new SqliteD1();
+    try {
+      await seedAccount(db, []);
+      db.database
+        .prepare(`INSERT INTO mxqr_account_deletions (account_id, started_at) VALUES (?, 1)`)
+        .run(ACCOUNT_ID);
+      db.database
+        .prepare(
+          `INSERT INTO mxqr_account_pro_room_generations
+             (account_id, room_code, room_generation, first_linked_at, last_seen_at)
+           VALUES (?, '000123', 7, 1, 1)`,
+        )
+        .run(ACCOUNT_ID);
+      const purge = vi.fn(async () => false);
+
+      await expect(
+        cleanupPendingAccountDeletions(authEnv(db), {
+          purgeProRoomAccountAuthority: purge,
+        }),
+      ).resolves.toMatchObject({
+        processedAccounts: 1,
+        failedEdges: 1,
+        completedAccounts: 0,
+        pendingAccounts: 1,
+      });
+      expect(
+        db.database
+          .prepare('SELECT started_at FROM mxqr_account_deletions WHERE account_id = ?')
+          .get(ACCOUNT_ID),
+      ).toMatchObject({ started_at: now });
+
+      await expect(
+        cleanupPendingAccountDeletions(authEnv(db), {
+          purgeProRoomAccountAuthority: purge,
+        }),
+      ).resolves.toMatchObject({ processedAccounts: 0, completedAccounts: 0 });
+      expect(purge).toHaveBeenCalledTimes(1);
+
+      purge.mockResolvedValue(true);
+      vi.setSystemTime(now + 10 * 60 * 1000);
+      await expect(
+        cleanupPendingAccountDeletions(authEnv(db), {
+          purgeProRoomAccountAuthority: purge,
+        }),
+      ).resolves.toMatchObject({
+        processedAccounts: 1,
+        purgedEdges: 1,
+        failedEdges: 0,
+        completedAccounts: 1,
+        pendingAccounts: 0,
+      });
+      expect(
+        db.database.prepare('SELECT COUNT(*) AS count FROM mxqr_accounts').get(),
+      ).toMatchObject({ count: 0 });
+      expect(
+        db.database.prepare('SELECT COUNT(*) AS count FROM mxqr_account_deletions').get(),
+      ).toMatchObject({ count: 0 });
     } finally {
       db.close();
     }

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { readReleaseIdentity } from './release-identity.mjs';
 
 const SCHEMA_VERSION = 2;
@@ -13,21 +14,18 @@ const REUSABLE_RELEASE_TARGETS = new Set([
   'remote-share',
   'all',
 ]);
-const mode = process.argv[2];
-const distDirectory = resolve(process.argv[3] || 'dist');
-const manifestPath = resolve(process.argv[4] || 'release-artifacts/release-manifest.json');
 
 function commandVersion(command, args = ['--version']) {
   const executable = process.platform === 'win32' ? `${command}.cmd` : command;
   return execFileSync(executable, args, { encoding: 'utf8' }).trim();
 }
 
-function npmVersion() {
-  const userAgentVersion = process.env.npm_config_user_agent?.match(/^npm\/([^\s]+)/)?.[1];
+function npmVersion(environment) {
+  const userAgentVersion = environment.npm_config_user_agent?.match(/^npm\/([^\s]+)/)?.[1];
   if (userAgentVersion) return userAgentVersion;
 
-  if (process.env.npm_execpath) {
-    return execFileSync(process.execPath, [process.env.npm_execpath, '--version'], {
+  if (environment.npm_execpath) {
+    return execFileSync(process.execPath, [environment.npm_execpath, '--version'], {
       encoding: 'utf8',
     }).trim();
   }
@@ -71,7 +69,7 @@ function listFiles(directory) {
   return files.sort((left, right) => left.localeCompare(right, 'en'));
 }
 
-function describeFile(absolutePath) {
+function describeFile(absolutePath, distDirectory) {
   const bytes = readFileSync(absolutePath);
   return {
     path: toPortablePath(relative(distDirectory, absolutePath)),
@@ -80,59 +78,76 @@ function describeFile(absolutePath) {
   };
 }
 
-function currentCommit() {
+function currentCommit(environment) {
   return (
-    process.env.GITHUB_SHA ||
+    environment.GITHUB_SHA ||
     execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
   );
 }
 
-function expectedSourceRunId() {
-  return process.env.RELEASE_SOURCE_RUN_ID || process.env.GITHUB_RUN_ID || null;
+function expectedSourceRunId(environment) {
+  return environment.RELEASE_SOURCE_RUN_ID || environment.GITHUB_RUN_ID || null;
 }
 
-function expectedSourceRunAttempt() {
-  return process.env.RELEASE_SOURCE_RUN_ATTEMPT || process.env.GITHUB_RUN_ATTEMPT || null;
+function expectedSourceRunAttempt(environment) {
+  return environment.RELEASE_SOURCE_RUN_ATTEMPT || environment.GITHUB_RUN_ATTEMPT || null;
 }
 
-function createManifest() {
-  if (!existsSync(distDirectory)) {
-    throw new Error(`Production dist directory does not exist: ${distDirectory}`);
+export function createReleaseManifest({
+  distDirectory = 'dist',
+  manifestPath = 'release-artifacts/release-manifest.json',
+  environment = process.env,
+  log = console.log,
+} = {}) {
+  const resolvedDistDirectory = resolve(distDirectory);
+  const resolvedManifestPath = resolve(manifestPath);
+  if (!existsSync(resolvedDistDirectory)) {
+    throw new Error(`Production dist directory does not exist: ${resolvedDistDirectory}`);
   }
-  const files = listFiles(distDirectory).map(describeFile);
+  const files = listFiles(resolvedDistDirectory).map((file) =>
+    describeFile(file, resolvedDistDirectory),
+  );
   if (files.length === 0) throw new Error('Production dist directory is empty.');
 
   const manifest = {
     schemaVersion: SCHEMA_VERSION,
     release: readReleaseIdentity(),
-    commit: currentCommit(),
-    runId: process.env.GITHUB_RUN_ID || null,
-    runAttempt: process.env.GITHUB_RUN_ATTEMPT || null,
-    target: process.env.RELEASE_TARGET || null,
-    validationProfile: process.env.RELEASE_VALIDATION_PROFILE || null,
+    commit: currentCommit(environment),
+    runId: environment.GITHUB_RUN_ID || null,
+    runAttempt: environment.GITHUB_RUN_ATTEMPT || null,
+    target: environment.RELEASE_TARGET || null,
+    validationProfile: environment.RELEASE_VALIDATION_PROFILE || null,
     createdAt: new Date().toISOString(),
     tools: {
       node: process.version,
-      npm: npmVersion(),
+      npm: npmVersion(environment),
       wrangler: installedWranglerVersion(),
     },
     files,
   };
 
-  mkdirSync(dirname(manifestPath), { recursive: true });
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
-  console.log(`Created release manifest for ${files.length} files at ${manifestPath}`);
+  mkdirSync(dirname(resolvedManifestPath), { recursive: true });
+  writeFileSync(resolvedManifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  log(`Created release manifest for ${files.length} files at ${resolvedManifestPath}`);
+  return manifest;
 }
 
-function verifyManifest() {
-  if (!existsSync(manifestPath)) {
-    throw new Error(`Release manifest does not exist: ${manifestPath}`);
+export function verifyReleaseManifest({
+  distDirectory = 'dist',
+  manifestPath = 'release-artifacts/release-manifest.json',
+  environment = process.env,
+  log = console.log,
+} = {}) {
+  const resolvedDistDirectory = resolve(distDirectory);
+  const resolvedManifestPath = resolve(manifestPath);
+  if (!existsSync(resolvedManifestPath)) {
+    throw new Error(`Release manifest does not exist: ${resolvedManifestPath}`);
   }
-  if (!existsSync(distDirectory)) {
-    throw new Error(`Production dist directory does not exist: ${distDirectory}`);
+  if (!existsSync(resolvedDistDirectory)) {
+    throw new Error(`Production dist directory does not exist: ${resolvedDistDirectory}`);
   }
 
-  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const manifest = JSON.parse(readFileSync(resolvedManifestPath, 'utf8'));
   if (manifest.schemaVersion !== SCHEMA_VERSION || !Array.isArray(manifest.files)) {
     throw new Error('Unsupported or malformed release manifest.');
   }
@@ -147,18 +162,18 @@ function verifyManifest() {
       `Release manifest service-worker cache epoch ${manifest.release?.serviceWorkerCacheEpoch} does not match ${currentRelease.serviceWorkerCacheEpoch}.`,
     );
   }
-  if (process.env.GITHUB_SHA && manifest.commit !== process.env.GITHUB_SHA) {
+  if (environment.GITHUB_SHA && manifest.commit !== environment.GITHUB_SHA) {
     throw new Error(
-      `Release manifest commit ${manifest.commit} does not match ${process.env.GITHUB_SHA}.`,
+      `Release manifest commit ${manifest.commit} does not match ${environment.GITHUB_SHA}.`,
     );
   }
-  const sourceRunId = expectedSourceRunId();
+  const sourceRunId = expectedSourceRunId(environment);
   if (sourceRunId && manifest.runId !== sourceRunId) {
     throw new Error(
       `Release manifest run ${manifest.runId} does not match candidate source run ${sourceRunId}.`,
     );
   }
-  const sourceRunAttempt = expectedSourceRunAttempt();
+  const sourceRunAttempt = expectedSourceRunAttempt(environment);
   if (sourceRunAttempt && manifest.runAttempt !== sourceRunAttempt) {
     throw new Error(
       `Release manifest attempt ${manifest.runAttempt} does not match candidate source attempt ${sourceRunAttempt}.`,
@@ -167,22 +182,22 @@ function verifyManifest() {
   const reusableMainCiCandidate =
     manifest.target === 'all' &&
     manifest.validationProfile === 'main-ci' &&
-    REUSABLE_RELEASE_TARGETS.has(process.env.RELEASE_TARGET);
+    REUSABLE_RELEASE_TARGETS.has(environment.RELEASE_TARGET);
   if (
-    process.env.RELEASE_TARGET &&
-    manifest.target !== process.env.RELEASE_TARGET &&
+    environment.RELEASE_TARGET &&
+    manifest.target !== environment.RELEASE_TARGET &&
     !reusableMainCiCandidate
   ) {
     throw new Error(
-      `Release manifest target ${manifest.target} does not match ${process.env.RELEASE_TARGET}.`,
+      `Release manifest target ${manifest.target} does not match ${environment.RELEASE_TARGET}.`,
     );
   }
   if (
-    process.env.RELEASE_VALIDATION_PROFILE &&
-    manifest.validationProfile !== process.env.RELEASE_VALIDATION_PROFILE
+    environment.RELEASE_VALIDATION_PROFILE &&
+    manifest.validationProfile !== environment.RELEASE_VALIDATION_PROFILE
   ) {
     throw new Error(
-      `Release manifest validation profile ${manifest.validationProfile} does not match ${process.env.RELEASE_VALIDATION_PROFILE}.`,
+      `Release manifest validation profile ${manifest.validationProfile} does not match ${environment.RELEASE_VALIDATION_PROFILE}.`,
     );
   }
   const wranglerVersion = installedWranglerVersion();
@@ -192,7 +207,9 @@ function verifyManifest() {
     );
   }
 
-  const actualFiles = listFiles(distDirectory).map(describeFile);
+  const actualFiles = listFiles(resolvedDistDirectory).map((file) =>
+    describeFile(file, resolvedDistDirectory),
+  );
   if (actualFiles.length !== manifest.files.length) {
     throw new Error(
       `Release file count changed: expected ${manifest.files.length}, got ${actualFiles.length}.`,
@@ -211,13 +228,22 @@ function verifyManifest() {
     }
   }
 
-  console.log(`Verified ${actualFiles.length} release files for ${manifest.commit}.`);
+  log(`Verified ${actualFiles.length} release files for ${manifest.commit}.`);
+  return manifest;
 }
 
-if (mode === 'create') {
-  createManifest();
-} else if (mode === 'verify') {
-  verifyManifest();
-} else {
-  throw new Error('Usage: node scripts/release-manifest.mjs <create|verify> [dist] [manifest]');
+function main(args = process.argv.slice(2)) {
+  const [mode, distDirectory = 'dist', manifestPath = 'release-artifacts/release-manifest.json'] =
+    args;
+  if (mode === 'create') {
+    createReleaseManifest({ distDirectory, manifestPath });
+  } else if (mode === 'verify') {
+    verifyReleaseManifest({ distDirectory, manifestPath });
+  } else {
+    throw new Error('Usage: node scripts/release-manifest.mjs <create|verify> [dist] [manifest]');
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  main();
 }

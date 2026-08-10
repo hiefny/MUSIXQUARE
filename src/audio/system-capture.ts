@@ -36,12 +36,13 @@ import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
 import { hasSystemAudioDeviceCapacity } from './system-audio-policy.ts';
 import type { QueueItemId, SystemAudioStopReason, TrackMeta } from '../types/index.ts';
 import {
-  acquireLocalProSystemAudioLease,
+  beginLocalProSystemAudioLeaseAttempt,
   canPublishProSystemAudioWithCurrentCoordinator,
   getProSystemAudioOwnerDisplayName,
   getProSystemAudioViewState,
   publishLocalProSystemAudio,
   releaseLocalProSystemAudioLease,
+  type ProSystemAudioLeaseAttempt,
 } from '../pro-room/system-audio-bridge.ts';
 
 // ─── Module State ─────────────────────────────────────────────────
@@ -86,6 +87,7 @@ let _preSysAudioState: PreSystemAudioState | null = null;
 let _captureStartPromise: Promise<void> | null = null;
 let _captureStartEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
+let _captureTrackEndedCleanup: (() => void) | null = null;
 const SYSTEM_AUDIO_SHARE_LIMIT_TIMER = 'system-audio-host-share-limit';
 
 function syncStandardRoleControlState(mode: number): void {
@@ -153,7 +155,10 @@ function restoreRejectedPendingCapture(snapshot: Readonly<PreSystemAudioState>):
   restorePreSystemAudioPlaybackState(snapshot);
 }
 
-type ProLeaseAttempt = Promise<{ ok: true } | { ok: false; error: unknown }>;
+interface ProLeaseAttempt {
+  owner: ProSystemAudioLeaseAttempt;
+  result: Promise<{ ok: true } | { ok: false; error: unknown }>;
+}
 
 function showSystemAudioDeviceLimit(): void {
   bus.emit('ui:show-toast', t('system_audio.device_limit', { count: MAX_SYSTEM_AUDIO_DEVICES }));
@@ -164,20 +169,22 @@ function discardPendingCapture(stream: MediaStream): void {
 }
 
 function beginProLeaseAttempt(): ProLeaseAttempt {
+  const owner = beginLocalProSystemAudioLeaseAttempt();
   // Convert rejection to data immediately. The native picker can remain open
   // after the request finishes, and an unobserved rejected Promise would
   // otherwise surface as a browser-level unhandled rejection.
-  return acquireLocalProSystemAudioLease().then(
-    () => ({ ok: true as const }),
-    (error: unknown) => ({ ok: false as const, error }),
-  );
+  return {
+    owner,
+    result: owner.result.then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    ),
+  };
 }
 
 function releaseProLeaseAttempt(attempt: ProLeaseAttempt | null): void {
   if (!attempt) return;
-  void attempt.then((result) => {
-    if (result.ok) void releaseLocalProSystemAudioLease().catch(() => undefined);
-  });
+  void attempt.owner.releaseIfCurrent().catch(() => undefined);
 }
 
 function showProLeaseFailure(error?: unknown): void {
@@ -382,21 +389,68 @@ async function performSystemAudioCaptureStart(
     return;
   }
 
+  const audioTrack = audioTracks[0];
+  let captureTrackEnded = false;
+  let trackEndLifecycleCommitted = false;
+  let trackEndedListenerAttached = false;
+  const detachTrackEndedListener = (): void => {
+    if (trackEndedListenerAttached) {
+      audioTrack.removeEventListener('ended', onTrackEnded);
+      trackEndedListenerAttached = false;
+    }
+    if (_captureTrackEndedCleanup === detachTrackEndedListener) {
+      _captureTrackEndedCleanup = null;
+    }
+  };
+  const onTrackEnded = (): void => {
+    captureTrackEnded = true;
+    if (!trackEndLifecycleCommitted) return;
+    detachTrackEndedListener();
+    log.info('[SystemAudio] Audio track ended (user stopped sharing)');
+    // Enter the same room-wide lifecycle as the in-app Stop button. Calling
+    // stopSystemAudioCapture() directly would leave host media calls, the SFU
+    // publication, retry timers, and the frozen delivery policy alive.
+    bus.emit('system-audio:stop');
+  };
+  audioTrack.addEventListener('ended', onTrackEnded);
+  trackEndedListenerAttached = true;
+  // The track can end after getDisplayMedia resolves but before this
+  // continuation attaches its listener. Re-reading readyState closes that
+  // otherwise unobservable gap.
+  if (audioTrack.readyState === 'ended') onTrackEnded();
+
+  const isSelectedCaptureTrackLive = (): boolean =>
+    !captureTrackEnded && audioTrack.readyState === 'live';
+  const discardSelectedCapture = (): void => {
+    detachTrackEndedListener();
+    discardPendingCapture(stream);
+  };
+
+  if (!isSelectedCaptureTrackLive()) {
+    releaseProLeaseAttempt(proLeaseAttempt);
+    discardSelectedCapture();
+    return;
+  }
+
   if (isProRoom) {
-    const leaseResult = await proLeaseAttempt!;
-    if (startEpoch !== _captureStartEpoch || !isCurrentSystemAudioRoom(startRoom)) {
-      discardPendingCapture(stream);
-      if (leaseResult.ok) void releaseLocalProSystemAudioLease().catch(() => undefined);
+    const leaseResult = await proLeaseAttempt!.result;
+    if (
+      startEpoch !== _captureStartEpoch ||
+      !isCurrentSystemAudioRoom(startRoom) ||
+      !isSelectedCaptureTrackLive()
+    ) {
+      discardSelectedCapture();
+      if (leaseResult.ok) releaseProLeaseAttempt(proLeaseAttempt);
       return;
     }
     if (!leaseResult.ok) {
-      discardPendingCapture(stream);
+      discardSelectedCapture();
       await refreshProLeaseFailure(leaseResult.error);
       return;
     }
     if (!canPublishProSystemAudioWithCurrentCoordinator()) {
-      discardPendingCapture(stream);
-      void releaseLocalProSystemAudioLease().catch(() => undefined);
+      discardSelectedCapture();
+      releaseProLeaseAttempt(proLeaseAttempt);
       showProCoordinatorUpdateRequired();
       return;
     }
@@ -408,8 +462,8 @@ async function performSystemAudioCaptureStart(
     !isCurrentSystemAudioRoom(startRoom) ||
     (!isProRoom && (!isCoordinator() || !hasSystemAudioDeviceCapacity()))
   ) {
-    discardPendingCapture(stream);
-    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
+    discardSelectedCapture();
+    if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     if (!isProRoom && !hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
     return;
   }
@@ -420,25 +474,29 @@ async function performSystemAudioCaptureStart(
   try {
     await initAudio();
   } catch (error) {
-    discardPendingCapture(stream);
-    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
+    discardSelectedCapture();
+    if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     throw error;
   }
 
-  if (startEpoch !== _captureStartEpoch || !isCurrentSystemAudioRoom(startRoom)) {
-    discardPendingCapture(stream);
-    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
+  if (
+    startEpoch !== _captureStartEpoch ||
+    !isCurrentSystemAudioRoom(startRoom) ||
+    !isSelectedCaptureTrackLive()
+  ) {
+    discardSelectedCapture();
+    if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     return;
   }
 
   if (!isProRoom && (!isCoordinator() || !hasSystemAudioDeviceCapacity())) {
-    discardPendingCapture(stream);
+    discardSelectedCapture();
     if (!hasSystemAudioDeviceCapacity()) showSystemAudioDeviceLimit();
     return;
   }
   if (isProRoom && !canPublishProSystemAudioWithCurrentCoordinator()) {
-    discardPendingCapture(stream);
-    void releaseLocalProSystemAudioLease().catch(() => undefined);
+    discardSelectedCapture();
+    releaseProLeaseAttempt(proLeaseAttempt);
     showProCoordinatorUpdateRequired();
     return;
   }
@@ -467,8 +525,8 @@ async function performSystemAudioCaptureStart(
     // while this teardown is still awaiting. Never erase that successor's
     // snapshot when the stale continuation eventually settles.
     if (_preSysAudioState === preSysAudioState) _preSysAudioState = null;
-    discardPendingCapture(stream);
-    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
+    discardSelectedCapture();
+    if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
   };
 
   // 3. Stop all current media
@@ -488,11 +546,13 @@ async function performSystemAudioCaptureStart(
   const roomStillCurrent = isCurrentSystemAudioRoom(startRoom);
   const standardStillAuthorized = isProRoom || (isCoordinator() && hasSystemAudioDeviceCapacity());
   const proStillAuthorized = !isProRoom || canPublishProSystemAudioWithCurrentCoordinator();
+  const captureTrackStillLive = isSelectedCaptureTrackLive();
   if (
     startEpoch !== _captureStartEpoch ||
     !roomStillCurrent ||
     !standardStillAuthorized ||
-    !proStillAuthorized
+    !proStillAuthorized ||
+    !captureTrackStillLive
   ) {
     // A force-stop, room transition, coordinator change, or PRO authority
     // change transfers ownership and must not resurrect local media. Only a
@@ -503,7 +563,7 @@ async function performSystemAudioCaptureStart(
       startEpoch === _captureStartEpoch &&
       roomStillCurrent &&
       isCoordinator() &&
-      !hasSystemAudioDeviceCapacity();
+      (!hasSystemAudioDeviceCapacity() || !captureTrackStillLive);
     if (restoreRejectedStart) {
       restoreRejectedPendingCapture(preSysAudioState);
     }
@@ -524,6 +584,9 @@ async function performSystemAudioCaptureStart(
   // 4. Audio was initialized before changing the previous playback state.
   const ctx = getAudioContext();
   _capturedStream = stream;
+  // From this point cleanupCapture owns the early listener, even though the
+  // room-wide stop lifecycle is armed only after publication commits.
+  _captureTrackEndedCleanup = detachTrackEndedListener;
   _captureRoomKind = isProRoom ? 'pro' : 'standard';
   _debugLastCaptureStartedAt = Date.now();
   _sourceNode = ctx.createMediaStreamSource(stream);
@@ -563,7 +626,7 @@ async function performSystemAudioCaptureStart(
   } else {
     log.error('[SystemAudio] No widener found');
     abortPreparedCapture(preSysAudioState);
-    if (isProRoom) void releaseLocalProSystemAudioLease().catch(() => undefined);
+    if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     return;
   }
 
@@ -578,6 +641,19 @@ async function performSystemAudioCaptureStart(
   claimPlaybackOwner('system-audio', {
     currentTrackMeta: createSystemAudioTrackMeta('sharing'),
   });
+
+  // No dead native track may become observable as an active room share. This
+  // is the final common check after graph preparation and immediately before
+  // either publication path commits.
+  if (
+    startEpoch !== _captureStartEpoch ||
+    !isCurrentSystemAudioRoom(startRoom) ||
+    !isSelectedCaptureTrackLive()
+  ) {
+    abortPreparedCapture(preSysAudioState);
+    if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
+    return;
+  }
   // 9. Standard rooms keep their bounded direct/SFU hybrid. PRO rooms publish
   // role-independently and only expose the public descriptor after the SFU
   // session and the server-side lease have both committed.
@@ -591,18 +667,33 @@ async function performSystemAudioCaptureStart(
       if (!leftTrack || !rightTrack) throw new Error('PRO_SYSTEM_AUDIO_TRACKS_UNAVAILABLE');
       const liveState = await publishLocalProSystemAudio(leftTrack, rightTrack);
       if (startEpoch !== _captureStartEpoch) {
-        void releaseLocalProSystemAudioLease().catch(() => undefined);
+        releaseProLeaseAttempt(proLeaseAttempt);
         return;
       }
+      if (
+        !isCurrentSystemAudioRoom(startRoom) ||
+        !isSelectedCaptureTrackLive() ||
+        !canPublishProSystemAudioWithCurrentCoordinator()
+      ) {
+        abortPreparedCapture(preSysAudioState);
+        releaseProLeaseAttempt(proLeaseAttempt);
+        return;
+      }
+      trackEndLifecycleCommitted = true;
       authoritativeLiveExpiresAt = liveState.status === 'live' ? liveState.liveExpiresAt : null;
     } catch (error) {
       if (startEpoch !== _captureStartEpoch) {
-        void releaseLocalProSystemAudioLease().catch(() => undefined);
+        releaseProLeaseAttempt(proLeaseAttempt);
+        return;
+      }
+      if (!isCurrentSystemAudioRoom(startRoom) || !isSelectedCaptureTrackLive()) {
+        abortPreparedCapture(preSysAudioState);
+        releaseProLeaseAttempt(proLeaseAttempt);
         return;
       }
       log.warn('[SystemAudio] PRO publication failed:', error);
       abortPreparedCapture(preSysAudioState);
-      void releaseLocalProSystemAudioLease().catch(() => undefined);
+      releaseProLeaseAttempt(proLeaseAttempt);
       if (
         error instanceof Error &&
         error.message === 'PRO_SYSTEM_AUDIO_COORDINATOR_UPDATE_REQUIRED'
@@ -614,6 +705,11 @@ async function performSystemAudioCaptureStart(
       return;
     }
   } else {
+    if (!isCoordinator() || !hasSystemAudioDeviceCapacity() || !isSelectedCaptureTrackLive()) {
+      abortPreparedCapture(preSysAudioState);
+      return;
+    }
+    trackEndLifecycleCommitted = true;
     _debugLastStartBroadcastAt = Date.now();
     broadcast({ type: MSG.SYSTEM_AUDIO_START });
     _debugLastStreamsReadyAt = Date.now();
@@ -628,19 +724,6 @@ async function performSystemAudioCaptureStart(
 
   // 11. Start visualizer
   bus.emit('visualizer:start');
-
-  // 11. Listen for browser "Stop sharing" button
-  // Use a named function so cleanupCapture can remove it (prevents
-  // recursive reentry: explicit stop → track.stop() → ended → stop again).
-  const onTrackEnded = (): void => {
-    audioTracks[0].removeEventListener('ended', onTrackEnded);
-    log.info('[SystemAudio] Audio track ended (user stopped sharing)');
-    // Enter the same room-wide lifecycle as the in-app Stop button. Calling
-    // stopSystemAudioCapture() directly would leave host media calls, the SFU
-    // publication, retry timers, and the frozen delivery policy alive.
-    bus.emit('system-audio:stop');
-  };
-  audioTracks[0].addEventListener('ended', onTrackEnded);
 
   log.info('[SystemAudio] Capture started (stereo-stream)');
 }
@@ -784,6 +867,11 @@ function muteLocalOutput(mute: boolean): void {
 // ─── Internals ────────────────────────────────────────────────────
 
 function cleanupCapture(): void {
+  // Detach before stopping the native track so cleanup cannot recursively
+  // re-enter the shared stop lifecycle in browsers that report stop as ended.
+  const cleanupTrackEnded = _captureTrackEndedCleanup;
+  _captureTrackEndedCleanup = null;
+  cleanupTrackEnded?.();
   if (_sourceNode) {
     try {
       _sourceNode.disconnect();

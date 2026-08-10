@@ -2,6 +2,23 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('filled UI brand colors', () => {
+  it('resolves design-system assets from its canonical slashless route', async () => {
+    const html = await readFile('public/designsystem/index.html', 'utf8');
+    const stylesheetHref = html.match(
+      /<link\s+rel="stylesheet"\s+href="([^"]*colors_and_type\.css)"/,
+    )?.[1];
+
+    expect(stylesheetHref).toBe('/designsystem/colors_and_type.css');
+    expect(new URL(stylesheetHref!, 'https://musixquare.com/designsystem').pathname).toBe(
+      '/designsystem/colors_and_type.css',
+    );
+    await expect(readFile(`public${stylesheetHref}`, 'utf8')).resolves.toContain(':root');
+    expect(html).toContain('<link rel="icon" href="/designsystem/assets/favicon.svg">');
+    await expect(readFile('public/designsystem/assets/favicon.svg', 'utf8')).resolves.toContain(
+      '<svg',
+    );
+  });
+
   it('keeps the balanced surface-2 palette synchronized across public surfaces', async () => {
     const sources = await Promise.all(
       [

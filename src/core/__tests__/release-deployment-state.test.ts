@@ -1643,6 +1643,14 @@ describe('release deployment rollback state', () => {
       expect(step, stepName).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     }
 
+    const liveSmokeSteps = workflow
+      .split(/(?=^      - name: )/gmu)
+      .filter((step) => step.includes('npm run smoke:live:'));
+    expect(liveSmokeSteps).toHaveLength(8);
+    for (const step of liveSmokeSteps) {
+      expect(step).not.toMatch(/CLOUDFLARE_(?:D1_)?API_TOKEN/u);
+    }
+
     const lastSmoke = workflow.indexOf('Smoke current PRO public boundary after app deployment');
     const finalVerification = workflow.indexOf(
       'Verify release still owns current production deployments',
@@ -2089,6 +2097,7 @@ describe('release deployment rollback state', () => {
     expect(workflow.slice(deployStart, deploySteps)).toContain('timeout-minutes: 240');
 
     for (const stepName of [
+      'Smoke PRO media R2 CORS boundary',
       'Smoke remote-share Worker',
       'Smoke signaling Worker',
       'Smoke Developer API Worker',
@@ -2099,7 +2108,11 @@ describe('release deployment rollback state', () => {
       const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
       const step = workflow.slice(stepStart, nextStep < 0 ? workflow.length : nextStep);
       expect(stepStart, stepName).toBeGreaterThan(-1);
-      expect(step, stepName).toContain('timeout-minutes: 5');
+      expect(step, stepName).toContain(
+        stepName === 'Smoke PRO media R2 CORS boundary'
+          ? 'timeout-minutes: 10'
+          : 'timeout-minutes: 5',
+      );
     }
 
     const proRoomSmokeStepNames = [

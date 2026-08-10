@@ -153,6 +153,30 @@ jobs:
       - name: Worker runtime coverage
         run: npm run test:coverage:workers
 
+  release-tooling-coverage:
+    name: Release tooling coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          # D1 and Durable Object guards verify append-only first-parent history.
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Release and operations tooling coverage
+        run: npm run test:coverage:tooling
+
   candidate:
     name: Production release candidate
     runs-on: ubuntu-latest

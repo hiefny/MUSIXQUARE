@@ -407,6 +407,12 @@ class FakeAuthDb {
       this.accountDeletions.set(accountId, startedAt);
       return changed(1);
     }
+    if (normalized.startsWith('update mxqr_account_deletions set started_at = ?3')) {
+      const [accountId, originalStartedAt, nextStartedAt] = values as [string, number, number];
+      if (this.accountDeletions.get(accountId) !== originalStartedAt) return changed(0);
+      this.accountDeletions.set(accountId, nextStartedAt);
+      return changed(1);
+    }
     if (normalized.startsWith('update mxqr_account_sessions set last_seen_at')) {
       const [lastSeenAt, sessionHash] = values as [number, string];
       const session = this.sessions.get(sessionHash);
@@ -2489,6 +2495,150 @@ describe('account session mutations', () => {
     expect(db.accounts.has(accountId)).toBe(false);
     expect(db.sessions.size).toBe(0);
     expect(db.accountDeletions.has(accountId)).toBe(false);
+  });
+
+  it('rotates two failed deletion jobs so a later recoverable account runs next', async () => {
+    vi.useFakeTimers();
+    const now = 1_900_000_000_000;
+    vi.setSystemTime(now);
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const jobs = ['A', 'B', 'C'].map((letter, index) => {
+      const accountId = `acct_${letter.repeat(22)}`;
+      const subjectHash = letter.repeat(43);
+      const roomCode = `00010${index}`;
+      const roomGeneration = index + 1;
+      db.accounts.set(accountId, {
+        account_id: accountId,
+        google_subject_hash: subjectHash,
+        nickname: `Owner ${letter}`,
+        nickname_key: `owner ${letter.toLowerCase()}`,
+        profile_complete: 1,
+        status: 'disabled',
+        created_at: 1,
+        updated_at: 1,
+      });
+      db.accountBySubject.set(subjectHash, accountId);
+      db.accountDeletions.set(accountId, index + 1);
+      db.proRoomLinks.set(`${accountId}:${roomCode}:${roomGeneration}`, {
+        account_id: accountId,
+        room_code: roomCode,
+        room_generation: roomGeneration,
+        first_linked_at: 1,
+        last_seen_at: 1,
+      });
+      return { accountId, roomCode, roomGeneration };
+    });
+    const allowed = new Set([jobs[2]!.accountId]);
+    const purge = vi.fn(
+      async ({ accountId }: { accountId: string; roomCode: string; roomGeneration: number }) =>
+        allowed.has(accountId),
+    );
+
+    await expect(
+      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }),
+    ).resolves.toMatchObject({
+      processedAccounts: 2,
+      purgedEdges: 0,
+      failedEdges: 2,
+      completedAccounts: 0,
+      pendingAccounts: 2,
+    });
+    expect(purge.mock.calls.map(([input]) => input)).toEqual([jobs[0], jobs[1]]);
+    expect(db.accountDeletions.get(jobs[0]!.accountId)).toBe(now);
+    expect(db.accountDeletions.get(jobs[1]!.accountId)).toBe(now);
+    expect(db.accountDeletions.get(jobs[2]!.accountId)).toBe(3);
+
+    purge.mockClear();
+    await expect(
+      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }),
+    ).resolves.toMatchObject({
+      processedAccounts: 1,
+      purgedEdges: 1,
+      failedEdges: 0,
+      completedAccounts: 1,
+      pendingAccounts: 0,
+    });
+    expect(purge).toHaveBeenCalledWith(jobs[2]);
+    expect(db.accounts.has(jobs[2]!.accountId)).toBe(false);
+    expect(db.accountDeletions.has(jobs[2]!.accountId)).toBe(false);
+
+    purge.mockClear();
+    await expect(
+      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }),
+    ).resolves.toMatchObject({ processedAccounts: 0, completedAccounts: 0 });
+    expect(purge).not.toHaveBeenCalled();
+
+    allowed.add(jobs[0]!.accountId);
+    allowed.add(jobs[1]!.accountId);
+    vi.setSystemTime(now + 10 * 60 * 1000);
+    await expect(
+      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }),
+    ).resolves.toMatchObject({
+      processedAccounts: 2,
+      purgedEdges: 2,
+      failedEdges: 0,
+      completedAccounts: 2,
+      pendingAccounts: 0,
+    });
+    expect(db.accountDeletions.size).toBe(0);
+  });
+
+  it('preserves a concurrently replaced deletion fence and rotates a malformed legacy job', async () => {
+    vi.useFakeTimers();
+    const now = 1_900_000_000_000;
+    vi.setSystemTime(now);
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const accountId = `acct_${'D'.repeat(22)}`;
+    db.accounts.set(accountId, {
+      account_id: accountId,
+      google_subject_hash: 'D'.repeat(43),
+      nickname: 'Owner D',
+      nickname_key: 'owner d',
+      profile_complete: 1,
+      status: 'disabled',
+      created_at: 1,
+      updated_at: 1,
+    });
+    db.accountDeletions.set(accountId, now);
+    db.proRoomLinks.set(`${accountId}:000104:4`, {
+      account_id: accountId,
+      room_code: '000104',
+      room_generation: 4,
+      first_linked_at: 1,
+      last_seen_at: 1,
+    });
+    const concurrentFenceAt = now + 1;
+    const purge = vi.fn(async () => {
+      db.accountDeletions.set(accountId, concurrentFenceAt);
+      return false;
+    });
+
+    await expect(
+      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }, { accountId }),
+    ).resolves.toMatchObject({ processedAccounts: 1, failedEdges: 1, pendingAccounts: 1 });
+    expect(db.accountDeletions.get(accountId)).toBe(concurrentFenceAt);
+
+    const malformedAccountId = `acct_${'!'.repeat(22)}`;
+    db.accounts.set(malformedAccountId, {
+      account_id: malformedAccountId,
+      google_subject_hash: '!'.repeat(43),
+      nickname: 'Legacy owner',
+      nickname_key: 'legacy owner',
+      profile_complete: 1,
+      status: 'disabled',
+      created_at: 1,
+      updated_at: 1,
+    });
+    db.accountDeletions.set(malformedAccountId, 2);
+    purge.mockClear();
+    await expect(
+      cleanupPendingAccountDeletions(env, { purgeProRoomAccountAuthority: purge }),
+    ).resolves.toMatchObject({ processedAccounts: 0, completedAccounts: 0, pendingAccounts: 1 });
+    expect(purge).not.toHaveBeenCalled();
+    expect(db.accountDeletions.get(malformedAccountId)).toBe(now);
+    expect(db.accountDeletions.get(accountId)).toBe(concurrentFenceAt);
   });
 
   it('blocks new PRO authority edges for the full lifetime of a deletion fence', async () => {

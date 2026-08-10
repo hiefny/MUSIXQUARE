@@ -57,18 +57,10 @@ import {
   BROADCAST_SYNC_MIN_INTERVAL_MS,
   IMMEDIATE_ACTION_COOLDOWN_MS,
 } from './constants.ts';
-
-interface PendingAutoSyncOptions {
-  isTrackTransition?: boolean;
-  /** Fresh 0-second shared start; eligible for the zero-start barrier. */
-  zeroStart?: boolean;
-  targetTime?: number;
-  subIndex?: number;
-  videoId?: string;
-  skipSeek?: boolean;
-  rendezvousDelayMs?: number;
-  state?: 1 | 2;
-}
+import {
+  configureYouTubePlayerRuntimeHooks,
+  type PendingAutoSyncOptions,
+} from './player-runtime-bridge.ts';
 
 // YouTube rendezvous-autoplay intent: set by any caller that loaded a track
 // with autoplay=false but wants playback to start once the player (or its
@@ -134,7 +126,7 @@ function pollPendingAutoSyncReady(generation: number, attempt = 0): void {
       }
 
       if (ready) {
-        const pending = consumePendingAutoSyncOnReady();
+        const pending = consumePendingAutoSyncOnReadyOwned();
         if (pending) {
           bus.emit('youtube:auto-play', pending);
           return;
@@ -174,7 +166,7 @@ function getPendingAutoSyncOnReady(): boolean {
   return _pendingAutoSyncOnReady;
 }
 export { getPendingAutoSyncOnReady as getPendingAutoSyncOnReadyForTests };
-export function consumePendingAutoSyncOnReady(): PendingAutoSyncOptions | null {
+function consumePendingAutoSyncOnReadyOwned(): PendingAutoSyncOptions | null {
   if (!_pendingAutoSyncOnReady) return null;
   if (!pendingAutoSyncMatchesCurrentOwner()) {
     clearPendingAutoSync();
@@ -381,7 +373,7 @@ let youtubeZeroStartExternalFallbackOwnsPlayerState = false;
  * projection. The successful release clears this flag before playVideo(), so
  * the real PLAYING event still reaches the normal UI/runtime path.
  */
-export function isYouTubeZeroStartExternalFallbackActive(): boolean {
+function isYouTubeZeroStartExternalFallbackActiveOwned(): boolean {
   return youtubeZeroStartExternalFallbackOwnsPlayerState;
 }
 
@@ -390,6 +382,12 @@ export function isYouTubeZeroStartExternalFallbackActive(): boolean {
 
 export { getYouTubePlayer } from './_state.ts';
 export { loadYouTubeVideo, primeYouTubePlayer, precreateYouTubePlayer } from './iframe.ts';
+// Preserve the player facade while the implementation binding remains owned
+// by this module and iframe.ts consumes only the neutral bridge leaf.
+export {
+  consumePendingAutoSyncOnReadyFromIframe as consumePendingAutoSyncOnReady,
+  isYouTubeZeroStartExternalFallbackActiveFromIframe as isYouTubeZeroStartExternalFallbackActive,
+} from './player-runtime-bridge.ts';
 
 function getYouTubeDuration(player: YouTubePlayerInstance): number {
   try {
@@ -2739,7 +2737,7 @@ export function initYouTube(): void {
   // URL-input path: once the player initializes, a pending playlist add starts
   // the standard two-stage rendezvous so guests align on first load.
   bus.on('youtube:player-ready', () => {
-    const pending = consumePendingAutoSyncOnReady();
+    const pending = consumePendingAutoSyncOnReadyOwned();
     if (!pending) return;
     // Route through youtube:auto-play so we share the same code path as
     // the post-autoPlayTimer flow in playTrack (scheduleYtAutoSync with
@@ -3734,3 +3732,12 @@ export function initYouTube(): void {
 
   log.info('[YouTube] Player initialized');
 }
+
+// Player owns these mutable rendezvous seams. Configure the neutral leaf only
+// after this module has initialized every backing binding; iframe.ts can then
+// consume them without a static back-edge into this coordinator.
+configureYouTubePlayerRuntimeHooks({
+  consumePendingAutoSyncOnReady: consumePendingAutoSyncOnReadyOwned,
+  isYouTubeZeroStartExternalFallbackActive: isYouTubeZeroStartExternalFallbackActiveOwned,
+  setPendingAutoSyncOnReady,
+});

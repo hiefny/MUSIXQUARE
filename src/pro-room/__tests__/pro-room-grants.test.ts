@@ -14,6 +14,7 @@ import {
   markProRoomOwnerEntitlementBackfillComplete,
   orphanAccountProGrants,
   orphanProRoomOwnerEntitlement,
+  reconcileProGrantLifecycle,
   reserveProRoomActivationEntitlement,
   reserveProRoomOwnershipTransferEntitlement,
   revokeProRoomEntitlement,
@@ -189,6 +190,57 @@ function seedEntitlement(
       input.now,
       input.now,
     );
+}
+
+function seedPendingGrantLifecycle(
+  database: D1['database'],
+  input: {
+    accountId: string;
+    roomCode: string;
+    grantId: string;
+    allocationId: string;
+    updatedAt: number;
+  },
+) {
+  database
+    .prepare(
+      `INSERT INTO mxqr_pro_room_registry
+         (room_code, label, status, suspension_reason, activation_state,
+          room_generation, created_at, updated_at)
+       VALUES (?, 'Lifecycle', 'registered', NULL, 'unactivated', 0, ?, ?)`,
+    )
+    .run(input.roomCode, input.updatedAt, input.updatedAt);
+  database
+    .prepare(
+      `INSERT INTO mxqr_pro_grants
+         (grant_id, product_code, plan_code, account_id, source_type, source_ref,
+          status, valid_from, valid_until, created_at, updated_at)
+       VALUES (?, 'pro_room', 'pro_room_perpetual', ?, 'manual', ?,
+               'pending_activation', ?, NULL, ?, ?)`,
+    )
+    .run(
+      input.grantId,
+      input.accountId,
+      `lifecycle:${input.grantId}`,
+      input.updatedAt,
+      input.updatedAt,
+      input.updatedAt,
+    );
+  database
+    .prepare(
+      `INSERT INTO mxqr_pro_grant_allocations
+         (allocation_id, grant_id, room_code, room_generation, status, created_at, updated_at)
+       VALUES (?, ?, ?, 0, 'reserved', ?, ?)`,
+    )
+    .run(input.allocationId, input.grantId, input.roomCode, input.updatedAt, input.updatedAt);
+  seedEntitlement(database, {
+    accountId: input.accountId,
+    roomCode: input.roomCode,
+    sourceKind: 'grant',
+    sourceRef: input.grantId,
+    status: 'reserved',
+    now: input.updatedAt,
+  });
 }
 
 describe('PRO grant JSON request limits', () => {
@@ -670,8 +722,179 @@ describe('PRO grant campaign administration', () => {
 describe('generic PRO grant redemption', () => {
   let db: D1 | null = null;
   afterEach(() => {
+    vi.useRealTimers();
     db?.close();
     db = null;
+  });
+
+  it('rotates twenty-five inactive grants so the next recoverable activation is finalized', async () => {
+    vi.useFakeTimers();
+    db = new D1();
+    const rows = Array.from({ length: 26 }, (_, index) => {
+      const token = index.toString(36).padStart(22, '0');
+      const row = {
+        accountId: `acct_${token}`,
+        roomCode: `0${String(10_000 + index)}`,
+        grantId: `grant_${token}`,
+        allocationId: `allocation_${token}`,
+        updatedAt: index + 1,
+      };
+      seedPendingGrantLifecycle(db!.database, row);
+      return row;
+    });
+    const recoverable = rows.at(-1)!;
+    const transientFailure = rows[0];
+    const inspected: string[] = [];
+    const dependencies = {
+      isAccountActive: vi.fn(async () => true),
+      inspectRoom: vi.fn(async (roomCode: string) => {
+        inspected.push(roomCode);
+        if (roomCode === transientFailure.roomCode && Date.now() === 1_000) {
+          throw new Error('transient canonical dependency failure');
+        }
+        return roomCode === recoverable.roomCode
+          ? { status: 'active', ownerAccountId: recoverable.accountId }
+          : { status: 'unactivated', ownerAccountId: null };
+      }),
+    };
+
+    vi.setSystemTime(1_000);
+    await expect(
+      reconcileProGrantLifecycle({ MUSIXQUARE_ADMIN_DB: db }, dependencies),
+    ).resolves.toEqual({ configured: true, checked: 25, finalized: 0, orphaned: 0 });
+    expect(inspected).not.toContain(recoverable.roomCode);
+    expect(
+      db.database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM mxqr_pro_grants
+            WHERE status = 'pending_activation' AND updated_at = 1000`,
+        )
+        .get(),
+    ).toEqual({ count: 25 });
+    expect(
+      db.database
+        .prepare(`SELECT status, updated_at FROM mxqr_pro_grants WHERE grant_id = ?`)
+        .get(recoverable.grantId),
+    ).toEqual({ status: 'pending_activation', updated_at: recoverable.updatedAt });
+
+    vi.setSystemTime(2_000);
+    await expect(
+      reconcileProGrantLifecycle({ MUSIXQUARE_ADMIN_DB: db }, dependencies),
+    ).resolves.toEqual({ configured: true, checked: 25, finalized: 1, orphaned: 0 });
+    expect(inspected).toContain(recoverable.roomCode);
+    expect(
+      db.database
+        .prepare(`SELECT status, updated_at FROM mxqr_pro_grants WHERE grant_id = ?`)
+        .get(recoverable.grantId),
+    ).toEqual({ status: 'active', updated_at: 2_000 });
+    expect(
+      db.database
+        .prepare(
+          `SELECT status FROM mxqr_pro_account_entitlements
+            WHERE source_kind = 'grant' AND source_ref = ?`,
+        )
+        .get(recoverable.grantId),
+    ).toEqual({ status: 'active' });
+  });
+
+  it('does not touch a selected grant whose state or timestamp changes during inspection', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    db = new D1();
+    const terminal = {
+      accountId: `acct_${'S'.repeat(22)}`,
+      roomCode: '020100',
+      grantId: `grant_${'S'.repeat(22)}`,
+      allocationId: `allocation_${'S'.repeat(22)}`,
+      updatedAt: 100,
+    };
+    const independentlyTouched = {
+      accountId: `acct_${'T'.repeat(22)}`,
+      roomCode: '020101',
+      grantId: `grant_${'T'.repeat(22)}`,
+      allocationId: `allocation_${'T'.repeat(22)}`,
+      updatedAt: 200,
+    };
+    seedPendingGrantLifecycle(db.database, terminal);
+    seedPendingGrantLifecycle(db.database, independentlyTouched);
+    const dependencies = {
+      isAccountActive: vi.fn(async () => true),
+      inspectRoom: vi.fn(async (roomCode: string) => {
+        if (roomCode === terminal.roomCode) {
+          db!.database
+            .prepare(`UPDATE mxqr_pro_grants SET status = 'active' WHERE grant_id = ?`)
+            .run(terminal.grantId);
+          db!.database
+            .prepare(`UPDATE mxqr_pro_grant_allocations SET status = 'active' WHERE grant_id = ?`)
+            .run(terminal.grantId);
+          db!.database
+            .prepare(
+              `UPDATE mxqr_pro_account_entitlements SET status = 'active'
+                WHERE source_kind = 'grant' AND source_ref = ?`,
+            )
+            .run(terminal.grantId);
+        } else if (roomCode === independentlyTouched.roomCode) {
+          db!.database
+            .prepare(`UPDATE mxqr_pro_grants SET updated_at = 700 WHERE grant_id = ?`)
+            .run(independentlyTouched.grantId);
+        }
+        return { status: 'unactivated', ownerAccountId: null };
+      }),
+    };
+
+    await expect(
+      reconcileProGrantLifecycle({ MUSIXQUARE_ADMIN_DB: db }, dependencies),
+    ).resolves.toEqual({ configured: true, checked: 2, finalized: 0, orphaned: 0 });
+    expect(
+      db.database
+        .prepare(`SELECT status, updated_at FROM mxqr_pro_grants WHERE grant_id = ?`)
+        .get(terminal.grantId),
+    ).toEqual({ status: 'active', updated_at: terminal.updatedAt });
+    expect(
+      db.database
+        .prepare(`SELECT status, updated_at FROM mxqr_pro_grants WHERE grant_id = ?`)
+        .get(independentlyTouched.grantId),
+    ).toEqual({ status: 'pending_activation', updated_at: 700 });
+  });
+
+  it('rotates an invalid legacy queue row without calling external dependencies', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000);
+    const invalidRow = {
+      grant_id: `grant_${'U'.repeat(22)}`,
+      account_id: 'invalid-account',
+      grant_updated_at: 100,
+      room_code: 'invalid-room',
+      room_generation: -1,
+      activation_state: 'unactivated',
+    };
+    const updates: unknown[][] = [];
+    const legacyDb = {
+      prepare: vi.fn((sql: string) => ({
+        bind: vi.fn((...values: unknown[]) => {
+          if (/^\s*SELECT grant\.grant_id/i.test(sql)) {
+            return { all: vi.fn(async () => ({ results: [invalidRow] })) };
+          }
+          return {
+            run: vi.fn(async () => {
+              updates.push(values);
+              return { meta: { changes: 1 } };
+            }),
+          };
+        }),
+      })),
+    };
+    const dependencies = {
+      isAccountActive: vi.fn(async () => true),
+      inspectRoom: vi.fn(async () => ({ status: 'unactivated' })),
+    };
+
+    await expect(
+      reconcileProGrantLifecycle({ MUSIXQUARE_ADMIN_DB: legacyDb }, dependencies),
+    ).resolves.toEqual({ configured: true, checked: 0, finalized: 0, orphaned: 0 });
+    expect(dependencies.isAccountActive).not.toHaveBeenCalled();
+    expect(dependencies.inspectRoom).not.toHaveBeenCalled();
+    expect(updates).toEqual([[invalidRow.grant_id, invalidRow.grant_updated_at, 1_000]]);
   });
 
   it('atomically redeems a digest-only voucher and retries for the same account', async () => {
@@ -1580,6 +1803,122 @@ describe('generic PRO grant redemption', () => {
       ).toBe(true);
     },
   );
+
+  it('idempotently aborts an absent transfer but fails closed on mismatched or stranded rows', async () => {
+    db = new D1();
+    const now = Date.now();
+    const env = { MUSIXQUARE_ADMIN_DB: db };
+    const absent = {
+      targetAccountId: ACCOUNT_B,
+      roomCode: '000100',
+      roomGeneration: 0,
+      requestId: 'transfer_absent_0001',
+      nowMs: now,
+    };
+
+    expect(await abortProRoomOwnershipTransferEntitlement(env, absent)).toBe(true);
+
+    db.database
+      .prepare(
+        `INSERT INTO mxqr_pro_account_entitlements
+           (account_id, room_code, room_generation, source_kind, source_ref,
+            transfer_request_id, status, created_at, updated_at)
+         VALUES (?, ?, 0, 'owner_transfer', ?, ?, 'reserved', ?, ?)`,
+      )
+      .run(ACCOUNT_C, '000101', 'transfer_mismatch_01', 'transfer_mismatch_01', now, now);
+    expect(
+      await abortProRoomOwnershipTransferEntitlement(env, {
+        ...absent,
+        roomCode: '000101',
+        requestId: 'transfer_mismatch_01',
+        nowMs: now + 1,
+      }),
+    ).toBe(false);
+    expect(
+      db.database
+        .prepare(
+          `SELECT account_id, status FROM mxqr_pro_account_entitlements
+            WHERE source_ref = 'transfer_mismatch_01'`,
+        )
+        .get(),
+    ).toEqual({ account_id: ACCOUNT_C, status: 'reserved' });
+
+    seedEntitlement(db.database, {
+      accountId: ACCOUNT_A,
+      roomCode: '000102',
+      sourceRef: 'legacy:stranded-source',
+      status: 'active',
+      now,
+    });
+    db.database
+      .prepare(
+        `UPDATE mxqr_pro_account_entitlements
+            SET status = 'transfer_source_active', transfer_request_id = ?
+          WHERE source_ref = 'legacy:stranded-source'`,
+      )
+      .run('transfer_stranded_01');
+    expect(
+      await abortProRoomOwnershipTransferEntitlement(env, {
+        ...absent,
+        roomCode: '000102',
+        requestId: 'transfer_stranded_01',
+        nowMs: now + 2,
+      }),
+    ).toBe(false);
+    expect(
+      db.database
+        .prepare(
+          `SELECT status, transfer_request_id FROM mxqr_pro_account_entitlements
+            WHERE source_ref = 'legacy:stranded-source'`,
+        )
+        .get(),
+    ).toEqual({
+      status: 'transfer_source_active',
+      transfer_request_id: 'transfer_stranded_01',
+    });
+
+    for (const stale of [
+      {
+        accountId: `acct_${'D'.repeat(22)}`,
+        roomCode: '000103',
+        sourceRef: 'legacy:stale-active',
+        status: 'active',
+        requestId: 'transfer_stale_active_01',
+      },
+      {
+        accountId: ACCOUNT_A,
+        roomCode: '000104',
+        sourceRef: 'legacy:stale-orphaned',
+        status: 'orphaned',
+        requestId: 'transfer_stale_orphaned_01',
+      },
+    ]) {
+      seedEntitlement(db.database, { ...stale, now });
+      db.database
+        .prepare(
+          `UPDATE mxqr_pro_account_entitlements
+              SET transfer_request_id = ?
+            WHERE source_ref = ?`,
+        )
+        .run(stale.requestId, stale.sourceRef);
+      expect(
+        await abortProRoomOwnershipTransferEntitlement(env, {
+          ...absent,
+          roomCode: stale.roomCode,
+          requestId: stale.requestId,
+          nowMs: now + 3,
+        }),
+      ).toBe(false);
+      expect(
+        db.database
+          .prepare(
+            `SELECT status, transfer_request_id FROM mxqr_pro_account_entitlements
+              WHERE source_ref = ?`,
+          )
+          .get(stale.sourceRef),
+      ).toEqual({ status: stale.status, transfer_request_id: stale.requestId });
+    }
+  });
 
   it('orphans only the exact grant lineage while keeping its voucher consumed', async () => {
     db = new D1();

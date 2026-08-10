@@ -19,7 +19,7 @@ import {
   isPlaybackPlayingYouTube,
 } from './ownership.ts';
 import { getCurrentQueueItemId } from './queue-model.ts';
-import type { PlaylistItem } from '../types/index.ts';
+import type { TrackMeta } from '../types/index.ts';
 import { getTrackDisplayTitle } from './track-display.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isLocalYouTubePaused } from '../youtube/_state.ts';
@@ -31,6 +31,7 @@ import {
   initYouTubeNativeControlAuthority,
   shouldIgnoreRecentNativeYouTubeMediaAction,
 } from '../youtube/native-control-authority.ts';
+import { t } from '../i18n/index.ts';
 
 function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSessionPlaybackState {
   if (activity === 'playing') return 'playing';
@@ -45,16 +46,35 @@ function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSe
   return 'none';
 }
 
+function registerMediaSessionAction(
+  action: MediaSessionAction,
+  handler: MediaSessionActionHandler,
+): void {
+  try {
+    navigator.mediaSession.setActionHandler(action, handler);
+  } catch (error) {
+    // Media Session implementations commonly expose only a subset of actions.
+    // Isolate registration failures without masking exceptions thrown later by
+    // a successfully-installed application handler.
+    log.debug(`[MediaSession] ${action} action is unavailable:`, error);
+  }
+}
+
 // ─── Metadata Update ───────────────────────────────────────────────
 
-export function updateMediaSessionMetadata(item: Partial<PlaylistItem> | null): void {
+export function updateMediaSessionMetadata(item: Partial<TrackMeta> | null): void {
   if (!('mediaSession' in navigator)) return;
   if (!item) {
     navigator.mediaSession.metadata = null;
     return;
   }
 
-  let title = getTrackDisplayTitle(item, 'Unknown Track');
+  let title =
+    item.systemAudioMode === 'receiving'
+      ? t('system_audio.receiving')
+      : item.systemAudioMode === 'sharing'
+        ? t('system_audio.sharing')
+        : getTrackDisplayTitle(item, t('common.unknown'));
   const artist = item.type === 'youtube' ? 'YouTube' : 'MUSIXQUARE';
   let artwork: MediaImage[] = [];
 
@@ -71,7 +91,7 @@ export function updateMediaSessionMetadata(item: Partial<PlaylistItem> | null): 
       ) {
         title = subData.titles[currentYouTubeSubIndex];
       } else {
-        title = `${item.title || 'Playlist'} (${currentYouTubeSubIndex + 1})`;
+        title = `${item.title || t('nav.playlist')} (${currentYouTubeSubIndex + 1})`;
       }
     }
 
@@ -134,7 +154,7 @@ export function initMediaSession(): void {
     });
   };
 
-  navigator.mediaSession.setActionHandler('play', () => {
+  registerMediaSessionAction('play', () => {
     if (isPlaybackModeYouTube()) {
       if (shouldIgnoreRecentNativeYouTubeMediaAction('play')) return;
       if (hasPendingAudioContextInterruption() && isPlaybackPlayingYouTube()) {
@@ -182,7 +202,7 @@ export function initMediaSession(): void {
     }
   });
 
-  navigator.mediaSession.setActionHandler('pause', () => {
+  registerMediaSessionAction('pause', () => {
     if (isPlaybackModeYouTube()) {
       if (shouldIgnoreRecentNativeYouTubeMediaAction('pause')) return;
       if (isNonOperatorGuest()) {
@@ -206,34 +226,30 @@ export function initMediaSession(): void {
     }
   });
 
-  navigator.mediaSession.setActionHandler('previoustrack', () => {
+  registerMediaSessionAction('previoustrack', () => {
     if (isPlaybackBlocked()) return;
     bus.emit('playlist:prev-track');
   });
 
-  navigator.mediaSession.setActionHandler('nexttrack', () => {
+  registerMediaSessionAction('nexttrack', () => {
     if (isPlaybackBlocked()) return;
     bus.emit('playlist:next-track');
   });
 
-  navigator.mediaSession.setActionHandler('seekbackward', (details) => {
+  registerMediaSessionAction('seekbackward', (details) => {
     if (isPlaybackBlocked()) return;
     skipTime(-(details.seekOffset || 10));
   });
 
-  navigator.mediaSession.setActionHandler('seekforward', (details) => {
+  registerMediaSessionAction('seekforward', (details) => {
     if (isPlaybackBlocked()) return;
     skipTime(details.seekOffset || 10);
   });
 
-  try {
-    navigator.mediaSession.setActionHandler('stop', () => {
-      if (isPlaybackBlocked()) return;
-      stopPlayback();
-    });
-  } catch (e: unknown) {
-    log.debug('[MediaSession] Handler setup skipped:', (e as Error).message);
-  }
+  registerMediaSessionAction('stop', () => {
+    if (isPlaybackBlocked()) return;
+    stopPlayback();
+  });
 
   // Listen for metadata updates via state subscription
   bus.on('state:player.currentTrackMeta', () => {
@@ -247,6 +263,13 @@ export function initMediaSession(): void {
     if (meta && isPlaybackModeYouTube()) {
       updateMediaSessionMetadata(meta);
     }
+  });
+
+  // Synthetic/fallback titles are locale-owned display text. Re-publish the
+  // current canonical metadata when the user changes language so the OS lock
+  // screen and notification do not retain the previous locale.
+  bus.on('i18n:changed', () => {
+    updateMediaSessionMetadata(getState('player.currentTrackMeta') ?? null);
   });
 
   // Keep the Media Session state aligned with playback activity. Web Audio has

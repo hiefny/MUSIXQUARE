@@ -1,8 +1,18 @@
 import type { ProRoomSystemAudioState } from './contracts.ts';
 import type { ProRoomSystemAudioViewState } from './system-audio-controller.ts';
 
+/**
+ * Opaque ownership for one capture-start lease request. Async rollback may
+ * release only through this handle; active capture stop keeps the explicit
+ * current-owner release below so publisher recovery can rotate generations.
+ */
+export interface ProSystemAudioLeaseAttempt {
+  readonly result: Promise<ProRoomSystemAudioState>;
+  releaseIfCurrent(): Promise<ProRoomSystemAudioState | null>;
+}
+
 interface ProSystemAudioBridgeAdapter {
-  acquire(signal?: AbortSignal): Promise<ProRoomSystemAudioState>;
+  beginLeaseAttempt(signal?: AbortSignal): ProSystemAudioLeaseAttempt;
   publish(
     leftTrack: MediaStreamTrack,
     rightTrack: MediaStreamTrack,
@@ -30,7 +40,10 @@ const unavailableView = (): ProRoomSystemAudioViewState => ({
 });
 
 let adapter: ProSystemAudioBridgeAdapter = {
-  acquire: () => Promise.reject(new Error('PRO_SYSTEM_AUDIO_NOT_CONFIGURED')),
+  beginLeaseAttempt: () => ({
+    result: Promise.reject(new Error('PRO_SYSTEM_AUDIO_NOT_CONFIGURED')),
+    releaseIfCurrent: () => Promise.resolve(null),
+  }),
   publish: () => Promise.reject(new Error('PRO_SYSTEM_AUDIO_NOT_CONFIGURED')),
   release: () => Promise.resolve(null),
   view: unavailableView,
@@ -47,10 +60,10 @@ export function configureProSystemAudioBridge(next: ProSystemAudioBridgeAdapter)
   adapter = next;
 }
 
-export function acquireLocalProSystemAudioLease(
+export function beginLocalProSystemAudioLeaseAttempt(
   signal?: AbortSignal,
-): Promise<ProRoomSystemAudioState> {
-  return adapter.acquire(signal);
+): ProSystemAudioLeaseAttempt {
+  return adapter.beginLeaseAttempt(signal);
 }
 
 export function publishLocalProSystemAudio(

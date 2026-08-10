@@ -135,6 +135,69 @@ function audioStreamWithTrack(): MediaStream {
   return { getAudioTracks: () => [track] } as unknown as MediaStream;
 }
 
+function mutableMutedAudioStream(initialMuted = true) {
+  const unmuteListeners = new Set<EventListenerOrEventListenerObject>();
+  let muted = initialMuted;
+  const addEventListener = vi.fn(
+    (type: string, listener: EventListenerOrEventListenerObject): void => {
+      if (type === 'unmute') unmuteListeners.add(listener);
+    },
+  );
+  const removeEventListener = vi.fn(
+    (type: string, listener: EventListenerOrEventListenerObject): void => {
+      if (type === 'unmute') unmuteListeners.delete(listener);
+    },
+  );
+  const track = {
+    id: 'muted-audio-track',
+    kind: 'audio',
+    readyState: 'live',
+    get muted() {
+      return muted;
+    },
+    addEventListener,
+    removeEventListener,
+  } as unknown as MediaStreamTrack;
+  return {
+    stream: { getAudioTracks: () => [track] } as unknown as MediaStream,
+    track,
+    addEventListener,
+    removeEventListener,
+    setMuted(value: boolean) {
+      muted = value;
+    },
+    dispatchUnmute() {
+      const event = new Event('unmute');
+      for (const listener of [...unmuteListeners]) {
+        if (typeof listener === 'function') listener(event);
+        else listener.handleEvent(event);
+      }
+    },
+    listenerCount() {
+      return unmuteListeners.size;
+    },
+  };
+}
+
+function timerWithPrefix(prefix: string): (() => void) | undefined {
+  return [...timerMocks.timers].find(([name]) => name.startsWith(prefix))?.[1];
+}
+
+function timerNamesWithPrefix(prefix: string): string[] {
+  return [...timerMocks.timers.keys()].filter((name) => name.startsWith(prefix));
+}
+
+function stubAudioSource(): {
+  connect: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+} {
+  const source = { connect: vi.fn(), disconnect: vi.fn() };
+  vi.mocked(getAudioContext).mockReturnValue({
+    createMediaStreamSource: vi.fn(() => source),
+  } as unknown as AudioContext);
+  return source;
+}
+
 async function flushAsyncStreamHandler(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
@@ -216,6 +279,127 @@ describe('system audio guest receive watchdog', () => {
     expect(initAudio).toHaveBeenCalledTimes(1);
     expect(source.connect).toHaveBeenCalledTimes(1);
     expect(getState('systemAudio.isReceiving')).toBe(true);
+  });
+
+  it('settles a muted stream after its normal unmute stabilization window', async () => {
+    stubAudioSource();
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const incoming = createMediaConnection();
+    const muted = mutableMutedAudioStream();
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    incoming.emit('stream', muted.stream);
+    await flushAsyncStreamHandler();
+
+    expect(initAudio).not.toHaveBeenCalled();
+    expect(muted.listenerCount()).toBe(1);
+
+    muted.setMuted(false);
+    muted.dispatchUnmute();
+    timerWithPrefix('sys-audio-guest-unmute-settle-')?.();
+    await flushAsyncStreamHandler();
+
+    expect(initAudio).toHaveBeenCalledOnce();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(muted.listenerCount()).toBe(0);
+    expect(timerNamesWithPrefix('sys-audio-guest-unmute-')).toEqual([]);
+  });
+
+  it('keeps the existing bounded fallback when a muted track never unmutes', async () => {
+    stubAudioSource();
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const incoming = createMediaConnection();
+    const muted = mutableMutedAudioStream();
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    incoming.emit('stream', muted.stream);
+    await flushAsyncStreamHandler();
+
+    timerWithPrefix('sys-audio-guest-unmute-timeout-')?.();
+    await flushAsyncStreamHandler();
+
+    expect(initAudio).toHaveBeenCalledOnce();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+    expect(muted.listenerCount()).toBe(0);
+    expect(timerNamesWithPrefix('sys-audio-guest-unmute-')).toEqual([]);
+  });
+
+  it('cancels a muted-track wait on force-stop and fences its late unmute from a successor', async () => {
+    stubAudioSource();
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const stale = createMediaConnection();
+    const muted = mutableMutedAudioStream();
+    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    stale.emit('stream', muted.stream);
+    await flushAsyncStreamHandler();
+    expect(muted.listenerCount()).toBe(1);
+
+    bus.emit('system-audio:force-stop');
+    await flushAsyncStreamHandler();
+
+    expect(muted.listenerCount()).toBe(0);
+    expect(timerNamesWithPrefix('sys-audio-guest-unmute-')).toEqual([]);
+    expect(stale.mediaConn.close).toHaveBeenCalledOnce();
+    expect(initAudio).not.toHaveBeenCalled();
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const successor = createMediaConnection();
+    bus.emit('system-audio:incoming-call', successor.mediaConn, 'STEREO');
+    successor.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+    expect(initAudio).toHaveBeenCalledOnce();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+
+    muted.setMuted(false);
+    muted.dispatchUnmute();
+    await flushAsyncStreamHandler();
+    expect(initAudio).toHaveBeenCalledOnce();
+    expect(successor.mediaConn.close).not.toHaveBeenCalled();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+  });
+
+  it('cancels the prior muted-track wait when the channel connection is replaced', async () => {
+    stubAudioSource();
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const stale = createMediaConnection();
+    const muted = mutableMutedAudioStream();
+    bus.emit('system-audio:incoming-call', stale.mediaConn, 'STEREO');
+    stale.emit('stream', muted.stream);
+    await flushAsyncStreamHandler();
+
+    const successor = createMediaConnection();
+    bus.emit('system-audio:incoming-call', successor.mediaConn, 'STEREO');
+    successor.emit('stream', audioStreamWithTrack());
+    await flushAsyncStreamHandler();
+
+    expect(stale.mediaConn.close).toHaveBeenCalledOnce();
+    expect(muted.listenerCount()).toBe(0);
+    expect(timerNamesWithPrefix('sys-audio-guest-unmute-')).toEqual([]);
+    expect(initAudio).toHaveBeenCalledOnce();
+    expect(getState('systemAudio.isReceiving')).toBe(true);
+
+    muted.setMuted(false);
+    muted.dispatchUnmute();
+    await flushAsyncStreamHandler();
+    expect(initAudio).toHaveBeenCalledOnce();
+    expect(successor.mediaConn.close).not.toHaveBeenCalled();
+  });
+
+  it('cancels a muted-track wait when its current connection closes', async () => {
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const incoming = createMediaConnection();
+    const muted = mutableMutedAudioStream();
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+    incoming.emit('stream', muted.stream);
+    await flushAsyncStreamHandler();
+
+    incoming.emit('close');
+    await flushAsyncStreamHandler();
+
+    expect(muted.listenerCount()).toBe(0);
+    expect(timerNamesWithPrefix('sys-audio-guest-unmute-')).toEqual([]);
+    muted.setMuted(false);
+    muted.dispatchUnmute();
+    await flushAsyncStreamHandler();
+    expect(initAudio).not.toHaveBeenCalled();
   });
 
   it('closes a stale direct call after an all-audience SFU route is frozen', () => {

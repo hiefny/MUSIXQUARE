@@ -1932,12 +1932,37 @@ export async function retireAccountProRoomLinkBatch(env, incarnations) {
   return { configured: true, retired: true };
 }
 
+async function rotatePendingAccountDeletionJob(db, accountId, startedAt, nowMs) {
+  if (
+    typeof accountId !== 'string' ||
+    accountId.length === 0 ||
+    !Number.isSafeInteger(startedAt) ||
+    startedAt <= 0 ||
+    !Number.isSafeInteger(nowMs) ||
+    nowMs < startedAt
+  ) {
+    return false;
+  }
+  try {
+    const touched = await d1Run(
+      db,
+      `UPDATE ${ACCOUNT_DELETION_TABLE}
+          SET started_at = ?3
+        WHERE account_id = ?1 AND started_at = ?2`,
+      [accountId, startedAt, nowMs],
+    );
+    return d1ChangeCount(touched) === 1;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Resume durable account-deletion jobs created for large reverse-index fan-out
  * or retained after any partial inline cleanup. Login/session authority is
  * already revoked before an irreversible PRO purge begins. Every successful
  * purge is followed by deletion of that exact generation edge; failures remain
- * queued and are retried by the next minute cron.
+ * queued and rotate behind the ten-minute takeover age before another sweep.
  */
 export async function cleanupPendingAccountDeletions(env, integrations = {}, options = {}) {
   const db = env?.MUSIXQUARE_AUTH_DB;
@@ -1968,6 +1993,7 @@ export async function cleanupPendingAccountDeletions(env, integrations = {}, opt
       Number.isSafeInteger(options?.edgeLimit) ? options.edgeLimit : ACCOUNT_DELETE_JOB_EDGE_LIMIT,
     ),
   );
+  const nowMs = Date.now();
   const jobs = requestedAccountId
     ? await d1All(
         db,
@@ -1984,7 +2010,7 @@ export async function cleanupPendingAccountDeletions(env, integrations = {}, opt
           WHERE started_at <= ?1
           ORDER BY started_at ASC, account_id ASC
           LIMIT ?2`,
-        [Date.now() - ACCOUNT_DELETION_FENCE_TTL_MS, ACCOUNT_DELETE_JOB_MAX_ACCOUNTS],
+        [nowMs - ACCOUNT_DELETION_FENCE_TTL_MS, ACCOUNT_DELETE_JOB_MAX_ACCOUNTS],
       );
   const result = {
     configured: true,
@@ -1999,50 +2025,63 @@ export async function cleanupPendingAccountDeletions(env, integrations = {}, opt
     const startedAt = Number(job?.started_at);
     if (!ACCOUNT_ID_RE.test(accountId) || !Number.isSafeInteger(startedAt) || startedAt <= 0) {
       result.pendingAccounts += 1;
+      await rotatePendingAccountDeletionJob(db, accountId, startedAt, nowMs);
       continue;
     }
     result.processedAccounts += 1;
-    // Recover a legacy request that crashed after installing its fence but
-    // before revoking sessions. This batch is idempotent for native async jobs.
-    const disabledAt = Date.now();
-    await d1Batch(db, [
-      {
-        sql: `UPDATE ${ACCOUNT_TABLE}
-                 SET status = 'disabled', updated_at = ?2
-               WHERE account_id = ?1 AND status = 'active'`,
-        values: [accountId, disabledAt],
-      },
-      ...accountDeletionSessionStatements(
-        accountId,
-        disabledAt,
-        disabledAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000,
-      ),
-    ]);
-    if (
-      typeof orphanAccountProGrants === 'function' &&
-      (await orphanAccountProGrants(accountId)) !== true
-    ) {
-      result.pendingAccounts += 1;
-      continue;
+    let completed = false;
+    try {
+      // Recover a legacy request that crashed after installing its fence but
+      // before revoking sessions. This batch is idempotent for native async jobs.
+      const disabledAt = Date.now();
+      await d1Batch(db, [
+        {
+          sql: `UPDATE ${ACCOUNT_TABLE}
+                   SET status = 'disabled', updated_at = ?2
+                 WHERE account_id = ?1 AND status = 'active'`,
+          values: [accountId, disabledAt],
+        },
+        ...accountDeletionSessionStatements(
+          accountId,
+          disabledAt,
+          disabledAt + ACCOUNT_DELETED_SESSION_TTL_SECONDS * 1000,
+        ),
+      ]);
+      if (
+        typeof orphanAccountProGrants === 'function' &&
+        (await orphanAccountProGrants(accountId)) !== true
+      ) {
+        result.pendingAccounts += 1;
+        continue;
+      }
+      const { links } = await readAccountProRoomLinks(db, accountId, edgeLimit);
+      if (links.length > 0) {
+        const cleanup = await purgeAccountProRoomLinks(
+          db,
+          accountId,
+          links,
+          purgeProRoomAccountAuthority,
+        );
+        result.purgedEdges += cleanup.purged;
+        result.failedEdges += cleanup.failed;
+      }
+      const remaining = await readAccountProRoomLinks(db, accountId, 1);
+      if (remaining.links.length > 0) {
+        result.pendingAccounts += 1;
+        continue;
+      }
+      await d1Batch(db, accountDeletionFinalStatements(accountId));
+      result.completedAccounts += 1;
+      completed = true;
+    } finally {
+      // `started_at` is a retry-age fence, not a downstream purge identifier.
+      // Move an unchanged failed job behind later work and apply the same
+      // ten-minute takeover delay. The exact CAS preserves a completed job or
+      // a concurrent explicit retry that already replaced this fence.
+      if (!completed) {
+        await rotatePendingAccountDeletionJob(db, accountId, startedAt, nowMs);
+      }
     }
-    const { links } = await readAccountProRoomLinks(db, accountId, edgeLimit);
-    if (links.length > 0) {
-      const cleanup = await purgeAccountProRoomLinks(
-        db,
-        accountId,
-        links,
-        purgeProRoomAccountAuthority,
-      );
-      result.purgedEdges += cleanup.purged;
-      result.failedEdges += cleanup.failed;
-    }
-    const remaining = await readAccountProRoomLinks(db, accountId, 1);
-    if (remaining.links.length > 0) {
-      result.pendingAccounts += 1;
-      continue;
-    }
-    await d1Batch(db, accountDeletionFinalStatements(accountId));
-    result.completedAccounts += 1;
   }
   return result;
 }

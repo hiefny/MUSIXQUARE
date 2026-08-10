@@ -30,6 +30,13 @@ vi.mock('../search.ts', () => ({
   fetchPlaylistSubTitles: vi.fn(),
 }));
 
+// sync.ts must remain below the iframe runtime boundary. iframe.ts already
+// imports sync.ts, so importing it back here recreates an evaluation cycle
+// that can leave Vitest/browser ESM bindings in the temporal dead zone.
+vi.mock('../iframe.ts', () => {
+  throw new Error('sync.ts must not import iframe.ts');
+});
+
 vi.mock('../_state.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../_state.ts')>();
   return { ...actual, getYouTubePlayer: vi.fn(() => null) };

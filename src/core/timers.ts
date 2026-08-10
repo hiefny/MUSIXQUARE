@@ -48,8 +48,16 @@ export function clearManagedTimer(name: string): void {
   }
 }
 
-export function clearAllManagedTimers(): void {
+/**
+ * Clear every managed timer except explicitly page-lifetime owners.
+ *
+ * The registry is page-global, so session teardown must name any timers that
+ * intentionally outlive a room instead of silently cancelling them.
+ */
+export function clearAllManagedTimers(options: { except?: readonly string[] } = {}): void {
+  const exceptions = new Set(options.except ?? []);
   for (const name of Array.from(_timers.keys())) {
+    if (exceptions.has(name)) continue;
     clearManagedTimer(name);
   }
 }

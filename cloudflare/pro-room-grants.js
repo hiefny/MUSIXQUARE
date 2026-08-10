@@ -1226,20 +1226,30 @@ export async function abortProRoomOwnershipTransferEntitlement(env, input) {
         .bind(input.targetAccountId, input.roomCode, input.roomGeneration, input.requestId, nowMs),
     ]);
     const target = await readOwnershipTransferTarget(db, input);
-    if (!ownershipTransferTargetMatches(target, input) || target?.status !== 'revoked')
+    // An intent is durably recorded before the PRO room validates its bearer
+    // claim. If validation fails, no entitlement row is ever created; cron
+    // still needs an idempotent way to terminalize that expired intent. Treat
+    // the complete absence of both sides as already aborted, while preserving
+    // fail-closed behavior for a reused request ID or any stranded source.
+    if (target && (!ownershipTransferTargetMatches(target, input) || target.status !== 'revoked')) {
       return false;
-    const source = await first(
+    }
+    const remainingTransferRow = await first(
       db
         .prepare(
           `SELECT 1 AS pending FROM ${ENTITLEMENT_TABLE}
             WHERE room_code = ?1 AND room_generation = ?2
               AND transfer_request_id = ?3
-              AND status IN (${ENTITLEMENT_TRANSFER_SOURCE_SQL})
+              AND NOT (
+                    source_kind = 'owner_transfer'
+                    AND source_ref = ?3
+                    AND account_id = ?4
+                  )
             LIMIT 1`,
         )
-        .bind(input.roomCode, input.roomGeneration, input.requestId),
+        .bind(input.roomCode, input.roomGeneration, input.requestId, input.targetAccountId),
     );
-    return Number(source?.pending || 0) === 0;
+    return !remainingTransferRow;
   } catch {
     return false;
   }
@@ -1375,6 +1385,38 @@ export async function orphanAccountProGrants(env, accountId, nowMs = Date.now())
   }
 }
 
+async function rotatePendingProGrantLifecycleRow(db, row, nowMs) {
+  const grantId = typeof row?.grant_id === 'string' ? row.grant_id : '';
+  const originalUpdatedAt = Number(row?.grant_updated_at);
+  if (
+    !grantId ||
+    !Number.isSafeInteger(originalUpdatedAt) ||
+    originalUpdatedAt < 0 ||
+    !Number.isSafeInteger(nowMs) ||
+    nowMs < originalUpdatedAt
+  ) {
+    return false;
+  }
+  try {
+    const touched = await db
+      .prepare(
+        `UPDATE ${GRANT_TABLE}
+            SET updated_at = ?3
+          WHERE grant_id = ?1 AND status = 'pending_activation'
+            AND updated_at = ?2
+            AND EXISTS (
+                  SELECT 1 FROM ${ALLOCATION_TABLE} allocation
+                   WHERE allocation.grant_id = ?1 AND allocation.status = 'reserved'
+                )`,
+      )
+      .bind(grantId, originalUpdatedAt, nowMs)
+      .run();
+    return Number(touched?.meta?.changes || 0) === 1;
+  } catch {
+    return false;
+  }
+}
+
 export async function reconcileProGrantLifecycle(env, dependencies, options = {}) {
   const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB;
   if (!db?.prepare || !dependencies?.isAccountActive || !dependencies?.inspectRoom) {
@@ -1384,20 +1426,21 @@ export async function reconcileProGrantLifecycle(env, dependencies, options = {}
     1,
     Math.min(100, Number.isSafeInteger(options.limit) ? options.limit : 25),
   );
+  const nowMs = Date.now();
   let rows;
   try {
     rows = await all(
       db
         .prepare(
-          `SELECT grant.account_id, allocation.room_code, allocation.room_generation,
-                  registry.activation_state
+          `SELECT grant.grant_id, grant.account_id, grant.updated_at AS grant_updated_at,
+                  allocation.room_code, allocation.room_generation, registry.activation_state
              FROM ${GRANT_TABLE} grant
              JOIN ${ALLOCATION_TABLE} allocation ON allocation.grant_id = grant.grant_id
              LEFT JOIN mxqr_pro_room_registry registry
                ON registry.room_code = allocation.room_code
               AND registry.room_generation = allocation.room_generation
             WHERE grant.status = 'pending_activation' AND allocation.status = 'reserved'
-            ORDER BY grant.updated_at ASC LIMIT ?1`,
+            ORDER BY grant.updated_at ASC, grant.grant_id ASC LIMIT ?1`,
         )
         .bind(limit),
     );
@@ -1414,31 +1457,56 @@ export async function reconcileProGrantLifecycle(env, dependencies, options = {}
       !ROOM_CODE_RE.test(roomCode || '') ||
       !isProRoomGeneration(roomGeneration)
     ) {
+      // Legacy or externally repaired rows may predate today's identity
+      // guards. They are still nonterminal queue entries, so rotate them by
+      // the same CAS instead of letting an invalid oldest page starve all
+      // later repairs.
+      await rotatePendingProGrantLifecycleRow(db, row, nowMs);
       continue;
     }
     result.checked += 1;
-    let accountActive = false;
+    let terminalized = false;
     try {
-      accountActive = (await dependencies.isAccountActive(accountId)) === true;
-    } catch {
-      // An Auth D1 outage is not proof of deletion. Preserve the pending grant
-      // and retry rather than orphaning a legitimate owner.
-      continue;
-    }
-    if (!accountActive) {
-      if (await orphanAccountProGrants(env, accountId)) result.orphaned += 1;
-      continue;
-    }
-    let canonical;
-    try {
-      canonical = await dependencies.inspectRoom(roomCode, roomGeneration);
-    } catch {
-      continue;
-    }
-    if (canonical?.status === 'active' && canonical.ownerAccountId === accountId) {
-      if (await finalizeProGrantActivation(env, { accountId, roomCode, roomGeneration })) {
-        result.finalized += 1;
+      let accountActive = false;
+      try {
+        accountActive = (await dependencies.isAccountActive(accountId)) === true;
+      } catch {
+        // An Auth D1 outage is not proof of deletion. Preserve the pending grant
+        // and retry rather than orphaning a legitimate owner.
+        continue;
       }
+      if (!accountActive) {
+        if (await orphanAccountProGrants(env, accountId, nowMs)) {
+          result.orphaned += 1;
+          terminalized = true;
+        }
+        continue;
+      }
+      let canonical;
+      try {
+        canonical = await dependencies.inspectRoom(roomCode, roomGeneration);
+      } catch {
+        continue;
+      }
+      if (canonical?.status === 'active' && canonical.ownerAccountId === accountId) {
+        if (
+          await finalizeProGrantActivation(env, {
+            accountId,
+            roomCode,
+            roomGeneration,
+            nowMs,
+          })
+        ) {
+          result.finalized += 1;
+          terminalized = true;
+        }
+      }
+    } finally {
+      // Pending grants can legitimately remain unactivated forever. Rotate an
+      // inspected no-op behind later rows so a fixed LIMIT cannot starve a
+      // newer activation repair. The state/timestamp CAS cannot overwrite a
+      // concurrent activation, orphan, revoke, or independent retry touch.
+      if (!terminalized) await rotatePendingProGrantLifecycleRow(db, row, nowMs);
     }
   }
   return result;

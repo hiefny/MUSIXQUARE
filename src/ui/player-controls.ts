@@ -1568,13 +1568,13 @@ export function initPlayerControls(): void {
   // Storage error handler (prevent silent error swallowing)
   _busScope.on('storage:error', (error, filename) => {
     log.error(`[Storage] Error for ${filename}:`, error);
-    showToast(t('toast.file_save_error', { name: filename || 'unknown' }));
+    showToast(t('toast.file_save_error', { name: filename || t('common.unknown') }));
   });
 
   _busScope.on('storage:read-error', (data) => {
     const d = data as Record<string, unknown>;
     log.error('[Storage] Read error:', d?.filename, d?.error);
-    showToast(t('toast.file_read_error', { name: String(d?.filename || 'unknown') }));
+    showToast(t('toast.file_read_error', { name: String(d?.filename || t('common.unknown')) }));
   });
 
   _busScope.on('storage:session-mismatch', (data) => {

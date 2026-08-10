@@ -67,6 +67,7 @@ import {
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
+import { configureYouTubeIframeRuntimeHooks } from './iframe-runtime-bridge.ts';
 import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
 import {
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
@@ -80,10 +81,10 @@ import {
   type YouTubeAuthorityTimingMode,
 } from './authority-arm.ts';
 import {
-  consumePendingAutoSyncOnReady,
-  isYouTubeZeroStartExternalFallbackActive,
-  setPendingAutoSyncOnReady,
-} from './player.ts';
+  consumePendingAutoSyncOnReadyFromIframe,
+  isYouTubeZeroStartExternalFallbackActiveFromIframe,
+  setPendingAutoSyncOnReadyFromIframe,
+} from './player-runtime-bridge.ts';
 import { preserveNativeProControllerPlayBeforeAutoplayGuard } from './native-control-authority.ts';
 import { applyYouTubeCaptionPolicy } from './caption-policy.ts';
 import {
@@ -225,7 +226,7 @@ function completeSameVideoOccurrenceHandoff(
   restart: NonNullable<typeof pendingSameVideoOccurrenceRestart>,
 ): boolean {
   if (!isCurrentSameVideoOccurrenceRestart(restart)) return false;
-  const pending = consumePendingAutoSyncOnReady();
+  const pending = consumePendingAutoSyncOnReadyFromIframe();
   if (!pending || (pending.videoId && pending.videoId !== restart.videoId)) {
     releaseSameVideoOccurrenceRestart(restart);
     return false;
@@ -373,49 +374,124 @@ function resetYouTubePlayerHost(container: HTMLElement): void {
 
 type YouTubeApiReadyTask = {
   onReady: () => void;
-  onError?: () => void;
+  onError?: (reason: 'error' | 'timeout') => void;
 };
 
-const _ytApiReadyTasks: YouTubeApiReadyTask[] = [];
+type YouTubeApiLoadAttempt = {
+  id: number;
+  script: HTMLScriptElement;
+  tasks: YouTubeApiReadyTask[];
+  timeoutId: number;
+  scriptLoaded: boolean;
+  settled: boolean;
+  onLoad: () => void;
+  onError: () => void;
+};
 
-function flushYouTubeApiReadyTasks(): void {
-  window.isYouTubeAPIReady = true;
+let _ytApiLoadAttempt: YouTubeApiLoadAttempt | null = null;
+let _ytApiLoadAttemptId = 0;
+
+function settleYouTubeApiLoadAttempt(
+  attempt: YouTubeApiLoadAttempt,
+  outcome: 'ready' | 'error' | 'timeout',
+): void {
+  if (_ytApiLoadAttempt !== attempt || attempt.settled) return;
+  attempt.settled = true;
+  window.clearTimeout(attempt.timeoutId);
+  attempt.script.removeEventListener('load', attempt.onLoad);
+  attempt.script.removeEventListener('error', attempt.onError);
+  if (outcome !== 'ready') attempt.script.remove();
+  _ytApiLoadAttempt = null;
   setYtScriptLoading(false);
-  const tasks = _ytApiReadyTasks.splice(0);
-  for (const task of tasks) task.onReady();
+
+  const tasks = attempt.tasks.splice(0);
+  if (outcome === 'ready') {
+    window.isYouTubeAPIReady = true;
+    for (const task of tasks) task.onReady();
+    return;
+  }
+
+  window.isYouTubeAPIReady = false;
+  for (const task of tasks) task.onError?.(outcome);
 }
 
-function failYouTubeApiReadyTasks(): void {
-  const tasks = _ytApiReadyTasks.splice(0);
-  for (const task of tasks) task.onError?.();
+function handleYouTubeIframeApiReady(): void {
+  const attempt = _ytApiLoadAttempt;
+  // The API invokes this global callback during script evaluation, before the
+  // script's load event. Wait for this attempt's own load boundary so a late
+  // callback from a timed-out predecessor cannot flush a retry's task queue.
+  if (!attempt || !attempt.scriptLoaded || !window.YT?.Player) return;
+  settleYouTubeApiLoadAttempt(attempt, 'ready');
 }
 
-function runWhenYouTubeApiReady(onReady: () => void, onError?: () => void): void {
+function runWhenYouTubeApiReady(
+  onReady: () => void,
+  onError?: (reason: 'error' | 'timeout') => void,
+): void {
   if (window.YT?.Player) {
+    const pendingAttempt = _ytApiLoadAttempt;
+    if (pendingAttempt) settleYouTubeApiLoadAttempt(pendingAttempt, 'ready');
     onReady();
     return;
   }
 
-  _ytApiReadyTasks.push({ onReady, onError });
-  window.onYouTubeIframeAPIReady = flushYouTubeApiReadyTasks;
-
-  if (isYtScriptLoading() || document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+  const task = { onReady, onError };
+  if (_ytApiLoadAttempt) {
+    // The attempt object is authoritative; heal an independently-reset UI
+    // flag instead of allowing observers to report that its request is idle.
+    if (!isYtScriptLoading()) setYtScriptLoading(true);
+    _ytApiLoadAttempt.tasks.push(task);
     return;
   }
 
+  if (isYtScriptLoading()) {
+    // A true flag without an owned attempt cannot ever settle. Reconcile it
+    // before replacing any poisoned/untracked script node below.
+    setYtScriptLoading(false);
+  }
+
+  // An untracked node may be a prior attempt whose load/error event already
+  // fired, or an old page version left alive by HMR. It cannot provide a fresh
+  // completion signal, so replace it instead of waiting forever.
+  document
+    .querySelectorAll<HTMLScriptElement>('script[src*="youtube.com/iframe_api"]')
+    .forEach((script) => script.remove());
+
   setYtScriptLoading(true);
+  window.isYouTubeAPIReady = false;
+  window.onYouTubeIframeAPIReady = handleYouTubeIframeApiReady;
   const tag = document.createElement('script');
   tag.src = 'https://www.youtube.com/iframe_api';
-  tag.onload = () => {
-    setYtScriptLoading(false);
+  tag.async = true;
+  const attempt: YouTubeApiLoadAttempt = {
+    id: ++_ytApiLoadAttemptId,
+    script: tag,
+    tasks: [task],
+    timeoutId: 0,
+    scriptLoaded: false,
+    settled: false,
+    onLoad: () => undefined,
+    onError: () => undefined,
+  };
+  attempt.onLoad = () => {
+    if (_ytApiLoadAttempt !== attempt || attempt.settled) return;
+    attempt.scriptLoaded = true;
     log.debug('[YouTube] API script loaded');
+    if (window.YT?.Player) settleYouTubeApiLoadAttempt(attempt, 'ready');
   };
-  tag.onerror = () => {
+  attempt.onError = () => {
+    if (_ytApiLoadAttempt !== attempt || attempt.settled) return;
     log.error('[YouTube] Failed to load API script');
-    setYtScriptLoading(false);
-    failYouTubeApiReadyTasks();
-    tag.remove();
+    settleYouTubeApiLoadAttempt(attempt, 'error');
   };
+  attempt.timeoutId = window.setTimeout(() => {
+    if (_ytApiLoadAttempt !== attempt || attempt.settled) return;
+    log.warn(`[YouTube] API script load attempt ${attempt.id} timed out`);
+    settleYouTubeApiLoadAttempt(attempt, 'timeout');
+  }, SCRIPT_LOAD_TIMEOUT_MS);
+  _ytApiLoadAttempt = attempt;
+  tag.addEventListener('load', attempt.onLoad);
+  tag.addEventListener('error', attempt.onError);
   document.head.appendChild(tag);
 }
 
@@ -654,7 +730,7 @@ export function markYtStateBroadcast(): void {
  * so the next poll reads the new video's real duration instead of the
  * previous one's stale value.
  */
-export function invalidateYtDurationCache(): void {
+function invalidateYtDurationCache(): void {
   setCachedYtDuration(0);
   _ifr.lastDurationVideoId = '';
   resetLiveStreamDetection();
@@ -1037,15 +1113,18 @@ export function loadYouTubeVideo(
         // Guard: skip if a timeout already cancelled this load session
         if (getCurrentSessionId() !== sessionId || scope.aborted) {
           log.debug('[YouTube] onYouTubeIframeAPIReady skipped - session changed');
-          setYtLoadInProgress(false);
           return;
         }
         createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
       },
-      () => {
+      (reason) => {
+        // The API attempt can outlive this concrete load (room leave, track
+        // switch, or the independent outer timeout). Only the current scope
+        // may surface failure or stop the active mode.
+        if (getCurrentSessionId() !== sessionId || scope.aborted) return;
         setYtLoadInProgress(false);
         clearManagedTimer('yt-load-timeout');
-        showToast(t('youtube.load_fail'));
+        showToast(t(reason === 'timeout' ? 'youtube.load_timeout' : 'youtube.load_fail'));
         bus.emit('youtube:stop-mode');
       },
     );
@@ -1565,7 +1644,14 @@ function createYouTubePlayer(
     const iframe = document.querySelector(
       '#youtube-player-container iframe',
     ) as HTMLIFrameElement | null;
-    if (iframe) iframe.title = 'YouTube video player';
+    if (iframe) {
+      // Keep the accessible name in the declarative i18n graph. The initial
+      // assignment covers this already-connected iframe; subsequent locale
+      // changes are re-projected by i18n's subtree translation without a
+      // YouTube-owned event subscription that could duplicate on re-init.
+      iframe.setAttribute('data-i18n-title', 'common.youtube_video');
+      iframe.title = t('common.youtube_video');
+    }
   });
 }
 
@@ -2066,7 +2152,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
   // path below exactly once.
   if (handleYouTubeAuthorityPlayerState(state)) return;
   if (handleYouTubeZeroStartPlayerState(state)) return;
-  if (isYouTubeZeroStartExternalFallbackActive()) return;
+  if (isYouTubeZeroStartExternalFallbackActiveFromIframe()) return;
 
   if (!isPlaybackModeYouTube() && !indexing) return;
 
@@ -2112,7 +2198,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
       // playTrack) armed the rendezvous flag, consume it now so autoplay
       // kicks in without waiting for another 'youtube:player-ready' (which
       // only fires on brand-new player instances).
-      const pendingAutoSync = consumePendingAutoSyncOnReady();
+      const pendingAutoSync = consumePendingAutoSyncOnReadyFromIframe();
       if (pendingAutoSync) {
         bus.emit('youtube:auto-play', pendingAutoSync);
       } else {
@@ -2133,7 +2219,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // `?? true` is a conservative fallback when a caller omits
     // isTrackTransition: use the longer 4s rendezvous so a YT-to-YT switch
     // cannot drift. Current call sites set the flag explicitly.
-    const pendingAutoSync = consumePendingAutoSyncOnReady();
+    const pendingAutoSync = consumePendingAutoSyncOnReadyFromIframe();
     if (pendingAutoSync) {
       bus.emit('youtube:auto-play', {
         ...pendingAutoSync,
@@ -2180,7 +2266,7 @@ function onYouTubePlayerStateChange(event: { data: number }): void {
     // shared start. A reused iframe does not emit onReady again, so CUED is
     // the deterministic hand-off point for the pending zero-start/legacy
     // rendezvous intent armed by playlist.ts.
-    const pendingAutoSync = consumePendingAutoSyncOnReady();
+    const pendingAutoSync = consumePendingAutoSyncOnReadyFromIframe();
     if (pendingAutoSync) {
       bus.emit('youtube:auto-play', pendingAutoSync);
     }
@@ -2403,7 +2489,7 @@ function updateYouTubeUI(): void {
           // (2s) is the right delay — `isTrackTransition: false` keeps this off
           // the onStateChange `?? true` conservative-fallback path.
           loadYouTubeVideo(videoId || null, playlistId || null, false, subIndex);
-          setPendingAutoSyncOnReady(true, {
+          setPendingAutoSyncOnReadyFromIframe(true, {
             isTrackTransition: false,
             targetTime: recoveryTime,
             subIndex,
@@ -2801,6 +2887,11 @@ function showYouTubeSyncOverlay(show: boolean): void {
 export function hideYouTubeTapToPlayGate(): void {
   showYouTubeSyncOverlay(false);
 }
+
+configureYouTubeIframeRuntimeHooks({
+  hideTapToPlayGate: hideYouTubeTapToPlayGate,
+  invalidateDurationCache: invalidateYtDurationCache,
+});
 
 export function refreshYouTubeDisplay(): void {
   const container = document.getElementById('youtube-player-container');

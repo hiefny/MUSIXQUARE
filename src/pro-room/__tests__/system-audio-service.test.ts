@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { getManagedTimer } from '../../core/timers.ts';
 import type { ProRoomApiClient } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -98,7 +99,10 @@ import {
   registerProSystemAudioServiceListeners,
   resetProSystemAudioService,
 } from '../system-audio-service.ts';
-import { canPublishProSystemAudioWithCurrentCoordinator } from '../system-audio-bridge.ts';
+import {
+  beginLocalProSystemAudioLeaseAttempt,
+  canPublishProSystemAudioWithCurrentCoordinator,
+} from '../system-audio-bridge.ts';
 
 const LOCAL_ID = 'participant_local1';
 const REMOTE_ID = 'participant_remote1';
@@ -344,6 +348,126 @@ describe('PRO system-audio service orchestration', () => {
       ['chat.system_audio_started_system_message'],
       ['chat.system_audio_stopped_system_message'],
     ]);
+  });
+
+  it('keeps a successor publish flight and heartbeat intact when a shared-grant predecessor releases', async () => {
+    const acquireGrant = deferred<{
+      systemAudio: ProRoomSystemAudioState;
+      leaseId: string;
+    }>();
+    const sfuPublish = deferred<{
+      sessionId: string;
+      tracks: [
+        { trackName: string; channel: 'L'; mid: string },
+        { trackName: string; channel: 'R'; mid: string },
+      ];
+    }>();
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockReturnValueOnce(acquireGrant.promise);
+    api.commitSystemAudioPublication.mockResolvedValueOnce(localLive());
+    mocks.publish.mockReturnValueOnce(sfuPublish.promise);
+    await refreshProSystemAudioState();
+
+    const predecessor = beginLocalProSystemAudioLeaseAttempt();
+    const successor = beginLocalProSystemAudioLeaseAttempt();
+    acquireGrant.resolve({ systemAudio: preparing(), leaseId: LEASE_ID });
+    await Promise.all([predecessor.result, successor.result]);
+
+    const publish = publishLocalProSystemAudio({} as MediaStreamTrack, {} as MediaStreamTrack);
+    await vi.waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1));
+    mocks.stopPublisher.mockClear();
+
+    await expect(predecessor.releaseIfCurrent()).resolves.toEqual(preparing());
+    expect(api.releaseSystemAudioLease).not.toHaveBeenCalled();
+    expect(mocks.stopPublisher).not.toHaveBeenCalled();
+
+    sfuPublish.resolve({
+      sessionId: 'realtime_session_01',
+      tracks: [
+        { trackName: 'audio-L', channel: 'L', mid: '0' },
+        { trackName: 'audio-R', channel: 'R', mid: '1' },
+      ],
+    });
+    await publish;
+
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).not.toBeNull();
+    await predecessor.releaseIfCurrent();
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).not.toBeNull();
+    expect(api.releaseSystemAudioLease).not.toHaveBeenCalled();
+    expect(mocks.stopPublisher).not.toHaveBeenCalled();
+
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1));
+    await releaseLocalProSystemAudioLease();
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).toBeNull();
+  });
+
+  it('makes an old-session attempt release side-effect-free after a new session is live', async () => {
+    api.getSystemAudioState.mockResolvedValueOnce(idle()).mockResolvedValueOnce(idle(1));
+    api.acquireSystemAudioLease
+      .mockResolvedValueOnce({ systemAudio: preparing(), leaseId: LEASE_ID })
+      .mockResolvedValueOnce({ systemAudio: preparing(2), leaseId: 'N'.repeat(43) });
+    api.commitSystemAudioPublication.mockResolvedValueOnce(localLive(2));
+    await refreshProSystemAudioState();
+    const predecessor = beginLocalProSystemAudioLeaseAttempt();
+    await predecessor.result;
+
+    bindProSystemAudioSession(snapshot('presence_local_02', '000002'));
+    await refreshProSystemAudioState();
+    const successor = beginLocalProSystemAudioLeaseAttempt();
+    await successor.result;
+    await publishLocalProSystemAudio({} as MediaStreamTrack, {} as MediaStreamTrack);
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).not.toBeNull();
+    api.releaseSystemAudioLease.mockClear();
+    mocks.stopPublisher.mockClear();
+
+    await expect(predecessor.releaseIfCurrent()).resolves.toEqual(localLive(2));
+
+    expect(api.releaseSystemAudioLease).not.toHaveBeenCalled();
+    expect(mocks.stopPublisher).not.toHaveBeenCalled();
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).not.toBeNull();
+
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(2));
+    await releaseLocalProSystemAudioLease();
+  });
+
+  it('retries a transient current scoped release without duplicating handle teardown', async () => {
+    vi.useFakeTimers();
+    const releaseFailure = new Error('transient release failure');
+    api.getSystemAudioState.mockResolvedValueOnce(idle()).mockResolvedValueOnce(preparing());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.releaseSystemAudioLease
+      .mockRejectedValueOnce(releaseFailure)
+      .mockResolvedValueOnce(idle(1));
+
+    await refreshProSystemAudioState();
+    const attempt = beginLocalProSystemAudioLeaseAttempt();
+    await attempt.result;
+
+    const firstRelease = attempt.releaseIfCurrent();
+    const duplicateRelease = attempt.releaseIfCurrent();
+    expect(duplicateRelease).toBe(firstRelease);
+    await expect(firstRelease).rejects.toBe(releaseFailure);
+
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('pro-system-audio-lease-release-retry')).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(2_500);
+
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(2);
+    expect(api.releaseSystemAudioLease.mock.calls[1]?.[0]).toEqual({
+      code: '000001',
+      generation: 1,
+      leaseId: LEASE_ID,
+    });
+    expect(getManagedTimer('pro-system-audio-lease-release-retry')).toBeNull();
+    expect(getProSystemAudioViewState()).toMatchObject({
+      phase: 'idle',
+      generation: 1,
+    });
   });
 
   it('does not announce a remote live share discovered during refresh', async () => {
@@ -802,6 +926,61 @@ describe('PRO system-audio service orchestration', () => {
 
     expect(toasts).toEqual([]);
     expect(mocks.subscribe).toHaveBeenCalledTimes(2);
+  });
+
+  it('explicitly stops the recovered generation after the original attempt handle becomes stale', async () => {
+    vi.useFakeTimers();
+    const recoveredLeaseId = 'N'.repeat(43);
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease
+      .mockResolvedValueOnce({
+        systemAudio: preparing(),
+        leaseId: LEASE_ID,
+      })
+      .mockResolvedValueOnce({
+        systemAudio: preparing(2),
+        leaseId: recoveredLeaseId,
+      });
+    api.commitSystemAudioPublication
+      .mockResolvedValueOnce(localLive())
+      .mockResolvedValueOnce(localLive(2));
+    api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1)).mockResolvedValueOnce(idle(2));
+
+    await refreshProSystemAudioState();
+    const originalAttempt = beginLocalProSystemAudioLeaseAttempt();
+    await originalAttempt.result;
+    await publishLocalProSystemAudio({} as MediaStreamTrack, {} as MediaStreamTrack);
+
+    mocks.sfuListener?.({ type: 'publisher-state', state: 'failed' });
+    await vi.advanceTimersByTimeAsync(2_500);
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(2));
+
+    expect(getProSystemAudioViewState()).toMatchObject({
+      phase: 'live',
+      generation: 2,
+      isLocalOwner: true,
+    });
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).not.toBeNull();
+    mocks.stopPublisher.mockClear();
+
+    await expect(originalAttempt.releaseIfCurrent()).resolves.toEqual(localLive(2));
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+    expect(mocks.stopPublisher).not.toHaveBeenCalled();
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).not.toBeNull();
+
+    await releaseLocalProSystemAudioLease();
+
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(2);
+    expect(api.releaseSystemAudioLease.mock.calls[1]?.[0]).toEqual({
+      code: '000001',
+      generation: 2,
+      leaseId: recoveredLeaseId,
+    });
+    expect(mocks.stopPublisher).toHaveBeenCalled();
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).toBeNull();
+    await releaseLocalProSystemAudioLease();
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(2);
   });
 
   it('fences a recovery acquire exactly once when the user stops while it is pending', async () => {

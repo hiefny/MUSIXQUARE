@@ -133,12 +133,13 @@ individual smoke; a mismatch fails the release and recovery will not overwrite
 the newer deployment.
 
 Standalone live-smoke steps have a five-minute hard ceiling, except for the
-PRO-room probe, which has eight minutes for edge propagation. The combined PRO
-media CORS apply/read-back/smoke step has ten minutes. Developer API and
-remote-share HTTP requests abort after 30 seconds; PRO-room, app-generation,
-app-public, and signaling protocol requests use their own shorter limits. These
-limits are intentionally far above the tiny synthetic payloads' normal latency,
-but prevent a half-open response from indefinitely delaying failure detection.
+PRO-room probe, which has eight minutes for edge propagation. The PRO media
+CORS apply/read-back step and its adjacent public smoke each have ten minutes.
+Developer API and remote-share HTTP requests abort after 30 seconds; PRO-room,
+app-generation, app-public, and signaling protocol requests use their own
+shorter limits. These limits are intentionally far above the tiny synthetic
+payloads' normal latency, but prevent a half-open response from indefinitely
+delaying failure detection.
 The complete deploy job has a four-hour ceiling. A separate 90-minute
 `always()` recovery job consumes the persisted pre-mutation checkpoint, so a
 deploy-job timeout cannot remove the paired R2/Worker ownership assessment and
@@ -304,9 +305,11 @@ token that expires on 2027-07-16. Rotate it before expiry and update the
 environment secret named `CLOUDFLARE_API_TOKEN`; never copy a local Wrangler
 OAuth credential into GitHub. Keep D1 writes on a separate account token in
 `CLOUDFLARE_D1_API_TOKEN`, restricted to this account with the `D1:Edit`
-permission. The Worker token is injected only into Wrangler status, deployment,
-final-verification, and recovery steps; dependency installation, artifact
-verification, and live-smoke code never receive it. The release workflow probes
+permission. The Worker token is injected only into steps that call Cloudflare
+management APIs for credential verification, checkpoint/status reads, R2 policy
+mutation/read-back, Worker deployment, final verification, or recovery;
+dependency installation, artifact verification, and public live-smoke code
+never receive it. The release workflow probes
 the D1 token before any Worker deploy when a D1 change is requested, so a
 missing or under-scoped credential stops without rolling production forward and
 back. Keep base-schema changes additive and backward-compatible because Worker

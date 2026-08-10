@@ -41,7 +41,10 @@ import {
   type ProRoomSystemAudioLeaseLossReason,
   type ProRoomSystemAudioViewState,
 } from './system-audio-controller.ts';
-import { configureProSystemAudioBridge } from './system-audio-bridge.ts';
+import {
+  configureProSystemAudioBridge,
+  type ProSystemAudioLeaseAttempt,
+} from './system-audio-bridge.ts';
 
 const LEASE_HEARTBEAT_TIMER = 'pro-system-audio-lease-heartbeat';
 const LEASE_RELEASE_RETRY_TIMER = 'pro-system-audio-lease-release-retry';
@@ -71,6 +74,7 @@ let publisherRecoveryFlight: PublisherRecoveryFlight | null = null;
 let boundSessionKey: string | null = null;
 let leaseHeartbeatFailureNotified = false;
 let subscriberFailureGeneration: number | null = null;
+let localLeaseAttemptOwner: LocalLeaseAttemptOwner | null = null;
 
 let coordinatorSourceL: MediaStreamAudioSourceNode | null = null;
 let coordinatorSourceR: MediaStreamAudioSourceNode | null = null;
@@ -83,6 +87,13 @@ interface LocalLeaseIdentity {
   epoch: number;
   roomCode: string;
   generation: number;
+}
+
+interface LocalLeaseAttemptOwner {
+  token: symbol;
+  epoch: number;
+  controller: ProRoomSystemAudioController | null;
+  identity: LocalLeaseIdentity | null;
 }
 
 interface CoordinatorPublicationIdentity {
@@ -515,7 +526,7 @@ export function configureProSystemAudioService(api: ProRoomApiClient): void {
     localLeaseLost: onLocalLeaseLost,
   });
   configureProSystemAudioBridge({
-    acquire: acquireLocalProSystemAudioLease,
+    beginLeaseAttempt: beginLocalProSystemAudioLeaseAttempt,
     publish: publishLocalProSystemAudio,
     release: releaseLocalProSystemAudioLease,
     view: getProSystemAudioViewState,
@@ -537,6 +548,7 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     const controllerWillNotifyLeaseLoss = Boolean(controller?.getCurrentLease());
     refreshFlight = null;
     serviceSessionEpoch += 1;
+    localLeaseAttemptOwner = null;
     expectedLeaseTransitions.clear();
     cancelPublisherRecovery();
     localPublishFlight = null;
@@ -565,6 +577,7 @@ export function resetProSystemAudioService(): void {
   const hadLocalActivity = Boolean(localTracks || localPublishFlight || publisherRecoveryFlight);
   const controllerWillNotifyLeaseLoss = Boolean(controller?.getCurrentLease());
   serviceSessionEpoch += 1;
+  localLeaseAttemptOwner = null;
   expectedLeaseTransitions.clear();
   cancelPublisherRecovery();
   clearManagedTimer(LEASE_HEARTBEAT_TIMER);
@@ -643,6 +656,66 @@ export async function acquireLocalProSystemAudioLease(
     await refreshProSystemAudioState(signal).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Bind one capture-start request to the exact authenticated lease it acquires.
+ * A later request supersedes cleanup ownership even when the controller
+ * deduplicates both calls onto the same in-flight server grant.
+ */
+function beginLocalProSystemAudioLeaseAttempt(signal?: AbortSignal): ProSystemAudioLeaseAttempt {
+  const activeController = controller;
+  const epoch = serviceSessionEpoch;
+  const token = Symbol('local-system-audio-lease-attempt');
+  const existingLease = activeController?.getCurrentLease();
+  const owner: LocalLeaseAttemptOwner = {
+    token,
+    epoch,
+    controller: activeController,
+    identity:
+      existingLease?.hasCredential && isServiceSessionCurrent(epoch)
+        ? {
+            epoch,
+            roomCode: existingLease.roomCode,
+            generation: existingLease.generation,
+          }
+        : null,
+  };
+  localLeaseAttemptOwner = owner;
+
+  const result = acquireLocalProSystemAudioLease(signal).then((state) => {
+    const lease = activeController?.getCurrentLease();
+    if (
+      controller === activeController &&
+      isServiceSessionCurrent(epoch) &&
+      lease?.hasCredential &&
+      state.status !== 'idle' &&
+      lease.roomCode === latestSnapshot?.roomCode &&
+      lease.generation === state.generation
+    ) {
+      owner.identity = {
+        epoch,
+        roomCode: lease.roomCode,
+        generation: lease.generation,
+      };
+    }
+    return state;
+  });
+  let releaseFlight: Promise<ProRoomSystemAudioState | null> | null = null;
+
+  return {
+    result,
+    releaseIfCurrent: () => {
+      if (releaseFlight) return releaseFlight;
+      releaseFlight = result
+        .then(
+          () => undefined,
+          () => undefined,
+        )
+        .then(() => releaseLocalProSystemAudioLeaseInternal(null, owner));
+      return releaseFlight;
+    },
+  };
 }
 
 function scheduleLeaseHeartbeat(delayMs = LEASE_HEARTBEAT_MS): void {
@@ -772,7 +845,24 @@ export async function publishLocalProSystemAudio(
 
 async function releaseLocalProSystemAudioLeaseInternal(
   preserveRecoveryToken: symbol | null,
+  scopedOwner: LocalLeaseAttemptOwner | null = null,
 ): Promise<ProRoomSystemAudioState | null> {
+  if (scopedOwner) {
+    const identity = scopedOwner.identity;
+    if (
+      localLeaseAttemptOwner !== scopedOwner ||
+      localLeaseAttemptOwner.token !== scopedOwner.token ||
+      controller !== scopedOwner.controller ||
+      !isServiceSessionCurrent(scopedOwner.epoch) ||
+      !identity ||
+      !isLocalLeaseCurrent(identity)
+    ) {
+      return controller?.getCurrentState() ?? null;
+    }
+    // Consume cleanup ownership before any singleton timer/SFU/flight state is
+    // touched. A repeated or late release of this handle is therefore a noop.
+    localLeaseAttemptOwner = null;
+  }
   const epoch = serviceSessionEpoch;
   const lease = controller?.getCurrentLease();
   const identity: LocalLeaseIdentity | null = lease?.hasCredential
@@ -835,6 +925,9 @@ async function releaseLocalProSystemAudioLeaseInternal(
 }
 
 export function releaseLocalProSystemAudioLease(): Promise<ProRoomSystemAudioState | null> {
+  // Explicit stop owns the current live capture, including a generation that
+  // publisher recovery may have rotated beyond its original acquire handle.
+  localLeaseAttemptOwner = null;
   return releaseLocalProSystemAudioLeaseInternal(null);
 }
 

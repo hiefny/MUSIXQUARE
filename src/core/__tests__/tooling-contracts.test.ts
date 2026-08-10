@@ -56,6 +56,7 @@ describe('tooling reproducibility contracts', () => {
         'vite.config.ts',
         'vitest.config.ts',
         'vitest.critical.config.ts',
+        'vitest.tooling.config.ts',
         'vitest.workers.config.ts',
       ].sort(),
     );

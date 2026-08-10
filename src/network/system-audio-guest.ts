@@ -89,6 +89,13 @@ let _trustedReceptionWaitSeq = 0;
 let _initialUnmuteWaitSeq = 0;
 const _replacementWatchdogs = new Map<string, MediaConnection>();
 
+interface InitialUnmuteWaiter {
+  mediaConn: MediaConnection;
+  cancel: () => void;
+}
+
+const _initialUnmuteWaiters = new Set<InitialUnmuteWaiter>();
+
 interface TrustedReceptionWaiter {
   expectedGeneration: number;
   timerName: string;
@@ -205,10 +212,20 @@ function closeMediaConnection(mediaConn: MediaConnection | null): void {
   }
 }
 
+function cancelInitialUnmuteWaiters(mediaConn?: MediaConnection): void {
+  for (const waiter of [..._initialUnmuteWaiters]) {
+    if (mediaConn && waiter.mediaConn !== mediaConn) continue;
+    waiter.cancel();
+  }
+}
+
 function replaceCurrentMediaConnection(channel: string, mediaConn: MediaConnection): boolean {
   const previous = currentMediaConnection(channel);
   if (!setCurrentMediaConnection(channel, mediaConn)) return false;
-  if (previous && previous !== mediaConn) closeMediaConnection(previous);
+  if (previous && previous !== mediaConn) {
+    cancelInitialUnmuteWaiters(previous);
+    closeMediaConnection(previous);
+  }
   return true;
 }
 
@@ -322,43 +339,53 @@ function primeGuestWindowsAudioDecoder(channel: string, tracks: MediaStreamTrack
   );
 }
 
-async function waitForInitialUnmute(channel: string, tracks: MediaStreamTrack[]): Promise<void> {
-  if (tracks.length === 0 || tracks.every((track) => !track.muted)) return;
+async function waitForInitialUnmute(
+  channel: string,
+  tracks: MediaStreamTrack[],
+  mediaConn: MediaConnection,
+): Promise<boolean> {
+  if (tracks.length === 0 || tracks.every((track) => !track.muted)) return true;
 
   log.info(
     `[SysAudioGuest] ${channel} stream arrived muted; waiting for unmute before graph attach`,
   );
 
-  await new Promise<void>((resolve) => {
+  return new Promise<boolean>((resolve) => {
     const id = ++_initialUnmuteWaitSeq;
     const timeoutTimer = `sys-audio-guest-unmute-timeout-${id}`;
     const settleTimer = `sys-audio-guest-unmute-settle-${id}`;
     let settled = false;
 
     const cleanup = (): void => {
+      _initialUnmuteWaiters.delete(waiter);
       clearManagedTimer(timeoutTimer);
       clearManagedTimer(settleTimer);
       tracks.forEach((track) => track.removeEventListener('unmute', check));
     };
 
-    const done = (reason: string): void => {
+    const done = (ready: boolean, reason: string): void => {
       if (settled) return;
       settled = true;
       cleanup();
       log.info(
         `[SysAudioGuest] ${channel} graph attach after ${reason}: ${describeAudioTracks(tracks)}`,
       );
-      resolve();
+      resolve(ready);
     };
 
     const check = (): void => {
       if (tracks.every((track) => !track.muted)) {
-        setManagedTimer(settleTimer, () => done('unmute'), 80);
+        setManagedTimer(settleTimer, () => done(true, 'unmute'), 80);
       }
     };
 
+    const waiter: InitialUnmuteWaiter = {
+      mediaConn,
+      cancel: () => done(false, 'cancel'),
+    };
+    _initialUnmuteWaiters.add(waiter);
     tracks.forEach((track) => track.addEventListener('unmute', check));
-    setManagedTimer(timeoutTimer, () => done('unmute-timeout'), 2000);
+    setManagedTimer(timeoutTimer, () => done(true, 'unmute-timeout'), 2000);
     check();
   });
 }
@@ -492,8 +519,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     if (streamTracks.length === 0) {
       throw new Error('zero-audio-tracks');
     }
-    await waitForInitialUnmute(channel, streamTracks);
-    if (!isCurrentMediaConnection(channel, mediaConn)) return;
+    const unmuteWaitAccepted = await waitForInitialUnmute(channel, streamTracks, mediaConn);
+    if (!unmuteWaitAccepted || !isCurrentMediaConnection(channel, mediaConn)) return;
 
     // PeerJS media and data channels are independently ordered. A stream can
     // arrive before the authenticated SYSTEM_AUDIO_START frame, or while the
@@ -677,6 +704,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
   });
 
   mediaConn.on('close', () => {
+    cancelInitialUnmuteWaiters(mediaConn);
     if (!isCurrentMediaConnection(channel, mediaConn)) return;
     log.info(`[SysAudioGuest] ${channel} MediaConnection closed`);
     debug.closedAt = Date.now();
@@ -719,6 +747,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
 // Shared by the direct-call and SFU receive adapters; this module owns the
 // placeholder and previous-track metadata restoration contract.
 export function cleanupGuestSystemAudio(): void {
+  cancelInitialUnmuteWaiters();
   _trustedReceptionGeneration += 1;
   _pendingTrustedReceptionGeneration = null;
   cancelAllTrustedReceptionWaiters();

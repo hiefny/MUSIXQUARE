@@ -173,6 +173,31 @@ describe('YouTube Player', () => {
     });
   });
 
+  describe('player runtime bridge', () => {
+    it('wires iframe-facing rendezvous hooks to the public player ownership API', async () => {
+      const bridge = await import('../player-runtime-bridge.ts');
+      const playerRuntime = await import('../player.ts');
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      playerRuntime.setPendingAutoSyncOnReady(false);
+
+      bridge.setPendingAutoSyncOnReadyFromIframe(true, {
+        isTrackTransition: true,
+        targetTime: 12,
+      });
+      expect(playerRuntime.consumePendingAutoSyncOnReady()).toMatchObject({
+        isTrackTransition: true,
+        targetTime: 12,
+      });
+
+      playerRuntime.setPendingAutoSyncOnReady(true, { targetTime: 34 });
+      expect(bridge.consumePendingAutoSyncOnReadyFromIframe()).toMatchObject({ targetTime: 34 });
+      expect(bridge.isYouTubeZeroStartExternalFallbackActiveFromIframe()).toBe(
+        playerRuntime.isYouTubeZeroStartExternalFallbackActive(),
+      );
+      playerRuntime.setPendingAutoSyncOnReady(false);
+    });
+  });
+
   describe('zero-start runtime capability', () => {
     it('upgrades the first guest advertisement only after player and clock readiness converge', async () => {
       const stateMod = await import('../_state.ts');

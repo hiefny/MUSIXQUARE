@@ -33,7 +33,10 @@ import {
   setLocalYouTubePaused,
 } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
-import { hideYouTubeTapToPlayGate, invalidateYtDurationCache } from './iframe.ts';
+import {
+  hideYouTubeTapToPlayGateFromSync,
+  invalidateYtDurationCacheFromSync,
+} from './iframe-runtime-bridge.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { showToast } from '../ui/toast.ts';
 import type { DataConnection } from '../types/index.ts';
@@ -664,7 +667,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
           // The new video's duration isn't reported until the iframe buffers
           // it. Invalidate the cache now so the seekbar doesn't keep showing
           // the previous video's total time during the load window.
-          invalidateYtDurationCache();
+          invalidateYtDurationCacheFromSync();
           if (hostSubIndex !== undefined && hostSubIndex !== -1) {
             setYouTubeSubIndex(hostSubIndex);
           }
@@ -1151,7 +1154,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   updateHostSnapshot(time, state, hostClock, (data.videoId as string) || '');
 
   if (state === 2 || state === 0 || state === -1) {
-    hideYouTubeTapToPlayGate();
+    hideYouTubeTapToPlayGateFromSync();
   }
 
   if (!player || !isPlaybackModeYouTube()) return;

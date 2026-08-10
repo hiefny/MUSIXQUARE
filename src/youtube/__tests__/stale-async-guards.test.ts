@@ -314,6 +314,31 @@ describe('IFrame runtime readiness identity', () => {
     expect(isYtPlayerReady()).toBe(true);
   });
 
+  it('keeps a successor load guarded while a shared API attempt flushes its stale predecessor', async () => {
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { isYtLoadInProgress } = await import('../_state.ts');
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+
+    loadYouTubeVideo('staleLoad01', null, false, 0);
+    loadYouTubeVideo('freshLoad02', null, false, 0);
+
+    const player = createMockYtPlayer();
+    const handle = installYtNamespace(player);
+    const script = document.querySelector<HTMLScriptElement>(
+      'script[src*="youtube.com/iframe_api"]',
+    );
+    expect(script).not.toBeNull();
+
+    script!.dispatchEvent(new Event('load'));
+
+    // The stale task runs first, but only the successor owns this shared flag.
+    expect(isYtLoadInProgress()).toBe(true);
+
+    handle.fireReady();
+    expect(isYtLoadInProgress()).toBe(false);
+  });
+
   it.each([
     { capabilities: [] as const, label: 'ordinary member' },
     { capabilities: ['playback.control'] as const, label: 'authorized controller' },

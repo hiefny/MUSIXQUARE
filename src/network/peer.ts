@@ -53,6 +53,7 @@ import {
   broadcast,
   broadcastExcept,
   broadcastDeviceList,
+  cancelConnectionTypeWaiters,
 } from './peer-state.ts';
 
 import { handleHostIncomingConnection } from './host.ts';
@@ -913,7 +914,11 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   // tick handler runs every second as a guarded noop (hostConn=null). Tell
   // the worker to drop the timer so the noop traffic stops.
   stopWorkerTimer('sync');
-  clearAllManagedTimers();
+  // Service-worker polling belongs to the page, not to a room. Registration
+  // runs once at bootstrap, so cancelling it here would disable hourly update
+  // checks for the rest of this tab's lifetime after its first room exit.
+  cancelConnectionTypeWaiters();
+  clearAllManagedTimers({ except: ['sw-update-check'] });
   resetSignalingHealth();
 
   // ── 2. Stop media playback ──

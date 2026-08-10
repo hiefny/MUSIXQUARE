@@ -20,6 +20,10 @@ const proGrantMigration = await readFile(
   new URL('../../../cloudflare/admin-metrics.pro-grants.migration.sql', import.meta.url),
   'utf8',
 );
+const adminMetricsSchema = await readFile(
+  new URL('../../../cloudflare/admin-metrics.schema.sql', import.meta.url),
+  'utf8',
+);
 const sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 const centralEntitlementDatabases = new Set<DatabaseSync>();
 const CENTRAL_ENTITLEMENT_SQL_RE =
@@ -5304,9 +5308,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.25');
-    expect(html).toContain('/admin.js?v=8.3.25');
-    expect(html).toContain('data-admin-asset-version="8.3.25"');
+    expect(html).toContain('/admin.css?v=8.3.26');
+    expect(html).toContain('/admin.js?v=8.3.26');
+    expect(html).toContain('data-admin-asset-version="8.3.26"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -5325,7 +5329,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.25', '/admin.css?v=8.3.25']) {
+    for (const path of ['/admin.js?v=8.3.26', '/admin.css?v=8.3.26']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
@@ -8802,6 +8806,395 @@ describe('Cloudflare app worker PRO room facade', () => {
     ]);
     await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 1)).resolves.toBe(0);
     expect(audits).toHaveLength(2);
+  });
+
+  it('drains fifty expired empty intents before reconciling the next valid transfer', async () => {
+    const nowMs = 1_000;
+    const emptyRoomCode = '000250';
+    const validRoomCode = '000251';
+    const targetAccountId = `acct_${'A'.repeat(22)}`;
+    const previousOwnerAccountId = `acct_${'B'.repeat(22)}`;
+    const validRequestId = 'valid_transfer_request_01';
+    const validTransferId = `transfer_${'T'.repeat(22)}`;
+    const emptyIntents = Array.from({ length: 50 }, (_, index) => ({
+      room_code: emptyRoomCode,
+      room_generation: 1,
+      claim_generation: null,
+      transfer_id: null,
+      request_id: `empty_transfer_${String(index).padStart(3, '0')}`,
+      target_account_id: targetAccountId,
+      previous_owner_account_id: null,
+      fence_digest: null,
+      state: 'intent',
+      intent_at: index + 1,
+      prepared_at: null,
+      expires_at: 200,
+      updated_at: index + 1,
+    }));
+    const validSaga = {
+      room_code: validRoomCode,
+      room_generation: 1,
+      claim_generation: 9,
+      transfer_id: validTransferId,
+      request_id: validRequestId,
+      target_account_id: targetAccountId,
+      previous_owner_account_id: previousOwnerAccountId,
+      fence_digest: 'F'.repeat(43),
+      state: 'prepared',
+      intent_at: 100,
+      prepared_at: 100,
+      expires_at: 200,
+      updated_at: 100,
+    };
+    const sagas = [...emptyIntents, validSaga];
+    let validTargetStatus = 'reserved';
+    let validSourcePending = true;
+
+    const db = {
+      prepare: vi.fn((sql: string) => {
+        const findSaga = (values: unknown[]) => {
+          const requestId = String(values[2] || '');
+          return sagas.find(
+            (saga) =>
+              saga.room_code === values[0] &&
+              saga.room_generation === Number(values[1]) &&
+              saga.request_id === requestId,
+          );
+        };
+        const run = (...values: unknown[]) => {
+          if (/UPDATE mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+            const intentUpdate = /state = 'intent'/i.test(sql);
+            const requestId = String(values[intentUpdate ? 2 : 3] || '');
+            const saga = sagas.find(
+              (candidate) =>
+                candidate.room_code === values[0] &&
+                candidate.room_generation === Number(values[1]) &&
+                candidate.request_id === requestId,
+            );
+            if (!saga) return { meta: { changes: 0 } };
+            saga.state = String(values[intentUpdate ? 3 : 4]);
+            saga.updated_at = Number(values[intentUpdate ? 4 : 5]);
+            return { meta: { changes: 1 } };
+          }
+          if (
+            /UPDATE mxqr_pro_account_entitlements/i.test(sql) &&
+            /SET status = 'revoked'/i.test(sql) &&
+            values[3] === validRequestId
+          ) {
+            validTargetStatus = 'revoked';
+            return { meta: { changes: 1 } };
+          }
+          if (
+            /UPDATE mxqr_pro_account_entitlements/i.test(sql) &&
+            /SET status = CASE status/i.test(sql) &&
+            values[3] === validRequestId &&
+            validTargetStatus === 'revoked'
+          ) {
+            validSourcePending = false;
+            return { meta: { changes: 1 } };
+          }
+          return { meta: { changes: 0 } };
+        };
+        const first = (...values: unknown[]) => {
+          if (/FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
+            const saga = findSaga(values);
+            return saga ? { ...saga } : null;
+          }
+          if (
+            /SELECT entitlement_id, account_id, room_code, room_generation/i.test(sql) &&
+            values[0] === validRequestId
+          ) {
+            return {
+              entitlement_id: 1,
+              account_id: targetAccountId,
+              room_code: validRoomCode,
+              room_generation: 1,
+              source_kind: 'owner_transfer',
+              source_ref: validRequestId,
+              transfer_request_id: validRequestId,
+              status: validTargetStatus,
+            };
+          }
+          if (
+            /SELECT 1 AS pending FROM mxqr_pro_account_entitlements/i.test(sql) &&
+            values[2] === validRequestId &&
+            validSourcePending
+          ) {
+            return { pending: 1 };
+          }
+          return null;
+        };
+        const all = (...values: unknown[]) => {
+          if (/pragma table_info\(mxqr_pro_room_registry\)/i.test(sql)) {
+            return [{ name: 'room_generation' }, { name: 'suspension_reason' }];
+          }
+          if (/pragma table_info\(mxqr_pro_room_admin_audit\)/i.test(sql)) {
+            return [{ name: 'room_generation' }];
+          }
+          if (/FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql) && /state NOT IN/i.test(sql)) {
+            return sagas
+              .filter(
+                (saga) =>
+                  !['complete', 'target_deleted', 'expired', 'superseded'].includes(saga.state),
+              )
+              .sort((left, right) => left.updated_at - right.updated_at)
+              .slice(0, 50)
+              .map((saga) => ({ ...saga }));
+          }
+          if (
+            /FROM mxqr_pro_room_owner_transfer_issuances/i.test(sql) &&
+            /state = 'issued'/i.test(sql)
+          ) {
+            return [];
+          }
+          void values;
+          return [];
+        };
+        const statement = {
+          run: vi.fn(async () => run()),
+          all: vi.fn(async () => ({ results: all() })),
+          bind: vi.fn((...values: unknown[]) => ({
+            run: vi.fn(async () => run(...values)),
+            first: vi.fn(async () => first(...values)),
+            all: vi.fn(async () => ({ results: all(...values) })),
+          })),
+        };
+        return statement;
+      }),
+      batch: vi.fn(async (statements: Array<{ run: () => Promise<unknown> | unknown }>) =>
+        Promise.all(statements.map((statement) => statement.run())),
+      ),
+    };
+    const statusReads: string[] = [];
+    const env = {
+      MUSIXQUARE_ADMIN_DB: db,
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async (request: Request) => {
+            const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
+            const roomGeneration = Number(request.headers.get('x-mxqr-pro-room-generation') || '');
+            statusReads.push(roomCode);
+            return Response.json({
+              roomCode,
+              roomGeneration,
+              provisioned: true,
+              status: roomCode === validRoomCode ? 'suspended' : 'active',
+              suspensionReason: roomCode === validRoomCode ? 'ownership_transfer_pending' : null,
+              ownerTransferReconciliation:
+                roomCode === validRoomCode
+                  ? {
+                      phase: 'pending',
+                      transferId: validTransferId,
+                      claimGeneration: validSaga.claim_generation,
+                      requestId: validRequestId,
+                      targetAccountId,
+                      previousOwnerAccountId,
+                      preparedAtMs: validSaga.prepared_at,
+                      expiresAtMs: validSaga.expires_at,
+                      committedAtMs: null,
+                      replayUntilMs: validSaga.expires_at,
+                    }
+                  : null,
+            });
+          }),
+        })),
+      },
+    };
+
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs)).resolves.toBe(50);
+    expect(emptyIntents.every((saga) => saga.state === 'expired')).toBe(true);
+    expect(validSaga.state).toBe('prepared');
+    expect(statusReads).toHaveLength(50);
+
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 1)).resolves.toBe(1);
+    expect(validSaga.state).toBe('expired');
+    expect(statusReads.at(-1)).toBe(validRoomCode);
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 2)).resolves.toBe(0);
+  });
+
+  it('rotates fifty mismatched intents without mutating their entitlements or starving the next recoverable intent', async () => {
+    const nowMs = 1_000;
+    const targetAccountId = `acct_${'A'.repeat(22)}`;
+    const database = new sqlite.DatabaseSync(':memory:');
+    centralEntitlementDatabases.add(database);
+    database.exec(adminMetricsSchema);
+
+    const db = {
+      prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)),
+      batch: async (statements: Array<{ run: () => Promise<unknown> }>) =>
+        Promise.all(statements.map((statement) => statement.run())),
+    };
+    const insertSaga = database.prepare(
+      `INSERT INTO mxqr_pro_room_owner_transfer_sagas (
+         room_code, room_generation, claim_generation, transfer_id, request_id,
+         target_account_id, previous_owner_account_id, fence_digest, state,
+         intent_at, prepared_at, expires_at, updated_at
+       ) VALUES (?1, ?2, NULL, NULL, ?3, ?4, NULL, NULL, 'intent', ?5, NULL, 200, ?5)`,
+    );
+    const insertEntitlement = database.prepare(
+      `INSERT INTO mxqr_pro_account_entitlements (
+         account_id, room_code, room_generation, source_kind, source_ref,
+         transfer_request_id, status, created_at, updated_at
+       ) VALUES (?1, ?2, 1, 'owner_transfer', ?3, ?3, 'reserved', 1, 1)`,
+    );
+    const blockers = Array.from({ length: 50 }, (_, index) => {
+      const suffix = String(index).padStart(3, '0');
+      const saga = {
+        roomCode: String(400 + index).padStart(6, '0'),
+        requestId: `mismatch_request_${suffix}`,
+        mismatchedAccountId: `acct_${index.toString(36).padStart(22, '0')}`,
+        mismatchedRoomCode: String(600 + index).padStart(6, '0'),
+        updatedAt: index + 1,
+      };
+      insertSaga.run(saga.roomCode, 1, saga.requestId, targetAccountId, saga.updatedAt);
+      insertEntitlement.run(saga.mismatchedAccountId, saga.mismatchedRoomCode, saga.requestId);
+      return saga;
+    });
+
+    // SQLite accepts integers outside JavaScript's exact range even though
+    // D1 exposes them through JS numbers. They must be excluded before LIMIT,
+    // not selected and then silently dropped by row normalization.
+    for (let index = 0; index < 50; index += 1) {
+      insertSaga.run(
+        String(700 + index).padStart(6, '0'),
+        9_007_199_254_740_992n,
+        `unsafe_generation_${String(index).padStart(3, '0')}`,
+        targetAccountId,
+        0,
+      );
+    }
+
+    const recoverable = {
+      roomCode: '000499',
+      requestId: 'recoverable_request_051',
+      updatedAt: 100,
+    };
+    insertSaga.run(
+      recoverable.roomCode,
+      1,
+      recoverable.requestId,
+      targetAccountId,
+      recoverable.updatedAt,
+    );
+
+    const statusReads: string[] = [];
+    let terminalMutationApplied = false;
+    let timestampMutationApplied = false;
+    const env = {
+      MUSIXQUARE_ADMIN_DB: db,
+      PRO_ROOM_ADMIN_ROOMS: {
+        idFromName: vi.fn((name: string) => name),
+        get: vi.fn(() => ({
+          fetch: vi.fn(async (request: Request) => {
+            const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
+            const roomGeneration = Number(request.headers.get('x-mxqr-pro-room-generation') || '');
+            statusReads.push(roomCode);
+            if (roomCode === blockers[0]!.roomCode && !terminalMutationApplied) {
+              terminalMutationApplied = true;
+              database
+                .prepare(
+                  `UPDATE mxqr_pro_room_owner_transfer_sagas
+                      SET state = 'superseded', updated_at = 7777
+                    WHERE room_code = ?1 AND room_generation = 1 AND request_id = ?2`,
+                )
+                .run(roomCode, blockers[0]!.requestId);
+            }
+            if (roomCode === blockers[1]!.roomCode && !timestampMutationApplied) {
+              timestampMutationApplied = true;
+              database
+                .prepare(
+                  `UPDATE mxqr_pro_room_owner_transfer_sagas
+                      SET updated_at = 7778
+                    WHERE room_code = ?1 AND room_generation = 1 AND request_id = ?2`,
+                )
+                .run(roomCode, blockers[1]!.requestId);
+            }
+            return Response.json({
+              roomCode,
+              roomGeneration,
+              provisioned: true,
+              status: 'active',
+              suspensionReason: null,
+              ownerTransferReconciliation: null,
+            });
+          }),
+        })),
+      },
+    };
+
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs)).resolves.toBe(0);
+    expect(statusReads).toHaveLength(50);
+    expect(statusReads).not.toContain(recoverable.roomCode);
+    expect(
+      database
+        .prepare(
+          `SELECT state, updated_at FROM mxqr_pro_room_owner_transfer_sagas
+            WHERE room_code = ?1 AND room_generation = 1 AND request_id = ?2`,
+        )
+        .get(blockers[0]!.roomCode, blockers[0]!.requestId),
+    ).toEqual({ state: 'superseded', updated_at: 7777 });
+    expect(
+      database
+        .prepare(
+          `SELECT state, updated_at FROM mxqr_pro_room_owner_transfer_sagas
+            WHERE room_code = ?1 AND room_generation = 1 AND request_id = ?2`,
+        )
+        .get(blockers[1]!.roomCode, blockers[1]!.requestId),
+    ).toEqual({ state: 'intent', updated_at: 7778 });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM mxqr_pro_room_owner_transfer_sagas
+            WHERE request_id LIKE 'mismatch_request_%'
+              AND state = 'intent' AND updated_at = ?1`,
+        )
+        .get(nowMs),
+    ).toEqual({ count: 48 });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM mxqr_pro_room_owner_transfer_sagas
+            WHERE request_id LIKE 'unsafe_generation_%'
+              AND state = 'intent' AND updated_at = 0`,
+        )
+        .get(),
+    ).toEqual({ count: 50 });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM mxqr_pro_account_entitlements
+            WHERE source_kind = 'owner_transfer' AND status = 'reserved'`,
+        )
+        .get(),
+    ).toEqual({ count: 50 });
+
+    await expect(reconcileOwnerTransferSagasForTests(env, db, nowMs + 1)).resolves.toBe(1);
+    expect(statusReads).toContain(recoverable.roomCode);
+    expect(
+      database
+        .prepare(
+          `SELECT state, updated_at FROM mxqr_pro_room_owner_transfer_sagas
+            WHERE room_code = ?1 AND room_generation = 1 AND request_id = ?2`,
+        )
+        .get(recoverable.roomCode, recoverable.requestId),
+    ).toEqual({ state: 'expired', updated_at: nowMs + 1 });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM mxqr_pro_room_owner_transfer_sagas
+            WHERE request_id LIKE 'mismatch_request_%' AND state = 'expired'`,
+        )
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(
+      database
+        .prepare(
+          `SELECT COUNT(*) AS count FROM mxqr_pro_account_entitlements
+            WHERE source_kind = 'owner_transfer' AND status <> 'reserved'`,
+        )
+        .get(),
+    ).toEqual({ count: 0 });
   });
 
   it('terminalizes a decommissioned transfer only after exact tombstone and central cleanup evidence', async () => {

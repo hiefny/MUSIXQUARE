@@ -90,6 +90,7 @@ const proAudio = vi.hoisted(() => ({
   acquire: vi.fn(),
   publish: vi.fn(),
   release: vi.fn(),
+  attemptToken: null as symbol | null,
   coordinatorCompatible: true,
 }));
 
@@ -117,12 +118,35 @@ vi.mock('../context.ts', () => ({
 }));
 
 vi.mock('../../pro-room/system-audio-bridge.ts', () => ({
-  acquireLocalProSystemAudioLease: proAudio.acquire,
+  beginLocalProSystemAudioLeaseAttempt: vi.fn(() => {
+    const token = Symbol('test-pro-lease-attempt');
+    proAudio.attemptToken = token;
+    const result = proAudio.acquire();
+    let releaseFlight: Promise<unknown> | null = null;
+    return {
+      result,
+      releaseIfCurrent: vi.fn(() => {
+        if (releaseFlight) return releaseFlight;
+        releaseFlight = result.then(
+          () => {
+            if (proAudio.attemptToken !== token) return null;
+            proAudio.attemptToken = null;
+            return proAudio.release();
+          },
+          () => null,
+        );
+        return releaseFlight;
+      }),
+    };
+  }),
   canPublishProSystemAudioWithCurrentCoordinator: vi.fn(() => proAudio.coordinatorCompatible),
   getProSystemAudioOwnerDisplayName: vi.fn(() => proAudio.ownerName),
   getProSystemAudioViewState: vi.fn(() => ({ ...proAudio.view })),
   publishLocalProSystemAudio: proAudio.publish,
-  releaseLocalProSystemAudioLease: proAudio.release,
+  releaseLocalProSystemAudioLease: vi.fn(() => {
+    proAudio.attemptToken = null;
+    return proAudio.release();
+  }),
 }));
 
 function youtubeMeta(): TrackMeta {
@@ -140,6 +164,18 @@ function fileMeta(name: string): TrackMeta {
   return { type: 'file', name, title: name, videoId: null, playlistId: null };
 }
 
+function setProRoom(epoch = 1): void {
+  setState('room.context', {
+    kind: 'pro',
+    roomId: '000001',
+    role: 'member',
+    coordinatorId: 'host-1',
+    epoch,
+    snapshotRevision: epoch,
+    capabilities: ['playback.control'],
+  });
+}
+
 let lastDisplayCapture: {
   track: MediaStreamTrack;
   dispatchEnded: () => void;
@@ -149,12 +185,19 @@ function stubDisplayMedia(
   implementation?: (stream: MediaStream) => Promise<MediaStream>,
 ): ReturnType<typeof vi.fn> {
   const endedListeners = new Set<() => void>();
+  let readyState: MediaStreamTrackState = 'live';
   const track = {
     id: 'cap-track-1',
     kind: 'audio',
-    readyState: 'live',
+    get readyState() {
+      return readyState;
+    },
     muted: false,
-    stop: vi.fn(),
+    stop: vi.fn(() => {
+      // MediaStreamTrack.stop() transitions the state but intentionally does
+      // not dispatch `ended`; native source termination does both.
+      readyState = 'ended';
+    }),
     addEventListener: vi.fn((type: string, listener: () => void) => {
       if (type === 'ended') endedListeners.add(listener);
     }),
@@ -163,7 +206,9 @@ function stubDisplayMedia(
     }),
   } as unknown as MediaStreamTrack;
   const stream = {
-    active: true,
+    get active() {
+      return readyState === 'live';
+    },
     getVideoTracks: () => [],
     getAudioTracks: () => [track],
     getTracks: () => [track],
@@ -178,6 +223,7 @@ function stubDisplayMedia(
   lastDisplayCapture = {
     track,
     dispatchEnded: () => {
+      readyState = 'ended';
       for (const listener of [...endedListeners]) listener();
     },
   };
@@ -261,6 +307,7 @@ beforeEach(() => {
   });
   proAudio.ownerName = null;
   proAudio.coordinatorCompatible = true;
+  proAudio.attemptToken = null;
   proAudio.acquire.mockResolvedValue({
     generation: 1,
     status: 'preparing',
@@ -416,6 +463,288 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
     expect(restoreSpy).toHaveBeenCalledTimes(1);
     expect(isSystemAudioActive()).toBe(false);
   });
+
+  it('discards a track that ended before the picker promise could expose it', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    let resolvePicker!: (stream: MediaStream) => void;
+    const pickerResult = new Promise<MediaStream>((resolve) => {
+      resolvePicker = resolve;
+    });
+    let selectedStream: MediaStream | null = null;
+    stubDisplayMedia((stream) => {
+      selectedStream = stream;
+      return pickerResult;
+    });
+    const capture = lastDisplayCapture!;
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:streams-ready', streamsReadySpy);
+
+    const startPromise = startSystemAudioCapture();
+    capture.dispatchEnded();
+    resolvePicker(selectedStream!);
+    await startPromise;
+
+    expect(capture.track.addEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+    expect(capture.track.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+    expect(initAudio).not.toHaveBeenCalled();
+    expect(transport.stopAllMediaAsync).not.toHaveBeenCalled();
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBe('youtube');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(capture.track.stop).toHaveBeenCalledOnce();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('cancels quietly when the native track ends during audio initialization', async () => {
+    preparePriorYouTubePlayback();
+    let resolveInit!: () => void;
+    vi.mocked(initAudio).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveInit = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const capture = lastDisplayCapture!;
+    const commonStopSpy = vi.fn();
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:stop', commonStopSpy);
+    bus.on('system-audio:streams-ready', streamsReadySpy);
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(initAudio).toHaveBeenCalledOnce());
+    expect(capture.track.addEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+    capture.dispatchEnded();
+    resolveInit();
+    await startPromise;
+
+    expect(commonStopSpy).not.toHaveBeenCalled();
+    expect(transport.stopAllMediaAsync).not.toHaveBeenCalled();
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(capture.track.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+    expect(getState('playback.mode')).toBe('youtube');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('restores a stopped standard-room owner and isolates a later start from stale ended events', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const firstCapture = lastDisplayCapture!;
+    const commonStopSpy = vi.fn();
+    const streamsReadySpy = vi.fn();
+    bus.on('system-audio:stop', commonStopSpy);
+    bus.on('system-audio:streams-ready', streamsReadySpy);
+
+    const firstStart = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledOnce());
+    setPlaybackIdle();
+    firstCapture.dispatchEnded();
+    settleStop(true);
+    await firstStart;
+
+    expect(commonStopSpy).not.toHaveBeenCalled();
+    expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(restoreSpy).toHaveBeenCalledOnce();
+    expect(firstCapture.track.removeEventListener).toHaveBeenCalledWith(
+      'ended',
+      expect.any(Function),
+    );
+    expect(isSystemAudioActive()).toBe(false);
+
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    expect(isSystemAudioActive()).toBe(true);
+
+    // The first track is already detached. A duplicate/stale native event
+    // must not tear down the successor capture.
+    firstCapture.dispatchEnded();
+    expect(commonStopSpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(true);
+    bus.emit('system-audio:force-stop');
+  });
+
+  it('never publishes a PRO track that ends while its lease is pending', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    let resolveLease!: (state: unknown) => void;
+    proAudio.acquire.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLease = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const capture = lastDisplayCapture!;
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() =>
+      expect(capture.track.addEventListener).toHaveBeenCalledWith('ended', expect.any(Function)),
+    );
+    capture.dispatchEnded();
+    resolveLease({
+      generation: 1,
+      status: 'preparing',
+      ownerParticipantId: 'member-1',
+      claimExpiresAt: Date.now() + 45_000,
+      liveExpiresAt: null,
+      publication: null,
+    });
+    await startPromise;
+
+    expect(proAudio.publish).not.toHaveBeenCalled();
+    expect(proAudio.release).toHaveBeenCalledOnce();
+    expect(transport.stopAllMediaAsync).not.toHaveBeenCalled();
+    expect(capture.track.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('rejects a PRO live commit when the native track ends during publication', async () => {
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: 'host-1',
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    let resolvePublication!: (state: unknown) => void;
+    proAudio.publish.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolvePublication = resolve;
+        }),
+    );
+    stubDisplayMedia();
+    const capture = lastDisplayCapture!;
+    const commonStopSpy = vi.fn();
+    bus.on('system-audio:stop', commonStopSpy);
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(proAudio.publish).toHaveBeenCalledOnce());
+    capture.dispatchEnded();
+    resolvePublication({
+      generation: 1,
+      status: 'live',
+      ownerParticipantId: 'member-1',
+      claimExpiresAt: null,
+      liveExpiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+      publication: {
+        publicationId: 'publication-1',
+        sessionId: 'session-1',
+        tracks: [],
+      },
+    });
+    await startPromise;
+
+    expect(commonStopSpy).not.toHaveBeenCalled();
+    expect(proAudio.release).toHaveBeenCalledOnce();
+    expect(capture.track.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
+    expect(getState('playback.activity')).toBe('idle');
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it.each(['resolve', 'reject'] as const)(
+    'does not let an old-room picker %s release a live successor lease',
+    async (outcome) => {
+      setProRoom(1);
+      let resolvePicker!: (stream: MediaStream) => void;
+      let rejectPicker!: (error: Error) => void;
+      let firstStream: MediaStream | null = null;
+      stubDisplayMedia((stream) => {
+        firstStream = stream;
+        return new Promise<MediaStream>((resolve, reject) => {
+          resolvePicker = resolve;
+          rejectPicker = reject;
+        });
+      });
+
+      const staleStart = startSystemAudioCapture();
+      await Promise.resolve();
+      bus.emit('system-audio:force-stop');
+
+      setProRoom(2);
+      stubDisplayMedia();
+      await startSystemAudioCapture();
+      expect(isSystemAudioActive()).toBe(true);
+      expect(proAudio.release).not.toHaveBeenCalled();
+
+      if (outcome === 'resolve') resolvePicker(firstStream!);
+      else rejectPicker(new Error('old picker failed'));
+      await staleStart;
+      await Promise.resolve();
+
+      expect(isSystemAudioActive()).toBe(true);
+      expect(proAudio.release).not.toHaveBeenCalled();
+      bus.emit('system-audio:force-stop');
+    },
+  );
+
+  it.each(['resolve', 'reject'] as const)(
+    'does not let a stale PRO publish %s release or tear down its live successor',
+    async (outcome) => {
+      setProRoom();
+      let resolvePublish!: (state: unknown) => void;
+      let rejectPublish!: (error: Error) => void;
+      proAudio.publish.mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            resolvePublish = resolve;
+            rejectPublish = reject;
+          }),
+      );
+      stubDisplayMedia();
+
+      const staleStart = startSystemAudioCapture();
+      await vi.waitFor(() => expect(proAudio.publish).toHaveBeenCalledTimes(1));
+      bus.emit('system-audio:force-stop');
+      expect(proAudio.release).toHaveBeenCalledTimes(1);
+
+      stubDisplayMedia();
+      await startSystemAudioCapture();
+      expect(proAudio.publish).toHaveBeenCalledTimes(2);
+      expect(isSystemAudioActive()).toBe(true);
+
+      if (outcome === 'resolve') {
+        resolvePublish({
+          generation: 1,
+          status: 'live',
+          ownerParticipantId: 'member-1',
+          claimExpiresAt: null,
+          liveExpiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+          publication: {
+            publicationId: 'stale-publication',
+            sessionId: 'stale-session',
+            tracks: [],
+          },
+        });
+      } else {
+        rejectPublish(new Error('stale publish failed'));
+      }
+      await staleStart;
+      await Promise.resolve();
+
+      expect(isSystemAudioActive()).toBe(true);
+      expect(proAudio.release).toHaveBeenCalledTimes(1);
+      bus.emit('system-audio:force-stop');
+    },
+  );
 });
 
 describe('system audio start failure rollback', () => {

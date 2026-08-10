@@ -218,6 +218,7 @@ export interface ResidentFile extends TransferIdentity {
 
 export interface TrackMeta extends Partial<PlaylistItem> {
   systemAudioPlaceholder?: boolean;
+  systemAudioMode?: 'sharing' | 'receiving';
 }
 
 // ─── Storage Commands & Events ─────────────────────────────────────

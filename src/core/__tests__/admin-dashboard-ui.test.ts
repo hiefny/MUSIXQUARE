@@ -1905,6 +1905,7 @@ describe('admin PRO room operations dashboard', () => {
   });
 
   it('lists campaigns and separates pause, terminal end, and unused-code revocation', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(new Date(2026, 6, 1, 9, 30).getTime());
     installAdminDom();
     const proView = document.querySelector<HTMLElement>('[data-admin-view="pro-rooms"]')!;
     const form = document.querySelector<HTMLFormElement>('[data-pro-room-form]')!;
@@ -2116,8 +2117,8 @@ describe('admin PRO room operations dashboard', () => {
     newEventButton.click();
     expect((createForm.elements.namedItem('title') as HTMLInputElement).value).toBe('');
     expect((createForm.elements.namedItem('roomCount') as HTMLInputElement).value).toBe('50');
-    expect((createForm.elements.namedItem('startsAt') as HTMLInputElement).value).not.toBe(
-      '2026-08-10T10:00',
+    expect((createForm.elements.namedItem('startsAt') as HTMLInputElement).value).toBe(
+      '2026-07-01T09:30',
     );
     expect(adminStyles).toContain('.pro-grant-campaign-layout');
     expect(adminStyles).toMatch(

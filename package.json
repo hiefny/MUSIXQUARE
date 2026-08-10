@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.3.25",
+  "version": "8.3.26",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -94,6 +94,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "test:coverage:critical": "vitest run --coverage --config vitest.critical.config.ts",
+    "test:coverage:tooling": "vitest run --coverage --config vitest.tooling.config.ts",
     "test:coverage:workers": "vitest run --coverage --config vitest.workers.config.ts",
     "pretest:e2e:live-session": "npm run build",
     "test:e2e:live-session": "tsx scripts/live-app-session-smoke.ts",

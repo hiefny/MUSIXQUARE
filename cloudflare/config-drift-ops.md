@@ -47,15 +47,28 @@ The checked-in source-to-live mapping is
 `cloudflare/ops-drift.contract.json`. The manually dispatched
 `Operations Drift Audit` GitHub workflow performs **GET-only** comparisons for
 all three R2 CORS policies, the exact remote-share lifecycle, the PRO short-delete
-guard, and the effective `main` branch rules. It never applies a bucket policy or
-edits a GitHub ruleset. The workflow runs only for `main` and
-injects credentials only into the live comparison step. It prefers the
-production environment's `CLOUDFLARE_DRIFT_AUDIT_TOKEN` with R2 configuration
-read access only. A missing narrow credential fails closed; the audit workflow
-never receives the production deployment token. GitHub follows the optional
+guard, all six Workers' exact secret-name inventories, and the effective `main`
+branch rules. It never applies a bucket policy, edits a Worker secret, or edits a
+GitHub ruleset. The workflow runs only for `main` and injects credentials only
+into the live comparison step. Its production environment
+`CLOUDFLARE_DRIFT_AUDIT_TOKEN` requires exactly the account-level
+`Workers R2 Storage Read` and `Workers Scripts Read` permissions for the
+production account. The latter is required by Cloudflare's
+`GET /accounts/{account_id}/workers/scripts/{script_name}/secrets` endpoint.
+A missing narrow credential fails closed; the audit workflow never receives or
+falls back to the production deployment token. GitHub follows the optional
 `GITHUB_DRIFT_AUDIT_TOKEN` then built-in `github.token` order. Source CORS
 objects are exact-key validated so misspelled fields fail before any live
 query; the audit script contains no mutating HTTP method.
+
+Schema v3 rollout precondition: before its first live dispatch, replace the
+GitHub `production` environment's R2-only `CLOUDFLARE_DRIFT_AUDIT_TOKEN` with a
+new account-scoped token containing exactly `Workers R2 Storage Read` and
+`Workers Scripts Read`. Dispatch this audit with the new token, confirm that the
+Worker-secret rows reached comparison rather than authorization errors, and
+only then revoke the old R2-only token. Do not use the deployment token as a
+temporary bridge; leaving the audit failed closed until the narrow rotation is
+complete is the safe fallback.
 
 The workflow retains a JSON report for 90 days and writes a compact table to
 the Actions summary. A missing credential, API error, missing required branch
@@ -93,26 +106,51 @@ npm run wrangler -- secret list --config cloudflare/wrangler.developer-api.toml 
 npm run wrangler -- secret list --config cloudflare/wrangler.developer-api-facade.toml --format pretty
 ```
 
-Current production requirements:
+`cloudflare/ops-drift.contract.json` is the canonical, exact production
+secret-name inventory. Current requirements are:
 
-- App: YouTube/Gemini/Google OAuth credentials, Cloudflare TURN and Realtime
-  credentials, account/session peppers and assertion secrets,
-  `MXQR_CAPABILITY_SECRET`, `MXQR_DEVELOPER_API_KEY_PEPPER`, and the Access/admin
-  credentials described in `admin-dashboard-ops.md` and the private deployment
-  inventory.
-- Remote share: `MXQR_CAPABILITY_SECRET`, `REMOTE_SHARE_SIGNING_SECRET`, and the
-  three R2 S3 credentials.
-- Signaling: `PRO_SIGNALING_SECRET` and
-  `MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET`.
-- PRO room: activation/PIN/session/rate-limit secrets, the shared PRO signaling
-  and independent account assertion secrets, plus the three R2 S3 credentials.
-- Developer API: key pepper and rate-limit secret.
-- Developer API facade: intentionally no secrets.
+- App (`musixquare-app`): `CLOUDFLARE_REALTIME_APP_ID`,
+  `CLOUDFLARE_REALTIME_API_TOKEN`, `CLOUDFLARE_TURN_API_TOKEN`,
+  `CLOUDFLARE_TURN_KEY_ID`, `GEMINI_API_KEY`, `GOOGLE_OAUTH_CLIENT_ID`,
+  `GOOGLE_OAUTH_CLIENT_SECRET`, `MXQR_ADMIN_PASSWORD`,
+  `MXQR_ADMIN_SESSION_SECRET`, `MXQR_AUTH_SESSION_PEPPER`,
+  `MXQR_AUTH_SUBJECT_PEPPER`, `MXQR_CAPABILITY_SECRET`,
+  `MXQR_DEVELOPER_API_KEY_PEPPER`, `MXQR_OAUTH_STATE_SECRET`,
+  `MXQR_PRO_GRANT_VOUCHER_PEPPER`,
+  `MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET`,
+  `MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET`, and `YOUTUBE_API_KEY`.
+- Developer API (`musixquare-developer-api`):
+  `MXQR_DEVELOPER_API_KEY_PEPPER` and `MXQR_DEVELOPER_API_RATE_SECRET`.
+- Developer API facade (`musixquare-developer-api-facade`): intentionally no
+  secrets.
+- PRO room (`musixquare-pro-room`):
+  `MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET`, `PRO_ROOM_ACTIVATION_SECRET`,
+  `PRO_ROOM_PIN_PEPPER`, `PRO_ROOM_RATE_LIMIT_SECRET`,
+  `PRO_ROOM_SESSION_SECRET`, `PRO_SIGNALING_SECRET`, `R2_ACCESS_KEY_ID`,
+  `R2_ACCOUNT_ID`, and `R2_SECRET_ACCESS_KEY`.
+- Remote share (`musixquare-remote-share`): `MXQR_CAPABILITY_SECRET`,
+  `R2_ACCESS_KEY_ID`, `R2_ACCOUNT_ID`, `R2_SECRET_ACCESS_KEY`, and
+  `REMOTE_SHARE_SIGNING_SECRET`.
+- Signaling (`musixquare-signaling`):
+  `MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET` and `PRO_SIGNALING_SECRET`.
+
+The live audit requires exact set equality. A missing canonical name and any
+unexpected name both fail closed. Runtime-supported legacy aliases are not
+canonical production secrets unless this contract and runbook are deliberately
+updated together. In particular, the retired
+`MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET` App binding and
+`PRO_ROOM_DECOMMISSION_VERIFY_SECRET` signaling binding are intentionally absent
+and are reported as unexpected if still deployed.
+
+Cloudflare currently documents this list endpoint's result as a union of
+`secret_text` and `secret_key` bindings. The audit accepts only those two types,
+extracts only each binding's `name`, and never serializes the returned binding
+objects or any value-bearing fields into its JSON or Markdown reports.
 
 Every project-defined HMAC, signing, or pepper secret in this inventory must be
 a random value of at least 32 characters unless its owning runbook documents a
-stricter shape. `CLOUDFLARE_REALTIME_APP_SECRET` has the same minimum because it
-also signs the app's session capability. Share only the explicitly named
+stricter shape. The active `CLOUDFLARE_REALTIME_API_TOKEN` alias has the same
+minimum because it also signs the app's session capability. Share only the explicitly named
 App/Worker or PRO/signaling pairs; other provider-issued OAuth, R2, TURN,
 Gemini, and YouTube credentials retain their provider-defined formats.
 

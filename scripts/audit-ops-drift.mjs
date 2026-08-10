@@ -10,7 +10,7 @@ import {
 export const OPS_DRIFT_CONTRACT_PATH = 'cloudflare/ops-drift.contract.json';
 export const DEFAULT_OPS_DRIFT_REPORT_PATH = 'release-artifacts/ops-drift/report.json';
 
-const CONTRACT_VERSION = 2;
+const CONTRACT_VERSION = 3;
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const GITHUB_API = 'https://api.github.com';
 const LIVE_CHECK_TIMEOUT_MS = 15_000;
@@ -47,14 +47,16 @@ function assertRepoFile(root, path, label, suffix = null) {
   readFileSync(absolute);
 }
 
-function uniqueStrings(value, label) {
+function uniqueStrings(value, label, { allowEmpty = false } = {}) {
   if (
     !Array.isArray(value) ||
-    value.length === 0 ||
+    (!allowEmpty && value.length === 0) ||
     value.some((entry) => typeof entry !== 'string' || entry.length === 0) ||
     new Set(value).size !== value.length
   ) {
-    throw new Error(`${label} must be a non-empty array of unique strings.`);
+    throw new Error(
+      `${label} must be ${allowEmpty ? 'an array' : 'a non-empty array'} of unique strings.`,
+    );
   }
 }
 
@@ -69,7 +71,14 @@ export function assertOpsDriftContract({
   contract = loadOpsDriftContract(root),
 } = {}) {
   if (
-    !hasExactKeys(contract, ['schemaVersion', 'r2Cors', 'r2Lifecycle', 'github', 'manualChecks']) ||
+    !hasExactKeys(contract, [
+      'schemaVersion',
+      'r2Cors',
+      'r2Lifecycle',
+      'workerSecrets',
+      'github',
+      'manualChecks',
+    ]) ||
     contract.schemaVersion !== CONTRACT_VERSION
   ) {
     throw new Error(`Operations drift contract must use schemaVersion ${CONTRACT_VERSION}.`);
@@ -157,6 +166,36 @@ export function assertOpsDriftContract({
     lifecycleBuckets.add(entry.bucket);
   }
 
+  if (!Array.isArray(contract.workerSecrets) || contract.workerSecrets.length === 0) {
+    throw new Error('Operations drift contract must declare Worker secret-name inventories.');
+  }
+  const secretWorkers = new Set();
+  let workerSecretNameCount = 0;
+  for (const entry of contract.workerSecrets) {
+    if (!hasExactKeys(entry, ['worker', 'expectedNames'])) {
+      throw new Error(
+        'Every Worker secret inventory must contain exactly worker and expectedNames.',
+      );
+    }
+    if (
+      typeof entry.worker !== 'string' ||
+      !/^[a-z0-9][a-z0-9-]{1,62}$/u.test(entry.worker) ||
+      secretWorkers.has(entry.worker)
+    ) {
+      throw new Error(`Invalid or duplicate Worker secret inventory: ${entry.worker}`);
+    }
+    secretWorkers.add(entry.worker);
+    uniqueStrings(entry.expectedNames, `${entry.worker}.expectedNames`, { allowEmpty: true });
+    if (entry.expectedNames.some((name) => !/^[A-Z][A-Z0-9_]{0,127}$/u.test(name))) {
+      throw new Error(`${entry.worker}.expectedNames contains an invalid binding name.`);
+    }
+    const sortedNames = [...entry.expectedNames].sort();
+    if (!entry.expectedNames.every((name, index) => name === sortedNames[index])) {
+      throw new Error(`${entry.worker}.expectedNames must be sorted.`);
+    }
+    workerSecretNameCount += entry.expectedNames.length;
+  }
+
   if (!hasExactKeys(contract.github, ['repository', 'branch', 'requiredEffectiveRuleTypes'])) {
     throw new Error(
       'GitHub drift contract must declare repository, branch, and requiredEffectiveRuleTypes.',
@@ -202,6 +241,8 @@ export function assertOpsDriftContract({
     r2CorsPolicyCount: buckets.size,
     r2ExactLifecyclePolicyCount: contract.r2Lifecycle.exactPolicies.length,
     r2ShortLifecycleGuardCount: contract.r2Lifecycle.forbiddenShortDeletePolicies.length,
+    workerSecretPolicyCount: secretWorkers.size,
+    workerSecretNameCount,
     githubRuleCount: contract.github.requiredEffectiveRuleTypes.length,
     manualCheckCount: manualIds.size,
   };
@@ -429,6 +470,31 @@ export function shortDeleteLifecycleRules(policy, maxAgeSeconds) {
         ? `${rule.id} (${condition.maxAge}s)`
         : `${rule.id} (${condition.date})`;
     });
+}
+
+export function normalizeWorkerSecretNames(value, label = 'Worker secrets') {
+  if (!Array.isArray(value)) throw new Error(`${label} must be a secret binding array.`);
+  const names = [];
+  const seen = new Set();
+  for (let index = 0; index < value.length; index++) {
+    const binding = value[index];
+    if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
+      throw new Error(`${label}[${index}] must be a secret binding object.`);
+    }
+    if (
+      typeof binding.name !== 'string' ||
+      !/^[A-Z][A-Z0-9_]{0,127}$/u.test(binding.name) ||
+      (binding.type !== 'secret_text' && binding.type !== 'secret_key')
+    ) {
+      throw new Error(`${label}[${index}] contains an invalid secret name or type.`);
+    }
+    if (seen.has(binding.name)) {
+      throw new Error(`${label} contains a duplicate secret name.`);
+    }
+    seen.add(binding.name);
+    names.push(binding.name);
+  }
+  return names.sort();
 }
 
 function sameJson(left, right) {
@@ -726,6 +792,60 @@ export async function runOpsDriftAudit({
         result(
           id,
           `R2 short-delete lifecycle ${entry.bucket}`,
+          'error',
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
+  }
+
+  // The list endpoint is intentionally name-only for this audit. Cloudflare's
+  // response schema may contain secret material fields, so normalization reads
+  // only `name` and `type`; report details never serialize a binding object.
+  for (const entry of contract.workerSecrets) {
+    const id = `worker-secrets:${entry.worker}`;
+    try {
+      if (!accountId) throw new Error('Cloudflare account ID is not configured.');
+      const payload = await fetchJson(
+        fetcher,
+        `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(entry.worker)}/secrets`,
+        env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,
+        `Worker secrets ${entry.worker}`,
+      );
+      if (payload?.success !== true || !Array.isArray(payload.result)) {
+        throw new Error(`Worker secrets ${entry.worker} returned an invalid API envelope.`);
+      }
+      const expected = [...entry.expectedNames];
+      const actual = normalizeWorkerSecretNames(payload.result, `live:${entry.worker}`);
+      const actualSet = new Set(actual);
+      const expectedSet = new Set(expected);
+      const missing = expected.filter((name) => !actualSet.has(name));
+      const unexpected = actual.filter((name) => !expectedSet.has(name));
+      checks.push(
+        missing.length === 0 && unexpected.length === 0
+          ? result(
+              id,
+              `Worker secrets ${entry.worker}`,
+              'pass',
+              `Live secret-name inventory exactly matches ${expected.length} expected binding names.`,
+            )
+          : result(
+              id,
+              `Worker secrets ${entry.worker}`,
+              'drift',
+              [
+                missing.length > 0 ? `Missing secret names: ${missing.join(', ')}.` : '',
+                unexpected.length > 0 ? `Unexpected secret names: ${unexpected.join(', ')}.` : '',
+              ]
+                .filter(Boolean)
+                .join(' '),
+            ),
+      );
+    } catch (error) {
+      checks.push(
+        result(
+          id,
+          `Worker secrets ${entry.worker}`,
           'error',
           error instanceof Error ? error.message : String(error),
         ),

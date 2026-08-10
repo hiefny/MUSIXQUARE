@@ -61,8 +61,8 @@ export interface YTPlayerConfig {
   playerVars?: Record<string, string | number>;
   events?: {
     onReady?: (event: { target: YouTubePlayerInstance }) => void;
-    onStateChange?: (event: { data: number }) => void;
-    onError?: (event: { data: number }) => void;
+    onStateChange?: (event: { data: number; target: YouTubePlayerInstance }) => void;
+    onError?: (event: { data: number; target: YouTubePlayerInstance }) => void;
     onAutoplayBlocked?: (event: { target: YouTubePlayerInstance }) => void;
     onApiChange?: (event: { target: YouTubePlayerInstance }) => void;
   };

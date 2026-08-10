@@ -22,6 +22,8 @@ export interface WorkerFloorRecoveryReport {
   }>;
 }
 
+export const ENTITLEMENT_SUPPORT_RELEASE_SHA: 'a79d1624d2314942072622cc875da7c7332a9530';
+
 export function parseWorkerFloorEvidence(payload: unknown, label?: string): WorkerFloorEvidence;
 
 export function captureWorkerFloorCheckpoint(

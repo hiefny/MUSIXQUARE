@@ -76,16 +76,19 @@ restored. A baseline that predates the floor, has unknown/divergent provenance,
 or was captured before this release established the exact candidate floor is
 retained on that candidate for forward repair. The entitlement floor follows a
 stricter first-cutover boundary: a checkpoint that was already complete permits
-its verified baseline, but a checkpoint captured as incomplete keeps the
-affected App/PRO Worker on the exact candidate even if the first recovery read
-is still false. The candidate App can complete that durable backfill between a
-read and rollback, and there is no distributed writer fence for that interval;
-the first entitlement cutover therefore prevents a mixed contract before it
-preserves availability. If the candidate was never deployed, automatic recovery
-stays red for forward repair instead of guessing that the older baseline is
-safe. Recovery freshly rereads cutover status, release authority, and both
-floors after the paired Worker/R2 verification, and fails if that evidence
-changed or a candidate-required Worker is not still on that release. A later
+an App/PRO baseline only when its exact Git provenance also descends from the
+entitlement-support release `a79d1624d2314942072622cc875da7c7332a9530`. A
+checkpoint captured as incomplete, an older entitlement-blind baseline, or
+unknown/divergent provenance keeps the affected App/PRO Worker on the exact
+candidate even if the first recovery read is still false. The candidate App can
+complete that durable backfill between a read and rollback, and there is no
+distributed writer fence for that interval; the first entitlement cutover
+therefore prevents a mixed contract before it preserves availability. If the
+candidate was never deployed, automatic recovery stays red for forward repair
+instead of guessing that the older baseline is safe. Recovery freshly rereads
+cutover status, release authority, and both floors after the paired Worker/R2
+verification, and fails if that evidence changed or a candidate-required Worker
+is not still on that release. A later
 successful full release can restore a marker left disabled by a failed release,
 but only after the same floor, smoke, and deployment-ownership checks pass.
 

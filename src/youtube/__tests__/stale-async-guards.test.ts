@@ -182,17 +182,21 @@ function createMockYtPlayer(playlistIds: string[] = []): YouTubePlayerInstance {
 }
 
 interface YtTestHandle {
-  fireStateChange: (state: number) => void;
+  fireStateChange: (state: number, target?: YouTubePlayerInstance) => void;
   fireReady: () => void;
-  fireError: (code: number) => void;
+  fireError: (code: number, target?: YouTubePlayerInstance) => void;
   fireAutoplayBlocked: () => void;
   fireApiChange: (target?: YouTubePlayerInstance) => void;
 }
 
 function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
-  let capturedOnStateChange: ((event: { data: number }) => void) | undefined;
+  let capturedOnStateChange:
+    | ((event: { data: number; target: YouTubePlayerInstance }) => void)
+    | undefined;
   let capturedOnReady: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
-  let capturedOnError: ((event: { data: number }) => void) | undefined;
+  let capturedOnError:
+    | ((event: { data: number; target: YouTubePlayerInstance }) => void)
+    | undefined;
   let capturedOnAutoplayBlocked: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   let capturedOnApiChange: ((event: { target: YouTubePlayerInstance }) => void) | undefined;
   (window as unknown as { YT: unknown }).YT = {
@@ -200,9 +204,9 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
       _target: string,
       options: {
         events: {
-          onStateChange?: (event: { data: number }) => void;
+          onStateChange?: (event: { data: number; target: YouTubePlayerInstance }) => void;
           onReady?: (event: { target: YouTubePlayerInstance }) => void;
-          onError?: (event: { data: number }) => void;
+          onError?: (event: { data: number; target: YouTubePlayerInstance }) => void;
           onAutoplayBlocked?: (event: { target: YouTubePlayerInstance }) => void;
           onApiChange?: (event: { target: YouTubePlayerInstance }) => void;
         };
@@ -225,17 +229,17 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
     },
   };
   return {
-    fireStateChange: (state: number) => {
+    fireStateChange: (state: number, target = player) => {
       if (!capturedOnStateChange) throw new Error('onStateChange was never captured');
-      capturedOnStateChange({ data: state });
+      capturedOnStateChange({ data: state, target });
     },
     fireReady: () => {
       if (!capturedOnReady) throw new Error('onReady was never captured');
       capturedOnReady({ target: player });
     },
-    fireError: (code: number) => {
+    fireError: (code: number, target = player) => {
       if (!capturedOnError) throw new Error('onError was never captured');
-      capturedOnError({ data: code });
+      capturedOnError({ data: code, target });
     },
     fireAutoplayBlocked: () => {
       if (!capturedOnAutoplayBlocked) throw new Error('onAutoplayBlocked was never captured');
@@ -799,6 +803,75 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     loadYouTubeVideo('vidA000000A', null, false, 0);
     return handle;
   }
+
+  it('ignores an unavailable callback emitted by a retired player after replacement', async () => {
+    const retiredPlayer = createMockYtPlayer();
+    const handle = await createPlayerInYouTubeMode(retiredPlayer);
+    const replacementPlayer = createMockYtPlayer();
+    vi.mocked(replacementPlayer.getVideoData!).mockReturnValue({ video_id: 'vidB000000B' });
+    vi.mocked(replacementPlayer.getPlayerState!).mockReturnValue(3);
+
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'B',
+        videoId: 'vidB000000B',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    const stateMod = await import('../_state.ts');
+    stateMod.setYouTubePlayer(replacementPlayer);
+    stateMod.setYtLoadInProgress(true);
+
+    const nextTrack = vi.fn();
+    const tryNext = vi.fn();
+    bus.on('playlist:next-track', nextTrack);
+    bus.on('youtube:try-next-internal', tryNext);
+    showToastMock.mockClear();
+
+    handle.fireError(150, retiredPlayer);
+
+    expect(stateMod.getYouTubePlayer()).toBe(replacementPlayer);
+    expect(stateMod.isYtLoadInProgress()).toBe(true);
+    expect(nextTrack).not.toHaveBeenCalled();
+    expect(tryNext).not.toHaveBeenCalled();
+    expect(showToastMock).not.toHaveBeenCalled();
+    expect(broadcastSystemMessageMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores an ENDED callback emitted by a retired player after replacement', async () => {
+    const retiredPlayer = createMockYtPlayer();
+    const handle = await createPlayerInYouTubeMode(retiredPlayer);
+    const replacementPlayer = createMockYtPlayer();
+
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'B',
+        videoId: 'vidB000000B',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    const { setYouTubePlayer } = await import('../_state.ts');
+    setYouTubePlayer(replacementPlayer);
+
+    const nextTrack = vi.fn();
+    const tryNext = vi.fn();
+    bus.on('playlist:next-track', nextTrack);
+    bus.on('youtube:try-next-internal', tryNext);
+
+    handle.fireStateChange(0, retiredPlayer);
+
+    expect(nextTrack).not.toHaveBeenCalled();
+    expect(tryNext).not.toHaveBeenCalled();
+    expect(setManagedTimerMock).not.toHaveBeenCalledWith(
+      'yt-guest-ended-fallback',
+      expect.any(Function),
+      expect.any(Number),
+    );
+  });
 
   it('a late unavailable error outside YouTube mode (retained player) must not toast or advance', async () => {
     const player = createMockYtPlayer();

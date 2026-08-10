@@ -159,11 +159,17 @@ interface YtTestHandle {
 }
 
 function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
-  let capturedOnStateChange: ((event: { data: number }) => void) | undefined;
+  let capturedOnStateChange:
+    | ((event: { data: number; target: YouTubePlayerInstance }) => void)
+    | undefined;
   (window as unknown as { YT: unknown }).YT = {
     Player: vi.fn(function (
       _target: string,
-      options: { events: { onStateChange?: (event: { data: number }) => void } },
+      options: {
+        events: {
+          onStateChange?: (event: { data: number; target: YouTubePlayerInstance }) => void;
+        };
+      },
     ) {
       capturedOnStateChange = options.events.onStateChange;
       return player;
@@ -180,7 +186,7 @@ function installYtNamespace(player: YouTubePlayerInstance): YtTestHandle {
   return {
     fireStateChange: (state: number) => {
       if (!capturedOnStateChange) throw new Error('onStateChange was never captured');
-      capturedOnStateChange({ data: state });
+      capturedOnStateChange({ data: state, target: player });
     },
   };
 }

@@ -18,6 +18,9 @@ const GENERATION_WORKERS = Object.freeze([
   'app',
 ]);
 const ENTITLEMENT_WORKERS = Object.freeze(['pro-room', 'app']);
+// Immutable first release whose App/PRO Workers implement the durable
+// entitlement ledger and backfill contract represented by entitlement_floor.
+export const ENTITLEMENT_SUPPORT_RELEASE_SHA = 'a79d1624d2314942072622cc875da7c7332a9530';
 const RELEASE_SHA_RE = /^[0-9a-f]{40}$/u;
 
 function readJson(path) {
@@ -118,6 +121,9 @@ function inspectWorkerProvenance(state, releaseSha, floorReleaseSha, isAncestor)
   const generationFloorAware = Boolean(
     releaseAncestor && floorReleaseSha && isAncestor(floorReleaseSha, beforeGitSha),
   );
+  const entitlementFloorAware = Boolean(
+    releaseAncestor && isAncestor(ENTITLEMENT_SUPPORT_RELEASE_SHA, beforeGitSha),
+  );
   return {
     target: state.target,
     beforeDeploymentId: state.beforeDeploymentId || null,
@@ -126,6 +132,7 @@ function inspectWorkerProvenance(state, releaseSha, floorReleaseSha, isAncestor)
     beforeGitSha,
     provenanceStatus: releaseAncestor ? 'verified-release-ancestor' : 'unverified',
     generationFloorAware,
+    entitlementFloorAware,
   };
 }
 
@@ -316,12 +323,14 @@ export function assessWorkerFloorRecovery(
     // the durable backfill after this read but before Worker rollback. There is
     // no distributed writer fence/CAS for that audit marker. Prefer a red,
     // candidate-absent recovery over restoring an entitlement-blind baseline;
-    // routine baseline rollback starts only after a checkpoint captured true.
+    // routine baseline rollback starts only after a checkpoint captured true
+    // and the baseline descends from the entitlement-support release boundary.
     const compatible =
       checkpoint.floors.entitlementFloor === true &&
       !entitlementTransitioned &&
       entitlementEvidenceStable &&
-      worker?.provenanceStatus === 'verified-release-ancestor';
+      worker?.provenanceStatus === 'verified-release-ancestor' &&
+      worker?.entitlementFloorAware === true;
     report.results.push({
       target,
       floor: 'entitlement',

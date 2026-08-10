@@ -1932,7 +1932,11 @@ function _finishScrape(ids: string[] | null): void {
   }
 }
 
-function onYouTubePlayerError(event: { data: number }): void {
+function onYouTubePlayerError(event: { data: number; target: YouTubePlayerInstance }): void {
+  // A destroyed/superseded iframe can still deliver queued API callbacks.
+  // Fence by the event's official player identity before touching any shared
+  // load, indexing, prime, UI, or playlist state owned by its replacement.
+  if (event.target !== getYouTubePlayer()) return;
   const code = event.data;
 
   // Prime-time error (e.g. silent prime video unavailable): abandon the prime
@@ -2082,7 +2086,11 @@ function onYouTubePlayerApiChange(event: { target: YouTubePlayerInstance }): voi
   applyYouTubeCaptionPolicy(event.target, getCurrentSessionId());
 }
 
-function onYouTubePlayerStateChange(event: { data: number }): void {
+function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayerInstance }): void {
+  // The IFrame API may flush state queued by a player after a replacement has
+  // already claimed the global slot. Never project that retired player's
+  // state into the new queue occurrence.
+  if (event.target !== getYouTubePlayer()) return;
   const indexing = isYtIndexing();
   const player = getYouTubePlayer();
   if (!player) return; // Player destroyed during async state transition

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { verifyRecoveryBoundary } from '../../../scripts/release-deployment-state.mjs';
 import {
+  ENTITLEMENT_SUPPORT_RELEASE_SHA,
   assessWorkerFloorRecovery,
   captureWorkerFloorCheckpoint,
   readWorkerFloorForwardRepairTargets,
@@ -15,6 +16,8 @@ import {
 const SCRIPT_PATH = resolve('scripts/release-worker-floor-state.mjs');
 const CANDIDATE_SHA = 'c'.repeat(40);
 const FLOOR_SHA = 'a'.repeat(40);
+const LEGACY_ENTITLEMENT_BLIND_SHA = 'e1eb9b7ce15316d875f55b16e8be134eba521813';
+const GENERATION_SUPPORT_SHA = '4c5612d5fc4c5548781eb7d5b26d6904969c051c';
 const FLOOR_WORKERS = [
   'pro-room',
   'signaling',
@@ -97,9 +100,11 @@ function writeWorkerStates(
 function ancestry({
   releaseAncestors = new Set(FLOOR_WORKERS),
   floorAware = new Set(FLOOR_WORKERS),
+  entitlementAware = new Set(FLOOR_WORKERS),
 }: {
   releaseAncestors?: Set<string>;
   floorAware?: Set<string>;
+  entitlementAware?: Set<string>;
 } = {}): (baseSha: string, headSha: string) => boolean {
   const targetForBeforeSha = (sha: string) =>
     [...BEFORE_SHA].find(([, beforeSha]) => beforeSha === sha)?.[0];
@@ -111,6 +116,10 @@ function ancestry({
     if (baseSha === FLOOR_SHA) {
       const target = targetForBeforeSha(headSha);
       return Boolean(target && floorAware.has(target));
+    }
+    if (baseSha === ENTITLEMENT_SUPPORT_RELEASE_SHA) {
+      const target = targetForBeforeSha(headSha);
+      return Boolean(target && entitlementAware.has(target));
     }
     return false;
   };
@@ -177,6 +186,7 @@ describe('Worker compatibility-floor recovery', () => {
           beforeGitSha: BEFORE_SHA.get(target),
           provenanceStatus: 'verified-release-ancestor',
           generationFloorAware: true,
+          entitlementFloorAware: true,
         }),
       ),
     );
@@ -468,6 +478,43 @@ describe('Worker compatibility-floor recovery', () => {
     ).toEqual(['pro-room', 'app']);
   });
 
+  it('requires an entitlement-aware App/PRO baseline after the durable floor is complete', () => {
+    expect(ENTITLEMENT_SUPPORT_RELEASE_SHA).toBe('a79d1624d2314942072622cc875da7c7332a9530');
+
+    const checkpoint = directory();
+    writeWorkerStates(checkpoint, ['app']);
+    const entitlementBlindAncestry = ancestry({ entitlementAware: new Set() });
+    const captured = captureWorkerFloorCheckpoint('app', floorPayload(), checkpoint, {
+      isAncestor: entitlementBlindAncestry,
+    });
+    expect(captured.workers).toEqual([
+      expect.objectContaining({
+        target: 'app',
+        provenanceStatus: 'verified-release-ancestor',
+        generationFloorAware: true,
+        entitlementFloorAware: false,
+      }),
+    ]);
+
+    const report = assessWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+      isAncestor: entitlementBlindAncestry,
+    });
+    expect(report.status).toBe('forward-repair-required');
+    expect(report.forwardRepairTargets).toEqual(['app']);
+    expect(report.results).toEqual([
+      expect.objectContaining({
+        target: 'app',
+        floor: 'generation',
+        status: 'baseline-compatible',
+      }),
+      expect.objectContaining({
+        target: 'app',
+        floor: 'entitlement',
+        status: 'candidate-required',
+      }),
+    ]);
+  });
+
   it('fails closed when a first-cutover entitlement candidate was never deployed', () => {
     const checkpoint = directory();
     writeWorkerStates(checkpoint, ['app']);
@@ -509,6 +556,31 @@ describe('Worker compatibility-floor recovery', () => {
     ]);
   });
 
+  it('fails closed for divergent baseline provenance', () => {
+    const checkpoint = directory();
+    writeWorkerStates(checkpoint, ['app']);
+    const divergentAncestry = ancestry({ releaseAncestors: new Set() });
+    captureWorkerFloorCheckpoint('app', floorPayload(), checkpoint, {
+      isAncestor: divergentAncestry,
+    });
+    const report = assessWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+      isAncestor: divergentAncestry,
+    });
+    expect(report.forwardRepairTargets).toEqual(['app']);
+    expect(report.results).toEqual([
+      expect.objectContaining({
+        target: 'app',
+        floor: 'generation',
+        status: 'candidate-required',
+      }),
+      expect.objectContaining({
+        target: 'app',
+        floor: 'entitlement',
+        status: 'candidate-required',
+      }),
+    ]);
+  });
+
   it('rejects a checkpoint missing canonical cutover authority evidence', () => {
     const checkpoint = directory();
     writeWorkerStates(checkpoint, ['app']);
@@ -530,7 +602,7 @@ describe('Worker compatibility-floor recovery', () => {
     ).toThrow('checkpoint is missing or malformed');
   });
 
-  it('runs the snapshot CLI against real Git ancestry', () => {
+  it('runs the snapshot and assessment CLIs against a supported baseline', () => {
     const checkpoint = directory();
     const payloadPath = resolve(checkpoint, 'floor.json');
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
@@ -564,7 +636,97 @@ describe('Worker compatibility-floor recovery', () => {
           beforeGitSha: head,
           provenanceStatus: 'verified-release-ancestor',
           generationFloorAware: true,
+          entitlementFloorAware: true,
         },
+      ],
+    });
+
+    execFileSync(process.execPath, [SCRIPT_PATH, 'assess', checkpoint, payloadPath, checkpoint], {
+      cwd: resolve('.'),
+      stdio: 'pipe',
+    });
+    expect(
+      JSON.parse(readFileSync(resolve(checkpoint, 'worker-floor-recovery.json'), 'utf8')),
+    ).toMatchObject({
+      status: 'rollback-compatible',
+      forwardRepairTargets: [],
+      results: [
+        { target: 'app', floor: 'generation', status: 'baseline-compatible' },
+        { target: 'app', floor: 'entitlement', status: 'baseline-compatible' },
+      ],
+    });
+  });
+
+  it('keeps the exact candidate when the real baseline predates entitlement support', () => {
+    const checkpoint = directory();
+    const payloadPath = resolve(checkpoint, 'floor.json');
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    expect(
+      execFileSync('git', ['merge-base', '--is-ancestor', GENERATION_SUPPORT_SHA, head], {
+        stdio: 'ignore',
+      }),
+    ).toBeDefined();
+    expect(() =>
+      execFileSync(
+        'git',
+        [
+          'merge-base',
+          '--is-ancestor',
+          ENTITLEMENT_SUPPORT_RELEASE_SHA,
+          LEGACY_ENTITLEMENT_BLIND_SHA,
+        ],
+        { stdio: 'ignore' },
+      ),
+    ).toThrow();
+    writeJson(resolve(checkpoint, 'app-state.json'), {
+      schemaVersion: 1,
+      target: 'app',
+      config: 'cloudflare/wrangler.app.toml',
+      releaseMessage: `git:${head}`,
+      beforeDeploymentId: 'app-legacy-deployment',
+      beforeVersionId: 'app-legacy-version',
+      beforeMessage: `git:${LEGACY_ENTITLEMENT_BLIND_SHA}`,
+      attempted: true,
+    });
+    writeJson(
+      payloadPath,
+      floorPayload({
+        generation: true,
+        floorReleaseSha: GENERATION_SUPPORT_SHA,
+        entitlement: true,
+      }),
+    );
+
+    execFileSync(process.execPath, [SCRIPT_PATH, 'snapshot', 'app', payloadPath, checkpoint], {
+      cwd: resolve('.'),
+      stdio: 'pipe',
+    });
+    execFileSync(process.execPath, [SCRIPT_PATH, 'assess', checkpoint, payloadPath, checkpoint], {
+      cwd: resolve('.'),
+      stdio: 'pipe',
+    });
+
+    expect(
+      JSON.parse(readFileSync(resolve(checkpoint, 'worker-floor-checkpoint.json'), 'utf8')),
+    ).toMatchObject({
+      workers: [
+        {
+          target: 'app',
+          beforeGitSha: LEGACY_ENTITLEMENT_BLIND_SHA,
+          provenanceStatus: 'verified-release-ancestor',
+          generationFloorAware: true,
+          entitlementFloorAware: false,
+        },
+      ],
+    });
+    expect(
+      JSON.parse(readFileSync(resolve(checkpoint, 'worker-floor-recovery.json'), 'utf8')),
+    ).toMatchObject({
+      status: 'forward-repair-required',
+      forwardRepairTargets: ['app'],
+      results: [
+        { target: 'app', floor: 'generation', status: 'baseline-compatible' },
+        { target: 'app', floor: 'entitlement', status: 'candidate-required' },
       ],
     });
   });

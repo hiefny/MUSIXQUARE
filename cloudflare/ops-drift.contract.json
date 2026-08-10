@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "r2Cors": [
     {
       "bucket": "musixquare-demo-tracks",
@@ -28,6 +28,67 @@
       }
     ]
   },
+  "workerSecrets": [
+    {
+      "worker": "musixquare-app",
+      "expectedNames": [
+        "CLOUDFLARE_REALTIME_API_TOKEN",
+        "CLOUDFLARE_REALTIME_APP_ID",
+        "CLOUDFLARE_TURN_API_TOKEN",
+        "CLOUDFLARE_TURN_KEY_ID",
+        "GEMINI_API_KEY",
+        "GOOGLE_OAUTH_CLIENT_ID",
+        "GOOGLE_OAUTH_CLIENT_SECRET",
+        "MXQR_ADMIN_PASSWORD",
+        "MXQR_ADMIN_SESSION_SECRET",
+        "MXQR_AUTH_SESSION_PEPPER",
+        "MXQR_AUTH_SUBJECT_PEPPER",
+        "MXQR_CAPABILITY_SECRET",
+        "MXQR_DEVELOPER_API_KEY_PEPPER",
+        "MXQR_OAUTH_STATE_SECRET",
+        "MXQR_PRO_GRANT_VOUCHER_PEPPER",
+        "MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET",
+        "MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET",
+        "YOUTUBE_API_KEY"
+      ]
+    },
+    {
+      "worker": "musixquare-developer-api",
+      "expectedNames": ["MXQR_DEVELOPER_API_KEY_PEPPER", "MXQR_DEVELOPER_API_RATE_SECRET"]
+    },
+    {
+      "worker": "musixquare-developer-api-facade",
+      "expectedNames": []
+    },
+    {
+      "worker": "musixquare-pro-room",
+      "expectedNames": [
+        "MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET",
+        "PRO_ROOM_ACTIVATION_SECRET",
+        "PRO_ROOM_PIN_PEPPER",
+        "PRO_ROOM_RATE_LIMIT_SECRET",
+        "PRO_ROOM_SESSION_SECRET",
+        "PRO_SIGNALING_SECRET",
+        "R2_ACCESS_KEY_ID",
+        "R2_ACCOUNT_ID",
+        "R2_SECRET_ACCESS_KEY"
+      ]
+    },
+    {
+      "worker": "musixquare-remote-share",
+      "expectedNames": [
+        "MXQR_CAPABILITY_SECRET",
+        "R2_ACCESS_KEY_ID",
+        "R2_ACCOUNT_ID",
+        "R2_SECRET_ACCESS_KEY",
+        "REMOTE_SHARE_SIGNING_SECRET"
+      ]
+    },
+    {
+      "worker": "musixquare-signaling",
+      "expectedNames": ["MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET", "PRO_SIGNALING_SECRET"]
+    }
+  ],
   "github": {
     "repository": "hiefny/MUSIXQUARE",
     "branch": "main",

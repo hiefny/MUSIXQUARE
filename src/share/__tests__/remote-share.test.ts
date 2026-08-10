@@ -1992,6 +1992,217 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     expect(getState('share.remote').upload.error).toBe('share.remote.network_error');
   });
 
+  it('keeps the newer foreground upload UI when an older upload reports progress and completes', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { showLoader, showToast, updateLoader } = await import('../../ui/toast.ts');
+    const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    const fileB = new File(['bbbb'], 'track-b.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(fileA, Q0), fileItem(fileB, Q1)]);
+
+    const uploadResolvers: Array<(value: RemoteFileSharePayload) => void> = [];
+    mocks.uploadRemoteFile.mockImplementation(
+      () =>
+        new Promise<RemoteFileSharePayload>((resolve) => {
+          uploadResolvers.push(resolve);
+        }),
+    );
+
+    setHostFile(fileA, Q0, 7);
+    const shareA = shareRemoteFileIfNeeded(fileA, 7, undefined, { queueItemId: Q0 });
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    const optionsA = mocks.uploadRemoteFile.mock.calls[0]?.[3];
+    expect(optionsA).toMatchObject({ publishState: false });
+    optionsA?.onUploadProgress?.(0.35);
+
+    setHostFile(fileB, Q1, 8);
+    const shareB = shareRemoteFileIfNeeded(fileB, 8, undefined, { queueItemId: Q1 });
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledTimes(2));
+    const optionsB = mocks.uploadRemoteFile.mock.calls[1]?.[3];
+    expect(optionsB).toMatchObject({ publishState: false });
+    optionsB?.onUploadProgress?.(0.2);
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.2,
+      objectId: null,
+    });
+
+    vi.mocked(showLoader).mockClear();
+    vi.mocked(showToast).mockClear();
+    vi.mocked(updateLoader).mockClear();
+    optionsA?.onUploadProgress?.(0.9);
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.2,
+      objectId: null,
+    });
+    expect(updateLoader).not.toHaveBeenCalled();
+
+    uploadResolvers[0]?.(
+      descriptor({
+        objectId: OBJECT_A,
+        name: fileA.name,
+        queueItemId: Q0,
+        sessionId: 7,
+      }),
+    );
+    await shareA;
+
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.2,
+      objectId: null,
+    });
+    expect(showLoader).not.toHaveBeenCalledWith(false, undefined, 'remote-share-upload');
+    expect(showToast).not.toHaveBeenCalled();
+
+    uploadResolvers[1]?.(
+      descriptor({
+        objectId: OBJECT_B,
+        name: fileB.name,
+        queueItemId: Q1,
+        sessionId: 8,
+      }),
+    );
+    await shareB;
+  });
+
+  it('keeps the newer foreground upload UI and notifications untouched when an older upload fails', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { showLoader, showToast, updateLoader } = await import('../../ui/toast.ts');
+    const { broadcastSystemMessage, sendSystemMessage } = await import('../../chat/protocol.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    const fileB = new File(['bbbb'], 'track-b.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(fileA, Q0), fileItem(fileB, Q1)]);
+
+    const uploadResolvers: Array<(value: RemoteFileSharePayload) => void> = [];
+    const uploadRejecters: Array<(reason: unknown) => void> = [];
+    mocks.uploadRemoteFile.mockImplementation(
+      () =>
+        new Promise<RemoteFileSharePayload>((resolve, reject) => {
+          uploadResolvers.push(resolve);
+          uploadRejecters.push(reject);
+        }),
+    );
+
+    setHostFile(fileA, Q0, 7);
+    const shareA = shareRemoteFileIfNeeded(fileA, 7, undefined, { queueItemId: Q0 });
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    const optionsA = mocks.uploadRemoteFile.mock.calls[0]?.[3];
+    optionsA?.onUploadProgress?.(0.35);
+
+    setHostFile(fileB, Q1, 8);
+    const shareB = shareRemoteFileIfNeeded(fileB, 8, undefined, { queueItemId: Q1 });
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledTimes(2));
+    const optionsB = mocks.uploadRemoteFile.mock.calls[1]?.[3];
+    optionsB?.onUploadProgress?.(0.25);
+
+    vi.mocked(showLoader).mockClear();
+    vi.mocked(showToast).mockClear();
+    vi.mocked(updateLoader).mockClear();
+    vi.mocked(broadcastSystemMessage).mockClear();
+    vi.mocked(sendSystemMessage).mockClear();
+    vi.mocked(safeSend).mockClear();
+    optionsA?.onUploadProgress?.(0.8);
+    uploadRejecters[0]?.(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
+    await shareA;
+
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.25,
+      objectId: null,
+      error: null,
+    });
+    expect(updateLoader).not.toHaveBeenCalled();
+    expect(showLoader).not.toHaveBeenCalledWith(false, undefined, 'remote-share-upload');
+    expect(showToast).not.toHaveBeenCalled();
+    expect(broadcastSystemMessage).not.toHaveBeenCalled();
+    expect(sendSystemMessage).not.toHaveBeenCalled();
+    expect(safeSend).not.toHaveBeenCalled();
+
+    uploadResolvers[1]?.(
+      descriptor({
+        objectId: OBJECT_B,
+        name: fileB.name,
+        queueItemId: Q1,
+        sessionId: 8,
+      }),
+    );
+    await shareB;
+  });
+
+  it('immediately clears a pending upload on external takeover without waiting for a callback', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { showLoader, showToast, updateLoader } = await import('../../ui/toast.ts');
+    const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(file, Q0)]);
+    setHostFile(file, Q0, 7);
+
+    const share = shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    const uploadOptions = mocks.uploadRemoteFile.mock.calls[0]?.[3];
+    uploadOptions?.onUploadProgress?.(0.3);
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.3,
+    });
+
+    vi.mocked(showLoader).mockClear();
+    vi.mocked(showToast).mockClear();
+    vi.mocked(updateLoader).mockClear();
+    setPlaybackYouTubePlaying();
+
+    expect((uploadOptions?.signal as AbortSignal | undefined)?.aborted).toBe(false);
+    expect(getState('share.remote').upload).toEqual({
+      status: 'idle',
+      progress: 0,
+      objectId: null,
+      expiresAt: null,
+      error: null,
+    });
+    expect(vi.mocked(showLoader).mock.calls).toEqual([[false, undefined, 'remote-share-upload']]);
+    expect(updateLoader).not.toHaveBeenCalled();
+    expect(showToast).not.toHaveBeenCalled();
+
+    resolveUpload(descriptor({ name: file.name, queueItemId: Q0, sessionId: 7 }));
+    await share;
+    expect(getState('share.remote').upload.status).toBe('idle');
+  });
+
+  it('releases only the Remote Share loader holder at an authority boundary', async () => {
+    const { bus } = await import('../../core/events.ts');
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { showLoader } = await import('../../ui/toast.ts');
+    const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(file, Q0)]);
+    setHostFile(file, Q0, 7);
+
+    const share = shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    const uploadOptions = mocks.uploadRemoteFile.mock.calls[0]?.[3];
+    uploadOptions?.onUploadProgress?.(0.4);
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.4,
+    });
+
+    vi.mocked(showLoader).mockClear();
+    bus.emit('state:network.sessionCode', '654321', 'network.sessionCode');
+
+    expect((uploadOptions?.signal as AbortSignal | undefined)?.aborted).toBe(true);
+    expect(getState('share.remote').upload).toEqual({
+      status: 'idle',
+      progress: 0,
+      objectId: null,
+      expiresAt: null,
+      error: null,
+    });
+    expect(vi.mocked(showLoader).mock.calls).toEqual([[false, undefined, 'remote-share-upload']]);
+
+    resolveUpload(descriptor({ name: file.name, queueItemId: Q0, sessionId: 7 }));
+    await share;
+  });
+
   it('uploads the next R2 file silently and reuses that object when it becomes current', async () => {
     const { preloadRemoteFileIfNeeded, shareRemoteFileIfNeeded } =
       await import('../remote-share.ts');
@@ -2198,9 +2409,10 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     expect(getState('share.remote').upload).toMatchObject({ status: 'done', progress: 1 });
   });
 
-  it('suppresses the broadcast when the host advanced past the track during the upload', async () => {
+  it('silently clears its foreground UI when the host advances without a successor upload', async () => {
     const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
     const { broadcast, safeSend } = await import('../../network/peer.ts');
+    const { showLoader, showToast } = await import('../../ui/toast.ts');
 
     const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
     const fileB = new File(['bbbb'], 'track-b.mp3', { type: 'audio/mpeg' });
@@ -2209,15 +2421,79 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
 
     const share = shareRemoteFileIfNeeded(fileA, 7, undefined, { queueItemId: Q0 });
     await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    mocks.uploadRemoteFile.mock.calls[0]?.[3]?.onUploadProgress?.(0.4);
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.4,
+    });
 
     // Host moves to the next track mid-upload — the upload still completes
     // (no cancel by design), but the completed descriptor is stale.
+    vi.mocked(showLoader).mockClear();
+    vi.mocked(showToast).mockClear();
     setHostFile(fileB, Q1, 8);
 
     resolveUpload(descriptor({ name: 'track-a.mp3', sessionId: 7, queueItemId: Q0 }));
     await share;
 
+    expect(getState('share.remote').upload).toEqual({
+      status: 'idle',
+      progress: 0,
+      objectId: null,
+      expiresAt: null,
+      error: null,
+    });
+    expect(showLoader).toHaveBeenCalledWith(false, undefined, 'remote-share-upload');
+    expect(showToast).not.toHaveBeenCalled();
     expect(broadcast).not.toHaveBeenCalled();
+    expect(safeSend).not.toHaveBeenCalled();
+  });
+
+  it('silently clears its foreground UI when an external owner takes over before failure', async () => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const { safeSend } = await import('../../network/peer.ts');
+    const { broadcastSystemMessage, sendSystemMessage } = await import('../../chat/protocol.ts');
+    const { showLoader, showToast } = await import('../../ui/toast.ts');
+    const fileA = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(fileA, Q0)]);
+    setHostFile(fileA, Q0, 7);
+
+    let rejectUpload!: (reason: unknown) => void;
+    mocks.uploadRemoteFile.mockImplementationOnce(
+      () =>
+        new Promise<RemoteFileSharePayload>((_resolve, reject) => {
+          rejectUpload = reject;
+        }),
+    );
+
+    const share = shareRemoteFileIfNeeded(fileA, 7, undefined, { queueItemId: Q0 });
+    await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+    mocks.uploadRemoteFile.mock.calls[0]?.[3]?.onUploadProgress?.(0.4);
+    expect(getState('share.remote').upload).toMatchObject({
+      status: 'uploading',
+      progress: 0.4,
+    });
+
+    vi.mocked(showLoader).mockClear();
+    vi.mocked(showToast).mockClear();
+    vi.mocked(broadcastSystemMessage).mockClear();
+    vi.mocked(sendSystemMessage).mockClear();
+    vi.mocked(safeSend).mockClear();
+    setPlaybackYouTubePlaying();
+    rejectUpload(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
+    await share;
+
+    expect(getState('share.remote').upload).toEqual({
+      status: 'idle',
+      progress: 0,
+      objectId: null,
+      expiresAt: null,
+      error: null,
+    });
+    expect(showLoader).toHaveBeenCalledWith(false, undefined, 'remote-share-upload');
+    expect(showToast).not.toHaveBeenCalled();
+    expect(broadcastSystemMessage).not.toHaveBeenCalled();
+    expect(sendSystemMessage).not.toHaveBeenCalled();
     expect(safeSend).not.toHaveBeenCalled();
   });
 

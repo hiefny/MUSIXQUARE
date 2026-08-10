@@ -87,12 +87,21 @@ const REMOTE_FILE_PRELOAD_ENABLED = true;
 
 interface UploadEntry {
   key: string;
+  file: File;
   sessionId: number;
   queueItemId: QueueItemId;
   promise: Promise<RemoteFileSharePayload>;
   abort: AbortController;
   preload: boolean;
   progress: number;
+  foregroundUiOwner: ForegroundUploadUiOwner | null;
+}
+
+interface ForegroundUploadUiOwner {
+  key: string;
+  file: File;
+  sessionId: number;
+  queueItemId: QueueItemId;
 }
 
 interface DownloadEntry {
@@ -111,6 +120,11 @@ interface DownloadEntry {
 // promise remains available to recovery callers. Uploads are aborted only
 // when no remote targets remain or the session is torn down.
 const _activeUploads = new Map<string, UploadEntry>();
+// Foreground uploads deliberately survive track switches so their completed
+// descriptors can warm the cache. The singleton upload UI cannot share that
+// lifetime: the most recent foreground request owns it by exact token
+// identity, and callbacks from older requests become UI-silent.
+let _foregroundUploadUiOwner: ForegroundUploadUiOwner | null = null;
 // Completed descriptors are keyed by browser File object identity. Metadata
 // such as name/size/lastModified is not content identity and may collide.
 const _descriptorCache = new Map<string, RemoteFileSharePayload>();
@@ -545,7 +559,55 @@ function resetRemoteUploadState(message: string | null = null): void {
   });
 }
 
+function claimForegroundUploadUi(
+  key: string,
+  file: File,
+  sessionId: number,
+  queueItemId: QueueItemId,
+): ForegroundUploadUiOwner {
+  const owner = { key, file, sessionId, queueItemId };
+  _foregroundUploadUiOwner = owner;
+  return owner;
+}
+
+function ownsForegroundUploadUi(owner: ForegroundUploadUiOwner | null): boolean {
+  return owner !== null && _foregroundUploadUiOwner === owner;
+}
+
+function clearOwnedForegroundUploadUi(owner: ForegroundUploadUiOwner | null): boolean {
+  if (!ownsForegroundUploadUi(owner)) return false;
+  _foregroundUploadUiOwner = null;
+  resetRemoteUploadState();
+  showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+  return true;
+}
+
+function isForegroundUploadUiPlaybackOwner(owner: ForegroundUploadUiOwner): boolean {
+  if (isExternalOwner() || getState('playlist.currentQueueItemId') !== owner.queueItemId) {
+    return false;
+  }
+
+  const resident = getState('files.current');
+  if (resident?.queueItemId === owner.queueItemId) return resident.blob === owner.file;
+  return getQueueItemById(owner.queueItemId)?.file === owner.file;
+}
+
+function revokeStaleForegroundUploadUi(): void {
+  const owner = _foregroundUploadUiOwner;
+  if (!owner || isForegroundUploadUiPlaybackOwner(owner)) return;
+  clearOwnedForegroundUploadUi(owner);
+}
+
 function publishForegroundUploadProgress(entry: UploadEntry): void {
+  if (!ownsForegroundUploadUi(entry.foregroundUiOwner)) return;
+  if (
+    !entry.foregroundUiOwner ||
+    entry.foregroundUiOwner.file !== entry.file ||
+    !isForegroundUploadUiPlaybackOwner(entry.foregroundUiOwner)
+  ) {
+    clearOwnedForegroundUploadUi(entry.foregroundUiOwner);
+    return;
+  }
   const remote = getState('share.remote');
   setState('share.remote', {
     ...remote,
@@ -560,7 +622,11 @@ function publishForegroundUploadProgress(entry: UploadEntry): void {
   showUploadProgress(t('share.remote.uploading'), entry.progress);
 }
 
-function publishForegroundUploadDone(descriptor: RemoteFileSharePayload): void {
+function publishForegroundUploadDone(
+  descriptor: RemoteFileSharePayload,
+  owner: ForegroundUploadUiOwner,
+): void {
+  if (!ownsForegroundUploadUi(owner)) return;
   const remote = getState('share.remote');
   setState('share.remote', {
     ...remote,
@@ -577,24 +643,27 @@ function publishForegroundUploadDone(descriptor: RemoteFileSharePayload): void {
 function abortActiveUploadsWithoutTargets(reason: string): void {
   if (getState('network.hostConn')) return;
   if (_activeUploads.size === 0) return;
-  let abortedForegroundUpload = false;
+  let anyAbortedForegroundUpload = false;
+  let abortedForegroundUiOwner: ForegroundUploadUiOwner | null = null;
 
   for (const [key, entry] of _activeUploads) {
     if (hasR2Targets(entry.sessionId)) continue;
-    if (!entry.preload) abortedForegroundUpload = true;
+    if (!entry.preload) {
+      anyAbortedForegroundUpload = true;
+      if (ownsForegroundUploadUi(entry.foregroundUiOwner)) {
+        abortedForegroundUiOwner = entry.foregroundUiOwner;
+      }
+    }
     entry.abort.abort();
     _activeUploads.delete(key);
   }
 
-  // A surviving speculative next-track upload must not keep a cancelled
-  // foreground loader and progress state on screen.
-  const hasForegroundUpload = [..._activeUploads.values()].some((entry) => !entry.preload);
-  if (abortedForegroundUpload && !hasForegroundUpload) {
-    resetRemoteUploadState();
-    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
-  }
+  // Once the exact UI owner is aborted, older UI-silent foreground uploads
+  // must not keep its loader alive merely because their cache-warming work
+  // survives under a different session/target set.
+  clearOwnedForegroundUploadUi(abortedForegroundUiOwner);
   if (_activeUploads.size > 0) return;
-  if (!abortedForegroundUpload) resetRemoteUploadState();
+  if (!anyAbortedForegroundUpload) resetRemoteUploadState();
   log.info(`[RemoteShare] Active upload cancelled (${reason})`);
 }
 
@@ -784,6 +853,10 @@ export async function shareRemoteFileIfNeeded(
   const roomId = currentRemoteShareRoomId();
   const uploadKey = uploadRequestKey(file, sessionId, queueItemId);
   const cacheKey = descriptorCacheKey(file, roomId);
+  const foregroundUiOwner =
+    !isPreload && isHostActiveFile(file, queueItemId) && !isExternalOwner()
+      ? claimForegroundUploadUi(uploadKey, file, sessionId, queueItemId)
+      : null;
 
   try {
     let descriptor: RemoteFileSharePayload;
@@ -805,6 +878,9 @@ export async function shareRemoteFileIfNeeded(
         // no longer abort it; completion still serves the current-track owner.
         if (!isPreload) {
           inFlight.preload = false;
+        }
+        if (foregroundUiOwner) {
+          inFlight.foregroundUiOwner = foregroundUiOwner;
           publishForegroundUploadProgress(inFlight);
         }
         descriptor = await inFlight.promise;
@@ -815,7 +891,10 @@ export async function shareRemoteFileIfNeeded(
         let entry: UploadEntry | null = null;
         const promise = uploadRemoteFile(file, sessionId, queueItemId, {
           signal: abort.signal,
-          publishState: !isPreload,
+          // remote-upload has no queue/request owner context. Keep all shared
+          // state publication here, where callbacks can be fenced by the
+          // exact foreground UI token.
+          publishState: false,
           onUploadProgress: (progress) => {
             currentProgress = progress;
             if (!entry) return;
@@ -826,19 +905,21 @@ export async function shareRemoteFileIfNeeded(
 
         entry = {
           key: uploadKey,
+          file,
           sessionId,
           queueItemId,
           promise,
           abort,
           preload: isPreload,
           progress: currentProgress,
+          foregroundUiOwner,
         };
         _activeUploads.set(uploadKey, entry);
 
-        if (!isPreload) {
+        if (foregroundUiOwner && ownsForegroundUploadUi(foregroundUiOwner)) {
           const progressMessage = t('share.remote.uploading');
           showToast(progressMessage);
-          showUploadProgress(progressMessage);
+          publishForegroundUploadProgress(entry);
         }
 
         try {
@@ -851,11 +932,6 @@ export async function shareRemoteFileIfNeeded(
       }
     }
 
-    if (!isPreload) {
-      publishForegroundUploadDone(descriptor);
-      showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
-    }
-
     // Upload completion may resume long after either a room-wide publish or a
     // targeted late-join/recovery request began. Both paths obey the same
     // queue/file/playback authority: a unicast descriptor for an old track is
@@ -863,6 +939,18 @@ export async function shareRemoteFileIfNeeded(
     const stillOwned = isPreload
       ? isHostPreloadFile(file, queueItemId, sessionId)
       : isHostActiveFile(file, queueItemId);
+    const externalOwner = !isPreload && isExternalOwner();
+    if (foregroundUiOwner && ownsForegroundUploadUi(foregroundUiOwner)) {
+      if (stillOwned && !externalOwner) {
+        publishForegroundUploadDone(descriptor, foregroundUiOwner);
+        showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
+      } else {
+        // No successor R2 upload may exist to claim the singleton UI (for
+        // example, a switch to YouTube or a local-only file). Retire only this
+        // exact stale owner so its loader cannot remain stuck indefinitely.
+        clearOwnedForegroundUploadUi(foregroundUiOwner);
+      }
+    }
     if (!stillOwned) {
       log.debug(
         `[RemoteShare] ${isPreload ? 'Preload' : 'Active'} upload completed for stale track; descriptor not published`,
@@ -872,7 +960,7 @@ export async function shareRemoteFileIfNeeded(
     // Blob identity can remain current across an external-owner switch.
     // Require file ownership as well so completion cannot publish an inactive
     // file descriptor. Returning to file mode later may reuse the cached result.
-    if (!isPreload && isExternalOwner()) {
+    if (externalOwner) {
       log.debug(
         '[RemoteShare] Upload completed but external playback mode owns the room; descriptor not published',
       );
@@ -900,17 +988,28 @@ export async function shareRemoteFileIfNeeded(
     log.info(
       `[RemoteShare] Shared whole-object ${isPreload ? 'preload ' : ''}descriptor for ${outboundDescriptor.name}`,
     );
-    if (!isPreload) showToast(t('share.remote.upload_ready'));
+    if (foregroundUiOwner && ownsForegroundUploadUi(foregroundUiOwner)) {
+      showToast(t('share.remote.upload_ready'));
+    }
   } catch (error) {
     if (isAbortError(error)) {
       log.debug('[RemoteShare] Upload superseded — abort path is expected');
       return;
     }
-    if (!isPreload) showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
     if (isPreload) {
       log.debug('[RemoteShare] Speculative preload upload failed silently:', error);
       return;
     }
+    if (!ownsForegroundUploadUi(foregroundUiOwner)) {
+      log.debug('[RemoteShare] Stale foreground upload failed after UI ownership moved on');
+      return;
+    }
+    if (!isHostActiveFile(file, queueItemId) || isExternalOwner()) {
+      clearOwnedForegroundUploadUi(foregroundUiOwner);
+      log.debug('[RemoteShare] Stale foreground upload failed after playback moved on');
+      return;
+    }
+    showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
     const message = friendlyErrorMessage(error);
     setState('share.remote', {
       ...getState('share.remote'),
@@ -2138,6 +2237,10 @@ function resetRemoteShareAuthorityBoundary(): void {
 
   for (const entry of _activeUploads.values()) entry.abort.abort();
   _activeUploads.clear();
+  _foregroundUploadUiOwner = null;
+  // Release only Remote Share's named foreground holder. Other subsystems may
+  // still own the shared loader across the room/host transition.
+  showLoader(false, undefined, REMOTE_UPLOAD_LOADER);
   _descriptorCache.clear();
   _fileIds = new WeakMap<File, number>();
   _lastUploadFailureMessageAt = 0;
@@ -2179,7 +2282,12 @@ export function initRemoteShare(): void {
   // deferred R2 preload only after the shared resident slot is released, and
   // also cover a local/P2P current transfer followed by an R2-only next track.
   bus.on('state:preload.ready', scheduleDeferredRemotePreloadDrain);
-  bus.on('state:files.current', scheduleDeferredRemotePreloadDrain);
+  bus.on('state:files.current', () => {
+    revokeStaleForegroundUploadUi();
+    scheduleDeferredRemotePreloadDrain();
+  });
+  bus.on('state:playlist.currentQueueItemId', revokeStaleForegroundUploadUi);
+  bus.on('state:playback.mode', revokeStaleForegroundUploadUi);
   bus.on('state:playback.lifecycle', scheduleDeferredRemotePreloadDrain);
   bus.on('state:playlist.items', () => {
     const activeQueueItemId = _activePreloadDownload?.descriptor.queueItemId;

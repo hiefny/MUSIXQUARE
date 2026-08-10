@@ -1209,7 +1209,9 @@ describe('YouTube Player', () => {
       wrapper.className = 'video-wrapper';
       document.body.appendChild(wrapper);
 
-      let onStateChange: ((event: { data: number }) => void) | undefined;
+      let onStateChange:
+        | ((event: { data: number; target: YouTubePlayerInstance }) => void)
+        | undefined;
       const player: YouTubePlayerInstance = {
         loadVideoById: vi.fn(),
         loadPlaylist: vi.fn(),
@@ -1265,7 +1267,7 @@ describe('YouTube Player', () => {
       setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 
       loadYouTubeVideo('repeatVideo', null, true, 0);
-      onStateChange?.({ data: 0 });
+      onStateChange?.({ data: 0, target: player });
 
       expect(autoPlaySpy).toHaveBeenCalledWith(
         expect.objectContaining({

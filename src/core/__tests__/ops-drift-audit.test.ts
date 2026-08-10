@@ -6,6 +6,7 @@ import {
   loadOpsDriftContract,
   normalizeCorsPolicy,
   normalizeLifecyclePolicy,
+  normalizeWorkerSecretNames,
   renderOpsDriftMarkdown,
   runOpsDriftAudit,
   shortDeleteLifecycleRules,
@@ -31,6 +32,43 @@ function harmlessResponse(url: string): Response {
     : jsonResponse({ success: true, result: { rules: [] } });
 }
 
+async function matchingLiveResponse(
+  contract: ReturnType<typeof loadOpsDriftContract>,
+  url: string,
+): Promise<Response> {
+  const workerSecrets = contract.workerSecrets.find((entry: { worker: string }) =>
+    url.includes(`/workers/scripts/${encodeURIComponent(entry.worker)}/secrets`),
+  );
+  if (workerSecrets !== undefined) {
+    return jsonResponse({
+      success: true,
+      result: workerSecrets.expectedNames.map((name: string) => ({ name, type: 'secret_text' })),
+    });
+  }
+  const cors = contract.r2Cors.find(
+    (entry: { bucket: string }) => url.includes(entry.bucket) && url.endsWith('/cors'),
+  );
+  if (cors !== undefined) {
+    const source = await import('node:fs').then(({ readFileSync }) =>
+      JSON.parse(readFileSync(cors.source, 'utf8')),
+    );
+    return jsonResponse({ success: true, result: source });
+  }
+  const lifecycle = contract.r2Lifecycle.exactPolicies.find(
+    (entry: { bucket: string }) => url.includes(entry.bucket) && url.endsWith('/lifecycle'),
+  );
+  if (lifecycle !== undefined) {
+    const source = await import('node:fs').then(({ readFileSync }) =>
+      JSON.parse(readFileSync(lifecycle.source, 'utf8')),
+    );
+    return jsonResponse({ success: true, result: source });
+  }
+  if (url.includes('musixquare-pro-media') && url.endsWith('/lifecycle')) {
+    return jsonResponse({ success: true, result: { rules: [] } });
+  }
+  return jsonResponse([{ type: 'non_fast_forward' }, { type: 'deletion' }]);
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -38,13 +76,30 @@ afterEach(() => {
 describe('operations drift audit', () => {
   it('validates the checked-in source contract and states manual-only boundaries', () => {
     expect(assertOpsDriftContract()).toEqual({
-      schemaVersion: 2,
+      schemaVersion: 3,
       r2CorsPolicyCount: 3,
       r2ExactLifecyclePolicyCount: 1,
       r2ShortLifecycleGuardCount: 1,
+      workerSecretPolicyCount: 6,
+      workerSecretNameCount: 36,
       githubRuleCount: 2,
       manualCheckCount: 4,
     });
+
+    const contract = loadOpsDriftContract();
+    const appInventory = contract.workerSecrets.find(
+      (entry: { worker: string }) => entry.worker === 'musixquare-app',
+    );
+    const signalingInventory = contract.workerSecrets.find(
+      (entry: { worker: string }) => entry.worker === 'musixquare-signaling',
+    );
+    if (appInventory === undefined || signalingInventory === undefined) {
+      throw new Error('Required Worker secret inventory is missing.');
+    }
+    expect(appInventory.expectedNames).toContain('CLOUDFLARE_REALTIME_API_TOKEN');
+    expect(appInventory.expectedNames).not.toContain('CLOUDFLARE_REALTIME_APP_SECRET');
+    expect(appInventory.expectedNames).not.toContain('MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET');
+    expect(signalingInventory.expectedNames).not.toContain('PRO_ROOM_DECOMMISSION_VERIFY_SECRET');
   });
 
   it('keeps the live workflow limited to the narrow read-only Cloudflare token', () => {
@@ -57,7 +112,19 @@ describe('operations drift audit', () => {
     expect(step).toContain(
       'CLOUDFLARE_DRIFT_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_DRIFT_AUDIT_TOKEN }}',
     );
+    expect(step).toContain('Required Cloudflare account permissions: Workers R2 Storage Read');
+    expect(step).toContain('and Workers Scripts Read.');
     expect(step).not.toContain('CLOUDFLARE_API_TOKEN:');
+
+    const runbook = readFileSync('cloudflare/config-drift-ops.md', 'utf8');
+    expect(runbook).toContain('`Workers R2 Storage Read` and `Workers Scripts Read` permissions');
+    expect(runbook).toContain(
+      '`GET /accounts/{account_id}/workers/scripts/{script_name}/secrets` endpoint',
+    );
+    expect(runbook).toContain(
+      "replace the\nGitHub `production` environment's R2-only `CLOUDFLARE_DRIFT_AUDIT_TOKEN`",
+    );
+    expect(runbook).toContain('Do not use the deployment token as a\ntemporary bridge');
 
     const source = readFileSync('scripts/audit-ops-drift.mjs', 'utf8');
     expect(source).toContain('env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,');
@@ -164,30 +231,7 @@ describe('operations drift audit', () => {
 
   it('passes matching live controls while retaining honest manual-only rows', async () => {
     const contract = loadOpsDriftContract();
-    const fetcher = vi.fn(async (url: string) => {
-      const cors = contract.r2Cors.find(
-        (entry: { bucket: string }) => url.includes(entry.bucket) && url.endsWith('/cors'),
-      );
-      if (cors !== undefined) {
-        const source = await import('node:fs').then(({ readFileSync }) =>
-          JSON.parse(readFileSync(cors.source, 'utf8')),
-        );
-        return jsonResponse({ success: true, result: source });
-      }
-      const lifecycle = contract.r2Lifecycle.exactPolicies.find(
-        (entry: { bucket: string }) => url.includes(entry.bucket) && url.endsWith('/lifecycle'),
-      );
-      if (lifecycle !== undefined) {
-        const source = await import('node:fs').then(({ readFileSync }) =>
-          JSON.parse(readFileSync(lifecycle.source, 'utf8')),
-        );
-        return jsonResponse({ success: true, result: source });
-      }
-      if (url.includes('musixquare-pro-media') && url.endsWith('/lifecycle')) {
-        return jsonResponse({ success: true, result: { rules: [] } });
-      }
-      return jsonResponse([{ type: 'non_fast_forward' }, { type: 'deletion' }]);
-    });
+    const fetcher = vi.fn((url: string) => matchingLiveResponse(contract, url));
 
     const report = await runOpsDriftAudit({
       contract,
@@ -202,9 +246,9 @@ describe('operations drift audit', () => {
     });
 
     expect(report.status).toBe('automated-checks-passed');
-    expect(report.checks.filter((check) => check.status === 'pass')).toHaveLength(6);
+    expect(report.checks.filter((check) => check.status === 'pass')).toHaveLength(12);
     expect(report.checks.filter((check) => check.status === 'manual-only')).toHaveLength(4);
-    expect(fetcher).toHaveBeenCalledTimes(6);
+    expect(fetcher).toHaveBeenCalledTimes(12);
     expect(fetcher).toHaveBeenCalledWith(
       expect.stringContaining('/rules/branches/main?per_page=100'),
       expect.any(Object),
@@ -213,6 +257,58 @@ describe('operations drift audit', () => {
     expect(renderOpsDriftMarkdown(report)).toContain(
       'were not queried and are not implied to pass',
     );
+  });
+
+  it('fails closed for missing and unexpected Worker secret names without retaining values', async () => {
+    const contract = loadOpsDriftContract();
+    const appInventory = contract.workerSecrets.find(
+      (entry: { worker: string }) => entry.worker === 'musixquare-app',
+    );
+    if (appInventory === undefined) throw new Error('App secret inventory is missing.');
+    const missingName = 'MXQR_CAPABILITY_SECRET';
+    const unexpectedName = 'MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET';
+    const secretValue = 'must-never-appear-in-report-or-markdown';
+    const fetcher = vi.fn(async (url: string) => {
+      if (url.includes('/workers/scripts/musixquare-app/secrets')) {
+        return jsonResponse({
+          success: true,
+          result: [
+            ...appInventory.expectedNames
+              .filter((name: string) => name !== missingName)
+              .map((name: string) => ({ name, type: 'secret_text', text: secretValue })),
+            { name: unexpectedName, type: 'secret_text', text: secretValue },
+          ],
+        });
+      }
+      return matchingLiveResponse(contract, url);
+    });
+
+    const report = await runOpsDriftAudit({ contract, fetcher, env: AUDIT_ENV });
+    const check = report.checks.find((entry) => entry.id === 'worker-secrets:musixquare-app');
+    expect(check).toEqual({
+      id: 'worker-secrets:musixquare-app',
+      label: 'Worker secrets musixquare-app',
+      status: 'drift',
+      detail: `Missing secret names: ${missingName}. Unexpected secret names: ${unexpectedName}.`,
+    });
+    expect(report.status).toBe('attention-required');
+    expect(JSON.stringify(report)).not.toContain(secretValue);
+    expect(renderOpsDriftMarkdown(report)).not.toContain(secretValue);
+  });
+
+  it('normalizes only Worker secret names and ignores value-bearing API fields', () => {
+    const secretValue = 'private-secret-value';
+    const names = normalizeWorkerSecretNames([
+      { name: 'TEXT_SECRET', type: 'secret_text', text: secretValue },
+      {
+        name: 'KEY_SECRET',
+        type: 'secret_key',
+        format: 'raw',
+        key_base64: secretValue,
+      },
+    ]);
+    expect(names).toEqual(['KEY_SECRET', 'TEXT_SECRET']);
+    expect(JSON.stringify(names)).not.toContain(secretValue);
   });
 
   it('fails closed for a live policy mismatch, missing rule, or unavailable credential', async () => {
@@ -279,7 +375,7 @@ describe('operations drift audit', () => {
 
     const noCredentials = await runOpsDriftAudit({ contract, fetcher, env: {} });
     expect(noCredentials.status).toBe('attention-required');
-    expect(noCredentials.checks.filter((check) => check.status === 'error')).toHaveLength(6);
+    expect(noCredentials.checks.filter((check) => check.status === 'error')).toHaveLength(12);
 
     const broadTokenOnly = await runOpsDriftAudit({
       contract,
@@ -300,6 +396,11 @@ describe('operations drift audit', () => {
         (check) => check.id.startsWith('r2-') && check.status === 'error',
       ),
     ).toHaveLength(5);
+    expect(
+      broadTokenOnly.checks.filter(
+        (check) => check.id.startsWith('worker-secrets:') && check.status === 'error',
+      ),
+    ).toHaveLength(6);
   });
 
   it('bounds non-cooperative header waits and cancels the response if it arrives late', async () => {

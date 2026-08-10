@@ -8,6 +8,7 @@ export interface OpsDriftContract {
     exactPolicies: Array<{ bucket: string; source: string }>;
     forbiddenShortDeletePolicies: Array<{ bucket: string; maxAgeSeconds: number }>;
   };
+  workerSecrets: Array<{ worker: string; expectedNames: string[] }>;
   github: {
     repository: string;
     branch: string;
@@ -36,6 +37,8 @@ export function assertOpsDriftContract(options?: { root?: string; contract?: Ops
   r2CorsPolicyCount: number;
   r2ExactLifecyclePolicyCount: number;
   r2ShortLifecycleGuardCount: number;
+  workerSecretPolicyCount: number;
+  workerSecretNameCount: number;
   githubRuleCount: number;
   manualCheckCount: number;
 };
@@ -73,6 +76,7 @@ export function shortDeleteLifecycleRules(
   policy: NormalizedLifecycleRule[],
   maxAgeSeconds: number,
 ): string[];
+export function normalizeWorkerSecretNames(value: unknown, label?: string): string[];
 export function runOpsDriftAudit(options?: {
   root?: string;
   contract?: OpsDriftContract;

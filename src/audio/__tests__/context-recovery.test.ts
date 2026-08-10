@@ -107,6 +107,7 @@ describe('AudioContext interruption recovery', () => {
     await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
       running: true,
       rejoinEmitted: true,
+      fallbackEligible: false,
     });
 
     expect(context.resume).toHaveBeenCalledTimes(2);
@@ -151,8 +152,38 @@ describe('AudioContext interruption recovery', () => {
     await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
       running: true,
       rejoinEmitted: false,
+      fallbackEligible: true,
     });
     expect(rejoin).not.toHaveBeenCalled();
+    expect(hasPendingAudioContextInterruption()).toBe(false);
+  });
+
+  it('does not transfer a late gesture recovery after its exact binding is disposed', async () => {
+    markActiveFileRoom();
+    const context = new FakeAudioContext();
+    let finishGestureResume: (() => void) | undefined;
+    const gestureResume = new Promise<undefined>((resolve) => {
+      finishGestureResume = () => resolve(undefined);
+    });
+    context.resume
+      .mockRejectedValueOnce(new Error('autoplay blocked'))
+      .mockImplementationOnce(() => gestureResume);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+    context.dispatchState('suspended');
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+    const result = resumePendingAudioContextInterruptionFromGesture();
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledTimes(2));
+
+    context.state = 'running';
+    dispose();
+    finishGestureResume?.();
+
+    await expect(result).resolves.toEqual({
+      running: true,
+      rejoinEmitted: false,
+      fallbackEligible: false,
+    });
     expect(hasPendingAudioContextInterruption()).toBe(false);
   });
 

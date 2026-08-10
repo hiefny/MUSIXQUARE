@@ -16,13 +16,14 @@ export interface WorkerFloorRecoveryReport {
   forwardRepairTargets: string[];
   results: Array<{
     target: string;
-    floor: 'generation' | 'entitlement';
+    floor: 'generation' | 'entitlement' | 'developer-authority';
     status: 'baseline-compatible' | 'candidate-required';
     beforeGitSha: string | null;
   }>;
 }
 
 export const ENTITLEMENT_SUPPORT_RELEASE_SHA: 'a79d1624d2314942072622cc875da7c7332a9530';
+export const DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA: '4d2a4ff7898d40956fc110ad998433aa41ceb0e2';
 
 export function parseWorkerFloorEvidence(payload: unknown, label?: string): WorkerFloorEvidence;
 
@@ -52,6 +53,7 @@ export function verifyWorkerFloorRecovery(
   checkpointDirectory: string,
   freshPayload: unknown,
   assessmentDirectory?: string,
+  options?: { isAncestor?: (baseSha: string, headSha: string) => boolean },
 ): {
   schemaVersion: 1;
   status: 'verified';

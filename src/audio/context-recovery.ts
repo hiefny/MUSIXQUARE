@@ -25,18 +25,26 @@ interface PlaybackIdentity {
 interface PendingContextRecovery {
   context: AudioContext;
   identity: PlaybackIdentity;
+  bindingToken: object;
+  attemptToken: object;
+  generation: number;
   automaticResume: Promise<ContextResumeResult> | null;
   gestureResume: Promise<ContextResumeResult> | null;
   completed: boolean;
   rejoinEmitted: boolean;
+  fallbackClaimed: boolean;
 }
 
 interface ContextResumeResult {
   running: boolean;
   rejoinEmitted: boolean;
+  fallbackEligible: boolean;
 }
 
 let pendingRecovery: PendingContextRecovery | null = null;
+let activeRecoveryAttempt: PendingContextRecovery | null = null;
+let activeBindingToken: object | null = null;
+let recoveryGeneration = 0;
 
 function activePlaybackIdentity(): PlaybackIdentity | null {
   if (!getState('setup.sessionStarted') || getState('playback.activity') !== 'playing') {
@@ -68,7 +76,14 @@ function identityStillCurrent(identity: PlaybackIdentity): boolean {
 
 function completeRunningRecovery(recovery: PendingContextRecovery): boolean {
   if (recovery.completed) return recovery.rejoinEmitted;
-  if (pendingRecovery !== recovery || String(recovery.context.state) !== 'running') return false;
+  if (
+    pendingRecovery !== recovery ||
+    activeBindingToken !== recovery.bindingToken ||
+    recovery.generation !== recoveryGeneration ||
+    String(recovery.context.state) !== 'running'
+  ) {
+    return false;
+  }
   pendingRecovery = null;
   recovery.completed = true;
   if (!identityStillCurrent(recovery.identity)) return false;
@@ -78,6 +93,25 @@ function completeRunningRecovery(recovery: PendingContextRecovery): boolean {
     mode: recovery.identity.mode,
   });
   return true;
+}
+
+function contextResumeResult(
+  recovery: PendingContextRecovery,
+  source: 'automatic' | 'gesture',
+): ContextResumeResult {
+  const rejoinEmitted = completeRunningRecovery(recovery);
+  const running = String(recovery.context.state) === 'running';
+  const fallbackEligible = Boolean(
+    source === 'gesture' &&
+    running &&
+    recovery.completed &&
+    !recovery.rejoinEmitted &&
+    !recovery.fallbackClaimed &&
+    activeBindingToken === recovery.bindingToken &&
+    recovery.generation === recoveryGeneration,
+  );
+  if (fallbackEligible) recovery.fallbackClaimed = true;
+  return { running, rejoinEmitted, fallbackEligible };
 }
 
 function resumeContext(
@@ -92,18 +126,12 @@ function resumeContext(
   // gesture path this preserves the browser's transient user activation.
   const operation = recovery.context
     .resume()
-    .then(() => {
-      const rejoinEmitted = completeRunningRecovery(recovery);
-      return {
-        running: String(recovery.context.state) === 'running',
-        rejoinEmitted,
-      };
-    })
+    .then(() => contextResumeResult(recovery, source))
     .catch((error) => {
       log.debug(`[Audio] ${source} resume failed`, error);
       // Deliberately retain pendingRecovery. The next Media Session PLAY is a
       // new trusted gesture and must be allowed to retry.
-      return { running: false, rejoinEmitted: false };
+      return { running: false, rejoinEmitted: false, fallbackEligible: false };
     })
     .finally(() => {
       if (recovery[slot] === operation) recovery[slot] = null;
@@ -116,15 +144,35 @@ export function hasPendingAudioContextInterruption(mode?: RejoinMode): boolean {
   return !!pendingRecovery && (mode === undefined || pendingRecovery.identity.mode === mode);
 }
 
+/** Opaque identity for the exact interruption that a trusted PLAY may resume. */
+export function getPendingAudioContextInterruptionAttempt(): object | null {
+  return pendingRecovery?.attemptToken || null;
+}
+
+/**
+ * Whether an in-flight Media Session continuation still belongs to the active
+ * context binding. A running statechange can complete pendingRecovery before
+ * resume() settles, so this deliberately outlives the pending slot until a
+ * new interruption or binding supersedes it.
+ */
+export function isAudioContextInterruptionAttemptCurrent(attemptToken: object): boolean {
+  const recovery = activeRecoveryAttempt;
+  return Boolean(
+    recovery &&
+    recovery.attemptToken === attemptToken &&
+    activeBindingToken === recovery.bindingToken &&
+    recovery.generation === recoveryGeneration,
+  );
+}
+
 /** Retry a rejected OS auto-resume inside a trusted Media Session PLAY. */
 export function resumePendingAudioContextInterruptionFromGesture(): Promise<ContextResumeResult> {
   const recovery = pendingRecovery;
-  if (!recovery) return Promise.resolve({ running: false, rejoinEmitted: false });
+  if (!recovery) {
+    return Promise.resolve({ running: false, rejoinEmitted: false, fallbackEligible: false });
+  }
   if (String(recovery.context.state) === 'running') {
-    return Promise.resolve({
-      running: true,
-      rejoinEmitted: completeRunningRecovery(recovery),
-    });
+    return Promise.resolve(contextResumeResult(recovery, 'gesture'));
   }
   return resumeContext(recovery, 'gesture');
 }
@@ -133,6 +181,10 @@ export function resumePendingAudioContextInterruptionFromGesture(): Promise<Cont
 export function bindAudioContextInterruptionRecovery(context: AudioContext): () => void {
   let disposed = false;
   let resumeWithoutPlayback: Promise<void> | null = null;
+  const bindingToken = {};
+  activeBindingToken = bindingToken;
+  if (pendingRecovery) pendingRecovery = null;
+  activeRecoveryAttempt = null;
 
   const handleStateChange = (): void => {
     if (disposed) return;
@@ -144,11 +196,16 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
         pendingRecovery = {
           context,
           identity,
+          bindingToken,
+          attemptToken: {},
+          generation: ++recoveryGeneration,
           automaticResume: null,
           gestureResume: null,
           completed: false,
           rejoinEmitted: false,
+          fallbackClaimed: false,
         };
+        activeRecoveryAttempt = pendingRecovery;
       }
 
       log.info(`[Audio] AudioContext ${state} — auto-resuming`);
@@ -171,6 +228,8 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
 
     if (state === 'closed') {
       if (pendingRecovery?.context === context) pendingRecovery = null;
+      if (activeRecoveryAttempt?.context === context) activeRecoveryAttempt = null;
+      if (activeBindingToken === bindingToken) activeBindingToken = null;
       return;
     }
 
@@ -183,6 +242,8 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
   return () => {
     disposed = true;
     if (pendingRecovery?.context === context) pendingRecovery = null;
+    if (activeRecoveryAttempt?.context === context) activeRecoveryAttempt = null;
+    if (activeBindingToken === bindingToken) activeBindingToken = null;
     context.removeEventListener('statechange', handleStateChange);
   };
 }

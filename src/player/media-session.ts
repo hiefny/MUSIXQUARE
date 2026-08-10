@@ -24,7 +24,9 @@ import { getTrackDisplayTitle } from './track-display.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isLocalYouTubePaused } from '../youtube/_state.ts';
 import {
+  getPendingAudioContextInterruptionAttempt,
   hasPendingAudioContextInterruption,
+  isAudioContextInterruptionAttemptCurrent,
   resumePendingAudioContextInterruptionFromGesture,
 } from '../audio/context-recovery.ts';
 import {
@@ -128,30 +130,49 @@ export function initMediaSession(): void {
     return !!(hostConn && !hasRoomCapability('playback.control'));
   };
   const isNonOperatorGuest = isPlaybackBlocked;
+  let pendingLocalPlayRecovery: { attemptToken: object } | null = null;
 
   const requestLocalPlay = (mode: 'file' | 'youtube'): void => {
-    const emitRejoin = (): void => {
-      if (mode === 'youtube') {
+    const emitRejoin = (requestedMode: 'file' | 'youtube'): void => {
+      if (requestedMode === 'youtube') {
         bus.emit('youtube:set-local-paused', false, 'media-session-play');
         return;
       }
       bus.emit('playback:local-output-rejoin', {
         reason: 'media-session-play',
-        mode,
+        mode: requestedMode,
       });
     };
 
-    if (!hasPendingAudioContextInterruption()) {
-      emitRejoin();
+    const attemptToken = getPendingAudioContextInterruptionAttempt();
+    if (pendingLocalPlayRecovery) {
+      // A running statechange can consume the pending slot just before the
+      // gesture resume Promise settles. Keep coalescing that exact attempt so
+      // a duplicate hardware PLAY cannot emit a second fallback. Conversely,
+      // a disposed/superseded attempt must never block a new context binding.
+      if (isAudioContextInterruptionAttemptCurrent(pendingLocalPlayRecovery.attemptToken)) return;
+      pendingLocalPlayRecovery = null;
+    }
+    if (!attemptToken) {
+      emitRejoin(mode);
       return;
     }
-    void resumePendingAudioContextInterruptionFromGesture().then((result) => {
-      // A successful context recovery emits its own identity-fenced rejoin.
-      // If playback changed while the output was suspended, that old identity
-      // is deliberately dropped and this trusted PLAY queries the *current*
-      // room authority exactly once instead.
-      if (result.running && !result.rejoinEmitted) emitRejoin();
-    });
+    const flight = { attemptToken };
+    void resumePendingAudioContextInterruptionFromGesture()
+      .then((result) => {
+        // A successful context recovery emits its own identity-fenced rejoin.
+        // If playback changed while the output was suspended, only the exact
+        // still-bound recovery can transfer this trusted PLAY to the current
+        // mode. Repeated PLAY actions share this one fallback continuation.
+        if (!result.running || result.rejoinEmitted || !result.fallbackEligible) return;
+        const currentMode = getState('playback.mode');
+        if (currentMode === 'file' || currentMode === 'youtube') emitRejoin(currentMode);
+      })
+      .catch((error) => log.debug('[MediaSession] AudioContext PLAY recovery failed:', error))
+      .finally(() => {
+        if (pendingLocalPlayRecovery === flight) pendingLocalPlayRecovery = null;
+      });
+    pendingLocalPlayRecovery = flight;
   };
 
   registerMediaSessionAction('play', () => {

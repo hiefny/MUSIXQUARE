@@ -417,7 +417,62 @@ describe('initMediaSession', () => {
     dispose();
   });
 
-  it('resumes a shared interrupted context and queries the current mode after identity changes', async () => {
+  it.each([
+    ['file', 'youtube'],
+    ['youtube', 'file'],
+  ] as const)(
+    'queries the current %s->%s mode after an in-flight gesture resume loses its identity',
+    async (initialMode, currentMode) => {
+      const rejoin = vi.fn();
+      const localYouTubeState = vi.fn();
+      bus.on('playback:local-output-rejoin', rejoin);
+      bus.on('youtube:set-local-paused', localYouTubeState);
+      setState('setup.sessionStarted', true);
+      setState('network.hostConn', { open: true } as never);
+      setState('network.isOperator', false);
+      if (initialMode === 'youtube') setPlaybackYouTubePlaying();
+      else setPlaybackFilePlaying();
+      setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+
+      let finishGestureResume: (() => void) | undefined;
+      const gestureResume = new Promise<undefined>((resolve) => {
+        finishGestureResume = () => resolve(undefined);
+      });
+      const context = new FakeInterruptedAudioContext();
+      context.resume
+        .mockRejectedValueOnce(new Error('autoplay blocked'))
+        .mockImplementationOnce(() => gestureResume);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+      context.dispatchState('suspended');
+      await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+      _handlers['play']();
+      _handlers['play']();
+      await vi.waitFor(() => expect(context.resume).toHaveBeenCalledTimes(2));
+
+      if (currentMode === 'youtube') setPlaybackYouTubePlaying();
+      else setPlaybackFilePlaying();
+      setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+      context.state = 'running';
+      finishGestureResume?.();
+
+      if (currentMode === 'youtube') {
+        await vi.waitFor(() =>
+          expect(localYouTubeState).toHaveBeenCalledWith(false, 'media-session-play'),
+        );
+        expect(rejoin).not.toHaveBeenCalled();
+      } else {
+        await vi.waitFor(() =>
+          expect(rejoin).toHaveBeenCalledWith({ reason: 'media-session-play', mode: 'file' }),
+        );
+        expect(localYouTubeState).not.toHaveBeenCalled();
+      }
+      expect(rejoin.mock.calls.length + localYouTubeState.mock.calls.length).toBe(1);
+      dispose();
+    },
+  );
+
+  it('does not rejoin current playback when a pending gesture recovery is disposed', async () => {
     const rejoin = vi.fn();
     const localYouTubeState = vi.fn();
     bus.on('playback:local-output-rejoin', rejoin);
@@ -427,26 +482,122 @@ describe('initMediaSession', () => {
     setState('network.isOperator', false);
     setPlaybackFilePlaying();
     setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+
+    let finishGestureResume: (() => void) | undefined;
+    const gestureResume = new Promise<undefined>((resolve) => {
+      finishGestureResume = () => resolve(undefined);
+    });
     const context = new FakeInterruptedAudioContext();
     context.resume
       .mockRejectedValueOnce(new Error('autoplay blocked'))
-      .mockImplementationOnce(async () => {
-        context.state = 'running';
-      });
+      .mockImplementationOnce(() => gestureResume);
     const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
 
     context.dispatchState('suspended');
     await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+    _handlers['play']();
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledTimes(2));
+
     setPlaybackYouTubePlaying();
     setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
-    _handlers['play']();
+    context.state = 'running';
+    dispose();
+    finishGestureResume?.();
+    await gestureResume;
+    await Promise.resolve();
+    await Promise.resolve();
 
+    expect(rejoin).not.toHaveBeenCalled();
+    expect(localYouTubeState).not.toHaveBeenCalled();
+  });
+
+  it('coalesces PLAY across a running statechange before the gesture Promise settles', async () => {
+    const rejoin = vi.fn();
+    const localYouTubeState = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    bus.on('youtube:set-local-paused', localYouTubeState);
+    setState('setup.sessionStarted', true);
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePlaying();
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+
+    let finishGestureResume: (() => void) | undefined;
+    const gestureResume = new Promise<undefined>((resolve) => {
+      finishGestureResume = () => resolve(undefined);
+    });
+    const context = new FakeInterruptedAudioContext();
+    context.resume
+      .mockRejectedValueOnce(new Error('autoplay blocked'))
+      .mockImplementationOnce(() => gestureResume);
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+    context.dispatchState('suspended');
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+    _handlers['play']();
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledTimes(2));
+
+    setPlaybackYouTubePlaying();
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    context.dispatchState('running');
+    _handlers['play']();
+    expect(localYouTubeState).not.toHaveBeenCalled();
+
+    finishGestureResume?.();
     await vi.waitFor(() =>
       expect(localYouTubeState).toHaveBeenCalledWith(false, 'media-session-play'),
     );
     expect(rejoin).not.toHaveBeenCalled();
-    expect(context.resume).toHaveBeenCalledTimes(2);
+    expect(localYouTubeState).toHaveBeenCalledTimes(1);
     dispose();
+  });
+
+  it('lets a successor context recover while the disposed predecessor resume is unresolved', async () => {
+    const rejoin = vi.fn();
+    bus.on('playback:local-output-rejoin', rejoin);
+    setState('setup.sessionStarted', true);
+    setState('network.hostConn', { open: true } as never);
+    setState('network.isOperator', false);
+    setPlaybackFilePlaying();
+    setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+
+    let finishOldGestureResume: (() => void) | undefined;
+    const oldGestureResume = new Promise<undefined>((resolve) => {
+      finishOldGestureResume = () => resolve(undefined);
+    });
+    const oldContext = new FakeInterruptedAudioContext();
+    oldContext.resume
+      .mockRejectedValueOnce(new Error('old autoplay blocked'))
+      .mockImplementationOnce(() => oldGestureResume);
+    const disposeOld = bindAudioContextInterruptionRecovery(oldContext as unknown as AudioContext);
+    oldContext.dispatchState('suspended');
+    await vi.waitFor(() => expect(oldContext.resume).toHaveBeenCalledOnce());
+    _handlers['play']();
+    await vi.waitFor(() => expect(oldContext.resume).toHaveBeenCalledTimes(2));
+
+    disposeOld();
+    const newContext = new FakeInterruptedAudioContext();
+    newContext.resume
+      .mockRejectedValueOnce(new Error('new autoplay blocked'))
+      .mockImplementationOnce(async () => {
+        newContext.state = 'running';
+      });
+    const disposeNew = bindAudioContextInterruptionRecovery(newContext as unknown as AudioContext);
+    newContext.dispatchState('suspended');
+    await vi.waitFor(() => expect(newContext.resume).toHaveBeenCalledOnce());
+    _handlers['play']();
+
+    await vi.waitFor(() => expect(newContext.resume).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(rejoin).toHaveBeenCalledWith({ reason: 'audio-context-recovered', mode: 'file' }),
+    );
+    expect(rejoin).toHaveBeenCalledTimes(1);
+
+    finishOldGestureResume?.();
+    await oldGestureResume;
+    await Promise.resolve();
+    expect(rejoin).toHaveBeenCalledTimes(1);
+    disposeNew();
   });
 
   it('pause handler calls togglePlay when playing', () => {

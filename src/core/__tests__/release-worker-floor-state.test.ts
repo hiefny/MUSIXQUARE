@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { verifyRecoveryBoundary } from '../../../scripts/release-deployment-state.mjs';
 import {
+  DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA,
   ENTITLEMENT_SUPPORT_RELEASE_SHA,
   assessWorkerFloorRecovery,
   captureWorkerFloorCheckpoint,
@@ -18,6 +19,7 @@ const CANDIDATE_SHA = 'c'.repeat(40);
 const FLOOR_SHA = 'a'.repeat(40);
 const LEGACY_ENTITLEMENT_BLIND_SHA = 'e1eb9b7ce15316d875f55b16e8be134eba521813';
 const GENERATION_SUPPORT_SHA = '4c5612d5fc4c5548781eb7d5b26d6904969c051c';
+const DEVELOPER_AUTHORITY_WORKERS = ['developer-api-facade', 'developer-api'] as const;
 const FLOOR_WORKERS = [
   'pro-room',
   'signaling',
@@ -101,10 +103,12 @@ function ancestry({
   releaseAncestors = new Set(FLOOR_WORKERS),
   floorAware = new Set(FLOOR_WORKERS),
   entitlementAware = new Set(FLOOR_WORKERS),
+  developerAuthorityAware = new Set(FLOOR_WORKERS),
 }: {
   releaseAncestors?: Set<string>;
   floorAware?: Set<string>;
   entitlementAware?: Set<string>;
+  developerAuthorityAware?: Set<string>;
 } = {}): (baseSha: string, headSha: string) => boolean {
   const targetForBeforeSha = (sha: string) =>
     [...BEFORE_SHA].find(([, beforeSha]) => beforeSha === sha)?.[0];
@@ -120,6 +124,10 @@ function ancestry({
     if (baseSha === ENTITLEMENT_SUPPORT_RELEASE_SHA) {
       const target = targetForBeforeSha(headSha);
       return Boolean(target && entitlementAware.has(target));
+    }
+    if (baseSha === DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA) {
+      const target = targetForBeforeSha(headSha);
+      return Boolean(target && developerAuthorityAware.has(target));
     }
     return false;
   };
@@ -187,6 +195,7 @@ describe('Worker compatibility-floor recovery', () => {
           provenanceStatus: 'verified-release-ancestor',
           generationFloorAware: true,
           entitlementFloorAware: true,
+          developerAuthorityAware: true,
         }),
       ),
     );
@@ -337,7 +346,11 @@ describe('Worker compatibility-floor recovery', () => {
     writeRollbackReport(checkpoint, 'restored');
     verifyRecoveryBoundary(checkpoint, { queryCurrent: liveWorker('baseline') });
 
-    expect(verifyWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint)).toMatchObject({
+    expect(
+      verifyWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+        isAncestor: ancestry(),
+      }),
+    ).toMatchObject({
       status: 'verified',
       releaseGitSha: CANDIDATE_SHA,
       assessmentStatus: 'rollback-compatible',
@@ -514,6 +527,185 @@ describe('Worker compatibility-floor recovery', () => {
       }),
     ]);
   });
+
+  it('keeps an authority-blind Developer API pair on the exact candidate', () => {
+    expect(DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA).toBe(
+      '4d2a4ff7898d40956fc110ad998433aa41ceb0e2',
+    );
+
+    const checkpoint = directory();
+    writeWorkerStates(checkpoint, DEVELOPER_AUTHORITY_WORKERS);
+    const authorityBlindAncestry = ancestry({ developerAuthorityAware: new Set() });
+    const captured = captureWorkerFloorCheckpoint('developer-api', floorPayload(), checkpoint, {
+      isAncestor: authorityBlindAncestry,
+    });
+    expect(captured.workers).toEqual(
+      DEVELOPER_AUTHORITY_WORKERS.map((target) =>
+        expect.objectContaining({
+          target,
+          provenanceStatus: 'verified-release-ancestor',
+          generationFloorAware: true,
+          developerAuthorityAware: false,
+        }),
+      ),
+    );
+
+    const report = assessWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+      isAncestor: authorityBlindAncestry,
+    });
+    expect(report.status).toBe('forward-repair-required');
+    expect(report.forwardRepairTargets).toEqual([...DEVELOPER_AUTHORITY_WORKERS]);
+    expect(report.results).toEqual([
+      ...DEVELOPER_AUTHORITY_WORKERS.map((target) => ({
+        target,
+        floor: 'generation',
+        status: 'baseline-compatible',
+        beforeGitSha: BEFORE_SHA.get(target),
+      })),
+      ...DEVELOPER_AUTHORITY_WORKERS.map((target) => ({
+        target,
+        floor: 'developer-authority',
+        status: 'candidate-required',
+        beforeGitSha: BEFORE_SHA.get(target),
+      })),
+    ]);
+
+    writeJson(resolve(checkpoint, 'rollback-report.json'), {
+      schemaVersion: 1,
+      status: 'partial-failure',
+      results: DEVELOPER_AUTHORITY_WORKERS.map((target) => ({
+        target,
+        status: 'skipped-compatibility-floor',
+      })),
+    });
+    expect(
+      verifyRecoveryBoundary(checkpoint, { queryCurrent: liveWorker('candidate') }),
+    ).toMatchObject({ status: 'verified' });
+    expect(
+      verifyWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+        isAncestor: authorityBlindAncestry,
+      }),
+    ).toMatchObject({
+      status: 'verified',
+      assessmentStatus: 'forward-repair-required',
+      forwardRepairTargets: [...DEVELOPER_AUTHORITY_WORKERS],
+    });
+  });
+
+  it.each(DEVELOPER_AUTHORITY_WORKERS)(
+    'keeps both Developer API candidates when only %s lacks authority support',
+    (unsupportedTarget) => {
+      const checkpoint = directory();
+      writeWorkerStates(checkpoint, DEVELOPER_AUTHORITY_WORKERS);
+      const oneSidedAncestry = ancestry({
+        developerAuthorityAware: new Set(
+          DEVELOPER_AUTHORITY_WORKERS.filter((target) => target !== unsupportedTarget),
+        ),
+      });
+      captureWorkerFloorCheckpoint('developer-api', floorPayload(), checkpoint, {
+        isAncestor: oneSidedAncestry,
+      });
+
+      const report = assessWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+        isAncestor: oneSidedAncestry,
+      });
+      expect(report.forwardRepairTargets).toEqual([...DEVELOPER_AUTHORITY_WORKERS]);
+      expect(report.results.filter(({ floor }) => floor === 'developer-authority')).toEqual(
+        DEVELOPER_AUTHORITY_WORKERS.map((target) => ({
+          target,
+          floor: 'developer-authority',
+          status: 'candidate-required',
+          beforeGitSha: BEFORE_SHA.get(target),
+        })),
+      );
+
+      writeJson(resolve(checkpoint, 'rollback-report.json'), {
+        schemaVersion: 1,
+        status: 'partial-failure',
+        results: DEVELOPER_AUTHORITY_WORKERS.map((target) => ({
+          target,
+          status: 'skipped-compatibility-floor',
+        })),
+      });
+      verifyRecoveryBoundary(checkpoint, { queryCurrent: liveWorker('candidate') });
+      expect(
+        verifyWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+          isAncestor: oneSidedAncestry,
+        }),
+      ).toMatchObject({
+        status: 'verified',
+        forwardRepairTargets: [...DEVELOPER_AUTHORITY_WORKERS],
+      });
+    },
+  );
+
+  it('rejects a forged floor assessment that omits required Developer API forward targets', () => {
+    const checkpoint = directory();
+    writeWorkerStates(checkpoint, DEVELOPER_AUTHORITY_WORKERS);
+    const authorityBlindAncestry = ancestry({ developerAuthorityAware: new Set() });
+    captureWorkerFloorCheckpoint('developer-api', floorPayload(), checkpoint, {
+      isAncestor: authorityBlindAncestry,
+    });
+    assessWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+      isAncestor: authorityBlindAncestry,
+    });
+
+    const assessmentPath = resolve(checkpoint, 'worker-floor-recovery.json');
+    const forged = JSON.parse(readFileSync(assessmentPath, 'utf8')) as {
+      status: string;
+      forwardRepairTargets: string[];
+      results: Array<{ floor: string; status: string }>;
+    };
+    forged.status = 'rollback-compatible';
+    forged.forwardRepairTargets = [];
+    for (const result of forged.results) {
+      if (result.floor === 'developer-authority') result.status = 'baseline-compatible';
+    }
+    writeJson(assessmentPath, forged);
+    writeJson(resolve(checkpoint, 'rollback-report.json'), {
+      schemaVersion: 1,
+      status: 'succeeded',
+      results: DEVELOPER_AUTHORITY_WORKERS.map((target) => ({ target, status: 'restored' })),
+    });
+    expect(
+      verifyRecoveryBoundary(checkpoint, { queryCurrent: liveWorker('baseline') }),
+    ).toMatchObject({ status: 'verified' });
+
+    expect(() =>
+      verifyWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+        isAncestor: authorityBlindAncestry,
+      }),
+    ).toThrow('Final Worker compatibility-floor verification failed');
+    expect(
+      JSON.parse(readFileSync(resolve(checkpoint, 'worker-floor-final-verification.json'), 'utf8')),
+    ).toMatchObject({ status: 'failed' });
+  });
+
+  it.each([
+    ['unknown', () => null, ancestry()],
+    [
+      'divergent',
+      (target: string) => `git:${BEFORE_SHA.get(target)}`,
+      ancestry({ releaseAncestors: new Set() }),
+    ],
+  ] as const)(
+    'fails closed for %s Developer API provenance',
+    (_label, beforeMessage, isAncestor) => {
+      const checkpoint = directory();
+      writeWorkerStates(checkpoint, DEVELOPER_AUTHORITY_WORKERS, { beforeMessage });
+      captureWorkerFloorCheckpoint('developer-api', floorPayload(), checkpoint, { isAncestor });
+
+      const report = assessWorkerFloorRecovery(checkpoint, floorPayload(), checkpoint, {
+        isAncestor,
+      });
+      expect(report.forwardRepairTargets).toEqual([...DEVELOPER_AUTHORITY_WORKERS]);
+      expect(report.results.filter(({ floor }) => floor === 'developer-authority')).toEqual(
+        DEVELOPER_AUTHORITY_WORKERS.map((target) =>
+          expect.objectContaining({ target, status: 'candidate-required' }),
+        ),
+      );
+    },
+  );
 
   it('fails closed when a first-cutover entitlement candidate was never deployed', () => {
     const checkpoint = directory();
@@ -728,6 +920,106 @@ describe('Worker compatibility-floor recovery', () => {
         { target: 'app', floor: 'generation', status: 'baseline-compatible' },
         { target: 'app', floor: 'entitlement', status: 'candidate-required' },
       ],
+    });
+  });
+
+  it('uses real Git ancestry to reject a pre-authority Developer API baseline', () => {
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    expect(
+      execFileSync(
+        'git',
+        [
+          'merge-base',
+          '--is-ancestor',
+          GENERATION_SUPPORT_SHA,
+          DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA,
+        ],
+        { stdio: 'ignore' },
+      ),
+    ).toBeDefined();
+    expect(() =>
+      execFileSync(
+        'git',
+        [
+          'merge-base',
+          '--is-ancestor',
+          DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA,
+          GENERATION_SUPPORT_SHA,
+        ],
+        { stdio: 'ignore' },
+      ),
+    ).toThrow();
+
+    const runCliAssessment = (beforeGitSha: string) => {
+      const checkpoint = directory();
+      const payloadPath = resolve(checkpoint, 'floor.json');
+      for (const target of DEVELOPER_AUTHORITY_WORKERS) {
+        writeJson(resolve(checkpoint, `${target}-state.json`), {
+          schemaVersion: 1,
+          target,
+          config: `cloudflare/wrangler.${target}.toml`,
+          releaseMessage: `git:${head}`,
+          beforeDeploymentId: `${target}-baseline-deployment`,
+          beforeVersionId: `${target}-baseline-version`,
+          beforeMessage: `git:${beforeGitSha}`,
+          attempted: true,
+        });
+      }
+      writeJson(
+        payloadPath,
+        floorPayload({
+          generation: true,
+          floorReleaseSha: GENERATION_SUPPORT_SHA,
+          entitlement: true,
+        }),
+      );
+      execFileSync(
+        process.execPath,
+        [SCRIPT_PATH, 'snapshot', 'developer-api', payloadPath, checkpoint],
+        { cwd: resolve('.'), stdio: 'pipe' },
+      );
+      execFileSync(process.execPath, [SCRIPT_PATH, 'assess', checkpoint, payloadPath, checkpoint], {
+        cwd: resolve('.'),
+        stdio: 'pipe',
+      });
+      return {
+        checkpoint: JSON.parse(
+          readFileSync(resolve(checkpoint, 'worker-floor-checkpoint.json'), 'utf8'),
+        ) as { workers: Array<Record<string, unknown>> },
+        assessment: JSON.parse(
+          readFileSync(resolve(checkpoint, 'worker-floor-recovery.json'), 'utf8'),
+        ) as { status: string; forwardRepairTargets: string[] },
+      };
+    };
+
+    const legacy = runCliAssessment(GENERATION_SUPPORT_SHA);
+    expect(legacy.checkpoint.workers).toEqual(
+      DEVELOPER_AUTHORITY_WORKERS.map((target) =>
+        expect.objectContaining({
+          target,
+          generationFloorAware: true,
+          developerAuthorityAware: false,
+        }),
+      ),
+    );
+    expect(legacy.assessment).toMatchObject({
+      status: 'forward-repair-required',
+      forwardRepairTargets: [...DEVELOPER_AUTHORITY_WORKERS],
+    });
+
+    const supported = runCliAssessment(head);
+    expect(supported.checkpoint.workers).toEqual(
+      DEVELOPER_AUTHORITY_WORKERS.map((target) =>
+        expect.objectContaining({
+          target,
+          generationFloorAware: true,
+          developerAuthorityAware: true,
+        }),
+      ),
+    );
+    expect(supported.assessment).toMatchObject({
+      status: 'rollback-compatible',
+      forwardRepairTargets: [],
     });
   });
 

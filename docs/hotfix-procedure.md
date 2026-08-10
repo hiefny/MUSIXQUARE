@@ -92,6 +92,17 @@ is not still on that release. A later
 successful full release can restore a marker left disabled by a failed release,
 but only after the same floor, smoke, and deployment-ownership checks pass.
 
+The Developer API facade/backend pair has a separate permanent authority
+compatibility boundary. Its captured baseline must descend from
+`4d2a4ff7898d40956fc110ad998433aa41ceb0e2`, the first release that propagates
+and enforces the durable per-room authority epoch and fence. An older,
+unknown, or divergent Developer API baseline stays on the exact candidate
+during both same-job and independent recovery. The facade and backend are one
+atomic compatibility pair: if either member fails that proof, recovery retains
+both candidates. This prevents an
+authority-aware retained PRO Worker from being paired with a Developer API
+stack that omits the epoch and would reject valid active keys as stale.
+
 The complete serial Playwright suite is intentionally not a production deploy
 gate or a scheduled job. Start it manually from the `Full E2E` workflow when a
 change warrants the extra coverage. Review failures there as regression

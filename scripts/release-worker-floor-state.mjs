@@ -18,9 +18,13 @@ const GENERATION_WORKERS = Object.freeze([
   'app',
 ]);
 const ENTITLEMENT_WORKERS = Object.freeze(['pro-room', 'app']);
+const DEVELOPER_AUTHORITY_WORKERS = Object.freeze(['developer-api-facade', 'developer-api']);
 // Immutable first release whose App/PRO Workers implement the durable
 // entitlement ledger and backfill contract represented by entitlement_floor.
 export const ENTITLEMENT_SUPPORT_RELEASE_SHA = 'a79d1624d2314942072622cc875da7c7332a9530';
+// Immutable first release whose Developer API pair propagates and enforces the
+// per-room authority epoch/fence contract consumed by the PRO room Worker.
+export const DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA = '4d2a4ff7898d40956fc110ad998433aa41ceb0e2';
 const RELEASE_SHA_RE = /^[0-9a-f]{40}$/u;
 
 function readJson(path) {
@@ -98,6 +102,7 @@ function selectedFloorWorkers(releaseTarget) {
   return {
     generation: GENERATION_WORKERS.filter((target) => selected.has(target)),
     entitlement: ENTITLEMENT_WORKERS.filter((target) => selected.has(target)),
+    developerAuthority: DEVELOPER_AUTHORITY_WORKERS.filter((target) => selected.has(target)),
   };
 }
 
@@ -124,6 +129,9 @@ function inspectWorkerProvenance(state, releaseSha, floorReleaseSha, isAncestor)
   const entitlementFloorAware = Boolean(
     releaseAncestor && isAncestor(ENTITLEMENT_SUPPORT_RELEASE_SHA, beforeGitSha),
   );
+  const developerAuthorityAware = Boolean(
+    releaseAncestor && isAncestor(DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA, beforeGitSha),
+  );
   return {
     target: state.target,
     beforeDeploymentId: state.beforeDeploymentId || null,
@@ -133,6 +141,7 @@ function inspectWorkerProvenance(state, releaseSha, floorReleaseSha, isAncestor)
     provenanceStatus: releaseAncestor ? 'verified-release-ancestor' : 'unverified',
     generationFloorAware,
     entitlementFloorAware,
+    developerAuthorityAware,
   };
 }
 
@@ -167,7 +176,9 @@ export function captureWorkerFloorCheckpoint(
 ) {
   const floors = parseWorkerFloorEvidence(payload, 'Pre-mutation Worker compatibility floors');
   const selected = selectedFloorWorkers(releaseTarget);
-  const targets = [...new Set([...selected.generation, ...selected.entitlement])];
+  const targets = [
+    ...new Set([...selected.generation, ...selected.entitlement, ...selected.developerAuthority]),
+  ];
   if (targets.length === 0) {
     throw new Error(`${releaseTarget} does not require a Worker compatibility-floor checkpoint.`);
   }
@@ -196,7 +207,9 @@ export function captureWorkerFloorCheckpoint(
 
 function checkpointWorkerMap(checkpoint, directory, isAncestor) {
   const expected = selectedFloorWorkers(checkpoint.releaseTarget);
-  const targets = [...new Set([...expected.generation, ...expected.entitlement])];
+  const targets = [
+    ...new Set([...expected.generation, ...expected.entitlement, ...expected.developerAuthority]),
+  ];
   const capturedByTarget = new Map();
   for (const worker of checkpoint.workers) {
     if (typeof worker?.target !== 'string' || capturedByTarget.has(worker.target)) {
@@ -263,10 +276,9 @@ function validateFloorEvolution(checkpoint, currentFloors) {
   };
 }
 
-export function assessWorkerFloorRecovery(
+function buildWorkerFloorRecoveryAssessment(
   checkpointDirectory,
   currentPayload,
-  outputDirectory,
   { isAncestor = gitIsAncestor } = {},
 ) {
   const checkpoint = validateCheckpoint(readJson(resolve(checkpointDirectory, CHECKPOINT_FILE)));
@@ -340,8 +352,42 @@ export function assessWorkerFloorRecovery(
     if (!compatible) forwardRepairTargets.add(target);
   }
 
+  // The facade and backend are one public Developer API deployment contract.
+  // Authority epochs are durable and immutable once issued. If either
+  // baseline predates their end-to-end propagation (or lacks exact release
+  // provenance), restoring only the other half would create an unproven mixed
+  // pair against a retained authority-aware PRO Worker. Keep both candidates
+  // unless every selected member independently proves the support boundary.
+  const developerAuthorityCompatible = selected.developerAuthority.every((target) => {
+    const worker = workers.get(target);
+    return (
+      worker?.provenanceStatus === 'verified-release-ancestor' &&
+      worker?.developerAuthorityAware === true
+    );
+  });
+  for (const target of selected.developerAuthority) {
+    const worker = workers.get(target);
+    report.results.push({
+      target,
+      floor: 'developer-authority',
+      status: developerAuthorityCompatible ? 'baseline-compatible' : 'candidate-required',
+      beforeGitSha: worker?.beforeGitSha || null,
+    });
+    if (!developerAuthorityCompatible) forwardRepairTargets.add(target);
+  }
+
   report.forwardRepairTargets = [...forwardRepairTargets];
   if (forwardRepairTargets.size > 0) report.status = 'forward-repair-required';
+  return report;
+}
+
+export function assessWorkerFloorRecovery(
+  checkpointDirectory,
+  currentPayload,
+  outputDirectory,
+  options = {},
+) {
+  const report = buildWorkerFloorRecoveryAssessment(checkpointDirectory, currentPayload, options);
   writeJson(resolve(outputDirectory, ASSESSMENT_FILE), report);
   return report;
 }
@@ -351,7 +397,11 @@ export function readWorkerFloorForwardRepairTargets(directory) {
   if (!Array.isArray(report?.forwardRepairTargets)) {
     throw new Error('Worker compatibility-floor recovery assessment is missing or malformed.');
   }
-  const knownWorkers = new Set([...GENERATION_WORKERS, ...ENTITLEMENT_WORKERS]);
+  const knownWorkers = new Set([
+    ...GENERATION_WORKERS,
+    ...ENTITLEMENT_WORKERS,
+    ...DEVELOPER_AUTHORITY_WORKERS,
+  ]);
   if (report.forwardRepairTargets.some((target) => !knownWorkers.has(target))) {
     throw new Error('Worker compatibility-floor recovery assessment contains an unknown target.');
   }
@@ -362,6 +412,7 @@ export function verifyWorkerFloorRecovery(
   checkpointDirectory,
   freshPayload,
   assessmentDirectory = checkpointDirectory,
+  { isAncestor = gitIsAncestor } = {},
 ) {
   const verificationPath = resolve(assessmentDirectory, FINAL_VERIFICATION_FILE);
   const report = {
@@ -373,20 +424,31 @@ export function verifyWorkerFloorRecovery(
     const checkpoint = validateCheckpoint(readJson(resolve(checkpointDirectory, CHECKPOINT_FILE)));
     const freshFloors = parseWorkerFloorEvidence(freshPayload, 'Final Worker compatibility floors');
     validateFloorEvolution(checkpoint, freshFloors);
+    const expectedAssessment = buildWorkerFloorRecoveryAssessment(
+      checkpointDirectory,
+      freshPayload,
+      { isAncestor },
+    );
     const assessment = readJson(resolve(assessmentDirectory, ASSESSMENT_FILE));
     const workerVerification = readJson(
       resolve(assessmentDirectory, 'recovery-final-verification.json'),
     );
-    const knownWorkers = new Set([...GENERATION_WORKERS, ...ENTITLEMENT_WORKERS]);
+    const knownWorkers = new Set([
+      ...GENERATION_WORKERS,
+      ...ENTITLEMENT_WORKERS,
+      ...DEVELOPER_AUTHORITY_WORKERS,
+    ]);
     const forwardTargets = assessment?.forwardRepairTargets;
     if (
       assessment?.schemaVersion !== SCHEMA_VERSION ||
       assessment.releaseTarget !== checkpoint.releaseTarget ||
       assessment.releaseGitSha !== checkpoint.releaseGitSha ||
-      !['rollback-compatible', 'forward-repair-required'].includes(assessment.status) ||
+      assessment.status !== expectedAssessment.status ||
       !isDeepStrictEqual(assessment.checkpointFloors, checkpoint.floors) ||
       !isDeepStrictEqual(assessment.currentFloors, freshFloors) ||
+      !isDeepStrictEqual(assessment.results, expectedAssessment.results) ||
       !Array.isArray(forwardTargets) ||
+      !isDeepStrictEqual(forwardTargets, expectedAssessment.forwardRepairTargets) ||
       new Set(forwardTargets).size !== forwardTargets.length ||
       forwardTargets.some((target) => !knownWorkers.has(target)) ||
       (forwardTargets.length === 0) !== (assessment.status === 'rollback-compatible')

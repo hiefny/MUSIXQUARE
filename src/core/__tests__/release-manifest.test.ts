@@ -20,6 +20,8 @@ type Manifest = {
     serviceWorkerCacheEpoch: number;
   };
   commit: string;
+  runId: string | null;
+  runAttempt: string | null;
   target: string | null;
   validationProfile: string | null;
   tools: {
@@ -54,6 +56,10 @@ function runManifest(
     GITHUB_SHA: COMMIT,
     npm_config_user_agent: 'npm/10.9.0 node/v22.0.0 win32 x64',
   };
+  delete env.GITHUB_RUN_ID;
+  delete env.GITHUB_RUN_ATTEMPT;
+  delete env.RELEASE_SOURCE_RUN_ID;
+  delete env.RELEASE_SOURCE_RUN_ATTEMPT;
   delete env.RELEASE_VALIDATION_PROFILE;
   delete env.RELEASE_TARGET;
   if (validationProfile) env.RELEASE_VALIDATION_PROFILE = validationProfile;
@@ -163,6 +169,8 @@ describe('release manifest validation profile', () => {
     expect(createResult.status, createResult.stderr).toBe(0);
 
     const payload = JSON.parse(readFileSync(manifest, 'utf8')) as Manifest;
+    expect(payload.runId).toBeNull();
+    expect(payload.runAttempt).toBeNull();
     expect(payload.validationProfile).toBeNull();
     expect(runManifest('verify', dist, manifest).status).toBe(0);
   });

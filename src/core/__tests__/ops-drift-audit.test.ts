@@ -64,7 +64,21 @@ async function matchingLiveResponse(
     return jsonResponse({ success: true, result: source });
   }
   if (url.includes('musixquare-pro-media') && url.endsWith('/lifecycle')) {
-    return jsonResponse({ success: true, result: { rules: [] } });
+    return jsonResponse({
+      success: true,
+      result: {
+        rules: [
+          {
+            id: 'Default Multipart Abort Rule',
+            enabled: true,
+            conditions: {},
+            abortMultipartUploadsTransition: {
+              condition: { type: 'Age', maxAge: 604800 },
+            },
+          },
+        ],
+      },
+    });
   }
   return jsonResponse([{ type: 'non_fast_forward' }, { type: 'deletion' }]);
 }
@@ -222,6 +236,44 @@ describe('operations drift audit', () => {
     expect(shortDeleteLifecycleRules(policy, 86400)).toEqual([
       'date-retention (2026-08-10T00:00:00.000Z)',
       'short-retention (86400s)',
+    ]);
+    const cloudflareDefaultRule = {
+      rules: [
+        {
+          id: 'Default Multipart Abort Rule',
+          enabled: true,
+          conditions: {},
+          abortMultipartUploadsTransition: {
+            condition: { type: 'Age', maxAge: 604800 },
+          },
+        },
+      ],
+    };
+    expect(() => normalizeLifecyclePolicy(cloudflareDefaultRule)).toThrow(
+      'must declare id, enabled, and the exact conditions.prefix',
+    );
+    const normalizedDefaultRule = normalizeLifecyclePolicy(cloudflareDefaultRule, 'live', {
+      allowEmptyPrefixOmission: true,
+    });
+    expect(normalizedDefaultRule[0]?.conditions).toEqual({ prefix: '' });
+    expect(shortDeleteLifecycleRules(normalizedDefaultRule, 86400)).toEqual([]);
+
+    const omittedPrefixShortDelete = normalizeLifecyclePolicy(
+      {
+        rules: [
+          {
+            id: 'unsafe-all-object-expiry',
+            enabled: true,
+            conditions: {},
+            deleteObjectsTransition: { condition: { type: 'Age', maxAge: 86400 } },
+          },
+        ],
+      },
+      'live',
+      { allowEmptyPrefixOmission: true },
+    );
+    expect(shortDeleteLifecycleRules(omittedPrefixShortDelete, 86400)).toEqual([
+      'unsafe-all-object-expiry (86400s)',
     ]);
     expect(normalizeLifecyclePolicy({})).toEqual([]);
     expect(() =>

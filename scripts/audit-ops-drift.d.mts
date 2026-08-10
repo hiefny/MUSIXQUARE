@@ -70,7 +70,7 @@ export interface NormalizedLifecycleRule {
 export function normalizeLifecyclePolicy(
   value: unknown,
   label?: string,
-  options?: { exactKeys?: boolean },
+  options?: { exactKeys?: boolean; allowEmptyPrefixOmission?: boolean },
 ): NormalizedLifecycleRule[];
 export function shortDeleteLifecycleRules(
   policy: NormalizedLifecycleRule[],

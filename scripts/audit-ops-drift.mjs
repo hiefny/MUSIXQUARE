@@ -384,28 +384,38 @@ function stableCompare(left, right) {
   return leftJson < rightJson ? -1 : leftJson > rightJson ? 1 : 0;
 }
 
-function normalizeLifecycleRule(value, label) {
+function normalizeLifecycleRule(value, label, options = {}) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} is not a lifecycle rule.`);
   }
   assertOnlyKeys(value, LIFECYCLE_RULE_KEYS, label);
+  // Cloudflare's built-in "Default Multipart Abort Rule" currently returns
+  // `conditions: {}` for its all-prefix scope even though the public API
+  // schema models that scope as `conditions: { prefix: "" }`. Only the
+  // short-delete safety audit accepts that observed live representation, and
+  // normalizes it conservatively to the all-object empty prefix. Checked-in
+  // exact policies and exact live-policy comparisons remain strict.
+  const hasExplicitPrefix =
+    value.conditions &&
+    typeof value.conditions === 'object' &&
+    !Array.isArray(value.conditions) &&
+    hasExactKeys(value.conditions, ['prefix']) &&
+    typeof value.conditions.prefix === 'string';
+  const hasOmittedEmptyPrefix =
+    options.allowEmptyPrefixOmission === true && hasExactKeys(value.conditions, []);
   if (
     typeof value.id !== 'string' ||
     value.id.length === 0 ||
     value.id.length > 128 ||
     typeof value.enabled !== 'boolean' ||
-    !value.conditions ||
-    typeof value.conditions !== 'object' ||
-    Array.isArray(value.conditions) ||
-    !hasExactKeys(value.conditions, ['prefix']) ||
-    typeof value.conditions.prefix !== 'string'
+    (!hasExplicitPrefix && !hasOmittedEmptyPrefix)
   ) {
     throw new Error(`${label} must declare id, enabled, and the exact conditions.prefix.`);
   }
   return {
     id: value.id,
     enabled: value.enabled,
-    conditions: { prefix: value.conditions.prefix },
+    conditions: { prefix: hasExplicitPrefix ? value.conditions.prefix : '' },
     abortMultipartUploadsTransition:
       value.abortMultipartUploadsTransition === undefined ||
       value.abortMultipartUploadsTransition === null
@@ -450,7 +460,7 @@ export function normalizeLifecyclePolicy(value, label = 'lifecycle policy', opti
   const rules = value.rules === undefined ? [] : value.rules;
   if (!Array.isArray(rules)) throw new Error(`${label}.rules must be an array when present.`);
   return rules
-    .map((rule, index) => normalizeLifecycleRule(rule, `${label}.rules[${index}]`))
+    .map((rule, index) => normalizeLifecycleRule(rule, `${label}.rules[${index}]`, options))
     .sort(stableCompare);
 }
 
@@ -770,7 +780,9 @@ export async function runOpsDriftAudit({
       if (payload?.success !== true || !payload.result) {
         throw new Error(`R2 lifecycle ${entry.bucket} returned an invalid API envelope.`);
       }
-      const actual = normalizeLifecyclePolicy(payload.result, `live:${entry.bucket}`);
+      const actual = normalizeLifecyclePolicy(payload.result, `live:${entry.bucket}`, {
+        allowEmptyPrefixOmission: true,
+      });
       const unsafe = shortDeleteLifecycleRules(actual, entry.maxAgeSeconds);
       checks.push(
         unsafe.length === 0

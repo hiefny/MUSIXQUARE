@@ -6,7 +6,9 @@ import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import {
   bindAudioContextInterruptionRecovery,
+  getPendingAudioContextInterruptionAttempt,
   hasPendingAudioContextInterruption,
+  isAudioContextInterruptionAttemptCurrent,
   resumePendingAudioContextInterruptionFromGesture,
 } from '../context-recovery.ts';
 
@@ -185,6 +187,40 @@ describe('AudioContext interruption recovery', () => {
       fallbackEligible: false,
     });
     expect(hasPendingAudioContextInterruption()).toBe(false);
+  });
+
+  it('exposes only the exact active interruption attempt and invalidates it on close', async () => {
+    markActiveFileRoom();
+    const context = new FakeAudioContext();
+    context.resume.mockRejectedValueOnce(new Error('autoplay blocked'));
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+    expect(getPendingAudioContextInterruptionAttempt()).toBeNull();
+    expect(isAudioContextInterruptionAttemptCurrent({})).toBe(false);
+    context.dispatchState('suspended');
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+
+    const attempt = getPendingAudioContextInterruptionAttempt();
+    expect(attempt).toBeTypeOf('object');
+    expect(isAudioContextInterruptionAttemptCurrent(attempt!)).toBe(true);
+    expect(isAudioContextInterruptionAttemptCurrent({})).toBe(false);
+
+    context.dispatchState('closed');
+    expect(getPendingAudioContextInterruptionAttempt()).toBeNull();
+    expect(isAudioContextInterruptionAttemptCurrent(attempt!)).toBe(false);
+    dispose();
+  });
+
+  it('returns a non-running result when no interruption attempt is pending', async () => {
+    const context = new FakeAudioContext();
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    dispose();
+
+    await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toEqual({
+      running: false,
+      rejoinEmitted: false,
+      fallbackEligible: false,
+    });
   });
 
   it('removes its listener exactly when disposed', () => {

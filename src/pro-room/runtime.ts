@@ -105,7 +105,12 @@ import {
   hydrateProRoomYouTubeManifests,
   sameStringArray,
 } from './youtube-manifest-policy.ts';
-import { registerProRoomMediaHooks, type ProRoomMediaHooks } from './media-hooks.ts';
+import {
+  invalidateProRoomMediaHookSession,
+  registerProRoomMediaHooks,
+  renewProRoomMediaHookSession,
+  type ProRoomMediaHooks,
+} from './media-hooks.ts';
 import { waitForProRoomPresenceClose } from './hard-close.ts';
 import { createProRoomIdempotencyKey } from './idempotency.ts';
 import {
@@ -241,6 +246,21 @@ let accountIdentityLeaseExpiresAtMs: number | null = null;
 let accountIdentityLeaseRetryAttempt = 0;
 /** Invalidates lease responses issued for an older App-account projection. */
 let accountIdentityGeneration = 0;
+interface AccountMediaHookCommitIdentity {
+  roomCode: string;
+  participantId: string;
+  presenceIncarnationId: string;
+  memberId: string;
+  isAuthenticated: boolean;
+}
+let accountMediaHookRenewal: ReturnType<typeof invalidateProRoomMediaHookSession> = null;
+let accountMediaHookRecovery: {
+  renewal: NonNullable<ReturnType<typeof invalidateProRoomMediaHookSession>>;
+  identityGeneration: number;
+  sessionLease: number;
+  roomCode: string;
+  playlistLease: PlaylistRuntimeLease;
+} | null = null;
 let acceptedAccountIdentityProjectionKey = proAccountIdentityProjectionKey(getAccountSnapshot());
 let systemAudioSafetyRefreshAtMs = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
@@ -297,7 +317,18 @@ interface ActiveServerPlaybackTransition {
 }
 let activeServerPlaybackTransition: ActiveServerPlaybackTransition | null = null;
 const playbackTransitionUiIds = new Set<string>();
-const playbackCommitInFlight = new Map<number, Promise<void>>();
+type PlaybackCommitOwner = () => boolean;
+interface PlaybackCommitFlight {
+  promise: Promise<void>;
+  owner: PlaybackCommitOwner;
+}
+interface PlaybackCommitFollowUp {
+  event: ProRoomPlaybackCommitEvent;
+  owner: PlaybackCommitOwner;
+}
+const canonicalPlaybackCommitOwner: PlaybackCommitOwner = () => true;
+const playbackCommitInFlight = new Map<number, PlaybackCommitFlight>();
+const playbackCommitFollowUps = new Map<number, PlaybackCommitFollowUp>();
 let playbackCommitTail: Promise<void> = Promise.resolve();
 let playbackCommitGeneration = 0;
 let playbackReconciliationSequence = 0;
@@ -653,6 +684,122 @@ function isPlaylistLeaseCurrent(lease: PlaylistRuntimeLease): boolean {
     playlistRuntimeLease.roomCode === lease.roomCode &&
     playlistRoomCode === lease.roomCode
   );
+}
+
+function renewAccountMediaHooksIfCurrent(
+  renewal: ReturnType<typeof invalidateProRoomMediaHookSession>,
+  identityGeneration: number,
+  sessionLease: number,
+  playlistLease: PlaylistRuntimeLease | null,
+  expectedIdentity: AccountMediaHookCommitIdentity,
+): boolean {
+  if (
+    !renewal ||
+    accountMediaHookRenewal !== renewal ||
+    identityGeneration !== accountIdentityGeneration ||
+    !active ||
+    !controller.isSessionLeaseCurrent(sessionLease, expectedIdentity.roomCode) ||
+    !playlistLease ||
+    playlistRuntimeLease !== playlistLease ||
+    !isPlaylistLeaseCurrent(playlistLease) ||
+    !isAccountMediaHookCommitIdentityCurrent(expectedIdentity)
+  ) {
+    return false;
+  }
+  const renewed = renewProRoomMediaHookSession(renewal);
+  if (accountMediaHookRecovery?.renewal === renewal) accountMediaHookRecovery = null;
+  if (accountMediaHookRenewal === renewal) accountMediaHookRenewal = null;
+  return renewed;
+}
+
+function accountMediaHookCommitIdentity(
+  snapshot: ProRoomSnapshot,
+): AccountMediaHookCommitIdentity | null {
+  const viewer = snapshot.viewer;
+  if (!viewer) return null;
+  return {
+    roomCode: snapshot.roomCode,
+    participantId: viewer.participantId,
+    presenceIncarnationId: viewer.presenceIncarnationId,
+    memberId: viewer.memberId,
+    isAuthenticated: viewer.isAuthenticated,
+  };
+}
+
+function isAccountMediaHookCommitIdentityCurrent(
+  expected: AccountMediaHookCommitIdentity,
+): boolean {
+  const current = controller.snapshot;
+  const viewer = current?.viewer;
+  return !!(
+    current?.roomCode === expected.roomCode &&
+    viewer &&
+    viewer.participantId === expected.participantId &&
+    viewer.presenceIncarnationId === expected.presenceIncarnationId &&
+    viewer.memberId === expected.memberId &&
+    viewer.isAuthenticated === expected.isAuthenticated
+  );
+}
+
+function sameAccountMediaHookCommitIdentity(
+  left: AccountMediaHookCommitIdentity,
+  right: AccountMediaHookCommitIdentity,
+): boolean {
+  return (
+    left.roomCode === right.roomCode &&
+    left.participantId === right.participantId &&
+    left.presenceIncarnationId === right.presenceIncarnationId &&
+    left.memberId === right.memberId &&
+    left.isAuthenticated === right.isAuthenticated
+  );
+}
+
+function isAccountDetachRecoveryTarget(account: Readonly<AccountSnapshot>): boolean {
+  return (
+    account.status === 'anonymous' ||
+    (account.status === 'authenticated' && account.account?.profileComplete === false)
+  );
+}
+
+function recoverAccountMediaHooksFromCanonicalSnapshot(snapshot: ProRoomSnapshot): void {
+  const recovery = accountMediaHookRecovery;
+  if (!recovery) return;
+  if (
+    recovery.renewal !== accountMediaHookRenewal ||
+    recovery.identityGeneration !== accountIdentityGeneration ||
+    snapshot.roomCode !== recovery.roomCode
+  ) {
+    if (accountMediaHookRecovery === recovery) accountMediaHookRecovery = null;
+    return;
+  }
+  const viewer = snapshot.viewer;
+  const account = getAccountSnapshot();
+  // Public PRO snapshots intentionally omit accountId. An authenticated
+  // heartbeat therefore cannot distinguish old account A from a same-nickname
+  // successor B after an uncertain attach; only an explicit attach retry may
+  // renew that transition. A still-current definitive detach target plus a
+  // signed anonymous viewer is sufficient proof for a lost detach response.
+  // This includes an incomplete successor account shedding old account A
+  // before onboarding; it is not evidence that successor B was attached.
+  if (!isAccountDetachRecoveryTarget(account) || !viewer || viewer.isAuthenticated === true) {
+    return;
+  }
+  const renewed = renewAccountMediaHooksIfCurrent(
+    recovery.renewal,
+    recovery.identityGeneration,
+    recovery.sessionLease,
+    recovery.playlistLease,
+    accountMediaHookCommitIdentity(snapshot)!,
+  );
+  if (!renewed) return;
+  // The reconciler failed before it could invoke acceptAnonymous(), so the
+  // heartbeat observer projected this signed anonymous snapshot through the
+  // still-latched fail-closed filter. Restore its legitimate anonymous (and
+  // potentially one-shot delegated) capabilities only after the same exact
+  // transaction has renewed successfully.
+  accountAuthorityFailClosed = false;
+  const context = controller.context;
+  if (active && context) applyAuthority(context);
 }
 
 function projectedSignature(snapshot: ProRoomSnapshot): string {
@@ -1556,6 +1703,8 @@ function installMediaHooks(
       pendingFileDownload?.controller.abort();
     },
   };
+  accountMediaHookRenewal = null;
+  accountMediaHookRecovery = null;
   registerProRoomMediaHooks(hooks);
 }
 
@@ -1575,6 +1724,8 @@ function resetPlaylistRuntime(): void {
   closeAllTransferLoaders();
   youtubeManifestUpgradeTail = Promise.resolve();
   attemptedYouTubeManifestUpgrades.clear();
+  accountMediaHookRenewal = null;
+  accountMediaHookRecovery = null;
   registerProRoomMediaHooks(null);
   mediaTransfer?.cache.clear();
   playlistManager = null;
@@ -1607,6 +1758,7 @@ function resetPlaylistRuntime(): void {
   activeServerPlaybackTransition = null;
   resetPlaybackTransitionUi();
   playbackCommitInFlight.clear();
+  playbackCommitFollowUps.clear();
   playbackCommitGeneration += 1;
   // A promise from the room being torn down must never serialize a canonical
   // COMMIT for the next room incarnation behind stale media work. Its
@@ -2695,7 +2847,7 @@ function acceptPlaybackCancel(transitionId: string): void {
 function playbackCommitStillCurrent(
   event: ProRoomPlaybackCommitEvent,
   generation: number,
-  isRequestCurrent: () => boolean = () => true,
+  isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
 ): boolean {
   const context = getState('room.context');
   return !!(
@@ -2793,20 +2945,32 @@ async function catchUpExactPlaybackCheckpoint(
     return null;
   }
   const timing = playbackCommitTiming(event, receivedAtMs);
-  return commitProPlaybackAuthority({
-    authority,
-    committedPlaybackRevision: playback.revision,
-    queueItemId: playback.queueItemId,
-    state: playback.state,
-    positionSeconds: timing.positionSeconds,
-    scheduleDelayMs: timing.scheduleDelayMs,
-    // Catch-up is already following a committed running checkpoint; applying
-    // the one-time zero-start lead here would move a late endpoint ahead.
-    timingMode: 'scheduled-control',
-    youtubeSubIndex: playback.youtubeSubIndex,
-    youtubeVideoId: playback.youtubeVideoId,
-    isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
-  });
+  try {
+    const result = await commitProPlaybackAuthority({
+      authority,
+      committedPlaybackRevision: playback.revision,
+      queueItemId: playback.queueItemId,
+      state: playback.state,
+      positionSeconds: timing.positionSeconds,
+      scheduleDelayMs: timing.scheduleDelayMs,
+      // Catch-up is already following a committed running checkpoint; applying
+      // the one-time zero-start lead here would move a late endpoint ahead.
+      timingMode: 'scheduled-control',
+      youtubeSubIndex: playback.youtubeSubIndex,
+      youtubeVideoId: playback.youtubeVideoId,
+      isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
+    });
+    if (
+      result.status !== 'applied' ||
+      !playbackCommitStillCurrent(event, generation, isRequestCurrent)
+    ) {
+      cancelProPlaybackPreparation(authority);
+    }
+    return result;
+  } catch (error) {
+    cancelProPlaybackPreparation(authority);
+    throw error;
+  }
 }
 
 async function silenceUnappliedCanonicalRenderer(
@@ -2903,7 +3067,10 @@ async function applyPlaybackCommit(
       cancelProPlaybackPreparation(authority);
       throw error;
     }
-    if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
+    if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) {
+      cancelProPlaybackPreparation(authority);
+      return;
+    }
     if (prepared.status !== 'ready') {
       if (activeTransition) clearServerPlaybackTransition(activeTransition);
       const catchup = await catchUpExactPlaybackCheckpoint(
@@ -2948,19 +3115,28 @@ async function applyPlaybackCommit(
 
   if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
   const timing = playbackCommitTiming(event, receivedAtMs);
-  let result = await commitProPlaybackAuthority({
-    authority,
-    committedPlaybackRevision: playback.revision,
-    queueItemId: playback.queueItemId,
-    state: playback.state,
-    positionSeconds: timing.positionSeconds,
-    scheduleDelayMs: timing.scheduleDelayMs,
-    timingMode: preparedFromMatchingTransition ? timing.timingMode : 'scheduled-control',
-    youtubeSubIndex: playback.youtubeSubIndex,
-    youtubeVideoId: playback.youtubeVideoId,
-    isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
-  });
-  if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) return;
+  let result: ProPlaybackCommitResult;
+  try {
+    result = await commitProPlaybackAuthority({
+      authority,
+      committedPlaybackRevision: playback.revision,
+      queueItemId: playback.queueItemId,
+      state: playback.state,
+      positionSeconds: timing.positionSeconds,
+      scheduleDelayMs: timing.scheduleDelayMs,
+      timingMode: preparedFromMatchingTransition ? timing.timingMode : 'scheduled-control',
+      youtubeSubIndex: playback.youtubeSubIndex,
+      youtubeVideoId: playback.youtubeVideoId,
+      isCurrent: () => playbackCommitStillCurrent(event, generation, isRequestCurrent),
+    });
+  } catch (error) {
+    cancelProPlaybackPreparation(authority);
+    throw error;
+  }
+  if (!playbackCommitStillCurrent(event, generation, isRequestCurrent)) {
+    cancelProPlaybackPreparation(authority);
+    return;
+  }
 
   // A direct pause/seek or a canonical transition whose resident media was
   // superseded can reach a freshly resumed endpoint before hydration. Clear
@@ -3018,7 +3194,7 @@ async function applyPlaybackCommit(
 
 function acceptPlaybackCommit(
   event: ProRoomPlaybackCommitEvent,
-  isRequestCurrent: () => boolean = () => true,
+  isRequestCurrent: PlaybackCommitOwner = canonicalPlaybackCommitOwner,
 ): void {
   if (!isRequestCurrent()) return;
   if (event.playback.revision <= lastAppliedPlaybackRevision) return;
@@ -3028,7 +3204,23 @@ function acceptPlaybackCommit(
   // itself against highestKnownPlaybackRevision.
   if (event.playback.revision < highestKnownPlaybackRevision) return;
   const existing = playbackCommitInFlight.get(event.playback.revision);
-  if (existing) return;
+  if (existing) {
+    if (existing.owner === isRequestCurrent || existing.owner === canonicalPlaybackCommitOwner) {
+      return;
+    }
+    const pending = playbackCommitFollowUps.get(event.playback.revision);
+    if (
+      !pending ||
+      (isRequestCurrent === canonicalPlaybackCommitOwner &&
+        pending.owner !== canonicalPlaybackCommitOwner)
+    ) {
+      playbackCommitFollowUps.set(event.playback.revision, {
+        event,
+        owner: isRequestCurrent,
+      });
+    }
+    return;
+  }
   const receivedAtMs = Date.now();
   const pendingUiTransitionId =
     activeServerPlaybackTransition &&
@@ -3047,12 +3239,26 @@ function acceptPlaybackCommit(
       if (pendingUiTransitionId && pendingUiTransitionId !== event.transitionId) {
         settlePlaybackTransitionUi(pendingUiTransitionId);
       }
-      if (playbackCommitInFlight.get(event.playback.revision) === operation) {
+      if (playbackCommitInFlight.get(event.playback.revision)?.promise === operation) {
         playbackCommitInFlight.delete(event.playback.revision);
+      }
+      const followUp = playbackCommitFollowUps.get(event.playback.revision);
+      if (followUp) playbackCommitFollowUps.delete(event.playback.revision);
+      if (
+        followUp &&
+        followUp.owner() &&
+        followUp.event.playback.revision > lastAppliedPlaybackRevision
+      ) {
+        // Consume before starting the retry. A permanent endpoint failure gets
+        // one exact follower, never a self-replenishing retry loop.
+        acceptPlaybackCommit(followUp.event, followUp.owner);
       }
     });
   playbackCommitTail = operation.catch(() => undefined);
-  playbackCommitInFlight.set(event.playback.revision, operation);
+  playbackCommitInFlight.set(event.playback.revision, {
+    promise: operation,
+    owner: isRequestCurrent,
+  });
   void operation.catch((error) => {
     log.warn('[PRO Playback] Canonical COMMIT could not be applied', error);
   });
@@ -3308,7 +3514,7 @@ async function restorePlaybackCheckpoint(
   playback: ProRoomPlaybackCheckpoint,
   roomCode: string,
   roomEpoch: number,
-  isRequestCurrent: () => boolean = () => true,
+  isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
 ): Promise<void> {
   const context = getState('room.context');
   if (
@@ -3345,14 +3551,25 @@ async function restorePlaybackCheckpoint(
   );
 }
 
-async function restorePersistedPlayback(snapshot: ProRoomSnapshot): Promise<void> {
+async function restorePersistedPlayback(
+  snapshot: ProRoomSnapshot,
+  isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
+): Promise<void> {
   const lease = playlistRuntimeLease;
-  if (!lease || lease.roomCode !== snapshot.roomCode || !isPlaylistLeaseCurrent(lease)) return;
+  if (
+    !isRequestCurrent() ||
+    !lease ||
+    lease.roomCode !== snapshot.roomCode ||
+    !isPlaylistLeaseCurrent(lease)
+  ) {
+    return;
+  }
   highestKnownPlaybackRevision = Math.max(highestKnownPlaybackRevision, snapshot.playback.revision);
   await restorePlaybackCheckpoint(
     snapshot.playback,
     snapshot.roomCode,
     snapshot.presence.coordinatorEpoch,
+    isRequestCurrent,
   );
 }
 
@@ -3384,7 +3601,7 @@ async function reapplyCurrentPlaybackCheckpoint(
   roomEpoch: number,
   observedServerTimeMs: number,
   rendezvous: boolean,
-  isRequestCurrent: () => boolean = () => true,
+  isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
 ): Promise<boolean> {
   if (
     !isRequestCurrent() ||
@@ -3599,7 +3816,7 @@ function startPlaybackReconciliation(
     options.owner.isCurrent();
   const operation = (async () => {
     if (!requestStillCurrent()) return false;
-    await runHeartbeat(true, true);
+    await runHeartbeat(true, true, requestStillCurrent);
     if (!requestStillCurrent()) return false;
     const snapshot = playlistManager?.snapshot ?? controller.snapshot;
     const context = getState('room.context');
@@ -3642,7 +3859,7 @@ function startPlaybackReconciliation(
       );
       if (!requestStillCurrent()) return false;
       const commit = playbackCommitInFlight.get(playback.revision);
-      if (commit) await commit;
+      if (commit) await commit.promise;
       return requestStillCurrent() && playback.revision === lastAppliedPlaybackRevision;
     }
     if (playback.revision < lastAppliedPlaybackRevision) return false;
@@ -3760,9 +3977,12 @@ function stopLifecycle(): void {
   playbackReconciliationInFlight = null;
   for (const queued of queuedPlaybackReconciliations) queued.resolve(false);
   queuedPlaybackReconciliations = [];
+  playbackCommitFollowUps.clear();
   accountReconciler.stop();
   accountIdentityGeneration += 1;
   accountAuthorityFailClosed = false;
+  accountMediaHookRenewal = null;
+  accountMediaHookRecovery = null;
   accountLeaseRenewalOwner = null;
   accountIdentityLeaseExpiresAtMs = null;
   accountIdentityLeaseRetryAttempt = 0;
@@ -3819,20 +4039,37 @@ async function acceptAccountReconciliationSnapshot(
   signal: AbortSignal,
 ): Promise<void> {
   let lease = controller.captureSessionLease();
-  const acceptCommittedAccountAuthority = (committed: ProRoomSnapshot) => {
-    // Account authority becomes trustworthy as soon as the signed server
-    // snapshot is committed. Playlist projection and control-channel
-    // replacement are independently recoverable; neither may leave a
-    // successfully attached administrator permanently fail-closed.
-    if (signal.aborted || !controller.isSessionLeaseCurrent(lease, committed.roomCode)) return;
-    accountAuthorityFailClosed = false;
-    const context = controller.context;
-    if (active && context) applyAuthority(context);
+  const identityGeneration = accountIdentityGeneration;
+  const playlistLease = playlistRuntimeLease;
+  // The App cookie may already name a successor account while the room still
+  // projects its predecessor. Keep all account-derived authority closed from
+  // the first synchronous edge until one exact final server identity settles.
+  accountAuthorityFailClosed = true;
+  const initialContext = controller.context;
+  if (active && initialContext) applyAuthority(initialContext);
+  const renewal = invalidateProRoomMediaHookSession();
+  accountMediaHookRecovery = null;
+  accountMediaHookRenewal = renewal;
+  const finalCommit: { identity: AccountMediaHookCommitIdentity | null } = { identity: null };
+  let finalCommitRejected = false;
+  const finalCommitIdentity = (committed: ProRoomSnapshot): void => {
+    finalCommit.identity = accountMediaHookCommitIdentity(committed);
   };
-  const acceptCommittedAnonymousAuthority = (committed: ProRoomSnapshot) => {
-    // A committed detach has already removed every account-bound capability.
-    // Trust its anonymous projection even if the optional channel rebuild or
-    // later playlist projection needs a retry.
+  const acceptCommittedAccountAuthority = (committed: ProRoomSnapshot, isFinalCommit = true) => {
+    // Record signed proof only. The awaited channel/playlist acceptance below
+    // can still be superseded by a newer canonical identity.
+    if (
+      signal.aborted ||
+      committed.viewer?.isAuthenticated !== true ||
+      !controller.isSessionLeaseCurrent(lease, committed.roomCode)
+    ) {
+      return;
+    }
+    if (isFinalCommit) finalCommitIdentity(committed);
+  };
+  const acceptCommittedAnonymousAuthority = (committed: ProRoomSnapshot, isFinalCommit = true) => {
+    // Record signed proof only; do not reopen authority while its channel
+    // replacement can still be overtaken by a newer authenticated snapshot.
     if (
       signal.aborted ||
       committed.viewer?.isAuthenticated === true ||
@@ -3840,9 +4077,7 @@ async function acceptAccountReconciliationSnapshot(
     ) {
       return;
     }
-    accountAuthorityFailClosed = false;
-    const context = controller.context;
-    if (active && context) applyAuthority(context);
+    if (isFinalCommit) finalCommitIdentity(committed);
   };
   const recoverMissingDetachedPresence = async (): Promise<ProRoomSnapshot> => {
     // `snapshot:null` proves detachment but says the old presence no longer
@@ -3863,56 +4098,151 @@ async function acceptAccountReconciliationSnapshot(
     return recovered;
   };
   let snapshot: ProRoomSnapshot;
-  if (operation === 'attach') {
-    try {
-      snapshot = await controller.attachCurrentAccount(signal, acceptCommittedAccountAuthority);
-    } catch (error) {
-      if (!(error instanceof ProRoomApiError) || error.code !== 'SESSION_ACCOUNT_CONFLICT') {
-        throw error;
+  try {
+    if (operation === 'attach') {
+      try {
+        snapshot = await controller.attachCurrentAccount(signal, acceptCommittedAccountAuthority);
+      } catch (error) {
+        if (!(error instanceof ProRoomApiError) || error.code !== 'SESSION_ACCOUNT_CONFLICT') {
+          throw error;
+        }
+        // A Google callback can replace the global HttpOnly account without an
+        // explicit logout in this tab. Public snapshots intentionally do not
+        // expose accountId, so atomically shed the old room identity before
+        // proving the new one. Persistent grants for both accounts stay server
+        // owned; this physical session carries neither across the switch.
+        accountAuthorityFailClosed = true;
+        const context = controller.context;
+        if (active && context) applyAuthority(context);
+        let anonymousDetachCommitted = false;
+        let detachedSnapshot: ProRoomSnapshot | null | undefined;
+        try {
+          const detached = await controller.detachCurrentAccount(signal, (committed) => {
+            anonymousDetachCommitted = true;
+            // This anonymous commit is only an intermediate fence in an
+            // account switch. Media hooks remain revoked until the final
+            // authenticated account commits and its channel settles.
+            acceptCommittedAnonymousAuthority(committed, false);
+          });
+          anonymousDetachCommitted = true;
+          detachedSnapshot = detached.snapshot;
+        } catch (detachError) {
+          // Once the signed anonymous snapshot is committed, only the optional
+          // control-channel replacement can still fail. Continue proving the
+          // newly selected account instead of leaving this tab anonymous until
+          // the next lease cycle.
+          if (!anonymousDetachCommitted) throw detachError;
+        }
+        if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        if (detachedSnapshot === null) {
+          await recoverMissingDetachedPresence();
+        }
+        snapshot = await controller.attachCurrentAccount(signal, acceptCommittedAccountAuthority);
       }
-      // A Google callback can replace the global HttpOnly account without an
-      // explicit logout in this tab. Public snapshots intentionally do not
-      // expose accountId, so atomically shed the old room identity before
-      // proving the new one. Persistent grants for both accounts stay server
-      // owned; this physical session carries neither across the switch.
+    } else {
+      const detached = await controller.detachCurrentAccount(
+        signal,
+        acceptCommittedAnonymousAuthority,
+      );
+      snapshot = detached.snapshot ?? (await recoverMissingDetachedPresence());
+      if (detached.snapshot === null) acceptCommittedAnonymousAuthority(snapshot);
+    }
+    const acceptedIdentity = accountMediaHookCommitIdentity(snapshot);
+    const committedIdentity = finalCommit.identity;
+    if (
+      signal.aborted ||
+      identityGeneration !== accountIdentityGeneration ||
+      !controller.isSessionLeaseCurrent(lease, snapshot.roomCode)
+    ) {
+      return;
+    }
+    if (
+      !acceptedIdentity ||
+      !committedIdentity ||
+      !sameAccountMediaHookCommitIdentity(acceptedIdentity, committedIdentity) ||
+      !isAccountMediaHookCommitIdentityCurrent(committedIdentity) ||
+      (operation === 'attach' && snapshot.viewer?.isAuthenticated !== true) ||
+      (operation === 'detach' && snapshot.viewer?.isAuthenticated === true)
+    ) {
+      finalCommitRejected = true;
       accountAuthorityFailClosed = true;
       const context = controller.context;
       if (active && context) applyAuthority(context);
-      let anonymousDetachCommitted = false;
-      let detachedSnapshot: ProRoomSnapshot | null | undefined;
-      try {
-        const detached = await controller.detachCurrentAccount(signal, (committed) => {
-          anonymousDetachCommitted = true;
-          acceptCommittedAnonymousAuthority(committed);
-        });
-        anonymousDetachCommitted = true;
-        detachedSnapshot = detached.snapshot;
-      } catch (detachError) {
-        // Once the signed anonymous snapshot is committed, only the optional
-        // control-channel replacement can still fail. Continue proving the
-        // newly selected account instead of leaving this tab anonymous until
-        // the next lease cycle.
-        if (!anonymousDetachCommitted) throw detachError;
-      }
-      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-      if (detachedSnapshot === null) {
-        await recoverMissingDetachedPresence();
-      }
-      snapshot = await controller.attachCurrentAccount(signal, acceptCommittedAccountAuthority);
+      throw new ProRoomApiError('INVALID_RESPONSE');
     }
-  } else {
-    const detached = await controller.detachCurrentAccount(
-      signal,
-      acceptCommittedAnonymousAuthority,
-    );
-    snapshot = detached.snapshot ?? (await recoverMissingDetachedPresence());
+    await acceptPlaylistSnapshot(snapshot);
+    if (
+      signal.aborted ||
+      identityGeneration !== accountIdentityGeneration ||
+      !controller.isSessionLeaseCurrent(lease, snapshot.roomCode) ||
+      !isAccountMediaHookCommitIdentityCurrent(committedIdentity)
+    ) {
+      if (
+        !signal.aborted &&
+        identityGeneration === accountIdentityGeneration &&
+        controller.isSessionLeaseCurrent(lease, snapshot.roomCode)
+      ) {
+        finalCommitRejected = true;
+        throw new ProRoomApiError('INVALID_RESPONSE');
+      }
+      return;
+    }
+    refreshHeartbeatAdjunctState(snapshot);
+  } finally {
+    const committedIdentity = finalCommit.identity;
+    if (
+      !finalCommitRejected &&
+      !signal.aborted &&
+      identityGeneration === accountIdentityGeneration &&
+      committedIdentity &&
+      controller.isSessionLeaseCurrent(lease, committedIdentity.roomCode) &&
+      isAccountMediaHookCommitIdentityCurrent(committedIdentity)
+    ) {
+      accountAuthorityFailClosed = false;
+      const context = controller.context;
+      if (active && context) applyAuthority(context);
+      renewAccountMediaHooksIfCurrent(
+        renewal,
+        identityGeneration,
+        lease,
+        playlistLease,
+        committedIdentity,
+      );
+    }
   }
-  if (!controller.isSessionLeaseCurrent(lease, snapshot.roomCode)) return;
-  accountAuthorityFailClosed = false;
-  const context = controller.context;
-  if (active && context) applyAuthority(context);
-  await acceptPlaylistSnapshot(snapshot);
-  refreshHeartbeatAdjunctState(snapshot);
+}
+
+function recoverAccountMediaHooksAfterUncertainMutation(operation: 'attach' | 'detach'): void {
+  const renewal = accountMediaHookRenewal;
+  const snapshot = controller.snapshot;
+  const playlistLease = playlistRuntimeLease;
+  const account = getAccountSnapshot();
+  if (
+    operation === 'detach' &&
+    isAccountDetachRecoveryTarget(account) &&
+    renewal &&
+    snapshot &&
+    playlistLease
+  ) {
+    accountMediaHookRecovery = {
+      renewal,
+      identityGeneration: accountIdentityGeneration,
+      sessionLease: controller.captureSessionLease(),
+      roomCode: snapshot.roomCode,
+      playlistLease,
+    };
+  } else {
+    accountMediaHookRecovery = null;
+  }
+  if (renewal) {
+    accountIdentityLeaseExpiresAtMs = null;
+    accountIdentityLeaseRetryAttempt = 0;
+    scheduleAccountIdentityLeaseRenewal();
+  }
+  // A mutation response can be lost after commit. The accepted canonical
+  // heartbeat is the only safe fallback proof for renewing the exact hook
+  // handle; ordinary later heartbeats can retry the same fenced recovery.
+  void runHeartbeat(true);
 }
 
 const accountReconciler = new ProRoomAccountReconciler({
@@ -3941,9 +4271,7 @@ const accountReconciler = new ProRoomAccountReconciler({
       return;
     }
     log.warn(`[PRO] Account identity ${operation} deferred`, error);
-    // The server mutation may have committed while its response was lost.
-    // Reconcile from canonical room state without disturbing playback.
-    void runHeartbeat(true);
+    recoverAccountMediaHooksAfterUncertainMutation(operation);
   },
 });
 
@@ -4040,7 +4368,10 @@ function scheduleSystemAudioSafetyRefresh(refreshAtMs: number): void {
   );
 }
 
-function refreshHeartbeatAdjunctState(snapshot: ProRoomSnapshot): void {
+function refreshHeartbeatAdjunctState(
+  snapshot: ProRoomSnapshot,
+  playbackIsCurrent: () => boolean = canonicalPlaybackCommitOwner,
+): void {
   if (
     !acceptedEffects ||
     acceptedEffects.roomCode !== snapshot.roomCode ||
@@ -4062,13 +4393,17 @@ function refreshHeartbeatAdjunctState(snapshot: ProRoomSnapshot): void {
       log.warn('[PRO] Queue mode refresh failed', error);
     });
   }
-  void restorePersistedPlayback(snapshot).catch((error) => {
+  void restorePersistedPlayback(snapshot, playbackIsCurrent).catch((error) => {
     log.warn('[PRO] Server playback reconciliation failed', error);
     bus.emit('ui:show-toast', t('pro.resume_tap'));
   });
 }
 
-async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Promise<void> {
+async function runHeartbeat(
+  forceFollowUp = false,
+  propagateFailure = false,
+  playbackIsCurrent: () => boolean = canonicalPlaybackCommitOwner,
+): Promise<void> {
   const lease = playlistRuntimeLease;
   if (!active || !lease) return;
   try {
@@ -4076,14 +4411,24 @@ async function runHeartbeat(forceFollowUp = false, propagateFailure = false): Pr
       async () => {
         const snapshot = await controller.heartbeat();
         await acceptPlaylistSnapshot(snapshot);
-        // Keep the heartbeat single-flight critical section limited to the
-        // authoritative playlist/presence projection. Effects, queue mode,
-        // system audio, and playback reconciliation have their own fences and
-        // must not prevent a forced follow-up from hydrating a just-added row.
-        refreshHeartbeatAdjunctState(snapshot);
       },
       { forceFollowUp },
     );
+    // Keep the heartbeat single-flight critical section limited to the
+    // authoritative playlist/presence projection. Every caller consumes the
+    // fresh accepted snapshot with its own playback liveness after the shared
+    // network flight, so a local recovery cannot lend its owner to another
+    // caller (and an ordinary heartbeat remains room-authoritative).
+    const snapshot = controller.snapshot;
+    if (
+      active &&
+      snapshot &&
+      isPlaylistLeaseCurrent(lease) &&
+      snapshot.roomCode === lease.roomCode
+    ) {
+      recoverAccountMediaHooksFromCanonicalSnapshot(snapshot);
+      refreshHeartbeatAdjunctState(snapshot, playbackIsCurrent);
+    }
   } catch (error) {
     if (isTerminalSessionError(error)) {
       await recoverTerminalSession(error);
@@ -4185,6 +4530,36 @@ async function renewAccountIdentityLease(): Promise<void> {
   const account = getAccountSnapshot();
   const snapshot = controller.snapshot;
   if (!snapshot) {
+    scheduleAccountIdentityLeaseRenewal();
+    return;
+  }
+  if (
+    accountMediaHookRenewal &&
+    isAccountDetachRecoveryTarget(account) &&
+    snapshot.viewer?.isAuthenticated === true
+  ) {
+    // A signed authenticated heartbeat cannot prove that a lost detach
+    // response committed. Retry the actual detach on this bounded lease pass;
+    // the exact media-hook renewal remains fenced until anonymous proof wins.
+    accountIdentityLeaseExpiresAtMs = null;
+    accountIdentityLeaseRetryAttempt = 0;
+    accountReconciler.update(account);
+    scheduleAccountIdentityLeaseRenewal();
+    return;
+  }
+  if (
+    accountMediaHookRenewal &&
+    account.status === 'authenticated' &&
+    account.account?.profileComplete === true &&
+    !!account.account.nickname
+  ) {
+    // An authenticated heartbeat cannot prove which HttpOnly App account is
+    // attached because the public room projection intentionally omits
+    // accountId. Keep hooks fail-closed after an uncertain response and use
+    // the bounded lease cadence to issue a real attach request instead.
+    accountIdentityLeaseExpiresAtMs = null;
+    accountIdentityLeaseRetryAttempt = 0;
+    accountReconciler.update(account);
     scheduleAccountIdentityLeaseRenewal();
     return;
   }

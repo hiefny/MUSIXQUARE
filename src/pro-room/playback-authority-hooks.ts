@@ -419,6 +419,22 @@ let highestSeen: ProPlaybackAuthorityToken | null = null;
 let latestApplied: ProPlaybackAuthorityToken | null = null;
 let highestCommittedPlaybackRevision = 0;
 
+function cancelPreparationIfStillOwned(
+  pending: NonNullable<typeof activePreparation>,
+  endpoint: ProPlaybackMediaEndpoint,
+): void {
+  if (
+    activePreparation !== pending ||
+    activePreparation.generation !== pending.generation ||
+    prepareGeneration !== pending.generation
+  ) {
+    return;
+  }
+  prepareGeneration += 1;
+  activePreparation = null;
+  endpoint.cancel?.(pending.authority);
+}
+
 export function registerProPlaybackMediaEndpoint(
   endpoint: ProPlaybackMediaEndpoint | null,
 ): () => void {
@@ -476,6 +492,9 @@ export async function prepareProPlaybackAuthority(
   if (!isProPlaybackAuthorityToken(request.authority)) {
     throw new TypeError('A server authority token is required');
   }
+  if (request.isCurrent?.() === false) {
+    return failedPrepare(request, 'superseded', 'superseded');
+  }
   if (request.authority.transitionId === null) {
     return failedPrepare(request, 'stale-authority');
   }
@@ -492,18 +511,23 @@ export async function prepareProPlaybackAuthority(
   if (!endpoint) return failedPrepare(request, 'missing-endpoint');
 
   if (activePreparation && sameAuthority(activePreparation.authority, request.authority)) {
-    return activePreparation.promise;
+    const result = await activePreparation.promise;
+    return request.isCurrent?.() === false
+      ? failedPrepare(request, 'superseded', 'superseded')
+      : result;
   }
 
   if (activePreparation) endpoint.cancel?.(activePreparation.authority);
 
   const generation = ++prepareGeneration;
+  const upstreamIsCurrent = request.isCurrent;
   const endpointRequest: Readonly<ProPlaybackPrepareRequest> = {
     ...request,
     isCurrent: () =>
       generation === prepareGeneration &&
       activeAuthorityRoomMatches(request.authority) &&
-      !isOlderAuthority(request.authority, highestSeen),
+      !isOlderAuthority(request.authority, highestSeen) &&
+      upstreamIsCurrent?.() !== false,
   };
   const promise = endpoint.prepare(endpointRequest);
   activePreparation = { generation, authority: request.authority, promise };
@@ -513,7 +537,8 @@ export async function prepareProPlaybackAuthority(
     generation !== prepareGeneration ||
     !activePreparation ||
     activePreparation.generation !== generation ||
-    !sameAuthority(activePreparation.authority, request.authority)
+    !sameAuthority(activePreparation.authority, request.authority) ||
+    upstreamIsCurrent?.() === false
   ) {
     return failedPrepare(request, 'superseded', 'superseded');
   }
@@ -645,9 +670,11 @@ export async function commitProPlaybackAuthority(
     }
     const prepared = await pending.promise;
     if (request.isCurrent?.() === false) {
+      cancelPreparationIfStillOwned(pending, endpoint);
       return { status: 'superseded', authority: request.authority, reason: 'superseded' };
     }
     if (prepared.status !== 'ready') {
+      cancelPreparationIfStillOwned(pending, endpoint);
       return {
         status: prepared.status === 'superseded' ? 'superseded' : 'failed',
         authority: request.authority,
@@ -671,8 +698,15 @@ export async function commitProPlaybackAuthority(
   }
 
   highestSeen = request.authority;
-  const result = await endpoint.commit(request);
+  let result: ProPlaybackCommitResult;
+  try {
+    result = await endpoint.commit(request);
+  } catch (error) {
+    if (pending) cancelPreparationIfStillOwned(pending, endpoint);
+    throw error;
+  }
   if (request.isCurrent?.() === false) {
+    if (pending) cancelPreparationIfStillOwned(pending, endpoint);
     return { status: 'superseded', authority: request.authority, reason: 'superseded' };
   }
   if (result.status === 'applied') {
@@ -681,6 +715,8 @@ export async function commitProPlaybackAuthority(
     if (activePreparation && sameAuthority(activePreparation.authority, request.authority)) {
       activePreparation = null;
     }
+  } else if (pending) {
+    cancelPreparationIfStillOwned(pending, endpoint);
   }
   return result;
 }
@@ -776,15 +812,21 @@ export async function rendezvousCurrentProPlaybackAuthority(
     return { status: 'superseded', authority: request.authority, reason: 'superseded' };
   }
 
+  const endpoint = mediaEndpoint;
+  if (!endpoint) {
+    return { status: 'failed', authority: request.authority, reason: 'missing-endpoint' };
+  }
   const pending = activePreparation;
   if (!pending || !sameAuthority(pending.authority, request.authority)) {
     return { status: 'superseded', authority: request.authority, reason: 'stale-authority' };
   }
   const prepared = await pending.promise;
   if (request.isCurrent?.() === false) {
+    cancelPreparationIfStillOwned(pending, endpoint);
     return { status: 'superseded', authority: request.authority, reason: 'superseded' };
   }
   if (prepared.status !== 'ready') {
+    cancelPreparationIfStillOwned(pending, endpoint);
     return {
       status: prepared.status === 'superseded' ? 'superseded' : 'failed',
       authority: request.authority,
@@ -800,12 +842,15 @@ export async function rendezvousCurrentProPlaybackAuthority(
     return { status: 'superseded', authority: request.authority, reason: 'superseded' };
   }
 
-  const endpoint = mediaEndpoint;
-  if (!endpoint) {
-    return { status: 'failed', authority: request.authority, reason: 'missing-endpoint' };
+  let result: ProPlaybackCommitResult;
+  try {
+    result = await endpoint.commit(request);
+  } catch (error) {
+    cancelPreparationIfStillOwned(pending, endpoint);
+    throw error;
   }
-  const result = await endpoint.commit(request);
   if (request.isCurrent?.() === false) {
+    cancelPreparationIfStillOwned(pending, endpoint);
     return { status: 'superseded', authority: request.authority, reason: 'superseded' };
   }
   if (result.status === 'applied') {
@@ -815,6 +860,8 @@ export async function rendezvousCurrentProPlaybackAuthority(
     if (activePreparation && sameAuthority(activePreparation.authority, request.authority)) {
       activePreparation = null;
     }
+  } else {
+    cancelPreparationIfStillOwned(pending, endpoint);
   }
   return result;
 }

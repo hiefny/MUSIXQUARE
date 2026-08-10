@@ -17,6 +17,8 @@ import {
   registerProPlaybackMediaEndpoint,
   resetProPlaybackAuthorityHooks,
   routeProPlaybackCommand,
+  type ProPlaybackPrepareRequest,
+  type ProPlaybackCommitResult,
   type ProPlaybackPrepareResult,
 } from '../playback-authority-hooks.ts';
 
@@ -382,6 +384,99 @@ describe('coordinator-free PRO playback authority seam', () => {
       reason: 'superseded',
     });
   });
+
+  it('composes an upstream owner into every canonical PREPARE wait', async () => {
+    let ownerCurrent = true;
+    let resolvePreparation!: (result: ProPlaybackPrepareResult) => void;
+    const token = authority(3);
+    const prepare = vi.fn(
+      (_request: Readonly<ProPlaybackPrepareRequest>) =>
+        new Promise<ProPlaybackPrepareResult>((resolve) => {
+          resolvePreparation = resolve;
+        }),
+    );
+    registerProPlaybackMediaEndpoint({ prepare, commit: vi.fn() });
+
+    const pending = prepareProPlaybackAuthority({
+      authority: token,
+      queueItemId: Q1,
+      positionSeconds: 0,
+      isCurrent: () => ownerCurrent,
+    });
+    await vi.waitFor(() => expect(prepare).toHaveBeenCalledOnce());
+    const endpointRequest = prepare.mock.calls[0]?.[0];
+    expect(endpointRequest?.isCurrent?.()).toBe(true);
+
+    ownerCurrent = false;
+    expect(endpointRequest?.isCurrent?.()).toBe(false);
+    resolvePreparation(ready(token));
+
+    await expect(pending).resolves.toMatchObject({
+      status: 'superseded',
+      reason: 'superseded',
+    });
+  });
+
+  it.each(['stale', 'rejected'] as const)(
+    'releases exact preparation when its COMMIT becomes %s',
+    async (outcome) => {
+      let ownerCurrent = true;
+      let resolveCommit!: (result: ProPlaybackCommitResult) => void;
+      let rejectCommit!: (reason: unknown) => void;
+      const token = authority(3);
+      const successor = authority(3, 'successor');
+      const prepare = vi.fn(async (request) => ready(request.authority));
+      const commit = vi.fn(
+        () =>
+          new Promise<ProPlaybackCommitResult>((resolve, reject) => {
+            resolveCommit = resolve;
+            rejectCommit = reject;
+          }),
+      );
+      const cancel = vi.fn();
+      registerProPlaybackMediaEndpoint({ prepare, commit, cancel });
+      await expect(
+        prepareProPlaybackAuthority({
+          authority: token,
+          queueItemId: Q1,
+          positionSeconds: 0,
+          isCurrent: () => ownerCurrent,
+        }),
+      ).resolves.toMatchObject({ status: 'ready' });
+      const pendingCommit = commitProPlaybackAuthority({
+        authority: token,
+        committedPlaybackRevision: 4,
+        queueItemId: Q1,
+        state: 'playing',
+        positionSeconds: 0,
+        scheduleDelayMs: 0,
+        timingMode: 'scheduled-control',
+        isCurrent: () => ownerCurrent,
+      });
+      await vi.waitFor(() => expect(commit).toHaveBeenCalledOnce());
+      ownerCurrent = false;
+      if (outcome === 'stale') {
+        resolveCommit({ status: 'applied', authority: token });
+        await expect(pendingCommit).resolves.toMatchObject({
+          status: 'superseded',
+          reason: 'superseded',
+        });
+      } else {
+        rejectCommit(new Error('commit failed'));
+        await expect(pendingCommit).rejects.toThrow('commit failed');
+      }
+
+      expect(cancel).toHaveBeenCalledWith(token);
+      await expect(
+        prepareProPlaybackAuthority({
+          authority: successor,
+          queueItemId: Q1,
+          positionSeconds: 0,
+        }),
+      ).resolves.toMatchObject({ status: 'ready' });
+      expect(prepare).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it('rejects a stale commit after a newer revision has applied', async () => {
     const commit = vi.fn(async (request) => ({

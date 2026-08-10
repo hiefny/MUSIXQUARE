@@ -360,6 +360,54 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     return current;
   }
 
+  async function beginStaleNewerCheckpointPreparation(): Promise<{
+    requestA: Promise<boolean>;
+    requestB: Promise<boolean>;
+    resolveA: (result: ProPlaybackPrepareResult) => void;
+    rejectA: (reason: unknown) => void;
+    authorityA: ProPlaybackAuthorityToken;
+  }> {
+    const newer = {
+      ...snapshot(playback(1, { positionSeconds: 18, updatedAtMs: Date.now(), state: 'playing' })),
+      revision: 2,
+    };
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockClear();
+    heartbeat.mockResolvedValue(newer);
+    waitForClock.mockClear();
+    prepareMedia.mockClear();
+    commitMedia.mockClear();
+    cancelMedia.mockClear();
+
+    let resolveA!: (result: ProPlaybackPrepareResult) => void;
+    let rejectA!: (reason: unknown) => void;
+    prepareMedia.mockImplementationOnce(
+      () =>
+        new Promise<ProPlaybackPrepareResult>((resolve, reject) => {
+          resolveA = resolve;
+          rejectA = reject;
+        }),
+    );
+    const ownerA = createReconciliationLiveness();
+    const ownerB = createReconciliationLiveness();
+    const requestA = requestActiveProRoomPlaybackReconciliation({
+      showLoading: false,
+      liveness: ownerA.liveness,
+    });
+    await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+    const prepareRequestA = prepareMedia.mock.calls[0]?.[0];
+    expect(prepareRequestA?.isCurrent?.()).toBe(true);
+    const authorityA = prepareRequestA!.authority;
+
+    ownerA.invalidate();
+    expect(prepareRequestA?.isCurrent?.()).toBe(false);
+    const requestB = requestActiveProRoomPlaybackReconciliation({
+      showLoading: false,
+      liveness: ownerB.liveness,
+    });
+    return { requestA, requestB, resolveA, rejectA, authorityA };
+  }
+
   it('maps user intents to server commands with the canonical playback revision', async () => {
     expect(
       routeProPlaybackCommand({
@@ -2051,6 +2099,159 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     expect(commitMedia).toHaveBeenCalledOnce();
   });
 
+  it.each(['ready', 'failed'] as const)(
+    'cancels stale A after a newer-checkpoint %s PREPARE and gives B a fresh restore',
+    async (outcome) => {
+      const scenario = await beginStaleNewerCheckpointPreparation();
+      scenario.resolveA(
+        outcome === 'ready'
+          ? {
+              status: 'ready',
+              authority: scenario.authorityA,
+              queueItemId: QUEUE_ITEM_ID,
+              mediaKind: 'youtube',
+              durationSeconds: 180,
+              youtubeSubIndex: 0,
+              youtubeVideoId: VIDEO_ID,
+            }
+          : {
+              status: 'failed',
+              authority: scenario.authorityA,
+              queueItemId: QUEUE_ITEM_ID,
+              reason: 'player-unavailable',
+            },
+      );
+
+      await expect(scenario.requestA).resolves.toBe(false);
+      await expect(scenario.requestB).resolves.toBe(true);
+      expect(prepareMedia).toHaveBeenCalledTimes(2);
+      expect(commitMedia).toHaveBeenCalledOnce();
+      expect(cancelMedia).toHaveBeenCalledWith(scenario.authorityA);
+    },
+  );
+
+  it('cancels a rejected newer-checkpoint PREPARE and lets B retry from a clean endpoint', async () => {
+    const scenario = await beginStaleNewerCheckpointPreparation();
+    scenario.rejectA(new Error('prepare failed'));
+
+    await expect(scenario.requestA).rejects.toThrow('prepare failed');
+    await expect(scenario.requestB).resolves.toBe(true);
+    expect(prepareMedia).toHaveBeenCalledTimes(2);
+    expect(commitMedia).toHaveBeenCalledOnce();
+    expect(cancelMedia).toHaveBeenCalledWith(scenario.authorityA);
+  });
+
+  it('keeps an overlapping ordinary heartbeat authoritative when local A becomes stale', async () => {
+    const newer = {
+      ...snapshot(playback(1, { positionSeconds: 18, updatedAtMs: Date.now(), state: 'playing' })),
+      revision: 2,
+    };
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    let resolveHeartbeat!: (value: ProRoomSnapshot) => void;
+    heartbeat.mockClear();
+    heartbeat.mockImplementationOnce(
+      () =>
+        new Promise<ProRoomSnapshot>((resolve) => {
+          resolveHeartbeat = resolve;
+        }),
+    );
+    heartbeat.mockResolvedValue(newer);
+    prepareMedia.mockClear();
+    commitMedia.mockClear();
+    cancelMedia.mockClear();
+    let endpointCurrentAtPrepare: boolean | undefined;
+    prepareMedia.mockImplementationOnce(async (request) => {
+      endpointCurrentAtPrepare = request.isCurrent?.();
+      return {
+        status: 'ready',
+        authority: request.authority,
+        queueItemId: request.queueItemId,
+        mediaKind: 'youtube',
+        durationSeconds: 180,
+        youtubeSubIndex: request.youtubeSubIndex ?? null,
+        youtubeVideoId: request.youtubeVideoId ?? null,
+      };
+    });
+    const ownerA = createReconciliationLiveness();
+    const requestA = requestActiveProRoomPlaybackReconciliation({
+      showLoading: false,
+      liveness: ownerA.liveness,
+    });
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+
+    // A visible lifecycle pulse is an ordinary room-authoritative heartbeat.
+    // It shares the network flight but must keep its own default playback owner.
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(heartbeat).toHaveBeenCalledOnce();
+    ownerA.invalidate();
+    resolveHeartbeat(newer);
+
+    await expect(requestA).resolves.toBe(false);
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    expect(prepareMedia).toHaveBeenCalledOnce();
+    expect(endpointCurrentAtPrepare).toBe(true);
+    expect(cancelMedia).not.toHaveBeenCalled();
+  });
+
+  it('runs one ordinary same-revision follower after A PREPARE goes stale, then gives B fresh work', async () => {
+    const newer = {
+      ...snapshot(playback(1, { positionSeconds: 18, updatedAtMs: Date.now(), state: 'playing' })),
+      revision: 2,
+    };
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    let resolveHeartbeat!: (value: ProRoomSnapshot) => void;
+    let resolveAPrepare!: (value: ProPlaybackPrepareResult) => void;
+    heartbeat.mockClear();
+    heartbeat.mockImplementationOnce(
+      () =>
+        new Promise<ProRoomSnapshot>((resolve) => {
+          resolveHeartbeat = resolve;
+        }),
+    );
+    heartbeat.mockResolvedValue(newer);
+    prepareMedia.mockClear();
+    commitMedia.mockClear();
+    cancelMedia.mockClear();
+    prepareMedia.mockImplementationOnce(
+      () =>
+        new Promise<ProPlaybackPrepareResult>((resolve) => {
+          resolveAPrepare = resolve;
+        }),
+    );
+    const ownerA = createReconciliationLiveness();
+    const ownerB = createReconciliationLiveness();
+    const requestA = requestActiveProRoomPlaybackReconciliation({
+      showLoading: false,
+      liveness: ownerA.liveness,
+    });
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+
+    document.dispatchEvent(new Event('visibilitychange'));
+    resolveHeartbeat(newer);
+    await vi.waitFor(() => expect(prepareMedia).toHaveBeenCalledOnce());
+    const authorityA = prepareMedia.mock.calls[0]![0].authority;
+    ownerA.invalidate();
+    const requestB = requestActiveProRoomPlaybackReconciliation({
+      showLoading: false,
+      liveness: ownerB.liveness,
+    });
+    resolveAPrepare({
+      status: 'ready',
+      authority: authorityA,
+      queueItemId: QUEUE_ITEM_ID,
+      mediaKind: 'youtube',
+      durationSeconds: 180,
+      youtubeSubIndex: 0,
+      youtubeVideoId: VIDEO_ID,
+    });
+
+    await expect(requestA).resolves.toBe(false);
+    await expect(requestB).resolves.toBe(true);
+    expect(prepareMedia).toHaveBeenCalledTimes(3);
+    expect(commitMedia).toHaveBeenCalledTimes(2);
+    expect(cancelMedia).toHaveBeenCalledWith(authorityA);
+  });
+
   it('drops A after late preparation resolves and gives B its own rendezvous', async () => {
     const current = await establishCurrentPlayingCheckpoint();
     vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
@@ -2174,6 +2375,39 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     await expect(requestB).resolves.toBe(true);
     expect(prepareMedia).toHaveBeenCalledTimes(2);
     expect(commitMedia).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases rejected A commit ownership before B prepares', async () => {
+    const current = await establishCurrentPlayingCheckpoint();
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(current);
+    let rejectACommit!: (reason: unknown) => void;
+    commitMedia.mockImplementationOnce(
+      () =>
+        new Promise<ProPlaybackCommitResult>((_resolve, reject) => {
+          rejectACommit = reject;
+        }),
+    );
+    const ownerA = createReconciliationLiveness();
+    const ownerB = createReconciliationLiveness();
+
+    const requestA = requestActiveProRoomPlaybackReconciliation({
+      showLoading: false,
+      liveness: ownerA.liveness,
+    });
+    await vi.waitFor(() => expect(commitMedia).toHaveBeenCalledOnce());
+    const authorityA = commitMedia.mock.calls[0]![0].authority;
+    ownerA.invalidate();
+    const requestB = requestActiveProRoomPlaybackReconciliation({
+      showLoading: false,
+      liveness: ownerB.liveness,
+    });
+    rejectACommit(new Error('commit failed'));
+
+    await expect(requestA).rejects.toThrow('commit failed');
+    await expect(requestB).resolves.toBe(true);
+    expect(prepareMedia).toHaveBeenCalledTimes(2);
+    expect(commitMedia).toHaveBeenCalledTimes(2);
+    expect(cancelMedia).toHaveBeenCalledWith(authorityA);
   });
 
   it('retains foreground recovery after an async failure and schedules a retry', async () => {

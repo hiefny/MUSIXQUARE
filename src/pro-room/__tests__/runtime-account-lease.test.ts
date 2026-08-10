@@ -14,6 +14,10 @@ import {
   type ProRoomSnapshot,
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
+import {
+  captureProRoomMediaHookSession,
+  isProRoomMediaHookSessionCurrent,
+} from '../media-hooks.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 
@@ -149,6 +153,37 @@ function detachedSnapshot(): ProRoomSnapshot {
   };
 }
 
+function switchedAccountSnapshot(
+  displayName = 'Jisu',
+  memberId = 'member_lease_0002',
+  revision = 3,
+): ProRoomSnapshot {
+  const initial = snapshot();
+  return {
+    ...initial,
+    revision,
+    presence: {
+      ...initial.presence,
+      revision,
+      participants: initial.presence.participants.map((participant) => ({
+        ...participant,
+        memberId,
+        displayName,
+      })),
+    },
+    viewer: {
+      ...initial.viewer!,
+      memberId,
+      displayName,
+    },
+    administrators: initial.administrators.map((administrator) => ({
+      ...administrator,
+      memberId,
+      displayName,
+    })),
+  };
+}
+
 function deferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -243,15 +278,25 @@ describe.sequential('PRO runtime account identity lease', () => {
       .spyOn(ProRoomApiClient.prototype, 'renewCurrentAccountLease')
       .mockResolvedValueOnce({ leaseExpiresAtMs: Date.now() + 120_000 })
       .mockRejectedValueOnce(new ProRoomApiError('ACCOUNT_SESSION_REQUIRED', 401));
+    const lifecycleStartedAtMs = Date.now();
+    const advanceTo = async (elapsedMs: number) => {
+      const remainingMs = elapsedMs - (Date.now() - lifecycleStartedAtMs);
+      expect(remainingMs).toBeGreaterThanOrEqual(0);
+      await vi.advanceTimersByTimeAsync(remainingMs);
+    };
 
     await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
     await Promise.resolve();
     expect(ProRoomApiClient.prototype.attachCurrentAccount).toHaveBeenCalledOnce();
-    expect(getState('room.context').capabilities).toContain('queue.mutate');
+    // The App cookie can already identify a successor while this room still
+    // projects its predecessor. Keep account-derived authority closed until
+    // the exact signed attach has completed its channel/playlist acceptance.
+    expect(getState('room.context').capabilities).toEqual([]);
+    await vi.waitFor(() => expect(getState('room.context').capabilities).toContain('queue.mutate'));
 
-    await vi.advanceTimersByTimeAsync(59_999);
+    await advanceTo(59_999);
     expect(renew).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceTo(60_000);
     expect(renew).toHaveBeenCalledTimes(1);
     expect(renew).toHaveBeenLastCalledWith(ROOM_CODE);
 
@@ -711,6 +756,366 @@ describe.sequential('PRO runtime account identity lease', () => {
     expect(ProRoomApiClient.prototype.detachCurrentAccount).toHaveBeenCalledOnce();
     expect(ServerProRoomNetworkBridge.prototype.reconfigure).toHaveBeenCalledTimes(2);
     expect(getState('network.myMemberId')).toBe(switched.viewer!.memberId);
+  });
+
+  it('keeps media hooks revoked across a same-room account switch until the final channel settles', async () => {
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    const attach = vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount);
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionA = captureProRoomMediaHookSession()!;
+
+    const detached = detachedSnapshot();
+    const switched = switchedAccountSnapshot();
+    const finishAttach = deferred<ProRoomSnapshot>();
+    const finishFinalReconfigure = deferred<void>();
+    attach.mockClear();
+    attach
+      .mockImplementationOnce(async () => {
+        // The old hook generation must be revoked before the account mutation
+        // can synchronously dispatch its fetch under the successor App cookie.
+        expect(sessionA.signal.aborted).toBe(true);
+        expect(captureProRoomMediaHookSession()).toBeNull();
+        throw new ProRoomApiError('SESSION_ACCOUNT_CONFLICT', 409);
+      })
+      .mockImplementationOnce(() => {
+        expect(sessionA.signal.aborted).toBe(true);
+        expect(captureProRoomMediaHookSession()).toBeNull();
+        return finishAttach.promise;
+      });
+    const detach = vi
+      .spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount')
+      .mockImplementation(async () => {
+        expect(sessionA.signal.aborted).toBe(true);
+        expect(captureProRoomMediaHookSession()).toBeNull();
+        return {
+          ok: true,
+          detached: true,
+          snapshot: detached,
+        };
+      });
+    const reconfigure = vi.mocked(ServerProRoomNetworkBridge.prototype.reconfigure);
+    reconfigure.mockClear();
+    reconfigure
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => finishFinalReconfigure.promise);
+
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Jisu', profileComplete: true },
+      statsScope: 't'.repeat(43),
+    });
+
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledTimes(2));
+    expect(detach).toHaveBeenCalledOnce();
+    expect(sessionA.signal.aborted).toBe(true);
+    expect(isProRoomMediaHookSessionCurrent(sessionA)).toBe(false);
+    // The conflict's anonymous detach is only an intermediate fence. It must
+    // not reopen account-bound media while the final B attachment is pending.
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    finishAttach.resolve(switched);
+    await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledTimes(2));
+    // SessionController has published B's signed snapshot, but its awaited
+    // signaling replacement can still be superseded by another account event.
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    finishFinalReconfigure.resolve();
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionB = captureProRoomMediaHookSession()!;
+    expect(sessionB).not.toBe(sessionA);
+    expect(isProRoomMediaHookSessionCurrent(sessionB)).toBe(true);
+    expect(getState('network.myDeviceLabel')).toBe('Jisu');
+  });
+
+  it('keeps logout fail-closed when a newer authenticated heartbeat supersedes its detach commit', async () => {
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    const attach = vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionA = captureProRoomMediaHookSession()!;
+
+    const anonymousCommit = detachedSnapshot();
+    const newerAuthenticated = snapshot();
+    newerAuthenticated.revision = 3;
+    newerAuthenticated.presence = { ...newerAuthenticated.presence, revision: 3 };
+    const finishDetachReconfigure = deferred<void>();
+    const holdRecoveryHeartbeat = deferred<ProRoomSnapshot>();
+    const detach = vi
+      .spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount')
+      .mockImplementationOnce(async () => {
+        // Lock the normal detach path as well as the conflict path above: no
+        // account API may begin while session A is still callable.
+        expect(sessionA.signal.aborted).toBe(true);
+        expect(captureProRoomMediaHookSession()).toBeNull();
+        return { ok: true, detached: true, snapshot: anonymousCommit };
+      });
+    const reconfigure = vi.mocked(ServerProRoomNetworkBridge.prototype.reconfigure);
+    reconfigure.mockClear();
+    reconfigure.mockImplementationOnce(() => finishDetachReconfigure.promise);
+    heartbeat.mockClear();
+    heartbeat
+      .mockResolvedValueOnce(newerAuthenticated)
+      .mockImplementationOnce(() => holdRecoveryHeartbeat.promise);
+
+    setAccountAnonymous(true);
+    await vi.waitFor(() => expect(detach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+    expect(sessionA.signal.aborted).toBe(true);
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    // The detach snapshot is committed locally, but its signaling replacement
+    // is still pending. An ordinary lifecycle heartbeat can therefore publish
+    // a newer authenticated server snapshot before the adapter settles.
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(getState('network.myMemberAuthenticated')).toBe(true));
+    expect(getState('room.context').capabilities).toEqual([]);
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    finishDetachReconfigure.resolve();
+
+    // A superseded final detach is uncertainty, not success. Its failure path
+    // must keep authority closed and immediately retain a canonical recovery
+    // flight; resolving the adapter as success would call acceptAnonymous(),
+    // reopen the authenticated snapshot above, and never issue this heartbeat.
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledTimes(2));
+    expect(getState('room.context').capabilities).toEqual([]);
+    expect(captureProRoomMediaHookSession()).toBeNull();
+  });
+
+  it('does not renew an attached hook commit superseded by a newer ordinary heartbeat', async () => {
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    const attach = vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionA = captureProRoomMediaHookSession()!;
+
+    const committedB = switchedAccountSnapshot();
+    const canonicalAnonymous = detachedSnapshot();
+    canonicalAnonymous.revision = 4;
+    canonicalAnonymous.presence = { ...canonicalAnonymous.presence, revision: 4 };
+    const finishBReconfigure = deferred<void>();
+    const finishCAttach = deferred<ProRoomSnapshot>();
+    attach.mockClear();
+    attach.mockResolvedValueOnce(committedB).mockImplementationOnce(() => finishCAttach.promise);
+    heartbeat.mockClear();
+    heartbeat.mockResolvedValue(canonicalAnonymous);
+    const reconfigure = vi.mocked(ServerProRoomNetworkBridge.prototype.reconfigure);
+    reconfigure.mockClear();
+    reconfigure
+      .mockImplementationOnce(() => finishBReconfigure.promise)
+      .mockResolvedValue(undefined);
+
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Jisu', profileComplete: true },
+      statsScope: 't'.repeat(43),
+    });
+
+    await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+    expect(sessionA.signal.aborted).toBe(true);
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    // The ordinary lifecycle heartbeat owns no account transition handle, but
+    // it can install a newer signed viewer while B is still awaiting channel
+    // reconfiguration. That newer viewer must supersede B's final hook proof.
+    await vi.advanceTimersByTimeAsync(15_000);
+    await vi.waitFor(() => expect(getState('network.myMemberAuthenticated')).toBe(false));
+
+    finishBReconfigure.resolve();
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Hana', profileComplete: true },
+      statsScope: 'u'.repeat(43),
+    });
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledTimes(2));
+    expect(captureProRoomMediaHookSession()).toBeNull();
+    expect(getState('network.myMemberId')).toBe(canonicalAnonymous.viewer!.memberId);
+
+    finishCAttach.resolve(switchedAccountSnapshot('Hana', 'member_lease_0003', 5));
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    expect(getState('network.myDeviceLabel')).toBe('Hana');
+  });
+
+  it('does not treat a same-nickname heartbeat as proof of an uncertain account switch', async () => {
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    const attach = vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionA = captureProRoomMediaHookSession()!;
+
+    const finishRecoveryHeartbeat = deferred<ProRoomSnapshot>();
+    const retryB = switchedAccountSnapshot('Minsu');
+    attach.mockClear();
+    attach
+      .mockRejectedValueOnce(new Error('attachment response lost after commit'))
+      .mockResolvedValueOnce(retryB);
+    heartbeat.mockClear();
+    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise);
+
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      // Public room snapshots omit accountId, so this can be a different App
+      // account even though its nickname is byte-for-byte identical to A.
+      account: { nickname: 'Minsu', profileComplete: true },
+      statsScope: 't'.repeat(43),
+    });
+
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+    expect(sessionA.signal.aborted).toBe(true);
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    // The canonical heartbeat can still be the old A attachment. Give the
+    // accepted projection an observable, account-agnostic marker so the final
+    // assertion runs after the whole heartbeat continuation has completed.
+    const canonicalOldA = snapshot();
+    canonicalOldA.revision = 2;
+    canonicalOldA.presence = {
+      ...canonicalOldA.presence,
+      revision: 2,
+      participants: canonicalOldA.presence.participants.map((participant) => ({
+        ...participant,
+        devicePlatform: 'windows',
+      })),
+    };
+    finishRecoveryHeartbeat.resolve(canonicalOldA);
+    await vi.waitFor(() =>
+      expect(getState('network.lastKnownDeviceList')?.[0]?.devicePlatform).toBe('windows'),
+    );
+    // Accepting old A room state must not renew B's invalidated media hooks.
+    expect(isProRoomMediaHookSessionCurrent(sessionA)).toBe(false);
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    heartbeat.mockResolvedValue(retryB);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionB = captureProRoomMediaHookSession()!;
+    expect(sessionB).not.toBe(sessionA);
+    expect(isProRoomMediaHookSessionCurrent(sessionB)).toBe(true);
+    expect(getState('network.myMemberId')).toBe('member_lease_0002');
+  });
+
+  it('renews an exact invalidated hook after a signed anonymous detach recovery', async () => {
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    const attach = vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionA = captureProRoomMediaHookSession()!;
+
+    const finishRecoveryHeartbeat = deferred<ProRoomSnapshot>();
+    vi.spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount').mockRejectedValueOnce(
+      new Error('detach response lost after commit'),
+    );
+    heartbeat.mockClear();
+    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise);
+
+    setAccountAnonymous(true);
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+    expect(sessionA.signal.aborted).toBe(true);
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    const anonymous = detachedSnapshot();
+    const delegatedCapabilities = [
+      'effects.control',
+      'queue.mutate',
+      'playback.control',
+      'asset.upload',
+      'members.manage',
+    ] as const;
+    const delegated: ProRoomSnapshot = {
+      ...anonymous,
+      presence: {
+        ...anonymous.presence,
+        participants: anonymous.presence.participants.map((participant) => ({
+          ...participant,
+          role: 'controller' as const,
+          capabilities: [...delegatedCapabilities],
+        })),
+      },
+      viewer: {
+        ...anonymous.viewer!,
+        role: 'controller',
+        capabilities: [...delegatedCapabilities],
+      },
+      administrators: [
+        ...anonymous.administrators,
+        {
+          memberId: anonymous.viewer!.memberId,
+          memberDisplayNumber: anonymous.viewer!.memberDisplayNumber,
+          isAuthenticated: false,
+          displayName: anonymous.viewer!.displayName,
+          role: 'controller',
+          permissions: {
+            'media.add': true,
+            'playback.control': true,
+            'members.kick': true,
+            'chat.notice': true,
+          },
+          inheritedPermissions: [],
+          onlineDeviceCount: 1,
+        },
+      ],
+    };
+    finishRecoveryHeartbeat.resolve(delegated);
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionB = captureProRoomMediaHookSession()!;
+    expect(sessionB).not.toBe(sessionA);
+    expect(isProRoomMediaHookSessionCurrent(sessionA)).toBe(false);
+    expect(isProRoomMediaHookSessionCurrent(sessionB)).toBe(true);
+    expect(getState('network.myMemberAuthenticated')).toBe(false);
+    expect(getState('room.context').capabilities).toEqual(
+      expect.arrayContaining([...delegatedCapabilities]),
+    );
+  });
+
+  it('recovers anonymous hooks after an incomplete successor account sheds old account A', async () => {
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    const attach = vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    await vi.waitFor(() => expect(attach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalled());
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const sessionA = captureProRoomMediaHookSession()!;
+
+    const finishRecoveryHeartbeat = deferred<ProRoomSnapshot>();
+    const detach = vi
+      .spyOn(ProRoomApiClient.prototype, 'detachCurrentAccount')
+      .mockRejectedValueOnce(new Error('incomplete-account detach response lost'));
+    heartbeat.mockClear();
+    heartbeat.mockImplementationOnce(() => finishRecoveryHeartbeat.promise);
+
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: '', profileComplete: false },
+      statsScope: 't'.repeat(43),
+    });
+
+    await vi.waitFor(() => expect(detach).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(heartbeat).toHaveBeenCalledOnce());
+    expect(sessionA.signal.aborted).toBe(true);
+    expect(captureProRoomMediaHookSession()).toBeNull();
+
+    finishRecoveryHeartbeat.resolve(detachedSnapshot());
+    await vi.waitFor(() => expect(captureProRoomMediaHookSession()).not.toBeNull());
+    const anonymousSession = captureProRoomMediaHookSession()!;
+    expect(anonymousSession).not.toBe(sessionA);
+    expect(isProRoomMediaHookSessionCurrent(anonymousSession)).toBe(true);
+    expect(getState('network.myMemberAuthenticated')).toBe(false);
   });
 
   it('ignores a previous account lease failure after logout has committed', async () => {

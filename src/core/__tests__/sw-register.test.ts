@@ -25,6 +25,24 @@ interface FakeWorker {
   postMessage: ReturnType<typeof vi.fn>;
 }
 
+interface FakeResetHandle {
+  onRecovered(listener: () => void): () => void;
+  emitRecovered(): void;
+}
+
+function createFakeResetHandle(): FakeResetHandle {
+  const listeners = new Set<() => void>();
+  return {
+    onRecovered(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    emitRecovered() {
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
+
 interface SwHarness {
   setController(worker: FakeWorker | null): void;
   emit(type: 'controllerchange' | 'message', event?: unknown): void;
@@ -144,6 +162,7 @@ describe('service-worker cache-retirement client handshake', () => {
     vi.clearAllMocks();
     sessionStorage.clear();
     moduleMocks.getState.mockReturnValue('idle');
+    moduleMocks.scheduleSessionReset.mockImplementation(() => createFakeResetHandle());
     moduleMocks.showDialog.mockResolvedValue(undefined);
   });
 
@@ -231,6 +250,54 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(resetAction).toBeTypeOf('function');
     resetAction?.();
     expect(harness.reload).toHaveBeenCalledOnce();
+  });
+
+  it('accepts exactly one later controllerchange after its reset attempt recovers', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const firstController: FakeWorker = { postMessage: vi.fn() };
+    const secondController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    await registerWithHarness(harness);
+
+    harness.setController(firstController);
+    harness.emit('controllerchange');
+    harness.emit('controllerchange');
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+
+    const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
+    firstHandle.emitRecovered();
+    harness.setController(secondController);
+    harness.emit('controllerchange');
+    harness.emit('controllerchange');
+
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let a stale recovery release a successor reload attempt', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const firstController: FakeWorker = { postMessage: vi.fn() };
+    const secondController: FakeWorker = { postMessage: vi.fn() };
+    const thirdController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    await registerWithHarness(harness);
+
+    harness.setController(firstController);
+    harness.emit('controllerchange');
+    const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
+    firstHandle.emitRecovered();
+
+    harness.setController(secondController);
+    harness.emit('controllerchange');
+    const secondHandle = moduleMocks.scheduleSessionReset.mock.results[1]?.value as FakeResetHandle;
+    firstHandle.emitRecovered();
+
+    harness.setController(thirdController);
+    harness.emit('controllerchange');
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2);
+
+    secondHandle.emitRecovered();
+    harness.emit('controllerchange');
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(3);
   });
 
   it('keeps another tab update non-disruptive while this tab has an active session', async () => {

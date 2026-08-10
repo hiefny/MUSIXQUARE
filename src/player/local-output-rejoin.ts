@@ -79,6 +79,11 @@ function requestStillCurrent(request: RejoinRequest): boolean {
   );
 }
 
+function requestStillOwnsReleasedOutput(request: RejoinRequest): boolean {
+  if (!requestStillCurrent(request)) return false;
+  return request.mode === 'file' ? !isLocalFilePaused() : !isLocalYouTubePaused();
+}
+
 function hasLocalRejoinIntent(request: RejoinRequest): boolean {
   const { mode } = request;
   if (!requestStillCurrent(request)) return false;
@@ -115,10 +120,15 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
       // Keep the ordinary initial bundle and player dependency graph free of
       // the PRO runtime. This matches the existing manual-sync boundary.
       const { requestActiveProRoomPlaybackReconciliation } = await import('../pro-room/runtime.ts');
+      if (!requestStillOwnsReleasedOutput(request)) return { rejoined: false };
       const reconciled = await requestActiveProRoomPlaybackReconciliation({
         showLoading: false,
+        liveness: {
+          identity: request.identity,
+          isCurrent: () => requestStillOwnsReleasedOutput(request),
+        },
       });
-      if (!requestStillCurrent(request)) return { rejoined: false };
+      if (!requestStillOwnsReleasedOutput(request)) return { rejoined: false };
       if (!reconciled && wasLocallyPaused) setLocalPause(mode, true);
       return {
         rejoined: reconciled,
@@ -127,6 +137,10 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
           : {}),
       };
     } catch (error) {
+      // A late failure owns neither a successor queue occurrence nor a newer
+      // local PAUSE. Restore only while this exact request still owns the
+      // pause gate it released above.
+      if (!requestStillOwnsReleasedOutput(request)) return { rejoined: false };
       if (wasLocallyPaused) setLocalPause(mode, true);
       throw error;
     }

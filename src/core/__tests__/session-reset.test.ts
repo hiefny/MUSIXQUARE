@@ -103,12 +103,14 @@ describe('session reset coordinator', () => {
     const secondAction = vi.fn();
     const { scheduleSessionReset } = await loadCoordinator();
 
-    scheduleSessionReset('First', firstAction);
-    scheduleSessionReset('Second', secondAction);
+    const firstHandle = scheduleSessionReset('First', firstAction);
+    const rejectedHandle = scheduleSessionReset('Second', secondAction);
     vi.advanceTimersByTime(120);
 
     expect(firstAction).toHaveBeenCalledOnce();
     expect(secondAction).not.toHaveBeenCalled();
+    expect(firstHandle).not.toBeNull();
+    expect(rejectedHandle).toBeNull();
     expect(document.getElementById('session-reset-message')?.textContent).toBe('First');
     expect(lifecycleMocks.markIntentionalNav).toHaveBeenCalledOnce();
   });
@@ -122,9 +124,11 @@ describe('session reset coordinator', () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
 
-    scheduleSessionReset('Broken action', () => {
+    const handle = scheduleSessionReset('Broken action', () => {
       throw new Error('navigation failed');
     });
+    const recovered = vi.fn();
+    handle?.onRecovered(recovered);
 
     expect(() => vi.advanceTimersByTime(120)).not.toThrow();
     expect(isSessionResetPending()).toBe(false);
@@ -132,6 +136,7 @@ describe('session reset coordinator', () => {
     expect(document.getElementById('session-reset-overlay')?.hidden).toBe(true);
     expect(document.documentElement.classList.contains('session-reset-pending')).toBe(false);
     expect(lifecycleMocks.clearIntentionalNav).toHaveBeenCalledOnce();
+    expect(recovered).toHaveBeenCalledOnce();
     expect(errorSpy).toHaveBeenCalledWith(
       '[SessionReset] Hard-navigation action failed:',
       expect.any(Error),
@@ -164,7 +169,9 @@ describe('session reset coordinator', () => {
     const app = document.getElementById('app') as HTMLElement;
     const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
 
-    scheduleSessionReset('No-op', firstAction);
+    const firstHandle = scheduleSessionReset('No-op', firstAction);
+    const recovered = vi.fn();
+    firstHandle?.onRecovered(recovered);
     vi.advanceTimersByTime(120);
     expect(isSessionResetPending()).toBe(true);
 
@@ -175,6 +182,7 @@ describe('session reset coordinator', () => {
     expect(isSessionResetPending()).toBe(false);
     expect(app.inert).not.toBe(true);
     expect(lifecycleMocks.clearIntentionalNav).toHaveBeenCalledOnce();
+    expect(recovered).toHaveBeenCalledOnce();
 
     scheduleSessionReset('Retry', secondAction);
     vi.advanceTimersByTime(120);
@@ -190,7 +198,9 @@ describe('session reset coordinator', () => {
     const secondAction = vi.fn();
     const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
 
-    scheduleSessionReset('Leaving', firstAction);
+    const handle = scheduleSessionReset('Leaving', firstAction);
+    const recovered = vi.fn();
+    handle?.onRecovered(recovered);
     vi.advanceTimersByTime(120);
     window.dispatchEvent(new Event('pagehide'));
     vi.advanceTimersByTime(10_000);
@@ -200,6 +210,64 @@ describe('session reset coordinator', () => {
     expect(firstAction).toHaveBeenCalledOnce();
     expect(secondAction).not.toHaveBeenCalled();
     expect(lifecycleMocks.clearIntentionalNav).not.toHaveBeenCalled();
+    expect(recovered).not.toHaveBeenCalled();
+  });
+
+  it('cancels a pre-action reset and recovers once when the old page returns', async () => {
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: undefined,
+    });
+    const action = vi.fn();
+    const recovered = vi.fn();
+    const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+    const handle = scheduleSessionReset('Leaving', action);
+    handle?.onRecovered(recovered);
+
+    window.dispatchEvent(new Event('pagehide'));
+    vi.advanceTimersByTime(1_000);
+    expect(action).not.toHaveBeenCalled();
+    expect(isSessionResetPending()).toBe(true);
+
+    window.dispatchEvent(new Event('pageshow'));
+    vi.advanceTimersByTime(1_000);
+
+    expect(action).not.toHaveBeenCalled();
+    expect(isSessionResetPending()).toBe(false);
+    expect(recovered).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a pre-action reset when the returned page only becomes visible', async () => {
+    Object.defineProperty(window, 'requestAnimationFrame', {
+      configurable: true,
+      value: undefined,
+    });
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    const action = vi.fn();
+    const recovered = vi.fn();
+    const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
+
+    try {
+      const handle = scheduleSessionReset('Leaving', action);
+      handle?.onRecovered(recovered);
+      window.dispatchEvent(new Event('pagehide'));
+      vi.advanceTimersByTime(1_000);
+
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+      document.dispatchEvent(new Event('visibilitychange'));
+      vi.advanceTimersByTime(1_000);
+
+      expect(action).not.toHaveBeenCalled();
+      expect(isSessionResetPending()).toBe(false);
+      expect(recovered).toHaveBeenCalledOnce();
+    } finally {
+      if (originalVisibility) {
+        Object.defineProperty(document, 'visibilityState', originalVisibility);
+      } else {
+        Reflect.deleteProperty(document, 'visibilityState');
+      }
+    }
   });
 
   it('restores a committed reset when Safari returns the old document via pageshow', async () => {
@@ -210,7 +278,9 @@ describe('session reset coordinator', () => {
     const app = document.getElementById('app') as HTMLElement;
     const { isSessionResetPending, scheduleSessionReset } = await loadCoordinator();
 
-    scheduleSessionReset('Reloading', vi.fn());
+    const handle = scheduleSessionReset('Reloading', vi.fn());
+    const recovered = vi.fn();
+    handle?.onRecovered(recovered);
     vi.advanceTimersByTime(120);
     window.dispatchEvent(new Event('pagehide'));
     expect(isSessionResetPending()).toBe(true);
@@ -222,6 +292,7 @@ describe('session reset coordinator', () => {
     expect(app.inert).not.toBe(true);
     expect(document.getElementById('session-reset-overlay')?.hidden).toBe(true);
     expect(lifecycleMocks.clearIntentionalNav).toHaveBeenCalledOnce();
+    expect(recovered).toHaveBeenCalledOnce();
   });
 
   it('restores a committed reset when iOS only foregrounds the old document', async () => {

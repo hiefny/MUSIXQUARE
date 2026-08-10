@@ -29,11 +29,22 @@ const INTERACTION_EVENTS = [
 interface ResetAttempt {
   actionStarted: boolean;
   navigationCommitted: boolean;
+  recovered: boolean;
+  recoveryListeners: Set<() => void>;
   fallbackTimer: number;
   recoveryTimer: number;
   animationFrames: number[];
   inertStates: Map<HTMLElement, boolean>;
   previousFocus: HTMLElement | null;
+}
+
+/**
+ * Exact ownership handle for one accepted reset request. Recovery listeners
+ * run only when this document restores that same attempt instead of leaving.
+ * They intentionally stay silent once pagehide commits the navigation.
+ */
+interface SessionResetHandle {
+  onRecovered(listener: () => void): () => void;
 }
 
 let _resetPending = false;
@@ -63,12 +74,19 @@ function markNavigationCommitted(): void {
   const attempt = _activeAttempt;
   if (!attempt) return;
   attempt.navigationCommitted = true;
+  // pagehide can precede the deferred action when another navigation wins
+  // during the overlay paint. Cancel every pending trigger so a returned old
+  // document cannot issue the superseded hard navigation later.
+  window.clearTimeout(attempt.fallbackTimer);
   window.clearTimeout(attempt.recoveryTimer);
+  if (typeof window.cancelAnimationFrame === 'function') {
+    for (const frame of attempt.animationFrames) window.cancelAnimationFrame(frame);
+  }
 }
 
 function restoreReturnedNavigation(): void {
   const attempt = _activeAttempt;
-  if (!attempt?.actionStarted || !attempt.navigationCommitted) return;
+  if (!attempt?.navigationCommitted) return;
   // Safari may restore the old document after a navigation reached pagehide
   // but the replacement shell failed to commit. Do not leave that returned
   // document inert behind the full-viewport reset surface.
@@ -184,18 +202,35 @@ export function restoreSessionReset(): void {
   _activeAttempt = null;
   _resetPending = false;
   clearIntentionalNav();
+  if (attempt) {
+    attempt.recovered = true;
+    const listeners = [...attempt.recoveryListeners];
+    attempt.recoveryListeners.clear();
+    for (const listener of listeners) {
+      try {
+        listener();
+      } catch (error) {
+        log.error('[SessionReset] Recovery listener failed:', error);
+      }
+    }
+  }
 }
 
 /**
  * Show the blocking reset UI now, then run the supplied hard-navigation action
  * after the overlay has painted. Only the first request in a document wins.
  */
-export function scheduleSessionReset(message: string, action: () => void): void {
-  if (_resetPending) return;
+export function scheduleSessionReset(
+  message: string,
+  action: () => void,
+): SessionResetHandle | null {
+  if (_resetPending) return null;
   _resetPending = true;
   const attempt: ResetAttempt = {
     actionStarted: false,
     navigationCommitted: false,
+    recovered: false,
+    recoveryListeners: new Set(),
     fallbackTimer: 0,
     recoveryTimer: 0,
     animationFrames: [],
@@ -217,7 +252,7 @@ export function scheduleSessionReset(message: string, action: () => void): void 
   document.addEventListener('visibilitychange', restoreReturnedVisibleNavigation, true);
 
   const runOnce = () => {
-    if (_activeAttempt !== attempt || attempt.actionStarted) return;
+    if (_activeAttempt !== attempt || attempt.actionStarted || attempt.navigationCommitted) return;
     attempt.actionStarted = true;
     window.clearTimeout(attempt.fallbackTimer);
     markIntentionalNav();
@@ -247,6 +282,17 @@ export function scheduleSessionReset(message: string, action: () => void): void 
     });
     attempt.animationFrames.push(firstFrame);
   }
+
+  return {
+    onRecovered(listener) {
+      if (attempt.recovered) {
+        listener();
+        return () => undefined;
+      }
+      attempt.recoveryListeners.add(listener);
+      return () => attempt.recoveryListeners.delete(listener);
+    },
+  };
 }
 
 /** @internal Test-only cleanup for module-scoped listeners and timers. */

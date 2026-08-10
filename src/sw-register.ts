@@ -22,6 +22,7 @@ const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
 
 let _swReloading = false;
+let _swReloadAttempt: object | null = null;
 
 function readSessionMarker(key: string): string | null {
   try {
@@ -47,9 +48,11 @@ function removeSessionMarker(key: string): void {
   }
 }
 
-function reloadForServiceWorkerUpdate(): void {
+function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
   if (_swReloading) return;
+  const reloadAttempt = {};
   _swReloading = true;
+  _swReloadAttempt = reloadAttempt;
   const confirmedAt = Date.now();
   writeSessionMarker(SW_UPDATE_KEY, String(confirmedAt));
   // Every caller reaches this seam only after controllerchange (or after
@@ -57,7 +60,24 @@ function reloadForServiceWorkerUpdate(): void {
   // document can therefore distinguish this aligned reload from the legacy
   // v267 flow, which reloaded before activation completed.
   writeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY, String(confirmedAt));
-  scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+  const resetHandle = scheduleSessionReset(t('dialog.refreshing_session'), () =>
+    window.location.reload(),
+  );
+
+  const recoverReloadAttempt = () => {
+    // A late recovery signal from an abandoned predecessor must never release
+    // a successor's reload latch or activation state.
+    if (_swReloadAttempt !== reloadAttempt) return;
+    _swReloadAttempt = null;
+    _swReloading = false;
+    onRecovered();
+  };
+
+  if (!resetHandle) {
+    recoverReloadAttempt();
+    return;
+  }
+  resetHandle.onRecovered(recoverReloadAttempt);
 }
 
 function isReloadNavigation(): boolean {
@@ -116,7 +136,12 @@ export function registerServiceWorker(): void {
     const scheduleControllerAlignedReload = () => {
       if (activationState === 'reload-scheduled' || _swReloading) return;
       activationState = 'reload-scheduled';
-      reloadForServiceWorkerUpdate();
+      reloadForServiceWorkerUpdate(() => {
+        // The same document is still alive, so a failed/no-op/cancelled reset
+        // may accept one later controllerchange. A committed pagehide never
+        // resolves the reset handle and therefore remains first-wins.
+        if (activationState === 'reload-scheduled') activationState = 'passive';
+      });
     };
 
     const handlePassiveControllerChange = () => {

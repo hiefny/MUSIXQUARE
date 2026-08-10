@@ -1341,6 +1341,46 @@ describe('YouTube Player', () => {
       });
     });
 
+    it('does not transfer a stale PRO title lookup to a replacement hook session', async () => {
+      const addA = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      const updateA = vi.fn<ProRoomMediaHooks['updateTrackMetadata']>(() => true);
+      const addB = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      const updateB = vi.fn<ProRoomMediaHooks['updateTrackMetadata']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube: addA, updateTrackMetadata: updateA }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: 'coordinator-1',
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['media.add'],
+      });
+      const oembed = await import('../oembed.ts');
+      let resolveTitle!: (title: string | null) => void;
+      const titleResult = new Promise<string | null>((resolve) => {
+        resolveTitle = resolve;
+      });
+      vi.mocked(oembed.fetchOEmbedTitle).mockReturnValueOnce(titleResult);
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      const sourceUrl = 'https://www.youtube.com/watch?v=VIDEO_ID_01';
+      bus.emit('youtube:load-from-chat', sourceUrl);
+      expect(addA).toHaveBeenCalledOnce();
+      const addedQueueItemId = addA.mock.calls[0]?.[0].queueItemId;
+
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube: addB, updateTrackMetadata: updateB }));
+      resolveTitle('Stale A title');
+      await titleResult;
+      await Promise.resolve();
+
+      expect(addedQueueItemId).toBeDefined();
+      expect(updateA).not.toHaveBeenCalled();
+      expect(updateB).not.toHaveBeenCalled();
+      expect(addB).not.toHaveBeenCalled();
+    });
+
     it('never applies a failed PRO title patch through the legacy local queue path', async () => {
       const addYouTube = vi.fn<ProRoomMediaHooks['addYouTube']>((item) => {
         setState('playlist.items', [
@@ -1724,6 +1764,192 @@ describe('YouTube Player', () => {
       await Promise.resolve();
       expect(addYouTube).not.toHaveBeenCalled();
       expect(getState('youtube.subItemsMap')['PL_STALE_PRO']).toBeUndefined();
+    });
+
+    it('lets a same-room successor resolve the same playlist without inheriting the stale hook generation or loader', async () => {
+      type Manifest = {
+        playlistId: string;
+        videoId: string;
+        title: string;
+        videoIds: string[];
+      };
+      const addA = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      const addB = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube: addA }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 1,
+        snapshotRevision: 1,
+        capabilities: ['media.add'],
+      });
+
+      const sourceUrl = 'https://www.youtube.com/playlist?list=PL_SAME_SUCCESSOR';
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = sourceUrl;
+      document.body.appendChild(input);
+      const search = await import('../search.ts');
+      vi.mocked(search.getYouTubeInputIntent).mockReturnValue({
+        kind: 'playlist-url',
+        raw: sourceUrl,
+        videoId: null,
+        playlistId: 'PL_SAME_SUCCESSOR',
+        query: null,
+      });
+      const requests: Array<{
+        resolve: (manifest: Manifest) => void;
+        reject: (error: unknown) => void;
+        signal?: AbortSignal;
+      }> = [];
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockImplementation(
+        (_playlistId, signal) =>
+          new Promise<Manifest>((resolve, reject) => {
+            requests.push({ resolve, reject, signal });
+          }),
+      );
+      const { showLoader } = await import('../../ui/toast.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      bus.emit('youtube:load-from-input');
+      expect(requests).toHaveLength(1);
+      const loaderA = vi.mocked(showLoader).mock.calls.find(([show]) => show)?.[2];
+      expect(loaderA).toMatch(/^youtube-playlist-entry:/);
+
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 2,
+        snapshotRevision: 2,
+        capabilities: ['media.add'],
+      });
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube: addB }));
+      input.textContent = sourceUrl;
+      bus.emit('youtube:load-from-input');
+
+      expect(requests).toHaveLength(2);
+      expect(requests[0]?.signal?.aborted).toBe(true);
+      expect(requests[1]?.signal?.aborted).toBe(false);
+      const openedLoaders = vi
+        .mocked(showLoader)
+        .mock.calls.filter(([show]) => show)
+        .map(([, , id]) => id);
+      expect(openedLoaders).toHaveLength(2);
+      const loaderB = openedLoaders[1];
+      expect(loaderB).not.toBe(loaderA);
+
+      requests[0]!.resolve({
+        playlistId: 'PL_SAME_SUCCESSOR',
+        videoId: 'AAAAAAAAAAA',
+        title: 'Stale A',
+        videoIds: ['AAAAAAAAAAA'],
+      });
+      await vi.waitFor(() => expect(showLoader).toHaveBeenCalledWith(false, undefined, loaderA));
+      expect(addA).not.toHaveBeenCalled();
+      expect(addB).not.toHaveBeenCalled();
+      expect(showLoader).not.toHaveBeenCalledWith(false, undefined, loaderB);
+      expect(getState('youtube.subItemsMap')['PL_SAME_SUCCESSOR']).toBeUndefined();
+
+      requests[1]!.resolve({
+        playlistId: 'PL_SAME_SUCCESSOR',
+        videoId: 'BBBBBBBBBBB',
+        title: 'Current B',
+        videoIds: ['BBBBBBBBBBB', 'CCCCCCCCCCC'],
+      });
+      await vi.waitFor(() => expect(addB).toHaveBeenCalledOnce());
+      expect(addA).not.toHaveBeenCalled();
+      expect(addB).toHaveBeenCalledWith(
+        expect.objectContaining({
+          videoId: 'BBBBBBBBBBB',
+          playlistId: 'PL_SAME_SUCCESSOR',
+        }),
+        sourceUrl,
+        ['BBBBBBBBBBB', 'CCCCCCCCCCC'],
+      );
+      expect(showLoader).toHaveBeenCalledWith(false, undefined, loaderB);
+    });
+
+    it('silences a rejected same-room predecessor without hiding or starving its replacement loader', async () => {
+      type Manifest = {
+        playlistId: string;
+        videoId: string;
+        title: string;
+        videoIds: string[];
+      };
+      const addA = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      const addB = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube: addA }));
+      setState('room.context', {
+        kind: 'pro',
+        roomId: '000001',
+        role: 'member',
+        coordinatorId: null,
+        epoch: 7,
+        snapshotRevision: 1,
+        capabilities: ['media.add'],
+      });
+
+      const sourceUrl = 'https://www.youtube.com/playlist?list=PL_REJECT_SUCCESSOR';
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = sourceUrl;
+      document.body.appendChild(input);
+      const search = await import('../search.ts');
+      vi.mocked(search.getYouTubeInputIntent).mockReturnValue({
+        kind: 'playlist-url',
+        raw: sourceUrl,
+        videoId: null,
+        playlistId: 'PL_REJECT_SUCCESSOR',
+        query: null,
+      });
+      const requests: Array<{
+        resolve: (manifest: Manifest) => void;
+        reject: (error: unknown) => void;
+      }> = [];
+      vi.mocked(search.resolveYouTubePlaylistManifest).mockImplementation(
+        () =>
+          new Promise<Manifest>((resolve, reject) => {
+            requests.push({ resolve, reject });
+          }),
+      );
+      const { showLoader, showToast } = await import('../../ui/toast.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      bus.emit('youtube:load-from-input');
+      expect(requests).toHaveLength(1);
+      registerProRoomMediaHooks(proMediaHooks({ addYouTube: addB }));
+      input.textContent = sourceUrl;
+      bus.emit('youtube:load-from-input');
+      expect(requests).toHaveLength(2);
+      const openedLoaders = vi
+        .mocked(showLoader)
+        .mock.calls.filter(([show]) => show)
+        .map(([, , id]) => id);
+      const [loaderA, loaderB] = openedLoaders;
+      expect(loaderA).not.toBe(loaderB);
+
+      requests[0]!.reject(new Error('stale account session'));
+      await vi.waitFor(() => expect(showLoader).toHaveBeenCalledWith(false, undefined, loaderA));
+      expect(showToast).not.toHaveBeenCalledWith('youtube.fetch_failed');
+      expect(showLoader).not.toHaveBeenCalledWith(false, undefined, loaderB);
+      expect(addA).not.toHaveBeenCalled();
+      expect(addB).not.toHaveBeenCalled();
+
+      requests[1]!.resolve({
+        playlistId: 'PL_REJECT_SUCCESSOR',
+        videoId: 'DDDDDDDDDDD',
+        title: 'Replacement',
+        videoIds: ['DDDDDDDDDDD'],
+      });
+      await vi.waitFor(() => expect(addB).toHaveBeenCalledOnce());
+      expect(addA).not.toHaveBeenCalled();
+      expect(showLoader).toHaveBeenCalledWith(false, undefined, loaderB);
     });
 
     it('reports a playlist-only PRO resolution failure without mutating the queue', async () => {

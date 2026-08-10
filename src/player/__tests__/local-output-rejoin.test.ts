@@ -4,7 +4,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  reconcilePro: vi.fn(async () => true),
+  reconcilePro: vi.fn(
+    async (_options?: {
+      showLoading?: boolean;
+      liveness?: { identity: object; isCurrent: () => boolean };
+    }) => true,
+  ),
   rendezvous: vi.fn(
     (): {
       status: 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
@@ -305,9 +310,132 @@ describe('participant-local output rejoin', () => {
     });
 
     await vi.waitFor(() => expect(mocks.reconcilePro).toHaveBeenCalledOnce());
-    expect(mocks.reconcilePro).toHaveBeenCalledWith({ showLoading: false });
+    expect(mocks.reconcilePro).toHaveBeenCalledWith({
+      showLoading: false,
+      liveness: {
+        identity: expect.any(Object),
+        isCurrent: expect.any(Function),
+      },
+    });
+    expect(mocks.reconcilePro.mock.calls[0]?.[0]?.liveness?.isCurrent()).toBe(true);
     expect(forceResync).not.toHaveBeenCalled();
     expect(isLocalFilePaused()).toBe(false);
+  });
+
+  it('drops A after the lazy PRO import when the queue occurrence has already become B', async () => {
+    startSession();
+    setProRoom();
+    setPlaybackFilePaused();
+    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'media-session-play',
+      mode: 'file',
+    });
+    expect(isLocalFilePaused()).toBe(false);
+
+    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000002');
+    setLocalFilePaused(true);
+    await vi.dynamicImportSettled();
+
+    expect(mocks.reconcilePro).not.toHaveBeenCalled();
+    expect(isLocalFilePaused()).toBe(true);
+  });
+
+  it('does not let A false restore its pause gate or retry after queue B owns output', async () => {
+    vi.useFakeTimers();
+    let resolveA!: (value: boolean) => void;
+    mocks.reconcilePro.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveA = resolve;
+        }),
+    );
+    startSession();
+    setProRoom();
+    setPlaybackFilePaused();
+    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'media-session-play',
+      mode: 'file',
+    });
+    await vi.waitFor(() => expect(mocks.reconcilePro).toHaveBeenCalledOnce());
+    const liveness = mocks.reconcilePro.mock.calls[0]?.[0]?.liveness;
+
+    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000002');
+    setLocalFilePaused(false);
+    expect(liveness?.isCurrent()).toBe(false);
+    resolveA(false);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+    expect(isLocalFilePaused()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('treats a newer local PAUSE as B and does not retry late A in the same queue occurrence', async () => {
+    vi.useFakeTimers();
+    let resolveA!: (value: boolean) => void;
+    mocks.reconcilePro.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveA = resolve;
+        }),
+    );
+    startSession();
+    setProRoom();
+    setPlaybackFilePaused();
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'media-session-play',
+      mode: 'file',
+    });
+    await vi.waitFor(() => expect(mocks.reconcilePro).toHaveBeenCalledOnce());
+    const liveness = mocks.reconcilePro.mock.calls[0]?.[0]?.liveness;
+
+    setLocalFilePaused(true);
+    expect(liveness?.isCurrent()).toBe(false);
+    resolveA(false);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+    expect(isLocalFilePaused()).toBe(true);
+    vi.useRealTimers();
+  });
+
+  it('does not let A rejection restore its pause gate or retry after queue B owns output', async () => {
+    vi.useFakeTimers();
+    let rejectA!: (reason: unknown) => void;
+    mocks.reconcilePro.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((_resolve, reject) => {
+          rejectA = reject;
+        }),
+    );
+    startSession();
+    setProRoom();
+    setPlaybackFilePaused();
+    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'media-session-play',
+      mode: 'file',
+    });
+    await vi.waitFor(() => expect(mocks.reconcilePro).toHaveBeenCalledOnce());
+
+    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000002');
+    setLocalFilePaused(false);
+    rejectA(new Error('late A failure'));
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+    expect(isLocalFilePaused()).toBe(false);
+    vi.useRealTimers();
   });
 
   it('keeps local pause intent when PRO authority is temporarily unavailable', async () => {
@@ -340,6 +468,33 @@ describe('participant-local output rejoin', () => {
     });
     await vi.advanceTimersByTimeAsync(0);
     expect(mocks.reconcilePro).toHaveBeenCalledTimes(1);
+    expect(isLocalFilePaused()).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(250);
+
+    expect(mocks.reconcilePro).toHaveBeenCalledTimes(2);
+    expect(mocks.reconcilePro.mock.calls[1]?.[0]?.liveness?.identity).toBe(
+      mocks.reconcilePro.mock.calls[0]?.[0]?.liveness?.identity,
+    );
+    expect(isLocalFilePaused()).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it('restores and retries the exact current A after a transient PRO rejection', async () => {
+    vi.useFakeTimers();
+    mocks.reconcilePro.mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce(true);
+    startSession();
+    setProRoom();
+    setPlaybackFilePaused();
+    setLocalFilePaused(true);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'media-session-play',
+      mode: 'file',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.reconcilePro).toHaveBeenCalledOnce();
     expect(isLocalFilePaused()).toBe(true);
 
     await vi.advanceTimersByTimeAsync(250);

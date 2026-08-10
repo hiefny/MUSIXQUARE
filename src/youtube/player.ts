@@ -43,7 +43,13 @@ import {
   settleStandardQueueMutationRequest,
   type StandardQueueMutationResultCode,
 } from '../network/queue-mutation-authority.ts';
-import { handleProRoomTrackMetadata, handleProRoomYouTube } from '../pro-room/media-hooks.ts';
+import {
+  captureProRoomMediaHookSession,
+  handleProRoomTrackMetadataForSession,
+  handleProRoomYouTubeForSession,
+  isProRoomMediaHookSessionCurrent,
+  type ProRoomMediaHookSession,
+} from '../pro-room/media-hooks.ts';
 import {
   getProPlaybackAuthorityKey,
   routeProPlaybackCommand,
@@ -79,6 +85,7 @@ let _pendingAutoSyncOwner: {
 } | null = null;
 let _pendingAutoSyncGeneration = 0;
 let _proPlaybackPauseGateToken: number | null = null;
+let _proPlaylistResolutionSequence = 0;
 
 function youtubeZeroStartOwnsHardMute(): boolean {
   const phase = getYouTubeZeroStartSnapshot()?.phase;
@@ -1227,7 +1234,18 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initYouTube(): void {
-  const resolvingProPlaylists = new Set<string>();
+  interface ProPlaylistResolutionAttempt {
+    readonly session: ProRoomMediaHookSession;
+    readonly roomId: string;
+    readonly roomEpoch: number;
+    readonly playlistId: string;
+    readonly loaderId: string;
+    readonly abort: AbortController;
+  }
+  const resolvingProPlaylists = new Map<
+    ProRoomMediaHookSession,
+    Map<string, ProPlaylistResolutionAttempt>
+  >();
   let zeroStartAppliedGuestOffset = 0;
   let zeroStartAuthoritySignature = '';
   let zeroStartHostConnection = getState('network.hostConn');
@@ -2912,24 +2930,45 @@ export function initYouTube(): void {
     url: string,
     expectedVideoId: string | null,
     expectedPlaylistId: string | null,
+    proMediaHookSession?: ProRoomMediaHookSession,
   ): void {
     fetchOEmbedTitle(url)
       .then((fetchedTitle) => {
         if (!fetchedTitle) return;
 
-        // A PRO add and this background lookup are serialized by their stable
-        // queue occurrence ID, even if the projected row has not arrived yet.
-        if (getRoomContext().kind === 'pro') {
+        if (proMediaHookSession) {
+          // A PRO add and this background lookup share one exact hook lease.
+          // Never let a predecessor's title tail borrow a successor account,
+          // even when both sessions use the same room ID and epoch.
           if (
-            !handleProRoomTrackMetadata(queueItemId, {
-              name: fetchedTitle,
-              title: fetchedTitle,
-            })
+            !isProRoomMediaHookSessionCurrent(proMediaHookSession) ||
+            getRoomContext().kind !== 'pro' ||
+            !hasRoomCapability('media.add')
           ) {
+            return;
+          }
+          const metadata = {
+            name: fetchedTitle,
+            title: fetchedTitle,
+          };
+          const handled = handleProRoomTrackMetadataForSession(
+            proMediaHookSession,
+            queueItemId,
+            metadata,
+          );
+          if (!handled) {
+            if (!isProRoomMediaHookSessionCurrent(proMediaHookSession)) {
+              return;
+            }
             log.warn('[YouTube] PRO title metadata bridge unavailable');
           }
           return;
         }
+
+        // This lookup originated in a standard/local add. If the tab entered
+        // PRO before it settled, it owns no PRO lease and must not cross over
+        // to the newly installed persistent-room hook.
+        if (getRoomContext().kind === 'pro') return;
 
         const currentPlaylist = getState('playlist.items') || [];
         const currentIndex = findQueueItemIndex(queueItemId, currentPlaylist);
@@ -2962,6 +3001,7 @@ export function initYouTube(): void {
     url: string,
     actorName = localQueueActorName(),
     completeManifestVideoIds?: readonly string[],
+    proMediaHookSession?: ProRoomMediaHookSession,
   ): QueueItemId {
     const playlist = getState('playlist.items') || [];
     const manifestSelectedIndex =
@@ -3021,8 +3061,24 @@ export function initYouTube(): void {
         showRoomCapabilityRequired('media.add');
         return queueItemId;
       }
-      if (handleProRoomYouTube(newTrack, url, completeManifestVideoIds)) {
-        _refreshYouTubeTitle(queueItemId, url, videoId, playlistId);
+      const acceptedSession = proMediaHookSession ?? captureProRoomMediaHookSession();
+      if (!acceptedSession || !isProRoomMediaHookSessionCurrent(acceptedSession)) {
+        if (proMediaHookSession) return queueItemId;
+        showToast(t('youtube.fetch_failed'));
+        return queueItemId;
+      }
+      const handled = handleProRoomYouTubeForSession(
+        acceptedSession,
+        newTrack,
+        url,
+        completeManifestVideoIds,
+      );
+      if (handled) {
+        _refreshYouTubeTitle(queueItemId, url, videoId, playlistId, acceptedSession);
+        return queueItemId;
+      }
+
+      if (!isProRoomMediaHookSessionCurrent(acceptedSession)) {
         return queueItemId;
       }
 
@@ -3123,24 +3179,87 @@ export function initYouTube(): void {
     requestedVideoId?: string | null,
   ): boolean {
     const context = getState('room.context');
-    if (context.kind !== 'pro' || !hasRoomCapability('media.add')) return false;
+    if (context.kind !== 'pro' || !context.roomId || !hasRoomCapability('media.add')) return false;
 
-    const requestKey = `${context.roomId}:${playlistId}`;
-    if (resolvingProPlaylists.has(requestKey)) return true;
-    resolvingProPlaylists.add(requestKey);
+    const session = captureProRoomMediaHookSession();
+    if (!session) {
+      log.warn('[YouTube] PRO playlist media bridge unavailable');
+      showToast(t('youtube.fetch_failed'));
+      return true;
+    }
 
-    const loaderId = `youtube-playlist-entry:${requestKey}`;
+    let sessionAttempts = resolvingProPlaylists.get(session);
+    if (sessionAttempts?.has(playlistId)) return true;
+    if (!sessionAttempts) {
+      sessionAttempts = new Map();
+      resolvingProPlaylists.set(session, sessionAttempts);
+    }
+
+    const abort = new AbortController();
+    const loaderId = `youtube-playlist-entry:${++_proPlaylistResolutionSequence}`;
+    const attempt: ProPlaylistResolutionAttempt = {
+      session,
+      roomId: context.roomId,
+      roomEpoch: context.epoch,
+      playlistId,
+      loaderId,
+      abort,
+    };
+    sessionAttempts.set(playlistId, attempt);
+
+    const ownsAttempt = (): boolean =>
+      resolvingProPlaylists.get(session)?.get(playlistId) === attempt;
+    const attemptStillCurrent = (): boolean => {
+      if (!ownsAttempt() || abort.signal.aborted || !isProRoomMediaHookSessionCurrent(session)) {
+        return false;
+      }
+      const currentContext = getState('room.context');
+      return (
+        currentContext.kind === 'pro' &&
+        currentContext.roomId === attempt.roomId &&
+        currentContext.epoch === attempt.roomEpoch &&
+        hasRoomCapability('media.add')
+      );
+    };
     showLoader(true, t('youtube.fetching_info'), loaderId);
-    void resolveYouTubePlaylistManifest(playlistId)
+    let stopWatchingRoom: (() => void) | null = null;
+    const settleAttempt = (): void => {
+      session.signal.removeEventListener('abort', abortForSessionReplacement);
+      stopWatchingRoom?.();
+      stopWatchingRoom = null;
+      if (!ownsAttempt()) return;
+      const ownedSessionAttempts = resolvingProPlaylists.get(session);
+      ownedSessionAttempts?.delete(playlistId);
+      if (ownedSessionAttempts?.size === 0) resolvingProPlaylists.delete(session);
+      showLoader(false, undefined, loaderId);
+    };
+    const abortAttempt = (reason?: unknown): void => {
+      if (!abort.signal.aborted) abort.abort(reason);
+      // Fetch normally rejects promptly on abort, but settle ownership now so
+      // a non-cooperative dependency cannot leave its loader behind or block a
+      // same-generation retry forever.
+      settleAttempt();
+    };
+    const abortForSessionReplacement = (): void => {
+      abortAttempt(session.signal.reason);
+    };
+    if (session.signal.aborted) abortForSessionReplacement();
+    else session.signal.addEventListener('abort', abortForSessionReplacement, { once: true });
+    stopWatchingRoom = bus.on('state:room.context', () => {
+      const currentContext = getState('room.context');
+      if (
+        currentContext.kind !== 'pro' ||
+        currentContext.roomId !== attempt.roomId ||
+        currentContext.epoch !== attempt.roomEpoch ||
+        !hasRoomCapability('media.add')
+      ) {
+        abortAttempt();
+      }
+    });
+
+    void resolveYouTubePlaylistManifest(playlistId, abort.signal)
       .then((manifest) => {
-        const currentContext = getState('room.context');
-        if (
-          currentContext.kind !== 'pro' ||
-          currentContext.roomId !== context.roomId ||
-          !hasRoomCapability('media.add')
-        ) {
-          return;
-        }
+        if (!attemptStillCurrent()) return;
 
         const videoIds = [...manifest.videoIds];
         const videoId =
@@ -3148,6 +3267,7 @@ export function initYouTube(): void {
             ? requestedVideoId
             : manifest.videoId;
         updateSubItemIds(playlistId, videoIds, { manifestComplete: true });
+        if (!attemptStillCurrent()) return;
         const resolvedTitle = title && title !== sourceUrl ? title : manifest.title;
         _addYouTubeToPlaylist(
           videoId,
@@ -3156,17 +3276,16 @@ export function initYouTube(): void {
           sourceUrl,
           localQueueActorName(),
           videoIds,
+          session,
         );
       })
       .catch((error) => {
-        const currentContext = getState('room.context');
-        if (currentContext.kind !== 'pro' || currentContext.roomId !== context.roomId) return;
+        if (!attemptStillCurrent()) return;
         log.warn('[YouTube] PRO playlist entry resolution failed:', error);
         showToast(t('youtube.fetch_failed'));
       })
       .finally(() => {
-        resolvingProPlaylists.delete(requestKey);
-        showLoader(false, undefined, loaderId);
+        settleAttempt();
       });
     return true;
   }

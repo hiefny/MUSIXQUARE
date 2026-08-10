@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   cancelProRoomPlaylistFilePreload,
+  captureProRoomMediaHookSession,
+  handleProRoomTrackMetadataForSession,
+  handleProRoomYouTubeForSession,
   hasProRoomPlaylistFilePreload,
+  isProRoomMediaHookSessionCurrent,
   preloadProRoomPlaylistFile,
   registerProRoomMediaHooks,
   resolveProRoomPlaylistFile,
@@ -26,6 +30,58 @@ function hooks(overrides: Partial<ProRoomMediaHooks>): ProRoomMediaHooks {
 afterEach(() => registerProRoomMediaHooks(null));
 
 describe('PRO room media self-preload seam', () => {
+  it('aborts and fences an async hook lease when the installed session is replaced', () => {
+    const addA = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+    const metadataA = vi.fn<ProRoomMediaHooks['updateTrackMetadata']>(() => true);
+    registerProRoomMediaHooks(hooks({ addYouTube: addA, updateTrackMetadata: metadataA }));
+    const sessionA = captureProRoomMediaHookSession();
+    expect(sessionA).not.toBeNull();
+
+    const addB = vi.fn<ProRoomMediaHooks['addYouTube']>(() => true);
+    const metadataB = vi.fn<ProRoomMediaHooks['updateTrackMetadata']>(() => true);
+    registerProRoomMediaHooks(hooks({ addYouTube: addB, updateTrackMetadata: metadataB }));
+    const sessionB = captureProRoomMediaHookSession();
+    expect(sessionB).not.toBeNull();
+
+    const item = {
+      queueItemId: Q1,
+      type: 'youtube',
+      name: 'Playlist',
+      videoId: 'AAAAAAAAAAA',
+      playlistId: 'PL_SESSION',
+    } as const;
+    expect(sessionA?.signal.aborted).toBe(true);
+    expect(isProRoomMediaHookSessionCurrent(sessionA!)).toBe(false);
+    expect(handleProRoomYouTubeForSession(sessionA!, item, 'https://youtube.test/a')).toBe(false);
+    expect(
+      handleProRoomTrackMetadataForSession(sessionA!, Q1, {
+        name: 'Stale title',
+        title: 'Stale title',
+      }),
+    ).toBe(false);
+    expect(addA).not.toHaveBeenCalled();
+    expect(metadataA).not.toHaveBeenCalled();
+    expect(addB).not.toHaveBeenCalled();
+    expect(metadataB).not.toHaveBeenCalled();
+
+    expect(isProRoomMediaHookSessionCurrent(sessionB!)).toBe(true);
+    expect(handleProRoomYouTubeForSession(sessionB!, item, 'https://youtube.test/b')).toBe(true);
+    expect(addB).toHaveBeenCalledOnce();
+  });
+
+  it('creates a fresh generation even when the same hook object is reinstalled', () => {
+    const mediaHooks = hooks({});
+    registerProRoomMediaHooks(mediaHooks);
+    const first = captureProRoomMediaHookSession();
+    registerProRoomMediaHooks(mediaHooks);
+    const second = captureProRoomMediaHookSession();
+
+    expect(first).not.toBe(second);
+    expect(first?.signal.aborted).toBe(true);
+    expect(isProRoomMediaHookSessionCurrent(first!)).toBe(false);
+    expect(isProRoomMediaHookSessionCurrent(second!)).toBe(true);
+  });
+
   it('returns the runtime-owned preload promise without wrapping its identity', () => {
     const promise = Promise.resolve(new File(['audio'], 'next.flac', { type: 'audio/flac' }));
     const preloadFile = vi.fn(() => promise);

@@ -686,6 +686,83 @@ describe('YouTubeZeroStartController', () => {
     expect(controller.getSnapshot().phase).toBe('idle');
   });
 
+  it('transfers hard-mute ownership during teardown without a detached unmute', () => {
+    const harness = makeHarness({ hostVolume: 64 });
+    expect(harness.guest.advertiseCapability()).toBe(true);
+    expect(
+      harness.host.beginHostTransition({
+        queueItemId: QUEUE_ITEM_ID,
+        videoId: VIDEO_ID,
+        subIndex: null,
+      }),
+    ).toBe(true);
+
+    vi.advanceTimersByTime(1);
+    expect(harness.hostPlayer.isMuted()).toBe(true);
+
+    harness.host.cancel('cancelled', false, true);
+    vi.advanceTimersByTime(300);
+
+    expect(harness.host.getSnapshot().phase).toBe('idle');
+    expect(harness.hostPlayer.isMuted()).toBe(true);
+    expect(harness.hostPlayer.getVolume()).toBe(64);
+  });
+
+  it('revokes a pre-existing detached audio restore when teardown transfers ownership', () => {
+    const player = makeFakeYtPlayer({
+      __autoPlayOnLoad: false,
+      __muted: false,
+      __volume: 64,
+    });
+    let unmuteCalls = 0;
+    player.unMute = () => {
+      unmuteCalls += 1;
+      // Keep the first ordinary-cancel restore unresolved so its detached
+      // verification timer is still armed when teardown takes ownership.
+    };
+    const controller = new YouTubeZeroStartController({
+      getRole: () => 'guest',
+      getLocalPeerId: () => GUEST_ID,
+      getHostPeerId: () => HOST_ID,
+      getLiveGuestPeerIds: () => [],
+      getPlayer: () => player as YouTubeZeroStartPlayer,
+      isPlayerReady: () => true,
+      isAudioUnlocked: () => true,
+      isClockCalibrated: () => true,
+      getHostNow: () => Date.now(),
+      getClockOffsetMs: () => 0,
+      getLocalPlatform: () => 'other',
+      sendToPeer: () => false,
+      sendToHost: () => true,
+    });
+    const prepareAtHost = Date.now();
+    controller.handlePrepare(HOST_ID, {
+      type: 'youtube-zero-start-prepare',
+      version: 1,
+      runId: 'detached-restore-transfer',
+      sequence: 1,
+      queueItemId: QUEUE_ITEM_ID,
+      videoId: VIDEO_ID,
+      subIndex: null,
+      prepareAtHost,
+      decisionAtHost: prepareAtHost + 2_300,
+      startDeadlineAtHost: prepareAtHost + 3_000,
+      hostPlatform: 'other',
+    });
+    vi.advanceTimersByTime(1);
+    expect(player.isMuted()).toBe(true);
+
+    controller.cancel('cancelled', false);
+    expect(unmuteCalls).toBe(1);
+    const callsBeforeTransfer = unmuteCalls;
+    controller.cancel('cancelled', false, true);
+    vi.advanceTimersByTime(300);
+
+    expect(unmuteCalls).toBe(callsBeforeTransfer);
+    expect(player.isMuted()).toBe(true);
+    expect(controller.getSnapshot().phase).toBe('idle');
+  });
+
   it('restores a mute choice made while the next track is warming', () => {
     const harness = makeHarness({ hostVolume: 72 });
     expect(harness.guest.advertiseCapability()).toBe(true);

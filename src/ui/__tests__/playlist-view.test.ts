@@ -13,6 +13,7 @@ import { initPlaylistView, updatePlaylistUI } from '../playlist-view.ts';
 import { safeSend } from '../../network/peer.ts';
 import { updateSubItemTitle } from '../../youtube/_state.ts';
 import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from '../../pro-room/upload-queue.ts';
+import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 
 vi.mock('../../network/peer.ts', () => ({
   safeSend: vi.fn(),
@@ -904,7 +905,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelector('.playlist-reorder-ghost')).toBeNull();
   });
 
-  it('shows queue controls only when a standard-room administrator can manage media', async () => {
+  it('restores queue grips when the host account sibling projection arrives', async () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', { open: true, peer: 'host' } as DataConnection);
     setState('playlist.items', sampleItems());
@@ -913,18 +914,15 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);
     expect(document.querySelectorAll('.btn-playlist-remove')).toHaveLength(0);
 
+    // OPERATOR_GRANT applies the explicit projection before the compatibility
+    // isOperator flag. The scheduled render must converge after both fields.
+    setState('network.standardRoomCapabilities', [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES]);
     setState('network.isOperator', true);
-    setState('network.standardRoomCapabilities', [
-      'media.add',
-      'queue.mutate',
-      'playback.control',
-      'asset.upload',
-      'members.manage',
-    ]);
     await nextAnimationFrame();
     expect(document.querySelectorAll('.playlist-reorder-handle')).not.toHaveLength(0);
     expect(document.querySelectorAll('.btn-playlist-remove')).not.toHaveLength(0);
 
+    setState('network.standardRoomCapabilities', null);
     setState('network.isOperator', false);
     await nextAnimationFrame();
     expect(document.querySelectorAll('.playlist-reorder-handle')).toHaveLength(0);

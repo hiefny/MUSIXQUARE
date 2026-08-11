@@ -933,7 +933,11 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
     return;
   }
 
-  title.textContent = t('account.login_title');
+  // Only a resolved, configured anonymous snapshot is a login screen. During
+  // initial reconciliation (or a temporary endpoint outage) presenting a
+  // "Sign in" title falsely projects an authenticated cookie as logged out.
+  const canOfferLogin = snapshot.status === 'anonymous' && snapshot.configured !== false;
+  title.textContent = t(canOfferLogin ? 'account.login_title' : 'account.account_title');
   loginActions.hidden = false;
   loginClose.hidden = false;
   if (snapshot.status === 'loading') {

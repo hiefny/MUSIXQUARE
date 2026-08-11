@@ -346,6 +346,7 @@ describe('optional account UI', () => {
 
     const close = document.getElementById('btn-account-login-close') as HTMLButtonElement;
     expect(getAccountSnapshot().status).toBe('loading');
+    expect(document.getElementById('account-dialog-title')?.textContent).toBe('Account');
     expect(document.getElementById('account-dialog-login-actions')?.hidden).toBe(false);
     expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
     expect(close.hidden).toBe(false);
@@ -768,6 +769,7 @@ describe('optional account UI', () => {
     expect(document.getElementById('account-dialog-message')?.textContent).toContain(
       'temporarily unavailable',
     );
+    expect(document.getElementById('account-dialog-title')?.textContent).toBe('Account');
     expect(document.getElementById('btn-account-google')?.hidden).toBe(true);
     expect(document.getElementById('account-dialog-login-actions')?.hidden).toBe(false);
     const close = document.getElementById('btn-account-login-close');

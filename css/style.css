@@ -2873,12 +2873,6 @@
     padding-bottom: 44px;
   }
 
-  /* The role and effect locks are split around settings sync. Preserve the
-     divider between the role section and the sync section. */
-  #youtube-settings-disabled-wrap > .section-group:last-of-type {
-    border-bottom: 1px solid var(--divider);
-  }
-
   /* Clip the final device row to the inherited section radius. */
   #device-list:last-child {
     border-bottom-left-radius: inherit;
@@ -10498,7 +10492,7 @@ html:not(.ios-standalone) body {
    shape; every other real button uses a pill/capsule hit surface. */
 button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
     .yt-search-result
-  ):not(.chat-youtube-btn):not(.language-option) {
+  ):not(.chat-youtube-btn):not(.language-option):not(#youtube-ios-sync-overlay) {
   border-radius: 999px !important;
 }
 

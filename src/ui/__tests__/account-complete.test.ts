@@ -6,7 +6,11 @@ const COMPLETION_HTML = 'public/account-complete.html';
 const COMPLETION_CSS = 'public/account-complete.css';
 const COMPLETION_SCRIPT = 'public/account-complete.js';
 
-type CompletionDom = JSDOM & { scheduledTimeouts: Array<() => void> };
+type CompletionDom = JSDOM & {
+  scheduledTimeouts: Array<() => void>;
+  openerMessages: unknown[];
+  broadcastMessages: unknown[];
+};
 
 const localizedCompletionCopy = [
   ['en', 'en', 'Sign-in complete. You may close this window.', 'Close'],
@@ -38,6 +42,8 @@ async function renderCompletion(language: string, marker = ''): Promise<Completi
     url: `https://musixquare.com/account-complete.html${marker}`,
   });
   const scheduledTimeouts: Array<() => void> = [];
+  const openerMessages: unknown[] = [];
+  const broadcastMessages: unknown[] = [];
   Object.defineProperty(dom.window, 'setTimeout', {
     configurable: true,
     value: (handler: unknown) => {
@@ -45,9 +51,28 @@ async function renderCompletion(language: string, marker = ''): Promise<Completi
       return scheduledTimeouts.length;
     },
   });
+  Object.defineProperty(dom.window, 'opener', {
+    configurable: true,
+    value: {
+      postMessage: (message: unknown) => openerMessages.push(message),
+    },
+  });
+  class CompletionBroadcastChannel {
+    constructor(_name: string) {}
+
+    postMessage(message: unknown): void {
+      broadcastMessages.push(message);
+    }
+
+    close(): void {}
+  }
+  Object.defineProperty(dom.window, 'BroadcastChannel', {
+    configurable: true,
+    value: CompletionBroadcastChannel,
+  });
   dom.window.localStorage.setItem('musixquare-lang', language);
   dom.window.eval(script);
-  return Object.assign(dom, { scheduledTimeouts });
+  return Object.assign(dom, { scheduledTimeouts, openerMessages, broadcastMessages });
 }
 
 describe('account completion localization', () => {
@@ -65,13 +90,17 @@ describe('account completion localization', () => {
     expect(stylesheet).toMatch(/button:focus-visible\s*{/);
   });
 
-  it('keeps successful popup completion as the existing refresh-only signal', async () => {
+  it('uses one refresh nonce across every successful popup completion channel', async () => {
     const success = await renderCompletion('en', '?accountClient=tab-12345678');
-    expect(JSON.parse(success.window.localStorage.getItem('mxqr-account-refresh') || '{}')).toEqual(
-      {
-        type: 'refresh',
-      },
-    );
+    const storedPulse = JSON.parse(
+      success.window.localStorage.getItem('mxqr-account-refresh') || '{}',
+    ) as Record<string, unknown>;
+    expect(storedPulse).toEqual({
+      type: 'refresh',
+      id: expect.stringMatching(/^result:/),
+    });
+    expect(success.openerMessages).toEqual([storedPulse]);
+    expect(success.broadcastMessages).toEqual([storedPulse]);
     expect(success.scheduledTimeouts).toHaveLength(1);
     success.window.close();
   });

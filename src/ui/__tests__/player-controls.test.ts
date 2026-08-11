@@ -265,6 +265,12 @@ describe('updateRoleBadge', () => {
 
   it('shows LOGIN for an anonymous user regardless of the network route', () => {
     const badge = renderBadge();
+    applyAccountSession({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
     setState('network.hostConn', makeConnection('host-1'));
     setState('network.myDeviceLabel', 'GUEST 1');
     setState('network.connectionType', 'remote');
@@ -276,6 +282,17 @@ describe('updateRoleBadge', () => {
     expect(badge.classList.contains('remote')).toBe(false);
     expect(document.getElementById('role-text')?.textContent).toBe('LOGIN');
     expect(document.querySelector('.badge-ping')).toBeNull();
+  });
+
+  it('does not project an unresolved account session as logged out', () => {
+    const badge = renderBadge();
+    setState('network.appRole', 'host');
+
+    updateRoleBadge();
+
+    expect(document.getElementById('role-text')?.textContent).toBe('Account');
+    expect(badge.getAttribute('aria-label')).toContain('Please wait');
+    expect(badge.getAttribute('aria-label')).not.toBe(t('account.login_title'));
   });
 
   it('shows the authenticated nickname with the account style', () => {
@@ -1443,6 +1460,27 @@ describe('initPlayerControls sync button', () => {
 
     expect(button.getAttribute('aria-disabled')).toBe('false');
     expect(button.hasAttribute('title')).toBe(false);
+  });
+
+  it('repaints restored host sync readiness when room activation settles after YouTube', () => {
+    renderSyncControls();
+    setState('network.appRole', 'host');
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+
+    initPlayerControls();
+    const button = document.getElementById('btn-sync') as HTMLButtonElement;
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(button.title).toContain('Not ready yet');
+
+    setState('network.sessionCode', '123456');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    setState('setup.sessionStarted', true);
+
+    expect(button.getAttribute('aria-disabled')).toBe('false');
+    expect(button.hasAttribute('title')).toBe(false);
+    button.click();
+    expect(broadcastYouTubeSync).toHaveBeenCalledWith(true);
   });
 
   it('keeps the transient not-ready message for a guest waiting on the host', () => {

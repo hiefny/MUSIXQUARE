@@ -3,13 +3,17 @@
   const marker = completionUrl.searchParams.get('accountAuth');
   const accountClient = completionUrl.searchParams.get('accountClient');
   const outcome = marker === 'cancelled' || marker === 'error' ? marker : 'success';
+  // One completion is announced through three fallback channels. Keep one
+  // nonce across all of them so the source tab can distinguish duplicate
+  // delivery from a genuinely later account change.
+  const refreshId = `result:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
   const message =
     outcome === 'success'
-      ? { type: 'refresh' }
+      ? { type: 'refresh', id: refreshId }
       : {
           type: 'refresh',
           accountAuth: outcome,
-          id: `result:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
+          id: refreshId,
           accountClient,
         };
   const storageKey = 'mxqr-account-refresh';

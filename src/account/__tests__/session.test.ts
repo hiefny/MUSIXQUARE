@@ -17,6 +17,7 @@ import {
   applyAccountSession,
   getAccountSnapshot,
   getAccountStatsScope,
+  subscribeAccount,
 } from '../state.ts';
 
 interface Deferred<T> {
@@ -128,6 +129,129 @@ describe('account session mutation ordering', () => {
     ]);
   });
 
+  it('deduplicates one popup completion across channels while fencing a pre-login read', async () => {
+    applyAccountSession(AUTHENTICATED_OLD);
+    const staleRead = deferred<Response>();
+    const completedLoginRead = deferred<Response>();
+    const laterFailedRead = deferred<Response>();
+    const laterAnonymousRead = deferred<Response>();
+    const sessionReads = [staleRead, completedLoginRead, laterFailedRead, laterAnonymousRead];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/auth/session');
+      return sessionReads.shift()!.promise;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const projectedStatuses: string[] = [];
+    const unsubscribe = subscribeAccount((snapshot) => projectedStatuses.push(snapshot.status));
+
+    startAccountSessionRefresh();
+    const completedPulse = { type: 'refresh', id: 'result:completed-login-0001' };
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: completedPulse,
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: completedPulse,
+      }),
+    );
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mxqr-account-refresh',
+        newValue: JSON.stringify(completedPulse),
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    completedLoginRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+
+    staleRead.resolve(jsonResponse(ANONYMOUS));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+    expect(projectedStatuses).not.toContain('anonymous');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    // A delayed delivery of the same completion stays deduplicated even after
+    // its read has settled. A genuinely later nonce still starts a fresh read.
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mxqr-account-refresh',
+        newValue: JSON.stringify(completedPulse),
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'refresh', id: 'result:later-change-0002' },
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    laterFailedRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'refresh', id: 'result:later-change-0003' },
+      }),
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+    laterAnonymousRead.resolve(jsonResponse(ANONYMOUS));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    unsubscribe();
+  });
+
+  it('preserves a valid legacy pulse result when its duplicate follow-up fails', async () => {
+    const initialRead = deferred<Response>();
+    const completedLoginRead = deferred<Response>();
+    const duplicateFollowUpRead = deferred<Response>();
+    const sessionReads = [initialRead, completedLoginRead, duplicateFollowUpRead];
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      expect(String(input)).toBe('/api/auth/session');
+      return sessionReads.shift()!.promise;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    initialRead.resolve(jsonResponse(ANONYMOUS));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+
+    // Older completion pages sent equivalent pulses without an ID. The first
+    // fresh response must remain applicable; later copies only queue a
+    // compatibility follow-up rather than fencing it.
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'refresh' },
+      }),
+    );
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mxqr-account-refresh',
+        newValue: 'legacy-opaque-pulse',
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    completedLoginRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    duplicateFollowUpRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+  });
+
   it('reconciles the exact popup session and fences an older account read', async () => {
     const oldRead = deferred<Response>();
     const reconciledRead = deferred<Response>();
@@ -172,6 +296,51 @@ describe('account session mutation ordering', () => {
     await signOutAccount();
 
     expect(setItem).toHaveBeenCalledWith('mxqr-account-refresh', expect.any(String));
+    const rawPulse = setItem.mock.calls.find(([key]) => key === 'mxqr-account-refresh')?.[1];
+    expect(JSON.parse(String(rawPulse))).toMatchObject({
+      type: 'refresh',
+      id: expect.stringMatching(/^refresh:/),
+    });
+  });
+
+  it('reuses one mutation nonce across BroadcastChannel and storage delivery', async () => {
+    const broadcastMessages: unknown[] = [];
+    class TestBroadcastChannel {
+      constructor(_name: string) {}
+
+      addEventListener(): void {}
+
+      removeEventListener(): void {}
+
+      postMessage(message: unknown): void {
+        broadcastMessages.push(message);
+      }
+
+      close(): void {}
+    }
+    vi.stubGlobal('BroadcastChannel', TestBroadcastChannel);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === '/api/auth/session') return jsonResponse(ANONYMOUS);
+        if (path === '/api/auth/logout') return jsonResponse({ ok: true });
+        throw new Error(`unexpected request: ${path}`);
+      }),
+    );
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+
+    startAccountSessionRefresh();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    await signOutAccount();
+
+    const rawPulse = setItem.mock.calls.findLast(([key]) => key === 'mxqr-account-refresh')?.[1];
+    const storedPulse = JSON.parse(String(rawPulse)) as Record<string, unknown>;
+    expect(storedPulse).toMatchObject({
+      type: 'refresh',
+      id: expect.stringMatching(/^refresh:/),
+    });
+    expect(broadcastMessages).toEqual([storedPulse]);
   });
 
   it('does not let an older session read suppress or undo a completed logout', async () => {

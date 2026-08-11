@@ -8,6 +8,12 @@ const mocks = vi.hoisted(() => ({
   enterProRoomFromSetup: vi.fn(),
   isProRoomCode: vi.fn(() => false),
   joinSession: vi.fn(),
+  waitForReadiness: vi.fn<
+    (
+      signal?: AbortSignal,
+      onAttempt?: (progress: { attempt: number; maxAttempts: number }) => void,
+    ) => Promise<void>
+  >(async () => undefined),
   pendingAutoCode: null as string | null,
   pendingRole: 0 as number | null,
   scheduleSessionReset: vi.fn(),
@@ -46,6 +52,10 @@ vi.mock('../../core/timers.ts', () => ({
 
 vi.mock('../../network/peer.ts', () => ({
   joinSession: mocks.joinSession,
+}));
+
+vi.mock('../../network/standard-room-prerequisites.ts', () => ({
+  waitForStandardRoomReadiness: mocks.waitForReadiness,
 }));
 
 vi.mock('../dom.ts', () => ({
@@ -89,6 +99,7 @@ vi.mock('../setup-shared.ts', () => ({
     mocks.pendingRole = value;
   },
   getPendingAutoJoinCode: () => mocks.pendingAutoCode,
+  getSetupOverlayAbort: () => null,
   setupSetAutoJoinCode: vi.fn(),
   setOnInviteLinkRoleSelected: vi.fn(),
   setupEl: (id: string) => document.getElementById(id),
@@ -116,6 +127,8 @@ beforeEach(() => {
   mocks.enterProRoomFromSetup.mockReset();
   mocks.isProRoomCode.mockReset();
   mocks.isProRoomCode.mockReturnValue(false);
+  mocks.waitForReadiness.mockReset();
+  mocks.waitForReadiness.mockResolvedValue(undefined);
   mocks.actions = [];
   mocks.pendingAutoCode = null;
   mocks.pendingRole = 0;
@@ -130,6 +143,72 @@ beforeEach(() => {
 });
 
 describe('guest setup recovery', () => {
+  it('joins exactly once after readiness and shows reconnecting feedback without trapping Back', async () => {
+    const goBack = vi.fn();
+    let releaseReadiness!: () => void;
+    setGuestGoBack(goBack);
+    mocks.waitForReadiness.mockImplementationOnce((_signal, onAttempt) => {
+      onAttempt?.({ attempt: 2, maxAttempts: 3 });
+      return new Promise<void>((resolve) => {
+        releaseReadiness = resolve;
+      });
+    });
+
+    const join = handleSetupJoinWithRole(0);
+
+    expect(mocks.joinSession).not.toHaveBeenCalled();
+    expect(mocks.actions[0]).toMatchObject({ id: 'btn-setup-back' });
+    expect(mocks.actions[0]).not.toHaveProperty('disabled');
+    expect(mocks.actions[1]).toMatchObject({
+      id: 'btn-setup-confirm',
+      text: 'connect.signaling_reconnecting',
+      disabled: true,
+    });
+
+    releaseReadiness();
+    await join;
+    expect(mocks.joinSession).toHaveBeenCalledOnce();
+    expect(mocks.joinSession).toHaveBeenCalledWith('123456');
+    expect(mocks.actions[0]).toMatchObject({ id: 'btn-setup-back', disabled: true });
+  });
+
+  it('keeps room join fail-closed when the readiness boundary is exhausted', async () => {
+    const failure = new Error('STANDARD_ROOM_READINESS_UNAVAILABLE');
+    mocks.waitForReadiness.mockRejectedValueOnce(failure);
+
+    await handleSetupJoinWithRole(0);
+
+    expect(mocks.joinSession).not.toHaveBeenCalled();
+    expect(mocks.busEmit).toHaveBeenCalledWith('setup:guest-join-failure', {
+      error: failure,
+      userMessage: 'error.server_disconnected',
+    });
+  });
+
+  it('lets Back cancel a stalled readiness probe without a late join', async () => {
+    const goBack = vi.fn();
+    let releaseReadiness!: () => void;
+    let readinessSignal: AbortSignal | undefined;
+    setGuestGoBack(goBack);
+    mocks.waitForReadiness.mockImplementationOnce((signal, onAttempt) => {
+      readinessSignal = signal;
+      onAttempt?.({ attempt: 1, maxAttempts: 3 });
+      return new Promise<void>((resolve) => {
+        releaseReadiness = resolve;
+      });
+    });
+
+    const join = handleSetupJoinWithRole(0);
+    const back = mocks.actions[0]?.onClick as (() => void) | undefined;
+    back?.();
+    expect(readinessSignal?.aborted).toBe(true);
+    releaseReadiness();
+    await join;
+
+    expect(goBack).toHaveBeenCalledOnce();
+    expect(mocks.joinSession).not.toHaveBeenCalled();
+  });
+
   it('preserves the entered code and exposes inline Retry and Back actions', async () => {
     const goBack = vi.fn();
     setGuestGoBack(goBack);
@@ -153,8 +232,8 @@ describe('guest setup recovery', () => {
       text: 'common.retry',
     });
 
-    const retry = mocks.actions[1]?.onClick as (() => void) | undefined;
-    retry?.();
+    const retry = mocks.actions[1]?.onClick as (() => Promise<void>) | undefined;
+    await retry?.();
     expect(mocks.joinSession).toHaveBeenCalledTimes(2);
     expect(input.value).toBe('123456');
 

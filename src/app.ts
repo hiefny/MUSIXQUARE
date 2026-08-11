@@ -37,7 +37,6 @@ import { initBackgroundResumeGuard } from './core/background-resume-guard.ts';
 import { runBackgroundResumeRecovery } from './core/background-resume-recovery.ts';
 import { initSyncFlightRecorder } from './diagnostics/sync-flight-recorder.ts';
 import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
-import { schedulePrimaryFontLoad } from './ui/app-font.ts';
 import {
   isSessionResetPending,
   restoreSessionReset,
@@ -112,7 +111,7 @@ import { initProRoomBranding } from './pro-room/branding.ts';
 import { initUiSounds } from './audio/ui-sounds.ts';
 
 // ── Service Worker ──
-import { registerServiceWorker } from './sw-register.ts';
+import { NAVIGATION_SOURCE_EVENT, registerServiceWorker } from './sw-register.ts';
 import { showToast } from './ui/toast.ts';
 
 declare global {
@@ -438,6 +437,28 @@ function recordSyncWorkerFallback(): void {
   if (changed && bootstrapReadinessPublished) publishBootstrapReadiness();
 }
 
+function recordCachedNavigationFallback(): void {
+  if (
+    bootstrapReadiness.recordFallback('CachedNavigation', 'orchestration') &&
+    bootstrapReadinessPublished
+  ) {
+    publishBootstrapReadiness();
+  }
+}
+
+// bootstrap.js probes before the module graph, while sw-register repeats the
+// probe after load. Consume both boundaries so a cache-served shell is never
+// published as fully online-ready even when the first worker reply races the
+// app module download.
+if (document.documentElement.dataset.mxqrNavigationSource === 'cache-fallback') {
+  recordCachedNavigationFallback();
+}
+window.addEventListener(NAVIGATION_SOURCE_EVENT, (event) => {
+  if ((event as CustomEvent<{ source?: unknown }>).detail?.source === 'cache-fallback') {
+    recordCachedNavigationFallback();
+  }
+});
+
 async function bootstrap(): Promise<void> {
   log.info(`[App] MUSIXQUARE bootstrap (instance: ${INSTANCE_ID})`);
 
@@ -592,7 +613,6 @@ async function bootstrap(): Promise<void> {
 }
 
 // Run bootstrap
-schedulePrimaryFontLoad();
 
 function runBootstrap(): void {
   publishBootstrapDataset('bootstrapping');

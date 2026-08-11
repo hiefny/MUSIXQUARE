@@ -8,20 +8,27 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v415';
+const CACHE_VERSION = 'v416';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
+const OPTIONAL_CACHE = `musixquare-optional-${CACHE_VERSION}`;
 const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
 // iOS can resume a standalone app with a half-open radio path where fetch()
 // neither succeeds nor rejects for a long time. A navigation must reach the
 // active cached shell instead of leaving WebKit on its blank provisional page.
-const NAVIGATION_NETWORK_TIMEOUT_MS = 8_000;
+const NAVIGATION_NETWORK_TIMEOUT_MS = 3_000;
+// The optional full font is useful after an interrupted reopen, but it must
+// never keep a new worker in `installing` indefinitely on a half-open radio.
+const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = 6_000;
+const OPTIONAL_CACHE_READY_KEY = `./.mxqr-optional-ready?cache=${CACHE_VERSION}`;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
 const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
 const ACCOUNT_COMPLETION_SHELL = './account-complete.html';
 const cacheReadyClientIds = new Set();
+const cachedNavigationClientIds = new Set();
+const clearedNavigationClientIds = new Set();
 
 // CacheStorage keys retain the full query string. Authentication completion
 // markers, client correlation IDs, and credential-like values are one-time or
@@ -39,6 +46,12 @@ const SENSITIVE_NAVIGATION_QUERY_PARAMETER =
 // offline, rather than depending on each hashed asset having been requested.
 const BUILD_ENTRY_ASSETS = [
   /* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */
+];
+
+// Vite injects the lazy Pretendard CSS closure here. The canonical 2 MiB font
+// is included in the same optional group, never in core APP_SHELL/addAll.
+const OPTIONAL_PRIMARY_FONT_ASSETS = [
+  /* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */
 ];
 
 const APP_SHELL = [
@@ -61,51 +74,88 @@ self.addEventListener('install', (event) => {
     (async () => {
       const cache = await caches.open(STATIC_CACHE);
 
-      // Core shell failures abort installation. Fonts and any future
-      // cross-origin extras are best-effort so an optional asset cannot strand
-      // clients on an older worker.
-      const core = [];
-      const optional = [];
+      // A partial core shell must never activate. Cache.addAll is the
+      // fail-closed boundary for the functional generation.
+      await cache.addAll(APP_SHELL);
 
-      for (const asset of APP_SHELL) {
-        try {
-          const url = new URL(asset, self.location.href);
-          if (url.origin === self.location.origin) {
-            // A missing font should not prevent the functional shell from updating.
-            if (url.pathname.includes('/fonts/') || /\.(?:woff2?|ttf|otf)$/i.test(url.pathname)) {
-              optional.push(asset);
-            } else {
-              core.push(asset);
-            }
-          } else {
-            optional.push(asset);
-          }
-        } catch (_) {
-          // Preserve fail-fast behavior for an invalid core entry.
-          core.push(asset);
-        }
-      }
-
-      // Core app shell: must succeed.
-      await cache.addAll(core);
-
-      // Optional assets: best-effort.
-      await Promise.allSettled(
-        optional.map(async (assetUrl) => {
-          try {
-            const req = new Request(assetUrl, { mode: 'no-cors' });
-            const res = await fetch(req);
-            if (res && (res.ok || res.type === 'opaque')) {
-              await cache.put(req, res);
-            }
-          } catch (_) {
-            // Optional fetch failure.
-          }
-        }),
-      );
+      // Font CSS + body are staged behind a readiness marker in their own
+      // cache. Failure or timeout is non-fatal and leaves partial entries
+      // invisible; the page-level font loader will retry after recovery.
+      await stageOptionalPrimaryFontAssets();
     })(),
   );
 });
+
+function responseWithBodyCopy(response, body) {
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+async function stageOptionalPrimaryFontAssets() {
+  if (OPTIONAL_PRIMARY_FONT_ASSETS.length === 0) return;
+
+  let expired = false;
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      expired = true;
+      try {
+        controller?.abort();
+      } catch (_) {
+        /* already settled */
+      }
+      reject(new Error('OPTIONAL_ASSET_GROUP_TIMEOUT'));
+    }, OPTIONAL_ASSET_GROUP_TIMEOUT_MS);
+  });
+
+  const staging = (async () => {
+    const optionalCache = await caches.open(OPTIONAL_CACHE);
+    // A prior abandoned install may have left bodies behind. Removing the
+    // marker first keeps every incomplete generation invisible.
+    await optionalCache.delete(OPTIONAL_CACHE_READY_KEY);
+    const entries = await Promise.all(
+      OPTIONAL_PRIMARY_FONT_ASSETS.map(async (asset) => {
+        const request = new Request(new URL(asset, self.location.href));
+        const response = controller
+          ? await fetch(request, { signal: controller.signal })
+          : await fetch(request);
+        if (!response || response.status === 206 || !response.ok) {
+          throw new Error(`OPTIONAL_ASSET_FETCH_FAILED:${request.url}`);
+        }
+        const body = await response.arrayBuffer();
+        return { request, response: responseWithBodyCopy(response, body) };
+      }),
+    );
+    if (expired) return;
+    for (const entry of entries) {
+      await optionalCache.put(entry.request, entry.response);
+      if (expired) return;
+    }
+    await optionalCache.put(
+      OPTIONAL_CACHE_READY_KEY,
+      new Response(CACHE_VERSION, {
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      }),
+    );
+  })();
+
+  try {
+    await Promise.race([staging, timeout]);
+  } catch (_) {
+    // Optional prefetch failure must not block the functional app generation.
+  } finally {
+    clearTimeout(timeoutId);
+    try {
+      controller?.abort();
+    } catch (_) {
+      /* already settled */
+    }
+  }
+}
 
 // The page may opt into immediate activation after presenting its update UI.
 self.addEventListener('message', (event) => {
@@ -116,15 +166,21 @@ self.addEventListener('message', (event) => {
   }
 
   if (event && event.data && event.data.type === CACHE_STATUS_PROBE) {
-    try {
-      event.source?.postMessage({
-        type: CACHE_STATUS_REQUEST,
-        cacheVersion: CACHE_VERSION,
-        proactive: true,
-      });
-    } catch (_) {
-      /* the probing page disappeared */
-    }
+    const work = (async () => {
+      const clientId = event.source && event.source.id;
+      const navigationFallback = clientId ? await readCachedNavigationState(clientId) : false;
+      try {
+        event.source?.postMessage({
+          type: CACHE_STATUS_REQUEST,
+          cacheVersion: CACHE_VERSION,
+          proactive: true,
+          navigationFallback,
+        });
+      } catch (_) {
+        /* the probing page disappeared */
+      }
+    })();
+    if (typeof event.waitUntil === 'function') event.waitUntil(work);
     return;
   }
 
@@ -165,10 +221,67 @@ async function deleteRetiredCaches() {
   await Promise.all(
     keys
       .filter((key) => {
-        return key.startsWith('musixquare-') && ![STATIC_CACHE, RUNTIME_CACHE].includes(key);
+        return (
+          key.startsWith('musixquare-') &&
+          ![STATIC_CACHE, RUNTIME_CACHE, OPTIONAL_CACHE].includes(key)
+        );
       })
       .map((key) => caches.delete(key)),
   );
+}
+
+function cachedNavigationStateRequest(clientId) {
+  const encodedClientId = encodeURIComponent(String(clientId));
+  return new Request(
+    new URL(`/.mxqr-navigation-fallback/${encodedClientId}`, self.location.origin),
+  );
+}
+
+async function recordCachedNavigationState(clientId) {
+  if (!clientId) return;
+  // Set memory first so an immediate page probe cannot race CacheStorage.
+  clearedNavigationClientIds.delete(clientId);
+  cachedNavigationClientIds.add(clientId);
+  try {
+    const cache = await caches.open(RUNTIME_CACHE);
+    await cache.put(
+      cachedNavigationStateRequest(clientId),
+      new Response(CACHE_VERSION, {
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      }),
+    );
+  } catch (_) {
+    // The in-memory marker still covers the ordinary uninterrupted worker
+    // lifetime; persistence is a reliability enhancement, not a boot gate.
+  }
+}
+
+async function clearCachedNavigationState(clientId) {
+  if (!clientId) return;
+  // Tombstone memory first so a page probe cannot observe the old persistent
+  // marker while its deletion is still queued under waitUntil.
+  cachedNavigationClientIds.delete(clientId);
+  clearedNavigationClientIds.add(clientId);
+  try {
+    const cache = await caches.open(RUNTIME_CACHE);
+    await cache.delete(cachedNavigationStateRequest(clientId));
+  } catch (_) {
+    // The in-memory tombstone remains authoritative for this worker lifetime.
+  }
+}
+
+async function readCachedNavigationState(clientId) {
+  if (!clientId) return false;
+  if (clearedNavigationClientIds.has(clientId)) return false;
+  const stateRequest = cachedNavigationStateRequest(clientId);
+  let found = cachedNavigationClientIds.has(clientId);
+  try {
+    const persisted = await caches.match(stateRequest, { cacheName: RUNTIME_CACHE });
+    if (persisted) found = true;
+  } catch (_) {
+    // Preserve the in-memory result when CacheStorage is unavailable.
+  }
+  return found;
 }
 
 async function scrubSensitiveRetiredRuntimeEntries() {
@@ -427,6 +540,61 @@ function isImmutableHashedAsset(request) {
   return /-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/.test(url.pathname);
 }
 
+function isOptionalPrimaryFontAsset(request) {
+  const requestUrl = new URL(request.url);
+  return OPTIONAL_PRIMARY_FONT_ASSETS.some((asset) => {
+    try {
+      return new URL(asset, self.location.href).href === requestUrl.href;
+    } catch (_) {
+      return false;
+    }
+  });
+}
+
+async function matchActiveOptionalAsset(request) {
+  if (!isOptionalPrimaryFontAsset(request)) return null;
+  try {
+    const ready = await caches.match(OPTIONAL_CACHE_READY_KEY, { cacheName: OPTIONAL_CACHE });
+    if (!ready) return null;
+    return (await caches.match(request, { cacheName: OPTIONAL_CACHE })) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function matchRetiredAsset(request) {
+  // Optional loader/CSS/font files form one atomic group. Never mix one of
+  // them from retired static/runtime caches or a markerless optional cache:
+  // the safer fallback is the system font until a complete generation exists.
+  if (isOptionalPrimaryFontAsset(request)) {
+    try {
+      const keys = await caches.keys();
+      for (const key of keys) {
+        if (key === OPTIONAL_CACHE) continue;
+        const retiredMatch = /^musixquare-optional-v(\d+)$/.exec(key);
+        const currentMatch = /^v(\d+)$/.exec(CACHE_VERSION);
+        if (!retiredMatch || !currentMatch || Number(retiredMatch[1]) >= Number(currentMatch[1])) {
+          continue;
+        }
+        const retiredVersion = `v${retiredMatch[1]}`;
+        const readyKey = `./.mxqr-optional-ready?cache=${retiredVersion}`;
+        const ready = await caches.match(readyKey, { cacheName: key });
+        if (!ready) continue;
+        const cached = await caches.match(request, { cacheName: key });
+        if (cached) return cached;
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+  try {
+    return (await caches.match(request)) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function cacheResponse(cacheName, request, response) {
   try {
     // Clone before the first await. The response may be returned to and
@@ -492,6 +660,16 @@ async function matchActiveNavigationShell(request) {
   }
 }
 
+function markCachedNavigationResponse(response) {
+  const headers = new Headers(response.headers);
+  headers.set('X-Musixquare-Navigation-Source', 'cache-fallback');
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 // Network-first for navigations, cache-first for static assets
 self.addEventListener('fetch', (event) => {
   const request = event.request;
@@ -529,7 +707,20 @@ self.addEventListener('fetch', (event) => {
     // Calling waitUntil only after an awaited cache/network lookup is not
     // portable, and leaving Cache.put unchained lets the worker be suspended
     // before the offline fallback is actually written.
-    event.waitUntil(cacheUpdate);
+    const navigationStateUpdate = networkResponse.then(
+      async () => {
+        const resultingClientId = event.resultingClientId || event.clientId;
+        if (resultingClientId) await clearCachedNavigationState(resultingClientId);
+      },
+      async () => {
+        const fallback = await cachedShell;
+        const resultingClientId = event.resultingClientId || event.clientId;
+        if (fallback && resultingClientId) {
+          await recordCachedNavigationState(resultingClientId);
+        }
+      },
+    );
+    event.waitUntil(Promise.all([cacheUpdate, navigationStateUpdate]));
     event.respondWith(
       (async () => {
         try {
@@ -537,11 +728,50 @@ self.addEventListener('fetch', (event) => {
           // network response returned to the navigation.
           return await networkResponse;
         } catch (_) {
-          return (
-            (await cachedShell) ||
-            new Response('Offline', { status: 503, statusText: 'Service Unavailable' })
-          );
+          const fallback = await cachedShell;
+          return fallback
+            ? markCachedNavigationResponse(fallback)
+            : new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
         }
+      })(),
+    );
+    return;
+  }
+
+  // The optional Pretendard group is already validated by its readiness
+  // marker. Serve it cache-first without launching a duplicate 2 MiB font
+  // revalidation; a failed/partial install falls through to network and the
+  // successful retry is promoted into the active static cache.
+  if (isOptionalPrimaryFontAsset(request)) {
+    const cachedResponse = (async () => {
+      return (
+        (await caches.match(request, { cacheName: STATIC_CACHE })) ||
+        (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
+        (await matchActiveOptionalAsset(request)) ||
+        null
+      );
+    })();
+    const networkResponse = cachedResponse.then((cached) => {
+      if (cached) return null;
+      return fetch(request).catch(() => null);
+    });
+    const cacheUpdate = networkResponse.then((response) => {
+      if (!response || response.status === 206 || (!response.ok && response.type !== 'opaque')) {
+        return undefined;
+      }
+      return cacheResponse(STATIC_CACHE, request, response);
+    });
+    event.waitUntil(cacheUpdate);
+    event.respondWith(
+      (async () => {
+        const cached = await cachedResponse;
+        if (cached) return cached;
+        const fresh = await networkResponse;
+        return (
+          fresh ||
+          (await matchRetiredAsset(request)) ||
+          new Response('Offline', { status: 503, statusText: 'Offline' })
+        );
       })(),
     );
     return;
@@ -555,7 +785,8 @@ self.addEventListener('fetch', (event) => {
       return (
         (await caches.match(request, { cacheName: STATIC_CACHE })) ||
         (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
-        (await caches.match(request)) ||
+        (await matchActiveOptionalAsset(request)) ||
+        (await matchRetiredAsset(request)) ||
         null
       );
     })();
@@ -598,7 +829,8 @@ self.addEventListener('fetch', (event) => {
     (async () => {
       const activeCached =
         (await caches.match(request, { cacheName: STATIC_CACHE })) ||
-        (await caches.match(request, { cacheName: RUNTIME_CACHE }));
+        (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
+        (await matchActiveOptionalAsset(request));
 
       if (activeCached) return activeCached;
 
@@ -609,7 +841,7 @@ self.addEventListener('fetch', (event) => {
       // asset from its retired generation while truly offline. Restrict this
       // unrestricted lookup to network failure so it cannot win online.
       return (
-        (await caches.match(request)) ||
+        (await matchRetiredAsset(request)) ||
         new Response('Offline', { status: 503, statusText: 'Offline' })
       );
     })(),

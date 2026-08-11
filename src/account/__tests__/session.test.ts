@@ -8,6 +8,7 @@ import {
   __resetAccountSessionForTests,
   reconcileAccountLoginSession,
   removeAccount,
+  retryAccountSessionRefresh,
   saveAccountNickname,
   signOutAccount,
   startAccountSessionRefresh,
@@ -68,11 +69,204 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetAccountSessionForTests();
   setPeer(null);
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
 describe('account session mutation ordering', () => {
+  it('recovers a failed initial session with bounded 1s, 3s, and 10s retries', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('connection aborted'))
+      .mockRejectedValueOnce(new TypeError('service worker restarting'))
+      .mockRejectedValueOnce(new TypeError('still reconnecting'))
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not automatically retry a non-transient account rejection', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ error: 'ACCOUNT_REQUEST_REJECTED' }, 400));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('defers recovery while offline and resumes once without a focus storm', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    const retryRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockReturnValueOnce(retryRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new PageTransitionEvent('pageshow'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    retryRead.resolve(jsonResponse(ANONYMOUS));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets an explicit retry probe once when navigator.onLine is stale false', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('radio path interrupted'))
+      .mockResolvedValueOnce(jsonResponse(ANONYMOUS));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await retryAccountSessionRefresh();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getAccountSnapshot().status).toBe('anonymous');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+  });
+
+  it('defers background recovery until the page becomes visible', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('background fetch aborted'))
+      .mockResolvedValueOnce(jsonResponse(ANONYMOUS));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getAccountSnapshot().status).toBe('anonymous');
+  });
+
+  it('keeps an authenticated snapshot during transient recovery and supports explicit retry', async () => {
+    vi.useFakeTimers();
+    applyAccountSession(AUTHENTICATED_OLD);
+    const retryRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('connection aborted'))
+      .mockReturnValueOnce(retryRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(getAccountSnapshot().status).toBe('authenticated');
+    expect(getAccountSnapshot().account?.nickname).toBe('Old');
+
+    retryAccountSessionRefresh();
+    retryAccountSessionRefresh();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getAccountSnapshot().account?.nickname).toBe('Old');
+
+    retryRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets an exact popup reconciliation replace a pending recovery timer', async () => {
+    vi.useFakeTimers();
+    const popupRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial read aborted'))
+      .mockReturnValueOnce(popupRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+
+    const reconciliation = reconcileAccountLoginSession();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    popupRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await expect(reconciliation).resolves.toEqual(AUTHENTICATED_NEW);
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+  });
+
+  it('cancels a pending account recovery at teardown', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new TypeError('offline'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+    __resetAccountSessionForTests();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
   it('keeps the aggregate-write fence outside the public account profile and clears it on logout', () => {
     const statsScope = 's'.repeat(43);
     applyAccountSession({

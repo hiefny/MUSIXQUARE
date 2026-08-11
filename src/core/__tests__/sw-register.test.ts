@@ -110,6 +110,7 @@ function installServiceWorkerHarness(
       reload,
     },
     addEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
   });
   Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
 
@@ -161,6 +162,7 @@ describe('service-worker cache-retirement client handshake', () => {
     vi.resetModules();
     vi.clearAllMocks();
     sessionStorage.clear();
+    delete document.documentElement.dataset.mxqrNavigationSource;
     moduleMocks.getState.mockReturnValue('idle');
     moduleMocks.scheduleSessionReset.mockImplementation(() => createFakeResetHandle());
     moduleMocks.showDialog.mockResolvedValue(undefined);
@@ -221,6 +223,29 @@ describe('service-worker cache-retirement client handshake', () => {
     await registerWithHarness(harness);
 
     expect(controller.postMessage).toHaveBeenCalledWith({ type: 'MXQR_CACHE_STATUS_PROBE' });
+  });
+
+  it('publishes a cached-navigation startup as degraded page state', async () => {
+    const controller: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(controller);
+    await registerWithHarness(harness);
+
+    harness.emit('message', {
+      data: {
+        type: 'MXQR_CACHE_STATUS_REQUEST',
+        cacheVersion: 'v416',
+        proactive: true,
+        navigationFallback: true,
+      },
+    });
+
+    expect(document.documentElement.dataset.mxqrNavigationSource).toBe('cache-fallback');
+    expect(controller.postMessage).toHaveBeenCalledWith({
+      type: 'MXQR_CACHE_CLIENT_STATUS',
+      cacheVersion: 'v416',
+      ready: true,
+      replyToRequest: false,
+    });
   });
 
   it('prompts for a worker that was already waiting before registration listeners attach', async () => {

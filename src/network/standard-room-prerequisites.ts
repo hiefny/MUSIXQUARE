@@ -1,4 +1,5 @@
 import {
+  assertCapabilityServiceReady,
   fetchWithCapability,
   isCapabilityChallengeCancelled,
   warmCapabilitySilently,
@@ -8,8 +9,10 @@ import {
   cancelResponseBody,
   raceWithAbortSignal,
   readBoundedJsonResponse,
+  withRequestDeadline,
 } from '../core/request-lifetime.ts';
 import { getState } from '../core/state.ts';
+import { delay } from '../core/timers.ts';
 import { localFirstApiEndpoints } from './api-endpoints.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
 
@@ -35,6 +38,8 @@ const TURN_REFRESH_SKEW_MS = 60_000;
 const FALLBACK_TURN_CACHE_MS = 5 * 60_000;
 const TURN_REQUEST_TIMEOUT_MS = 8_000;
 const TURN_RESPONSE_MAX_BYTES = 64 * 1024;
+const READINESS_ATTEMPT_TIMEOUT_MS = 2_500;
+const READINESS_RETRY_DELAYS_MS = [0, 600, 1_400] as const;
 const PRECONNECT_MARKER = 'data-mxqr-standard-signaling-preconnect';
 const SETUP_INTENT_SELECTOR =
   '#btn-setup-host, #btn-setup-guest, #btn-setup-confirm, #setup-join-code';
@@ -45,6 +50,60 @@ let turnCredentialsRequest: Promise<StandardRoomTurnCredentials | null> | null =
 let capabilityWarmupRequest: Promise<boolean> | null = null;
 let warmupScheduled = false;
 let warmupIntentController: AbortController | null = null;
+
+function waitForReadinessRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+  const waiting = delayMs > 0 ? delay(delayMs) : Promise.resolve();
+  return signal ? raceWithAbortSignal(waiting, signal) : waiting;
+}
+
+/**
+ * Before standard-room setup opens a signaling identity, prove that the
+ * same-origin control plane is live. Only this read-only probe is retried;
+ * callers invoke room creation/join exactly once after it succeeds.
+ */
+async function waitForStandardRoomReadinessInMode(
+  mode: string,
+  signal?: AbortSignal,
+  onAttempt?: (attempt: number, maxAttempts: number) => void,
+): Promise<void> {
+  // Local development and preview E2E intentionally have no app Worker API.
+  // Match the existing browser-only PeerJS/TURN seams so those environments
+  // can exercise room setup without contacting production. Test and
+  // production builds still require a fresh strict control-plane proof.
+  if (mode === 'development' || mode === 'e2e') return;
+
+  let lastError: unknown;
+  const maxAttempts = READINESS_RETRY_DELAYS_MS.length;
+
+  for (let index = 0; index < maxAttempts; index++) {
+    await waitForReadinessRetry(READINESS_RETRY_DELAYS_MS[index] ?? 0, signal);
+    const attempt = index + 1;
+    onAttempt?.(attempt, maxAttempts);
+
+    try {
+      await withRequestDeadline(
+        (requestSignal) => assertCapabilityServiceReady('/api/security-config', requestSignal),
+        {
+          signal,
+          timeoutMs: READINESS_ATTEMPT_TIMEOUT_MS,
+        },
+      );
+      return;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      lastError = error;
+    }
+  }
+
+  throw new Error('STANDARD_ROOM_READINESS_UNAVAILABLE', { cause: lastError });
+}
+
+export function waitForStandardRoomReadiness(
+  signal?: AbortSignal,
+  onAttempt?: (attempt: number, maxAttempts: number) => void,
+): Promise<void> {
+  return waitForStandardRoomReadinessInMode(import.meta.env.MODE, signal, onAttempt);
+}
 
 function turnRequestEndpoints(baseHref = window.location.href): string[] {
   const seen = new Set<string>();
@@ -368,6 +427,9 @@ export function scheduleStandardRoomPrerequisiteWarmup(): void {
 
 export const __standardRoomPrerequisitesForTests = {
   turnRequestTimeoutMs: TURN_REQUEST_TIMEOUT_MS,
+  readinessAttemptTimeoutMs: READINESS_ATTEMPT_TIMEOUT_MS,
+  readinessRetryDelaysMs: READINESS_RETRY_DELAYS_MS,
+  waitForReadinessInMode: waitForStandardRoomReadinessInMode,
   requestEndpoints: turnRequestEndpoints,
   warm: warmStandardRoomPrerequisites,
   reset(): void {

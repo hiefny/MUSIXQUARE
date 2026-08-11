@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv, type Plugin, type UserConfig } from 'vite';
+import { defineConfig, loadEnv, transformWithEsbuild, type Plugin, type UserConfig } from 'vite';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'path';
 import { collectRenderedWorkerAssets } from './scripts/service-worker-app-shell-guard-lib.mjs';
@@ -197,6 +197,34 @@ const prioritizeStylesheetsInHtml = (): Plugin => ({
   },
 });
 
+export async function minifyEarlyBootstrap(source: string): Promise<string> {
+  const transformed = await transformWithEsbuild(source, 'bootstrap.js', {
+    loader: 'js',
+    minify: true,
+    target: 'es2018',
+  });
+  return transformed.code;
+}
+
+// publicDir scripts are copied verbatim by Vite. Keep the credential scrubber
+// auditable in source while shipping its now larger recovery bootstrap with
+// the same production minification as the app entry.
+const minifyEarlyBootstrapBuild = (): Plugin => {
+  let outDir = '';
+  return {
+    name: 'minify-early-bootstrap',
+    apply: 'build',
+    configResolved(config) {
+      outDir = resolve(config.root, config.build.outDir);
+    },
+    async closeBundle() {
+      const bootstrapPath = resolve(outDir, 'bootstrap.js');
+      const source = await readFile(bootstrapPath, 'utf8');
+      await writeFile(bootstrapPath, await minifyEarlyBootstrap(source), 'utf8');
+    },
+  };
+};
+
 // QR encoding and PeerJS are needed only after session actions. Fail the build
 // if either dependency accidentally re-enters the static closure of app.ts.
 const guardInitialAppBundleGraph = (): Plugin => ({
@@ -243,6 +271,12 @@ const guardInitialAppBundleGraph = (): Plugin => ({
 });
 
 const BUILD_ENTRY_ASSETS_MARKER = '/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */';
+const OPTIONAL_PRIMARY_FONT_ASSETS_MARKER = '/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */';
+const OPTIONAL_PRIMARY_FONT_ASSETS = [
+  './primary-font-loader.js',
+  './primary-font.css',
+  './designsystem/fonts/PretendardVariable.woff2',
+] as const;
 
 function serviceWorkerAssetPath(fileName: string): string {
   return `./${fileName.replace(/^\/+/, '')}`;
@@ -314,18 +348,45 @@ export function collectStaticAppEntryAssets(bundle: Record<string, unknown>): st
   return [...assets].sort();
 }
 
-export function injectBuildEntryAssets(serviceWorker: string, assets: readonly string[]): string {
+/**
+ * Return the stable lazy Pretendard runtime closure. These publicDir assets are
+ * deliberately absent from the page's initial script/stylesheet graph.
+ */
+export function collectOptionalPrimaryFontAssets(_bundle: Record<string, unknown>): string[] {
+  return [...OPTIONAL_PRIMARY_FONT_ASSETS];
+}
+
+export function injectBuildEntryAssets(
+  serviceWorker: string,
+  assets: readonly string[],
+  optionalPrimaryFontAssets: readonly string[],
+): string {
   const markerCount = serviceWorker.split(BUILD_ENTRY_ASSETS_MARKER).length - 1;
   if (markerCount !== 1) {
     throw new Error(`Expected one service-worker build manifest marker, found ${markerCount}.`);
   }
+  const optionalMarkerCount = serviceWorker.split(OPTIONAL_PRIMARY_FONT_ASSETS_MARKER).length - 1;
+  if (optionalMarkerCount !== 1) {
+    throw new Error(
+      `Expected one service-worker optional font manifest marker, found ${optionalMarkerCount}.`,
+    );
+  }
   if (assets.length === 0) throw new Error('Canonical app entry manifest is empty.');
+  if (optionalPrimaryFontAssets.length !== OPTIONAL_PRIMARY_FONT_ASSETS.length) {
+    throw new Error('Optional primary-font manifest is incomplete.');
+  }
   const manifest = assets.map((asset) => JSON.stringify(asset)).join(',\n  ');
-  return serviceWorker.replace(BUILD_ENTRY_ASSETS_MARKER, manifest);
+  const optionalManifest = optionalPrimaryFontAssets
+    .map((asset) => JSON.stringify(asset))
+    .join(',\n  ');
+  return serviceWorker
+    .replace(BUILD_ENTRY_ASSETS_MARKER, manifest)
+    .replace(OPTIONAL_PRIMARY_FONT_ASSETS_MARKER, optionalManifest);
 }
 
 const injectServiceWorkerBuildManifest = (): Plugin => {
   let assets: string[] = [];
+  let optionalPrimaryFontAssets: string[] = [];
   let outDir = '';
   return {
     name: 'inject-service-worker-build-manifest',
@@ -336,11 +397,21 @@ const injectServiceWorkerBuildManifest = (): Plugin => {
     generateBundle(_options, bundle) {
       assets = collectStaticAppEntryAssets(bundle as unknown as Record<string, unknown>);
       if (assets.length === 0) this.error('Could not collect the MUSIXQUARE app entry manifest.');
+      optionalPrimaryFontAssets = collectOptionalPrimaryFontAssets(
+        bundle as unknown as Record<string, unknown>,
+      );
+      if (optionalPrimaryFontAssets.length !== OPTIONAL_PRIMARY_FONT_ASSETS.length) {
+        this.error('Could not collect the MUSIXQUARE optional primary-font manifest.');
+      }
     },
     async closeBundle() {
       const serviceWorkerPath = resolve(outDir, 'service-worker.js');
       const serviceWorker = await readFile(serviceWorkerPath, 'utf8');
-      await writeFile(serviceWorkerPath, injectBuildEntryAssets(serviceWorker, assets), 'utf8');
+      await writeFile(
+        serviceWorkerPath,
+        injectBuildEntryAssets(serviceWorker, assets, optionalPrimaryFontAssets),
+        'utf8',
+      );
     },
   };
 };
@@ -411,6 +482,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       failClosedDevApi(proxyProductionApi),
       prioritizeStylesheetsInHtml(),
       guardInitialAppBundleGraph(),
+      minifyEarlyBootstrapBuild(),
       injectServiceWorkerBuildManifest(),
     ],
     build: {

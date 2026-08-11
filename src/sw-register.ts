@@ -20,9 +20,20 @@ const SW_COOLDOWN_MS = 30_000;
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
+export const NAVIGATION_SOURCE_EVENT = 'mxqr:navigation-source';
+
+type NavigationSource = 'network' | 'cache-fallback';
 
 let _swReloading = false;
 let _swReloadAttempt: object | null = null;
+
+function publishNavigationSource(navigationFallback: boolean): void {
+  const source: NavigationSource = navigationFallback ? 'cache-fallback' : 'network';
+  document.documentElement.dataset.mxqrNavigationSource = source;
+  window.dispatchEvent(
+    new CustomEvent<{ source: NavigationSource }>(NAVIGATION_SOURCE_EVENT, { detail: { source } }),
+  );
+}
 
 function readSessionMarker(key: string): string | null {
   try {
@@ -178,9 +189,14 @@ export function registerServiceWorker(): void {
         type?: unknown;
         cacheVersion?: unknown;
         proactive?: unknown;
+        navigationFallback?: unknown;
       } | null;
       if (!data || data.type !== CACHE_STATUS_REQUEST || typeof data.cacheVersion !== 'string') {
         return;
+      }
+
+      if (typeof data.navigationFallback === 'boolean') {
+        publishNavigationSource(data.navigationFallback);
       }
 
       const controller = navigator.serviceWorker.controller;

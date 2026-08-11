@@ -115,6 +115,17 @@ describe('app UX markup contract', () => {
     expect(shortcutSource).not.toMatch(/e\.key === ['"][pPsScC]['"]/u);
   });
 
+  it('publishes a cached-navigation launch as degraded bootstrap readiness', () => {
+    expect(appRuntimeSource).toContain('NAVIGATION_SOURCE_EVENT');
+    expect(appRuntimeSource).toContain(
+      "bootstrapReadiness.recordFallback('CachedNavigation', 'orchestration')",
+    );
+    expect(appRuntimeSource).toContain(
+      "document.documentElement.dataset.mxqrNavigationSource === 'cache-fallback'",
+    );
+    expect(appRuntimeSource).toContain("detail?.source === 'cache-fallback'");
+  });
+
   it('places settings sync last in General and keeps one lock around every Audio section', () => {
     const generalPanel = appDocument.querySelector<HTMLElement>(
       '.settings-subtab-panel[data-panel="general"]',

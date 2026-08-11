@@ -25,6 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -50,6 +51,33 @@ describe('account API client', () => {
       '/api/auth/session',
       expect.objectContaining({ credentials: 'same-origin' }),
     );
+  });
+
+  it('bounds a stalled session read to five seconds without shortening mutation deadlines', async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch).mockImplementation((_input, init) => {
+      return new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+      });
+    });
+
+    const sessionResult = getAccountSession().catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(sessionResult).resolves.toMatchObject({
+      code: 'ACCOUNT_NETWORK_ERROR',
+      status: 0,
+    });
+
+    const mutationResult = updateAccountProfile('Jisu').catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(vi.mocked(fetch).mock.calls[1]?.[1]?.signal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(mutationResult).resolves.toMatchObject({
+      code: 'ACCOUNT_NETWORK_ERROR',
+      status: 0,
+    });
   });
 
   it('sends the account CSRF marker on profile mutations', async () => {

@@ -16,7 +16,7 @@ import {
   openAccountDialog,
   requestAccountNicknameChange,
 } from '../account.ts';
-import { requestAccountLoginPopup } from '../../account/session.ts';
+import { __resetAccountSessionForTests, requestAccountLoginPopup } from '../../account/session.ts';
 import { updateCurrentAccountNickname } from '../../account/nickname.ts';
 import { clearIntentionalNav, isIntentionalNav } from '../../core/page-lifecycle.ts';
 import {
@@ -101,6 +101,7 @@ function renderAccountDialog(): void {
 }
 
 beforeEach(() => {
+  __resetAccountSessionForTests();
   __resetAccountUiForTests();
   __resetAccountStateForTests();
   resetState();
@@ -121,6 +122,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  __resetAccountSessionForTests();
   __resetAccountUiForTests();
   resetState();
   vi.unstubAllGlobals();
@@ -776,6 +778,41 @@ describe('optional account UI', () => {
     expect(close?.hidden).toBe(false);
     expect(close?.classList.contains('dialog-primary')).toBe(true);
     expect(close?.classList.contains('dialog-secondary')).toBe(false);
+    expect(close?.textContent).toBe('Retry');
+  });
+
+  it('offers an explicit retry and restores sign-in without closing the dialog', async () => {
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null, statsScope: null }),
+      );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
+    openAccountDialog();
+
+    document.getElementById('btn-account-login-close')?.click();
+
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    expect(document.getElementById('account-dialog-overlay')?.classList.contains('show')).toBe(
+      true,
+    );
+    expect(document.getElementById('btn-account-google')?.hidden).toBe(false);
+  });
+
+  it('re-enables and refocuses explicit retry when recovery still fails', async () => {
+    vi.mocked(fetch).mockRejectedValue(new TypeError('offline'));
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
+    openAccountDialog();
+    const retry = document.getElementById('btn-account-login-close') as HTMLButtonElement;
+
+    retry.click();
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(retry.disabled).toBe(false));
+    expect(retry.textContent).toBe('Retry');
+    expect(document.activeElement).toBe(retry);
   });
 
   it('shows an authenticated nickname and restores focus after close', async () => {

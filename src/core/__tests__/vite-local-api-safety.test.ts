@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   PRODUCTION_API_PROXY_PATHS,
+  collectOptionalPrimaryFontAssets,
   collectStaticAppEntryAssets,
   createViteConfig,
   injectBuildEntryAssets,
   isExpectedPlaylistImportOverlapWarning,
+  minifyEarlyBootstrap,
   productionApiProxyEnabled,
 } from '../../../vite.config.ts';
 import {
@@ -181,6 +183,22 @@ describe('Vite dynamic/static overlap policy', () => {
 });
 
 describe('service-worker build entry manifest', () => {
+  it('minifies the readable early bootstrap before release output', async () => {
+    const source = `
+      /* source remains auditable */
+      (function () {
+        var runtimeUrl = '/primary-font-loader.js';
+        window.__testBootstrapRuntimeUrl = runtimeUrl;
+      })();
+    `;
+
+    const minified = await minifyEarlyBootstrap(source);
+
+    expect(minified.length).toBeLessThan(source.length);
+    expect(minified).toContain('/primary-font-loader.js');
+    expect(minified).not.toContain('source remains auditable');
+  });
+
   it('collects the canonical entry JS/CSS and emitted Worker/file closure', () => {
     const bundle = {
       'assets/app.js': {
@@ -228,6 +246,11 @@ describe('service-worker build entry manifest', () => {
       './assets/vendor.css',
       './assets/vendor.js',
     ]);
+    expect(collectOptionalPrimaryFontAssets(bundle)).toEqual([
+      './primary-font-loader.js',
+      './primary-font.css',
+      './designsystem/fonts/PretendardVariable.woff2',
+    ]);
   });
 
   it('discovers only same-origin rendered Worker URL module expressions', () => {
@@ -246,16 +269,35 @@ describe('service-worker build entry manifest', () => {
   });
 
   it('injects exactly one non-empty manifest and rejects missing contracts', () => {
-    const source = `const BUILD_ENTRY_ASSETS = [\n  /* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */\n];`;
-    const injected = injectBuildEntryAssets(source, ['./assets/app.js', './assets/app.css']);
+    const source = `
+      const BUILD_ENTRY_ASSETS = [/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */];
+      const OPTIONAL_PRIMARY_FONT_ASSETS = [/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */];
+    `;
+    const optional = [
+      './primary-font-loader.js',
+      './primary-font.css',
+      './designsystem/fonts/PretendardVariable.woff2',
+    ];
+    const injected = injectBuildEntryAssets(
+      source,
+      ['./assets/app.js', './assets/app.css'],
+      optional,
+    );
 
     expect(injected).toContain('"./assets/app.js"');
     expect(injected).toContain('"./assets/app.css"');
+    expect(injected).toContain('"./primary-font-loader.js"');
+    expect(injected).toContain('"./primary-font.css"');
+    expect(injected).toContain('"./designsystem/fonts/PretendardVariable.woff2"');
     expect(injected).not.toContain('__MUSIXQUARE_BUILD_ENTRY_ASSETS__');
-    expect(() => injectBuildEntryAssets(source, [])).toThrow('manifest is empty');
-    expect(() => injectBuildEntryAssets('const BUILD_ENTRY_ASSETS = [];', ['./app.js'])).toThrow(
-      'Expected one',
+    expect(injected).not.toContain('__MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__');
+    expect(() => injectBuildEntryAssets(source, [], optional)).toThrow('manifest is empty');
+    expect(() => injectBuildEntryAssets(source, ['./app.js'], [])).toThrow(
+      'font manifest is incomplete',
     );
+    expect(() =>
+      injectBuildEntryAssets('const BUILD_ENTRY_ASSETS = [];', ['./app.js'], optional),
+    ).toThrow('Expected one');
   });
 
   it('finds module and classic startup scripts while excluding inert or non-cacheable sources', () => {

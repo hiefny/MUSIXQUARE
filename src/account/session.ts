@@ -4,6 +4,7 @@ import {
   logoutAccount,
   logoutAllAccounts,
   updateAccountProfile,
+  AccountApiError,
   type AccountDeletionResult,
   type AccountProfile,
   type AccountSessionResponse,
@@ -27,8 +28,12 @@ let _mutationDepth = 0;
 let _lastRefreshStartedAt = 0;
 let _lifecycleBound = false;
 let _syncChannel: BroadcastChannel | null = null;
+let _recoveryTimer: number | null = null;
+let _recoveryAttempt = 0;
+let _recoveryNeeded = false;
 
 const ACCOUNT_REFRESH_DEBOUNCE_MS = 30_000;
+const ACCOUNT_RECOVERY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
 const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const MAX_RECENT_EXTERNAL_REFRESH_IDS = 32;
@@ -121,9 +126,76 @@ function broadcastAccountChange(): void {
   }
 }
 
+function clearAccountRecoveryTimer(): void {
+  if (_recoveryTimer !== null) window.clearTimeout(_recoveryTimer);
+  _recoveryTimer = null;
+}
+
+function clearAccountRecovery(): void {
+  clearAccountRecoveryTimer();
+  _recoveryAttempt = 0;
+  _recoveryNeeded = false;
+}
+
+function canRunAccountRecovery(): boolean {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false;
+  return typeof navigator === 'undefined' || navigator.onLine !== false;
+}
+
+function isTransientAccountReadError(error: unknown): boolean {
+  return (
+    !(error instanceof AccountApiError) ||
+    error.status === 0 ||
+    error.status === 408 ||
+    error.status === 425 ||
+    error.status === 429 ||
+    error.status >= 500
+  );
+}
+
+function scheduleAccountRecovery(): void {
+  clearAccountRecoveryTimer();
+  if (!_recoveryNeeded || _recoveryAttempt >= ACCOUNT_RECOVERY_DELAYS_MS.length) return;
+  if (!canRunAccountRecovery()) return;
+
+  const delay = ACCOUNT_RECOVERY_DELAYS_MS[_recoveryAttempt]!;
+  _recoveryAttempt += 1;
+  _recoveryTimer = window.setTimeout(() => {
+    _recoveryTimer = null;
+    if (!_recoveryNeeded) return;
+    if (!canRunAccountRecovery()) return;
+    void refreshAccountSession(false, false);
+  }, delay);
+}
+
+function markAccountReadFailed(error: unknown): void {
+  if (!isTransientAccountReadError(error)) {
+    clearAccountRecovery();
+    return;
+  }
+  _recoveryNeeded = true;
+  scheduleAccountRecovery();
+}
+
+function requestImmediateAccountRecovery(
+  resetBudget: boolean,
+  showLoading = false,
+  forceNetworkAttempt = false,
+): Promise<void> {
+  if (!_recoveryNeeded) return Promise.resolve();
+  if (resetBudget) _recoveryAttempt = 0;
+  clearAccountRecoveryTimer();
+  if (!forceNetworkAttempt && !canRunAccountRecovery()) return Promise.resolve();
+  return refreshAccountSession(showLoading, false);
+}
+
 function refreshAfterUserReturns(): void {
+  if (_recoveryNeeded) {
+    void requestImmediateAccountRecovery(false);
+    return;
+  }
   if (Date.now() - _lastRefreshStartedAt < ACCOUNT_REFRESH_DEBOUNCE_MS) return;
-  void refreshAccountSession();
+  void refreshAccountSession(true, false);
 }
 
 function refreshAfterPopupMessage(event: MessageEvent): void {
@@ -147,6 +219,14 @@ function refreshAfterStoragePulse(event: StorageEvent): void {
 
 function refreshAfterVisibilityChange(): void {
   if (document.visibilityState === 'visible') refreshAfterUserReturns();
+}
+
+function refreshAfterOnline(): void {
+  void requestImmediateAccountRecovery(true);
+}
+
+function refreshAfterPageShow(): void {
+  refreshAfterUserReturns();
 }
 
 function refreshAfterBroadcastMessage(event: MessageEvent): void {
@@ -198,6 +278,8 @@ function bindAccountSessionLifecycle(): void {
   if (_lifecycleBound || typeof window === 'undefined' || typeof document === 'undefined') return;
   _lifecycleBound = true;
   window.addEventListener('focus', refreshAfterUserReturns);
+  window.addEventListener('online', refreshAfterOnline);
+  window.addEventListener('pageshow', refreshAfterPageShow);
   window.addEventListener('message', refreshAfterPopupMessage);
   window.addEventListener('storage', refreshAfterStoragePulse);
   document.addEventListener('visibilitychange', refreshAfterVisibilityChange);
@@ -216,6 +298,16 @@ export function startAccountSessionRefresh(): void {
   void refreshAccountSession();
 }
 
+/** Retry an unavailable account read from an explicit user action. */
+export function retryAccountSessionRefresh(): Promise<void> {
+  _recoveryNeeded = true;
+  // navigator.onLine is only a network-interface hint and can remain false
+  // after WebKit's radio path has recovered. A user-requested retry is already
+  // bounded by the five-second session-read deadline, so always make one real
+  // attempt while automatic background retries continue to respect offline.
+  return requestImmediateAccountRecovery(true, true, true);
+}
+
 /**
  * Read the cookie session after an OAuth popup has demonstrably completed.
  * This request receives a fresh operation generation, so any older focus or
@@ -224,18 +316,24 @@ export function startAccountSessionRefresh(): void {
  * read even if a still-newer, equally authoritative refresh starts later.
  */
 export async function reconcileAccountLoginSession(): Promise<AccountSessionResponse> {
+  // A popup/cross-tab reconciliation is already the authoritative recovery
+  // attempt. Do not let an older backoff timer start a competing generation
+  // and fence this exact post-login response.
+  clearAccountRecoveryTimer();
   const generation = ++_operationGeneration;
   const sessionFence = _sessionFence;
   _lastRefreshStartedAt = Date.now();
   try {
     const response = await getAccountSession();
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
+      clearAccountRecovery();
       applyAccountSession(response);
     }
     return response;
   } catch (error) {
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
       setAccountUnavailable();
+      markAccountReadFailed(error);
     }
     throw error;
   }
@@ -250,15 +348,16 @@ function drainRefreshFollowUp(): void {
   void refreshAccountSession(false);
 }
 
-function refreshAccountSession(showLoading = true): Promise<void> {
+function refreshAccountSession(showLoading = true, followUpIfBusy = true): Promise<void> {
   if (_mutationDepth > 0) {
     _refreshFollowUp = true;
     return Promise.resolve();
   }
   if (_refreshInFlight) {
-    _refreshFollowUp = true;
+    if (followUpIfBusy) _refreshFollowUp = true;
     return _refreshInFlight;
   }
+  clearAccountRecoveryTimer();
   _lastRefreshStartedAt = Date.now();
   const generation = ++_operationGeneration;
   const sessionFence = _sessionFence;
@@ -267,10 +366,12 @@ function refreshAccountSession(showLoading = true): Promise<void> {
     try {
       const response = await getAccountSession();
       if (sessionFence !== _sessionFence || generation !== _operationGeneration) return;
+      clearAccountRecovery();
       applyAccountSession(response);
-    } catch {
+    } catch (error) {
       if (sessionFence !== _sessionFence || generation !== _operationGeneration) return;
       setAccountUnavailable();
+      markAccountReadFailed(error);
     }
   })();
   const wrapped = operation.finally(() => {
@@ -289,6 +390,7 @@ export async function saveAccountNickname(nickname: string): Promise<AccountProf
   try {
     const response = await updateAccountProfile(nickname);
     if (!response.authenticated || !response.account) throw new Error('ACCOUNT_INVALID_RESPONSE');
+    clearAccountRecovery();
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
       applyAccountSession(response);
     }
@@ -307,6 +409,7 @@ export async function signOutAccount(everywhere = false): Promise<void> {
   try {
     if (everywhere) await logoutAllAccounts();
     else await logoutAccount();
+    clearAccountRecovery();
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
       setAccountAnonymous(true);
     }
@@ -323,6 +426,7 @@ export async function removeAccount(): Promise<AccountDeletionResult> {
   _mutationDepth += 1;
   try {
     const result = await deleteAccount();
+    clearAccountRecovery();
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
       if (result.pending) bus.emit('account:deletion-pending');
       else bus.emit('account:deleted');
@@ -340,6 +444,8 @@ export async function removeAccount(): Promise<AccountDeletionResult> {
 export function __resetAccountSessionForTests(): void {
   if (_lifecycleBound && typeof window !== 'undefined' && typeof document !== 'undefined') {
     window.removeEventListener('focus', refreshAfterUserReturns);
+    window.removeEventListener('online', refreshAfterOnline);
+    window.removeEventListener('pageshow', refreshAfterPageShow);
     window.removeEventListener('message', refreshAfterPopupMessage);
     window.removeEventListener('storage', refreshAfterStoragePulse);
     document.removeEventListener('visibilitychange', refreshAfterVisibilityChange);
@@ -351,6 +457,7 @@ export function __resetAccountSessionForTests(): void {
     // A mocked or already-closed channel is harmless during test teardown.
   }
   _syncChannel = null;
+  clearAccountRecovery();
   _lifecycleBound = false;
   // Never reset an async generation to a reusable value: a late operation
   // from the previous lifecycle could otherwise collide with generation 1 of

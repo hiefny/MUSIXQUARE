@@ -35,18 +35,22 @@
     --radius-l: 32px;
     --radius-m: 20px;
     --radius-s: 14px;
-    --font-sans-ui: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --font-primary: 'Pretendard';
+    --font-sans-ui:
+      var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     --font-sans-ko:
-      'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Apple SD Gothic Neo',
-      'Noto Sans KR', sans-serif;
+      var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
     --font-sans-ja:
-      'Pretendard', 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
-    --font-sans-cjk-sc: 'Pretendard', 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+      var(--font-primary), 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+    --font-sans-cjk-sc:
+      var(--font-primary), 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
     --font-sans-cjk-tc:
-      'Pretendard', 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
-    --font-sans-th: 'Pretendard', 'Noto Sans Thai', 'Leelawadee UI', 'Tahoma', sans-serif;
+      var(--font-primary), 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+    --font-sans-th: var(--font-primary), 'Noto Sans Thai', 'Leelawadee UI', 'Tahoma', sans-serif;
     --font-sans-cyrillic:
-      'Pretendard', 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      var(--font-primary), 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      sans-serif;
     --font-sans: var(--font-sans-ko);
     --font-weight-display: 800;
 
@@ -68,6 +72,10 @@
     --header-height: calc(60px + var(--safe-top));
     --nav-height: 72px;
     --list-row-height: 56px;
+  }
+
+  :root[data-mxqr-font-recovery='true'] {
+    --font-primary: 'MUSIXQUARE Pretendard Recovery';
   }
 
   /* Force UA color scheme per app theme.
@@ -5470,25 +5478,27 @@
   }
 
   .language-option-native:lang(ja) {
-    font-family: 'Noto Sans JP', 'Pretendard', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+    font-family:
+      'Noto Sans JP', var(--font-primary), 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
   }
 
   .language-option-native:lang(zh-Hans) {
-    font-family: 'Noto Sans SC', 'Pretendard', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+    font-family: 'Noto Sans SC', var(--font-primary), 'Microsoft YaHei', 'PingFang SC', sans-serif;
   }
 
   .language-option-native:lang(zh-Hant) {
-    font-family: 'Noto Sans TC', 'Pretendard', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+    font-family:
+      'Noto Sans TC', var(--font-primary), 'Microsoft JhengHei', 'PingFang TC', sans-serif;
   }
 
   .language-option-native:lang(th) {
-    font-family: 'Noto Sans Thai', 'Pretendard', 'Leelawadee UI', 'Tahoma', sans-serif;
+    font-family: 'Noto Sans Thai', var(--font-primary), 'Leelawadee UI', 'Tahoma', sans-serif;
   }
 
   .language-option-native:lang(ru) {
     font-family:
       'Noto Sans',
-      'Pretendard',
+      var(--font-primary),
       -apple-system,
       BlinkMacSystemFont,
       'Segoe UI',
@@ -9861,11 +9871,11 @@
 
 /* Script-aware fallback for user/external text. Kept outside @layer base so
    these explicit rendering-boundary classes can override component stacks
-   without !important. Pretendard remains first for Latin/Korean UI text;
+   without !important. The primary app font remains first for Latin/Korean UI text;
    only confidently detected, lazily loaded script shards are inserted. */
 .user-text-font.user-text-font {
   font-family:
-    'Pretendard',
+    var(--font-primary),
     var(--user-text-font-ru, '__MXQR_USER_TEXT_RU__'),
     var(--user-text-font-th, '__MXQR_USER_TEXT_TH__'),
     var(--user-text-font-ja, '__MXQR_USER_TEXT_JA__'),

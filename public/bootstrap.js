@@ -192,6 +192,134 @@
 })();
 
 (function () {
+  // A cached navigation is intentionally paintable, but it is not proof that
+  // account/room APIs are reachable. Probe the controlling worker before the
+  // module graph boots so app readiness can distinguish this degraded launch
+  // from an online response. The worker persists the result by client ID, so
+  // its later registration probe receives the same answer after suspension.
+  if (!('serviceWorker' in navigator)) return;
+
+  navigator.serviceWorker.addEventListener('message', function (event) {
+    var data = event && event.data;
+    if (
+      !data ||
+      data.type !== 'MXQR_CACHE_STATUS_REQUEST' ||
+      typeof data.navigationFallback !== 'boolean'
+    ) {
+      return;
+    }
+    var source = data.navigationFallback ? 'cache-fallback' : 'network';
+    document.documentElement.setAttribute('data-mxqr-navigation-source', source);
+    window.dispatchEvent(new CustomEvent('mxqr:navigation-source', { detail: { source: source } }));
+  });
+
+  var controller = navigator.serviceWorker.controller;
+  if (controller) controller.postMessage({ type: 'MXQR_CACHE_STATUS_PROBE' });
+})();
+
+(function () {
+  // Keep the optional full-font runtime outside the main module graph. A
+  // cancelled classic-script request can be removed and retried at the same
+  // stable URL without inheriting a failed dynamic-import module-map entry.
+  var RUNTIME_URL = '/primary-font-loader.js';
+  var RUNTIME_TIMEOUT_MS = 8000;
+  var IDLE_TIMEOUT_MS = 2000;
+  var loading = false;
+  var started = false;
+  var failures = 0;
+  var retryTimer = 0;
+
+  function clearRetry() {
+    if (!retryTimer) return;
+    window.clearTimeout(retryTimer);
+    retryTimer = 0;
+  }
+
+  function retryLater() {
+    if (retryTimer || loading || document.visibilityState === 'hidden') return;
+    var delay = Math.min(30000, 1000 * Math.pow(3, failures));
+    failures += 1;
+    retryTimer = window.setTimeout(function () {
+      retryTimer = 0;
+      loadRuntime();
+    }, delay);
+  }
+
+  function loadRuntime() {
+    if (loading || window.__mxqrPrimaryFontRuntime || document.visibilityState === 'hidden') return;
+    clearRetry();
+    loading = true;
+
+    var previous = document.querySelector('script[data-mxqr-primary-font-runtime]');
+    if (previous) previous.remove();
+
+    var script = document.createElement('script');
+    var settled = false;
+    var deadline = window.setTimeout(function () {
+      finish(false);
+    }, RUNTIME_TIMEOUT_MS);
+
+    function finish(succeeded) {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(deadline);
+      script.onload = null;
+      script.onerror = null;
+      loading = false;
+      if (succeeded) {
+        failures = 0;
+        return;
+      }
+      script.remove();
+      retryLater();
+    }
+
+    script.async = true;
+    script.src = RUNTIME_URL;
+    script.setAttribute('data-mxqr-primary-font-runtime', '');
+    script.onload = function () {
+      finish(true);
+    };
+    script.onerror = function () {
+      finish(false);
+    };
+    document.head.appendChild(script);
+  }
+
+  function retryNow() {
+    if (!started || loading || window.__mxqrPrimaryFontRuntime) return;
+    clearRetry();
+    loadRuntime();
+  }
+
+  function afterIdle() {
+    if (started || typeof window.setTimeout !== 'function') return;
+    started = true;
+    if (typeof window.requestIdleCallback === 'function') {
+      window.requestIdleCallback(loadRuntime, { timeout: IDLE_TIMEOUT_MS });
+    } else {
+      window.setTimeout(loadRuntime, 0);
+    }
+  }
+
+  if (typeof window.addEventListener === 'function') {
+    window.addEventListener('online', retryNow);
+    window.addEventListener('pageshow', retryNow);
+  }
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') retryNow();
+    });
+  }
+
+  if (document.readyState === 'loading' && typeof window.addEventListener === 'function') {
+    window.addEventListener('load', afterIdle, { once: true });
+  } else {
+    afterIdle();
+  }
+})();
+
+(function () {
   // 1. Android viewport-fit fix
   if (/Android/i.test(navigator.userAgent)) {
     var m = document.querySelector('meta[name="viewport"]');

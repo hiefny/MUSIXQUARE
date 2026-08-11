@@ -13,6 +13,7 @@ import { getState, setState } from '../core/state.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { createHostSessionWithShortCode, broadcastDeviceList } from '../network/peer.ts';
+import { waitForStandardRoomReadiness } from '../network/standard-room-prerequisites.ts';
 import {
   t,
   bus,
@@ -22,6 +23,7 @@ import {
   selectStandardChannelButton,
   BACK_SVG,
   getHostCodeFlowId,
+  getSetupOverlayAbort,
   incrementHostCodeFlowId,
   setupEl,
   setupShowJoinArea,
@@ -124,7 +126,35 @@ async function proceedToHostCode(mode: number): Promise<void> {
     'horizontal-with-back',
   );
 
+  const setupSignal = getSetupOverlayAbort()?.signal;
+
   try {
+    await waitForStandardRoomReadiness(setupSignal, (attempt, maxAttempts) => {
+      if (flowId !== getHostCodeFlowId()) return;
+      setupRenderActions(
+        [
+          {
+            id: 'btn-setup-back',
+            html: BACK_SVG,
+            ariaLabel: t('dialog.go_back'),
+            kind: 'icon-only',
+            onClick: () => _goBack(),
+          },
+          {
+            id: 'btn-setup-confirm',
+            text:
+              attempt === 1
+                ? t('common.wait')
+                : t('connect.signaling_reconnecting', { attempt, max: maxAttempts }),
+            kind: 'secondary',
+            disabled: true,
+          },
+        ],
+        'horizontal-with-back',
+      );
+    });
+
+    if (flowId !== getHostCodeFlowId() || setupSignal?.aborted) return;
     const code = await createHostSessionWithShortCode();
 
     // User navigated away while code was loading — discard stale result
@@ -159,7 +189,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
     );
   } catch (e) {
     // User navigated away — ignore the error silently
-    if (flowId !== getHostCodeFlowId()) return;
+    if (flowId !== getHostCodeFlowId() || setupSignal?.aborted) return;
 
     log.error('[Setup] Host session init failed', e);
     setupSetHostError(t('error.session_create_fail'));

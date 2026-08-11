@@ -18,6 +18,7 @@ import {
 import {
   removeAccount,
   reconcileAccountLoginSession,
+  retryAccountSessionRefresh,
   setAccountLoginPopupHandler,
   signOutAccount,
   startAccountSessionRefresh,
@@ -950,6 +951,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
 
   if (snapshot.status === 'unavailable' || snapshot.configured === false) {
     message.textContent = t('account.unavailable');
+    if (snapshot.status === 'unavailable') loginClose.textContent = t('common.retry');
     loginClose.classList.remove('dialog-secondary');
     loginClose.classList.add('dialog-primary');
     syncRenderedTextFonts();
@@ -1078,7 +1080,21 @@ function bindAccountDialog(): void {
   if (!overlay || overlay.dataset.accountBound === '1') return;
   overlay.dataset.accountBound = '1';
 
-  byId<HTMLButtonElement>('btn-account-login-close')?.addEventListener('click', closeAccountDialog);
+  byId<HTMLButtonElement>('btn-account-login-close')?.addEventListener('click', async () => {
+    if (getAccountSnapshot().status === 'unavailable') {
+      setPending(true);
+      try {
+        await retryAccountSessionRefresh();
+      } finally {
+        setPending(false);
+        if (getAccountSnapshot().status === 'unavailable') {
+          focusWithoutScroll(byId<HTMLButtonElement>('btn-account-login-close'));
+        }
+      }
+      return;
+    }
+    closeAccountDialog();
+  });
   byId<HTMLButtonElement>('btn-account-center-close')?.addEventListener(
     'click',
     closeAccountDialog,

@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.38';
+const ADMIN_SCRIPT_VERSION = '8.3.39';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');

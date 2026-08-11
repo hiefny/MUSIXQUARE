@@ -6,6 +6,17 @@ const SERVICE_WORKER_SOURCE = readFileSync(
   new URL('../../../public/service-worker.js', import.meta.url),
   'utf8',
 );
+const BOOTSTRAP_SOURCE = readFileSync(
+  new URL('../../../public/bootstrap.js', import.meta.url),
+  'utf8',
+);
+const TEST_OPTIONAL_FONT_RUNTIME = './primary-font-loader.js';
+const TEST_OPTIONAL_FONT_CSS = './primary-font.css';
+const TEST_OPTIONAL_FONT_BODY = './designsystem/fonts/PretendardVariable.woff2';
+const EXECUTABLE_SERVICE_WORKER_SOURCE = SERVICE_WORKER_SOURCE.replace(
+  '/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */',
+  `'${TEST_OPTIONAL_FONT_RUNTIME}', '${TEST_OPTIONAL_FONT_CSS}', '${TEST_OPTIONAL_FONT_BODY}'`,
+);
 const ACTIVE_CACHE_VERSION = /^const CACHE_VERSION = '([^']+)';$/mu.exec(
   SERVICE_WORKER_SOURCE,
 )?.[1];
@@ -17,6 +28,14 @@ const NAVIGATION_NETWORK_TIMEOUT_MS = Number(
     .exec(SERVICE_WORKER_SOURCE)?.[1]
     ?.replaceAll('_', ''),
 );
+const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = Number(
+  /^const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = ([\d_]+);$/mu
+    .exec(SERVICE_WORKER_SOURCE)?.[1]
+    ?.replaceAll('_', ''),
+);
+if (!Number.isFinite(OPTIONAL_ASSET_GROUP_TIMEOUT_MS)) {
+  throw new Error('Unable to resolve the service worker optional-asset timeout');
+}
 if (!Number.isFinite(NAVIGATION_NETWORK_TIMEOUT_MS)) {
   throw new Error('Unable to resolve the service worker navigation timeout');
 }
@@ -30,6 +49,8 @@ const RETIRED_CACHE_VERSION = 'v194';
 
 type FetchListener = (event: {
   request: Request;
+  clientId?: string;
+  resultingClientId?: string;
   respondWith: (response: Promise<Response>) => void;
   waitUntil: (work: Promise<unknown>) => void;
 }) => void;
@@ -44,9 +65,11 @@ type MessageListener = (event: {
 
 describe('service worker cache policy', () => {
   let fetchListener: FetchListener;
+  let installListener: ExtendableListener;
   let activateListener: ExtendableListener;
   let messageListener: MessageListener;
   let cachePut: ReturnType<typeof vi.fn>;
+  let cacheAddAll: ReturnType<typeof vi.fn>;
   let cacheEntryKeys: ReturnType<typeof vi.fn>;
   let cacheEntryDelete: ReturnType<typeof vi.fn>;
   let cacheOpen: ReturnType<typeof vi.fn>;
@@ -78,13 +101,20 @@ describe('service worker cache policy', () => {
     expect(APP_SHELL_SOURCE).toContain('...BUILD_ENTRY_ASSETS');
   });
 
+  it('probes cached-navigation state in the early bootstrap before the app module runs', () => {
+    expect(BOOTSTRAP_SOURCE).toContain("data.type !== 'MXQR_CACHE_STATUS_REQUEST'");
+    expect(BOOTSTRAP_SOURCE).toContain("'data-mxqr-navigation-source'");
+    expect(BOOTSTRAP_SOURCE).toContain("{ type: 'MXQR_CACHE_STATUS_PROBE' }");
+  });
+
   beforeEach(async () => {
     const listeners = new Map<string, (event: never) => void>();
     cachePut = vi.fn(async () => undefined);
+    cacheAddAll = vi.fn(async () => undefined);
     cacheEntryKeys = vi.fn(async () => []);
     cacheEntryDelete = vi.fn(async () => true);
     cacheOpen = vi.fn(async () => ({
-      addAll: vi.fn(async () => undefined),
+      addAll: cacheAddAll,
       put: cachePut,
       keys: cacheEntryKeys,
       delete: cacheEntryDelete,
@@ -117,7 +147,7 @@ describe('service worker cache policy', () => {
       keys: cacheKeys,
       delete: cacheDelete,
     };
-    vm.runInNewContext(SERVICE_WORKER_SOURCE, {
+    vm.runInNewContext(EXECUTABLE_SERVICE_WORKER_SOURCE, {
       self,
       caches,
       fetch: fetchMock,
@@ -132,17 +162,24 @@ describe('service worker cache policy', () => {
       console,
     });
     fetchListener = listeners.get('fetch') as FetchListener;
+    installListener = listeners.get('install') as ExtendableListener;
     activateListener = listeners.get('activate') as ExtendableListener;
     messageListener = listeners.get('message') as MessageListener;
   });
 
-  async function dispatch(request: Request): Promise<Response> {
-    const { response, work } = await dispatchWithWork(request);
+  async function dispatch(
+    request: Request,
+    client: { clientId?: string; resultingClientId?: string } = {},
+  ): Promise<Response> {
+    const { response, work } = await dispatchWithWork(request, client);
     await Promise.all(work);
     return response;
   }
 
-  async function dispatchWithWork(request: Request): Promise<{
+  async function dispatchWithWork(
+    request: Request,
+    client: { clientId?: string; resultingClientId?: string } = {},
+  ): Promise<{
     response: Response;
     work: Array<Promise<unknown>>;
     waitUntilWasSynchronous: boolean;
@@ -153,6 +190,7 @@ describe('service worker cache policy', () => {
     let waitUntilWasSynchronous = true;
     fetchListener({
       request,
+      ...client,
       respondWith: (response) => {
         responsePromise = response;
       },
@@ -186,6 +224,86 @@ describe('service worker cache policy', () => {
     messageListener({ data, source: client, waitUntil: (promise) => work.push(promise) });
     await Promise.all(work);
   }
+
+  it('installs the core shell fail-closed and marks the complete optional font group ready', async () => {
+    fetchMock.mockImplementation(async (request: Request) => {
+      if (request.url.endsWith('.css')) {
+        return new Response('@font-face{font-family:Pretendard}', {
+          status: 200,
+          headers: { 'Content-Type': 'text/css' },
+        });
+      }
+      return new Response(Uint8Array.from([119, 79, 70, 50]), {
+        status: 200,
+        headers: { 'Content-Type': 'font/woff2' },
+      });
+    });
+
+    await dispatchExtendable(installListener);
+
+    expect(cacheAddAll).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-optional-${ACTIVE_CACHE_VERSION}`);
+    expect(cachePut).toHaveBeenCalledTimes(4);
+    const cachedUrls = cachePut.mock.calls.slice(0, 3).map(([request]) => (request as Request).url);
+    expect(cachedUrls).toEqual([
+      'https://musixquare.com/primary-font-loader.js',
+      'https://musixquare.com/primary-font.css',
+      'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2',
+    ]);
+    expect(String(cachePut.mock.calls[3]?.[0])).toContain('.mxqr-optional-ready');
+  });
+
+  it('does not activate a partial core shell', async () => {
+    cacheAddAll.mockRejectedValueOnce(new Error('missing core asset'));
+
+    await expect(dispatchExtendable(installListener)).rejects.toThrow('missing core asset');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('abandons an incomplete optional font group without publishing its ready marker', async () => {
+    fetchMock.mockImplementation(async (request: Request) =>
+      request.url.endsWith('.css')
+        ? new Response('font css', { status: 200 })
+        : new Response('font unavailable', { status: 503 }),
+    );
+
+    await dispatchExtendable(installListener);
+
+    expect(cacheAddAll).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('bounds a stalled optional font prefetch without failing the core install', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(
+      (_request: Request, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('optional prefetch timed out', 'AbortError')),
+            { once: true },
+          );
+        }),
+    );
+
+    try {
+      const install = dispatchExtendable(installListener);
+      await vi.advanceTimersByTimeAsync(OPTIONAL_ASSET_GROUP_TIMEOUT_MS - 1);
+      expect(cachePut).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      await install;
+
+      expect(cacheAddAll).toHaveBeenCalledOnce();
+      expect(cachePut).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('returns but never caches a failed navigation response', async () => {
     fetchMock.mockResolvedValue(new Response('upstream failure', { status: 503 }));
@@ -368,6 +486,157 @@ describe('service worker cache policy', () => {
     expect(await response.text()).toBe('cached wordmark timing');
     expect(cacheMatch).toHaveBeenCalledWith(expect.any(Request), {
       cacheName: `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+    });
+  });
+
+  it('serves a ready optional full font without launching a duplicate revalidation', async () => {
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        if (
+          options?.cacheName === `musixquare-optional-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.includes('.mxqr-optional-ready')
+        ) {
+          return new Response(ACTIVE_CACHE_VERSION, { status: 200 });
+        }
+        if (
+          options?.cacheName === `musixquare-optional-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('PretendardVariable.woff2')
+        ) {
+          return new Response('cached full font', { status: 200 });
+        }
+        return undefined;
+      },
+    );
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
+    );
+
+    expect(await response.text()).toBe('cached full font');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('does not expose a partially staged optional font cache', async () => {
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        if (
+          options?.cacheName === `musixquare-optional-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('PretendardVariable.woff2')
+        ) {
+          return new Response('partial staged font', { status: 200 });
+        }
+        return undefined;
+      },
+    );
+    fetchMock.mockResolvedValue(new Response('recovered network font', { status: 200 }));
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
+    );
+
+    expect(await response.text()).toBe('recovered network font');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it('rejects markerless retired optional and static font fragments while offline', async () => {
+    cacheKeys.mockResolvedValue([
+      `musixquare-static-${RETIRED_CACHE_VERSION}`,
+      `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
+      `musixquare-optional-${RETIRED_CACHE_VERSION}`,
+    ]);
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        if (
+          options?.cacheName?.endsWith(RETIRED_CACHE_VERSION) &&
+          requestUrl.endsWith('PretendardVariable.woff2')
+        ) {
+          return new Response('partial retired font', { status: 200 });
+        }
+        return undefined;
+      },
+    );
+    fetchMock.mockRejectedValue(new Error('offline'));
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe('Offline');
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: `musixquare-static-${RETIRED_CACHE_VERSION}`,
+    });
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
+    });
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: `musixquare-optional-${RETIRED_CACHE_VERSION}`,
+    });
+  });
+
+  it('accepts a complete retired optional font group while offline', async () => {
+    const retiredOptionalCache = `musixquare-optional-${RETIRED_CACHE_VERSION}`;
+    cacheKeys.mockResolvedValue([retiredOptionalCache]);
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        if (
+          options?.cacheName === retiredOptionalCache &&
+          requestUrl.includes(`.mxqr-optional-ready?cache=${RETIRED_CACHE_VERSION}`)
+        ) {
+          return new Response(RETIRED_CACHE_VERSION, { status: 200 });
+        }
+        if (
+          options?.cacheName === retiredOptionalCache &&
+          requestUrl.endsWith('PretendardVariable.woff2')
+        ) {
+          return new Response('complete retired font', { status: 200 });
+        }
+        return undefined;
+      },
+    );
+    fetchMock.mockRejectedValue(new Error('offline'));
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/designsystem/fonts/PretendardVariable.woff2'),
+    );
+
+    expect(await response.text()).toBe('complete retired font');
+    expect(cacheMatch).toHaveBeenCalledWith(
+      `./.mxqr-optional-ready?cache=${RETIRED_CACHE_VERSION}`,
+      { cacheName: retiredOptionalCache },
+    );
+    expect(cacheMatch).toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: retiredOptionalCache,
+    });
+  });
+
+  it('does not treat a ready future optional generation as retired', async () => {
+    const activeEpoch = Number(ACTIVE_CACHE_VERSION.replace(/^v/u, ''));
+    const futureVersion = `v${activeEpoch + 1}`;
+    const futureOptionalCache = `musixquare-optional-${futureVersion}`;
+    cacheKeys.mockResolvedValue([futureOptionalCache]);
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        if (options?.cacheName === futureOptionalCache && requestUrl.includes('primary-font')) {
+          return new Response('future optional fragment', { status: 200 });
+        }
+        return undefined;
+      },
+    );
+    fetchMock.mockRejectedValue(new Error('offline'));
+
+    const response = await dispatch(new Request('https://musixquare.com/primary-font-loader.js'));
+
+    expect(response.status).toBe(503);
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.anything(), {
+      cacheName: futureOptionalCache,
     });
   });
 
@@ -555,6 +824,89 @@ describe('service worker cache policy', () => {
     expect(cachePut).not.toHaveBeenCalled();
   });
 
+  it('marks a cached navigation and reports the degraded source on the page probe', async () => {
+    fetchMock.mockRejectedValue(new Error('radio path interrupted'));
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        if (
+          options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('index.html')
+        ) {
+          return new Response('cached shell', { status: 200 });
+        }
+        if (
+          options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.includes('.mxqr-navigation-fallback/client-reopen')
+        ) {
+          return new Response(ACTIVE_CACHE_VERSION, { status: 200 });
+        }
+        return undefined;
+      },
+    );
+
+    const response = await dispatch(
+      new Request('https://musixquare.com/123456', { headers: { accept: 'text/html' } }),
+      { resultingClientId: 'client-reopen' },
+    );
+
+    expect(await response.text()).toBe('cached shell');
+    expect(response.headers.get('X-Musixquare-Navigation-Source')).toBe('cache-fallback');
+    expect(cachePut).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://musixquare.com/.mxqr-navigation-fallback/client-reopen',
+      }),
+      expect.any(Response),
+    );
+
+    const client = { id: 'client-reopen', postMessage: vi.fn() };
+    await dispatchMessage(client, { type: 'MXQR_CACHE_STATUS_PROBE' });
+    expect(client.postMessage).toHaveBeenCalledWith({
+      type: 'MXQR_CACHE_STATUS_REQUEST',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+      proactive: true,
+      navigationFallback: true,
+    });
+    // The early bootstrap and the later module registration both probe. Keep
+    // the marker for this document lifetime so the second probe cannot erase
+    // the degraded result set before app readiness observes it.
+    expect(cacheEntryDelete).not.toHaveBeenCalled();
+  });
+
+  it('clears a previous degraded marker after a successful navigation', async () => {
+    cacheMatch.mockImplementation(
+      async (request: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof request === 'string' ? request : request.url;
+        if (
+          options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.includes('.mxqr-navigation-fallback/client-reopen')
+        ) {
+          return new Response(ACTIVE_CACHE_VERSION, { status: 200 });
+        }
+        return undefined;
+      },
+    );
+    fetchMock.mockResolvedValue(new Response('<!doctype html>', { status: 200 }));
+
+    await dispatch(new Request('https://musixquare.com/', { headers: { accept: 'text/html' } }), {
+      clientId: 'client-reopen',
+    });
+
+    expect(cacheEntryDelete).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://musixquare.com/.mxqr-navigation-fallback/client-reopen',
+      }),
+    );
+    const client = { id: 'client-reopen', postMessage: vi.fn() };
+    await dispatchMessage(client, { type: 'MXQR_CACHE_STATUS_PROBE' });
+    expect(client.postMessage).toHaveBeenCalledWith({
+      type: 'MXQR_CACHE_STATUS_REQUEST',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+      proactive: true,
+      navigationFallback: false,
+    });
+  });
+
   it('bounds a stalled navigation and falls back only to the active canonical shell', async () => {
     vi.useFakeTimers();
     let fetchSignal: AbortSignal | undefined;
@@ -722,6 +1074,7 @@ describe('service worker cache policy', () => {
       type: 'MXQR_CACHE_STATUS_REQUEST',
       cacheVersion: ACTIVE_CACHE_VERSION,
       proactive: true,
+      navigationFallback: false,
     });
 
     await dispatchMessage(fresh, {

@@ -1,0 +1,8 @@
+/* Lazy app font registration. Kept out of the initial document graph. */
+@font-face {
+  font-family: 'Pretendard';
+  src: url('/designsystem/fonts/PretendardVariable.woff2') format('woff2');
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+}

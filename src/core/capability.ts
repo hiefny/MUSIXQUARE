@@ -178,8 +178,23 @@ function tokenCacheKey(apiBase: string, scopes: CapabilityScope[]): string {
   return `${apiBase}:${scopes.join(',')}`;
 }
 
-function normalizeSecurityConfig(value: unknown): SecurityConfig {
+function normalizeSecurityConfig(value: unknown, strict = false): SecurityConfig {
   const payload = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  if (
+    strict &&
+    (typeof payload.capabilityRequired !== 'boolean' ||
+      typeof payload.turnstileSiteKey !== 'string' ||
+      typeof payload.turnstileRequired !== 'boolean' ||
+      typeof payload.proofOfWorkRequired !== 'boolean' ||
+      typeof payload.proofOfWorkDifficulty !== 'number' ||
+      !Number.isInteger(payload.proofOfWorkDifficulty) ||
+      typeof payload.proofOfWorkTtl !== 'number' ||
+      !Number.isFinite(payload.proofOfWorkTtl) ||
+      typeof payload.ttl !== 'number' ||
+      !Number.isFinite(payload.ttl))
+  ) {
+    throw new Error('CAPABILITY_SECURITY_CONFIG_INVALID');
+  }
   return {
     capabilityRequired: payload.capabilityRequired === true,
     turnstileSiteKey: typeof payload.turnstileSiteKey === 'string' ? payload.turnstileSiteKey : '',
@@ -211,6 +226,8 @@ async function getSecurityConfig(
     const value = await withRequestDeadline(
       async (requestSignal) => {
         const response = await fetch(`${apiBase}/api/security-config`, {
+          cache: 'no-store',
+          credentials: 'same-origin',
           headers: { Accept: 'application/json' },
           signal: requestSignal,
         });
@@ -220,6 +237,7 @@ async function getSecurityConfig(
         }
         return normalizeSecurityConfig(
           await readBoundedJsonResponse(response, CAPABILITY_RESPONSE_MAX_BYTES, requestSignal),
+          !failOpen,
         );
       },
       {
@@ -246,6 +264,24 @@ async function getSecurityConfig(
       ttl: 600,
     };
   }
+}
+
+/**
+ * Strictly prove that the app's same-origin control plane is responding before
+ * setup mutates room state. Successful probes populate the same short-lived
+ * security-config cache used by capability minting, so a healthy setup does
+ * not pay for a duplicate request.
+ */
+export async function assertCapabilityServiceReady(
+  input: RequestInfo | URL = '/api/security-config',
+  signal?: AbortSignal,
+): Promise<void> {
+  const apiBase = apiBaseFor(input);
+  // A page can have a healthy config cached from before its network entered a
+  // half-open state. Setup needs a current network proof, not only a valid old
+  // object; the successful fresh result is cached again for capability minting.
+  invalidateSecurityConfig(apiBase);
+  await getSecurityConfig(apiBase, signal, false);
 }
 
 /** Drop the cached security-config probe so the next getSecurityConfig() re-fetches.

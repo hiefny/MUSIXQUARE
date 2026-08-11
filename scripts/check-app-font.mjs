@@ -91,8 +91,10 @@ const [
   sourceFont,
   publicFont,
   fontCss,
+  primaryFontCss,
+  primaryFontRuntime,
   styleCss,
-  appFontScheduler,
+  bootstrapSource,
   appHtml,
   landingHtml,
   blogHtml,
@@ -104,8 +106,10 @@ const [
   readFile(sourceFontPath),
   readFile(publicFontPath),
   readFile(path.join(repoRoot, 'css', 'pretendard.css'), 'utf8'),
+  readFile(path.join(repoRoot, 'public', 'primary-font.css'), 'utf8'),
+  readFile(path.join(repoRoot, 'public', 'primary-font-loader.js'), 'utf8'),
   readFile(path.join(repoRoot, 'css', 'style.css'), 'utf8'),
-  readFile(path.join(repoRoot, 'src', 'ui', 'app-font.ts'), 'utf8'),
+  readFile(path.join(repoRoot, 'public', 'bootstrap.js'), 'utf8'),
   readFile(path.join(repoRoot, 'index.html'), 'utf8'),
   readFile(path.join(repoRoot, '.workshop', 'landing', 'landing.html'), 'utf8'),
   readFile(path.join(repoRoot, 'public', 'blog', 'index.html'), 'utf8'),
@@ -135,22 +139,56 @@ check(fontCss.includes(`url("${fontUrl}")`), 'font CSS does not use the canonica
 check(!/unicode-range\s*:/iu.test(fontCss), 'font CSS must not restrict the complete face');
 check(/font-display\s*:\s*swap\s*;/iu.test(fontCss), 'font CSS must retain font-display: swap');
 check(
+  hasFontFace(primaryFontCss, 'Pretendard') &&
+    primaryFontCss.includes(fontUrl) &&
+    /font-display\s*:\s*swap\s*;/iu.test(primaryFontCss),
+  'lazy primary-font CSS does not register the canonical complete face',
+);
+check(
   !/Pretendard(?:UiCore|Korean)|Pretendard UI Core/u.test(fontCss),
   'font CSS names a retired subset',
 );
 check(!/Pretendard UI Core/u.test(styleCss), 'style font stacks still name the retired UI subset');
 check(
-  !collectStylesheetUrls(appHtml).some((url) => /(?:^|\/)pretendard\.css(?:[?#]|$)/iu.test(url)),
+  !collectStylesheetUrls(appHtml).some((url) =>
+    /(?:^|\/)(?:pretendard|primary-font)\.css(?:[?#]|$)/iu.test(url),
+  ),
   'app HTML links Pretendard CSS in the initial graph',
 );
 check(
-  appFontScheduler.includes("import('../../css/pretendard.css')"),
-  'app font scheduler does not keep Pretendard behind a dynamic CSS import',
+  bootstrapSource.includes("var RUNTIME_URL = '/primary-font-loader.js'") &&
+    /RUNTIME_TIMEOUT_MS/u.test(bootstrapSource) &&
+    /retryTimer\s*=\s*window\.setTimeout/u.test(bootstrapSource) &&
+    /Math\.min\(30000/u.test(bootstrapSource),
+  'bootstrap font scheduler lacks bounded retryable loading for the lazy font runtime',
 );
 check(
-  /addEventListener\(['"]load['"]/u.test(appFontScheduler) &&
-    /requestIdleCallback/u.test(appFontScheduler),
-  'app font scheduler must wait for window load and browser idle',
+  /addEventListener\(['"]load['"]/u.test(bootstrapSource) &&
+    /requestIdleCallback/u.test(bootstrapSource) &&
+    /addEventListener\(['"]online['"],\s*retryNow\)/u.test(bootstrapSource) &&
+    /document\.addEventListener\(['"]visibilitychange/u.test(bootstrapSource),
+  'bootstrap font scheduler must wait for load/idle and recover on connectivity or visibility',
+);
+check(
+  primaryFontRuntime.includes(`var FONT_URL = '${fontUrl}'`) &&
+    /new FontFace\(RECOVERY_FAMILY/u.test(primaryFontRuntime) &&
+    /data-mxqr-font-recovery/u.test(primaryFontRuntime) &&
+    /ATTEMPT_TIMEOUT_MS/u.test(primaryFontRuntime) &&
+    /RETRY_DELAYS_MS/u.test(primaryFontRuntime),
+  'lazy font runtime lacks bounded separate-family recovery after a CSS failure',
+);
+check(
+  /--font-primary\s*:\s*'Pretendard'/u.test(styleCss) &&
+    /data-mxqr-font-recovery=['"]true['"][^{]*\{[^}]*--font-primary\s*:\s*'MUSIXQUARE Pretendard Recovery'/u.test(
+      styleCss,
+    ),
+  'app font variables do not switch inherited UI text to the recovery family',
+);
+check(
+  (styleCss.match(/['"]Pretendard['"]/gu) || []).length === 1 &&
+    /\.user-text-font\.user-text-font\s*\{[^}]*var\(--font-primary\)/su.test(styleCss) &&
+    /\.language-option-native:lang\(ja\)\s*\{[^}]*var\(--font-primary\)/su.test(styleCss),
+  'an explicit UI text boundary can bypass the root recovery-family switch',
 );
 
 for (const fallback of [
@@ -162,7 +200,7 @@ for (const fallback of [
 ]) {
   const escaped = fallback.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   check(
-    new RegExp(`'Pretendard'[^;]*'${escaped}'`, 'u').test(styleCss),
+    new RegExp(`var\\(--font-primary\\)[^;]*'${escaped}'`, 'u').test(styleCss),
     `${fallback} is not retained after Pretendard in a locale fallback stack`,
   );
 }
@@ -177,10 +215,18 @@ for (const [label, html] of [
   check(!hasFontPreload(html), `${label} HTML eagerly preloads the 2 MiB Pretendard face`);
 }
 const serviceWorkerFontUrl = `.${fontUrl}`;
+const sourceAppShell =
+  /\bconst\s+APP_SHELL\s*=\s*\[([\s\S]*?)\]\s*;/u.exec(serviceWorker)?.[1] || '';
 check(
-  !serviceWorker.includes(`"${serviceWorkerFontUrl}"`) &&
-    !serviceWorker.includes(`'${serviceWorkerFontUrl}'`),
+  !sourceAppShell.includes(`"${serviceWorkerFontUrl}"`) &&
+    !sourceAppShell.includes(`'${serviceWorkerFontUrl}'`),
   'service worker app shell eagerly downloads the 2 MiB Pretendard face',
+);
+check(
+  serviceWorker.includes('__MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__') &&
+    /OPTIONAL_ASSET_GROUP_TIMEOUT_MS/u.test(serviceWorker) &&
+    /OPTIONAL_CACHE_READY_KEY/u.test(serviceWorker),
+  'service worker lacks the bounded optional primary-font cache contract',
 );
 check(
   !/font:subset|guard:font-subsets|subset-app-font/u.test(packageJson),
@@ -195,12 +241,27 @@ if (distMode) {
     'fonts',
     'PretendardVariable.woff2',
   );
-  const [distFont, distHtml, distFiles] = await Promise.all([
+  const [
+    distFont,
+    distHtml,
+    distServiceWorker,
+    distPrimaryFontCss,
+    distPrimaryFontRuntime,
+    distFiles,
+  ] = await Promise.all([
     readFile(distFontPath),
     readFile(path.join(distDirectory, 'index.html'), 'utf8'),
+    readFile(path.join(distDirectory, 'service-worker.js'), 'utf8'),
+    readFile(path.join(distDirectory, 'primary-font.css'), 'utf8'),
+    readFile(path.join(distDirectory, 'primary-font-loader.js'), 'utf8'),
     collectFiles(distDirectory),
   ]);
   check(distFont.equals(sourceFont), 'built Pretendard asset differs from the canonical source');
+  check(distPrimaryFontCss === primaryFontCss, 'built lazy primary-font CSS differs from source');
+  check(
+    distPrimaryFontRuntime === primaryFontRuntime,
+    'built lazy primary-font runtime differs from source',
+  );
   check(!hasFontPreload(distHtml), 'built app HTML eagerly preloads the 2 MiB Pretendard face');
 
   const builtHtmlFiles = distFiles.filter((file) => file.endsWith('.html'));
@@ -232,13 +293,13 @@ if (distMode) {
     .map((file, index) => ({ file, index }))
     .filter(
       ({ file, index }) =>
-        path.relative(distDirectory, file).replace(/\\/gu, '/').startsWith('assets/') &&
+        path.relative(distDirectory, file).replace(/\\/gu, '/') === 'primary-font.css' &&
         hasFontFace(builtCss[index], 'Pretendard') &&
         builtCss[index].includes(fontUrl),
     );
   check(
     primaryFontCssIndexes.length === 1,
-    `built lazy Pretendard CSS should be one emitted asset (found ${primaryFontCssIndexes.length})`,
+    `built lazy Pretendard CSS should be one stable optional asset (found ${primaryFontCssIndexes.length})`,
   );
   if (primaryFontCssIndexes.length === 1) {
     const primaryCss = builtCss[primaryFontCssIndexes[0].index];
@@ -247,6 +308,39 @@ if (distMode) {
       'built lazy Pretendard CSS must reference the canonical font URL exactly once',
     );
   }
+
+  const builtOptionalFontManifest =
+    /\bconst\s+OPTIONAL_PRIMARY_FONT_ASSETS\s*=\s*\[([\s\S]*?)\]\s*;/u.exec(
+      distServiceWorker,
+    )?.[1] || '';
+  const builtAppShell =
+    /\bconst\s+APP_SHELL\s*=\s*\[([\s\S]*?)\]\s*;/u.exec(distServiceWorker)?.[1] || '';
+  check(
+    !distServiceWorker.includes('__MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__'),
+    'built service worker optional font manifest was not injected',
+  );
+  check(
+    builtOptionalFontManifest.includes(serviceWorkerFontUrl),
+    'built optional font manifest omits the canonical full font',
+  );
+  check(
+    builtOptionalFontManifest.includes('./primary-font-loader.js'),
+    'built optional font manifest omits the retryable font runtime',
+  );
+  if (primaryFontCssIndexes.length === 1) {
+    check(
+      builtOptionalFontManifest.includes(
+        `./${path.relative(distDirectory, primaryFontCssIndexes[0].file).replace(/\\/gu, '/')}`,
+      ),
+      'built optional font manifest omits the lazy Pretendard stylesheet',
+    );
+  }
+  check(
+    !builtAppShell.includes(serviceWorkerFontUrl) &&
+      !builtAppShell.includes('./primary-font-loader.js') &&
+      !builtAppShell.includes('./primary-font.css'),
+    'built core app shell contains an optional Pretendard asset',
+  );
 
   // Vite must keep the five locale faces behind their dynamic CSS imports.
   // Inspect content rather than hashes: output filenames are intentionally
@@ -282,9 +376,7 @@ if (distMode) {
     );
   }
   check(
-    !initialAssetContents.some(
-      (content) => content.includes(fontUrl) || hasFontFace(content, 'Pretendard'),
-    ),
+    !initialAssetContents.some((content) => hasFontFace(content, 'Pretendard')),
     'Pretendard font CSS was absorbed into an initial app CSS/JS asset',
   );
 

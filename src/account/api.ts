@@ -76,6 +76,10 @@ const ACCOUNT_CSRF_HEADER = 'X-MXQR-Account-CSRF';
 const ACCOUNT_STATS_SCOPE_HEADER = 'X-MXQR-Account-Stats-Scope';
 const ACCOUNT_STATS_SCOPE_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const ACCOUNT_REQUEST_TIMEOUT_MS = 15_000;
+// Session reads sit directly on the app's recovery path. A browser or service
+// worker can leave the first fetch pending after a forced close, so do not let
+// that optional read hold account recovery for the full mutation deadline.
+const ACCOUNT_SESSION_REQUEST_TIMEOUT_MS = 5_000;
 const ACCOUNT_RESPONSE_MAX_BYTES = 64 * 1024;
 
 export class AccountApiError extends Error {
@@ -167,6 +171,7 @@ async function readJson(response: Response, signal?: AbortSignal): Promise<unkno
 async function requestJsonResponse(
   path: string,
   init: RequestInit = {},
+  timeoutMs = ACCOUNT_REQUEST_TIMEOUT_MS,
 ): Promise<{ payload: unknown; status: number }> {
   try {
     return await withRequestDeadline(
@@ -197,7 +202,7 @@ async function requestJsonResponse(
       },
       {
         signal: init.signal ?? undefined,
-        timeoutMs: ACCOUNT_REQUEST_TIMEOUT_MS,
+        timeoutMs,
         timeoutReason: 'ACCOUNT_REQUEST_TIMEOUT',
       },
     );
@@ -219,7 +224,10 @@ function mutationHeaders(): HeadersInit {
 }
 
 export async function getAccountSession(): Promise<AccountSessionResponse> {
-  return normalizeAccountResponse(await requestJson('/api/auth/session'));
+  return normalizeAccountResponse(
+    (await requestJsonResponse('/api/auth/session', {}, ACCOUNT_SESSION_REQUEST_TIMEOUT_MS))
+      .payload,
+  );
 }
 
 export async function getAccountStats(): Promise<AccountStats> {

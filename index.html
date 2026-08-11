@@ -2,12 +2,17 @@
 <html lang="ko">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- MUSIXQUARE is a fixed-scale application surface, not a reflowing
+         document. Keep browser zoom disabled; see docs/mobile-app-zoom-policy.md. -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
     <!-- Sync bootstrap: scrub one-time PRO credentials before app code, then
          apply Android viewport, language, and theme preflight. The main SPA
          deliberately does not load third-party analytics. Source:
          public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v411"></script>
+    <script src="/bootstrap.js?cache=v412"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />

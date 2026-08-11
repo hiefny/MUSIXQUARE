@@ -19,6 +19,10 @@ or a substitute for the current source and tests.
   defines the standard/PRO/admin security tiers, the standard-room synchronous
   dependency budget, and the evidence required before an audit may add latency.
 
+- [Mobile application zoom policy](mobile-app-zoom-policy.md) defines the
+  main SPA's fixed-scale viewport contract, its accessibility boundary, and the
+  evidence required before a future audit may change that product decision.
+
 - [Developer API OpenAPI contract](../public/developers/openapi.yaml) defines
   the public server-to-server `/v1` route and payload surface.
 

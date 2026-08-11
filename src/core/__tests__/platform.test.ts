@@ -49,6 +49,41 @@ describe('Platform Detection', () => {
       expect(getDevicePlatform()).toBe('ios');
     });
 
+    it('cancels every Safari page-zoom gesture with non-passive listeners', async () => {
+      Object.defineProperty(navigator, 'userAgent', {
+        value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X)',
+        configurable: true,
+      });
+      vi.useFakeTimers();
+      const addEventListener = vi.spyOn(document, 'addEventListener');
+
+      try {
+        const { initPlatform } = await import('../platform.ts');
+        initPlatform();
+
+        const gestureCalls = addEventListener.mock.calls.filter(([eventName]) =>
+          String(eventName).startsWith('gesture'),
+        );
+
+        expect(gestureCalls.map(([eventName, _listener, options]) => [eventName, options])).toEqual(
+          [
+            ['gesturestart', { passive: false }],
+            ['gesturechange', { passive: false }],
+            ['gestureend', { passive: false }],
+          ],
+        );
+
+        for (const [, listener] of gestureCalls) {
+          const preventDefault = vi.fn();
+          (listener as EventListener)({ preventDefault } as unknown as Event);
+          expect(preventDefault).toHaveBeenCalledOnce();
+        }
+      } finally {
+        vi.clearAllTimers();
+        vi.useRealTimers();
+      }
+    });
+
     it('detects iPad userAgent as iOS', async () => {
       Object.defineProperty(navigator, 'userAgent', {
         value: 'Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X)',

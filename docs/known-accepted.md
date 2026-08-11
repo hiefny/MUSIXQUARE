@@ -63,7 +63,22 @@ Some UI paths still use `document.execCommand(...)` as a compatibility fallback 
 
 This is accepted while modern alternatives are not equivalent across the supported mobile/browser surface. Reopen if a target browser removes the API or if a specific command path fails in production.
 
-### 8. System-Audio Entry Does Not Cancel A Debounce-Parked File Broadcast
+### 8. Fixed-Scale Mobile Application Surface
+
+The main MUSIXQUARE SPA intentionally disables browser page zoom with both
+viewport metadata and an iOS gesture-cancellation fallback. This is accepted
+because the product is a dense, fixed-layout playback application whose seek,
+volume, drag/reorder, swipe, drawer, safe-area, and embedded-media controls
+share one viewport coordinate system. Browser zoom changes that system during
+interaction instead of reflowing a document.
+
+This exception applies only to the main app shell. Preserve the remaining
+accessibility contracts and direct users who require whole-screen
+magnification to OS display zoom or the OS magnifier. Do not reopen this as a
+generic accessibility finding without the product/design and physical-device
+conditions in `docs/mobile-app-zoom-policy.md`.
+
+### 9. System-Audio Entry Does Not Cancel A Debounce-Parked File Broadcast
 
 `startSystemAudioCapture` (`src/audio/system-capture.ts`) calls `stopAllMedia({silent, cancelInFlight})` but does not call `cancelPendingBroadcast()`, unlike the local→YouTube switch (`playlist.ts` playTrack YouTube branch). A broadcast parked in the 300ms send debounce when the user confirms the screen-share picker therefore fires during system-audio mode; guests drop every frame (`isExternalOwner` gates in `transfer-receive.ts`), so the cost is one wasted full-file send to local guests, repaired after restore by the normal `REQUEST_CURRENT_FILE` recovery.
 
@@ -82,7 +97,6 @@ carried forward as accepted risks:
 | Peer label/slot direct mutation as accepted reactive gap               | Retired as a blanket item. Critical peer maps now use `setState` with copied `Map`/object values in active paths.                                                                                                               |
 | Tone.js cleanup/tree-shaking notes                                     | Retired. The audio layer now uses direct Web Audio helpers.                                                                                                                                                                     |
 | OPFS browser API coverage                                              | Retired as written. The remaining browser-only test gaps are Media Session, service worker, YouTube iframe, WebRTC, and real mobile audio policy.                                                                               |
-| `user-scalable=no` as an accepted mobile UX tradeoff                   | Retired 2026-08-09. The explicit accessibility pass restored browser zoom and removed the iOS gesture-suppression hook.                                                                                                         |
 | Blanket secondary-control accessibility gaps                           | Retired 2026-08-09. Concrete selection, carousel, dialog, chat-autocomplete, focus, and pointer contracts were audited and fixed; future exceptions must be documented individually.                                            |
 | System-audio media close handlers keyed only by channel/peer ID        | Retired 2026-07-19. Host and guest handlers now require exact `MediaConnection` identity, and a silent same-channel replacement has its own identity-fenced watchdog.                                                           |
 | `startSystemAudioCapture` mid-init failure leaves a silent-stop shadow | Retired 2026-07-16. `initAudio()` now completes before the prior playback snapshot is stopped, and a missing widener calls `abortPreparedCapture()` to restore that snapshot. Direct regression tests cover both failure paths. |

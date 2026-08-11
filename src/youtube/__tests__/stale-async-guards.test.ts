@@ -162,6 +162,7 @@ function timerArmCount(name: string): number {
 }
 
 function createMockYtPlayer(playlistIds: string[] = []): YouTubePlayerInstance {
+  let muted = false;
   return {
     loadVideoById: vi.fn(),
     loadPlaylist: vi.fn(),
@@ -178,6 +179,13 @@ function createMockYtPlayer(playlistIds: string[] = []): YouTubePlayerInstance {
     getVideoData: vi.fn(() => ({ video_id: 'mockVideo' })),
     getPlaylist: vi.fn(() => playlistIds),
     setVolume: vi.fn(),
+    mute: vi.fn(() => {
+      muted = true;
+    }),
+    unMute: vi.fn(() => {
+      muted = false;
+    }),
+    isMuted: vi.fn(() => muted),
   };
 }
 
@@ -405,53 +413,59 @@ describe('IFrame runtime readiness identity', () => {
 });
 
 describe('autoplay-policy recovery', () => {
-  it('does not classify an intentionally CUED iOS track as unavailable before play is requested', async () => {
-    const player = createMockYtPlayer(['firstVideo1', 'secondVideo']);
-    vi.mocked(player.getPlayerState!).mockReturnValue(5);
-    vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'firstVideo1' });
-    const handle = installYtNamespace(player);
-    const { loadYouTubeVideo } = await import('../iframe.ts');
+  it.each([
+    ['CUED', 5],
+    ['UNSTARTED', -1],
+  ])(
+    'does not gate or classify an intentional %s iOS pause before play is requested',
+    async (_stateName, intentionalPausedState) => {
+      const player = createMockYtPlayer(['firstVideo1', 'secondVideo']);
+      vi.mocked(player.getPlayerState!).mockReturnValue(intentionalPausedState);
+      vi.mocked(player.getVideoData!).mockReturnValue({ video_id: 'firstVideo1' });
+      const handle = installYtNamespace(player);
+      const { loadYouTubeVideo } = await import('../iframe.ts');
 
-    setPlaybackYouTubePlaying();
-    wireStopAllMediaChain();
-    setState('playlist.items', [
-      {
-        queueItemId: QUEUE_ITEM_ID,
-        type: 'youtube',
-        name: 'Manual-start playlist',
-        videoId: 'firstVideo1',
-        playlistId: 'PL_MANUAL',
-      } as unknown as PlaylistItem,
-    ]);
-    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
-    setState('youtube.subItemsMap', {
-      PL_MANUAL: {
-        ids: ['firstVideo1', 'secondVideo'],
-        titles: ['First', 'Second'],
-      },
-    });
+      setPlaybackYouTubePlaying();
+      wireStopAllMediaChain();
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          name: 'Manual-start playlist',
+          videoId: 'firstVideo1',
+          playlistId: 'PL_MANUAL',
+        } as unknown as PlaylistItem,
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('youtube.subItemsMap', {
+        PL_MANUAL: {
+          ids: ['firstVideo1', 'secondVideo'],
+          titles: ['First', 'Second'],
+        },
+      });
 
-    const now = vi.spyOn(Date, 'now');
-    now.mockReturnValue(20_000);
-    loadYouTubeVideo('firstVideo1', null, false, 0);
-    handle.fireReady();
-    const uiTick = lastTimerCallback('youtubeUILoop');
-    expect(uiTick).toBeTypeOf('function');
+      const now = vi.spyOn(Date, 'now');
+      now.mockReturnValue(20_000);
+      loadYouTubeVideo('firstVideo1', null, false, 0);
+      handle.fireReady();
+      const uiTick = lastTimerCallback('youtubeUILoop');
+      expect(uiTick).toBeTypeOf('function');
 
-    const tryNext = vi.fn();
-    const nextTrack = vi.fn();
-    bus.on('youtube:try-next-internal', tryNext);
-    bus.on('playlist:next-track', nextTrack);
+      const tryNext = vi.fn();
+      const nextTrack = vi.fn();
+      bus.on('youtube:try-next-internal', tryNext);
+      bus.on('playlist:next-track', nextTrack);
 
-    uiTick?.();
-    now.mockReturnValue(20_000 + UNAVAILABLE_STUCK_THRESHOLD_MS + IOS_WATCHDOG_MS + 1);
-    uiTick?.();
+      uiTick?.();
+      now.mockReturnValue(20_000 + UNAVAILABLE_STUCK_THRESHOLD_MS + IOS_WATCHDOG_MS + 1);
+      uiTick?.();
 
-    expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
-    expect(tryNext).not.toHaveBeenCalled();
-    expect(nextTrack).not.toHaveBeenCalled();
-    expect(getState('youtube.currentSubIndex')).toBe(0);
-  });
+      expect(document.getElementById('youtube-ios-sync-overlay')).toBeNull();
+      expect(tryNext).not.toHaveBeenCalled();
+      expect(nextTrack).not.toHaveBeenCalled();
+      expect(getState('youtube.currentSubIndex')).toBe(0);
+    },
+  );
 
   it('turns a persistently CUED iOS play attempt into a tap gate before unavailable recovery can advance it', async () => {
     const player = createMockYtPlayer(['firstVideo1', 'secondVideo']);
@@ -1006,6 +1020,992 @@ describe('onYouTubePlayerError supersession gates (F-2402)', () => {
     expect(showToastMock).toHaveBeenCalledWith('youtube.video_unavailable');
     expect(broadcastSystemMessageMock).not.toHaveBeenCalled();
     expect(nextTrack).not.toHaveBeenCalled();
+  });
+});
+
+describe('retained iOS player teardown', () => {
+  async function startActivePlayer(player: YouTubePlayerInstance): Promise<YtTestHandle> {
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const handle = installYtNamespace(player);
+    setPlaybackYouTubePlaying();
+    wireStopAllMediaChain();
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Last YouTube item',
+        videoId: 'lastVideo01',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    loadYouTubeVideo('lastVideo01', null, true, 0);
+    handle.fireReady();
+    return handle;
+  }
+
+  it('mutes and parks a retained cross-mode iframe, then fences its stale ENDED callback', async () => {
+    let residentVideoId = 'lastVideo01';
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+    } satisfies YouTubePlayerInstance;
+    const handle = await startActivePlayer(player);
+    const { initYouTube, stopYouTubeMode } = await import('../player.ts');
+    const stateMod = await import('../_state.ts');
+    stateMod.setYtPrimed(true);
+    initYouTube();
+
+    vi.mocked(player.pauseVideo).mockClear();
+    stopYouTubeMode({ silent: true });
+
+    expect(stateMod.getYouTubePlayer()).toBe(player);
+    expect(player.mute).toHaveBeenCalledOnce();
+    expect(player.pauseVideo).toHaveBeenCalledOnce();
+    expect(player.cueVideoById).toHaveBeenCalledWith(YOUTUBE_PRIME_VIDEO_ID, 0);
+    expect(player.destroy).not.toHaveBeenCalled();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+
+    // Desired volume may change while another mode owns the page, but the
+    // parked iframe must stay physically muted until the intended next-video
+    // state completes the parking handoff.
+    bus.emit('youtube:set-volume', 80);
+    expect(player.setVolume).toHaveBeenCalledWith(80);
+    expect(player.unMute).not.toHaveBeenCalled();
+    expect(player.mute).toHaveBeenCalledTimes(2);
+
+    // The transport claims file mode immediately after its silent stop. A
+    // queued native PLAYING callback must close physical output again.
+    setPlaybackFilePlaying();
+    handle.fireStateChange(1);
+    expect(player.mute).toHaveBeenCalledTimes(3);
+    expect(player.pauseVideo).toHaveBeenCalledTimes(2);
+
+    // Reuse the exact iframe for a later item. An outgoing ENDED callback may
+    // arrive after cueVideoById(next), while getVideoData still reports the
+    // parked prime; it must not advance the new occurrence.
+    const nextTrack = vi.fn();
+    bus.on('playlist:next-track', nextTrack);
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Next YouTube item',
+        videoId: 'nextVideo02',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    zeroStartFacade.handlePlayerState.mockClear();
+    loadYouTubeVideo('nextVideo02', null, false, 0);
+    handle.fireStateChange(0);
+    handle.fireStateChange(2);
+    handle.fireStateChange(5);
+    expect(nextTrack).not.toHaveBeenCalled();
+    expect(zeroStartFacade.handlePlayerState).not.toHaveBeenCalled();
+
+    // Only two stable post-command snapshots may release the fence. All
+    // native states above can be queued from the outgoing occurrence even
+    // though getVideoData() already flipped to the requested target.
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    expect(nextTrack).not.toHaveBeenCalled();
+    expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledTimes(1);
+    expect(zeroStartFacade.handlePlayerState).toHaveBeenLastCalledWith(5);
+
+    // Even after release, a queued event must agree with the exact player's
+    // live state. A stale PAUSED cannot mutate the active target whose live
+    // snapshot remains CUED.
+    handle.fireStateChange(2);
+    expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledTimes(1);
+    handle.fireStateChange(5);
+    expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledTimes(2);
+    bus.emit('youtube:set-volume', 80);
+    expect(player.unMute).toHaveBeenCalledOnce();
+  });
+
+  it('publishes prime readiness only after live PRIME and delayed hard-mute convergence', async () => {
+    let residentVideoId = 'lastVideo01';
+    let physicallyMuted = false;
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      mute: vi.fn(),
+      isMuted: vi.fn(() => physicallyMuted),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => 5),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    stateMod.setYtPrimed(false);
+
+    stopYouTubeMode();
+
+    // mute() is a postMessage command: a synchronous false snapshot does not
+    // force destruction, but neither cue acceptance nor player readiness may
+    // expose a gesture bounce against the still-unconfirmed occurrence.
+    expect(stateMod.getYouTubePlayer()).toBe(player);
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+    physicallyMuted = true;
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+    expect(player.destroy).not.toHaveBeenCalled();
+  });
+
+  it('allows only a live silent-PRIME gesture bounce through the off-mode fence', async () => {
+    let residentVideoId = 'lastVideo01';
+    let liveState = 5;
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+        liveState = 5;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => liveState),
+    } satisfies YouTubePlayerInstance;
+    const handle = await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    const { primeYouTubePlayer } = await import('../iframe.ts');
+    stateMod.setYtPrimed(false);
+
+    stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+    expect(primeYouTubePlayer()).toBe(true);
+
+    // A queued PLAYING event is not proof while the exact iframe still says
+    // CUED, even though the gesture bounce is pending on the silent ID.
+    handle.fireStateChange(1);
+    expect(stateMod.isYtPrimed()).toBe(false);
+    expect(stateMod.isYtPrimeBouncePending()).toBe(true);
+
+    // Only the matching live PLAYING snapshot may establish WebKit gesture
+    // proof. The normal prime handler pauses and re-mutes the parked iframe.
+    liveState = 1;
+    handle.fireStateChange(1);
+    expect(stateMod.isYtPrimed()).toBe(true);
+    expect(stateMod.isYtPrimeBouncePending()).toBe(false);
+    expect(player.pauseVideo).toHaveBeenCalled();
+    expect(player.isMuted?.()).toBe(true);
+
+    // Even during a new bounce attempt, old room-media identity is forbidden.
+    stateMod.setYtPrimed(false);
+    stateMod.setYtPrimeReady(true);
+    liveState = 2;
+    expect(primeYouTubePlayer()).toBe(true);
+    residentVideoId = 'lastVideo01';
+    liveState = 1;
+    handle.fireStateChange(1);
+    expect(stateMod.isYtPrimed()).toBe(false);
+    expect(player.isMuted?.()).toBe(true);
+  });
+
+  it('retains gesture proof when post-bounce mute converges at live PRIME PAUSED', async () => {
+    let residentVideoId = 'lastVideo01';
+    let liveState = 5;
+    let physicallyMuted = false;
+    let muteConvergesImmediately = true;
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+        liveState = 5;
+      }),
+      mute: vi.fn(() => {
+        if (muteConvergesImmediately) physicallyMuted = true;
+      }),
+      unMute: vi.fn(() => {
+        physicallyMuted = false;
+      }),
+      isMuted: vi.fn(() => physicallyMuted),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => liveState),
+    } satisfies YouTubePlayerInstance;
+    const handle = await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    const { primeYouTubePlayer } = await import('../iframe.ts');
+    stateMod.setYtPrimed(false);
+
+    stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    expect(primeYouTubePlayer()).toBe(true);
+    muteConvergesImmediately = false;
+    liveState = 1;
+    handle.fireStateChange(1);
+    expect(stateMod.isYtPrimed()).toBe(true);
+    expect(physicallyMuted).toBe(false);
+
+    // WebKit applies pause/mute asynchronously after the proven bounce. This
+    // post-bounce confirmation may accept PAUSED, but never PLAYING.
+    physicallyMuted = true;
+    liveState = 2;
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    expect(player.destroy).not.toHaveBeenCalled();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    for (let poll = 0; poll < 25; poll += 1) {
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+    }
+
+    expect(stateMod.getYouTubePlayer()).toBe(player);
+    expect(stateMod.isYtPrimed()).toBe(true);
+    expect(player.destroy).not.toHaveBeenCalled();
+  });
+
+  it('revalidates retained PRIME identity at the gesture-bound unmute seam', async () => {
+    let residentVideoId = 'lastVideo01';
+    let liveState = 5;
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+        liveState = 5;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => liveState),
+    } satisfies YouTubePlayerInstance;
+    const handle = await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    const { primeYouTubePlayer } = await import('../iframe.ts');
+    stateMod.setYtPrimed(false);
+
+    stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+    vi.mocked(player.cueVideoById).mockClear();
+    vi.mocked(player.playVideo).mockClear();
+    vi.mocked(player.unMute!).mockClear();
+
+    // A non-PLAYING native transition can be queued after ready publication
+    // and replace the resident ID without entering the audible-state guard.
+    residentVideoId = 'lastVideo01';
+    liveState = 2;
+    handle.fireStateChange(2);
+    expect(stateMod.isYtPrimeReady()).toBe(true);
+
+    expect(primeYouTubePlayer()).toBe(false);
+    expect(player.unMute).not.toHaveBeenCalled();
+    expect(player.playVideo).not.toHaveBeenCalled();
+    expect(player.cueVideoById).toHaveBeenCalledWith(YOUTUBE_PRIME_VIDEO_ID, 0);
+    expect(stateMod.isYtPrimeReady()).toBe(false);
+    expect(player.destroy).not.toHaveBeenCalled();
+  });
+
+  it.each(['timeout', 'throw', 'iframe-error'] as const)(
+    'recovers retained PRIME silence before retrying a %s bounce',
+    async (failure) => {
+      let residentVideoId = 'lastVideo01';
+      let liveState = 5;
+      let physicallyMuted = false;
+      let rejectNextPlay = failure === 'throw';
+      const playVideo = vi.fn(() => {
+        if (!rejectNextPlay) return;
+        rejectNextPlay = false;
+        throw new Error('transient gesture rejection');
+      });
+      const player = {
+        ...createMockYtPlayer(),
+        playVideo,
+        cueVideoById: vi.fn((videoId: string) => {
+          residentVideoId = videoId;
+          liveState = 5;
+        }),
+        mute: vi.fn(() => {
+          physicallyMuted = true;
+        }),
+        unMute: vi.fn(() => {
+          physicallyMuted = false;
+        }),
+        isMuted: vi.fn(() => physicallyMuted),
+        getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+        getPlayerState: vi.fn(() => liveState),
+      } satisfies YouTubePlayerInstance;
+      const handle = await startActivePlayer(player);
+      const stateMod = await import('../_state.ts');
+      const { stopYouTubeMode } = await import('../player.ts');
+      const { primeYouTubePlayer } = await import('../iframe.ts');
+      stateMod.setYtPrimed(false);
+
+      stopYouTubeMode();
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+      expect(stateMod.isYtPrimeReady()).toBe(true);
+
+      primeYouTubePlayer();
+      expect(playVideo).toHaveBeenCalledOnce();
+      if (failure === 'timeout') {
+        lastTimerCallback('yt-prime-bounce-timeout')?.();
+      } else if (failure === 'iframe-error') {
+        showToastMock.mockClear();
+        handle.fireError(5);
+        expect(showToastMock).not.toHaveBeenCalled();
+      }
+
+      // Every retained failure branch must undo the gesture-bound unMute and
+      // withhold readiness until the exact PRIME occurrence is parked again.
+      expect(physicallyMuted).toBe(true);
+      expect(stateMod.isYtPrimeBouncePending()).toBe(false);
+      expect(stateMod.isYtPrimeReady()).toBe(false);
+      expect(player.cueVideoById).toHaveBeenCalledTimes(2);
+      expect(player.destroy).not.toHaveBeenCalled();
+
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+      expect(stateMod.isYtPrimeReady()).toBe(false);
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+      expect(stateMod.isYtPrimeReady()).toBe(true);
+
+      // Recovery itself never plays asynchronously. The next direct gesture
+      // spends its activation on a new playVideo(), rather than only reparking.
+      expect(playVideo).toHaveBeenCalledOnce();
+      expect(primeYouTubePlayer()).toBe(true);
+      expect(playVideo).toHaveBeenCalledTimes(2);
+      expect(stateMod.isYtPrimeBouncePending()).toBe(true);
+      expect(stateMod.isYtPrimeReady()).toBe(false);
+    },
+  );
+
+  it('keeps a false-intent retained target muted until PLAYING pause-back converges', async () => {
+    let residentVideoId = 'lastVideo01';
+    let liveState = 5;
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+        liveState = videoId === YOUTUBE_PRIME_VIDEO_ID ? 5 : 1;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => liveState),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { initYouTube, stopYouTubeMode } = await import('../player.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    stateMod.setYtPrimed(true);
+    initYouTube();
+
+    stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Paused target',
+        videoId: 'nextVideo02',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    loadYouTubeVideo('nextVideo02', null, false, 0);
+
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    expect(player.pauseVideo).toHaveBeenCalled();
+    bus.emit('youtube:set-volume', 80);
+    expect(player.unMute).not.toHaveBeenCalled();
+
+    liveState = 2;
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    bus.emit('youtube:set-volume', 80);
+    expect(player.unMute).toHaveBeenCalledOnce();
+  });
+
+  it('does not release when the synthetic callback live snapshot changes before admission', async () => {
+    let residentVideoId = 'lastVideo01';
+    let targetSnapshotReads = 0;
+    let settledTargetState: number | null = null;
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => {
+        if (residentVideoId !== 'nextVideo02') return 5;
+        if (settledTargetState !== null) return settledTargetState;
+        targetSnapshotReads += 1;
+        return targetSnapshotReads <= 2 ? 5 : 1;
+      }),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { initYouTube, stopYouTubeMode } = await import('../player.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    stateMod.setYtPrimed(true);
+    initYouTube();
+
+    stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Racing target',
+        videoId: 'nextVideo02',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    zeroStartFacade.handlePlayerState.mockClear();
+    loadYouTubeVideo('nextVideo02', null, false, 0);
+
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    expect(zeroStartFacade.handlePlayerState).not.toHaveBeenCalled();
+    bus.emit('youtube:set-volume', 80);
+    expect(player.unMute).not.toHaveBeenCalled();
+
+    settledTargetState = 2;
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledWith(2);
+    bus.emit('youtube:set-volume', 80);
+    expect(player.unMute).toHaveBeenCalledOnce();
+  });
+
+  it('destroys an active retained target if IDLE-before-stop receives PLAYING after mute breaks', async () => {
+    let residentVideoId = 'lastVideo01';
+    let liveState = 5;
+    let physicallyMuted = false;
+    let muteThrows = false;
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      mute: vi.fn(() => {
+        if (muteThrows) throw new Error('mute broke after handoff');
+        physicallyMuted = true;
+      }),
+      unMute: vi.fn(() => {
+        physicallyMuted = false;
+      }),
+      isMuted: vi.fn(() => physicallyMuted),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => liveState),
+    } satisfies YouTubePlayerInstance;
+    const handle = await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { setPlaybackIdle } = await import('../../player/ownership.ts');
+    stateMod.setYtPrimed(true);
+
+    stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Active target',
+        videoId: 'nextVideo02',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    liveState = 2;
+    loadYouTubeVideo('nextVideo02', null, false, 0);
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+    lastTimerCallback('yt-retained-player-target-confirm')?.();
+
+    physicallyMuted = false;
+    muteThrows = true;
+    liveState = 1;
+    setPlaybackIdle();
+    const freshPrime = createMockYtPlayer();
+    const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+    ytConstructor.mockImplementationOnce(function () {
+      return freshPrime;
+    });
+
+    handle.fireStateChange(1);
+
+    expect(player.destroy).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(freshPrime);
+  });
+
+  it('parks the final ended occurrence on the silent prime without losing its gesture proof', async () => {
+    let residentVideoId = 'lastVideo01';
+    const endedPlayer = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => 0),
+    } satisfies YouTubePlayerInstance;
+    const handle = await startActivePlayer(endedPlayer);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    stateMod.setYtPrimed(true);
+
+    const nextTrack = vi.fn(() => stopYouTubeMode());
+    bus.on('playlist:next-track', nextTrack);
+    vi.mocked(endedPlayer.pauseVideo).mockClear();
+
+    handle.fireStateChange(0);
+
+    expect(nextTrack).toHaveBeenCalledOnce();
+    expect(endedPlayer.mute).toHaveBeenCalledOnce();
+    expect(endedPlayer.pauseVideo).toHaveBeenCalledOnce();
+    expect(endedPlayer.cueVideoById).toHaveBeenCalledWith(YOUTUBE_PRIME_VIDEO_ID, 0);
+    expect(endedPlayer.stopVideo).not.toHaveBeenCalled();
+    expect(endedPlayer.destroy).not.toHaveBeenCalled();
+    expect(stateMod.getYouTubePlayer()).toBe(endedPlayer);
+    expect(stateMod.isYtPrimed()).toBe(true);
+
+    // The same object can flush an outgoing ENDED after parking; occurrence
+    // fencing must keep it from advancing again.
+    handle.fireStateChange(0, endedPlayer);
+    expect(nextTrack).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(endedPlayer);
+  });
+
+  it('quiesces a guest-ended occurrence even when IDLE was written before stop-mode', async () => {
+    const endedPlayer = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn(),
+      getVideoData: vi.fn(() => ({ video_id: 'lastVideo01' })),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(endedPlayer);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    stateMod.setYtPrimed(true);
+
+    // Mirrors the guest ENDED fallback: it fences queue advancement by
+    // writing IDLE first, then asks the YouTube teardown owner to quiesce the
+    // still-resident room occurrence.
+    setPlaybackFilePlaying();
+    const { setPlaybackIdle } = await import('../../player/ownership.ts');
+    setPlaybackIdle();
+    stopYouTubeMode();
+
+    expect(endedPlayer.mute).toHaveBeenCalledOnce();
+    expect(endedPlayer.cueVideoById).toHaveBeenCalledWith(YOUTUBE_PRIME_VIDEO_ID, 0);
+    expect(endedPlayer.stopVideo).not.toHaveBeenCalled();
+    expect(endedPlayer.destroy).not.toHaveBeenCalled();
+    expect(stateMod.getYouTubePlayer()).toBe(endedPlayer);
+  });
+
+  it('carries explicit Stop ownership across its IDLE-before-stop-mode ordering', async () => {
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn(),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(player);
+    const { initYouTube } = await import('../player.ts');
+    const stateMod = await import('../_state.ts');
+    const { setPlaybackIdle } = await import('../../player/ownership.ts');
+    stateMod.setYtPrimed(true);
+    initYouTube();
+
+    // Make resident identity unreadable so this exercises the explicit
+    // stop-playback marker, not the guest-ended identity fallback.
+    vi.mocked(player.getVideoData).mockReturnValue({});
+    setPlaybackIdle();
+    bus.emit('youtube:stop-playback');
+    bus.emit('youtube:stop-mode');
+
+    expect(player.mute).toHaveBeenCalledOnce();
+    expect(player.cueVideoById).toHaveBeenCalledWith(YOUTUBE_PRIME_VIDEO_ID, 0);
+    expect(player.destroy).not.toHaveBeenCalled();
+    expect(stateMod.getYouTubePlayer()).toBe(player);
+  });
+
+  it('revokes a pending PRO pause gate before a late settlement can unmute parking', async () => {
+    let residentVideoId = 'lastVideo01';
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { initYouTube, stopYouTubeMode } = await import('../player.ts');
+    stateMod.setYtPrimed(true);
+    setState('audio.masterVolume', 0.8);
+    initYouTube();
+
+    bus.emit('pro-playback:ui-control-pending', {
+      token: 91,
+      kind: 'pause',
+      queueItemId: QUEUE_ITEM_ID,
+      targetSeconds: 12,
+      wasPlaying: true,
+    });
+    stopYouTubeMode();
+    vi.mocked(player.unMute!).mockClear();
+
+    bus.emit('pro-playback:ui-control-settled', {
+      token: 91,
+      kind: 'pause',
+      queueItemId: QUEUE_ITEM_ID,
+      status: 'applied',
+      positionSeconds: 12.7,
+    });
+
+    expect(player.unMute).not.toHaveBeenCalled();
+    expect(player.isMuted?.()).toBe(true);
+    expect(stateMod.getYouTubePlayer()).toBe(player);
+  });
+
+  it('destroys and rebuilds only when silent-prime parking is unavailable', async () => {
+    const unsafePlayer = {
+      ...createMockYtPlayer(),
+      getVideoData: vi.fn(() => ({ video_id: 'lastVideo01' })),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(unsafePlayer);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    stateMod.setYtPrimed(true);
+
+    const freshPrime = {
+      ...createMockYtPlayer(),
+      getVideoData: vi.fn(() => ({ video_id: YOUTUBE_PRIME_VIDEO_ID })),
+    } satisfies YouTubePlayerInstance;
+    const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+    ytConstructor.mockImplementationOnce(function () {
+      return freshPrime;
+    });
+
+    stopYouTubeMode();
+
+    expect(unsafePlayer.stopVideo).toHaveBeenCalled();
+    expect(unsafePlayer.destroy).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(freshPrime);
+    expect(stateMod.isYtPrimed()).toBe(false);
+  });
+
+  it('clears transient fresh-prime state when a failed park hands off to a real target', async () => {
+    const unsafePlayer = {
+      ...createMockYtPlayer(),
+      cueVideoById: undefined,
+      getVideoData: vi.fn(() => ({ video_id: 'lastVideo01' })),
+    } satisfies YouTubePlayerInstance;
+    const handle = await startActivePlayer(unsafePlayer);
+    const stateMod = await import('../_state.ts');
+    const { initYouTube } = await import('../player.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    stateMod.setYtPrimed(true);
+    initYouTube();
+
+    const freshPrime = {
+      ...createMockYtPlayer(),
+      // Real pre-ready IFrame postMessages can no-op. The outer real load must
+      // never depend on this facade accepting loadVideoById synchronously.
+      loadVideoById: vi.fn(),
+      getVideoData: vi.fn(() => ({ video_id: YOUTUBE_PRIME_VIDEO_ID })),
+      getPlayerState: vi.fn(() => -1),
+    } satisfies YouTubePlayerInstance;
+    const freshTarget = {
+      ...createMockYtPlayer(),
+      getVideoData: vi.fn(() => ({ video_id: 'nextVideo02' })),
+      getPlayerState: vi.fn(() => -1),
+    } satisfies YouTubePlayerInstance;
+    const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+    ytConstructor.mockImplementationOnce(function () {
+      return freshPrime;
+    });
+    ytConstructor.mockImplementationOnce(function () {
+      return freshTarget;
+    });
+    setPlaybackFilePlaying();
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Real target after failed park',
+        videoId: 'nextVideo02',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+
+    loadYouTubeVideo('nextVideo02', null, true, 0);
+
+    expect(unsafePlayer.destroy).toHaveBeenCalledOnce();
+    expect(freshPrime.loadVideoById).not.toHaveBeenCalled();
+    expect(freshPrime.destroy).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(freshTarget);
+    expect(stateMod.isYtPriming()).toBe(false);
+    expect(ytConstructor).toHaveBeenLastCalledWith(
+      'youtube-player',
+      expect.objectContaining({ videoId: 'nextVideo02' }),
+    );
+
+    const nextTrack = vi.fn();
+    bus.on('playlist:next-track', nextTrack);
+    showToastMock.mockClear();
+    handle.fireError(150, freshTarget);
+
+    expect(showToastMock).toHaveBeenCalledWith('youtube.video_unavailable');
+    expect(nextTrack).toHaveBeenCalledOnce();
+  });
+
+  it.each(['missing', 'throwing'] as const)(
+    'destroys the exact iframe when its hard-mute method is %s',
+    async (muteFailure) => {
+      const base = createMockYtPlayer();
+      const unsafePlayer = {
+        ...base,
+        cueVideoById: vi.fn(),
+        mute:
+          muteFailure === 'missing'
+            ? undefined
+            : vi.fn(() => {
+                throw new Error('mute unavailable');
+              }),
+        getVideoData: vi.fn(() => ({ video_id: 'lastVideo01' })),
+      } satisfies YouTubePlayerInstance;
+      await startActivePlayer(unsafePlayer);
+      const stateMod = await import('../_state.ts');
+      const { stopYouTubeMode } = await import('../player.ts');
+      stateMod.setYtPrimed(true);
+
+      const freshPrime = createMockYtPlayer();
+      const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+      ytConstructor.mockImplementationOnce(function () {
+        return freshPrime;
+      });
+
+      stopYouTubeMode();
+
+      expect(unsafePlayer.cueVideoById).not.toHaveBeenCalled();
+      expect(unsafePlayer.destroy).toHaveBeenCalledOnce();
+      expect(stateMod.getYouTubePlayer()).toBe(freshPrime);
+      expect(stateMod.isYtPrimed()).toBe(false);
+    },
+  );
+
+  it('destroys a hard-muted iframe when the silent-prime cue never becomes resident', async () => {
+    const unsafePlayer = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn(), // accepted/no-op: live identity never changes
+      getVideoData: vi.fn(() => ({ video_id: 'lastVideo01' })),
+      getPlayerState: vi.fn(() => 5),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(unsafePlayer);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    stateMod.setYtPrimed(true);
+
+    const freshPrime = createMockYtPlayer();
+    const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+    ytConstructor.mockImplementationOnce(function () {
+      return freshPrime;
+    });
+
+    stopYouTubeMode();
+    for (let poll = 0; poll < 25; poll += 1) {
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+    }
+
+    expect(unsafePlayer.destroy).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(freshPrime);
+    expect(stateMod.isYtPrimed()).toBe(false);
+  });
+
+  it.each(['late PLAYING callback', 'parked volume update'] as const)(
+    'destroys a parked iframe when hard mute later throws during a %s',
+    async (trigger) => {
+      let residentVideoId = 'lastVideo01';
+      let physicallyMuted = false;
+      let muteThrows = false;
+      const player = {
+        ...createMockYtPlayer(),
+        cueVideoById: vi.fn((videoId: string) => {
+          residentVideoId = videoId;
+        }),
+        mute: vi.fn(() => {
+          if (muteThrows) throw new Error('late mute failure');
+          physicallyMuted = true;
+        }),
+        unMute: vi.fn(() => {
+          physicallyMuted = false;
+        }),
+        isMuted: vi.fn(() => physicallyMuted),
+        getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+        getPlayerState: vi.fn(() => 5),
+      } satisfies YouTubePlayerInstance;
+      const handle = await startActivePlayer(player);
+      const stateMod = await import('../_state.ts');
+      const { initYouTube, stopYouTubeMode } = await import('../player.ts');
+      stateMod.setYtPrimed(true);
+      initYouTube();
+
+      stopYouTubeMode();
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+      lastTimerCallback('yt-retained-player-park-confirm')?.();
+      physicallyMuted = false;
+      muteThrows = true;
+      const freshPrime = createMockYtPlayer();
+      const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+      ytConstructor.mockImplementationOnce(function () {
+        return freshPrime;
+      });
+
+      if (trigger === 'late PLAYING callback') {
+        setPlaybackFilePlaying();
+        handle.fireStateChange(1);
+      } else {
+        expect(() => bus.emit('youtube:set-volume', 80)).not.toThrow();
+      }
+
+      expect(player.destroy).toHaveBeenCalledOnce();
+      expect(stateMod.getYouTubePlayer()).toBe(freshPrime);
+    },
+  );
+
+  it('rebuilds and preserves the requested target when a retained target cue is unconfirmed', async () => {
+    let residentVideoId = 'lastVideo01';
+    let acceptCue = true;
+    const retainedPlayer = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        if (acceptCue) residentVideoId = videoId;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => 5),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(retainedPlayer);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    stateMod.setYtPrimed(true);
+
+    stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    acceptCue = false;
+
+    const freshTarget = createMockYtPlayer();
+    const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+    ytConstructor.mockImplementationOnce(function () {
+      return freshTarget;
+    });
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Requested target',
+        videoId: 'nextVideo02',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+
+    loadYouTubeVideo('nextVideo02', null, false, 0);
+    for (let poll = 0; poll < 25; poll += 1) {
+      lastTimerCallback('yt-retained-player-target-confirm')?.();
+    }
+
+    expect(retainedPlayer.destroy).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(freshTarget);
+    expect(ytConstructor).toHaveBeenLastCalledWith(
+      'youtube-player',
+      expect.objectContaining({ videoId: 'nextVideo02' }),
+    );
+  });
+
+  it('fresh-loads a new target that arrives before silent-prime confirmation', async () => {
+    let residentVideoId = 'lastVideo01';
+    const retainedPlayer = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => 5),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(retainedPlayer);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    stateMod.setYtPrimed(true);
+
+    stopYouTubeMode();
+    // Deliberately do not run the PRIME confirmation timer.
+    const freshTarget = createMockYtPlayer();
+    const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+    ytConstructor.mockImplementationOnce(function () {
+      return freshTarget;
+    });
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Immediate target',
+        videoId: 'nextVideo02',
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+
+    loadYouTubeVideo('nextVideo02', null, false, 0);
+
+    expect(retainedPlayer.destroy).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(freshTarget);
+    expect(ytConstructor).toHaveBeenLastCalledWith(
+      'youtube-player',
+      expect.objectContaining({ videoId: 'nextVideo02' }),
+    );
+  });
+
+  it.each([
+    ['same outgoing ID', 'lastVideo01'],
+    ['silent-prime sentinel', YOUTUBE_PRIME_VIDEO_ID],
+  ])('rebuilds instead of reusing an occurrence-ambiguous %s target', async (_label, targetId) => {
+    let residentVideoId = 'lastVideo01';
+    const retainedPlayer = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      getVideoData: vi.fn(() => ({ video_id: residentVideoId })),
+      getPlayerState: vi.fn(() => 5),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(retainedPlayer);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    stateMod.setYtPrimed(true);
+
+    stopYouTubeMode();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+    lastTimerCallback('yt-retained-player-park-confirm')?.();
+
+    const freshTarget = createMockYtPlayer();
+    const ytConstructor = window.YT!.Player as unknown as ReturnType<typeof vi.fn>;
+    ytConstructor.mockImplementationOnce(function () {
+      return freshTarget;
+    });
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Ambiguous target',
+        videoId: targetId,
+      } as unknown as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+
+    loadYouTubeVideo(targetId, null, false, 0);
+
+    expect(retainedPlayer.destroy).toHaveBeenCalledOnce();
+    expect(stateMod.getYouTubePlayer()).toBe(freshTarget);
   });
 });
 

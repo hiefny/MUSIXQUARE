@@ -135,7 +135,9 @@ function lastTimerCallback(name: string): (() => void) | undefined {
 }
 
 function createMockYtPlayer(playlistIds: string[] = []): YouTubePlayerInstance {
+  let muted = false;
   return {
+    cueVideoById: vi.fn(),
     loadVideoById: vi.fn(),
     loadPlaylist: vi.fn(),
     cuePlaylist: vi.fn(),
@@ -151,6 +153,13 @@ function createMockYtPlayer(playlistIds: string[] = []): YouTubePlayerInstance {
     getVideoData: vi.fn(() => ({ video_id: 'mockVideo' })),
     getPlaylist: vi.fn(() => playlistIds),
     setVolume: vi.fn(),
+    mute: vi.fn(() => {
+      muted = true;
+    }),
+    unMute: vi.fn(() => {
+      muted = false;
+    }),
+    isMuted: vi.fn(() => muted),
   };
 }
 
@@ -730,8 +739,8 @@ describe('YouTube indexing session lifecycle', () => {
     await armIndexingViaDeferredNavigation('vidEntry', 'PL_RETAIN');
     expect(stateMod.isYtIndexing()).toBe(true);
 
-    // iOS-style retention: the player instance survives the mode exit, so a
-    // late CUED can still be delivered to the (cleared) module.
+    // The exact room occurrence is parked on the owned silent prime while the
+    // gesture-proven iframe survives. A queued CUED still belongs to teardown.
     stateMod.setYtPrimed(true);
     stopYouTubeMode();
     expect(stateMod.isYtIndexing()).toBe(false);

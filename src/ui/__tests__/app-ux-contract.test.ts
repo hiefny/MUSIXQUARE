@@ -112,7 +112,7 @@ describe('app UX markup contract', () => {
     expect(shortcutSource).not.toMatch(/e\.key === ['"][pPsScC]['"]/u);
   });
 
-  it('places settings sync between the device role and reverb sections', () => {
+  it('places settings sync last in General and keeps one lock around every Audio section', () => {
     const generalPanel = appDocument.querySelector<HTMLElement>(
       '.settings-subtab-panel[data-panel="general"]',
     );
@@ -123,23 +123,23 @@ describe('app UX markup contract', () => {
     const syncSection = appDocument.getElementById('settings-sync-section');
     const reverbSection = audioPanel?.querySelector('#grid-reverb')?.closest('.section-group');
 
-    expect(generalPanel?.contains(syncSection)).toBe(false);
-    expect(audioPanel?.contains(syncSection)).toBe(true);
+    expect(generalPanel?.contains(syncSection)).toBe(true);
+    expect(audioPanel?.contains(syncSection)).toBe(false);
     expect(syncSection?.closest('.youtube-settings-disabled-wrap')).toBeNull();
     expect(roleSection?.closest('.youtube-settings-disabled-wrap')).not.toBeNull();
     expect(reverbSection?.closest('.youtube-settings-disabled-wrap')).not.toBeNull();
-    expect(roleSection?.closest('.youtube-settings-disabled-wrap')).not.toBe(
+    expect(roleSection?.closest('.youtube-settings-disabled-wrap')).toBe(
       reverbSection?.closest('.youtube-settings-disabled-wrap'),
     );
 
-    const audioSections = [...(audioPanel?.querySelectorAll('.section-group') ?? [])];
-    const roleIndex = audioSections.indexOf(roleSection as Element);
-    const syncIndex = audioSections.indexOf(syncSection as Element);
-    const reverbIndex = audioSections.indexOf(reverbSection as Element);
+    const generalSections = [...(generalPanel?.querySelectorAll('.section-group') ?? [])];
+    expect(generalSections.at(-1)).toBe(syncSection);
 
-    expect(roleIndex).toBeGreaterThanOrEqual(0);
-    expect(syncIndex).toBe(roleIndex + 1);
-    expect(reverbIndex).toBe(syncIndex + 1);
+    const audioLock = audioPanel?.querySelector('.youtube-settings-disabled-wrap');
+    const audioSections = [...(audioPanel?.querySelectorAll('.section-group') ?? [])];
+    expect(audioPanel?.querySelectorAll('.youtube-settings-disabled-wrap')).toHaveLength(1);
+    expect(audioSections.length).toBeGreaterThan(1);
+    expect(audioSections.every((section) => audioLock?.contains(section))).toBe(true);
   });
 
   it('shows settings-sync indicators only on the three synchronized effect headers', () => {
@@ -342,14 +342,29 @@ describe('app UX markup contract', () => {
     expect(descriptionRule).toBeDefined();
     expect(descriptionRule).toMatch(/margin:\s*-8px\s+20px\s+16px\s*;/);
 
-    const splitLockDividerRule = appStylesheet.match(
-      /#youtube-settings-disabled-wrap\s*>\s*\.section-group:last-of-type\s*\{([^}]*)\}/,
-    )?.[1];
-    expect(splitLockDividerRule).toMatch(/border-bottom:\s*1px\s+solid\s+var\(--divider\)/);
+    expect(appStylesheet).not.toMatch(
+      /#youtube-settings-disabled-wrap\s*>\s*\.section-group:last-of-type/,
+    );
+    expect(desktopStylesheet).not.toMatch(
+      /#youtube-settings-disabled-wrap\s*>\s*\.section-group:last-of-type/,
+    );
+  });
 
-    const desktopSplitLockDividerRule = desktopStylesheet.match(
-      /#youtube-settings-disabled-wrap\s*>\s*\.section-group:last-of-type\s*\{([^}]*)\}/,
-    )?.[1];
-    expect(desktopSplitLockDividerRule).toMatch(/border-bottom:\s*1px\s+solid\s+var\(--divider\)/);
+  it('keeps the iOS YouTube tap gate rectangular under the global pill policy', () => {
+    const globalButtonShapeRule = appStylesheet.match(
+      /button:not\(\.ch-opt\)[\s\S]*?\{\s*border-radius:\s*999px\s*!important;\s*\}/,
+    )?.[0];
+
+    expect(globalButtonShapeRule).toBeDefined();
+    expect(globalButtonShapeRule).toContain(':not(#youtube-ios-sync-overlay)');
+  });
+
+  it('preserves the desktop row-hover transition from track number to reorder grip', () => {
+    expect(appStylesheet).toMatch(
+      /\.track-item:hover\s+\.playlist-reorder-handle\s+\.track-idx[\s\S]*?opacity:\s*0/,
+    );
+    expect(appStylesheet).toMatch(
+      /\.track-item:hover\s+\.playlist-reorder-handle\s+\.playlist-reorder-grip[\s\S]*?opacity:\s*1/,
+    );
   });
 });

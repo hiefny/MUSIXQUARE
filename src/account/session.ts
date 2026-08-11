@@ -20,6 +20,9 @@ let _operationGeneration = 0;
 let _sessionFence = 0;
 let _refreshInFlight: Promise<void> | null = null;
 let _refreshFollowUp = false;
+let _externalRefreshInFlight: Promise<void> | null = null;
+let _externalRefreshFollowUp = false;
+const _recentExternalRefreshIds = new Set<string>();
 let _mutationDepth = 0;
 let _lastRefreshStartedAt = 0;
 let _lifecycleBound = false;
@@ -28,6 +31,9 @@ let _syncChannel: BroadcastChannel | null = null;
 const ACCOUNT_REFRESH_DEBOUNCE_MS = 30_000;
 const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
+const MAX_RECENT_EXTERNAL_REFRESH_IDS = 32;
+
+type AccountRefreshPulse = Readonly<{ id: string | null }>;
 
 export type AccountLoginPopupOutcome =
   | 'authenticated'
@@ -68,13 +74,38 @@ export function requestAccountLoginPopup(
   return _accountLoginPopupHandler?.(options) ?? Promise.resolve('error');
 }
 
-function isAccountRefreshMessage(value: unknown): boolean {
-  return !!value && typeof value === 'object' && (value as { type?: unknown }).type === 'refresh';
+function parseAccountRefreshMessage(value: unknown): AccountRefreshPulse | null {
+  if (!value || typeof value !== 'object' || (value as { type?: unknown }).type !== 'refresh') {
+    return null;
+  }
+  const id = (value as { id?: unknown }).id;
+  return {
+    id: typeof id === 'string' && id.length >= 8 && id.length <= 160 ? id : null,
+  };
+}
+
+function createAccountRefreshMessage(): { type: 'refresh'; id: string } {
+  return {
+    type: 'refresh',
+    id: `refresh:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
+  };
+}
+
+function rememberExternalRefreshId(id: string | null): boolean {
+  if (id === null) return true;
+  if (_recentExternalRefreshIds.has(id)) return false;
+  _recentExternalRefreshIds.add(id);
+  if (_recentExternalRefreshIds.size > MAX_RECENT_EXTERNAL_REFRESH_IDS) {
+    const oldest = _recentExternalRefreshIds.values().next().value;
+    if (typeof oldest === 'string') _recentExternalRefreshIds.delete(oldest);
+  }
+  return true;
 }
 
 function broadcastAccountChange(): void {
+  const message = createAccountRefreshMessage();
   try {
-    _syncChannel?.postMessage({ type: 'refresh' });
+    _syncChannel?.postMessage(message);
   } catch {
     // Cross-tab refresh is an optimization. The HttpOnly session remains the
     // authority and will be checked on the next navigation/focus.
@@ -84,10 +115,7 @@ function broadcastAccountChange(): void {
     // Storage events do not fire in this tab (which already applied the
     // mutation) but wake every other same-origin tab through the listener
     // registered below. The pulse carries no account data.
-    window.localStorage.setItem(
-      ACCOUNT_SYNC_STORAGE_KEY,
-      `${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
-    );
+    window.localStorage.setItem(ACCOUNT_SYNC_STORAGE_KEY, JSON.stringify(message));
   } catch {
     // Storage may be disabled. Focus/visibility refresh remains the fallback.
   }
@@ -99,13 +127,22 @@ function refreshAfterUserReturns(): void {
 }
 
 function refreshAfterPopupMessage(event: MessageEvent): void {
-  if (event.origin === window.location.origin && isAccountRefreshMessage(event.data)) {
-    void refreshAccountSession();
-  }
+  if (event.origin !== window.location.origin) return;
+  const pulse = parseAccountRefreshMessage(event.data);
+  if (pulse) reconcileExternalAccountChange(pulse.id);
 }
 
 function refreshAfterStoragePulse(event: StorageEvent): void {
-  if (event.key === ACCOUNT_SYNC_STORAGE_KEY) void refreshAccountSession();
+  if (event.key !== ACCOUNT_SYNC_STORAGE_KEY) return;
+  let pulse: AccountRefreshPulse | null = null;
+  if (event.newValue) {
+    try {
+      pulse = parseAccountRefreshMessage(JSON.parse(event.newValue) as unknown);
+    } catch {
+      // Older clients stored an opaque token rather than the pulse payload.
+    }
+  }
+  reconcileExternalAccountChange(pulse?.id ?? null);
 }
 
 function refreshAfterVisibilityChange(): void {
@@ -113,7 +150,48 @@ function refreshAfterVisibilityChange(): void {
 }
 
 function refreshAfterBroadcastMessage(event: MessageEvent): void {
-  if (isAccountRefreshMessage(event.data)) void refreshAccountSession();
+  const pulse = parseAccountRefreshMessage(event.data);
+  if (pulse) reconcileExternalAccountChange(pulse.id);
+}
+
+/**
+ * A popup/cross-tab pulse is evidence that the cookie may have changed after
+ * an already-running session read began. It must therefore get a new
+ * operation generation immediately instead of waiting behind that older read:
+ * applying the older anonymous snapshot even briefly also tears down the
+ * room-scoped account identity and its same-account device capabilities.
+ */
+function startExternalAccountReconciliation(): void {
+  const operation = reconcileAccountLoginSession().then(
+    () => undefined,
+    () => undefined,
+  );
+  const wrapped = operation.finally(() => {
+    if (_externalRefreshInFlight !== wrapped) return;
+    _externalRefreshInFlight = null;
+    if (!_externalRefreshFollowUp) return;
+    _externalRefreshFollowUp = false;
+    startExternalAccountReconciliation();
+  });
+  _externalRefreshInFlight = wrapped;
+}
+
+function reconcileExternalAccountChange(refreshId: string | null): void {
+  if (!rememberExternalRefreshId(refreshId)) return;
+  if (_mutationDepth > 0) {
+    _refreshFollowUp = true;
+    return;
+  }
+  if (_externalRefreshInFlight) {
+    // A new identified pulse represents a genuinely later account change, so
+    // fence the older read. Legacy clients did not include an ID: preserve
+    // that first post-cookie result, then reconcile once more, because their
+    // opener/BroadcastChannel/storage copies cannot be distinguished safely.
+    if (refreshId !== null) _operationGeneration += 1;
+    _externalRefreshFollowUp = true;
+    return;
+  }
+  startExternalAccountReconciliation();
 }
 
 function bindAccountSessionLifecycle(): void {
@@ -281,6 +359,9 @@ export function __resetAccountSessionForTests(): void {
   _operationGeneration += 1;
   _refreshInFlight = null;
   _refreshFollowUp = false;
+  _externalRefreshInFlight = null;
+  _externalRefreshFollowUp = false;
+  _recentExternalRefreshIds.clear();
   _mutationDepth = 0;
   _lastRefreshStartedAt = 0;
 }

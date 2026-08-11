@@ -265,6 +265,33 @@ describe('YouTubeAuthorityArmController', () => {
     expect(count(player, 'loadVideoById')).toBe(0);
   });
 
+  it('transfers hard-mute ownership on cancelAll without any detached unmute attempt', async () => {
+    const { controller, player } = makeHarness({ muted: false, volume: 43 });
+    let unmuteAttempts = 0;
+    player.unMute = () => {
+      player.__log.push({ op: 'unMute', at: Date.now() });
+      unmuteAttempts += 1;
+      player.__muted = false;
+    };
+
+    const pending = controller.prepare({ ...identity, strategy: 'resident', targetSeconds: 4 });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(controller.phase).toBe('warming');
+    expect(player.__muted).toBe(true);
+
+    expect(controller.cancelAll(true)).toBe(true);
+
+    await expect(pending).resolves.toEqual({ status: 'superseded', reason: 'superseded' });
+    expect(controller.phase).toBe('idle');
+    expect(player.__state).toBe(2);
+    expect(player.__muted).toBe(true);
+    expect(unmuteAttempts).toBe(0);
+
+    await vi.runAllTimersAsync();
+    expect(unmuteAttempts).toBe(0);
+    expect(player.__muted).toBe(true);
+  });
+
   it('retries captured audio restoration after a warm preparation timeout', async () => {
     const { controller, player } = makeHarness({ muted: false, volume: 41 });
     let unmuteAttempts = 0;

@@ -816,6 +816,7 @@ class YouTubeZeroStartController {
       // authority/reconnect/supersede cancels the run.
       this.#stopPlaybackBestEffort();
     }
+    if (transferPlayerState) this.#cancelDetachedAudioRestore();
     this.#clearTimers();
     this.#localRun = null;
     this.#hostBarrier = null;
@@ -1736,6 +1737,7 @@ class YouTubeZeroStartController {
   #cancelLocalOnly(stopPlayback = false, transferPlayerState = false): void {
     const run = this.#localRun;
     if (stopPlayback && run?.ownsPlayerState) this.#stopPlaybackBestEffort();
+    if (transferPlayerState) this.#cancelDetachedAudioRestore();
     this.#clearTimers();
     this.#localRun = null;
     this.#hostBarrier = null;
@@ -2020,8 +2022,9 @@ export function updateYouTubeZeroStartDesiredAudioState(update: {
 export function cancelYouTubeZeroStart(
   reason: YouTubeZeroStartAbortReason = 'cancelled',
   broadcast = true,
+  transferPlayerState = false,
 ): void {
-  defaultController?.cancel(reason, broadcast);
+  defaultController?.cancel(reason, broadcast, transferPlayerState);
 }
 
 export function resetYouTubeZeroStart(): void {

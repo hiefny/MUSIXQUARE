@@ -941,6 +941,46 @@ describe('YouTube Sync — Regression Integration', () => {
       ).toBe(false);
     });
 
+    it('fences an escaped host-fallback callback after teardown transfers ownership', async () => {
+      installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: ZERO_START_VIDEO_ID,
+      });
+      const conn = installLiveZeroStartGuest();
+      const { cancelYtAutoSync, initYouTube } = await importPlayer();
+      const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      emitZeroStartAutoPlay();
+      getYouTubePlayerMock.mockReturnValue(null);
+      vi.advanceTimersByTime(500);
+      expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+
+      const escapedFallback = [...timeoutSpy.mock.calls]
+        .reverse()
+        .map(([callback]) => callback)
+        .find((callback): callback is () => void => typeof callback === 'function');
+      expect(escapedFallback).toBeTypeOf('function');
+
+      const parkedSuccessor = installPlayer({
+        __state: 5,
+        __currentTime: 0,
+        __videoId: 'r7M_P0FAOtw',
+        __muted: true,
+      });
+      const mutationsBeforeTransfer = mutationOps(parkedSuccessor);
+      cancelYtAutoSync(true);
+      expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+
+      escapedFallback?.();
+
+      expect(mutationOps(parkedSuccessor)).toEqual(mutationsBeforeTransfer);
+      expect(parkedSuccessor.__log.filter(({ op }) => op === 'unMute')).toHaveLength(0);
+      expect(parkedSuccessor.isMuted()).toBe(true);
+    });
+
     it('cancels the previous barrier before preparing a newly selected YouTube occurrence', async () => {
       installPlayer({
         __state: 2,
@@ -2446,6 +2486,33 @@ describe('YouTube Sync — Regression Integration', () => {
   // the next heartbeat seconds later. Both handleYouTubeSync and
   // handleYouTubeState must apply the same snapshot rule.
   describe('late-join host snapshot — recorded before player/mode readiness', () => {
+    it('a paused YOUTUBE_SYNC clears autoplay intent and the tap gate before readiness', async () => {
+      const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
+      const stateMod = await import('../_state.ts');
+      const bridge = await import('../iframe-runtime-bridge.ts');
+      const hideTapToPlayGate = vi.fn();
+      bridge.configureYouTubeIframeRuntimeHooks({
+        hideTapToPlayGate,
+        invalidateDurationCache: vi.fn(),
+      });
+      setState('network.hostConn', mockHostConn as never);
+      setPlaybackIdle();
+      getYouTubePlayerMock.mockReturnValue(null);
+
+      syncHandler(
+        { time: 42, state: 2, subIndex: 0, videoId: 'FAKE_VIDEO', hostClock: Date.now() },
+        mockHostConn,
+      );
+
+      expect(stateMod.setYtAutoplayIntent).toHaveBeenCalledWith(false);
+      expect(hideTapToPlayGate).toHaveBeenCalledOnce();
+
+      bridge.configureYouTubeIframeRuntimeHooks({
+        hideTapToPlayGate: () => undefined,
+        invalidateDurationCache: () => undefined,
+      });
+    });
+
     it('a YOUTUBE_SYNC heartbeat arriving before the player exists still feeds the next rendezvous', async () => {
       const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
       const { guestRendezvousSync } = await importSync();

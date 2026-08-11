@@ -947,6 +947,144 @@ describe('YouTube Player', () => {
       const { stopYouTubeMode } = await import('../player.ts');
       expect(() => stopYouTubeMode()).not.toThrow();
     });
+
+    it('transfers an active guest fallback without running its stale unmute cleanup', async () => {
+      const stateMod = await import('../_state.ts');
+      const { initYouTube, isYouTubeZeroStartExternalFallbackActive, stopYouTubeMode } =
+        await import('../player.ts');
+      const {
+        getYouTubeZeroStartSnapshot,
+        handleYouTubeZeroStartCommit,
+        handleYouTubeZeroStartPlayerState,
+        handleYouTubeZeroStartPrepare,
+      } = await import('../zero-start.ts');
+      const { makeFakeYtPlayer } = await import('./__helpers__/fake-yt-player.ts');
+      const { setManagedTimer } = await import('../../core/timers.ts');
+      const { safeSend } = await import('../../network/peer.ts');
+      const { processSyncPong, registerPing, resetClockState } =
+        await import('../../network/shared-clock.ts');
+
+      const hostPeerId = 'host-external-fallback';
+      const guestPeerId = 'guest-external-fallback';
+      const videoId = 'M7lc1UVf-VE';
+      const hostConnection = dataConnection(hostPeerId);
+      const player = makeFakeYtPlayer({
+        __videoId: videoId,
+        __state: 2,
+        __autoPlayOnLoad: true,
+        __muted: false,
+        __volume: 63,
+      });
+
+      vi.mocked(safeSend).mockReturnValue(true);
+      setState('network.appRole', 'guest');
+      setState('network.myId', guestPeerId);
+      setState('network.hostConn', hostConnection);
+      setState('network.isConnecting', false);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId,
+          name: 'External fallback target',
+        } as PlaylistItem,
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setPlaybackYouTubePlaying();
+      stateMod.setYouTubePlayer(player as unknown as YouTubePlayerInstance);
+      expect(stateMod.markYtPlayerReady(player as unknown as YouTubePlayerInstance)).toBe(true);
+      stateMod.setYtPrimed(true);
+
+      resetClockState();
+      registerPing(41);
+      expect(processSyncPong(41, Date.now())).not.toBeNull();
+      initYouTube();
+      player.__onStateChange = ({ data }) => {
+        handleYouTubeZeroStartPlayerState(data);
+      };
+
+      const prepareAtHost = Date.now();
+      expect(
+        handleYouTubeZeroStartPrepare(hostPeerId, {
+          type: MSG.YOUTUBE_ZERO_START_PREPARE,
+          version: 1,
+          runId: 'production-fallback-stop',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId,
+          subIndex: null,
+          prepareAtHost,
+          decisionAtHost: prepareAtHost + 2_300,
+          startDeadlineAtHost: prepareAtHost + 3_000,
+          hostPlatform: 'other',
+        }),
+      ).toBe(true);
+      await vi.advanceTimersByTimeAsync(620);
+      expect(getYouTubeZeroStartSnapshot()?.phase).toBe('armed');
+
+      // Lose calibration after the target is armed so the real controller
+      // transfers this exact hard-muted player to the production external
+      // fallback owner instead of taking its in-controller late-start path.
+      resetClockState();
+
+      expect(
+        handleYouTubeZeroStartCommit(hostPeerId, {
+          type: MSG.YOUTUBE_ZERO_START_COMMIT,
+          version: 1,
+          runId: 'production-fallback-stop',
+          sequence: 1,
+          queueItemId: QUEUE_ITEM_ID,
+          videoId,
+          startAtHost: prepareAtHost + 3_000,
+          reason: 'all-ready',
+          cohort: [hostPeerId, guestPeerId],
+        }),
+      ).toBe(true);
+
+      const fallbackCallbacks = () =>
+        vi
+          .mocked(setManagedTimer)
+          .mock.calls.filter(([name]) => name === 'yt-zero-start-external-fallback')
+          .map(([, callback]) => callback as () => void);
+      const callbacksBeforeFirstAttempt = fallbackCallbacks();
+      const firstFallback = callbacksBeforeFirstAttempt.at(-1);
+      expect(firstFallback).toBeTypeOf('function');
+      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(true);
+
+      const unmuteCountBeforeVolume = player.__log.filter(({ op }) => op === 'unMute').length;
+      const mutedBeforeVolume = player.isMuted();
+      bus.emit('youtube:set-volume', 81);
+      expect(player.__log.filter(({ op }) => op === 'setVolume').at(-1)).toMatchObject({
+        args: [81],
+      });
+      expect(player.__log.filter(({ op }) => op === 'unMute')).toHaveLength(
+        unmuteCountBeforeVolume,
+      );
+      expect(player.isMuted()).toBe(mutedBeforeVolume);
+
+      firstFallback?.();
+
+      const callbacksAfterFirstAttempt = fallbackCallbacks();
+      expect(callbacksAfterFirstAttempt.length).toBeGreaterThan(callbacksBeforeFirstAttempt.length);
+      const staleFallback = callbacksAfterFirstAttempt.at(-1);
+      expect(staleFallback).toBeTypeOf('function');
+      const unmuteCountBeforeStop = player.__log.filter(({ op }) => op === 'unMute').length;
+
+      stopYouTubeMode();
+
+      expect(isYouTubeZeroStartExternalFallbackActive()).toBe(false);
+      expect(player.__log.filter(({ op }) => op === 'unMute')).toHaveLength(unmuteCountBeforeStop);
+
+      // Managed timers are mocked in this suite, so invoke the callback that
+      // had already escaped before teardown. Its generation fence must also
+      // prevent the transferred fallback cleanup from restoring audible state.
+      staleFallback?.();
+      expect(player.__log.filter(({ op }) => op === 'unMute')).toHaveLength(unmuteCountBeforeStop);
+
+      stateMod.setYouTubePlayer(null);
+      stateMod.setYtPrimed(false);
+      resetClockState();
+    });
   });
 
   describe('Late-join YouTube bootstrap', () => {

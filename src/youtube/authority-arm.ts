@@ -434,7 +434,7 @@ export class YouTubeAuthorityArmController {
     );
   }
 
-  cancel(authorityKey?: string): boolean {
+  cancel(authorityKey?: string, transferPlayerState = false): boolean {
     const run = this.#run;
     if (!run || (authorityKey !== undefined && run.identity.authorityKey !== authorityKey)) {
       return false;
@@ -447,7 +447,7 @@ export class YouTubeAuthorityArmController {
     } catch {
       // The exact iframe may have been destroyed; restoration is identity-fenced below.
     }
-    this.#beginDetachedAudioRestore(run);
+    if (!transferPlayerState) this.#beginDetachedAudioRestore(run);
     if (!run.prepareSettled) {
       run.prepareSettled = true;
       run.prepareResolve({ status: 'superseded', reason: 'superseded' });
@@ -465,10 +465,10 @@ export class YouTubeAuthorityArmController {
    * this also revokes detached WebKit audio retries because no successor arm
    * is allowed to inherit their captured intent.
    */
-  cancelAll(): boolean {
+  cancelAll(transferPlayerState = false): boolean {
     const hadDetachedRestore =
       this.#detachedRestore !== null || this.#detachedRestoreTimers.size > 0;
-    const cancelledRun = this.cancel();
+    const cancelledRun = this.cancel(undefined, transferPlayerState);
     this.#cancelDetachedAudioRestore();
     return cancelledRun || hadDetachedRestore;
   }

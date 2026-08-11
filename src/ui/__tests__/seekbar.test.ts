@@ -8,6 +8,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initSeekBar } from '../seekbar.ts';
 import { getTrackPosition, isFilePipelineBusyForPlay, seekTo } from '../../player/transport.ts';
 import { isProPlaybackTrackSelectionPending } from '../../pro-room/playback-authority-hooks.ts';
+import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
@@ -85,6 +86,36 @@ describe('initSeekBar playback mode gates', () => {
     slider.value = '42';
     slider.dispatchEvent(new Event('change'));
 
+    expect(slider.value).toBe('21');
+    expect(seekTo).not.toHaveBeenCalled();
+  });
+
+  it('restores and revokes seek with the exact host-account sibling capability projection', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { peer: 'host-1', open: true } as never);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'paused');
+    vi.mocked(getTrackPosition).mockReturnValue(21);
+    initSeekBar();
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+
+    setState('network.standardRoomCapabilities', [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES]);
+    setState('network.isOperator', true);
+    expect(slider.getAttribute('aria-disabled')).toBe('false');
+
+    slider.value = '42';
+    slider.dispatchEvent(new Event('change'));
+    expect(seekTo).toHaveBeenCalledWith(42);
+
+    vi.mocked(seekTo).mockClear();
+    setState('network.standardRoomCapabilities', null);
+    setState('network.isOperator', false);
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+
+    slider.value = '55';
+    slider.dispatchEvent(new Event('change'));
     expect(slider.value).toBe('21');
     expect(seekTo).not.toHaveBeenCalled();
   });

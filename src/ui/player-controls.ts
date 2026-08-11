@@ -393,19 +393,30 @@ export function updateRoleBadge(): void {
 
   const snapshot = getAccountSnapshot();
   const isAuthenticated = snapshot.status === 'authenticated' && snapshot.account !== null;
+  const canOfferLogin = snapshot.status === 'anonymous' && snapshot.configured !== false;
   const nickname =
     isAuthenticated && snapshot.account.profileComplete ? snapshot.account.nickname.trim() : '';
   const roleLabel = getRoomContext().kind !== 'pro' && isCoordinator() ? 'HOST' : 'PEER';
-  const displayText = nickname || (isAuthenticated ? roleLabel : 'LOGIN');
+  // Loading/unavailable is not an anonymous session verdict. Calling it LOGIN
+  // during startup or a bounded account outage falsely tells an authenticated
+  // room member that they were signed out, and obscures the fact that the
+  // existing room identity remains leased while the read recovers.
+  const displayText =
+    nickname ||
+    (isAuthenticated ? roleLabel : canOfferLogin ? 'LOGIN' : t('account.account_title'));
 
   badge.classList.remove('connected', 'remote', 'pro-equal', 'account-authenticated');
   badge.classList.toggle('account-authenticated', isAuthenticated);
   text.textContent = displayText;
   applyUserTextFontFallback(text, text.textContent);
-  badge.setAttribute(
-    'aria-label',
-    isAuthenticated ? `${t('account.account_title')}: ${displayText}` : t('account.login_title'),
-  );
+  const accountLabel = isAuthenticated
+    ? `${t('account.account_title')}: ${displayText}`
+    : canOfferLogin
+      ? t('account.login_title')
+      : snapshot.status === 'loading'
+        ? `${t('account.account_title')}: ${t('common.wait')}`
+        : t('account.unavailable');
+  badge.setAttribute('aria-label', accountLabel);
   scheduleRoleClockPulse();
 }
 
@@ -1831,13 +1842,21 @@ export function initPlayerControls(): void {
     if (!overlay?.classList.contains('show')) return;
     if (!canUseManualSyncPanel()) closeManualSyncOverlay();
   };
+  const reconcileStandardRoomSyncAvailability = () => {
+    closeManualSyncIfInvalid();
+    // Standard-host readiness also depends on these two setup fields. During
+    // reload recovery, restored playback can render first and room activation
+    // can settle later; without repainting here aria-disabled/title stay stale
+    // even though the click guard correctly sees an active coordinator.
+    syncMainSyncButtonState();
+  };
   _busScope.on('state:playback.mode', closeManualSyncIfInvalid);
   _busScope.on('state:playback.activity', closeManualSyncIfInvalid);
   _busScope.on('state:network.hostConn', closeManualSyncIfInvalid);
   _busScope.on('state:network.appRole', closeManualSyncIfInvalid);
   _busScope.on('state:room.context', closeManualSyncIfInvalid);
-  _busScope.on('state:setup.sessionStarted', closeManualSyncIfInvalid);
-  _busScope.on('state:network.sessionCode', closeManualSyncIfInvalid);
+  _busScope.on('state:setup.sessionStarted', reconcileStandardRoomSyncAvailability);
+  _busScope.on('state:network.sessionCode', reconcileStandardRoomSyncAvailability);
   _busScope.on('player:buffer-changed', () => {
     closeManualSyncIfInvalid();
     syncMainSyncButtonState();

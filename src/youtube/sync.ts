@@ -574,6 +574,15 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
   const hostClock = data.hostClock != null ? Number(data.hostClock) : undefined;
   updateHostSnapshot(hostTime, hostState, hostClock, (data.videoId as string) || '');
 
+  // A paused/stopped canonical snapshot carries no scripted-play intent.
+  // Clear both pieces before the player/mode readiness guard so a paused
+  // late-join bootstrap cannot inherit the load's iOS watchdog or recreate a
+  // tap gate while its iframe is still UNSTARTED.
+  if (hostState === 2 || hostState === 0 || hostState === -1) {
+    setYtAutoplayIntent(false);
+    hideYouTubeTapToPlayGateFromSync();
+  }
+
   const isManual = !!data.isManual;
   if (!player || !isPlaybackModeYouTube() || !player.getCurrentTime) {
     if (isManual) deferManualRendezvousUntilReady('player-or-app-state-not-ready');
@@ -1154,6 +1163,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
   updateHostSnapshot(time, state, hostClock, (data.videoId as string) || '');
 
   if (state === 2 || state === 0 || state === -1) {
+    setYtAutoplayIntent(false);
     hideYouTubeTapToPlayGateFromSync();
   }
 

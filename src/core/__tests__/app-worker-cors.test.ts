@@ -974,6 +974,142 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(await response.json()).toEqual({ error: 'CAPABILITY_REQUIRED' });
   });
 
+  it('uses one atomic pair request for both TURN limits and keeps invalid tokens on the same IP bucket', async () => {
+    const control = createAtomicRateControlBinding();
+    const ip = '203.0.113.121';
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'paired-turn-capability-secret-at-least-32',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+      CLOUDFLARE_TURN_KEY_ID: 'turn-key',
+      CLOUDFLARE_TURN_API_TOKEN: 'turn-token',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+    };
+    const mint = await mintWithProofOfWork(env, ['turn'], ip);
+    const token = ((await mint.json()) as { token: string }).token;
+    const upstream = vi.fn(async () =>
+      Response.json({
+        iceServers: [
+          {
+            urls: 'turn:turn.cloudflare.com:3478?transport=udp',
+            username: 'turn-user',
+            credential: 'turn-credential',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', upstream);
+    const request = (capabilityToken: string) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/get-turn-config', {
+          headers: {
+            Origin: 'https://musixquare.com',
+            'CF-Connecting-IP': ip,
+            'X-MXQR-Capability': capabilityToken,
+          },
+        }),
+        env,
+      );
+
+    for (let index = 0; index < 4; index += 1) {
+      expect((await request(token)).status).toBe(200);
+    }
+    const capabilityLimited = await request(token);
+    expect(capabilityLimited.status).toBe(429);
+    await expect(capabilityLimited.json()).resolves.toEqual({ error: 'Too Many Requests' });
+
+    const invalid = await request('invalid-capability-token');
+    expect(invalid.status).toBe(401);
+    await expect(invalid.json()).resolves.toEqual({ error: 'CAPABILITY_REQUIRED' });
+    expect(control.rateFetchCount()).toBe(6);
+    const pairObjects = control
+      .objectNames()
+      .filter((name) => name.startsWith('musixquare-abuse-rate-pair-v1:'));
+    expect(pairObjects).toHaveLength(1);
+    expect(pairObjects[0]).toMatch(
+      /^musixquare-abuse-rate-pair-v1:app-turn-config:[A-Za-z0-9_-]+$/,
+    );
+    expect(upstream).toHaveBeenCalledTimes(4);
+  });
+
+  it('bounds capability tokens before WebCrypto while preserving normal and boundary behavior', async () => {
+    const capabilityTokenMaxLength = 512;
+    const control = createAtomicRateControlBinding();
+    const ip = '203.0.113.122';
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'bounded-capability-secret-at-least-32',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+      CLOUDFLARE_TURN_KEY_ID: 'turn-key',
+      CLOUDFLARE_TURN_API_TOKEN: 'turn-token',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+    };
+    const mint = await mintWithProofOfWork(env, ['turn'], ip);
+    const token = ((await mint.json()) as { token: string }).token;
+    expect(token.length).toBeLessThan(capabilityTokenMaxLength);
+
+    const upstream = vi.fn(async () =>
+      Response.json({
+        iceServers: [
+          {
+            urls: 'turn:turn.cloudflare.com:3478?transport=udp',
+            username: 'turn-user',
+            credential: 'turn-credential',
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', upstream);
+    const request = (capabilityToken: string) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/get-turn-config', {
+          headers: {
+            Origin: 'https://musixquare.com',
+            'CF-Connecting-IP': ip,
+            'X-MXQR-Capability': capabilityToken,
+          },
+        }),
+        env,
+      );
+    const signSpy = vi.spyOn(crypto.subtle, 'sign');
+    const signedByteLengths = () => signSpy.mock.calls.map(([, , data]) => data.byteLength);
+
+    try {
+      signSpy.mockClear();
+      const normal = await request(token);
+      expect(normal.status).toBe(200);
+      expect(signedByteLengths()).toContain(token.split('.')[0].length);
+
+      const boundaryPayload = 'A'.repeat(capabilityTokenMaxLength - 44);
+      const boundaryToken = `${boundaryPayload}.${'A'.repeat(43)}`;
+      expect(boundaryToken).toHaveLength(capabilityTokenMaxLength);
+      signSpy.mockClear();
+      const boundary = await request(boundaryToken);
+      expect(boundary.status).toBe(401);
+      expect(signedByteLengths()).toContain(boundaryPayload.length);
+
+      const oversizedPayload = `${boundaryPayload}A`;
+      const oversizedToken = `${oversizedPayload}.${'A'.repeat(43)}`;
+      expect(oversizedToken).toHaveLength(capabilityTokenMaxLength + 1);
+      signSpy.mockClear();
+      const oversized = await request(oversizedToken);
+      expect(oversized.status).toBe(401);
+      expect(signedByteLengths()).not.toContain(oversizedPayload.length);
+
+      const malformedPayload = `${'A'.repeat(64)}!`;
+      const malformedToken = `${malformedPayload}.${'A'.repeat(43)}`;
+      signSpy.mockClear();
+      const malformed = await request(malformedToken);
+      expect(malformed.status).toBe(401);
+      expect(signedByteLengths()).not.toContain(malformedPayload.length);
+
+      expect(control.rateFetchCount()).toBe(4);
+      expect(upstream).toHaveBeenCalledTimes(1);
+    } finally {
+      signSpy.mockRestore();
+    }
+  });
+
   it('reports transparent proof-of-work when Turnstile is not configured', async () => {
     const env = {
       MXQR_CAPABILITY_SECRET: 'test-capability-secret-at-least-32',
@@ -994,7 +1130,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       turnstileSiteKey: '',
       turnstileRequired: false,
       proofOfWorkRequired: true,
-      proofOfWorkDifficulty: 16,
+      proofOfWorkDifficulty: 12,
       proofOfWorkTtl: 120,
     });
   });
@@ -1246,7 +1382,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       turnstileSiteKey: '',
       turnstileRequired: false,
       proofOfWorkRequired: true,
-      proofOfWorkDifficulty: 16,
+      proofOfWorkDifficulty: 12,
       proofOfWorkTtl: 120,
     });
   });
@@ -5308,9 +5444,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.32');
-    expect(html).toContain('/admin.js?v=8.3.32');
-    expect(html).toContain('data-admin-asset-version="8.3.32"');
+    expect(html).toContain('/admin.css?v=8.3.33');
+    expect(html).toContain('/admin.js?v=8.3.33');
+    expect(html).toContain('data-admin-asset-version="8.3.33"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -5329,7 +5465,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.32', '/admin.css?v=8.3.32']) {
+    for (const path of ['/admin.js?v=8.3.33', '/admin.css?v=8.3.33']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');

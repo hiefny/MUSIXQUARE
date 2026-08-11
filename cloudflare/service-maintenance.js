@@ -5,6 +5,7 @@ export const ADMIN_ANNOUNCEMENT_STATUS_PATH = '/internal/admin-announcement/v1/s
 export const ADMIN_ANNOUNCEMENT_STATE_PATH = '/internal/admin-announcement/v1/state';
 export const ABUSE_RATE_CONSUME_PATH = '/internal/abuse-rate/v1/consume';
 export const ABUSE_RATE_IDEMPOTENT_CONSUME_PATH = '/internal/abuse-rate/v2/consume';
+export const ABUSE_RATE_PAIR_CONSUME_PATH = '/internal/abuse-rate/v3/consume-pair';
 
 const SERVICE_CONTROL_CACHE_TTL_MS = 1_000;
 const ADMIN_ANNOUNCEMENT_CACHE_TTL_MS = 30_000;
@@ -22,8 +23,10 @@ export const SERVICE_CONTROL_READ_TIMEOUT_MS = 2_000;
 const SERVICE_CONTROL_EDGE_PROPAGATION_MS = 2_000;
 const SERVICE_CONTROL_ORIGIN = 'https://service-control.internal';
 const ABUSE_RATE_OBJECT_PREFIX = 'musixquare-abuse-rate-v1';
+const ABUSE_RATE_PAIR_OBJECT_PREFIX = 'musixquare-abuse-rate-pair-v1';
 const ABUSE_RATE_OPERATION_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
 const ABUSE_RATE_OPERATION_HISTORY_LIMIT = 1024;
+const ABUSE_RATE_PAIR_PRIMARY_LIMIT = 1024;
 const SERVICE_MAINTENANCE_RETRY_AFTER_SECONDS = 60;
 
 let serviceStatusCacheByBinding = new WeakMap();
@@ -320,6 +323,137 @@ export async function consumeAbuseRateLimit(env, input) {
       return { status: 'unavailable' };
     }
     return { status: 'ok', ...value };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+function canonicalAbuseRateResult(value, limit, cost, windowMs) {
+  const keys =
+    value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).sort() : [];
+  if (
+    keys.join(',') !== 'allowed,limit,remaining,resetAtMs,retryAfterSeconds' ||
+    typeof value.allowed !== 'boolean' ||
+    value.limit !== limit ||
+    !Number.isSafeInteger(value.remaining) ||
+    value.remaining < 0 ||
+    value.remaining > limit ||
+    !Number.isSafeInteger(value.resetAtMs) ||
+    value.resetAtMs <= 0 ||
+    value.resetAtMs % windowMs !== 0 ||
+    !Number.isSafeInteger(value.retryAfterSeconds) ||
+    (value.allowed
+      ? value.remaining > limit - cost || value.retryAfterSeconds !== 0
+      : value.remaining >= cost ||
+        value.retryAfterSeconds < 1 ||
+        value.retryAfterSeconds > Math.ceil(windowMs / 1_000))
+  ) {
+    return null;
+  }
+  return value;
+}
+
+export async function consumeAbuseRateLimitPair(env, input) {
+  const scope = typeof input?.scope === 'string' ? input.scope : '';
+  const identity = typeof input?.identity === 'string' ? input.identity : '';
+  const limit = input?.limit;
+  const windowMs = input?.windowMs;
+  const cost = input?.cost ?? 1;
+  const secondary = input?.secondary ?? null;
+  const secondaryValid =
+    secondary === null ||
+    (secondary &&
+      typeof secondary === 'object' &&
+      !Array.isArray(secondary) &&
+      /^[A-Za-z0-9._:-]{1,64}$/.test(secondary.identity) &&
+      Number.isSafeInteger(secondary.limit) &&
+      secondary.limit >= 1 &&
+      secondary.limit <= ABUSE_RATE_PAIR_PRIMARY_LIMIT &&
+      Number.isSafeInteger(secondary.cost ?? 1) &&
+      (secondary.cost ?? 1) >= 1 &&
+      (secondary.cost ?? 1) <= secondary.limit &&
+      (secondary.cost ?? 1) <= cost);
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(scope) ||
+    !/^[A-Za-z0-9._:-]{1,256}$/.test(identity) ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > ABUSE_RATE_PAIR_PRIMARY_LIMIT ||
+    !Number.isSafeInteger(windowMs) ||
+    windowMs < 1_000 ||
+    windowMs > 24 * 60 * 60 * 1_000 ||
+    !Number.isSafeInteger(cost) ||
+    cost < 1 ||
+    cost > limit ||
+    !secondaryValid
+  ) {
+    return { status: 'unavailable' };
+  }
+
+  const binding = serviceControlBinding(env);
+  if (!binding) return { status: 'unbound' };
+  try {
+    const objectName = `${ABUSE_RATE_PAIR_OBJECT_PREFIX}:${scope}:${identity}`;
+    const stub = namedServiceControlStub(binding, objectName);
+    if (!stub || typeof stub.fetch !== 'function') return { status: 'unavailable' };
+    const outcome = await fetchServiceControlResponse(
+      stub,
+      new Request(`${SERVICE_CONTROL_ORIGIN}${ABUSE_RATE_PAIR_CONSUME_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          limit,
+          windowMs,
+          cost,
+          secondaryIdentity: secondary?.identity ?? null,
+          secondaryLimit: secondary?.limit ?? null,
+          secondaryCost: secondary ? (secondary.cost ?? 1) : null,
+        }),
+      }),
+    );
+    if (outcome.kind !== 'response' || !outcome.response.ok) return { status: 'unavailable' };
+    const value = outcome.payload;
+    const keys =
+      value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value).sort() : [];
+    const primary = canonicalAbuseRateResult(value?.primary, limit, cost, windowMs);
+    const secondaryResult =
+      secondary === null || value?.secondary === null
+        ? null
+        : canonicalAbuseRateResult(
+            value?.secondary,
+            secondary.limit,
+            secondary.cost ?? 1,
+            windowMs,
+          );
+    const expectedDeniedBy = !primary?.allowed
+      ? 'primary'
+      : secondaryResult && !secondaryResult.allowed
+        ? 'secondary'
+        : null;
+    if (
+      keys.join(',') !== 'allowed,deniedBy,primary,secondary' ||
+      !primary ||
+      (secondary === null
+        ? value.secondary !== null
+        : primary.allowed
+          ? !secondaryResult
+          : value.secondary !== null) ||
+      (secondaryResult !== null && secondaryResult.resetAtMs !== primary.resetAtMs) ||
+      typeof value.allowed !== 'boolean' ||
+      value.allowed !== (primary.allowed && (secondaryResult?.allowed ?? true)) ||
+      value.deniedBy !== expectedDeniedBy
+    ) {
+      return { status: 'unavailable' };
+    }
+    const deniedResult = expectedDeniedBy === 'primary' ? primary : secondaryResult;
+    return {
+      status: 'ok',
+      allowed: value.allowed,
+      deniedBy: expectedDeniedBy,
+      retryAfterSeconds: value.allowed ? 0 : (deniedResult?.retryAfterSeconds ?? 0),
+      primary,
+      secondary: secondaryResult,
+    };
   } catch {
     return { status: 'unavailable' };
   }

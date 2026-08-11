@@ -25,6 +25,13 @@ const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
 const ATTACHMENT_VERSION = 1;
 const WS_RATE_LIMIT_PER_MINUTE = 120;
+const STANDARD_WS_RATE_WINDOW_MS = 60_000;
+const STANDARD_WS_RATE_STATE_KEY = 'standard-ws-open-rate-state-v1';
+const STANDARD_WS_RATE_OBJECT_PREFIX = 'musixquare-standard-ws-open-rate-v1:';
+const STANDARD_WS_RATE_OBJECT_NAME_RE =
+  /^musixquare-standard-ws-open-rate-v1:[A-Za-z0-9_-]{43}$/;
+const STANDARD_WS_RATE_CONSUME_PATH = '/internal/standard-ws-open-rate/v1/consume';
+const STANDARD_WS_RATE_FETCH_TIMEOUT_MS = 2_000;
 const WS_MESSAGE_MAX_BYTES = 64 * 1024;
 const SDP_MAX_BYTES = 48 * 1024;
 const ICE_CANDIDATE_MAX_BYTES = 4 * 1024;
@@ -1291,7 +1298,86 @@ async function signalingRateIdentity(request, key, env) {
   return bytesToBase64Url(new Uint8Array(signature));
 }
 
-async function checkRateLimit(
+function normalizeStandardWsRateState(value) {
+  if (
+    !hasExactKeys(value, ['v', 'windowStartMs', 'resetAtMs', 'count']) ||
+    value.v !== 1 ||
+    !Number.isSafeInteger(value.windowStartMs) ||
+    value.windowStartMs < 0 ||
+    value.windowStartMs % STANDARD_WS_RATE_WINDOW_MS !== 0 ||
+    !Number.isSafeInteger(value.resetAtMs) ||
+    value.resetAtMs !== value.windowStartMs + STANDARD_WS_RATE_WINDOW_MS ||
+    !Number.isSafeInteger(value.count) ||
+    value.count < 1 ||
+    value.count > WS_RATE_LIMIT_PER_MINUTE
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function namedRoomStub(binding, name) {
+  if (typeof binding?.getByName === 'function') return binding.getByName(name);
+  if (
+    typeof binding?.idFromName !== 'function' ||
+    typeof binding?.get !== 'function'
+  ) {
+    return null;
+  }
+  return binding.get(binding.idFromName(name));
+}
+
+async function fetchStandardWsRate(stub, request) {
+  if (typeof AbortSignal === 'undefined' || typeof AbortSignal.timeout !== 'function') {
+    return { kind: 'unavailable' };
+  }
+  const signal = AbortSignal.timeout(STANDARD_WS_RATE_FETCH_TIMEOUT_MS);
+  let abort = null;
+  const operation = Promise.resolve()
+    .then(() => stub.fetch(request))
+    .then(
+      (response) => ({ kind: 'response', response }),
+      () => ({ kind: 'unavailable' }),
+    );
+  const timeout = new Promise((resolve) => {
+    abort = () => resolve({ kind: 'unavailable' });
+    if (signal.aborted) abort();
+    else signal.onabort = abort;
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (signal.onabort === abort) signal.onabort = null;
+  }
+}
+
+async function checkStandardWsRateLimit(request, env) {
+  try {
+    const binding = env?.MUSIXQUARE_ROOMS;
+    if (!binding) return { status: 'unavailable' };
+    const identity = await signalingRateIdentity(request, 'ws-open', env);
+    const stub = namedRoomStub(binding, `${STANDARD_WS_RATE_OBJECT_PREFIX}${identity}`);
+    if (!stub || typeof stub.fetch !== 'function') return { status: 'unavailable' };
+    const outcome = await fetchStandardWsRate(
+      stub,
+      new Request(`https://signaling-rate.internal${STANDARD_WS_RATE_CONSUME_PATH}`, {
+        method: 'POST',
+      }),
+    );
+    if (outcome.kind !== 'response') return { status: 'unavailable' };
+    if (outcome.response?.status === 204) {
+      return { status: 'ok', allowed: true, retryAfterSeconds: 0 };
+    }
+    if (outcome.response?.status === 429) {
+      return { status: 'ok', allowed: false, retryAfterSeconds: 0 };
+    }
+    return { status: 'unavailable' };
+  } catch {
+    return { status: 'unavailable' };
+  }
+}
+
+async function checkProRateLimit(
   request,
   env,
   key,
@@ -1815,6 +1901,10 @@ export class MusixquareRoom {
   constructor(state, env = {}) {
     this.state = state;
     this.env = env;
+    this.standardRateOnly = STANDARD_WS_RATE_OBJECT_NAME_RE.test(String(state?.id?.name || ''));
+    this.standardRateState = null;
+    this.standardRateStateInvalid = false;
+    this.standardRateAlarmAt = null;
     this.roomMeta = null;
     this.proRoomMeta = null;
     this.host = null;
@@ -1841,7 +1931,28 @@ export class MusixquareRoom {
     this.alarmSync = Promise.resolve();
     this.alarmMaintenanceRetryAttempt = 0;
     this.proSocketsValidated = false;
-    this.rehydrateSockets();
+    if (this.standardRateOnly) {
+      const loadStandardRateState = async () => {
+        const [stored, storedAlarmAt] = await Promise.all([
+          this.state.storage.get(STANDARD_WS_RATE_STATE_KEY),
+          this.state.storage.getAlarm(),
+        ]);
+        const normalized =
+          stored === undefined || stored === null ? null : normalizeStandardWsRateState(stored);
+        if (stored !== undefined && stored !== null && !normalized) {
+          this.standardRateStateInvalid = true;
+        }
+        this.standardRateState = normalized;
+        this.standardRateAlarmAt = Number.isSafeInteger(storedAlarmAt) ? storedAlarmAt : null;
+      };
+      this.standardRateReady =
+        typeof state.blockConcurrencyWhile === 'function'
+          ? state.blockConcurrencyWhile(loadStandardRateState)
+          : loadStandardRateState();
+    } else {
+      this.standardRateReady = Promise.resolve();
+      this.rehydrateSockets();
+    }
   }
 
   defer(task) {
@@ -2966,6 +3077,63 @@ export class MusixquareRoom {
     return this.enqueueStandardAdmission(task);
   }
 
+  async consumeStandardWsOpenRate() {
+    await this.standardRateReady;
+    if (this.standardRateStateInvalid) {
+      return json({ error: 'STANDARD_WS_RATE_STATE_INVALID' }, 503);
+    }
+    return this.enqueueStandardAdmission(async () => {
+      const now = Date.now();
+      const windowStartMs =
+        Math.floor(now / STANDARD_WS_RATE_WINDOW_MS) * STANDARD_WS_RATE_WINDOW_MS;
+      const resetAtMs = windowStartMs + STANDARD_WS_RATE_WINDOW_MS;
+      const current =
+        this.standardRateState?.windowStartMs === windowStartMs
+          ? this.standardRateState
+          : null;
+      const count = current?.count || 0;
+      const allowed = count < WS_RATE_LIMIT_PER_MINUTE;
+      if (allowed) {
+        const next = {
+          v: 1,
+          windowStartMs,
+          resetAtMs,
+          count: count + 1,
+        };
+        await this.state.storage.put(STANDARD_WS_RATE_STATE_KEY, next);
+        this.standardRateState = next;
+      }
+      if (this.standardRateAlarmAt !== resetAtMs) {
+        await this.state.storage.setAlarm(resetAtMs);
+        this.standardRateAlarmAt = resetAtMs;
+      }
+      if (allowed) return new Response(null, { status: 204 });
+      return new Response(null, {
+        status: 429,
+        headers: { 'retry-after': String(Math.max(1, Math.ceil((resetAtMs - now) / 1_000))) },
+      });
+    });
+  }
+
+  async cleanupStandardWsOpenRate() {
+    await this.standardRateReady;
+    if (this.standardRateStateInvalid) {
+      throw new Error('STANDARD_WS_RATE_STATE_INVALID');
+    }
+    return this.enqueueStandardAdmission(async () => {
+      const state = this.standardRateState;
+      if (state && state.resetAtMs > Date.now()) {
+        await this.state.storage.setAlarm(state.resetAtMs);
+        this.standardRateAlarmAt = state.resetAtMs;
+        return;
+      }
+      await this.state.storage.delete(STANDARD_WS_RATE_STATE_KEY);
+      await this.state.storage.deleteAlarm();
+      this.standardRateState = null;
+      this.standardRateAlarmAt = null;
+    });
+  }
+
   async clearExpiredHostRelease() {
     const meta = await this.loadRoomMeta();
     if (this.host || !meta.hostReleaseAt || meta.hostReleaseAt > Date.now()) return meta;
@@ -3091,9 +3259,20 @@ export class MusixquareRoom {
   }
 
   async fetch(request) {
+    const url = new URL(request.url);
+    if (this.standardRateOnly) {
+      if (
+        request.method !== 'POST' ||
+        url.pathname !== STANDARD_WS_RATE_CONSUME_PATH ||
+        url.search ||
+        url.hash
+      ) {
+        return json({ error: 'NOT_FOUND' }, 404);
+      }
+      return this.consumeStandardWsOpenRate();
+    }
     const maintenanceResponse = await gateServiceMaintenance(request, this.env, { format: 'json' });
     if (maintenanceResponse) return maintenanceResponse;
-    const url = new URL(request.url);
     if (url.pathname.startsWith('/internal/')) {
       if (request.method !== 'POST' || url.search || url.hash) {
         return json({ error: 'NOT_FOUND' }, 404);
@@ -3989,6 +4168,10 @@ export class MusixquareRoom {
   }
 
   async alarm() {
+    if (this.standardRateOnly) {
+      await this.cleanupStandardWsOpenRate();
+      return;
+    }
     if ((await readServiceMaintenance(this.env)).enabled) {
       await this.reconcileStandardRoomClosuresDuringMaintenance();
       return;
@@ -4968,7 +5151,7 @@ export default {
       );
       if (!ticket) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
       const proRoomObject = proRoomObjectName(roomId, ticket.roomGeneration);
-      const rate = await checkRateLimit(request, env, `pro-ws-open:${proRoomObject}`);
+      const rate = await checkProRateLimit(request, env, `pro-ws-open:${proRoomObject}`);
       if (rate.status !== 'ok') return json({ error: 'RATE_LIMIT_UNAVAILABLE' }, 503);
       if (!rate.allowed) {
         return json({ error: 'Too Many Requests' }, 429);
@@ -4986,7 +5169,7 @@ export default {
     if (isProNamespaceRoomCode(roomId)) {
       return json({ error: 'ROOM_RESERVED' }, 403);
     }
-    const rate = await checkRateLimit(request, env, 'ws-open');
+    const rate = await checkStandardWsRateLimit(request, env);
     if (rate.status !== 'ok') return json({ error: 'RATE_LIMIT_UNAVAILABLE' }, 503);
     if (!rate.allowed) {
       return json({ error: 'Too Many Requests' }, 429);

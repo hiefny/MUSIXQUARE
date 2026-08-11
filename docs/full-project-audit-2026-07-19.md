@@ -11,6 +11,11 @@ This audit reviewed current intent before changing behavior. A suspicious path
 was changed only after its callers, state owner, protocol boundary, cleanup
 path, tests, operational contract, and relevant history agreed that the behavior
 was a defect. Historical proposals were not treated as current requirements.
+Security or abuse changes must also follow the maintained
+[security and hot-path performance policy](security-performance-tier-policy.md):
+identify the protected asset and tier, inventory every new synchronous hop, and
+provide the required before/after latency evidence before changing a
+standard-room startup path.
 
 ## Scope and method
 
@@ -132,6 +137,9 @@ The automated release candidate is complete only when the following all pass on
 the final commit:
 
 - full Vitest suite, typecheck, ESLint, Prettier, Worker syntax;
+- the standard-room hot-path guard, including the single composite TURN
+  admission, default proof-of-work cost, and invite-return-before-TURN ordering
+  contracts;
 - playback/storage/developer API/service-worker static guards;
 - production build and browser-free generation/initial-asset-graph plus HTTP
   boundary release smokes;

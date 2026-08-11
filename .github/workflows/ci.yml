@@ -52,6 +52,9 @@ jobs:
       - name: Worker syntax check
         run: npm run check:workers
 
+      - name: Standard-room security and latency policy
+        run: npm run guard:standard-room-hot-path
+
       - name: Storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 

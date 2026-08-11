@@ -15,6 +15,10 @@ or a substitute for the current source and tests.
   and [account authentication provisioning](account-auth-operations.md) define
   the account model, OAuth/D1 security boundary, and production setup.
 
+- [Security and hot-path performance policy](security-performance-tier-policy.md)
+  defines the standard/PRO/admin security tiers, the standard-room synchronous
+  dependency budget, and the evidence required before an audit may add latency.
+
 - [Developer API OpenAPI contract](../public/developers/openapi.yaml) defines
   the public server-to-server `/v1` route and payload surface.
 

@@ -177,6 +177,10 @@ interface NetworkInitOwner {
   controller: AbortController;
   peer: PeerInstance | null;
   peerOpenSettled: boolean;
+  initSettled: boolean;
+  deferredRtcConfigurationPending: boolean;
+  peerReadyPublished: boolean;
+  deferredRtcConfigurationError: unknown | null;
 }
 
 let _networkInitEpoch = 0;
@@ -200,6 +204,10 @@ function beginNetworkInit(requestedId: string | null): NetworkInitOwner {
     controller: new AbortController(),
     peer: null,
     peerOpenSettled: false,
+    initSettled: false,
+    deferredRtcConfigurationPending: false,
+    peerReadyPublished: false,
+    deferredRtcConfigurationError: null,
   };
   _activeNetworkInit = owner;
   return owner;
@@ -228,6 +236,72 @@ function isNetworkInitStillActive(owner: NetworkInitOwner): boolean {
 function assertNetworkInitStillActive(owner: NetworkInitOwner): void {
   if (!isNetworkInitStillActive(owner)) {
     throw createNetworkInitCancelledError();
+  }
+}
+
+function releaseSettledNetworkInitOwner(owner: NetworkInitOwner): void {
+  if (owner.initSettled && !owner.deferredRtcConfigurationPending && _activeNetworkInit === owner) {
+    _activeNetworkInit = null;
+  }
+}
+
+async function settleDeferredHostRtcConfiguration(
+  owner: NetworkInitOwner,
+  peer: PeerInstance,
+  setRtcConfiguration: (configuration: RTCConfiguration) => void,
+  baseIceServers: RTCIceServer[],
+  turnCredentialsRequest: ReturnType<typeof getStandardRoomTurnCredentials>,
+): Promise<void> {
+  try {
+    let turnCredentials = null;
+    try {
+      turnCredentials = await turnCredentialsRequest;
+    } catch (error) {
+      if (!isNetworkInitStillActive(owner) || getPeer() !== peer || peer.destroyed) return;
+      log.warn(
+        `[Network] TURN config request rejected; continuing with STUN only: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
+    if (!isNetworkInitStillActive(owner) || getPeer() !== peer || peer.destroyed) return;
+
+    const iceServers = [...baseIceServers];
+    if (turnCredentials) {
+      iceServers.push(...turnCredentials.iceServers);
+      log.info(
+        `[Network] TURN ICE servers loaded (${turnCredentials.provider}) via ${turnCredentials.source}`,
+      );
+    } else {
+      log.warn(
+        '[Network] TURN config unavailable -- STUN only (P2P will likely fail behind symmetric NAT)',
+      );
+    }
+
+    setRtcConfiguration({
+      iceServers,
+      bundlePolicy: 'max-bundle',
+    });
+  } catch (error) {
+    if (!isNetworkInitStillActive(owner) || getPeer() !== peer || peer.destroyed) return;
+    owner.deferredRtcConfigurationError = error;
+    if (!owner.peerReadyPublished) {
+      owner.controller.abort(error);
+      return;
+    }
+
+    log.error('[Network] Failed to release the deferred RTC configuration gate', error);
+    if (getPeer() === peer) setPeer(null);
+    try {
+      if (!peer.destroyed) peer.destroy();
+    } catch {
+      /* noop */
+    }
+    bus.emit('network:error', error);
+  } finally {
+    owner.deferredRtcConfigurationPending = false;
+    releaseSettledNetworkInitOwner(owner);
   }
 }
 
@@ -351,33 +425,34 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
       setPeer(newPeer);
       setupPeerEvents(newPeer);
 
+      const setRtcConfiguration = newPeer.setRtcConfiguration?.bind(newPeer);
+      if (!setRtcConfiguration) {
+        throw new Error('RTC_CONFIGURATION_GATE_UNAVAILABLE');
+      }
+
       const peerOpenRequest = waitForPeerOpen(newPeer, owner);
-      const rtcConfigurationRequest = turnCredentialsRequest.then((turnCredentials) => {
-        assertNetworkInitStillActive(owner);
-        if (turnCredentials) {
-          iceServers.push(...turnCredentials.iceServers);
-          log.info(
-            `[Network] TURN ICE servers loaded (${turnCredentials.provider}) via ${turnCredentials.source}`,
-          );
-        } else {
-          log.warn(
-            '[Network] TURN config unavailable ??STUN only (P2P will likely fail behind symmetric NAT)',
-          );
-        }
-        if (!newPeer.setRtcConfiguration) {
-          throw new Error('RTC_CONFIGURATION_GATE_UNAVAILABLE');
-        }
-        newPeer.setRtcConfiguration({
-          iceServers: [...iceServers],
-          bundlePolicy: 'max-bundle',
-        });
-      });
-      const [id] = await Promise.all([peerOpenRequest, rtcConfigurationRequest]);
+      owner.deferredRtcConfigurationPending = true;
+      void settleDeferredHostRtcConfiguration(
+        owner,
+        newPeer,
+        setRtcConfiguration,
+        iceServers,
+        turnCredentialsRequest,
+      );
+      const id = await peerOpenRequest;
 
       assertNetworkInitStillActive(owner);
       if (getPeer() !== newPeer || !newPeer.open || newPeer.destroyed || newPeer.disconnected) {
         throw new Error('PEER_NOT_OPEN_AFTER_PREREQUISITES');
       }
+      if (owner.deferredRtcConfigurationError) {
+        throw owner.deferredRtcConfigurationError;
+      }
+      // The invite code proves only that the edge accepted this exact host
+      // signaling identity. TURN continues in the owned background task; the
+      // transport gate keeps guessed-code offers from constructing RTC until
+      // either TURN or the explicit STUN fallback has been installed.
+      owner.peerReadyPublished = true;
       setState('network.myId', id);
       log.info('[Network] Peer opened:', id);
       bus.emit('network:peer-ready', id);
@@ -429,9 +504,9 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     bus.emit('network:peer-ready', id);
     return id;
   } catch (error) {
-    // Settle the sibling TURN/peer-open branch immediately. In particular,
-    // Promise.all may reject before peer-open and its managed timeout would
-    // otherwise survive this failed initialization for up to 15 seconds.
+    // Settle both the peer-open waiter and any owned deferred RTC task. The
+    // page-scoped TURN fetch may continue for reuse, but this peer can no
+    // longer consume its result.
     owner.controller.abort(error);
     if (ownedPeer && getPeer() === ownedPeer) setPeer(null);
     try {
@@ -441,7 +516,8 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     }
     throw error;
   } finally {
-    if (_activeNetworkInit === owner) _activeNetworkInit = null;
+    owner.initSettled = true;
+    releaseSettledNetworkInitOwner(owner);
   }
 }
 

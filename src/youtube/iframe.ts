@@ -138,7 +138,18 @@ const SAME_VIDEO_OCCURRENCE_PAUSE_TIMEOUT_MS = 500;
 const RETAINED_PLAYER_PARK_CONFIRM_TIMER = 'yt-retained-player-park-confirm';
 const RETAINED_PLAYER_TARGET_CONFIRM_TIMER = 'yt-retained-player-target-confirm';
 const RETAINED_PLAYER_CONFIRM_POLL_MS = 40;
-const RETAINED_PLAYER_CONFIRM_MAX_POLLS = 25;
+// A YouTube cue/load is a network operation inside the iframe. One second was
+// short enough that a healthy iPhone on a cold/mobile route regularly lost its
+// already-unlocked iframe to the destroy fallback. Both background PRIME
+// parking and a real target get a 10 s cold-network window; hard mute is
+// reverified on every sample, so retaining the exact iframe remains safe.
+const RETAINED_PLAYER_PARK_CONFIRM_MAX_POLLS = 250;
+const RETAINED_PLAYER_TARGET_CONFIRM_MAX_POLLS = 250;
+// mute() is a local iframe command, unlike cue/load identity convergence. Do
+// not keep an offscreen owner for the full cold-network window unless its
+// physical mute can be read back continuously. One second permits normal
+// postMessage convergence while bounding unknown or ineffective mute APIs.
+const RETAINED_PLAYER_HARD_MUTE_CONFIRM_MAX_POLLS = 25;
 const RETAINED_PLAYER_STABLE_SAMPLES = 2;
 
 /**
@@ -184,17 +195,26 @@ interface RetainedPlayerParking {
   phase: RetainedPlayerPhase;
   outgoingVideoId: string;
   targetVideoId: string | null;
+  targetPlaylistId: string | null;
+  targetPlaylistIndex: number | null;
   commandIssued: boolean;
   acceptedState: number | null;
+  acceptedVideoId: string | null;
+  acceptedPlaylistIndex: number | null;
   releaseAccepted: boolean;
   pauseBackObserved: boolean;
+  stableVideoId: string | null;
+  stablePlaylistIndex: number | null;
   stableState: number | null;
   stableSamples: number;
   pollCount: number;
+  hardMuteUnconfirmedPolls: number;
+  releaseLoadInProgressOnTargetProof: boolean;
   sessionId: number | null;
   queueItemId: QueueItemId | null;
   retry: {
-    videoId: string;
+    videoId: string | null;
+    playlistId: string | null;
     autoplay: boolean;
     subIndex: number;
   } | null;
@@ -203,9 +223,76 @@ interface RetainedPlayerParking {
 let retainedPlayerParking: RetainedPlayerParking | null = null;
 let retainedPlayerParkingGeneration = 0;
 
+function sanitizeRetainedPlaylistIndex(subIndex: number): number {
+  if (!Number.isFinite(subIndex)) return 0;
+  return Math.max(0, Math.trunc(subIndex));
+}
+
+function resolveRetainedCommandPlaylistId(
+  videoId: string | null,
+  playlistId: string | null,
+  indexingRequested: boolean,
+): string | null {
+  if (!playlistId) return null;
+  // Pure playlist loads have no single-video fallback. When both IDs exist,
+  // createYouTubePlayer keeps the native list only for the coordinator's
+  // scrape/index path; connected guests intentionally load the resolved video.
+  if (!videoId || !getState('network.hostConn') || indexingRequested) return playlistId;
+  return null;
+}
+
 function clearRetainedPlayerTimers(): void {
   clearManagedTimer(RETAINED_PLAYER_PARK_CONFIRM_TIMER);
   clearManagedTimer(RETAINED_PLAYER_TARGET_CONFIRM_TIMER);
+}
+
+function readRetainedPlayerIdentity(player: YouTubePlayerInstance): {
+  videoId: string;
+  state: number;
+} | null {
+  if (!player.getVideoData || !player.getPlayerState) return null;
+  try {
+    const videoId = player.getVideoData()?.video_id || '';
+    const state = player.getPlayerState();
+    if (!videoId || !Number.isFinite(state)) return null;
+    return { videoId, state };
+  } catch {
+    return null;
+  }
+}
+
+function readRetainedPlayerPlaylistIdentity(player: YouTubePlayerInstance): {
+  videoId: string;
+  state: number;
+  playlistIndex: number;
+} | null {
+  const identity = readRetainedPlayerIdentity(player);
+  if (!identity || identity.videoId === YOUTUBE_PRIME_VIDEO_ID) return null;
+  try {
+    const playlistIndex = player.getPlaylistIndex?.();
+    const playlist = player.getPlaylist?.();
+    if (
+      typeof playlistIndex !== 'number' ||
+      !Number.isInteger(playlistIndex) ||
+      playlistIndex < 0 ||
+      !Array.isArray(playlist) ||
+      playlist[playlistIndex] !== identity.videoId
+    ) {
+      return null;
+    }
+    return { ...identity, playlistIndex };
+  } catch {
+    return null;
+  }
+}
+
+function readRetainedPlayerMuteState(player: YouTubePlayerInstance): boolean | null {
+  if (!player.isMuted) return null;
+  try {
+    return player.isMuted() === true;
+  } catch {
+    return null;
+  }
 }
 
 function readRetainedPlayerSnapshot(player: YouTubePlayerInstance): {
@@ -213,16 +300,12 @@ function readRetainedPlayerSnapshot(player: YouTubePlayerInstance): {
   state: number;
   muted: boolean;
 } | null {
-  if (!player.getVideoData || !player.getPlayerState || !player.isMuted) return null;
-  try {
-    const videoId = player.getVideoData()?.video_id || '';
-    const state = player.getPlayerState();
-    const muted = player.isMuted() === true;
-    if (!videoId || !Number.isFinite(state)) return null;
-    return { videoId, state, muted };
-  } catch {
-    return null;
-  }
+  // Read the two proofs independently. In particular, an empty/throwing video
+  // identity must never prevent callers from observing a lost physical mute.
+  const identity = readRetainedPlayerIdentity(player);
+  const muted = readRetainedPlayerMuteState(player);
+  if (!identity || muted === null) return null;
+  return { ...identity, muted };
 }
 
 function issueRetainedPlayerHardMute(player: YouTubePlayerInstance): boolean {
@@ -236,6 +319,44 @@ function issueRetainedPlayerHardMute(player: YouTubePlayerInstance): boolean {
   } catch {
     return false;
   }
+}
+
+type RetainedPlayerHardMuteProof =
+  | { status: 'confirmed' }
+  | { status: 'pending' }
+  | { status: 'failed'; reason: string };
+
+/**
+ * Prove physical mute separately from video identity/state. Identity can stay
+ * cold for ten seconds on iPhone, but an offscreen iframe may consume that
+ * budget only while isMuted() keeps returning true. A false or unreadable
+ * result is re-muted and gets its own short, consecutive confirmation budget.
+ */
+function proveRetainedPlayerHardMute(parking: RetainedPlayerParking): RetainedPlayerHardMuteProof {
+  const initialMuteState = readRetainedPlayerMuteState(parking.player);
+  if (initialMuteState === true) {
+    parking.hardMuteUnconfirmedPolls = 0;
+    return { status: 'confirmed' };
+  }
+
+  if (!issueRetainedPlayerHardMute(parking.player)) {
+    return { status: 'failed', reason: 'hard-mute-command-failed' };
+  }
+
+  const retriedMuteState = readRetainedPlayerMuteState(parking.player);
+  if (retriedMuteState === true) {
+    parking.hardMuteUnconfirmedPolls = 0;
+    return { status: 'confirmed' };
+  }
+
+  parking.hardMuteUnconfirmedPolls += 1;
+  if (parking.hardMuteUnconfirmedPolls >= RETAINED_PLAYER_HARD_MUTE_CONFIRM_MAX_POLLS) {
+    return {
+      status: 'failed',
+      reason: retriedMuteState === false ? 'hard-mute-unconfirmed' : 'hard-mute-unreadable',
+    };
+  }
+  return { status: 'pending' };
 }
 
 function destroyRetainedYouTubePlayer(
@@ -275,6 +396,10 @@ function destroyRetainedYouTubePlayer(
 
 function failRetainedPlayerParking(parking: RetainedPlayerParking, reason: string): void {
   if (retainedPlayerParking !== parking) return;
+  if (parking.retry && retainedTargetRequestStillCurrent(parking)) {
+    retryRetainedTargetWithFreshPlayer(parking, reason);
+    return;
+  }
   log.warn(`[YouTube] Retained-player parking failed (${reason}); rebuilding iframe`);
   destroyRetainedYouTubePlayer(parking, IS_IOS);
 }
@@ -288,21 +413,31 @@ function pollRetainedPlayerParking(parking: RetainedPlayerParking): void {
     return;
   }
 
-  parking.pollCount += 1;
-  let snapshot = readRetainedPlayerSnapshot(parking.player);
-  if (snapshot && !snapshot.muted) {
-    if (!issueRetainedPlayerHardMute(parking.player)) {
-      failRetainedPlayerParking(parking, 'hard-mute-lost');
-      return;
-    }
-    snapshot = readRetainedPlayerSnapshot(parking.player);
+  const hardMuteProof = proveRetainedPlayerHardMute(parking);
+  if (hardMuteProof.status === 'failed') {
+    failRetainedPlayerParking(parking, hardMuteProof.reason);
+    return;
+  }
+  if (hardMuteProof.status === 'pending') {
+    // Stable identity proof must be consecutive across samples whose physical
+    // mute is readable. An uncertain interval breaks the occurrence fence.
+    parking.stableSamples = 0;
+    setManagedTimer(
+      RETAINED_PLAYER_PARK_CONFIRM_TIMER,
+      () => pollRetainedPlayerParking(parking),
+      RETAINED_PLAYER_CONFIRM_POLL_MS,
+    );
+    return;
   }
 
+  // The cold-network identity budget advances only on samples that have just
+  // independently proven the iframe physically muted.
+  parking.pollCount += 1;
+  const identity = readRetainedPlayerIdentity(parking.player);
+
   const confirmed =
-    snapshot?.muted === true &&
-    snapshot.videoId === YOUTUBE_PRIME_VIDEO_ID &&
-    (snapshot.state === YT.PlayerState.CUED ||
-      (parking.phase === 'parking-prime-after-bounce' && snapshot.state === YT.PlayerState.PAUSED));
+    identity?.videoId === YOUTUBE_PRIME_VIDEO_ID &&
+    (identity.state === YT.PlayerState.CUED || identity.state === YT.PlayerState.PAUSED);
   parking.stableSamples = confirmed ? parking.stableSamples + 1 : 0;
   if (parking.stableSamples >= RETAINED_PLAYER_STABLE_SAMPLES) {
     parking.phase = 'parked';
@@ -310,6 +445,24 @@ function pollRetainedPlayerParking(parking: RetainedPlayerParking): void {
     parking.stableSamples = 0;
     setCachedYtPlaylistIdx(-1);
     invalidateYtDurationCache();
+    if (parking.retry) {
+      if (!retainedTargetRequestStillCurrent(parking)) {
+        const ownedCurrentLoad = parking.sessionId === getCurrentSessionId();
+        parking.retry = null;
+        parking.sessionId = null;
+        parking.queueItemId = null;
+        if (ownedCurrentLoad) setYtLoadInProgress(false);
+      } else if (!beginRetainedPlayerTargetHandoff(parking)) {
+        retryRetainedTargetWithFreshPlayer(parking, 'hard-mute-command-failed');
+        return;
+      } else {
+        const retry = parking.retry;
+        if (!retry) return;
+        setYtLoadInProgress(true);
+        createYouTubePlayer(retry.videoId, retry.playlistId, retry.autoplay, retry.subIndex);
+        return;
+      }
+    }
     // Never publish gesture-bounce readiness merely because cueVideoById()
     // returned. The exact silent occurrence and its hard mute are now live.
     setYtPrimeReady(!isYtPrimed() && isYtPlayerReady());
@@ -317,7 +470,13 @@ function pollRetainedPlayerParking(parking: RetainedPlayerParking): void {
     return;
   }
 
-  if (parking.pollCount >= RETAINED_PLAYER_CONFIRM_MAX_POLLS) {
+  // Keep the two ownership budgets explicit even though both currently allow
+  // 10 seconds: a pending target follows target policy, while off-mode parking
+  // follows the silent PRIME policy. Hard mute is reverified on every sample.
+  const maxPolls = parking.retry
+    ? RETAINED_PLAYER_TARGET_CONFIRM_MAX_POLLS
+    : RETAINED_PLAYER_PARK_CONFIRM_MAX_POLLS;
+  if (parking.pollCount >= maxPolls) {
     failRetainedPlayerParking(parking, 'silent-prime-unconfirmed');
     return;
   }
@@ -328,61 +487,148 @@ function pollRetainedPlayerParking(parking: RetainedPlayerParking): void {
   );
 }
 
+function retainedTargetRequestStillCurrent(parking: RetainedPlayerParking): boolean {
+  return (
+    parking.retry !== null &&
+    parking.sessionId === getCurrentSessionId() &&
+    parking.queueItemId === getCurrentQueueItemId() &&
+    isPlaybackModeYouTube()
+  );
+}
+
+function beginRetainedPlayerTargetHandoff(parking: RetainedPlayerParking): boolean {
+  const retry = parking.retry;
+  if (!retry || !issueRetainedPlayerHardMute(parking.player)) return false;
+
+  clearRetainedPlayerTimers();
+  parking.generation = ++retainedPlayerParkingGeneration;
+  parking.phase = 'loading-target';
+  parking.targetVideoId = retry.videoId;
+  parking.commandIssued = false;
+  parking.acceptedState = null;
+  parking.acceptedVideoId = null;
+  parking.acceptedPlaylistIndex = null;
+  parking.releaseAccepted = false;
+  parking.pauseBackObserved = false;
+  parking.stableVideoId = null;
+  parking.stablePlaylistIndex = null;
+  parking.stableState = null;
+  parking.stableSamples = 0;
+  parking.pollCount = 0;
+  parking.releaseLoadInProgressOnTargetProof = false;
+  setYtPrimeReady(false);
+  return true;
+}
+
 function retryRetainedTargetWithFreshPlayer(parking: RetainedPlayerParking, reason: string): void {
   if (retainedPlayerParking !== parking) return;
   const retry = parking.retry;
-  const stillCurrent =
-    retry !== null &&
-    parking.sessionId === getCurrentSessionId() &&
-    parking.queueItemId === getCurrentQueueItemId() &&
-    isPlaybackModeYouTube();
+  const stillCurrent = retainedTargetRequestStillCurrent(parking);
   log.warn(`[YouTube] Retained-player target handoff failed (${reason}); rebuilding iframe`);
   destroyRetainedYouTubePlayer(parking, false);
   if (!stillCurrent || !retry) return;
   setYtLoadInProgress(true);
-  createYouTubePlayer(retry.videoId, null, retry.autoplay, retry.subIndex);
+  createYouTubePlayer(retry.videoId, retry.playlistId, retry.autoplay, retry.subIndex);
 }
 
-function pollRetainedPlayerTarget(parking: RetainedPlayerParking): void {
+interface RetainedPlayerTargetIdentity {
+  videoId: string;
+  state: number;
+  playlistIndex: number | null;
+}
+
+function readRetainedPlayerTargetIdentity(
+  parking: RetainedPlayerParking,
+): RetainedPlayerTargetIdentity | null {
+  if (parking.targetPlaylistId) {
+    const playlistIdentity = readRetainedPlayerPlaylistIdentity(parking.player);
+    if (!playlistIdentity || playlistIdentity.playlistIndex !== parking.targetPlaylistIndex) {
+      return null;
+    }
+    return playlistIdentity;
+  }
+
+  const identity = readRetainedPlayerIdentity(parking.player);
+  if (!identity || !parking.targetVideoId || identity.videoId !== parking.targetVideoId) {
+    return null;
+  }
+  return { ...identity, playlistIndex: null };
+}
+
+function resetRetainedPlayerTargetStableProof(parking: RetainedPlayerParking): void {
+  parking.stableVideoId = null;
+  parking.stablePlaylistIndex = null;
+  parking.stableState = null;
+  parking.stableSamples = 0;
+}
+
+function scheduleRetainedPlayerTargetPoll(
+  parking: RetainedPlayerParking,
+  generation = parking.generation,
+): void {
+  setManagedTimer(
+    RETAINED_PLAYER_TARGET_CONFIRM_TIMER,
+    () => pollRetainedPlayerTarget(parking, generation),
+    RETAINED_PLAYER_CONFIRM_POLL_MS,
+  );
+}
+
+function pollRetainedPlayerTarget(parking: RetainedPlayerParking, generation: number): void {
   if (
     retainedPlayerParking !== parking ||
+    parking.generation !== generation ||
     parking.phase !== 'loading-target' ||
     !parking.commandIssued ||
     getYouTubePlayer() !== parking.player
   ) {
     return;
   }
-
-  parking.pollCount += 1;
-  let snapshot = readRetainedPlayerSnapshot(parking.player);
-  if (snapshot && !snapshot.muted) {
-    if (!issueRetainedPlayerHardMute(parking.player)) {
-      retryRetainedTargetWithFreshPlayer(parking, 'hard-mute-lost');
-      return;
-    }
-    snapshot = readRetainedPlayerSnapshot(parking.player);
+  if (!retainedTargetRequestStillCurrent(parking)) {
+    retryRetainedTargetWithFreshPlayer(parking, 'target-request-superseded');
+    return;
   }
 
+  const hardMuteProof = proveRetainedPlayerHardMute(parking);
+  if (hardMuteProof.status === 'failed') {
+    retryRetainedTargetWithFreshPlayer(parking, hardMuteProof.reason);
+    return;
+  }
+  if (hardMuteProof.status === 'pending') {
+    resetRetainedPlayerTargetStableProof(parking);
+    scheduleRetainedPlayerTargetPoll(parking, generation);
+    return;
+  }
+
+  // As with PRIME parking, target identity may use the long network budget
+  // only on samples with a fresh physical-mute proof.
+  parking.pollCount += 1;
+  const identity = readRetainedPlayerTargetIdentity(parking);
+
   const usableState =
-    snapshot?.state === YT.PlayerState.CUED ||
-    snapshot?.state === YT.PlayerState.PAUSED ||
-    snapshot?.state === YT.PlayerState.PLAYING;
-  const targetResident =
-    snapshot?.muted === true && snapshot.videoId === parking.targetVideoId && usableState;
-  if (targetResident && snapshot) {
-    if (parking.stableState === snapshot.state) parking.stableSamples += 1;
-    else {
-      parking.stableState = snapshot.state;
+    identity?.state === YT.PlayerState.CUED ||
+    identity?.state === YT.PlayerState.PAUSED ||
+    identity?.state === YT.PlayerState.PLAYING;
+  const targetResident = Boolean(identity && usableState);
+  if (targetResident && identity) {
+    if (
+      parking.stableVideoId === identity.videoId &&
+      parking.stablePlaylistIndex === identity.playlistIndex &&
+      parking.stableState === identity.state
+    ) {
+      parking.stableSamples += 1;
+    } else {
+      parking.stableVideoId = identity.videoId;
+      parking.stablePlaylistIndex = identity.playlistIndex;
+      parking.stableState = identity.state;
       parking.stableSamples = 1;
     }
   } else {
-    parking.stableState = null;
-    parking.stableSamples = 0;
+    resetRetainedPlayerTargetStableProof(parking);
   }
 
-  if (snapshot && parking.stableSamples >= RETAINED_PLAYER_STABLE_SAMPLES) {
+  if (identity && parking.stableSamples >= RETAINED_PLAYER_STABLE_SAMPLES) {
     if (
-      snapshot.state === YT.PlayerState.PLAYING &&
+      identity.state === YT.PlayerState.PLAYING &&
       !getYtAutoplayIntent() &&
       parking.pauseBackObserved
     ) {
@@ -391,77 +637,76 @@ function pollRetainedPlayerTarget(parking: RetainedPlayerParking): void {
       } catch (error) {
         log.debug('[YouTube] Retained target pause-back retry failed:', error);
       }
-      parking.stableSamples = 0;
-      parking.stableState = null;
-      if (parking.pollCount >= RETAINED_PLAYER_CONFIRM_MAX_POLLS) {
+      resetRetainedPlayerTargetStableProof(parking);
+      if (parking.pollCount >= RETAINED_PLAYER_TARGET_CONFIRM_MAX_POLLS) {
         retryRetainedTargetWithFreshPlayer(parking, 'pause-back-unconfirmed');
         return;
       }
-      setManagedTimer(
-        RETAINED_PLAYER_TARGET_CONFIRM_TIMER,
-        () => pollRetainedPlayerTarget(parking),
-        RETAINED_PLAYER_CONFIRM_POLL_MS,
-      );
+      scheduleRetainedPlayerTargetPoll(parking, generation);
       return;
     }
     parking.phase = 'releasing-target';
-    parking.acceptedState = snapshot.state;
+    parking.acceptedState = identity.state;
+    parking.acceptedVideoId = identity.videoId;
+    parking.acceptedPlaylistIndex = identity.playlistIndex;
     parking.releaseAccepted = false;
+    const releasesOrdinaryLoad =
+      parking.releaseLoadInProgressOnTargetProof &&
+      !(identity.state === YT.PlayerState.PLAYING && !getYtAutoplayIntent());
+    if (releasesOrdinaryLoad) setYtLoadInProgress(false);
     // Native callbacks received while loading were deliberately discarded.
     // Replay only this post-command, stable live snapshot through the normal
     // state owner while the hard-mute fence is still closed.
-    onYouTubePlayerStateChange({ data: snapshot.state, target: parking.player });
-    if (retainedPlayerParking !== parking || getYouTubePlayer() !== parking.player) return;
+    onYouTubePlayerStateChange({ data: identity.state, target: parking.player });
+    if (
+      retainedPlayerParking !== parking ||
+      parking.generation !== generation ||
+      getYouTubePlayer() !== parking.player
+    ) {
+      return;
+    }
     if (!parking.releaseAccepted) {
       parking.phase = 'loading-target';
       parking.acceptedState = null;
-      parking.stableSamples = 0;
-      parking.stableState = null;
-      setManagedTimer(
-        RETAINED_PLAYER_TARGET_CONFIRM_TIMER,
-        () => pollRetainedPlayerTarget(parking),
-        RETAINED_PLAYER_CONFIRM_POLL_MS,
-      );
+      parking.acceptedVideoId = null;
+      parking.acceptedPlaylistIndex = null;
+      resetRetainedPlayerTargetStableProof(parking);
+      scheduleRetainedPlayerTargetPoll(parking, generation);
       return;
     }
-    if (snapshot.state === YT.PlayerState.PLAYING && !getYtAutoplayIntent()) {
+    if (identity.state === YT.PlayerState.PLAYING && !getYtAutoplayIntent()) {
       // The ordinary handler above issued pause-back and consumed any pending
       // start owner. Keep the physical mute fence until WebKit proves PAUSED
       // or a newly-intended PLAYING state becomes live.
       parking.phase = 'loading-target';
       parking.acceptedState = null;
+      parking.acceptedVideoId = null;
+      parking.acceptedPlaylistIndex = null;
       parking.releaseAccepted = false;
       parking.pauseBackObserved = true;
-      parking.stableSamples = 0;
-      parking.stableState = null;
-      setManagedTimer(
-        RETAINED_PLAYER_TARGET_CONFIRM_TIMER,
-        () => pollRetainedPlayerTarget(parking),
-        RETAINED_PLAYER_CONFIRM_POLL_MS,
-      );
+      resetRetainedPlayerTargetStableProof(parking);
+      scheduleRetainedPlayerTargetPoll(parking, generation);
       return;
     }
     parking.phase = 'active-target';
     parking.acceptedState = null;
+    parking.acceptedVideoId = null;
+    parking.acceptedPlaylistIndex = null;
     parking.releaseAccepted = false;
     parking.retry = null;
-    parking.stableSamples = 0;
-    parking.stableState = null;
+    resetRetainedPlayerTargetStableProof(parking);
+    parking.releaseLoadInProgressOnTargetProof = false;
     // State processing above may have transferred hard-mute ownership to
     // zero-start/PRO preparation. Volume application respects those owners.
     bus.emit('audio:apply-youtube-volume');
     return;
   }
 
-  if (parking.pollCount >= RETAINED_PLAYER_CONFIRM_MAX_POLLS) {
+  if (parking.pollCount >= RETAINED_PLAYER_TARGET_CONFIRM_MAX_POLLS) {
     retryRetainedTargetWithFreshPlayer(parking, 'target-unconfirmed');
     return;
   }
-  setManagedTimer(
-    RETAINED_PLAYER_TARGET_CONFIRM_TIMER,
-    () => pollRetainedPlayerTarget(parking),
-    RETAINED_PLAYER_CONFIRM_POLL_MS,
-  );
+  scheduleRetainedPlayerTargetPoll(parking, generation);
 }
 
 function armRetainedPlayerHandoff(
@@ -469,69 +714,127 @@ function armRetainedPlayerHandoff(
   request: {
     videoId: string | null;
     playlistId: string | null;
+    commandPlaylistId: string | null;
     autoplay: boolean;
     subIndex: number;
     sessionId: number;
+    sameVideoReuse: boolean;
   },
-): boolean {
+): 'ready' | 'deferred' | 'rebuilt' {
   const parking = retainedPlayerParking;
-  if (!player || parking?.player !== player) return true;
+  if (!player || parking?.player !== player) return 'ready';
 
-  const liveVideoId = readRetainedPlayerSnapshot(player)?.videoId || '';
-  const ambiguousTarget =
-    parking.phase === 'parking-prime' ||
-    parking.phase === 'parking-prime-after-bounce' ||
-    !request.videoId ||
-    !!request.playlistId ||
-    request.videoId === YOUTUBE_PRIME_VIDEO_ID ||
-    request.videoId === parking.outgoingVideoId ||
-    request.videoId === liveVideoId;
-  if (ambiguousTarget || !issueRetainedPlayerHardMute(player)) {
+  const targetVideoId = request.videoId;
+  const invalidTarget =
+    (!targetVideoId && !request.commandPlaylistId) || targetVideoId === YOUTUBE_PRIME_VIDEO_ID;
+  if (invalidTarget) {
     destroyRetainedYouTubePlayer(parking, false);
-    return false;
+    return 'rebuilt';
   }
 
-  clearRetainedPlayerTimers();
-  parking.generation = ++retainedPlayerParkingGeneration;
-  parking.phase = 'loading-target';
-  parking.targetVideoId = request.videoId;
-  parking.commandIssued = false;
-  parking.acceptedState = null;
-  parking.releaseAccepted = false;
-  parking.pauseBackObserved = false;
-  parking.stableState = null;
-  parking.stableSamples = 0;
-  parking.pollCount = 0;
+  const hasConfirmedPrimeBoundary =
+    parking.phase === 'parked' ||
+    parking.phase === 'parking-prime' ||
+    parking.phase === 'parking-prime-after-bounce';
+  if (request.commandPlaylistId && !hasConfirmedPrimeBoundary) {
+    // The IFrame API exposes playlist contents/index but not the active list
+    // ID. Two different playlists can therefore present the same live
+    // video/index/state tuple while cuePlaylist() is still crossing the
+    // postMessage boundary. Return through the exact silent PRIME occurrence
+    // before every native-list command so that tuple cannot be mistaken for
+    // proof of the new playlist occurrence.
+    const parked = parkRetainedYouTubePlayer(player);
+    const replacementParking = retainedPlayerParking;
+    if (!parked || replacementParking?.player !== player) {
+      if (replacementParking?.player === player) {
+        destroyRetainedYouTubePlayer(replacementParking, false);
+      }
+      return 'rebuilt';
+    }
+    return armRetainedPlayerHandoff(player, request);
+  }
+
+  // Once an active retained target owns the iframe, a same-video queue
+  // occurrence is already protected by the dedicated pause/cue handoff. Drop
+  // only the obsolete parking fence; destroying the iframe here would discard
+  // WebKit's gesture proof for no safety benefit.
+  if (parking.phase === 'active-target' && request.sameVideoReuse) {
+    forgetRetainedYouTubePlayer(player);
+    return 'ready';
+  }
+
   parking.sessionId = request.sessionId;
   parking.queueItemId = getCurrentQueueItemId();
+  parking.targetVideoId = targetVideoId;
+  parking.targetPlaylistId = request.commandPlaylistId;
+  parking.targetPlaylistIndex = request.commandPlaylistId ? request.subIndex : null;
   parking.retry = {
-    videoId: request.videoId!,
+    videoId: targetVideoId,
+    playlistId: request.playlistId,
     autoplay: request.autoplay,
     subIndex: request.subIndex,
   };
-  setYtPrimeReady(false);
-  return true;
+
+  const parkingPrime =
+    parking.phase === 'parking-prime' || parking.phase === 'parking-prime-after-bounce';
+  if (parkingPrime) {
+    // Do not replace PRIME with the real target until two live snapshots prove
+    // that the old occurrence is gone. Queueing instead of rebuilding keeps
+    // the exact iOS media element (and its user-gesture grant) alive.
+    if (!issueRetainedPlayerHardMute(player)) {
+      destroyRetainedYouTubePlayer(parking, false);
+      return 'rebuilt';
+    }
+    // A target arriving near the original parking deadline is fresh work. Give
+    // PRIME a new bounded window instead of destroying the gesture-bearing
+    // iframe on the next poll because most of the old budget was already spent.
+    parking.pollCount = 0;
+    parking.stableSamples = 0;
+    setYtPrimeReady(false);
+    setManagedTimer(
+      RETAINED_PLAYER_PARK_CONFIRM_TIMER,
+      () => pollRetainedPlayerParking(parking),
+      RETAINED_PLAYER_CONFIRM_POLL_MS,
+    );
+    return 'deferred';
+  }
+
+  if (!beginRetainedPlayerTargetHandoff(parking)) {
+    destroyRetainedYouTubePlayer(parking, false);
+    return 'rebuilt';
+  }
+  // A confirmed silent PRIME is an occurrence boundary. The requested ID may
+  // safely equal the just-ended ID, and a resolved playlist may carry both its
+  // concrete videoId and playlistId without forcing a new iframe.
+  return 'ready';
 }
 
-function markRetainedPlayerLoadCommand(player: YouTubePlayerInstance, videoId: string): void {
+function markRetainedPlayerLoadCommand(
+  player: YouTubePlayerInstance,
+  videoId: string | null,
+  playlistId: string | null,
+  subIndex: number,
+  releaseLoadInProgressOnTargetProof: boolean,
+): boolean {
   const parking = retainedPlayerParking;
+  const commandMatches = parking?.targetPlaylistId
+    ? playlistId === parking.targetPlaylistId && subIndex === parking.targetPlaylistIndex
+    : !playlistId && videoId !== null && parking?.targetVideoId === videoId;
   if (
     !parking ||
     parking.player !== player ||
     parking.phase !== 'loading-target' ||
-    parking.targetVideoId !== videoId
+    !commandMatches
   ) {
-    return;
+    return false;
   }
+  parking.generation = ++retainedPlayerParkingGeneration;
   parking.commandIssued = true;
   parking.pollCount = 0;
-  parking.stableState = null;
-  parking.stableSamples = 0;
-  setManagedTimer(
-    RETAINED_PLAYER_TARGET_CONFIRM_TIMER,
-    () => pollRetainedPlayerTarget(parking),
-    RETAINED_PLAYER_CONFIRM_POLL_MS,
-  );
+  resetRetainedPlayerTargetStableProof(parking);
+  parking.releaseLoadInProgressOnTargetProof = releaseLoadInProgressOnTargetProof;
+  scheduleRetainedPlayerTargetPoll(parking);
+  return true;
 }
 
 /**
@@ -551,8 +854,11 @@ export function ensureRetainedYouTubePlayerHardMuted(player: YouTubePlayerInstan
     return false;
   }
 
-  const snapshot = readRetainedPlayerSnapshot(player);
-  if (snapshot?.muted) return true;
+  const muted = readRetainedPlayerMuteState(player);
+  if (muted === true) {
+    parking.hardMuteUnconfirmedPolls = 0;
+    return true;
+  }
 
   // mute() was accepted but its postMessage has not converged yet. Reopen the
   // matching bounded confirmation instead of publishing/releasing state.
@@ -564,7 +870,8 @@ export function ensureRetainedYouTubePlayerHardMuted(player: YouTubePlayerInstan
     const confirmsPostBouncePause =
       (parking.phase === 'parked' || parking.phase === 'parking-prime-after-bounce') &&
       isYtPrimed() &&
-      snapshot?.videoId === YOUTUBE_PRIME_VIDEO_ID;
+      readRetainedPlayerIdentity(player)?.videoId === YOUTUBE_PRIME_VIDEO_ID;
+    if (parking.phase === 'parked') parking.hardMuteUnconfirmedPolls = 0;
     parking.phase = confirmsPostBouncePause ? 'parking-prime-after-bounce' : 'parking-prime';
     parking.pollCount = 0;
     parking.stableSamples = 0;
@@ -575,18 +882,21 @@ export function ensureRetainedYouTubePlayerHardMuted(player: YouTubePlayerInstan
       RETAINED_PLAYER_CONFIRM_POLL_MS,
     );
   } else {
+    if (parking.phase === 'active-target' || parking.phase === 'releasing-target') {
+      parking.hardMuteUnconfirmedPolls = 0;
+    }
     parking.phase = 'loading-target';
     parking.acceptedState = null;
+    parking.acceptedVideoId = null;
+    parking.acceptedPlaylistIndex = null;
     parking.releaseAccepted = false;
     parking.pollCount = 0;
     parking.stableSamples = 0;
+    parking.stableVideoId = null;
+    parking.stablePlaylistIndex = null;
     parking.stableState = null;
     if (parking.commandIssued) {
-      setManagedTimer(
-        RETAINED_PLAYER_TARGET_CONFIRM_TIMER,
-        () => pollRetainedPlayerTarget(parking),
-        RETAINED_PLAYER_CONFIRM_POLL_MS,
-      );
+      scheduleRetainedPlayerTargetPoll(parking);
     }
   }
   return true;
@@ -641,18 +951,35 @@ function shouldIgnoreRetainedPlayerCallback(
     return true;
   }
 
-  const snapshot = readRetainedPlayerSnapshot(player);
   if (parking.phase === 'releasing-target') {
-    const accepted =
-      state !== undefined &&
-      state === parking.acceptedState &&
-      snapshot?.videoId === parking.targetVideoId &&
-      snapshot.state === state &&
-      snapshot.muted;
+    let accepted = false;
+    if (state !== undefined && state === parking.acceptedState) {
+      if (parking.targetPlaylistId) {
+        const playlistIdentity = readRetainedPlayerPlaylistIdentity(player);
+        accepted =
+          readRetainedPlayerMuteState(player) === true &&
+          playlistIdentity !== null &&
+          playlistIdentity.videoId === parking.acceptedVideoId &&
+          playlistIdentity.playlistIndex === parking.acceptedPlaylistIndex &&
+          playlistIdentity.state === state;
+      } else {
+        const snapshot = readRetainedPlayerSnapshot(player);
+        accepted =
+          snapshot?.videoId === parking.acceptedVideoId &&
+          snapshot.state === state &&
+          snapshot.muted;
+      }
+    }
     if (accepted) parking.releaseAccepted = true;
     return !accepted;
   }
   if (parking.phase === 'active-target') {
+    if (parking.targetPlaylistId) {
+      const playlistIdentity = readRetainedPlayerPlaylistIdentity(player);
+      if (state === undefined) return !playlistIdentity;
+      return !playlistIdentity || playlistIdentity.state !== state;
+    }
+    const snapshot = readRetainedPlayerSnapshot(player);
     if (state === undefined) return snapshot?.videoId !== parking.targetVideoId;
     return !(snapshot?.videoId === parking.targetVideoId && snapshot.state === state);
   }
@@ -670,6 +997,26 @@ export function isRetainedYouTubePlayerParked(player: YouTubePlayerInstance | nu
     retainedPlayerParking?.player === player &&
     (retainedPlayerParking.phase !== 'active-target' || !isPlaybackModeYouTube())
   );
+}
+
+function isRetainedPlayerTargetHandoffPending(player: YouTubePlayerInstance | null): boolean {
+  return (
+    !!player &&
+    retainedPlayerParking?.player === player &&
+    (retainedPlayerParking.phase === 'loading-target' ||
+      retainedPlayerParking.phase === 'releasing-target')
+  );
+}
+
+function rebindRetainedPlayerActiveTargetToVideo(
+  player: YouTubePlayerInstance,
+  videoId: string,
+): void {
+  const parking = retainedPlayerParking;
+  if (!videoId || parking?.player !== player || parking.phase !== 'active-target') return;
+  parking.targetVideoId = videoId;
+  parking.targetPlaylistId = null;
+  parking.targetPlaylistIndex = null;
 }
 
 /**
@@ -694,13 +1041,21 @@ export function parkRetainedYouTubePlayer(player: YouTubePlayerInstance): boolea
     phase: 'parking-prime',
     outgoingVideoId,
     targetVideoId: null,
+    targetPlaylistId: null,
+    targetPlaylistIndex: null,
     commandIssued: false,
     acceptedState: null,
+    acceptedVideoId: null,
+    acceptedPlaylistIndex: null,
     releaseAccepted: false,
     pauseBackObserved: false,
+    stableVideoId: null,
+    stablePlaylistIndex: null,
     stableState: null,
     stableSamples: 0,
     pollCount: 0,
+    hardMuteUnconfirmedPolls: 0,
+    releaseLoadInProgressOnTargetProof: false,
     sessionId: null,
     queueItemId: null,
     retry: null,
@@ -1187,7 +1542,12 @@ function ensureYouTubePlaybackRuntime(): void {
     clearManagedTimer('youtubeSyncLoop');
   }
 
-  bus.emit('audio:apply-youtube-volume');
+  // A retained target remains physically hard-muted until two identity/state
+  // samples pass its occurrence fence. The handoff owner emits this event once
+  // it moves to active-target; emitting here would invite an early unmute path.
+  if (!isRetainedPlayerTargetHandoffPending(getYouTubePlayer())) {
+    bus.emit('audio:apply-youtube-volume');
+  }
 }
 
 /** Re-arm a missing host heartbeat from the independently-owned UI loop. */
@@ -1620,6 +1980,7 @@ export function loadYouTubeVideo(
   subIndex = 0,
   opts: LoadYouTubeVideoOptions = {},
 ): void {
+  subIndex = sanitizeRetainedPlaylistIndex(subIndex);
   const preparedSameVideoRestart = preparedSameVideoOccurrenceRestart;
   preparedSameVideoOccurrenceRestart = null;
   // A newer load always supersedes an unclaimed same-video handoff.
@@ -1713,6 +2074,11 @@ export function loadYouTubeVideo(
   }
   setEngineMode('youtube');
   const sessionId = incrementSessionId();
+  const commandPlaylistId = resolveRetainedCommandPlaylistId(
+    videoId,
+    playlistId,
+    Boolean(opts.indexingCallback),
+  );
   // The non-YT -> YT branch synchronously runs stop-all-media, whose parking
   // step replaces the outgoing record. Arm only after that teardown has
   // settled, and re-read the exact player because a parking failure may have
@@ -1720,11 +2086,14 @@ export function loadYouTubeVideo(
   const retainedHandoffArmed = armRetainedPlayerHandoff(getYouTubePlayer(), {
     videoId,
     playlistId,
+    commandPlaylistId,
     autoplay,
     subIndex,
     sessionId,
+    sameVideoReuse: isSameVideoReuse,
   });
-  if (!retainedHandoffArmed) isSameVideoReuse = false;
+  const retainedHandoffDeferred = retainedHandoffArmed === 'deferred';
+  if (retainedHandoffArmed !== 'ready') isSameVideoReuse = false;
 
   setCachedYtDuration(0); // Reset duration cache for new video
   _ifr.lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
@@ -1772,7 +2141,7 @@ export function loadYouTubeVideo(
     showLoader(true, t('youtube.indexing_playlist'));
   }
 
-  if (!window.YT?.Player) {
+  if (!retainedHandoffDeferred && !window.YT?.Player) {
     runWhenYouTubeApiReady(
       () => {
         // Guard: skip if a timeout already cancelled this load session
@@ -1795,7 +2164,7 @@ export function loadYouTubeVideo(
     );
   }
 
-  if (window.YT?.Player) {
+  if (!retainedHandoffDeferred && window.YT?.Player) {
     createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
   }
 
@@ -2177,8 +2546,17 @@ function createYouTubePlayer(
 
     log.debug('[YouTube] Re-using existing player instance');
     try {
-      if (videoId && !playlistId) markRetainedPlayerLoadCommand(existingPlayer, videoId);
       const sameVideoRestart = pendingSameVideoOccurrenceRestart;
+      const retainedTargetProofPending =
+        videoId || playlistId
+          ? markRetainedPlayerLoadCommand(
+              existingPlayer,
+              videoId,
+              playlistId,
+              subIndex,
+              !needsScrape && !sameVideoRestart,
+            )
+          : false;
       if ((needsScrape || indexing) && playlistId) {
         existingPlayer.cuePlaylist({
           list: playlistId,
@@ -2254,7 +2632,7 @@ function createYouTubePlayer(
         // occurrence has observed PAUSED (or its short bounded timeout).
         // Otherwise player.ts can consume the pending intent from the old
         // occurrence's PLAYING state before our identity-aware handoff.
-        if (!sameVideoRestart) setYtLoadInProgress(false);
+        if (!sameVideoRestart && !retainedTargetProofPending) setYtLoadInProgress(false);
       } else {
         // Safety net: the reuse-path scrape relies on onStateChange(CUED) →
         // _pollScrapePlaylist → _finishScrape to clear isScrapingPlaylist +
@@ -2615,6 +2993,7 @@ function _finishScrape(ids: string[] | null): void {
     log.debug('[YouTube] Scrape captured IDs — switching to single-video mode');
     setYouTubeSubIndex(subIdx);
     const targetVideoId = ids[subIdx] || ids[0];
+    rebindRetainedPlayerActiveTargetToVideo(player, targetVideoId);
     if (!getYtAutoplayIntent() && player.cueVideoById) {
       player.cueVideoById(targetVideoId, 0);
     } else {
@@ -2629,6 +3008,7 @@ function _finishScrape(ids: string[] | null): void {
   const entryVideoId = currentTrack?.videoId as string | undefined;
   if (entryVideoId) {
     setYouTubeSubIndex(0);
+    rebindRetainedPlayerActiveTargetToVideo(player, entryVideoId);
     if (!getYtAutoplayIntent() && player.cueVideoById) {
       player.cueVideoById(entryVideoId, 0);
     } else {

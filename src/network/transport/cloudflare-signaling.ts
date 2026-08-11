@@ -235,6 +235,16 @@ const ICE_QUEUE_MEMORY_BUDGET_BYTES = 4 * 1024 * 1024;
 const ICE_QUEUE_MEMORY_RETAIN_BYTES = 3 * 1024 * 1024;
 const ICE_QUEUE_PRUNE_INTERVAL_MS = 5_000;
 const ICE_NEGOTIATION_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
+// Standard-room attach assertions and the Worker's derived identity lease both
+// expire after 60 seconds. Admission stays bounded at two seconds so optional
+// account I/O cannot delay joining, while an already-admitted socket renews
+// early and may use the account client's full request budget. Sharing the
+// admission cutoff here used to discard healthy-but-slow renewals, letting the
+// Worker expire the lease and briefly revoke same-account controls.
+const STANDARD_ROOM_IDENTITY_RENEW_INTERVAL_MS = 30_000;
+const STANDARD_ROOM_IDENTITY_RETRY_MS = 5_000;
+const STANDARD_ROOM_ASSERTION_ADMISSION_WAIT_MS = 2_000;
+const STANDARD_ROOM_ASSERTION_RENEWAL_WAIT_MS = 15_000;
 
 function parseIceNegotiationId(value: unknown): string | null {
   return typeof value === 'string' && ICE_NEGOTIATION_ID_RE.test(value) ? value : null;
@@ -916,7 +926,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private proSignalingAccess: ProSignalingOptions | null;
   private roomPassword: string | null = null;
   private readonly standardRoomIdentityRefreshTimerKey = 'standard-room-identity-refresh';
+  private readonly standardRoomIdentityDeletionReconcileTimerKey =
+    'standard-room-identity-deletion-reconcile';
   private readonly standardRoomIdentityDeletionProofs = new Map<string, string>();
+  private readonly standardRoomIdentityAdmittedHostSockets = new WeakSet<WebSocket>();
+  private readonly standardRoomIdentityAdmittedGuestSockets = new WeakSet<WebSocket>();
+  private readonly standardRoomIdentityRefreshAfterGuestAdmission = new WeakSet<WebSocket>();
+  private readonly standardRoomIdentityActiveRefreshGenerations = new Set<number>();
+  private standardRoomIdentityRefreshGeneration = 0;
   private hostMessageSequence = 0;
   private readonly peerOfferSequences = new Map<string, number>();
   private readonly peerDepartureSequences = new Map<string, number>();
@@ -955,14 +972,32 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   ): void {
     const identity = value === null ? null : normalizeStandardRoomMemberIdentity(value);
     if (value !== null && !identity) return;
+    // A verified deletion is a cross-device revocation, not merely an ack for
+    // one socket. It always invalidates provider work that started before the
+    // projection arrived. If that cancels an active refresh (for example a
+    // rapid re-login racing the deletion ack), fetch the latest account state
+    // once after the normal retry delay. Explicit clear acks are FIFO-ordered
+    // with their originating socket and must not cancel a newer login refresh;
+    // lease expiry likewise lets an already-running, projection-bound renewal
+    // finish while retaining the fail-closed retry deadline.
+    const replayAfterDeletion =
+      identity === null &&
+      clearReason === 'deleted' &&
+      this.standardRoomIdentityActiveRefreshGenerations.size > 0;
+    if (identity === null && clearReason === 'deleted') {
+      this.standardRoomIdentityRefreshGeneration += 1;
+    }
     this.emit('room-identity', identity, clearReason);
     // A same-account sibling projection can update this identity without
     // extending this socket's independent server lease. Keep the earlier
     // renewal deadline instead of letting sibling devices postpone each other.
-    this.scheduleStandardRoomIdentityRefresh(
-      identity ? 40_000 : clearReason === 'expired' ? 10_000 : null,
-      identity !== null,
-    );
+    if (identity) {
+      this.scheduleStandardRoomIdentityRefresh(STANDARD_ROOM_IDENTITY_RENEW_INTERVAL_MS, true);
+    } else if (clearReason === 'expired' || replayAfterDeletion) {
+      this.scheduleStandardRoomIdentityRefresh(STANDARD_ROOM_IDENTITY_RETRY_MS);
+    } else if (clearReason !== 'explicit') {
+      this.scheduleStandardRoomIdentityRefresh(null);
+    }
   }
 
   private scheduleStandardRoomIdentityRefresh(
@@ -985,10 +1020,30 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     );
   }
 
+  private scheduleStandardRoomIdentityDeletionReconcile(): void {
+    if (this.destroyed || this.proSignalingAccess) {
+      clearManagedTimer(this.standardRoomIdentityDeletionReconcileTimerKey);
+      return;
+    }
+    // A mixed provider snapshot (delete on one physical socket, older attach
+    // on another) gets exactly one fresh reconciliation. Keep it independent
+    // from the normal renewal timer so the Worker's delayed deleted projection
+    // cannot erase this proof-completion pass.
+    if (getManagedTimer(this.standardRoomIdentityDeletionReconcileTimerKey) !== null) return;
+    setManagedTimer(
+      this.standardRoomIdentityDeletionReconcileTimerKey,
+      () => {
+        void this.refreshStandardRoomIdentity(false);
+      },
+      STANDARD_ROOM_IDENTITY_RETRY_MS,
+    );
+  }
+
   private async getStandardRoomAssertions(
     roomCode: string,
     peerId: string,
     role: 'host' | 'guest',
+    waitMs = STANDARD_ROOM_ASSERTION_ADMISSION_WAIT_MS,
   ): Promise<StandardRoomIdentityAssertions | undefined> {
     const provider = this.options.standardRoomAssertionProvider;
     if (!provider || this.proSignalingAccess) {
@@ -997,7 +1052,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     try {
       const value = await Promise.race([
         provider({ roomCode, peerId, role }),
-        delay(2000).then(() => undefined),
+        delay(waitMs).then(() => undefined),
       ]);
       if (value === undefined) return undefined;
       return normalizeStandardRoomIdentityAssertions(value) ?? undefined;
@@ -1048,11 +1103,22 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private async sendGuestAuth(roomId: string, socket: WebSocket): Promise<void> {
     if (!this.id || socket.readyState !== WebSocket.OPEN) return;
+    const assertionGeneration = this.standardRoomIdentityRefreshGeneration;
     const assertions = await this.getStandardRoomAssertions(roomId, this.id, 'guest');
     if (socket !== this.roomSockets.get(roomId) || socket.readyState !== WebSocket.OPEN) return;
-    if (assertions === undefined) this.scheduleStandardRoomIdentityRefresh(10_000);
-    if (assertions) {
-      this.rememberStandardRoomDeletionProof(roomId, 'guest', assertions.deletionAssertion);
+    const currentAssertions =
+      assertionGeneration === this.standardRoomIdentityRefreshGeneration ? assertions : undefined;
+    if (assertionGeneration !== this.standardRoomIdentityRefreshGeneration) {
+      // The account projection changed while guest-auth was waiting. Keep the
+      // first frame anonymous, then fetch the newest projection only after this
+      // exact socket receives peer-open from the Worker.
+      this.standardRoomIdentityRefreshAfterGuestAdmission.add(socket);
+    }
+    if (assertionGeneration === this.standardRoomIdentityRefreshGeneration && !assertions) {
+      this.scheduleStandardRoomIdentityRefresh(STANDARD_ROOM_IDENTITY_RETRY_MS);
+    }
+    if (currentAssertions) {
+      this.rememberStandardRoomDeletionProof(roomId, 'guest', currentAssertions.deletionAssertion);
     }
     const record = this.guestRooms.get(roomId);
     if (!record) return;
@@ -1063,7 +1129,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         type: 'guest-auth',
         password: record.password || '',
         reconnectSecret,
-        ...(assertions?.accountAssertion ? { accountAssertion: assertions.accountAssertion } : {}),
+        ...(currentAssertions?.accountAssertion
+          ? { accountAssertion: currentAssertions.accountAssertion }
+          : {}),
       }),
     );
   }
@@ -1291,6 +1359,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   destroy(): void {
     this.destroyed = true;
+    this.standardRoomIdentityRefreshGeneration += 1;
     const resolveRtcConfiguration = this.resolveRtcConfigurationReady;
     this.resolveRtcConfigurationReady = null;
     this.rtcConfigurationPending = false;
@@ -1298,6 +1367,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.open = false;
     this.disconnected = false;
     this.scheduleStandardRoomIdentityRefresh(null);
+    clearManagedTimer(this.standardRoomIdentityDeletionReconcileTimerKey);
     this.standardRoomIdentityDeletionProofs.clear();
     this.peerIdentityProjections.clear();
     this.peerOfferSequences.clear();
@@ -1637,6 +1707,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-open') {
+      if (sourceSocket) this.standardRoomIdentityAdmittedHostSockets.add(sourceSocket);
       if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
       if (this.hostRoomId && this.hostSocket) {
         this.sendPendingStandardRoomDeletion(this.hostRoomId, 'host', this.hostSocket);
@@ -1761,6 +1832,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     raw: unknown,
   ): Promise<void> {
     const message = await this.parseSignal(raw);
+    if (socket !== this.roomSockets.get(roomId)) return;
     if (message.type === 'developer-command') {
       throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_COMMAND');
     }
@@ -1771,9 +1843,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION');
     }
     if (message.type === 'peer-open') {
+      // Only the Worker's peer-open proves that guest-auth won admission for
+      // this exact socket. Before this point guest-auth must remain the sole
+      // first frame; background identity mutations would either close the
+      // socket or be discarded while its asynchronous auth is in progress.
+      this.standardRoomIdentityAdmittedGuestSockets.add(socket);
+      const refreshAfterAdmission =
+        this.standardRoomIdentityRefreshAfterGuestAdmission.delete(socket);
       if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
       this.sendPendingStandardRoomDeletion(roomId, 'guest', socket);
       this.disconnected = false;
+      if (refreshAfterAdmission) {
+        void this.refreshStandardRoomIdentity().catch((error) => conn.emit('error', error));
+      }
       await this.startGuestOffer(roomId, socket, conn, metadata);
       return;
     }
@@ -2048,49 +2130,128 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     negotiation.settled = true;
   }
 
-  async refreshStandardRoomIdentity(): Promise<void> {
+  async refreshStandardRoomIdentity(allowMixedDeletionRetry = true): Promise<void> {
     if (this.destroyed || this.proSignalingAccess || !this.id) return;
+    // One generation covers every socket targeted by this logical refresh.
+    // Starting a newer refresh makes every older provider result stale while
+    // still allowing same-generation host/guest targets to finish independently.
+    const refreshGeneration = ++this.standardRoomIdentityRefreshGeneration;
+    this.standardRoomIdentityActiveRefreshGenerations.add(refreshGeneration);
+    const peerId = this.id;
     const targets: Array<{
       roomCode: string;
       role: 'host' | 'guest';
       socket: WebSocket;
     }> = [];
-    if (this.hostRoomId && this.hostSocket && this.hostSocket.readyState === WebSocket.OPEN) {
+    if (
+      this.hostRoomId &&
+      this.hostSocket &&
+      this.hostSocket.readyState === WebSocket.OPEN &&
+      this.standardRoomIdentityAdmittedHostSockets.has(this.hostSocket)
+    ) {
       targets.push({ roomCode: this.hostRoomId, role: 'host', socket: this.hostSocket });
     }
     for (const [roomCode, socket] of this.roomSockets) {
-      if (socket.readyState === WebSocket.OPEN) targets.push({ roomCode, role: 'guest', socket });
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      if (this.standardRoomIdentityAdmittedGuestSockets.has(socket)) {
+        targets.push({ roomCode, role: 'guest', socket });
+      } else {
+        // Preserve the newest logical refresh across guest admission without
+        // violating the Worker's guest-auth-first-frame protocol. peer-open
+        // consumes this marker and immediately fetches the latest projection.
+        this.standardRoomIdentityRefreshAfterGuestAdmission.add(socket);
+      }
     }
-    await Promise.all(
-      targets.map(async ({ roomCode, role, socket }) => {
-        const assertions = await this.getStandardRoomAssertions(roomCode, this.id!, role);
+    try {
+      const results = await Promise.all(
+        targets.map(async ({ roomCode, role, socket }) => {
+          const assertions = await this.getStandardRoomAssertions(
+            roomCode,
+            peerId,
+            role,
+            STANDARD_ROOM_ASSERTION_RENEWAL_WAIT_MS,
+          );
+          return { roomCode, role, socket, assertions };
+        }),
+      );
+      if (refreshGeneration !== this.standardRoomIdentityRefreshGeneration || this.destroyed) {
+        return;
+      }
+
+      const isCurrentTarget = ({ roomCode, role, socket }: (typeof results)[number]): boolean => {
         const currentSocket = role === 'host' ? this.hostSocket : this.roomSockets.get(roomCode);
-        if (socket !== currentSocket || socket.readyState !== WebSocket.OPEN) return;
-        if (assertions === undefined) {
-          this.scheduleStandardRoomIdentityRefresh(10_000);
-          return;
-        }
-        if (assertions.deletionAssertion) {
-          socket.send(
+        return socket === currentSocket && socket.readyState === WebSocket.OPEN;
+      };
+      const deletionResults = results.filter(({ assertions }) => assertions?.deletionAssertion);
+      if (deletionResults.length > 0) {
+        // Deletion is generation-wide and dominant. Provider calls are
+        // projection-bound individually, but two physical targets can still
+        // observe opposite sides of the account-deletion commit. Never let a
+        // faster deletion proof be followed by a slower pre-delete attach.
+        this.standardRoomIdentityRefreshGeneration += 1;
+        this.scheduleStandardRoomIdentityRefresh(null);
+        clearManagedTimer(this.standardRoomIdentityDeletionReconcileTimerKey);
+        let sentDeletionProofs = 0;
+        for (const result of deletionResults) {
+          if (!isCurrentTarget(result)) continue;
+          result.socket.send(
             JSON.stringify({
               type: 'account-identity-delete',
-              deletionAssertion: assertions.deletionAssertion,
+              deletionAssertion: result.assertions!.deletionAssertion,
             }),
           );
-          return;
+          sentDeletionProofs += 1;
         }
-        socket.send(
-          JSON.stringify(
-            assertions.accountAssertion
-              ? {
-                  type: 'account-identity-refresh',
-                  accountAssertion: assertions.accountAssertion,
-                }
-              : { type: 'account-identity-clear' },
-          ),
-        );
-      }),
-    );
+        const targetLacksUsableDeletionProof =
+          deletionResults.length < results.length || sentDeletionProofs < deletionResults.length;
+        if (allowMixedDeletionRetry && targetLacksUsableDeletionProof) {
+          this.scheduleStandardRoomIdentityDeletionReconcile();
+        }
+        return;
+      }
+
+      const hasAuthoritativeClear = results.some(
+        ({ assertions }) =>
+          assertions !== undefined &&
+          assertions.accountAssertion === null &&
+          assertions.deletionAssertion === null,
+      );
+      if (hasAuthoritativeClear) {
+        // HTTP 401/session expiry is authoritative account-wide state. Just as
+        // with deletion, concurrent physical-target calls can straddle that
+        // transition. Clear every current socket and suppress any stale
+        // positive or transient result from this generation.
+        this.standardRoomIdentityRefreshGeneration += 1;
+        this.scheduleStandardRoomIdentityRefresh(null);
+        // A previously armed deletion-proof reconciliation has higher
+        // authority and remains independent from ordinary logout renewal.
+        for (const result of results) {
+          if (!isCurrentTarget(result)) continue;
+          result.socket.send(JSON.stringify({ type: 'account-identity-clear' }));
+        }
+        return;
+      }
+
+      for (const result of results) {
+        if (!isCurrentTarget(result)) continue;
+        const { assertions, socket } = result;
+        if (assertions === undefined) {
+          this.scheduleStandardRoomIdentityRefresh(STANDARD_ROOM_IDENTITY_RETRY_MS);
+          continue;
+        }
+        if (assertions.accountAssertion) {
+          socket.send(
+            JSON.stringify({
+              type: 'account-identity-refresh',
+              accountAssertion: assertions.accountAssertion,
+            }),
+          );
+          continue;
+        }
+      }
+    } finally {
+      this.standardRoomIdentityActiveRefreshGenerations.delete(refreshGeneration);
+    }
   }
 
   deleteStandardRoomIdentity(): void {

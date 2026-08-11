@@ -981,9 +981,10 @@ function handleMainSyncBtn(): void {
     return;
   }
 
-  // The zero-start controller temporarily owns the iframe from PREPARE until
-  // its release/calibration window ends. A manual rendezvous or local nudge in
-  // that interval can seek the warmed video underneath the scheduled COMMIT.
+  // Manual Sync publishes a new room rendezvous. Keep it fenced through the
+  // post-release timeline calibration as well as iframe preparation: the
+  // underlying broadcaster intentionally rejects while the protocol identity
+  // is active, so enabling this surface earlier would create a bright no-op.
   if (isPlaybackModeYouTube() && isYouTubeZeroStartProtocolActive()) {
     closeManualSyncOverlay();
     showToast(t('toast.sync_not_ready'));
@@ -1713,6 +1714,10 @@ export function initPlayerControls(): void {
     }
     _ytPlayButtonLoading = _ytSyncLoadingOwners.size > 0;
     syncPlayButtonLoadingClass();
+    // Keep readiness projection current across busy transitions. Manual Sync
+    // remains disabled until the protocol itself reaches idle; onPhaseChange
+    // emits the final readiness event for that later boundary.
+    syncMainSyncButtonState();
   });
 
   // Coordinator-free PRO playback has a server-owned PREPARE barrier rather

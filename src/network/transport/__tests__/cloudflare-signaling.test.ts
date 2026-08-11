@@ -388,6 +388,14 @@ async function flushAsync(): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, 0));
 }
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
+}
+
 function sentOfType(socket: FakeWebSocket, type: string): Array<Record<string, unknown>> {
   return socket.sent
     .map((raw) => JSON.parse(raw) as Record<string, unknown>)
@@ -561,6 +569,47 @@ describe('deferred RTC configuration', () => {
 });
 
 describe('standard-room account identity refresh', () => {
+  it('keeps guest admission bounded at two seconds when an account assertion is slow', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(
+      () =>
+        new Promise<{ accountAssertion: string; deletionAssertion: null }>((resolve) => {
+          setTimeout(
+            () =>
+              resolve({ accountAssertion: 'late-admission-assertion', deletionAssertion: null }),
+            2_500,
+          );
+        }),
+    );
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+
+    socket.dispatch('open');
+    await vi.advanceTimersByTimeAsync(1_999);
+
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(sentOfType(socket, 'guest-auth')).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(sentOfType(socket, 'guest-auth')).toEqual([
+      {
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      },
+    ]);
+    peer.destroy();
+  });
+
   it('authenticates a host immediately and attaches account identity after peer-open', async () => {
     installFakeWebSocket();
     let resolveAssertions:
@@ -591,6 +640,15 @@ describe('standard-room account identity refresh', () => {
     ]);
     expect(assertionProvider).not.toHaveBeenCalled();
 
+    // A timer or account event may fire while a reconnecting host is still in
+    // the Worker's asynchronous admission path. host-auth must remain the only
+    // frame until peer-open proves admission for this exact socket.
+    await peer.refreshStandardRoomIdentity();
+    expect(assertionProvider).not.toHaveBeenCalled();
+    expect(socket.sent.map((raw) => (JSON.parse(raw) as { type: string }).type)).toEqual([
+      'host-auth',
+    ]);
+
     socket.dispatch(
       'message',
       JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
@@ -612,6 +670,1101 @@ describe('standard-room account identity refresh', () => {
       type: 'account-identity-refresh',
       accountAssertion: 'signed-assertion',
     });
+    peer.destroy();
+  });
+
+  it('waits for peer-open on the exact replacement host socket before refreshing identity', async () => {
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'current-host-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const originalSocket = FakeWebSocket.instances[0];
+    originalSocket.dispatch('open');
+    originalSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    assertionProvider.mockClear();
+
+    originalSocket.close();
+    peer.reconnect();
+    const replacementSocket = FakeWebSocket.instances[1];
+    replacementSocket.dispatch('open');
+
+    await peer.refreshStandardRoomIdentity();
+    expect(assertionProvider).not.toHaveBeenCalled();
+    expect(replacementSocket.sent.map((raw) => (JSON.parse(raw) as { type: string }).type)).toEqual(
+      ['host-auth'],
+    );
+
+    originalSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    expect(assertionProvider).not.toHaveBeenCalled();
+    expect(sentOfType(replacementSocket, 'account-identity-refresh')).toEqual([]);
+
+    replacementSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(sentOfType(replacementSocket, 'account-identity-refresh')).toEqual([
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'current-host-assertion',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('accepts a slow background renewal that exceeds the admission cutoff', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'initial-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+        memberIdentity: {
+          memberId: 'member_abcdefghijklmnopqrstuv',
+          memberDisplayNumber: 0,
+          nickname: 'Minsu',
+          isAuthenticated: true,
+        },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    assertionProvider.mockClear();
+    socket.sent.length = 0;
+    assertionProvider.mockImplementation(
+      () =>
+        new Promise<{ accountAssertion: string; deletionAssertion: null }>((resolve) => {
+          setTimeout(
+            () => resolve({ accountAssertion: 'slow-renewed-assertion', deletionAssertion: null }),
+            2_500,
+          );
+        }),
+    );
+
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(assertionProvider).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(2_499);
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'slow-renewed-assertion',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('drops an older authenticated renewal after a newer explicit clear', async () => {
+    installFakeWebSocket();
+    const oldRenewal = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+    const assertionProvider = vi
+      .fn()
+      .mockImplementationOnce(() => oldRenewal.promise)
+      .mockResolvedValueOnce({ accountAssertion: null, deletionAssertion: null });
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    await peer.refreshStandardRoomIdentity();
+    expect(sentOfType(socket, 'account-identity-clear')).toEqual([
+      { type: 'account-identity-clear' },
+    ]);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'explicit',
+      }),
+    );
+    await flushAsync();
+    oldRenewal.resolve({
+      accountAssertion: 'stale-authenticated-assertion',
+      deletionAssertion: null,
+    });
+    await flushAsync();
+
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+    expect(sentOfType(socket, 'account-identity-clear')).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('drops an older authenticated renewal after a newer deletion proof', async () => {
+    installFakeWebSocket();
+    const oldRenewal = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+    const assertionProvider = vi
+      .fn()
+      .mockImplementationOnce(() => oldRenewal.promise)
+      .mockResolvedValueOnce({
+        accountAssertion: null,
+        deletionAssertion: 'newer-deletion-proof',
+      });
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    peer.deleteStandardRoomIdentity();
+    await flushAsync();
+    expect(sentOfType(socket, 'account-identity-delete')).toEqual([
+      {
+        type: 'account-identity-delete',
+        deletionAssertion: 'newer-deletion-proof',
+      },
+    ]);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'deleted',
+      }),
+    );
+    await flushAsync();
+    oldRenewal.resolve({
+      accountAssertion: 'stale-authenticated-assertion',
+      deletionAssertion: null,
+    });
+    await flushAsync();
+
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+    expect(sentOfType(socket, 'account-identity-delete')).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('keeps the expiry retry armed while allowing an in-flight renewal to finish', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const oldRenewal = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+    const assertionProvider = vi
+      .fn()
+      .mockImplementationOnce(() => oldRenewal.promise)
+      .mockResolvedValueOnce({
+        accountAssertion: 'post-expiry-renewal',
+        deletionAssertion: null,
+      });
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'expired',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    oldRenewal.resolve({
+      accountAssertion: 'stale-authenticated-assertion',
+      deletionAssertion: null,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'stale-authenticated-assertion',
+      },
+    ]);
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'stale-authenticated-assertion',
+      },
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'post-expiry-renewal',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('keeps a newer authenticated refresh alive after an older explicit-clear ack', async () => {
+    installFakeWebSocket();
+    const newerRefresh = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+    const assertionProvider = vi
+      .fn()
+      .mockResolvedValueOnce({ accountAssertion: null, deletionAssertion: null })
+      .mockImplementationOnce(() => newerRefresh.promise);
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(sentOfType(socket, 'account-identity-clear')).toHaveLength(1);
+
+    const latestOperation = peer.refreshStandardRoomIdentity();
+    await Promise.resolve();
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'explicit',
+      }),
+    );
+    await flushAsync();
+
+    newerRefresh.resolve({
+      accountAssertion: 'newer-authenticated-assertion',
+      deletionAssertion: null,
+    });
+    await latestOperation;
+
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'newer-authenticated-assertion',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('preserves a newer retry timer when an older explicit-clear ack arrives late', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi
+      .fn()
+      .mockResolvedValueOnce({ accountAssertion: null, deletionAssertion: null })
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValueOnce({
+        accountAssertion: 'retried-after-delayed-clear-ack',
+        deletionAssertion: null,
+      });
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sentOfType(socket, 'account-identity-clear')).toHaveLength(1);
+
+    const timedOutRefresh = peer.refreshStandardRoomIdentity();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await timedOutRefresh;
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'explicit',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(assertionProvider).toHaveBeenCalledTimes(3);
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'retried-after-delayed-clear-ack',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('drops a rapid re-login result after any deleted projection and replays only latest state', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const newerRefresh = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+    const assertionProvider = vi
+      .fn()
+      .mockResolvedValueOnce({
+        accountAssertion: null,
+        deletionAssertion: 'unacknowledged-deletion-proof',
+      })
+      .mockImplementationOnce(() => newerRefresh.promise)
+      .mockResolvedValueOnce({
+        accountAssertion: 'latest-relogin-assertion',
+        deletionAssertion: null,
+      });
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(sentOfType(socket, 'account-identity-delete')).toHaveLength(1);
+
+    const rapidRelogin = peer.refreshStandardRoomIdentity();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+    // This may be the local proof's delayed ack or a sibling device's external
+    // deletion. Deleted projections are deliberately not correlated to a
+    // client-side request because an invalid proof receives no ack.
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'deleted',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+
+    newerRefresh.resolve({
+      accountAssertion: 'superseded-relogin-assertion',
+      deletionAssertion: null,
+    });
+    await rapidRelogin;
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(assertionProvider).toHaveBeenCalledTimes(3);
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'latest-relogin-assertion',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('does not loop deletion refreshes when no newer assertion request was cancelled', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: null,
+      deletionAssertion: 'ordinary-deletion-proof',
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'deleted',
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(sentOfType(socket, 'account-identity-delete')).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it.each([
+    {
+      label: 'clear',
+      currentAssertions: { accountAssertion: null, deletionAssertion: null },
+      outgoingType: 'account-identity-clear',
+      expectedOutgoing: { type: 'account-identity-clear' },
+    },
+    {
+      label: 'deletion',
+      currentAssertions: {
+        accountAssertion: null,
+        deletionAssertion: 'current-admission-deletion-proof',
+      },
+      outgoingType: 'account-identity-delete',
+      expectedOutgoing: {
+        type: 'account-identity-delete',
+        deletionAssertion: 'current-admission-deletion-proof',
+      },
+    },
+  ] as const)(
+    'keeps guest-auth first after a newer identity $label supersedes its assertion',
+    async ({ currentAssertions, outgoingType, expectedOutgoing }) => {
+      installFakeWebSocket();
+      installFakeRTCPeerConnection();
+      const oldAdmission = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+      const assertionProvider = vi
+        .fn()
+        .mockImplementationOnce(() => oldAdmission.promise)
+        .mockResolvedValueOnce(currentAssertions);
+      const peer = new CloudflareSignalingPeer(null, {
+        provider: 'cloudflare',
+        signalingUrl: 'wss://signal.example.test/api/rooms',
+        config: { iceServers: [] },
+        standardRoomAssertionProvider: assertionProvider,
+      });
+      await Promise.resolve();
+      peer.connect('123456');
+      const socket = FakeWebSocket.instances[0];
+      socket.dispatch('open');
+      await Promise.resolve();
+      expect(assertionProvider).toHaveBeenCalledOnce();
+
+      await peer.refreshStandardRoomIdentity();
+      expect(assertionProvider).toHaveBeenCalledOnce();
+      expect(socket.sent).toEqual([]);
+
+      oldAdmission.resolve({
+        accountAssertion: 'stale-admission-assertion',
+        deletionAssertion: null,
+      });
+      await flushAsync();
+
+      expect(sentOfType(socket, 'guest-auth')).toEqual([
+        {
+          type: 'guest-auth',
+          password: '',
+          reconnectSecret: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+        },
+      ]);
+      expect((JSON.parse(socket.sent[0]) as { type: string }).type).toBe('guest-auth');
+      expect(sentOfType(socket, outgoingType)).toEqual([]);
+
+      socket.dispatch(
+        'message',
+        JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+      );
+      await flushAsync();
+
+      expect(assertionProvider).toHaveBeenCalledTimes(2);
+      expect(sentOfType(socket, outgoingType)).toEqual([expectedOutgoing]);
+      peer.destroy();
+    },
+  );
+
+  it('replays the latest projection after deletion supersedes pending guest admission', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const pendingGuestAdmission = deferred<{
+      accountAssertion: string;
+      deletionAssertion: null;
+    }>();
+    const assertionProvider = vi
+      .fn()
+      .mockResolvedValueOnce({
+        accountAssertion: 'initial-host-assertion',
+        deletionAssertion: null,
+      })
+      .mockImplementationOnce(() => pendingGuestAdmission.promise)
+      .mockResolvedValue({ accountAssertion: null, deletionAssertion: null });
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const hostSocket = FakeWebSocket.instances[0];
+    hostSocket.dispatch('open');
+    hostSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    peer.connect('654321');
+    const guestSocket = FakeWebSocket.instances[1];
+    guestSocket.dispatch('open');
+    await Promise.resolve();
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+    hostSocket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: null,
+        clearReason: 'deleted',
+      }),
+    );
+    await flushAsync();
+
+    pendingGuestAdmission.resolve({
+      accountAssertion: 'stale-guest-admission-assertion',
+      deletionAssertion: null,
+    });
+    await flushAsync();
+    expect(sentOfType(guestSocket, 'guest-auth')[0]).not.toHaveProperty('accountAssertion');
+    expect(sentOfType(guestSocket, 'account-identity-clear')).toEqual([]);
+
+    guestSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '654321' }),
+    );
+    await flushAsync();
+
+    // The logical refresh projects the same newest account snapshot onto both
+    // admitted sockets independently.
+    expect(assertionProvider).toHaveBeenCalledTimes(4);
+    expect(sentOfType(guestSocket, 'account-identity-clear')).toEqual([
+      { type: 'account-identity-clear' },
+    ]);
+    peer.destroy();
+  });
+
+  it('replays a queued identity refresh only after the exact reconnect socket is admitted', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'initial-guest-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const conn = peer.connect('123456');
+    const originalSocket = FakeWebSocket.instances[0];
+    originalSocket.dispatch('open');
+    await flushAsync();
+    originalSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await flushAsync();
+    expect(conn.open).toBe(true);
+
+    const replacementAdmission = deferred<{
+      accountAssertion: string;
+      deletionAssertion: null;
+    }>();
+    assertionProvider
+      .mockImplementationOnce(() => replacementAdmission.promise)
+      .mockResolvedValueOnce({
+        accountAssertion: 'current-reconnect-assertion',
+        deletionAssertion: null,
+      });
+    assertionProvider.mockClear();
+
+    originalSocket.close();
+    peer.reconnect();
+    const replacementSocket = FakeWebSocket.instances[1];
+    replacementSocket.dispatch('open');
+    await Promise.resolve();
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    await peer.refreshStandardRoomIdentity();
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(replacementSocket.sent).toEqual([]);
+
+    // A delayed peer-open from the replaced socket cannot admit or replay the
+    // identity refresh for the current socket.
+    originalSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await flushAsync();
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(replacementSocket.sent).toEqual([]);
+
+    replacementAdmission.resolve({
+      accountAssertion: 'stale-reconnect-assertion',
+      deletionAssertion: null,
+    });
+    await flushAsync();
+    expect((JSON.parse(replacementSocket.sent[0]) as { type: string }).type).toBe('guest-auth');
+    expect(sentOfType(replacementSocket, 'guest-auth')[0]).not.toHaveProperty('accountAssertion');
+    expect(sentOfType(replacementSocket, 'account-identity-refresh')).toEqual([]);
+
+    replacementSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+    expect(sentOfType(replacementSocket, 'account-identity-refresh')).toEqual([
+      {
+        type: 'account-identity-refresh',
+        accountAssertion: 'current-reconnect-assertion',
+      },
+    ]);
+    peer.destroy();
+  });
+
+  it('gathers every target in a multi-room refresh before projecting any result', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'bootstrap-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const hostSocket = FakeWebSocket.instances[0];
+    hostSocket.dispatch('open');
+    hostSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    peer.connect('654321');
+    const guestSocket = FakeWebSocket.instances[1];
+    guestSocket.dispatch('open');
+    await flushAsync();
+    guestSocket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '654321' }),
+    );
+    await flushAsync();
+    assertionProvider.mockClear();
+    hostSocket.sent.length = 0;
+    guestSocket.sent.length = 0;
+
+    const hostRenewal = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+    const guestRenewal = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+    assertionProvider
+      .mockImplementationOnce(() => hostRenewal.promise)
+      .mockImplementationOnce(() => guestRenewal.promise);
+
+    const refresh = peer.refreshStandardRoomIdentity();
+    await Promise.resolve();
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+    guestRenewal.resolve({ accountAssertion: 'guest-renewal', deletionAssertion: null });
+    await flushAsync();
+    expect(sentOfType(guestSocket, 'account-identity-refresh')).toEqual([]);
+    expect(sentOfType(hostSocket, 'account-identity-refresh')).toEqual([]);
+
+    hostRenewal.resolve({ accountAssertion: 'host-renewal', deletionAssertion: null });
+    await refresh;
+    expect(sentOfType(hostSocket, 'account-identity-refresh')).toEqual([
+      { type: 'account-identity-refresh', accountAssertion: 'host-renewal' },
+    ]);
+    expect(sentOfType(guestSocket, 'account-identity-refresh')).toEqual([
+      { type: 'account-identity-refresh', accountAssertion: 'guest-renewal' },
+    ]);
+    peer.destroy();
+  });
+
+  it.each(['host-first', 'deletion-first'] as const)(
+    'makes deletion generation-wide when mixed target results resolve %s',
+    async (resolutionOrder) => {
+      vi.useFakeTimers();
+      installFakeWebSocket();
+      installFakeRTCPeerConnection();
+      const assertionProvider = vi.fn(async () => ({
+        accountAssertion: 'bootstrap-assertion' as string | null,
+        deletionAssertion: null as string | null,
+      }));
+      const peer = new CloudflareSignalingPeer('123456', {
+        provider: 'cloudflare',
+        signalingUrl: 'wss://signal.example.test/api/rooms',
+        config: { iceServers: [] },
+        standardRoomAssertionProvider: assertionProvider,
+      });
+      await Promise.resolve();
+      const hostSocket = FakeWebSocket.instances[0];
+      hostSocket.dispatch('open');
+      hostSocket.dispatch(
+        'message',
+        JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      peer.connect('654321');
+      const guestSocket = FakeWebSocket.instances[1];
+      guestSocket.dispatch('open');
+      await vi.advanceTimersByTimeAsync(0);
+      guestSocket.dispatch(
+        'message',
+        JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '654321' }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      assertionProvider.mockClear();
+      hostSocket.sent.length = 0;
+      guestSocket.sent.length = 0;
+      const staleHost = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+      const deletedGuest = deferred<{ accountAssertion: null; deletionAssertion: string }>();
+      assertionProvider
+        .mockImplementationOnce(() => staleHost.promise)
+        .mockImplementationOnce(() => deletedGuest.promise)
+        .mockResolvedValue({
+          accountAssertion: null,
+          deletionAssertion: 'latest-deletion-proof',
+        });
+
+      const refresh = peer.refreshStandardRoomIdentity();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+      if (resolutionOrder === 'host-first') {
+        staleHost.resolve({
+          accountAssertion: 'pre-delete-host-assertion',
+          deletionAssertion: null,
+        });
+      } else {
+        deletedGuest.resolve({
+          accountAssertion: null,
+          deletionAssertion: 'guest-deletion-proof',
+        });
+      }
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(sentOfType(hostSocket, 'account-identity-refresh')).toEqual([]);
+      expect(sentOfType(hostSocket, 'account-identity-clear')).toEqual([]);
+      expect(sentOfType(hostSocket, 'account-identity-delete')).toEqual([]);
+      expect(sentOfType(guestSocket, 'account-identity-delete')).toEqual([]);
+
+      if (resolutionOrder === 'host-first') {
+        deletedGuest.resolve({
+          accountAssertion: null,
+          deletionAssertion: 'guest-deletion-proof',
+        });
+      } else {
+        staleHost.resolve({
+          accountAssertion: 'pre-delete-host-assertion',
+          deletionAssertion: null,
+        });
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      await refresh;
+
+      // The stale host assertion is suppressed even when it completed before
+      // the deletion proof. Only the target-bound proof is sent now.
+      expect(sentOfType(hostSocket, 'account-identity-refresh')).toEqual([]);
+      expect(sentOfType(hostSocket, 'account-identity-clear')).toEqual([]);
+      expect(sentOfType(hostSocket, 'account-identity-delete')).toEqual([]);
+      expect(sentOfType(guestSocket, 'account-identity-delete')).toEqual([
+        { type: 'account-identity-delete', deletionAssertion: 'guest-deletion-proof' },
+      ]);
+
+      // A delayed deleted projection must not erase the dedicated one-shot
+      // reconciliation for the host that lacked a deletion proof.
+      await vi.advanceTimersByTimeAsync(4_000);
+      guestSocket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'account-identity',
+          memberIdentity: null,
+          clearReason: 'deleted',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(999);
+      expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(assertionProvider).toHaveBeenCalledTimes(4);
+      expect(sentOfType(hostSocket, 'account-identity-delete')).toEqual([
+        { type: 'account-identity-delete', deletionAssertion: 'latest-deletion-proof' },
+      ]);
+      expect(sentOfType(guestSocket, 'account-identity-delete')).toEqual([
+        { type: 'account-identity-delete', deletionAssertion: 'guest-deletion-proof' },
+        { type: 'account-identity-delete', deletionAssertion: 'latest-deletion-proof' },
+      ]);
+
+      hostSocket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'account-identity',
+          memberIdentity: null,
+          clearReason: 'deleted',
+        }),
+      );
+      guestSocket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'account-identity',
+          memberIdentity: null,
+          clearReason: 'deleted',
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      expect(assertionProvider).toHaveBeenCalledTimes(4);
+      peer.destroy();
+    },
+  );
+
+  it.each(['host-first', 'clear-first'] as const)(
+    'makes authoritative clear generation-wide when mixed target results resolve %s',
+    async (resolutionOrder) => {
+      vi.useFakeTimers();
+      installFakeWebSocket();
+      installFakeRTCPeerConnection();
+      const assertionProvider = vi.fn(async () => ({
+        accountAssertion: 'bootstrap-assertion' as string | null,
+        deletionAssertion: null as string | null,
+      }));
+      const peer = new CloudflareSignalingPeer('123456', {
+        provider: 'cloudflare',
+        signalingUrl: 'wss://signal.example.test/api/rooms',
+        config: { iceServers: [] },
+        standardRoomAssertionProvider: assertionProvider,
+      });
+      await Promise.resolve();
+      const hostSocket = FakeWebSocket.instances[0];
+      hostSocket.dispatch('open');
+      hostSocket.dispatch(
+        'message',
+        JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      peer.connect('654321');
+      const guestSocket = FakeWebSocket.instances[1];
+      guestSocket.dispatch('open');
+      await vi.advanceTimersByTimeAsync(0);
+      guestSocket.dispatch(
+        'message',
+        JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '654321' }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+
+      const memberIdentity = {
+        memberId: 'member_abcdefghijklmnopqrstuv',
+        memberDisplayNumber: 0,
+        nickname: 'Minsu',
+        isAuthenticated: true,
+      };
+      for (const socket of [hostSocket, guestSocket]) {
+        socket.dispatch('message', JSON.stringify({ type: 'account-identity', memberIdentity }));
+      }
+      await vi.advanceTimersByTimeAsync(0);
+
+      assertionProvider.mockClear();
+      hostSocket.sent.length = 0;
+      guestSocket.sent.length = 0;
+      const staleHost = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+      const clearedGuest = deferred<{ accountAssertion: null; deletionAssertion: null }>();
+      assertionProvider
+        .mockImplementationOnce(() => staleHost.promise)
+        .mockImplementationOnce(() => clearedGuest.promise);
+
+      const refresh = peer.refreshStandardRoomIdentity();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(assertionProvider).toHaveBeenCalledTimes(2);
+
+      if (resolutionOrder === 'host-first') {
+        staleHost.resolve({
+          accountAssertion: 'pre-logout-host-assertion',
+          deletionAssertion: null,
+        });
+      } else {
+        clearedGuest.resolve({ accountAssertion: null, deletionAssertion: null });
+      }
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(sentOfType(hostSocket, 'account-identity-refresh')).toEqual([]);
+      expect(sentOfType(hostSocket, 'account-identity-clear')).toEqual([]);
+      expect(sentOfType(guestSocket, 'account-identity-clear')).toEqual([]);
+
+      if (resolutionOrder === 'host-first') {
+        clearedGuest.resolve({ accountAssertion: null, deletionAssertion: null });
+      } else {
+        staleHost.resolve({
+          accountAssertion: 'pre-logout-host-assertion',
+          deletionAssertion: null,
+        });
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      await refresh;
+
+      expect(sentOfType(hostSocket, 'account-identity-refresh')).toEqual([]);
+      expect(sentOfType(guestSocket, 'account-identity-refresh')).toEqual([]);
+      expect(sentOfType(hostSocket, 'account-identity-clear')).toEqual([
+        { type: 'account-identity-clear' },
+      ]);
+      expect(sentOfType(guestSocket, 'account-identity-clear')).toEqual([
+        { type: 'account-identity-clear' },
+      ]);
+
+      for (const socket of [hostSocket, guestSocket]) {
+        socket.dispatch(
+          'message',
+          JSON.stringify({
+            type: 'account-identity',
+            memberIdentity: null,
+            clearReason: 'explicit',
+          }),
+        );
+      }
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      // The pre-existing renewal and every transient/deletion retry are gone;
+      // delayed ordered clear acks are timer no-ops.
+      expect(assertionProvider).toHaveBeenCalledTimes(2);
+      peer.destroy();
+    },
+  );
+
+  it('retries a timed-out background renewal five seconds later', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'initial-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+        memberIdentity: {
+          memberId: 'member_abcdefghijklmnopqrstuv',
+          memberDisplayNumber: 0,
+          nickname: 'Minsu',
+          isAuthenticated: true,
+        },
+      }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    assertionProvider.mockClear();
+    socket.sent.length = 0;
+    assertionProvider.mockImplementation(() => new Promise(() => {}));
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
     peer.destroy();
   });
 
@@ -660,6 +1813,10 @@ describe('standard-room account identity refresh', () => {
     await Promise.resolve();
     const socket = FakeWebSocket.instances[0];
     socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
     await flushAsync();
     socket.sent.length = 0;
 
@@ -699,6 +1856,7 @@ describe('standard-room account identity refresh', () => {
       'message',
       JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
     );
+    await flushAsync();
     socket.sent.length = 0;
 
     peer.deleteStandardRoomIdentity();
@@ -823,7 +1981,7 @@ describe('standard-room account identity refresh', () => {
         },
       }),
     );
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(sentOfType(socket, 'account-identity-refresh')).toContainEqual({
       type: 'account-identity-refresh',
       accountAssertion: 'signed-assertion',
@@ -875,7 +2033,7 @@ describe('standard-room account identity refresh', () => {
         clearReason: 'expired',
       }),
     );
-    await vi.advanceTimersByTimeAsync(9_999);
+    await vi.advanceTimersByTimeAsync(4_999);
     expect(assertionProvider).not.toHaveBeenCalled();
     expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
 
@@ -927,7 +2085,7 @@ describe('standard-room account identity refresh', () => {
       }),
     );
     socket.dispatch('message', JSON.stringify({ type: 'account-identity', memberIdentity: null }));
-    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.advanceTimersByTimeAsync(30_000);
 
     expect(assertionProvider).not.toHaveBeenCalled();
     expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
@@ -966,7 +2124,7 @@ describe('standard-room account identity refresh', () => {
       isAuthenticated: true,
     };
     socket.dispatch('message', JSON.stringify({ type: 'account-identity', memberIdentity }));
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(20_000);
 
     // The Worker sends this projection when another same-account device renews,
     // but it deliberately does not extend this socket's independent lease.
@@ -1442,6 +2600,87 @@ describe('Cloudflare PRO signaling client contract', () => {
 });
 
 describe('Cloudflare client/Worker signaling contract', () => {
+  it('keeps guest-auth first and replays a superseding identity clear only after admission', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const room = await createContractWorkerRoom();
+
+    const hostPeer = createHostPeer();
+    await Promise.resolve();
+    const hostClientSocket = FakeWebSocket.instances[0];
+    hostClientSocket.dispatch('open');
+    await flushAsync();
+    const hostUrl = new URL(hostClientSocket.url);
+    const hostServerSocket = new ContractWorkerSocket();
+    room.acceptPendingHost(hostServerSocket, '123456', hostUrl.searchParams.get('peerId') || '');
+    await room.webSocketMessage(
+      hostServerSocket,
+      JSON.stringify(sentOfType(hostClientSocket, 'host-auth')[0]),
+    );
+
+    const oldAdmission = deferred<{ accountAssertion: string; deletionAssertion: null }>();
+    const assertionProvider = vi
+      .fn()
+      .mockImplementationOnce(() => oldAdmission.promise)
+      .mockResolvedValueOnce({ accountAssertion: null, deletionAssertion: null });
+    const guestPeer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    guestPeer.connect('123456');
+    const guestClientSocket = FakeWebSocket.instances[1];
+    const guestUrl = new URL(guestClientSocket.url);
+    const guestServerSocket = new ContractWorkerSocket();
+    await room.acceptGuest(guestServerSocket, '123456', guestUrl.searchParams.get('peerId') || '');
+
+    guestClientSocket.dispatch('open');
+    await Promise.resolve();
+    expect(assertionProvider).toHaveBeenCalledOnce();
+
+    await guestPeer.refreshStandardRoomIdentity();
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(guestClientSocket.sent).toEqual([]);
+
+    oldAdmission.resolve({
+      accountAssertion: 'superseded-admission-assertion',
+      deletionAssertion: null,
+    });
+    await flushAsync();
+
+    const firstFrame = JSON.parse(guestClientSocket.sent[0]) as Record<string, unknown>;
+    expect(firstFrame).toMatchObject({ type: 'guest-auth' });
+    expect(firstFrame).not.toHaveProperty('accountAssertion');
+    await room.webSocketMessage(guestServerSocket, JSON.stringify(firstFrame));
+
+    expect(guestServerSocket.closed).toBe(false);
+    const peerOpen = workerSentOfType(guestServerSocket, 'peer-open')[0];
+    guestClientSocket.dispatch('message', JSON.stringify(peerOpen));
+    await flushAsync();
+
+    expect(assertionProvider).toHaveBeenCalledTimes(2);
+    const identityClear = sentOfType(guestClientSocket, 'account-identity-clear')[0];
+    expect(identityClear).toEqual({ type: 'account-identity-clear' });
+    expect(
+      guestClientSocket.sent
+        .map((raw) => (JSON.parse(raw) as { type: string }).type)
+        .indexOf('account-identity-clear'),
+    ).toBeGreaterThan(0);
+
+    await room.webSocketMessage(guestServerSocket, JSON.stringify(identityClear));
+    expect(guestServerSocket.closed).toBe(false);
+    expect(workerSentOfType(guestServerSocket, 'account-identity')).toContainEqual({
+      type: 'account-identity',
+      memberIdentity: null,
+      clearReason: 'explicit',
+    });
+
+    guestPeer.destroy();
+    hostPeer.destroy();
+  });
+
   it.each([
     { label: 'passwordless', roomPassword: '' },
     { label: 'password-protected', roomPassword: '12345678' },

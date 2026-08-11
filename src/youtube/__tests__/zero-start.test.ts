@@ -79,6 +79,8 @@ function makeHarness(options?: {
   failHostCommitSend?: boolean;
   onHostFallbackRequired?: YouTubeZeroStartDependencies['onHostFallbackRequired'];
   onGuestLearnedTimelineLeadMs?: YouTubeZeroStartDependencies['onLearnedTimelineLeadMs'];
+  onHostPhaseChange?: YouTubeZeroStartDependencies['onPhaseChange'];
+  onGuestPhaseChange?: YouTubeZeroStartDependencies['onPhaseChange'];
 }): Harness {
   const hostOutbound: YouTubeZeroStartWireMessage[] = [];
   const guestOutbound: YouTubeZeroStartWireMessage[] = [];
@@ -130,6 +132,7 @@ function makeHarness(options?: {
     sendToHost: () => false,
     onPrepareSelection: () => options?.hostMediaAction,
     onHostFallbackRequired: options?.onHostFallbackRequired,
+    onPhaseChange: options?.onHostPhaseChange,
   } as YouTubeZeroStartDependencies);
 
   const guestOffset = options?.guestOffsetSec ?? 0;
@@ -149,6 +152,7 @@ function makeHarness(options?: {
     },
     onPrepareSelection: () => options?.guestMediaAction,
     onLearnedTimelineLeadMs: options?.onGuestLearnedTimelineLeadMs,
+    onPhaseChange: options?.onGuestPhaseChange,
     resolveLocalTargetSec: (canonical) => canonical + guestOffset,
     toCanonicalPositionSec: (local) => local - guestOffset,
   } as YouTubeZeroStartDependencies);
@@ -392,7 +396,15 @@ describe('YouTubeZeroStartController', () => {
   });
 
   it('hard-mutes before load, restores intentional audio state, and releases an all-ready cohort together', () => {
-    const harness = makeHarness({ guestOffsetSec: 0.25, guestVolume: 0, guestMuted: true });
+    const onHostPhaseChange = vi.fn();
+    const onGuestPhaseChange = vi.fn();
+    const harness = makeHarness({
+      guestOffsetSec: 0.25,
+      guestVolume: 0,
+      guestMuted: true,
+      onHostPhaseChange,
+      onGuestPhaseChange,
+    });
     expect(harness.guest.advertiseCapability()).toBe(true);
     expect(harness.host.canBeginHostTransition()).toBe(true);
 
@@ -437,14 +449,28 @@ describe('YouTubeZeroStartController', () => {
     expect(hostPlay?.at).toBe(guestPlay?.at);
     expect(harness.host.getSnapshot().phase).toBe('playing');
     expect(harness.guest.getSnapshot().phase).toBe('playing');
+    expect(harness.host.isInFlight()).toBe(false);
+    expect(harness.guest.isInFlight()).toBe(false);
     expect(harness.host.isProtocolActive()).toBe(true);
     expect(harness.guest.isProtocolActive()).toBe(true);
+    expect(onHostPhaseChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: 'playing', inFlight: false }),
+    );
+    expect(onGuestPhaseChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: 'playing', inFlight: false }),
+    );
 
     vi.advanceTimersByTime(2_750);
     expect(harness.host.isProtocolActive()).toBe(false);
     expect(harness.guest.isProtocolActive()).toBe(false);
     expect(harness.host.getSnapshot().phase).toBe('idle');
     expect(harness.guest.getSnapshot().phase).toBe('idle');
+    expect(onHostPhaseChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: 'idle', inFlight: false }),
+    );
+    expect(onGuestPhaseChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ phase: 'idle', inFlight: false }),
+    );
   });
 
   it('repositions resident host and guest media without loading or cueing the iframe again', () => {

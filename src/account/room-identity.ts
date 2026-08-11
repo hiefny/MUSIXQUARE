@@ -75,9 +75,18 @@ export async function requestStandardRoomAccountAssertion(
   const existing = _assertionsInFlight.get(key);
   if (existing) return existing;
 
-  const request = requestStandardRoomAccountAssertionUncoalesced(input).finally(() => {
-    if (_assertionsInFlight.get(key) === request) _assertionsInFlight.delete(key);
-  });
+  const request = requestStandardRoomAccountAssertionUncoalesced(input)
+    .then((assertions) => {
+      // Coalescing is projection-scoped, but a request can finish after the
+      // browser has logged out, switched sessions, or changed profile. Never
+      // return an assertion minted for the superseded account projection; the
+      // account-state subscriber starts a fresh transport refresh for the new
+      // projection.
+      return assertionRequestKey(input) === key ? assertions : undefined;
+    })
+    .finally(() => {
+      if (_assertionsInFlight.get(key) === request) _assertionsInFlight.delete(key);
+    });
   _assertionsInFlight.set(key, request);
   return request;
 }
@@ -99,7 +108,7 @@ function handleAccountProjection(snapshot: Readonly<AccountSnapshot>): void {
   const key = accountProjectionKey(snapshot);
   // Loading/unavailable is deliberately non-authoritative. The signaling
   // Worker retains the previous identity only until its signed 60-second
-  // lease expires, while the transport's 10-second retry remains armed.
+  // lease expires, while the transport's 5-second retry remains armed.
   if (key === null || key === _lastAccountProjectionKey) return;
   _lastAccountProjectionKey = key;
   refreshCurrentStandardRoomIdentity();

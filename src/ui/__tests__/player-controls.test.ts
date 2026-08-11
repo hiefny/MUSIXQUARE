@@ -9,6 +9,7 @@ import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
 import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
+import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import { showToast } from '../toast.ts';
@@ -24,7 +25,7 @@ import {
 const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
-const zeroStartFacade = vi.hoisted(() => ({ active: false }));
+const zeroStartFacade = vi.hoisted(() => ({ active: false, inFlight: false }));
 const youtubePrimer = vi.hoisted(() => ({
   prime: vi.fn((_options?: { retryPending?: boolean }) => false),
   wait: vi.fn(async () => true),
@@ -65,6 +66,7 @@ vi.mock('../../youtube/sync.ts', () => ({
 
 vi.mock('../../youtube/zero-start.ts', () => ({
   isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
+  isYouTubeZeroStartInFlight: vi.fn(() => zeroStartFacade.inFlight),
 }));
 
 vi.mock('../../youtube/iframe.ts', () => ({
@@ -123,6 +125,7 @@ beforeEach(() => {
   proRoomClock.connected = false;
   proRoomClock.offsetMs = 0;
   zeroStartFacade.active = false;
+  zeroStartFacade.inFlight = false;
   proPlaybackRuntime.reconcile.mockResolvedValue(true);
   document.body.innerHTML = '';
 });
@@ -1091,6 +1094,39 @@ describe('initPlayerControls playback mode rendering', () => {
     }
   });
 
+  it('keeps the physical standard-room host transport enabled through sibling authority churn', () => {
+    renderPlaybackControls();
+    setActiveStandardHost();
+    setState('network.hostConn', null);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlayerControls();
+    bus.emit('ui:play-btn-state', true);
+
+    const expectHostTransportEnabled = () => {
+      expect(getState('network.appRole')).toBe('host');
+      expect(getState('network.hostConn')).toBeNull();
+      for (const id of ['btn-prev', 'play-btn', 'btn-next']) {
+        const button = document.getElementById(id);
+        expect(button?.getAttribute('aria-disabled')).toBe('false');
+        expect(button?.hasAttribute('title')).toBe(false);
+      }
+    };
+
+    expectHostTransportEnabled();
+
+    // These are the guest-side projections used by another authenticated
+    // device of the host account. They must never demote the physical host.
+    setState('network.standardRoomCapabilities', [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES]);
+    expectHostTransportEnabled();
+    setState('network.isOperator', true);
+    expectHostTransportEnabled();
+    setState('network.standardRoomCapabilities', null);
+    expectHostTransportEnabled();
+    setState('network.isOperator', false);
+    expectHostTransportEnabled();
+  });
+
   it.each([PLAYBACK_STATE.DOWNLOADING, PLAYBACK_STATE.AWAITING_PRELOAD, PLAYBACK_STATE.DECODING])(
     'shows the loading play button while a local file is preparing (%s)',
     (lifecycle) => {
@@ -1526,6 +1562,7 @@ describe('initPlayerControls sync button', () => {
     setState('playback.mode', 'youtube');
     setState('playback.activity', 'playing');
     zeroStartFacade.active = true;
+    zeroStartFacade.inFlight = true;
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
@@ -1575,12 +1612,55 @@ describe('initPlayerControls sync button', () => {
     setState('playback.mode', 'youtube');
     setState('playback.activity', 'playing');
     zeroStartFacade.active = true;
+    zeroStartFacade.inFlight = true;
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
 
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
+  });
+
+  it('keeps host Sync fenced through calibration, then repaints at protocol idle', () => {
+    renderSyncControls();
+    document.body.insertAdjacentHTML(
+      'beforeend',
+      '<input id="seek-slider" type="range" value="0" max="120" />',
+    );
+    setActiveStandardHost();
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    zeroStartFacade.active = true;
+    zeroStartFacade.inFlight = true;
+
+    initPlayerControls();
+    const button = document.getElementById('btn-sync') as HTMLButtonElement;
+    const playButton = document.getElementById('play-btn') as HTMLButtonElement;
+    const seekSlider = document.getElementById('seek-slider') as HTMLInputElement;
+    bus.emit('youtube:sync-loading', true, 'zero-start');
+
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    expect(playButton.classList.contains('yt-syncing')).toBe(true);
+    expect(playButton.getAttribute('aria-busy')).toBe('true');
+    expect(seekSlider.getAttribute('aria-disabled')).toBe('true');
+
+    zeroStartFacade.inFlight = false;
+    bus.emit('youtube:sync-loading', false, 'zero-start');
+
+    expect(zeroStartFacade.active).toBe(true);
+    expect(playButton.classList.contains('yt-syncing')).toBe(false);
+    expect(playButton.getAttribute('aria-busy')).toBe('false');
+    expect(seekSlider.getAttribute('aria-disabled')).toBe('false');
+    expect(button.getAttribute('aria-disabled')).toBe('true');
+    button.click();
+    expect(broadcastYouTubeSync).not.toHaveBeenCalled();
+
+    zeroStartFacade.active = false;
+    bus.emit('youtube:zero-start-readiness-changed');
+
+    expect(button.getAttribute('aria-disabled')).toBe('false');
+    button.click();
+    expect(broadcastYouTubeSync).toHaveBeenCalledWith(true);
   });
 
   it('reconciles an equal PRO participant before opening the local YouTube nudge panel', async () => {
@@ -1727,6 +1807,7 @@ describe('initPlayerControls sync button', () => {
     setState('playback.mode', 'youtube');
     setState('playback.activity', 'playing');
     zeroStartFacade.active = true;
+    zeroStartFacade.inFlight = true;
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();

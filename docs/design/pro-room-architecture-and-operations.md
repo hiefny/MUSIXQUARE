@@ -279,7 +279,7 @@ provisioning is defined in the
 
 Account identity on a physical PRO session is a renewable server-owned lease,
 not a property of the 30-day room cookie. A fresh App assertion grants 120
-seconds; an active client re-proves it every 40 seconds and also reconciles after
+seconds; an active client re-proves it every 60 seconds and also reconciles after
 foreground/resume. Explicit logout detaches immediately. Logout-all, account
 revocation on another device, or a tab that can no longer prove the App account
 cannot extend the lease, so account-only authority disappears from that physical

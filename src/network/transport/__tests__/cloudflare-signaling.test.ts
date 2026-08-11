@@ -663,7 +663,7 @@ describe('standard-room account identity refresh', () => {
     peer.destroy();
   });
 
-  it('retries after a transient assertion failure following host admission', async () => {
+  it('keeps a pending retry when a sibling identity projection arrives', async () => {
     vi.useFakeTimers();
     installFakeWebSocket();
     const assertionProvider = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValueOnce({
@@ -689,6 +689,18 @@ describe('standard-room account identity refresh', () => {
     );
     await vi.advanceTimersByTimeAsync(0);
 
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: {
+          memberId: 'member_abcdefghijklmnopqrstuv',
+          memberDisplayNumber: 0,
+          nickname: 'Minsu',
+          isAuthenticated: true,
+        },
+      }),
+    );
     await vi.advanceTimersByTimeAsync(10_000);
     expect(sentOfType(socket, 'account-identity-refresh')).toContainEqual({
       type: 'account-identity-refresh',
@@ -729,6 +741,8 @@ describe('standard-room account identity refresh', () => {
         },
       }),
     );
+    await vi.advanceTimersByTimeAsync(0);
+    assertionProvider.mockClear();
     socket.sent.length = 0;
 
     socket.dispatch(
@@ -739,8 +753,105 @@ describe('standard-room account identity refresh', () => {
         clearReason: 'expired',
       }),
     );
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(assertionProvider).not.toHaveBeenCalled();
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(assertionProvider).toHaveBeenCalledOnce();
+    expect(sentOfType(socket, 'account-identity-refresh')).toContainEqual({
+      type: 'account-identity-refresh',
+      accountAssertion: 'renewed-assertion',
+    });
+    peer.destroy();
+  });
+
+  it('cancels a pending identity refresh when the identity is explicitly cleared', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'renewed-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    await vi.advanceTimersByTimeAsync(0);
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    assertionProvider.mockClear();
+    socket.sent.length = 0;
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'account-identity',
+        memberIdentity: {
+          memberId: 'member_abcdefghijklmnopqrstuv',
+          memberDisplayNumber: 0,
+          nickname: 'Minsu',
+          isAuthenticated: true,
+        },
+      }),
+    );
+    socket.dispatch('message', JSON.stringify({ type: 'account-identity', memberIdentity: null }));
+    await vi.advanceTimersByTimeAsync(40_000);
+
+    expect(assertionProvider).not.toHaveBeenCalled();
+    expect(sentOfType(socket, 'account-identity-refresh')).toEqual([]);
+    peer.destroy();
+  });
+
+  it('does not postpone its own identity refresh when a sibling device updates the account identity', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'renewed-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    await vi.advanceTimersByTimeAsync(0);
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    assertionProvider.mockClear();
+    socket.sent.length = 0;
+
+    const memberIdentity = {
+      memberId: 'member_abcdefghijklmnopqrstuv',
+      memberDisplayNumber: 0,
+      nickname: 'Minsu',
+      isAuthenticated: true,
+    };
+    socket.dispatch('message', JSON.stringify({ type: 'account-identity', memberIdentity }));
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    // The Worker sends this projection when another same-account device renews,
+    // but it deliberately does not extend this socket's independent lease.
+    socket.dispatch('message', JSON.stringify({ type: 'account-identity', memberIdentity }));
     await vi.advanceTimersByTimeAsync(10_000);
 
+    expect(assertionProvider).toHaveBeenCalledOnce();
     expect(sentOfType(socket, 'account-identity-refresh')).toContainEqual({
       type: 'account-identity-refresh',
       accountAssertion: 'renewed-assertion',

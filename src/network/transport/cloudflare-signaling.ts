@@ -951,14 +951,26 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const identity = value === null ? null : normalizeStandardRoomMemberIdentity(value);
     if (value !== null && !identity) return;
     this.emit('room-identity', identity, clearReason);
+    // A same-account sibling projection can update this identity without
+    // extending this socket's independent server lease. Keep the earlier
+    // renewal deadline instead of letting sibling devices postpone each other.
     this.scheduleStandardRoomIdentityRefresh(
       identity ? 40_000 : clearReason === 'expired' ? 10_000 : null,
+      identity !== null,
     );
   }
 
-  private scheduleStandardRoomIdentityRefresh(delayMs: number | null): void {
-    clearManagedTimer(this.standardRoomIdentityRefreshTimerKey);
-    if (delayMs === null || this.destroyed || this.proSignalingAccess) return;
+  private scheduleStandardRoomIdentityRefresh(
+    delayMs: number | null,
+    preserveExisting = false,
+  ): void {
+    if (delayMs === null || this.destroyed || this.proSignalingAccess) {
+      clearManagedTimer(this.standardRoomIdentityRefreshTimerKey);
+      return;
+    }
+    if (preserveExisting && getManagedTimer(this.standardRoomIdentityRefreshTimerKey) !== null) {
+      return;
+    }
     setManagedTimer(
       this.standardRoomIdentityRefreshTimerKey,
       () => {

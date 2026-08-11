@@ -180,9 +180,18 @@ class FakeStorage {
 }
 
 class FakeDurableObjectState {
+  id: { name?: string };
   storage = new FakeStorage();
   sockets: FakeSocket[] = [];
   waitUntilTasks: Promise<unknown>[] = [];
+
+  constructor(name?: string) {
+    this.id = name ? { name } : {};
+  }
+
+  blockConcurrencyWhile<T>(callback: () => Promise<T>): Promise<T> {
+    return callback();
+  }
 
   acceptWebSocket(ws: FakeSocket, tags: string[] = []): void {
     ws.accepted = true;
@@ -256,6 +265,9 @@ function wsRequestWithLegacyHostSecret(roomId: string, peerId: string, secret: s
 }
 
 const PRO_SIGNALING_SECRET = 'pro-signaling-test-secret-with-at-least-32-bytes';
+const STANDARD_WS_RATE_OBJECT_PREFIX = 'musixquare-standard-ws-open-rate-v1:';
+const STANDARD_WS_RATE_STATE_KEY = 'standard-ws-open-rate-state-v1';
+const STANDARD_WS_RATE_CONSUME_PATH = '/internal/standard-ws-open-rate/v1/consume';
 const STANDARD_ACCOUNT_ASSERTION_SECRET =
   'standard-room-account-assertion-test-secret-at-least-32-bytes';
 const STANDARD_ACCOUNT_ID = 'acct_0123456789abcdefghijkl';
@@ -342,23 +354,51 @@ function requestLike(url: string, headers: Record<string, string> = {}): Request
   } as Request;
 }
 
-function workerEnv(): {
+function workerEnv(options: { rateStateSeed?: unknown; rateFetchError?: Error } = {}): {
   env: Record<string, unknown>;
   idFromName: ReturnType<typeof vi.fn>;
+  roomGet: ReturnType<typeof vi.fn>;
   roomFetch: ReturnType<typeof vi.fn>;
+  rateObjectStates: Map<string, FakeDurableObjectState>;
 } {
   const roomFetch = vi.fn(async () => new Response(null, { status: 101 }));
   const room = { fetch: roomFetch };
-  const idFromName = vi.fn(() => 'room-object-id');
+  const rateObjectStates = new Map<string, FakeDurableObjectState>();
+  const rateObjects = new Map<string, InstanceType<WorkerModule['MusixquareRoom']>>();
+  const idFromName = vi.fn((name: string) => name);
+  const roomGet = vi.fn((id: string) => {
+    const name = String(id);
+    if (!name.startsWith(STANDARD_WS_RATE_OBJECT_PREFIX)) return room;
+    if (options.rateFetchError) {
+      return {
+        fetch: vi.fn(async () => {
+          throw options.rateFetchError;
+        }),
+      };
+    }
+    let rateObject = rateObjects.get(name);
+    if (!rateObject) {
+      const state = new FakeDurableObjectState(name);
+      if (Object.prototype.hasOwnProperty.call(options, 'rateStateSeed')) {
+        state.storage.data.set(STANDARD_WS_RATE_STATE_KEY, structuredClone(options.rateStateSeed));
+      }
+      rateObject = new workerModule.MusixquareRoom(state);
+      rateObjects.set(name, rateObject);
+      rateObjectStates.set(name, state);
+    }
+    return rateObject;
+  });
   return {
     env: {
       MUSIXQUARE_ROOMS: {
         idFromName,
-        get: vi.fn(() => room),
+        get: roomGet,
       },
     },
     idFromName,
+    roomGet,
     roomFetch,
+    rateObjectStates,
   };
 }
 
@@ -843,15 +883,16 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(new URL(request.url).searchParams.get('secret')).toBeNull();
   });
 
-  it('hard-limits barrier-concurrent WebSocket opens before room routing', async () => {
+  it('hard-limits barrier-concurrent WebSocket opens across room codes before routing', async () => {
     const routed = workerEnv();
     const control = atomicRateBinding(121);
     routed.env.MUSIXQUARE_SERVICE_CONTROL = control.binding;
     routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
-    const open = (index: number) =>
-      workerModule.default.fetch(
+    const open = (index: number) => {
+      const roomId = String(100_000 + index);
+      return workerModule.default.fetch(
         requestLike(
-          `https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=rate-peer-${index}`,
+          `https://signal.example.test/api/rooms/${roomId}/ws?role=guest&peerId=rate-peer-${index}`,
           {
             Origin: 'https://musixquare.com',
             Upgrade: 'websocket',
@@ -860,13 +901,175 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         ),
         routed.env,
       );
+    };
 
     const responses = await Promise.all(Array.from({ length: 121 }, (_, index) => open(index)));
 
     expect(responses.filter((response) => response.status === 101)).toHaveLength(120);
     expect(responses.filter((response) => response.status === 429)).toHaveLength(1);
     expect(routed.roomFetch).toHaveBeenCalledTimes(120);
-    expect(control.rateFetchCount()).toBe(121);
+    expect(routed.rateObjectStates.size).toBe(1);
+    expect(control.rateFetchCount()).toBe(0);
+  });
+
+  it('isolates standard WebSocket-open limits by HMAC-protected client IP', async () => {
+    const routed = workerEnv();
+    routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const open = (ip: string, peerId: string) =>
+      workerModule.default.fetch(
+        requestLike(`https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=${peerId}`, {
+          Origin: 'https://musixquare.com',
+          Upgrade: 'websocket',
+          'CF-Connecting-IP': ip,
+        }),
+        routed.env,
+      );
+
+    const firstIp = await Promise.all(
+      Array.from({ length: 120 }, (_, index) => open('203.0.113.10', `first-ip-${index}`)),
+    );
+    const firstIpDenied = await open('203.0.113.10', 'first-ip-denied');
+    const secondIpAllowed = await open('203.0.113.11', 'second-ip-allowed');
+
+    expect(firstIp.every((response) => response.status === 101)).toBe(true);
+    expect(firstIpDenied.status).toBe(429);
+    expect(secondIpAllowed.status).toBe(101);
+    expect(routed.rateObjectStates.size).toBe(2);
+    expect(
+      [...routed.rateObjectStates.keys()].every(
+        (name) =>
+          name.startsWith(STANDARD_WS_RATE_OBJECT_PREFIX) &&
+          !name.includes('203.0.113.10') &&
+          !name.includes('203.0.113.11'),
+      ),
+    ).toBe(true);
+  });
+
+  it('fails standard admission closed on corrupt local rate state or a local rate fetch failure', async () => {
+    const corrupt = workerEnv({
+      rateStateSeed: { v: 1, windowStartMs: 0, resetAtMs: 60_000, count: 'corrupt' },
+    });
+    corrupt.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const corruptResponse = await workerModule.default.fetch(
+      requestLike(
+        'https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=corrupt-rate',
+        {
+          Origin: 'https://musixquare.com',
+          Upgrade: 'websocket',
+          'CF-Connecting-IP': '203.0.113.12',
+        },
+      ),
+      corrupt.env,
+    );
+    expect(corruptResponse.status).toBe(503);
+    expect(corrupt.roomFetch).not.toHaveBeenCalled();
+
+    const failed = workerEnv({ rateFetchError: new Error('simulated local rate failure') });
+    failed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const failedResponse = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/rooms/123456/ws?role=guest&peerId=failed-rate', {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+        'CF-Connecting-IP': '203.0.113.13',
+      }),
+      failed.env,
+    );
+    expect(failedResponse.status).toBe(503);
+    expect(failed.roomFetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps the reserved standard rate object unreachable through public room paths', async () => {
+    const routed = workerEnv();
+    const reservedName = `${STANDARD_WS_RATE_OBJECT_PREFIX}${'A'.repeat(43)}`;
+    const reservedObject = new workerModule.MusixquareRoom(
+      new FakeDurableObjectState(reservedName),
+    );
+
+    const publicResponse = await workerModule.default.fetch(
+      requestLike(
+        `https://signal.example.test/api/rooms/${reservedName}/ws?role=guest&peerId=reserved-probe`,
+        { Origin: 'https://musixquare.com', Upgrade: 'websocket' },
+      ),
+      routed.env,
+    );
+    const internalResponse = await workerModule.default.fetch(
+      requestLike(`https://signal.example.test${STANDARD_WS_RATE_CONSUME_PATH}`, {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      routed.env,
+    );
+    const directRoomResponse = await reservedObject.fetch(
+      wsRequest('123456', 'guest', 'reserved-direct-probe'),
+    );
+
+    expect(publicResponse.status).toBe(200);
+    expect(internalResponse.status).toBe(404);
+    expect(directRoomResponse.status).toBe(404);
+    expect(routed.idFromName).not.toHaveBeenCalled();
+    expect(routed.roomGet).not.toHaveBeenCalled();
+  });
+
+  it('expires a reserved standard rate object through its persistent alarm', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-11T12:00:00.000Z'));
+    const state = new FakeDurableObjectState(`${STANDARD_WS_RATE_OBJECT_PREFIX}${'B'.repeat(43)}`);
+    const rateObject = new workerModule.MusixquareRoom(state);
+
+    const consumed = await rateObject.fetch(
+      new Request(`https://signaling-rate.internal${STANDARD_WS_RATE_CONSUME_PATH}`, {
+        method: 'POST',
+      }),
+    );
+    expect(consumed.status).toBe(204);
+    expect(await state.storage.get(STANDARD_WS_RATE_STATE_KEY)).toMatchObject({ count: 1 });
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+
+    vi.advanceTimersByTime(30_000);
+    await rateObject.alarm();
+    expect(await state.storage.get(STANDARD_WS_RATE_STATE_KEY)).toMatchObject({ count: 1 });
+    expect(state.storage.alarmTime).toBe(Date.now() + 30_000);
+
+    vi.advanceTimersByTime(30_000);
+    await rateObject.alarm();
+    expect(await state.storage.get(STANDARD_WS_RATE_STATE_KEY)).toBeUndefined();
+    expect(state.storage.alarmTime).toBeNull();
+  });
+
+  it('uses Service-Control only for maintenance, not standard WebSocket-open consumption', async () => {
+    const routed = workerEnv();
+    routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const paths: string[] = [];
+    routed.env.MUSIXQUARE_SERVICE_CONTROL = {
+      getByName: vi.fn(() => ({
+        fetch: vi.fn(async (request: Request) => {
+          const path = new URL(request.url).pathname;
+          paths.push(path);
+          if (path !== SERVICE_CONTROL_STATUS_PATH) throw new Error('unexpected abuse consume');
+          return originalResponse.json({
+            serviceStatus: {
+              enabled: false,
+              revision: 0,
+              updatedAt: null,
+              activatedAt: null,
+            },
+          });
+        }),
+      })),
+    };
+
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/rooms/123456/ws?role=host&peerId=local-rate', {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+        'CF-Connecting-IP': '203.0.113.14',
+      }),
+      routed.env,
+    );
+
+    expect(response.status).toBe(101);
+    expect(paths).toEqual([SERVICE_CONTROL_STATUS_PATH]);
+    expect(paths).not.toContain(ABUSE_RATE_CONSUME_PATH);
   });
 
   it('does not interpret a retired host secret query at the edge', async () => {

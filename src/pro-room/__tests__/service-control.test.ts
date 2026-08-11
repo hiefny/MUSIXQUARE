@@ -3,6 +3,7 @@ import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
+  ABUSE_RATE_PAIR_CONSUME_PATH,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
 } from '../../../cloudflare/service-maintenance.js';
@@ -23,6 +24,10 @@ class ServiceControlStorage {
     for (const [key, entry] of Object.entries(entries)) {
       this.data.set(key, structuredClone(entry));
     }
+  }
+
+  async delete(key: string): Promise<void> {
+    this.data.delete(key);
   }
 
   async getAlarm(): Promise<number | null> {
@@ -95,6 +100,34 @@ function rateRequest(path: string, operationId?: string, limit = 1): Request {
   });
 }
 
+function pairRateRequest(
+  secondaryIdentity: string | null,
+  {
+    limit = 3,
+    secondaryLimit = 2,
+    cost = 1,
+    secondaryCost = 1,
+  }: {
+    limit?: number;
+    secondaryLimit?: number;
+    cost?: number;
+    secondaryCost?: number;
+  } = {},
+): Request {
+  return new Request(`https://service-control.internal${ABUSE_RATE_PAIR_CONSUME_PATH}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      limit,
+      windowMs: 60_000,
+      cost,
+      secondaryIdentity,
+      secondaryLimit: secondaryIdentity === null ? null : secondaryLimit,
+      secondaryCost: secondaryIdentity === null ? null : secondaryCost,
+    }),
+  });
+}
+
 async function payload(response: Response): Promise<Record<string, unknown>> {
   return (await response.json()) as Record<string, unknown>;
 }
@@ -156,6 +189,220 @@ describe('MusixquareServiceControl', () => {
     expect(response.status).toBe(503);
     await expect(payload(response)).resolves.toEqual({ error: 'ABUSE_RATE_STATE_INVALID' });
     expect(storage.getKeys).toEqual(['abuse-rate-state-v1']);
+  });
+
+  it('atomically enforces the shared IP limit before independent capability limits', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-11T08:00:30.000Z'));
+    const storage = new ServiceControlStorage();
+    const objectName = 'musixquare-abuse-rate-pair-v1:app-turn-config:opaque-ip';
+    const { control } = setup(storage, objectName);
+
+    const [first, second, third, denied] = await Promise.all([
+      control.fetch(pairRateRequest('token-a')),
+      control.fetch(pairRateRequest('token-a')),
+      control.fetch(pairRateRequest('token-b')),
+      control.fetch(pairRateRequest('token-c')),
+    ]);
+
+    expect([first.status, second.status, third.status, denied.status]).toEqual([
+      200, 200, 200, 200,
+    ]);
+    await expect(payload(first)).resolves.toMatchObject({
+      allowed: true,
+      deniedBy: null,
+      primary: { allowed: true },
+      secondary: { allowed: true },
+    });
+    await expect(payload(second)).resolves.toMatchObject({ allowed: true, deniedBy: null });
+    await expect(payload(third)).resolves.toMatchObject({ allowed: true, deniedBy: null });
+    await expect(payload(denied)).resolves.toMatchObject({
+      allowed: false,
+      deniedBy: 'primary',
+      primary: { allowed: false, remaining: 0 },
+      secondary: null,
+    });
+    expect(storage.getKeys).toEqual(['abuse-rate-pair-state-v1']);
+    expect(storage.data.get('abuse-rate-pair-state-v1')).toMatchObject({
+      primary: { limit: 3, count: 3 },
+      secondaries: [
+        { identity: 'token-a', limit: 2, count: 2 },
+        { identity: 'token-b', limit: 2, count: 1 },
+      ],
+    });
+    expect(storage.setAlarmCalls).toEqual([Date.parse('2026-08-11T08:01:00.000Z')]);
+  });
+
+  it('counts primary-only authentication failures in the same pair IP bucket', async () => {
+    const objectName = 'musixquare-abuse-rate-pair-v1:app-turn-config:shared-ip';
+    const { control, storage } = setup(new ServiceControlStorage(), objectName);
+
+    const unauthenticated = await control.fetch(pairRateRequest(null, { limit: 2 }));
+    const authenticated = await control.fetch(pairRateRequest('valid-token', { limit: 2 }));
+    const limited = await control.fetch(pairRateRequest('another-token', { limit: 2 }));
+
+    await expect(payload(unauthenticated)).resolves.toMatchObject({
+      allowed: true,
+      primary: { remaining: 1 },
+      secondary: null,
+    });
+    await expect(payload(authenticated)).resolves.toMatchObject({
+      allowed: true,
+      primary: { remaining: 0 },
+      secondary: { remaining: 1 },
+    });
+    await expect(payload(limited)).resolves.toMatchObject({
+      allowed: false,
+      deniedBy: 'primary',
+      secondary: null,
+    });
+    expect(storage.data.get('abuse-rate-pair-state-v1')).toMatchObject({
+      primary: { count: 2 },
+      secondaries: [{ identity: 'valid-token', count: 1 }],
+    });
+  });
+
+  it('charges the IP once when a capability is denied and never advances that capability', async () => {
+    const objectName = 'musixquare-abuse-rate-pair-v1:app-turn-config:secondary-denial';
+    const { control, storage } = setup(new ServiceControlStorage(), objectName);
+
+    expect(
+      (await control.fetch(pairRateRequest('token-a', { limit: 10, secondaryLimit: 1 }))).status,
+    ).toBe(200);
+    const denied = await control.fetch(
+      pairRateRequest('token-a', { limit: 10, secondaryLimit: 1 }),
+    );
+
+    await expect(payload(denied)).resolves.toMatchObject({
+      allowed: false,
+      deniedBy: 'secondary',
+      primary: { allowed: true, remaining: 8 },
+      secondary: { allowed: false, remaining: 0 },
+    });
+    expect(storage.data.get('abuse-rate-pair-state-v1')).toMatchObject({
+      primary: { count: 2 },
+      secondaries: [{ identity: 'token-a', count: 1 }],
+    });
+  });
+
+  it('fails pair consumption closed on corrupt pair state', async () => {
+    const storage = new ServiceControlStorage();
+    storage.data.set('abuse-rate-pair-state-v1', {
+      v: 1,
+      windowMs: 60_000,
+      windowStartMs: 0,
+      resetAtMs: 60_000,
+      primary: { limit: 3, count: 4 },
+      secondaries: [],
+    });
+    const { control } = setup(storage, 'musixquare-abuse-rate-pair-v1:app-turn-config:corrupt-ip');
+
+    const response = await control.fetch(pairRateRequest('token-a'));
+
+    expect(response.status).toBe(503);
+    await expect(payload(response)).resolves.toEqual({ error: 'ABUSE_RATE_PAIR_STATE_INVALID' });
+  });
+
+  it.each([
+    [
+      'a zero primary count',
+      {
+        v: 1,
+        windowMs: 60_000,
+        windowStartMs: 0,
+        resetAtMs: 60_000,
+        primary: { limit: 3, count: 0 },
+        secondaries: [],
+      },
+    ],
+    [
+      'a zero secondary count',
+      {
+        v: 1,
+        windowMs: 60_000,
+        windowStartMs: 0,
+        resetAtMs: 60_000,
+        primary: { limit: 3, count: 1 },
+        secondaries: [{ identity: 'token-a', limit: 2, count: 0 }],
+      },
+    ],
+    [
+      'more secondary consumes than primary consumes',
+      {
+        v: 1,
+        windowMs: 60_000,
+        windowStartMs: 0,
+        resetAtMs: 60_000,
+        primary: { limit: 3, count: 1 },
+        secondaries: [{ identity: 'token-a', limit: 2, count: 2 }],
+      },
+    ],
+  ])('fails pair consumption closed on unreachable pair state with %s', async (_label, state) => {
+    const storage = new ServiceControlStorage();
+    storage.data.set('abuse-rate-pair-state-v1', state);
+    const { control } = setup(
+      storage,
+      'musixquare-abuse-rate-pair-v1:app-turn-config:unreachable-state',
+    );
+
+    const response = await control.fetch(pairRateRequest('token-a'));
+
+    expect(response.status).toBe(503);
+    await expect(payload(response)).resolves.toEqual({ error: 'ABUSE_RATE_PAIR_STATE_INVALID' });
+  });
+
+  it('rejects a secondary cost that could outrun the primary persisted count', async () => {
+    const { control, storage } = setup(
+      new ServiceControlStorage(),
+      'musixquare-abuse-rate-pair-v1:app-turn-config:invalid-cost',
+    );
+
+    const response = await control.fetch(pairRateRequest('token-a', { cost: 1, secondaryCost: 2 }));
+
+    expect(response.status).toBe(400);
+    await expect(payload(response)).resolves.toEqual({ error: 'INVALID_REQUEST' });
+    expect(storage.data.has('abuse-rate-pair-state-v1')).toBe(false);
+  });
+
+  it('latches alarm-observed pair corruption so the live object remains fail-closed', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-11T08:00:30.000Z'));
+    const storage = new ServiceControlStorage();
+    const { control } = setup(
+      storage,
+      'musixquare-abuse-rate-pair-v1:app-turn-config:alarm-corruption',
+    );
+    expect((await control.fetch(pairRateRequest('token-a'))).status).toBe(200);
+    const stored = storage.data.get('abuse-rate-pair-state-v1') as Record<string, unknown>;
+    storage.data.set('abuse-rate-pair-state-v1', {
+      ...stored,
+      primary: { limit: 3, count: 0 },
+    });
+
+    await expect((control as unknown as { alarm(): Promise<void> }).alarm()).rejects.toThrow(
+      'ABUSE_RATE_STATE_INVALID',
+    );
+    const afterAlarm = await control.fetch(pairRateRequest('token-a'));
+
+    expect(afterAlarm.status).toBe(503);
+    await expect(payload(afterAlarm)).resolves.toEqual({
+      error: 'ABUSE_RATE_PAIR_STATE_INVALID',
+    });
+  });
+
+  it('expires pair state through its one persistent alarm', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-11T08:00:30.000Z'));
+    const storage = new ServiceControlStorage();
+    const { control } = setup(storage, 'musixquare-abuse-rate-pair-v1:app-turn-config:expiring-ip');
+    expect((await control.fetch(pairRateRequest('token-a'))).status).toBe(200);
+    expect(storage.data.has('abuse-rate-pair-state-v1')).toBe(true);
+
+    vi.setSystemTime(new Date('2026-08-11T08:01:00.001Z'));
+    await (control as unknown as { alarm(): Promise<void> }).alarm();
+
+    expect(storage.data.has('abuse-rate-pair-state-v1')).toBe(false);
+    expect(storage.alarmAt).toBeNull();
   });
 
   it('keeps one persistent alarm for repeated consumes in the same fixed window', async () => {

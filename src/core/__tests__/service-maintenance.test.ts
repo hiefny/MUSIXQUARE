@@ -4,11 +4,13 @@ import {
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
+  ABUSE_RATE_PAIR_CONSUME_PATH,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   clearServiceMaintenanceCacheForTests,
   consumeAbuseRateLimit,
+  consumeAbuseRateLimitPair,
   gateServiceMaintenance,
   inactiveServiceMaintenanceState,
   normalizeServiceMaintenanceState,
@@ -166,6 +168,199 @@ describe('shared service-maintenance control', () => {
       cost: 1,
       operationId,
     });
+  });
+
+  it('routes two ordered buckets through one named pair object and one fetch', async () => {
+    const control = createAtomicRateControlBinding();
+
+    const outcome = await consumeAbuseRateLimitPair(
+      { MUSIXQUARE_SERVICE_CONTROL: control.binding },
+      {
+        scope: 'app-turn-config',
+        identity: 'opaque-ip',
+        limit: 150,
+        windowMs: 60_000,
+        secondary: { identity: 'opaque-token', limit: 4 },
+      },
+    );
+
+    expect(outcome).toMatchObject({
+      status: 'ok',
+      allowed: true,
+      deniedBy: null,
+      primary: { remaining: 149 },
+      secondary: { remaining: 3 },
+    });
+    expect(control.rateFetchCount()).toBe(1);
+    expect(control.objectNames()).toEqual([
+      'musixquare-abuse-rate-pair-v1:app-turn-config:opaque-ip',
+    ]);
+  });
+
+  it('validates a primary denial without requiring a secondary projection', async () => {
+    const { env } = serviceControlEnv(() =>
+      Response.json({
+        allowed: false,
+        deniedBy: 'primary',
+        primary: {
+          allowed: false,
+          limit: 150,
+          remaining: 0,
+          resetAtMs: 1_800_000_060_000,
+          retryAfterSeconds: 30,
+        },
+        secondary: null,
+      }),
+    );
+
+    await expect(
+      consumeAbuseRateLimitPair(env, {
+        scope: 'app-turn-config',
+        identity: 'opaque-ip',
+        limit: 150,
+        windowMs: 60_000,
+        secondary: { identity: 'opaque-token', limit: 4 },
+      }),
+    ).resolves.toMatchObject({
+      status: 'ok',
+      allowed: false,
+      deniedBy: 'primary',
+      retryAfterSeconds: 30,
+      secondary: null,
+    });
+  });
+
+  it('fails pair consumption closed on a contradictory internal response', async () => {
+    const { env, fetch } = serviceControlEnv(() =>
+      Response.json({
+        allowed: true,
+        deniedBy: null,
+        primary: {
+          allowed: true,
+          limit: 150,
+          remaining: 149,
+          resetAtMs: 1_800_000_060_000,
+          retryAfterSeconds: 0,
+        },
+        secondary: null,
+      }),
+    );
+
+    await expect(
+      consumeAbuseRateLimitPair(env, {
+        scope: 'app-turn-config',
+        identity: 'opaque-ip',
+        limit: 150,
+        windowMs: 60_000,
+        secondary: { identity: 'opaque-token', limit: 4 },
+      }),
+    ).resolves.toEqual({ status: 'unavailable' });
+    const request = fetch.mock.calls[0]?.[0] as Request;
+    expect(new URL(request.url).pathname).toBe(ABUSE_RATE_PAIR_CONSUME_PATH);
+    await expect(request.json()).resolves.toEqual({
+      limit: 150,
+      windowMs: 60_000,
+      cost: 1,
+      secondaryIdentity: 'opaque-token',
+      secondaryLimit: 4,
+      secondaryCost: 1,
+    });
+  });
+
+  it('fails pair consumption closed on impossible cost, retry, and reset projections', async () => {
+    const resetAtMs = 1_800_000_060_000;
+    const canonical = {
+      allowed: true,
+      deniedBy: null,
+      primary: {
+        allowed: true,
+        limit: 150,
+        remaining: 149,
+        resetAtMs,
+        retryAfterSeconds: 0,
+      },
+      secondary: {
+        allowed: true,
+        limit: 4,
+        remaining: 3,
+        resetAtMs,
+        retryAfterSeconds: 0,
+      },
+    };
+    const cases = [
+      {
+        payload: canonical,
+        cost: 2,
+        secondaryCost: 1,
+      },
+      {
+        payload: {
+          ...canonical,
+          primary: { ...canonical.primary, retryAfterSeconds: 1 },
+        },
+        cost: 1,
+        secondaryCost: 1,
+      },
+      {
+        payload: {
+          ...canonical,
+          secondary: { ...canonical.secondary, resetAtMs: resetAtMs + 60_000 },
+        },
+        cost: 1,
+        secondaryCost: 1,
+      },
+      {
+        payload: {
+          ...canonical,
+          allowed: false,
+          deniedBy: 'secondary',
+          secondary: {
+            ...canonical.secondary,
+            allowed: false,
+            remaining: 0,
+            retryAfterSeconds: 0,
+          },
+        },
+        cost: 1,
+        secondaryCost: 1,
+      },
+    ];
+
+    for (const testCase of cases) {
+      const { env } = serviceControlEnv(() => Response.json(testCase.payload));
+      await expect(
+        consumeAbuseRateLimitPair(env, {
+          scope: 'app-turn-config',
+          identity: 'opaque-ip',
+          limit: 150,
+          windowMs: 60_000,
+          cost: testCase.cost,
+          secondary: {
+            identity: 'opaque-token',
+            limit: 4,
+            cost: testCase.secondaryCost,
+          },
+        }),
+      ).resolves.toEqual({ status: 'unavailable' });
+    }
+  });
+
+  it('rejects a pair request whose secondary cost can outrun its primary count', async () => {
+    const { env, fetch } = serviceControlEnv(() => {
+      throw new Error('invalid pair input must not reach the binding');
+    });
+
+    await expect(
+      consumeAbuseRateLimitPair(env, {
+        scope: 'app-turn-config',
+        identity: 'opaque-ip',
+        limit: 150,
+        windowMs: 60_000,
+        cost: 1,
+        secondary: { identity: 'opaque-token', limit: 4, cost: 2 },
+      }),
+    ).resolves.toEqual({ status: 'unavailable' });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('keeps an intentionally unbound local environment operational but observable', async () => {

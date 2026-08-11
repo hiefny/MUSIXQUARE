@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.3.32",
+  "version": "8.3.33",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -33,6 +33,7 @@
     "guard:release-identity": "node scripts/release-identity.mjs",
     "guard:script-module-exports": "node scripts/check-script-module-exports.mjs",
     "guard:sw-cache-version": "node scripts/check-sw-cache-version.mjs",
+    "guard:standard-room-hot-path": "node scripts/check-standard-room-hot-path.mjs",
     "guard:developer-api-boundaries": "node scripts/check-developer-api-boundaries.mjs",
     "guard:d1-migrations": "node scripts/check-d1-migration-contract.mjs",
     "guard:ops-drift-contract": "node scripts/audit-ops-drift.mjs --source-only",

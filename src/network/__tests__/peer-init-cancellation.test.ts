@@ -144,7 +144,7 @@ afterEach(() => {
 });
 
 describe('network initialization ownership', () => {
-  it('claims a Cloudflare host room while TURN loads but returns the code only after both', async () => {
+  it('returns a claimed Cloudflare host code before TURN settles and keeps RTC gated', async () => {
     const pendingTurn = deferred<Response>();
     mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
     const peer = makePeer('PARALLEL-HOST', true);
@@ -157,7 +157,8 @@ describe('network initialization ownership', () => {
     });
 
     await waitForTransportCalls(1);
-    expect(codeReturned).toBe(false);
+    await expect(session).resolves.toMatch(/^\d{6}$/);
+    expect(codeReturned).toBe(true);
     expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
     expect(mocks.createTransportPeer.mock.calls[0]?.[1]).toMatchObject({
       provider: 'cloudflare',
@@ -171,40 +172,44 @@ describe('network initialization ownership', () => {
       }),
     );
 
-    await expect(session).resolves.toMatch(/^\d{6}$/);
-    expect(peer.setRtcConfiguration).toHaveBeenCalledWith(
-      expect.objectContaining({
-        iceServers: expect.arrayContaining([
-          expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
-        ]),
-      }),
+    await vi.waitFor(() =>
+      expect(peer.setRtcConfiguration).toHaveBeenCalledWith(
+        expect.objectContaining({
+          iceServers: expect.arrayContaining([
+            expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
+          ]),
+        }),
+      ),
     );
   });
 
-  it('does not publish a code when signaling closes after peer-open but before TURN settles', async () => {
+  it('does not publish a code when signaling closes in the peer-open publication race', async () => {
     const pendingTurn = deferred<Response>();
     mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
-    const peer = makePeer('CLOSED-WHILE-TURN-PENDING', true);
+    const peer = makePeer('CLOSED-DURING-PEER-OPEN', false);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
     const ready = vi.fn();
     bus.on('network:peer-ready', ready);
 
     const session = createHostSessionWithShortCode(1);
     await waitForTransportCalls(1);
+    peer.fire('open', peer.id);
     peer.open = false;
     peer.fire('disconnected');
 
+    await expect(session).rejects.toThrow('PEER_NOT_OPEN_AFTER_PREREQUISITES');
     pendingTurn.resolve(
       Response.json({
         provider: 'test',
         iceServers: [{ urls: 'turn:turn.example.test:3478' }],
       }),
     );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-    await expect(session).rejects.toThrow('PEER_NOT_OPEN_AFTER_PREREQUISITES');
     expect(ready).not.toHaveBeenCalled();
     expect(getState('network.myId')).toBeNull();
     expect(peer.destroy).toHaveBeenCalled();
+    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
   });
 
   it('installs TURN as soon as it settles but still waits for Cloudflare peer-open', async () => {
@@ -233,20 +238,30 @@ describe('network initialization ownership', () => {
     await expect(session).resolves.toMatch(/^\d{6}$/);
   });
 
-  it('cleans the peer-open waiter when TURN capability acquisition rejects first', async () => {
-    const cancellation = new Error('CAPABILITY_CANCELLED');
-    cancellation.name = 'CapabilityChallengeCancelled';
-    mocks.fetchWithCapability.mockRejectedValueOnce(cancellation);
-    const peer = makePeer('TURN-REJECTED-HOST', false);
+  it('keeps an already-published code and releases the gate with STUN when TURN rejects', async () => {
+    const rejection = new Error('TURN_REQUEST_FAILED');
+    mocks.fetchWithCapability.mockRejectedValue(rejection);
+    const peer = makePeer('TURN-REJECTED-HOST', true);
     mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const ready = vi.fn();
+    bus.on('network:peer-ready', ready);
 
     const session = createHostSessionWithShortCode(1);
     await waitForTransportCalls(1);
-    await expect(session).rejects.toBe(cancellation);
+    await expect(session).resolves.toMatch(/^\d{6}$/);
+
+    await vi.waitFor(() => expect(peer.setRtcConfiguration).toHaveBeenCalledOnce());
 
     expect(getManagedTimer('peer-open-timeout')).toBeNull();
-    expect(peer.destroy).toHaveBeenCalledOnce();
-    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
+    expect(peer.destroy).not.toHaveBeenCalled();
+    expect(ready).toHaveBeenCalledOnce();
+    expect(peer.setRtcConfiguration).toHaveBeenCalledWith({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun.cloudflare.com:3478' },
+      ],
+      bundlePolicy: 'max-bundle',
+    });
   });
 
   it('does not install late TURN or publish a code after setup cancellation', async () => {
@@ -275,18 +290,45 @@ describe('network initialization ownership', () => {
     expect(peer.destroy).toHaveBeenCalledOnce();
   });
 
-  it('lets a superseding host reuse pending TURN without configuring the stale peer', async () => {
+  it('does not install late TURN on a host cancelled after its code was published', async () => {
     const pendingTurn = deferred<Response>();
     mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
-    const stalePeer = makePeer('SUPERSEDED-HOST', false);
+    const peer = makePeer('CANCELLED-AFTER-CODE', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+
+    await expect(createHostSessionWithShortCode(1)).resolves.toMatch(/^\d{6}$/);
+    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
+
+    cancelPendingSessionSetup();
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
+    expect(peer.destroy).toHaveBeenCalledOnce();
+    expect(getPeer()).toBeNull();
+  });
+
+  it('lets a new host supersede a published code without late-configuring the stale peer', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const stalePeer = makePeer('SUPERSEDED-HOST', true);
     const currentPeer = makePeer('CURRENT-HOST', true);
     mocks.createTransportPeer.mockResolvedValueOnce(stalePeer).mockResolvedValueOnce(currentPeer);
 
-    const staleSession = createHostSessionWithShortCode(1).catch((error: unknown) => error);
+    const staleSession = createHostSessionWithShortCode(1);
     await waitForTransportCalls(1);
+    await expect(staleSession).resolves.toMatch(/^\d{6}$/);
+    expect(stalePeer.setRtcConfiguration).not.toHaveBeenCalled();
+
     const currentSession = createHostSessionWithShortCode(1);
     await waitForTransportCalls(2);
-    await expect(staleSession).resolves.toMatchObject({ message: 'NETWORK_INIT_CANCELLED' });
+    await expect(currentSession).resolves.toMatch(/^\d{6}$/);
+    expect(currentPeer.setRtcConfiguration).not.toHaveBeenCalled();
 
     pendingTurn.resolve(
       Response.json({
@@ -295,11 +337,35 @@ describe('network initialization ownership', () => {
       }),
     );
 
-    await expect(currentSession).resolves.toMatch(/^\d{6}$/);
+    await vi.waitFor(() => expect(currentPeer.setRtcConfiguration).toHaveBeenCalledOnce());
     expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
     expect(stalePeer.setRtcConfiguration).not.toHaveBeenCalled();
-    expect(currentPeer.setRtcConfiguration).toHaveBeenCalledOnce();
     expect(stalePeer.destroy).toHaveBeenCalled();
+  });
+
+  it('fails safe if the exact published peer cannot release its deferred RTC gate', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const peer = makePeer('BROKEN-LATE-SETTER', true);
+    const setterError = new Error('RTC_CONFIGURATION_SET_FAILED');
+    peer.setRtcConfiguration.mockImplementation(() => {
+      throw setterError;
+    });
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const errors = vi.fn();
+    bus.on('network:error', errors);
+
+    await expect(createHostSessionWithShortCode(1)).resolves.toMatch(/^\d{6}$/);
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+
+    await vi.waitFor(() => expect(errors).toHaveBeenCalledWith(setterError));
+    expect(peer.destroy).toHaveBeenCalledOnce();
+    expect(getPeer()).toBeNull();
   });
 
   it('reuses one page-scoped TURN request after id-taken without configuring the stale peer', async () => {
@@ -313,6 +379,8 @@ describe('network initialization ownership', () => {
     await waitForTransportCalls(1);
     takenPeer.fire('error', { type: 'id-taken', message: 'ID_TAKEN' });
     await waitForTransportCalls(2);
+    await expect(session).resolves.toMatch(/^\d{6}$/);
+    expect(acceptedPeer.setRtcConfiguration).not.toHaveBeenCalled();
 
     pendingTurn.resolve(
       Response.json({
@@ -321,10 +389,9 @@ describe('network initialization ownership', () => {
       }),
     );
 
-    await expect(session).resolves.toMatch(/^\d{6}$/);
+    await vi.waitFor(() => expect(acceptedPeer.setRtcConfiguration).toHaveBeenCalledOnce());
     expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
     expect(takenPeer.setRtcConfiguration).not.toHaveBeenCalled();
-    expect(acceptedPeer.setRtcConfiguration).toHaveBeenCalledOnce();
     expect(takenPeer.destroy).toHaveBeenCalledOnce();
   });
 
@@ -412,12 +479,14 @@ describe('network initialization ownership', () => {
         }),
       }),
     );
-    expect(peer.setRtcConfiguration).toHaveBeenCalledWith(
-      expect.objectContaining({
-        iceServers: expect.arrayContaining([
-          expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
-        ]),
-      }),
+    await vi.waitFor(() =>
+      expect(peer.setRtcConfiguration).toHaveBeenCalledWith(
+        expect.objectContaining({
+          iceServers: expect.arrayContaining([
+            expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
+          ]),
+        }),
+      ),
     );
 
     peer.fire('disconnected');

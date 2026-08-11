@@ -24,6 +24,7 @@ import {
 } from './pro-room-generation.js';
 import {
   consumeAbuseRateLimit,
+  consumeAbuseRateLimitPair,
   gateServiceMaintenance,
   readAdminAnnouncementControl,
   readServiceMaintenance,
@@ -76,7 +77,13 @@ const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
 const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
-const CAPABILITY_POW_DIFFICULTY_DEFAULT = 16;
+// A token containing every current scope and the PoW nonce is under 300
+// characters. Keep ample format-growth headroom while bounding attacker-owned
+// input before WebCrypto work.
+const CAPABILITY_TOKEN_MAX_LENGTH = 512;
+const CAPABILITY_TOKEN_PAYLOAD_RE = /^[A-Za-z0-9_-]+$/;
+const CAPABILITY_TOKEN_SIGNATURE_RE = /^[A-Za-z0-9_-]{43}$/;
+const CAPABILITY_POW_DIFFICULTY_DEFAULT = 12;
 const CAPABILITY_POW_DIFFICULTY_MIN = 8;
 const CAPABILITY_POW_DIFFICULTY_MAX = 24;
 const CAPABILITY_POW_TTL_DEFAULT = 2 * SECONDS_PER_MINUTE;
@@ -113,7 +120,7 @@ const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
-const ADMIN_ASSET_VERSION = '8.3.32';
+const ADMIN_ASSET_VERSION = '8.3.33';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -1113,6 +1120,48 @@ async function checkPaidRateLimit(
   });
 }
 
+async function checkPaidRateLimitPair(request, env, endpoint, limit, windowSec, secondary) {
+  // Local/unit runtimes intentionally omit the production binding. Preserve
+  // the same primary-before-secondary semantics there with the Cache helper;
+  // production always uses one strongly ordered Durable Object request.
+  if (!env?.MUSIXQUARE_SERVICE_CONTROL) {
+    if (typeof caches !== 'undefined' && caches?.default) return { status: 'unavailable' };
+    const primaryAllowed = await checkRateLimit(request, endpoint, limit, windowSec);
+    if (!primaryAllowed) {
+      return { status: 'ok', allowed: false, deniedBy: 'primary', retryAfterSeconds: 0 };
+    }
+    if (!secondary) {
+      return { status: 'ok', allowed: true, deniedBy: null, retryAfterSeconds: 0 };
+    }
+    const secondaryAllowed = await checkRateLimit(
+      request,
+      `${endpoint}-capability`,
+      secondary.limit,
+      windowSec,
+      secondary.identity,
+    );
+    return {
+      status: 'ok',
+      allowed: secondaryAllowed,
+      deniedBy: secondaryAllowed ? null : 'secondary',
+      retryAfterSeconds: 0,
+    };
+  }
+
+  const identity = getClientIp(request);
+  const secret = getCapabilitySecret(env);
+  const digest = secret
+    ? await hmacSha256(secret, `paid-rate:${identity}`)
+    : bytesToBase64Url(await sha256Bytes(`paid-rate:${identity}`));
+  return consumeAbuseRateLimitPair(env, {
+    scope: `app-${endpoint}`,
+    identity: digest,
+    limit,
+    windowMs: windowSec * 1_000,
+    secondary,
+  });
+}
+
 function rateLimitResponse(headers, retryAfterSeconds = 60) {
   return json({ error: 'Too Many Requests' }, 429, {
     ...headers,
@@ -1418,9 +1467,22 @@ async function createCapabilityToken(scopes, request, env, method, anchor = null
 
 async function verifyCapabilityToken(token, request, env, requiredScope) {
   const secret = getCapabilitySecret(env);
-  if (!secret || !token) return false;
+  if (
+    !secret ||
+    typeof token !== 'string' ||
+    !token ||
+    token.length > CAPABILITY_TOKEN_MAX_LENGTH
+  ) {
+    return false;
+  }
   const parts = token.split('.');
   if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+  if (
+    !CAPABILITY_TOKEN_PAYLOAD_RE.test(parts[0]) ||
+    !CAPABILITY_TOKEN_SIGNATURE_RE.test(parts[1])
+  ) {
+    return false;
+  }
 
   const expectedSignature = await hmacSha256(secret, parts[0]);
   if (!constantTimeEqual(expectedSignature, parts[1])) return false;
@@ -9934,6 +9996,34 @@ async function guardSensitiveRequest(
   const authenticatedRateLimit = Number.isSafeInteger(options.authenticatedRateLimit)
     ? options.authenticatedRateLimit
     : rateLimit;
+  if (
+    options.combinePerCapabilityRateLimit === true &&
+    Number.isSafeInteger(options.perCapabilityLimit) &&
+    options.perCapabilityLimit > 0
+  ) {
+    const token = readCapabilityToken(request);
+    const capabilityVerified = await verifyCapabilityToken(token, request, env, capabilityScope);
+    const tokenIdentity = capabilityVerified
+      ? (await hmacSha256(getCapabilitySecret(env), `rate:${token}`)).slice(0, 32)
+      : null;
+    const rate = await checkPaidRateLimitPair(
+      request,
+      env,
+      rateLimitKey,
+      authenticatedRateLimit,
+      60,
+      tokenIdentity
+        ? { identity: tokenIdentity, limit: options.perCapabilityLimit, cost: 1 }
+        : null,
+    );
+    if (rate.status !== 'ok') return rateLimitUnavailableResponse(trust.headers);
+    if (!rate.allowed) return rateLimitResponse(trust.headers, rate.retryAfterSeconds);
+    if (!capabilityVerified) {
+      return json({ error: 'CAPABILITY_REQUIRED' }, 401, trust.headers);
+    }
+    return null;
+  }
+
   const rate = await checkPaidRateLimit(request, env, rateLimitKey, authenticatedRateLimit, 60);
   if (rate.status !== 'ok') return rateLimitUnavailableResponse(trust.headers);
   if (!rate.allowed) return rateLimitResponse(trust.headers, rate.retryAfterSeconds);
@@ -10562,6 +10652,7 @@ async function handleTurnConfig(request, env) {
   const guard = await guardSensitiveRequest(request, env, trust, 'turn', 'turn-config', 60, {
     authenticatedRateLimit: ROOM_BURST_TURN_LIMIT,
     perCapabilityLimit: 4,
+    combinePerCapabilityRateLimit: true,
   });
   if (guard) return guard;
 

@@ -15,6 +15,7 @@ export const ADMIN_ANNOUNCEMENT_STATUS_PATH: string;
 export const ADMIN_ANNOUNCEMENT_STATE_PATH: string;
 export const ABUSE_RATE_CONSUME_PATH: string;
 export const ABUSE_RATE_IDEMPOTENT_CONSUME_PATH: string;
+export const ABUSE_RATE_PAIR_CONSUME_PATH: string;
 export const SERVICE_CONTROL_READ_TIMEOUT_MS: number;
 
 export interface AdminAnnouncementControlResult {
@@ -69,6 +70,44 @@ export function consumeAbuseRateLimit(
       remaining: number;
       resetAtMs: number;
       retryAfterSeconds: number;
+    }
+  | { status: 'unavailable' | 'unbound' }
+>;
+export function consumeAbuseRateLimitPair(
+  env: Record<string, unknown>,
+  input: {
+    scope: string;
+    identity: string;
+    limit: number;
+    windowMs: number;
+    cost?: number;
+    /**
+     * Already-pseudonymous identity, 1-64 URL-safe characters. Its cost must
+     * not exceed the primary cost so persisted pair-state accounting remains
+     * canonically bounded by the primary counter.
+     */
+    secondary?: null | { identity: string; limit: number; cost?: number };
+  },
+): Promise<
+  | {
+      status: 'ok';
+      allowed: boolean;
+      deniedBy: 'primary' | 'secondary' | null;
+      retryAfterSeconds: number;
+      primary: {
+        allowed: boolean;
+        limit: number;
+        remaining: number;
+        resetAtMs: number;
+        retryAfterSeconds: number;
+      };
+      secondary: {
+        allowed: boolean;
+        limit: number;
+        remaining: number;
+        resetAtMs: number;
+        retryAfterSeconds: number;
+      } | null;
     }
   | { status: 'unavailable' | 'unbound' }
 >;

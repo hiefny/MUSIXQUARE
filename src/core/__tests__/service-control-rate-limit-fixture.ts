@@ -2,6 +2,7 @@ import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
+  ABUSE_RATE_PAIR_CONSUME_PATH,
 } from '../../../cloudflare/service-maintenance.js';
 
 class RateControlStorage {
@@ -77,7 +78,8 @@ export function createAtomicRateControlBinding(barrierCalls = 0): {
           fetch: async (request: Request): Promise<Response> => {
             if (
               new URL(request.url).pathname === ABUSE_RATE_CONSUME_PATH ||
-              new URL(request.url).pathname === ABUSE_RATE_IDEMPOTENT_CONSUME_PATH
+              new URL(request.url).pathname === ABUSE_RATE_IDEMPOTENT_CONSUME_PATH ||
+              new URL(request.url).pathname === ABUSE_RATE_PAIR_CONSUME_PATH
             ) {
               rateFetches += 1;
               if (rateFetches === barrierCalls) releaseBarrier?.();

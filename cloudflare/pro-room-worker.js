@@ -37,6 +37,7 @@ import {
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
+  ABUSE_RATE_PAIR_CONSUME_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   gateServiceMaintenance,
@@ -63,14 +64,17 @@ const SERVICE_CONTROL_STATE_KEY = 'service-maintenance-state';
 const SERVICE_CONTROL_REQUESTS_KEY = 'service-maintenance-requests';
 const SERVICE_CONTROL_REQUEST_HISTORY_LIMIT = 64;
 const SERVICE_CONTROL_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
-// Keep this in lockstep with service-maintenance.js. A named abuse-rate
-// Durable Object owns only its one counter, so loading the unrelated global
+// Keep these in lockstep with service-maintenance.js. Named abuse-rate
+// Durable Objects own only their counter state, so loading unrelated global
 // maintenance and announcement records on every cold start is unnecessary.
 const ABUSE_RATE_OBJECT_NAME_PREFIX = 'musixquare-abuse-rate-v1:';
+const ABUSE_RATE_PAIR_OBJECT_NAME_PREFIX = 'musixquare-abuse-rate-pair-v1:';
 const ABUSE_RATE_STATE_KEY = 'abuse-rate-state-v1';
+const ABUSE_RATE_PAIR_STATE_KEY = 'abuse-rate-pair-state-v1';
 const ABUSE_RATE_REQUEST_MAX_BYTES = 1024;
 const ABUSE_RATE_OPERATION_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
 const ABUSE_RATE_OPERATION_HISTORY_LIMIT = 1024;
+const ABUSE_RATE_PAIR_PRIMARY_LIMIT = 1024;
 const ADMIN_ANNOUNCEMENT_STATE_KEY = 'admin-announcement-state';
 const ADMIN_ANNOUNCEMENT_REQUESTS_KEY = 'admin-announcement-requests';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
@@ -3426,13 +3430,91 @@ function normalizeAbuseRateState(value) {
   };
 }
 
+function normalizeAbuseRatePairState(value) {
+  if (
+    !hasExactKeys(value, [
+      'v',
+      'windowMs',
+      'windowStartMs',
+      'resetAtMs',
+      'primary',
+      'secondaries',
+    ]) ||
+    value.v !== 1 ||
+    !Number.isSafeInteger(value.windowMs) ||
+    value.windowMs < 1_000 ||
+    value.windowMs > 24 * 60 * 60 * 1_000 ||
+    !Number.isSafeInteger(value.windowStartMs) ||
+    value.windowStartMs < 0 ||
+    value.windowStartMs % value.windowMs !== 0 ||
+    !Number.isSafeInteger(value.resetAtMs) ||
+    value.resetAtMs !== value.windowStartMs + value.windowMs ||
+    !hasExactKeys(value.primary, ['limit', 'count']) ||
+    !Number.isSafeInteger(value.primary.limit) ||
+    value.primary.limit < 1 ||
+    value.primary.limit > ABUSE_RATE_PAIR_PRIMARY_LIMIT ||
+    !Number.isSafeInteger(value.primary.count) ||
+    value.primary.count < 1 ||
+    value.primary.count > value.primary.limit ||
+    !Array.isArray(value.secondaries) ||
+    value.secondaries.length > Math.min(value.primary.count, ABUSE_RATE_PAIR_PRIMARY_LIMIT)
+  ) {
+    return null;
+  }
+  const identities = new Set();
+  const secondaries = [];
+  let secondaryConsumeCount = 0;
+  for (const entry of value.secondaries) {
+    if (
+      !hasExactKeys(entry, ['identity', 'limit', 'count']) ||
+      typeof entry.identity !== 'string' ||
+      !/^[A-Za-z0-9._:-]{1,64}$/.test(entry.identity) ||
+      identities.has(entry.identity) ||
+      !Number.isSafeInteger(entry.limit) ||
+      entry.limit < 1 ||
+      entry.limit > ABUSE_RATE_PAIR_PRIMARY_LIMIT ||
+      !Number.isSafeInteger(entry.count) ||
+      entry.count < 1 ||
+      entry.count > entry.limit
+    ) {
+      return null;
+    }
+    identities.add(entry.identity);
+    secondaryConsumeCount += entry.count;
+    secondaries.push({ identity: entry.identity, limit: entry.limit, count: entry.count });
+  }
+  if (secondaryConsumeCount > value.primary.count) return null;
+  return {
+    v: 1,
+    windowMs: value.windowMs,
+    windowStartMs: value.windowStartMs,
+    resetAtMs: value.resetAtMs,
+    primary: { limit: value.primary.limit, count: value.primary.count },
+    secondaries,
+  };
+}
+
+function abuseRateProjection(allowed, limit, count, resetAtMs, nowMs) {
+  return {
+    allowed,
+    limit,
+    remaining: Math.max(0, limit - count),
+    resetAtMs,
+    retryAfterSeconds: allowed ? 0 : Math.max(1, Math.ceil((resetAtMs - nowMs) / 1_000)),
+  };
+}
+
 export class MusixquareServiceControl {
   constructor(state) {
     this.state = state;
     this.storage = state.storage;
-    this.abuseRateOnly =
+    this.abuseRatePairOnly =
       typeof state?.id?.name === 'string' &&
-      state.id.name.startsWith(ABUSE_RATE_OBJECT_NAME_PREFIX);
+      state.id.name.startsWith(ABUSE_RATE_PAIR_OBJECT_NAME_PREFIX);
+    this.abuseRateOnly =
+      this.abuseRatePairOnly ||
+      (typeof state?.id?.name === 'string' &&
+        state.id.name.startsWith(ABUSE_RATE_OBJECT_NAME_PREFIX));
     this.serviceStatus = initialServiceControlState();
     this.requests = [];
     this.announcementState = initialAdminAnnouncementState();
@@ -3440,25 +3522,32 @@ export class MusixquareServiceControl {
     this.announcementStateInvalid = false;
     this.abuseRateState = null;
     this.abuseRateStateInvalid = false;
+    this.abuseRatePairState = null;
+    this.abuseRatePairStateInvalid = false;
     this.abuseRateAlarmAt = null;
     this.mutationTail = Promise.resolve();
     const load = async () => {
       if (this.abuseRateOnly) {
+        const stateKey = this.abuseRatePairOnly ? ABUSE_RATE_PAIR_STATE_KEY : ABUSE_RATE_STATE_KEY;
         const [storedAbuseRateState, storedAlarmAt] = await Promise.all([
-          this.storage.get(ABUSE_RATE_STATE_KEY),
+          this.storage.get(stateKey),
           typeof this.storage.getAlarm === 'function'
             ? this.storage.getAlarm()
             : Promise.resolve(null),
         ]);
-        const normalizedAbuseRateState = normalizeAbuseRateState(storedAbuseRateState);
+        const normalizedAbuseRateState = this.abuseRatePairOnly
+          ? normalizeAbuseRatePairState(storedAbuseRateState)
+          : normalizeAbuseRateState(storedAbuseRateState);
         if (
           storedAbuseRateState !== undefined &&
           storedAbuseRateState !== null &&
           !normalizedAbuseRateState
         ) {
-          this.abuseRateStateInvalid = true;
+          if (this.abuseRatePairOnly) this.abuseRatePairStateInvalid = true;
+          else this.abuseRateStateInvalid = true;
         }
-        this.abuseRateState = normalizedAbuseRateState;
+        if (this.abuseRatePairOnly) this.abuseRatePairState = normalizedAbuseRateState;
+        else this.abuseRateState = normalizedAbuseRateState;
         this.abuseRateAlarmAt = Number.isSafeInteger(storedAlarmAt) ? storedAlarmAt : null;
         return;
       }
@@ -3616,6 +3705,141 @@ export class MusixquareServiceControl {
     });
   }
 
+  async handleAbuseRatePairConsume(request) {
+    if (this.abuseRatePairStateInvalid) {
+      return serviceControlJson({ error: 'ABUSE_RATE_PAIR_STATE_INVALID' }, 503);
+    }
+    if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
+      return serviceControlJson({ error: 'JSON_REQUIRED' }, 415);
+    }
+    const declared = request.headers.get('content-length');
+    if (
+      declared !== null &&
+      (!/^\d+$/.test(declared.trim()) || Number(declared) > ABUSE_RATE_REQUEST_MAX_BYTES)
+    ) {
+      return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+    }
+    const parsed = await readPrivateJsonBody(request, ABUSE_RATE_REQUEST_MAX_BYTES);
+    if (parsed.error) return serviceControlJson({ error: parsed.error }, parsed.status);
+    const body = parsed.value;
+    const secondaryAbsent =
+      body?.secondaryIdentity === null &&
+      body?.secondaryLimit === null &&
+      body?.secondaryCost === null;
+    const secondaryValid =
+      typeof body?.secondaryIdentity === 'string' &&
+      /^[A-Za-z0-9._:-]{1,64}$/.test(body.secondaryIdentity) &&
+      Number.isSafeInteger(body.secondaryLimit) &&
+      body.secondaryLimit >= 1 &&
+      body.secondaryLimit <= ABUSE_RATE_PAIR_PRIMARY_LIMIT &&
+      Number.isSafeInteger(body.secondaryCost) &&
+      body.secondaryCost >= 1 &&
+      body.secondaryCost <= body.secondaryLimit &&
+      body.secondaryCost <= body.cost;
+    if (
+      !hasExactKeys(body, [
+        'limit',
+        'windowMs',
+        'cost',
+        'secondaryIdentity',
+        'secondaryLimit',
+        'secondaryCost',
+      ]) ||
+      !Number.isSafeInteger(body.limit) ||
+      body.limit < 1 ||
+      body.limit > ABUSE_RATE_PAIR_PRIMARY_LIMIT ||
+      !Number.isSafeInteger(body.windowMs) ||
+      body.windowMs < 1_000 ||
+      body.windowMs > 24 * 60 * 60 * 1_000 ||
+      !Number.isSafeInteger(body.cost) ||
+      body.cost < 1 ||
+      body.cost > body.limit ||
+      (!secondaryAbsent && !secondaryValid)
+    ) {
+      return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
+    }
+
+    return this.withMutation(async () => {
+      const nowMs = Date.now();
+      const windowStartMs = Math.floor(nowMs / body.windowMs) * body.windowMs;
+      const resetAtMs = windowStartMs + body.windowMs;
+      const current =
+        this.abuseRatePairState &&
+        this.abuseRatePairState.windowStartMs === windowStartMs &&
+        this.abuseRatePairState.windowMs === body.windowMs &&
+        this.abuseRatePairState.primary.limit === body.limit
+          ? this.abuseRatePairState
+          : null;
+      const primaryCount = current?.primary.count || 0;
+      const primaryAllowed = primaryCount + body.cost <= body.limit;
+      const nextPrimaryCount = primaryAllowed ? primaryCount + body.cost : primaryCount;
+      const primary = abuseRateProjection(
+        primaryAllowed,
+        body.limit,
+        nextPrimaryCount,
+        resetAtMs,
+        nowMs,
+      );
+
+      let secondary = null;
+      let secondaryAllowed = true;
+      let nextSecondaries = current?.secondaries || [];
+      if (primaryAllowed && !secondaryAbsent) {
+        const existingIndex = nextSecondaries.findIndex(
+          (entry) => entry.identity === body.secondaryIdentity,
+        );
+        const existing = existingIndex >= 0 ? nextSecondaries[existingIndex] : null;
+        const secondaryCount =
+          existing && existing.limit === body.secondaryLimit ? existing.count : 0;
+        secondaryAllowed = secondaryCount + body.secondaryCost <= body.secondaryLimit;
+        const nextSecondaryCount = secondaryAllowed
+          ? secondaryCount + body.secondaryCost
+          : secondaryCount;
+        secondary = abuseRateProjection(
+          secondaryAllowed,
+          body.secondaryLimit,
+          nextSecondaryCount,
+          resetAtMs,
+          nowMs,
+        );
+        if (secondaryAllowed) {
+          const nextEntry = {
+            identity: body.secondaryIdentity,
+            limit: body.secondaryLimit,
+            count: nextSecondaryCount,
+          };
+          nextSecondaries = [...nextSecondaries];
+          if (existingIndex >= 0) nextSecondaries[existingIndex] = nextEntry;
+          else nextSecondaries.push(nextEntry);
+        }
+      }
+
+      if (primaryAllowed) {
+        const next = {
+          v: 1,
+          windowMs: body.windowMs,
+          windowStartMs,
+          resetAtMs,
+          primary: { limit: body.limit, count: nextPrimaryCount },
+          secondaries: nextSecondaries,
+        };
+        await this.storage.put(ABUSE_RATE_PAIR_STATE_KEY, next);
+        this.abuseRatePairState = next;
+      }
+      if (typeof this.storage.setAlarm === 'function' && this.abuseRateAlarmAt !== resetAtMs) {
+        await this.storage.setAlarm(resetAtMs);
+        this.abuseRateAlarmAt = resetAtMs;
+      }
+      const allowed = primaryAllowed && secondaryAllowed;
+      return serviceControlJson({
+        allowed,
+        deniedBy: !primaryAllowed ? 'primary' : !secondaryAllowed ? 'secondary' : null,
+        primary,
+        secondary,
+      });
+    });
+  }
+
   async handleAnnouncementMutation(request) {
     if (this.announcementStateInvalid) {
       return serviceControlJson({ error: 'ADMIN_ANNOUNCEMENT_STATE_INVALID' }, 503);
@@ -3746,6 +3970,12 @@ export class MusixquareServiceControl {
     if (this.ready) await this.ready;
     const url = new URL(request.url);
     if (url.search || url.hash) return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    if (this.abuseRatePairOnly) {
+      if (request.method === 'POST' && url.pathname === ABUSE_RATE_PAIR_CONSUME_PATH) {
+        return this.handleAbuseRatePairConsume(request);
+      }
+      return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    }
     if (
       this.abuseRateOnly &&
       !(
@@ -3862,16 +4092,27 @@ export class MusixquareServiceControl {
   async alarm() {
     if (this.ready) await this.ready;
     return this.withMutation(async () => {
-      const stored = await this.storage.get(ABUSE_RATE_STATE_KEY);
+      const stateKey = this.abuseRatePairOnly ? ABUSE_RATE_PAIR_STATE_KEY : ABUSE_RATE_STATE_KEY;
+      const stored = await this.storage.get(stateKey);
       if (stored === undefined || stored === null) {
-        this.abuseRateState = null;
+        if (this.abuseRatePairOnly) this.abuseRatePairState = null;
+        else this.abuseRateState = null;
         if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
         this.abuseRateAlarmAt = null;
         return;
       }
-      const state = normalizeAbuseRateState(stored);
-      if (!state) throw new Error('ABUSE_RATE_STATE_INVALID');
-      this.abuseRateState = state;
+      const state = this.abuseRatePairOnly
+        ? normalizeAbuseRatePairState(stored)
+        : normalizeAbuseRateState(stored);
+      if (!state) {
+        if (this.abuseRatePairOnly) {
+          this.abuseRatePairState = null;
+          this.abuseRatePairStateInvalid = true;
+        }
+        throw new Error('ABUSE_RATE_STATE_INVALID');
+      }
+      if (this.abuseRatePairOnly) this.abuseRatePairState = state;
+      else this.abuseRateState = state;
       if (state.resetAtMs > Date.now()) {
         if (typeof this.storage.setAlarm === 'function') {
           await this.storage.setAlarm(state.resetAtMs);
@@ -3879,8 +4120,9 @@ export class MusixquareServiceControl {
         }
         return;
       }
-      await this.storage.delete(ABUSE_RATE_STATE_KEY);
-      this.abuseRateState = null;
+      await this.storage.delete(stateKey);
+      if (this.abuseRatePairOnly) this.abuseRatePairState = null;
+      else this.abuseRateState = null;
       if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
       this.abuseRateAlarmAt = null;
     });

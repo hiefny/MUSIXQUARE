@@ -63,6 +63,10 @@ const SERVICE_CONTROL_STATE_KEY = 'service-maintenance-state';
 const SERVICE_CONTROL_REQUESTS_KEY = 'service-maintenance-requests';
 const SERVICE_CONTROL_REQUEST_HISTORY_LIMIT = 64;
 const SERVICE_CONTROL_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
+// Keep this in lockstep with service-maintenance.js. A named abuse-rate
+// Durable Object owns only its one counter, so loading the unrelated global
+// maintenance and announcement records on every cold start is unnecessary.
+const ABUSE_RATE_OBJECT_NAME_PREFIX = 'musixquare-abuse-rate-v1:';
 const ABUSE_RATE_STATE_KEY = 'abuse-rate-state-v1';
 const ABUSE_RATE_REQUEST_MAX_BYTES = 1024;
 const ABUSE_RATE_OPERATION_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
@@ -3426,6 +3430,9 @@ export class MusixquareServiceControl {
   constructor(state) {
     this.state = state;
     this.storage = state.storage;
+    this.abuseRateOnly =
+      typeof state?.id?.name === 'string' &&
+      state.id.name.startsWith(ABUSE_RATE_OBJECT_NAME_PREFIX);
     this.serviceStatus = initialServiceControlState();
     this.requests = [];
     this.announcementState = initialAdminAnnouncementState();
@@ -3433,8 +3440,28 @@ export class MusixquareServiceControl {
     this.announcementStateInvalid = false;
     this.abuseRateState = null;
     this.abuseRateStateInvalid = false;
+    this.abuseRateAlarmAt = null;
     this.mutationTail = Promise.resolve();
     const load = async () => {
+      if (this.abuseRateOnly) {
+        const [storedAbuseRateState, storedAlarmAt] = await Promise.all([
+          this.storage.get(ABUSE_RATE_STATE_KEY),
+          typeof this.storage.getAlarm === 'function'
+            ? this.storage.getAlarm()
+            : Promise.resolve(null),
+        ]);
+        const normalizedAbuseRateState = normalizeAbuseRateState(storedAbuseRateState);
+        if (
+          storedAbuseRateState !== undefined &&
+          storedAbuseRateState !== null &&
+          !normalizedAbuseRateState
+        ) {
+          this.abuseRateStateInvalid = true;
+        }
+        this.abuseRateState = normalizedAbuseRateState;
+        this.abuseRateAlarmAt = Number.isSafeInteger(storedAlarmAt) ? storedAlarmAt : null;
+        return;
+      }
       const [
         storedState,
         storedRequests,
@@ -3572,7 +3599,13 @@ export class MusixquareServiceControl {
         await this.storage.put(ABUSE_RATE_STATE_KEY, next);
         this.abuseRateState = next;
       }
-      if (typeof this.storage.setAlarm === 'function') await this.storage.setAlarm(resetAtMs);
+      // A Durable Object owns one persistent alarm. The cold load observes its
+      // current value, so same-window consumes do not need to overwrite the
+      // same alarm; a missing or stale alarm is still repaired fail-closed.
+      if (typeof this.storage.setAlarm === 'function' && this.abuseRateAlarmAt !== resetAtMs) {
+        await this.storage.setAlarm(resetAtMs);
+        this.abuseRateAlarmAt = resetAtMs;
+      }
       return serviceControlJson({
         allowed,
         limit: body.limit,
@@ -3714,6 +3747,16 @@ export class MusixquareServiceControl {
     const url = new URL(request.url);
     if (url.search || url.hash) return serviceControlJson({ error: 'NOT_FOUND' }, 404);
     if (
+      this.abuseRateOnly &&
+      !(
+        request.method === 'POST' &&
+        (url.pathname === ABUSE_RATE_CONSUME_PATH ||
+          url.pathname === ABUSE_RATE_IDEMPOTENT_CONSUME_PATH)
+      )
+    ) {
+      return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    }
+    if (
       request.method === 'POST' &&
       (url.pathname === ABUSE_RATE_CONSUME_PATH ||
         url.pathname === ABUSE_RATE_IDEMPOTENT_CONSUME_PATH)
@@ -3823,19 +3866,23 @@ export class MusixquareServiceControl {
       if (stored === undefined || stored === null) {
         this.abuseRateState = null;
         if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+        this.abuseRateAlarmAt = null;
         return;
       }
       const state = normalizeAbuseRateState(stored);
       if (!state) throw new Error('ABUSE_RATE_STATE_INVALID');
       this.abuseRateState = state;
       if (state.resetAtMs > Date.now()) {
-        if (typeof this.storage.setAlarm === 'function')
+        if (typeof this.storage.setAlarm === 'function') {
           await this.storage.setAlarm(state.resetAtMs);
+          this.abuseRateAlarmAt = state.resetAtMs;
+        }
         return;
       }
       await this.storage.delete(ABUSE_RATE_STATE_KEY);
       this.abuseRateState = null;
       if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
+      this.abuseRateAlarmAt = null;
     });
   }
 }

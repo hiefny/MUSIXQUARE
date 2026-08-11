@@ -155,7 +155,7 @@ class FakeRTCPeerConnection {
   readonly addedCandidates: RTCIceCandidateInit[] = [];
   private listeners = new Map<string, Set<FakeRTCListener>>();
 
-  constructor() {
+  constructor(readonly configuration?: RTCConfiguration) {
     FakeRTCPeerConnection.instances.push(this);
   }
 
@@ -435,6 +435,128 @@ afterEach(() => {
   Object.defineProperty(globalThis, 'MediaStream', {
     configurable: true,
     value: originalMediaStream,
+  });
+});
+
+describe('deferred RTC configuration', () => {
+  async function createDeferredHost(): Promise<{
+    peer: CloudflareSignalingPeer;
+    socket: FakeWebSocket;
+  }> {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [{ urls: 'stun:stun.example.test:3478' }] },
+      deferRtcUntilConfigured: true,
+    });
+    await Promise.resolve();
+    return { peer, socket: FakeWebSocket.instances[0] };
+  }
+
+  function dispatchOffer(
+    socket: FakeWebSocket,
+    negotiationId = NEGOTIATION_ID,
+    from = 'guest-before-code-display',
+  ): void {
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from,
+        negotiationId,
+        sdp: { type: 'offer', sdp: 'guest-offer' },
+      }),
+    );
+  }
+
+  function releaseWithTurn(peer: CloudflareSignalingPeer): RTCConfiguration {
+    const configuration: RTCConfiguration = {
+      iceServers: [
+        { urls: 'stun:stun.example.test:3478' },
+        {
+          urls: 'turn:turn.example.test:3478',
+          username: 'turn-user',
+          credential: 'turn-secret',
+        },
+      ],
+      bundlePolicy: 'max-bundle',
+    };
+    peer.setRtcConfiguration(configuration);
+    return configuration;
+  }
+
+  it('blocks a guessed-code offer until the final TURN configuration is installed', async () => {
+    const { peer, socket } = await createDeferredHost();
+    socket.dispatch('open');
+    dispatchOffer(socket);
+    await flushAsync();
+
+    expect(FakeRTCPeerConnection.instances).toHaveLength(0);
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(0);
+
+    const configuration = releaseWithTurn(peer);
+    await flushAsync();
+
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    expect(FakeRTCPeerConnection.instances[0]?.configuration).toEqual(configuration);
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('drops a gated offer when a newer peer-left arrives before TURN is ready', async () => {
+    const { peer, socket } = await createDeferredHost();
+    socket.dispatch('open');
+    dispatchOffer(socket);
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-left', peerId: 'guest-before-code-display' }),
+    );
+    await flushAsync();
+
+    releaseWithTurn(peer);
+    await flushAsync();
+
+    expect(FakeRTCPeerConnection.instances).toHaveLength(0);
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(0);
+    peer.destroy();
+  });
+
+  it('negotiates only the newest replacement offer queued behind the TURN gate', async () => {
+    const { peer, socket } = await createDeferredHost();
+    socket.dispatch('open');
+    dispatchOffer(socket, NEGOTIATION_ID, 'guest-replacement');
+    dispatchOffer(socket, NEXT_NEGOTIATION_ID, 'guest-replacement');
+    await flushAsync();
+
+    releaseWithTurn(peer);
+    await flushAsync();
+
+    expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+    expect(sentOfType(socket, 'signal-answer')).toEqual([
+      expect.objectContaining({ negotiationId: NEXT_NEGOTIATION_ID }),
+    ]);
+    peer.destroy();
+  });
+
+  it('does not forward an old socket offer through its replacement after TURN becomes ready', async () => {
+    const { peer, socket: oldSocket } = await createDeferredHost();
+    oldSocket.dispatch('open');
+    dispatchOffer(oldSocket);
+    await flushAsync();
+
+    oldSocket.dispatch('close');
+    peer.reconnect();
+    const replacementSocket = FakeWebSocket.instances[1];
+    replacementSocket.dispatch('open');
+    releaseWithTurn(peer);
+    await flushAsync();
+
+    expect(FakeRTCPeerConnection.instances).toHaveLength(0);
+    expect(sentOfType(oldSocket, 'signal-answer')).toHaveLength(0);
+    expect(sentOfType(replacementSocket, 'signal-answer')).toHaveLength(0);
+    peer.destroy();
   });
 });
 

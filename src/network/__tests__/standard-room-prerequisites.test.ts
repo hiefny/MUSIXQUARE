@@ -68,6 +68,18 @@ afterEach(() => {
 });
 
 describe('standard-room prerequisite cache', () => {
+  it('deduplicates the production-relative TURN retry while preserving local fallback', () => {
+    expect(
+      __standardRoomPrerequisitesForTests.requestEndpoints(
+        'https://musixquare.com/setup?source=landing',
+      ),
+    ).toEqual(['/api/get-turn-config']);
+    expect(__standardRoomPrerequisitesForTests.requestEndpoints('http://localhost:5173/')).toEqual([
+      '/api/get-turn-config',
+      'https://musixquare.com/api/get-turn-config',
+    ]);
+  });
+
   it('shares one in-flight TURN request and reuses it until the server TTL refresh window', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-07-21T00:00:00.000Z'));
@@ -174,7 +186,9 @@ describe('standard-room prerequisite cache', () => {
     expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
   });
 
-  it('does not warm an idle page and starts one shared warmup on setup intent', async () => {
+  it('preconnects on setup entry but waits for room intent before capability and TURN', async () => {
+    const capability = deferred<boolean>();
+    mocks.warmCapabilitySilently.mockReturnValueOnce(capability.promise);
     document.body.innerHTML = `
       <button id="unrelated">Settings</button>
       <button id="btn-setup-host">Create room</button>
@@ -184,25 +198,58 @@ describe('standard-room prerequisite cache', () => {
     await Promise.resolve();
     expect(mocks.warmCapabilitySilently).not.toHaveBeenCalled();
     expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
-    expect(document.head.querySelector('link[data-mxqr-standard-signaling-preconnect]')).toBeNull();
+    expect(
+      document.head.querySelector('link[data-mxqr-standard-signaling-preconnect]'),
+    ).not.toBeNull();
 
     document
       .getElementById('unrelated')
       ?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
     await Promise.resolve();
     expect(mocks.warmCapabilitySilently).not.toHaveBeenCalled();
+    expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
 
     document
       .getElementById('btn-setup-host')
       ?.dispatchEvent(new Event('pointerover', { bubbles: true }));
-    await vi.waitFor(() => expect(mocks.fetchWithCapability).toHaveBeenCalledOnce());
-    expect(mocks.warmCapabilitySilently).toHaveBeenCalledOnce();
-
     document
       .getElementById('btn-setup-host')
       ?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-    await Promise.resolve();
     expect(mocks.warmCapabilitySilently).toHaveBeenCalledOnce();
+    expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
+
+    capability.resolve(true);
+    await vi.waitFor(() => expect(mocks.fetchWithCapability).toHaveBeenCalledOnce());
+    expect(mocks.warmCapabilitySilently).toHaveBeenCalledOnce();
+    expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
+  });
+
+  it('retries a silent capability warm that initially returned false on room intent', async () => {
+    mocks.warmCapabilitySilently.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    await __standardRoomPrerequisitesForTests.warm();
+    expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
+
+    await __standardRoomPrerequisitesForTests.warm();
+
+    expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
+    expect(mocks.warmCapabilitySilently).toHaveBeenCalledTimes(2);
+  });
+
+  it('starts one explicit shared TURN request on touch activation without a silent warm race', async () => {
+    document.body.innerHTML = '<button id="btn-setup-host">Create room</button>';
+    scheduleStandardRoomPrerequisiteWarmup();
+    const button = document.getElementById('btn-setup-host')!;
+    const touchOver = new Event('pointerover', { bubbles: true });
+    Object.defineProperty(touchOver, 'pointerType', { value: 'touch' });
+    button.dispatchEvent(touchOver);
+    expect(mocks.warmCapabilitySilently).not.toHaveBeenCalled();
+    expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
+
+    button.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    const clickFlow = getStandardRoomTurnCredentials();
+
+    await expect(clickFlow).resolves.toMatchObject({ provider: 'cloudflare' });
+    expect(mocks.warmCapabilitySilently).not.toHaveBeenCalled();
     expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
   });
 });

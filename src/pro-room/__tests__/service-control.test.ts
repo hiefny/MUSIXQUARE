@@ -9,8 +9,12 @@ import {
 
 class ServiceControlStorage {
   readonly data = new Map<string, unknown>();
+  readonly getKeys: string[] = [];
+  alarmAt: number | null = null;
+  readonly setAlarmCalls: number[] = [];
 
   async get(key: string): Promise<unknown> {
+    this.getKeys.push(key);
     return structuredClone(this.data.get(key));
   }
 
@@ -20,14 +24,31 @@ class ServiceControlStorage {
       this.data.set(key, structuredClone(entry));
     }
   }
+
+  async getAlarm(): Promise<number | null> {
+    return this.alarmAt;
+  }
+
+  async setAlarm(timestamp: number): Promise<void> {
+    this.alarmAt = timestamp;
+    this.setAlarmCalls.push(timestamp);
+  }
+
+  async deleteAlarm(): Promise<void> {
+    this.alarmAt = null;
+  }
 }
 
-function setup(storage = new ServiceControlStorage()): {
+function setup(
+  storage = new ServiceControlStorage(),
+  objectName?: string,
+): {
   control: MusixquareServiceControl;
   storage: ServiceControlStorage;
 } {
   const state = {
     storage,
+    ...(objectName ? { id: { name: objectName } } : {}),
     blockConcurrencyWhile: async (callback: () => Promise<void>): Promise<void> => callback(),
   };
   return { control: new MusixquareServiceControl(state), storage };
@@ -61,12 +82,12 @@ function announcementRequest(
   });
 }
 
-function rateRequest(path: string, operationId?: string): Request {
+function rateRequest(path: string, operationId?: string, limit = 1): Request {
   return new Request(`https://service-control.internal${path}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      limit: 1,
+      limit,
       windowMs: 60_000,
       cost: 1,
       ...(operationId === undefined ? {} : { operationId }),
@@ -83,6 +104,100 @@ afterEach(() => {
 });
 
 describe('MusixquareServiceControl', () => {
+  it('loads only the owned counter for a named abuse-rate object', async () => {
+    const storage = new ServiceControlStorage();
+    const { control } = setup(storage, 'musixquare-abuse-rate-v1:app-turn:opaque-rate-identity');
+
+    const consumed = await control.fetch(rateRequest(ABUSE_RATE_CONSUME_PATH));
+    expect(consumed.status).toBe(200);
+    await expect(payload(consumed)).resolves.toMatchObject({ allowed: true, remaining: 0 });
+    expect(storage.getKeys).toEqual(['abuse-rate-state-v1']);
+
+    const unrelated = await control.fetch(
+      new Request('https://service-control.internal/internal/service-maintenance/v1/status'),
+    );
+    expect(unrelated.status).toBe(404);
+    expect(storage.getKeys).toEqual(['abuse-rate-state-v1']);
+  });
+
+  it('keeps a similar but non-canonical object-name prefix on the full-load path', async () => {
+    const storage = new ServiceControlStorage();
+    const { control } = setup(storage, 'musixquare-abuse-rate-v10:app-turn:opaque-rate-identity');
+
+    const status = await control.fetch(
+      new Request('https://service-control.internal/internal/service-maintenance/v1/status'),
+    );
+
+    expect(status.status).toBe(200);
+    expect(storage.getKeys).toEqual([
+      'service-maintenance-state',
+      'service-maintenance-requests',
+      'admin-announcement-state',
+      'admin-announcement-requests',
+      'abuse-rate-state-v1',
+    ]);
+  });
+
+  it('fails a named abuse-rate object closed when its owned counter is corrupt', async () => {
+    const storage = new ServiceControlStorage();
+    storage.data.set('abuse-rate-state-v1', {
+      v: 2,
+      limit: 1,
+      windowMs: 60_000,
+      windowStartMs: 0,
+      resetAtMs: 60_000,
+      count: 2,
+      operationIds: [],
+    });
+    const { control } = setup(storage, 'musixquare-abuse-rate-v1:app-turn:corrupt-rate-identity');
+
+    const response = await control.fetch(rateRequest(ABUSE_RATE_CONSUME_PATH));
+
+    expect(response.status).toBe(503);
+    await expect(payload(response)).resolves.toEqual({ error: 'ABUSE_RATE_STATE_INVALID' });
+    expect(storage.getKeys).toEqual(['abuse-rate-state-v1']);
+  });
+
+  it('keeps one persistent alarm for repeated consumes in the same fixed window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-11T08:00:30.000Z'));
+    const storage = new ServiceControlStorage();
+    const objectName = 'musixquare-abuse-rate-v1:signaling-ws-open:opaque-rate-identity';
+    const { control } = setup(storage, objectName);
+
+    expect((await control.fetch(rateRequest(ABUSE_RATE_CONSUME_PATH, undefined, 3))).status).toBe(
+      200,
+    );
+    expect((await control.fetch(rateRequest(ABUSE_RATE_CONSUME_PATH, undefined, 3))).status).toBe(
+      200,
+    );
+    expect(storage.setAlarmCalls).toEqual([Date.parse('2026-08-11T08:01:00.000Z')]);
+
+    const rehydrated = setup(storage, objectName).control;
+    expect(
+      (await rehydrated.fetch(rateRequest(ABUSE_RATE_CONSUME_PATH, undefined, 3))).status,
+    ).toBe(200);
+    expect(storage.setAlarmCalls).toEqual([Date.parse('2026-08-11T08:01:00.000Z')]);
+  });
+
+  it('keeps the full cold load when the Durable Object id has no trusted name', async () => {
+    const storage = new ServiceControlStorage();
+    const { control } = setup(storage);
+
+    const status = await control.fetch(
+      new Request('https://service-control.internal/internal/service-maintenance/v1/status'),
+    );
+
+    expect(status.status).toBe(200);
+    expect(storage.getKeys).toEqual([
+      'service-maintenance-state',
+      'service-maintenance-requests',
+      'admin-announcement-state',
+      'admin-announcement-requests',
+      'abuse-rate-state-v1',
+    ]);
+  });
+
   it('counts one successful v2 operation once while preserving the exact v1 body', async () => {
     const { control, storage } = setup();
     const operationId = `rs_${'A'.repeat(43)}`;

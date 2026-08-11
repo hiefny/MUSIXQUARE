@@ -19,6 +19,7 @@ import {
   updateAdminAnnouncementControl,
   type ServiceMaintenanceState,
 } from '../../../cloudflare/service-maintenance.js';
+import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 
 function activeState(overrides: Partial<ServiceMaintenanceState> = {}): ServiceMaintenanceState {
   return {
@@ -86,6 +87,33 @@ afterEach(() => {
 });
 
 describe('shared service-maintenance control', () => {
+  it('hard-limits 121 barrier-concurrent consumes through a named rate object', async () => {
+    const control = createAtomicRateControlBinding(121);
+    const input = {
+      scope: 'signaling-ws-open',
+      identity: 'opaque-signaling-rate-identity',
+      limit: 120,
+      windowMs: 60_000,
+    };
+
+    const outcomes = await Promise.all(
+      Array.from({ length: 121 }, () =>
+        consumeAbuseRateLimit({ MUSIXQUARE_SERVICE_CONTROL: control.binding }, input),
+      ),
+    );
+
+    expect(outcomes.filter((outcome) => outcome.status === 'ok' && outcome.allowed)).toHaveLength(
+      120,
+    );
+    expect(outcomes.filter((outcome) => outcome.status === 'ok' && !outcome.allowed)).toHaveLength(
+      1,
+    );
+    expect(control.rateFetchCount()).toBe(121);
+    expect(control.objectNames()).toEqual([
+      'musixquare-abuse-rate-v1:signaling-ws-open:opaque-signaling-rate-identity',
+    ]);
+  });
+
   it('accepts base64url rate identities that begin with URL-safe punctuation', async () => {
     const fetch = vi.fn(() =>
       Response.json({

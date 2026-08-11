@@ -4,13 +4,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import { clearAllManagedTimers } from '../../core/timers.ts';
+import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
 import { registerProRoomSignalingReconnectHandler } from '../../pro-room/lifecycle-hook.ts';
 
 const mocks = vi.hoisted(() => ({
   createTransportPeer: vi.fn(),
   fetchWithCapability: vi.fn(),
+  getRuntimeTransportConfig: vi.fn(),
   showDialog: vi.fn(async () => ({ action: 'cancel' })),
   showToast: vi.fn(),
 }));
@@ -26,10 +27,7 @@ vi.mock('../transport/index.ts', async (importOriginal) => {
 });
 
 vi.mock('../transport/config.ts', () => ({
-  getRuntimeTransportConfig: () => ({
-    provider: 'cloudflare' as const,
-    signalingUrl: 'https://signal.example.test/api/rooms',
-  }),
+  getRuntimeTransportConfig: mocks.getRuntimeTransportConfig,
 }));
 
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
@@ -72,6 +70,7 @@ type FiringPeer = PeerInstance & {
   destroy: ReturnType<typeof vi.fn>;
   reconnect: ReturnType<typeof vi.fn>;
   recoverAfterBackground: ReturnType<typeof vi.fn>;
+  setRtcConfiguration: ReturnType<typeof vi.fn>;
 };
 
 function makePeer(id: string, initiallyOpen: boolean): FiringPeer {
@@ -84,6 +83,7 @@ function makePeer(id: string, initiallyOpen: boolean): FiringPeer {
     connect: vi.fn(),
     reconnect: vi.fn(),
     recoverAfterBackground: vi.fn(() => ({ status: 'not-applicable' as const })),
+    setRtcConfiguration: vi.fn(),
     destroy: vi.fn(() => {
       peer.destroyed = true;
       peer.open = false;
@@ -122,6 +122,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   setState('network.appRole', 'host');
   setState('setup.sessionStarted', false);
+  mocks.getRuntimeTransportConfig.mockReturnValue({
+    provider: 'cloudflare' as const,
+    signalingUrl: 'https://signal.example.test/api/rooms',
+  });
   mocks.fetchWithCapability.mockResolvedValue(
     Response.json({
       provider: 'test',
@@ -140,6 +144,255 @@ afterEach(() => {
 });
 
 describe('network initialization ownership', () => {
+  it('claims a Cloudflare host room while TURN loads but returns the code only after both', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const peer = makePeer('PARALLEL-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+
+    let codeReturned = false;
+    const session = createHostSessionWithShortCode(1).then((code) => {
+      codeReturned = true;
+      return code;
+    });
+
+    await waitForTransportCalls(1);
+    expect(codeReturned).toBe(false);
+    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
+    expect(mocks.createTransportPeer.mock.calls[0]?.[1]).toMatchObject({
+      provider: 'cloudflare',
+      deferRtcUntilConfigured: true,
+    });
+
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+
+    await expect(session).resolves.toMatch(/^\d{6}$/);
+    expect(peer.setRtcConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        iceServers: expect.arrayContaining([
+          expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
+        ]),
+      }),
+    );
+  });
+
+  it('does not publish a code when signaling closes after peer-open but before TURN settles', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const peer = makePeer('CLOSED-WHILE-TURN-PENDING', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const ready = vi.fn();
+    bus.on('network:peer-ready', ready);
+
+    const session = createHostSessionWithShortCode(1);
+    await waitForTransportCalls(1);
+    peer.open = false;
+    peer.fire('disconnected');
+
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+
+    await expect(session).rejects.toThrow('PEER_NOT_OPEN_AFTER_PREREQUISITES');
+    expect(ready).not.toHaveBeenCalled();
+    expect(getState('network.myId')).toBeNull();
+    expect(peer.destroy).toHaveBeenCalled();
+  });
+
+  it('installs TURN as soon as it settles but still waits for Cloudflare peer-open', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const peer = makePeer('TURN-FIRST-HOST', false);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+
+    let codeReturned = false;
+    const session = createHostSessionWithShortCode(1).then((code) => {
+      codeReturned = true;
+      return code;
+    });
+    await waitForTransportCalls(1);
+
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+    await vi.waitFor(() => expect(peer.setRtcConfiguration).toHaveBeenCalledOnce());
+    expect(codeReturned).toBe(false);
+
+    peer.fire('open', peer.id);
+    await expect(session).resolves.toMatch(/^\d{6}$/);
+  });
+
+  it('cleans the peer-open waiter when TURN capability acquisition rejects first', async () => {
+    const cancellation = new Error('CAPABILITY_CANCELLED');
+    cancellation.name = 'CapabilityChallengeCancelled';
+    mocks.fetchWithCapability.mockRejectedValueOnce(cancellation);
+    const peer = makePeer('TURN-REJECTED-HOST', false);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+
+    const session = createHostSessionWithShortCode(1);
+    await waitForTransportCalls(1);
+    await expect(session).rejects.toBe(cancellation);
+
+    expect(getManagedTimer('peer-open-timeout')).toBeNull();
+    expect(peer.destroy).toHaveBeenCalledOnce();
+    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('does not install late TURN or publish a code after setup cancellation', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const peer = makePeer('CANCELLED-BEFORE-TURN', false);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    const ready = vi.fn();
+    bus.on('network:peer-ready', ready);
+
+    const session = createHostSessionWithShortCode(1);
+    await waitForTransportCalls(1);
+    cancelPendingSessionSetup();
+
+    await expect(session).rejects.toThrow('NETWORK_INIT_CANCELLED');
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
+    expect(ready).not.toHaveBeenCalled();
+    expect(peer.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('lets a superseding host reuse pending TURN without configuring the stale peer', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const stalePeer = makePeer('SUPERSEDED-HOST', false);
+    const currentPeer = makePeer('CURRENT-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(stalePeer).mockResolvedValueOnce(currentPeer);
+
+    const staleSession = createHostSessionWithShortCode(1).catch((error: unknown) => error);
+    await waitForTransportCalls(1);
+    const currentSession = createHostSessionWithShortCode(1);
+    await waitForTransportCalls(2);
+    await expect(staleSession).resolves.toMatchObject({ message: 'NETWORK_INIT_CANCELLED' });
+
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+
+    await expect(currentSession).resolves.toMatch(/^\d{6}$/);
+    expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
+    expect(stalePeer.setRtcConfiguration).not.toHaveBeenCalled();
+    expect(currentPeer.setRtcConfiguration).toHaveBeenCalledOnce();
+    expect(stalePeer.destroy).toHaveBeenCalled();
+  });
+
+  it('reuses one page-scoped TURN request after id-taken without configuring the stale peer', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const takenPeer = makePeer('TAKEN-HOST', false);
+    const acceptedPeer = makePeer('ACCEPTED-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(takenPeer).mockResolvedValueOnce(acceptedPeer);
+
+    const session = createHostSessionWithShortCode(2);
+    await waitForTransportCalls(1);
+    takenPeer.fire('error', { type: 'id-taken', message: 'ID_TAKEN' });
+    await waitForTransportCalls(2);
+
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+
+    await expect(session).resolves.toMatch(/^\d{6}$/);
+    expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
+    expect(takenPeer.setRtcConfiguration).not.toHaveBeenCalled();
+    expect(acceptedPeer.setRtcConfiguration).toHaveBeenCalledOnce();
+    expect(takenPeer.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('keeps PeerJS host creation TURN-first and does not request the Cloudflare RTC gate', async () => {
+    mocks.getRuntimeTransportConfig.mockReturnValue({
+      provider: 'peerjs' as const,
+      peerJsServer: { host: 'peer.example.test' },
+    });
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const peer = makePeer('PEERJS-HOST', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+
+    const session = createHostSessionWithShortCode(1);
+    await Promise.resolve();
+    expect(mocks.createTransportPeer).not.toHaveBeenCalled();
+
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+    await expect(session).resolves.toMatch(/^\d{6}$/);
+
+    expect(mocks.createTransportPeer.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        provider: 'peerjs',
+        config: expect.objectContaining({
+          iceServers: expect.arrayContaining([
+            expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
+          ]),
+        }),
+      }),
+    );
+    expect(mocks.createTransportPeer.mock.calls[0]?.[1]).not.toHaveProperty(
+      'deferRtcUntilConfigured',
+    );
+    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
+  });
+
+  it('keeps a Cloudflare guest TURN-first and never enables the host RTC gate', async () => {
+    const pendingTurn = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);
+    const peer = makePeer('CLOUDFLARE-GUEST', false);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+    setState('network.appRole', 'guest');
+
+    joinSession('123456');
+    await vi.waitFor(() => expect(mocks.fetchWithCapability).toHaveBeenCalledOnce());
+    expect(mocks.createTransportPeer).not.toHaveBeenCalled();
+
+    pendingTurn.resolve(
+      Response.json({
+        provider: 'test',
+        iceServers: [{ urls: 'turn:turn.example.test:3478' }],
+      }),
+    );
+    await waitForTransportCalls(1);
+
+    expect(mocks.createTransportPeer.mock.calls[0]?.[0]).toBeNull();
+    expect(mocks.createTransportPeer.mock.calls[0]?.[1]).not.toHaveProperty(
+      'deferRtcUntilConfigured',
+    );
+    expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
+    cancelPendingSessionSetup();
+  });
+
   it('keeps an idle ordinary host on the in-place signaling recovery surface', async () => {
     vi.useFakeTimers();
     const peer = makePeer('STANDARD-HOST', true);
@@ -151,11 +404,19 @@ describe('network initialization ownership', () => {
     expect(mocks.createTransportPeer).toHaveBeenCalledWith(
       expect.any(String),
       expect.objectContaining({
+        deferRtcUntilConfigured: true,
         config: expect.objectContaining({
-          iceServers: expect.arrayContaining([
+          iceServers: expect.not.arrayContaining([
             expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
           ]),
         }),
+      }),
+    );
+    expect(peer.setRtcConfiguration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        iceServers: expect.arrayContaining([
+          expect.objectContaining({ urls: 'turn:turn.example.test:3478' }),
+        ]),
       }),
     );
 

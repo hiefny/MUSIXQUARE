@@ -133,6 +133,16 @@ anonymous. Keep this secret independent from the corresponding PRO-room
 assertion secret so a compromise in either service cannot mint identities for
 the other trust boundary.
 
+Standard-room admission gives the optional assertion request a two-second
+budget so login cannot hold room entry open. After the Signaling Worker attaches
+identity, each physical socket renews its independent 60-second fail-closed
+lease every 30 seconds. Background renewal may use the account client's full
+15-second request budget and retries transient failure after five seconds. A
+same-account sibling update does not renew or postpone another socket's timer.
+An authoritative anonymous response, explicit logout, or deletion proof still
+clears the affected identity immediately; continued App/D1 failure cannot
+extend the lease beyond Worker expiry.
+
 Account-aware PRO rooms require a different shared secret on **only** the App
 Worker and PRO Worker:
 
@@ -248,7 +258,7 @@ cleanup work.
 
 A PRO room cookie does not carry account authority for its full 30-day life.
 Each physical room session instead holds a 120-second account-identity lease,
-re-proved through the App Worker every 40 seconds. Renewal can extend only an
+re-proved through the App Worker every 60 seconds. Renewal can extend only an
 already-linked session for the same verified account and does not rewrite the
 D1 account-to-room edge or advance a public room revision. The client also
 reconciles on foreground/resume. When the lease expires, that one device is

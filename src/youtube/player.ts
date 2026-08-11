@@ -1699,6 +1699,14 @@ export function initYouTube(): void {
       }
       bus.emit('youtube:sync-loading', busy, 'zero-start');
     },
+    // Busy closes at the real PLAYING release, while protocol identity remains
+    // active through timeline calibration. Publish every phase boundary so UI
+    // consumers can independently project iframe ownership (inFlight) and
+    // room-wide rendezvous safety (protocolActive), including the final idle
+    // transition where mode/activity may otherwise remain unchanged.
+    onPhaseChange: () => {
+      bus.emit('youtube:zero-start-readiness-changed');
+    },
     onPlaybackStarted: () => {
       setLocalYouTubePaused(false);
     },

@@ -167,9 +167,28 @@ A transient WebSocket close is not a presence end. Anonymous grants survive the
 existing reconnect grace and disappear only when the authoritative presence
 lease expires or is explicitly closed.
 
+An authenticated physical standard-room socket has a separate 60-second,
+server-owned identity lease. Optional account I/O may delay initial guest
+admission by at most two seconds; admission then continues anonymously if no
+assertion is ready. Once attached, the client starts renewal every 30 seconds
+and gives that background request up to 15 seconds, with a five-second retry
+after transient failure. A same-account sibling projection updates product
+identity but never extends this socket's lease or postpones its own renewal.
+Explicit logout and proven deletion still clear or delete identity immediately,
+and a prolonged App/D1 outage cannot extend authority past the Worker's
+60-second expiry. This separates join latency from renewal tolerance without
+turning a transient slow response into a periodic capability revoke/grant.
+
+Identity-bearing Standard-room admission and later refresh, clear, and delete
+frames share one per-room receive-order fence before asynchronous verification.
+The Worker re-reads the live socket attachment at the serialized commit point,
+so a later logout or deletion cannot be overwritten by an older verification
+that finishes late. Ordinary playback and signaling frames do not enter this
+identity fence and must remain latency-independent from account renewal.
+
 Persistent PRO membership is distinct from a device's current proof of that
 membership. Each authenticated physical PRO session receives a 120-second
-server-owned identity lease and renews it every 40 seconds with a fresh,
+server-owned identity lease and renews it every 60 seconds with a fresh,
 room-bound App assertion; the client also reconciles after foreground/resume.
 Renewal is valid only for the same account already attached to that exact room
 session; it cannot create a member or reverse-index edge or advance a public room

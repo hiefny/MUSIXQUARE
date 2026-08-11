@@ -1273,6 +1273,15 @@ function validateIncomingMessage(message, role) {
   return 'ignore';
 }
 
+function isStandardRoomIdentityMutation(message) {
+  return (
+    isRecord(message) &&
+    (message.type === 'account-identity-refresh' ||
+      message.type === 'account-identity-clear' ||
+      message.type === 'account-identity-delete')
+  );
+}
+
 function getClientIp(request) {
   return (
     request.headers.get('CF-Connecting-IP') || request.headers.get('X-Forwarded-For') || 'unknown'
@@ -1926,6 +1935,11 @@ export class MusixquareRoom {
     // awaited host reconnect write cannot be overwritten by a stale host close
     // or an overlapping empty-room cleanup.
     this.standardAdmissionSync = Promise.resolve();
+    // Capture identity-bearing Standard-room admissions and authenticated
+    // identity mutations in receive order before the asynchronous maintenance
+    // gate. They later join the admission queue only for their authoritative
+    // read/verify/write section, so ordinary signaling remains independent.
+    this.standardIdentityIngressSync = Promise.resolve();
     this.proAdmissionSync = Promise.resolve();
     this.proChatMutationSync = Promise.resolve();
     this.alarmSync = Promise.resolve();
@@ -3077,6 +3091,39 @@ export class MusixquareRoom {
     return this.enqueueStandardAdmission(task);
   }
 
+  enqueueStandardIdentityIngress(task) {
+    const run = this.standardIdentityIngressSync.then(task, task);
+    this.standardIdentityIngressSync = run.catch(() => {});
+    return run;
+  }
+
+  currentStandardRoomAttachment(ws) {
+    const attachment = readAttachment(ws);
+    if (!attachment || attachment.roomKind === 'pro' || attachment.auth !== 'ok') return null;
+    if (attachment.role === 'host') return this.host === ws ? attachment : null;
+    return this.guests.get(attachment.peerId) === ws ? attachment : null;
+  }
+
+  classifyStandardIdentityIngress(ws, raw) {
+    const attachment = readAttachment(ws);
+    if (!attachment || attachment.roomKind === 'pro') return null;
+    if (attachment.auth === 'ok') {
+      const rawBytes = rawMessageByteLength(raw);
+      if (rawBytes === null || rawBytes > WS_MESSAGE_MAX_BYTES) return null;
+      return (
+        this.currentStandardRoomAttachment(ws) !== null &&
+        isStandardRoomIdentityMutation(this.parse(raw))
+      )
+        ? { preclaimedAuth: false }
+        : null;
+    }
+    if (attachment.authStarted) return null;
+    if (attachment.role === 'host') {
+      return this.pendingHosts.has(ws) ? { preclaimedAuth: true } : null;
+    }
+    return this.pendingGuests.has(ws) ? { preclaimedAuth: true } : null;
+  }
+
   async consumeStandardWsOpenRate() {
     await this.standardRateReady;
     if (this.standardRateStateInvalid) {
@@ -4204,7 +4251,7 @@ export class MusixquareRoom {
           Number.isSafeInteger(attachment.identityExpiresAt) &&
           now >= attachment.identityExpiresAt
         ) {
-          await this.applyStandardRoomIdentity(sock, attachment, null, 'expired');
+          await this.applyStandardRoomIdentity(sock, null, 'expired');
         }
       }
       // The same alarm also expires host metadata after reconnect grace.
@@ -4290,7 +4337,13 @@ export class MusixquareRoom {
     }
   }
 
-  async applyStandardRoomIdentity(ws, attachment, identity, clearReason) {
+  async applyStandardRoomIdentity(ws, identity, clearReason) {
+    // Identity verification, expiry, and alarm work all await. Always merge
+    // into the live attachment at commit time so an ordinary guest frame that
+    // refreshed its hibernation-safe rate bucket cannot be overwritten by an
+    // older snapshot.
+    const attachment = this.currentStandardRoomAttachment(ws);
+    if (!attachment) return false;
     const next = {
       ...withoutStandardRoomIdentity(attachment),
       ...standardRoomIdentityAttachmentFields(identity),
@@ -4323,9 +4376,15 @@ export class MusixquareRoom {
       }
     }
     await this.scheduleMaintenanceAlarm();
+    return true;
   }
 
-  async handleStandardRoomIdentityMutation(ws, message, attachment) {
+  async handleStandardRoomIdentityMutation(ws, message) {
+    // The caller owns standardAdmissionSync. Re-read only after acquiring it:
+    // the socket may have been replaced, closed, or promoted while this frame
+    // waited behind admission work.
+    const attachment = this.currentStandardRoomAttachment(ws);
+    if (!attachment) return;
     if (message.type === 'account-identity-delete') {
       const meta = await this.loadRoomMeta();
       if (!meta.roomSecret) return;
@@ -4339,6 +4398,7 @@ export class MusixquareRoom {
       // Deletion authority is never inferred from a live attachment and a
       // normal attach assertion can never pass this verifier.
       if (!deletion) return;
+      if (!this.currentStandardRoomAttachment(ws)) return;
       const accountSubject = deletion.accountSubject;
       let deletedMemberId = deletion.memberId;
       const directory = await this.loadStandardRoomMembers();
@@ -4379,7 +4439,7 @@ export class MusixquareRoom {
       return;
     }
     if (message.type === 'account-identity-clear') {
-      await this.applyStandardRoomIdentity(ws, attachment, null, 'explicit');
+      await this.applyStandardRoomIdentity(ws, null, 'explicit');
       return;
     }
     const meta = await this.loadRoomMeta();
@@ -4393,10 +4453,31 @@ export class MusixquareRoom {
       meta.roomSecret,
     );
     if (!identity) return;
-    await this.applyStandardRoomIdentity(ws, attachment, identity);
+    if (!this.currentStandardRoomAttachment(ws)) return;
+    await this.applyStandardRoomIdentity(ws, identity);
   }
 
-  async webSocketMessage(ws, raw) {
+  webSocketMessage(ws, raw) {
+    const ingress = this.classifyStandardIdentityIngress(ws, raw);
+    if (ingress) {
+      if (ingress.preclaimedAuth) {
+        const attachment = readAttachment(ws);
+        if (!attachment || attachment.auth !== 'pending' || attachment.authStarted) {
+          return this.processWebSocketMessage(ws, raw);
+        }
+        // Claim the one permitted first auth frame synchronously. Later frames
+        // still pass through maintenance, size, and guest-rate enforcement,
+        // but cannot overtake this frame and become the authentication attempt.
+        serializeSocketAttachment(ws, { ...attachment, authStarted: true });
+      }
+      return this.enqueueStandardIdentityIngress(() =>
+        this.processWebSocketMessage(ws, raw, ingress),
+      );
+    }
+    return this.processWebSocketMessage(ws, raw);
+  }
+
+  async processWebSocketMessage(ws, raw, ingress = { preclaimedAuth: false }) {
     if ((await readServiceMaintenance(this.env)).enabled) {
       closeWithError(ws, 'service-maintenance', 'SERVICE_MAINTENANCE', 1012);
       return;
@@ -4413,8 +4494,20 @@ export class MusixquareRoom {
       Number.isSafeInteger(attachment.identityExpiresAt) &&
       Date.now() >= attachment.identityExpiresAt
     ) {
-      await this.applyStandardRoomIdentity(ws, attachment, null, 'expired');
-      attachment = readAttachment(ws);
+      // Only an already-expired frame joins admission. Live-lease ordinary
+      // signaling stays lock-free, while the commit-time re-read ensures a
+      // queued refresh wins over an older expiry observation.
+      await this.enqueueStandardAdmission(async () => {
+        const current = this.currentStandardRoomAttachment(ws);
+        if (
+          current &&
+          Number.isSafeInteger(current.identityExpiresAt) &&
+          Date.now() >= current.identityExpiresAt
+        ) {
+          await this.applyStandardRoomIdentity(ws, null, 'expired');
+        }
+      });
+      attachment = this.currentStandardRoomAttachment(ws);
       if (!attachment) return;
     }
 
@@ -4436,11 +4529,13 @@ export class MusixquareRoom {
       return;
     }
 
-    // Authentication is a one-frame protocol. Once a validated attempt owns
-    // the serialized admission queue, do not parse or enqueue any later frame.
+    // Authentication is a one-frame protocol. Once the first frame owns the
+    // receive-order queue, do not parse or enqueue any later frame as auth.
     // Keep this check after the absolute frame-size boundary and guest bucket:
     // in-flight auth must not become a temporary ingress exemption.
-    if ((isPendingHost || isPendingGuest) && attachment.authStarted) return;
+    if ((isPendingHost || isPendingGuest) && attachment.authStarted && !ingress.preclaimedAuth) {
+      return;
+    }
 
     const message = this.parse(raw);
     if (!message) {
@@ -4482,17 +4577,15 @@ export class MusixquareRoom {
     if (attachment.role === 'host') {
       if (attachment.auth === 'pending') {
         if (!this.pendingHosts.has(ws)) return;
-        await this.handleHostAuth(ws, message, attachment);
+        await this.handleHostAuth(ws, message, attachment, ingress.preclaimedAuth);
         return;
       }
       if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
       if (this.host !== ws) return;
-      if (
-        message.type === 'account-identity-refresh' ||
-        message.type === 'account-identity-clear' ||
-        message.type === 'account-identity-delete'
-      ) {
-        await this.handleStandardRoomIdentityMutation(ws, message, attachment);
+      if (isStandardRoomIdentityMutation(message)) {
+        await this.enqueueStandardAdmission(() =>
+          this.handleStandardRoomIdentityMutation(ws, message),
+        );
         return;
       }
       await this.handleHostMessage(ws, message, attachment);
@@ -4501,19 +4594,15 @@ export class MusixquareRoom {
 
     if (attachment.auth === 'pending') {
       if (!this.pendingGuests.has(ws)) return;
-      await this.handleGuestAuth(ws, message, attachment);
+      await this.handleGuestAuth(ws, message, attachment, ingress.preclaimedAuth);
       return;
     }
 
     if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
 
     if (this.guests.get(attachment.peerId) !== ws) return;
-    if (
-      message.type === 'account-identity-refresh' ||
-      message.type === 'account-identity-clear' ||
-      message.type === 'account-identity-delete'
-    ) {
-      await this.handleStandardRoomIdentityMutation(ws, message, attachment);
+    if (isStandardRoomIdentityMutation(message)) {
+      await this.enqueueStandardAdmission(() => this.handleStandardRoomIdentityMutation(ws, message));
       return;
     }
     this.handleGuestMessage(attachment.peerId, message, attachment);
@@ -4784,12 +4873,14 @@ export class MusixquareRoom {
     }
   }
 
-  async handleHostAuth(ws, message, attachment) {
+  async handleHostAuth(ws, message, attachment, preclaimedAuth = false) {
     const currentAttachment = readAttachment(ws) || attachment;
-    if (currentAttachment.authStarted) return;
-    serializeSocketAttachment(ws, { ...currentAttachment, authStarted: true });
+    if (currentAttachment.authStarted && !preclaimedAuth) return;
+    if (!currentAttachment.authStarted) {
+      serializeSocketAttachment(ws, { ...currentAttachment, authStarted: true });
+    }
     try {
-      return await this.enqueueHostAdmission(() => this.finishHostAuth(ws, message, attachment));
+      return await this.enqueueHostAdmission(() => this.finishHostAuth(ws, message));
     } catch (error) {
       // A transient storage failure did not consume the one allowed attempt.
       // Reset the marker only if this exact candidate is still pending so a
@@ -4803,8 +4894,16 @@ export class MusixquareRoom {
     }
   }
 
-  async finishHostAuth(ws, message, attachment) {
-    if (!this.pendingHosts.has(ws)) return;
+  async finishHostAuth(ws, message) {
+    const attachment = readAttachment(ws);
+    if (
+      !this.pendingHosts.has(ws) ||
+      attachment?.role !== 'host' ||
+      attachment.auth !== 'pending' ||
+      !attachment.authStarted
+    ) {
+      return;
+    }
     if (Date.now() > attachment.authDeadline) {
       this.pendingHosts.delete(ws);
       this.scheduleMaintenanceAlarm();
@@ -4820,15 +4919,17 @@ export class MusixquareRoom {
     );
   }
 
-  async handleGuestAuth(ws, message, attachment) {
+  async handleGuestAuth(ws, message, attachment, preclaimedAuth = false) {
     // consumeGuestMessageToken() may have persisted a newer bucket earlier in
     // this event. Merge the marker into that attachment instead of restoring
     // the stale pre-consumption snapshot passed by webSocketMessage().
     const currentAttachment = readAttachment(ws) || attachment;
-    if (currentAttachment.authStarted) return;
-    serializeSocketAttachment(ws, { ...currentAttachment, authStarted: true });
+    if (currentAttachment.authStarted && !preclaimedAuth) return;
+    if (!currentAttachment.authStarted) {
+      serializeSocketAttachment(ws, { ...currentAttachment, authStarted: true });
+    }
     try {
-      return await this.enqueueGuestAdmission(() => this.finishGuestAuth(ws, message, attachment));
+      return await this.enqueueGuestAdmission(() => this.finishGuestAuth(ws, message));
     } catch (error) {
       const latest = readAttachment(ws);
       if (this.pendingGuests.has(ws) && latest?.role === 'guest' && latest.auth === 'pending') {
@@ -4838,8 +4939,16 @@ export class MusixquareRoom {
     }
   }
 
-  async finishGuestAuth(ws, message, attachment) {
-    if (!this.pendingGuests.has(ws)) return;
+  async finishGuestAuth(ws, message) {
+    const attachment = readAttachment(ws);
+    if (
+      !this.pendingGuests.has(ws) ||
+      attachment?.role !== 'guest' ||
+      attachment.auth !== 'pending' ||
+      !attachment.authStarted
+    ) {
+      return;
+    }
     if (!this.host) {
       this.pendingGuests.delete(ws);
       closeWithError(ws, 'peer-unavailable', 'HOST_NOT_AVAILABLE');

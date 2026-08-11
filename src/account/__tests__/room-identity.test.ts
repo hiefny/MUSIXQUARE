@@ -127,6 +127,48 @@ describe('account identity room projection', () => {
     });
   });
 
+  it('does not return an assertion minted for a superseded account projection', async () => {
+    authenticate();
+    const input = { roomCode: '123456', peerId: 'guest-a', role: 'guest' as const };
+    let resolveOldAssertion!: (value: {
+      accountAssertion: string;
+      deletionAssertion: null;
+    }) => void;
+    const request = vi
+      .spyOn(accountApi, 'getStandardRoomIdentityAssertions')
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOldAssertion = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        accountAssertion: null,
+        deletionAssertion: 'current-deletion-proof',
+      });
+
+    const oldProjection = requestStandardRoomAccountAssertion(input);
+    applyAccountSession({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
+    const currentProjection = requestStandardRoomAccountAssertion(input);
+
+    expect(request).toHaveBeenCalledTimes(2);
+    await expect(currentProjection).resolves.toEqual({
+      accountAssertion: null,
+      deletionAssertion: 'current-deletion-proof',
+    });
+
+    resolveOldAssertion({
+      accountAssertion: 'stale-authenticated-assertion',
+      deletionAssertion: null,
+    });
+    await expect(oldProjection).resolves.toBeUndefined();
+  });
+
   it('clears on authoritative 401 but retains only through transient auth outages', async () => {
     authenticate();
     const input = { roomCode: '123456', peerId: 'guest-a', role: 'guest' as const };

@@ -12,6 +12,8 @@ import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
+const zeroStartFacade = vi.hoisted(() => ({ active: false, inFlight: false }));
+
 vi.mock('../../player/transport.ts', () => ({
   fmtTime: vi.fn((seconds: number) => `fmt:${Math.floor(seconds)}`),
   getTrackPosition: vi.fn(() => 0),
@@ -23,6 +25,11 @@ vi.mock('../../pro-room/playback-authority-hooks.ts', () => ({
   isProPlaybackTrackSelectionPending: vi.fn(() => false),
 }));
 
+vi.mock('../../youtube/zero-start.ts', () => ({
+  isYouTubeZeroStartInFlight: vi.fn(() => zeroStartFacade.inFlight),
+  isYouTubeZeroStartProtocolActive: vi.fn(() => zeroStartFacade.active),
+}));
+
 beforeEach(() => {
   resetState();
   bus.clear();
@@ -31,6 +38,8 @@ beforeEach(() => {
   vi.mocked(getTrackPosition).mockReturnValue(0);
   vi.mocked(isFilePipelineBusyForPlay).mockReturnValue(false);
   vi.mocked(isProPlaybackTrackSelectionPending).mockReturnValue(false);
+  zeroStartFacade.active = false;
+  zeroStartFacade.inFlight = false;
   document.body.innerHTML = `
     <input id="seek-slider" type="range" value="0" max="120" />
     <span id="time-curr"></span>
@@ -90,6 +99,38 @@ describe('initSeekBar playback mode gates', () => {
     expect(seekTo).not.toHaveBeenCalled();
   });
 
+  it('keeps physical host seek enabled through same-account sibling authority churn', () => {
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initSeekBar();
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    const expectHostSeekEnabled = () => {
+      expect(getState('network.appRole')).toBe('host');
+      expect(getState('network.hostConn')).toBeNull();
+      expect(slider.getAttribute('aria-disabled')).toBe('false');
+      expect(slider.hasAttribute('title')).toBe(false);
+    };
+
+    expectHostSeekEnabled();
+    setState('network.standardRoomCapabilities', [...STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES]);
+    expectHostSeekEnabled();
+    setState('network.isOperator', true);
+    expectHostSeekEnabled();
+    setState('network.standardRoomCapabilities', null);
+    expectHostSeekEnabled();
+    setState('network.isOperator', false);
+    expectHostSeekEnabled();
+
+    slider.value = '42';
+    slider.dispatchEvent(new Event('change'));
+    expect(seekTo).toHaveBeenCalledWith(42);
+  });
+
   it('restores and revokes seek with the exact host-account sibling capability projection', () => {
     setState('network.appRole', 'guest');
     setState('network.hostConn', { peer: 'host-1', open: true } as never);
@@ -118,6 +159,30 @@ describe('initSeekBar playback mode gates', () => {
     slider.dispatchEvent(new Event('change'));
     expect(slider.value).toBe('21');
     expect(seekTo).not.toHaveBeenCalled();
+  });
+
+  it('releases host seek at PLAYING while zero-start finishes timeline calibration', () => {
+    setState('network.appRole', 'host');
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    zeroStartFacade.active = true;
+    zeroStartFacade.inFlight = true;
+    initSeekBar();
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+
+    // handlePlayerStateChange(PLAYING) closes iframe ownership immediately,
+    // while the protocol identity remains active for its 2.75s calibration.
+    zeroStartFacade.inFlight = false;
+    bus.emit('youtube:sync-loading', false, 'zero-start');
+
+    expect(zeroStartFacade.active).toBe(true);
+    expect(slider.getAttribute('aria-disabled')).toBe('false');
+
+    slider.value = '42';
+    slider.dispatchEvent(new Event('change'));
+    expect(seekTo).toHaveBeenCalledWith(42);
   });
 
   it('blocks a seek draft while a replacement file is still preparing', () => {

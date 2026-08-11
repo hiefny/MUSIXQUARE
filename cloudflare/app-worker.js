@@ -120,7 +120,7 @@ const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
-const ADMIN_ASSET_VERSION = '8.3.33';
+const ADMIN_ASSET_VERSION = '8.3.34';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -12904,8 +12904,8 @@ export default {
         rateKey = 'account-auth-stats';
         rateLimit = 300;
       } else if (url.pathname === '/api/auth/room-assertion') {
-        // A full 100-device room refreshes 60-second assertions every 40s:
-        // roughly 150 requests/minute behind one venue NAT. Keep this separate
+        // A full 100-device room refreshes 60-second assertions every 30s:
+        // roughly 200 requests/minute behind one venue NAT. Keep this separate
         // from low-frequency profile/logout mutations so a healthy room cannot
         // rate-limit its own identity leases and enter a retry storm.
         rateKey = 'account-auth-room-assertion';

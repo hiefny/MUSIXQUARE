@@ -495,6 +495,41 @@ function hangingMaintenanceBinding(): {
   };
 }
 
+function gatedInactiveMaintenanceBinding(): {
+  binding: Record<string, unknown>;
+  entered: Promise<void>;
+  release(): void;
+} {
+  let markEntered!: () => void;
+  let releaseGate!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    markEntered = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+  return {
+    binding: {
+      getByName: vi.fn(() => ({
+        fetch: vi.fn(async () => {
+          markEntered();
+          await gate;
+          return originalResponse.json({
+            serviceStatus: {
+              enabled: false,
+              revision: 0,
+              updatedAt: null,
+              activatedAt: null,
+            },
+          });
+        }),
+      })),
+    },
+    entered,
+    release: releaseGate,
+  };
+}
+
 function proAuthorityNamespace(
   handler: (request: Request) => Promise<Response> = async () =>
     new originalResponse(
@@ -5117,6 +5152,249 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
   });
 
+  it('keeps a newer identity clear authoritative after an older refresh storage write is delayed', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
+    const guest = await joinGuest(room, 'refresh-then-clear', {
+      reconnectSecret: 'u'.repeat(43),
+    });
+    const assertion = await standardAccountAssertion({
+      peerId: 'refresh-then-clear',
+      role: 'guest',
+    });
+
+    const originalPut = state.storage.put.bind(state.storage);
+    let releaseRefreshWrite!: () => void;
+    let markRefreshWriteEntered!: () => void;
+    const refreshWriteEntered = new Promise<void>((resolve) => {
+      markRefreshWriteEntered = resolve;
+    });
+    const refreshWriteGate = new Promise<void>((resolve) => {
+      releaseRefreshWrite = resolve;
+    });
+    let delayed = false;
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      const entries = (value as { entries?: unknown[] } | null)?.entries;
+      if (key === 'standardRoomAccountMembers' && entries?.length === 1 && !delayed) {
+        delayed = true;
+        markRefreshWriteEntered();
+        await refreshWriteGate;
+      }
+      await originalPut(key, value);
+    });
+
+    const refresh = room.webSocketMessage(
+      guest,
+      JSON.stringify({ type: 'account-identity-refresh', accountAssertion: assertion }),
+    );
+    await refreshWriteEntered;
+    const clear = room.webSocketMessage(guest, JSON.stringify({ type: 'account-identity-clear' }));
+
+    host.sent.length = 0;
+    const ordinarySignal = room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'ordinary-frame-during-identity-refresh' },
+      }),
+    );
+    const ordinarySignalWasNotBlocked = await Promise.race([
+      ordinarySignal.then(() => true),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 50)),
+    ]);
+
+    releaseRefreshWrite();
+    await Promise.all([refresh, clear, ordinarySignal]);
+
+    expect(ordinarySignalWasNotBlocked).toBe(true);
+    expect(sent(host)).toContainEqual({
+      type: 'signal-offer',
+      from: 'refresh-then-clear',
+      negotiationId: NEGOTIATION_ID,
+      sdp: { type: 'offer', sdp: 'ordinary-frame-during-identity-refresh' },
+    });
+    expect(guest.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(sent(guest).at(-1)).toEqual({
+      type: 'account-identity',
+      memberIdentity: null,
+      clearReason: 'explicit',
+    });
+  });
+
+  it('keeps a newer valid deletion authoritative after an older refresh write is delayed', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
+    const guest = await joinGuest(room, 'refresh-then-delete', {
+      reconnectSecret: 'v'.repeat(43),
+    });
+    const [assertion, deletionAssertion] = await Promise.all([
+      standardAccountAssertion({ peerId: 'refresh-then-delete', role: 'guest' }),
+      standardAccountDeletionAssertion({ peerId: 'refresh-then-delete', role: 'guest' }),
+    ]);
+
+    const originalPut = state.storage.put.bind(state.storage);
+    let releaseRefreshWrite!: () => void;
+    let markRefreshWriteEntered!: () => void;
+    const refreshWriteEntered = new Promise<void>((resolve) => {
+      markRefreshWriteEntered = resolve;
+    });
+    const refreshWriteGate = new Promise<void>((resolve) => {
+      releaseRefreshWrite = resolve;
+    });
+    let delayed = false;
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      const entries = (value as { entries?: unknown[] } | null)?.entries;
+      if (key === 'standardRoomAccountMembers' && entries?.length === 1 && !delayed) {
+        delayed = true;
+        markRefreshWriteEntered();
+        await refreshWriteGate;
+      }
+      await originalPut(key, value);
+    });
+
+    const refresh = room.webSocketMessage(
+      guest,
+      JSON.stringify({ type: 'account-identity-refresh', accountAssertion: assertion }),
+    );
+    await refreshWriteEntered;
+    const deletion = room.webSocketMessage(
+      guest,
+      JSON.stringify({ type: 'account-identity-delete', deletionAssertion }),
+    );
+
+    releaseRefreshWrite();
+    await Promise.all([refresh, deletion]);
+
+    expect(guest.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(await state.storage.get('standardRoomAccountMembers')).toEqual({ v: 1, entries: [] });
+    expect(sent(guest).at(-1)).toEqual({
+      type: 'account-identity',
+      memberIdentity: null,
+      clearReason: 'deleted',
+    });
+    expect(sent(host)).toContainEqual(expect.objectContaining({ type: 'account-member-deleted' }));
+  });
+
+  it('preserves receive order when a clear maintenance read is slower than a newer refresh', async () => {
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    };
+    const room = new workerModule.MusixquareRoom(state, env);
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
+    const guest = await joinGuest(room, 'clear-then-refresh', {
+      reconnectSecret: 'y'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'clear-then-refresh',
+        role: 'guest',
+        nickname: 'Before Clear',
+      }),
+    });
+    const refreshed = await standardAccountAssertion({
+      peerId: 'clear-then-refresh',
+      role: 'guest',
+      nickname: 'After Clear',
+    });
+
+    const delayedMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = delayedMaintenance.binding;
+
+    const clear = room.webSocketMessage(guest, JSON.stringify({ type: 'account-identity-clear' }));
+    await delayedMaintenance.entered;
+    env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding(false);
+    const refresh = room.webSocketMessage(
+      guest,
+      JSON.stringify({ type: 'account-identity-refresh', accountAssertion: refreshed }),
+    );
+
+    host.sent.length = 0;
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'not-blocked-by-maintenance-read' },
+      }),
+    );
+    expect(sent(host).at(-1)).toMatchObject({
+      type: 'signal-offer',
+      sdp: { type: 'offer', sdp: 'not-blocked-by-maintenance-read' },
+    });
+
+    delayedMaintenance.release();
+    await Promise.all([clear, refresh]);
+
+    expect(guest.deserializeAttachment()).toMatchObject({
+      memberNickname: 'After Clear',
+    });
+    expect(sent(guest).at(-1)).toMatchObject({
+      type: 'account-identity',
+      memberIdentity: { nickname: 'After Clear' },
+    });
+  });
+
+  it('serializes a pre-minted admission identity ahead of a newer account deletion', async () => {
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    };
+    const room = new workerModule.MusixquareRoom(state, env);
+    const host = await authenticateHost(room, 'host-1', 'room-secret-one');
+    const first = await joinGuest(room, 'delete-before-admission-finishes', {
+      reconnectSecret: '1'.repeat(43),
+      accountAssertion: await standardAccountAssertion({
+        peerId: 'delete-before-admission-finishes',
+        role: 'guest',
+      }),
+    });
+    const admissionAssertion = await standardAccountAssertion({
+      peerId: 'preminted-admission',
+      role: 'guest',
+    });
+    const deletionAssertion = await standardAccountDeletionAssertion({
+      peerId: 'delete-before-admission-finishes',
+      role: 'guest',
+    });
+
+    await room.fetch(wsRequest('123456', 'guest', 'preminted-admission'));
+    const pending = lastServer();
+    const delayedMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = delayedMaintenance.binding;
+
+    const admission = room.webSocketMessage(
+      pending,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: '2'.repeat(43),
+        accountAssertion: admissionAssertion,
+      }),
+    );
+    await delayedMaintenance.entered;
+    env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding(false);
+    const deletion = room.webSocketMessage(
+      first,
+      JSON.stringify({ type: 'account-identity-delete', deletionAssertion }),
+    );
+
+    delayedMaintenance.release();
+    await Promise.all([admission, deletion]);
+
+    expect(first.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(pending.deserializeAttachment()).not.toHaveProperty('memberId');
+    expect(await state.storage.get('standardRoomAccountMembers')).toEqual({ v: 1, entries: [] });
+    expect(sent(host)).toContainEqual(expect.objectContaining({ type: 'account-member-deleted' }));
+  });
+
   it('clears an expired identity before relaying the next guest frame', async () => {
     vi.useFakeTimers();
     const startedAt = new Date('2026-08-09T00:00:00.000Z').getTime();
@@ -5627,6 +5905,43 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const guest = lastServer();
 
     await room.webSocketMessage(guest, JSON.stringify({ type: 'signal-offer', to: 'host' }));
+
+    expect(guest.closeEvents.at(-1)).toEqual({
+      code: 1008,
+      reason: 'GUEST_AUTH_FIRST_FRAME_INVALID',
+    });
+    expect(sent(guest)).not.toContainEqual(expect.objectContaining({ type: 'peer-open' }));
+  });
+
+  it('does not let a later valid guest auth overtake an invalid first frame in maintenance', async () => {
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {};
+    const room = new workerModule.MusixquareRoom(state, env);
+    await authenticateHost(room, 'host-1', 'secret-a');
+    await room.fetch(wsRequest('123456', 'guest', 'invalid-first-maintenance-guest'));
+    const guest = lastServer();
+
+    const delayedMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = delayedMaintenance.binding;
+
+    const invalidFirst = room.webSocketMessage(
+      guest,
+      JSON.stringify({ type: 'signal-offer', to: 'host' }),
+    );
+    await delayedMaintenance.entered;
+    env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding(false);
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: '3'.repeat(43),
+      }),
+    );
+
+    expect(sent(guest)).not.toContainEqual(expect.objectContaining({ type: 'peer-open' }));
+    delayedMaintenance.release();
+    await invalidFirst;
 
     expect(guest.closeEvents.at(-1)).toEqual({
       code: 1008,

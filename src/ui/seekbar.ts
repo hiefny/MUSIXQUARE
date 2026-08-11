@@ -25,7 +25,7 @@ import {
   showRoomCapabilityRequired,
 } from '../rooms/permission-feedback.ts';
 import { t } from '../i18n/index.ts';
-import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
+import { isYouTubeZeroStartInFlight } from '../youtube/zero-start.ts';
 import { isProPlaybackTrackSelectionPending } from '../pro-room/playback-authority-hooks.ts';
 import type { ProPlaybackUiControlPendingEvent, QueueItemId } from '../types/index.ts';
 import { syncRangeProgress } from './range-drag.ts';
@@ -39,7 +39,7 @@ function getSeekUnavailableReason(): SeekUnavailableReason | null {
   if (playback.activity === 'idle') return 'no-media';
   if (playback.mode === 'system-audio') return 'system-audio';
   if (playback.mode === 'file' && isFilePipelineBusyForPlay()) return 'not-ready';
-  if (playback.mode === 'youtube' && isYouTubeZeroStartProtocolActive()) return 'not-ready';
+  if (playback.mode === 'youtube' && isYouTubeZeroStartInFlight()) return 'not-ready';
 
   // Idle/demo playback intentionally remains locally seekable. Once a room
   // role exists, however, project the same capability that transport.seekTo
@@ -390,6 +390,11 @@ function initSeekBarBusHandlers(): void {
   _busScope.on('state:room.context', refreshAvailability);
   _busScope.on('state:playback.lifecycle', refreshAvailability);
   _busScope.on('youtube:zero-start-readiness-changed', refreshAvailability);
+  // Zero-start keeps its protocol identity alive briefly after PLAYING so
+  // timeline calibration can finish, but iframe ownership ends at PLAYING.
+  // Busy=false is the exact boundary that must repaint an otherwise unchanged
+  // YouTube playback state and release the seek affordance immediately.
+  _busScope.on('youtube:sync-loading', refreshAvailability);
   _busScope.on('i18n:changed', refreshAvailability);
   _busScope.on('pro-playback:transition-loading', (loading) => {
     _proPlaybackTransitionLoading = loading;

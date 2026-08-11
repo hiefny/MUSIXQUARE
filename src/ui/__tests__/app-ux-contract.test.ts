@@ -90,17 +90,20 @@ describe('app UX markup contract', () => {
     expect(appDocument.querySelector('#playlist-ui .list-empty-state button')).toBeNull();
   });
 
-  it('keeps the intentional contenteditable URL field without blocking browser zoom', () => {
+  it('keeps the intentional contenteditable URL field and fixed-scale app surface', () => {
     const youtubeField = appDocument.getElementById('youtube-url-input');
     expect(youtubeField?.tagName).toBe('DIV');
     expect(youtubeField?.getAttribute('contenteditable')).toBe('true');
 
     const viewport = appDocument.querySelector<HTMLMetaElement>('meta[name="viewport"]');
     expect(viewport?.content).toContain('width=device-width');
-    expect(viewport?.content).not.toContain('maximum-scale');
-    expect(viewport?.content).not.toContain('user-scalable');
-    expect(platformSource).not.toContain("'gesturestart'");
-    expect(platformSource).not.toContain('preventIOSPinchZoom');
+    expect(viewport?.content).toContain('minimum-scale=1');
+    expect(viewport?.content).toContain('maximum-scale=1');
+    expect(viewport?.content).toContain('user-scalable=no');
+    expect(platformSource).toContain("'gesturestart'");
+    expect(platformSource).toContain("'gesturechange'");
+    expect(platformSource).toContain("'gestureend'");
+    expect(platformSource).toContain('preventIOSPinchZoom();');
   });
 
   it('keeps Space as the only unmodified single-key playback shortcut', () => {

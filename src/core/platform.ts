@@ -124,6 +124,21 @@ export function isStandaloneDisplayMode(): boolean {
 // ─── Viewport Height Management ────────────────────────────────────
 
 /**
+ * Preserve the fixed-scale mobile application surface on iOS.
+ *
+ * Safari may allow native gesture zoom even when the viewport declares
+ * `user-scalable=no`, so the product contract needs both layers. This is an
+ * intentional app-shell interaction policy documented in
+ * docs/mobile-app-zoom-policy.md, not a generic recommendation for websites.
+ */
+function preventIOSPinchZoom(): void {
+  if (!IS_IOS) return;
+  for (const eventName of ['gesturestart', 'gesturechange', 'gestureend'] as const) {
+    document.addEventListener(eventName, (event) => event.preventDefault(), { passive: false });
+  }
+}
+
+/**
  * Window during which keyboard detection is suppressed after orientationchange.
  * The OS animates rotation over a few hundred ms and visualViewport.resize
  * fires repeatedly through that window with intermediate (shrunken) heights
@@ -418,6 +433,8 @@ export function initPlatform(): void {
   } catch (e) {
     log.debug('[Platform] is-booting class failed:', e);
   }
+
+  preventIOSPinchZoom();
 
   const run = () => {
     scheduleAppHeightUpdate();

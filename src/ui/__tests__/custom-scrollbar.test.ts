@@ -22,6 +22,7 @@ import { clearAllManagedTimers } from '../../core/timers.ts';
 
 type MqlListener = () => void;
 const _mqlListeners = new Map<string, Set<MqlListener>>();
+const _mqlMatches = new Map<string, boolean>();
 
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
@@ -34,7 +35,9 @@ Object.defineProperty(window, 'matchMedia', {
     }
     const set = listeners;
     return {
-      matches: false,
+      get matches(): boolean {
+        return _mqlMatches.get(query) ?? false;
+      },
       media: query,
       onchange: null,
       addEventListener: (_type: string, cb: MqlListener): void => {
@@ -54,17 +57,58 @@ Object.defineProperty(window, 'matchMedia', {
   },
 });
 
+let _nextRafId = 1;
+const _rafCallbacks = new Map<number, FrameRequestCallback>();
+
+Object.defineProperty(window, 'requestAnimationFrame', {
+  writable: true,
+  configurable: true,
+  value: (callback: FrameRequestCallback): number => {
+    const id = _nextRafId++;
+    _rafCallbacks.set(id, callback);
+    return id;
+  },
+});
+Object.defineProperty(window, 'cancelAnimationFrame', {
+  writable: true,
+  configurable: true,
+  value: (id: number): void => {
+    _rafCallbacks.delete(id);
+  },
+});
+
+function flushAnimationFrame(now = performance.now()): void {
+  const callbacks = [..._rafCallbacks.values()];
+  _rafCallbacks.clear();
+  callbacks.forEach((callback) => callback(now));
+}
+
+async function flushMutationObservers(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
+const _resizeObservers = new Map<Element, ResizeObserverStub>();
+
 class ResizeObserverStub {
-  observe(): void {
-    /* noop */
+  constructor(private readonly callback: ResizeObserverCallback) {}
+
+  observe(target: Element): void {
+    _resizeObservers.set(target, this);
   }
 
-  unobserve(): void {
-    /* noop */
+  unobserve(target: Element): void {
+    if (_resizeObservers.get(target) === this) _resizeObservers.delete(target);
   }
 
   disconnect(): void {
-    /* noop */
+    for (const [target, observer] of _resizeObservers) {
+      if (observer === this) _resizeObservers.delete(target);
+    }
+  }
+
+  notify(): void {
+    this.callback([], this as unknown as ResizeObserver);
   }
 }
 
@@ -108,6 +152,8 @@ function makeRect(height: number, top = 0): DOMRect {
 interface Scrollbox {
   container: HTMLElement;
   rectSpy: Mock<() => DOMRect>;
+  scrollHeightSpy: Mock<() => number>;
+  clientHeightSpy: Mock<() => number>;
   setClientHeight(px: number): void;
   setScrollHeight(px: number): void;
   track(): HTMLElement;
@@ -121,7 +167,7 @@ const _boxes: Scrollbox[] = [];
  * branch: track height = clientHeight, no bottom-nav / transform-block walk.
  * rectSpy counts updateLayout runs (called exactly once per layout pass).
  */
-function createScrollbox(id: string): Scrollbox {
+function createScrollbox(id: string, mount: HTMLElement = document.body): Scrollbox {
   const parent = document.createElement('div');
   const container = document.createElement('div');
   container.id = id;
@@ -129,17 +175,19 @@ function createScrollbox(id: string): Scrollbox {
   container.setAttribute('data-custom-scroll-contained', '');
   container.style.overflowY = 'auto';
   parent.appendChild(container);
-  document.body.appendChild(parent);
+  mount.appendChild(parent);
 
   let clientHeight = 200;
   let scrollHeight = 1000;
+  const scrollHeightSpy = vi.fn(() => scrollHeight);
+  const clientHeightSpy = vi.fn(() => clientHeight);
   Object.defineProperty(container, 'scrollHeight', {
     configurable: true,
-    get: () => scrollHeight,
+    get: scrollHeightSpy,
   });
   Object.defineProperty(container, 'clientHeight', {
     configurable: true,
-    get: () => clientHeight,
+    get: clientHeightSpy,
   });
   const rectSpy = vi.fn((): DOMRect => makeRect(clientHeight));
   container.getBoundingClientRect = rectSpy;
@@ -147,6 +195,8 @@ function createScrollbox(id: string): Scrollbox {
   const box = {
     container,
     rectSpy,
+    scrollHeightSpy,
+    clientHeightSpy,
     setClientHeight: (px: number): void => {
       clientHeight = px;
     },
@@ -164,7 +214,7 @@ function createScrollbox(id: string): Scrollbox {
 }
 
 beforeEach(() => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   clearAllManagedTimers();
   bus.clear();
 });
@@ -174,6 +224,9 @@ afterEach(() => {
   // so leaking instances across tests would pollute later run counts.
   for (const box of _boxes) destroyCustomScrollbar(box.container);
   _boxes.length = 0;
+  _rafCallbacks.clear();
+  _resizeObservers.clear();
+  _mqlMatches.clear();
   clearAllManagedTimers();
   vi.useRealTimers();
   document.body.style.removeProperty('--desktop-ui-scale');
@@ -292,6 +345,216 @@ describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {
   });
 });
 
+describe('custom-scrollbar compositor hot path', () => {
+  it('samples compositor scroll positions without re-reading layout geometry', () => {
+    const box = createScrollbox('hot-path');
+    const computedStyleSpy = vi.spyOn(globalThis, 'getComputedStyle');
+    initCustomScrollbar(box.container);
+
+    // Prime the one-per-session intrinsic-size refresh, then measure the
+    // sustained scroll path while the track is already active.
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    flushAnimationFrame();
+    flushAnimationFrame();
+    flushAnimationFrame();
+
+    box.rectSpy.mockClear();
+    box.scrollHeightSpy.mockClear();
+    box.clientHeightSpy.mockClear();
+    computedStyleSpy.mockClear();
+
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    box.container.scrollTop = 100;
+    box.container.dispatchEvent(new Event('scroll'));
+
+    // The event handler reveals from cache and schedules the sampler. It does
+    // not synchronously pull async scrolling back through style/layout.
+    expect(computedStyleSpy).not.toHaveBeenCalled();
+    expect(box.rectSpy).not.toHaveBeenCalled();
+    expect(box.scrollHeightSpy).not.toHaveBeenCalled();
+    expect(box.clientHeightSpy).not.toHaveBeenCalled();
+
+    flushAnimationFrame();
+    expect(thumb.style.height).toBe('40px');
+    expect(thumb.style.transform).toBe('translateY(20px)');
+    expect(computedStyleSpy).not.toHaveBeenCalled();
+    expect(box.rectSpy).not.toHaveBeenCalled();
+    expect(box.scrollHeightSpy).not.toHaveBeenCalled();
+    expect(box.clientHeightSpy).not.toHaveBeenCalled();
+
+    // iOS can advance the native scroller between main-thread scroll events.
+    // The short active pump must sample that exact position on the next frame.
+    box.container.scrollTop = 200;
+    flushAnimationFrame();
+    expect(thumb.style.transform).toBe('translateY(40px)');
+
+    flushAnimationFrame();
+    flushAnimationFrame();
+    flushAnimationFrame();
+    expect(_rafCallbacks.size).toBe(0);
+    computedStyleSpy.mockRestore();
+  });
+
+  it('keeps exactly one fade timer while rapid scroll events extend its deadline', () => {
+    const box = createScrollbox('fade-budget');
+    initCustomScrollbar(box.container);
+
+    for (let i = 0; i < 100; i += 1) box.container.dispatchEvent(new Event('scroll'));
+    expect(box.track().style.opacity).toBe('1');
+    expect(vi.getTimerCount()).toBe(1);
+
+    vi.advanceTimersByTime(1000);
+    box.container.dispatchEvent(new Event('scroll'));
+    expect(vi.getTimerCount()).toBe(1);
+
+    // The original timer wakes once, observes the extended deadline, and
+    // re-arms a single bounded timer instead of one timer per scroll event.
+    vi.advanceTimersByTime(200);
+    expect(box.track().style.opacity).toBe('1');
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(1000);
+    expect(box.track().style.opacity).toBe('0');
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('writes thumb height only for rubber-band compression and restoration', async () => {
+    const box = createScrollbox('rubber-band');
+    initCustomScrollbar(box.container);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    const mutations: MutationRecord[] = [];
+    const observer = new MutationObserver((records) => mutations.push(...records));
+    observer.observe(thumb, { attributes: true, attributeFilter: ['style'] });
+
+    box.container.scrollTop = 100;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    await flushMutationObservers();
+    expect(mutations).toHaveLength(1); // transform only
+    expect(thumb.style.height).toBe('40px');
+
+    mutations.length = 0;
+    box.container.scrollTop = -20;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    await flushMutationObservers();
+    expect(mutations).toHaveLength(2); // compressed height + clamped transform
+    expect(Number.parseFloat(thumb.style.height)).toBeLessThan(40);
+
+    mutations.length = 0;
+    box.container.scrollTop = 0;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    await flushMutationObservers();
+    expect(mutations).toHaveLength(1); // height restoration; top was already zero
+    expect(thumb.style.height).toBe('40px');
+    observer.disconnect();
+  });
+
+  it('tracks exact positions without adding easing or EMA under reduced motion', () => {
+    _mqlMatches.set('(prefers-reduced-motion: reduce)', true);
+    const box = createScrollbox('reduced-motion');
+    initCustomScrollbar(box.container);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+
+    box.container.scrollTop = 600;
+    box.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+
+    expect(thumb.style.transform).toBe('translateY(120px)');
+  });
+
+  it('refreshes stale intrinsic overflow once when a new scroll session starts', () => {
+    const box = createScrollbox('intrinsic-overflow');
+    box.setScrollHeight(200);
+    initCustomScrollbar(box.container);
+    expect(box.track().style.opacity).toBe('0');
+
+    // Simulate an image/font changing intrinsic content size without changing
+    // the scrollport border box (therefore no container ResizeObserver entry).
+    box.setScrollHeight(1000);
+    box.container.scrollTop = 400;
+    box.container.dispatchEvent(new Event('scroll'));
+    expect(box.track().style.opacity).toBe('0');
+
+    flushAnimationFrame();
+    expect(box.track().style.opacity).toBe('1');
+    expect(box.track().querySelector<HTMLElement>('.cscroll-thumb')?.style.transform).toBe(
+      'translateY(80px)',
+    );
+  });
+});
+
+describe('custom-scrollbar relayout isolation', () => {
+  it('does not let a nested thumb transform wake the outer scrollbar layout', async () => {
+    const outer = createScrollbox('outer');
+    const inner = createScrollbox('inner', outer.container);
+    initCustomScrollbar(outer.container);
+    initCustomScrollbar(inner.container);
+
+    await flushMutationObservers();
+    flushAnimationFrame();
+    outer.rectSpy.mockClear();
+
+    inner.container.scrollTop = 100;
+    inner.container.dispatchEvent(new Event('scroll'));
+    flushAnimationFrame();
+    await flushMutationObservers();
+    flushAnimationFrame();
+
+    expect(inner.track().querySelector<HTMLElement>('.cscroll-thumb')?.style.transform).toBe(
+      'translateY(20px)',
+    );
+    expect(outer.rectSpy).not.toHaveBeenCalled();
+  });
+
+  it('ignores seek range paint progress while retaining layout-affecting mutations', async () => {
+    const box = createScrollbox('seek-owner');
+    const seek = document.createElement('input');
+    seek.type = 'range';
+    box.container.appendChild(seek);
+    initCustomScrollbar(box.container);
+    box.rectSpy.mockClear();
+
+    for (let progress = 0; progress <= 100; progress += 10) {
+      seek.style.setProperty('--range-progress', `${progress}%`);
+    }
+    await flushMutationObservers();
+    flushAnimationFrame();
+    expect(box.rectSpy).not.toHaveBeenCalled();
+
+    seek.classList.add('layout-affecting-state');
+    box.container.append(document.createElement('div'), document.createElement('div'));
+    _resizeObservers.get(box.container)?.notify();
+    bus.emit('ui:scrollbar-relayout');
+    await flushMutationObservers();
+
+    // MutationObserver, ResizeObserver and the bus all converge on one frame.
+    expect(box.rectSpy).not.toHaveBeenCalled();
+    flushAnimationFrame();
+    expect(box.rectSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels queued layout, scroll and fade work on destroy', async () => {
+    const box = createScrollbox('destroy-pending');
+    initCustomScrollbar(box.container);
+    box.container.appendChild(document.createElement('div'));
+    box.container.dispatchEvent(new Event('scroll'));
+    await flushMutationObservers();
+    expect(_rafCallbacks.size).toBeGreaterThan(0);
+    expect(vi.getTimerCount()).toBe(1);
+
+    box.rectSpy.mockClear();
+    destroyCustomScrollbar(box.container);
+    flushAnimationFrame();
+    vi.advanceTimersByTime(1200);
+
+    expect(box.rectSpy).not.toHaveBeenCalled();
+    expect(_rafCallbacks.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
 describe('custom-scrollbar transition reveal', () => {
   it('reveals only overflowing instances in the requested surface, then fades', () => {
     const scoped = createScrollbox('scoped-overflow');
@@ -308,7 +571,11 @@ describe('custom-scrollbar transition reveal', () => {
     expect(scoped.track().style.pointerEvents).toBe('auto');
     expect(background.track().style.opacity).toBe('0');
     expect(background.track().style.pointerEvents).toBe('none');
-    vi.advanceTimersByTime(1199);
+    // The coalesced geometry refresh must not reveal a known-live surface a
+    // second time and silently extend its fade deadline by one frame.
+    vi.advanceTimersByTime(16);
+    flushAnimationFrame();
+    vi.advanceTimersByTime(1183);
     expect(scoped.track().style.opacity).toBe('1');
     vi.advanceTimersByTime(1);
     expect(scoped.track().style.opacity).toBe('0');
@@ -372,6 +639,7 @@ describe('custom-scrollbar transition reveal', () => {
 
     dialogList.setClientHeight(180);
     bus.emit('ui:scrollbar-reveal', dialogList.container.parentElement!);
+    flushAnimationFrame();
 
     expect(dialogList.track().style.height).toBe('180px');
     expect(dialogList.track().style.opacity).toBe('1');

@@ -15,6 +15,7 @@ import { bus } from '../core/events.ts';
 const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
 const OVERFLOW_ROUNDING_TOLERANCE_PX = 2;
+const SCROLL_PUMP_IDLE_FRAMES = 3;
 const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
 
 interface ScrollbarState {
@@ -31,12 +32,42 @@ interface ScrollbarState {
   visibleHeight: number;
   thumbHeight: number;
   fadeTimer: number;
+  fadeDeadline: number;
+  trackVisible: boolean | null;
+  hasOverflow: boolean;
+  maxScroll: number;
+  maxThumbTop: number;
+  renderedThumbHeight: number;
+  renderedThumbTop: number;
+  layoutFrame: number | null;
+  scrollFrame: number | null;
+  scrollIdleFrames: number;
+  revealAfterLayout: boolean;
+  destroyed: boolean;
   /** Cached transform-containing-block ancestor (resolved lazily on first updateLayout). */
   transformBlock: HTMLElement | null;
   transformBlockResolved: boolean;
 }
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
+
+function setStyleIfChanged(style: CSSStyleDeclaration, property: string, value: string): void {
+  if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
+}
+
+function setThumbHeight(state: ScrollbarState, height: number): boolean {
+  if (state.renderedThumbHeight === height) return false;
+  state.renderedThumbHeight = height;
+  state.thumb.style.height = `${height}px`;
+  return true;
+}
+
+function setThumbTop(state: ScrollbarState, top: number): boolean {
+  if (state.renderedThumbTop === top) return false;
+  state.renderedThumbTop = top;
+  state.thumb.style.transform = `translateY(${top}px)`;
+  return true;
+}
 
 function hasVisibleOverflow(container: HTMLElement): boolean {
   const { scrollHeight, clientHeight } = container;
@@ -52,6 +83,65 @@ function hasVisibleOverflow(container: HTMLElement): boolean {
     clientHeight > 1 &&
     scrollHeight > clientHeight + OVERFLOW_ROUNDING_TOLERANCE_PX
   );
+}
+
+function setTrackVisible(state: ScrollbarState, visible: boolean): void {
+  if (state.trackVisible === visible) return;
+  state.trackVisible = visible;
+  state.track.style.opacity = visible ? '1' : '0';
+  state.track.style.pointerEvents = visible ? 'auto' : 'none';
+}
+
+function cancelFade(state: ScrollbarState): void {
+  if (state.fadeTimer) window.clearTimeout(state.fadeTimer);
+  state.fadeTimer = 0;
+  state.fadeDeadline = 0;
+}
+
+function armFade(state: ScrollbarState): void {
+  if (state.destroyed || state.isDragging || state.fadeTimer || !state.hasOverflow) return;
+
+  const remaining = Math.max(0, state.fadeDeadline - Date.now());
+  state.fadeTimer = window.setTimeout(() => {
+    state.fadeTimer = 0;
+    if (state.destroyed || state.isDragging || !state.hasOverflow) return;
+
+    const nextRemaining = state.fadeDeadline - Date.now();
+    if (nextRemaining > 0) {
+      armFade(state);
+      return;
+    }
+    setTrackVisible(state, false);
+  }, remaining);
+}
+
+/** Reveal from cached layout state; the scroll hot path must never force style/layout. */
+function showTrack(state: ScrollbarState): void {
+  if (!state.hasOverflow) {
+    cancelFade(state);
+    setTrackVisible(state, false);
+    return;
+  }
+
+  setTrackVisible(state, true);
+  state.fadeDeadline = Date.now() + FADE_DELAY;
+  armFade(state);
+}
+
+function scheduleLayout(state: ScrollbarState): void {
+  if (state.destroyed || state.layoutFrame !== null) return;
+  state.layoutFrame = window.requestAnimationFrame(() => {
+    state.layoutFrame = null;
+    if (!state.destroyed) updateLayout(state);
+  });
+}
+
+function runLayoutNow(state: ScrollbarState): void {
+  if (state.layoutFrame !== null) {
+    window.cancelAnimationFrame(state.layoutFrame);
+    state.layoutFrame = null;
+  }
+  if (!state.destroyed) updateLayout(state);
 }
 
 // ─── Global settled re-layout (orientation / breakpoint changes) ─────────
@@ -70,7 +160,7 @@ function relayoutAll(): void {
   // 350/700ms settle window (dialog teardown) and a snapshot would touch a
   // removed track.
   for (const state of _instances.values()) {
-    updateLayout(state);
+    runLayoutNow(state);
   }
 }
 
@@ -124,16 +214,20 @@ function updateLayout(state: ScrollbarState): void {
   const isContained = container.hasAttribute('data-custom-scroll-contained');
 
   if (!hasVisibleOverflow(container)) {
-    clearTimeout(state.fadeTimer);
+    cancelFade(state);
+    state.hasOverflow = false;
+    state.maxScroll = 0;
+    state.maxThumbTop = 0;
     state.visibleHeight = 0;
     state.thumbHeight = 0;
-    track.style.opacity = '0';
-    track.style.pointerEvents = 'none';
-    track.style.height = '0px';
-    thumb.style.display = 'none';
+    state.revealAfterLayout = false;
+    setTrackVisible(state, false);
+    setStyleIfChanged(track.style, 'height', '0px');
+    setStyleIfChanged(thumb.style, 'display', 'none');
     return;
   }
-  thumb.style.display = '';
+  state.hasOverflow = true;
+  setStyleIfChanged(thumb.style, 'display', '');
 
   const containerRect = container.getBoundingClientRect();
   let visibleHeight = clientHeight;
@@ -162,8 +256,8 @@ function updateLayout(state: ScrollbarState): void {
     const offsetTop = parentRect
       ? (containerRect.top - parentRect.top) / getBodyRenderedScale()
       : 0;
-    track.style.top = `${offsetTop}px`;
-    track.style.height = `${visibleHeight}px`;
+    setStyleIfChanged(track.style, 'top', `${offsetTop}px`);
+    setStyleIfChanged(track.style, 'height', `${visibleHeight}px`);
   } else {
     // Mobile: track is position:fixed. If an ancestor uses transform (or
     // perspective), it becomes the containing block for the fixed track —
@@ -184,26 +278,36 @@ function updateLayout(state: ScrollbarState): void {
       state.transformBlockResolved = true;
     }
     const ancestorTop = state.transformBlock ? state.transformBlock.getBoundingClientRect().top : 0;
-    track.style.top = `${containerRect.top - ancestorTop}px`;
-    track.style.height = `${visibleHeight}px`;
+    setStyleIfChanged(track.style, 'top', `${containerRect.top - ancestorTop}px`);
+    setStyleIfChanged(track.style, 'height', `${visibleHeight}px`);
   }
 
   const ratio = visibleHeight / scrollHeight;
   state.thumbHeight = Math.max(THUMB_MIN_HEIGHT, ratio * visibleHeight);
-  thumb.style.height = `${state.thumbHeight}px`;
+  state.maxScroll = scrollHeight - clientHeight;
+  state.maxThumbTop = visibleHeight - state.thumbHeight;
+  setThumbHeight(state, state.thumbHeight);
 
   updateScroll(state);
+
+  if (state.revealAfterLayout) {
+    state.revealAfterLayout = false;
+    showTrack(state);
+  }
 }
 
-function updateScroll(state: ScrollbarState): void {
-  const { container, thumb, visibleHeight, thumbHeight } = state;
-  const { scrollTop, scrollHeight, clientHeight } = container;
+/**
+ * Sample only scrollTop against cached layout geometry. During ordinary
+ * scrolling this performs one layout-value read and, when the thumb moved,
+ * one compositor-only transform write. Full geometry is refreshed separately
+ * by the coalesced layout path.
+ */
+function updateScroll(state: ScrollbarState): boolean {
+  const { container, visibleHeight, thumbHeight, maxScroll, maxThumbTop } = state;
+  if (!state.hasOverflow || maxScroll <= 0) return false;
 
-  if (scrollHeight <= clientHeight + OVERFLOW_ROUNDING_TOLERANCE_PX) return;
-
-  const maxScroll = scrollHeight - clientHeight;
-  const maxThumbTop = visibleHeight - thumbHeight;
-  let thumbTop = maxScroll > 0 ? (scrollTop / maxScroll) * maxThumbTop : 0;
+  const { scrollTop } = container;
+  let thumbTop = (scrollTop / maxScroll) * maxThumbTop;
 
   let h = thumbHeight;
 
@@ -216,9 +320,61 @@ function updateScroll(state: ScrollbarState): void {
     thumbTop = visibleHeight - h;
   }
 
-  thumb.style.height = `${h}px`;
+  // Height is static throughout the normal range. It is written only when
+  // iOS rubber-band overscroll compresses the thumb, or when returning from
+  // that compressed state.
+  const heightChanged = setThumbHeight(state, h);
   // Use GPU-accelerated transform instead of style.top for 120fps scrolling
-  thumb.style.transform = `translateY(${thumbTop}px)`;
+  return setThumbTop(state, thumbTop) || heightChanged;
+}
+
+function scheduleScrollPump(state: ScrollbarState): void {
+  if (state.destroyed || !state.hasOverflow || state.scrollFrame !== null) return;
+  state.scrollFrame = window.requestAnimationFrame(() => {
+    state.scrollFrame = null;
+    if (state.destroyed) return;
+
+    const changed = updateScroll(state);
+    state.scrollIdleFrames = changed ? 0 : state.scrollIdleFrames + 1;
+
+    // Keep sampling for a few quiet frames. On iOS the native scroller can
+    // advance on the compositor between main-thread scroll events; this short
+    // pump lets the thumb observe those intermediate positions exactly, with
+    // no EMA/easing lag.
+    if (state.isDragging || state.scrollIdleFrames < SCROLL_PUMP_IDLE_FRAMES) {
+      scheduleScrollPump(state);
+    }
+  });
+}
+
+function nodeIsCustomScrollbarUi(node: Node): boolean {
+  const element = node instanceof Element ? node : node.parentElement;
+  return Boolean(element?.closest('.cscroll-track'));
+}
+
+function childListOnlyChangesCustomScrollbarUi(record: MutationRecord): boolean {
+  if (record.type !== 'childList') return false;
+  const changed = [...record.addedNodes, ...record.removedNodes];
+  return changed.length > 0 && changed.every((node) => nodeIsCustomScrollbarUi(node));
+}
+
+function isRangePaintMutation(record: MutationRecord): boolean {
+  if (record.type !== 'attributes' || record.attributeName !== 'style') return false;
+  const target = record.target;
+  // App range inputs use inline style exclusively for --range-progress, a
+  // paint-only gradient stop updated by seek playback as often as every rAF.
+  // Class changes remain observed for any layout-affecting state. Avoiding
+  // attributeOldValue also prevents copying the style string at 60/120 Hz.
+  return target instanceof HTMLInputElement && target.type === 'range';
+}
+
+function mutationsNeedLayout(records: MutationRecord[]): boolean {
+  return records.some((record) => {
+    if (nodeIsCustomScrollbarUi(record.target)) return false;
+    if (childListOnlyChangesCustomScrollbarUi(record)) return false;
+    if (isRangePaintMutation(record)) return false;
+    return true;
+  });
 }
 
 export function initCustomScrollbar(container: HTMLElement): void {
@@ -257,6 +413,18 @@ export function initCustomScrollbar(container: HTMLElement): void {
     visibleHeight: 0,
     thumbHeight: 0,
     fadeTimer: 0,
+    fadeDeadline: 0,
+    trackVisible: null,
+    hasOverflow: false,
+    maxScroll: 0,
+    maxThumbTop: 0,
+    renderedThumbHeight: Number.NaN,
+    renderedThumbTop: Number.NaN,
+    layoutFrame: null,
+    scrollFrame: null,
+    scrollIdleFrames: SCROLL_PUMP_IDLE_FRAMES,
+    revealAfterLayout: false,
+    destroyed: false,
     transformBlock: null,
     transformBlockResolved: false,
   };
@@ -264,40 +432,25 @@ export function initCustomScrollbar(container: HTMLElement): void {
   thumb.style.top = '0px';
   track.style.transition = 'opacity 0.3s ease';
 
-  function setTrackVisible(visible: boolean): void {
-    track.style.opacity = visible ? '1' : '0';
-    track.style.pointerEvents = visible ? 'auto' : 'none';
-  }
+  setTrackVisible(state, false);
 
-  setTrackVisible(false);
-
-  function showTrack(): void {
-    if (!hasVisibleOverflow(container)) {
-      clearTimeout(state.fadeTimer);
-      setTrackVisible(false);
-      return;
-    }
-    setTrackVisible(true);
-    clearTimeout(state.fadeTimer);
-    state.fadeTimer = window.setTimeout(() => {
-      if (!state.isDragging) setTrackVisible(false);
-    }, FADE_DELAY);
-  }
-
-  let ticking = false;
   const onScroll = (): void => {
-    showTrack();
-    if (!ticking) {
-      window.requestAnimationFrame(() => {
-        updateScroll(state);
-        ticking = false;
-      });
-      ticking = true;
+    const startsNewSession = state.trackVisible !== true;
+    if (!state.hasOverflow || startsNewSession) {
+      // Refresh once at session start for intrinsic/font/image size changes
+      // that alter scrollHeight without changing the container's border box.
+      state.revealAfterLayout = !state.hasOverflow;
+      scheduleLayout(state);
     }
+    showTrack(state);
+    state.scrollIdleFrames = 0;
+    scheduleScrollPump(state);
   };
   container.addEventListener('scroll', onScroll, { passive: true });
 
-  state.observer = new MutationObserver(() => updateLayout(state));
+  state.observer = new MutationObserver((records) => {
+    if (mutationsNeedLayout(records)) scheduleLayout(state);
+  });
   state.observer.observe(container, {
     childList: true,
     subtree: true,
@@ -306,7 +459,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     attributeFilter: ['class', 'style'],
   });
 
-  state.resizeObserver = new ResizeObserver(() => updateLayout(state));
+  state.resizeObserver = new ResizeObserver(() => scheduleLayout(state));
   state.resizeObserver.observe(container);
 
   // Orientation/breakpoint change → delayed re-layout, handled module-wide:
@@ -318,11 +471,15 @@ export function initCustomScrollbar(container: HTMLElement): void {
   // on the container itself catches a parent transform — the size doesn't
   // change and the open/close class lands on an ancestor — so external
   // callers must signal a relayout when they animate visibility.
-  const cleanupRelayoutBus = bus.on('ui:scrollbar-relayout', () => updateLayout(state));
+  const cleanupRelayoutBus = bus.on('ui:scrollbar-relayout', () => scheduleLayout(state));
   const cleanupRevealBus = bus.on('ui:scrollbar-reveal', (scope) => {
     if (scope && scope !== container && !scope.contains(container)) return;
-    updateLayout(state);
-    showTrack();
+    state.revealAfterLayout = !state.hasOverflow;
+    scheduleLayout(state);
+    // Already-measured live surfaces reveal immediately. A parked surface
+    // waits for the scheduled layout, which consumes revealAfterLayout once
+    // its non-zero geometry becomes available.
+    if (state.hasOverflow) showTrack(state);
   });
 
   thumb.addEventListener('mousedown', (e) => {
@@ -334,8 +491,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     state.dragRenderedScale = getBodyRenderedScale();
     thumb.classList.add('dragging');
     document.body.style.userSelect = 'none';
-    clearTimeout(state.fadeTimer);
-    setTrackVisible(true);
+    cancelFade(state);
+    setTrackVisible(state, true);
   });
 
   // Touch support for thumb drag.
@@ -346,8 +503,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     e.preventDefault();
     e.stopPropagation();
     state.isDragging = true;
-    clearTimeout(state.fadeTimer);
-    setTrackVisible(true);
+    cancelFade(state);
+    setTrackVisible(state, true);
     state.dragStartY = e.touches[0].clientY;
     state.dragStartScroll = container.scrollTop;
     state.dragRenderedScale = getBodyRenderedScale();
@@ -384,7 +541,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     thumb.classList.remove('dragging');
     document.body.style.userSelect = '';
     updateScroll(state);
-    showTrack();
+    showTrack(state);
   };
 
   thumb.addEventListener('touchstart', onThumbTouchStart, { passive: false });
@@ -436,6 +593,13 @@ export function initAllCustomScrollbars(): void {
 export function destroyCustomScrollbar(container: HTMLElement): void {
   const state = _instances.get(container);
   if (!state) return;
+  state.destroyed = true;
+  cancelFade(state);
+  if (state.layoutFrame !== null) window.cancelAnimationFrame(state.layoutFrame);
+  if (state.scrollFrame !== null) window.cancelAnimationFrame(state.scrollFrame);
+  state.layoutFrame = null;
+  state.scrollFrame = null;
+  if (state.isDragging) document.body.style.userSelect = '';
   state.observer.disconnect();
   state.resizeObserver.disconnect();
   state.cleanup.forEach((fn) => fn());

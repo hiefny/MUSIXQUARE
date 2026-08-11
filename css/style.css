@@ -2273,7 +2273,10 @@
     transform: scale(1);
   }
 
-  @media (hover: hover) and (pointer: fine) {
+  /* Use any-hover so a real mouse/trackpad still reveals the grip on hybrid
+     devices whose primary pointer is the touchscreen. Touch-only devices keep
+     the tap-safe, non-latching presentation. */
+  @media (any-hover: hover) {
     .playlist-reorder-handle:hover {
       color: var(--primary);
     }

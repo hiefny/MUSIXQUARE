@@ -359,7 +359,13 @@ describe('app UX markup contract', () => {
     expect(globalButtonShapeRule).toContain(':not(#youtube-ios-sync-overlay)');
   });
 
-  it('preserves the desktop row-hover transition from track number to reorder grip', () => {
+  it('preserves the row-hover transition from track number to reorder grip on hybrid input', () => {
+    expect(appStylesheet).toMatch(
+      /@media\s*\(any-hover:\s*hover\)\s*\{\s*\.playlist-reorder-handle:hover/,
+    );
+    expect(appStylesheet).not.toMatch(
+      /@media\s*\(hover:\s*hover\)\s*and\s*\(pointer:\s*fine\)\s*\{\s*\.playlist-reorder-handle:hover/,
+    );
     expect(appStylesheet).toMatch(
       /\.track-item:hover\s+\.playlist-reorder-handle\s+\.track-idx[\s\S]*?opacity:\s*0/,
     );

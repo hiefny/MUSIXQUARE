@@ -21,6 +21,9 @@ const MAX_REMEMBERED_UPLINK_TERMINALS = 64;
 const OPERATOR_UPLINK_FILE_NAME_CHARS = 22;
 const HEADER_LOADING_INDICATOR_SELECTOR =
   '#main-header .material-elastic-spinner, #main-header .header-loading-spinner';
+const HEADER_PROGRESS_TAU_MS = 160;
+const HEADER_PROGRESS_FRAME_MS = 1000 / 60;
+const HEADER_PROGRESS_EPSILON = 0.05;
 
 interface LoaderHolder {
   text: string;
@@ -33,16 +36,170 @@ interface LoaderHolder {
 // the background operation's exact text/progress when it finishes.
 const _loaderHolders = new Map<string, LoaderHolder>();
 let _loaderOrder = 0;
+let _headerProgressElement: HTMLElement | null = null;
+let _headerProgressDisplayed = 0;
+let _headerProgressTarget = 0;
+let _headerProgressFrame: number | null = null;
+let _headerProgressLastFrameAt: number | null = null;
+let _headerProgressVisibilityBound = false;
 
 const _toastBusScope = createBusScope();
 const _operatorUplinkLoaderIds = new Set<string>();
 const _operatorUplinkTerminalIds = new Set<string>();
 const _operatorUplinkTerminalOrder: string[] = [];
 
+function clampProgress(percent: number): number {
+  if (!Number.isFinite(percent)) return 0;
+  return Math.min(100, Math.max(0, percent));
+}
+
+function readInitialProgress(progressBg: HTMLElement): number {
+  const transformMatch = progressBg.style.transform.match(/^scaleX\(([^)]+)\)$/);
+  const transformScale = transformMatch ? Number.parseFloat(transformMatch[1] ?? '') : Number.NaN;
+  if (Number.isFinite(transformScale)) return clampProgress(transformScale * 100);
+
+  // Preserve isolated embeds that still carry the old inline width until this
+  // module takes ownership of the compositor-backed surface.
+  const legacyWidth = Number.parseFloat(progressBg.style.width);
+  return Number.isFinite(legacyWidth) ? clampProgress(legacyWidth) : 0;
+}
+
+function cancelHeaderProgressFrame(): void {
+  if (
+    _headerProgressFrame !== null &&
+    typeof window !== 'undefined' &&
+    typeof window.cancelAnimationFrame === 'function'
+  ) {
+    window.cancelAnimationFrame(_headerProgressFrame);
+  }
+  _headerProgressFrame = null;
+  _headerProgressLastFrameAt = null;
+}
+
+function headerProgressNow(): number | null {
+  try {
+    const now = performance.now();
+    return Number.isFinite(now) ? now : null;
+  } catch {
+    return null;
+  }
+}
+
+function paintHeaderProgress(progressBg: HTMLElement, percent: number): void {
+  const clamped = clampProgress(percent);
+  _headerProgressDisplayed = clamped;
+  const scale = Math.round((clamped / 100) * 1_000_000) / 1_000_000;
+  progressBg.style.transform = `scaleX(${scale})`;
+}
+
+function attachHeaderProgress(progressBg: HTMLElement): void {
+  if (_headerProgressElement === progressBg) return;
+
+  cancelHeaderProgressFrame();
+  _headerProgressElement = progressBg;
+  _headerProgressDisplayed = readInitialProgress(progressBg);
+  _headerProgressTarget = _headerProgressDisplayed;
+  // CSS owns the full width; only transform changes from now on.
+  progressBg.style.width = '';
+  paintHeaderProgress(progressBg, _headerProgressDisplayed);
+}
+
+function shouldSnapHeaderProgress(): boolean {
+  if (
+    typeof window === 'undefined' ||
+    typeof window.requestAnimationFrame !== 'function' ||
+    typeof window.cancelAnimationFrame !== 'function'
+  ) {
+    return true;
+  }
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return true;
+  try {
+    return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+  } catch {
+    return false;
+  }
+}
+
+function runHeaderProgressFrame(now: number): void {
+  _headerProgressFrame = null;
+  const progressBg = _headerProgressElement;
+  if (!progressBg) return;
+
+  if (shouldSnapHeaderProgress()) {
+    paintHeaderProgress(progressBg, _headerProgressTarget);
+    _headerProgressLastFrameAt = null;
+    return;
+  }
+
+  const elapsedSinceLastFrame =
+    _headerProgressLastFrameAt === null ? Number.NaN : now - _headerProgressLastFrameAt;
+  const elapsed =
+    Number.isFinite(elapsedSinceLastFrame) && elapsedSinceLastFrame >= 0
+      ? elapsedSinceLastFrame
+      : HEADER_PROGRESS_FRAME_MS;
+  _headerProgressLastFrameAt = now;
+  const alpha = 1 - Math.exp(-elapsed / HEADER_PROGRESS_TAU_MS);
+  const next =
+    _headerProgressDisplayed + (_headerProgressTarget - _headerProgressDisplayed) * alpha;
+  paintHeaderProgress(progressBg, next);
+
+  if (Math.abs(_headerProgressTarget - _headerProgressDisplayed) <= HEADER_PROGRESS_EPSILON) {
+    paintHeaderProgress(progressBg, _headerProgressTarget);
+    _headerProgressLastFrameAt = null;
+    return;
+  }
+
+  _headerProgressFrame = window.requestAnimationFrame(runHeaderProgressFrame);
+}
+
+function setHeaderProgressTarget(progressBg: HTMLElement, percent: number): void {
+  attachHeaderProgress(progressBg);
+  _headerProgressTarget = clampProgress(percent);
+
+  // Completion is an ownership boundary: callers release the holder
+  // synchronously after publishing 100. Paint it now so the completed fill is
+  // visible throughout the existing opacity fade without delaying the work.
+  if (_headerProgressTarget === 100 || shouldSnapHeaderProgress()) {
+    cancelHeaderProgressFrame();
+    paintHeaderProgress(progressBg, _headerProgressTarget);
+    return;
+  }
+
+  if (Math.abs(_headerProgressTarget - _headerProgressDisplayed) <= HEADER_PROGRESS_EPSILON) {
+    cancelHeaderProgressFrame();
+    paintHeaderProgress(progressBg, _headerProgressTarget);
+    return;
+  }
+
+  if (_headerProgressFrame === null) {
+    // requestAnimationFrame timestamps share performance.now()'s time origin.
+    // Record the real idle-to-frame gap so 60/90/120 Hz displays and delayed
+    // frames all follow the same 160 ms time constant.
+    _headerProgressLastFrameAt = headerProgressNow();
+    _headerProgressFrame = window.requestAnimationFrame(runHeaderProgressFrame);
+  }
+}
+
+function resetHeaderProgress(progressBg: HTMLElement): void {
+  attachHeaderProgress(progressBg);
+  cancelHeaderProgressFrame();
+  _headerProgressTarget = 0;
+  paintHeaderProgress(progressBg, 0);
+}
+
 function displayedProgress(progressBg: HTMLElement | null): number {
   if (!progressBg) return 0;
-  const parsed = Number.parseFloat(progressBg.style.width);
-  return Number.isFinite(parsed) ? parsed : 0;
+  attachHeaderProgress(progressBg);
+  // The old width transition retained its destination through the fade. Keep
+  // that logical value so a quick hide/show cannot lose an update that had
+  // not reached the screen before its first animation frame.
+  return _headerProgressTarget;
+}
+
+function handleHeaderProgressVisibility(): void {
+  if (document.visibilityState === 'visible' || !_headerProgressElement) return;
+  cancelHeaderProgressFrame();
+  paintHeaderProgress(_headerProgressElement, _headerProgressTarget);
 }
 
 function removeHeaderLoadingIndicators(): void {
@@ -82,7 +239,7 @@ function renderLoader(holder: LoaderHolder): void {
   const loadingTextContent = getLoadingTextContent(loadingText);
   const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
   if (loadingTextContent) loadingTextContent.textContent = holder.text;
-  if (progressBg) progressBg.style.width = `${holder.percent}%`;
+  if (progressBg) setHeaderProgressTarget(progressBg, holder.percent);
 }
 
 export function updateLoader(percent: number, id?: string): void {
@@ -91,7 +248,7 @@ export function updateLoader(percent: number, id?: string): void {
   if (id !== undefined) {
     const holder = _loaderHolders.get(id);
     if (!holder) return;
-    holder.percent = percent;
+    holder.percent = clampProgress(percent);
     if (foregroundLoader()?.[0] === id) renderLoader(holder);
     return;
   }
@@ -101,7 +258,7 @@ export function updateLoader(percent: number, id?: string): void {
   // foreground. Named flows must use their ID for the same reason.
   const target = _loaderHolders.get(DEFAULT_LOADER_ID);
   if (target) {
-    target.percent = percent;
+    target.percent = clampProgress(percent);
     if (foregroundLoader()?.[0] === DEFAULT_LOADER_ID) renderLoader(target);
     return;
   }
@@ -111,7 +268,12 @@ export function updateLoader(percent: number, id?: string): void {
   // the surface; otherwise it could corrupt an unrelated named transfer.
   if (_loaderHolders.size > 0) return;
   const progressBg = document.getElementById('header-progress-bg') as HTMLElement | null;
-  if (progressBg) progressBg.style.width = `${percent}%`;
+  if (progressBg) {
+    attachHeaderProgress(progressBg);
+    cancelHeaderProgressFrame();
+    _headerProgressTarget = clampProgress(percent);
+    paintHeaderProgress(progressBg, _headerProgressTarget);
+  }
 }
 
 export function showLoader(show: boolean, txt?: string, id?: string): void {
@@ -159,7 +321,7 @@ export function showLoader(show: boolean, txt?: string, id?: string): void {
     setManagedTimer(
       'loader-reset',
       () => {
-        if (progressBg) progressBg.style.width = '0%';
+        if (progressBg && _loaderHolders.size === 0) resetHeaderProgress(progressBg);
       },
       400,
     );
@@ -380,6 +542,10 @@ function handleOperatorFileUplinkProgress(progress: StandardOperatorFileUplinkPr
 
 export function initToast(): void {
   removeHeaderLoadingIndicators();
+  if (!_headerProgressVisibilityBound) {
+    document.addEventListener('visibilitychange', handleHeaderProgressVisibility);
+    _headerProgressVisibilityBound = true;
+  }
   _toastBusScope.dispose();
   for (const loaderId of _operatorUplinkLoaderIds) showLoader(false, undefined, loaderId);
   _operatorUplinkLoaderIds.clear();

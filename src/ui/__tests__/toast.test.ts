@@ -14,6 +14,48 @@ function headerLoaderText(): string {
   return document.querySelector<HTMLElement>('.header-loading-text-content')?.textContent ?? '';
 }
 
+function headerProgressPercent(): number {
+  const transform = document.getElementById('header-progress-bg')?.style.transform ?? '';
+  const scale = Number.parseFloat(transform.match(/^scaleX\(([^)]+)\)$/)?.[1] ?? '0');
+  return scale * 100;
+}
+
+function expectHeaderProgress(percent: number): void {
+  expect(headerProgressPercent()).toBeCloseTo(percent, 4);
+}
+
+function installAnimationFrameHarness(): {
+  request: ReturnType<typeof vi.fn>;
+  cancel: ReturnType<typeof vi.fn>;
+  pending: () => number;
+  step: (timestamp: number) => void;
+} {
+  let nextId = 1;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const request = vi.fn((callback: FrameRequestCallback) => {
+    const id = nextId++;
+    callbacks.set(id, callback);
+    return id;
+  });
+  const cancel = vi.fn((id: number) => {
+    callbacks.delete(id);
+  });
+  vi.stubGlobal('requestAnimationFrame', request);
+  vi.stubGlobal('cancelAnimationFrame', cancel);
+  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
+
+  return {
+    request,
+    cancel,
+    pending: () => callbacks.size,
+    step: (timestamp: number) => {
+      const pending = [...callbacks.values()];
+      callbacks.clear();
+      pending.forEach((callback) => callback(timestamp));
+    },
+  };
+}
+
 function uplinkProgress(
   overrides: Partial<StandardOperatorFileUplinkProgress> = {},
 ): StandardOperatorFileUplinkProgress {
@@ -31,6 +73,9 @@ function uplinkProgress(
 
 beforeEach(() => {
   vi.useFakeTimers();
+  // Keep legacy behavior assertions synchronous; focused animation tests
+  // install a real frame queue and opt back into motion explicitly.
+  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
   resetState();
 
   document.body.innerHTML = `
@@ -42,7 +87,7 @@ beforeEach(() => {
         </span>
         <span class="header-loading-text-content"></span>
       </span>
-      <div id="header-progress-bg" style="width: 0%"></div>
+      <div id="header-progress-bg" style="transform: scaleX(0)"></div>
     </header>
   `;
   initToast();
@@ -54,6 +99,7 @@ afterEach(() => {
   }
   showLoader(false);
   vi.runOnlyPendingTimers();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   document.body.innerHTML = '';
 });
@@ -65,21 +111,21 @@ describe('standard operator file uplink feedback', () => {
     bus.emit('standard-room:operator-file-uplink-progress', progress);
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
     expect(headerLoaderText()).toBe('Sending file\u2026');
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+    expectHeaderProgress(0);
 
     bus.emit('standard-room:operator-file-uplink-progress', {
       ...progress,
       phase: 'uploading',
       loaded: 50,
     });
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('50%');
+    expectHeaderProgress(50);
 
     bus.emit('standard-room:operator-file-uplink-progress', {
       ...progress,
       phase: 'assembling',
       loaded: 100,
     });
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('99%');
+    expectHeaderProgress(99);
 
     bus.emit('standard-room:operator-file-uplink-progress', {
       ...progress,
@@ -87,10 +133,10 @@ describe('standard operator file uplink feedback', () => {
       loaded: 100,
     });
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('100%');
+    expectHeaderProgress(100);
 
     vi.advanceTimersByTime(400);
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+    expectHeaderProgress(0);
   });
 
   it('shows the current batch position and a truncated file name', () => {
@@ -131,7 +177,7 @@ describe('standard operator file uplink feedback', () => {
 
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
     expect(headerLoaderText()).toBe('Sending file\u2026');
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+    expectHeaderProgress(0);
 
     bus.emit('standard-room:operator-file-uplink-progress', {
       ...newer,
@@ -391,16 +437,15 @@ describe('showLoader', () => {
     expect(header.classList.contains('loading')).toBe(false);
   });
 
-  it('resets progress bar width after 400ms delay on hide', () => {
+  it('resets progress bar transform after 400ms delay on hide', () => {
     showLoader(true);
     updateLoader(75);
     showLoader(false);
 
-    const progressBg = document.getElementById('header-progress-bg')!;
-    expect(progressBg.style.width).toBe('75%');
+    expectHeaderProgress(75);
 
     vi.advanceTimersByTime(400);
-    expect(progressBg.style.width).toBe('0%');
+    expectHeaderProgress(0);
   });
 
   it('clears reset timer when showing again quickly', () => {
@@ -412,8 +457,7 @@ describe('showLoader', () => {
     showLoader(true);
     vi.advanceTimersByTime(400);
 
-    const progressBg = document.getElementById('header-progress-bg')!;
-    expect(progressBg.style.width).not.toBe('0%');
+    expect(headerProgressPercent()).not.toBe(0);
   });
 
   it('preserves background holder state and restores it after the foreground hides', () => {
@@ -425,12 +469,12 @@ describe('showLoader', () => {
     // Background progress is retained without repainting the foreground.
     updateLoader(45, 'loader-a');
     expect(headerLoaderText()).toBe('Downloading...');
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('70%');
+    expectHeaderProgress(70);
 
     showLoader(false, undefined, 'loader-b');
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
     expect(headerLoaderText()).toBe('Uploading...');
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('45%');
+    expectHeaderProgress(45);
   });
 
   it('does not let a background holder hide the foreground holder', () => {
@@ -453,11 +497,11 @@ describe('showLoader', () => {
     updateLoader(50, 'loader-a');
 
     expect(headerLoaderText()).toBe('Download B');
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('10%');
+    expectHeaderProgress(10);
 
     showLoader(false, undefined, 'loader-b');
     expect(headerLoaderText()).toBe('Upload A 50%');
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('50%');
+    expectHeaderProgress(50);
   });
 });
 
@@ -546,25 +590,38 @@ describe('header loader layout contract', () => {
     expect(loaderRuleBodies.some((rules) => /white-space:\s*normal;/.test(rules))).toBe(false);
     expect(loaderRuleBodies.some((rules) => /overflow-wrap:\s*anywhere;/.test(rules))).toBe(false);
   });
+
+  it('uses a full-width compositor fill without a width transition', async () => {
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const progressRules = stylesheet.match(/\.header-progress-bg\s*\{([^}]*)\}/)?.[1] ?? '';
+    const logoRules = stylesheet.match(/\.header-default-content\s*\{([^}]*)\}/)?.[1] ?? '';
+    const loadingTextRules = stylesheet.match(/\.header-loading-text\s*\{([^}]*)\}/)?.[1] ?? '';
+
+    expect(progressRules).toMatch(/width:\s*100%;/);
+    expect(progressRules).toMatch(/transform:\s*scaleX\(0\);/);
+    expect(progressRules).toMatch(/transform-origin:\s*left center;/);
+    expect(progressRules).toMatch(/will-change:\s*transform;/);
+    expect(progressRules).toMatch(/transition:\s*opacity 0\.4s ease;/);
+    expect(progressRules).not.toMatch(/transition:[^;]*width/);
+    expect(logoRules).toMatch(/transform 1s cubic-bezier\(0\.08, 0\.82, 0\.17, 1\)/);
+    expect(loadingTextRules).toMatch(/transform 1s cubic-bezier\(0\.08, 0\.82, 0\.17, 1\)/);
+  });
 });
 
 describe('updateLoader', () => {
-  it('sets progress bar width percentage', () => {
+  it('sets progress bar transform percentage', () => {
     updateLoader(50);
-    const progressBg = document.getElementById('header-progress-bg')!;
-    expect(progressBg.style.width).toBe('50%');
+    expectHeaderProgress(50);
   });
 
-  it('sets 100% width', () => {
+  it('sets 100% scale', () => {
     updateLoader(100);
-    const progressBg = document.getElementById('header-progress-bg')!;
-    expect(progressBg.style.width).toBe('100%');
+    expectHeaderProgress(100);
   });
 
-  it('sets 0% width', () => {
+  it('sets 0% scale', () => {
     updateLoader(0);
-    const progressBg = document.getElementById('header-progress-bg')!;
-    expect(progressBg.style.width).toBe('0%');
+    expectHeaderProgress(0);
   });
 
   it('keeps default progress behind an explicitly named foreground holder', () => {
@@ -574,11 +631,20 @@ describe('updateLoader', () => {
     updateLoader(40);
 
     expect(headerLoaderText()).toBe('Uploading...');
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+    expectHeaderProgress(0);
 
     showLoader(false, undefined, 'remote-upload');
     expect(headerLoaderText()).toBe('Preparing...');
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('40%');
+    expectHeaderProgress(40);
+  });
+
+  it('ignores an unowned no-ID update while a named holder owns the surface', () => {
+    showLoader(true, 'Named operation', 'loader-a');
+    updateLoader(20, 'loader-a');
+
+    updateLoader(85);
+
+    expectHeaderProgress(20);
   });
 
   it('ignores a late explicit update after its holder was removed', () => {
@@ -590,6 +656,216 @@ describe('updateLoader', () => {
     updateLoader(90, 'removed-loader');
 
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
-    expect(document.getElementById('header-progress-bg')!.style.width).toBe('0%');
+    expectHeaderProgress(0);
+  });
+
+  it('follows targets with a time-normalized 160ms EMA without restarting in flight', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Loading...', 'loader-a');
+    updateLoader(80, 'loader-a');
+
+    expectHeaderProgress(0);
+    expect(raf.pending()).toBe(1);
+
+    const start = performance.now();
+    const firstTimestamp = start + 1000 / 120;
+    raf.step(firstTimestamp);
+    const firstAlpha = 1 - Math.exp(-(1000 / 120) / 160);
+    const firstProgress = 80 * firstAlpha;
+    expect(headerProgressPercent()).toBeCloseTo(firstProgress, 4);
+
+    // A new target reuses the existing time origin instead of starting a new
+    // CSS easing curve. One 120 Hz frame therefore advances by one 120 Hz dt.
+    updateLoader(60, 'loader-a');
+    expect(raf.pending()).toBe(1);
+    raf.step(firstTimestamp + 1000 / 120);
+    const secondProgress = firstProgress + (60 - firstProgress) * firstAlpha;
+    expect(headerProgressPercent()).toBeCloseTo(secondProgress, 4);
+    expect(raf.request).toHaveBeenCalledTimes(3);
+  });
+
+  it('only keeps an animation frame while a visual gap remains', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Loading...', 'loader-a');
+
+    updateLoader(50, 'loader-a');
+    updateLoader(75, 'loader-a');
+    expect(raf.pending()).toBe(1);
+
+    let timestamp = performance.now();
+    for (let frame = 0; frame < 200 && raf.pending() > 0; frame += 1) {
+      timestamp += 1000 / 60;
+      raf.step(timestamp);
+    }
+
+    expectHeaderProgress(75);
+    expect(raf.pending()).toBe(0);
+  });
+
+  it('smoothly follows legitimate downward targets', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Loading...', 'loader-a');
+    updateLoader(100, 'loader-a');
+    expectHeaderProgress(100);
+
+    const start = performance.now();
+    updateLoader(25, 'loader-a');
+    expect(raf.pending()).toBe(1);
+    raf.step(start + 160);
+
+    const expected = 100 + (25 - 100) * (1 - Math.exp(-1));
+    expect(headerProgressPercent()).toBeCloseTo(expected, 4);
+    expect(headerProgressPercent()).toBeGreaterThan(25);
+    expect(headerProgressPercent()).toBeLessThan(100);
+  });
+
+  it('uses the restored foreground target when an older frame is already pending', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Background A', 'loader-a');
+    updateLoader(20, 'loader-a');
+    showLoader(true, 'Foreground B', 'loader-b');
+    updateLoader(80, 'loader-b');
+    updateLoader(40, 'loader-a');
+    expect(raf.pending()).toBe(1);
+
+    showLoader(false, undefined, 'loader-b');
+    const start = performance.now();
+    raf.step(start + 160);
+
+    expect(headerLoaderText()).toBe('Background A');
+    expect(headerProgressPercent()).toBeGreaterThan(0);
+    expect(headerProgressPercent()).toBeLessThan(40);
+  });
+
+  it('cancels an old surface frame when the progress element is replaced', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Loading...', 'loader-a');
+    updateLoader(70, 'loader-a');
+    const oldProgress = document.getElementById('header-progress-bg')!;
+    expect(raf.pending()).toBe(1);
+
+    const replacement = document.createElement('div');
+    replacement.id = 'header-progress-bg';
+    replacement.style.transform = 'scaleX(0)';
+    oldProgress.replaceWith(replacement);
+    updateLoader(40, 'loader-a');
+
+    expect(raf.cancel).toHaveBeenCalledOnce();
+    expect(raf.pending()).toBe(1);
+    const start = performance.now();
+    raf.step(start + 160);
+    expect(
+      Number.parseFloat(replacement.style.transform.match(/\(([^)]+)\)/)?.[1] ?? '0'),
+    ).toBeCloseTo(0.4 * (1 - Math.exp(-1)), 5);
+    expect(oldProgress.style.transform).toBe('scaleX(0)');
+  });
+
+  it('paints terminal completion synchronously through hide and delayed reset', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Loading...', 'loader-a');
+    updateLoader(70, 'loader-a');
+    expect(raf.pending()).toBe(1);
+
+    updateLoader(100, 'loader-a');
+    expectHeaderProgress(100);
+    expect(raf.pending()).toBe(0);
+
+    showLoader(false, undefined, 'loader-a');
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
+    expectHeaderProgress(100);
+    vi.advanceTimersByTime(399);
+    expectHeaderProgress(100);
+    vi.advanceTimersByTime(1);
+    expectHeaderProgress(0);
+  });
+
+  it('clamps progress while preserving legitimate holder decreases', () => {
+    showLoader(true, 'Loading...', 'loader-a');
+
+    updateLoader(-20, 'loader-a');
+    expectHeaderProgress(0);
+    updateLoader(180, 'loader-a');
+    expectHeaderProgress(100);
+    updateLoader(25, 'loader-a');
+    expectHeaderProgress(25);
+  });
+
+  it('keeps a pre-holder compatibility tick across an immediate show', () => {
+    const raf = installAnimationFrameHarness();
+
+    updateLoader(55);
+    expectHeaderProgress(55);
+    expect(raf.pending()).toBe(0);
+
+    showLoader(true, 'Loading...');
+    expectHeaderProgress(55);
+    expect(raf.pending()).toBe(0);
+  });
+
+  it('retains an unpainted target through hide and a quick reopen', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'First');
+    updateLoader(65);
+    expect(raf.pending()).toBe(1);
+
+    showLoader(false);
+    // The fill keeps converging under the 400 ms opacity fade. A quick reopen
+    // therefore resumes the same time origin instead of losing the target.
+    expect(raf.pending()).toBe(1);
+    vi.advanceTimersByTime(200);
+    showLoader(true, 'Second');
+    expect(raf.pending()).toBe(1);
+
+    const start = performance.now();
+    raf.step(start + 160);
+    expect(headerProgressPercent()).toBeGreaterThan(40);
+    vi.advanceTimersByTime(400);
+    expect(headerProgressPercent()).toBeGreaterThan(40);
+  });
+
+  it('snaps without scheduling frames for reduced motion or background tabs', () => {
+    const raf = installAnimationFrameHarness();
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    showLoader(true, 'Reduced', 'loader-a');
+    updateLoader(45, 'loader-a');
+    expectHeaderProgress(45);
+    expect(raf.request).not.toHaveBeenCalled();
+
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
+    const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    updateLoader(70, 'loader-a');
+    expectHeaderProgress(70);
+    expect(raf.request).not.toHaveBeenCalled();
+    if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+    else Reflect.deleteProperty(document, 'visibilityState');
+  });
+
+  it('finishes an active visual target when the page moves to the background', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Loading...', 'loader-a');
+    updateLoader(65, 'loader-a');
+    expect(raf.pending()).toBe(1);
+
+    const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expectHeaderProgress(65);
+    expect(raf.pending()).toBe(0);
+    expect(raf.cancel).toHaveBeenCalledOnce();
+    if (visibility) Object.defineProperty(document, 'visibilityState', visibility);
+    else Reflect.deleteProperty(document, 'visibilityState');
+  });
+
+  it('snaps safely when requestAnimationFrame is unavailable', () => {
+    vi.stubGlobal('requestAnimationFrame', undefined);
+    vi.stubGlobal('cancelAnimationFrame', undefined);
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
+    showLoader(true, 'Fallback', 'loader-a');
+
+    updateLoader(35, 'loader-a');
+
+    expectHeaderProgress(35);
   });
 });

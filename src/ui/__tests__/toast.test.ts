@@ -705,18 +705,21 @@ describe('updateLoader', () => {
   it('smoothly follows legitimate downward targets', () => {
     const raf = installAnimationFrameHarness();
     showLoader(true, 'Loading...', 'loader-a');
-    updateLoader(100, 'loader-a');
-    expectHeaderProgress(100);
-
     const start = performance.now();
+    updateLoader(100, 'loader-a');
+    expectHeaderProgress(0);
+    raf.step(start + 160);
+    const firstProgress = 100 * (1 - Math.exp(-1));
+    expect(headerProgressPercent()).toBeCloseTo(firstProgress, 4);
+
     updateLoader(25, 'loader-a');
     expect(raf.pending()).toBe(1);
-    raf.step(start + 160);
+    raf.step(start + 320);
 
-    const expected = 100 + (25 - 100) * (1 - Math.exp(-1));
+    const expected = firstProgress + (25 - firstProgress) * (1 - Math.exp(-1));
     expect(headerProgressPercent()).toBeCloseTo(expected, 4);
     expect(headerProgressPercent()).toBeGreaterThan(25);
-    expect(headerProgressPercent()).toBeLessThan(100);
+    expect(headerProgressPercent()).toBeLessThan(firstProgress);
   });
 
   it('uses the restored foreground target when an older frame is already pending', () => {
@@ -760,23 +763,138 @@ describe('updateLoader', () => {
     expect(oldProgress.style.transform).toBe('scaleX(0)');
   });
 
-  it('paints terminal completion synchronously through hide and delayed reset', () => {
+  it('follows terminal completion with the same EMA through hide and delayed reset', () => {
     const raf = installAnimationFrameHarness();
     showLoader(true, 'Loading...', 'loader-a');
-    updateLoader(70, 'loader-a');
-    expect(raf.pending()).toBe(1);
+    updateLoader(90, 'loader-a');
+
+    let timestamp = performance.now();
+    for (let frame = 0; frame < 200 && raf.pending() > 0; frame += 1) {
+      timestamp += 1000 / 60;
+      raf.step(timestamp);
+    }
+    expectHeaderProgress(90);
+    expect(raf.pending()).toBe(0);
 
     updateLoader(100, 'loader-a');
-    expectHeaderProgress(100);
-    expect(raf.pending()).toBe(0);
+    expectHeaderProgress(90);
+    expect(raf.pending()).toBe(1);
 
     showLoader(false, undefined, 'loader-a');
     expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(false);
-    expectHeaderProgress(100);
+    expectHeaderProgress(90);
+    expect(raf.pending()).toBe(1);
+
+    const completionStart = performance.now();
+    raf.step(completionStart + 160);
+    const afterOneTau = 90 + (100 - 90) * (1 - Math.exp(-1));
+    expect(headerProgressPercent()).toBeCloseTo(afterOneTau, 4);
+    expect(headerProgressPercent()).toBeLessThan(100);
+
+    raf.step(completionStart + 399);
+    const beforeReset = 90 + (100 - 90) * (1 - Math.exp(-399 / 160));
+    expect(headerProgressPercent()).toBeCloseTo(beforeReset, 4);
+    expect(raf.pending()).toBe(1);
+
     vi.advanceTimersByTime(399);
-    expectHeaderProgress(100);
+    expect(headerProgressPercent()).toBeCloseTo(beforeReset, 4);
     vi.advanceTimersByTime(1);
     expectHeaderProgress(0);
+    expect(raf.pending()).toBe(0);
+  });
+
+  it('keeps one frame and time origin for duplicate visible completion targets', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Loading...', 'loader-a');
+    const start = performance.now();
+
+    updateLoader(100, 'loader-a');
+    expectHeaderProgress(0);
+    expect(raf.pending()).toBe(1);
+    raf.step(start + 80);
+    const afterHalfTau = 100 * (1 - Math.exp(-0.5));
+    expect(headerProgressPercent()).toBeCloseTo(afterHalfTau, 4);
+
+    const requestsBeforeDuplicate = raf.request.mock.calls.length;
+    updateLoader(100, 'loader-a');
+    expect(headerProgressPercent()).toBeCloseTo(afterHalfTau, 4);
+    expect(raf.pending()).toBe(1);
+    expect(raf.request).toHaveBeenCalledTimes(requestsBeforeDuplicate);
+
+    raf.step(start + 160);
+    expect(headerProgressPercent()).toBeCloseTo(100 * (1 - Math.exp(-1)), 4);
+  });
+
+  it('retargets the active terminal frame when a new holder opens during the fade', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Finishing', 'loader-a');
+    updateLoader(90, 'loader-a');
+
+    let timestamp = performance.now();
+    for (let frame = 0; frame < 200 && raf.pending() > 0; frame += 1) {
+      timestamp += 1000 / 60;
+      raf.step(timestamp);
+    }
+    expectHeaderProgress(90);
+
+    updateLoader(100, 'loader-a');
+    showLoader(false, undefined, 'loader-a');
+    const completionStart = performance.now();
+    raf.step(completionStart + 160);
+    const terminalDisplayed = 90 + (100 - 90) * (1 - Math.exp(-1));
+    expect(headerProgressPercent()).toBeCloseTo(terminalDisplayed, 4);
+
+    vi.advanceTimersByTime(200);
+    const requestsBeforeReopen = raf.request.mock.calls.length;
+    showLoader(true, 'Next operation', 'loader-b');
+    updateLoader(30, 'loader-b');
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
+    expect(headerProgressPercent()).toBeCloseTo(terminalDisplayed, 4);
+    expect(raf.pending()).toBe(1);
+    expect(raf.request).toHaveBeenCalledTimes(requestsBeforeReopen);
+
+    raf.step(completionStart + 320);
+    const retargeted = terminalDisplayed + (30 - terminalDisplayed) * (1 - Math.exp(-1));
+    expect(headerProgressPercent()).toBeCloseTo(retargeted, 4);
+    expect(headerProgressPercent()).toBeGreaterThan(30);
+
+    // The new show cancels the old completion reset rather than zeroing the
+    // active operation when the original 400 ms deadline arrives.
+    vi.advanceTimersByTime(400);
+    expect(headerProgressPercent()).toBeCloseTo(retargeted, 4);
+    expect(document.getElementById('main-header')!.classList.contains('loading')).toBe(true);
+  });
+
+  it('restores a background holder without flashing terminal 100', () => {
+    const raf = installAnimationFrameHarness();
+    showLoader(true, 'Background', 'loader-a');
+    updateLoader(40, 'loader-a');
+
+    let timestamp = performance.now();
+    for (let frame = 0; frame < 200 && raf.pending() > 0; frame += 1) {
+      timestamp += 1000 / 60;
+      raf.step(timestamp);
+    }
+    expectHeaderProgress(40);
+
+    showLoader(true, 'Foreground', 'loader-b');
+    updateLoader(90, 'loader-b');
+    const foregroundStart = performance.now();
+    raf.step(foregroundStart + 160);
+    const foregroundDisplayed = 40 + (90 - 40) * (1 - Math.exp(-1));
+    expect(headerProgressPercent()).toBeCloseTo(foregroundDisplayed, 4);
+
+    updateLoader(100, 'loader-b');
+    expect(headerProgressPercent()).toBeCloseTo(foregroundDisplayed, 4);
+    showLoader(false, undefined, 'loader-b');
+    expect(headerLoaderText()).toBe('Background');
+    expect(headerProgressPercent()).toBeCloseTo(foregroundDisplayed, 4);
+
+    raf.step(foregroundStart + 320);
+    const restored = foregroundDisplayed + (40 - foregroundDisplayed) * (1 - Math.exp(-1));
+    expect(headerProgressPercent()).toBeCloseTo(restored, 4);
+    expect(headerProgressPercent()).toBeGreaterThan(40);
+    expect(headerProgressPercent()).toBeLessThan(foregroundDisplayed);
   });
 
   it('clamps progress while preserving legitimate holder decreases', () => {

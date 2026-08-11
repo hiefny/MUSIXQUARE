@@ -156,10 +156,11 @@ function setHeaderProgressTarget(progressBg: HTMLElement, percent: number): void
   attachHeaderProgress(progressBg);
   _headerProgressTarget = clampProgress(percent);
 
-  // Completion is an ownership boundary: callers release the holder
-  // synchronously after publishing 100. Paint it now so the completed fill is
-  // visible throughout the existing opacity fade without delaying the work.
-  if (_headerProgressTarget === 100 || shouldSnapHeaderProgress()) {
+  // Visible completion follows the same EMA as every other target. Callers may
+  // release their holder immediately after publishing 100; the existing 400 ms
+  // opacity fade leaves the frame loop enough time to converge naturally without
+  // delaying the underlying work or snapping the final visible gap.
+  if (shouldSnapHeaderProgress()) {
     cancelHeaderProgressFrame();
     paintHeaderProgress(progressBg, _headerProgressTarget);
     return;
@@ -521,8 +522,8 @@ function handleOperatorFileUplinkProgress(progress: StandardOperatorFileUplinkPr
   if (!rememberOperatorUplinkTerminal(loaderId)) return;
 
   if (progress.phase === 'complete') {
-    // Paint completion before releasing ownership. showLoader(false) keeps the
-    // final width through the existing reverse transition, then resets it.
+    // Publish completion before releasing ownership. The progress EMA keeps
+    // following 100 through the existing reverse transition, then resets.
     updateLoader(100, loaderId);
     closeOperatorUplinkLoader(loaderId);
     return;

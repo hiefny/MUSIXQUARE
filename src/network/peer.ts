@@ -317,10 +317,75 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
       ? []
       : [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
 
+    const transportConfig = getRuntimeTransportConfig();
+    const canClaimWhileTurnLoads =
+      !isE2eBuild && requestedId !== null && transportConfig.provider === 'cloudflare';
+    const turnCredentialsRequest = isE2eBuild
+      ? Promise.resolve(null)
+      : getStandardRoomTurnCredentials(owner.controller.signal);
+
+    if (canClaimWhileTurnLoads) {
+      // Claim the random room at the signaling edge while capability/TURN is
+      // loading. The transport gate below prevents even a guessed-code offer
+      // from constructing RTCPeerConnection with the provisional STUN list.
+      void turnCredentialsRequest.catch(() => undefined);
+      const peerOpts: TransportPeerOptions = {
+        debug: 2,
+        provider: transportConfig.provider,
+        signalingUrl: transportConfig.signalingUrl,
+        peerJsServer: transportConfig.peerJsServer,
+        config: {
+          iceServers: [...iceServers],
+          bundlePolicy: 'max-bundle',
+        },
+        deferRtcUntilConfigured: true,
+        standardRoomAssertionProvider: requestStandardRoomAccountAssertion,
+      };
+
+      assertNetworkInitStillActive(owner);
+      log.info(`[Network] Initializing ${transportConfig.provider} transport`);
+      const newPeer = await createTransportPeer(requestedId, peerOpts);
+      ownedPeer = newPeer;
+      assertNetworkInitStillActive(owner);
+      owner.peer = newPeer;
+      setPeer(newPeer);
+      setupPeerEvents(newPeer);
+
+      const peerOpenRequest = waitForPeerOpen(newPeer, owner);
+      const rtcConfigurationRequest = turnCredentialsRequest.then((turnCredentials) => {
+        assertNetworkInitStillActive(owner);
+        if (turnCredentials) {
+          iceServers.push(...turnCredentials.iceServers);
+          log.info(
+            `[Network] TURN ICE servers loaded (${turnCredentials.provider}) via ${turnCredentials.source}`,
+          );
+        } else {
+          log.warn(
+            '[Network] TURN config unavailable ??STUN only (P2P will likely fail behind symmetric NAT)',
+          );
+        }
+        if (!newPeer.setRtcConfiguration) {
+          throw new Error('RTC_CONFIGURATION_GATE_UNAVAILABLE');
+        }
+        newPeer.setRtcConfiguration({
+          iceServers: [...iceServers],
+          bundlePolicy: 'max-bundle',
+        });
+      });
+      const [id] = await Promise.all([peerOpenRequest, rtcConfigurationRequest]);
+
+      assertNetworkInitStillActive(owner);
+      if (getPeer() !== newPeer || !newPeer.open || newPeer.destroyed || newPeer.disconnected) {
+        throw new Error('PEER_NOT_OPEN_AFTER_PREREQUISITES');
+      }
+      setState('network.myId', id);
+      log.info('[Network] Peer opened:', id);
+      bus.emit('network:peer-ready', id);
+      return id;
+    }
+
     assertNetworkInitStillActive(owner);
-    const turnCredentials = isE2eBuild
-      ? null
-      : await getStandardRoomTurnCredentials(owner.controller.signal);
+    const turnCredentials = await turnCredentialsRequest;
     assertNetworkInitStillActive(owner);
     if (turnCredentials) {
       iceServers.push(...turnCredentials.iceServers);
@@ -333,7 +398,6 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
       );
     }
 
-    const transportConfig = getRuntimeTransportConfig();
     const peerOpts: TransportPeerOptions = {
       debug: 2,
       provider: transportConfig.provider,
@@ -365,9 +429,13 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
     bus.emit('network:peer-ready', id);
     return id;
   } catch (error) {
+    // Settle the sibling TURN/peer-open branch immediately. In particular,
+    // Promise.all may reject before peer-open and its managed timeout would
+    // otherwise survive this failed initialization for up to 15 seconds.
+    owner.controller.abort(error);
     if (ownedPeer && getPeer() === ownedPeer) setPeer(null);
     try {
-      ownedPeer?.destroy();
+      if (ownedPeer && !ownedPeer.destroyed) ownedPeer.destroy();
     } catch {
       /* noop */
     }

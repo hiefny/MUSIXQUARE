@@ -58,6 +58,7 @@ export function createAtomicRateControlBinding(barrierCalls = 0): {
     if (!current) {
       const storage = new RateControlStorage();
       current = new MusixquareServiceControl({
+        id: { name },
         storage,
         blockConcurrencyWhile: (callback: () => Promise<void>) => callback(),
       } as never) as RateControlObject;

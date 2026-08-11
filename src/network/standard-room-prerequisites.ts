@@ -38,11 +38,28 @@ const TURN_RESPONSE_MAX_BYTES = 64 * 1024;
 const PRECONNECT_MARKER = 'data-mxqr-standard-signaling-preconnect';
 const SETUP_INTENT_SELECTOR =
   '#btn-setup-host, #btn-setup-guest, #btn-setup-confirm, #setup-join-code';
+const SETUP_ACTIVATION_SELECTOR = '#btn-setup-host, #btn-setup-guest, #btn-setup-confirm';
 
 let cachedTurnCredentials: CachedTurnCredentials | null = null;
 let turnCredentialsRequest: Promise<StandardRoomTurnCredentials | null> | null = null;
+let capabilityWarmupRequest: Promise<boolean> | null = null;
 let warmupScheduled = false;
 let warmupIntentController: AbortController | null = null;
+
+function turnRequestEndpoints(baseHref = window.location.href): string[] {
+  const seen = new Set<string>();
+  return TURN_ENDPOINTS.filter((source) => {
+    let identity = source;
+    try {
+      identity = new URL(source, baseHref).href;
+    } catch {
+      // Keep an invalid candidate so the ordinary request/error path owns it.
+    }
+    if (seen.has(identity)) return false;
+    seen.add(identity);
+    return true;
+  });
+}
 
 function normalizeIceServerUrls(value: unknown): string[] {
   const urls = Array.isArray(value) ? value : [value];
@@ -146,7 +163,7 @@ async function requestTurnCredentials(): Promise<StandardRoomTurnCredentials | n
     TURN_REQUEST_TIMEOUT_MS,
   );
   try {
-    for (const source of TURN_ENDPOINTS) {
+    for (const source of turnRequestEndpoints()) {
       try {
         if (controller.signal.aborted) throw createAbortError(controller.signal);
         const operation = fetchWithCapability(source, 'turn', {
@@ -258,11 +275,30 @@ function preconnectToSignaling(): void {
   document.head.appendChild(link);
 }
 
+function warmStandardRoomCapability(): Promise<boolean> {
+  let request = capabilityWarmupRequest;
+  if (!request) {
+    const source = turnRequestEndpoints()[0] ?? TURN_ENDPOINTS[0];
+    request = warmCapabilitySilently(source, ['turn']).then(
+      (ready) => {
+        if (capabilityWarmupRequest === request) capabilityWarmupRequest = null;
+        return ready;
+      },
+      (error: unknown) => {
+        if (capabilityWarmupRequest === request) capabilityWarmupRequest = null;
+        throw error;
+      },
+    );
+    capabilityWarmupRequest = request;
+  }
+  return request;
+}
+
 /** Warm capability/PoW and TURN only when doing so is guaranteed silent. */
 async function warmStandardRoomPrerequisites(): Promise<void> {
   preconnectToSignaling();
   try {
-    if (!(await warmCapabilitySilently(TURN_ENDPOINTS[0], ['turn']))) return;
+    if (!(await warmStandardRoomCapability())) return;
     await getStandardRoomTurnCredentials();
   } catch (error) {
     // Warmup is opportunistic. Explicit setup retains the ordinary retry and
@@ -279,22 +315,49 @@ function isStandardRoomSetupIntent(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(SETUP_INTENT_SELECTOR) !== null;
 }
 
+function isStandardRoomSetupActivation(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(SETUP_ACTIVATION_SELECTOR) !== null;
+}
+
 function beginWarmupFromSetupIntent(event: Event): void {
+  // Hoverless pointers emit pointerover immediately before pointerdown. Ignore
+  // that synthetic preview so the activation path below owns one shared TURN
+  // request before the ensuing click starts host/join initialization.
+  if (
+    event.type === 'pointerover' &&
+    'pointerType' in event &&
+    typeof event.pointerType === 'string' &&
+    event.pointerType !== 'mouse'
+  ) {
+    return;
+  }
   if (!isStandardRoomSetupIntent(event.target) || getState('setup.sessionStarted')) return;
   warmupIntentController?.abort();
   warmupIntentController = null;
+  if (event.type === 'pointerdown' && isStandardRoomSetupActivation(event.target)) {
+    preconnectToSignaling();
+    void getStandardRoomTurnCredentials().catch((error) => {
+      log.debug(
+        `[Network] Standard-room activation warmup skipped: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    });
+    return;
+  }
   void warmStandardRoomPrerequisites();
 }
 
 /**
- * Arm an intent warmup for the standard-room setup controls. Pointer hover,
- * touch-down, and keyboard focus all begin the same shared request early
- * enough for the ensuing host/join action to reuse it, while a page that is
- * merely left open performs no capability, PoW, or TURN requests.
+ * Preconnect signaling as soon as setup is entered, but reserve capability,
+ * PoW, and the paid TURN mint for clear standard-room intent. Hover/focus gets
+ * one silent warm attempt; activation starts the shared TURN request directly
+ * so the ensuing click adopts it. Explicit setup remains the retry owner.
  */
 export function scheduleStandardRoomPrerequisiteWarmup(): void {
   if (warmupScheduled) return;
   warmupScheduled = true;
+  preconnectToSignaling();
   const controller = new AbortController();
   warmupIntentController = controller;
   const options = { capture: true, passive: true, signal: controller.signal } as const;
@@ -305,10 +368,12 @@ export function scheduleStandardRoomPrerequisiteWarmup(): void {
 
 export const __standardRoomPrerequisitesForTests = {
   turnRequestTimeoutMs: TURN_REQUEST_TIMEOUT_MS,
+  requestEndpoints: turnRequestEndpoints,
   warm: warmStandardRoomPrerequisites,
   reset(): void {
     cachedTurnCredentials = null;
     turnCredentialsRequest = null;
+    capabilityWarmupRequest = null;
     warmupIntentController?.abort();
     warmupIntentController = null;
     warmupScheduled = false;

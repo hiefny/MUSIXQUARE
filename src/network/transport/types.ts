@@ -398,6 +398,8 @@ export interface TransportPeer {
    * that an already-expired outage was resumed.
    */
   recoverAfterBackground?(hiddenMs: number): TransportBackgroundRecoveryResult;
+  /** Release a deliberately deferred RTC negotiation with its final ICE config. */
+  setRtcConfiguration?(configuration: RTCConfiguration): void;
   setRoomPassword?(password: string | null): void;
   setProSignalingAccess?(access: ProSignalingOptions): boolean;
   refreshStandardRoomIdentity?(): Promise<void>;
@@ -458,6 +460,8 @@ export interface ProSignalingOptions {
 export interface TransportPeerOptions {
   debug?: number;
   config: RTCConfiguration;
+  /** Open signaling immediately, but do not construct RTCPeerConnection until configured. */
+  deferRtcUntilConfigured?: boolean;
   provider: TransportProvider;
   signalingUrl?: string;
   peerJsServer?: PeerJsServerConfig;

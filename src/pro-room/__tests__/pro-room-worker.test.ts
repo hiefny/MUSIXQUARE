@@ -6932,18 +6932,22 @@ describe('PRO room private Developer API projections', () => {
   it('bounds and cancels a realtime response body that never closes', async () => {
     vi.useFakeTimers();
     const cancel = vi.fn();
-    const stalledDispatch = vi.fn(
-      async () =>
-        new Response(
-          new ReadableStream<Uint8Array>({
-            start(controller) {
-              controller.enqueue(new TextEncoder().encode('{"broadcast":true'));
-            },
-            cancel,
-          }),
-          { status: 200 },
-        ),
-    );
+    let markDispatchStarted!: () => void;
+    const dispatchStarted = new Promise<void>((resolve) => {
+      markDispatchStarted = resolve;
+    });
+    const stalledDispatch = vi.fn(async () => {
+      markDispatchStarted();
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"broadcast":true'));
+          },
+          cancel,
+        }),
+        { status: 200 },
+      );
+    });
     const { worker, internal } = await preparedDeveloperCommandRoom(stalledDispatch);
     const pending = createInternalDeveloperCommand(
       worker,
@@ -6951,10 +6955,7 @@ describe('PRO room private Developer API projections', () => {
       'developer-command-body-timeout',
       { type: 'seek', positionSeconds: 18 },
     );
-    for (let attempt = 0; attempt < 100 && stalledDispatch.mock.calls.length === 0; attempt += 1) {
-      await vi.advanceTimersByTimeAsync(0);
-      await Promise.resolve();
-    }
+    await dispatchStarted;
     expect(stalledDispatch).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(901);
 

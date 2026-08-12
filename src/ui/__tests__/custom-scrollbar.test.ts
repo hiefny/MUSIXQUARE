@@ -363,6 +363,168 @@ describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {
 });
 
 describe('custom-scrollbar compositor hot path', () => {
+  it('hands normal scrolling to one stable ScrollTimeline and uses script only for drag', () => {
+    const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
+    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
+    const animations: Array<{ cancel: Mock; timeline: unknown }> = [];
+    const animate = vi.fn(
+      (
+        _keyframes: Keyframe[] | PropertyIndexedKeyframes,
+        options?: number | KeyframeAnimationOptions,
+      ) => {
+        const animation = {
+          cancel: vi.fn(),
+          ready: Promise.resolve(),
+          timeline: typeof options === 'object' ? options.timeline : null,
+        };
+        animations.push(animation);
+        return animation as unknown as Animation;
+      },
+    );
+
+    Object.defineProperty(globalThis, 'ScrollTimeline', {
+      configurable: true,
+      value: class ScrollTimelineStub {},
+    });
+    Object.defineProperty(HTMLElement.prototype, 'animate', {
+      configurable: true,
+      value: animate,
+    });
+
+    try {
+      const box = createScrollbox('timeline-hot-path');
+      initCustomScrollbar(box.container);
+      const track = box.track();
+      const thumb = track.querySelector<HTMLElement>('.cscroll-thumb')!;
+
+      expect(track.dataset.scrollDriver).toBe('timeline');
+      expect(animate).toHaveBeenCalledTimes(1);
+
+      box.container.scrollTop = 100;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame(); // session-start intrinsic layout refresh
+      expect(track.dataset.scrollDriver).toBe('timeline');
+      expect(animate).toHaveBeenCalledTimes(1); // unchanged geometry keeps the same timeline
+      expect(thumb.style.transform).toBe('translateY(0px)'); // no JS scroll write
+
+      thumb.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientY: 0 }),
+      );
+      expect(track.dataset.scrollDriver).toBe('script');
+      expect(animations[0].cancel).toHaveBeenCalledOnce();
+      expect(thumb.style.transform).toBe('translateY(20px)');
+
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      expect(track.dataset.scrollDriver).toBe('timeline');
+      expect(animate).toHaveBeenCalledTimes(2);
+
+      destroyCustomScrollbar(box.container);
+      expect(animations[1].cancel).toHaveBeenCalledOnce();
+    } finally {
+      if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
+      else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
+      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+    }
+  });
+
+  it('keeps timeline thumb height normal when relayout happens during rubber-band offsets', () => {
+    const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
+    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
+    Object.defineProperty(globalThis, 'ScrollTimeline', {
+      configurable: true,
+      value: class ScrollTimelineStub {},
+    });
+    Object.defineProperty(HTMLElement.prototype, 'animate', {
+      configurable: true,
+      value: vi.fn(
+        (
+          _keyframes: Keyframe[] | PropertyIndexedKeyframes,
+          options?: number | KeyframeAnimationOptions,
+        ) =>
+          ({
+            cancel: vi.fn(),
+            ready: Promise.resolve(),
+            timeline: typeof options === 'object' ? options.timeline : null,
+          }) as unknown as Animation,
+      ),
+    });
+
+    try {
+      const box = createScrollbox('timeline-rubber-band-relayout');
+      initCustomScrollbar(box.container);
+      const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+
+      box.container.scrollTop = -20;
+      box.setClientHeight(220);
+      _resizeObservers.get(box.container)?.notify();
+      flushAnimationFrame();
+      expect(box.track().dataset.scrollDriver).toBe('timeline');
+      expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(48.4, 5);
+      expect(thumb.style.transform).toBe('translateY(0px)');
+
+      box.container.scrollTop = 900;
+      box.setClientHeight(240);
+      _resizeObservers.get(box.container)?.notify();
+      flushAnimationFrame();
+      expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(57.6, 5);
+      expect(thumb.style.transform).toBe('translateY(182.4px)');
+    } finally {
+      if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
+      else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
+      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+    }
+  });
+
+  it('falls back to the exact script position when timeline readiness rejects', async () => {
+    const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
+    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
+    let rejectReady!: (reason: unknown) => void;
+    const ready = new Promise<Animation>((_resolve, reject) => {
+      rejectReady = reject;
+    });
+
+    Object.defineProperty(globalThis, 'ScrollTimeline', {
+      configurable: true,
+      value: class ScrollTimelineStub {},
+    });
+    Object.defineProperty(HTMLElement.prototype, 'animate', {
+      configurable: true,
+      value: vi.fn(
+        (
+          _keyframes: Keyframe[] | PropertyIndexedKeyframes,
+          options?: number | KeyframeAnimationOptions,
+        ) =>
+          ({
+            cancel: vi.fn(),
+            ready,
+            timeline: typeof options === 'object' ? options.timeline : null,
+          }) as unknown as Animation,
+      ),
+    });
+
+    try {
+      const box = createScrollbox('timeline-ready-rejection');
+      initCustomScrollbar(box.container);
+      box.container.scrollTop = 400;
+      expect(box.track().dataset.scrollDriver).toBe('timeline');
+
+      rejectReady(new Error('timeline could not become ready'));
+      await flushMutationObservers();
+
+      expect(box.track().dataset.scrollDriver).toBe('script');
+      expect(box.track().querySelector<HTMLElement>('.cscroll-thumb')?.style.transform).toBe(
+        'translateY(80px)',
+      );
+    } finally {
+      if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
+      else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
+      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+    }
+  });
+
   it('samples compositor scroll positions without re-reading layout geometry', () => {
     const box = createScrollbox('hot-path');
     const computedStyleSpy = vi.spyOn(globalThis, 'getComputedStyle');

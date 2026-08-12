@@ -18,6 +18,12 @@ const OVERFLOW_ROUNDING_TOLERANCE_PX = 2;
 const SCROLL_PUMP_IDLE_FRAMES = 3;
 const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
 
+type ScrollDriver = 'script' | 'timeline';
+
+interface ScrollTimelineConstructor {
+  new (options: { source: Element; axis?: 'block' | 'inline' | 'x' | 'y' }): AnimationTimeline;
+}
+
 interface ScrollbarState {
   container: HTMLElement;
   track: HTMLElement;
@@ -42,6 +48,11 @@ interface ScrollbarState {
   layoutFrame: number | null;
   scrollFrame: number | null;
   scrollIdleFrames: number;
+  scrollDriver: ScrollDriver;
+  scrollAnimation: Animation | null;
+  scrollTimeline: AnimationTimeline | null;
+  timelineMaxThumbTop: number;
+  timelineGeneration: number;
   revealAfterLayout: boolean;
   destroyed: boolean;
   /** Cached transform-containing-block ancestor (resolved lazily on first updateLayout). */
@@ -50,6 +61,117 @@ interface ScrollbarState {
 }
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
+
+function getScrollTimelineConstructor(): ScrollTimelineConstructor | null {
+  const ctor = (globalThis as typeof globalThis & { ScrollTimeline?: ScrollTimelineConstructor })
+    .ScrollTimeline;
+  return typeof ctor === 'function' ? ctor : null;
+}
+
+function setScrollDriver(state: ScrollbarState, driver: ScrollDriver): void {
+  if (state.scrollDriver === driver) return;
+  state.scrollDriver = driver;
+  state.track.dataset.scrollDriver = driver;
+}
+
+function cancelScrollTimeline(state: ScrollbarState): void {
+  state.timelineGeneration += 1;
+  state.scrollAnimation?.cancel();
+  state.scrollAnimation = null;
+  state.scrollTimeline = null;
+  state.timelineMaxThumbTop = Number.NaN;
+  setScrollDriver(state, 'script');
+}
+
+function fallBackToScriptDriver(
+  state: ScrollbarState,
+  animation: Animation,
+  generation: number,
+): void {
+  if (
+    state.destroyed ||
+    state.scrollAnimation !== animation ||
+    state.timelineGeneration !== generation
+  ) {
+    return;
+  }
+  cancelScrollTimeline(state);
+  // The animation did not commit inline styles. Invalidate the write cache so
+  // the first fallback sample always restores the exact current position.
+  state.renderedThumbTop = Number.NaN;
+  updateScroll(state);
+  state.scrollIdleFrames = 0;
+  scheduleScrollPump(state);
+}
+
+function seedTimelineInlinePosition(state: ScrollbarState): void {
+  const clampedScrollTop = Math.min(state.maxScroll, Math.max(0, state.container.scrollTop));
+  const top = state.maxScroll > 0 ? (clampedScrollTop / state.maxScroll) * state.maxThumbTop : 0;
+  // Scroll timelines clamp rubber-band offsets to their 0%/100% endpoints.
+  // Keep the underlying inline state equally clamped so a rebuilt timeline
+  // cannot strand the script-only compressed thumb height after bounce-back.
+  setThumbHeight(state, state.thumbHeight);
+  setThumbTop(state, top);
+}
+
+/**
+ * Hand normal-range thumb movement to the browser's scroll timeline when the
+ * complete imperative API works. Transform-only scroll-linked animations are
+ * compositor eligible in modern Chromium and WebKit. Older/partial engines
+ * stay on the exact requestAnimationFrame implementation below.
+ */
+function ensureScrollTimeline(state: ScrollbarState): boolean {
+  if (!state.hasOverflow || state.maxScroll <= 0 || state.maxThumbTop < 0) return false;
+  if (
+    state.scrollAnimation &&
+    state.scrollTimeline &&
+    state.timelineMaxThumbTop === state.maxThumbTop
+  ) {
+    return true;
+  }
+
+  const ScrollTimeline = getScrollTimelineConstructor();
+  if (!ScrollTimeline || typeof state.thumb.animate !== 'function') {
+    cancelScrollTimeline(state);
+    return false;
+  }
+
+  seedTimelineInlinePosition(state);
+  cancelScrollTimeline(state);
+  try {
+    const timeline = new ScrollTimeline({ source: state.container, axis: 'block' });
+    const animation = state.thumb.animate(
+      [{ transform: 'translateY(0px)' }, { transform: `translateY(${state.maxThumbTop}px)` }],
+      {
+        fill: 'both',
+        timeline,
+      },
+    );
+
+    // A few early implementations accepted the option but silently attached
+    // the document timeline. Never suppress the proven script path there.
+    if (animation.timeline !== timeline) {
+      animation.cancel();
+      return false;
+    }
+
+    const generation = state.timelineGeneration + 1;
+    state.timelineGeneration = generation;
+    state.scrollTimeline = timeline;
+    state.scrollAnimation = animation;
+    state.timelineMaxThumbTop = state.maxThumbTop;
+    setScrollDriver(state, 'timeline');
+
+    // Scroll-linked animations become ready asynchronously. A rejected ready
+    // promise must not leave a visually frozen thumb on a partially working
+    // engine; demote this exact animation instance back to the rAF driver.
+    void animation.ready.catch(() => fallBackToScriptDriver(state, animation, generation));
+    return true;
+  } catch {
+    cancelScrollTimeline(state);
+    return false;
+  }
+}
 
 function setStyleIfChanged(style: CSSStyleDeclaration, property: string, value: string): void {
   if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
@@ -214,6 +336,7 @@ function updateLayout(state: ScrollbarState): void {
   const isContained = container.hasAttribute('data-custom-scroll-contained');
 
   if (!hasVisibleOverflow(container)) {
+    cancelScrollTimeline(state);
     cancelFade(state);
     state.hasOverflow = false;
     state.maxScroll = 0;
@@ -288,7 +411,11 @@ function updateLayout(state: ScrollbarState): void {
   state.maxThumbTop = visibleHeight - state.thumbHeight;
   setThumbHeight(state, state.thumbHeight);
 
-  updateScroll(state);
+  // Rebuild only when the endpoint changed; the once-per-scroll-session
+  // intrinsic layout refresh therefore does not restart a healthy animation.
+  // ensureScrollTimeline seeds a clamped inline state before replacing the
+  // animation, while the proven script fallback retains rubber-band squash.
+  if (!ensureScrollTimeline(state)) updateScroll(state);
 
   if (state.revealAfterLayout) {
     state.revealAfterLayout = false;
@@ -329,10 +456,17 @@ function updateScroll(state: ScrollbarState): boolean {
 }
 
 function scheduleScrollPump(state: ScrollbarState): void {
-  if (state.destroyed || !state.hasOverflow || state.scrollFrame !== null) return;
+  if (
+    state.destroyed ||
+    state.scrollDriver === 'timeline' ||
+    !state.hasOverflow ||
+    state.scrollFrame !== null
+  ) {
+    return;
+  }
   state.scrollFrame = window.requestAnimationFrame(() => {
     state.scrollFrame = null;
-    if (state.destroyed) return;
+    if (state.destroyed || state.scrollDriver === 'timeline') return;
 
     const changed = updateScroll(state);
     state.scrollIdleFrames = changed ? 0 : state.scrollIdleFrames + 1;
@@ -423,6 +557,11 @@ export function initCustomScrollbar(container: HTMLElement): void {
     layoutFrame: null,
     scrollFrame: null,
     scrollIdleFrames: SCROLL_PUMP_IDLE_FRAMES,
+    scrollDriver: 'script',
+    scrollAnimation: null,
+    scrollTimeline: null,
+    timelineMaxThumbTop: Number.NaN,
+    timelineGeneration: 0,
     revealAfterLayout: false,
     destroyed: false,
     transformBlock: null,
@@ -431,6 +570,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   thumb.style.top = '0px';
   track.style.transition = 'opacity 0.3s ease';
+  track.dataset.scrollDriver = 'script';
 
   setTrackVisible(state, false);
 
@@ -443,8 +583,10 @@ export function initCustomScrollbar(container: HTMLElement): void {
       scheduleLayout(state);
     }
     showTrack(state);
-    state.scrollIdleFrames = 0;
-    scheduleScrollPump(state);
+    if (state.scrollDriver === 'script') {
+      state.scrollIdleFrames = 0;
+      scheduleScrollPump(state);
+    }
   };
   container.addEventListener('scroll', onScroll, { passive: true });
 
@@ -486,6 +628,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
     e.preventDefault();
     e.stopPropagation();
     state.isDragging = true;
+    cancelScrollTimeline(state);
+    state.renderedThumbTop = Number.NaN;
+    updateScroll(state);
     state.dragStartY = e.clientY;
     state.dragStartScroll = container.scrollTop;
     state.dragRenderedScale = getBodyRenderedScale();
@@ -503,6 +648,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
     e.preventDefault();
     e.stopPropagation();
     state.isDragging = true;
+    cancelScrollTimeline(state);
+    state.renderedThumbTop = Number.NaN;
+    updateScroll(state);
     cancelFade(state);
     setTrackVisible(state, true);
     state.dragStartY = e.touches[0].clientY;
@@ -541,6 +689,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     thumb.classList.remove('dragging');
     document.body.style.userSelect = '';
     updateScroll(state);
+    ensureScrollTimeline(state);
     showTrack(state);
   };
 
@@ -594,6 +743,7 @@ export function destroyCustomScrollbar(container: HTMLElement): void {
   const state = _instances.get(container);
   if (!state) return;
   state.destroyed = true;
+  cancelScrollTimeline(state);
   cancelFade(state);
   if (state.layoutFrame !== null) window.cancelAnimationFrame(state.layoutFrame);
   if (state.scrollFrame !== null) window.cancelAnimationFrame(state.scrollFrame);

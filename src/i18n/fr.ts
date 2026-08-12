@@ -41,6 +41,7 @@ const fr: Record<I18nKey, string> = {
   'account.login_title': 'Se connecter',
   'account.login_cancelled': 'La connexion a été annulée.',
   'account.login_failed': 'Connexion impossible. Réessayez.',
+  'account.welcome_back': 'Ravi de vous revoir\n{{name}}',
   'account.login_message':
     'Connectez-vous avec Google pour conserver votre pseudo entre les salons. Vous pouvez continuer à utiliser MUSIXQUARE sans vous connecter.',
   'account.google_continue': 'Continuer avec Google',

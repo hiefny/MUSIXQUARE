@@ -993,7 +993,7 @@ describe('Google Authorization Code + PKCE account flow', () => {
 
     expect(result.callback.status).toBe(303);
     expect(result.callback.headers.get('Location')).toBe(
-      'https://musixquare.com/000001?panel=connect#account',
+      'https://musixquare.com/000001?panel=connect&accountAuth=success#account',
     );
     expect(result.sessionCookie).toMatch(/^__Host-mxqr_account=[A-Za-z0-9_-]{43}$/);
     const callbackCookies = setCookieValues(result.callback).join('\n');
@@ -1090,7 +1090,9 @@ describe('Google Authorization Code + PKCE account flow', () => {
       env,
     );
     expect(firstCallback?.status).toBe(303);
-    expect(firstCallback?.headers.get('Location')).toBe('https://musixquare.com/first');
+    expect(firstCallback?.headers.get('Location')).toBe(
+      'https://musixquare.com/first?accountAuth=success',
+    );
     const firstCallbackCookies = setCookieValues(firstCallback!).join('\n');
     expect(firstCallbackCookies).toContain(`${first.flowCookieName}=;`);
     expect(firstCallbackCookies).not.toContain(`${second.flowCookieName}=;`);
@@ -1106,7 +1108,9 @@ describe('Google Authorization Code + PKCE account flow', () => {
       env,
     );
     expect(secondCallback?.status).toBe(303);
-    expect(secondCallback?.headers.get('Location')).toBe('https://musixquare.com/second');
+    expect(secondCallback?.headers.get('Location')).toBe(
+      'https://musixquare.com/second?accountAuth=success',
+    );
     expect(setCookieValues(secondCallback!).join('\n')).toContain(`${second.flowCookieName}=;`);
     expect(db.accounts.size).toBe(1);
     expect(db.sessions.size).toBe(2);
@@ -1265,7 +1269,9 @@ describe('Google Authorization Code + PKCE account flow', () => {
   it('sanitizes an external return path instead of creating an open redirect', async () => {
     const result = await completeLogin(authEnv(), 'https://evil.example/steal');
     expect(result.callback.status).toBe(303);
-    expect(result.callback.headers.get('Location')).toBe('https://musixquare.com/');
+    expect(result.callback.headers.get('Location')).toBe(
+      'https://musixquare.com/?accountAuth=success',
+    );
   });
 
   it.each([
@@ -1276,7 +1282,9 @@ describe('Google Authorization Code + PKCE account flow', () => {
     const result = await completeLogin(env, returnTo);
 
     expect(result.callback.status).toBe(303);
-    expect(result.callback.headers.get('Location')).toBe('https://musixquare.com/');
+    expect(result.callback.headers.get('Location')).toBe(
+      'https://musixquare.com/?accountAuth=success',
+    );
     const flowCookie = cookiePair(result.response, result.flowCookieName);
     expect(flowCookie?.length).toBeLessThan(3072);
   });

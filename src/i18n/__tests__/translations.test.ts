@@ -66,6 +66,17 @@ describe('Translation key integrity', () => {
     }
   });
 
+  it('keeps the returning-account welcome concise, personal, and two-line', () => {
+    expect(ko['account.welcome_back']).toBe('다시 만나 반가워요\n{{name}} 님');
+    expect(en['account.welcome_back']).toBe('Welcome back\n{{name}}');
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      const welcome = dict['account.welcome_back'];
+      expect(welcome.split('\n'), locale).toHaveLength(2);
+      expect(welcome.match(/{{name}}/g), locale).toHaveLength(1);
+    }
+  });
+
   it('keeps the greeting separate from the first room choice', () => {
     const greetings: Record<keyof typeof locales, string> = {
       ko: '안녕하세요!',
@@ -755,6 +766,7 @@ describe('Translation key integrity', () => {
       'account.login_title',
       'account.login_cancelled',
       'account.login_failed',
+      'account.welcome_back',
       'account.login_message',
       'account.google_continue',
       'account.terms',

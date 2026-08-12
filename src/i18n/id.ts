@@ -41,6 +41,7 @@ const id: Record<I18nKey, string> = {
   'account.login_title': 'Masuk',
   'account.login_cancelled': 'Proses masuk dibatalkan.',
   'account.login_failed': 'Tidak dapat masuk. Coba lagi.',
+  'account.welcome_back': 'Senang bertemu lagi\n{{name}}',
   'account.login_message':
     'Masuk dengan Google agar nama panggilan tetap sama di setiap ruang. Anda tetap dapat menggunakan MUSIXQUARE tanpa masuk.',
   'account.google_continue': 'Lanjutkan dengan Google',

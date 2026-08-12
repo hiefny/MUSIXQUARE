@@ -21,10 +21,10 @@ import { gzipSync } from 'node:zlib';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const INITIAL_TRANSFER_BUDGET = Object.freeze({
-  entryScriptRawBytes: 1_320_000,
-  // Endpoint elasticity latency sampling adds a small boundary to the eager shell.
-  // Keep this ratchet tight to that reviewed delta; all other limits stay put.
-  entryScriptGzipBytes: 385_512,
+  entryScriptRawBytes: 1_322_000,
+  // OAuth-result coalescing and the chat drawer's live geometry ownership add
+  // reviewed app-shell code. Keep this ratchet tight; all other limits stay put.
+  entryScriptGzipBytes: 386_420,
   eagerJavaScriptGzipBytes: 391_000,
   eagerTotalRawBytes: 1_700_000,
   eagerTotalGzipBytes: 453_000,

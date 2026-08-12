@@ -97,7 +97,9 @@ describe('account completion localization', () => {
     ) as Record<string, unknown>;
     expect(storedPulse).toEqual({
       type: 'refresh',
+      accountAuth: 'success',
       id: expect.stringMatching(/^result:/),
+      accountClient: 'tab-12345678',
     });
     expect(success.openerMessages).toEqual([storedPulse]);
     expect(success.broadcastMessages).toEqual([storedPulse]);

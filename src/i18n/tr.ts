@@ -38,6 +38,7 @@ const tr: Record<I18nKey, string> = {
   'account.login_title': 'Oturum aç',
   'account.login_cancelled': 'Oturum açma iptal edildi.',
   'account.login_failed': 'Oturum açılamadı. Lütfen tekrar dene.',
+  'account.welcome_back': 'Tekrar hoş geldin\n{{name}}',
   'account.login_message':
     'Takma adını odalar arasında korumak için Google ile oturum aç. Oturum açmadan da MUSIXQUARE kullanmaya devam edebilirsin.',
   'account.google_continue': 'Google ile devam et',

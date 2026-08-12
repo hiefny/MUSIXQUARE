@@ -6,6 +6,7 @@ import { resetState } from '../../core/state.ts';
 import { setPeer } from '../../network/peer-state.ts';
 import {
   __resetAccountSessionForTests,
+  reconcileAccountLoginResult,
   reconcileAccountLoginSession,
   removeAccount,
   retryAccountSessionRefresh,
@@ -668,6 +669,73 @@ describe('account session mutation ordering', () => {
     unsubscribe();
   });
 
+  it('shares an identified result read when the session listener receives it before the UI', async () => {
+    const completedLoginRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(ANONYMOUS))
+      .mockReturnValueOnce(completedLoginRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    // Bind the lower-level lifecycle first, matching the inverse of the usual
+    // UI initialization order.
+    startAccountSessionRefresh();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    const completedPulse = {
+      type: 'refresh',
+      accountAuth: 'success',
+      id: 'result:listener-first-0001',
+    };
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: completedPulse,
+      }),
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const uiOperation = reconcileAccountLoginResult(completedPulse.id);
+    const duplicateOperation = reconcileAccountLoginResult(completedPulse.id);
+    expect(uiOperation).not.toBeNull();
+    expect(duplicateOperation).toBe(uiOperation);
+
+    completedLoginRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await expect(uiOperation).resolves.toEqual(AUTHENTICATED_NEW);
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mxqr-account-refresh',
+        newValue: JSON.stringify(completedPulse),
+      }),
+    );
+    await Promise.resolve();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('binds later account lifecycle pulses from a same-tab login reconciliation', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW))
+      .mockResolvedValueOnce(jsonResponse(ANONYMOUS));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(reconcileAccountLoginResult('result:same-tab-0001')).resolves.toEqual(
+      AUTHENTICATED_NEW,
+    );
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'refresh',
+          accountAuth: 'success',
+          id: 'result:later-lifecycle-0002',
+        },
+      }),
+    );
+
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('preserves a valid legacy pulse result when its duplicate follow-up fails', async () => {
     const initialRead = deferred<Response>();
     const completedLoginRead = deferred<Response>();
@@ -830,6 +898,131 @@ describe('account session mutation ordering', () => {
 
     reconciledRead.resolve(jsonResponse(ANONYMOUS));
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+  });
+
+  it('defers an exact login-success result until an in-flight logout commits', async () => {
+    applyAccountSession(AUTHENTICATED_NEW);
+    const logout = deferred<Response>();
+    const postMutationRead = deferred<Response>();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/auth/logout') return logout.promise;
+      if (path === '/api/auth/session') return postMutationRead.promise;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const logoutOperation = signOutAccount();
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'refresh',
+          accountAuth: 'success',
+          id: 'result:during-logout-0001',
+        },
+      }),
+    );
+    const resultOperation = reconcileAccountLoginResult('result:during-logout-0001');
+    expect(resultOperation).not.toBeNull();
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(['/api/auth/logout']);
+
+    logout.resolve(jsonResponse({ ok: true }));
+    await logoutOperation;
+    expect(getAccountSnapshot().status).toBe('anonymous');
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      '/api/auth/logout',
+      '/api/auth/session',
+    ]);
+
+    postMutationRead.resolve(jsonResponse(ANONYMOUS));
+    await expect(resultOperation).resolves.toEqual(ANONYMOUS);
+    expect(getAccountSnapshot().status).toBe('anonymous');
+  });
+
+  it('shares one post-mutation read across queued success IDs and a generic refresh', async () => {
+    applyAccountSession(AUTHENTICATED_NEW);
+    const logout = deferred<Response>();
+    const postMutationRead = deferred<Response>();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/auth/logout') return logout.promise;
+      if (path === '/api/auth/session') return postMutationRead.promise;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const logoutOperation = signOutAccount();
+    const first = reconcileAccountLoginResult('result:queued-batch-0001');
+    const second = reconcileAccountLoginResult('result:queued-batch-0002');
+    startAccountSessionRefresh();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    logout.resolve(jsonResponse({ ok: true }));
+    await logoutOperation;
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      '/api/auth/logout',
+      '/api/auth/session',
+    ]);
+
+    postMutationRead.resolve(jsonResponse(ANONYMOUS));
+    await expect(first).resolves.toEqual(ANONYMOUS);
+    await expect(second).resolves.toEqual(ANONYMOUS);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejects every queued success result from one failed post-mutation read', async () => {
+    applyAccountSession(AUTHENTICATED_NEW);
+    const logout = deferred<Response>();
+    const postMutationRead = deferred<Response>();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/auth/logout') return logout.promise;
+      if (path === '/api/auth/session') return postMutationRead.promise;
+      throw new Error(`unexpected request: ${path}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const logoutOperation = signOutAccount();
+    const first = reconcileAccountLoginResult('result:failed-batch-0001');
+    const second = reconcileAccountLoginResult('result:failed-batch-0002');
+    startAccountSessionRefresh();
+    logout.resolve(jsonResponse({ ok: true }));
+    await logoutOperation;
+
+    postMutationRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await expect(first).rejects.toMatchObject({ status: 503 });
+    await expect(second).rejects.toMatchObject({ status: 503 });
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      '/api/auth/logout',
+      '/api/auth/session',
+    ]);
+  });
+
+  it('does not evict an active result promise when the recent-ID window overflows', async () => {
+    const logout = deferred<Response>();
+    const postMutationRead = deferred<Response>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === '/api/auth/logout') return logout.promise;
+        if (path === '/api/auth/session') return postMutationRead.promise;
+        throw new Error(`unexpected request: ${path}`);
+      }),
+    );
+
+    const logoutOperation = signOutAccount();
+    const operations = Array.from({ length: 40 }, (_, index) =>
+      reconcileAccountLoginResult(`result:overflow-${String(index).padStart(4, '0')}`),
+    );
+    expect(reconcileAccountLoginResult('result:overflow-0000')).toBe(operations[0]);
+    expect(reconcileAccountLoginResult('result:overflow-0039')).toBe(operations[39]);
+
+    logout.resolve(jsonResponse({ ok: true }));
+    await logoutOperation;
+    postMutationRead.resolve(jsonResponse(ANONYMOUS));
+    await Promise.all(operations);
   });
 
   it('always emits local account deletion after an overlapping stale read', async () => {

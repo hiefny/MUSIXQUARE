@@ -38,6 +38,7 @@ const pl: Record<I18nKey, string> = {
   'account.login_title': 'Zaloguj się',
   'account.login_cancelled': 'Logowanie anulowano.',
   'account.login_failed': 'Nie udało się zalogować. Spróbuj ponownie.',
+  'account.welcome_back': 'Miło Cię znowu widzieć\n{{name}}',
   'account.login_message':
     'Zaloguj się przez Google, aby zachować pseudonim we wszystkich pokojach. Możesz nadal korzystać z MUSIXQUARE bez logowania.',
   'account.google_continue': 'Kontynuuj przez Google',

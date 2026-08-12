@@ -41,6 +41,7 @@ const zhHans: Record<I18nKey, string> = {
   'account.login_title': '登录',
   'account.login_cancelled': '已取消登录。',
   'account.login_failed': '登录失败，请重试。',
+  'account.welcome_back': '欢迎回来\n{{name}}',
   'account.login_message':
     '使用 Google 登录，即可在不同房间中保留昵称。不登录也可以继续使用 MUSIXQUARE。',
   'account.google_continue': '使用 Google 账号继续',

@@ -41,6 +41,7 @@ const de: Record<I18nKey, string> = {
   'account.login_title': 'Anmelden',
   'account.login_cancelled': 'Die Anmeldung wurde abgebrochen.',
   'account.login_failed': 'Anmeldung fehlgeschlagen. Versuche es erneut.',
+  'account.welcome_back': 'Willkommen zurück\n{{name}}',
   'account.login_message':
     'Melde dich mit Google an, um deinen Nickname in allen Räumen zu behalten. Du kannst MUSIXQUARE auch ohne Anmeldung weiter nutzen.',
   'account.google_continue': 'Mit Google fortfahren',

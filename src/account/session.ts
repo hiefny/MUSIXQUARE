@@ -27,6 +27,23 @@ let _explicitRecoveryPreClickGeneration: number | null = null;
 let _externalRefreshInFlight: Promise<void> | null = null;
 let _externalRefreshFollowUp = false;
 const _recentExternalRefreshIds = new Set<string>();
+const _accountLoginResultOperations = new Map<string, Promise<AccountSessionResponse>>();
+const _activeAccountLoginResultIds = new Set<string>();
+const _pendingAccountLoginResultIds: string[] = [];
+const _pendingAccountLoginResultResolvers = new Map<
+  string,
+  {
+    resolve: (response: AccountSessionResponse) => void;
+    reject: (error: unknown) => void;
+  }
+>();
+const _pendingAccountLoginResultBatches: Array<{
+  pendingResults: Array<{
+    resolve: (response: AccountSessionResponse) => void;
+    reject: (error: unknown) => void;
+  }>;
+}> = [];
+let _accountLoginResultBatchInFlight = false;
 let _mutationDepth = 0;
 let _lastRefreshStartedAt = 0;
 let _lifecycleBound = false;
@@ -41,7 +58,7 @@ const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const MAX_RECENT_EXTERNAL_REFRESH_IDS = 32;
 
-type AccountRefreshPulse = Readonly<{ id: string | null }>;
+type AccountRefreshPulse = Readonly<{ id: string | null; loginSuccess: boolean }>;
 
 export type AccountLoginPopupOutcome =
   | 'authenticated'
@@ -89,6 +106,7 @@ function parseAccountRefreshMessage(value: unknown): AccountRefreshPulse | null 
   const id = (value as { id?: unknown }).id;
   return {
     id: typeof id === 'string' && id.length >= 8 && id.length <= 160 ? id : null,
+    loginSuccess: (value as { accountAuth?: unknown }).accountAuth === 'success',
   };
 }
 
@@ -99,14 +117,22 @@ function createAccountRefreshMessage(): { type: 'refresh'; id: string } {
   };
 }
 
+function trimRecentExternalRefreshIds(): void {
+  while (_recentExternalRefreshIds.size > MAX_RECENT_EXTERNAL_REFRESH_IDS) {
+    const evictable = [..._recentExternalRefreshIds].find(
+      (refreshId) => !_activeAccountLoginResultIds.has(refreshId),
+    );
+    if (!evictable) return;
+    _recentExternalRefreshIds.delete(evictable);
+    _accountLoginResultOperations.delete(evictable);
+  }
+}
+
 function rememberExternalRefreshId(id: string | null): boolean {
   if (id === null) return true;
   if (_recentExternalRefreshIds.has(id)) return false;
   _recentExternalRefreshIds.add(id);
-  if (_recentExternalRefreshIds.size > MAX_RECENT_EXTERNAL_REFRESH_IDS) {
-    const oldest = _recentExternalRefreshIds.values().next().value;
-    if (typeof oldest === 'string') _recentExternalRefreshIds.delete(oldest);
-  }
+  trimRecentExternalRefreshIds();
   return true;
 }
 
@@ -253,7 +279,7 @@ function refreshAfterUserReturns(): void {
 function refreshAfterPopupMessage(event: MessageEvent): void {
   if (event.origin !== window.location.origin) return;
   const pulse = parseAccountRefreshMessage(event.data);
-  if (pulse) reconcileExternalAccountChange(pulse.id);
+  if (pulse) reconcileExternalAccountChange(pulse.id, pulse.loginSuccess);
 }
 
 function refreshAfterStoragePulse(event: StorageEvent): void {
@@ -266,7 +292,7 @@ function refreshAfterStoragePulse(event: StorageEvent): void {
       // Older clients stored an opaque token rather than the pulse payload.
     }
   }
-  reconcileExternalAccountChange(pulse?.id ?? null);
+  reconcileExternalAccountChange(pulse?.id ?? null, pulse?.loginSuccess === true);
 }
 
 function refreshAfterVisibilityChange(): void {
@@ -283,7 +309,7 @@ function refreshAfterPageShow(): void {
 
 function refreshAfterBroadcastMessage(event: MessageEvent): void {
   const pulse = parseAccountRefreshMessage(event.data);
-  if (pulse) reconcileExternalAccountChange(pulse.id);
+  if (pulse) reconcileExternalAccountChange(pulse.id, pulse.loginSuccess);
 }
 
 /**
@@ -308,7 +334,15 @@ function startExternalAccountReconciliation(): void {
   _externalRefreshInFlight = wrapped;
 }
 
-function reconcileExternalAccountChange(refreshId: string | null): void {
+function reconcileExternalAccountChange(refreshId: string | null, loginSuccess = false): void {
+  if (refreshId !== null && loginSuccess) {
+    // Identified pulses can arrive through the UI and session listeners in
+    // either order (and in separate tasks for BroadcastChannel/storage). Keep
+    // one bounded, replayable operation per nonce so every consumer observes
+    // the same authoritative response without starting another request.
+    void reconcileAccountLoginResult(refreshId)?.catch(() => undefined);
+    return;
+  }
   if (!rememberExternalRefreshId(refreshId)) return;
   if (_mutationDepth > 0) {
     _refreshFollowUp = true;
@@ -412,6 +446,102 @@ export async function reconcileAccountLoginSession(): Promise<AccountSessionResp
   }
 }
 
+/**
+ * Reconcile one identified OAuth completion exactly once across the account
+ * session lifecycle and UI. Duplicate opener/BroadcastChannel/storage copies
+ * share this promise, so callers can classify the same authoritative result
+ * without issuing or racing a second session read.
+ */
+export function reconcileAccountLoginResult(
+  refreshId: string,
+): Promise<AccountSessionResponse> | null {
+  // A same-tab OAuth return enters through this path without the ordinary
+  // startup refresh. It still needs all later focus/online/cross-tab hooks.
+  bindAccountSessionLifecycle();
+  const existing = _accountLoginResultOperations.get(refreshId);
+  if (existing) return existing;
+  // Protect this nonce before the bounded recent-ID set trims. Otherwise the
+  // newly added 33rd concurrent result is the only apparently inactive entry
+  // and can evict itself before its shared promise is published.
+  _activeAccountLoginResultIds.add(refreshId);
+  if (!rememberExternalRefreshId(refreshId)) {
+    _activeAccountLoginResultIds.delete(refreshId);
+    return null;
+  }
+  let operation: Promise<AccountSessionResponse>;
+  if (_mutationDepth > 0) {
+    // The mutation owns both the cookie transition and visible projection.
+    // Delay the post-OAuth read until its finally block releases that boundary
+    // while still publishing one promise immediately to every result listener.
+    operation = new Promise<AccountSessionResponse>((resolve, reject) => {
+      _pendingAccountLoginResultIds.push(refreshId);
+      _pendingAccountLoginResultResolvers.set(refreshId, { resolve, reject });
+    });
+  } else {
+    operation = reconcileAccountLoginSession();
+  }
+  _accountLoginResultOperations.set(refreshId, operation);
+  void operation.then(
+    () => {
+      _activeAccountLoginResultIds.delete(refreshId);
+      trimRecentExternalRefreshIds();
+    },
+    () => {
+      _activeAccountLoginResultIds.delete(refreshId);
+      trimRecentExternalRefreshIds();
+    },
+  );
+  // A lifecycle listener has no response consumer of its own. Retain the raw
+  // promise for the UI result listener, but always attach a rejection handler
+  // here so an offline completion cannot become an unhandled rejection.
+  void operation.catch(() => undefined);
+  return operation;
+}
+
+function drainPendingAccountLoginResults(): void {
+  if (_mutationDepth > 0) return;
+  const pendingResults: Array<{
+    resolve: (response: AccountSessionResponse) => void;
+    reject: (error: unknown) => void;
+  }> = [];
+  while (_pendingAccountLoginResultIds.length > 0) {
+    const refreshId = _pendingAccountLoginResultIds.shift()!;
+    const pending = _pendingAccountLoginResultResolvers.get(refreshId);
+    if (!pending) continue;
+    _pendingAccountLoginResultResolvers.delete(refreshId);
+    pendingResults.push(pending);
+  }
+  if (pendingResults.length === 0) return;
+  // All success pulses observed during one mutation describe the cookie state
+  // after that same serialization boundary. One exact read resolves the whole
+  // batch and supersedes any generic refresh queued while the mutation ran.
+  _refreshFollowUp = false;
+  _pendingAccountLoginResultBatches.push({
+    pendingResults,
+  });
+  drainAccountLoginResultBatches();
+}
+
+function drainAccountLoginResultBatches(): void {
+  if (_accountLoginResultBatchInFlight || _mutationDepth > 0) return;
+  const batch = _pendingAccountLoginResultBatches.shift();
+  if (!batch) return;
+  _accountLoginResultBatchInFlight = true;
+  void reconcileAccountLoginSession()
+    .then(
+      (response) => {
+        for (const pending of batch.pendingResults) pending.resolve(response);
+      },
+      (error) => {
+        for (const pending of batch.pendingResults) pending.reject(error);
+      },
+    )
+    .finally(() => {
+      _accountLoginResultBatchInFlight = false;
+      drainAccountLoginResultBatches();
+    });
+}
+
 function drainRefreshFollowUp(): void {
   if (
     !_refreshFollowUp ||
@@ -477,6 +607,7 @@ export async function saveAccountNickname(nickname: string): Promise<AccountProf
     return response.account;
   } finally {
     _mutationDepth -= 1;
+    drainPendingAccountLoginResults();
     drainRefreshFollowUp();
   }
 }
@@ -495,6 +626,7 @@ export async function signOutAccount(everywhere = false): Promise<void> {
     broadcastAccountChange();
   } finally {
     _mutationDepth -= 1;
+    drainPendingAccountLoginResults();
     drainRefreshFollowUp();
   }
 }
@@ -515,6 +647,7 @@ export async function removeAccount(): Promise<AccountDeletionResult> {
     return result;
   } finally {
     _mutationDepth -= 1;
+    drainPendingAccountLoginResults();
     drainRefreshFollowUp();
   }
 }
@@ -551,6 +684,12 @@ export function __resetAccountSessionForTests(): void {
   _externalRefreshInFlight = null;
   _externalRefreshFollowUp = false;
   _recentExternalRefreshIds.clear();
+  _accountLoginResultOperations.clear();
+  _activeAccountLoginResultIds.clear();
+  _pendingAccountLoginResultIds.length = 0;
+  _pendingAccountLoginResultResolvers.clear();
+  _pendingAccountLoginResultBatches.length = 0;
+  _accountLoginResultBatchInFlight = false;
   _mutationDepth = 0;
   _lastRefreshStartedAt = 0;
 }

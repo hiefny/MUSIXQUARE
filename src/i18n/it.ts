@@ -38,6 +38,7 @@ const it: Record<I18nKey, string> = {
   'account.login_title': 'Accedi',
   'account.login_cancelled': 'Accesso annullato.',
   'account.login_failed': 'Accesso non riuscito. Riprova.',
+  'account.welcome_back': 'Che bello rivederti\n{{name}}',
   'account.login_message':
     'Accedi con Google per mantenere il tuo nickname in tutte le stanze. Puoi continuare a usare MUSIXQUARE senza accedere.',
   'account.google_continue': 'Continua con Google',

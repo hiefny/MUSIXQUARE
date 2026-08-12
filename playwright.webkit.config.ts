@@ -8,7 +8,11 @@ import { E2E_APP_ORIGIN, E2E_PREVIEW_COMMAND } from './e2e/config.ts';
  */
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['webkit-mobile-smoke.test.ts', 'custom-scrollbar-timeline.test.ts'],
+  testMatch: [
+    'webkit-mobile-smoke.test.ts',
+    'custom-scrollbar-timeline.test.ts',
+    'youtube-landscape-full-bleed.test.ts',
+  ],
   timeout: 60_000,
   expect: { timeout: 15_000 },
   retries: 0,

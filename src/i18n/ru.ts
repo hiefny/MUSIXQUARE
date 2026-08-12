@@ -38,6 +38,7 @@ const ru: Record<I18nKey, string> = {
   'account.login_title': 'Войти',
   'account.login_cancelled': 'Вход отменён.',
   'account.login_failed': 'Не удалось войти. Попробуйте ещё раз.',
+  'account.welcome_back': 'С возвращением\n{{name}}',
   'account.login_message':
     'Войдите через Google, чтобы сохранить псевдоним во всех комнатах. MUSIXQUARE можно продолжать использовать без входа.',
   'account.google_continue': 'Продолжить через Google',

@@ -41,6 +41,7 @@ const en: Record<I18nKey, string> = {
   'account.login_title': 'Sign in',
   'account.login_cancelled': 'Sign-in was cancelled.',
   'account.login_failed': 'Could not sign in. Please try again.',
+  'account.welcome_back': 'Welcome back\n{{name}}',
   'account.login_message':
     'Sign in with Google to keep your nickname across rooms. You can continue without signing in.',
   'account.google_continue': 'Continue with Google',

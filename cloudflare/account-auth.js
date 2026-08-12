@@ -1191,8 +1191,12 @@ async function handleGoogleCallback(request, config, url) {
 
   try {
     const { token } = await createAccountSession(config, identity.sub);
-    const destination = new URL(flow.returnTo, new URL(config.redirectUri).origin).toString();
-    return redirect(destination, 303, [clearCookie(cookieName), sessionCookie(token)]);
+    const destination = new URL(flow.returnTo, new URL(config.redirectUri).origin);
+    // Correlate the first app-owned session read with this completed OAuth
+    // round trip. The marker is never authentication evidence: the new
+    // HttpOnly session cookie and /api/auth/session remain authoritative.
+    destination.searchParams.set('accountAuth', 'success');
+    return redirect(destination.toString(), 303, [clearCookie(cookieName), sessionCookie(token)]);
   } catch {
     return callbackOutcomeRedirect(config, flow, 'error', cookieName);
   }

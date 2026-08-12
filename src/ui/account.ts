@@ -18,6 +18,7 @@ import {
 import {
   removeAccount,
   reconcileAccountLoginSession,
+  reconcileAccountLoginResult,
   retryAccountSessionRefresh,
   setAccountLoginPopupHandler,
   signOutAccount,
@@ -51,10 +52,12 @@ const _busScope = createBusScope();
 const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
 const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
+const ACCOUNT_SAME_TAB_WELCOME_INTENT_KEY = 'mxqr-account-welcome-intent-v1';
+const ACCOUNT_SAME_TAB_WELCOME_INTENT_TTL_MS = 10 * 60 * 1000;
 const ACCOUNT_LOGIN_POPUP_POLL_MS = 250;
 const ACCOUNT_STATS_PLACEHOLDER = '—';
 const ACCOUNT_STATS_COUNT_UP_DURATION_MS = 1_200;
-type AccountAuthOutcome = 'cancelled' | 'error';
+type AccountAuthOutcome = 'success' | 'cancelled' | 'error';
 type AccountNicknameChangeOutcome = 'completed' | 'cancelled' | 'error';
 type CompletedAccount = NonNullable<AccountSnapshot['account']>;
 type AccountStatsOwner = string;
@@ -112,6 +115,44 @@ let _accountStatsReducedMotionQuery: MediaQueryList | null = null;
 let _accountStatsNumberFormatterLocale: string | null = null;
 let _accountStatsNumberFormatter: Intl.NumberFormat | null = null;
 const _handledAccountResultIds = new Set<string>();
+let _pendingWelcomeAccountResultId: string | null = null;
+
+function armSameTabWelcomeIntent(): void {
+  try {
+    window.sessionStorage.setItem(
+      ACCOUNT_SAME_TAB_WELCOME_INTENT_KEY,
+      JSON.stringify({ createdAt: Date.now() }),
+    );
+  } catch {
+    // The login itself must remain available when session storage is blocked.
+  }
+}
+
+function clearSameTabWelcomeIntent(): void {
+  try {
+    window.sessionStorage.removeItem(ACCOUNT_SAME_TAB_WELCOME_INTENT_KEY);
+  } catch {
+    // Nothing else relies on this optional UI correlation hint.
+  }
+}
+
+function consumeSameTabWelcomeIntent(): boolean {
+  let createdAt: unknown = null;
+  try {
+    const raw = window.sessionStorage.getItem(ACCOUNT_SAME_TAB_WELCOME_INTENT_KEY);
+    window.sessionStorage.removeItem(ACCOUNT_SAME_TAB_WELCOME_INTENT_KEY);
+    if (raw) createdAt = (JSON.parse(raw) as { createdAt?: unknown }).createdAt;
+  } catch {
+    clearSameTabWelcomeIntent();
+    return false;
+  }
+  return (
+    typeof createdAt === 'number' &&
+    Number.isFinite(createdAt) &&
+    createdAt <= Date.now() &&
+    Date.now() - createdAt <= ACCOUNT_SAME_TAB_WELCOME_INTENT_TTL_MS
+  );
+}
 
 function byId<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
@@ -437,7 +478,9 @@ function parseAccountAuthResultMessage(value: unknown): {
   };
   if (
     message.type !== 'refresh' ||
-    (message.accountAuth !== 'cancelled' && message.accountAuth !== 'error') ||
+    (message.accountAuth !== 'success' &&
+      message.accountAuth !== 'cancelled' &&
+      message.accountAuth !== 'error') ||
     typeof message.id !== 'string' ||
     message.id.length < 8 ||
     message.id.length > 160 ||
@@ -450,15 +493,58 @@ function parseAccountAuthResultMessage(value: unknown): {
   return { outcome: message.accountAuth, id: message.id, accountClient: message.accountClient };
 }
 
-function handleAccountAuthOutcome(outcome: AccountAuthOutcome, id: string): void {
+function handleAccountAuthOutcome(
+  outcome: AccountAuthOutcome,
+  id: string,
+  welcomeEligible = true,
+): void {
   if (_handledAccountResultIds.has(id)) return;
   _handledAccountResultIds.add(id);
   if (_handledAccountResultIds.size > 16) {
     const oldest = _handledAccountResultIds.values().next().value;
     if (typeof oldest === 'string') _handledAccountResultIds.delete(oldest);
   }
+  if (outcome === 'success') {
+    // This is only a per-tab correlation intent. The authoritative account
+    // identity still comes from the session lifecycle's post-completion read.
+    // In particular, never start a competing read or settle a protected popup
+    // from the marker itself.
+    // The ordinary Account Center popup has completed; disarm its close poll
+    // now so auto-close cannot launch a second session GET. A protected popup
+    // attempt deliberately keeps its close/reconciliation boundary.
+    if (!_accountLoginPopupAttempt) {
+      _accountLoginPopup = null;
+      stopAccountLoginPopupMonitor();
+    }
+    _pendingWelcomeAccountResultId = welcomeEligible ? id : null;
+    const reconciliation = reconcileAccountLoginResult(id);
+    if (!reconciliation) {
+      if (_pendingWelcomeAccountResultId === id) _pendingWelcomeAccountResultId = null;
+      return;
+    }
+    // A same-tab marker without a live one-shot intent still reconciles the
+    // HttpOnly session, but cannot produce a welcome from a crafted/stale URL.
+    if (!welcomeEligible) {
+      void reconciliation.catch(() => undefined);
+      return;
+    }
+    void reconciliation.then(
+      (response) => {
+        if (_pendingWelcomeAccountResultId !== id) return;
+        _pendingWelcomeAccountResultId = null;
+        if (response.authenticated && response.account?.profileComplete === true) {
+          showToast(t('account.welcome_back', { name: response.account.nickname }));
+        }
+      },
+      () => {
+        if (_pendingWelcomeAccountResultId === id) _pendingWelcomeAccountResultId = null;
+      },
+    );
+    return;
+  }
   _accountLoginPopup = null;
   stopAccountLoginPopupMonitor();
+  _pendingWelcomeAccountResultId = null;
   if (_accountLoginPopupAttempt) {
     settleAccountLoginPopupAttempt(outcome);
     return;
@@ -580,6 +666,7 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
   });
   // The href may have been rendered before room context projection completed.
   anchor.href = buildGoogleLoginUrl(location, returnTo);
+  armSameTabWelcomeIntent();
   markIntentionalNav();
   stopAccountLoginNavigationGuard();
   // Some native shells can abandon an anchor activation without exposing
@@ -603,6 +690,7 @@ function prepareSameTabAccountLogin(anchor: HTMLAnchorElement, activationEvent: 
     if (!activationEvent.defaultPrevented) return;
     stopAccountLoginNavigationGuard();
     clearIntentionalNav();
+    clearSameTabWelcomeIntent();
     if (attemptId) clearAccountLoginReturn(attemptId);
   });
 }
@@ -818,7 +906,11 @@ function bindAccountAuthResultLifecycle(): void {
   }
 }
 
-function consumeAccountAuthOutcomeFromUrl(): { outcome: AccountAuthOutcome; id: string } | null {
+function consumeAccountAuthOutcomeFromUrl(): {
+  outcome: AccountAuthOutcome;
+  id: string;
+  welcomeEligible: boolean;
+} | null {
   const url = new URL(window.location.href);
   const markers = url.searchParams.getAll('accountAuth');
   if (markers.length === 0) return null;
@@ -835,10 +927,12 @@ function consumeAccountAuthOutcomeFromUrl(): { outcome: AccountAuthOutcome; id: 
   }
 
   const outcome = markers.length === 1 ? markers[0] : null;
-  if (outcome !== 'cancelled' && outcome !== 'error') return null;
+  const welcomeEligible = consumeSameTabWelcomeIntent();
+  if (outcome !== 'success' && outcome !== 'cancelled' && outcome !== 'error') return null;
   return {
     outcome,
     id: `url:${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`,
+    welcomeEligible: outcome === 'success' && welcomeEligible,
   };
 }
 
@@ -1287,8 +1381,16 @@ export function initAccount(): void {
     _profilePromptVisibilityBound = true;
   }
   handleAccountState(getAccountSnapshot());
-  startAccountSessionRefresh();
-  if (returnedAuthOutcome) {
+  if (returnedAuthOutcome?.outcome === 'success') {
+    handleAccountAuthOutcome(
+      returnedAuthOutcome.outcome,
+      returnedAuthOutcome.id,
+      returnedAuthOutcome.welcomeEligible,
+    );
+  } else {
+    startAccountSessionRefresh();
+  }
+  if (returnedAuthOutcome && returnedAuthOutcome.outcome !== 'success') {
     handleAccountAuthOutcome(returnedAuthOutcome.outcome, returnedAuthOutcome.id);
   }
 }
@@ -1317,6 +1419,8 @@ export function __resetAccountUiForTests(): void {
   stopAccountLoginPopupMonitor();
   stopAccountLoginNavigationGuard();
   _handledAccountResultIds.clear();
+  _pendingWelcomeAccountResultId = null;
+  clearSameTabWelcomeIntent();
   if (_accountResultLifecycleBound && typeof window !== 'undefined') {
     window.removeEventListener('message', handleAccountResultMessage);
     window.removeEventListener('storage', handleAccountResultStorage);

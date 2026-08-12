@@ -41,6 +41,7 @@ const vi: Record<I18nKey, string> = {
   'account.login_title': 'Đăng nhập',
   'account.login_cancelled': 'Đã hủy đăng nhập.',
   'account.login_failed': 'Không thể đăng nhập. Vui lòng thử lại.',
+  'account.welcome_back': 'Rất vui được gặp lại bạn\n{{name}}',
   'account.login_message':
     'Đăng nhập bằng Google để giữ biệt danh của bạn trong mọi phòng. Bạn vẫn có thể tiếp tục dùng MUSIXQUARE mà không cần đăng nhập.',
   'account.google_continue': 'Tiếp tục với Google',

@@ -204,17 +204,34 @@ describe('optional account UI', () => {
           account: { nickname: 'Linked owner', profileComplete: true },
           statsScope: STATS_SCOPE,
         }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Linked owner', profileComplete: true },
+          statsScope: STATS_SCOPE,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Linked owner', profileComplete: true },
+          statsScope: STATS_SCOPE,
+        }),
       );
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
 
     let popupClosed = false;
+    const replace = vi.fn();
     const firstPopup = {
       get closed() {
         return popupClosed;
       },
       focus: vi.fn(),
-      location: { replace: vi.fn() },
+      location: { replace },
       opener: window,
     } as unknown as Window;
     // Browsers may reuse a still-open named completion window. The second
@@ -270,12 +287,34 @@ describe('optional account UI', () => {
     await Promise.resolve();
     expect(switchedSettled).toBe(false);
 
+    const switchedStartUrl = String(replace.mock.calls.at(-1)?.[0] || '');
+    const switchedReturnTo =
+      new URL(switchedStartUrl, window.location.origin).searchParams.get('returnTo') || '';
+    const accountClient = new URL(switchedReturnTo, window.location.origin).searchParams.get(
+      'accountClient',
+    );
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'refresh',
+          accountAuth: 'success',
+          id: 'result:protected-1234',
+          accountClient,
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    // A success marker only correlates the welcome. It must not settle the
+    // protected authorization promise before the popup-close reconciliation.
+    expect(switchedSettled).toBe(false);
+
     popupClosed = true;
     await vi.advanceTimersByTimeAsync(250);
     vi.useRealTimers();
 
     await expect(switchedLogin).resolves.toBe('authenticated');
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(getAccountSnapshot().account).toMatchObject({
       nickname: 'Linked owner',
       profileComplete: true,
@@ -457,6 +496,7 @@ describe('optional account UI', () => {
     );
     expect(isIntentionalNav()).toBe(false);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).toBeNull();
+    expect(sessionStorage.getItem('mxqr-account-welcome-intent-v1')).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
     expect(showToast).toHaveBeenCalledWith('Could not sign in. Please try again.');
   });
@@ -627,6 +667,7 @@ describe('optional account UI', () => {
 
     expect(isIntentionalNav()).toBe(true);
     expect(sessionStorage.getItem(__accountLoginReturnForTests.SESSION_STORAGE_KEY)).not.toBeNull();
+    expect(sessionStorage.getItem('mxqr-account-welcome-intent-v1')).not.toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).not.toBeNull();
 
     await vi.advanceTimersByTimeAsync(10 * 60 * 1000 - 2_500);
@@ -759,6 +800,343 @@ describe('optional account UI', () => {
     // matching completion messages arrive while it is in flight and coalesce
     // into one follow-up refresh, which must settle before test teardown.
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+  });
+
+  it('welcomes an existing user once after this tab completes popup OAuth', async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null, statsScope: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Minsu', profileComplete: true },
+          statsScope: STATS_SCOPE,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Minsu', profileComplete: true },
+          statsScope: STATS_SCOPE,
+        }),
+      );
+    const replace = vi.fn();
+    let popupClosed = false;
+    vi.spyOn(window, 'open').mockReturnValue({
+      get closed() {
+        return popupClosed;
+      },
+      focus: vi.fn(),
+      location: { replace },
+      opener: window,
+    } as unknown as Window);
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+
+    document.getElementById('btn-account-google')?.click();
+    const startUrl = String(replace.mock.calls[0]?.[0] || '');
+    const returnTo = new URL(startUrl, window.location.origin).searchParams.get('returnTo') || '';
+    const accountClient = new URL(returnTo, window.location.origin).searchParams.get(
+      'accountClient',
+    );
+    const data = {
+      type: 'refresh',
+      accountAuth: 'success',
+      id: 'result:welcome-1234',
+      accountClient,
+    };
+
+    window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, data }));
+    window.dispatchEvent(new MessageEvent('message', { origin: window.location.origin, data }));
+    window.dispatchEvent(
+      new StorageEvent('storage', {
+        key: 'mxqr-account-refresh',
+        newValue: JSON.stringify(data),
+      }),
+    );
+
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('Welcome back\nMinsu'));
+    expect(showToast).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    popupClosed = true;
+    await vi.advanceTimersByTimeAsync(250);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
+  it('does not welcome this tab after another tab completes OAuth', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null, statsScope: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Minsu', profileComplete: true },
+          statsScope: STATS_SCOPE,
+        }),
+      );
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'refresh',
+          accountAuth: 'success',
+          id: 'result:external-1234',
+          accountClient: 'another-tab-client',
+        },
+      }),
+    );
+
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('consumes a popup welcome intent when the new account profile is incomplete', async () => {
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null, statsScope: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: '', profileComplete: false },
+          statsScope: STATS_SCOPE,
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: '', profileComplete: false },
+          statsScope: STATS_SCOPE,
+        }),
+      );
+    const replace = vi.fn();
+    vi.spyOn(window, 'open').mockReturnValue({
+      closed: false,
+      focus: vi.fn(),
+      location: { replace },
+      opener: window,
+    } as unknown as Window);
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    document.getElementById('btn-account-google')?.click();
+    const startUrl = String(replace.mock.calls[0]?.[0] || '');
+    const returnTo = new URL(startUrl, window.location.origin).searchParams.get('returnTo') || '';
+    const accountClient = new URL(returnTo, window.location.origin).searchParams.get(
+      'accountClient',
+    );
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'refresh',
+          accountAuth: 'success',
+          id: 'result:new-account-1234',
+          accountClient,
+        },
+      }),
+    );
+
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(getAccountSnapshot().account?.profileComplete).toBe(false);
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'New nickname', profileComplete: true },
+      statsScope: STATS_SCOPE,
+    });
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('does not defer a failed post-OAuth classification until a later recovery', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null, statsScope: null }),
+      )
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockRejectedValueOnce(new TypeError('offline'));
+    const replace = vi.fn();
+    vi.spyOn(window, 'open').mockReturnValue({
+      closed: false,
+      focus: vi.fn(),
+      location: { replace },
+      opener: window,
+    } as unknown as Window);
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+    document.getElementById('btn-account-google')?.click();
+    const startUrl = String(replace.mock.calls[0]?.[0] || '');
+    const returnTo = new URL(startUrl, window.location.origin).searchParams.get('returnTo') || '';
+    const accountClient = new URL(returnTo, window.location.origin).searchParams.get(
+      'accountClient',
+    );
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'refresh',
+          accountAuth: 'success',
+          id: 'result:offline-1234',
+          accountClient,
+        },
+      }),
+    );
+
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Minsu', profileComplete: true },
+      statsScope: STATS_SCOPE,
+    });
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('clears a failed welcome intent even when an older authenticated snapshot stays visible', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Old account', profileComplete: true },
+          statsScope: STATS_SCOPE,
+        }),
+      )
+      .mockRejectedValueOnce(new TypeError('offline'))
+      .mockRejectedValueOnce(new TypeError('offline'));
+    const replace = vi.fn();
+    vi.spyOn(window, 'open').mockReturnValue({
+      closed: false,
+      focus: vi.fn(),
+      location: { replace },
+      opener: window,
+    } as unknown as Window);
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    void requestAccountLoginPopup({ forceGoogleAccountChooser: true });
+    const startUrl = String(replace.mock.calls[0]?.[0] || '');
+    const returnTo = new URL(startUrl, window.location.origin).searchParams.get('returnTo') || '';
+    const accountClient = new URL(returnTo, window.location.origin).searchParams.get(
+      'accountClient',
+    );
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'refresh',
+          accountAuth: 'success',
+          id: 'result:authenticated-offline-1234',
+          accountClient,
+        },
+      }),
+    );
+
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(getAccountSnapshot().account?.nickname).toBe('Old account');
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Later recovery', profileComplete: true },
+      statsScope: STATS_SCOPE,
+    });
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('welcomes an existing user after an armed same-tab OAuth success return', async () => {
+    sessionStorage.setItem(
+      'mxqr-account-welcome-intent-v1',
+      JSON.stringify({ createdAt: Date.now() }),
+    );
+    window.history.replaceState({}, '', '/?panel=connect&accountAuth=success#account');
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
+      }),
+    );
+
+    initAccount();
+
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledWith('Welcome back\nMinsu'));
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/?panel=connect#account',
+    );
+    expect(showToast).toHaveBeenCalledTimes(1);
+    expect(sessionStorage.getItem('mxqr-account-welcome-intent-v1')).toBeNull();
+  });
+
+  it('reconciles but does not welcome from an unarmed same-tab success URL', async () => {
+    window.history.replaceState({}, '', '/?accountAuth=success');
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
+      }),
+    );
+
+    initAccount();
+
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(showToast).not.toHaveBeenCalled();
+  });
+
+  it('consumes an expired same-tab welcome intent without showing a toast', async () => {
+    sessionStorage.setItem(
+      'mxqr-account-welcome-intent-v1',
+      JSON.stringify({ createdAt: Date.now() - 10 * 60 * 1000 - 1 }),
+    );
+    window.history.replaceState({}, '', '/?accountAuth=success');
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
+      }),
+    );
+
+    initAccount();
+
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(showToast).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem('mxqr-account-welcome-intent-v1')).toBeNull();
+  });
+
+  it('does not welcome an existing user during an ordinary session restore', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
+      }),
+    );
+
+    initAccount();
+
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   it('fails open when the account endpoint is unavailable', async () => {

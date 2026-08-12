@@ -157,15 +157,26 @@ function scrollChatMessagesToBottom(messages: HTMLElement): void {
   messages.scrollTop = messages.scrollHeight;
 }
 
+function scrollChatMessagesToBottomGap(messages: HTMLElement, bottomGap: number): void {
+  const gap = Math.max(0, bottomGap);
+  if (gap === 0) {
+    scrollChatMessagesToBottom(messages);
+    return;
+  }
+  const maxScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
+  messages.scrollTop = Math.max(0, maxScrollTop - gap);
+}
+
 /**
- * A shrinking overflow container keeps its old scrollTop, which can push the
- * newest messages below the visible viewport during a full -> half snap.
- * Preserve bottom anchoring only when the user was already at the bottom;
- * users reading older messages keep their exact scroll position.
+ * Resizing an overflow container lets WebKit clamp scrollTop independently.
+ * Preserve the gesture-start distance from the bottom through the bounded
+ * snap window, whether that distance is zero or the user is reading older
+ * messages. A new user gesture immediately takes ownership back.
  */
 function maintainChatDrawerBottomAnchor(
   drawer: HTMLElement,
   messages: HTMLElement,
+  bottomGap: number,
   onUserTakeover: () => void,
 ): void {
   stopChatDrawerBottomAnchor();
@@ -175,7 +186,7 @@ function maintainChatDrawerBottomAnchor(
 
   const pinNextFrame = (timestamp: number): void => {
     if (_chatDrawerBottomAnchorAC !== controller) return;
-    scrollChatMessagesToBottom(messages);
+    scrollChatMessagesToBottomGap(messages, bottomGap);
     if (timestamp >= deadline) {
       stopChatDrawerBottomAnchor();
       return;
@@ -200,7 +211,7 @@ function maintainChatDrawerBottomAnchor(
     });
   }
 
-  scrollChatMessagesToBottom(messages);
+  scrollChatMessagesToBottomGap(messages, bottomGap);
   _chatDrawerBottomAnchorFrame = window.requestAnimationFrame(pinNextFrame);
 }
 
@@ -432,6 +443,7 @@ function clearChatDrawerLiveGeometry(drawer: HTMLElement): void {
   drawer.classList.remove('is-snapping');
   drawer.style.removeProperty('--chat-live-height');
   drawer.style.removeProperty('--chat-offset-y');
+  drawer.style.removeProperty('--chat-live-safe-top');
 }
 
 function getChatDrawerRenderedOffsetY(drawer: HTMLElement): number {
@@ -460,14 +472,21 @@ function setChatDrawerDetent(
   drawer: HTMLElement,
   detent: ChatDrawerDetent,
   animated: boolean,
+  gestureMessageBottomGap?: number,
 ): void {
   const viewportHeight = getChatDrawerViewportHeight();
+  const safeTopInset = getChatDrawerSafeTopInset();
   const targetHeight = viewportHeight * (detent === 'half' ? 0.5 : 1);
   const currentRect = drawer.getBoundingClientRect();
   const currentHeight = currentRect.height || targetHeight;
   const currentOffsetY = getChatDrawerRenderedOffsetY(drawer);
   const messages = document.getElementById('chat-messages');
-  let keepMessagesAtBottom = messages ? isContainerAtBottom(messages) : false;
+  let messageBottomGap: number | null =
+    gestureMessageBottomGap !== undefined
+      ? Math.max(0, gestureMessageBottomGap)
+      : messages && isContainerAtBottom(messages)
+        ? 0
+        : null;
 
   clearPendingChatDrawerSnap();
   stopChatDrawerBottomAnchor();
@@ -478,14 +497,16 @@ function setChatDrawerDetent(
     drawer.dataset.chatSnap = detent;
     drawer.style.removeProperty('--chat-live-height');
     drawer.style.removeProperty('--chat-offset-y');
+    drawer.style.removeProperty('--chat-live-safe-top');
     _chatDrawerState = detent;
     updateChatDrawerHandleAccessibility(drawer);
-    if (keepMessagesAtBottom && messages) scrollChatMessagesToBottom(messages);
+    if (messageBottomGap !== null && messages) {
+      scrollChatMessagesToBottomGap(messages, messageBottomGap);
+    }
     return;
   }
 
-  drawer.style.setProperty('--chat-live-height', `${currentHeight}px`);
-  drawer.style.setProperty('--chat-offset-y', `${currentOffsetY}px`);
+  setChatDrawerLiveGeometry(drawer, currentHeight, currentOffsetY, viewportHeight, safeTopInset);
   drawer.classList.add('is-dragging');
   drawer.classList.add('is-snapping');
   // First commit the exact finger-tracked geometry with the source detent's
@@ -498,11 +519,10 @@ function setChatDrawerDetent(
   drawer.dataset.chatSnap = detent;
   _chatDrawerState = detent;
   updateChatDrawerHandleAccessibility(drawer);
-  drawer.style.setProperty('--chat-live-height', `${targetHeight}px`);
-  drawer.style.setProperty('--chat-offset-y', '0px');
-  if (keepMessagesAtBottom && messages) {
-    maintainChatDrawerBottomAnchor(drawer, messages, () => {
-      keepMessagesAtBottom = false;
+  setChatDrawerLiveGeometry(drawer, targetHeight, 0, viewportHeight, safeTopInset);
+  if (messageBottomGap !== null && messages) {
+    maintainChatDrawerBottomAnchor(drawer, messages, messageBottomGap, () => {
+      messageBottomGap = null;
     });
   }
   bus.emit('ui:scrollbar-relayout');
@@ -516,7 +536,10 @@ function setChatDrawerDetent(
     drawer.classList.remove('is-snapping');
     drawer.style.removeProperty('--chat-live-height');
     drawer.style.removeProperty('--chat-offset-y');
-    if (keepMessagesAtBottom && messages) scrollChatMessagesToBottom(messages);
+    drawer.style.removeProperty('--chat-live-safe-top');
+    if (messageBottomGap !== null && messages) {
+      scrollChatMessagesToBottomGap(messages, messageBottomGap);
+    }
     if (isChatDrawerOpen() && drawer.classList.contains('open')) {
       bus.emit('ui:scrollbar-reveal', drawer);
     }
@@ -660,9 +683,53 @@ function resistedDistance(distance: number): number {
   return CHAT_DRAWER_PULL_MAX * (1 - Math.exp(-distance / CHAT_DRAWER_PULL_RESISTANCE));
 }
 
-function setChatDrawerLiveGeometry(drawer: HTMLElement, height: number, offsetY = 0): void {
-  drawer.style.setProperty('--chat-live-height', `${Math.max(0, height)}px`);
+function getChatDrawerSafeTopInset(): number {
+  const token = window
+    .getComputedStyle(document.documentElement)
+    .getPropertyValue('--safe-top')
+    .trim();
+  const directInset = Number.parseFloat(token);
+  if (Number.isFinite(directInset)) return Math.max(0, directInset);
+
+  // Computed custom properties preserve their token stream in WebKit, so an
+  // env(safe-area-inset-top) value cannot be parsed directly. Resolve it
+  // through a real length property once at gesture/detent start; this helper
+  // is deliberately never called from the touchmove hot path.
+  const probe = document.createElement('div');
+  probe.style.cssText =
+    'position:fixed;top:0;left:0;width:0;height:0;padding-top:var(--safe-top);visibility:hidden;pointer-events:none;';
+  (document.body || document.documentElement).appendChild(probe);
+  const resolvedInset = Number.parseFloat(window.getComputedStyle(probe).paddingTop);
+  probe.remove();
+  return Number.isFinite(resolvedInset) ? Math.max(0, resolvedInset) : 0;
+}
+
+function getChatDrawerLiveSafeTopInset(
+  height: number,
+  viewportHeight: number,
+  safeTopInset: number,
+): number {
+  const halfHeight = viewportHeight * 0.5;
+  const travel = viewportHeight - halfHeight;
+  if (travel <= 0) return 0;
+  const progress = Math.min(1, Math.max(0, (height - halfHeight) / travel));
+  return safeTopInset * progress;
+}
+
+function setChatDrawerLiveGeometry(
+  drawer: HTMLElement,
+  height: number,
+  offsetY = 0,
+  viewportHeight = getChatDrawerViewportHeight(),
+  safeTopInset = getChatDrawerSafeTopInset(),
+): void {
+  const liveHeight = Math.max(0, height);
+  drawer.style.setProperty('--chat-live-height', `${liveHeight}px`);
   drawer.style.setProperty('--chat-offset-y', `${Math.max(0, offsetY)}px`);
+  drawer.style.setProperty(
+    '--chat-live-safe-top',
+    `${getChatDrawerLiveSafeTopInset(liveHeight, viewportHeight, safeTopInset)}px`,
+  );
 }
 
 function initChatSwipeToDismiss(): void {
@@ -683,11 +750,12 @@ function initChatSwipeToDismiss(): void {
   let startDetent: ChatDrawerDetent = 'half';
   let halfHeight = 0;
   let fullHeight = 0;
+  let safeTopInset = 0;
   let startRenderedHeight = 0;
   let startRenderedOffsetY = 0;
   let canExpandToFull = false;
   let canCollapseFullToHalf = false;
-  let keepMessagesAtBottom = false;
+  let messageBottomGap: number | null = null;
   let isDragging = false;
 
   const startDrag = (y: number): boolean => {
@@ -700,26 +768,38 @@ function initChatSwipeToDismiss(): void {
     startDetent = _chatDrawerState === 'full' ? 'full' : 'half';
     fullHeight = context.viewportHeight;
     halfHeight = fullHeight * 0.5;
+    safeTopInset = getChatDrawerSafeTopInset();
     canExpandToFull = canExpandChatDrawer(context);
     canCollapseFullToHalf = canCollapseChatDrawerFullToHalf(context);
     const currentRect = drawer.getBoundingClientRect();
     startRenderedHeight = currentRect.height || (startDetent === 'full' ? fullHeight : halfHeight);
     startRenderedOffsetY = getChatDrawerRenderedOffsetY(drawer);
     const messages = document.getElementById('chat-messages');
-    keepMessagesAtBottom = messages ? isContainerAtBottom(messages) : false;
+    messageBottomGap = messages
+      ? isContainerAtBottom(messages)
+        ? 0
+        : Math.max(0, messages.scrollHeight - messages.scrollTop - messages.clientHeight)
+      : null;
     isDragging = true;
     clearPendingChatDrawerSnap();
     stopChatDrawerBottomAnchor();
-    setChatDrawerLiveGeometry(drawer, startRenderedHeight, startRenderedOffsetY);
+    setChatDrawerLiveGeometry(
+      drawer,
+      startRenderedHeight,
+      startRenderedOffsetY,
+      fullHeight,
+      safeTopInset,
+    );
     drawer.classList.add('is-dragging');
     return true;
   };
 
   const setDragGeometry = (height: number, offsetY = 0): void => {
-    setChatDrawerLiveGeometry(drawer, height, offsetY);
-    if (!keepMessagesAtBottom) return;
+    setChatDrawerLiveGeometry(drawer, height, offsetY, fullHeight, safeTopInset);
     const messages = document.getElementById('chat-messages');
-    if (messages) scrollChatMessagesToBottom(messages);
+    if (messages && messageBottomGap !== null) {
+      scrollChatMessagesToBottomGap(messages, messageBottomGap);
+    }
   };
 
   const moveDrag = (y: number) => {
@@ -729,16 +809,20 @@ function initChatSwipeToDismiss(): void {
 
     if (startDetent === 'half') {
       if (rawDeltaY < 0 && canExpandToFull) {
-        const requestedHeight = startRenderedHeight - rawDeltaY;
+        const upwardDistance = -rawDeltaY;
+        const consumedOffset = Math.min(startRenderedOffsetY, upwardDistance);
+        const requestedHeight = startRenderedHeight + upwardDistance - consumedOffset;
         const overshoot = Math.max(0, requestedHeight - fullHeight);
         setDragGeometry(
           Math.min(fullHeight, requestedHeight) + resistedDistance(overshoot),
-          Math.max(0, startRenderedOffsetY + rawDeltaY),
+          startRenderedOffsetY - consumedOffset,
         );
       } else if (rawDeltaY < 0) {
+        const upwardDistance = -rawDeltaY;
+        const consumedOffset = Math.min(startRenderedOffsetY, upwardDistance);
         setDragGeometry(
-          startRenderedHeight + resistedDistance(-rawDeltaY),
-          Math.max(0, startRenderedOffsetY + rawDeltaY),
+          startRenderedHeight + resistedDistance(upwardDistance - consumedOffset),
+          startRenderedOffsetY - consumedOffset,
         );
       } else {
         setDragGeometry(startRenderedHeight, startRenderedOffsetY + rawDeltaY);
@@ -747,11 +831,13 @@ function initChatSwipeToDismiss(): void {
     }
 
     if (rawDeltaY < 0) {
-      const requestedHeight = startRenderedHeight - rawDeltaY;
+      const upwardDistance = -rawDeltaY;
+      const consumedOffset = Math.min(startRenderedOffsetY, upwardDistance);
+      const requestedHeight = startRenderedHeight + upwardDistance - consumedOffset;
       const overshoot = Math.max(0, requestedHeight - fullHeight);
       setDragGeometry(
         Math.min(fullHeight, requestedHeight) + resistedDistance(overshoot),
-        Math.max(0, startRenderedOffsetY + rawDeltaY),
+        startRenderedOffsetY - consumedOffset,
       );
     } else if (canCollapseFullToHalf) {
       const requestedHeight = startRenderedHeight - rawDeltaY;
@@ -784,7 +870,7 @@ function initChatSwipeToDismiss(): void {
     }
 
     drawer.dataset.chatSnapSource = 'gesture';
-    setChatDrawerDetent(drawer, target, true);
+    setChatDrawerDetent(drawer, target, true, messageBottomGap ?? undefined);
   };
   _cancelActiveChatDrawerDrag = (restoreDetent = true) => {
     if (!isDragging) return;

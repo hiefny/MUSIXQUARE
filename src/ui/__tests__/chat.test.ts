@@ -541,6 +541,295 @@ describe('Chat Module', () => {
       document.documentElement.style.removeProperty('--app-height');
     });
 
+    it('interpolates the safe-top inset with live height before a full-height release', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+      document.documentElement.style.setProperty('--safe-top', '47px');
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => {
+        const liveHeight = Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'));
+        const height = Number.isFinite(liveHeight) && liveHeight > 0 ? liveHeight : 422;
+        return {
+          x: 0,
+          y: 844 - height,
+          width: 390,
+          height,
+          top: 844 - height,
+          right: 390,
+          bottom: 844,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      });
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      header.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientY: 600,
+        }),
+      );
+
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 389 }),
+      );
+      expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'))).toBe(633);
+      expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-safe-top'))).toBeCloseTo(
+        23.5,
+      );
+
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 178 }),
+      );
+      expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'))).toBe(844);
+      expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-safe-top'))).toBe(47);
+
+      window.dispatchEvent(
+        new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: 178 }),
+      );
+      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-safe-top'))).toBe(47);
+
+      const settled = new Event('transitionend');
+      Object.defineProperty(settled, 'propertyName', { value: 'height' });
+      drawer.dispatchEvent(settled);
+      expect(drawer.style.getPropertyValue('--chat-live-safe-top')).toBe('');
+
+      toggleChatDrawer();
+      document.documentElement.style.removeProperty('--app-height');
+      document.documentElement.style.removeProperty('--safe-top');
+    });
+
+    it('resolves an env safe-top token through a real padding property', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const nativeGetComputedStyle = window.getComputedStyle.bind(window);
+      const styleSpy = vi.spyOn(window, 'getComputedStyle').mockImplementation((element) => {
+        const style = nativeGetComputedStyle(element);
+        if (element === document.documentElement) {
+          return new Proxy(style, {
+            get(target, property) {
+              if (property === 'getPropertyValue') {
+                return (name: string) =>
+                  name === '--safe-top'
+                    ? 'env(safe-area-inset-top, 0px)'
+                    : target.getPropertyValue(name);
+              }
+              return Reflect.get(target, property, target);
+            },
+          });
+        }
+        if (element instanceof HTMLElement && element.style.paddingTop === 'var(--safe-top)') {
+          return new Proxy(style, {
+            get(target, property) {
+              if (property === 'paddingTop') return '47px';
+              return Reflect.get(target, property, target);
+            },
+          });
+        }
+        return style;
+      });
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => ({
+        x: 0,
+        y: 422,
+        width: 390,
+        height: 422,
+        top: 422,
+        right: 390,
+        bottom: 844,
+        left: 0,
+        toJSON: () => ({}),
+      }));
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      header.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientY: 600,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 389 }),
+      );
+
+      expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-safe-top'))).toBeCloseTo(
+        23.5,
+      );
+      expect(
+        styleSpy.mock.calls.filter(
+          ([element]) =>
+            element instanceof HTMLElement && element.style.paddingTop === 'var(--safe-top)',
+        ),
+      ).toHaveLength(2);
+
+      window.dispatchEvent(
+        new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: 389 }),
+      );
+      toggleChatDrawer();
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
+    it('consumes an in-flight opening offset before growing the drawer upward', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => {
+        const liveHeight = Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'));
+        const height = Number.isFinite(liveHeight) && liveHeight > 0 ? liveHeight : 422;
+        const offset = Number.parseFloat(drawer.style.getPropertyValue('--chat-offset-y')) || 0;
+        return {
+          x: 0,
+          y: 844 - height + offset,
+          width: 390,
+          height,
+          top: 844 - height + offset,
+          right: 390,
+          bottom: 844 + offset,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      });
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+      drawer.style.setProperty('--chat-offset-y', '120px');
+
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      header.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientY: 600,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 520 }),
+      );
+      expect(drawer.style.getPropertyValue('--chat-live-height')).toBe('422px');
+      expect(drawer.style.getPropertyValue('--chat-offset-y')).toBe('40px');
+      expect(drawer.getBoundingClientRect().top).toBe(462);
+
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 450 }),
+      );
+      expect(drawer.style.getPropertyValue('--chat-live-height')).toBe('452px');
+      expect(drawer.style.getPropertyValue('--chat-offset-y')).toBe('0px');
+      expect(drawer.getBoundingClientRect().top).toBe(392);
+
+      window.dispatchEvent(
+        new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: 450 }),
+      );
+      toggleChatDrawer();
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
+    it('preserves an older-read bottom gap through drag and snap until user takeover', async () => {
+      renderChatShell();
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      const anchorFrames: FrameRequestCallback[] = [];
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+        anchorFrames.push(callback);
+        return anchorFrames.length;
+      });
+      vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => undefined);
+      document.documentElement.style.setProperty('--app-height', '844px');
+
+      const drawer = document.getElementById('chat-drawer') as HTMLElement;
+      drawer.getBoundingClientRect = vi.fn(() => {
+        const liveHeight = Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'));
+        const height = Number.isFinite(liveHeight) && liveHeight > 0 ? liveHeight : 422;
+        return {
+          x: 0,
+          y: 844 - height,
+          width: 390,
+          height,
+          top: 844 - height,
+          right: 390,
+          bottom: 844,
+          left: 0,
+          toJSON: () => ({}),
+        };
+      });
+
+      let clientHeightAdjustment = 0;
+      const messages = document.getElementById('chat-messages') as HTMLElement;
+      Object.defineProperties(messages, {
+        scrollHeight: { configurable: true, value: 1_000 },
+        clientHeight: {
+          configurable: true,
+          get: () => {
+            const liveHeight = Number.parseFloat(
+              drawer.style.getPropertyValue('--chat-live-height'),
+            );
+            const height = Number.isFinite(liveHeight) && liveHeight > 0 ? liveHeight : 422;
+            return 400 + (height - 422) + clientHeightAdjustment;
+          },
+        },
+        scrollTop: { configurable: true, writable: true, value: 520 },
+      });
+
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      toggleChatDrawer();
+      messages.scrollTop = 520;
+      const header = drawer.querySelector('.chat-drawer-header') as HTMLElement;
+      header.dispatchEvent(
+        new MouseEvent('mousedown', {
+          bubbles: true,
+          cancelable: true,
+          button: 0,
+          clientY: 600,
+        }),
+      );
+      window.dispatchEvent(
+        new MouseEvent('mousemove', { bubbles: true, cancelable: true, clientY: 510 }),
+      );
+      expect(1_000 - messages.scrollTop - messages.clientHeight).toBe(80);
+      window.dispatchEvent(
+        new MouseEvent('mouseup', { bubbles: true, cancelable: true, clientY: 510 }),
+      );
+      expect(drawer.dataset.chatSnap).toBe('full');
+      expect(1_000 - messages.scrollTop - messages.clientHeight).toBe(80);
+
+      clientHeightAdjustment = 10;
+      const activeSnapFrames = [...anchorFrames];
+      for (const callback of activeSnapFrames) callback(window.performance.now() + 16);
+      expect(1_000 - messages.scrollTop - messages.clientHeight).toBe(80);
+
+      const staleSnapFrames = [...anchorFrames];
+      drawer.dispatchEvent(new Event('pointerdown'));
+      clientHeightAdjustment = 20;
+      for (const callback of staleSnapFrames) callback(window.performance.now() + 500);
+      expect(messages.scrollTop).toBe(88);
+
+      toggleChatDrawer();
+      document.documentElement.style.removeProperty('--app-height');
+    });
+
     it('keeps the latest message visible across detent changes without moving older reads', async () => {
       renderChatShell();
       vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);

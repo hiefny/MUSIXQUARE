@@ -41,6 +41,7 @@ const ja: Record<I18nKey, string> = {
   'account.login_title': 'ログイン',
   'account.login_cancelled': 'ログインがキャンセルされました。',
   'account.login_failed': 'ログインできませんでした。もう一度お試しください。',
+  'account.welcome_back': 'おかえりなさい\n{{name}}さん',
   'account.login_message':
     'Googleでログインすると、ルームが変わってもニックネームを引き継げます。ログインしなくても引き続き利用できます。',
   'account.google_continue': 'Googleで続ける',

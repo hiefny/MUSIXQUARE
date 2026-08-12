@@ -41,6 +41,7 @@ const es: Record<I18nKey, string> = {
   'account.login_title': 'Iniciar sesión',
   'account.login_cancelled': 'Se canceló el inicio de sesión.',
   'account.login_failed': 'No se pudo iniciar sesión. Inténtalo de nuevo.',
+  'account.welcome_back': 'Qué bueno verte de nuevo\n{{name}}',
   'account.login_message':
     'Inicia sesión con Google para conservar tu apodo entre salas. Puedes seguir usando MUSIXQUARE sin iniciar sesión.',
   'account.google_continue': 'Continuar con Google',

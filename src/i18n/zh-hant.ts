@@ -41,6 +41,7 @@ const zhHant: Record<I18nKey, string> = {
   'account.login_title': '登入',
   'account.login_cancelled': '已取消登入。',
   'account.login_failed': '無法登入，請再試一次。',
+  'account.welcome_back': '歡迎回來\n{{name}}',
   'account.login_message':
     '使用 Google 登入，即可在不同房間中保留暱稱。不登入也可以繼續使用 MUSIXQUARE。',
   'account.google_continue': '使用 Google 帳號繼續',

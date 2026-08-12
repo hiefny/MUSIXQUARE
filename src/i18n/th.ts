@@ -38,6 +38,7 @@ const th: Record<I18nKey, string> = {
   'account.login_title': 'เข้าสู่ระบบ',
   'account.login_cancelled': 'ยกเลิกการเข้าสู่ระบบแล้ว',
   'account.login_failed': 'เข้าสู่ระบบไม่ได้ ลองอีกครั้ง',
+  'account.welcome_back': 'ยินดีที่ได้พบกันอีก\n{{name}}',
   'account.login_message':
     'เข้าสู่ระบบด้วย Google เพื่อใช้ชื่อเล่นเดิมในทุกห้อง คุณยังใช้ MUSIXQUARE ต่อได้โดยไม่ต้องเข้าสู่ระบบ',
   'account.google_continue': 'ดำเนินการต่อด้วย Google',

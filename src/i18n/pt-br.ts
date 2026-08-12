@@ -41,6 +41,7 @@ const ptBr: Record<I18nKey, string> = {
   'account.login_title': 'Entrar',
   'account.login_cancelled': 'O login foi cancelado.',
   'account.login_failed': 'Não foi possível entrar. Tente novamente.',
+  'account.welcome_back': 'Que bom ter você de volta\n{{name}}',
   'account.login_message':
     'Entre com o Google para manter seu apelido em todas as salas. Você pode continuar usando o MUSIXQUARE sem entrar.',
   'account.google_continue': 'Continuar com o Google',

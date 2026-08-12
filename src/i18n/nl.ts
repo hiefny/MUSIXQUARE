@@ -42,6 +42,7 @@ const nl: Record<I18nKey, string> = {
   'account.login_title': 'Inloggen',
   'account.login_cancelled': 'Het inloggen is geannuleerd.',
   'account.login_failed': 'Inloggen mislukt. Probeer het opnieuw.',
+  'account.welcome_back': 'Welkom terug\n{{name}}',
   'account.login_message':
     'Log in met Google om je bijnaam in alle kamers te behouden. Je kunt MUSIXQUARE ook zonder inloggen blijven gebruiken.',
   'account.google_continue': 'Doorgaan met Google',

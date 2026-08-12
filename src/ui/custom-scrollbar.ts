@@ -16,6 +16,10 @@ const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
 const OVERFLOW_ROUNDING_TOLERANCE_PX = 2;
 const SCROLL_PUMP_IDLE_FRAMES = 3;
+// iOS can publish rubber-band scrollTop values after its asynchronous scroller
+// has already painted the endpoint. Keep the lightweight sampler alive long
+// enough to observe that handoff without making normal scrolling script-owned.
+const SCROLL_PUMP_ENDPOINT_TAIL_MS = 150;
 const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
 
 type ScrollDriver = 'script' | 'timeline';
@@ -46,11 +50,12 @@ interface ScrollbarState {
   maxThumbTop: number;
   renderedThumbHeight: number;
   renderedThumbTop: number;
-  renderedVisualHeight: string;
-  renderedVisualTop: number;
+  renderedVisualTransform: string;
   layoutFrame: number | null;
   scrollFrame: number | null;
   scrollIdleFrames: number;
+  lastTimelineScrollTop: number;
+  timelineEndpointTailUntil: number;
   scrollDriver: ScrollDriver;
   scrollAnimation: Animation | null;
   scrollTimeline: AnimationTimeline | null;
@@ -77,26 +82,18 @@ function setScrollDriver(state: ScrollbarState, driver: ScrollDriver): void {
   state.track.dataset.scrollDriver = driver;
 }
 
-function setThumbVisualGeometry(state: ScrollbarState, height: string, top: number): boolean {
-  let changed = false;
-  if (state.renderedVisualHeight !== height) {
-    state.renderedVisualHeight = height;
-    state.thumbVisual.style.height = height;
-    changed = true;
-  }
-  if (state.renderedVisualTop !== top) {
-    state.renderedVisualTop = top;
-    state.thumbVisual.style.transform = `translateY(${top}px)`;
-    changed = true;
-  }
-  return changed;
+function setThumbVisualTransform(state: ScrollbarState, transform: string): boolean {
+  if (state.renderedVisualTransform === transform) return false;
+  state.renderedVisualTransform = transform;
+  state.thumbVisual.style.transform = transform;
+  return true;
 }
 
 function resetScriptThumbVisual(state: ScrollbarState): boolean {
   // The proven script fallback retains ownership of the outer thumb's height
   // and position, including its rubber-band compression. The nested visual
   // simply fills that exact geometry in this mode.
-  return setThumbVisualGeometry(state, '100%', 0);
+  return setThumbVisualTransform(state, 'translateY(0px) scaleY(1)');
 }
 
 function cancelScrollTimeline(state: ScrollbarState): void {
@@ -105,6 +102,8 @@ function cancelScrollTimeline(state: ScrollbarState): void {
   state.scrollAnimation = null;
   state.scrollTimeline = null;
   state.timelineMaxThumbTop = Number.NaN;
+  state.lastTimelineScrollTop = Number.NaN;
+  state.timelineEndpointTailUntil = 0;
   setScrollDriver(state, 'script');
   resetScriptThumbVisual(state);
 }
@@ -147,18 +146,38 @@ function seedTimelineInlinePosition(state: ScrollbarState): void {
  * child moves down by exactly the amount it lost, preserving the old fixed
  * bottom edge (`visibleHeight - elasticHeight`) geometry.
  */
-function updateTimelineElasticity(state: ScrollbarState): boolean {
+function updateTimelineElasticity(
+  state: ScrollbarState,
+  now = performance.now(),
+  fromScrollEvent = false,
+): boolean {
   const { container, thumbHeight, maxScroll, maxThumbTop } = state;
   if (state.scrollDriver !== 'timeline' || !state.hasOverflow || maxScroll <= 0) return false;
 
-  const rawThumbTop = (container.scrollTop / maxScroll) * maxThumbTop;
+  const rawScrollTop = container.scrollTop;
+  const positionChanged = rawScrollTop !== state.lastTimelineScrollTop;
+  state.lastTimelineScrollTop = rawScrollTop;
+
+  const atEndpoint = rawScrollTop <= 0 || rawScrollTop >= maxScroll;
+  if (atEndpoint && (fromScrollEvent || positionChanged)) {
+    state.timelineEndpointTailUntil = now + SCROLL_PUMP_ENDPOINT_TAIL_MS;
+  } else if (!atEndpoint && positionChanged) {
+    state.timelineEndpointTailUntil = 0;
+  }
+
+  const rawThumbTop = (rawScrollTop / maxScroll) * maxThumbTop;
   const compression = Math.min(0, rawThumbTop, maxThumbTop - rawThumbTop);
   const elasticHeight = Math.max(THUMB_MIN_HEIGHT * 0.5, thumbHeight + compression);
-  return setThumbVisualGeometry(
+  const visualChanged = setThumbVisualTransform(
     state,
-    `${elasticHeight}px`,
-    rawThumbTop > maxThumbTop ? thumbHeight - elasticHeight : 0,
+    `translateY(${rawThumbTop > maxThumbTop ? thumbHeight - elasticHeight : 0}px) scaleY(${
+      elasticHeight / thumbHeight
+    })`,
   );
+  // In timeline mode ordinary movement changes only the browser-owned outer
+  // thumb. Count the sampled raw offset as activity so this pump does not go
+  // idle three frames into an otherwise active asynchronous scroll session.
+  return visualChanged || positionChanged;
 }
 
 /**
@@ -509,7 +528,7 @@ function scheduleScrollPump(state: ScrollbarState): void {
   if (state.destroyed || !state.hasOverflow || state.scrollFrame !== null) {
     return;
   }
-  state.scrollFrame = window.requestAnimationFrame(() => {
+  state.scrollFrame = window.requestAnimationFrame((now) => {
     state.scrollFrame = null;
     if (state.destroyed) return;
 
@@ -521,7 +540,13 @@ function scheduleScrollPump(state: ScrollbarState): void {
     // advance on the compositor between main-thread scroll events; this short
     // pump lets the thumb observe those intermediate positions exactly, with
     // no EMA/easing lag.
-    if (state.isDragging || state.scrollIdleFrames < SCROLL_PUMP_IDLE_FRAMES) {
+    const withinEndpointTail =
+      state.scrollDriver === 'timeline' && now < state.timelineEndpointTailUntil;
+    if (
+      state.isDragging ||
+      state.scrollIdleFrames < SCROLL_PUMP_IDLE_FRAMES ||
+      withinEndpointTail
+    ) {
       scheduleScrollPump(state);
     }
   });
@@ -604,11 +629,12 @@ export function initCustomScrollbar(container: HTMLElement): void {
     maxThumbTop: 0,
     renderedThumbHeight: Number.NaN,
     renderedThumbTop: Number.NaN,
-    renderedVisualHeight: '',
-    renderedVisualTop: Number.NaN,
+    renderedVisualTransform: '',
     layoutFrame: null,
     scrollFrame: null,
     scrollIdleFrames: SCROLL_PUMP_IDLE_FRAMES,
+    lastTimelineScrollTop: Number.NaN,
+    timelineEndpointTailUntil: 0,
     scrollDriver: 'script',
     scrollAnimation: null,
     scrollTimeline: null,
@@ -637,6 +663,12 @@ export function initCustomScrollbar(container: HTMLElement): void {
     }
     showTrack(state);
     state.scrollIdleFrames = 0;
+    // Remove the avoidable extra-frame delay at the endpoint. This samples
+    // one cached scalar and writes only the nested visual's transform; normal
+    // thumb movement remains exclusively owned by ScrollTimeline.
+    if (state.scrollDriver === 'timeline') {
+      updateTimelineElasticity(state, performance.now(), true);
+    }
     scheduleScrollPump(state);
   };
   container.addEventListener('scroll', onScroll, { passive: true });

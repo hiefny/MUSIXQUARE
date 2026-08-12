@@ -22,9 +22,9 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 
 export const INITIAL_TRANSFER_BUDGET = Object.freeze({
   entryScriptRawBytes: 1_320_000,
-  // Account recovery adds a small resilience boundary to the eager shell.
+  // Endpoint elasticity latency sampling adds a small boundary to the eager shell.
   // Keep this ratchet tight to that reviewed delta; all other limits stay put.
-  entryScriptGzipBytes: 385_256,
+  entryScriptGzipBytes: 385_512,
   eagerJavaScriptGzipBytes: 391_000,
   eagerTotalRawBytes: 1_700_000,
   eagerTotalGzipBytes: 453_000,

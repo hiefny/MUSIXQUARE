@@ -213,6 +213,17 @@ function createScrollbox(id: string, mount: HTMLElement = document.body): Scroll
   return box;
 }
 
+function readVisualTransform(element: HTMLElement): { translateY: number; scaleY: number } {
+  const match = /^translateY\(([-+\d.eE]+)px\) scaleY\(([-+\d.eE]+)\)$/u.exec(
+    element.style.transform,
+  );
+  if (!match) throw new Error(`Unexpected thumb visual transform: ${element.style.transform}`);
+  return {
+    translateY: Number(match[1]),
+    scaleY: Number(match[2]),
+  };
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
   clearAllManagedTimers();
@@ -439,6 +450,68 @@ describe('custom-scrollbar compositor hot path', () => {
     }
   });
 
+  it('keeps timeline sampling alive through normal movement and delayed endpoint overscroll', () => {
+    const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
+    const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
+    Object.defineProperty(globalThis, 'ScrollTimeline', {
+      configurable: true,
+      value: class ScrollTimelineStub {},
+    });
+    Object.defineProperty(HTMLElement.prototype, 'animate', {
+      configurable: true,
+      value: vi.fn(
+        (
+          _keyframes: Keyframe[] | PropertyIndexedKeyframes,
+          options?: number | KeyframeAnimationOptions,
+        ) =>
+          ({
+            cancel: vi.fn(),
+            ready: Promise.resolve(),
+            timeline: typeof options === 'object' ? options.timeline : null,
+          }) as unknown as Animation,
+      ),
+    });
+
+    try {
+      const box = createScrollbox('timeline-endpoint-tail');
+      initCustomScrollbar(box.container);
+      const visual = box.track().querySelector<HTMLElement>('.cscroll-thumb-visual')!;
+      const base = performance.now();
+
+      box.container.scrollTop = 100;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame(base + 16);
+
+      // The compositor can publish a new raw offset before the next main-thread
+      // scroll event. That movement itself keeps the sampler active.
+      box.container.scrollTop = 200;
+      flushAnimationFrame(base + 32);
+      expect(_rafCallbacks.size).toBe(1);
+
+      box.container.scrollTop = 800;
+      box.container.dispatchEvent(new Event('scroll'));
+      expect(readVisualTransform(visual)).toEqual({ translateY: 0, scaleY: 1 });
+
+      // Four quiet frames exceed the ordinary three-frame budget. The 150ms
+      // endpoint tail must still be running when iOS exposes overscroll late.
+      flushAnimationFrame(base + 48);
+      flushAnimationFrame(base + 64);
+      flushAnimationFrame(base + 80);
+      flushAnimationFrame(base + 96);
+      expect(_rafCallbacks.size).toBe(1);
+
+      box.container.scrollTop = 820;
+      flushAnimationFrame(base + 112);
+      expect(readVisualTransform(visual)).toEqual({ translateY: 4, scaleY: 0.9 });
+      expect(_rafCallbacks.size).toBe(1);
+    } finally {
+      if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
+      else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
+      if (originalAnimate) Object.defineProperty(HTMLElement.prototype, 'animate', originalAnimate);
+      else Reflect.deleteProperty(HTMLElement.prototype, 'animate');
+    }
+  });
+
   it('keeps timeline thumb height normal when relayout happens during rubber-band offsets', async () => {
     const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
     const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
@@ -470,7 +543,8 @@ describe('custom-scrollbar compositor hot path', () => {
 
       expect(animate).toHaveBeenCalledTimes(1);
       expect(thumb.style.height).toBe('40px');
-      expect(visual.style.height).toBe('40px');
+      expect(visual.style.height).toBe('');
+      expect(readVisualTransform(visual)).toEqual({ translateY: 0, scaleY: 1 });
 
       // Ordinary endpoint elasticity changes only the nested visual. The
       // browser-owned outer position/height and its timeline stay untouched.
@@ -480,27 +554,30 @@ describe('custom-scrollbar compositor hot path', () => {
 
       box.container.scrollTop = -20;
       box.container.dispatchEvent(new Event('scroll'));
+      // Timeline mode samples in the scroll callback, avoiding an extra rAF of
+      // visible endpoint delay while leaving the outer thumb browser-owned.
+      expect(readVisualTransform(visual)).toEqual({ translateY: 0, scaleY: 0.9 });
       flushAnimationFrame();
       expect(box.track().dataset.scrollDriver).toBe('timeline');
       expect(animate).toHaveBeenCalledTimes(1);
       expect(thumb.style.height).toBe('40px');
       expect(thumb.style.transform).toBe('translateY(0px)');
-      expect(visual.style.height).toBe('36px');
-      expect(visual.style.transform).toBe('translateY(0px)');
+      expect(visual.style.height).toBe('');
+      expect(readVisualTransform(visual)).toEqual({ translateY: 0, scaleY: 0.9 });
 
       box.container.scrollTop = 820;
       box.container.dispatchEvent(new Event('scroll'));
       flushAnimationFrame();
       expect(animate).toHaveBeenCalledTimes(1);
       expect(thumb.style.height).toBe('40px');
-      expect(visual.style.height).toBe('36px');
-      expect(visual.style.transform).toBe('translateY(4px)');
+      expect(visual.style.height).toBe('');
+      expect(readVisualTransform(visual)).toEqual({ translateY: 4, scaleY: 0.9 });
 
       box.container.scrollTop = 400;
       box.container.dispatchEvent(new Event('scroll'));
       flushAnimationFrame();
-      expect(visual.style.height).toBe('40px');
-      expect(visual.style.transform).toBe('translateY(0px)');
+      expect(visual.style.height).toBe('');
+      expect(readVisualTransform(visual)).toEqual({ translateY: 0, scaleY: 1 });
       expect(animate).toHaveBeenCalledTimes(1);
       await flushMutationObservers();
       expect(outerMutations).toHaveLength(0);
@@ -513,8 +590,9 @@ describe('custom-scrollbar compositor hot path', () => {
       expect(box.track().dataset.scrollDriver).toBe('timeline');
       expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(48.4, 5);
       expect(thumb.style.transform).toBe('translateY(0px)');
-      expect(Number.parseFloat(visual.style.height)).toBeCloseTo(44, 5);
-      expect(visual.style.transform).toBe('translateY(0px)');
+      expect(visual.style.height).toBe('');
+      expect(readVisualTransform(visual).translateY).toBe(0);
+      expect(readVisualTransform(visual).scaleY).toBeCloseTo(44 / 48.4, 5);
 
       box.container.scrollTop = 900;
       box.setClientHeight(240);
@@ -522,11 +600,9 @@ describe('custom-scrollbar compositor hot path', () => {
       flushAnimationFrame();
       expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(57.6, 5);
       expect(thumb.style.transform).toBe('translateY(182.4px)');
-      expect(Number.parseFloat(visual.style.height)).toBeCloseTo(24, 5);
-      expect(Number.parseFloat(visual.style.transform.match(/[-\d.]+/u)?.[0] ?? '')).toBeCloseTo(
-        33.6,
-        5,
-      );
+      expect(visual.style.height).toBe('');
+      expect(readVisualTransform(visual).translateY).toBeCloseTo(33.6, 5);
+      expect(readVisualTransform(visual).scaleY).toBeCloseTo(24 / 57.6, 5);
       expect(animate).toHaveBeenCalledTimes(3); // only the two changed endpoints rebuild
     } finally {
       if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
@@ -679,8 +755,8 @@ describe('custom-scrollbar compositor hot path', () => {
     await flushMutationObservers();
     expect(mutations).toHaveLength(2); // compressed height + clamped transform
     expect(Number.parseFloat(thumb.style.height)).toBeLessThan(40);
-    expect(visual.style.height).toBe('100%');
-    expect(visual.style.transform).toBe('translateY(0px)');
+    expect(visual.style.height).toBe('');
+    expect(visual.style.transform).toBe('translateY(0px) scaleY(1)');
 
     mutations.length = 0;
     box.container.scrollTop = 0;

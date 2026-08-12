@@ -170,13 +170,38 @@ async function expectThumbAtRatio(fixture: ScrollFixture, ratio: number): Promis
     .toBeLessThan(1);
 }
 
-async function exposeSyntheticScrollTop(fixture: ScrollFixture, scrollTop: number): Promise<void> {
-  await fixture.owner.evaluate((element, syntheticScrollTop) => {
+interface SynchronousScrollSample {
+  beforeTransform: string;
+  afterTransform: string;
+  beforeHeight: string;
+  afterHeight: string;
+}
+
+async function exposeSyntheticScrollTop(
+  fixture: ScrollFixture,
+  scrollTop: number,
+): Promise<SynchronousScrollSample> {
+  return fixture.owner.evaluate((element, syntheticScrollTop) => {
+    const visual = element.parentElement?.querySelector<HTMLElement>(
+      ':scope > .cscroll-track > .cscroll-thumb > .cscroll-thumb-visual',
+    );
+    if (!visual) throw new Error('Scrollbar visual is unavailable');
+
+    const beforeTransform = visual.style.transform;
+    const beforeHeight = visual.style.height;
     Object.defineProperty(element, 'scrollTop', {
       configurable: true,
       get: () => syntheticScrollTop,
     });
     element.dispatchEvent(new Event('scroll'));
+    // Read in the same task, before requestAnimationFrame can run. This
+    // distinguishes the event-path latency fix from the background pump.
+    return {
+      beforeTransform,
+      afterTransform: visual.style.transform,
+      beforeHeight,
+      afterHeight: visual.style.height,
+    };
   }, scrollTop);
 }
 
@@ -313,7 +338,11 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
       });
     });
 
-    await exposeSyntheticScrollTop(fixture, -100);
+    const topEventSample = await exposeSyntheticScrollTop(fixture, -100);
+    expect(topEventSample.afterTransform).not.toBe(topEventSample.beforeTransform);
+    expect(topEventSample.afterTransform).toMatch(/scaleY\((?!1\))[^)]+\)$/u);
+    expect(topEventSample.beforeHeight).toBe('');
+    expect(topEventSample.afterHeight).toBe('');
     await expect.poll(async () => visualMetrics(fixture)).toMatchObject({ top: 0 });
     await expect.poll(async () => (await visualMetrics(fixture)).height).toBeLessThan(normalHeight);
     await waitForDriver(fixture, 'timeline');
@@ -327,7 +356,11 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     const maxScroll = await fixture.owner.evaluate(
       (element) => element.scrollHeight - element.clientHeight,
     );
-    await exposeSyntheticScrollTop(fixture, maxScroll + 100);
+    const bottomEventSample = await exposeSyntheticScrollTop(fixture, maxScroll + 100);
+    expect(bottomEventSample.afterTransform).not.toBe(bottomEventSample.beforeTransform);
+    expect(bottomEventSample.afterTransform).toMatch(/translateY\((?!0px\))[^)]+\) scaleY\(/u);
+    expect(bottomEventSample.beforeHeight).toBe('');
+    expect(bottomEventSample.afterHeight).toBe('');
     await expect
       .poll(async () => {
         const metrics = await visualMetrics(fixture);
@@ -358,6 +391,122 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
       };
     });
     expect(isolation).toEqual({ sameAnimation: true, outerStyleWrites: 0 });
+  });
+
+  test('observes delayed endpoint overscroll after more than three quiet frames', async ({
+    page,
+  }) => {
+    await skipIfScrollTimelineUnavailable(page);
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await waitForDriver(fixture, 'timeline');
+
+    const result = await fixture.owner.evaluate(async (element) => {
+      const visual = element.parentElement?.querySelector<HTMLElement>(
+        ':scope > .cscroll-track > .cscroll-thumb > .cscroll-thumb-visual',
+      );
+      const thumb = visual?.parentElement;
+      if (!visual || !thumb) throw new Error('Scrollbar visual is unavailable');
+
+      let rawScrollTop = 0;
+      Object.defineProperty(element, 'scrollTop', {
+        configurable: true,
+        get: () => rawScrollTop,
+      });
+
+      const animation = thumb.getAnimations()[0];
+      let outerStyleWrites = 0;
+      const observer = new MutationObserver((records) => {
+        outerStyleWrites += records.length;
+      });
+      observer.observe(thumb, { attributes: true, attributeFilter: ['style'] });
+
+      const inlineHeightBefore = visual.style.height;
+      element.dispatchEvent(new Event('scroll'));
+      const startedAt = performance.now();
+      const nextFrame = () =>
+        new Promise<number>((resolve) => window.requestAnimationFrame(resolve));
+
+      // The historical pump stopped after three unchanged samples. Keep the
+      // raw endpoint unchanged for four complete animation frames, then
+      // expose iOS's late rubber-band value without dispatching another event.
+      for (let frame = 0; frame < 4; frame += 1) await nextFrame();
+      const elapsedBeforeLateValue = performance.now() - startedAt;
+      rawScrollTop = -100;
+      await nextFrame();
+      await nextFrame();
+
+      const lateTransform = visual.style.transform;
+      const inlineHeightAfter = visual.style.height;
+      if (!Reflect.deleteProperty(element, 'scrollTop')) {
+        throw new Error('Synthetic scrollTop could not be removed');
+      }
+      element.dispatchEvent(new Event('scroll'));
+      await Promise.resolve();
+      observer.disconnect();
+
+      return {
+        elapsedBeforeLateValue,
+        lateTransform,
+        inlineHeightBefore,
+        inlineHeightAfter,
+        sameAnimation: thumb.getAnimations().length === 1 && thumb.getAnimations()[0] === animation,
+        outerStyleWrites,
+      };
+    });
+
+    expect(result.elapsedBeforeLateValue).toBeLessThan(150);
+    expect(result.lateTransform).toMatch(/scaleY\((?!1\))[^)]+\)$/u);
+    expect(result.inlineHeightBefore).toBe('');
+    expect(result.inlineHeightAfter).toBe('');
+    expect(result.sameAnimation).toBe(true);
+    expect(result.outerStyleWrites).toBe(0);
+    await expectVisualFillsOuter(fixture);
+  });
+
+  test('keeps sampling while normal raw offsets continue moving', async ({ page }) => {
+    await skipIfScrollTimelineUnavailable(page);
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await waitForDriver(fixture, 'timeline');
+
+    const lateTransform = await fixture.owner.evaluate(async (element) => {
+      const visual = element.parentElement?.querySelector<HTMLElement>(
+        ':scope > .cscroll-track > .cscroll-thumb > .cscroll-thumb-visual',
+      );
+      if (!visual) throw new Error('Scrollbar visual is unavailable');
+
+      const maxScroll = element.scrollHeight - element.clientHeight;
+      let rawScrollTop = maxScroll * 0.2;
+      Object.defineProperty(element, 'scrollTop', {
+        configurable: true,
+        get: () => rawScrollTop,
+      });
+      element.dispatchEvent(new Event('scroll'));
+
+      const nextFrame = () =>
+        new Promise<number>((resolve) => window.requestAnimationFrame(resolve));
+      // Normal-range ScrollTimeline motion does not change the nested visual.
+      // Move its raw source for more than three frames to prove those samples
+      // still count as activity and keep the pump alive.
+      for (let frame = 0; frame < 5; frame += 1) {
+        await nextFrame();
+        rawScrollTop = maxScroll * (0.25 + frame * 0.05);
+      }
+      rawScrollTop = -100;
+      await nextFrame();
+      await nextFrame();
+      const transform = visual.style.transform;
+
+      if (!Reflect.deleteProperty(element, 'scrollTop')) {
+        throw new Error('Synthetic scrollTop could not be removed');
+      }
+      element.dispatchEvent(new Event('scroll'));
+      return transform;
+    });
+
+    expect(lateTransform).toMatch(/scaleY\((?!1\))[^)]+\)$/u);
+    await expectVisualFillsOuter(fixture);
   });
 
   test('rebuilds its timeline after resize and a hidden-to-visible transition', async ({

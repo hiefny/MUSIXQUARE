@@ -444,29 +444,50 @@ export function updateTitleWithMarquee(text: string): void {
 
 // ─── Clipboard ───────────────────────────────────────────────────
 
+function copyTextWithDom(text: string): boolean {
+  if (!document.body || typeof document.execCommand !== 'function') return false;
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  const textarea = document.createElement('textarea');
+  try {
+    textarea.value = text;
+    textarea.readOnly = true;
+    textarea.setAttribute('aria-hidden', 'true');
+    textarea.style.cssText =
+      'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;font-size:16px';
+    document.body.appendChild(textarea);
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    textarea.setSelectionRange(0, text.length);
+    return document.execCommand('copy');
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+    if (active?.isConnected) active.focus({ preventScroll: true });
+    if (range && selection) {
+      selection.removeAllRanges();
+      selection.addRange(range);
+    }
+  }
+}
+
 export async function copyTextToClipboard(text: string): Promise<boolean> {
+  // iOS WebKit can reject Async Clipboard after a long touch has exhausted its
+  // transient activation. Complete the DOM copy while the trusted pointer/key
+  // event is still on the stack, before crossing any Promise boundary.
+  if (copyTextWithDom(text)) return true;
+
   if (navigator.clipboard?.writeText) {
     try {
+      // Invocation happens synchronously; only completion crosses the await.
       await navigator.clipboard.writeText(text);
       return true;
     } catch (error) {
-      log.warn('[Clipboard] Async API failed; trying the DOM fallback:', error);
+      log.warn('[Clipboard] Async API failed:', error);
     }
   }
 
-  let textarea: HTMLTextAreaElement | null = null;
-  try {
-    textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.left = '-9999px';
-    document.body.appendChild(textarea);
-    textarea.select();
-    return document.execCommand('copy');
-  } catch (e) {
-    log.warn('[Clipboard] Copy failed:', e);
-    return false;
-  } finally {
-    textarea?.remove();
-  }
+  return false;
 }

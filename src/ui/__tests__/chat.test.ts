@@ -1283,6 +1283,7 @@ describe('Chat Module', () => {
 
   describe('chat bubble copy gestures', () => {
     let originalClipboardDescriptor: PropertyDescriptor | undefined;
+    let originalExecCommandDescriptor: PropertyDescriptor | undefined;
 
     function renderCopyShell(): void {
       document.body.innerHTML = `
@@ -1343,6 +1344,7 @@ describe('Chat Module', () => {
 
     beforeEach(() => {
       originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      originalExecCommandDescriptor = Object.getOwnPropertyDescriptor(document, 'execCommand');
     });
 
     afterEach(() => {
@@ -1350,6 +1352,11 @@ describe('Chat Module', () => {
         Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor);
       } else {
         Reflect.deleteProperty(navigator, 'clipboard');
+      }
+      if (originalExecCommandDescriptor) {
+        Object.defineProperty(document, 'execCommand', originalExecCommandDescriptor);
+      } else {
+        Reflect.deleteProperty(document, 'execCommand');
       }
       vi.useRealTimers();
     });
@@ -1384,29 +1391,42 @@ describe('Chat Module', () => {
       expect(showToast).toHaveBeenNthCalledWith(2, 'chat.copied');
     });
 
-    it('arms a touch hold but invokes the clipboard synchronously from pointerup', async () => {
+    it('copies a long touch hold synchronously from pointerup when Async Clipboard would reject', async () => {
       vi.useFakeTimers();
       renderCopyShell();
       const writeText = installClipboard();
+      writeText.mockRejectedValue(new DOMException('expired activation', 'NotAllowedError'));
+      let dispatchingPointerUp = false;
+      const execCommand = vi.fn(() => {
+        expect(dispatchingPointerUp).toBe(true);
+        return true;
+      });
+      Object.defineProperty(document, 'execCommand', {
+        configurable: true,
+        value: execCommand,
+      });
       const { addChatMessage } = await import('../chat-render.ts');
       await initCopyChat();
       addChatMessage('Peer', 'hold to copy', false);
       const bubble = document.querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')!;
 
       dispatchTouchPointer(bubble, 'pointerdown');
-      vi.advanceTimersByTime(500);
+      vi.advanceTimersByTime(1_000);
       expect(writeText).not.toHaveBeenCalled();
 
+      dispatchingPointerUp = true;
       const pointerUp = dispatchTouchPointer(bubble, 'pointerup');
+      dispatchingPointerUp = false;
       expect(pointerUp.defaultPrevented).toBe(true);
-      expect(writeText).toHaveBeenCalledWith('hold to copy');
+      expect(execCommand).toHaveBeenCalledWith('copy');
+      expect(writeText).not.toHaveBeenCalled();
       await Promise.resolve();
       await Promise.resolve();
       expect(showToast).toHaveBeenCalledWith('chat.copied');
 
       // The compatibility click emitted by touch browsers must not duplicate it.
       bubble.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
-      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(execCommand).toHaveBeenCalledTimes(1);
     });
 
     it('shows the established failure toast when neither clipboard path succeeds', async () => {

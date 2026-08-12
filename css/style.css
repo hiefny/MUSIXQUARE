@@ -9219,30 +9219,6 @@
       margin-bottom: 12px !important;
     }
 
-    /* The compact pane owns its safe inset for metadata and controls, but the
-       YouTube picture itself should bleed beneath a landscape notch. Balance
-       the negative margins against the pane padding so the media box reaches
-       x=0 and the sidebar boundary without creating horizontal overflow. */
-    @media (orientation: landscape) {
-      body.mode-youtube #tab-play.active .video-wrapper:not(.fake-fullscreen) {
-        width: calc(100% + var(--safe-left) + 48px) !important;
-        max-width: none !important;
-        margin-left: calc(-24px - var(--safe-left)) !important;
-        margin-right: -24px !important;
-        border-radius: 0 !important;
-      }
-
-      body.mode-youtube #tab-play.active #youtube-player-container,
-      body.mode-youtube #tab-play.active #youtube-player-container iframe {
-        width: 100% !important;
-        max-width: none !important;
-      }
-
-      body.mode-youtube #tab-play.active #youtube-player-container iframe {
-        display: block;
-      }
-    }
-
     .vinyl-wrapper {
       max-height: 40vh !important;
     }

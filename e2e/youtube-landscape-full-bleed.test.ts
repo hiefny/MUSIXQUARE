@@ -111,13 +111,11 @@ function expectClose(actual: number, expected: number): void {
   expect(Math.abs(actual - expected)).toBeLessThanOrEqual(0.75);
 }
 
-function expectStageFillsPane(geometry: StageGeometry, expectedPaneRight: number): void {
-  expectClose(geometry.pane.left, 0);
-  expectClose(geometry.pane.right, expectedPaneRight);
-  for (const media of [geometry.wrapper, geometry.container, geometry.iframe]) {
-    expectClose(media.left, 0);
-    expectClose(media.right, expectedPaneRight);
-    expectClose(media.width, expectedPaneRight);
+function expectStageMatchesWrapper(geometry: StageGeometry): void {
+  for (const media of [geometry.container, geometry.iframe]) {
+    expectClose(media.left, geometry.wrapper.left);
+    expectClose(media.right, geometry.wrapper.right);
+    expectClose(media.width, geometry.wrapper.width);
   }
 }
 
@@ -127,25 +125,31 @@ function expectNoHorizontalOverflow(geometry: StageGeometry): void {
   expect(geometry.paneScrollWidth).toBeLessThanOrEqual(geometry.paneClientWidth + 1);
 }
 
-test.describe('compact-landscape YouTube stage geometry', () => {
+test.describe('mobile YouTube stage geometry', () => {
   for (const safe of [
     { name: 'notch on the media edge', left: 47, right: 0 },
     { name: 'notch on the sidebar edge', left: 0, right: 47 },
   ]) {
-    test(`bleeds only media to both physical pane edges with ${safe.name}`, async ({ page }) => {
+    test(`keeps Friday's inset 16:9 card with ${safe.name}`, async ({ page }) => {
       await openYouTubeStageFixture(page);
       await setViewportAndSafeInsets(page, { width: 844, height: 390 }, safe);
 
       const geometry = await readStageGeometry(page);
       const paneRight = 844 - 200 - safe.right;
-      expectStageFillsPane(geometry, paneRight);
+      expectClose(geometry.pane.left, 0);
+      expectClose(geometry.pane.right, paneRight);
+      expectClose(geometry.wrapper.left, safe.left + 24);
+      expectClose(geometry.wrapper.right, paneRight - 24);
+      expectClose(geometry.wrapper.width, paneRight - safe.left - 48);
+      expectStageMatchesWrapper(geometry);
 
-      // Track metadata and transport controls retain the normal content inset;
-      // only the black video stage is allowed beneath a landscape notch.
-      expect(geometry.track.left).toBeGreaterThanOrEqual(safe.left);
-      expect(geometry.controls.left).toBeGreaterThanOrEqual(safe.left);
-      expect(geometry.track.right).toBeLessThanOrEqual(paneRight);
-      expect(geometry.controls.right).toBeLessThanOrEqual(paneRight);
+      // The stage, metadata, and controls all keep the pane's safe inset. This
+      // is the rounded/max-600 landscape contract used by the Friday release;
+      // only explicit fake fullscreen may extend beneath a notch.
+      expect(geometry.track.left).toBeGreaterThanOrEqual(geometry.wrapper.left);
+      expect(geometry.controls.left).toBeGreaterThanOrEqual(geometry.wrapper.left);
+      expect(geometry.track.right).toBeLessThanOrEqual(geometry.wrapper.right);
+      expect(geometry.controls.right).toBeLessThanOrEqual(geometry.wrapper.right);
       expectNoHorizontalOverflow(geometry);
     });
   }
@@ -157,12 +161,20 @@ test.describe('compact-landscape YouTube stage geometry', () => {
 
     await setViewportAndSafeInsets(page, { width: 390, height: 844 }, { left: 0, right: 0 });
     const portraitBefore = await readStageGeometry(page);
-    expectStageFillsPane(portraitBefore, 390);
+    expectClose(portraitBefore.pane.left, 0);
+    expectClose(portraitBefore.pane.right, 390);
+    expectClose(portraitBefore.wrapper.left, 0);
+    expectClose(portraitBefore.wrapper.right, 390);
+    expectStageMatchesWrapper(portraitBefore);
     expectNoHorizontalOverflow(portraitBefore);
 
     await setViewportAndSafeInsets(page, { width: 844, height: 390 }, { left: 47, right: 0 });
     const landscape = await readStageGeometry(page);
-    expectStageFillsPane(landscape, 644);
+    expectClose(landscape.pane.right, 644);
+    expectClose(landscape.wrapper.left, 71);
+    expectClose(landscape.wrapper.right, 620);
+    expectClose(landscape.wrapper.width, 549);
+    expectStageMatchesWrapper(landscape);
     expectNoHorizontalOverflow(landscape);
 
     await page.evaluate(() => {
@@ -183,7 +195,9 @@ test.describe('compact-landscape YouTube stage geometry', () => {
     });
     await setViewportAndSafeInsets(page, { width: 390, height: 844 }, { left: 0, right: 0 });
     const portraitAfter = await readStageGeometry(page);
-    expectStageFillsPane(portraitAfter, 390);
+    expectClose(portraitAfter.wrapper.left, 0);
+    expectClose(portraitAfter.wrapper.right, 390);
+    expectStageMatchesWrapper(portraitAfter);
     expectClose(portraitAfter.wrapper.width, portraitBefore.wrapper.width);
     expectNoHorizontalOverflow(portraitAfter);
   });

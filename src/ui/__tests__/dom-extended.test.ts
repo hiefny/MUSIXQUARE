@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { bus } from '../../core/events.ts';
 import {
   escapeHtml,
@@ -78,55 +78,148 @@ describe('animateTransition', () => {
 });
 
 describe('copyTextToClipboard', () => {
+  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const originalExecCommand = Object.getOwnPropertyDescriptor(document, 'execCommand');
+
+  function installClipboard(writeText: ReturnType<typeof vi.fn>): void {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+  }
+
+  function installExecCommand(execCommand?: ReturnType<typeof vi.fn>): void {
+    if (!execCommand) {
+      Reflect.deleteProperty(document, 'execCommand');
+      return;
+    }
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: execCommand,
+    });
+  }
+
   beforeEach(() => {
     vi.restoreAllMocks();
+    document.body.innerHTML = '';
+    window.getSelection()?.removeAllRanges();
   });
 
-  it('returns true when clipboard API succeeds', async () => {
-    Object.assign(navigator, {
-      clipboard: {
-        writeText: vi.fn().mockResolvedValue(undefined),
-      },
+  afterEach(() => {
+    if (originalClipboard) {
+      Object.defineProperty(navigator, 'clipboard', originalClipboard);
+    } else {
+      Reflect.deleteProperty(navigator, 'clipboard');
+    }
+    if (originalExecCommand) {
+      Object.defineProperty(document, 'execCommand', originalExecCommand);
+    } else {
+      Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
+  it('starts the Async Clipboard fallback in the current event stack', async () => {
+    installExecCommand(vi.fn(() => false));
+    let inEventStack = true;
+    const writeText = vi.fn(() => {
+      expect(inEventStack).toBe(true);
+      return Promise.resolve();
     });
-    const result = await copyTextToClipboard('hello');
+    installClipboard(writeText);
+
+    const copy = copyTextToClipboard('hello');
+    inEventStack = false;
+    const result = await copy;
+
     expect(result).toBe(true);
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('hello');
+    expect(writeText).toHaveBeenCalledWith('hello');
   });
 
-  it('uses fallback textarea when clipboard API not available', async () => {
-    Object.assign(navigator, { clipboard: undefined });
+  it('uses the synchronous DOM path before a present Async API that would reject', async () => {
+    const writeText = vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+    installClipboard(writeText);
     const execCommand = vi.fn(() => {
-      expect(document.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe('test');
+      const textarea = document.querySelector<HTMLTextAreaElement>('textarea');
+      expect(textarea?.value).toBe('fallback');
+      expect(document.activeElement).toBe(textarea);
+      expect(textarea?.readOnly).toBe(true);
+      expect(textarea?.selectionStart).toBe(0);
+      expect(textarea?.selectionEnd).toBe('fallback'.length);
       return true;
     });
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+    installExecCommand(execCommand);
 
-    const result = await copyTextToClipboard('test');
+    const result = await copyTextToClipboard('fallback');
 
     expect(result).toBe(true);
     expect(execCommand).toHaveBeenCalledWith('copy');
+    expect(writeText).not.toHaveBeenCalled();
     expect(document.querySelector('textarea')).toBeNull();
   });
 
-  it('falls back when the async clipboard API rejects', async () => {
+  it('returns false without retrying DOM copy after the Async API rejects', async () => {
     const writeText = vi.fn().mockRejectedValue(new Error('permission denied'));
-    Object.assign(navigator, { clipboard: { writeText } });
-    const execCommand = vi.fn(() => true);
-    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+    installClipboard(writeText);
+    const order: string[] = [];
+    const execCommand = vi.fn(() => {
+      order.push('dom');
+      return false;
+    });
+    installExecCommand(execCommand);
+    writeText.mockImplementation(() => {
+      order.push('async');
+      return Promise.reject(new Error('permission denied'));
+    });
 
-    await expect(copyTextToClipboard('fallback')).resolves.toBe(true);
-    expect(writeText).toHaveBeenCalledWith('fallback');
-    expect(execCommand).toHaveBeenCalledWith('copy');
+    await expect(copyTextToClipboard('blocked')).resolves.toBe(false);
+    expect(order).toEqual(['dom', 'async']);
+    expect(execCommand).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith('blocked');
+  });
+
+  it('preserves focus', async () => {
+    document.body.innerHTML = '<button id="active-control">copy</button>';
+    const button = document.getElementById('active-control') as HTMLButtonElement;
+    button.focus();
+
+    installClipboard(vi.fn().mockRejectedValue(new Error('must not run')));
+    installExecCommand(vi.fn(() => true));
+
+    await expect(copyTextToClipboard('preserve ui')).resolves.toBe(true);
+
+    expect(document.activeElement).toBe(button);
+  });
+
+  it('preserves a contenteditable caret selection', async () => {
+    document.body.innerHTML = '<div id="editor" contenteditable>abcdef</div>';
+    const editor = document.getElementById('editor') as HTMLDivElement;
+    const text = editor.firstChild!;
+    editor.focus();
+    const range = document.createRange();
+    range.setStart(text, 2);
+    range.setEnd(text, 4);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    installClipboard(vi.fn().mockRejectedValue(new Error('must not run')));
+    installExecCommand(vi.fn(() => true));
+
+    await expect(copyTextToClipboard('preserve caret')).resolves.toBe(true);
+
+    expect(document.activeElement).toBe(editor);
+    expect(selection.toString()).toBe('cd');
+    expect(selection.getRangeAt(0).startOffset).toBe(2);
+    expect(selection.getRangeAt(0).endOffset).toBe(4);
   });
 
   it('removes the fallback textarea even when execCommand throws', async () => {
-    Object.assign(navigator, { clipboard: undefined });
-    Object.defineProperty(document, 'execCommand', {
-      configurable: true,
-      value: vi.fn(() => {
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+    installExecCommand(
+      vi.fn(() => {
         throw new Error('copy blocked');
       }),
-    });
+    );
 
     await expect(copyTextToClipboard('blocked')).resolves.toBe(false);
     expect(document.querySelector('textarea')).toBeNull();

@@ -232,6 +232,269 @@ describe('account session mutation ordering', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it('waits behind a pending automatic retry before making one fresh explicit read', async () => {
+    vi.useFakeTimers();
+    const automaticRead = deferred<Response>();
+    const explicitRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(automaticRead.promise)
+      .mockReturnValueOnce(explicitRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const retry = retryAccountSessionRefresh();
+    expect(getAccountSnapshot().status).toBe('loading');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    automaticRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(getAccountSnapshot().status).toBe('loading');
+
+    explicitRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await retry;
+
+    expect(getAccountSnapshot().status).toBe('authenticated');
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('still makes a fresh explicit read when the pre-click request fails non-transiently', async () => {
+    vi.useFakeTimers();
+    const automaticRead = deferred<Response>();
+    const explicitRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(automaticRead.promise)
+      .mockReturnValueOnce(explicitRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const retry = retryAccountSessionRefresh();
+    automaticRead.resolve(jsonResponse({ error: 'ACCOUNT_SESSION_REJECTED' }, 403));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(getAccountSnapshot().status).toBe('loading');
+
+    explicitRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await retry;
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+  });
+
+  it('does not let later external refresh pulses starve an explicit Retry', async () => {
+    vi.useFakeTimers();
+    const automaticRead = deferred<Response>();
+    const firstExternalRead = deferred<Response>();
+    const secondExternalRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(automaticRead.promise)
+      .mockReturnValueOnce(firstExternalRead.promise)
+      .mockReturnValueOnce(secondExternalRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const retry = retryAccountSessionRefresh();
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'refresh', id: 'result:retry-race-external-0001' },
+      }),
+    );
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'refresh', id: 'result:retry-race-external-0002' },
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    automaticRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await retry;
+    // The later external operation owns the generation, so Retry yields to it
+    // instead of waiting through an unbounded chain of future pulses.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    firstExternalRead.resolve(jsonResponse(ANONYMOUS));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    secondExternalRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+  });
+
+  it('re-arms bounded recovery when a newer external read fails during an explicit wait', async () => {
+    vi.useFakeTimers();
+    const automaticRead = deferred<Response>();
+    const externalRead = deferred<Response>();
+    const recoveredRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(automaticRead.promise)
+      .mockReturnValueOnce(externalRead.promise)
+      .mockReturnValueOnce(recoveredRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const retry = retryAccountSessionRefresh();
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'refresh', id: 'result:retry-external-failed-0001' },
+      }),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    externalRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('unavailable'));
+    automaticRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await retry;
+
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    recoveredRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+  });
+
+  it('does not start a fresh explicit read after the session lifecycle resets', async () => {
+    vi.useFakeTimers();
+    const automaticRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(automaticRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    const retry = retryAccountSessionRefresh();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    __resetAccountSessionForTests();
+    automaticRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await retry;
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('coalesces repeated explicit Retry clicks onto one fresh read and promise', async () => {
+    vi.useFakeTimers();
+    const explicitRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(explicitRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const firstRetry = retryAccountSessionRefresh();
+    const secondRetry = retryAccountSessionRefresh();
+    const thirdRetry = retryAccountSessionRefresh();
+
+    expect(secondRetry).toBe(firstRetry);
+    expect(thirdRetry).toBe(firstRetry);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    explicitRead.resolve(jsonResponse(ANONYMOUS));
+    await Promise.all([firstRetry, secondRetry, thirdRetry]);
+
+    expect(getAccountSnapshot().status).toBe('anonymous');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let an explicit recovery result overwrite a newer popup reconciliation', async () => {
+    vi.useFakeTimers();
+    const explicitRead = deferred<Response>();
+    const popupRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(explicitRead.promise)
+      .mockReturnValueOnce(popupRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const retry = retryAccountSessionRefresh();
+    const reconciliation = reconcileAccountLoginSession();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    popupRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await expect(reconciliation).resolves.toEqual(AUTHENTICATED_NEW);
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+
+    explicitRead.resolve(jsonResponse(ANONYMOUS));
+    await retry;
+
+    expect(getAccountSnapshot().status).toBe('authenticated');
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('restarts bounded backoff at one second when the fresh explicit read fails', async () => {
+    vi.useFakeTimers();
+    const pendingAutomaticRead = deferred<Response>();
+    const pendingExplicitRead = deferred<Response>();
+    const recoveredRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(pendingAutomaticRead.promise)
+      .mockReturnValueOnce(pendingExplicitRead.promise)
+      .mockReturnValueOnce(recoveredRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    const retry = retryAccountSessionRefresh();
+    pendingAutomaticRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+    pendingExplicitRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await retry;
+    expect(getAccountSnapshot().status).toBe('unavailable');
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    recoveredRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it('lets an exact popup reconciliation replace a pending recovery timer', async () => {
     vi.useFakeTimers();
     const popupRead = deferred<Response>();

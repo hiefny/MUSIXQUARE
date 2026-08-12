@@ -279,13 +279,26 @@
     font-family: inherit;
   }
 
-  /* Hide native scrollbars globally — custom scrollbars are used instead */
-  ::-webkit-scrollbar {
+  /* Incidental scroll owners stay visually hidden. A data-custom-scroll owner
+     hides its native bar only while the JS replacement is actually alive. */
+  *:not([data-custom-scroll])::-webkit-scrollbar,
+  .cscroll-custom-owner::-webkit-scrollbar {
     display: none;
   }
 
-  * {
+  *:not([data-custom-scroll]),
+  .cscroll-custom-owner {
     scrollbar-width: none;
+  }
+
+  /* Primary-touch surfaces include 13-inch iPad landscape above 1280px.
+     Narrow hybrids also use native ownership; a wide fine-primary PC keeps
+     the desktop custom scrollbar even when a touchscreen is available. */
+  @media (pointer: coarse), (max-width: 1279px) and (any-pointer: coarse) {
+    [data-custom-scroll]:not(.cscroll-custom-owner) {
+      scrollbar-width: thin;
+      scrollbar-color: var(--scrollbar-thumb) transparent;
+    }
   }
 
   body {

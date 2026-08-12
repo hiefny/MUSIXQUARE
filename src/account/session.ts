@@ -21,6 +21,9 @@ let _operationGeneration = 0;
 let _sessionFence = 0;
 let _refreshInFlight: Promise<void> | null = null;
 let _refreshFollowUp = false;
+let _explicitRecoveryInFlight: Promise<void> | null = null;
+let _explicitRecoveryWaitingForFreshRead = false;
+let _explicitRecoveryPreClickGeneration: number | null = null;
 let _externalRefreshInFlight: Promise<void> | null = null;
 let _externalRefreshFollowUp = false;
 const _recentExternalRefreshIds = new Set<string>();
@@ -156,6 +159,7 @@ function isTransientAccountReadError(error: unknown): boolean {
 function scheduleAccountRecovery(): void {
   clearAccountRecoveryTimer();
   if (!_recoveryNeeded || _recoveryAttempt >= ACCOUNT_RECOVERY_DELAYS_MS.length) return;
+  if (_explicitRecoveryWaitingForFreshRead) return;
   if (!canRunAccountRecovery()) return;
 
   const delay = ACCOUNT_RECOVERY_DELAYS_MS[_recoveryAttempt]!;
@@ -177,16 +181,64 @@ function markAccountReadFailed(error: unknown): void {
   scheduleAccountRecovery();
 }
 
+function applyAccountReadFailure(error: unknown): void {
+  // Keep the explicit Retry projection on loading while an older read drains.
+  // This includes non-transient failures: they describe the pre-click request,
+  // not the fresh request the user explicitly asked us to make.
+  const belongsToPreClickRead =
+    _explicitRecoveryWaitingForFreshRead &&
+    _explicitRecoveryPreClickGeneration === _operationGeneration;
+  if (!belongsToPreClickRead) setAccountUnavailable();
+  markAccountReadFailed(error);
+}
+
 function requestImmediateAccountRecovery(
   resetBudget: boolean,
   showLoading = false,
   forceNetworkAttempt = false,
 ): Promise<void> {
   if (!_recoveryNeeded) return Promise.resolve();
+  if (_explicitRecoveryWaitingForFreshRead && !forceNetworkAttempt) {
+    return _explicitRecoveryInFlight ?? Promise.resolve();
+  }
   if (resetBudget) _recoveryAttempt = 0;
   clearAccountRecoveryTimer();
   if (!forceNetworkAttempt && !canRunAccountRecovery()) return Promise.resolve();
   return refreshAccountSession(showLoading, false);
+}
+
+async function runExplicitAccountRecovery(
+  sessionFence: number,
+  operationGenerationAtClick: number,
+  pendingRefreshAtClick: Promise<void> | null,
+): Promise<void> {
+  // A click may arrive while an automatic/focus read is still consuming its
+  // five-second deadline. Joining that request made Retry appear broken: its
+  // already-doomed result was returned to the UI and only the later backoff
+  // could recover. Wait for the pre-click ordinary read to leave the slot,
+  // then make one genuinely fresh bounded read.
+  if (pendingRefreshAtClick) await pendingRefreshAtClick;
+  // The explicit intent or any newer authoritative operation supersedes a
+  // generic follow-up queued behind the pre-click read. Leaving it armed could
+  // start after this function returns and incorrectly fence that newer work.
+  _refreshFollowUp = false;
+
+  // A lifecycle reset cancels this intent. A popup, cross-tab pulse, or
+  // account mutation begun after the click is newer authoritative work and
+  // owns the visible result instead; never let this older Retry fence it.
+  if (sessionFence !== _sessionFence || operationGenerationAtClick !== _operationGeneration) {
+    return;
+  }
+
+  _explicitRecoveryWaitingForFreshRead = false;
+  // The pre-click read may have failed non-transiently and cleared automatic
+  // recovery. Explicit user intent is independent of that classification and
+  // still guarantees one genuinely fresh bounded read.
+  _recoveryNeeded = true;
+  // A failure from the request we waited behind may have consumed a backoff
+  // step. Reset at the moment this fresh user-requested read starts so its own
+  // failure restarts the bounded 1s / 3s / 10s recovery sequence.
+  await requestImmediateAccountRecovery(true, true, true);
 }
 
 function refreshAfterUserReturns(): void {
@@ -301,11 +353,33 @@ export function startAccountSessionRefresh(): void {
 /** Retry an unavailable account read from an explicit user action. */
 export function retryAccountSessionRefresh(): Promise<void> {
   _recoveryNeeded = true;
+  if (_explicitRecoveryInFlight) return _explicitRecoveryInFlight;
   // navigator.onLine is only a network-interface hint and can remain false
   // after WebKit's radio path has recovered. A user-requested retry is already
   // bounded by the five-second session-read deadline, so always make one real
   // attempt while automatic background retries continue to respect offline.
-  return requestImmediateAccountRecovery(true, true, true);
+  clearAccountRecoveryTimer();
+  setAccountLoading();
+  _explicitRecoveryWaitingForFreshRead = true;
+  _explicitRecoveryPreClickGeneration = _operationGeneration;
+  const operation = runExplicitAccountRecovery(
+    _sessionFence,
+    _operationGeneration,
+    _refreshInFlight,
+  );
+  const wrapped = operation.finally(() => {
+    if (_explicitRecoveryInFlight !== wrapped) return;
+    _explicitRecoveryInFlight = null;
+    _explicitRecoveryWaitingForFreshRead = false;
+    _explicitRecoveryPreClickGeneration = null;
+    drainRefreshFollowUp();
+    // A newer external reconciliation can fail transiently while the explicit
+    // intent is still holding automatic work. Re-arm the bounded recovery once
+    // that hold is released; a fresh explicit failure already owns a timer.
+    if (_recoveryNeeded && _recoveryTimer === null) scheduleAccountRecovery();
+  });
+  _explicitRecoveryInFlight = wrapped;
+  return wrapped;
 }
 
 /**
@@ -332,15 +406,21 @@ export async function reconcileAccountLoginSession(): Promise<AccountSessionResp
     return response;
   } catch (error) {
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
-      setAccountUnavailable();
-      markAccountReadFailed(error);
+      applyAccountReadFailure(error);
     }
     throw error;
   }
 }
 
 function drainRefreshFollowUp(): void {
-  if (!_refreshFollowUp || _mutationDepth > 0 || _refreshInFlight) return;
+  if (
+    !_refreshFollowUp ||
+    _explicitRecoveryWaitingForFreshRead ||
+    _mutationDepth > 0 ||
+    _refreshInFlight
+  ) {
+    return;
+  }
   _refreshFollowUp = false;
   // A completed mutation already supplied the visible authoritative state.
   // Reconcile any refresh requested during it without flashing that state back
@@ -370,8 +450,7 @@ function refreshAccountSession(showLoading = true, followUpIfBusy = true): Promi
       applyAccountSession(response);
     } catch (error) {
       if (sessionFence !== _sessionFence || generation !== _operationGeneration) return;
-      setAccountUnavailable();
-      markAccountReadFailed(error);
+      applyAccountReadFailure(error);
     }
   })();
   const wrapped = operation.finally(() => {
@@ -466,6 +545,9 @@ export function __resetAccountSessionForTests(): void {
   _operationGeneration += 1;
   _refreshInFlight = null;
   _refreshFollowUp = false;
+  _explicitRecoveryInFlight = null;
+  _explicitRecoveryWaitingForFreshRead = false;
+  _explicitRecoveryPreClickGeneration = null;
   _externalRefreshInFlight = null;
   _externalRefreshFollowUp = false;
   _recentExternalRefreshIds.clear();

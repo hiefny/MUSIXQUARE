@@ -134,6 +134,7 @@ function fireMqlChange(query: string): void {
 
 const ORIENTATION_QUERY = '(orientation: landscape)';
 const COMPACT_QUERY = '(min-width: 720px) and (max-width: 1279px)';
+const NATIVE_MOBILE_QUERY = '(pointer: coarse), (max-width: 1279px) and (any-pointer: coarse)';
 
 function makeRect(height: number, top = 0): DOMRect {
   return {
@@ -231,6 +232,115 @@ afterEach(() => {
   vi.useRealTimers();
   document.body.style.removeProperty('--desktop-ui-scale');
   document.body.innerHTML = '';
+});
+
+describe('custom-scrollbar mobile native handoff', () => {
+  it('skips the JS track on wide primary-coarse surfaces and restores it on desktop', () => {
+    _mqlMatches.set('(pointer: coarse)', true);
+    _mqlMatches.set('(min-width: 1280px)', true);
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
+    const box = createScrollbox('wide-native-mobile');
+
+    initCustomScrollbar(box.container);
+
+    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
+    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(false);
+    expect(box.rectSpy).not.toHaveBeenCalled();
+
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, false);
+    fireMqlChange(NATIVE_MOBILE_QUERY);
+
+    expect(box.track().style.height).toBe('200px');
+    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(true);
+    expect(box.rectSpy).toHaveBeenCalledTimes(1);
+
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
+    fireMqlChange(NATIVE_MOBILE_QUERY);
+    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
+    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(false);
+  });
+
+  it('keeps the custom track on a wide fine-primary PC with an available touchscreen', () => {
+    _mqlMatches.set('(pointer: coarse)', false);
+    _mqlMatches.set('(pointer: fine)', true);
+    _mqlMatches.set('(any-pointer: coarse)', true);
+    _mqlMatches.set('(min-width: 1280px)', true);
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, false);
+    const box = createScrollbox('wide-hybrid-desktop');
+
+    initCustomScrollbar(box.container);
+
+    expect(box.track().style.height).toBe('200px');
+    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(true);
+  });
+
+  it('uses the native track on a narrow hybrid with any coarse pointer available', () => {
+    _mqlMatches.set('(pointer: coarse)', false);
+    _mqlMatches.set('(pointer: fine)', true);
+    _mqlMatches.set('(any-pointer: coarse)', true);
+    _mqlMatches.set('(max-width: 1279px)', true);
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
+    const box = createScrollbox('narrow-hybrid');
+
+    initCustomScrollbar(box.container);
+
+    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
+    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(false);
+  });
+
+  it('tears down a live JS track on mobile and honors explicit destroy across later changes', () => {
+    const box = createScrollbox('responsive-destroy');
+    initCustomScrollbar(box.container);
+    expect(box.track()).toBeTruthy();
+
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
+    fireMqlChange(NATIVE_MOBILE_QUERY);
+    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
+
+    destroyCustomScrollbar(box.container);
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, false);
+    fireMqlChange(NATIVE_MOBILE_QUERY);
+    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
+  });
+
+  it('prunes detached registered owners instead of recreating them on later media changes', () => {
+    const box = createScrollbox('detached-owner');
+    const parent = box.container.parentElement!;
+    initCustomScrollbar(box.container);
+    expect(box.track()).toBeTruthy();
+
+    parent.remove();
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
+    fireMqlChange(NATIVE_MOBILE_QUERY);
+    expect(parent.querySelector('.cscroll-track')).toBeNull();
+
+    document.body.appendChild(parent);
+    _mqlMatches.set(NATIVE_MOBILE_QUERY, false);
+    fireMqlChange(NATIVE_MOBILE_QUERY);
+    expect(parent.querySelector('.cscroll-track')).toBeNull();
+
+    initCustomScrollbar(box.container);
+    expect(box.track().style.height).toBe('200px');
+  });
+
+  it('keeps the JS and CSS native-mobile media queries exactly in parity', async () => {
+    const [stylesheet, source] = await Promise.all([
+      readFile('css/style.css', 'utf8'),
+      readFile('src/ui/custom-scrollbar.ts', 'utf8'),
+    ]);
+
+    expect(source).toContain(`'${NATIVE_MOBILE_QUERY}'`);
+    expect(stylesheet).toContain(`@media ${NATIVE_MOBILE_QUERY} {`);
+    expect(stylesheet).toMatch(
+      /@media \(pointer: coarse\), \(max-width: 1279px\) and \(any-pointer: coarse\)\s*\{[^}]*\[data-custom-scroll\]:not\(\.cscroll-custom-owner\)\s*\{[^}]*scrollbar-width:\s*thin;[^}]*scrollbar-color:\s*var\(--scrollbar-thumb\) transparent;/s,
+    );
+    expect(stylesheet).toContain('*:not([data-custom-scroll])::-webkit-scrollbar');
+    expect(stylesheet).toMatch(
+      /\*:not\(\[data-custom-scroll\]\),\s*\.cscroll-custom-owner\s*\{[^}]*scrollbar-width:\s*none;/s,
+    );
+    expect(stylesheet).toMatch(/\.cscroll-custom-owner::-webkit-scrollbar\s*\{/);
+    expect(stylesheet).not.toMatch(/@media[^{}]*not all and[^{}]*any-pointer: coarse/);
+  });
 });
 
 describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {

@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getState, resetState, setState } from '../../core/state.ts';
 import type { PlaylistItem } from '../../types/index.ts';
 import {
   type YouTubePlayerInstance,
+  configureYouTubePlayerIdentityChangeHook,
   isYtPlayerReady,
   markYtPlayerReady,
   resetYouTubeModuleState,
@@ -138,5 +139,22 @@ describe('YouTube player readiness identity', () => {
     setYouTubePlayer(null);
     expect(isYtPlayerReady()).toBe(false);
     expect(markYtPlayerReady(replacement)).toBe(false);
+  });
+
+  it('notifies the DOM lifecycle owner when reset drops a player identity', () => {
+    const player = {} as YouTubePlayerInstance;
+    const hook = vi.fn();
+    configureYouTubePlayerIdentityChangeHook(hook);
+    try {
+      setYouTubePlayer(player);
+      hook.mockClear();
+
+      resetYouTubeModuleState();
+
+      expect(hook).toHaveBeenCalledOnce();
+      expect(hook).toHaveBeenCalledWith(player, null);
+    } finally {
+      configureYouTubePlayerIdentityChangeHook(null);
+    }
   });
 });

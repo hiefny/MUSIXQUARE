@@ -325,6 +325,7 @@ import {
   getProYouTubeAuthorityPreparationGeneration,
   proYouTubeAuthorityOwnsHardMute,
   updateProYouTubeAuthorityDesiredAudioState,
+  stopYouTubeLandscapeSizeReconcile,
 } from './iframe.ts';
 import { showLoader } from '../ui/toast.ts';
 
@@ -1011,6 +1012,7 @@ function scheduleLateJoinRendezvousSync(
 // ─── Stop YouTube Mode ─────────────────────────────────────────────
 
 export function stopYouTubeMode(opts?: { silent?: boolean }): void {
+  stopYouTubeLandscapeSizeReconcile();
   const ownerQueueItemId =
     getState('player.currentTrackMeta')?.queueItemId ?? getCurrentQueueItemId();
   // A participant-local pause proposal cannot settle against an iframe after

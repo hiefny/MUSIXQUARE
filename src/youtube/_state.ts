@@ -47,6 +47,8 @@ export interface YouTubePlayerInstance {
   getOptions?(module?: string): string[];
   getOption?(module: string, option: string): unknown;
   setOption?(module: string, option: string, value: unknown): void;
+  setSize?(width: number, height: number): void;
+  getIframe?(): HTMLIFrameElement;
 }
 
 /**
@@ -92,6 +94,9 @@ let _ytScriptLoading = false;
 let _ytIOSWatchdog: number | null = null;
 let _ytScope: SessionScope | null = null;
 let _ytLoadInProgress = false;
+let _youtubePlayerIdentityChangeHook:
+  | ((previous: YouTubePlayerInstance | null, current: YouTubePlayerInstance | null) => void)
+  | null = null;
 
 /**
  * In-flight playlist-indexing session.
@@ -222,9 +227,21 @@ export function isYtPrimeBouncePending(): boolean {
 
 export function setYouTubePlayer(player: YouTubePlayerInstance | null): void {
   if (_youtubePlayer === player) return;
+  const previous = _youtubePlayer;
   _youtubePlayer = player;
   _ytPlayerEpoch += 1;
   _ytPlayerReadyEpoch = -1;
+  _youtubePlayerIdentityChangeHook?.(previous, player);
+}
+
+/** Install the iframe module's DOM-lifecycle cleanup without making this
+ * shared state leaf import the DOM-facing reconciler (which would cycle). */
+export function configureYouTubePlayerIdentityChangeHook(
+  hook:
+    | ((previous: YouTubePlayerInstance | null, current: YouTubePlayerInstance | null) => void)
+    | null,
+): void {
+  _youtubePlayerIdentityChangeHook = hook;
 }
 
 /** Mark only the currently-owned iframe as ready. */
@@ -322,6 +339,7 @@ export function setYouTubeSubIndex(index: number): void {
  *  locally-paused guest would re-enter YouTube mode still suppressing host
  *  sync. */
 export function resetYouTubeModuleState(): void {
+  const previousPlayer = _youtubePlayer;
   _youtubePlayer = null;
   _ytPlayerEpoch += 1;
   _ytPlayerReadyEpoch = -1;
@@ -339,6 +357,7 @@ export function resetYouTubeModuleState(): void {
   _cachedYtDuration = 0;
   _cachedYtPlaylistIdx = -1;
   _ytIndexingSession = null;
+  if (previousPlayer) _youtubePlayerIdentityChangeHook?.(previousPlayer, null);
 }
 
 // ─── SubItemsMap Centralized Updaters ─────────────────────────────

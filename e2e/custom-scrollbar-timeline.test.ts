@@ -7,6 +7,7 @@ interface ScrollFixture {
   owner: Locator;
   track: Locator;
   thumb: Locator;
+  visual: Locator;
 }
 
 async function skipIfScrollTimelineUnavailable(page: Page): Promise<void> {
@@ -82,6 +83,7 @@ async function installFixture(page: Page): Promise<ScrollFixture> {
   const owner = page.locator('#tab-play > .tab-body');
   const track = page.locator('#tab-play > .cscroll-track');
   const thumb = track.locator(':scope > .cscroll-thumb');
+  const visual = thumb.locator(':scope > .cscroll-thumb-visual');
   await expect
     .poll(() => owner.evaluate((element) => element.scrollHeight > element.clientHeight))
     .toBe(true);
@@ -89,7 +91,8 @@ async function installFixture(page: Page): Promise<ScrollFixture> {
     .poll(() => track.evaluate((element) => element.getBoundingClientRect().height))
     .toBe(200);
   await expect(thumb).toBeVisible();
-  return { owner, track, thumb };
+  await expect(visual).toBeVisible();
+  return { owner, track, thumb, visual };
 }
 
 async function installNestedFixture(
@@ -124,6 +127,7 @@ async function installNestedFixture(
     owner: page.locator('#tab-play'),
     track: outerTrack,
     thumb: outerTrack.locator(':scope > .cscroll-thumb'),
+    visual: outerTrack.locator(':scope > .cscroll-thumb > .cscroll-thumb-visual'),
   };
   await expect
     .poll(() => outer.owner.evaluate((element) => element.scrollHeight > element.clientHeight))
@@ -164,6 +168,53 @@ async function expectThumbAtRatio(fixture: ScrollFixture, ratio: number): Promis
       return Math.abs(top - maxTop * ratio);
     })
     .toBeLessThan(1);
+}
+
+async function exposeSyntheticScrollTop(fixture: ScrollFixture, scrollTop: number): Promise<void> {
+  await fixture.owner.evaluate((element, syntheticScrollTop) => {
+    Object.defineProperty(element, 'scrollTop', {
+      configurable: true,
+      get: () => syntheticScrollTop,
+    });
+    element.dispatchEvent(new Event('scroll'));
+  }, scrollTop);
+}
+
+async function restoreNativeScrollTop(fixture: ScrollFixture): Promise<void> {
+  await fixture.owner.evaluate((element) => {
+    if (!Reflect.deleteProperty(element, 'scrollTop')) {
+      throw new Error('Synthetic scrollTop could not be removed');
+    }
+    element.dispatchEvent(new Event('scroll'));
+  });
+}
+
+async function visualMetrics(fixture: ScrollFixture): Promise<{
+  height: number;
+  top: number;
+  outerHeight: number;
+}> {
+  return fixture.visual.evaluate((visual) => {
+    const outer = visual.parentElement!;
+    const transform = getComputedStyle(visual).transform;
+    return {
+      height: visual.getBoundingClientRect().height,
+      top: transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42,
+      outerHeight: outer.getBoundingClientRect().height,
+    };
+  });
+}
+
+async function expectVisualFillsOuter(fixture: ScrollFixture): Promise<void> {
+  await expect
+    .poll(async () => {
+      const metrics = await visualMetrics(fixture);
+      return {
+        sameHeight: Math.abs(metrics.height - metrics.outerHeight) < 0.1,
+        top: metrics.top,
+      };
+    })
+    .toEqual({ sameHeight: true, top: 0 });
 }
 
 test.describe('custom scrollbar scroll-timeline driver', () => {
@@ -217,12 +268,96 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
     await page.mouse.down();
     await waitForDriver(fixture, 'script');
+    await expectVisualFillsOuter(fixture);
     await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 40);
     await expect
       .poll(() => fixture.owner.evaluate((element) => element.scrollTop))
       .toBeGreaterThan(0);
     await page.mouse.up();
     await waitForDriver(fixture, 'timeline');
+    await expectVisualFillsOuter(fixture);
+  });
+
+  test('isolates deterministic top and bottom elasticity from the timeline-owned thumb', async ({
+    page,
+  }) => {
+    await skipIfScrollTimelineUnavailable(page);
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await waitForDriver(fixture, 'timeline');
+
+    // Headless desktop engines cannot synthesize physical iOS rubber-band
+    // scrolling. Keep the native scroll offset (and therefore ScrollTimeline)
+    // at an endpoint while exposing a deterministic out-of-range value to the
+    // JS elasticity sampler through a temporary own-property getter.
+    await scrollToRatio(fixture, 0);
+    await expectThumbAtRatio(fixture, 0);
+    await expectVisualFillsOuter(fixture);
+    const normalHeight = (await visualMetrics(fixture)).outerHeight;
+    // Initialization legitimately seeds outer geometry. Observe only after
+    // that work settles so the count isolates overscroll and endpoint motion.
+    await fixture.thumb.evaluate((thumb) => {
+      const instrumented = thumb as HTMLElement & {
+        __elasticAnimation?: Animation;
+        __elasticObserver?: MutationObserver;
+        __elasticOuterStyleWrites?: number;
+      };
+      instrumented.__elasticAnimation = thumb.getAnimations()[0];
+      instrumented.__elasticOuterStyleWrites = 0;
+      instrumented.__elasticObserver = new MutationObserver((records) => {
+        instrumented.__elasticOuterStyleWrites! += records.length;
+      });
+      instrumented.__elasticObserver.observe(thumb, {
+        attributes: true,
+        attributeFilter: ['style'],
+      });
+    });
+
+    await exposeSyntheticScrollTop(fixture, -100);
+    await expect.poll(async () => visualMetrics(fixture)).toMatchObject({ top: 0 });
+    await expect.poll(async () => (await visualMetrics(fixture)).height).toBeLessThan(normalHeight);
+    await waitForDriver(fixture, 'timeline');
+    await expectThumbAtRatio(fixture, 0);
+
+    await restoreNativeScrollTop(fixture);
+    await expectVisualFillsOuter(fixture);
+
+    await scrollToRatio(fixture, 1);
+    await expectThumbAtRatio(fixture, 1);
+    const maxScroll = await fixture.owner.evaluate(
+      (element) => element.scrollHeight - element.clientHeight,
+    );
+    await exposeSyntheticScrollTop(fixture, maxScroll + 100);
+    await expect
+      .poll(async () => {
+        const metrics = await visualMetrics(fixture);
+        return {
+          compressed: metrics.height < normalHeight,
+          bottomAnchored: Math.abs(metrics.top + metrics.height - metrics.outerHeight) < 0.1,
+        };
+      })
+      .toEqual({ compressed: true, bottomAnchored: true });
+    await waitForDriver(fixture, 'timeline');
+    await expectThumbAtRatio(fixture, 1);
+
+    await restoreNativeScrollTop(fixture);
+    await expectVisualFillsOuter(fixture);
+    const isolation = await fixture.thumb.evaluate(async (thumb) => {
+      await Promise.resolve();
+      const instrumented = thumb as HTMLElement & {
+        __elasticAnimation?: Animation;
+        __elasticObserver?: MutationObserver;
+        __elasticOuterStyleWrites?: number;
+      };
+      instrumented.__elasticObserver?.disconnect();
+      return {
+        sameAnimation:
+          thumb.getAnimations().length === 1 &&
+          thumb.getAnimations()[0] === instrumented.__elasticAnimation,
+        outerStyleWrites: instrumented.__elasticOuterStyleWrites ?? -1,
+      };
+    });
+    expect(isolation).toEqual({ sameAnimation: true, outerStyleWrites: 0 });
   });
 
   test('rebuilds its timeline after resize and a hidden-to-visible transition', async ({
@@ -234,6 +369,7 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     await waitForDriver(fixture, 'timeline');
     await scrollToRatio(fixture, 1);
     await expectThumbAtRatio(fixture, 1);
+    await expectVisualFillsOuter(fixture);
     const oldMaxTop = (await thumbMetrics(fixture)).maxTop;
 
     await fixture.owner.evaluate((element) => {
@@ -269,6 +405,7 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     await waitForDriver(fixture, 'timeline');
     await scrollToRatio(fixture, 1);
     await expectThumbAtRatio(fixture, 1);
+    await expectVisualFillsOuter(fixture);
   });
 
   test('keeps nested scroll owners on independent browser timelines', async ({ page }) => {
@@ -332,6 +469,57 @@ test.describe('custom scrollbar script fallback', () => {
     await expect
       .poll(() => fixture.thumb.evaluate((thumb) => thumb.style.transform))
       .toMatch(/^translateY\(.+px\)$/u);
+  });
+
+  test('keeps the proven outer-thumb elasticity and a neutral visual child', async ({ page }) => {
+    await openReadyApp(page);
+    const fixture = await installFixture(page);
+    await waitForDriver(fixture, 'script');
+
+    await scrollToRatio(fixture, 0);
+    const normalHeight = await fixture.thumb.evaluate(
+      (thumb) => thumb.getBoundingClientRect().height,
+    );
+    await exposeSyntheticScrollTop(fixture, -100);
+    await expect
+      .poll(() => fixture.thumb.evaluate((thumb) => thumb.getBoundingClientRect().height))
+      .toBeLessThan(normalHeight);
+    await expectVisualFillsOuter(fixture);
+
+    await restoreNativeScrollTop(fixture);
+    await expect
+      .poll(() => fixture.thumb.evaluate((thumb) => thumb.getBoundingClientRect().height))
+      .toBeCloseTo(normalHeight, 1);
+
+    await scrollToRatio(fixture, 1);
+    const maxScroll = await fixture.owner.evaluate(
+      (element) => element.scrollHeight - element.clientHeight,
+    );
+    await exposeSyntheticScrollTop(fixture, maxScroll + 100);
+    await expect
+      .poll(async () => {
+        const thumb = await fixture.thumb.evaluate((element, expectedNormalHeight) => {
+          const track = element.parentElement!;
+          const transform = getComputedStyle(element).transform;
+          const top = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42;
+          return {
+            compressed: element.getBoundingClientRect().height < expectedNormalHeight,
+            bottomAnchored:
+              Math.abs(
+                top + element.getBoundingClientRect().height - track.getBoundingClientRect().height,
+              ) < 0.1,
+          };
+        }, normalHeight);
+        return thumb;
+      })
+      .toEqual({ compressed: true, bottomAnchored: true });
+    await expectVisualFillsOuter(fixture);
+
+    await restoreNativeScrollTop(fixture);
+    await expect
+      .poll(() => fixture.thumb.evaluate((thumb) => thumb.getBoundingClientRect().height))
+      .toBeCloseTo(normalHeight, 1);
+    await waitForDriver(fixture, 'script');
   });
 });
 

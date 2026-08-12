@@ -363,7 +363,7 @@ describe('custom-scrollbar settled re-layout (orientation/breakpoint)', () => {
 });
 
 describe('custom-scrollbar compositor hot path', () => {
-  it('hands normal scrolling to one stable ScrollTimeline and uses script only for drag', () => {
+  it('hands normal scrolling to one stable ScrollTimeline and uses script only for drag', async () => {
     const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
     const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
     const animations: Array<{ cancel: Mock; timeline: unknown }> = [];
@@ -396,9 +396,13 @@ describe('custom-scrollbar compositor hot path', () => {
       initCustomScrollbar(box.container);
       const track = box.track();
       const thumb = track.querySelector<HTMLElement>('.cscroll-thumb')!;
+      const visual = thumb.querySelector<HTMLElement>('.cscroll-thumb-visual')!;
 
       expect(track.dataset.scrollDriver).toBe('timeline');
       expect(animate).toHaveBeenCalledTimes(1);
+      const visualMutations: MutationRecord[] = [];
+      const visualObserver = new MutationObserver((records) => visualMutations.push(...records));
+      visualObserver.observe(visual, { attributes: true, attributeFilter: ['style'] });
 
       box.container.scrollTop = 100;
       box.container.dispatchEvent(new Event('scroll'));
@@ -406,6 +410,13 @@ describe('custom-scrollbar compositor hot path', () => {
       expect(track.dataset.scrollDriver).toBe('timeline');
       expect(animate).toHaveBeenCalledTimes(1); // unchanged geometry keeps the same timeline
       expect(thumb.style.transform).toBe('translateY(0px)'); // no JS scroll write
+      flushAnimationFrame();
+      flushAnimationFrame();
+      flushAnimationFrame();
+      await flushMutationObservers();
+      expect(visualMutations).toHaveLength(0); // neutral probe is a cache hit
+      expect(_rafCallbacks.size).toBe(0); // one bounded pump; no duplicate rAF chain
+      visualObserver.disconnect();
 
       thumb.dispatchEvent(
         new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientY: 0 }),
@@ -428,32 +439,72 @@ describe('custom-scrollbar compositor hot path', () => {
     }
   });
 
-  it('keeps timeline thumb height normal when relayout happens during rubber-band offsets', () => {
+  it('keeps timeline thumb height normal when relayout happens during rubber-band offsets', async () => {
     const originalTimeline = Object.getOwnPropertyDescriptor(globalThis, 'ScrollTimeline');
     const originalAnimate = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'animate');
+    const animate = vi.fn(
+      (
+        _keyframes: Keyframe[] | PropertyIndexedKeyframes,
+        options?: number | KeyframeAnimationOptions,
+      ) =>
+        ({
+          cancel: vi.fn(),
+          ready: Promise.resolve(),
+          timeline: typeof options === 'object' ? options.timeline : null,
+        }) as unknown as Animation,
+    );
     Object.defineProperty(globalThis, 'ScrollTimeline', {
       configurable: true,
       value: class ScrollTimelineStub {},
     });
     Object.defineProperty(HTMLElement.prototype, 'animate', {
       configurable: true,
-      value: vi.fn(
-        (
-          _keyframes: Keyframe[] | PropertyIndexedKeyframes,
-          options?: number | KeyframeAnimationOptions,
-        ) =>
-          ({
-            cancel: vi.fn(),
-            ready: Promise.resolve(),
-            timeline: typeof options === 'object' ? options.timeline : null,
-          }) as unknown as Animation,
-      ),
+      value: animate,
     });
 
     try {
       const box = createScrollbox('timeline-rubber-band-relayout');
       initCustomScrollbar(box.container);
       const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+      const visual = thumb.querySelector<HTMLElement>('.cscroll-thumb-visual')!;
+
+      expect(animate).toHaveBeenCalledTimes(1);
+      expect(thumb.style.height).toBe('40px');
+      expect(visual.style.height).toBe('40px');
+
+      // Ordinary endpoint elasticity changes only the nested visual. The
+      // browser-owned outer position/height and its timeline stay untouched.
+      const outerMutations: MutationRecord[] = [];
+      const observer = new MutationObserver((records) => outerMutations.push(...records));
+      observer.observe(thumb, { attributes: true, attributeFilter: ['style'] });
+
+      box.container.scrollTop = -20;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame();
+      expect(box.track().dataset.scrollDriver).toBe('timeline');
+      expect(animate).toHaveBeenCalledTimes(1);
+      expect(thumb.style.height).toBe('40px');
+      expect(thumb.style.transform).toBe('translateY(0px)');
+      expect(visual.style.height).toBe('36px');
+      expect(visual.style.transform).toBe('translateY(0px)');
+
+      box.container.scrollTop = 820;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame();
+      expect(animate).toHaveBeenCalledTimes(1);
+      expect(thumb.style.height).toBe('40px');
+      expect(visual.style.height).toBe('36px');
+      expect(visual.style.transform).toBe('translateY(4px)');
+
+      box.container.scrollTop = 400;
+      box.container.dispatchEvent(new Event('scroll'));
+      flushAnimationFrame();
+      expect(visual.style.height).toBe('40px');
+      expect(visual.style.transform).toBe('translateY(0px)');
+      expect(animate).toHaveBeenCalledTimes(1);
+      await flushMutationObservers();
+      expect(outerMutations).toHaveLength(0);
+      observer.disconnect();
 
       box.container.scrollTop = -20;
       box.setClientHeight(220);
@@ -462,6 +513,8 @@ describe('custom-scrollbar compositor hot path', () => {
       expect(box.track().dataset.scrollDriver).toBe('timeline');
       expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(48.4, 5);
       expect(thumb.style.transform).toBe('translateY(0px)');
+      expect(Number.parseFloat(visual.style.height)).toBeCloseTo(44, 5);
+      expect(visual.style.transform).toBe('translateY(0px)');
 
       box.container.scrollTop = 900;
       box.setClientHeight(240);
@@ -469,6 +522,12 @@ describe('custom-scrollbar compositor hot path', () => {
       flushAnimationFrame();
       expect(Number.parseFloat(thumb.style.height)).toBeCloseTo(57.6, 5);
       expect(thumb.style.transform).toBe('translateY(182.4px)');
+      expect(Number.parseFloat(visual.style.height)).toBeCloseTo(24, 5);
+      expect(Number.parseFloat(visual.style.transform.match(/[-\d.]+/u)?.[0] ?? '')).toBeCloseTo(
+        33.6,
+        5,
+      );
+      expect(animate).toHaveBeenCalledTimes(3); // only the two changed endpoints rebuild
     } finally {
       if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
       else Reflect.deleteProperty(globalThis, 'ScrollTimeline');
@@ -601,6 +660,7 @@ describe('custom-scrollbar compositor hot path', () => {
     const box = createScrollbox('rubber-band');
     initCustomScrollbar(box.container);
     const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    const visual = thumb.querySelector<HTMLElement>('.cscroll-thumb-visual')!;
     const mutations: MutationRecord[] = [];
     const observer = new MutationObserver((records) => mutations.push(...records));
     observer.observe(thumb, { attributes: true, attributeFilter: ['style'] });
@@ -619,6 +679,8 @@ describe('custom-scrollbar compositor hot path', () => {
     await flushMutationObservers();
     expect(mutations).toHaveLength(2); // compressed height + clamped transform
     expect(Number.parseFloat(thumb.style.height)).toBeLessThan(40);
+    expect(visual.style.height).toBe('100%');
+    expect(visual.style.transform).toBe('translateY(0px)');
 
     mutations.length = 0;
     box.container.scrollTop = 0;

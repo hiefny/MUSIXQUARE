@@ -7394,23 +7394,33 @@
     position: absolute;
     right: 0;
     width: 100%;
+    cursor: pointer;
+    pointer-events: auto;
+    will-change: transform;
+  }
+
+  .cscroll-thumb-visual {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
     background-color: var(--scrollbar-thumb);
     border: 2px solid transparent;
     border-radius: 10px;
     background-clip: padding-box;
-    cursor: pointer;
-    pointer-events: auto;
+    pointer-events: none;
     transition: background-color 0.15s;
-    will-change: transform;
+    will-change: transform, height;
   }
 
   @media (hover: hover) {
-    .cscroll-thumb:hover {
+    .cscroll-thumb:hover > .cscroll-thumb-visual {
       background-color: var(--scrollbar-thumb-hover);
     }
   }
 
-  .cscroll-thumb:active {
+  .cscroll-thumb:active > .cscroll-thumb-visual {
     background-color: var(--scrollbar-thumb-active);
   }
 

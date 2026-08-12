@@ -28,6 +28,7 @@ interface ScrollbarState {
   container: HTMLElement;
   track: HTMLElement;
   thumb: HTMLElement;
+  thumbVisual: HTMLElement;
   isDragging: boolean;
   dragStartY: number;
   dragStartScroll: number;
@@ -45,6 +46,8 @@ interface ScrollbarState {
   maxThumbTop: number;
   renderedThumbHeight: number;
   renderedThumbTop: number;
+  renderedVisualHeight: string;
+  renderedVisualTop: number;
   layoutFrame: number | null;
   scrollFrame: number | null;
   scrollIdleFrames: number;
@@ -74,6 +77,28 @@ function setScrollDriver(state: ScrollbarState, driver: ScrollDriver): void {
   state.track.dataset.scrollDriver = driver;
 }
 
+function setThumbVisualGeometry(state: ScrollbarState, height: string, top: number): boolean {
+  let changed = false;
+  if (state.renderedVisualHeight !== height) {
+    state.renderedVisualHeight = height;
+    state.thumbVisual.style.height = height;
+    changed = true;
+  }
+  if (state.renderedVisualTop !== top) {
+    state.renderedVisualTop = top;
+    state.thumbVisual.style.transform = `translateY(${top}px)`;
+    changed = true;
+  }
+  return changed;
+}
+
+function resetScriptThumbVisual(state: ScrollbarState): boolean {
+  // The proven script fallback retains ownership of the outer thumb's height
+  // and position, including its rubber-band compression. The nested visual
+  // simply fills that exact geometry in this mode.
+  return setThumbVisualGeometry(state, '100%', 0);
+}
+
 function cancelScrollTimeline(state: ScrollbarState): void {
   state.timelineGeneration += 1;
   state.scrollAnimation?.cancel();
@@ -81,6 +106,7 @@ function cancelScrollTimeline(state: ScrollbarState): void {
   state.scrollTimeline = null;
   state.timelineMaxThumbTop = Number.NaN;
   setScrollDriver(state, 'script');
+  resetScriptThumbVisual(state);
 }
 
 function fallBackToScriptDriver(
@@ -112,6 +138,27 @@ function seedTimelineInlinePosition(state: ScrollbarState): void {
   // cannot strand the script-only compressed thumb height after bounce-back.
   setThumbHeight(state, state.thumbHeight);
   setThumbTop(state, top);
+}
+
+/**
+ * Recreate the original elastic endpoint feel without competing with the
+ * browser-owned position transform. The outer thumb remains a fixed-size
+ * ScrollTimeline target; only its nested visual compresses. At the bottom the
+ * child moves down by exactly the amount it lost, preserving the old fixed
+ * bottom edge (`visibleHeight - elasticHeight`) geometry.
+ */
+function updateTimelineElasticity(state: ScrollbarState): boolean {
+  const { container, thumbHeight, maxScroll, maxThumbTop } = state;
+  if (state.scrollDriver !== 'timeline' || !state.hasOverflow || maxScroll <= 0) return false;
+
+  const rawThumbTop = (container.scrollTop / maxScroll) * maxThumbTop;
+  const compression = Math.min(0, rawThumbTop, maxThumbTop - rawThumbTop);
+  const elasticHeight = Math.max(THUMB_MIN_HEIGHT * 0.5, thumbHeight + compression);
+  return setThumbVisualGeometry(
+    state,
+    `${elasticHeight}px`,
+    rawThumbTop > maxThumbTop ? thumbHeight - elasticHeight : 0,
+  );
 }
 
 /**
@@ -161,6 +208,7 @@ function ensureScrollTimeline(state: ScrollbarState): boolean {
     state.scrollAnimation = animation;
     state.timelineMaxThumbTop = state.maxThumbTop;
     setScrollDriver(state, 'timeline');
+    updateTimelineElasticity(state);
 
     // Scroll-linked animations become ready asynchronously. A rejected ready
     // promise must not leave a visually frozen thumb on a partially working
@@ -347,6 +395,7 @@ function updateLayout(state: ScrollbarState): void {
     setTrackVisible(state, false);
     setStyleIfChanged(track.style, 'height', '0px');
     setStyleIfChanged(thumb.style, 'display', 'none');
+    resetScriptThumbVisual(state);
     return;
   }
   state.hasOverflow = true;
@@ -416,6 +465,7 @@ function updateLayout(state: ScrollbarState): void {
   // ensureScrollTimeline seeds a clamped inline state before replacing the
   // animation, while the proven script fallback retains rubber-band squash.
   if (!ensureScrollTimeline(state)) updateScroll(state);
+  else updateTimelineElasticity(state);
 
   if (state.revealAfterLayout) {
     state.revealAfterLayout = false;
@@ -456,19 +506,15 @@ function updateScroll(state: ScrollbarState): boolean {
 }
 
 function scheduleScrollPump(state: ScrollbarState): void {
-  if (
-    state.destroyed ||
-    state.scrollDriver === 'timeline' ||
-    !state.hasOverflow ||
-    state.scrollFrame !== null
-  ) {
+  if (state.destroyed || !state.hasOverflow || state.scrollFrame !== null) {
     return;
   }
   state.scrollFrame = window.requestAnimationFrame(() => {
     state.scrollFrame = null;
-    if (state.destroyed || state.scrollDriver === 'timeline') return;
+    if (state.destroyed) return;
 
-    const changed = updateScroll(state);
+    const changed =
+      state.scrollDriver === 'timeline' ? updateTimelineElasticity(state) : updateScroll(state);
     state.scrollIdleFrames = changed ? 0 : state.scrollIdleFrames + 1;
 
     // Keep sampling for a few quiet frames. On iOS the native scroller can
@@ -530,6 +576,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
 
   const thumb = document.createElement('div');
   thumb.className = 'cscroll-thumb';
+  const thumbVisual = document.createElement('div');
+  thumbVisual.className = 'cscroll-thumb-visual';
+  thumb.appendChild(thumbVisual);
   track.appendChild(thumb);
   parent.appendChild(track);
 
@@ -537,6 +586,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
     container,
     track,
     thumb,
+    thumbVisual,
     isDragging: false,
     dragStartY: 0,
     dragStartScroll: 0,
@@ -554,6 +604,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     maxThumbTop: 0,
     renderedThumbHeight: Number.NaN,
     renderedThumbTop: Number.NaN,
+    renderedVisualHeight: '',
+    renderedVisualTop: Number.NaN,
     layoutFrame: null,
     scrollFrame: null,
     scrollIdleFrames: SCROLL_PUMP_IDLE_FRAMES,
@@ -569,6 +621,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
   };
 
   thumb.style.top = '0px';
+  resetScriptThumbVisual(state);
   track.style.transition = 'opacity 0.3s ease';
   track.dataset.scrollDriver = 'script';
 
@@ -583,10 +636,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
       scheduleLayout(state);
     }
     showTrack(state);
-    if (state.scrollDriver === 'script') {
-      state.scrollIdleFrames = 0;
-      scheduleScrollPump(state);
-    }
+    state.scrollIdleFrames = 0;
+    scheduleScrollPump(state);
   };
   container.addEventListener('scroll', onScroll, { passive: true });
 

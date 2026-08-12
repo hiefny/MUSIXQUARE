@@ -55,6 +55,30 @@ interface ScrollbarState {
 const _instances = new Map<HTMLElement, ScrollbarState>();
 const _registeredContainers = new Set<HTMLElement>();
 let _nativeMobileScrollbarMql: MediaQueryList | null = null;
+let _bottomNavResizeObserver: ResizeObserver | null = null;
+
+function syncBottomNavLiveHeight(bottomNav: HTMLElement, entry?: ResizeObserverEntry): void {
+  const height = entry?.borderBoxSize?.[0]?.blockSize || bottomNav.offsetHeight;
+  if (height > 0) {
+    document.documentElement.style.setProperty('--bottom-nav-live-height', `${height}px`);
+  }
+}
+
+function ensureBottomNavHeightObserver(): void {
+  if (_bottomNavResizeObserver) return;
+  const bottomNav = document.querySelector<HTMLElement>('.bottom-nav');
+  if (!bottomNav) return;
+
+  // One app-lifetime observer covers locale/font/zoom wrapping without
+  // touching the scroll event path. The measured border box already includes
+  // safe-area padding, so CSS must not add those insets a second time.
+  syncBottomNavLiveHeight(bottomNav);
+  if (typeof ResizeObserver === 'undefined') return;
+  _bottomNavResizeObserver = new ResizeObserver((entries) =>
+    syncBottomNavLiveHeight(bottomNav, entries[0]),
+  );
+  _bottomNavResizeObserver.observe(bottomNav);
+}
 
 function destroyCustomScrollbarInstance(container: HTMLElement): void {
   const state = _instances.get(container);
@@ -666,6 +690,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
  * Auto-initialize custom scrollbars on all elements with [data-custom-scroll]
  */
 export function initAllCustomScrollbars(): void {
+  ensureBottomNavHeightObserver();
   document.querySelectorAll<HTMLElement>('[data-custom-scroll]').forEach((el) => {
     initCustomScrollbar(el);
   });

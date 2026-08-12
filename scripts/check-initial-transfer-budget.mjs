@@ -22,10 +22,10 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'
 
 export const INITIAL_TRANSFER_BUDGET = Object.freeze({
   entryScriptRawBytes: 1_320_000,
-  // Account retry ownership and mobile compositor-scroll handoff add a small
-  // recovery boundary to the eager shell. Keep the ratchet tight to that
-  // reviewed delta instead of weakening the other raw/eager/total budgets.
-  entryScriptGzipBytes: 385_512,
+  // Account recovery, native-scroll ownership, and live bottom-nav geometry
+  // add small resilience boundaries to the eager shell. Keep this ratchet
+  // tight to those reviewed deltas; all other raw/eager/total limits stay put.
+  entryScriptGzipBytes: 385_640,
   eagerJavaScriptGzipBytes: 391_000,
   eagerTotalRawBytes: 1_700_000,
   eagerTotalGzipBytes: 453_000,

@@ -29,6 +29,14 @@ export default defineConfig({
       name: 'webkit-iphone',
       use: { browserName: 'webkit' },
     },
+    {
+      name: 'webkit-iphone-narrow',
+      use: {
+        browserName: 'webkit',
+        viewport: { width: 320, height: 700 },
+      },
+      grep: /keeps native tab scrollports above the bottom navigation/,
+    },
   ],
   webServer: {
     command: E2E_PREVIEW_COMMAND,

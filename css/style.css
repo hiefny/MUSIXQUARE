@@ -62,9 +62,6 @@
     --scrollbar-thumb: rgba(255, 255, 255, 0.2);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.4);
     --scrollbar-thumb-active: rgba(255, 255, 255, 0.6);
-    /* Higher-contrast color for compositor-owned mobile scroll indicators.
-       Keep this separate so the desktop custom thumb retains its quieter look. */
-    --scrollbar-native-thumb: rgba(255, 255, 255, 0.56);
 
     /* Safe areas (iOS PWA / notch devices) */
     --safe-top: env(safe-area-inset-top, 0px);
@@ -125,7 +122,6 @@
     --scrollbar-thumb: rgba(0, 0, 0, 0.2);
     --scrollbar-thumb-hover: rgba(0, 0, 0, 0.4);
     --scrollbar-thumb-active: rgba(0, 0, 0, 0.6);
-    --scrollbar-native-thumb: rgba(0, 0, 0, 0.48);
   }
 
   /* Once an external file drag reaches the app, keep cross-origin media
@@ -283,96 +279,13 @@
     font-family: inherit;
   }
 
-  /* Incidental scroll owners stay visually hidden. A data-custom-scroll owner
-     hides its native bar only while the JS replacement is actually alive. */
-  *:not([data-custom-scroll])::-webkit-scrollbar,
-  .cscroll-custom-owner::-webkit-scrollbar {
+  /* Hide native scrollbars globally — custom scrollbars are used instead */
+  ::-webkit-scrollbar {
     display: none;
   }
 
-  *:not([data-custom-scroll]),
-  .cscroll-custom-owner {
+  * {
     scrollbar-width: none;
-  }
-
-  /* Primary-touch surfaces include 13-inch iPad landscape above 1280px.
-     Narrow hybrids also use native ownership; a wide fine-primary PC keeps
-     the desktop custom scrollbar even when a touchscreen is available. */
-  @media (pointer: coarse), (max-width: 1279px) and (any-pointer: coarse) {
-    [data-custom-scroll]:not(.cscroll-custom-owner) {
-      scrollbar-width: thin;
-      scrollbar-color: var(--scrollbar-native-thumb) transparent;
-    }
-
-    /* scrollbar-color reaches iOS in Safari 26.2. Older WebKit still gets its
-       native theme-aware indicator from color-scheme. Do not add a
-       ::-webkit-scrollbar fallback here: that switches WebKit away from its
-       built-in scrollbar rendering and defeats the mobile-native handoff. */
-    html[data-theme='dark'] [data-custom-scroll]:not(.cscroll-custom-owner) {
-      color-scheme: only dark;
-    }
-
-    html[data-theme='light'] [data-custom-scroll]:not(.cscroll-custom-owner) {
-      color-scheme: only light;
-    }
-  }
-
-  /* Phone portrait keeps the native scrollport physically above the fixed
-     bottom navigation. The indicator therefore ends at the nav edge instead
-     of sliding behind it. At 720px the navigation becomes a side rail, so
-     compact landscape/tablet/desktop geometry remains untouched. */
-  @media (max-width: 719px) and (pointer: coarse), (max-width: 719px) and (any-pointer: coarse) {
-    body:not(.mode-demo):not(.has-fake-fullscreen) .tab-content > .tab-body {
-      /* #tab-play has an ID-scoped legacy clearance rule later in this file. */
-      padding-bottom: 24px !important;
-      scroll-padding-bottom: 24px;
-    }
-
-    body:not(.mode-demo):not(.has-fake-fullscreen) #tab-play > .tab-body {
-      /* Play intentionally had no 24px breathing room before the scrollport
-         split; preserve that total clearance so controls do not move upward. */
-      padding-bottom: 0 !important;
-      scroll-padding-bottom: 0;
-    }
-
-    html:not(.keyboard-open)
-      body:not(.demo-chrome-hiding):not(.mode-demo):not(.has-fake-fullscreen)
-      .tab-content {
-      /* The live border-box measurement includes both safe-area paddings. */
-      padding-bottom: var(
-        --bottom-nav-live-height,
-        calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px))
-      );
-    }
-  }
-
-  /* Safari < 26.2 cannot recolor its native iOS overlay indicator. In dark
-     app mode some OS-theme combinations still paint that indicator black.
-     Put a direction-specific 12px backing rail behind only the primary phone
-     scrollports (6px thumb plus its 6px right-edge gap). Against the observed roughly half-opaque system indicator,
-     #d0d0d0 and #303030 materially improve black/white contrast. Scrolling
-     remains entirely UA/compositor owned. Browsers
-     that support scrollbar-color never receive this fallback. */
-  @supports (-webkit-touch-callout: none) and (not (scrollbar-color: white transparent)) {
-    @media (max-width: 719px) and (pointer: coarse) and (prefers-color-scheme: light),
-      (max-width: 719px) and (any-pointer: coarse) and (prefers-color-scheme: light) {
-      html[data-theme='dark']
-        body:not(.mode-demo):not(.has-fake-fullscreen)
-        .tab-content
-        > .tab-body:not(.cscroll-custom-owner) {
-        box-shadow: inset -12px 0 #d0d0d0;
-      }
-    }
-
-    @media (max-width: 719px) and (pointer: coarse) and (prefers-color-scheme: dark),
-      (max-width: 719px) and (any-pointer: coarse) and (prefers-color-scheme: dark) {
-      html[data-theme='light']
-        body:not(.mode-demo):not(.has-fake-fullscreen)
-        .tab-content
-        > .tab-body:not(.cscroll-custom-owner) {
-        box-shadow: inset -12px 0 #303030;
-      }
-    }
   }
 
   body {

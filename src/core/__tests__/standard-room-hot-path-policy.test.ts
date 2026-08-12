@@ -88,6 +88,20 @@ describe('standard-room security/performance policy', () => {
     );
   });
 
+  it('rejects restoring a control-plane readiness preflight ahead of room signaling', async () => {
+    const current = await sources();
+    const gatedHost = replaceOrThrow(
+      current.setupHost,
+      '    const code = await createHostSessionWithShortCode();',
+      '    await waitForStandardRoomReadiness();\n' +
+        '    const code = await createHostSessionWithShortCode();',
+    );
+
+    expect(() => assertStandardRoomHotPath({ ...current, setupHost: gatedHost })).toThrow(
+      /host setup must start signaling without a control-plane readiness preflight/u,
+    );
+  });
+
   it('rejects the former peer-open plus TURN Promise.all before invite return', async () => {
     const current = await sources();
     const serialized = replaceOrThrow(

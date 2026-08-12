@@ -12,7 +12,6 @@ import { getState, setState } from '../core/state.ts';
 import { PEER_NAME_PREFIX } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
 import { joinSession } from '../network/peer.ts';
-import { waitForStandardRoomReadiness } from '../network/standard-room-prerequisites.ts';
 import {
   t,
   bus,
@@ -24,7 +23,6 @@ import {
   getPendingGuestRoleMode,
   setPendingGuestRoleMode,
   getPendingAutoJoinCode,
-  getSetupOverlayAbort,
   setupSetAutoJoinCode,
   setOnInviteLinkRoleSelected,
   setupEl,
@@ -52,8 +50,6 @@ import { enterProRoomFromSetup } from '../pro-room/setup-flow.ts';
 let _goBack: () => void = () => {};
 let _pendingPasswordJoin: { code: string; mode: number; inviteLink: boolean } | null = null;
 let _roomPasswordPromptOpen = false;
-let _standardRoomJoinAttemptId = 0;
-let _standardRoomReadinessAbort: AbortController | null = null;
 const DEFAULT_SETUP_ROLE = 0;
 
 export function setGuestGoBack(fn: () => void): void {
@@ -64,7 +60,6 @@ export function setGuestGoBack(fn: () => void): void {
 setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 
 export function startGuestFlow(): void {
-  cancelStandardRoomReadiness('Guest setup restarted');
   _pendingPasswordJoin = null;
   _roomPasswordPromptOpen = false;
   setupSetGuestJoinError(null);
@@ -134,86 +129,6 @@ export function startGuestFlow(): void {
   } else {
     proceedToGuestCode(DEFAULT_SETUP_ROLE);
   }
-}
-
-function cancelStandardRoomReadiness(reason: string): void {
-  _standardRoomJoinAttemptId++;
-  _standardRoomReadinessAbort?.abort(new Error(reason));
-  _standardRoomReadinessAbort = null;
-}
-
-function handleReadinessBack(inviteLink: boolean): void {
-  cancelStandardRoomReadiness('Guest setup cancelled');
-  if (inviteLink) {
-    scheduleSessionReset(t('dialog.leaving_session'), () => {
-      window.location.href = '/';
-    });
-    return;
-  }
-  _goBack();
-}
-
-function renderStandardRoomReadinessBusy(
-  inviteLink: boolean,
-  attempt: number,
-  maxAttempts: number,
-): void {
-  setupRenderActions(
-    [
-      {
-        id: 'btn-setup-back',
-        html: BACK_SVG,
-        ariaLabel: t('dialog.go_back'),
-        kind: 'icon-only',
-        onClick: () => handleReadinessBack(inviteLink),
-      },
-      {
-        id: 'btn-setup-confirm',
-        text:
-          attempt === 1
-            ? t('setup.joining')
-            : t('connect.signaling_reconnecting', { attempt, max: maxAttempts }),
-        kind: 'primary',
-        disabled: true,
-      },
-    ],
-    'horizontal-with-back',
-  );
-}
-
-async function beginStandardRoomJoin(code: string, inviteLink: boolean): Promise<void> {
-  _standardRoomReadinessAbort?.abort(new Error('Superseded standard-room join'));
-  const controller = new AbortController();
-  _standardRoomReadinessAbort = controller;
-  const attemptId = ++_standardRoomJoinAttemptId;
-  const overlaySignal = getSetupOverlayAbort()?.signal;
-  const abortFromOverlay = () => controller.abort(overlaySignal?.reason);
-  if (overlaySignal?.aborted) abortFromOverlay();
-  else overlaySignal?.addEventListener('abort', abortFromOverlay, { once: true });
-
-  try {
-    await waitForStandardRoomReadiness(controller.signal, (attempt, maxAttempts) => {
-      if (attemptId !== _standardRoomJoinAttemptId || controller.signal.aborted) return;
-      renderStandardRoomReadinessBusy(inviteLink, attempt, maxAttempts);
-    });
-  } catch (error) {
-    if (attemptId !== _standardRoomJoinAttemptId || controller.signal.aborted) return;
-    log.warn('[Setup] Standard-room control plane unavailable', error);
-    bus.emit('setup:guest-join-failure', {
-      error,
-      userMessage: t('error.server_disconnected'),
-    });
-    return;
-  } finally {
-    overlaySignal?.removeEventListener('abort', abortFromOverlay);
-    if (_standardRoomReadinessAbort === controller) _standardRoomReadinessAbort = null;
-  }
-
-  if (attemptId !== _standardRoomJoinAttemptId || controller.signal.aborted) return;
-  // From this point the existing transport attempt owns cancellation and
-  // duplicate-call protection. Keep its Back action disabled until it settles.
-  renderPasswordRetryBusy(inviteLink);
-  joinSession(code);
 }
 
 /** Render actions for invite-link flow: back icon + primary start.
@@ -295,7 +210,7 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
     await _handleProRoomJoin(autoCode);
     return;
   }
-  await beginStandardRoomJoin(autoCode, true);
+  joinSession(autoCode);
 }
 
 async function _handleProRoomJoin(code: string): Promise<void> {
@@ -419,7 +334,7 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
     await _handleProRoomJoin(code);
     return;
   }
-  await beginStandardRoomJoin(code, false);
+  joinSession(code);
 }
 
 function restoreJoinControlsAfterPasswordCancel(): void {

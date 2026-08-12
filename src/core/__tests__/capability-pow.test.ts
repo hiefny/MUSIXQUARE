@@ -19,51 +19,6 @@ function hasLeadingZeroBits(bytes: Uint8Array, difficulty: number): boolean {
 }
 
 describe('capability proof-of-work client', () => {
-  it('forces a fresh strict readiness probe instead of trusting a preexisting config cache', async () => {
-    const validConfig = {
-      capabilityRequired: false,
-      turnstileSiteKey: '',
-      turnstileRequired: false,
-      proofOfWorkRequired: false,
-      proofOfWorkDifficulty: 0,
-      proofOfWorkTtl: 0,
-      ttl: 600,
-    };
-    const fetchMock = vi
-      .fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>()
-      .mockResolvedValueOnce(Response.json(validConfig))
-      .mockImplementationOnce(() => new Promise<Response>(() => undefined));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const { assertCapabilityServiceReady, getCapabilityHeaders } = await import('../capability.ts');
-    await expect(getCapabilityHeaders('/api/get-turn-config', ['turn'])).resolves.toEqual({});
-    expect(fetchMock).toHaveBeenCalledOnce();
-
-    const controller = new AbortController();
-    const readiness = assertCapabilityServiceReady('/api/security-config', controller.signal);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
-      cache: 'no-store',
-      credentials: 'same-origin',
-      signal: expect.any(AbortSignal),
-    });
-    controller.abort(new DOMException('Back', 'AbortError'));
-
-    await expect(readiness).rejects.toMatchObject({ name: 'AbortError' });
-  });
-
-  it('rejects a malformed security-config payload on the strict readiness path', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({})),
-    );
-    const { assertCapabilityServiceReady } = await import('../capability.ts');
-
-    await expect(assertCapabilityServiceReady()).rejects.toThrow(
-      'CAPABILITY_SECURITY_CONFIG_INVALID',
-    );
-  });
-
   it('solves one transparent PoW and reuses its bundle token for YouTube and remote share', async () => {
     const challenge = 'test-stateless-challenge.signature';
     const difficulty = 8;

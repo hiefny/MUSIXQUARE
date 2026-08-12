@@ -12,6 +12,8 @@ const SOURCE_FILES = Object.freeze({
   appWorker: 'cloudflare/app-worker.js',
   signalingWorker: 'cloudflare/signaling-worker.js',
   peer: 'src/network/peer.ts',
+  setupHost: 'src/ui/setup-host.ts',
+  setupGuest: 'src/ui/setup-guest.ts',
 });
 
 const ATOMIC_SERVICE_CONTROL_CALLS = new Set([
@@ -547,6 +549,25 @@ function assertInviteReturnsBeforeTurn(peerSource, failures) {
   }
 }
 
+function assertSetupStartsTransportDirectly(setupHostSource, setupGuestSource, failures) {
+  const forbiddenPreflight = /\b(?:waitForStandardRoomReadiness|assertCapabilityServiceReady)\b/u;
+  if (forbiddenPreflight.test(setupHostSource)) {
+    failures.push('host setup must start signaling without a control-plane readiness preflight');
+  }
+  if (forbiddenPreflight.test(setupGuestSource)) {
+    failures.push('guest setup must start signaling without a control-plane readiness preflight');
+  }
+
+  const host = sourceFile(SOURCE_FILES.setupHost, setupHostSource);
+  const guest = sourceFile(SOURCE_FILES.setupGuest, setupGuestSource);
+  if (callsNamed(host, new Set(['createHostSessionWithShortCode'])).length !== 1) {
+    failures.push('host setup must retain one direct signaling-owned room creation call');
+  }
+  if (callsNamed(guest, new Set(['joinSession'])).length < 2) {
+    failures.push('guest setup must retain direct standard-room join calls');
+  }
+}
+
 export async function loadStandardRoomHotPathSources(root = repoRoot) {
   const entries = await Promise.all(
     Object.entries(SOURCE_FILES).map(async ([key, relativePath]) => [
@@ -562,6 +583,7 @@ export function assertStandardRoomHotPath(sources) {
   assertTurnAdmission(sources.appWorker, failures);
   assertSignalingBoundary(sources.signalingWorker, failures);
   assertInviteReturnsBeforeTurn(sources.peer, failures);
+  assertSetupStartsTransportDirectly(sources.setupHost, sources.setupGuest, failures);
   if (failures.length > 0) {
     throw new Error(
       `Standard-room security/performance policy failed:\n${failures

@@ -16,9 +16,6 @@ const THUMB_MIN_HEIGHT = 30;
 const FADE_DELAY = 1200;
 const OVERFLOW_ROUNDING_TOLERANCE_PX = 2;
 const SCROLL_PUMP_IDLE_FRAMES = 3;
-const NATIVE_MOBILE_SCROLLBAR_QUERY =
-  '(pointer: coarse), (max-width: 1279px) and (any-pointer: coarse)';
-const CUSTOM_SCROLLBAR_OWNER_CLASS = 'cscroll-custom-owner';
 const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
 
 interface ScrollbarState {
@@ -53,89 +50,6 @@ interface ScrollbarState {
 }
 
 const _instances = new Map<HTMLElement, ScrollbarState>();
-const _registeredContainers = new Set<HTMLElement>();
-let _nativeMobileScrollbarMql: MediaQueryList | null = null;
-let _bottomNavResizeObserver: ResizeObserver | null = null;
-
-function syncBottomNavLiveHeight(bottomNav: HTMLElement, entry?: ResizeObserverEntry): void {
-  const height = entry?.borderBoxSize?.[0]?.blockSize || bottomNav.offsetHeight;
-  if (height > 0) {
-    document.documentElement.style.setProperty('--bottom-nav-live-height', `${height}px`);
-  }
-}
-
-function ensureBottomNavHeightObserver(): void {
-  if (_bottomNavResizeObserver) return;
-  const bottomNav = document.querySelector<HTMLElement>('.bottom-nav');
-  if (!bottomNav) return;
-
-  // One app-lifetime observer covers locale/font/zoom wrapping without
-  // touching the scroll event path. The measured border box already includes
-  // safe-area padding, so CSS must not add those insets a second time.
-  syncBottomNavLiveHeight(bottomNav);
-  if (typeof ResizeObserver === 'undefined') return;
-  _bottomNavResizeObserver = new ResizeObserver((entries) =>
-    syncBottomNavLiveHeight(bottomNav, entries[0]),
-  );
-  _bottomNavResizeObserver.observe(bottomNav);
-}
-
-function destroyCustomScrollbarInstance(container: HTMLElement): void {
-  const state = _instances.get(container);
-  if (!state) {
-    container.classList.remove(CUSTOM_SCROLLBAR_OWNER_CLASS);
-    return;
-  }
-  state.destroyed = true;
-  cancelFade(state);
-  if (state.layoutFrame !== null) window.cancelAnimationFrame(state.layoutFrame);
-  if (state.scrollFrame !== null) window.cancelAnimationFrame(state.scrollFrame);
-  state.layoutFrame = null;
-  state.scrollFrame = null;
-  if (state.isDragging) document.body.style.userSelect = '';
-  state.observer.disconnect();
-  state.resizeObserver.disconnect();
-  state.cleanup.forEach((fn) => fn());
-  state.track.remove();
-  container.classList.remove(CUSTOM_SCROLLBAR_OWNER_CLASS);
-  _instances.delete(container);
-}
-
-function reconcileScrollbarMode(): void {
-  // Dynamic dialogs can be removed without going through this module's
-  // explicit destroy hook. Do not retain those detached nodes forever or
-  // recreate their scrollbar if the same node is later reattached for a
-  // different lifecycle; its owner must request initialization again.
-  for (const container of [..._registeredContainers]) {
-    if (container.isConnected) continue;
-    _registeredContainers.delete(container);
-    destroyCustomScrollbarInstance(container);
-  }
-
-  if (_nativeMobileScrollbarMql?.matches) {
-    // Mobile browsers move native overlay scrollbars on the compositor. A JS
-    // sibling thumb can only sample scrollTop on the main thread, so it visibly
-    // catches up during asynchronous touch scrolling even when page content is
-    // perfectly smooth. Tear those instances down while this surface is mobile.
-    for (const container of [..._instances.keys()]) {
-      destroyCustomScrollbarInstance(container);
-    }
-    return;
-  }
-
-  // Recreate every requested instance when a device crosses back to a desktop
-  // width/input mode. This also covers responsive DevTools and convertible
-  // devices without requiring callers to run app initialization again.
-  for (const container of _registeredContainers) {
-    initializeCustomScrollbarInstance(container);
-  }
-}
-
-function ensureScrollbarModeListener(): void {
-  if (_nativeMobileScrollbarMql) return;
-  _nativeMobileScrollbarMql = window.matchMedia(NATIVE_MOBILE_SCROLLBAR_QUERY);
-  _nativeMobileScrollbarMql.addEventListener('change', reconcileScrollbarMode);
-}
 
 function setStyleIfChanged(style: CSSStyleDeclaration, property: string, value: string): void {
   if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
@@ -463,7 +377,7 @@ function mutationsNeedLayout(records: MutationRecord[]): boolean {
   });
 }
 
-function initializeCustomScrollbarInstance(container: HTMLElement): void {
+export function initCustomScrollbar(container: HTMLElement): void {
   if (_instances.has(container)) return;
 
   // Track must be a sibling of the container (not inside it, or it scrolls with content).
@@ -533,11 +447,6 @@ function initializeCustomScrollbarInstance(container: HTMLElement): void {
     scheduleScrollPump(state);
   };
   container.addEventListener('scroll', onScroll, { passive: true });
-
-  // CSS hides the native scrollbar only while this JS-owned replacement is
-  // actually alive. Mobile-native mode never receives this class, so WebKit
-  // can keep its compositor scrollbar without a pseudo-element reset.
-  container.classList.add(CUSTOM_SCROLLBAR_OWNER_CLASS);
 
   state.observer = new MutationObserver((records) => {
     if (mutationsNeedLayout(records)) scheduleLayout(state);
@@ -672,31 +581,28 @@ function initializeCustomScrollbarInstance(container: HTMLElement): void {
   updateLayout(state);
 }
 
-export function initCustomScrollbar(container: HTMLElement): void {
-  _registeredContainers.add(container);
-  ensureScrollbarModeListener();
-
-  if (_nativeMobileScrollbarMql?.matches) {
-    // A prior desktop instance can still be live if the media-query change and
-    // a caller-driven re-init land in the same turn.
-    destroyCustomScrollbarInstance(container);
-    return;
-  }
-
-  initializeCustomScrollbarInstance(container);
-}
-
 /**
  * Auto-initialize custom scrollbars on all elements with [data-custom-scroll]
  */
 export function initAllCustomScrollbars(): void {
-  ensureBottomNavHeightObserver();
   document.querySelectorAll<HTMLElement>('[data-custom-scroll]').forEach((el) => {
     initCustomScrollbar(el);
   });
 }
 
 export function destroyCustomScrollbar(container: HTMLElement): void {
-  _registeredContainers.delete(container);
-  destroyCustomScrollbarInstance(container);
+  const state = _instances.get(container);
+  if (!state) return;
+  state.destroyed = true;
+  cancelFade(state);
+  if (state.layoutFrame !== null) window.cancelAnimationFrame(state.layoutFrame);
+  if (state.scrollFrame !== null) window.cancelAnimationFrame(state.scrollFrame);
+  state.layoutFrame = null;
+  state.scrollFrame = null;
+  if (state.isDragging) document.body.style.userSelect = '';
+  state.observer.disconnect();
+  state.resizeObserver.disconnect();
+  state.cleanup.forEach((fn) => fn());
+  state.track.remove();
+  _instances.delete(container);
 }

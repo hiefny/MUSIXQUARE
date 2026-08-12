@@ -266,24 +266,6 @@ async function getSecurityConfig(
   }
 }
 
-/**
- * Strictly prove that the app's same-origin control plane is responding before
- * setup mutates room state. Successful probes populate the same short-lived
- * security-config cache used by capability minting, so a healthy setup does
- * not pay for a duplicate request.
- */
-export async function assertCapabilityServiceReady(
-  input: RequestInfo | URL = '/api/security-config',
-  signal?: AbortSignal,
-): Promise<void> {
-  const apiBase = apiBaseFor(input);
-  // A page can have a healthy config cached from before its network entered a
-  // half-open state. Setup needs a current network proof, not only a valid old
-  // object; the successful fresh result is cached again for capability minting.
-  invalidateSecurityConfig(apiBase);
-  await getSecurityConfig(apiBase, signal, false);
-}
-
 /** Drop the cached security-config probe so the next getSecurityConfig() re-fetches.
  *  Used on a 401 retry: a 401 means the endpoint really required capability, so a
  *  cached `capabilityRequired:false` (possibly from a failed-open probe) was wrong. */

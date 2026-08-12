@@ -107,11 +107,8 @@ class ResizeObserverStub {
     }
   }
 
-  notify(entry?: Partial<ResizeObserverEntry>): void {
-    this.callback(
-      (entry ? [entry] : []) as ResizeObserverEntry[],
-      this as unknown as ResizeObserver,
-    );
+  notify(): void {
+    this.callback([], this as unknown as ResizeObserver);
   }
 }
 
@@ -126,11 +123,7 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
   value: ResizeObserverStub,
 });
 
-import {
-  initAllCustomScrollbars,
-  initCustomScrollbar,
-  destroyCustomScrollbar,
-} from '../custom-scrollbar.ts';
+import { initCustomScrollbar, destroyCustomScrollbar } from '../custom-scrollbar.ts';
 
 /** Fire the recorded 'change' listeners for a media query (page-global event). */
 function fireMqlChange(query: string): void {
@@ -141,7 +134,6 @@ function fireMqlChange(query: string): void {
 
 const ORIENTATION_QUERY = '(orientation: landscape)';
 const COMPACT_QUERY = '(min-width: 720px) and (max-width: 1279px)';
-const NATIVE_MOBILE_QUERY = '(pointer: coarse), (max-width: 1279px) and (any-pointer: coarse)';
 
 function makeRect(height: number, top = 0): DOMRect {
   return {
@@ -238,211 +230,23 @@ afterEach(() => {
   clearAllManagedTimers();
   vi.useRealTimers();
   document.body.style.removeProperty('--desktop-ui-scale');
-  document.documentElement.style.removeProperty('--bottom-nav-live-height');
   document.body.innerHTML = '';
 });
 
-describe('custom-scrollbar mobile native handoff', () => {
-  it('tracks the live localized bottom-nav border box outside the scroll path', () => {
-    const nav = document.createElement('nav');
-    nav.className = 'bottom-nav';
-    let navHeight = 82;
-    Object.defineProperty(nav, 'offsetHeight', { get: () => navHeight });
-    nav.getBoundingClientRect = () => makeRect(navHeight, 618);
-    document.body.appendChild(nav);
-
-    initAllCustomScrollbars();
-    expect(document.documentElement.style.getPropertyValue('--bottom-nav-live-height')).toBe(
-      '82px',
-    );
-
-    navHeight = 96;
-    _resizeObservers.get(nav)?.notify({
-      target: nav,
-      borderBoxSize: [{ blockSize: 96, inlineSize: 320 }],
-    });
-    expect(document.documentElement.style.getPropertyValue('--bottom-nav-live-height')).toBe(
-      '96px',
-    );
-
-    // Re-initialization reuses the one app-lifetime observer.
-    const observer = _resizeObservers.get(nav);
-    initAllCustomScrollbars();
-    expect(_resizeObservers.get(nav)).toBe(observer);
-
-    // Safari 13.1-15.3 exposes ResizeObserver without borderBoxSize.
-    navHeight = 104;
-    observer?.notify({ target: nav });
-    expect(document.documentElement.style.getPropertyValue('--bottom-nav-live-height')).toBe(
-      '104px',
-    );
-
-    // A display/transform transition can collapse rendered geometry. Keep the
-    // last stable reserve instead of replacing it with zero.
-    navHeight = 0;
-    observer?.notify({ target: nav, borderBoxSize: [{ blockSize: 0, inlineSize: 320 }] });
-    expect(document.documentElement.style.getPropertyValue('--bottom-nav-live-height')).toBe(
-      '104px',
-    );
-  });
-
-  it('skips the JS track on wide primary-coarse surfaces and restores it on desktop', () => {
+describe('custom-scrollbar ownership', () => {
+  it('keeps the custom track on coarse mobile surfaces and hides native bars globally', async () => {
     _mqlMatches.set('(pointer: coarse)', true);
-    _mqlMatches.set('(min-width: 1280px)', true);
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
-    const box = createScrollbox('wide-native-mobile');
-
-    initCustomScrollbar(box.container);
-
-    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
-    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(false);
-    expect(box.rectSpy).not.toHaveBeenCalled();
-
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, false);
-    fireMqlChange(NATIVE_MOBILE_QUERY);
-
-    expect(box.track().style.height).toBe('200px');
-    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(true);
-    expect(box.rectSpy).toHaveBeenCalledTimes(1);
-
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
-    fireMqlChange(NATIVE_MOBILE_QUERY);
-    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
-    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(false);
-  });
-
-  it('keeps the custom track on a wide fine-primary PC with an available touchscreen', () => {
-    _mqlMatches.set('(pointer: coarse)', false);
-    _mqlMatches.set('(pointer: fine)', true);
     _mqlMatches.set('(any-pointer: coarse)', true);
-    _mqlMatches.set('(min-width: 1280px)', true);
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, false);
-    const box = createScrollbox('wide-hybrid-desktop');
+    const box = createScrollbox('coarse-mobile-owner');
 
     initCustomScrollbar(box.container);
 
-    expect(box.track().style.height).toBe('200px');
-    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(true);
-  });
-
-  it('uses the native track on a narrow hybrid with any coarse pointer available', () => {
-    _mqlMatches.set('(pointer: coarse)', false);
-    _mqlMatches.set('(pointer: fine)', true);
-    _mqlMatches.set('(any-pointer: coarse)', true);
-    _mqlMatches.set('(max-width: 1279px)', true);
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
-    const box = createScrollbox('narrow-hybrid');
-
-    initCustomScrollbar(box.container);
-
-    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
-    expect(box.container.classList.contains('cscroll-custom-owner')).toBe(false);
-  });
-
-  it('tears down a live JS track on mobile and honors explicit destroy across later changes', () => {
-    const box = createScrollbox('responsive-destroy');
-    initCustomScrollbar(box.container);
-    expect(box.track()).toBeTruthy();
-
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
-    fireMqlChange(NATIVE_MOBILE_QUERY);
-    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
-
-    destroyCustomScrollbar(box.container);
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, false);
-    fireMqlChange(NATIVE_MOBILE_QUERY);
-    expect(box.container.parentElement?.querySelector('.cscroll-track')).toBeNull();
-  });
-
-  it('prunes detached registered owners instead of recreating them on later media changes', () => {
-    const box = createScrollbox('detached-owner');
-    const parent = box.container.parentElement!;
-    initCustomScrollbar(box.container);
-    expect(box.track()).toBeTruthy();
-
-    parent.remove();
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, true);
-    fireMqlChange(NATIVE_MOBILE_QUERY);
-    expect(parent.querySelector('.cscroll-track')).toBeNull();
-
-    document.body.appendChild(parent);
-    _mqlMatches.set(NATIVE_MOBILE_QUERY, false);
-    fireMqlChange(NATIVE_MOBILE_QUERY);
-    expect(parent.querySelector('.cscroll-track')).toBeNull();
-
-    initCustomScrollbar(box.container);
-    expect(box.track().style.height).toBe('200px');
-  });
-
-  it('keeps the JS and CSS native-mobile media queries exactly in parity', async () => {
-    const [stylesheet, source] = await Promise.all([
-      readFile('css/style.css', 'utf8'),
-      readFile('src/ui/custom-scrollbar.ts', 'utf8'),
-    ]);
-
-    expect(source).toContain(`'${NATIVE_MOBILE_QUERY}'`);
-    expect(stylesheet).toContain(`@media ${NATIVE_MOBILE_QUERY} {`);
-    expect(stylesheet).toMatch(
-      /@media \(pointer: coarse\), \(max-width: 1279px\) and \(any-pointer: coarse\)\s*\{[^}]*\[data-custom-scroll\]:not\(\.cscroll-custom-owner\)\s*\{[^}]*scrollbar-width:\s*thin;[^}]*scrollbar-color:\s*var\(--scrollbar-native-thumb\) transparent;/s,
-    );
-    expect(stylesheet).toMatch(
-      /html\[data-theme='dark'\] \[data-custom-scroll\]:not\(\.cscroll-custom-owner\)\s*\{[^}]*color-scheme:\s*only dark;/s,
-    );
-    expect(stylesheet).toMatch(
-      /html\[data-theme='light'\] \[data-custom-scroll\]:not\(\.cscroll-custom-owner\)\s*\{[^}]*color-scheme:\s*only light;/s,
-    );
-    expect(stylesheet).toContain('*:not([data-custom-scroll])::-webkit-scrollbar');
-    expect(stylesheet).toMatch(
-      /\*:not\(\[data-custom-scroll\]\),\s*\.cscroll-custom-owner\s*\{[^}]*scrollbar-width:\s*none;/s,
-    );
-    expect(stylesheet).toMatch(/\.cscroll-custom-owner::-webkit-scrollbar\s*\{/);
-    expect(stylesheet).not.toMatch(
-      /\[data-custom-scroll\]:not\(\.cscroll-custom-owner\)::?-webkit-scrollbar/,
-    );
-    expect(stylesheet).not.toMatch(/@media[^{}]*not all and[^{}]*any-pointer: coarse/);
-  });
-
-  it('ends a phone native scrollport above the bottom nav without affecting side-rail layouts', async () => {
+    expect(box.track().querySelector('.cscroll-thumb')).toBeTruthy();
     const stylesheet = await readFile('css/style.css', 'utf8');
-
-    expect(stylesheet).toMatch(
-      /@media \(max-width: 719px\) and \(pointer: coarse\),\s*\(max-width: 719px\) and \(any-pointer: coarse\)\s*\{/s,
-    );
-    expect(stylesheet).toMatch(
-      /body:not\(\.mode-demo\):not\(\.has-fake-fullscreen\) \.tab-content > \.tab-body\s*\{[^}]*padding-bottom:\s*24px !important;[^}]*scroll-padding-bottom:\s*24px;/s,
-    );
-    expect(stylesheet).toMatch(
-      /body:not\(\.mode-demo\):not\(\.has-fake-fullscreen\) #tab-play > \.tab-body\s*\{[^}]*padding-bottom:\s*0 !important;[^}]*scroll-padding-bottom:\s*0;/s,
-    );
-    expect(stylesheet).toMatch(
-      /html:not\(\.keyboard-open\)[\s\S]*body:not\(\.demo-chrome-hiding\):not\(\.mode-demo\):not\(\.has-fake-fullscreen\)[\s\S]*\.tab-content\s*\{[^}]*padding-bottom:\s*var\([\s\S]*--bottom-nav-live-height,[\s\S]*calc\(var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\)\)[\s\S]*\);/s,
-    );
-    expect(stylesheet).not.toMatch(
-      /html:not\(\.keyboard-open\)\s*body:not\(\.overlay-open\)[\s\S]*\.tab-content\s*\{[\s\S]*padding-bottom:/s,
-    );
-    expect(stylesheet).toMatch(
-      /@supports \(-webkit-touch-callout: none\) and \(not \(scrollbar-color: white transparent\)\)\s*\{[\s\S]*@media \(max-width: 719px\) and \(pointer: coarse\) and \(prefers-color-scheme: light\),\s*\(max-width: 719px\) and \(any-pointer: coarse\) and \(prefers-color-scheme: light\)[\s\S]*html\[data-theme='dark'\][\s\S]*\.tab-content\s*> \.tab-body:not\(\.cscroll-custom-owner\)\s*\{[^}]*box-shadow:\s*inset -12px 0 #d0d0d0;/s,
-    );
-    expect(stylesheet).toMatch(
-      /@supports \(-webkit-touch-callout: none\) and \(not \(scrollbar-color: white transparent\)\)[\s\S]*@media \(max-width: 719px\) and \(pointer: coarse\) and \(prefers-color-scheme: dark\),\s*\(max-width: 719px\) and \(any-pointer: coarse\) and \(prefers-color-scheme: dark\)[\s\S]*html\[data-theme='light'\][\s\S]*\.tab-content\s*> \.tab-body:not\(\.cscroll-custom-owner\)\s*\{[^}]*box-shadow:\s*inset -12px 0 #303030;/s,
-    );
-    const fallbackStart = stylesheet.indexOf(
-      '@supports (-webkit-touch-callout: none) and (not (scrollbar-color: white transparent))',
-    );
-    const fallbackEnd = stylesheet.indexOf('\n  body {', fallbackStart);
-    const fallbackStyles = stylesheet.slice(fallbackStart, fallbackEnd);
-    const darkOsStart = fallbackStyles.indexOf(
-      '@media (max-width: 719px) and (pointer: coarse) and (prefers-color-scheme: dark)',
-    );
-    const lightOsFallback = fallbackStyles.slice(0, darkOsStart);
-    const darkOsFallback = fallbackStyles.slice(darkOsStart);
-    expect(lightOsFallback).toContain("html[data-theme='dark']");
-    expect(lightOsFallback).not.toContain("html[data-theme='light']");
-    expect(darkOsFallback).toContain("html[data-theme='light']");
-    expect(darkOsFallback).not.toContain("html[data-theme='dark']");
-    expect(stylesheet).not.toMatch(
-      /@supports \(-webkit-touch-callout: none\) and \(not \(scrollbar-color: white transparent\)\)[\s\S]*\[data-custom-scroll-contained\]/s,
-    );
+    expect(stylesheet).toMatch(/::-webkit-scrollbar\s*\{[^}]*display:\s*none;/s);
+    expect(stylesheet).toMatch(/\*\s*\{[^}]*scrollbar-width:\s*none;/s);
+    expect(stylesheet).not.toContain('--scrollbar-native-thumb');
+    expect(stylesheet).not.toContain('.cscroll-custom-owner');
   });
 });
 

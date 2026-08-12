@@ -2,6 +2,8 @@ export interface StandardRoomHotPathSources {
   appWorker: string;
   signalingWorker: string;
   peer: string;
+  setupHost: string;
+  setupGuest: string;
 }
 
 export interface StandardRoomHotPathResult {

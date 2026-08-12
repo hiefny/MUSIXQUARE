@@ -3,15 +3,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-  assertCapabilityServiceReady: vi.fn<
-    (input?: RequestInfo | URL, signal?: AbortSignal) => Promise<void>
-  >(async () => undefined),
   fetchWithCapability: vi.fn(),
   warmCapabilitySilently: vi.fn(async () => true),
 }));
 
 vi.mock('../../core/capability.ts', () => ({
-  assertCapabilityServiceReady: mocks.assertCapabilityServiceReady,
   fetchWithCapability: mocks.fetchWithCapability,
   isCapabilityChallengeCancelled: (error: unknown) =>
     error instanceof Error && error.name === 'CapabilityChallengeCancelled',
@@ -29,7 +25,6 @@ import {
   __standardRoomPrerequisitesForTests,
   getStandardRoomTurnCredentials,
   scheduleStandardRoomPrerequisiteWarmup,
-  waitForStandardRoomReadiness,
 } from '../standard-room-prerequisites.ts';
 
 type Deferred<T> = {
@@ -63,7 +58,6 @@ beforeEach(() => {
   __standardRoomPrerequisitesForTests.reset();
   vi.clearAllMocks();
   mocks.warmCapabilitySilently.mockResolvedValue(true);
-  mocks.assertCapabilityServiceReady.mockResolvedValue(undefined);
   mocks.fetchWithCapability.mockResolvedValue(turnResponse());
 });
 
@@ -74,98 +68,6 @@ afterEach(() => {
 });
 
 describe('standard-room prerequisite cache', () => {
-  it('bypasses API-less local/E2E modes while production keeps the strict probe', async () => {
-    const e2eProgress = vi.fn();
-    await expect(
-      __standardRoomPrerequisitesForTests.waitForReadinessInMode('e2e', undefined, e2eProgress),
-    ).resolves.toBeUndefined();
-    expect(e2eProgress).not.toHaveBeenCalled();
-    expect(mocks.assertCapabilityServiceReady).not.toHaveBeenCalled();
-
-    const developmentProgress = vi.fn();
-    await expect(
-      __standardRoomPrerequisitesForTests.waitForReadinessInMode(
-        'development',
-        undefined,
-        developmentProgress,
-      ),
-    ).resolves.toBeUndefined();
-    expect(developmentProgress).not.toHaveBeenCalled();
-    expect(mocks.assertCapabilityServiceReady).not.toHaveBeenCalled();
-
-    await expect(
-      __standardRoomPrerequisitesForTests.waitForReadinessInMode('production'),
-    ).resolves.toBeUndefined();
-    expect(mocks.assertCapabilityServiceReady).toHaveBeenCalledOnce();
-    expect(mocks.assertCapabilityServiceReady).toHaveBeenCalledWith(
-      '/api/security-config',
-      expect.any(AbortSignal),
-    );
-  });
-
-  it('retries only the read-only same-origin readiness probe before succeeding', async () => {
-    vi.useFakeTimers();
-    mocks.assertCapabilityServiceReady
-      .mockRejectedValueOnce(new Error('half-open'))
-      .mockRejectedValueOnce(new Error('still half-open'))
-      .mockResolvedValueOnce(undefined);
-    const progress: Array<[number, number]> = [];
-
-    const ready = waitForStandardRoomReadiness(undefined, (attempt, maxAttempts) =>
-      progress.push([attempt, maxAttempts]),
-    );
-    await vi.advanceTimersByTimeAsync(
-      __standardRoomPrerequisitesForTests.readinessRetryDelaysMs.reduce<number>(
-        (total, delay) => total + delay,
-        0,
-      ),
-    );
-
-    await expect(ready).resolves.toBeUndefined();
-    expect(mocks.assertCapabilityServiceReady).toHaveBeenCalledTimes(3);
-    expect(mocks.assertCapabilityServiceReady.mock.calls.map(([input]) => input)).toEqual([
-      '/api/security-config',
-      '/api/security-config',
-      '/api/security-config',
-    ]);
-    expect(progress).toEqual([
-      [1, 3],
-      [2, 3],
-      [3, 3],
-    ]);
-  });
-
-  it('cancels readiness during backoff without starting another probe', async () => {
-    vi.useFakeTimers();
-    mocks.assertCapabilityServiceReady.mockRejectedValueOnce(new Error('offline'));
-    const controller = new AbortController();
-    const ready = waitForStandardRoomReadiness(controller.signal);
-    await vi.waitFor(() => expect(mocks.assertCapabilityServiceReady).toHaveBeenCalledOnce());
-
-    controller.abort(new DOMException('Back', 'AbortError'));
-
-    await expect(ready).rejects.toMatchObject({ name: 'AbortError' });
-    expect(mocks.assertCapabilityServiceReady).toHaveBeenCalledOnce();
-  });
-
-  it('bounds all stalled readiness attempts', async () => {
-    vi.useFakeTimers();
-    mocks.assertCapabilityServiceReady.mockImplementation(() => new Promise<void>(() => undefined));
-
-    const ready = waitForStandardRoomReadiness();
-    const rejection = expect(ready).rejects.toThrow('STANDARD_ROOM_READINESS_UNAVAILABLE');
-    const totalMs =
-      __standardRoomPrerequisitesForTests.readinessAttemptTimeoutMs * 3 +
-      __standardRoomPrerequisitesForTests.readinessRetryDelaysMs.reduce<number>(
-        (total, delay) => total + delay,
-        0,
-      );
-    await vi.advanceTimersByTimeAsync(totalMs);
-
-    await rejection;
-    expect(mocks.assertCapabilityServiceReady).toHaveBeenCalledTimes(3);
-  });
-
   it('deduplicates the production-relative TURN retry while preserving local fallback', () => {
     expect(
       __standardRoomPrerequisitesForTests.requestEndpoints(

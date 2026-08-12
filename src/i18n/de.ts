@@ -801,6 +801,8 @@ const de: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Diagnoseinformationen kopiert.\nSende sie an den Entwickler, wenn du einen Fehler gefunden hast.',
   'chat.seek_to': 'Zu {{time}} springen',
+  'chat.copied': 'Chatnachricht kopiert',
+  'chat.copy_hint': 'Drücke die Eingabetaste, um diese Chatnachricht zu kopieren',
   'chat.peer_connected': '{{name}} ist beigetreten',
   'chat.tracks_added': '{{name}} hat {{count}} Titel hinzugefügt',
   'chat.track_added_named': '{{name}} hat 1 Titel hinzugefügt: {{title}}',

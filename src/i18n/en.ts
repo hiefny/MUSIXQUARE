@@ -460,6 +460,8 @@ const en: Record<I18nKey, string> = {
   'chat.cmd_d_debug': 'System debug info',
   'chat.debug_copied': 'Debug info copied.\nSend it to the developer if you found a bug.',
   'chat.seek_to': 'Seek to {{time}}',
+  'chat.copied': 'Chat copied',
+  'chat.copy_hint': 'Press Enter to copy this chat message',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Enter YouTube link',

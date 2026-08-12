@@ -51,6 +51,7 @@ import {
   type ChatDrawerViewportContext,
 } from './chat-drawer-detents.ts';
 import { scrollToWithPreferredMotion } from './scroll-motion.ts';
+import { initChatCopyGestures } from './chat-copy.ts';
 
 // ─── Chat State ──────────────────────────────────────────────────
 
@@ -1351,6 +1352,7 @@ export function initChat(): void {
   initChatSwipeToDismiss();
   initChatDrawerViewportReconciliation();
   initChatTouchContainment();
+  initChatCopyGestures();
   const chatDrawer = document.getElementById('chat-drawer');
   if (chatDrawer) syncChatDrawerModalAccessibility(chatDrawer, isChatDrawerOpen());
   document.addEventListener('keydown', handleChatDrawerKeyboard, { signal: uiSignal });

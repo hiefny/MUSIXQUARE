@@ -782,6 +782,8 @@ const vi: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Thông tin gỡ lỗi đã được sao chép.\nHãy gửi cho nhà phát triển nếu bạn tìm thấy lỗi.',
   'chat.seek_to': 'Chuyển đến {{time}}',
+  'chat.copied': 'Đã sao chép tin nhắn',
+  'chat.copy_hint': 'Nhấn Enter để sao chép tin nhắn này',
   'chat.peer_connected': '{{name}} đã tham gia',
   'chat.tracks_added': '{{name}} đã thêm {{count}} mục',
   'chat.track_added_named': '{{name}} đã thêm 1 mục: {{title}}',

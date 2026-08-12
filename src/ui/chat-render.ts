@@ -130,6 +130,20 @@ function renderParsedChatContent(target: HTMLElement, text: string): void {
   applyUserTextFontFallback(target, text);
 }
 
+/**
+ * Keep the original wire text beside a user-authored bubble. Reading the
+ * rendered text back is lossy because an oEmbed title can replace a YouTube
+ * URL after render. The delegated copy gesture therefore consumes this inert
+ * dataset value and never includes the sender, timestamp, or accessibility
+ * hint.
+ */
+function makeUserChatBubbleCopyable(bubble: HTMLElement, text: string): void {
+  bubble.dataset.chatCopyText = text;
+  bubble.tabIndex = 0;
+  bubble.setAttribute('role', 'group');
+  bubble.setAttribute('aria-describedby', 'chat-copy-hint');
+}
+
 async function updateYouTubeChatTitle(elementId: string, url: string): Promise<void> {
   try {
     const title = await fetchOEmbedTitle(url);
@@ -225,6 +239,7 @@ export function addChatMessage(
       chatTextDiv.className = 'chat-text';
       renderParsedChatContent(chatTextDiv, text);
       bubble.appendChild(chatTextDiv);
+      makeUserChatBubbleCopyable(bubble, text);
       try {
         if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
       } catch {
@@ -278,6 +293,7 @@ export function addChatMessage(
       chatTextDiv.className = 'chat-text';
       renderParsedChatContent(chatTextDiv, text);
       bubble.appendChild(chatTextDiv);
+      makeUserChatBubbleCopyable(bubble, text);
       try {
         if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
       } catch {
@@ -530,6 +546,7 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
   chatTextDiv.className = 'chat-text';
   renderParsedChatContent(chatTextDiv, text);
   bubble.appendChild(chatTextDiv);
+  makeUserChatBubbleCopyable(bubble, text);
 
   const timeNode = document.createElement('div');
   timeNode.className = 'chat-time';

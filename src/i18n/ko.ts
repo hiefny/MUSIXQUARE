@@ -278,7 +278,7 @@ const ko = {
   'connect.room_password_enabled': '이제 이 방에 참여하려면 암호를 입력해야 해요',
   'connect.room_password_disabled': '이제 이 방에 참여할 때 암호를 입력하지 않아도 돼요',
   'connect.signaling_healthy': '연결 서버 정상',
-  'connect.signaling_recovering': '연결 복구 중',
+  'connect.signaling_recovering': '연결 서버 복구 중',
   'connect.signaling_failed': '연결 복구 실패',
   'connect.signaling_recover_action': '연결 복구하기',
   'connect.signaling_recovery_wait': '연결 상태를 다시 확인하고 있어요.',
@@ -456,6 +456,8 @@ const ko = {
   'chat.cmd_d_debug': '시스템 디버그 정보',
   'chat.debug_copied': '환경 정보가 복사됐어요.\n버그가 있다면 개발자에게 보내주세요.',
   'chat.seek_to': '{{time}}(으)로 이동',
+  'chat.copied': '채팅을 복사했어요',
+  'chat.copy_hint': 'Enter 키를 눌러 이 채팅을 복사',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube 링크 입력',

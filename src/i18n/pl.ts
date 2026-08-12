@@ -470,6 +470,8 @@ const pl: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Informacje diagnostyczne zostały skopiowane do schowka.\nJeśli wystąpił błąd, prześlij te informacje deweloperowi.',
   'chat.seek_to': 'Przejdź do {{time}}',
+  'chat.copied': 'Wiadomość skopiowana',
+  'chat.copy_hint': 'Naciśnij Enter, aby skopiować tę wiadomość',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Wpisz link z YouTube',

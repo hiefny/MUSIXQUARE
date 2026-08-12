@@ -46,6 +46,24 @@ import {
   type ProRoomUploadRow,
 } from '../pro-room/upload-queue.ts';
 
+let _playlistTitleMarqueeList: HTMLElement | null = null;
+
+function schedulePlaylistTitleMarqueeMeasure(
+  root: ParentNode,
+  titles?: readonly HTMLElement[],
+): void {
+  void import('./playlist-title-marquee.ts').then(
+    (module) => {
+      if (_playlistTitleMarqueeList) {
+        module.initPlaylistTitleMarquee(_playlistTitleMarqueeList);
+        _playlistTitleMarqueeList = null;
+      }
+      module.schedulePlaylistTitleMarqueeMeasure(titles ?? root);
+    },
+    () => {},
+  );
+}
+
 const SUB_ITEMS_LOAD_TIMEOUT_MS = 15000;
 // A full YouTube playlist can contain 5,000 entries. Building every row in
 // one task blocks touch/scroll input on mobile, so render one useful viewport
@@ -330,7 +348,10 @@ function createSubTrackItem(
   subIdx.textContent = String(subIndex + 1);
   const subName = document.createElement('span');
   subName.className = 'sub-name';
-  subName.textContent = title;
+  const marqueeContent = document.createElement('span');
+  marqueeContent.className = 'playlist-title-marquee-content';
+  marqueeContent.textContent = title;
+  subName.appendChild(marqueeContent);
   applyUserTextFontFallback(subName, title);
   subItem.replaceChildren(subIdx, subName);
   return subItem;
@@ -369,7 +390,9 @@ function scheduleSubPlaylistBatch(
         ),
       );
     }
+    const batchTitles = Array.from(fragment.querySelectorAll<HTMLElement>('.sub-name'));
     subUl.appendChild(fragment);
+    schedulePlaylistTitleMarqueeMeasure(subUl, batchTitles);
     _followController?.afterRender();
 
     if (endIndex < ids.length) {
@@ -471,6 +494,7 @@ function appendSubPlaylist(
  */
 function patchRenderedSubPlaylistTitles(list: HTMLElement): boolean {
   const subMap = getState('youtube.subItemsMap') || {};
+  const changedTitles: HTMLElement[] = [];
   for (const subUl of list.querySelectorAll<HTMLUListElement>('.sub-playlist[data-playlist-id]')) {
     const playlistId = subUl.dataset.playlistId;
     if (!playlistId) return false;
@@ -505,11 +529,16 @@ function patchRenderedSubPlaylistTitles(list: HTMLElement): boolean {
         latest.titles?.[subIndex] || t('playlist.video_fallback', { idx: subIndex + 1 });
       const name = row.querySelector<HTMLElement>('.sub-name');
       if (name && name.textContent !== title) {
-        name.textContent = title;
+        const marqueeContent = document.createElement('span');
+        marqueeContent.className = 'playlist-title-marquee-content';
+        marqueeContent.textContent = title;
+        name.replaceChildren(marqueeContent);
         applyUserTextFontFallback(name, title);
+        changedTitles.push(name);
       }
     }
   }
+  if (changedTitles.length) schedulePlaylistTitleMarqueeMeasure(list, changedTitles);
   return true;
 }
 
@@ -760,7 +789,7 @@ export function updatePlaylistUI(): void {
       ${renderLeadingSlot(item, idx, canReorder, isCurrent)}
       <button type="button" class="track-name" data-action="play"
         data-queue-item-id="${escapeHtml(item.queueItemId)}"
-        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text">${escapeHtml(displayName)}</span></button>
+        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text"><span class="playlist-title-marquee-content">${escapeHtml(displayName)}</span></span></button>
       ${expandButton}
       ${removeButton}
     `;
@@ -785,6 +814,7 @@ export function updatePlaylistUI(): void {
   _removalController?.afterRender();
   followController.afterRender();
   _currentJumpController?.afterRender();
+  schedulePlaylistTitleMarqueeMeasure(list);
 }
 
 function queueItemIdFromElement(element: Element | null): QueueItemId | null {
@@ -990,6 +1020,7 @@ export function initPlaylistView(): void {
 
   const list = document.getElementById('playlist-ui');
   if (list) {
+    _playlistTitleMarqueeList = list;
     installDomDelegation(list);
     createReorderController(list);
     _removalController = createPlaylistRemovalController({

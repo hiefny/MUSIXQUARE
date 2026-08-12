@@ -466,6 +466,8 @@ const nl: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Debug-info gekopieerd.\nStuur dit naar de ontwikkelaar als je een fout hebt gevonden.',
   'chat.seek_to': 'Spoel naar {{time}}',
+  'chat.copied': 'Chatbericht gekopieerd',
+  'chat.copy_hint': 'Druk op Enter om dit chatbericht te kopiëren',
   'chat.peer_connected': '{{name}} neemt nu deel',
   'chat.tracks_added': '{{name}} heeft {{count}} tracks toegevoegd',
   'chat.track_added_named': '{{name}} heeft 1 track toegevoegd: {{title}}',

@@ -739,6 +739,8 @@ const zhHans: Record<I18nKey, string> = {
   'chat.cmd_d_debug': '系统调试信息',
   'chat.debug_copied': '调试信息已复制。\n如果发现错误，请发送给开发者。',
   'chat.seek_to': '跳转到 {{time}}',
+  'chat.copied': '已复制聊天消息',
+  'chat.copy_hint': '按 Enter 键复制这条聊天消息',
   'chat.peer_connected': '{{name}} 已加入',
   'chat.tracks_added': '{{name}} 添加了 {{count}} 个媒体项',
   'chat.track_added_named': '{{name}} 添加了 1 个媒体项：{{title}}',

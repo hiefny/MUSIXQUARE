@@ -457,6 +457,8 @@ const th: Record<I18nKey, string> = {
   'chat.cmd_d_debug': 'ข้อมูลดีบักระบบ',
   'chat.debug_copied': 'คัดลอกข้อมูลดีบักแล้ว\nส่งให้ผู้พัฒนาหากพบข้อผิดพลาด',
   'chat.seek_to': 'ไปที่ {{time}}',
+  'chat.copied': 'คัดลอกข้อความแชทแล้ว',
+  'chat.copy_hint': 'กด Enter เพื่อคัดลอกข้อความแชทนี้',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'ใส่ลิงก์ YouTube',

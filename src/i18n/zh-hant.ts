@@ -740,6 +740,8 @@ const zhHant: Record<I18nKey, string> = {
   'chat.cmd_d_debug': '系統除錯資訊',
   'chat.debug_copied': '除錯資訊已複製。\n如果遇到問題，請傳給開發者。',
   'chat.seek_to': '跳至 {{time}}',
+  'chat.copied': '已複製聊天訊息',
+  'chat.copy_hint': '按 Enter 鍵複製這則聊天訊息',
   'chat.peer_connected': '{{name}} 已加入',
   'chat.tracks_added': '{{name}} 新增了 {{count}} 項',
   'chat.track_added_named': '{{name}} 新增了 1 項：{{title}}',

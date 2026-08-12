@@ -803,6 +803,8 @@ const es: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Información de depuración copiada.\nEnvíala al desarrollador si has encontrado un error.',
   'chat.seek_to': 'Ir a {{time}}',
+  'chat.copied': 'Mensaje de chat copiado',
+  'chat.copy_hint': 'Pulsa Intro para copiar este mensaje de chat',
   'chat.peer_connected': '{{name}} se unió',
   'chat.tracks_added': '{{name}} añadió {{count}} pistas',
   'chat.track_added_named': '{{name}} añadió 1 pista: {{title}}',

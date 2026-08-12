@@ -185,7 +185,7 @@ describe('Translation key integrity', () => {
 
   it('uses the approved Korean signaling health and recovery copy', () => {
     expect(ko['connect.signaling_healthy']).toBe('연결 서버 정상');
-    expect(ko['connect.signaling_recovering']).toBe('연결 복구 중');
+    expect(ko['connect.signaling_recovering']).toBe('연결 서버 복구 중');
     expect(ko['connect.signaling_failed']).toBe('연결 복구 실패');
     expect(ko['connect.signaling_recover_action']).toBe('연결 복구하기');
     expect(ko['connect.signaling_exhausted']).toBe(

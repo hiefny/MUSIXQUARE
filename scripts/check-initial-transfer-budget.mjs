@@ -21,13 +21,13 @@ import { gzipSync } from 'node:zlib';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const INITIAL_TRANSFER_BUDGET = Object.freeze({
-  entryScriptRawBytes: 1_322_000,
-  // OAuth-result coalescing and the chat drawer's live geometry ownership add
-  // reviewed app-shell code. Keep this ratchet tight; all other limits stay put.
-  entryScriptGzipBytes: 386_420,
-  eagerJavaScriptGzipBytes: 391_000,
+  entryScriptRawBytes: 1_324_000,
+  // Bubble copy is a core keyboard/click/hold action, so it stays in the
+  // offline app shell instead of becoming a fallible lazy accessibility seam.
+  entryScriptGzipBytes: 387_000,
+  eagerJavaScriptGzipBytes: 391_300,
   eagerTotalRawBytes: 1_700_000,
-  eagerTotalGzipBytes: 453_000,
+  eagerTotalGzipBytes: 453_200,
   eagerFontBytes: 0,
 });
 

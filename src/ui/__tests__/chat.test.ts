@@ -7,6 +7,7 @@ import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { sendToHost } from '../../network/peer.ts';
 import type { DataConnection } from '../../types/index.ts';
+import { showToast } from '../toast.ts';
 
 interface ProRealtimeTestPayload {
   kind?: string;
@@ -110,6 +111,48 @@ afterEach(() => {
 });
 
 describe('Chat Module', () => {
+  it('installs bubble copy gestures when the desktop chat starts already visible', async () => {
+    const desktopMedia = window.matchMedia('(min-width: 1280px)');
+    Object.defineProperty(desktopMedia, 'matches', { configurable: true, value: true });
+    const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    document.body.innerHTML = `
+      <div id="chat-drawer">
+        <div id="chat-messages"><span id="chat-copy-hint"></span><div class="chat-empty"></div></div>
+      </div>
+    `;
+
+    try {
+      const [{ initChat }, { addChatMessage }] = await Promise.all([
+        import('../chat.ts'),
+        import('../chat-render.ts'),
+      ]);
+      initChat();
+
+      addChatMessage('Peer', 'desktop copy', false);
+      document
+        .querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+
+      await vi.waitFor(() => {
+        expect(writeText).toHaveBeenCalledWith('desktop copy');
+        expect(showToast).toHaveBeenCalledWith('chat.copied');
+      });
+    } finally {
+      bus.emit('chat:clear-all');
+      Object.defineProperty(desktopMedia, 'matches', { configurable: true, value: false });
+      if (originalClipboard) {
+        Object.defineProperty(navigator, 'clipboard', originalClipboard);
+      } else {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    }
+  });
+
   describe('message entry motion hooks', () => {
     function renderMessageShell(): void {
       document.body.innerHTML = `
@@ -1235,6 +1278,227 @@ describe('Chat Module', () => {
       input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
       expect(input.classList.contains('user-text-font')).toBe(false);
       expect(input.dataset.userTextFonts).toBeUndefined();
+    });
+  });
+
+  describe('chat bubble copy gestures', () => {
+    let originalClipboardDescriptor: PropertyDescriptor | undefined;
+
+    function renderCopyShell(): void {
+      document.body.innerHTML = `
+        <button id="chat-preview-btn"><span class="chat-preview-text"></span></button>
+        <div id="chat-backdrop"></div>
+        <div id="chat-drawer" data-chat-snap="half" tabindex="-1">
+          <div class="chat-drawer-header"></div>
+          <div id="chat-messages"><span id="chat-copy-hint"></span><div class="chat-empty"></div></div>
+          <button id="btn-chat-scroll-down"></button>
+          <button id="btn-chat-send"></button>
+          <button id="btn-chat-close"></button>
+          <div class="chat-input-wrapper">
+            <div id="chat-input" contenteditable="true"></div>
+          </div>
+          <div id="chat-pinned-notice"></div>
+        </div>
+      `;
+    }
+
+    function installClipboard(): ReturnType<typeof vi.fn> {
+      const writeText = vi.fn(async () => undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText },
+      });
+      return writeText;
+    }
+
+    async function initCopyChat(): Promise<void> {
+      const [{ initChat }, { initChatCopyGestures }] = await Promise.all([
+        import('../chat.ts'),
+        import('../chat-copy.ts'),
+      ]);
+      initChat();
+      initChatCopyGestures();
+    }
+
+    function dispatchTouchPointer(
+      target: Element,
+      type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel',
+      options: { pointerId?: number; clientX?: number; clientY?: number } = {},
+    ): MouseEvent {
+      const event = new MouseEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: options.clientX ?? 20,
+        clientY: options.clientY ?? 20,
+      });
+      Object.defineProperties(event, {
+        pointerType: { value: 'touch' },
+        pointerId: { value: options.pointerId ?? 7 },
+        isPrimary: { value: true },
+      });
+      target.dispatchEvent(event);
+      return event;
+    }
+
+    beforeEach(() => {
+      originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    });
+
+    afterEach(() => {
+      if (originalClipboardDescriptor) {
+        Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor);
+      } else {
+        Reflect.deleteProperty(navigator, 'clipboard');
+      }
+      vi.useRealTimers();
+    });
+
+    it('copies either user bubble on a mouse click with exact line breaks and no metadata', async () => {
+      renderCopyShell();
+      const writeText = installClipboard();
+      const { addChatMessage } = await import('../chat-render.ts');
+      await initCopyChat();
+
+      addChatMessage('Me', 'first line\nsecond line', true);
+      addChatMessage('Peer', 'their message', false);
+      const bubbles = document.querySelectorAll<HTMLElement>('.chat-bubble[data-chat-copy-text]');
+
+      expect(bubbles).toHaveLength(2);
+      expect(bubbles[0]?.tabIndex).toBe(0);
+      expect(bubbles[0]?.getAttribute('role')).toBe('group');
+      expect(bubbles[0]?.getAttribute('aria-describedby')).toBe('chat-copy-hint');
+
+      bubbles[0]
+        ?.querySelector('.chat-text')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(writeText).toHaveBeenNthCalledWith(1, 'first line\nsecond line');
+      expect(showToast).toHaveBeenNthCalledWith(1, 'chat.copied');
+
+      bubbles[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(writeText).toHaveBeenNthCalledWith(2, 'their message');
+      expect(showToast).toHaveBeenNthCalledWith(2, 'chat.copied');
+    });
+
+    it('arms a touch hold but invokes the clipboard synchronously from pointerup', async () => {
+      vi.useFakeTimers();
+      renderCopyShell();
+      const writeText = installClipboard();
+      const { addChatMessage } = await import('../chat-render.ts');
+      await initCopyChat();
+      addChatMessage('Peer', 'hold to copy', false);
+      const bubble = document.querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')!;
+
+      dispatchTouchPointer(bubble, 'pointerdown');
+      vi.advanceTimersByTime(500);
+      expect(writeText).not.toHaveBeenCalled();
+
+      const pointerUp = dispatchTouchPointer(bubble, 'pointerup');
+      expect(pointerUp.defaultPrevented).toBe(true);
+      expect(writeText).toHaveBeenCalledWith('hold to copy');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(showToast).toHaveBeenCalledWith('chat.copied');
+
+      // The compatibility click emitted by touch browsers must not duplicate it.
+      bubble.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      expect(writeText).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows the established failure toast when neither clipboard path succeeds', async () => {
+      renderCopyShell();
+      const writeText = installClipboard();
+      writeText.mockRejectedValueOnce(new DOMException('denied', 'NotAllowedError'));
+      const { addChatMessage } = await import('../chat-render.ts');
+      await initCopyChat();
+      addChatMessage('Peer', 'cannot copy', false);
+
+      document
+        .querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(showToast).toHaveBeenCalledWith('toast.copy_failed');
+    });
+
+    it('does not copy a quick tap, a moved/scrolling hold, or an inline action click', async () => {
+      vi.useFakeTimers();
+      renderCopyShell();
+      const writeText = installClipboard();
+      const loadedUrls: string[] = [];
+      bus.on('youtube:load-from-chat', (url) => loadedUrls.push(url));
+      const { addChatMessage } = await import('../chat-render.ts');
+      await initCopyChat();
+      addChatMessage('Peer', 'https://youtu.be/abcdefghijk', false);
+      const bubble = document.querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')!;
+
+      dispatchTouchPointer(bubble, 'pointerdown');
+      vi.advanceTimersByTime(200);
+      dispatchTouchPointer(bubble, 'pointerup');
+      bubble.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+
+      dispatchTouchPointer(bubble, 'pointerdown', { pointerId: 8 });
+      dispatchTouchPointer(bubble, 'pointermove', {
+        pointerId: 8,
+        clientX: 40,
+        clientY: 20,
+      });
+      vi.advanceTimersByTime(500);
+      dispatchTouchPointer(bubble, 'pointerup', { pointerId: 8, clientX: 40, clientY: 20 });
+
+      dispatchTouchPointer(bubble, 'pointerdown', { pointerId: 9 });
+      document.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(500);
+      dispatchTouchPointer(bubble, 'pointerup', { pointerId: 9 });
+
+      document.querySelector<HTMLElement>('.chat-youtube-btn')?.click();
+      await Promise.resolve();
+      expect(writeText).not.toHaveBeenCalled();
+      expect(loadedUrls).toEqual(['https://youtu.be/abcdefghijk']);
+
+      // A YouTube-only card fills the bubble. Its quick tap remains an action,
+      // while a deliberate hold copies the original URL and consumes the
+      // compatibility click before the delegated load handler sees it.
+      const youtubeButton = document.querySelector<HTMLElement>('.chat-youtube-btn')!;
+      dispatchTouchPointer(youtubeButton, 'pointerdown', { pointerId: 10 });
+      vi.advanceTimersByTime(500);
+      dispatchTouchPointer(youtubeButton, 'pointerup', { pointerId: 10 });
+      expect(writeText).toHaveBeenCalledWith('https://youtu.be/abcdefghijk');
+      youtubeButton.click();
+      expect(writeText).toHaveBeenCalledTimes(1);
+      expect(loadedUrls).toEqual(['https://youtu.be/abcdefghijk']);
+    });
+
+    it('preserves a native text selection and offers Enter as the keyboard action', async () => {
+      renderCopyShell();
+      const writeText = installClipboard();
+      const { addChatMessage } = await import('../chat-render.ts');
+      await initCopyChat();
+      addChatMessage('Peer', 'selectable text', false);
+      const bubble = document.querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')!;
+      const chatText = bubble.querySelector<HTMLElement>('.chat-text')!;
+      const range = document.createRange();
+      range.selectNodeContents(chatText);
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+
+      chatText.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      expect(writeText).not.toHaveBeenCalled();
+      expect(selection.toString()).toBe('selectable text');
+
+      selection.removeAllRanges();
+      bubble.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+      expect(writeText).toHaveBeenCalledWith('selectable text');
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(showToast).toHaveBeenCalledWith('chat.copied');
     });
   });
 

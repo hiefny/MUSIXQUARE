@@ -190,30 +190,16 @@ describe('connect signaling health status', () => {
     expect(button.querySelector('span[data-i18n]')?.textContent).toBe('초대 링크 복사하기');
   });
 
-  it('shows a compact healthy status only while a room is active', () => {
-    initConnect();
-    const initialStatuses = document.querySelectorAll<HTMLElement>('.signaling-health-status');
-    expect(initialStatuses).toHaveLength(2);
-    for (const status of initialStatuses) expect(status.hidden).toBe(true);
+  it('does not render a persistent server-health indicator in the QR area', async () => {
+    await startHostSessionWithQR();
 
-    setState('network.appRole', 'host');
-    setState('network.sessionCode', '123456');
-    setState('setup.sessionStarted', true);
-
-    const statuses = document.querySelectorAll<HTMLElement>('.signaling-health-status');
-    for (const status of statuses) {
-      expect(status.hidden).toBe(false);
-      expect(status.dataset.status).toBe('healthy');
-      expect(status.textContent).toBe('연결 서버 정상');
-    }
+    expect(document.querySelector('.signaling-health-status')).toBeNull();
+    expect(document.querySelector('.signaling-health-indicator')).toBeNull();
+    expect(document.querySelector('.signaling-health-message')).toBeNull();
   });
 
-  it('maps reconnecting to yellow recovery copy and recovered back to healthy', () => {
-    setState('setup.sessionStarted', true);
-    setState('network.appRole', 'guest');
-    setState('network.sessionCode', '123456');
-    setState('network.hostConn', makeConnection());
-    initConnect();
+  it('maps automatic reconnecting to the unavailable invite action and recovered back to copy', async () => {
+    const firstButton = await startHostSessionWithQR();
 
     setState('network.signalingHealth', {
       status: 'reconnecting',
@@ -221,19 +207,21 @@ describe('connect signaling health status', () => {
       maxAttempts: 5,
     });
 
-    const statuses = document.querySelectorAll<HTMLElement>('.signaling-health-status');
-    expect(statuses).toHaveLength(2);
-    for (const status of statuses) {
-      expect(status.hidden).toBe(false);
-      expect(status.getAttribute('role')).toBeNull();
-      const message = status.querySelector<HTMLElement>('.signaling-health-message');
-      expect(message?.getAttribute('role')).toBe('status');
-      expect(message?.getAttribute('aria-live')).toBe('polite');
-      expect(message?.getAttribute('aria-atomic')).toBe('true');
-      expect(message?.getAttribute('aria-busy')).toBe('true');
-      expect(status.dataset.status).toBe('reconnecting');
-      expect(status.textContent).toBe('연결 복구 중');
+    const buttons = document.querySelectorAll<HTMLButtonElement>('.btn-copy-invite-link');
+    expect(buttons).toHaveLength(2);
+    for (const button of buttons) {
+      expect(button.dataset.mode).toBe('recovering');
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.getAttribute('aria-busy')).toBe('true');
+      expect(button.getAttribute('aria-live')).toBe('polite');
+      expect(button.getAttribute('aria-atomic')).toBe('true');
+      expect(button.getAttribute('aria-label')).toBe('연결 서버 복구 중');
+      expect(button.textContent).toBe('연결 서버 복구 중');
     }
+    firstButton.click();
+    expect(mockedCopyTextToClipboard).not.toHaveBeenCalled();
+    expect(mockedRetryPeerSignalingConnection).not.toHaveBeenCalled();
 
     setState('network.signalingHealth', {
       status: 'recovered',
@@ -241,13 +229,12 @@ describe('connect signaling health status', () => {
       maxAttempts: 5,
     });
 
-    for (const status of statuses) {
-      expect(status.hidden).toBe(false);
-      expect(status.dataset.status).toBe('healthy');
-      expect(status.textContent).toBe('연결 서버 정상');
-      expect(
-        status.querySelector<HTMLElement>('.signaling-health-message')?.getAttribute('aria-busy'),
-      ).toBe('false');
+    for (const button of buttons) {
+      expect(button.dataset.mode).toBe('copy');
+      expect(button.getAttribute('aria-disabled')).toBe('false');
+      expect(button.getAttribute('aria-busy')).toBe('false');
+      expect(button.getAttribute('aria-label')).toBe('초대 링크 복사하기');
+      expect(button.textContent).toBe('초대 링크 복사하기');
     }
   });
 
@@ -259,13 +246,6 @@ describe('connect signaling health status', () => {
       maxAttempts: 5,
     });
 
-    const status = document.querySelector<HTMLElement>('.signaling-health-status');
-    const message = status?.querySelector<HTMLElement>('.signaling-health-message');
-    expect(status?.hidden).toBe(false);
-    expect(status?.dataset.status).toBe('exhausted');
-    expect(status?.textContent).toBe('연결 복구 실패');
-    expect(message?.getAttribute('aria-busy')).toBe('false');
-    expect(status?.querySelector('.signaling-health-actions')).toBeNull();
     bus.emit('ui:connect-tab-opened');
     await vi.waitFor(() => {
       const regenerated = document.querySelectorAll<HTMLButtonElement>('.btn-copy-invite-link');
@@ -275,10 +255,7 @@ describe('connect signaling health status', () => {
     const buttons = document.querySelectorAll<HTMLButtonElement>('.btn-copy-invite-link');
     expect(buttons).toHaveLength(2);
     for (const button of buttons) {
-      const status = button.previousElementSibling as HTMLElement | null;
-      expect(status?.classList.contains('signaling-health-status')).toBe(true);
-      expect(status?.parentElement).toBe(button.parentElement);
-      expect(status?.previousElementSibling?.classList.contains('qr-svg')).toBe(true);
+      expect(button.previousElementSibling?.classList.contains('qr-svg')).toBe(true);
       expect(button.dataset.mode).toBe('recover');
       expect(button.disabled).toBe(false);
       expect(button.getAttribute('aria-disabled')).toBe('false');
@@ -286,13 +263,12 @@ describe('connect signaling health status', () => {
     }
   });
 
-  it('uses the unboxed MUSIXQUARE status row and dedicated recovery dialog shell', async () => {
+  it('uses only the invite action and dedicated recovery dialog shell', async () => {
     const [stylesheet, markup, domSource] = await Promise.all([
       readFile('css/style.css', 'utf8'),
       readFile('index.html', 'utf8'),
       readFile('src/ui/dom.ts', 'utf8'),
     ]);
-    const statusRules = stylesheet.match(/\.signaling-health-status\s*\{([^}]*)\}/)?.[1] ?? '';
     const qrContainerRules = stylesheet.match(/\.qr-container\s*\{([^}]*)\}/)?.[1] ?? '';
     const inviteButtonRules = stylesheet.match(/\.btn-copy-invite-link\s*\{([^}]*)\}/)?.[1] ?? '';
     const recoveryButtonRules =
@@ -311,31 +287,16 @@ describe('connect signaling health status', () => {
       )?.[1] ?? '';
 
     expect(qrContainerRules).toContain('gap: 12px');
-    expect(statusRules).toContain('display: flex');
-    expect(statusRules).toContain('justify-content: center');
-    expect(statusRules).toContain('gap: 11px');
-    expect(statusRules).toContain('margin: 0');
     expect(inviteButtonRules).toContain('margin: 0');
     expect(inviteButtonRules).toContain('border: none');
     expect(recoveryButtonRules).toContain('border: none');
     expect(recoveryButtonRules).toContain('background: rgba(245, 158, 11, 0.08)');
     expect(recoveryButtonRules).toContain('color: var(--warning-filled)');
     expect(recoveryButtonRules).toContain('box-shadow: none');
-    expect(statusRules).toContain('color: var(--text-main)');
-    expect(statusRules).toContain('font-weight: 600');
-    expect(statusRules).toContain('transform: translateY(-8px)');
-    expect(stylesheet).toContain('box-shadow: 0 0 0 4px rgba(32, 164, 90, 0.12)');
-    expect(stylesheet).toContain('box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.13)');
-    expect(stylesheet).toContain('box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12)');
-    expect(statusRules).not.toContain('border:');
-    expect(statusRules).not.toContain('background:');
-    expect(stylesheet).toContain(
-      ".signaling-health-status[data-status='exhausted'] .signaling-health-indicator",
-    );
-    expect(stylesheet).toContain('background: var(--danger-filled)');
-    expect(stylesheet).not.toContain(
-      '.signaling-health-status:not([hidden]) + .btn-copy-invite-link',
-    );
+    expect(stylesheet).not.toContain('.signaling-health-status');
+    expect(stylesheet).not.toContain('.signaling-health-indicator');
+    expect(stylesheet).not.toContain('.signaling-health-message');
+    expect(stylesheet).not.toContain('@keyframes signaling-health-pulse');
     expect(recoveringIconRules).toContain('display: none');
     expect(recoveringIconRules).not.toContain('animation:');
     expect(recoveringSpinnerRules).toContain('--material-elastic-size: 20px');

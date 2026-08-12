@@ -798,6 +798,8 @@ const fr: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Informations de débogage copiées.\nEnvoyez-les au développeur si vous avez rencontré un problème.',
   'chat.seek_to': 'Aller à {{time}}',
+  'chat.copied': 'Message copié',
+  'chat.copy_hint': 'Appuyez sur Entrée pour copier ce message',
   'chat.peer_connected': '{{name}} a rejoint le salon',
   'chat.tracks_added': '{{name}} a ajouté {{count}} pistes',
   'chat.track_added_named': '{{name}} a ajouté 1 piste : {{title}}',

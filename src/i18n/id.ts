@@ -790,6 +790,8 @@ const id: Record<I18nKey, string> = {
   'chat.cmd_d_debug': 'Info debug sistem',
   'chat.debug_copied': 'Info debug disalin.\nKirimkan kepada pengembang jika Anda menemukan bug.',
   'chat.seek_to': 'Pindah ke {{time}}',
+  'chat.copied': 'Pesan chat disalin',
+  'chat.copy_hint': 'Tekan Enter untuk menyalin pesan chat ini',
   'chat.peer_connected': '{{name}} bergabung',
   'chat.tracks_added': '{{name}} menambahkan {{count}} media',
   'chat.track_added_named': '{{name}} menambahkan 1 media: {{title}}',

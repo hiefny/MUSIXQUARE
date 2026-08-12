@@ -461,6 +461,8 @@ const tr: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Tanılama bilgileri panoya kopyalandı.\nBir hatayla karşılaştıysan geliştiriciye ilet.',
   'chat.seek_to': '{{time}} konumuna git',
+  'chat.copied': 'Sohbet mesajı kopyalandı',
+  'chat.copy_hint': 'Bu sohbet mesajını kopyalamak için Enter tuşuna basın',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'YouTube bağlantısı gir',

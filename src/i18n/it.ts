@@ -471,6 +471,8 @@ const it: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Informazioni di diagnostica copiate negli appunti.\nSe riscontri un errore, inviale allo sviluppatore.',
   'chat.seek_to': 'Passa a {{time}}',
+  'chat.copied': 'Messaggio copiato',
+  'chat.copy_hint': 'Premi Invio per copiare questo messaggio',
 
   // ─── YouTube ─────────────────────────────────────────────────────
   'youtube.enter_link': 'Inserisci link di YouTube',

@@ -21,12 +21,7 @@ import { restartProRoomTransportRecovery } from '../pro-room/transport-recovery.
 import { requestAccountNicknameChange } from './account.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
-import type {
-  DeviceInfo,
-  DevicePlatform,
-  SignalingHealthState,
-  StandardRoomPermissionSet,
-} from '../types/index.ts';
+import type { DeviceInfo, DevicePlatform, StandardRoomPermissionSet } from '../types/index.ts';
 import type {
   ProRoomAdministrator,
   ProRoomPermission,
@@ -78,8 +73,7 @@ async function generateQR(containerId: string): Promise<void> {
     p.setAttribute('data-i18n', 'connect.no_session');
     p.textContent = t('connect.no_session');
     container.replaceChildren(p);
-    createSignalingHealthStatus(container);
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
     return;
   }
 
@@ -88,8 +82,7 @@ async function generateQR(containerId: string): Promise<void> {
   loadingP.setAttribute('data-i18n', 'connect.generating_qr');
   loadingP.textContent = t('connect.generating_qr');
   container.replaceChildren(loadingP);
-  createSignalingHealthStatus(container);
-  renderSignalingHealthStatus();
+  renderSignalingRecoveryControls();
 
   try {
     // QR generation happens only after a session exists. Keep its sizeable
@@ -126,16 +119,15 @@ async function generateQR(containerId: string): Promise<void> {
       svg.removeAttribute('height');
     }
 
-    createSignalingHealthStatus(container);
-
     // Copy invite link button
     const copyBtn = document.createElement('button');
     copyBtn.type = 'button';
     copyBtn.className = 'btn-copy-invite-link';
     copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${INVITE_LINK_ICON_PATH}"/></svg><span class="material-elastic-spinner signaling-recovery-spinner" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg></span><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
     copyBtn.addEventListener('click', async () => {
-      if (_manualSignalingRecovery) return;
-      if (getState('network.signalingHealth').status === 'exhausted') {
+      const healthStatus = getState('network.signalingHealth').status;
+      if (_manualSignalingRecovery || healthStatus === 'reconnecting') return;
+      if (healthStatus === 'exhausted') {
         void beginManualSignalingRecovery();
         return;
       }
@@ -147,7 +139,7 @@ async function generateQR(containerId: string): Promise<void> {
     });
     container.appendChild(copyBtn);
     syncSignalingInviteButtons();
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
     if (
       shouldRestoreInviteFocus &&
       _signalingRecoveryDialogState === 'closed' &&
@@ -168,8 +160,7 @@ async function generateQR(containerId: string): Promise<void> {
     errP.setAttribute('data-i18n', 'connect.no_session');
     errP.textContent = t('connect.no_session');
     container.replaceChildren(errP);
-    createSignalingHealthStatus(container);
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
   }
 }
 
@@ -178,10 +169,8 @@ function refreshAllQR(): void {
   generateQR('desktop-qr-container');
 }
 
-const SIGNALING_HEALTH_QR_IDS = ['qr-container', 'desktop-qr-container'] as const;
 const SIGNALING_RECOVERY_OVERLAY_ID = 'signaling-recovery-overlay';
 
-type SignalingHealthPresentation = 'healthy' | 'reconnecting' | 'exhausted';
 type SignalingRecoveryDialogState = 'closed' | 'failed';
 
 interface ManualSignalingRecovery {
@@ -194,39 +183,6 @@ let _signalingRecoveryDialogState: SignalingRecoveryDialogState = 'closed';
 let _signalingRecoveryDialogBoundary: string | null = null;
 let _signalingRecoveryDialogPreviousFocus: HTMLElement | null = null;
 
-function createSignalingHealthStatus(qrContainer: HTMLElement): HTMLElement {
-  const existing = qrContainer.querySelector<HTMLElement>(':scope > .signaling-health-status');
-  if (existing) return existing;
-
-  const status = document.createElement('div');
-  status.className = 'signaling-health-status';
-  status.id = `${qrContainer.id}-signaling-health`;
-  status.hidden = true;
-
-  const indicator = document.createElement('span');
-  indicator.className = 'signaling-health-indicator';
-  indicator.setAttribute('aria-hidden', 'true');
-
-  const message = document.createElement('span');
-  message.className = 'signaling-health-message';
-  message.setAttribute('role', 'status');
-  message.setAttribute('aria-live', 'polite');
-  message.setAttribute('aria-atomic', 'true');
-
-  status.append(indicator, message);
-  const inviteButton = qrContainer.querySelector<HTMLElement>(':scope > .btn-copy-invite-link');
-  qrContainer.insertBefore(status, inviteButton);
-  return status;
-}
-
-function ensureSignalingHealthStatuses(): void {
-  for (const id of SIGNALING_HEALTH_QR_IDS) {
-    const qrContainer = document.getElementById(id);
-    if (!qrContainer) continue;
-    createSignalingHealthStatus(qrContainer);
-  }
-}
-
 function signalingRecoveryBoundary(): string {
   const room = getRoomContext();
   return [
@@ -237,18 +193,14 @@ function signalingRecoveryBoundary(): string {
   ].join(':');
 }
 
-function signalingHealthPresentation(
-  status: SignalingHealthState['status'],
-): SignalingHealthPresentation {
-  if (status === 'exhausted') return 'exhausted';
-  if (status === 'reconnecting') return 'reconnecting';
-  return 'healthy';
-}
-
 function syncSignalingInviteButtons(): void {
   const health = getState('network.signalingHealth');
-  const recoveryInFlight = _manualSignalingRecovery !== null;
-  const mode = recoveryInFlight ? 'recovering' : health.status === 'exhausted' ? 'recover' : 'copy';
+  const mode =
+    _manualSignalingRecovery || health.status === 'reconnecting'
+      ? 'recovering'
+      : health.status === 'exhausted'
+        ? 'recover'
+        : 'copy';
   const labelKey =
     mode === 'recovering'
       ? 'connect.signaling_recovering'
@@ -265,6 +217,8 @@ function syncSignalingInviteButtons(): void {
     button.disabled = false;
     button.setAttribute('aria-disabled', mode === 'recovering' ? 'true' : 'false');
     button.setAttribute('aria-busy', mode === 'recovering' ? 'true' : 'false');
+    button.setAttribute('aria-live', 'polite');
+    button.setAttribute('aria-atomic', 'true');
     button.setAttribute('aria-label', label);
 
     const text = button.querySelector<HTMLElement>('span[data-i18n]');
@@ -469,8 +423,7 @@ async function beginManualSignalingRecovery(): Promise<void> {
   }
 }
 
-function renderSignalingHealthStatus(): void {
-  ensureSignalingHealthStatuses();
+function renderSignalingRecoveryControls(): void {
   const health = getState('network.signalingHealth');
   const visible =
     getState('setup.sessionStarted') && /^\d{6}$/.test(getState('network.sessionCode'));
@@ -494,23 +447,7 @@ function renderSignalingHealthStatus(): void {
     closeSignalingRecoveryDialog();
   }
 
-  const presentation = signalingHealthPresentation(health.status);
-  const messageKey =
-    presentation === 'healthy'
-      ? 'connect.signaling_healthy'
-      : presentation === 'reconnecting'
-        ? 'connect.signaling_recovering'
-        : 'connect.signaling_failed';
   syncSignalingInviteButtons();
-
-  document.querySelectorAll<HTMLElement>('.signaling-health-status').forEach((status) => {
-    status.hidden = !visible;
-    status.dataset.status = presentation;
-    const message = status.querySelector<HTMLElement>('.signaling-health-message');
-    message?.setAttribute('aria-busy', health.status === 'reconnecting' ? 'true' : 'false');
-    if (!visible) return;
-    if (message) message.textContent = t(messageKey);
-  });
 }
 
 // ─── Room Password ───────────────────────────────────────────────
@@ -1767,9 +1704,8 @@ const _busScope = createBusScope();
 export function initConnect(): void {
   _busScope.dispose();
 
-  ensureSignalingHealthStatuses();
   initSignalingRecoveryDialog();
-  renderSignalingHealthStatus();
+  renderSignalingRecoveryControls();
   initRoomPasswordControls();
   initAdministratorPermissionsDialog();
   syncHostOwnedConnectSections();
@@ -1806,7 +1742,7 @@ export function initConnect(): void {
     _updateDeviceTitles();
     syncRoomPasswordControls();
     renderConnectDeviceList(_lastDeviceList);
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
     syncSignalingRecoveryDialogCopy();
   });
 
@@ -1831,34 +1767,31 @@ export function initConnect(): void {
   // sessionCode is set before sessionStarted — both trigger QR refresh
   _busScope.on('state:network.sessionCode', () => {
     refreshAllQR();
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
   });
   _busScope.on('state:setup.sessionStarted', () => {
     refreshAllQR();
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
   });
   _busScope.on('state:network.roomPasswordRequired', () => syncRoomPasswordControls());
   _busScope.on('state:network.roomPassword', () => syncRoomPasswordControls());
   _busScope.on('state:network.hostConn', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
   });
   _busScope.on('state:network.appRole', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
   });
-  _busScope.on('state:network.connectedPeers', renderSignalingHealthStatus);
-  _busScope.on('state:network.signalingHealth', renderSignalingHealthStatus);
-  _busScope.on('state:playback.activity', renderSignalingHealthStatus);
-  _busScope.on('state:systemAudio.isReceiving', renderSignalingHealthStatus);
+  _busScope.on('state:network.signalingHealth', renderSignalingRecoveryControls);
   _busScope.on('state:room.context', () => {
     syncRoomPasswordControls();
     syncHostOwnedConnectSections();
-    renderSignalingHealthStatus();
+    renderSignalingRecoveryControls();
     const roomContext = getRoomContext();
     const nextAuthorityBoundary = {
       kind: roomContext.kind,

@@ -790,6 +790,8 @@ const ja: Record<I18nKey, string> = {
   'chat.debug_copied':
     'デバッグ情報をコピーしました。\nバグを見つけた場合は開発者に送ってください。',
   'chat.seek_to': '{{time}}へ移動',
+  'chat.copied': 'チャットをコピーしました',
+  'chat.copy_hint': 'Enterキーを押してこのメッセージをコピー',
   'chat.peer_connected': '{{name}}が参加しました',
   'chat.tracks_added': '{{name}}がトラックを{{count}}件追加しました',
   'chat.track_added_named': '{{name}}がトラックを1件追加しました：{{title}}',

@@ -15,12 +15,22 @@ import { updateSubItemTitle } from '../../youtube/_state.ts';
 import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from '../../pro-room/upload-queue.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 
+const playlistTitleMarqueeMocks = vi.hoisted(() => ({
+  init: vi.fn(),
+  schedule: vi.fn(),
+}));
+
 vi.mock('../../network/peer.ts', () => ({
   safeSend: vi.fn(),
 }));
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock('../playlist-title-marquee.ts', () => ({
+  initPlaylistTitleMarquee: playlistTitleMarqueeMocks.init,
+  schedulePlaylistTitleMarqueeMeasure: playlistTitleMarqueeMocks.schedule,
 }));
 
 let proRoomUploadQueue: ProRoomUploadQueue | null = null;
@@ -33,6 +43,8 @@ beforeEach(() => {
   bus.clear();
   clearAllManagedTimers();
   vi.mocked(safeSend).mockReset();
+  playlistTitleMarqueeMocks.init.mockReset();
+  playlistTitleMarqueeMocks.schedule.mockReset();
   localStorage.clear();
   setState('network.appRole', 'host');
   document.body.innerHTML =
@@ -152,6 +164,69 @@ describe('playlist empty state i18n', () => {
 
     const empty = document.querySelector<HTMLElement>('.list-empty-state');
     expect(empty?.textContent).toBe('No media yet.');
+  });
+});
+
+describe('playlist title marquee markup', () => {
+  it('keeps one measurable title child for parent and sub-track labels', () => {
+    setState('playlist.items', sampleItems());
+    setState('youtube.subItemsMap', {
+      PL_TEST: { ids: ['abcdefghijk'], titles: ['A long resolved sub-track title'] },
+    });
+    updatePlaylistUI();
+
+    const parent = document.querySelector<HTMLElement>(
+      `[data-queue-item-id="${FILE_A}"] .track-name-text`,
+    );
+    const sub = document.querySelector<HTMLElement>('.sub-track-item .sub-name');
+    expect(parent?.children).toHaveLength(1);
+    expect(parent?.firstElementChild?.classList).toContain('playlist-title-marquee-content');
+    expect(parent?.textContent).toBe('A');
+    expect(sub?.children).toHaveLength(1);
+    expect(sub?.firstElementChild?.classList).toContain('playlist-title-marquee-content');
+    expect(sub?.textContent).toBe('A long resolved sub-track title');
+  });
+
+  it('preserves the single marquee child when a lazy sub-track title is patched', () => {
+    setState('playlist.items', sampleItems());
+    setState('youtube.subItemsMap', {
+      PL_TEST: { ids: ['abcdefghijk'], titles: ['Initial'] },
+    });
+    initPlaylistView();
+
+    updateSubItemTitle('PL_TEST', 0, 'Resolved without rebuilding the row');
+
+    const sub = document.querySelector<HTMLElement>('.sub-track-item .sub-name');
+    expect(sub?.children).toHaveLength(1);
+    expect(sub?.firstElementChild?.classList).toContain('playlist-title-marquee-content');
+    expect(sub?.textContent).toBe('Resolved without rebuilding the row');
+  });
+
+  it('remeasures only the mounted title changed by a background title update', async () => {
+    const ids = Array.from(
+      { length: 240 },
+      (_, index) => `video-${String(index).padStart(4, '0')}`,
+    );
+    setState('playlist.items', sampleItems());
+    setState('youtube.subItemsMap', {
+      PL_TEST: { ids, titles: [] },
+    });
+    initPlaylistView();
+    await vi.waitFor(() => expect(playlistTitleMarqueeMocks.schedule).toHaveBeenCalled());
+    playlistTitleMarqueeMocks.schedule.mockClear();
+
+    updateSubItemTitle('PL_TEST', 137, 'Resolved title 137');
+
+    await vi.waitFor(() => {
+      const batches = playlistTitleMarqueeMocks.schedule.mock.calls
+        .map(([root]) => root)
+        .filter((root): root is HTMLElement[] => Array.isArray(root));
+      expect(batches).toHaveLength(1);
+      expect(batches[0]).toHaveLength(1);
+      expect(batches[0]?.[0]?.closest<HTMLElement>('.sub-track-item')?.dataset.subIndex).toBe(
+        '137',
+      );
+    });
   });
 });
 
@@ -696,6 +771,77 @@ describe('playlist queue identity rendering and actions', () => {
         ?.textContent,
     ).toBe('Late resolved title');
     expect(document.querySelector('.sub-playlist')?.hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('measures only the newly appended titles in each progressive batch', async () => {
+    const frameCallbacks: FrameRequestCallback[] = [];
+    let nextFrameId = 1;
+    const requestFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frameCallbacks.push(callback);
+        return nextFrameId++;
+      });
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {});
+
+    try {
+      const ids = Array.from(
+        { length: 720 },
+        (_, index) => `video-${String(index).padStart(4, '0')}`,
+      );
+      setState('playlist.items', sampleItems());
+      setState('youtube.subItemsMap', {
+        PL_TEST: { ids, titles: [] },
+      });
+      updatePlaylistUI();
+
+      await vi.waitFor(() => expect(playlistTitleMarqueeMocks.schedule).toHaveBeenCalled());
+      playlistTitleMarqueeMocks.schedule.mockClear();
+
+      while (
+        document.querySelectorAll('.sub-track-item[data-sub-index]').length < 480 &&
+        frameCallbacks.length
+      ) {
+        frameCallbacks.shift()?.(16);
+      }
+      await vi.waitFor(() => {
+        const batches = playlistTitleMarqueeMocks.schedule.mock.calls
+          .map(([root]) => root)
+          .filter((root): root is HTMLElement[] => Array.isArray(root));
+        expect(batches).toHaveLength(1);
+        expect(batches[0]).toHaveLength(240);
+        expect(batches[0]?.[0]?.closest<HTMLElement>('.sub-track-item')?.dataset.subIndex).toBe(
+          '240',
+        );
+        expect(batches[0]?.at(-1)?.closest<HTMLElement>('.sub-track-item')?.dataset.subIndex).toBe(
+          '479',
+        );
+      });
+
+      playlistTitleMarqueeMocks.schedule.mockClear();
+      while (
+        document.querySelectorAll('.sub-track-item[data-sub-index]').length < 720 &&
+        frameCallbacks.length
+      ) {
+        frameCallbacks.shift()?.(32);
+      }
+      await vi.waitFor(() => {
+        const batches = playlistTitleMarqueeMocks.schedule.mock.calls
+          .map(([root]) => root)
+          .filter((root): root is HTMLElement[] => Array.isArray(root));
+        expect(batches).toHaveLength(1);
+        expect(batches[0]).toHaveLength(240);
+        expect(batches[0]?.[0]?.closest<HTMLElement>('.sub-track-item')?.dataset.subIndex).toBe(
+          '480',
+        );
+        expect(batches[0]?.at(-1)?.closest<HTMLElement>('.sub-track-item')?.dataset.subIndex).toBe(
+          '719',
+        );
+      });
+    } finally {
+      requestFrame.mockRestore();
+      cancelFrame.mockRestore();
+    }
   });
 
   it('marks multilingual parent and sub-track titles with detected script fonts', () => {

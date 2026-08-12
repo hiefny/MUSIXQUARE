@@ -2372,10 +2372,73 @@
   }
 
   .track-name-text {
+    flex: 1 1 auto;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
     min-width: 0;
+  }
+
+  .playlist-title-marquee-content {
+    /* Staying inline preserves the parent's native ellipsis whenever this
+       title is not actively moving. Animation selectors opt into a
+       transformable inline-block only for their active lifetime. */
+    display: inline;
+    white-space: nowrap;
+    transform: translateX(0);
+  }
+
+  /* An overflowing title moves only while it is useful. Keyboard focus works
+     everywhere; a real hover pointer opts into hover motion at any viewport
+     width. This deliberately does not key desktop behavior to a breakpoint. */
+  .track-name:focus-visible
+    .track-name-text.is-playlist-title-overflowing
+    > .playlist-title-marquee-content,
+  .sub-track-item:focus-visible
+    .sub-name.is-playlist-title-overflowing
+    > .playlist-title-marquee-content {
+    animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
+      infinite;
+    display: inline-block;
+    will-change: transform;
+    --marquee-offset: var(--playlist-marquee-offset);
+  }
+
+  @media (any-hover: hover) {
+    .track-item:hover
+      .track-name-text.is-playlist-title-overflowing
+      > .playlist-title-marquee-content,
+    .sub-track-item:hover
+      .sub-name.is-playlist-title-overflowing
+      > .playlist-title-marquee-content {
+      animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
+        infinite;
+      display: inline-block;
+      will-change: transform;
+      --marquee-offset: var(--playlist-marquee-offset);
+    }
+  }
+
+  /* Phones and other coarse, non-hover interfaces have no hover state to
+     reveal the rest of the current title. Animate the exact playing sub-row
+     when an expanded YouTube playlist exposes it; otherwise animate the
+     current top-level row. The primary pointer, rather than viewport width,
+     defines this policy; a touch-primary hybrid may also use mouse hover. */
+  @media (hover: none) and (pointer: coarse) {
+    .playlist-entry:not(:has(.sub-track-item.active))
+      > .track-item:has(.playlist-current-leading.is-current-playing)
+      .track-name-text.is-playlist-title-overflowing
+      > .playlist-title-marquee-content,
+    .playlist-entry:has(> .track-item .playlist-current-leading.is-current-playing)
+      .sub-track-item.active
+      .sub-name.is-playlist-title-overflowing
+      > .playlist-title-marquee-content {
+      animation: marquee-pingpong var(--playlist-marquee-duration, 10s) cubic-bezier(0.4, 0, 0.2, 1)
+        infinite;
+      display: inline-block;
+      will-change: transform;
+      --marquee-offset: var(--playlist-marquee-offset);
+    }
   }
 
   .pro-upload-row {
@@ -2458,6 +2521,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    min-width: 0;
   }
 
   .sub-track-item.loading {
@@ -2610,6 +2674,13 @@
     .btn-playlist-remove::before {
       transition: none !important;
       animation: none !important;
+    }
+
+    .playlist-title-marquee-content {
+      animation: none !important;
+      display: inline !important;
+      transform: translateX(0) !important;
+      will-change: auto !important;
     }
 
     .playlist-reorder-ghost,
@@ -4034,72 +4105,6 @@
 
   .btn-copy-invite-link:disabled {
     opacity: 1;
-  }
-
-  /* Compact server health directly below the QR. Existing data
-     channels and playback remain uninterrupted while signaling recovers. */
-  .signaling-health-status {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 11px;
-    min-height: 28px;
-    margin: 0;
-    padding: 0 12px;
-    color: var(--text-main);
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.4;
-    letter-spacing: -0.01em;
-    transform: translateY(-8px);
-  }
-
-  .signaling-health-status[hidden] {
-    display: none;
-  }
-
-  .signaling-health-indicator {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex: 0 0 auto;
-    background: var(--success-filled);
-    box-shadow: 0 0 0 4px rgba(32, 164, 90, 0.12);
-  }
-
-  .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator {
-    background: var(--warning-filled);
-    box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.13);
-    animation: signaling-health-pulse 1.4s ease-in-out infinite;
-  }
-
-  .signaling-health-status[data-status='exhausted'] .signaling-health-indicator {
-    background: var(--danger-filled);
-    box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.12);
-  }
-
-  .signaling-health-message {
-    min-width: 0;
-    text-align: center;
-  }
-
-  @keyframes signaling-health-pulse {
-    0%,
-    100% {
-      transform: scale(1);
-      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.13);
-    }
-
-    50% {
-      transform: scale(0.86);
-      box-shadow: 0 0 0 7px rgba(245, 158, 11, 0.05);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .signaling-health-status[data-status='reconnecting'] .signaling-health-indicator {
-      animation: none;
-    }
   }
 
   /* =============================================

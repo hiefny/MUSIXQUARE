@@ -801,6 +801,8 @@ const ptBr: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Informações de diagnóstico copiadas.\nEnvie ao desenvolvedor se você encontrou um erro.',
   'chat.seek_to': 'Ir para {{time}}',
+  'chat.copied': 'Mensagem copiada',
+  'chat.copy_hint': 'Pressione Enter para copiar esta mensagem',
   'chat.peer_connected': '{{name}} entrou',
   'chat.tracks_added': '{{name}} adicionou {{count}} faixas',
   'chat.track_added_named': '{{name}} adicionou 1 faixa: {{title}}',

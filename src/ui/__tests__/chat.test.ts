@@ -1321,27 +1321,6 @@ describe('Chat Module', () => {
       initChatCopyGestures();
     }
 
-    function dispatchTouchPointer(
-      target: Element,
-      type: 'pointerdown' | 'pointermove' | 'pointerup' | 'pointercancel',
-      options: { pointerId?: number; clientX?: number; clientY?: number } = {},
-    ): MouseEvent {
-      const event = new MouseEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        button: 0,
-        clientX: options.clientX ?? 20,
-        clientY: options.clientY ?? 20,
-      });
-      Object.defineProperties(event, {
-        pointerType: { value: 'touch' },
-        pointerId: { value: options.pointerId ?? 7 },
-        isPrimary: { value: true },
-      });
-      target.dispatchEvent(event);
-      return event;
-    }
-
     beforeEach(() => {
       originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
       originalExecCommandDescriptor = Object.getOwnPropertyDescriptor(document, 'execCommand');
@@ -1391,48 +1370,40 @@ describe('Chat Module', () => {
       expect(showToast).toHaveBeenNthCalledWith(2, 'chat.copied');
     });
 
-    it('copies a long touch hold synchronously from pointerup when Async Clipboard would reject', async () => {
-      vi.useFakeTimers();
+    it('copies a touch-compatible click immediately without moving focus through a DOM fallback', async () => {
       renderCopyShell();
       const writeText = installClipboard();
-      writeText.mockRejectedValue(new DOMException('expired activation', 'NotAllowedError'));
-      let dispatchingPointerUp = false;
-      const execCommand = vi.fn(() => {
-        expect(dispatchingPointerUp).toBe(true);
-        return true;
-      });
+      const execCommand = vi.fn(() => true);
       Object.defineProperty(document, 'execCommand', {
         configurable: true,
         value: execCommand,
       });
       const { addChatMessage } = await import('../chat-render.ts');
       await initCopyChat();
-      addChatMessage('Peer', 'hold to copy', false);
+      addChatMessage('Peer', 'tap to copy', false);
       const bubble = document.querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')!;
+      const input = document.getElementById('chat-input')!;
+      input.focus();
 
-      dispatchTouchPointer(bubble, 'pointerdown');
-      vi.advanceTimersByTime(1_000);
-      expect(writeText).not.toHaveBeenCalled();
-
-      dispatchingPointerUp = true;
-      const pointerUp = dispatchTouchPointer(bubble, 'pointerup');
-      dispatchingPointerUp = false;
-      expect(pointerUp.defaultPrevented).toBe(true);
-      expect(execCommand).toHaveBeenCalledWith('copy');
-      expect(writeText).not.toHaveBeenCalled();
+      bubble.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      expect(writeText).toHaveBeenCalledWith('tap to copy');
+      expect(execCommand).not.toHaveBeenCalled();
+      expect(document.activeElement).toBe(input);
+      expect(document.querySelector('textarea')).toBeNull();
       await Promise.resolve();
       await Promise.resolve();
       expect(showToast).toHaveBeenCalledWith('chat.copied');
-
-      // The compatibility click emitted by touch browsers must not duplicate it.
-      bubble.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
-      expect(execCommand).toHaveBeenCalledTimes(1);
     });
 
     it('shows the established failure toast when neither clipboard path succeeds', async () => {
       renderCopyShell();
       const writeText = installClipboard();
       writeText.mockRejectedValueOnce(new DOMException('denied', 'NotAllowedError'));
+      const execCommand = vi.fn(() => true);
+      Object.defineProperty(document, 'execCommand', {
+        configurable: true,
+        value: execCommand,
+      });
       const { addChatMessage } = await import('../chat-render.ts');
       await initCopyChat();
       addChatMessage('Peer', 'cannot copy', false);
@@ -1445,10 +1416,10 @@ describe('Chat Module', () => {
       await Promise.resolve();
 
       expect(showToast).toHaveBeenCalledWith('toast.copy_failed');
+      expect(execCommand).not.toHaveBeenCalled();
     });
 
-    it('does not copy a quick tap, a moved/scrolling hold, or an inline action click', async () => {
-      vi.useFakeTimers();
+    it('leaves inline actions intact and does not copy without a completed click', async () => {
       renderCopyShell();
       const writeText = installClipboard();
       const loadedUrls: string[] = [];
@@ -1458,41 +1429,35 @@ describe('Chat Module', () => {
       addChatMessage('Peer', 'https://youtu.be/abcdefghijk', false);
       const bubble = document.querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')!;
 
-      dispatchTouchPointer(bubble, 'pointerdown');
-      vi.advanceTimersByTime(200);
-      dispatchTouchPointer(bubble, 'pointerup');
-      bubble.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
-
-      dispatchTouchPointer(bubble, 'pointerdown', { pointerId: 8 });
-      dispatchTouchPointer(bubble, 'pointermove', {
-        pointerId: 8,
-        clientX: 40,
-        clientY: 20,
-      });
-      vi.advanceTimersByTime(500);
-      dispatchTouchPointer(bubble, 'pointerup', { pointerId: 8, clientX: 40, clientY: 20 });
-
-      dispatchTouchPointer(bubble, 'pointerdown', { pointerId: 9 });
-      document.dispatchEvent(new Event('scroll'));
-      vi.advanceTimersByTime(500);
-      dispatchTouchPointer(bubble, 'pointerup', { pointerId: 9 });
+      bubble.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      bubble.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, button: 0 }));
+      expect(writeText).not.toHaveBeenCalled();
 
       document.querySelector<HTMLElement>('.chat-youtube-btn')?.click();
       await Promise.resolve();
       expect(writeText).not.toHaveBeenCalled();
       expect(loadedUrls).toEqual(['https://youtu.be/abcdefghijk']);
+    });
 
-      // A YouTube-only card fills the bubble. Its quick tap remains an action,
-      // while a deliberate hold copies the original URL and consumes the
-      // compatibility click before the delegated load handler sees it.
-      const youtubeButton = document.querySelector<HTMLElement>('.chat-youtube-btn')!;
-      dispatchTouchPointer(youtubeButton, 'pointerdown', { pointerId: 10 });
-      vi.advanceTimersByTime(500);
-      dispatchTouchPointer(youtubeButton, 'pointerup', { pointerId: 10 });
-      expect(writeText).toHaveBeenCalledWith('https://youtu.be/abcdefghijk');
-      youtubeButton.click();
+    it('reinitializes without installing duplicate single-tap handlers', async () => {
+      renderCopyShell();
+      const writeText = installClipboard();
+      const { addChatMessage } = await import('../chat-render.ts');
+      const [{ initChat }, { initChatCopyGestures }] = await Promise.all([
+        import('../chat.ts'),
+        import('../chat-copy.ts'),
+      ]);
+      initChat();
+      initChatCopyGestures();
+      initChatCopyGestures();
+      addChatMessage('Peer', 'once', false);
+
+      document
+        .querySelector<HTMLElement>('.chat-bubble[data-chat-copy-text]')!
+        .dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+
       expect(writeText).toHaveBeenCalledTimes(1);
-      expect(loadedUrls).toEqual(['https://youtu.be/abcdefghijk']);
+      expect(writeText).toHaveBeenCalledWith('once');
     });
 
     it('preserves a native text selection and offers Enter as the keyboard action', async () => {

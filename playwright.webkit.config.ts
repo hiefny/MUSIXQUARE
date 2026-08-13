@@ -13,6 +13,7 @@ export default defineConfig({
     'custom-scrollbar-timeline.test.ts',
     'youtube-landscape-full-bleed.test.ts',
     'playlist-title-marquee.test.ts',
+    'chat-copy-tap.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

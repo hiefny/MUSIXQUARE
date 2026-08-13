@@ -491,3 +491,25 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 
   return false;
 }
+
+/**
+ * Copy without creating or focusing a temporary form control.
+ *
+ * Chat uses this path from a trusted click/key event because focusing the
+ * legacy textarea can make iOS resize the visual viewport and chat drawer.
+ * Do not fall back after a rejected Clipboard API promise: by then the user
+ * activation has ended, and touching Selection/focus would reintroduce the UI
+ * instability this path exists to avoid.
+ */
+export async function copyTextToClipboardWithoutFocus(text: string): Promise<boolean> {
+  if (!navigator.clipboard?.writeText) return false;
+  try {
+    // Invocation remains synchronous with the trusted click/key event. Only
+    // completion crosses the await boundary.
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (error) {
+    log.warn('[Clipboard] Focus-safe API failed:', error);
+    return false;
+  }
+}

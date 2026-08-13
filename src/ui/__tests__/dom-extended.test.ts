@@ -7,6 +7,7 @@ import {
   escapeHtml,
   escapeAttr,
   copyTextToClipboard,
+  copyTextToClipboardWithoutFocus,
   animateTransition,
   updateOverlayOpenClass,
   syncOverlayState,
@@ -222,6 +223,37 @@ describe('copyTextToClipboard', () => {
     );
 
     await expect(copyTextToClipboard('blocked')).resolves.toBe(false);
+    expect(document.querySelector('textarea')).toBeNull();
+  });
+
+  it('uses the Clipboard API without changing focus or creating a textarea', async () => {
+    document.body.innerHTML = '<div id="editor" contenteditable>draft</div>';
+    const editor = document.getElementById('editor') as HTMLDivElement;
+    editor.focus();
+    const writeText = vi.fn(async () => undefined);
+    installClipboard(writeText);
+    const execCommand = vi.fn(() => true);
+    installExecCommand(execCommand);
+
+    const copy = copyTextToClipboardWithoutFocus('chat text');
+
+    expect(writeText).toHaveBeenCalledWith('chat text');
+    expect(document.activeElement).toBe(editor);
+    expect(document.querySelector('textarea')).toBeNull();
+    await expect(copy).resolves.toBe(true);
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to DOM focus when the focus-safe API is missing or rejects', async () => {
+    const execCommand = vi.fn(() => true);
+    installExecCommand(execCommand);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined });
+
+    await expect(copyTextToClipboardWithoutFocus('unavailable')).resolves.toBe(false);
+
+    installClipboard(vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError')));
+    await expect(copyTextToClipboardWithoutFocus('denied')).resolves.toBe(false);
+    expect(execCommand).not.toHaveBeenCalled();
     expect(document.querySelector('textarea')).toBeNull();
   });
 });

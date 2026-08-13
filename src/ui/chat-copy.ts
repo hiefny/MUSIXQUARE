@@ -1,10 +1,12 @@
 import { t } from '../i18n/index.ts';
-import { copyTextToClipboard } from './dom.ts';
+import { copyTextToClipboardWithoutFocus } from './dom.ts';
 import { showToast } from './toast.ts';
 
-type CopyPress = [HTMLElement, number, number, number, number, boolean];
-
 let _events: AbortController | null = null;
+let _copyOperation = 0;
+
+const NESTED_ACTION_SELECTOR =
+  'button,a,input,textarea,select,option,[contenteditable="true"],[role="button"],[data-seek]';
 
 function bubbleAt(target: EventTarget | null): HTMLElement | null {
   return target instanceof Element
@@ -15,9 +17,15 @@ function bubbleAt(target: EventTarget | null): HTMLElement | null {
 function copyBubble(bubble: HTMLElement): void {
   const text = bubble.dataset.chatCopyText;
   if (text === undefined) return;
-  void copyTextToClipboard(text).then((copied) => {
-    showToast(t(copied ? 'chat.copied' : 'toast.copy_failed'));
-  });
+  const operation = ++_copyOperation;
+  void copyTextToClipboardWithoutFocus(text)
+    .then((copied) => {
+      if (operation !== _copyOperation) return;
+      showToast(t(copied ? 'chat.copied' : 'toast.copy_failed'));
+    })
+    .catch(() => {
+      if (operation === _copyOperation) showToast(t('toast.copy_failed'));
+    });
 }
 
 function hasBubbleSelection(bubble: HTMLElement): boolean {
@@ -35,101 +43,26 @@ function hasBubbleSelection(bubble: HTMLElement): boolean {
   }
 }
 
-/** Install the delegated chat-bubble copy gestures. */
+function isNestedAction(target: EventTarget | null, bubble: HTMLElement): boolean {
+  if (!(target instanceof Element)) return false;
+  const action = target.closest(NESTED_ACTION_SELECTOR);
+  return !!action && action !== bubble && bubble.contains(action);
+}
+
+/** Install delegated single-tap/click and keyboard chat-bubble copying. */
 export function initChatCopyGestures(): void {
   _events?.abort();
   _events = new AbortController();
   const { signal } = _events;
-  let press: CopyPress | null = null;
-  let touchBubble: HTMLElement | null = null;
-  let copiedBubble: HTMLElement | null = null;
-  let ignoreClickUntil = 0;
+  ++_copyOperation;
 
-  const cancel = (): void => {
-    if (press) window.clearTimeout(press[4]);
-    press = null;
-  };
-
-  document.addEventListener(
-    'pointerdown',
-    (event) => {
-      if (event.pointerType === 'mouse' || !event.isPrimary || event.button) return;
-      const bubble = bubbleAt(event.target);
-      if (!bubble) return;
-      cancel();
-      copiedBubble = null;
-      touchBubble = bubble;
-      ignoreClickUntil = Date.now() + 1_500;
-      const next: CopyPress = [bubble, event.pointerId, event.clientX, event.clientY, 0, false];
-      next[4] = window.setTimeout(() => {
-        if (press === next) next[5] = true;
-      }, 500);
-      press = next;
-    },
-    { signal, passive: true },
-  );
-
-  document.addEventListener(
-    'pointermove',
-    (event) => {
-      if (
-        press &&
-        event.pointerId === press[1] &&
-        Math.hypot(event.clientX - press[2], event.clientY - press[3]) > 10
-      ) {
-        cancel();
-      }
-    },
-    { signal, passive: true },
-  );
-
-  document.addEventListener(
-    'pointerup',
-    (event) => {
-      const completed = press;
-      if (!completed || event.pointerId !== completed[1]) return;
-      cancel();
-      if (!completed[5] || !completed[0].isConnected) return;
-      copiedBubble = completed[0];
-      ignoreClickUntil = Date.now() + 1_500;
-      event.preventDefault();
-      copyBubble(completed[0]);
-    },
-    { signal },
-  );
-
-  document.addEventListener('pointercancel', cancel, { signal, passive: true });
-  document.addEventListener('scroll', cancel, { signal, capture: true, passive: true });
-  signal.addEventListener('abort', cancel, { once: true });
-
-  document.addEventListener(
-    'contextmenu',
-    (event) => {
-      if (bubbleAt(event.target) === touchBubble && Date.now() < ignoreClickUntil) {
-        event.preventDefault();
-      }
-    },
-    { signal, capture: true },
-  );
-
-  // Capture runs before the established timestamp/YouTube delegates, allowing
-  // a completed hold to consume the compatibility click without changing a
-  // quick tap on either inline action.
   document.addEventListener(
     'click',
     (event) => {
       const bubble = bubbleAt(event.target);
       if (!bubble) return;
-      if (bubble === touchBubble && Date.now() < ignoreClickUntil) {
-        if (bubble === copiedBubble) {
-          copiedBubble = null;
-          event.preventDefault();
-          event.stopImmediatePropagation();
-        }
-        return;
-      }
       if (
-        !(event.target as Element).closest('button,[data-seek]') &&
+        !isNestedAction(event.target, bubble) &&
         (!(event instanceof MouseEvent) || event.button === 0) &&
         !hasBubbleSelection(bubble)
       ) {

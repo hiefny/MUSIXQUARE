@@ -163,7 +163,7 @@ describe('app maintenance administration', () => {
     expect(preview.headers.get('X-MXQR-Maintenance-Preview')).toBe('1');
     expect(preview.headers.get('Retry-After')).toBeNull();
     expect(previewBody).toContain('role="img" aria-label="MUSIXQUARE"');
-    expect(previewBody).toContain('<h1 lang="en">Musixquare is temporarily unavailable.</h1>');
+    expect(previewBody).toContain('<h1 lang="en">MUSIXQUARE is temporarily unavailable.</h1>');
     expect(control.state().enabled).toBe(false);
     expect(control.fetch).not.toHaveBeenCalled();
 
@@ -238,7 +238,7 @@ describe('app maintenance administration', () => {
     expect(page.status).toBe(503);
     expect(page.headers.get('Cache-Control')).toContain('no-store');
     expect(page.headers.get('Content-Language')).toBe('ko');
-    expect(pageBody).toContain('Musixquare is temporarily unavailable.');
+    expect(pageBody).toContain('MUSIXQUARE is temporarily unavailable.');
     expect(pageBody).toContain('안전한 서비스 점검을 진행 중이에요.');
     expect(pageBody).toBe(previewBody);
 

@@ -122,7 +122,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.3.50';
+const ADMIN_ASSET_VERSION = '8.3.51';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -9796,7 +9796,7 @@ function renderAdminPage(request, env) {
           <p data-service-status-updated></p>
           <div class="service-status-preview" aria-label="Maintenance page preview">
             <span>PUBLIC MESSAGE</span>
-            <strong>Musixquare is temporarily unavailable.</strong>
+            <strong>MUSIXQUARE is temporarily unavailable.</strong>
             <p>Visitors receive this page in English with a second line in their system language.</p>
           </div>
           <p class="service-status-warning">

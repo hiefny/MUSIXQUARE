@@ -1519,7 +1519,7 @@ describe('shared service-maintenance control', () => {
     expect(body).toContain('<title lang="en">MUSIXQUARE — Service check</title>');
     expect(body).toContain('class="wordmark"');
     expect(body).toContain('role="img" aria-label="MUSIXQUARE"');
-    expect(body).toContain('<h1 lang="en">Musixquare is temporarily unavailable.</h1>');
+    expect(body).toContain('<h1 lang="en">MUSIXQUARE is temporarily unavailable.</h1>');
     expect(body).toContain('안전한 서비스 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.');
     expect(body).not.toMatch(/(?:class="[^"]*\b(?:card|dot|pulse)\b|[.#](?:card|dot|pulse)\b)/u);
     expect(body).not.toMatch(/@keyframes|\banimation(?:-name)?\s*:/u);

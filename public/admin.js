@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.50';
+const ADMIN_SCRIPT_VERSION = '8.3.51';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -1213,7 +1213,7 @@ function renderServiceStatus(status) {
           ? 'Public traffic is resuming. Some edge requests may remain unavailable for a moment.'
           : status.enabled
             ? 'New public app, API, Signaling, and PRO traffic is blocked. Direct uploads authorized earlier may still finish.'
-            : 'Musixquare is available. Enter maintenance mode to block new public traffic.';
+            : 'MUSIXQUARE is available. Enter maintenance mode to block new public traffic.';
   }
   const statusTime = status.enabled ? status.activatedAt || status.updatedAt : status.updatedAt;
   if (serviceStatusUpdatedAtEl) {

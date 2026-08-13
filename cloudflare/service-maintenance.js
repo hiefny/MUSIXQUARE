@@ -1069,7 +1069,7 @@ function maintenanceHtml(language) {
       <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"></rect>
       <rect x="237.2337931" y="30.7587928" width="18" height="4.5"></rect>
     </svg>
-    <h1 lang="en">Musixquare is temporarily unavailable.</h1>
+    <h1 lang="en">MUSIXQUARE is temporarily unavailable.</h1>
     <p>${description}</p>
   </main>
 </body>

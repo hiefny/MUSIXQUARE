@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.3.50",
+  "version": "8.3.51",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -11,11 +11,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/materialize-app-static-headers.mjs",
-    "build:checked": "npm run guard:release-identity && npm run guard:script-module-exports && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:initial-transfer-budget && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build && npm run guard:sw-app-shell",
+    "build:checked": "npm run guard:release-identity && npm run guard:brand-capitalization && npm run guard:script-module-exports && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:initial-transfer-budget && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build && npm run guard:sw-app-shell",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "promo:render": "tsx .workshop/promo/render.ts",
     "guard:prod-hooks": "node scripts/assert-production-build-clean.mjs",
+    "guard:brand-capitalization": "node scripts/check-brand-capitalization.mjs",
     "guard:prod-security": "node scripts/assert-production-security-config.mjs",
     "guard:bus-pairing": "node scripts/check-bus-pairing.mjs",
     "guard:chunk-pump": "node scripts/check-chunk-pump.mjs",

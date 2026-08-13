@@ -51,7 +51,21 @@ an i18n key can express them.
 - Prefer short instructions and specific recovery actions.
 - Describe network or browser failures without blaming the user.
 - Use sentence case except for established compact badges.
-- Keep the product name uppercase: **MUSIXQUARE**.
+- Always write the product name as **MUSIXQUARE** in user-facing UI, metadata,
+  notices, and documentation. Mixed-case and standalone lowercase variants are
+  not brand spellings.
+- Preserve the lowercase form only inside technical identifiers whose spelling
+  is fixed or case-sensitive, including domains, URLs, email
+  addresses, package names, code symbols, HTTP headers, configuration and
+  binding names, storage or cache keys, filenames, and paths. Do not rename
+  those identifiers during a branding copy edit.
+- Examples: write `MUSIXQUARE is available` in copy, while preserving
+  `musixquare.com`, `contact@musixquare.com`, `MusixquareServiceControl`, and
+  `X-Musixquare-Navigation-Source` as technical spellings.
+- Run `npm run guard:brand-capitalization` after changing copy. If a standalone
+  technical parser token cannot be inferred from its syntax, annotate that
+  source line with `brand-capitalization: allow-technical`; never use the escape
+  for user-facing prose.
 - Do not introduce decorative emoji into product UI.
 - Preserve deliberate punctuation and non-breaking hyphens in translations.
 

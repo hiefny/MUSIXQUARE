@@ -73,7 +73,7 @@ const EXTERNAL_DELETION_TARGET_RE =
 const EXTERNAL_CONTROL_SURFACE_RE =
   /(?:\b(?:spotify|apple\s+music|youtube(?:\s+music)?|soundcloud|deezer|music\s+apps?|media\s+apps?|phones?|smartphones?|devices?|computers?|laptops?|tablets?|browsers?)\b|스포티파이|애플\s*뮤직|유튜브(?:\s*뮤직)?|사운드클라우드|디저|(?:음악|미디어)\s*앱|휴대폰|스마트폰|내\s*폰|기기|컴퓨터|노트북|태블릿|브라우저|应用|應用|手机|手機|设备|設備|アプリ|端末|スマホ|aplicaci[oó]n\s+de\s+m[uú]sica|tel[eé]fono|application\s+musicale|t[eé]l[eé]phone|musik-app|telefon|aplikasi\s+musik|ponsel|app\s+musicale|telefono|muziek-app|telefoon|aplikacja\s+muzyczna|telefon|aplicativo\s+de\s+m[uú]sica|telefone|музыкальн.{0,8}приложен|телефон|แอปเพลง|โทรศัพท์|müzik\s+uygulaması|telefon|ứng\s+dụng\s+nhạc|điện\s+thoại)/iu;
 const EXPLICIT_ROOM_ACTION_TARGET_RE =
-  /(?:\b(?:musixquare|this\s+room|current\s+room|room\s+(?:queue|playlist|playback))\b|뮤직스퀘어|(?:이|현재)\s*방|방\s*(?:재생\s*목록|플레이리스트|대기열|재생)|这个房间|這個房間|当前房间|目前房間|この部屋|このルーム|эта\s+комнат|esta\s+sala|cette\s+salle|diesem\s+raum|ruang\s+ini|questa\s+stanza|deze\s+kamer|tym\s+pokoju|esta\s+sala|ห้องนี้|bu\s+oda|phòng\s+này)/iu;
+  /(?:\b(?:musixquare|this\s+room|current\s+room|room\s+(?:queue|playlist|playback))\b|뮤직스퀘어|(?:이|현재)\s*방|방\s*(?:재생\s*목록|플레이리스트|대기열|재생)|这个房间|這個房間|当前房间|目前房間|この部屋|このルーム|эта\s+комнат|esta\s+sala|cette\s+salle|diesem\s+raum|ruang\s+ini|questa\s+stanza|deze\s+kamer|tym\s+pokoju|esta\s+sala|ห้องนี้|bu\s+oda|phòng\s+này)/iu; // brand-capitalization: allow-technical
 const ROOM_ACTION_TARGET_NEGATION_RE =
   /(?:\b(?:not|don['’]?t|do\s+not)\b.{0,24}\b(?:this|current)\s+room\b|\bleave\s+(?:this|current)\s+room\s+alone\b|(?:이|현재)\s*방.{0,16}(?:건드리지\s*마|변경하지\s*마|제어하지\s*마|말고))/iu;
 const DESTRUCTIVE_NEGATION_RE =

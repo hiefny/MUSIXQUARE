@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v427';
+const CACHE_VERSION = 'v428';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const OPTIONAL_CACHE = `musixquare-optional-${CACHE_VERSION}`;
@@ -222,7 +222,7 @@ async function deleteRetiredCaches() {
     keys
       .filter((key) => {
         return (
-          key.startsWith('musixquare-') &&
+          key.startsWith('musixquare-') && // brand-capitalization: allow-technical
           ![STATIC_CACHE, RUNTIME_CACHE, OPTIONAL_CACHE].includes(key)
         );
       })
@@ -288,7 +288,11 @@ async function scrubSensitiveRetiredRuntimeEntries() {
   const keys = await caches.keys();
   await Promise.all(
     keys
-      .filter((key) => key.startsWith('musixquare-runtime-') && key !== RUNTIME_CACHE)
+      .filter(
+        (key) =>
+          key.startsWith('musixquare-runtime-') && // brand-capitalization: allow-technical
+          key !== RUNTIME_CACHE,
+      )
       .map(async (key) => {
         try {
           const cache = await caches.open(key);
@@ -571,7 +575,7 @@ async function matchRetiredAsset(request) {
       const keys = await caches.keys();
       for (const key of keys) {
         if (key === OPTIONAL_CACHE) continue;
-        const retiredMatch = /^musixquare-optional-v(\d+)$/.exec(key);
+        const retiredMatch = /^musixquare-optional-v(\d+)$/.exec(key); // brand-capitalization: allow-technical
         const currentMatch = /^v(\d+)$/.exec(CACHE_VERSION);
         if (!retiredMatch || !currentMatch || Number(retiredMatch[1]) >= Number(currentMatch[1])) {
           continue;

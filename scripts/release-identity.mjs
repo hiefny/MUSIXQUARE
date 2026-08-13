@@ -34,8 +34,8 @@ export function parseReleaseIdentity({
   const manifest = parseJson(packageSource, 'package.json');
   const lock = parseJson(lockSource, 'package-lock.json');
   const productVersion = typeof manifest?.version === 'string' ? manifest.version : '';
-  if (manifest?.name !== 'musixquare' || manifest?.private !== true) {
-    throw new Error('package.json must describe the private musixquare product.');
+  if (manifest?.name !== 'musixquare' || manifest?.private !== true) { // brand-capitalization: allow-technical
+    throw new Error('package.json must describe the private MUSIXQUARE product.');
   }
   if (!PRODUCT_VERSION_RE.test(productVersion)) {
     throw new Error('package.json must contain a valid canonical SemVer product version.');

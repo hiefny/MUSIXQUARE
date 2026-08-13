@@ -668,10 +668,14 @@ workflow owns the dependency order above, immutable app artifact, live smokes,
 and conflict-aware rollback.
 
 The current service-control marker is
-`admin-announcement-v1+abuse-rate-v2+session-idempotency-v1`. Any marker change requires target `all`;
-do not publish a consumer before the PRO-owned object. Remote-share's old KV
-allocation counter is retired and must not be restored as a fallback for a
-missing service-control binding.
+`admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`. Announcement v2
+separates notices into a dedicated named Durable Object owned by PRO. An empty
+dedicated object temporarily reads the legacy announcement, and its first
+accepted mutation inherits the legacy revision and history; after that, the
+dedicated object is authoritative. Any marker change requires target `all`, and
+the PRO owner must deploy before its consumers. Remote-share's old KV allocation
+counter is retired and must not be restored as a fallback for a missing
+service-control binding.
 
 The local `deploy:*` scripts are non-deploying guards that always stop. The
 separate `emergency:deploy:*` scripts are emergency/operator primitives only;
@@ -836,11 +840,13 @@ without deleting data. Do not rotate the subject pepper or reintroduce projectio
 flags as a routine rollback; use PRO maintenance and forward repair when the
 least-privilege contract cannot be preserved.
 
-The `admin-announcement-v1+abuse-rate-v2+session-idempotency-v1` service-control marker is an additional
-forward-only floor once its App/PRO pair has deployed or canonical state has
-been written. Never restore App or PRO below that marker. Use target `all` to
-repair forward when the release workflow reports that compatibility floor; do
-not improvise a partial rollback for that pair.
+The `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`
+service-control marker is an additional forward-only floor once its App/PRO pair
+has deployed or the dedicated announcement object has canonical state. Never
+restore App or PRO below that marker: pre-v2 code can address the legacy
+co-located announcement store instead of the dedicated instance. Use target
+`all` to repair forward when the release workflow reports that compatibility
+floor; do not improvise a partial rollback for that pair.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.

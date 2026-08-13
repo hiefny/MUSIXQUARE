@@ -28,6 +28,7 @@ import {
   gateServiceMaintenance,
   readAdminAnnouncementControl,
   readServiceMaintenance,
+  serviceMaintenancePreviewResponse,
   updateAdminAnnouncementControl,
   updateServiceMaintenance,
 } from './service-maintenance.js';
@@ -120,7 +121,8 @@ const ADMIN_ANNOUNCEMENT_KEY = 'admin-announcement.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
-const ADMIN_ASSET_VERSION = '8.3.49';
+const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
+const ADMIN_ASSET_VERSION = '8.3.50';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -9292,11 +9294,19 @@ function isServiceMaintenanceAdminBypass(request, url) {
     pathname === '/api/admin/login' ||
     pathname === '/api/admin/logout' ||
     pathname === '/api/admin/session' ||
-    pathname === '/api/admin/service-status'
+    pathname === '/api/admin/service-status' ||
+    pathname === ADMIN_MAINTENANCE_PREVIEW_PATH
   ) {
     return true;
   }
   return false;
+}
+
+async function handleAdminMaintenancePreview(request, env) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+  return withSecurityHeaders(serviceMaintenancePreviewResponse(request));
 }
 
 function serviceStatusAdminPayload(state) {
@@ -9794,6 +9804,7 @@ function renderAdminPage(request, env) {
           </p>
           <p class="service-status-error" role="alert" data-service-status-error></p>
           <div class="service-status-dialog-actions">
+            <button class="is-secondary" type="button" data-service-status-preview>Preview page</button>
             <button class="is-secondary" type="button" data-service-status-cancel>Cancel</button>
             <button class="service-status-confirm" type="button" data-service-status-confirm disabled>Enter maintenance mode</button>
           </div>
@@ -13044,6 +13055,8 @@ export default {
         return handleAdminLogout(request, env);
       case '/api/admin/session':
         return handleAdminSession(request, env);
+      case ADMIN_MAINTENANCE_PREVIEW_PATH:
+        return handleAdminMaintenancePreview(request, env);
       case '/api/admin/service-status':
         return handleAdminServiceStatus(request, env);
       case '/api/admin/metrics':

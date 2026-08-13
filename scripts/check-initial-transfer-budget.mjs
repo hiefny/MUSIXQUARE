@@ -21,13 +21,13 @@ import { gzipSync } from 'node:zlib';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const INITIAL_TRANSFER_BUDGET = Object.freeze({
-  entryScriptRawBytes: 1_327_000,
-  // The eager iOS YouTube controller owns generation fences and stop/import
-  // races; the heavier WebKit compositor reconciler remains a lazy chunk.
-  entryScriptGzipBytes: 388_000,
-  eagerJavaScriptGzipBytes: 392_300,
+  entryScriptRawBytes: 1_324_000,
+  // Bubble copy is a core keyboard/click/hold action, so it stays in the
+  // offline app shell instead of becoming a fallible lazy accessibility seam.
+  entryScriptGzipBytes: 387_000,
+  eagerJavaScriptGzipBytes: 391_300,
   eagerTotalRawBytes: 1_700_000,
-  eagerTotalGzipBytes: 454_100,
+  eagerTotalGzipBytes: 453_200,
   eagerFontBytes: 0,
 });
 

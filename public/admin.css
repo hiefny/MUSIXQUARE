@@ -2102,8 +2102,13 @@ p {
 }
 
 .service-status-dialog-actions {
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+[data-service-status-preview] {
+  margin-right: auto;
 }
 
 .service-status-dialog-actions button {

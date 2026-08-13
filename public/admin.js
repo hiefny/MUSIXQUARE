@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.49';
+const ADMIN_SCRIPT_VERSION = '8.3.50';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -51,6 +51,7 @@ const serviceStatusDescriptionEl = document.querySelector('[data-service-status-
 const serviceStatusUpdatedAtEl = document.querySelector('[data-service-status-updated]');
 const serviceStatusErrorEl = document.querySelector('[data-service-status-error]');
 const serviceStatusConfirmBtn = document.querySelector('[data-service-status-confirm]');
+const serviceStatusPreviewBtn = document.querySelector('[data-service-status-preview]');
 const serviceStatusCancelBtns = [...document.querySelectorAll('[data-service-status-cancel]')];
 const updatedAtEl = document.querySelector('[data-updated-at]');
 const refreshBtn = document.querySelector('[data-refresh]');
@@ -5129,6 +5130,10 @@ serviceStatusDialog?.addEventListener('cancel', (event) => {
 });
 
 serviceStatusDialog?.addEventListener('close', finishServiceStatusDialogClose);
+
+serviceStatusPreviewBtn?.addEventListener('click', () => {
+  window.open('/admin/maintenance-preview', '_blank', 'noopener');
+});
 
 serviceStatusForm?.addEventListener('submit', (event) => {
   event.preventDefault();

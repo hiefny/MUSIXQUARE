@@ -4,8 +4,11 @@ import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   ABUSE_RATE_PAIR_CONSUME_PATH,
+  ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+  ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
+  SERVICE_CONTROL_STATUS_PATH,
 } from '../../../cloudflare/service-maintenance.js';
 
 class ServiceControlStorage {
@@ -137,6 +140,71 @@ afterEach(() => {
 });
 
 describe('MusixquareServiceControl', () => {
+  it('loads only announcement keys and exposes only announcement routes for the separated object', async () => {
+    const { control, storage } = setup(
+      new ServiceControlStorage(),
+      ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+    );
+
+    const announcement = await control.fetch(
+      new Request(`https://service-control.internal${ADMIN_ANNOUNCEMENT_STATUS_PATH}`),
+    );
+    expect(announcement.status).toBe(200);
+    expect(storage.getKeys).toEqual(['admin-announcement-state', 'admin-announcement-requests']);
+    expect(
+      (
+        await control.fetch(
+          new Request(`https://service-control.internal${SERVICE_CONTROL_STATUS_PATH}`),
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await control.fetch(
+          new Request(`https://service-control.internal${ABUSE_RATE_CONSUME_PATH}`, {
+            method: 'POST',
+          }),
+        )
+      ).status,
+    ).toBe(404);
+  });
+
+  it('accepts revision inheritance only on the named announcement object', async () => {
+    const legacy = {
+      id: 'legacy-current',
+      message: 'Legacy current notice',
+      enabled: true,
+      expiresAt: null,
+      updatedAt: '2026-08-01T00:00:00.000Z',
+      action: 'published',
+    };
+    const migrationRequest = () => {
+      const request = announcementRequest(
+        'Separated notice',
+        7,
+        '123e4567-e89b-42d3-a456-426614174097',
+        [legacy],
+      );
+      request.headers.set(ADMIN_ANNOUNCEMENT_MIGRATION_HEADER, '1');
+      return request;
+    };
+
+    const original = setup().control;
+    expect((await original.fetch(migrationRequest())).status).toBe(409);
+
+    const separated = setup(
+      new ServiceControlStorage(),
+      ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+    ).control;
+    const migrated = await separated.fetch(migrationRequest());
+    expect(migrated.status).toBe(200);
+    await expect(payload(migrated)).resolves.toMatchObject({
+      announcementState: {
+        revision: 8,
+        history: [{ message: 'Separated notice' }, legacy],
+      },
+    });
+  });
   it('loads only the owned counter for a named abuse-rate object', async () => {
     const storage = new ServiceControlStorage();
     const { control } = setup(storage, 'musixquare-abuse-rate-v1:app-turn:opaque-rate-identity');

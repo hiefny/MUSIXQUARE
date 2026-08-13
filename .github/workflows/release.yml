@@ -1260,11 +1260,13 @@ jobs:
             done
           fi
 
-          # The first service-control announcement cutover creates durable DO
-          # state that pre-cutover App Workers cannot read. Compare the
-          # candidate with each actually attempted Worker's captured live Git
-          # SHA, not merely HEAD^: one release can contain several commits.
-          # Missing legacy provenance also fails closed to forward repair.
+          # The announcement-v2 cutover creates a dedicated named DO and can
+          # promote legacy revision/history into it on the first mutation. Once
+          # that instance has canonical state, pre-v2 App/PRO Workers can target
+          # the wrong store. Compare the candidate with each actually attempted
+          # Worker's captured live Git SHA, not merely HEAD^: one release can
+          # contain several commits. Missing legacy provenance also fails closed
+          # to forward repair.
           service_control_forward_floor="$(
             node scripts/release-deployment-state.mjs \
               service-control-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint

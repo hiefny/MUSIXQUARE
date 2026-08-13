@@ -84,12 +84,16 @@ Stalled streams must cancel and fail closed. HMAC/signing/pepper secrets
 documented by the owning Wrangler file or runbook must also fail closed below 32
 characters; provider-issued API keys retain their provider-defined formats.
 
-### Current service-control cutover addendum
+### Historical v1 service-control cutover addendum (2026-05-31)
 
-The first release containing the exact
+At the time of the original 2026-05-31 verification, the first release
+containing the exact
 `admin-announcement-v1+abuse-rate-v2+session-idempotency-v1`
+service-control marker was a coordinated cutover. This subsection preserves the
+v1 launch record; it does not describe the current marker. Use the live
 [`service-control contract marker`](../cloudflare/service-control-contract-version.txt)
-is a coordinated cutover:
+and [`hotfix-procedure.md`](hotfix-procedure.md) for current rollout and recovery
+rules:
 
 1. Use release target `all`. The release order is PRO, remote-share, signaling,
    Developer API facade/API, then App, so the service-control owner exists

@@ -23,6 +23,7 @@ function installDom(): void {
           <h2 data-service-status-state></h2>
           <p data-service-status-description></p><p data-service-status-updated></p>
           <p data-service-status-error></p>
+          <button type="button" data-service-status-preview>Preview page</button>
           <button type="button" data-service-status-cancel>Cancel</button>
           <button type="button" data-service-status-confirm>Change</button>
         </dialog>
@@ -59,6 +60,7 @@ afterEach(() => {
 describe('admin maintenance status UI', () => {
   it('shows the global status, toggles maintenance, and marks an active announcement', async () => {
     installDom();
+    const openPreview = vi.spyOn(window, 'open').mockImplementation(() => null);
     const now = Date.now();
     let status = {
       enabled: false,
@@ -125,6 +127,9 @@ describe('admin maintenance status UI', () => {
           ?.classList.contains('has-active-announcement'),
       ).toBe(true);
     });
+
+    document.querySelector<HTMLButtonElement>('[data-service-status-preview]')?.click();
+    expect(openPreview).toHaveBeenCalledWith('/admin/maintenance-preview', '_blank', 'noopener');
 
     document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')?.click();
     await vi.waitFor(() => {

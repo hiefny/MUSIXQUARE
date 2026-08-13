@@ -1,1 +1,1 @@
-admin-announcement-v1+abuse-rate-v2+session-idempotency-v1
+admin-announcement-v2+abuse-rate-v2+session-idempotency-v1

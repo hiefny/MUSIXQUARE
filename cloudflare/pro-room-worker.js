@@ -33,6 +33,8 @@ import {
   proRoomObjectName,
 } from './pro-room-generation.js';
 import {
+  ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+  ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   ABUSE_RATE_CONSUME_PATH,
@@ -3508,6 +3510,7 @@ export class MusixquareServiceControl {
   constructor(state) {
     this.state = state;
     this.storage = state.storage;
+    this.announcementOnly = state?.id?.name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME;
     this.abuseRatePairOnly =
       typeof state?.id?.name === 'string' &&
       state.id.name.startsWith(ABUSE_RATE_PAIR_OBJECT_NAME_PREFIX);
@@ -3527,6 +3530,24 @@ export class MusixquareServiceControl {
     this.abuseRateAlarmAt = null;
     this.mutationTail = Promise.resolve();
     const load = async () => {
+      if (this.announcementOnly) {
+        const [storedAnnouncementState, storedAnnouncementRequests] = await Promise.all([
+          this.storage.get(ADMIN_ANNOUNCEMENT_STATE_KEY),
+          this.storage.get(ADMIN_ANNOUNCEMENT_REQUESTS_KEY),
+        ]);
+        const normalizedAnnouncementState =
+          canonicalAdminAnnouncementState(storedAnnouncementState);
+        if (
+          storedAnnouncementState !== undefined &&
+          storedAnnouncementState !== null &&
+          !normalizedAnnouncementState
+        ) {
+          this.announcementStateInvalid = true;
+        }
+        this.announcementState = normalizedAnnouncementState || initialAdminAnnouncementState();
+        this.announcementRequests = normalizeAdminAnnouncementRequests(storedAnnouncementRequests);
+        return;
+      }
       if (this.abuseRateOnly) {
         const stateKey = this.abuseRatePairOnly ? ABUSE_RATE_PAIR_STATE_KEY : ABUSE_RATE_STATE_KEY;
         const [storedAbuseRateState, storedAlarmAt] = await Promise.all([
@@ -3866,6 +3887,8 @@ export class MusixquareServiceControl {
     const baseHistory = Array.isArray(body?.baseHistory)
       ? body.baseHistory.map((entry) => normalizedAdminAnnouncement(entry, { history: true }))
       : null;
+    const legacyMigration =
+      this.announcementOnly && request.headers.get(ADMIN_ANNOUNCEMENT_MIGRATION_HEADER) === '1';
     if (
       keys.length !== 6 ||
       !keys.includes('message') ||
@@ -3880,6 +3903,7 @@ export class MusixquareServiceControl {
       expiresAt === undefined ||
       !Number.isSafeInteger(body.expectedRevision) ||
       body.expectedRevision < 0 ||
+      body.expectedRevision >= Number.MAX_SAFE_INTEGER ||
       typeof body.requestId !== 'string' ||
       !SERVICE_CONTROL_REQUEST_ID_RE.test(body.requestId) ||
       !baseHistory ||
@@ -3912,7 +3936,18 @@ export class MusixquareServiceControl {
           replayed: true,
         });
       }
-      if (body.expectedRevision !== this.announcementState.revision) {
+      const migrationBaseRevision =
+        legacyMigration &&
+        this.announcementState.revision === 0 &&
+        this.announcementState.history.length === 0 &&
+        body.expectedRevision > 0 &&
+        baseHistory.length > 0
+          ? body.expectedRevision
+          : null;
+      if (
+        body.expectedRevision !== this.announcementState.revision &&
+        migrationBaseRevision === null
+      ) {
         return adminAnnouncementResponse(this.announcementState, 409, {
           error: 'ADMIN_ANNOUNCEMENT_REVISION_CONFLICT',
         });
@@ -3934,7 +3969,7 @@ export class MusixquareServiceControl {
           ? baseHistory
           : this.announcementState.history;
       const nextState = {
-        revision: this.announcementState.revision + 1,
+        revision: (migrationBaseRevision ?? this.announcementState.revision) + 1,
         announcement,
         history: [
           { ...announcement, action: adminAnnouncementAction(announcement) },
@@ -3970,6 +4005,15 @@ export class MusixquareServiceControl {
     if (this.ready) await this.ready;
     const url = new URL(request.url);
     if (url.search || url.hash) return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    if (
+      this.announcementOnly &&
+      !(
+        (request.method === 'GET' && url.pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH) ||
+        (request.method === 'POST' && url.pathname === ADMIN_ANNOUNCEMENT_STATE_PATH)
+      )
+    ) {
+      return serviceControlJson({ error: 'NOT_FOUND' }, 404);
+    }
     if (this.abuseRatePairOnly) {
       if (request.method === 'POST' && url.pathname === ABUSE_RATE_PAIR_CONSUME_PATH) {
         return this.handleAbuseRatePairConsume(request);

@@ -201,6 +201,6 @@ the threshold only with production 429 evidence.
   rule at 86,400 seconds or less (and every date-based delete rule), preventing
   the temporary `room/` lifecycle from being copied onto persistent PRO media.
 - The shared service-control contract marker is currently
-  `admin-announcement-v1+abuse-rate-v2+session-idempotency-v1`. A change to that marker also requires
+  `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`. A change to that marker also requires
   target `all`, with the PRO Worker deployed before remote-share and every other
   service-control consumer.

@@ -9,10 +9,12 @@ export interface ServiceMaintenanceState {
 }
 
 export const SERVICE_CONTROL_OBJECT_NAME: string;
+export const ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME: string;
 export const SERVICE_CONTROL_STATUS_PATH: string;
 export const SERVICE_CONTROL_STATE_PATH: string;
 export const ADMIN_ANNOUNCEMENT_STATUS_PATH: string;
 export const ADMIN_ANNOUNCEMENT_STATE_PATH: string;
+export const ADMIN_ANNOUNCEMENT_MIGRATION_HEADER: string;
 export const ABUSE_RATE_CONSUME_PATH: string;
 export const ABUSE_RATE_IDEMPOTENT_CONSUME_PATH: string;
 export const ABUSE_RATE_PAIR_CONSUME_PATH: string;
@@ -116,6 +118,7 @@ export function serviceMaintenanceResponse(
   state?: Partial<ServiceMaintenanceState>,
   options?: { format?: 'auto' | 'html' | 'json' },
 ): Response;
+export function serviceMaintenancePreviewResponse(request: Request): Response;
 export function gateServiceMaintenance(
   request: Request,
   env: Record<string, unknown>,

@@ -228,17 +228,23 @@ when that provenance exists. A legacy or manual deployment without Git
 provenance remains deliberately unverifiable; use target `all` for the next
 approved forward-repair release to establish a fresh common baseline.
 
-The combined `admin-announcement-v1+abuse-rate-v2+session-idempotency-v1` service-control marker
-requires an `all` rollout in this order: PRO, remote-share, signaling, Developer
-API facade/API, then App. The PRO-owned object must exist before every consumer.
-Its announcement component is also a permanent forward-only data floor once the
-App/PRO pair has deployed or the global service-control object has recorded
-announcement revision 1 or later. Do not
-manually restore or intentionally deploy an App or PRO Worker from before that
-marker: the old App reads the legacy KV copy and can revive a stale notice while
-the durable object retains a different canonical revision. Recovery marks that
-downgrade as a forward-only floor. Keep both Workers at or above
-the marker and use an `all` target roll-forward/forward-repair release.
+The combined `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`
+service-control marker requires an `all` rollout in this order: PRO,
+remote-share, signaling, Developer API facade/API, then App. Announcement v2
+adds a dedicated named announcement Durable Object owned by the PRO Worker, so
+that owner must be deployed before any consumer can address the new instance.
+While the dedicated object is empty, the App preserves the legacy announcement;
+the first accepted mutation carries its revision and history into the new object.
+After that object has a canonical revision, it is the sole announcement source.
+
+This cutover is a permanent forward-only data floor once the v2 App/PRO pair has
+deployed or the dedicated announcement object has recorded revision 1 or later.
+Do not manually restore or intentionally deploy an App or PRO Worker from before
+that marker: pre-v2 code addresses the legacy co-located announcement store and
+can diverge from or revive a stale notice while the dedicated object retains a
+different canonical revision. Recovery marks that downgrade as a forward-only
+floor. Keep both Workers at or above the marker and use an `all` target
+roll-forward/forward-repair release.
 
 If the recovery report records a conflict or unreadable floor, inspect the live version before taking manual
 action and prefer a new exact-SHA `all` release. Deployment records and the

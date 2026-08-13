@@ -64,7 +64,6 @@ import {
   setYouTubeSubIndex,
   updateSubItemIds,
   setSubItemsData,
-  configureYouTubePlayerIdentityChangeHook,
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
@@ -88,7 +87,6 @@ import {
 } from './player-runtime-bridge.ts';
 import { preserveNativeProControllerPlayBeforeAutoplayGuard } from './native-control-authority.ts';
 import { applyYouTubeCaptionPolicy } from './caption-policy.ts';
-import { createLazyYouTubeLandscapeSizeReconciler } from './ios-landscape-size-reconcile-lazy.ts';
 import {
   handleYouTubeZeroStartPlayerState,
   isYouTubeZeroStartInFlight,
@@ -130,55 +128,6 @@ declare global {
     onYouTubeIframeAPIReady?: () => void;
     isYouTubeAPIReady?: boolean;
   }
-}
-
-const youtubeLandscapeSizeReconciler = createLazyYouTubeLandscapeSizeReconciler({
-  isIOS: () => IS_IOS,
-  load: () => import('./ios-landscape-size-reconcile.ts'),
-  reconcilerDependencies: {
-    isIOS: () => IS_IOS,
-    isLandscape: () => {
-      try {
-        return window.matchMedia?.('(orientation: landscape)').matches ?? false;
-      } catch {
-        return window.innerWidth > window.innerHeight;
-      }
-    },
-    isYouTubePlaybackActive: isPlaybackModeYouTube,
-    getCurrentPlayer: getYouTubePlayer,
-    getCurrentSessionId,
-    getCurrentContainer: () => document.getElementById('youtube-player-container'),
-    requestFrame: (callback) => window.requestAnimationFrame(callback),
-    cancelFrame: (handle) => window.cancelAnimationFrame(handle),
-    createResizeObserver: (callback) =>
-      typeof ResizeObserver === 'function' ? new ResizeObserver(callback) : null,
-    subscribeOrientationChange: (callback) => {
-      window.addEventListener('orientationchange', callback);
-      return () => window.removeEventListener('orientationchange', callback);
-    },
-    subscribeFullscreenChange: (callback) => {
-      document.addEventListener('fullscreenchange', callback);
-      document.addEventListener('webkitfullscreenchange', callback);
-      return () => {
-        document.removeEventListener('fullscreenchange', callback);
-        document.removeEventListener('webkitfullscreenchange', callback);
-      };
-    },
-    scheduleSettledRefresh: (callback, delayMs) => window.setTimeout(callback, delayMs),
-    cancelSettledRefresh: (handle) => window.clearTimeout(handle),
-  },
-});
-
-configureYouTubePlayerIdentityChangeHook(() => youtubeLandscapeSizeReconciler.stop());
-
-function startYouTubeLandscapeSizeReconcile(player: YouTubePlayerInstance): void {
-  const container = document.getElementById('youtube-player-container');
-  if (!container) return;
-  youtubeLandscapeSizeReconciler.start(player, getCurrentSessionId(), container);
-}
-
-export function stopYouTubeLandscapeSizeReconcile(): void {
-  youtubeLandscapeSizeReconciler.stop();
 }
 
 const PRO_TITLE_PERSIST_RETRY_MS = 5_000;
@@ -2724,7 +2673,6 @@ function createYouTubePlayer(
       // the host heartbeat here made the first manual sync work (one fresh
       // snapshot) and every later sync fail after the 10s snapshot TTL.
       ensureYouTubePlaybackRuntime();
-      if (!needsScrape && !indexing) startYouTubeLandscapeSizeReconcile(existingPlayer);
       return;
     } catch (e) {
       log.warn('[YouTube] Failed to reuse player, recreating...', e);
@@ -2901,7 +2849,6 @@ function onYouTubePlayerReady(event: { target: YouTubePlayerInstance }): void {
     }
   }
 
-  if (!indexing && !_ifr.isScrapingPlaylist) startYouTubeLandscapeSizeReconcile(event.target);
   ensureYouTubePlaybackRuntime();
 
   // Notify anyone waiting for the player to become usable, including the URL
@@ -3036,12 +2983,6 @@ function _finishScrape(ids: string[] | null): void {
 
   const player = getYouTubePlayer();
   if (!player) return;
-
-  // Scraping deliberately keeps the iOS compositor workaround dormant while
-  // the iframe owns a native playlist. The player becomes real room media at
-  // this boundary, so arm reconciliation before cueing/loading the resolved
-  // single-video target (including the entry-video fallback below).
-  startYouTubeLandscapeSizeReconcile(player);
 
   const currentTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
   const pid = currentTrack?.playlistId as string | undefined;
@@ -3320,21 +3261,6 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
   if (isYouTubeZeroStartExternalFallbackActiveFromIframe()) return;
 
   if (!isPlaybackModeYouTube() && !indexing) return;
-
-  // onReady and loadVideoById can precede creation of WebKit's native AV
-  // layer. Pulse once more only after the first accepted real-media state;
-  // every stale/prime/retained/authority/zero-start/indexing path above has
-  // already had the opportunity to quarantine its transient event.
-  if (
-    !indexing &&
-    !_ifr.isScrapingPlaylist &&
-    (state === YT.PlayerState.CUED ||
-      state === YT.PlayerState.BUFFERING ||
-      state === YT.PlayerState.PLAYING ||
-      state === YT.PlayerState.PAUSED)
-  ) {
-    youtubeLandscapeSizeReconciler.refreshAfterFirstMediaState(player, getCurrentSessionId());
-  }
 
   if (
     isPlaybackModeYouTube() &&
@@ -4091,7 +4017,6 @@ export function refreshYouTubeDisplay(): void {
   }
 
   window.dispatchEvent(new Event('resize'));
-  youtubeLandscapeSizeReconciler.refresh();
 }
 
 /**

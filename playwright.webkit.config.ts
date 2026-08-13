@@ -12,7 +12,6 @@ export default defineConfig({
     'webkit-mobile-smoke.test.ts',
     'custom-scrollbar-timeline.test.ts',
     'youtube-landscape-full-bleed.test.ts',
-    'youtube-ios-size-reconcile.test.ts',
     'playlist-title-marquee.test.ts',
   ],
   timeout: 60_000,

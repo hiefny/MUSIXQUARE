@@ -1,8 +1,10 @@
 export const SERVICE_CONTROL_OBJECT_NAME = 'musixquare-global-service-control-v1';
+export const ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME = 'musixquare-global-admin-announcement-v1';
 export const SERVICE_CONTROL_STATUS_PATH = '/internal/service-maintenance/v1/status';
 export const SERVICE_CONTROL_STATE_PATH = '/internal/service-maintenance/v1/state';
 export const ADMIN_ANNOUNCEMENT_STATUS_PATH = '/internal/admin-announcement/v1/status';
 export const ADMIN_ANNOUNCEMENT_STATE_PATH = '/internal/admin-announcement/v1/state';
+export const ADMIN_ANNOUNCEMENT_MIGRATION_HEADER = 'X-Musixquare-Admin-Announcement-Migration';
 export const ABUSE_RATE_CONSUME_PATH = '/internal/abuse-rate/v1/consume';
 export const ABUSE_RATE_IDEMPOTENT_CONSUME_PATH = '/internal/abuse-rate/v2/consume';
 export const ABUSE_RATE_PAIR_CONSUME_PATH = '/internal/abuse-rate/v3/consume-pair';
@@ -12,6 +14,9 @@ const ADMIN_ANNOUNCEMENT_CACHE_TTL_MS = 30_000;
 const ADMIN_ANNOUNCEMENT_FAILURE_CACHE_TTL_MS = 1_000;
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
+const ADMIN_ANNOUNCEMENT_SOURCE_EMPTY_SEPARATED = 0;
+const ADMIN_ANNOUNCEMENT_SOURCE_LEGACY = 1;
+const ADMIN_ANNOUNCEMENT_SOURCE_POSITIVE_SEPARATED = 2;
 // 100 canonical history rows can legitimately contain 280 JSON-escaped
 // message code units each. Keep this above that worst case while still
 // bounding a corrupted internal response.
@@ -604,11 +609,16 @@ export async function updateServiceMaintenance(env, input) {
   }
 }
 
-async function callAdminAnnouncementControl(env, path, init) {
+async function callAdminAnnouncementControl(
+  env,
+  path,
+  init,
+  objectName = ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
+) {
   const binding = serviceControlBinding(env);
   if (!binding) return { status: 'unbound', payload: null };
   try {
-    const stub = serviceControlStub(binding);
+    const stub = namedServiceControlStub(binding, objectName);
     if (!stub || typeof stub.fetch !== 'function') {
       return { status: 'unavailable', payload: null };
     }
@@ -633,6 +643,98 @@ async function callAdminAnnouncementControl(env, path, init) {
   }
 }
 
+async function readAdminAnnouncementStore(env, objectName) {
+  return callAdminAnnouncementControl(
+    env,
+    ADMIN_ANNOUNCEMENT_STATUS_PATH,
+    { method: 'GET' },
+    objectName,
+  );
+}
+
+async function readSeparatedAdminAnnouncementControl(env) {
+  const separated = await readAdminAnnouncementStore(env, ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME);
+  const separatedRevision = canonicalAdminAnnouncementRevision(separated.payload);
+  const separatedSourcePriority =
+    separatedRevision !== null && separatedRevision > 0
+      ? ADMIN_ANNOUNCEMENT_SOURCE_POSITIVE_SEPARATED
+      : ADMIN_ANNOUNCEMENT_SOURCE_EMPTY_SEPARATED;
+  if (separated.status !== 'ok') {
+    return { result: separated, sourcePriority: separatedSourcePriority };
+  }
+  if (separatedRevision !== 0) {
+    return { result: separated, sourcePriority: separatedSourcePriority };
+  }
+
+  // Before the first mutation on the separated object, preserve the current
+  // announcement that older releases stored beside maintenance. Once the new
+  // object has any canonical revision it is permanently authoritative and no
+  // longer depends on the legacy control object.
+  const legacy = await readAdminAnnouncementStore(env, SERVICE_CONTROL_OBJECT_NAME);
+  if (legacy.status !== 'ok') {
+    return { result: legacy, sourcePriority: ADMIN_ANNOUNCEMENT_SOURCE_LEGACY };
+  }
+  return canonicalAdminAnnouncementRevision(legacy.payload) > 0
+    ? { result: legacy, sourcePriority: ADMIN_ANNOUNCEMENT_SOURCE_LEGACY }
+    : { result: separated, sourcePriority: ADMIN_ANNOUNCEMENT_SOURCE_EMPTY_SEPARATED };
+}
+
+async function prepareSeparatedAdminAnnouncementMutation(env, input, knownCanonical) {
+  if (
+    knownCanonical &&
+    knownCanonical.sourcePriority === ADMIN_ANNOUNCEMENT_SOURCE_POSITIVE_SEPARATED &&
+    input?.expectedRevision === canonicalAdminAnnouncementRevision(knownCanonical.payload)
+  ) {
+    return {
+      expectedRevision: input.expectedRevision,
+      baseHistory: input?.baseHistory,
+      migrating: false,
+    };
+  }
+  const separated = await readAdminAnnouncementStore(env, ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME);
+  const separatedRevision = canonicalAdminAnnouncementRevision(separated.payload);
+  if (separated.status !== 'ok') {
+    return {
+      result: separated,
+      sourcePriority:
+        separatedRevision !== null && separatedRevision > 0
+          ? ADMIN_ANNOUNCEMENT_SOURCE_POSITIVE_SEPARATED
+          : ADMIN_ANNOUNCEMENT_SOURCE_EMPTY_SEPARATED,
+    };
+  }
+  if (separatedRevision > 0) {
+    return {
+      expectedRevision: input?.expectedRevision,
+      baseHistory: input?.baseHistory,
+      migrating: false,
+    };
+  }
+
+  const legacy = await readAdminAnnouncementStore(env, SERVICE_CONTROL_OBJECT_NAME);
+  if (legacy.status !== 'ok') {
+    return { result: legacy, sourcePriority: ADMIN_ANNOUNCEMENT_SOURCE_LEGACY };
+  }
+  const legacyRevision = canonicalAdminAnnouncementRevision(legacy.payload);
+  if (legacyRevision > 0) {
+    if (input?.expectedRevision !== legacyRevision) {
+      return {
+        result: { status: 'conflict', payload: legacy.payload },
+        sourcePriority: ADMIN_ANNOUNCEMENT_SOURCE_LEGACY,
+      };
+    }
+    return {
+      expectedRevision: legacyRevision,
+      baseHistory: legacy.payload.announcementState.history,
+      migrating: true,
+    };
+  }
+  return {
+    expectedRevision: input?.expectedRevision,
+    baseHistory: input?.baseHistory,
+    migrating: false,
+  };
+}
+
 function adminAnnouncementCache(binding) {
   let cache = adminAnnouncementCacheByBinding.get(binding);
   if (!cache) {
@@ -645,6 +747,7 @@ function adminAnnouncementCache(binding) {
       mutationGeneration: 0,
       activeMutationGeneration: null,
       canonicalRevision: -1,
+      canonicalSourcePriority: -1,
       canonicalValue: null,
     };
     adminAnnouncementCacheByBinding.set(binding, cache);
@@ -746,13 +849,19 @@ function canonicalAdminAnnouncementRevision(payload) {
   return state.revision;
 }
 
-function rememberCanonicalAdminAnnouncement(cache, result) {
+function rememberCanonicalAdminAnnouncement(cache, result, sourcePriority = 1) {
   if (result?.status !== 'ok' && result?.status !== 'conflict') return false;
   const revision = canonicalAdminAnnouncementRevision(result?.payload);
-  if (!Number.isSafeInteger(revision) || revision < 0 || revision <= cache.canonicalRevision) {
+  if (
+    !Number.isSafeInteger(revision) ||
+    revision < 0 ||
+    sourcePriority < cache.canonicalSourcePriority ||
+    (sourcePriority === cache.canonicalSourcePriority && revision <= cache.canonicalRevision)
+  ) {
     return false;
   }
   cache.canonicalRevision = revision;
+  cache.canonicalSourcePriority = sourcePriority;
   cache.canonicalValue = { status: 'ok', payload: result.payload };
   return true;
 }
@@ -768,11 +877,9 @@ export async function readAdminAnnouncementControl(env, options = {}) {
   if (options.fresh !== true && cache.value && cache.expiresAt > now) return cache.value;
   if (!cache.refresh || cache.refreshVersion !== cache.version) {
     const version = cache.version;
-    const refresh = callAdminAnnouncementControl(env, ADMIN_ANNOUNCEMENT_STATUS_PATH, {
-      method: 'GET',
-    })
-      .then((result) => {
-        const advanced = rememberCanonicalAdminAnnouncement(cache, result);
+    const refresh = readSeparatedAdminAnnouncementControl(env)
+      .then(({ result, sourcePriority }) => {
+        const advanced = rememberCanonicalAdminAnnouncement(cache, result, sourcePriority);
         if (cache.version !== version) {
           if (advanced && cache.activeMutationGeneration === null && cache.value?.status === 'ok') {
             cache.value = cache.canonicalValue;
@@ -806,8 +913,15 @@ export async function readAdminAnnouncementControl(env, options = {}) {
 export async function updateAdminAnnouncementControl(env, input) {
   const binding = serviceControlBinding(env);
   let mutationGeneration = null;
+  let knownCanonical = null;
   if (binding) {
     const cache = adminAnnouncementCache(binding);
+    if (cache.canonicalValue?.payload) {
+      knownCanonical = {
+        payload: cache.canonicalValue.payload,
+        sourcePriority: cache.canonicalSourcePriority,
+      };
+    }
     mutationGeneration = cache.mutationGeneration + 1;
     cache.mutationGeneration = mutationGeneration;
     cache.activeMutationGeneration = mutationGeneration;
@@ -815,21 +929,35 @@ export async function updateAdminAnnouncementControl(env, input) {
     cache.value = null;
     cache.expiresAt = 0;
   }
-  const result = await callAdminAnnouncementControl(env, ADMIN_ANNOUNCEMENT_STATE_PATH, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: input?.message,
-      enabled: input?.enabled,
-      expiresAt: input?.expiresAt,
-      expectedRevision: input?.expectedRevision,
-      requestId: input?.requestId,
-      baseHistory: input?.baseHistory,
-    }),
-  });
+  const prepared = await prepareSeparatedAdminAnnouncementMutation(env, input, knownCanonical);
+  const result = prepared.result
+    ? prepared.result
+    : await callAdminAnnouncementControl(env, ADMIN_ANNOUNCEMENT_STATE_PATH, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(prepared.migrating ? { [ADMIN_ANNOUNCEMENT_MIGRATION_HEADER]: '1' } : {}),
+        },
+        body: JSON.stringify({
+          message: input?.message,
+          enabled: input?.enabled,
+          expiresAt: input?.expiresAt,
+          expectedRevision: prepared.expectedRevision,
+          requestId: input?.requestId,
+          baseHistory: prepared.baseHistory,
+        }),
+      });
   if (binding) {
     const cache = adminAnnouncementCache(binding);
-    const advanced = rememberCanonicalAdminAnnouncement(cache, result);
+    const advanced = rememberCanonicalAdminAnnouncement(
+      cache,
+      result,
+      prepared.result
+        ? (prepared.sourcePriority ?? ADMIN_ANNOUNCEMENT_SOURCE_EMPTY_SEPARATED)
+        : canonicalAdminAnnouncementRevision(result?.payload) > 0
+          ? ADMIN_ANNOUNCEMENT_SOURCE_POSITIVE_SEPARATED
+          : ADMIN_ANNOUNCEMENT_SOURCE_EMPTY_SEPARATED,
+    );
     if (cache.activeMutationGeneration !== mutationGeneration) {
       if (advanced && cache.activeMutationGeneration === null && cache.value?.status === 'ok') {
         cache.version += 1;
@@ -920,20 +1048,43 @@ function maintenanceHtml(language) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <title lang="en">MUSIXQUARE · Service check</title>
+  <title lang="en">MUSIXQUARE — Service check</title>
   <style>
-    :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:#08090b;color:#f7f7f8;font-family:Inter,Pretendard,system-ui,-apple-system,sans-serif;padding:28px}.card{width:min(620px,100%);padding:clamp(28px,7vw,64px);border:1px solid #25272d;border-radius:28px;background:linear-gradient(145deg,#15171c,#0d0e12);box-shadow:0 28px 90px #0009}.mark{display:flex;align-items:center;gap:10px;margin-bottom:34px;font-size:12px;font-weight:800;letter-spacing:.2em}.dot{width:9px;height:9px;border-radius:50%;background:#ff4d5f;box-shadow:0 0 20px #ff4d5faa}h1{margin:0;font-size:clamp(29px,6vw,48px);line-height:1.08;letter-spacing:-.04em}p{margin:18px 0 0;color:#b8bbc5;font-size:clamp(16px,3.5vw,19px);line-height:1.65}.pulse{margin-top:38px;width:44px;height:3px;border-radius:999px;background:#ff4d5f;animation:pulse 1.4s ease-in-out infinite}@keyframes pulse{50%{opacity:.25;transform:scaleX(.45)}}@media(prefers-reduced-motion:reduce){.pulse{animation:none}}
+    :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100svh;display:grid;place-items:center;background:#e4e4e1;color:#171717;font-family:Inter,Pretendard,system-ui,-apple-system,sans-serif;padding:clamp(28px,7vw,88px)}main{width:min(680px,100%)}.wordmark{display:block;width:clamp(172px,28vw,214px);height:auto;margin:0 0 clamp(48px,9vw,88px);color:#171717}h1{max-width:14ch;margin:0;font-size:clamp(34px,7vw,64px);font-weight:720;line-height:1.02;letter-spacing:-.052em;text-wrap:balance}p{max-width:38rem;margin:clamp(24px,4vw,36px) 0 0;color:#5f5f5b;font-size:clamp(16px,2.5vw,19px);line-height:1.65;word-break:keep-all}@media(max-width:520px){body{place-items:start;padding-top:max(48px,12vh)}.wordmark{margin-bottom:52px}}@media(orientation:landscape) and (max-height:520px){body{padding:24px clamp(32px,8vw,72px)}.wordmark{width:172px;margin-bottom:28px}h1{max-width:18ch;font-size:clamp(32px,5.5vw,46px)}p{margin-top:20px;font-size:16px;line-height:1.5}}
   </style>
 </head>
 <body>
-  <main class="card">
-    <div class="mark"><span class="dot" aria-hidden="true"></span>MUSIXQUARE</div>
+  <main>
+    <svg class="wordmark" xmlns="http://www.w3.org/2000/svg" viewBox="43 12 214 26" fill="currentColor" role="img" aria-label="MUSIXQUARE">
+      <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"></polygon>
+      <polygon points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"></polygon>
+      <polygon points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"></polygon>
+      <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5"></rect>
+      <polygon points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"></polygon>
+      <path d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"></path>
+      <polygon points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"></polygon>
+      <path d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"></path>
+      <path d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"></path>
+      <rect x="237.2284599" y="12.7587935" width="18" height="4.5"></rect>
+      <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"></rect>
+      <rect x="237.2337931" y="30.7587928" width="18" height="4.5"></rect>
+    </svg>
     <h1 lang="en">Musixquare is temporarily unavailable.</h1>
     <p>${description}</p>
-    <div class="pulse" aria-hidden="true"></div>
   </main>
 </body>
 </html>`;
+}
+
+export function serviceMaintenancePreviewResponse(request) {
+  const language = matchedMaintenanceLanguage(request);
+  const headers = maintenanceHeaders('text/html; charset=utf-8', language);
+  delete headers['Retry-After'];
+  headers['X-MXQR-Maintenance-Preview'] = '1';
+  return new Response(request?.method === 'HEAD' ? null : maintenanceHtml(language), {
+    status: 200,
+    headers,
+  });
 }
 
 export function serviceMaintenanceResponse(request, state = {}, options = {}) {

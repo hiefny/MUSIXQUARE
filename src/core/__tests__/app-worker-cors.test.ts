@@ -32,27 +32,35 @@ const CENTRAL_ENTITLEMENT_SQL_RE =
 function createAnnouncementControlBinding(
   beforeFetch?: (request: Request) => void | Promise<void>,
 ) {
-  const data = new Map<string, unknown>();
-  const storage = {
-    async get(key: string) {
-      return structuredClone(data.get(key));
-    },
-    async put(entries: Record<string, unknown>) {
-      for (const [key, value] of Object.entries(entries)) {
-        data.set(key, structuredClone(value));
-      }
-    },
+  const controls = new Map<string, MusixquareServiceControl>();
+  const controlForName = (name: string) => {
+    const existing = controls.get(name);
+    if (existing) return existing;
+    const data = new Map<string, unknown>();
+    const storage = {
+      async get(key: string) {
+        return structuredClone(data.get(key));
+      },
+      async put(entries: Record<string, unknown>) {
+        for (const [key, value] of Object.entries(entries)) {
+          data.set(key, structuredClone(value));
+        }
+      },
+    };
+    const control = new MusixquareServiceControl({
+      id: { name },
+      storage,
+      blockConcurrencyWhile: async (callback: () => Promise<void>) => callback(),
+    });
+    controls.set(name, control);
+    return control;
   };
-  const control = new MusixquareServiceControl({
-    storage,
-    blockConcurrencyWhile: async (callback: () => Promise<void>) => callback(),
-  });
   return {
     idFromName: vi.fn((name: string) => name),
-    get: vi.fn(() => ({
+    get: vi.fn((name: string) => ({
       fetch: async (request: Request) => {
         await beforeFetch?.(request);
-        return control.fetch(request);
+        return controlForName(name).fetch(request);
       },
     })),
   };
@@ -5444,9 +5452,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.49');
-    expect(html).toContain('/admin.js?v=8.3.49');
-    expect(html).toContain('data-admin-asset-version="8.3.49"');
+    expect(html).toContain('/admin.css?v=8.3.50');
+    expect(html).toContain('/admin.js?v=8.3.50');
+    expect(html).toContain('data-admin-asset-version="8.3.50"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -5465,7 +5473,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.49', '/admin.css?v=8.3.49']) {
+    for (const path of ['/admin.js?v=8.3.50', '/admin.css?v=8.3.50']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');

@@ -138,7 +138,48 @@ describe('app maintenance administration', () => {
     );
     expect(unauthorized.status).toBe(401);
 
+    const unauthorizedPreview = await appWorker.fetch(
+      new Request('https://musixquare.com/admin/maintenance-preview', {
+        headers: { Accept: 'text/html' },
+      }),
+      env,
+    );
+    expect(unauthorizedPreview.status).toBe(401);
+
     const cookie = await login(env);
+    const preview = await appWorker.fetch(
+      new Request('https://musixquare.com/admin/maintenance-preview', {
+        headers: {
+          Accept: 'text/html',
+          'Accept-Language': 'ko-KR, en;q=0.8',
+          Cookie: cookie,
+        },
+      }),
+      env,
+    );
+    const previewBody = await preview.text();
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(preview.headers.get('X-MXQR-Maintenance-Preview')).toBe('1');
+    expect(preview.headers.get('Retry-After')).toBeNull();
+    expect(previewBody).toContain('role="img" aria-label="MUSIXQUARE"');
+    expect(previewBody).toContain('<h1 lang="en">Musixquare is temporarily unavailable.</h1>');
+    expect(control.state().enabled).toBe(false);
+    expect(control.fetch).not.toHaveBeenCalled();
+
+    const previewMutation = await appWorker.fetch(
+      new Request('https://musixquare.com/admin/maintenance-preview', {
+        method: 'POST',
+        headers: adminMutationHeaders({ Cookie: cookie }),
+        body: '{}',
+      }),
+      env,
+    );
+    expect(previewMutation.status).toBe(405);
+    expect(previewMutation.headers.get('Allow')).toBe('GET, HEAD');
+    expect(control.state().enabled).toBe(false);
+    expect(control.fetch).not.toHaveBeenCalled();
+
     const status = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/service-status', {
         headers: { Cookie: cookie },
@@ -199,6 +240,18 @@ describe('app maintenance administration', () => {
     expect(page.headers.get('Content-Language')).toBe('ko');
     expect(pageBody).toContain('Musixquare is temporarily unavailable.');
     expect(pageBody).toContain('안전한 서비스 점검을 진행 중이에요.');
+    expect(pageBody).toBe(previewBody);
+
+    const activePreviewHead = await appWorker.fetch(
+      new Request('https://musixquare.com/admin/maintenance-preview', {
+        method: 'HEAD',
+        headers: { 'Accept-Language': 'ko-KR', Cookie: cookie },
+      }),
+      env,
+    );
+    expect(activePreviewHead.status).toBe(200);
+    expect(activePreviewHead.headers.get('X-MXQR-Maintenance-Preview')).toBe('1');
+    expect(await activePreviewHead.text()).toBe('');
 
     const api = await appWorker.fetch(
       new Request('https://musixquare.com/api/security-config'),
@@ -215,6 +268,7 @@ describe('app maintenance administration', () => {
     expect(admin.status).toBe(200);
     expect(adminBody).toContain('data-service-status-trigger');
     expect(adminBody).toContain('data-service-status-dialog');
+    expect(adminBody).toContain('data-service-status-preview');
     expect(adminBody).toContain('data-admin-tab="operations">Analytics');
 
     const disabled = await appWorker.fetch(

@@ -38,24 +38,10 @@ const zeroStartFacade = vi.hoisted(() => ({
   active: false,
 }));
 
-const landscapeSizeReconcilerFacade = vi.hoisted(() => ({
-  start: vi.fn(),
-  refresh: vi.fn(),
-  refreshAfterFirstMediaState: vi.fn(),
-  stop: vi.fn(),
-}));
-
 // ─── Mocks (cloned from indexing-lifecycle.test.ts — keep in sync) ─────────
 
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
-
-// The implementation and lazy-loader contracts have focused suites. Here we
-// observe only iframe.ts lifecycle wiring: calling start is the boundary that
-// initiates the iOS-only dynamic import in production.
-vi.mock('../ios-landscape-size-reconcile-lazy.ts', () => ({
-  createLazyYouTubeLandscapeSizeReconciler: vi.fn(() => landscapeSizeReconcilerFacade),
 }));
 
 // This suite exercises the persistent-player and gesture-gate paths that are
@@ -716,55 +702,13 @@ describe('scrape poll supersession (F-2401)', () => {
     setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
 
     handle.fireStateChange(5);
-    // Native playlist scraping must not load/start the iOS compositor
-    // workaround. Its setSize pulse is valid only for resolved real media.
-    expect(landscapeSizeReconcilerFacade.start).not.toHaveBeenCalled();
     // Poll 1 scheduled with prevCount=2 → poll 2 stabilizes and finishes.
     lastTimerCallback('yt-scrape-poll')!();
-    expect(landscapeSizeReconcilerFacade.start).toHaveBeenCalledOnce();
-    expect(landscapeSizeReconcilerFacade.start).toHaveBeenCalledWith(
-      player,
-      expect.any(Number),
-      document.getElementById('youtube-player-container'),
-    );
     expect(player.loadVideoById).toHaveBeenCalledWith('subA1AAAAAA', 0);
     expect((getState('youtube.subItemsMap') || {})['PL_A']?.ids).toEqual([
       'subA1AAAAAA',
       'subA2AAAAAA',
     ]);
-  });
-
-  it('activates reconciliation only when an empty scrape falls back to the entry video', async () => {
-    const player = createMockYtPlayer([]);
-    const handle = await startHostScrapeLoad(player, 'PL_EMPTY');
-    setState('playlist.items', [
-      {
-        queueItemId: QUEUE_ITEM_ID,
-        type: 'youtube',
-        name: 'Fallback row',
-        videoId: 'entryVideo1',
-        playlistId: 'PL_EMPTY',
-      } as unknown as PlaylistItem,
-    ]);
-    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
-
-    handle.fireStateChange(5);
-    expect(landscapeSizeReconcilerFacade.start).not.toHaveBeenCalled();
-
-    let attempts = 0;
-    while (landscapeSizeReconcilerFacade.start.mock.calls.length === 0 && attempts++ < 20) {
-      const poll = lastTimerCallback('yt-scrape-poll');
-      expect(poll).toBeDefined();
-      poll!();
-    }
-
-    expect(landscapeSizeReconcilerFacade.start).toHaveBeenCalledOnce();
-    expect(landscapeSizeReconcilerFacade.start).toHaveBeenCalledWith(
-      player,
-      expect.any(Number),
-      document.getElementById('youtube-player-container'),
-    );
-    expect(player.loadVideoById).toHaveBeenCalledWith('entryVideo1', 0);
   });
 });
 

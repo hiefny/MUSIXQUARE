@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
@@ -16,6 +17,7 @@ import {
   normalizeServiceMaintenanceState,
   readAdminAnnouncementControl,
   readServiceMaintenance,
+  serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
   updateServiceMaintenance,
   updateAdminAnnouncementControl,
@@ -69,17 +71,52 @@ function announcementControlPayload(revision: number) {
 
 function serviceControlEnv(
   handler: (request: Request) => Response | Promise<Response>,
-  options: { legacyNamespace?: boolean } = {},
-): { env: Record<string, unknown>; fetch: ReturnType<typeof vi.fn> } {
+  options: {
+    legacyNamespace?: boolean;
+    legacyAnnouncementHandler?: (request: Request) => Response | Promise<Response>;
+    separatedAnnouncementStatusHandler?: (request: Request) => Response | Promise<Response>;
+  } = {},
+): {
+  env: Record<string, unknown>;
+  fetch: ReturnType<typeof vi.fn>;
+  legacyAnnouncementFetch: ReturnType<typeof vi.fn>;
+  objectNames: string[];
+} {
   const fetch = vi.fn(handler);
-  const stub = { fetch };
+  const legacyAnnouncementFetch = vi.fn(
+    options.legacyAnnouncementHandler || (() => Response.json(announcementControlPayload(0))),
+  );
+  const objectNames: string[] = [];
+  const stubForName = (name: string) => {
+    objectNames.push(name);
+    if (name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME) {
+      return {
+        fetch: (request: Request) =>
+          options.separatedAnnouncementStatusHandler &&
+          new URL(request.url).pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH
+            ? options.separatedAnnouncementStatusHandler(request)
+            : fetch(request),
+      };
+    }
+    return {
+      fetch: (request: Request) =>
+        new URL(request.url).pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH
+          ? legacyAnnouncementFetch(request)
+          : fetch(request),
+    };
+  };
   const namespace = options.legacyNamespace
     ? {
         idFromName: vi.fn((name: string) => `id:${name}`),
-        get: vi.fn(() => stub),
+        get: vi.fn((id: string) => stubForName(id.slice(3))),
       }
-    : { getByName: vi.fn(() => stub) };
-  return { env: { MUSIXQUARE_SERVICE_CONTROL: namespace }, fetch };
+    : { getByName: vi.fn((name: string) => stubForName(name)) };
+  return {
+    env: { MUSIXQUARE_SERVICE_CONTROL: namespace },
+    fetch,
+    legacyAnnouncementFetch,
+    objectNames,
+  };
 }
 
 afterEach(() => {
@@ -643,6 +680,264 @@ describe('shared service-maintenance control', () => {
     });
   });
 
+  it('keeps maintenance available while the separated announcement object is stalled', async () => {
+    let releaseAnnouncement!: (response: Response) => void;
+    const announcementFetch = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          releaseAnnouncement = resolve;
+        }),
+    );
+    const maintenanceFetch = vi.fn((request: Request) => {
+      const path = new URL(request.url).pathname;
+      if (path === SERVICE_CONTROL_STATUS_PATH) {
+        return Response.json({ serviceStatus: activeState({ enabled: false }) });
+      }
+      if (path === SERVICE_CONTROL_STATE_PATH) {
+        return Response.json({
+          serviceStatus: activeState({
+            enabled: false,
+            revision: 5,
+            updatedAt: 1_800_000_001_000,
+            activatedAt: null,
+            settlesAt: 1_800_000_003_000,
+          }),
+        });
+      }
+      return Response.json(announcementControlPayload(0));
+    });
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn((name: string) => ({
+          fetch:
+            name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME ? announcementFetch : maintenanceFetch,
+        })),
+      },
+    };
+
+    const stalled = readAdminAnnouncementControl(env, { fresh: true });
+    await vi.waitFor(() => expect(announcementFetch).toHaveBeenCalledTimes(1));
+    await expect(readServiceMaintenance(env, { fresh: true })).resolves.toMatchObject({
+      enabled: false,
+      revision: 4,
+    });
+    await expect(
+      updateServiceMaintenance(env, {
+        enabled: false,
+        expectedRevision: 4,
+        requestId: 'maintenance-during-announcement-stall',
+      }),
+    ).resolves.toMatchObject({ status: 'ok', state: { enabled: false, revision: 5 } });
+    expect(maintenanceFetch).toHaveBeenCalledWith(expect.objectContaining({ method: 'GET' }));
+    expect(maintenanceFetch).toHaveBeenCalledWith(expect.objectContaining({ method: 'POST' }));
+
+    releaseAnnouncement(Response.json(announcementControlPayload(1)));
+    await expect(stalled).resolves.toEqual({
+      status: 'ok',
+      payload: announcementControlPayload(1),
+    });
+  });
+
+  it('falls back to the old shared announcement and atomically migrates its revision and history', async () => {
+    const legacy = announcementControlPayload(2);
+    const migrated = announcementControlPayload(3);
+    let separated = announcementControlPayload(0);
+    const separatedFetch = vi.fn(async (request: Request) => {
+      const path = new URL(request.url).pathname;
+      if (path === ADMIN_ANNOUNCEMENT_STATUS_PATH) return Response.json(separated);
+      expect(path).toBe(ADMIN_ANNOUNCEMENT_STATE_PATH);
+      expect(request.headers.get('X-Musixquare-Admin-Announcement-Migration')).toBe('1');
+      await expect(request.clone().json()).resolves.toMatchObject({
+        expectedRevision: 2,
+        baseHistory: legacy.announcementState.history,
+      });
+      separated = migrated;
+      return Response.json(migrated);
+    });
+    const legacyFetch = vi.fn(() => Response.json(legacy));
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn((name: string) => ({
+          fetch: name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME ? separatedFetch : legacyFetch,
+        })),
+      },
+    };
+
+    await expect(readAdminAnnouncementControl(env, { fresh: true })).resolves.toEqual({
+      status: 'ok',
+      payload: legacy,
+    });
+    await expect(
+      updateAdminAnnouncementControl(env, {
+        message: 'Revision 3',
+        enabled: true,
+        expiresAt: null,
+        expectedRevision: 2,
+        requestId: 'announcement-separated-migration',
+        baseHistory: [],
+      }),
+    ).resolves.toEqual({ status: 'ok', payload: migrated });
+    await expect(readAdminAnnouncementControl(env, { fresh: true })).resolves.toEqual({
+      status: 'ok',
+      payload: migrated,
+    });
+    expect(legacyFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('serializes concurrent first writes into the separated announcement object', async () => {
+    const legacy = announcementControlPayload(2);
+    const migrated = announcementControlPayload(3);
+    let separated = announcementControlPayload(0);
+    const separatedFetch = vi.fn(async (request: Request) => {
+      if (new URL(request.url).pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH) {
+        return Response.json(separated);
+      }
+      if (separated.announcementState.revision !== 0) {
+        return Response.json(separated, { status: 409 });
+      }
+      separated = migrated;
+      return Response.json(migrated);
+    });
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn((name: string) => ({
+          fetch:
+            name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME
+              ? separatedFetch
+              : () => Response.json(legacy),
+        })),
+      },
+    };
+    await readAdminAnnouncementControl(env, { fresh: true });
+
+    const results = await Promise.all([
+      updateAdminAnnouncementControl(env, {
+        message: 'Concurrent A',
+        enabled: true,
+        expiresAt: null,
+        expectedRevision: 2,
+        requestId: 'announcement-separated-concurrent-a',
+        baseHistory: [],
+      }),
+      updateAdminAnnouncementControl(env, {
+        message: 'Concurrent B',
+        enabled: true,
+        expiresAt: null,
+        expectedRevision: 2,
+        requestId: 'announcement-separated-concurrent-b',
+        baseHistory: [],
+      }),
+    ]);
+    expect(results.map((result) => result.status).sort()).toEqual(['conflict', 'ok']);
+  });
+
+  it('rechecks both stores before the first mutation when an empty separated cache is stale', async () => {
+    let legacy = announcementControlPayload(0);
+    let separatedMutations = 0;
+    const separatedFetch = vi.fn((request: Request) => {
+      if (new URL(request.url).pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH) {
+        return Response.json(announcementControlPayload(0));
+      }
+      separatedMutations += 1;
+      return Response.json(announcementControlPayload(1));
+    });
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn((name: string) => ({
+          fetch:
+            name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME
+              ? separatedFetch
+              : () => Response.json(legacy),
+        })),
+      },
+    };
+
+    await expect(readAdminAnnouncementControl(env, { fresh: true })).resolves.toEqual({
+      status: 'ok',
+      payload: announcementControlPayload(0),
+    });
+    legacy = announcementControlPayload(1);
+
+    await expect(
+      updateAdminAnnouncementControl(env, {
+        message: 'Would overwrite a rollout write',
+        enabled: true,
+        expiresAt: null,
+        expectedRevision: 0,
+        requestId: 'announcement-stale-empty-separated-cache',
+        baseHistory: [],
+      }),
+    ).resolves.toEqual({ status: 'conflict', payload: legacy });
+    expect(separatedMutations).toBe(0);
+  });
+
+  it('keeps a positive separated result ahead of a higher-revision delayed legacy fallback', async () => {
+    const legacyOne = announcementControlPayload(1);
+    const delayedLegacyThree = announcementControlPayload(3);
+    const separatedAnnouncement = {
+      id: 'separated-announcement-2',
+      message: 'Separated revision 2',
+      enabled: true,
+      expiresAt: null,
+      updatedAt: '2026-02-02T00:00:00.000Z',
+    };
+    const separatedTwo = {
+      announcementState: {
+        revision: 2,
+        announcement: separatedAnnouncement,
+        history: [{ ...separatedAnnouncement, action: 'published' }],
+      },
+    };
+    let legacyReads = 0;
+    let delayedLegacyBody!: ReadableStreamDefaultController<Uint8Array>;
+    const separatedFetch = vi.fn((request: Request) => {
+      const path = new URL(request.url).pathname;
+      return path === ADMIN_ANNOUNCEMENT_STATUS_PATH
+        ? Response.json(announcementControlPayload(0))
+        : Response.json(separatedTwo);
+    });
+    const legacyFetch = vi.fn(() => {
+      legacyReads += 1;
+      if (legacyReads > 1) return Response.json(legacyOne);
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            delayedLegacyBody = controller;
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn((name: string) => ({
+          fetch: name === ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME ? separatedFetch : legacyFetch,
+        })),
+      },
+    };
+
+    const delayedRead = readAdminAnnouncementControl(env, { fresh: true });
+    await vi.waitFor(() => expect(legacyFetch).toHaveBeenCalledTimes(1));
+    await expect(
+      updateAdminAnnouncementControl(env, {
+        message: 'Separated revision 2',
+        enabled: true,
+        expiresAt: null,
+        expectedRevision: 1,
+        requestId: 'announcement-separated-source-priority',
+        baseHistory: [],
+      }),
+    ).resolves.toEqual({ status: 'ok', payload: separatedTwo });
+
+    delayedLegacyBody.enqueue(new TextEncoder().encode(JSON.stringify(delayedLegacyThree)));
+    delayedLegacyBody.close();
+    await expect(delayedRead).resolves.toEqual({ status: 'ok', payload: separatedTwo });
+    await expect(readAdminAnnouncementControl(env)).resolves.toEqual({
+      status: 'ok',
+      payload: separatedTwo,
+    });
+  });
+
   it('coalesces and caches announcement reads while fresh reads bypass the cache', async () => {
     let statusReads = 0;
     const control = serviceControlEnv(async (request) => {
@@ -767,12 +1062,12 @@ describe('shared service-maintenance control', () => {
 
     const freshRead = readAdminAnnouncementControl(control.env, { fresh: true });
     await expect(freshRead).resolves.toEqual({ status: 'ok', payload: revisionTwo });
-    expect(statusReads).toBe(2);
+    expect(statusReads).toBe(3);
 
     oldBody.enqueue(new TextEncoder().encode(JSON.stringify(revisionOne)));
     oldBody.close();
     await expect(oldRead).resolves.toEqual({ status: 'ok', payload: revisionTwo });
-    expect(control.fetch).toHaveBeenCalledTimes(3);
+    expect(control.fetch).toHaveBeenCalledTimes(4);
   });
 
   it('keeps the newest-started announcement mutation when responses finish out of order', async () => {
@@ -780,19 +1075,24 @@ describe('shared service-maintenance control', () => {
     const revisionThree = announcementControlPayload(3);
     let firstBody!: ReadableStreamDefaultController<Uint8Array>;
     let mutations = 0;
-    const control = serviceControlEnv((request) => {
-      expect(new URL(request.url).pathname).toBe(ADMIN_ANNOUNCEMENT_STATE_PATH);
-      mutations += 1;
-      if (mutations > 1) return Response.json(revisionThree);
-      return new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            firstBody = controller;
-          },
-        }),
-        { headers: { 'Content-Type': 'application/json' } },
-      );
-    });
+    const control = serviceControlEnv(
+      (request) => {
+        expect(new URL(request.url).pathname).toBe(ADMIN_ANNOUNCEMENT_STATE_PATH);
+        mutations += 1;
+        if (mutations > 1) return Response.json(revisionThree);
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              firstBody = controller;
+            },
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        );
+      },
+      {
+        separatedAnnouncementStatusHandler: () => Response.json(announcementControlPayload(1)),
+      },
+    );
 
     const first = updateAdminAnnouncementControl(control.env, {
       message: 'Revision two',
@@ -829,19 +1129,24 @@ describe('shared service-maintenance control', () => {
     const revisionThree = announcementControlPayload(3);
     let firstBody!: ReadableStreamDefaultController<Uint8Array>;
     let mutations = 0;
-    const control = serviceControlEnv((request) => {
-      expect(new URL(request.url).pathname).toBe(ADMIN_ANNOUNCEMENT_STATE_PATH);
-      mutations += 1;
-      if (mutations > 1) return Response.json(revisionTwo);
-      return new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            firstBody = controller;
-          },
-        }),
-        { status: 409, headers: { 'Content-Type': 'application/json' } },
-      );
-    });
+    const control = serviceControlEnv(
+      (request) => {
+        expect(new URL(request.url).pathname).toBe(ADMIN_ANNOUNCEMENT_STATE_PATH);
+        mutations += 1;
+        if (mutations > 1) return Response.json(revisionTwo);
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              firstBody = controller;
+            },
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } },
+        );
+      },
+      {
+        separatedAnnouncementStatusHandler: () => Response.json(announcementControlPayload(1)),
+      },
+    );
 
     const first = updateAdminAnnouncementControl(control.env, {
       message: 'Revision three elsewhere',
@@ -878,21 +1183,32 @@ describe('shared service-maintenance control', () => {
     const revisionFour = announcementControlPayload(4);
     let firstBody!: ReadableStreamDefaultController<Uint8Array>;
     let mutations = 0;
-    const control = serviceControlEnv((request) => {
-      const path = new URL(request.url).pathname;
-      if (path === ADMIN_ANNOUNCEMENT_STATUS_PATH) return Response.json(revisionFour);
-      expect(path).toBe(ADMIN_ANNOUNCEMENT_STATE_PATH);
-      mutations += 1;
-      if (mutations > 1) return Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 });
-      return new Response(
-        new ReadableStream<Uint8Array>({
-          start(controller) {
-            firstBody = controller;
-          },
-        }),
-        { status: 409, headers: { 'Content-Type': 'application/json' } },
-      );
-    });
+    let separatedStatusReads = 0;
+    const control = serviceControlEnv(
+      (request) => {
+        const path = new URL(request.url).pathname;
+        if (path === ADMIN_ANNOUNCEMENT_STATUS_PATH) return Response.json(revisionFour);
+        expect(path).toBe(ADMIN_ANNOUNCEMENT_STATE_PATH);
+        mutations += 1;
+        if (mutations > 1) return Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 });
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              firstBody = controller;
+            },
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } },
+        );
+      },
+      {
+        separatedAnnouncementStatusHandler: () => {
+          separatedStatusReads += 1;
+          return Response.json(
+            separatedStatusReads > 2 ? revisionFour : announcementControlPayload(1),
+          );
+        },
+      },
+    );
 
     const first = updateAdminAnnouncementControl(control.env, {
       message: 'Revision three elsewhere',
@@ -924,7 +1240,7 @@ describe('shared service-maintenance control', () => {
       status: 'ok',
       payload: revisionFour,
     });
-    expect(control.fetch).toHaveBeenCalledTimes(3);
+    expect(control.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('bounds an announcement control stall and consumes a later rejection', async () => {
@@ -1200,9 +1516,33 @@ describe('shared service-maintenance control', () => {
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(response.headers.get('Content-Language')).toBe('ko');
     expect(body).toContain('<html lang="ko">');
-    expect(body).toContain('<title lang="en">MUSIXQUARE · Service check</title>');
+    expect(body).toContain('<title lang="en">MUSIXQUARE — Service check</title>');
+    expect(body).toContain('class="wordmark"');
+    expect(body).toContain('role="img" aria-label="MUSIXQUARE"');
     expect(body).toContain('<h1 lang="en">Musixquare is temporarily unavailable.</h1>');
     expect(body).toContain('안전한 서비스 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.');
+    expect(body).not.toMatch(/(?:class="[^"]*\b(?:card|dot|pulse)\b|[.#](?:card|dot|pulse)\b)/u);
+    expect(body).not.toMatch(/@keyframes|\banimation(?:-name)?\s*:/u);
+  });
+
+  it('serves a visually exact, no-store maintenance preview without 503 semantics', async () => {
+    const headers = { Accept: 'text/html', 'Accept-Language': 'ko-KR, en;q=0.8' };
+    const actual = serviceMaintenanceResponse(
+      new Request('https://musixquare.com/000002', { headers }),
+      activeState(),
+    );
+    const preview = serviceMaintenancePreviewResponse(
+      new Request('https://musixquare.com/admin/maintenance-preview', { headers }),
+    );
+
+    expect(actual.status).toBe(503);
+    expect(actual.headers.get('Retry-After')).toBe('60');
+    expect(preview.status).toBe(200);
+    expect(preview.headers.get('Cache-Control')).toBe('no-store, max-age=0');
+    expect(preview.headers.get('Retry-After')).toBeNull();
+    expect(preview.headers.get('X-MXQR-Maintenance-Preview')).toBe('1');
+    expect(preview.headers.get('Content-Language')).toBe('ko');
+    await expect(preview.text()).resolves.toBe(await actual.text());
   });
 
   it('maps every regional Portuguese preference to the supported Brazilian copy', async () => {

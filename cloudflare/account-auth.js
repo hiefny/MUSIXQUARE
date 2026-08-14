@@ -938,6 +938,42 @@ async function accountStatsScope(config, sessionHash) {
   return hmacDigest(config.sessionPepper, ACCOUNT_STATS_SCOPE_PURPOSE, sessionHash);
 }
 
+async function touchStoredSession(config, sessionHash, touchedAtMs) {
+  const staleBeforeMs = touchedAtMs - ACCOUNT_SESSION_TOUCH_INTERVAL_MS;
+  await d1Run(
+    config.db,
+    `UPDATE ${SESSION_TABLE}
+        SET last_seen_at = ?1
+      WHERE session_hash = ?2
+        AND (last_seen_at IS NULL OR last_seen_at <= ?3)
+        AND (last_seen_at IS NULL OR last_seen_at < ?1)`,
+    [touchedAtMs, sessionHash, staleBeforeMs],
+  );
+}
+
+async function settleBestEffortSessionTouch(config, sessionTouch, integrations) {
+  if (!sessionTouch) return;
+  const observedTouch = touchStoredSession(
+    config,
+    sessionTouch.sessionHash,
+    sessionTouch.touchedAtMs,
+  ).catch(() => {
+    // last_seen_at is retention metadata, not authentication evidence. Keep
+    // the failure observed without turning a verified session into a 503.
+    console.warn('[AccountAuth] Session last-seen touch failed', 'storage-unavailable');
+  });
+  if (typeof integrations?.deferAccountSessionTouch === 'function') {
+    try {
+      integrations.deferAccountSessionTouch(observedTouch);
+      return;
+    } catch {
+      // A non-Worker integration may reject task registration. Await the
+      // already-observed operation so direct callers still settle cleanly.
+    }
+  }
+  await observedTouch;
+}
+
 async function resolveStoredSession(request, config, { touch = true } = {}) {
   const token = readCookie(request, AUTH_SESSION_COOKIE);
   if (!token || !SESSION_TOKEN_RE.test(token)) {
@@ -993,17 +1029,19 @@ async function resolveStoredSession(request, config, { touch = true } = {}) {
     (!Number.isSafeInteger(row.last_seen_at) ||
       row.last_seen_at <= nowMs - ACCOUNT_SESSION_TOUCH_INTERVAL_MS)
   ) {
-    await d1Run(
-      config.db,
-      `UPDATE ${SESSION_TABLE} SET last_seen_at = ?1 WHERE session_hash = ?2`,
-      [nowMs, sessionHash],
-    );
+    await touchStoredSession(config, sessionHash, nowMs);
   }
   return {
     authenticated: true,
     accountId: row.account_id,
     sessionHash,
     account: accountResponse(row),
+    sessionTouch:
+      !touch &&
+      (!Number.isSafeInteger(row.last_seen_at) ||
+        row.last_seen_at <= nowMs - ACCOUNT_SESSION_TOUCH_INTERVAL_MS)
+        ? { sessionHash, touchedAtMs: nowMs }
+        : null,
   };
 }
 
@@ -1202,10 +1240,10 @@ async function handleGoogleCallback(request, config, url) {
   }
 }
 
-async function handleSession(request, config) {
+async function handleSession(request, config, integrations) {
   if (request.method !== 'GET' && request.method !== 'HEAD') return methodNotAllowed('GET, HEAD');
   try {
-    const session = await resolveStoredSession(request, config);
+    const session = await resolveStoredSession(request, config, { touch: false });
     const body = session.authenticated
       ? {
           configured: true,
@@ -1224,6 +1262,7 @@ async function handleSession(request, config) {
             },
           })
         : authJson(body);
+    await settleBestEffortSessionTouch(config, session.sessionTouch, integrations);
     return session.clearCookie
       ? appendSetCookies(response, [clearCookie(AUTH_SESSION_COOKIE)])
       : response;
@@ -1797,7 +1836,7 @@ export async function handleAccountAuthRequest(
     case '/api/auth/google/callback':
       return handleGoogleCallback(request, config, url);
     case '/api/auth/session':
-      return handleSession(request, config);
+      return handleSession(request, config, integrations);
     case '/api/auth/profile':
       return handleProfile(request, config);
     case '/api/auth/stats':

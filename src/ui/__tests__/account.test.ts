@@ -125,6 +125,7 @@ afterEach(() => {
   __resetAccountSessionForTests();
   __resetAccountUiForTests();
   resetState();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -189,6 +190,72 @@ describe('optional account UI', () => {
     });
 
     await expect(login).resolves.toBe('authenticated');
+  });
+
+  it('reuses the exact non-force popup reconciliation after completion auto-close', async () => {
+    vi.useFakeTimers();
+    applyAccountSession({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
+    let resolveSession!: (response: Response) => void;
+    const fetchMock = vi.mocked(fetch).mockReturnValueOnce(
+      new Promise<Response>((resolve) => {
+        resolveSession = resolve;
+      }),
+    );
+    let popupClosed = false;
+    const replace = vi.fn();
+    const popup = {
+      get closed() {
+        return popupClosed;
+      },
+      focus: vi.fn(),
+      location: { replace },
+      opener: window,
+    } as unknown as Window;
+    vi.spyOn(window, 'open').mockReturnValue(popup);
+
+    const login = requestAccountLoginPopup();
+    const startUrl = String(replace.mock.calls[0]?.[0] || '');
+    const returnTo = new URL(startUrl, window.location.origin).searchParams.get('returnTo') || '';
+    const accountClient = new URL(returnTo, window.location.origin).searchParams.get(
+      'accountClient',
+    );
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: {
+          type: 'refresh',
+          accountAuth: 'success',
+          id: 'result:non-force-deferred',
+          accountClient,
+        },
+      }),
+    );
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+
+    popupClosed = true;
+    await vi.advanceTimersByTimeAsync(250);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(getAccountSnapshot().status).toBe('anonymous');
+
+    resolveSession(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Owner', profileComplete: true },
+        statsScope: STATS_SCOPE,
+      }),
+    );
+    await expect(login).resolves.toBe('authenticated');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(getAccountSnapshot()).toMatchObject({
+      status: 'authenticated',
+      account: { nickname: 'Owner', profileComplete: true },
+    });
   });
 
   it('returns an incomplete protected identity without a nickname prompt and can force the Google chooser again', async () => {
@@ -1199,6 +1266,7 @@ describe('optional account UI', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
       }),
     );
     initAccount();
@@ -1240,6 +1308,7 @@ describe('optional account UI', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
       }),
     );
     initAccount();
@@ -1606,6 +1675,7 @@ describe('optional account UI', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
       }),
     );
     initAccount();
@@ -1629,6 +1699,7 @@ describe('optional account UI', () => {
           configured: true,
           authenticated: true,
           account: { nickname: 'Minsu', profileComplete: true },
+          statsScope: STATS_SCOPE,
         }),
       )
       .mockResolvedValueOnce(jsonResponse({ error: 'unavailable' }, 503));
@@ -1721,6 +1792,7 @@ describe('optional account UI', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'Minsu', profileComplete: true },
+        statsScope: STATS_SCOPE,
       }),
     );
     initAccount();
@@ -1861,6 +1933,7 @@ describe('optional account UI', () => {
           configured: true,
           authenticated: true,
           account: { nickname: 'Minsu', profileComplete: true },
+          statsScope: STATS_SCOPE,
         }),
       )
       .mockReturnValueOnce(
@@ -1914,6 +1987,7 @@ describe('optional account UI', () => {
           configured: true,
           authenticated: true,
           account: { nickname: 'Old', profileComplete: true },
+          statsScope: STATS_SCOPE,
         }),
       )
       .mockResolvedValueOnce(
@@ -1921,6 +1995,7 @@ describe('optional account UI', () => {
           configured: true,
           authenticated: true,
           account: { nickname: 'New', profileComplete: true },
+          statsScope: STATS_SCOPE,
         }),
       );
     initAccount();
@@ -1972,6 +2047,7 @@ describe('optional account UI', () => {
           configured: true,
           authenticated: true,
           account: { nickname: '', profileComplete: false },
+          statsScope: STATS_SCOPE,
         }),
       )
       .mockResolvedValueOnce(jsonResponse({ error: 'NICKNAME_TAKEN' }, 409));
@@ -1989,6 +2065,7 @@ describe('optional account UI', () => {
         configured: true,
         authenticated: true,
         account: { nickname: '', profileComplete: false },
+        statsScope: STATS_SCOPE,
       }),
     );
 
@@ -2033,6 +2110,7 @@ describe('optional account UI', () => {
         configured: true,
         authenticated: true,
         account: { nickname: '', profileComplete: false },
+        statsScope: STATS_SCOPE,
       }),
     );
 
@@ -2054,6 +2132,7 @@ describe('optional account UI', () => {
         configured: true,
         authenticated: true,
         account: { nickname: '', profileComplete: false },
+        statsScope: STATS_SCOPE,
       }),
     );
     initAccount();

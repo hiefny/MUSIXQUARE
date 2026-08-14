@@ -93,6 +93,7 @@ let _accountLoginPopupAttempt: {
   acceptIncompleteProfile: boolean;
   waitsForPopupReconciliation: boolean;
   reconciliationStarted: boolean;
+  successReconciliation: Promise<AccountSessionResponse> | null;
   promise: Promise<AccountLoginPopupOutcome>;
   resolve: (outcome: AccountLoginPopupOutcome) => void;
   unsubscribe: () => void;
@@ -522,6 +523,14 @@ function handleAccountAuthOutcome(
       if (_pendingWelcomeAccountResultId === id) _pendingWelcomeAccountResultId = null;
       return;
     }
+    const popupAttempt = _accountLoginPopupAttempt;
+    if (popupAttempt && !popupAttempt.waitsForPopupReconciliation) {
+      // A protected non-force popup normally settles from this exact
+      // post-completion read. If the completion page auto-closes first, let the
+      // close monitor reuse the same authority result instead of starting a
+      // generic refresh that would advance the session generation and fence it.
+      popupAttempt.successReconciliation = reconciliation;
+    }
     // A same-tab marker without a live one-shot intent still reconciles the
     // HttpOnly session, but cannot produce a welcome from a crafted/stale URL.
     if (!welcomeEligible) {
@@ -605,7 +614,7 @@ async function reconcileAccountLoginPopupAttempt(
   if (_accountLoginPopupAttempt !== attempt || attempt.reconciliationStarted) return;
   attempt.reconciliationStarted = true;
   try {
-    const response = await reconcileAccountLoginSession();
+    const response = await (attempt.successReconciliation ?? reconcileAccountLoginSession());
     if (_accountLoginPopupAttempt !== attempt) return;
     attempt.waitsForPopupReconciliation = false;
     observeAccountLoginPopupAttempt(accountSnapshotFromSessionResponse(response));
@@ -628,6 +637,7 @@ function createAccountLoginPopupAttempt(
     acceptIncompleteProfile: options.acceptIncompleteProfile === true,
     waitsForPopupReconciliation: popup !== null && options.forceGoogleAccountChooser === true,
     reconciliationStarted: false,
+    successReconciliation: null,
     promise,
     resolve: resolveAttempt,
     unsubscribe: () => undefined,
@@ -856,7 +866,7 @@ function monitorAccountLoginPopup(popup: Window): void {
     if (_accountLoginPopupAttempt?.popup === popup) {
       const attempt = _accountLoginPopupAttempt;
       attempt.popupClosed = true;
-      if (attempt.waitsForPopupReconciliation) {
+      if (attempt.waitsForPopupReconciliation || attempt.successReconciliation) {
         void reconcileAccountLoginPopupAttempt(attempt);
         return;
       }

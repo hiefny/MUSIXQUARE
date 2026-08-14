@@ -73,6 +73,7 @@ afterEach(() => {
   __resetAccountSessionForTests();
   setPeer(null);
   vi.useRealTimers();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -110,6 +111,156 @@ describe('account session mutation ordering', () => {
 
     await vi.advanceTimersByTimeAsync(60_000);
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('waits for Retry-After plus jitter before recovering an initial session', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-15T00:00:00.000Z'));
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'AUTH_RATE_LIMITED' }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getAccountSnapshot().status).toBe('unavailable');
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    window.dispatchEvent(new PageTransitionEvent('pageshow'));
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(60_499);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets an explicit Retry override a pending server Retry-After once', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: 'AUTH_RATE_LIMITED' }), {
+          status: 429,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    await retryAccountSessionRefresh();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(getAccountSnapshot().status).toBe('authenticated');
+
+    await vi.advanceTimersByTimeAsync(61_000);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps a low-rate recovery tail after the bounded fast backoff is exhausted', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial failure'))
+      .mockRejectedValueOnce(new TypeError('one-second failure'))
+      .mockRejectedValueOnce(new TypeError('three-second failure'))
+      .mockRejectedValueOnce(new TypeError('ten-second failure'))
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    await vi.advanceTimersByTimeAsync(59_999);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(1);
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('pauses an exhausted recovery tail while hidden and resumes when visible', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial failure'))
+      .mockRejectedValueOnce(new TypeError('one-second failure'))
+      .mockRejectedValueOnce(new TypeError('three-second failure'))
+      .mockRejectedValueOnce(new TypeError('ten-second failure'))
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'visible',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it('pauses an exhausted recovery tail while offline and resumes when online', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial failure'))
+      .mockRejectedValueOnce(new TypeError('one-second failure'))
+      .mockRejectedValueOnce(new TypeError('three-second failure'))
+      .mockRejectedValueOnce(new TypeError('ten-second failure'))
+      .mockResolvedValueOnce(jsonResponse(AUTHENTICATED_NEW));
+    vi.stubGlobal('fetch', fetchMock);
+
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false });
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: true });
+    window.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it('does not automatically retry a non-transient account rejection', async () => {
@@ -1101,6 +1252,7 @@ describe('account session mutation ordering', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'New', profileComplete: true },
+        statsScope: 'n'.repeat(43),
       }),
     );
 
@@ -1112,6 +1264,7 @@ describe('account session mutation ordering', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'New', profileComplete: true },
+        statsScope: 'n'.repeat(43),
       }),
     );
     await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('New'));

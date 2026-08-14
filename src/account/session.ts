@@ -51,9 +51,12 @@ let _syncChannel: BroadcastChannel | null = null;
 let _recoveryTimer: number | null = null;
 let _recoveryAttempt = 0;
 let _recoveryNeeded = false;
+let _recoveryNotBefore = 0;
 
 const ACCOUNT_REFRESH_DEBOUNCE_MS = 30_000;
 const ACCOUNT_RECOVERY_DELAYS_MS = [1_000, 3_000, 10_000] as const;
+const ACCOUNT_RECOVERY_TAIL_DELAY_MS = 60_000;
+const ACCOUNT_RECOVERY_JITTER_MAX_MS = 1_000;
 const ACCOUNT_SYNC_CHANNEL = 'mxqr-account-v1';
 const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const MAX_RECENT_EXTERNAL_REFRESH_IDS = 32;
@@ -164,6 +167,7 @@ function clearAccountRecovery(): void {
   clearAccountRecoveryTimer();
   _recoveryAttempt = 0;
   _recoveryNeeded = false;
+  _recoveryNotBefore = 0;
 }
 
 function canRunAccountRecovery(): boolean {
@@ -182,14 +186,35 @@ function isTransientAccountReadError(error: unknown): boolean {
   );
 }
 
+function rememberAccountRetryAfter(error: unknown): void {
+  if (
+    !(error instanceof AccountApiError) ||
+    typeof error.retryAfterMs !== 'number' ||
+    !Number.isSafeInteger(error.retryAfterMs) ||
+    error.retryAfterMs <= 0
+  ) {
+    return;
+  }
+  const jitterMs = Math.floor(Math.random() * ACCOUNT_RECOVERY_JITTER_MAX_MS);
+  _recoveryNotBefore = Math.max(_recoveryNotBefore, Date.now() + error.retryAfterMs + jitterMs);
+}
+
 function scheduleAccountRecovery(): void {
   clearAccountRecoveryTimer();
-  if (!_recoveryNeeded || _recoveryAttempt >= ACCOUNT_RECOVERY_DELAYS_MS.length) return;
+  if (!_recoveryNeeded) return;
   if (_explicitRecoveryWaitingForFreshRead) return;
   if (!canRunAccountRecovery()) return;
 
-  const delay = ACCOUNT_RECOVERY_DELAYS_MS[_recoveryAttempt]!;
-  _recoveryAttempt += 1;
+  const retryAfterDelay = Math.max(0, _recoveryNotBefore - Date.now());
+  let delay = retryAfterDelay;
+  if (delay === 0) {
+    if (_recoveryAttempt < ACCOUNT_RECOVERY_DELAYS_MS.length) {
+      delay = ACCOUNT_RECOVERY_DELAYS_MS[_recoveryAttempt]!;
+      _recoveryAttempt += 1;
+    } else {
+      delay = ACCOUNT_RECOVERY_TAIL_DELAY_MS;
+    }
+  }
   _recoveryTimer = window.setTimeout(() => {
     _recoveryTimer = null;
     if (!_recoveryNeeded) return;
@@ -204,6 +229,7 @@ function markAccountReadFailed(error: unknown): void {
     return;
   }
   _recoveryNeeded = true;
+  rememberAccountRetryAfter(error);
   scheduleAccountRecovery();
 }
 
@@ -230,6 +256,10 @@ function requestImmediateAccountRecovery(
   if (resetBudget) _recoveryAttempt = 0;
   clearAccountRecoveryTimer();
   if (!forceNetworkAttempt && !canRunAccountRecovery()) return Promise.resolve();
+  if (!forceNetworkAttempt && _recoveryNotBefore > Date.now()) {
+    scheduleAccountRecovery();
+    return Promise.resolve();
+  }
   return refreshAccountSession(showLoading, false);
 }
 

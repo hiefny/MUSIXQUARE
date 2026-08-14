@@ -81,30 +81,69 @@ const ACCOUNT_REQUEST_TIMEOUT_MS = 15_000;
 // that optional read hold account recovery for the full mutation deadline.
 const ACCOUNT_SESSION_REQUEST_TIMEOUT_MS = 5_000;
 const ACCOUNT_RESPONSE_MAX_BYTES = 64 * 1024;
+const ACCOUNT_RETRY_AFTER_MAX_MS = 5 * 60 * 1000;
+const HTTP_DATE_WEEKDAY_RE =
+  /^(?:Mon(?:day)?|Tue(?:sday)?|Wed(?:nesday)?|Thu(?:rsday)?|Fri(?:day)?|Sat(?:urday)?|Sun(?:day)?)(?:,|\s)/iu;
 
 export class AccountApiError extends Error {
   readonly code: string;
   readonly status: number;
+  readonly retryAfterMs: number | null;
 
-  constructor(code: string, status: number) {
+  constructor(code: string, status: number, retryAfterMs: number | null = null) {
     super(code);
     this.name = 'AccountApiError';
     this.code = code;
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
+function parseRetryAfterMs(value: string | null, nowMs = Date.now()): number | null {
+  if (value === null) return null;
+  const normalized = value.trim();
+  if (!normalized) return null;
+
+  if (/^\d+$/u.test(normalized)) {
+    const seconds = Number(normalized);
+    if (!Number.isFinite(seconds) || seconds >= ACCOUNT_RETRY_AFTER_MAX_MS / 1000) {
+      return ACCOUNT_RETRY_AFTER_MAX_MS;
+    }
+    return seconds * 1000;
+  }
+
+  // Date.parse accepts many non-HTTP inputs (including signed numbers). Only
+  // admit the three HTTP-date families, all of which begin with a weekday.
+  if (!HTTP_DATE_WEEKDAY_RE.test(normalized)) return null;
+  const retryAtMs = Date.parse(normalized);
+  if (!Number.isFinite(retryAtMs)) return null;
+  return Math.min(ACCOUNT_RETRY_AFTER_MAX_MS, Math.max(0, retryAtMs - nowMs));
+}
+
 function normalizeAccountResponse(value: unknown): AccountSessionResponse {
-  if (!value || typeof value !== 'object') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
   }
 
   const raw = value as RawAccountSessionResponse;
-  const configured = raw.configured === true;
-  const authenticated = configured && raw.authenticated === true;
+  if (
+    typeof raw.configured !== 'boolean' ||
+    typeof raw.authenticated !== 'boolean' ||
+    (raw.authenticated && !raw.configured)
+  ) {
+    throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
+  }
 
-  if (!authenticated) {
-    return { configured, authenticated: false, account: null, statsScope: null };
+  if (!raw.authenticated) {
+    if (raw.account !== null || (raw.statsScope !== undefined && raw.statsScope !== null)) {
+      throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
+    }
+    return {
+      configured: raw.configured,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    };
   }
 
   const account = raw.account;
@@ -116,18 +155,14 @@ function normalizeAccountResponse(value: unknown): AccountSessionResponse {
     throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
   }
   const statsScope = raw.statsScope;
-  if (
-    statsScope !== undefined &&
-    statsScope !== null &&
-    (typeof statsScope !== 'string' || !ACCOUNT_STATS_SCOPE_PATTERN.test(statsScope))
-  ) {
+  if (typeof statsScope !== 'string' || !ACCOUNT_STATS_SCOPE_PATTERN.test(statsScope)) {
     throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', 502);
   }
 
   return {
     configured: true,
     authenticated: true,
-    statsScope: typeof statsScope === 'string' ? statsScope : null,
+    statsScope,
     account: {
       nickname: account.nickname,
       profileComplete: account.profileComplete,
@@ -158,13 +193,21 @@ function normalizeAccountStats(value: unknown): AccountStats {
   };
 }
 
-async function readJson(response: Response, signal?: AbortSignal): Promise<unknown> {
+async function readJson(
+  response: Response,
+  signal?: AbortSignal,
+  retryAfterMs: number | null = null,
+): Promise<unknown> {
   const text = await readBoundedResponseText(response, ACCOUNT_RESPONSE_MAX_BYTES, signal);
   if (!text) return {};
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new AccountApiError('ACCOUNT_INVALID_RESPONSE', response.status || 502);
+    throw new AccountApiError(
+      'ACCOUNT_INVALID_RESPONSE',
+      response.ok ? 502 : response.status || 502,
+      retryAfterMs,
+    );
   }
 }
 
@@ -188,7 +231,8 @@ async function requestJsonResponse(
 
         // Consume the body inside the deadline. Fetch resolving at headers is
         // not completion and must not pin account refresh/mutation state.
-        const payload = await readJson(response, signal);
+        const retryAfterMs = parseRetryAfterMs(response.headers.get('Retry-After'));
+        const payload = await readJson(response, signal, retryAfterMs);
         if (!response.ok) {
           const code =
             payload &&
@@ -196,7 +240,7 @@ async function requestJsonResponse(
             typeof (payload as { error?: unknown }).error === 'string'
               ? (payload as { error: string }).error
               : 'ACCOUNT_REQUEST_FAILED';
-          throw new AccountApiError(code, response.status);
+          throw new AccountApiError(code, response.status, retryAfterMs);
         }
         return { payload, status: response.status };
       },

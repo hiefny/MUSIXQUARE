@@ -11,10 +11,10 @@ import {
   updateAccountProfile,
 } from '../api.ts';
 
-function jsonResponse(value: unknown, status = 200): Response {
+function jsonResponse(value: unknown, status = 200, headers: HeadersInit = {}): Response {
   return new Response(JSON.stringify(value), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
   });
 }
 
@@ -53,6 +53,102 @@ describe('account API client', () => {
     );
   });
 
+  it('accepts exact anonymous session variants while keeping an omitted stats scope compatible', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: true, authenticated: false, account: null }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ configured: false, authenticated: false, account: null }),
+      );
+
+    await expect(getAccountSession()).resolves.toEqual({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
+    await expect(getAccountSession()).resolves.toEqual({
+      configured: false,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
+  });
+
+  it.each([
+    {},
+    { configured: true },
+    { configured: true, authenticated: false },
+    { configured: 'true', authenticated: false, account: null },
+    { configured: true, authenticated: 'false', account: null },
+    {
+      configured: false,
+      authenticated: true,
+      account: { nickname: 'Minsu', profileComplete: true },
+    },
+    {
+      configured: true,
+      authenticated: false,
+      account: { nickname: 'Minsu', profileComplete: true },
+    },
+    { configured: true, authenticated: false, account: null, statsScope: STATS_SCOPE },
+    { configured: true, authenticated: true, account: null },
+  ])('rejects a partial or contradictory session 200 response %#', async (payload) => {
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(payload));
+
+    await expect(getAccountSession()).rejects.toMatchObject({
+      code: 'ACCOUNT_INVALID_RESPONSE',
+      status: 502,
+    });
+  });
+
+  it.each([undefined, null, 'not-a-valid-scope'])(
+    'rejects an authenticated response with an invalid stats scope %#',
+    async (statsScope) => {
+      vi.mocked(fetch).mockResolvedValue(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'Minsu', profileComplete: true },
+          ...(statsScope === undefined ? {} : { statsScope }),
+        }),
+      );
+
+      await expect(getAccountSession()).rejects.toMatchObject({
+        code: 'ACCOUNT_INVALID_RESPONSE',
+        status: 502,
+      });
+    },
+  );
+
+  it('maps malformed success JSON to 502 while preserving non-2xx status and Retry-After', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response('{', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response('{', {
+          status: 503,
+          headers: { 'Content-Type': 'application/json', 'Retry-After': '90' },
+        }),
+      );
+
+    await expect(getAccountSession()).rejects.toMatchObject({
+      code: 'ACCOUNT_INVALID_RESPONSE',
+      status: 502,
+      retryAfterMs: 60_000,
+    });
+    await expect(getAccountSession()).rejects.toMatchObject({
+      code: 'ACCOUNT_INVALID_RESPONSE',
+      status: 503,
+      retryAfterMs: 90_000,
+    });
+  });
+
   it('bounds a stalled session read to five seconds without shortening mutation deadlines', async () => {
     vi.useFakeTimers();
     vi.mocked(fetch).mockImplementation((_input, init) => {
@@ -86,6 +182,7 @@ describe('account API client', () => {
         configured: true,
         authenticated: true,
         account: { nickname: 'Jisu', profileComplete: true },
+        statsScope: STATS_SCOPE,
       }),
     );
 
@@ -244,8 +341,49 @@ describe('account API client', () => {
     await expect(updateAccountProfile('x')).rejects.toMatchObject({
       code: 'ACCOUNT_NICKNAME_INVALID',
       status: 400,
+      retryAfterMs: null,
     });
   });
+
+  it('preserves bounded delta-seconds and HTTP-date Retry-After hints', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-15T00:00:00.000Z'));
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        jsonResponse({ error: 'AUTH_RATE_LIMITED' }, 429, { 'Retry-After': '60' }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ error: 'SERVICE_MAINTENANCE' }, 503, {
+          'Retry-After': 'Sat, 15 Aug 2026 00:01:30 GMT',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ error: 'AUTH_RATE_LIMITED' }, 429, {
+          'Retry-After': '999999999999999999999999',
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({ error: 'SERVICE_MAINTENANCE' }, 503, {
+          'Retry-After': 'Fri, 14 Aug 2026 23:59:00 GMT',
+        }),
+      );
+
+    await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: 60_000 });
+    await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: 90_000 });
+    await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: 300_000 });
+    await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: 0 });
+  });
+
+  it.each(['', '-1', '1.5', 'not-a-delay', 'Sun, 99 Nope 2026 99:99:99 GMT'])(
+    'ignores a malformed Retry-After hint %j',
+    async (retryAfter) => {
+      vi.mocked(fetch).mockResolvedValue(
+        jsonResponse({ error: 'AUTH_RATE_LIMITED' }, 429, { 'Retry-After': retryAfter }),
+      );
+
+      await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: null });
+    },
+  );
 
   it('keeps OAuth returnTo on the current origin path', () => {
     expect(buildGoogleLoginUrl({ pathname: '/000001', search: '?tab=chat', hash: '#latest' })).toBe(

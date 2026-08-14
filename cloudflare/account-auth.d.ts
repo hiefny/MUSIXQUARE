@@ -12,6 +12,7 @@ export interface AccountDeletionIntegrations {
   }) => Promise<unknown>;
   orphanAccountProGrants?: (accountId: string) => Promise<boolean>;
   deferAccountDeletion?: (accountId: string) => unknown;
+  deferAccountSessionTouch?: (task: Promise<unknown>) => unknown;
 }
 
 export interface AccountProRoomIncarnation {

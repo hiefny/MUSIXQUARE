@@ -102,6 +102,9 @@ class FakeAuthDb {
   readonly boundValues: unknown[][] = [];
   fail = false;
   nicknameWriteError: Error | null = null;
+  sessionTouchError: Error | null = null;
+  sessionTouchGate: Promise<void> | null = null;
+  sessionTouchChanges = 0;
 
   prepare(sql: string): FakeStatement {
     return new FakeStatement(this, sql);
@@ -414,10 +417,16 @@ class FakeAuthDb {
       return changed(1);
     }
     if (normalized.startsWith('update mxqr_account_sessions set last_seen_at')) {
-      const [lastSeenAt, sessionHash] = values as [number, string];
+      if (this.sessionTouchGate) await this.sessionTouchGate;
+      if (this.sessionTouchError) throw this.sessionTouchError;
+      const [lastSeenAt, sessionHash, staleBefore] = values as [number, string, number];
       const session = this.sessions.get(sessionHash);
       if (!session) return changed(0);
+      if (session.last_seen_at > staleBefore || session.last_seen_at >= lastSeenAt) {
+        return changed(0);
+      }
       session.last_seen_at = lastSeenAt;
+      this.sessionTouchChanges += 1;
       return changed(1);
     }
     if (normalized.startsWith("update mxqr_accounts set status = 'disabled'")) {
@@ -1571,6 +1580,105 @@ describe('Google Authorization Code + PKCE account flow', () => {
       'https://musixquare.com/000001?panel=connect&accountAuth=error#account',
     );
     expect(optionalCookiePair(callback!, '__Host-mxqr_account')).toBeNull();
+  });
+});
+
+describe('account session read reliability', () => {
+  it('returns an authenticated session when the best-effort last-seen touch fails', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const login = await completeLogin(env);
+    vi.unstubAllGlobals();
+    const storedSession = [...db.sessions.values()][0]!;
+    storedSession.last_seen_at = 1;
+    db.sessionTouchError = new Error('D1 touch unavailable');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const response = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/session', {
+        headers: { Cookie: login.sessionCookie! },
+      }),
+      env,
+    );
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toMatchObject({
+      configured: true,
+      authenticated: true,
+    });
+    expect(warn).toHaveBeenCalledWith(
+      '[AccountAuth] Session last-seen touch failed',
+      'storage-unavailable',
+    );
+  });
+
+  it('keeps the authoritative session lookup fail-closed', async () => {
+    const db = new FakeAuthDb();
+    db.fail = true;
+
+    const response = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/session', {
+        headers: { Cookie: `__Host-mxqr_account=${'a'.repeat(43)}` },
+      }),
+      authEnv(db),
+    );
+
+    expect(response?.status).toBe(503);
+    await expect(response?.json()).resolves.toEqual({
+      error: 'AUTH_TEMPORARILY_UNAVAILABLE',
+    });
+  });
+
+  it('returns the App Worker response before its conditional last-seen touch settles', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const login = await completeLogin(env);
+    vi.unstubAllGlobals();
+    const storedSession = [...db.sessions.values()][0]!;
+    storedSession.last_seen_at = 1;
+    let releaseTouch!: () => void;
+    db.sessionTouchGate = new Promise<void>((resolve) => {
+      releaseTouch = resolve;
+    });
+    const deferred: Promise<unknown>[] = [];
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const response = await Promise.race([
+        appWorker.fetch(
+          new Request('https://musixquare.com/api/auth/session', {
+            headers: { Cookie: login.sessionCookie! },
+          }),
+          env,
+          {
+            waitUntil: (task: Promise<unknown>) => deferred.push(task),
+          },
+        ),
+        new Promise<never>((_resolve, reject) => {
+          timeoutId = setTimeout(
+            () => reject(new Error('App Worker awaited the best-effort session touch')),
+            5_000,
+          );
+        }),
+      ]);
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ authenticated: true });
+      expect(deferred).toHaveLength(1);
+      expect(db.sessionTouchChanges).toBe(0);
+
+      const newerLastSeenAt = Date.now() + 60_000;
+      storedSession.last_seen_at = newerLastSeenAt;
+      releaseTouch();
+      await Promise.all(deferred);
+
+      expect(storedSession.last_seen_at).toBe(newerLastSeenAt);
+      expect(db.sessionTouchChanges).toBe(0);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      releaseTouch();
+      db.sessionTouchGate = null;
+    }
   });
 });
 

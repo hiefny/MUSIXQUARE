@@ -1,17 +1,43 @@
+import { EventEmitter } from 'node:events';
 import { describe, expect, it } from 'vitest';
 
 import {
   InitialHostDeploymentConvergenceError,
+  InitialHostSocketConvergenceError,
   STALE_VERSION_RETRY_DELAYS_MS,
   StaleSignalingVersionError,
   assertPeerOpenVersion,
+  createSocketInbox,
   initialHostHandshakeError,
+  initialHostSocketCloseError,
+  initialHostSocketError,
   settleUnexpectedInitialHostResponse,
   withSignalingReadinessRetry,
 } from '../../../scripts/live-signaling-smoke.mjs';
 
 const EXPECTED_VERSION = '11111111-1111-4111-8111-111111111111';
 const STALE_VERSION = '22222222-2222-4222-8222-222222222222';
+
+class FakeWebSocket extends EventEmitter {
+  readyState = 1;
+
+  close(): void {
+    this.readyState = 3;
+  }
+
+  terminate(): void {
+    this.readyState = 3;
+  }
+}
+
+function fakeInitialHost(expectedVersion = EXPECTED_VERSION) {
+  const socket = new FakeWebSocket();
+  const inbox = createSocketInbox('wss://signal.example/room', 'host', {
+    expectedInitialHostVersion: expectedVersion,
+    createWebSocket: () => socket,
+  });
+  return { inbox, socket };
+}
 
 describe('live signaling smoke deployment readiness', () => {
   it('keeps the bounded backoff comfortably below 45 seconds', () => {
@@ -48,6 +74,100 @@ describe('live signaling smoke deployment readiness', () => {
     expect(error).toBeInstanceOf(InitialHostDeploymentConvergenceError);
     expect(resumed).toBe(1);
     expect(terminated).toBe(1);
+  });
+
+  it('classifies only a pre-frame initial host 1006 as deployment convergence', () => {
+    expect(initialHostSocketCloseError(1006, '', EXPECTED_VERSION, false, 'host')).toBeInstanceOf(
+      InitialHostSocketConvergenceError,
+    );
+
+    for (const [closeCode, expectedVersion, receivedFrame] of [
+      [1006, '', false],
+      [1006, EXPECTED_VERSION, true],
+      [1008, EXPECTED_VERSION, false],
+      [1011, EXPECTED_VERSION, false],
+      [1012, EXPECTED_VERSION, false],
+    ] as const) {
+      expect(
+        initialHostSocketCloseError(
+          closeCode,
+          'non-convergence close',
+          expectedVersion,
+          receivedFrame,
+          'host',
+        ),
+      ).not.toBeInstanceOf(InitialHostSocketConvergenceError);
+    }
+  });
+
+  it('defers a pre-frame socket error until the initial host close is classified', () => {
+    const socketError = new Error('socket hang up');
+    expect(initialHostSocketError(socketError, EXPECTED_VERSION, false)).toBeNull();
+    expect(initialHostSocketCloseError(1006, '', EXPECTED_VERSION, false, 'host')).toBeInstanceOf(
+      InitialHostSocketConvergenceError,
+    );
+
+    expect(initialHostSocketError(socketError, '', false)).toBe(socketError);
+    expect(initialHostSocketError(socketError, EXPECTED_VERSION, true)).toBe(socketError);
+  });
+
+  it('retries the observed open-error-close1006 event order only before any frame', async () => {
+    const { inbox, socket } = fakeInitialHost();
+    socket.emit('open');
+    await expect(inbox.opened).resolves.toBeUndefined();
+
+    const peerOpen = inbox.waitFor((message) => message.type === 'peer-open', 'peer-open');
+    socket.emit('error', new Error('socket hang up'));
+    socket.emit('close', 1006, Buffer.alloc(0));
+
+    await expect(peerOpen).rejects.toBeInstanceOf(InitialHostSocketConvergenceError);
+  });
+
+  it('classifies a pre-open error-close1006 without waiting for the open timeout', async () => {
+    const { inbox, socket } = fakeInitialHost();
+    socket.emit('error', new Error('socket hang up'));
+    socket.emit('close', 1006, Buffer.alloc(0));
+
+    await expect(inbox.opened).rejects.toBeInstanceOf(InitialHostSocketConvergenceError);
+  });
+
+  it('does not retry 1006 after any raw frame, even when the frame is malformed', async () => {
+    const { inbox, socket } = fakeInitialHost();
+    socket.emit('open');
+    await expect(inbox.opened).resolves.toBeUndefined();
+
+    const peerOpen = inbox.waitFor((message) => message.type === 'peer-open', 'peer-open');
+    const socketError = new Error('socket hang up');
+    socket.emit('message', Buffer.from('{malformed'));
+    socket.emit('error', socketError);
+    socket.emit('close', 1006, Buffer.alloc(0));
+
+    await expect(peerOpen).rejects.toBe(socketError);
+  });
+
+  it.each([1008, 1011, 1012])('does not retry initial host close code %i', async (code) => {
+    const { inbox, socket } = fakeInitialHost();
+    socket.emit('open');
+    await expect(inbox.opened).resolves.toBeUndefined();
+
+    const peerOpen = inbox.waitFor((message) => message.type === 'peer-open', 'peer-open');
+    socket.emit('error', new Error('socket hang up'));
+    socket.emit('close', code, Buffer.from('policy failure'));
+
+    await expect(peerOpen).rejects.not.toBeInstanceOf(InitialHostSocketConvergenceError);
+  });
+
+  it('does not retry 1006 when no exact signaling version is required', async () => {
+    const { inbox, socket } = fakeInitialHost('');
+    socket.emit('open');
+    await expect(inbox.opened).resolves.toBeUndefined();
+
+    const peerOpen = inbox.waitFor((message) => message.type === 'peer-open', 'peer-open');
+    const socketError = new Error('socket hang up');
+    socket.emit('error', socketError);
+    socket.emit('close', 1006, Buffer.alloc(0));
+
+    await expect(peerOpen).rejects.toBe(socketError);
   });
 
   it('classifies only a host peer-open version mismatch as retryable staleness', () => {
@@ -134,6 +254,31 @@ describe('live signaling smoke deployment readiness', () => {
     expect(waits).toEqual([25]);
   });
 
+  it('retries a pre-frame host 1006 with a fresh operation invocation', async () => {
+    const attempts: number[] = [];
+    const waits: number[] = [];
+    const result = await withSignalingReadinessRetry(
+      async (attempt: number) => {
+        attempts.push(attempt);
+        if (attempt === 1) {
+          throw new InitialHostSocketConvergenceError(1006);
+        }
+        return `room-attempt-${attempt}`;
+      },
+      {
+        retryDelaysMs: [25],
+        wait: async (milliseconds: number) => {
+          waits.push(milliseconds);
+        },
+        onRetry: () => {},
+      },
+    );
+
+    expect(result).toBe('room-attempt-2');
+    expect(attempts).toEqual([1, 2]);
+    expect(waits).toEqual([25]);
+  });
+
   it('does not retry a protocol failure after readiness reaches the expected version', async () => {
     let attempts = 0;
     await expect(
@@ -188,6 +333,24 @@ describe('live signaling smoke deployment readiness', () => {
         },
       ),
     ).rejects.toBeInstanceOf(InitialHostDeploymentConvergenceError);
+    expect(attempts).toBe(3);
+  });
+
+  it('fails after the bounded initial-host 1006 retry budget is exhausted', async () => {
+    let attempts = 0;
+    await expect(
+      withSignalingReadinessRetry(
+        async () => {
+          attempts += 1;
+          throw new InitialHostSocketConvergenceError(1006);
+        },
+        {
+          retryDelaysMs: [0, 0],
+          wait: async () => {},
+          onRetry: () => {},
+        },
+      ),
+    ).rejects.toBeInstanceOf(InitialHostSocketConvergenceError);
     expect(attempts).toBe(3);
   });
 });

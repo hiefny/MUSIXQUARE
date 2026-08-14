@@ -30,6 +30,16 @@ export class InitialHostDeploymentConvergenceError extends Error {
   }
 }
 
+export class InitialHostSocketConvergenceError extends Error {
+  constructor(closeCode) {
+    super(
+      `initial host WebSocket closed ${closeCode} before the expected signaling deployment became ready`,
+    );
+    this.name = 'InitialHostSocketConvergenceError';
+    this.closeCode = closeCode;
+  }
+}
+
 export function initialHostHandshakeError(statusCode, expectedVersion, label) {
   const normalizedStatus = Number.isInteger(statusCode) ? statusCode : 0;
   if (expectedVersion && normalizedStatus === 500) {
@@ -38,6 +48,26 @@ export function initialHostHandshakeError(statusCode, expectedVersion, label) {
   return new Error(
     `${label} WebSocket upgrade returned HTTP ${normalizedStatus || '<missing>'}`,
   );
+}
+
+export function initialHostSocketCloseError(
+  closeCode,
+  closeReason,
+  expectedVersion,
+  receivedFrame,
+  label,
+) {
+  if (expectedVersion && !receivedFrame && closeCode === 1006) {
+    return new InitialHostSocketConvergenceError(closeCode);
+  }
+  return new Error(`${label} closed ${closeCode}: ${closeReason}`);
+}
+
+export function initialHostSocketError(error, expectedVersion, receivedFrame) {
+  // `ws` may emit `error` immediately before the informative 1006 `close`.
+  // Defer only during the exact-version initial-host handshake so the close
+  // classifier can distinguish propagation from a real protocol failure.
+  return expectedVersion && !receivedFrame ? null : error;
 }
 
 export function settleUnexpectedInitialHostResponse(
@@ -73,11 +103,19 @@ function socketUrl(roomId, role, peerId) {
   return url.toString();
 }
 
-function createSocketInbox(url, label, { expectedInitialHostVersion = '' } = {}) {
-  const socket = new WebSocket(url, { origin: APP_ORIGIN });
+export function createSocketInbox(
+  url,
+  label,
+  {
+    expectedInitialHostVersion = '',
+    createWebSocket = (target, options) => new WebSocket(target, options),
+  } = {},
+) {
+  const socket = createWebSocket(url, { origin: APP_ORIGIN });
   const queued = [];
   const waiters = new Set();
   let terminalError = null;
+  let receivedFrame = false;
 
   const closed = new Promise((resolve) => {
     socket.once('close', (code, reason) => {
@@ -105,8 +143,26 @@ function createSocketInbox(url, label, { expectedInitialHostVersion = '' } = {})
       resolve();
     });
     socket.once('error', (error) => {
+      const terminalError = initialHostSocketError(
+        error,
+        expectedInitialHostVersion,
+        receivedFrame,
+      );
+      if (!terminalError) return;
       clearTimeout(timer);
-      reject(error);
+      reject(terminalError);
+    });
+    socket.once('close', (code, reason) => {
+      clearTimeout(timer);
+      reject(
+        initialHostSocketCloseError(
+          code,
+          reason.toString(),
+          expectedInitialHostVersion,
+          receivedFrame,
+          label,
+        ),
+      );
     });
   });
 
@@ -120,6 +176,7 @@ function createSocketInbox(url, label, { expectedInitialHostVersion = '' } = {})
   }
 
   socket.on('message', (data) => {
+    receivedFrame = true;
     let message;
     try {
       message = JSON.parse(data.toString());
@@ -135,10 +192,25 @@ function createSocketInbox(url, label, { expectedInitialHostVersion = '' } = {})
     }
     queued.push(message);
   });
-  socket.on('error', (error) => rejectWaiters(error));
+  socket.on('error', (error) => {
+    const terminalError = initialHostSocketError(
+      error,
+      expectedInitialHostVersion,
+      receivedFrame,
+    );
+    if (terminalError) rejectWaiters(terminalError);
+  });
   socket.on('close', (code, reason) => {
     if (code === 1000) return;
-    rejectWaiters(new Error(`${label} closed ${code}: ${reason.toString()}`));
+    rejectWaiters(
+      initialHostSocketCloseError(
+        code,
+        reason.toString(),
+        expectedInitialHostVersion,
+        receivedFrame,
+        label,
+      ),
+    );
   });
 
   function waitFor(predicate, description) {
@@ -189,7 +261,8 @@ export async function withSignalingReadinessRetry(
     } catch (error) {
       if (
         !(error instanceof StaleSignalingVersionError) &&
-        !(error instanceof InitialHostDeploymentConvergenceError)
+        !(error instanceof InitialHostDeploymentConvergenceError) &&
+        !(error instanceof InitialHostSocketConvergenceError)
       ) {
         throw error;
       }

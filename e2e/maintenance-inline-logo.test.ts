@@ -152,7 +152,7 @@ test.describe('maintenance inline wordmark', () => {
         WORDMARK_ASPECT_RATIO,
         2,
       );
-      expect(geometry.wordmark.height / geometry.headingFontSize).toBeGreaterThan(0.45);
+      expect(geometry.wordmark.height / geometry.headingFontSize).toBeGreaterThan(0.68);
       expect(geometry.wordmark.height / geometry.headingFontSize).toBeLessThan(0.8);
       expect(geometry.wordmark.left).toBeGreaterThanOrEqual(
         geometry.headline.left - EDGE_TOLERANCE_PX,

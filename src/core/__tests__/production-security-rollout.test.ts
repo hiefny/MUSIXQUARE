@@ -21,7 +21,7 @@ const REMOTE_SHARE_ROLLOUT = `
 binding = "CF_VERSION_METADATA"
 [vars]
 ROOM_UPLOADS_PER_WINDOW = "120"
-ROOM_UPLOAD_ASSERTION_MODE = "optional"
+ROOM_UPLOAD_ASSERTION_MODE = "required"
 # npm run wrangler -- secret put MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET
 [[d1_databases]]
 binding = "MUSIXQUARE_ADMIN_DB"
@@ -72,15 +72,9 @@ describe('production account launch guard', () => {
 });
 
 describe('production Remote Share rollout guard', () => {
-  it('accepts both staged assertion modes with a bounded room limit and metrics binding', () => {
+  it('accepts required assertions with a bounded room limit and metrics binding', () => {
     expect(
       validateRemoteShareRolloutConfig(REMOTE_SHARE_ROLLOUT, SIGNALING_ASSERTION_SECRET),
-    ).toEqual([]);
-    expect(
-      validateRemoteShareRolloutConfig(
-        REMOTE_SHARE_ROLLOUT.replace('"optional"', '"required"'),
-        SIGNALING_ASSERTION_SECRET,
-      ),
     ).toEqual([]);
   });
 
@@ -96,13 +90,25 @@ describe('production Remote Share rollout guard', () => {
     },
   );
 
-  it('rejects disabled or missing assertions, telemetry, and either secret declaration', () => {
+  it('rejects optional, disabled, or missing assertions, telemetry, and either secret declaration', () => {
     expect(
       validateRemoteShareRolloutConfig(
-        REMOTE_SHARE_ROLLOUT.replace('"optional"', '"disabled"'),
+        REMOTE_SHARE_ROLLOUT.replace('"required"', '"optional"'),
         SIGNALING_ASSERTION_SECRET,
       ),
-    ).toContain('ROOM_UPLOAD_ASSERTION_MODE must be optional or required in production.');
+    ).toContain('ROOM_UPLOAD_ASSERTION_MODE must be required in production.');
+    expect(
+      validateRemoteShareRolloutConfig(
+        REMOTE_SHARE_ROLLOUT.replace('"required"', '"disabled"'),
+        SIGNALING_ASSERTION_SECRET,
+      ),
+    ).toContain('ROOM_UPLOAD_ASSERTION_MODE must be required in production.');
+    expect(
+      validateRemoteShareRolloutConfig(
+        REMOTE_SHARE_ROLLOUT.replace('ROOM_UPLOAD_ASSERTION_MODE = "required"', ''),
+        SIGNALING_ASSERTION_SECRET,
+      ),
+    ).toContain('ROOM_UPLOAD_ASSERTION_MODE must be required in production.');
     expect(
       validateRemoteShareRolloutConfig(
         REMOTE_SHARE_ROLLOUT.replace('binding = "MUSIXQUARE_ADMIN_DB"', ''),

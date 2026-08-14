@@ -243,7 +243,7 @@ describe('release R2 policy recovery checkpoint', () => {
     expect(methods).toEqual(['GET', 'GET', 'PUT', 'GET']);
   });
 
-  it('keeps marker-v3 R2 policy paired with candidate Workers retained by the generation floor', async () => {
+  it('keeps the required-assertion contract R2 policy paired with retained candidate Workers', async () => {
     const root = directory();
     const environment = { CLOUDFLARE_ACCOUNT_ID: 'account', CLOUDFLARE_API_TOKEN: 'token' };
     const live = new Map<string, unknown>();
@@ -259,7 +259,7 @@ describe('release R2 policy recovery checkpoint', () => {
     writeWorkerRecoveryBoundary(root, ALL_WORKERS, 'candidate');
     expect(
       readFileSync(resolve('cloudflare/remote-share-contract-version.txt'), 'utf8').trim(),
-    ).toBe('canonical-whole-object-actor-replay-v3');
+    ).toBe('canonical-whole-object-actor-replay-v3+host-assertion-required-v1');
 
     const fetcher = mutablePolicyFetcher(live);
     const report = await reconcileR2PoliciesWithWorkerBoundary(root, root, {

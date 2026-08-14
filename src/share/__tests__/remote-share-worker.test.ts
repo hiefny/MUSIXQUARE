@@ -66,6 +66,10 @@ const remoteShareWranglerSource = await readFile(
   new URL('../../../cloudflare/wrangler.remote-share.toml', import.meta.url),
   'utf8',
 );
+const remoteShareExampleWranglerSource = await readFile(
+  new URL('../../../cloudflare/wrangler.remote-share.example.toml', import.meta.url),
+  'utf8',
+);
 const releaseWorkflowSource = await readFile(
   new URL('../../../.github/workflows/release.yml', import.meta.url),
   'utf8',
@@ -536,7 +540,8 @@ type LiveSmokeRequestSession = (
 
 type LiveSmokeWaitForRemoteShareWorkerReady = () => Promise<{
   roomUploadAssertionVersion: 1;
-  roomUploadAssertionMode: 'optional' | 'required';
+  roomUploadAssertionMode: 'required';
+  roomUploadAssertionRequired: true;
 }>;
 
 interface LiveSmokeSignalingVersionConvergence {
@@ -769,7 +774,8 @@ describe('remote-share Worker capability gate', () => {
     expect(liveSmokeSource).not.toContain('await response.body?.cancel');
     expect(liveSmokeSource).toContain("process.argv.includes('--require-assertion')");
     expect(liveSmokeSource).toContain('roomUploadAssertionVersion === 1');
-    expect(liveSmokeSource).toContain('roomUploadAssertionMode !== null');
+    expect(liveSmokeSource).toContain("roomUploadAssertionMode === 'required'");
+    expect(liveSmokeSource).toContain('roomUploadAssertionRequired');
     expect(liveSmokeSource).toContain('MXQR_EXPECTED_REMOTE_SHARE_VERSION');
     expect(liveSmokeSource).toContain('actualWorkerVersion === expectedWorkerVersion');
     expect(liveSmokeSource).toContain('MXQR_EXPECTED_SIGNALING_VERSION');
@@ -781,11 +787,11 @@ describe('remote-share Worker capability gate', () => {
       'Number(response.expiresAt) <= Math.floor(Date.now() / 1000)',
     );
     expect(liveSmokeSource).toContain(
-      "readiness.roomUploadAssertionMode === 'required' || requireAssertion",
+      "throw new Error('required Remote Share upload assertion is unavailable from signaling')",
     );
   });
 
-  it('waits through stale Worker versions before accepting two exact-candidate readiness reads', async () => {
+  it('waits through optional and stale Workers before two exact required-candidate reads', async () => {
     const waitForReady = await loadLiveSmokeWaitForRemoteShareWorkerReady();
     vi.useFakeTimers();
     vi.setSystemTime(1_800_000_000_000);
@@ -800,12 +806,21 @@ describe('remote-share Worker capability gate', () => {
       wholeObjectVersion: 1,
       downloadAuthorizationVersion: 1,
       roomUploadAssertionVersion: 1,
-      roomUploadAssertionMode: 'optional',
+      roomUploadAssertionMode: 'required',
+      roomUploadAssertionRequired: true,
     };
     const payloads = [
       {
         ...baseConfig,
-        workerVersionId: 'remote-stale',
+        roomUploadAssertionMode: 'optional',
+        roomUploadAssertionRequired: false,
+        workerVersionId: 'remote-current',
+      },
+      {
+        ...baseConfig,
+        roomUploadAssertionMode: 'optional',
+        roomUploadAssertionRequired: false,
+        workerVersionId: 'remote-current',
       },
       {
         ...baseConfig,
@@ -828,13 +843,14 @@ describe('remote-share Worker capability gate', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const pending = waitForReady();
-    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(4_000);
 
     await expect(pending).resolves.toEqual({
       roomUploadAssertionVersion: 1,
-      roomUploadAssertionMode: 'optional',
+      roomUploadAssertionMode: 'required',
+      roomUploadAssertionRequired: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 
   it('reuses one host secret while retrying a stale signaling edge', async () => {
@@ -1004,7 +1020,9 @@ describe('remote-share Worker capability gate', () => {
       '- name: Deploy and record app Worker with immutable dist',
     );
 
-    expect(remoteShareContractVersion).toBe('canonical-whole-object-actor-replay-v3');
+    expect(remoteShareContractVersion).toBe(
+      'canonical-whole-object-actor-replay-v3+host-assertion-required-v1',
+    );
     expect(guardStep).toBeGreaterThan(-1);
     expect(guardStep).toBeLessThan(remoteDeployStep);
     expect(guardStep).toBeLessThan(appDeployStep);
@@ -1091,7 +1109,7 @@ describe('remote-share Worker capability gate', () => {
     const workerEnv = directUploadQuotaEnv({
       MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION: 'false',
       ROOM_STORAGE_QUOTA_BYTES: '64',
-      ROOM_UPLOAD_ASSERTION_MODE: 'optional',
+      ROOM_UPLOAD_ASSERTION_MODE: 'required',
       MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
     });
     const response = await workerModule.default.fetch(request('/security-config'), workerEnv);
@@ -1107,8 +1125,8 @@ describe('remote-share Worker capability gate', () => {
       wholeObjectVersion: 1,
       downloadAuthorizationVersion: 1,
       roomUploadAssertionVersion: 1,
-      roomUploadAssertionMode: 'optional',
-      roomUploadAssertionRequired: false,
+      roomUploadAssertionMode: 'required',
+      roomUploadAssertionRequired: true,
     });
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
 
@@ -1125,7 +1143,8 @@ describe('remote-share Worker capability gate', () => {
   it('pins production durable replay configuration in Wrangler', () => {
     expect(remoteShareWranglerSource).toContain('ROOM_STORAGE_QUOTA_BYTES = "1073741824"');
     expect(remoteShareWranglerSource).toContain('ROOM_UPLOADS_PER_WINDOW = "120"');
-    expect(remoteShareWranglerSource).toContain('ROOM_UPLOAD_ASSERTION_MODE = "optional"');
+    expect(remoteShareWranglerSource).toContain('ROOM_UPLOAD_ASSERTION_MODE = "required"');
+    expect(remoteShareExampleWranglerSource).toContain('ROOM_UPLOAD_ASSERTION_MODE = "required"');
     expect(remoteShareWranglerSource).toContain('[version_metadata]');
     expect(remoteShareWranglerSource).toContain('binding = "CF_VERSION_METADATA"');
     expect(remoteShareWranglerSource).toContain('binding = "MUSIXQUARE_ADMIN_DB"');

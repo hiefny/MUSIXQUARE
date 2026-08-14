@@ -30,7 +30,8 @@ const RETRYABLE_SESSION_ERRORS = new Set([
 
 interface RemoteShareReadiness {
   roomUploadAssertionVersion: 1;
-  roomUploadAssertionMode: 'optional' | 'required';
+  roomUploadAssertionMode: 'required';
+  roomUploadAssertionRequired: true;
 }
 
 interface RoomUploadAssertionRequest {
@@ -137,6 +138,7 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
         : config.roomUploadAssertionMode === 'optional'
           ? 'optional'
           : null;
+    const roomUploadAssertionRequired = config.roomUploadAssertionRequired === true;
     const actualWorkerVersion =
       typeof config.workerVersionId === 'string' ? config.workerVersionId.trim() : '';
     const workerVersionReady =
@@ -151,6 +153,7 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
       downloadAuthorizationVersion: config.downloadAuthorizationVersion,
       roomUploadAssertionVersion: config.roomUploadAssertionVersion,
       roomUploadAssertionMode: config.roomUploadAssertionMode,
+      roomUploadAssertionRequired: config.roomUploadAssertionRequired,
     });
     if (
       config.workerContractVersion === 3 &&
@@ -158,12 +161,17 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
       config.sessionReplayEnabled === true &&
       wholeObjectReady &&
       roomUploadAssertionVersion === 1 &&
-      roomUploadAssertionMode !== null &&
+      roomUploadAssertionMode === 'required' &&
+      roomUploadAssertionRequired &&
       workerVersionReady
     ) {
       consecutiveReadyReads += 1;
       if (consecutiveReadyReads >= 2) {
-        return { roomUploadAssertionVersion, roomUploadAssertionMode };
+        return {
+          roomUploadAssertionVersion,
+          roomUploadAssertionMode,
+          roomUploadAssertionRequired,
+        };
       }
     } else consecutiveReadyReads = 0;
 
@@ -351,7 +359,6 @@ function waitForSignalingMessage(
 async function openRoomUploadAssertionAuthorityAttempt(
   roomId: string,
   readiness: RemoteShareReadiness,
-  requireAssertion: boolean,
   expectedSignalingVersion: string,
   hostSecret: string,
 ): Promise<{
@@ -407,10 +414,7 @@ async function openRoomUploadAssertionAuthorityAttempt(
   }
   if (peerOpen.remoteShareUploadAssertionVersion !== 1) {
     socket.close(1000, 'remote-share assertion unsupported');
-    if (readiness.roomUploadAssertionMode === 'required' || requireAssertion) {
-      throw new Error('required Remote Share upload assertion is unavailable from signaling');
-    }
-    return { provider: null, close: () => {} };
+    throw new Error('required Remote Share upload assertion is unavailable from signaling');
   }
 
   const provider: RoomUploadAssertionProvider = async (request) => {
@@ -479,7 +483,6 @@ async function withSignalingVersionConvergence<T>(
 async function openRoomUploadAssertionAuthority(
   roomId: string,
   readiness: RemoteShareReadiness,
-  requireAssertion: boolean,
 ): Promise<{
   provider: RoomUploadAssertionProvider | null;
   close(): void;
@@ -489,7 +492,6 @@ async function openRoomUploadAssertionAuthority(
     openRoomUploadAssertionAuthorityAttempt(
       roomId,
       readiness,
-      requireAssertion,
       expectedSignalingVersion,
       hostSecret,
     ),
@@ -944,7 +946,7 @@ async function main(): Promise<void> {
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const token = await requestCapabilityToken();
   const readiness = await waitForRemoteShareWorkerReady();
-  const authority = await openRoomUploadAssertionAuthority(roomId, readiness, requireAssertion);
+  const authority = await openRoomUploadAssertionAuthority(roomId, readiness);
   let wholeObject: Record<string, unknown>;
   try {
     const anonymousProbeFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });
@@ -958,7 +960,8 @@ async function main(): Promise<void> {
     JSON.stringify({
       ok: true,
       anonymousSessionRejected: true,
-      assertionRequiredBySmoke: requireAssertion,
+      assertionRequiredBySmoke: readiness.roomUploadAssertionRequired,
+      assertionExplicitlyRequested: requireAssertion,
       roomUploadAssertionMode: readiness.roomUploadAssertionMode,
       wholeObject,
     }),

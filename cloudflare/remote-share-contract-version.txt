@@ -1,1 +1,1 @@
-canonical-whole-object-actor-replay-v3
+canonical-whole-object-actor-replay-v3+host-assertion-required-v1

@@ -259,7 +259,7 @@ const ADMIN_METRIC_EVENTS = [
   },
   {
     key: 'remote_share_upload_assertion_legacy',
-    label: 'New assertion-free Remote Share sessions',
+    label: 'Assertion-free Remote Share sessions (must remain zero)',
   },
   {
     key: 'remote_share_upload_assertion_rejected',

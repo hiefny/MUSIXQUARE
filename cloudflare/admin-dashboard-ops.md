@@ -57,7 +57,7 @@ Events:
 | `pro_ticket_legacy_query_used`            | A valid cached-client PRO query ticket completed a 101 admission before its fixed cutoff.                                                                                                                          |
 | `pro_ticket_legacy_query_update_required` | A structurally plausible post-cutoff legacy query request received the required-refresh contract; this advisory signal is capped at 10 writes per IP-derived limiter key per hour and is not authentication truth. |
 | `remote_share_upload_assertion_verified`  | A new Remote Share reservation was issued with a valid signaling-issued current-host assertion; exact v3 replay does not count again.                                                                              |
-| `remote_share_upload_assertion_legacy`    | A new optional-rollout Remote Share reservation omitted the assertion header; exact v3 replay does not count again.                                                                                                |
+| `remote_share_upload_assertion_legacy`    | A new assertion-free Remote Share reservation was issued; this is a post-cutover regression sentinel that must remain zero.                                                                                        |
 | `remote_share_upload_assertion_rejected`  | A required or presented assertion was missing or invalid; writes are capped at 10 per IP-derived limiter key per normal rate window.                                                                               |
 | `ws_message_oversized`                    | A WebSocket frame or validated signaling payload exceeded its size limit.                                                                                                                                          |
 | `ws_message_rate_limited`                 | A guest exceeded the per-connection signaling message rate.                                                                                                                                                        |
@@ -72,7 +72,8 @@ or derived identifier. Their removal and the observability restoration gate are
 defined in [`pro-signaling-query-ticket-cutover.md`](pro-signaling-query-ticket-cutover.md).
 The three Remote Share assertion counters are likewise aggregate-only. They
 carry no room, peer, actor, request, token, body digest, object, capability, or
-IP dimensions; their optional-to-required gate is documented in
+IP dimensions. Production permanently requires assertions; the owner-approved
+cutover record and regression response are documented in
 [`remote-share-ops.md`](remote-share-ops.md).
 
 `room_opened` also advances the aggregate-only

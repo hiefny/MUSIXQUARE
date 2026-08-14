@@ -17,9 +17,9 @@ than a hard account storage cap.
 - Keep the shared service-control Durable Object's atomic allocation rate limit
   on `POST /session`. Production fails closed when the
   `MUSIXQUARE_SERVICE_CONTROL` binding is unavailable.
-- Run the signaling-issued standard-room host assertion in `optional` mode for
-  the first production rollout. A presented assertion is always verified; a
-  missing assertion remains temporarily compatible and is counted as legacy.
+- Require the signaling-issued standard-room host assertion on every
+  production `POST /session`. Missing, expired, or invalid assertions are
+  rejected before allocation, quota, or R2 work.
 - Cap each standard room's active R2 objects at 1 GiB
   (`ROOM_STORAGE_QUOTA_BYTES`) through a per-room SQLite Durable Object.
 - Upload and download each remote file as one complete private object through
@@ -64,12 +64,12 @@ the peer as host, it cannot mint the fresh proof needed for later retries.
 
 - `disabled`: local/test-only behavior. The assertion is not checked, and the
   production security guard rejects this mode.
-- `optional`: production rollout behavior. A missing header is accepted and
-  counted as legacy, but a presented invalid header fails with 403 and never
-  falls back to the legacy path.
-- `required`: missing, expired, altered, legacy six-field, and cached v2/v3
-  requests without a valid assertion fail with 403 before R2, quota, or rate
-  allocation work.
+- `optional`: retained only for isolated compatibility tests. A missing header
+  is accepted and counted as legacy, but the production security guard rejects
+  this mode.
+- `required`: the production invariant. Missing, expired, altered, legacy
+  six-field, and cached v2/v3 requests without a valid assertion fail with 403
+  before R2, quota, or rate allocation work.
 
 Both `optional` and `required` fail closed with 503 if
 `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` is missing or shorter than 32
@@ -276,64 +276,56 @@ the threshold only with production 429 evidence.
   target `all`, with the PRO Worker deployed before remote-share and every other
   service-control consumer.
 
-## Assertion Rollout and Cutover
+## Required-Assertion Cutover Record
 
-The safe deployment order is Remote Share first, then signaling, then the app:
+The permanent production order is Remote Share, signaling, then the app. The
+release workflow enforces a full release for this shared contract and verifies
+the exact deployed Remote Share and signaling versions.
+The contract marker was advanced to
+`canonical-whole-object-actor-replay-v3+host-assertion-required-v1`, so once a
+required candidate is observed live, both same-job and independent recovery
+retain the required Remote Share/App boundary and report forward repair instead
+of restoring the optional baseline.
 
-1. Set the same new assertion secret on signaling and Remote Share, and confirm
-   the admin-metrics D1 schema/bindings exist. The release preflight verifies
-   both secret-name inventories before authorizing any mutation; the strict
-   post-signaling smoke proves that the values match without exposing them. Do
-   not change mode to `required`.
-2. Deploy Remote Share with `ROOM_UPLOAD_ASSERTION_MODE=optional`. Its old-client
-   path still works, while malformed or forged presented tokens fail closed.
-   Both Remote Share smokes require the exact deployed Worker version so a
-   stale edge cannot approve the candidate.
-3. Deploy signaling with the `peer-open` feature marker and correlated assertion
-   request/response. Verify only the current standard-room host can receive one.
-4. Deploy the client that hashes the exact serialized `/session` body, requests
-   the signaling proof, and sends the new CORS-allowed header.
-5. Monitor the three aggregate counters. A useful 14-day query is:
+On 2026-08-15 the owner approved an immediate cached-client compatibility
+cutoff because the service was still effectively prelaunch with negligible
+legacy usage. The modern client and assertion-capable signaling Worker were
+deployed together once while Remote Share remained optional; the strict
+cross-Worker smoke proved that both Workers held the same secret and that only
+the authenticated current host could mint a valid assertion. Production was
+then changed to `required` without a 30-day or consecutive-zero-day adoption
+gate. This is an intentional compatibility break: an old cached client must
+refresh before it can create a Remote Share upload session.
 
-```sql
-SELECT event, SUM(count) AS uses
-FROM mxqr_metric_buckets
-WHERE event IN (
-  'remote_share_upload_assertion_verified',
-  'remote_share_upload_assertion_legacy',
-  'remote_share_upload_assertion_rejected'
-)
-AND bucket_minute >= unixepoch('now', '-14 days') / 60
-GROUP BY event
-ORDER BY event;
-```
+The production contract is now:
 
-Keep `optional` for at least 30 days after the client release and until there
-have also been 14 consecutive representative-traffic days with zero legacy
-events and no unexplained rejected spike. Any legacy event resets that 14-day
-observation window. Browser/service-worker caches have no trustworthy
-wall-clock expiry, so a date alone is not evidence that cached v3 clients are
-gone. Switching to `required` is the explicit cached-client cutoff and must be
-treated as an intentional compatibility break. Cached six-field/v2/v3 bundles
-receive a generic failed upload because those old scripts cannot understand a
-new response contract; recovery is the already-shipped service-worker update
-prompt or a hard refresh. Do not weaken required mode to manufacture an update
-message that the cached script cannot consume.
+1. `ROOM_UPLOAD_ASSERTION_MODE=required` and
+   `roomUploadAssertionRequired=true` are required by source guards and live
+   exact-version readiness checks.
+2. The same independent assertion secret must exist on signaling and Remote
+   Share. The release preflight checks both secret-name inventories, and the
+   strict post-signaling smoke proves the values match without exposing them.
+3. Missing or invalid assertions fail with 403 before allocation. Production
+   must not be rolled back to `optional`; repair forward or place the upload
+   path in maintenance while correcting an authority failure.
+4. `remote_share_upload_assertion_legacy` is a regression sentinel and must
+   remain zero. Verified and bounded rejected counters remain diagnostic
+   signals, not a scheduled transition gate or a reason for weekly review.
 
-After setting `required`, monitor 403 and rejected-counter behavior through at
-least one normal peak. Roll back only the Remote Share mode to `optional` if a
-material compatibility regression appears; keep assertion verification for
-every header that is presented. The current single-key implementation cannot
-accept old and new assertion keys simultaneously, so secret rotation requires
-a coordinated signaling/Remote Share maintenance window (with uploads briefly
-unavailable) unless a separate previous-key verification slot is implemented
-and tested first.
+Cached six-field/v2/v3 bundles cannot understand the new authority contract and
+receive a generic failed upload. Recovery is the already-shipped
+service-worker update prompt or a hard refresh. Do not weaken required mode to
+manufacture an update message that the cached script cannot consume.
 
-After required mode is stable and the same representative-traffic gate shows
-no compatibility demand, schedule a second full-contract cleanup. Remove the
-six-field and v2 session parsers, remove the optional missing-header client
-fallback, bump `remote-share-contract-version.txt` and
-`workerContractVersion` to v4, update the live smoke and release dependency
-mapping, then deploy the full Worker/signaling/app set together. That v4 change
-is the explicit cached-client update boundary; do not leave the compatibility
-parsers as permanent dead authority code.
+The current single-key implementation cannot accept old and new assertion keys
+simultaneously, so secret rotation requires a coordinated signaling/Remote
+Share maintenance window (with uploads briefly unavailable) unless a separate
+previous-key verification slot is implemented and tested first.
+
+The six-field/v2 parsers and optional-mode runtime branch remain non-production
+compatibility scaffolding; required mode prevents them from authorizing a live
+reservation. Removing that scaffolding is a separate full-contract v4 cleanup:
+bump `remote-share-contract-version.txt` and `workerContractVersion`, update the
+client, live smoke, and release dependency mapping, and deploy the full
+Worker/signaling/app set together. It is not tied to a traffic-observation
+calendar.

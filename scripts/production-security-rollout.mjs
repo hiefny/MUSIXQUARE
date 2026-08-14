@@ -51,15 +51,15 @@ export function validateAccountRolloutConfig(proConfig, appConfig) {
 
 /**
  * Validate the production Remote Share authority and abuse-control rollout.
- * The assertion may move from optional to required after the documented
- * cached-client observation gate, but production must never silently disable
- * it or the room-wide atomic allocation budget.
+ * The host assertion is a permanent production requirement. Production must
+ * never re-enable the retired assertion-free compatibility path or silently
+ * disable the room-wide atomic allocation budget.
  */
 export function validateRemoteShareRolloutConfig(remoteShareConfig, signalingConfig) {
   const errors = [];
   const mode = activeAssignment(remoteShareConfig, 'ROOM_UPLOAD_ASSERTION_MODE');
-  if (mode !== 'optional' && mode !== 'required') {
-    errors.push('ROOM_UPLOAD_ASSERTION_MODE must be optional or required in production.');
+  if (mode !== 'required') {
+    errors.push('ROOM_UPLOAD_ASSERTION_MODE must be required in production.');
   }
 
   const rawRoomLimit = activeAssignment(remoteShareConfig, 'ROOM_UPLOADS_PER_WINDOW');

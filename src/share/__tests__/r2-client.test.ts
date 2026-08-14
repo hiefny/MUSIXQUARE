@@ -358,7 +358,7 @@ describe('R2 canonical whole-object upload', () => {
       if (url === `${endpoint}/security-config`) {
         return securityConfig({
           roomUploadAssertionVersion: 1,
-          roomUploadAssertionMode: 'optional',
+          roomUploadAssertionMode: 'required',
         });
       }
       if (url === `${endpoint}/session`) {

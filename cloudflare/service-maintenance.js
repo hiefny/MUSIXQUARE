@@ -1050,12 +1050,14 @@ function maintenanceHtml(language) {
   <meta name="robots" content="noindex,nofollow">
   <title lang="en">MUSIXQUARE — Service check</title>
   <style>
-    :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100svh;display:grid;place-items:center;background:#e4e4e1;color:#171717;font-family:Inter,Pretendard,system-ui,-apple-system,sans-serif;padding:clamp(28px,7vw,88px)}main{width:min(680px,100%)}.wordmark{display:block;width:clamp(172px,28vw,214px);height:auto;margin:0 0 clamp(48px,9vw,88px);color:#171717}h1{max-width:14ch;margin:0;font-size:clamp(34px,7vw,64px);font-weight:720;line-height:1.02;letter-spacing:-.052em;text-wrap:balance}p{max-width:38rem;margin:clamp(24px,4vw,36px) 0 0;color:#5f5f5b;font-size:clamp(16px,2.5vw,19px);line-height:1.65;word-break:keep-all}@media(max-width:520px){body{place-items:start;padding-top:max(48px,12vh)}.wordmark{margin-bottom:52px}}@media(orientation:landscape) and (max-height:520px){body{padding:24px clamp(32px,8vw,72px)}.wordmark{width:172px;margin-bottom:28px}h1{max-width:18ch;font-size:clamp(32px,5.5vw,46px)}p{margin-top:20px;font-size:16px;line-height:1.5}}
+    :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100svh;display:grid;place-items:center;background:#e4e4e1;color:#171717;font-family:Inter,Pretendard,system-ui,-apple-system,sans-serif;padding:clamp(28px,7vw,88px)}main{width:min(900px,100%)}h1{margin:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0}.headline{display:block;font-size:clamp(34px,4.3vw,52px);font-weight:560;line-height:1.08;letter-spacing:-.04em;text-wrap:balance}.headline-lead{white-space:nowrap}.wordmark{display:inline-block;width:clamp(158px,20vw,236px);height:auto;margin-right:clamp(8px,1.2vw,14px);color:#171717;vertical-align:middle}p{max-width:38rem;margin:clamp(26px,4vw,38px) 0 0;color:#5f5f5b;font-size:clamp(16px,2.5vw,19px);line-height:1.65;word-break:keep-all}@media(max-width:520px){body{place-items:start;padding-top:max(48px,12vh)}.headline{font-size:clamp(34px,9vw,40px)}.wordmark{width:clamp(158px,42vw,180px)}}@media(orientation:landscape) and (max-height:520px){body{padding:24px clamp(32px,8vw,72px)}.headline{font-size:clamp(32px,4.8vw,40px)}.wordmark{width:164px}p{margin-top:20px;font-size:16px;line-height:1.5}}
   </style>
 </head>
 <body>
   <main>
-    <svg class="wordmark" xmlns="http://www.w3.org/2000/svg" viewBox="43 12 214 26" fill="currentColor" role="img" aria-label="MUSIXQUARE">
+    <h1 lang="en">
+      <span class="sr-only">MUSIXQUARE is temporarily unavailable.</span>
+      <span class="headline" aria-hidden="true"><span class="headline-lead"><svg class="wordmark" xmlns="http://www.w3.org/2000/svg" viewBox="43 12 214 26" fill="currentColor" focusable="false">
       <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"></polygon>
       <polygon points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"></polygon>
       <polygon points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"></polygon>
@@ -1068,8 +1070,8 @@ function maintenanceHtml(language) {
       <rect x="237.2284599" y="12.7587935" width="18" height="4.5"></rect>
       <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"></rect>
       <rect x="237.2337931" y="30.7587928" width="18" height="4.5"></rect>
-    </svg>
-    <h1 lang="en">MUSIXQUARE is temporarily unavailable.</h1>
+      </svg><span>is</span></span> temporarily unavailable.</span>
+    </h1>
     <p>${description}</p>
   </main>
 </body>

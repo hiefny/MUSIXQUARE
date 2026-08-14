@@ -162,8 +162,13 @@ describe('app maintenance administration', () => {
     expect(preview.headers.get('Cache-Control')).toBe('no-store, max-age=0');
     expect(preview.headers.get('X-MXQR-Maintenance-Preview')).toBe('1');
     expect(preview.headers.get('Retry-After')).toBeNull();
-    expect(previewBody).toContain('role="img" aria-label="MUSIXQUARE"');
-    expect(previewBody).toContain('<h1 lang="en">MUSIXQUARE is temporarily unavailable.</h1>');
+    expect(previewBody).toContain(
+      '<span class="sr-only">MUSIXQUARE is temporarily unavailable.</span>',
+    );
+    expect(previewBody).toContain('<span class="headline" aria-hidden="true">');
+    expect(previewBody).toContain('<span class="headline-lead"><svg class="wordmark"');
+    expect(previewBody.match(/class="wordmark"/gu)).toHaveLength(1);
+    expect(previewBody).not.toContain('role="img" aria-label="MUSIXQUARE"');
     expect(control.state().enabled).toBe(false);
     expect(control.fetch).not.toHaveBeenCalled();
 

@@ -1517,9 +1517,15 @@ describe('shared service-maintenance control', () => {
     expect(response.headers.get('Content-Language')).toBe('ko');
     expect(body).toContain('<html lang="ko">');
     expect(body).toContain('<title lang="en">MUSIXQUARE — Service check</title>');
-    expect(body).toContain('class="wordmark"');
-    expect(body).toContain('role="img" aria-label="MUSIXQUARE"');
-    expect(body).toContain('<h1 lang="en">MUSIXQUARE is temporarily unavailable.</h1>');
+    expect(body).toContain('<h1 lang="en">');
+    expect(body).toContain('<span class="sr-only">MUSIXQUARE is temporarily unavailable.</span>');
+    expect(body).toContain('<span class="headline" aria-hidden="true">');
+    expect(body).toContain('<span class="headline-lead"><svg class="wordmark"');
+    expect(body).toContain('viewBox="43 12 214 26"');
+    expect(body).toContain('focusable="false"');
+    expect(body).toContain('</svg><span>is</span></span> temporarily unavailable.</span>');
+    expect(body.match(/class="wordmark"/gu)).toHaveLength(1);
+    expect(body).not.toContain('role="img" aria-label="MUSIXQUARE"');
     expect(body).toContain('안전한 서비스 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.');
     expect(body).not.toMatch(/(?:class="[^"]*\b(?:card|dot|pulse)\b|[.#](?:card|dot|pulse)\b)/u);
     expect(body).not.toMatch(/@keyframes|\banimation(?:-name)?\s*:/u);

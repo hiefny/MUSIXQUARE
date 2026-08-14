@@ -14,6 +14,7 @@ export default defineConfig({
     'youtube-landscape-full-bleed.test.ts',
     'playlist-title-marquee.test.ts',
     'chat-copy-tap.test.ts',
+    'maintenance-inline-logo.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

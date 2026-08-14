@@ -2,11 +2,17 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
+import { createRemoteShareUploadAssertion } from '../../../cloudflare/remote-share-upload-assertion.js';
+import { SERVICE_CONTROL_OBJECT_NAME } from '../../../cloudflare/service-maintenance.js';
 import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
 
 type RemoteShareWorker = {
   default: {
-    fetch(request: Request, env: Record<string, unknown>): Promise<Response>;
+    fetch(
+      request: Request,
+      env: Record<string, unknown>,
+      context?: { waitUntil(task: Promise<unknown>): void },
+    ): Promise<Response>;
   };
   RemoteShareQuota: new (
     state: { storage: FakeQuotaStorage },
@@ -22,6 +28,7 @@ const workerModule = (await import(remoteShareWorkerModulePath)) as RemoteShareW
 const ORIGIN = 'https://musixquare.com';
 const SIGNING_SECRET = 'remote-share-signing-secret-for-tests';
 const CAPABILITY_SECRET = 'remote-share-capability-secret-for-tests';
+const UPLOAD_ASSERTION_SECRET = 'remote-share-upload-assertion-secret-for-tests';
 const CLIENT_IP = '203.0.113.7';
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
@@ -104,6 +111,12 @@ async function hmacSha256(secret: string, value: string): Promise<string> {
   );
   const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
   return base64UrlEncode(new Uint8Array(signature));
+}
+
+async function sha256Base64Url(value: string): Promise<string> {
+  return base64UrlEncode(
+    new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))),
+  );
 }
 
 async function sessionProofObjectName(requestId: string, actorId: string): Promise<string> {
@@ -225,6 +238,9 @@ async function createPoWCapabilityToken(scopes = ['remote-share']): Promise<stri
 function env(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     REMOTE_SHARE_SIGNING_SECRET: SIGNING_SECRET,
+    // Local tests opt into assertion rollout modes explicitly. Never make the
+    // fixture behavior depend on a wall-clock production cutoff.
+    ROOM_UPLOAD_ASSERTION_MODE: 'disabled',
     ...extra,
   };
 }
@@ -246,6 +262,9 @@ function directUploadEnv(extra: Record<string, unknown> = {}): Record<string, un
     R2_ACCESS_KEY_ID: 'test-access-key',
     R2_SECRET_ACCESS_KEY: 'test-secret-access-key',
     R2_BUCKET_NAME: 'test-bucket',
+    // Rate-limit tests enable the room counter explicitly; unrelated tests
+    // keep their existing one-counter fixture behavior.
+    ROOM_UPLOADS_PER_WINDOW: '0',
     ...extra,
   });
 }
@@ -334,6 +353,65 @@ function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
     size: 20,
     ...overrides,
   });
+}
+
+async function createTestUploadAssertion(
+  body: string,
+  secret = UPLOAD_ASSERTION_SECRET,
+): Promise<string> {
+  const parsed = JSON.parse(body) as {
+    roomId: string;
+    sessionId: number;
+    queueItemId: string;
+    size: number;
+    actorId: string;
+    requestId: string;
+  };
+  const issued = await createRemoteShareUploadAssertion(
+    {
+      roomId: parsed.roomId,
+      hostPeerId: 'host_peer_1',
+      sessionId: parsed.sessionId,
+      queueItemId: parsed.queueItemId,
+      size: parsed.size,
+      actorId: parsed.actorId,
+      requestId: parsed.requestId,
+      bodySha256: await sha256Base64Url(body),
+    },
+    secret,
+  );
+  if (!issued) throw new Error('test upload assertion was not issued');
+  return issued.assertion;
+}
+
+function createMetricRecorder(): {
+  db: Record<string, unknown>;
+  events: string[];
+  context: { waitUntil(task: Promise<unknown>): void };
+  settle(): Promise<void>;
+} {
+  const events: string[] = [];
+  const tasks: Promise<unknown>[] = [];
+  return {
+    events,
+    db: {
+      prepare: () => ({
+        bind: (_bucketMinute: number, event: string) => ({
+          run: async () => {
+            events.push(event);
+          },
+        }),
+      }),
+    },
+    context: {
+      waitUntil(task) {
+        tasks.push(task);
+      },
+    },
+    settle: async () => {
+      await Promise.all(tasks);
+    },
+  };
 }
 
 async function signTestToken(payload: Record<string, unknown>, secret = SIGNING_SECRET) {
@@ -456,7 +534,27 @@ type LiveSmokeRequestSession = (
   actorId: string,
 ) => Promise<SessionResponse & { queueItemId: string; sessionId: number }>;
 
+type LiveSmokeWaitForRemoteShareWorkerReady = () => Promise<{
+  roomUploadAssertionVersion: 1;
+  roomUploadAssertionMode: 'optional' | 'required';
+}>;
+
+interface LiveSmokeSignalingVersionConvergence {
+  run(
+    attempt: (hostSecret: string) => Promise<unknown>,
+    options: {
+      now: () => number;
+      sleep: (delayMs: number) => Promise<void>;
+      timeoutMs: number;
+      retryIntervalMs: number;
+    },
+  ): Promise<unknown>;
+  StaleError: new (message?: string) => Error;
+}
+
 let liveSmokeRequestSession: LiveSmokeRequestSession | undefined;
+let liveSmokeWaitForRemoteShareWorkerReady: LiveSmokeWaitForRemoteShareWorkerReady | undefined;
+let liveSmokeSignalingVersionConvergence: LiveSmokeSignalingVersionConvergence | undefined;
 
 async function loadLiveSmokeRequestSession(): Promise<LiveSmokeRequestSession> {
   if (liveSmokeRequestSession) return liveSmokeRequestSession;
@@ -483,6 +581,62 @@ async function loadLiveSmokeRequestSession(): Promise<LiveSmokeRequestSession> {
   }
   liveSmokeRequestSession = captured as LiveSmokeRequestSession;
   return liveSmokeRequestSession;
+}
+
+async function loadLiveSmokeWaitForRemoteShareWorkerReady(): Promise<LiveSmokeWaitForRemoteShareWorkerReady> {
+  if (liveSmokeWaitForRemoteShareWorkerReady) return liveSmokeWaitForRemoteShareWorkerReady;
+  const entrypoint = 'await main();';
+  if (liveSmokeSource.split(entrypoint).length !== 2) {
+    throw new Error('live remote-share smoke entrypoint is not uniquely instrumentable');
+  }
+  const captureName = '__mxqrLiveSmokeWaitForRemoteShareWorkerReady';
+  const instrumented = liveSmokeSource.replace(
+    entrypoint,
+    `globalThis[${JSON.stringify(captureName)}] = waitForRemoteShareWorkerReady;`,
+  );
+  const compiled = ts.transpileModule(instrumented, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`);
+  const captured = (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
+  delete (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
+  if (typeof captured !== 'function') {
+    throw new Error('live remote-share smoke readiness capture failed');
+  }
+  liveSmokeWaitForRemoteShareWorkerReady = captured as LiveSmokeWaitForRemoteShareWorkerReady;
+  return liveSmokeWaitForRemoteShareWorkerReady;
+}
+
+async function loadLiveSmokeSignalingVersionConvergence(): Promise<LiveSmokeSignalingVersionConvergence> {
+  if (liveSmokeSignalingVersionConvergence) return liveSmokeSignalingVersionConvergence;
+  const entrypoint = 'await main();';
+  if (liveSmokeSource.split(entrypoint).length !== 2) {
+    throw new Error('live remote-share smoke entrypoint is not uniquely instrumentable');
+  }
+  const captureName = '__mxqrLiveSmokeSignalingVersionConvergence';
+  const instrumented = liveSmokeSource.replace(
+    entrypoint,
+    `globalThis[${JSON.stringify(
+      captureName,
+    )}] = { run: withSignalingVersionConvergence, StaleError: StaleSignalingVersionError };`,
+  );
+  const compiled = ts.transpileModule(instrumented, {
+    compilerOptions: {
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  await import(`data:text/javascript;charset=utf-8,${encodeURIComponent(compiled)}`);
+  const captured = (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
+  delete (globalThis as typeof globalThis & Record<string, unknown>)[captureName];
+  if (!captured || typeof captured !== 'object') {
+    throw new Error('live remote-share smoke signaling convergence capture failed');
+  }
+  liveSmokeSignalingVersionConvergence = captured as LiveSmokeSignalingVersionConvergence;
+  return liveSmokeSignalingVersionConvergence;
 }
 
 function liveSmokeSessionResponse(status: number, payload: object): Response {
@@ -579,6 +733,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe('remote-share Worker capability gate', () => {
@@ -612,6 +767,103 @@ describe('remote-share Worker capability gate', () => {
     expect(liveSmokeSource).toContain("new TextDecoder('utf-8', { fatal: true })");
     expect(liveSmokeSource).toContain('function cancelResponseBody(');
     expect(liveSmokeSource).not.toContain('await response.body?.cancel');
+    expect(liveSmokeSource).toContain("process.argv.includes('--require-assertion')");
+    expect(liveSmokeSource).toContain('roomUploadAssertionVersion === 1');
+    expect(liveSmokeSource).toContain('roomUploadAssertionMode !== null');
+    expect(liveSmokeSource).toContain('MXQR_EXPECTED_REMOTE_SHARE_VERSION');
+    expect(liveSmokeSource).toContain('actualWorkerVersion === expectedWorkerVersion');
+    expect(liveSmokeSource).toContain('MXQR_EXPECTED_SIGNALING_VERSION');
+    expect(liveSmokeSource).toContain('actualSignalingVersion !== expectedSignalingVersion');
+    expect(liveSmokeSource).toContain('error instanceof StaleSignalingVersionError');
+    expect(liveSmokeSource).toContain('attempt(hostSecret)');
+    expect(liveSmokeSource).toContain('Number(response.expiresAt) <= 0');
+    expect(liveSmokeSource).not.toContain(
+      'Number(response.expiresAt) <= Math.floor(Date.now() / 1000)',
+    );
+    expect(liveSmokeSource).toContain(
+      "readiness.roomUploadAssertionMode === 'required' || requireAssertion",
+    );
+  });
+
+  it('waits through stale Worker versions before accepting two exact-candidate readiness reads', async () => {
+    const waitForReady = await loadLiveSmokeWaitForRemoteShareWorkerReady();
+    vi.useFakeTimers();
+    vi.setSystemTime(1_800_000_000_000);
+    vi.stubEnv('MXQR_EXPECTED_REMOTE_SHARE_VERSION', 'remote-current');
+    const baseConfig = {
+      capabilityRequired: true,
+      scope: 'remote-share',
+      ttl: 600,
+      workerContractVersion: 3,
+      sessionReplayRequired: true,
+      sessionReplayEnabled: true,
+      wholeObjectVersion: 1,
+      downloadAuthorizationVersion: 1,
+      roomUploadAssertionVersion: 1,
+      roomUploadAssertionMode: 'optional',
+    };
+    const payloads = [
+      {
+        ...baseConfig,
+        workerVersionId: 'remote-stale',
+      },
+      {
+        ...baseConfig,
+        workerVersionId: 'remote-stale',
+      },
+      {
+        ...baseConfig,
+        workerVersionId: 'remote-current',
+      },
+      {
+        ...baseConfig,
+        workerVersionId: 'remote-current',
+      },
+    ];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => {
+      const payload = payloads.shift();
+      if (!payload) throw new Error('unexpected readiness poll');
+      return liveSmokeSessionResponse(200, payload);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const pending = waitForReady();
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    await expect(pending).resolves.toEqual({
+      roomUploadAssertionVersion: 1,
+      roomUploadAssertionMode: 'optional',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('reuses one host secret while retrying a stale signaling edge', async () => {
+    const convergence = await loadLiveSmokeSignalingVersionConvergence();
+    const secrets: string[] = [];
+    let nowMs = 0;
+
+    const result = await convergence.run(
+      async (hostSecret) => {
+        secrets.push(hostSecret);
+        if (secrets.length === 1) {
+          throw new convergence.StaleError('stale signaling edge');
+        }
+        return 'current-edge-authority';
+      },
+      {
+        now: () => nowMs,
+        sleep: async (delayMs) => {
+          nowMs += delayMs;
+        },
+        timeoutMs: 10_000,
+        retryIntervalMs: 100,
+      },
+    );
+
+    expect(result).toBe('current-edge-authority');
+    expect(secrets).toHaveLength(2);
+    expect(secrets[0]).toMatch(/^[A-Za-z0-9_-]{32}$/);
+    expect(secrets[1]).toBe(secrets[0]);
   });
 
   it('bounds deployment-propagation recovery to exact v3 quota and replay retries', () => {
@@ -829,6 +1081,9 @@ describe('remote-share Worker capability gate', () => {
       );
       expect(response.status).toBe(204);
       expect(response.headers.get('access-control-allow-origin')).toBe(requestOrigin);
+      expect(response.headers.get('access-control-allow-headers')).toContain(
+        'x-mxqr-room-upload-assertion',
+      );
     }
   });
 
@@ -836,6 +1091,8 @@ describe('remote-share Worker capability gate', () => {
     const workerEnv = directUploadQuotaEnv({
       MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION: 'false',
       ROOM_STORAGE_QUOTA_BYTES: '64',
+      ROOM_UPLOAD_ASSERTION_MODE: 'optional',
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
     });
     const response = await workerModule.default.fetch(request('/security-config'), workerEnv);
 
@@ -849,15 +1106,318 @@ describe('remote-share Worker capability gate', () => {
       sessionReplayEnabled: true,
       wholeObjectVersion: 1,
       downloadAuthorizationVersion: 1,
+      roomUploadAssertionVersion: 1,
+      roomUploadAssertionMode: 'optional',
+      roomUploadAssertionRequired: false,
     });
     expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+
+    const versioned = await workerModule.default.fetch(request('/security-config'), {
+      ...workerEnv,
+      CF_VERSION_METADATA: { id: 'remote-share-candidate-version' },
+    });
+    expect(versioned.status).toBe(200);
+    await expect(versioned.json()).resolves.toMatchObject({
+      workerVersionId: 'remote-share-candidate-version',
+    });
   });
 
   it('pins production durable replay configuration in Wrangler', () => {
     expect(remoteShareWranglerSource).toContain('ROOM_STORAGE_QUOTA_BYTES = "1073741824"');
+    expect(remoteShareWranglerSource).toContain('ROOM_UPLOADS_PER_WINDOW = "120"');
+    expect(remoteShareWranglerSource).toContain('ROOM_UPLOAD_ASSERTION_MODE = "optional"');
+    expect(remoteShareWranglerSource).toContain('[version_metadata]');
+    expect(remoteShareWranglerSource).toContain('binding = "CF_VERSION_METADATA"');
+    expect(remoteShareWranglerSource).toContain('binding = "MUSIXQUARE_ADMIN_DB"');
     expect(remoteShareWranglerSource).toContain('name = "REMOTE_SHARE_QUOTA"');
     expect(remoteShareWranglerSource).not.toContain('MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION');
     expect(productionSecurityGuardSource).toContain("'MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION'");
+  });
+
+  it('fails readiness closed for invalid assertion rollout configuration', async () => {
+    const missingSecret = await workerModule.default.fetch(
+      request('/security-config'),
+      directUploadEnv({ ROOM_UPLOAD_ASSERTION_MODE: 'optional' }),
+    );
+    const weakSecret = await workerModule.default.fetch(
+      request('/security-config'),
+      directUploadEnv({
+        ROOM_UPLOAD_ASSERTION_MODE: 'required',
+        MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: 'weak',
+      }),
+    );
+    const invalidMode = await workerModule.default.fetch(
+      request('/security-config'),
+      directUploadEnv({ ROOM_UPLOAD_ASSERTION_MODE: 'eventually' }),
+    );
+
+    expect(missingSecret.status).toBe(503);
+    await expect(missingSecret.json()).resolves.toEqual({
+      error: 'ROOM_UPLOAD_ASSERTION_NOT_CONFIGURED',
+    });
+    expect(weakSecret.status).toBe(503);
+    await expect(weakSecret.json()).resolves.toEqual({
+      error: 'ROOM_UPLOAD_ASSERTION_SECRET_INVALID',
+    });
+    expect(invalidMode.status).toBe(503);
+    await expect(invalidMode.json()).resolves.toEqual({
+      error: 'ROOM_UPLOAD_ASSERTION_MODE_INVALID',
+    });
+  });
+
+  it('binds a presented assertion to the raw v3 body and records only aggregate outcomes', async () => {
+    const capability = await createCapabilityToken();
+    const actorId = `rsa_${'A'.repeat(43)}`;
+    const requestId = `rs3_${'B'.repeat(43)}`;
+    const body = sessionRequestBody({ actorId, requestId });
+    const assertion = await createTestUploadAssertion(body);
+    const metrics = createMetricRecorder();
+    const workerEnv = directUploadEnv({
+      ROOM_UPLOAD_ASSERTION_MODE: 'optional',
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+      MUSIXQUARE_ADMIN_DB: metrics.db,
+    });
+    const headers = {
+      'cf-connecting-ip': CLIENT_IP,
+      'content-type': 'application/json',
+      'x-mxqr-capability': capability,
+    };
+
+    const verified = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: { ...headers, 'x-mxqr-room-upload-assertion': assertion },
+        body,
+      }),
+      workerEnv,
+      metrics.context,
+    );
+    const legacy = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers,
+        body: sessionRequestBody({ sessionId: 8 }),
+      }),
+      workerEnv,
+      metrics.context,
+    );
+    const alteredRawBody = `${body}\n`;
+    const rejected = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: { ...headers, 'x-mxqr-room-upload-assertion': assertion },
+        body: alteredRawBody,
+      }),
+      workerEnv,
+      metrics.context,
+    );
+    await metrics.settle();
+
+    expect(verified.status).toBe(200);
+    expect(legacy.status).toBe(200);
+    expect(rejected.status).toBe(403);
+    await expect(rejected.json()).resolves.toEqual({ error: 'ROOM_UPLOAD_ASSERTION_INVALID' });
+    expect(metrics.events.sort()).toEqual([
+      'remote_share_upload_assertion_legacy',
+      'remote_share_upload_assertion_rejected',
+      'remote_share_upload_assertion_verified',
+    ]);
+    expect(JSON.stringify(metrics.events)).not.toContain('123456');
+    expect(JSON.stringify(metrics.events)).not.toContain(actorId);
+    expect(JSON.stringify(metrics.events)).not.toContain(requestId);
+  });
+
+  it('rejects a required missing assertion before allocation rate, quota, or R2 work', async () => {
+    const capability = await createCapabilityToken();
+    const control = createAtomicRateControlBinding();
+    const bucket = createQuotaBucket();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '64',
+      ROOM_UPLOAD_ASSERTION_MODE: 'required',
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+    });
+
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': capability,
+        },
+        body: sessionRequestBody({
+          actorId: `rsa_${'C'.repeat(43)}`,
+          requestId: `rs3_${'C'.repeat(43)}`,
+        }),
+      }),
+      workerEnv,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'ROOM_UPLOAD_ASSERTION_REQUIRED' });
+    expect(control.rateFetchCount()).toBe(1);
+    expect(control.objectNames()).toHaveLength(2);
+    expect(control.objectNames()).toContain(SERVICE_CONTROL_OBJECT_NAME);
+    expect(control.objectNames().find((name) => name !== SERVICE_CONTROL_OBJECT_NAME)).toContain(
+      'assertion-rejected-metric',
+    );
+    expect(bucket.put).not.toHaveBeenCalled();
+  });
+
+  it('rejects a present empty assertion instead of treating it as optional legacy traffic', async () => {
+    const capability = await createCapabilityToken();
+    const metrics = createMetricRecorder();
+    const workerEnv = directUploadEnv({
+      ROOM_UPLOAD_ASSERTION_MODE: 'optional',
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+      MUSIXQUARE_ADMIN_DB: metrics.db,
+    });
+
+    const response = await workerModule.default.fetch(
+      request('/session', {
+        method: 'POST',
+        headers: {
+          'cf-connecting-ip': CLIENT_IP,
+          'content-type': 'application/json',
+          'x-mxqr-capability': capability,
+          'x-mxqr-room-upload-assertion': '   ',
+        },
+        body: sessionRequestBody({
+          actorId: `rsa_${'D'.repeat(43)}`,
+          requestId: `rs3_${'D'.repeat(43)}`,
+        }),
+      }),
+      workerEnv,
+      metrics.context,
+    );
+    await metrics.settle();
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: 'ROOM_UPLOAD_ASSERTION_INVALID' });
+    expect(metrics.events).toEqual(['remote_share_upload_assertion_rejected']);
+  });
+
+  it('bounds rejected-assertion D1 metrics independently of allocation retries', async () => {
+    const capability = await createCapabilityToken();
+    const control = createAtomicRateControlBinding();
+    const metrics = createMetricRecorder();
+    const workerEnv = directUploadEnv({
+      ROOM_UPLOAD_ASSERTION_MODE: 'required',
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      MUSIXQUARE_ADMIN_DB: metrics.db,
+    });
+    const responses = await Promise.all(
+      Array.from({ length: 12 }, () =>
+        workerModule.default.fetch(
+          request('/session', {
+            method: 'POST',
+            headers: {
+              'cf-connecting-ip': CLIENT_IP,
+              'content-type': 'application/json',
+              'x-mxqr-capability': capability,
+              'x-mxqr-room-upload-assertion': 'invalid.assertion',
+            },
+            body: sessionRequestBody({
+              actorId: `rsa_${'E'.repeat(43)}`,
+              requestId: `rs3_${'E'.repeat(43)}`,
+            }),
+          }),
+          workerEnv,
+          metrics.context,
+        ),
+      ),
+    );
+    await metrics.settle();
+
+    expect(responses.every((response) => response.status === 403)).toBe(true);
+    expect(control.rateFetchCount()).toBe(12);
+    expect(metrics.events).toEqual(
+      Array.from({ length: 10 }, () => 'remote_share_upload_assertion_rejected'),
+    );
+  });
+
+  it('allows a byte-identical asserted v3 retry without expanding its durable receipt', async () => {
+    const capability = await createCapabilityToken();
+    const control = createAtomicRateControlBinding();
+    const metrics = createMetricRecorder();
+    const body = sessionRequestBody({
+      actorId: `rsa_${'D'.repeat(43)}`,
+      requestId: `rs3_${'D'.repeat(43)}`,
+    });
+    const assertion = await createTestUploadAssertion(body);
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: createQuotaBucket(),
+      ROOM_STORAGE_QUOTA_BYTES: '64',
+      ROOM_UPLOADS_PER_WINDOW: '1',
+      IP_UPLOADS_PER_WINDOW: '1',
+      ROOM_UPLOAD_ASSERTION_MODE: 'required',
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      MUSIXQUARE_ADMIN_DB: metrics.db,
+    });
+    const createSession = () =>
+      workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': capability,
+            'x-mxqr-room-upload-assertion': assertion,
+          },
+          body,
+        }),
+        workerEnv,
+        metrics.context,
+      );
+
+    const first = await createSession();
+    const second = await createSession();
+    const firstSession = (await first.json()) as SessionResponse;
+    const secondSession = (await second.json()) as SessionResponse;
+    await metrics.settle();
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(secondSession).toMatchObject({
+      objectId: firstSession.objectId,
+      cleanupToken: firstSession.cleanupToken,
+      expiresAt: firstSession.expiresAt,
+    });
+    expect(metrics.events).toEqual(['remote_share_upload_assertion_verified']);
+  });
+
+  it('enforces a room allocation budget independently of the per-IP budget', async () => {
+    const capability = await createCapabilityToken();
+    const control = createAtomicRateControlBinding();
+    const workerEnv = directUploadEnv({
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      IP_UPLOADS_PER_WINDOW: '10',
+      ROOM_UPLOADS_PER_WINDOW: '2',
+    });
+    const allocate = (sessionId: number) =>
+      workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': capability,
+          },
+          body: sessionRequestBody({ sessionId }),
+        }),
+        workerEnv,
+      );
+
+    const first = await allocate(10);
+    const second = await allocate(11);
+    const denied = await allocate(12);
+
+    expect([first.status, second.status, denied.status]).toEqual([200, 200, 429]);
+    await expect(denied.json()).resolves.toMatchObject({ error: 'room rate limited' });
   });
 
   it('fails a production session closed when durable replay configuration drifts off', async () => {

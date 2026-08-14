@@ -2807,6 +2807,12 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 2, event: 'guest_reconnect_conflict', count: 8 },
         { bucket_minute: nowMinute - 2, event: 'guest_pending_capacity', count: 6 },
         { bucket_minute: nowMinute - 2, event: 'guest_identity_capacity', count: 7 },
+        { bucket_minute: nowMinute - 1, event: 'pro_ticket_legacy_query_used', count: 2 },
+        {
+          bucket_minute: nowMinute - 1,
+          event: 'pro_ticket_legacy_query_update_required',
+          count: 1,
+        },
         { bucket_minute: nowMinute - 1, event: 'ws_message_oversized', count: 3 },
         { bucket_minute: nowMinute, event: 'ws_message_rate_limited', count: 4 },
       ]),
@@ -2842,6 +2848,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const payload = (await metrics.json()) as {
       cards?: Array<{ key: string; value: number }>;
+      events?: Array<{ key: string; label: string }>;
       summary?: {
         last24?: Record<string, number>;
         daily?: Array<{ events: Record<string, number> }>;
@@ -2858,6 +2865,8 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(payload.summary?.last24?.guest_reconnect_conflict).toBe(8);
     expect(payload.summary?.last24?.guest_pending_capacity).toBe(6);
     expect(payload.summary?.last24?.guest_identity_capacity).toBe(7);
+    expect(payload.summary?.last24?.pro_ticket_legacy_query_used).toBe(2);
+    expect(payload.summary?.last24?.pro_ticket_legacy_query_update_required).toBe(1);
     expect(payload.summary?.last24?.ws_message_oversized).toBe(3);
     expect(payload.summary?.last24?.ws_message_rate_limited).toBe(4);
     expect(payload.summary?.daily).toHaveLength(7);
@@ -2866,6 +2875,15 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(
       payload.summary?.daily30?.reduce((sum, bucket) => sum + bucket.events.guest_joined, 0),
     ).toBe(11);
+    expect(payload.events).toEqual(
+      expect.arrayContaining([
+        { key: 'pro_ticket_legacy_query_used', label: 'Admitted legacy PRO ticket joins' },
+        {
+          key: 'pro_ticket_legacy_query_update_required',
+          label: 'Legacy PRO refresh-shaped requests',
+        },
+      ]),
+    );
     expect(payload.cards?.find((card) => card.key === 'guest_per_room')?.value).toBe(2.33);
   });
 

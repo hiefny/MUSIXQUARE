@@ -5,6 +5,7 @@ import {
   createStandardRoomAccountAssertion,
   createStandardRoomAccountDeletionAssertion,
 } from '../../../../cloudflare/standard-room-account-assertion.js';
+import { verifyRemoteShareUploadAssertion } from '../../../../cloudflare/remote-share-upload-assertion.js';
 import {
   ABUSE_RATE_CONSUME_PATH,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
@@ -22,7 +23,11 @@ type WorkerModule = {
     alarm(): Promise<void>;
   };
   default: {
-    fetch(request: Request, env: Record<string, unknown>): Promise<Response>;
+    fetch(
+      request: Request,
+      env: Record<string, unknown>,
+      context?: { waitUntil(task: Promise<unknown>): void },
+    ): Promise<Response>;
   };
 };
 
@@ -56,6 +61,18 @@ const originalResponse = globalThis.Response;
 const NEGOTIATION_ID = 'negotiation_test_000001';
 const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
 const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
+const REMOTE_SHARE_UPLOAD_ASSERTION_SECRET =
+  'remote-share-upload-assertion-secret-for-signaling-tests';
+const REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST = Object.freeze({
+  type: 'remote-share-upload-assertion-request',
+  correlationId: `rsaq_${'c'.repeat(32)}`,
+  actorId: `rsa_${'a'.repeat(43)}`,
+  requestId: `rs3_${'r'.repeat(43)}`,
+  sessionId: 1_800_000_000_000,
+  queueItemId: '10000000-0000-4000-8000-000000000001',
+  size: 4,
+  bodySha256: 'A'.repeat(43),
+});
 const originalWebSocketPair = (globalThis as typeof globalThis & { WebSocketPair?: unknown })
   .WebSocketPair;
 let workerModule: WorkerModule;
@@ -598,6 +615,20 @@ function createMetricsEnv() {
   };
 }
 
+function createExecutionContext() {
+  const tasks: Promise<unknown>[] = [];
+  return {
+    context: {
+      waitUntil(task: Promise<unknown>): void {
+        tasks.push(Promise.resolve(task));
+      },
+    },
+    async flush(): Promise<void> {
+      await Promise.all(tasks);
+    },
+  };
+}
+
 async function createHostRoom(): Promise<{
   room: InstanceType<WorkerModule['MusixquareRoom']>;
   state: FakeDurableObjectState;
@@ -721,6 +752,160 @@ afterEach(() => {
 
 afterAll(() => {
   restoreWorkerGlobals();
+});
+
+describe('Cloudflare signaling Remote Share host assertions', () => {
+  it('advertises and issues an exact request-bound assertion only to the current host', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    expect(sent(host)[0]).toMatchObject({
+      type: 'peer-open',
+      roomId: '123456',
+      remoteShareUploadAssertionVersion: 1,
+    });
+
+    host.sent.length = 0;
+    await room.webSocketMessage(host, JSON.stringify(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST));
+    const response = sent(host)[0];
+    expect(response).toMatchObject({
+      type: 'remote-share-upload-assertion',
+      correlationId: REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.correlationId,
+      expiresAt: expect.any(Number),
+      assertion: expect.any(String),
+    });
+    const verified = await verifyRemoteShareUploadAssertion(
+      String(response.assertion),
+      REMOTE_SHARE_UPLOAD_ASSERTION_SECRET,
+      {
+        roomId: '123456',
+        sessionId: REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.sessionId,
+        queueItemId: REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.queueItemId,
+        size: REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.size,
+        actorId: REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.actorId,
+        requestId: REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.requestId,
+        bodySha256: REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.bodySha256,
+      },
+    );
+    expect(verified).toMatchObject({ roomId: '123456', hostPeerId: 'host-1' });
+  });
+
+  it('does not advertise the feature without a strong dedicated secret', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: 'too-short',
+    });
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    expect(sent(host)[0]).not.toHaveProperty('remoteShareUploadAssertionVersion');
+  });
+
+  it('ignores guest, malformed, and replaced-host assertion requests without relaying them', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    const guest = await joinGuest(room, 'guest-1');
+    host.sent.length = 0;
+    guest.sent.length = 0;
+
+    await room.webSocketMessage(guest, JSON.stringify(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST));
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({ ...REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST, unexpected: true }),
+    );
+    expect(sent(host)).toEqual([]);
+    expect(sent(guest)).toEqual([]);
+
+    const replacement = await authenticateHost(room, 'host-2', 'secret-a');
+    expect(replacement).not.toBe(host);
+    host.sent.length = 0;
+    await room.webSocketMessage(host, JSON.stringify(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST));
+    expect(sent(host)).toEqual([]);
+    expect(sent(guest)).toEqual([]);
+  });
+
+  it('does not answer a host replaced while assertion signing is in flight', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    host.sent.length = 0;
+
+    const originalSign = crypto.subtle.sign.bind(crypto.subtle);
+    let releaseSigning!: () => void;
+    let signingStarted!: () => void;
+    const signingGate = new Promise<void>((resolve) => {
+      releaseSigning = resolve;
+    });
+    const enteredSigning = new Promise<void>((resolve) => {
+      signingStarted = resolve;
+    });
+    vi.spyOn(crypto.subtle, 'sign').mockImplementation(
+      async (algorithm: AlgorithmIdentifier, key: CryptoKey, data: BufferSource) => {
+        signingStarted();
+        await signingGate;
+        return originalSign(algorithm, key, data);
+      },
+    );
+
+    const issuance = room.webSocketMessage(
+      host,
+      JSON.stringify(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST),
+    );
+    await enteredSigning;
+    const replacement = await authenticateHost(room, 'host-2', 'secret-a');
+    expect(replacement).not.toBe(host);
+    releaseSigning();
+    await issuance;
+
+    expect(sent(host)).toEqual([]);
+    expect(sent(replacement)).not.toContainEqual(
+      expect.objectContaining({ type: 'remote-share-upload-assertion' }),
+    );
+  });
+
+  it('bounds assertion signing bursts per authenticated host socket', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-15T00:00:00.000Z'));
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    host.serializeAttachment({
+      ...(host.deserializeAttachment() as Record<string, unknown>),
+      remoteShareUploadAssertionTokens: 2,
+      remoteShareUploadAssertionUpdatedAt: Date.now(),
+    });
+    host.sent.length = 0;
+
+    for (let index = 0; index < 3; index += 1) {
+      await room.webSocketMessage(
+        host,
+        JSON.stringify({
+          ...REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST,
+          correlationId: `rsaq_${String(index).padStart(32, '0')}`,
+        }),
+      );
+    }
+
+    expect(
+      sent(host).filter((message) => message.type === 'remote-share-upload-assertion'),
+    ).toHaveLength(2);
+    expect(sent(host).at(-1)).toEqual({
+      type: 'remote-share-upload-assertion-error',
+      correlationId: `rsaq_${'2'.padStart(32, '0')}`,
+      errorType: 'REMOTE_SHARE_UPLOAD_ASSERTION_RATE_LIMITED',
+    });
+    expect(host.deserializeAttachment()).toMatchObject({
+      remoteShareUploadAssertionTokens: 0,
+      remoteShareUploadAssertionUpdatedAt: Date.now(),
+    });
+  });
 });
 
 describe('Cloudflare signaling Worker hibernation behavior', () => {
@@ -1295,10 +1480,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(roomFetch).not.toHaveBeenCalled();
   });
 
-  it('bounds the legacy URL-ticket rollout grace and rejects it at the cutoff', async () => {
+  it('counts pre-cutoff valid tickets and structurally plausible refresh demand after cutoff', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-10T00:00:00.000Z'));
     const routed = workerEnv();
+    const metrics = createMetricsEnv();
+    const execution = createExecutionContext();
+    Object.assign(routed.env, metrics.env);
     routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
     const legacyTicket = await proTicket({ participantId: 'cached-client-member' });
     const legacyUrl = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
@@ -1309,12 +1497,26 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         Upgrade: 'websocket',
       }),
       routed.env,
+      execution.context,
     );
     expect(beforeCutoff.status).toBe(101);
     expect(routed.roomFetch).toHaveBeenCalledTimes(1);
+    await execution.flush();
+    expect(metrics.events).toEqual([
+      {
+        bucketMinute: Math.floor(Date.now() / 60000),
+        event: 'pro_ticket_legacy_query_used',
+      },
+    ]);
+    expect(JSON.stringify(metrics.events)).not.toContain(legacyTicket);
+    expect(JSON.stringify(metrics.events)).not.toContain('000001');
+    expect(JSON.stringify(metrics.events)).not.toContain('cached-client-member');
 
     vi.setSystemTime(new Date('2026-09-09T00:00:00.000Z'));
+    const expiredExecution = createExecutionContext();
     const afterTicket = await proTicket({ participantId: 'expired-grace-member' });
+    // Post-cutoff handling must not depend on or invoke the signing secret.
+    delete routed.env.PRO_SIGNALING_SECRET;
     const afterUrl = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
     afterUrl.searchParams.set('ticket', afterTicket);
     const afterCutoff = await workerModule.default.fetch(
@@ -1323,9 +1525,88 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         Upgrade: 'websocket',
       }),
       routed.env,
+      expiredExecution.context,
     );
-    expect(afterCutoff.status).toBe(401);
+    expect(afterCutoff.status).toBe(426);
+    expect(afterCutoff.headers).toMatchObject({
+      'cache-control': 'no-store',
+      'x-mxqr-client-action': 'refresh',
+    });
+    expect(JSON.parse(String(afterCutoff.body))).toEqual({
+      error: 'PRO_SIGNALING_CLIENT_UPDATE_REQUIRED',
+      action: 'refresh',
+      requiredWebSocketProtocol: PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+    });
     expect(routed.roomFetch).toHaveBeenCalledTimes(1);
+    await expiredExecution.flush();
+    expect(metrics.events.at(-1)).toEqual({
+      bucketMinute: Math.floor(Date.now() / 60000),
+      event: 'pro_ticket_legacy_query_update_required',
+    });
+    expect(JSON.stringify(metrics.events)).not.toContain(afterTicket);
+  });
+
+  it('keeps malformed post-cutoff query requests out of the legacy-client metric', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-09T00:00:00.000Z'));
+    const routed = workerEnv();
+    const metrics = createMetricsEnv();
+    const execution = createExecutionContext();
+    Object.assign(routed.env, metrics.env);
+    routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+
+    const response = await workerModule.default.fetch(
+      requestLike('https://signal.example.test/api/pro-rooms/000001/ws?ticket=opaque', {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      }),
+      routed.env,
+      execution.context,
+    );
+
+    expect(response.status).toBe(426);
+    expect(routed.roomFetch).not.toHaveBeenCalled();
+    await execution.flush();
+    expect(metrics.events).toEqual([]);
+  });
+
+  it('bounds structurally plausible post-cutoff refresh metrics per client', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-09T00:00:00.000Z'));
+    const routed = workerEnv();
+    const metrics = createMetricsEnv();
+    const execution = createExecutionContext();
+    const control = atomicRateBinding(1);
+    Object.assign(routed.env, metrics.env, {
+      PRO_SIGNALING_SECRET,
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+    });
+    const shapedTicket = await proTicket({ participantId: 'refresh-metric-member' });
+    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    url.searchParams.set('ticket', shapedTicket);
+
+    for (let index = 0; index < 12; index += 1) {
+      const response = await workerModule.default.fetch(
+        requestLike(url.toString(), {
+          Origin: 'https://musixquare.com',
+          Upgrade: 'websocket',
+          'CF-Connecting-IP': '203.0.113.201',
+        }),
+        routed.env,
+        execution.context,
+      );
+      expect(response.status).toBe(426);
+    }
+    await execution.flush();
+
+    expect(control.rateFetchCount()).toBe(12);
+    expect(metrics.events).toEqual(
+      Array.from({ length: 10 }, () => ({
+        bucketMinute: Math.floor(Date.now() / 60000),
+        event: 'pro_ticket_legacy_query_update_required',
+      })),
+    );
+    expect(routed.roomFetch).not.toHaveBeenCalled();
   });
 
   it('selects only the stable PRO protocol and never echoes the bearer ticket', async () => {

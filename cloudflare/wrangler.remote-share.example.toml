@@ -2,13 +2,17 @@ name = "musixquare-remote-share"
 main = "remote-share-worker.js"
 compatibility_date = "2026-05-03"
 
+[version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [vars]
 R2_BUCKET_NAME = "musixquare-remote-share"
 OBJECT_TTL_SECONDS = "3600"
 RATE_LIMIT_WINDOW_SECONDS = "3600"
 IP_UPLOADS_PER_WINDOW = "60"
-ROOM_UPLOADS_PER_WINDOW = "0"
+ROOM_UPLOADS_PER_WINDOW = "120"
 ROOM_STORAGE_QUOTA_BYTES = "1073741824"
+ROOM_UPLOAD_ASSERTION_MODE = "optional"
 ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
 
 # Required secrets, set outside this file:
@@ -20,6 +24,9 @@ ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://loca
 # Required for capability gate (use the same random value of at least 32 characters as
 # the app Worker MXQR_CAPABILITY_SECRET so app-issued tokens verify here):
 # npm run wrangler -- secret put MXQR_CAPABILITY_SECRET
+# Shared only with the signaling Worker. Use the same independent random value
+# of at least 32 characters on both Workers:
+# npm run wrangler -- secret put MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET
 
 [[r2_buckets]]
 binding = "REMOTE_SHARE_BUCKET"
@@ -37,6 +44,13 @@ class_name = "RemoteShareQuota"
 name = "MUSIXQUARE_SERVICE_CONTROL"
 class_name = "MusixquareServiceControl"
 script_name = "musixquare-pro-room"
+
+# Aggregate-only assertion rollout telemetry. No room, peer, actor, request,
+# token, IP, or object identifier is written to this database.
+[[d1_databases]]
+binding = "MUSIXQUARE_ADMIN_DB"
+database_name = "musixquare-admin-metrics"
+database_id = "d6cc9ceb-f0b6-40e4-99aa-8f28bec412ed"
 
 # Keep the production Worker's provider-required append-only Durable Object
 # migration entries when deriving a deployable config from this example. These

@@ -17,6 +17,9 @@ than a hard account storage cap.
 - Keep the shared service-control Durable Object's atomic allocation rate limit
   on `POST /session`. Production fails closed when the
   `MUSIXQUARE_SERVICE_CONTROL` binding is unavailable.
+- Run the signaling-issued standard-room host assertion in `optional` mode for
+  the first production rollout. A presented assertion is always verified; a
+  missing assertion remains temporarily compatible and is counted as legacy.
 - Cap each standard room's active R2 objects at 1 GiB
   (`ROOM_STORAGE_QUOTA_BYTES`) through a per-room SQLite Durable Object.
 - Upload and download each remote file as one complete private object through
@@ -30,9 +33,71 @@ than a hard account storage cap.
 
 WAF Rate Limiting blocks abusive allocation bursts before they reach the
 Worker. A normal successful upload consumes one atomic service-control request
-for its per-IP allocation counter and, only when `ROOM_UPLOADS_PER_WINDOW` is
-enabled, a second request for the room counter. Downloads do not consume either
-allocation limiter.
+for its per-IP allocation counter and a second request for the room counter.
+Downloads do not consume either allocation limiter.
+
+## Standard-Room Host Upload Assertion
+
+The capability gate and host assertion prove different things and both remain
+in the request path. The app-issued capability is the public allocation/abuse
+gate. The `X-MXQR-Room-Upload-Assertion` header is a 60-second HMAC proof from
+signaling that the requesting peer is the current host of that standard room.
+It is not an E2EE feature and does not change the stored whole-object format.
+
+The assertion is bound to the standard room, signaling host peer, session ID,
+queue item UUID, declared size, private v3 `actorId`, v3 `requestId`, and the
+base64url SHA-256 of the exact raw `/session` JSON bytes. It also carries a
+unique `jti`, issue/expiry times, the `host` role, audience, scope, and version.
+Remote Share recomputes the digest from the bytes it parsed; whitespace or key
+order changes therefore require a fresh assertion even when the JSON is
+semantically equivalent.
+
+`jti` is deliberately not a one-time database key. The same assertion may be
+retried with the byte-identical body inside its 60-second lifetime, and a fresh
+assertion for the same actor/request/body can recover the existing v3 durable
+receipt after that. Every authority-bearing field and the complete body bytes
+remain fixed, so retry never expands the reservation to another room, item,
+size, actor, request, name, or MIME type. Once signaling no longer recognizes
+the peer as host, it cannot mint the fresh proof needed for later retries.
+
+`ROOM_UPLOAD_ASSERTION_MODE` has these values:
+
+- `disabled`: local/test-only behavior. The assertion is not checked, and the
+  production security guard rejects this mode.
+- `optional`: production rollout behavior. A missing header is accepted and
+  counted as legacy, but a presented invalid header fails with 403 and never
+  falls back to the legacy path.
+- `required`: missing, expired, altered, legacy six-field, and cached v2/v3
+  requests without a valid assertion fail with 403 before R2, quota, or rate
+  allocation work.
+
+Both `optional` and `required` fail closed with 503 if
+`MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` is missing or shorter than 32
+characters. This secret is shared only by signaling and Remote Share; do not
+reuse the upload-token or app capability secrets. `/security-config` advertises
+assertion version, mode, and whether it is required. Signaling advertises
+version 1 in `peer-open`, and new clients use the correlated WebSocket
+`remote-share-upload-assertion-request` / `remote-share-upload-assertion`
+exchange only when that feature is present. This avoids treating an old
+signaling deployment as a transient assertion failure. Once a client has
+observed version 1, a disconnect, missing marker, or older replacement
+signaling deployment fails closed instead of returning to a missing-header
+request.
+
+The Remote Share D1 binding writes only these three aggregate minute-bucket
+counters through `ctx.waitUntil`; it never stores the room, peer, actor,
+request, token, body digest, object, capability, or IP:
+
+- `remote_share_upload_assertion_verified`
+- `remote_share_upload_assertion_legacy`
+- `remote_share_upload_assertion_rejected`
+
+Verified and legacy events are written only after a new session reservation is
+successfully issued; an exact v3 replay does not count again. Rejected-event
+writes are independently capped at 10 per IP-derived limiter key per normal
+rate window, while rejection itself remains fail closed even when telemetry is
+unavailable. These are rollout signals, not request, billing, or unique-user
+totals.
 
 ## Remote Upload Cost Shape
 
@@ -103,7 +168,10 @@ One remote whole-file upload attempt roughly means:
   expands into a large PCM buffer.
 - Upload allocation limits:
   - `IP_UPLOADS_PER_WINDOW`: default 60 sessions per IP per hour.
-  - `ROOM_UPLOADS_PER_WINDOW`: default 0, which disables room-wide limiting.
+  - `ROOM_UPLOADS_PER_WINDOW`: default 120 sessions per standard room per hour.
+    This permits two independent IP budgets (including a host network change)
+    while bounding attacks spread across many IPs. It is far below the
+    service-control idempotency-set ceiling of 1024.
   - Enabled limits must remain at or below 1024 so the v2 idempotency set stays
     inside its fixed Durable Object storage bound; invalid drift fails closed.
 - `ROOM_STORAGE_QUOTA_BYTES`: production is `1073741824` (1 GiB). Worker
@@ -168,6 +236,9 @@ the threshold only with production 429 evidence.
 - `REMOTE_SHARE_SIGNING_SECRET` and the capability HMAC secret must be random
   values of at least 32 characters and must remain purpose-separated. Only the
   capability secret is shared with the App Worker.
+- `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` must be a third independent
+  random value of at least 32 characters, shared only by signaling and Remote
+  Share.
 - `wrangler.remote-share.toml` retains Cloudflare's required append-only Durable
   Object migration entries. They are immutable infrastructure schema tags; do
   not reuse deleted class names or edit old tags. The canonical copy is
@@ -204,3 +275,65 @@ the threshold only with production 429 evidence.
   `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`. A change to that marker also requires
   target `all`, with the PRO Worker deployed before remote-share and every other
   service-control consumer.
+
+## Assertion Rollout and Cutover
+
+The safe deployment order is Remote Share first, then signaling, then the app:
+
+1. Set the same new assertion secret on signaling and Remote Share, and confirm
+   the admin-metrics D1 schema/bindings exist. The release preflight verifies
+   both secret-name inventories before authorizing any mutation; the strict
+   post-signaling smoke proves that the values match without exposing them. Do
+   not change mode to `required`.
+2. Deploy Remote Share with `ROOM_UPLOAD_ASSERTION_MODE=optional`. Its old-client
+   path still works, while malformed or forged presented tokens fail closed.
+   Both Remote Share smokes require the exact deployed Worker version so a
+   stale edge cannot approve the candidate.
+3. Deploy signaling with the `peer-open` feature marker and correlated assertion
+   request/response. Verify only the current standard-room host can receive one.
+4. Deploy the client that hashes the exact serialized `/session` body, requests
+   the signaling proof, and sends the new CORS-allowed header.
+5. Monitor the three aggregate counters. A useful 14-day query is:
+
+```sql
+SELECT event, SUM(count) AS uses
+FROM mxqr_metric_buckets
+WHERE event IN (
+  'remote_share_upload_assertion_verified',
+  'remote_share_upload_assertion_legacy',
+  'remote_share_upload_assertion_rejected'
+)
+AND bucket_minute >= unixepoch('now', '-14 days') / 60
+GROUP BY event
+ORDER BY event;
+```
+
+Keep `optional` for at least 30 days after the client release and until there
+have also been 14 consecutive representative-traffic days with zero legacy
+events and no unexplained rejected spike. Any legacy event resets that 14-day
+observation window. Browser/service-worker caches have no trustworthy
+wall-clock expiry, so a date alone is not evidence that cached v3 clients are
+gone. Switching to `required` is the explicit cached-client cutoff and must be
+treated as an intentional compatibility break. Cached six-field/v2/v3 bundles
+receive a generic failed upload because those old scripts cannot understand a
+new response contract; recovery is the already-shipped service-worker update
+prompt or a hard refresh. Do not weaken required mode to manufacture an update
+message that the cached script cannot consume.
+
+After setting `required`, monitor 403 and rejected-counter behavior through at
+least one normal peak. Roll back only the Remote Share mode to `optional` if a
+material compatibility regression appears; keep assertion verification for
+every header that is presented. The current single-key implementation cannot
+accept old and new assertion keys simultaneously, so secret rotation requires
+a coordinated signaling/Remote Share maintenance window (with uploads briefly
+unavailable) unless a separate previous-key verification slot is implemented
+and tested first.
+
+After required mode is stable and the same representative-traffic gate shows
+no compatibility demand, schedule a second full-contract cleanup. Remove the
+six-field and v2 session parsers, remove the optional missing-header client
+fallback, bump `remote-share-contract-version.txt` and
+`workerContractVersion` to v4, update the live smoke and release dependency
+mapping, then deploy the full Worker/signaling/app set together. That v4 change
+is the explicit cached-client update boundary; do not leave the compatibility
+parsers as permanent dead authority code.

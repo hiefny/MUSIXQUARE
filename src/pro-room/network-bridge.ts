@@ -1,6 +1,10 @@
 import { log } from '../core/log.ts';
+import { bus } from '../core/events.ts';
 import { batchSetState, getState } from '../core/state.ts';
-import { proSignalingWebSocketProtocols } from '../network/pro-signaling-websocket.ts';
+import {
+  PRO_SIGNALING_CLIENT_UPDATE_REQUIRED,
+  proSignalingWebSocketProtocols,
+} from '../network/pro-signaling-websocket.ts';
 import { getRuntimeTransportConfig } from '../network/transport/config.ts';
 import type { ProRoomSignalingAccess } from './api.ts';
 import type { ProRoomPlaybackPrepareEvent } from './api.ts';
@@ -469,6 +473,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
           clearTimeout(timeout);
           signal?.removeEventListener('abort', onAbort);
           socket.removeEventListener('error', onError);
+          socket.removeEventListener('close', onClose);
           if (error) {
             // Keep the open listener as a final fence. Although close() while
             // CONNECTING normally prevents OPEN, a delayed platform event must
@@ -487,6 +492,25 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
           finish();
         };
         const onError = () => finish(new Error('PRO_SIGNALING_START_FAILED'));
+        const onClose = (event: CloseEvent) => {
+          if (
+            event.reason === 'PRO_SOCKET_REPLACED' ||
+            event.reason === 'PRO_CONNECT_ABORTED' ||
+            event.reason === 'PRO_CONNECT_FAILED'
+          ) {
+            // The local lifecycle that issued close owns settlement. In
+            // particular, a replacement must not turn its predecessor into an
+            // unrelated signaling-start failure.
+            return;
+          }
+          finish(
+            new Error(
+              event.reason === PRO_SIGNALING_CLIENT_UPDATE_REQUIRED
+                ? PRO_SIGNALING_CLIENT_UPDATE_REQUIRED
+                : 'PRO_SIGNALING_START_FAILED',
+            ),
+          );
+        };
         const onAbort = () => {
           try {
             socket.close(1000, 'PRO_CONNECT_ABORTED');
@@ -501,6 +525,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
         );
         socket.addEventListener('open', onOpen, { once: true });
         socket.addEventListener('error', onError, { once: true });
+        socket.addEventListener('close', onClose, { once: true });
         if (signal?.aborted) onAbort();
         else signal?.addEventListener('abort', onAbort, { once: true });
       });
@@ -534,7 +559,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     }
 
     socket.addEventListener('message', (event) => this.#handleMessage(event.data));
-    socket.addEventListener('close', () => {
+    socket.addEventListener('close', (event) => {
       if (generation !== this.#generation || this.#socket !== socket) return;
       this.#socket = null;
       this.#clearTimers();
@@ -542,6 +567,10 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       this.#clockPending.clear();
       this.#clockCalibrationRound = null;
       this.#publishConnected(false);
+      if (event.reason === PRO_SIGNALING_CLIENT_UPDATE_REQUIRED) {
+        bus.emit('app:client-update-required', 'pro-signaling');
+        return;
+      }
       if (!this.#intentionalClose) {
         log.warn('[PRO] Server control channel disconnected; recovery requested');
       }
@@ -566,6 +595,20 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     try {
       value = JSON.parse(raw);
     } catch {
+      return;
+    }
+
+    if (
+      isRecord(value) &&
+      value.type === 'error' &&
+      value.errorType === 'client-update-required' &&
+      value.message === PRO_SIGNALING_CLIENT_UPDATE_REQUIRED
+    ) {
+      try {
+        this.#socket?.close(1012, PRO_SIGNALING_CLIENT_UPDATE_REQUIRED);
+      } catch {
+        bus.emit('app:client-update-required', 'pro-signaling');
+      }
       return;
     }
 

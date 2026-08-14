@@ -24,7 +24,7 @@ const COPY_ROOTS = ['.workshop/', 'cloudflare/', 'docs/', 'public/', 'scripts/',
 const PRODUCT_NAME_PATTERN = /(?<![A-Za-z0-9_])musixquare(?![A-Za-z0-9_])/giu;
 const TECHNICAL_ESCAPE = 'brand-capitalization: allow-technical';
 const FIXED_LOWERCASE_HYPHEN_TOKEN =
-  /^musixquare-(?:abuse-rate(?:-pair)?-v\d+|admin-metrics|api-smoke\.wav|app(?:-used-v\d+)?|auth|control|data|demo-(?:prompt-seen-v\d+|track-read|tracks)|design|developer-api(?:-facade)?|global-(?:admin-announcement|service-control)-v\d+|hero-(?:4k|8k|fhd)-|lang|live-smoke-(?:answer|offer)|ops-drift-audit|optional-(?:v)?|pro-(?:media|room(?:-tab-handoff-v\d+)?)|remote-share(?:-endpoint|-session-actor-v\d+)?|runtime-|settings-sync|signaling(?:-rate-v\d+)?|soro-images|standard-ws-open-rate-v\d+|static-|theme|ui-sounds-enabled|viz-mode|worker-bundles-|yt-play-latency)(?![A-Za-z0-9_-])/u;
+  /^musixquare-(?:abuse-rate(?:-pair)?-v\d+|admin-metrics|api-smoke\.wav|app(?:-used-v\d+)?|auth|control|data|demo-(?:prompt-seen-v\d+|track-read|tracks)|design|developer-api(?:-facade)?|global-(?:admin-announcement|service-control)-v\d+|hero-(?:4k|8k|fhd)-|lang|live-smoke-(?:answer|offer)|ops-drift-audit|optional-(?:v)?|pro-(?:media|room(?:-tab-handoff-v\d+)?)|remote-share(?:-endpoint|-session-actor-v\d+|-upload)?|runtime-|settings-sync|signaling(?:-rate-v\d+)?|soro-images|standard-ws-open-rate-v\d+|static-|theme|ui-sounds-enabled|viz-mode|worker-bundles-|yt-play-latency)(?![A-Za-z0-9_-])/u;
 
 function isTestOrSnapshot(path) {
   return (

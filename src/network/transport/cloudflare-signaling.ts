@@ -18,6 +18,7 @@ import type {
   StandardRoomIdentityAssertions,
   StandardRoomIdentityClearReason,
   StandardRoomMemberIdentity,
+  RemoteShareUploadAssertionRequest,
 } from './types.ts';
 import {
   parseDeveloperCommandFrame,
@@ -32,8 +33,20 @@ type SignalingMessage =
       roomId: string;
       workerVersionId?: string;
       memberIdentity?: StandardRoomMemberIdentity;
+      remoteShareUploadAssertionVersion?: 1;
     }
   | { type: 'error'; errorType?: string; message?: string }
+  | {
+      type: 'remote-share-upload-assertion';
+      correlationId: string;
+      assertion: string;
+      expiresAt: number;
+    }
+  | {
+      type: 'remote-share-upload-assertion-error';
+      correlationId: string;
+      errorType: string;
+    }
   | {
       type: 'signal-offer';
       from: string;
@@ -90,6 +103,10 @@ type SignalingMessage =
 
 type OutgoingSignal =
   | { type: 'room-password-set'; password: string }
+  | ({
+      type: 'remote-share-upload-assertion-request';
+      correlationId: string;
+    } & RemoteShareUploadAssertionRequest)
   | {
       type: 'signal-offer';
       to: 'host';
@@ -179,6 +196,78 @@ function normalizeStandardRoomIdentityAssertions(
   };
 }
 
+function hasExactObjectKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
+  const keys = Object.keys(value).sort();
+  const sortedExpected = [...expected].sort();
+  return (
+    keys.length === sortedExpected.length &&
+    keys.every((key, index) => key === sortedExpected[index])
+  );
+}
+
+function normalizeRemoteShareUploadAssertionResponse(
+  value: unknown,
+): Extract<SignalingMessage, { type: 'remote-share-upload-assertion' }> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    !hasExactObjectKeys(candidate, ['type', 'correlationId', 'assertion', 'expiresAt']) ||
+    candidate.type !== 'remote-share-upload-assertion' ||
+    typeof candidate.correlationId !== 'string' ||
+    !REMOTE_SHARE_UPLOAD_ASSERTION_CORRELATION_ID_RE.test(candidate.correlationId) ||
+    typeof candidate.assertion !== 'string' ||
+    candidate.assertion.length < 64 ||
+    candidate.assertion.length > REMOTE_SHARE_UPLOAD_ASSERTION_TOKEN_MAX_LENGTH ||
+    !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(candidate.assertion) ||
+    !Number.isSafeInteger(candidate.expiresAt) ||
+    (candidate.expiresAt as number) <= 0
+  ) {
+    return null;
+  }
+  return {
+    type: 'remote-share-upload-assertion',
+    correlationId: candidate.correlationId,
+    assertion: candidate.assertion,
+    expiresAt: candidate.expiresAt as number,
+  };
+}
+
+function normalizeRemoteShareUploadAssertionError(
+  value: unknown,
+): Extract<SignalingMessage, { type: 'remote-share-upload-assertion-error' }> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    !hasExactObjectKeys(candidate, ['type', 'correlationId', 'errorType']) ||
+    candidate.type !== 'remote-share-upload-assertion-error' ||
+    typeof candidate.correlationId !== 'string' ||
+    !REMOTE_SHARE_UPLOAD_ASSERTION_CORRELATION_ID_RE.test(candidate.correlationId) ||
+    typeof candidate.errorType !== 'string' ||
+    !REMOTE_SHARE_UPLOAD_ASSERTION_ERROR_RE.test(candidate.errorType)
+  ) {
+    return null;
+  }
+  return {
+    type: 'remote-share-upload-assertion-error',
+    correlationId: candidate.correlationId,
+    errorType: candidate.errorType,
+  };
+}
+
+function isRemoteShareUploadAssertionRequest(value: RemoteShareUploadAssertionRequest): boolean {
+  return (
+    REMOTE_SHARE_UPLOAD_ACTOR_ID_RE.test(value.actorId) &&
+    REMOTE_SHARE_UPLOAD_REQUEST_ID_RE.test(value.requestId) &&
+    Number.isSafeInteger(value.sessionId) &&
+    value.sessionId > 0 &&
+    REMOTE_SHARE_UPLOAD_QUEUE_ITEM_ID_RE.test(value.queueItemId) &&
+    Number.isSafeInteger(value.size) &&
+    value.size > 0 &&
+    value.size <= 200 * 1024 * 1024 &&
+    REMOTE_SHARE_UPLOAD_ASSERTION_BODY_SHA256_RE.test(value.bodySha256)
+  );
+}
+
 /**
  * Durable "this session wants a signaling socket" record for a guest room.
  * roomSockets is a transient handle map whose close handler deletes the
@@ -245,6 +334,24 @@ const STANDARD_ROOM_IDENTITY_RENEW_INTERVAL_MS = 30_000;
 const STANDARD_ROOM_IDENTITY_RETRY_MS = 5_000;
 const STANDARD_ROOM_ASSERTION_ADMISSION_WAIT_MS = 2_000;
 const STANDARD_ROOM_ASSERTION_RENEWAL_WAIT_MS = 15_000;
+const REMOTE_SHARE_UPLOAD_ASSERTION_TIMEOUT_MS = 5_000;
+const REMOTE_SHARE_UPLOAD_ASSERTION_TOKEN_MAX_LENGTH = 4096;
+const REMOTE_SHARE_UPLOAD_ASSERTION_CORRELATION_ID_RE = /^rsaq_[A-Za-z0-9_-]{32}$/;
+const REMOTE_SHARE_UPLOAD_ASSERTION_ERROR_RE = /^[A-Z][A-Z0-9_]{2,63}$/;
+const REMOTE_SHARE_UPLOAD_ASSERTION_BODY_SHA256_RE = /^[A-Za-z0-9_-]{43}$/;
+const REMOTE_SHARE_UPLOAD_ACTOR_ID_RE = /^rsa_[A-Za-z0-9_-]{43}$/;
+const REMOTE_SHARE_UPLOAD_REQUEST_ID_RE = /^rs3_[A-Za-z0-9_-]{43}$/;
+const REMOTE_SHARE_UPLOAD_QUEUE_ITEM_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+interface PendingRemoteShareUploadAssertion {
+  readonly socket: WebSocket;
+  readonly resolve: (assertion: string | null) => void;
+  readonly reject: (error: Error) => void;
+  readonly timeoutId: ReturnType<typeof globalThis.setTimeout>;
+  readonly signal?: AbortSignal;
+  readonly abort?: () => void;
+}
 
 function parseIceNegotiationId(value: unknown): string | null {
   return typeof value === 'string' && ICE_NEGOTIATION_ID_RE.test(value) ? value : null;
@@ -934,6 +1041,16 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly standardRoomIdentityRefreshAfterGuestAdmission = new WeakSet<WebSocket>();
   private readonly standardRoomIdentityActiveRefreshGenerations = new Set<number>();
   private standardRoomIdentityRefreshGeneration = 0;
+  private remoteShareUploadAssertionStatus:
+    | 'unknown'
+    | 'unsupported'
+    | 'supported'
+    | 'unavailable' = 'unknown';
+  private remoteShareUploadAssertionObserved = false;
+  private readonly pendingRemoteShareUploadAssertions = new Map<
+    string,
+    PendingRemoteShareUploadAssertion
+  >();
   private hostMessageSequence = 0;
   private readonly peerOfferSequences = new Map<string, number>();
   private readonly peerDepartureSequences = new Map<string, number>();
@@ -1357,6 +1474,97 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return true;
   }
 
+  private takePendingRemoteShareUploadAssertion(
+    correlationId: string,
+    socket?: WebSocket,
+  ): PendingRemoteShareUploadAssertion | null {
+    const pending = this.pendingRemoteShareUploadAssertions.get(correlationId);
+    if (!pending || (socket && pending.socket !== socket)) return null;
+    this.pendingRemoteShareUploadAssertions.delete(correlationId);
+    globalThis.clearTimeout(pending.timeoutId);
+    if (pending.signal && pending.abort) {
+      pending.signal.removeEventListener('abort', pending.abort);
+    }
+    return pending;
+  }
+
+  private rejectPendingRemoteShareUploadAssertions(socket: WebSocket | null, code: string): void {
+    for (const [correlationId, pending] of this.pendingRemoteShareUploadAssertions) {
+      if (socket && pending.socket !== socket) continue;
+      const claimed = this.takePendingRemoteShareUploadAssertion(correlationId, pending.socket);
+      claimed?.reject(new Error(code));
+    }
+  }
+
+  async requestRemoteShareUploadAssertion(
+    request: RemoteShareUploadAssertionRequest,
+    signal?: AbortSignal,
+  ): Promise<string | null> {
+    if (signal?.aborted) throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_ABORTED');
+    if (this.destroyed || this.proSignalingAccess || !this.hostRoomId) {
+      throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+    }
+    // Marker absence is the sole mixed-version fallback. Once a Worker
+    // advertises support, every failure below is authoritative and must not be
+    // converted into an assertion-free legacy request.
+    if (this.remoteShareUploadAssertionStatus === 'unsupported') return null;
+    if (this.remoteShareUploadAssertionStatus !== 'supported') {
+      throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+    }
+    if (!isRemoteShareUploadAssertionRequest(request)) {
+      throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_INVALID_REQUEST');
+    }
+    const socket = this.hostSocket;
+    if (
+      !socket ||
+      socket.readyState !== WebSocket.OPEN ||
+      !this.standardRoomIdentityAdmittedHostSockets.has(socket)
+    ) {
+      throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+    }
+
+    let correlationId = '';
+    do correlationId = `rsaq_${randomBase64Url(24)}`;
+    while (this.pendingRemoteShareUploadAssertions.has(correlationId));
+
+    return new Promise<string | null>((resolve, reject) => {
+      const timeoutId = globalThis.setTimeout(() => {
+        const claimed = this.takePendingRemoteShareUploadAssertion(correlationId, socket);
+        claimed?.reject(new Error('REMOTE_SHARE_UPLOAD_ASSERTION_TIMEOUT'));
+      }, REMOTE_SHARE_UPLOAD_ASSERTION_TIMEOUT_MS);
+      const abort = signal
+        ? () => {
+            const claimed = this.takePendingRemoteShareUploadAssertion(correlationId, socket);
+            claimed?.reject(new Error('REMOTE_SHARE_UPLOAD_ASSERTION_ABORTED'));
+          }
+        : undefined;
+      const pending: PendingRemoteShareUploadAssertion = {
+        socket,
+        resolve,
+        reject,
+        timeoutId,
+        signal,
+        abort,
+      };
+      this.pendingRemoteShareUploadAssertions.set(correlationId, pending);
+      if (signal && abort) signal.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) {
+        abort?.();
+        return;
+      }
+      try {
+        this.send(socket, {
+          type: 'remote-share-upload-assertion-request',
+          correlationId,
+          ...request,
+        });
+      } catch (error) {
+        const claimed = this.takePendingRemoteShareUploadAssertion(correlationId, socket);
+        claimed?.reject(new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE', { cause: error }));
+      }
+    });
+  }
+
   destroy(): void {
     this.destroyed = true;
     this.standardRoomIdentityRefreshGeneration += 1;
@@ -1372,6 +1580,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.peerIdentityProjections.clear();
     this.peerOfferSequences.clear();
     this.peerDepartureSequences.clear();
+    this.remoteShareUploadAssertionStatus = 'unknown';
+    this.remoteShareUploadAssertionObserved = false;
+    this.rejectPendingRemoteShareUploadAssertions(null, 'REMOTE_SHARE_UPLOAD_ASSERTION_DESTROYED');
     for (const socket of this.roomSockets.values()) {
       try {
         socket.close();
@@ -1499,6 +1710,15 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
 
+    if (this.hostSocket && this.hostSocket !== socket) {
+      this.rejectPendingRemoteShareUploadAssertions(
+        this.hostSocket,
+        'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_REPLACED',
+      );
+    }
+    this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
+      ? 'unavailable'
+      : 'unknown';
     this.hostSocket = socket;
     socket.addEventListener('open', () => {
       if (this.proSignalingAccess) return;
@@ -1515,6 +1735,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       );
     });
     socket.addEventListener('close', (event) => {
+      this.rejectPendingRemoteShareUploadAssertions(
+        socket,
+        'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_CLOSED',
+      );
       if (this.destroyed) return;
       if ((event as CloseEvent).reason === 'PRO_COORDINATOR_EPOCH_ADVANCED') {
         if (this.hostSocket === socket) this.hostSocket = null;
@@ -1522,6 +1746,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         return;
       }
       if (this.hostSocket === socket) {
+        this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
+          ? 'unavailable'
+          : 'unknown';
         this.open = false;
         const wasDisconnected = this.disconnected;
         this.disconnected = true;
@@ -1635,6 +1862,30 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       value !== null &&
       typeof value === 'object' &&
       !Array.isArray(value) &&
+      (value as Record<string, unknown>).type === 'remote-share-upload-assertion'
+    ) {
+      const response = normalizeRemoteShareUploadAssertionResponse(value);
+      if (!response) {
+        throw createTransportError('server-error', 'INVALID_REMOTE_SHARE_UPLOAD_ASSERTION');
+      }
+      return response;
+    }
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      (value as Record<string, unknown>).type === 'remote-share-upload-assertion-error'
+    ) {
+      const response = normalizeRemoteShareUploadAssertionError(value);
+      if (!response) {
+        throw createTransportError('server-error', 'INVALID_REMOTE_SHARE_UPLOAD_ASSERTION_ERROR');
+      }
+      return response;
+    }
+    if (
+      value !== null &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
       (value as Record<string, unknown>).type === 'developer-command'
     ) {
       const command = parseDeveloperCommandFrame(value);
@@ -1675,6 +1926,24 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   ): Promise<void> {
     const message = await this.parseSignal(raw);
     if (this.destroyed || sourceSocket !== this.hostSocket) return;
+    if (message.type === 'remote-share-upload-assertion') {
+      if (!sourceSocket) return;
+      const pending = this.takePendingRemoteShareUploadAssertion(
+        message.correlationId,
+        sourceSocket,
+      );
+      pending?.resolve(message.assertion);
+      return;
+    }
+    if (message.type === 'remote-share-upload-assertion-error') {
+      if (!sourceSocket) return;
+      const pending = this.takePendingRemoteShareUploadAssertion(
+        message.correlationId,
+        sourceSocket,
+      );
+      pending?.reject(new Error(message.errorType));
+      return;
+    }
     if (message.type === 'developer-command') {
       if (this.proSignalingAccess?.role !== 'coordinator') {
         throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_COMMAND');
@@ -1707,6 +1976,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-open') {
+      if (message.remoteShareUploadAssertionVersion === 1) {
+        this.remoteShareUploadAssertionObserved = true;
+        this.remoteShareUploadAssertionStatus = 'supported';
+      } else {
+        this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
+          ? 'unavailable'
+          : 'unsupported';
+      }
       if (sourceSocket) this.standardRoomIdentityAdmittedHostSockets.add(sourceSocket);
       if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
       if (this.hostRoomId && this.hostSocket) {

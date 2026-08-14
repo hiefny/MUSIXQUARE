@@ -15,6 +15,10 @@ import {
   gateServiceMaintenance,
   readServiceMaintenance,
 } from './service-maintenance.js';
+import {
+  createRemoteShareUploadAssertion,
+  REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
+} from './remote-share-upload-assertion.js';
 
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
@@ -35,6 +39,14 @@ const STANDARD_WS_RATE_FETCH_TIMEOUT_MS = 2_000;
 const WS_MESSAGE_MAX_BYTES = 64 * 1024;
 const SDP_MAX_BYTES = 48 * 1024;
 const ICE_CANDIDATE_MAX_BYTES = 4 * 1024;
+const REMOTE_SHARE_UPLOAD_ASSERTION_SECRET_MIN_LENGTH = 32;
+const REMOTE_SHARE_UPLOAD_ASSERTION_CORRELATION_ID_RE = /^rsaq_[A-Za-z0-9_-]{32}$/;
+const REMOTE_SHARE_UPLOAD_ASSERTION_ACTOR_ID_RE = /^rsa_[A-Za-z0-9_-]{43}$/;
+const REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST_ID_RE = /^rs3_[A-Za-z0-9_-]{43}$/;
+const REMOTE_SHARE_UPLOAD_ASSERTION_BODY_SHA256_RE = /^[A-Za-z0-9_-]{43}$/;
+const REMOTE_SHARE_UPLOAD_ASSERTION_QUEUE_ITEM_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
 // A standard room keeps one host plus 99 guests. PRO rooms have no socket-level
 // host and instead admit 100 equal authenticated members.
 const MAX_ROOM_GUESTS = 99;
@@ -51,6 +63,13 @@ const MAX_PENDING_HOST_SOCKETS = 4;
 const MAX_PENDING_GUEST_SOCKETS = MAX_ROOM_GUESTS;
 const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
+// A legitimate room may allocate up to 120 Remote Share uploads per hour, so
+// retain that full burst while bounding the HMAC work an authenticated (or
+// compromised) host socket can trigger. Tokens refill at two requests/second;
+// the Remote Worker still enforces the much tighter room-wide hourly quota.
+const REMOTE_SHARE_UPLOAD_ASSERTION_BUCKET_CAPACITY = 120;
+const REMOTE_SHARE_UPLOAD_ASSERTION_REFILL_PER_MS =
+  REMOTE_SHARE_UPLOAD_ASSERTION_BUCKET_CAPACITY / 60_000;
 const GUEST_BINDINGS_KEY = 'guestReconnectBindings';
 const STANDARD_ROOM_MEMBERS_KEY = 'standardRoomAccountMembers';
 const MAX_STANDARD_ROOM_ACCOUNT_MEMBERS = 100;
@@ -66,6 +85,7 @@ const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
 const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
+const PRO_SIGNALING_CLIENT_UPDATE_REQUIRED = 'PRO_SIGNALING_CLIENT_UPDATE_REQUIRED';
 // Cached pre-cutover clients may still place their one-use ticket in the URL.
 // Keep that compatibility path bounded; platform invocation URL logs and
 // traces stay disabled for the entire grace window in Wrangler.
@@ -121,15 +141,28 @@ const SECURITY_HEADERS = {
   'referrer-policy': 'no-referrer',
 };
 
-function json(data, status = 200) {
+function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       ...SECURITY_HEADERS,
       'content-type': 'application/json; charset=utf-8',
       'cache-control': 'no-store',
+      ...headers,
     },
   });
+}
+
+function proSignalingClientUpdateRequired() {
+  return json(
+    {
+      error: PRO_SIGNALING_CLIENT_UPDATE_REQUIRED,
+      action: 'refresh',
+      requiredWebSocketProtocol: PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+    },
+    426,
+    { 'x-mxqr-client-action': 'refresh' },
+  );
 }
 
 function isAllowedOrigin(origin, env = {}) {
@@ -359,6 +392,25 @@ async function verifyProSignalingTicket(ticket, expectedRoomId, env, now = Date.
   }
 }
 
+function isStructurallyPlausibleProSignalingTicket(ticket, expectedRoomId, now = Date.now()) {
+  if (typeof ticket !== 'string' || ticket.length > 4096) return false;
+  const parts = ticket.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1] || parts[0].length > 3072) return false;
+  const presentedSignature = base64UrlToBytes(parts[1]);
+  const payloadBytes = base64UrlToBytes(parts[0]);
+  if (!presentedSignature || presentedSignature.byteLength !== 32 || !payloadBytes) return false;
+  try {
+    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(payloadBytes);
+    return !!normalizeProTicketPayload(
+      JSON.parse(decoded),
+      expectedRoomId,
+      Math.floor(now / 1000),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function readProSignalingCredential(request, url, nowMs = Date.now()) {
   const protocolHeader = request.headers.get('Sec-WebSocket-Protocol');
   if (protocolHeader !== null) {
@@ -380,7 +432,6 @@ function readProSignalingCredential(request, url, nowMs = Date.now()) {
     };
   }
 
-  if (nowMs >= PRO_SIGNALING_LEGACY_QUERY_ACCEPT_UNTIL_MS) return null;
   const ticketValues = url.searchParams.getAll('ticket');
   if (
     ticketValues.length !== 1 ||
@@ -390,7 +441,30 @@ function readProSignalingCredential(request, url, nowMs = Date.now()) {
   ) {
     return null;
   }
+  if (nowMs >= PRO_SIGNALING_LEGACY_QUERY_ACCEPT_UNTIL_MS) {
+    // A WebSocket constructor cannot expose a failed-upgrade body to old
+    // JavaScript, but the explicit HTTP/header contract remains visible to
+    // diagnostics and non-browser clients. Cached browsers recover through the
+    // already-shipped service-worker refresh flow described in the cutover
+    // runbook. After cutoff, never return the bearer or invoke its HMAC
+    // verifier. A bounded structural check filters malformed probes from the
+    // aggregate recovery signal, but that metric is not authentication truth.
+    const expectedRoomId = url.pathname.match(PRO_ROOM_PATH)?.[1] || '';
+    return {
+      error: PRO_SIGNALING_CLIENT_UPDATE_REQUIRED,
+      metricEligible: isStructurallyPlausibleProSignalingTicket(
+        ticketValues[0],
+        expectedRoomId,
+        nowMs,
+      ),
+      transport: 'legacy-query-expired',
+    };
+  }
   return { ticket: ticketValues[0], responseProtocol: null, transport: 'legacy-query' };
+}
+
+function isProSignalingClientUpdateRequired(credential) {
+  return credential?.error === PRO_SIGNALING_CLIENT_UPDATE_REQUIRED;
 }
 
 async function hashGuestReconnectSecret(secret) {
@@ -412,6 +486,19 @@ function constantTimeStringEqual(left, right) {
 function workerVersionFields(env) {
   const workerVersionId = env?.CF_VERSION_METADATA?.id;
   return typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {};
+}
+
+function remoteShareUploadAssertionSecret(env) {
+  const secret = env?.MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET;
+  return typeof secret === 'string' && secret.length >= REMOTE_SHARE_UPLOAD_ASSERTION_SECRET_MIN_LENGTH
+    ? secret
+    : '';
+}
+
+function remoteShareUploadAssertionFeatureFields(env) {
+  return remoteShareUploadAssertionSecret(env)
+    ? { remoteShareUploadAssertionVersion: REMOTE_SHARE_UPLOAD_ASSERTION_VERSION }
+    : {};
 }
 
 function defaultGuestBindings() {
@@ -1248,6 +1335,30 @@ function validateIncomingMessage(message, role) {
   if (message.type === 'room-password-set') {
     return typeof message.password === 'string' ? 'valid' : 'ignore';
   }
+  if (message.type === 'remote-share-upload-assertion-request') {
+    return hasExactKeys(message, [
+      'type',
+      'correlationId',
+      'actorId',
+      'requestId',
+      'sessionId',
+      'queueItemId',
+      'size',
+      'bodySha256',
+    ]) &&
+      REMOTE_SHARE_UPLOAD_ASSERTION_CORRELATION_ID_RE.test(message.correlationId || '') &&
+      REMOTE_SHARE_UPLOAD_ASSERTION_ACTOR_ID_RE.test(message.actorId || '') &&
+      REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST_ID_RE.test(message.requestId || '') &&
+      Number.isSafeInteger(message.sessionId) &&
+      message.sessionId > 0 &&
+      REMOTE_SHARE_UPLOAD_ASSERTION_QUEUE_ITEM_ID_RE.test(message.queueItemId || '') &&
+      Number.isSafeInteger(message.size) &&
+      message.size > 0 &&
+      message.size <= REMOTE_SHARE_MAX_BYTES &&
+      REMOTE_SHARE_UPLOAD_ASSERTION_BODY_SHA256_RE.test(message.bodySha256 || '')
+      ? 'valid'
+      : 'ignore';
+  }
   if (!isValidPeerId(message.to)) return 'ignore';
   if (message.type === 'signal-answer') {
     if (isOversizedSdp(message.sdp)) return 'oversized';
@@ -1409,6 +1520,14 @@ async function checkProRateLimit(
   });
 }
 
+// Compatibility telemetry is advisory and has a separate, much tighter
+// budget. Keep this named wrapper distinct from the one PRO admission decision
+// so the standard-room hot-path guard can continue proving that admission is
+// isolated to the PRO routing branch.
+async function checkProQueryRefreshMetricRateLimit(request, env) {
+  return checkProRateLimit(request, env, 'pro-query-refresh-metric', 10, 60 * 60);
+}
+
 function send(ws, message) {
   try {
     ws.send(JSON.stringify(message));
@@ -1461,6 +1580,20 @@ async function recordMetric(env, event, now = Date.now()) {
   } catch (error) {
     console.warn('[Metrics] Failed to record signaling metric', event, error);
   }
+}
+
+function deferMetric(context, env, event, now = Date.now()) {
+  const task = recordMetric(env, event, now);
+  try {
+    if (typeof context?.waitUntil === 'function') {
+      context.waitUntil(task);
+      return;
+    }
+  } catch {
+    // The write already owns its error handling. Local runtimes without a
+    // usable ExecutionContext still get best-effort metric delivery below.
+  }
+  void task;
 }
 
 function defaultRoomMeta() {
@@ -1816,6 +1949,20 @@ function normalizeAttachment(value) {
 
   if (value.role === 'host') {
     if (value.auth === 'ok' && typeof value.secret === 'string' && value.secret) {
+      const remoteShareUploadAssertionBucket =
+        Number.isFinite(value.remoteShareUploadAssertionTokens) &&
+        Number.isFinite(value.remoteShareUploadAssertionUpdatedAt)
+          ? {
+              remoteShareUploadAssertionTokens: Math.min(
+                REMOTE_SHARE_UPLOAD_ASSERTION_BUCKET_CAPACITY,
+                Math.max(0, value.remoteShareUploadAssertionTokens),
+              ),
+              remoteShareUploadAssertionUpdatedAt: Math.max(
+                0,
+                value.remoteShareUploadAssertionUpdatedAt,
+              ),
+            }
+          : {};
       return {
         v: ATTACHMENT_VERSION,
         role: 'host',
@@ -1824,6 +1971,7 @@ function normalizeAttachment(value) {
         secret: value.secret,
         auth: 'ok',
         ...normalizeStandardRoomIdentityAttachment(value),
+        ...remoteShareUploadAssertionBucket,
       };
     }
     if (value.auth === 'pending') {
@@ -2022,6 +2170,28 @@ export class MusixquareRoom {
       return false;
     }
     return true;
+  }
+
+  consumeRemoteShareUploadAssertionToken(ws, now = Date.now()) {
+    const attachment = readAttachment(ws);
+    if (!attachment || attachment.role !== 'host' || attachment.auth !== 'ok') return false;
+    const previousTokens = Number.isFinite(attachment.remoteShareUploadAssertionTokens)
+      ? attachment.remoteShareUploadAssertionTokens
+      : REMOTE_SHARE_UPLOAD_ASSERTION_BUCKET_CAPACITY;
+    const previousUpdatedAt = Number.isFinite(attachment.remoteShareUploadAssertionUpdatedAt)
+      ? attachment.remoteShareUploadAssertionUpdatedAt
+      : now;
+    const elapsed = Math.max(0, now - previousUpdatedAt);
+    const tokens = Math.min(
+      REMOTE_SHARE_UPLOAD_ASSERTION_BUCKET_CAPACITY,
+      previousTokens + elapsed * REMOTE_SHARE_UPLOAD_ASSERTION_REFILL_PER_MS,
+    );
+    serializeSocketAttachment(ws, {
+      ...attachment,
+      remoteShareUploadAssertionTokens: tokens < 1 ? tokens : tokens - 1,
+      remoteShareUploadAssertionUpdatedAt: now,
+    });
+    return tokens >= 1;
   }
 
   consumeProRealtimeMessageToken(ws, now = Date.now()) {
@@ -3360,6 +3530,15 @@ export class MusixquareRoom {
       // bounded query fallback exists only for cached pre-cutover clients.
       const credential = readProSignalingCredential(request, url);
       if (!credential) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
+      if (isProSignalingClientUpdateRequired(credential)) {
+        if (credential.metricEligible) {
+          const metricRate = await checkProQueryRefreshMetricRateLimit(request, this.env);
+          if (metricRate.status === 'ok' && metricRate.allowed) {
+            this.recordMetric('pro_ticket_legacy_query_update_required');
+          }
+        }
+        return proSignalingClientUpdateRequired();
+      }
       const ticket = await verifyProSignalingTicket(
         credential.ticket,
         proRoomId,
@@ -4083,6 +4262,7 @@ export class MusixquareRoom {
         ...(identity
           ? { memberIdentity: standardRoomMemberIdentityFromAttachment(attachment) }
           : {}),
+        ...remoteShareUploadAssertionFeatureFields(this.env),
         ...workerVersionFields(this.env),
       })
     ) {
@@ -5054,6 +5234,66 @@ export class MusixquareRoom {
   }
 
   async handleHostMessage(ws, message, attachment) {
+    if (message.type === 'remote-share-upload-assertion-request') {
+      const current = this.currentStandardRoomAttachment(ws);
+      if (!current || current.role !== 'host') return;
+      if (!this.consumeRemoteShareUploadAssertionToken(ws)) {
+        sendChecked(ws, {
+          type: 'remote-share-upload-assertion-error',
+          correlationId: message.correlationId,
+          errorType: 'REMOTE_SHARE_UPLOAD_ASSERTION_RATE_LIMITED',
+        });
+        return;
+      }
+      const secret = remoteShareUploadAssertionSecret(this.env);
+      let issued = null;
+      if (secret) {
+        try {
+          issued = await createRemoteShareUploadAssertion(
+            {
+              roomId: current.roomId,
+              hostPeerId: current.peerId,
+              sessionId: message.sessionId,
+              queueItemId: message.queueItemId,
+              size: message.size,
+              actorId: message.actorId,
+              requestId: message.requestId,
+              bodySha256: message.bodySha256,
+            },
+            secret,
+          );
+        } catch {
+          issued = null;
+        }
+      }
+
+      // HMAC work yields. Re-read the attachment and live host index so a
+      // replaced or closed predecessor can never receive fresh authority.
+      const afterIssue = this.currentStandardRoomAttachment(ws);
+      if (
+        !afterIssue ||
+        afterIssue.role !== 'host' ||
+        afterIssue.roomId !== current.roomId ||
+        afterIssue.peerId !== current.peerId
+      ) {
+        return;
+      }
+      if (!issued) {
+        sendChecked(ws, {
+          type: 'remote-share-upload-assertion-error',
+          correlationId: message.correlationId,
+          errorType: 'REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE',
+        });
+        return;
+      }
+      sendChecked(ws, {
+        type: 'remote-share-upload-assertion',
+        correlationId: message.correlationId,
+        assertion: issued.assertion,
+        expiresAt: issued.expiresAt,
+      });
+      return;
+    }
     if (message.type === 'room-password-set') {
       if (attachment.roomKind === 'pro') return;
       const password = typeof message.password === 'string' ? message.password : '';
@@ -5219,7 +5459,7 @@ export class MusixquareRoom {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/internal/')) {
       return json({ error: 'NOT_FOUND' }, 404);
@@ -5253,6 +5493,15 @@ export default {
       }
       const credential = readProSignalingCredential(request, url);
       if (!credential) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
+      if (isProSignalingClientUpdateRequired(credential)) {
+        if (credential.metricEligible) {
+          const metricRate = await checkProQueryRefreshMetricRateLimit(request, env);
+          if (metricRate.status === 'ok' && metricRate.allowed) {
+            deferMetric(context, env, 'pro_ticket_legacy_query_update_required');
+          }
+        }
+        return proSignalingClientUpdateRequired();
+      }
       const ticket = await verifyProSignalingTicket(
         credential.ticket,
         roomId,
@@ -5267,7 +5516,13 @@ export default {
       }
       const id = env.MUSIXQUARE_ROOMS.idFromName(proRoomObject);
       const room = env.MUSIXQUARE_ROOMS.get(id);
-      return room.fetch(request);
+      const response = await room.fetch(request);
+      if (credential.transport === 'legacy-query' && response.status === 101) {
+        // Fixed-name, aggregate-only D1 counter. Never attach the request URL,
+        // room, participant, ticket, IP, or User-Agent to this metric.
+        deferMetric(context, env, 'pro_ticket_legacy_query_used');
+      }
+      return response;
     }
 
     const role = url.searchParams.get('role');

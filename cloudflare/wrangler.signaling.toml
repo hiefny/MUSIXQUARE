@@ -10,8 +10,11 @@ binding = "CF_VERSION_METADATA"
 [observability]
 enabled = true
 
-# Cached clients may use a bearer query only during the bounded rollout grace.
-# Never emit provider-generated request URLs; custom logs stay query-free.
+# Cached clients may use a bearer query only before 2026-09-09 UTC; rejected
+# stale requests still carry that bearer afterward. Keep provider URL telemetry
+# off through the zero-use/removal gates in pro-signaling-query-ticket-cutover.md.
+# The production security guard blocks unsafe restoration while a query reader
+# remains. Custom application logs stay query-free.
 [observability.logs]
 enabled = true
 head_sampling_rate = 0.1
@@ -20,10 +23,12 @@ invocation_logs = false
 [observability.traces]
 enabled = false
 
-# Required at deploy time and intentionally never committed. Both values must
-# be random and at least 32 characters, and must match their named counterpart:
+# Required at deploy time and intentionally never committed. All values must
+# be random and at least 32 characters, purpose-separated, and match only their
+# named counterpart:
 #   npm run wrangler -- secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.signaling.toml
 #   npm run wrangler -- secret put MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET --config cloudflare/wrangler.signaling.toml
+#   npm run wrangler -- secret put MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET --config cloudflare/wrangler.signaling.toml
 
 [[routes]]
 pattern = "signal.musixquare.com"

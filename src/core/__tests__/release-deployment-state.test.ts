@@ -216,6 +216,12 @@ describe('release deployment rollback state', () => {
     expect(runtimePathsForWorker('developer-api')).toContain(sharedGate);
   });
 
+  it('tracks the Remote Share host assertion primitive with both importing Workers', () => {
+    const assertionPrimitive = 'cloudflare/remote-share-upload-assertion.js';
+    expect(runtimePathsForWorker('remote-share')).toContain(assertionPrimitive);
+    expect(runtimePathsForWorker('signaling')).toContain(assertionPrimitive);
+  });
+
   it('tracks R2 policies with every app/Worker consumer', () => {
     for (const policy of [
       'cloudflare/r2-cors.remote-share.json',
@@ -1509,6 +1515,35 @@ describe('release deployment rollback state', () => {
     expect(rollbackDependencyBlock('signaling', [{ target: 'signaling' }], [])).toBeNull();
   });
 
+  it('restores remote-share only after the App baseline is known to be restored', () => {
+    const states = [{ target: 'app' }, { target: 'remote-share' }];
+
+    expect(rollbackDependencyBlock('remote-share', states, [])).toEqual({
+      dependency: 'app',
+      dependencyStatus: 'not-processed',
+    });
+    for (const status of [
+      'conflict',
+      'failed',
+      'skipped-compatibility-floor',
+      'skipped-dependent-worker-not-restored',
+    ]) {
+      expect(rollbackDependencyBlock('remote-share', states, [{ target: 'app', status }])).toEqual({
+        dependency: 'app',
+        dependencyStatus: status,
+      });
+    }
+    expect(
+      rollbackDependencyBlock('remote-share', states, [
+        { target: 'app', status: 'already-restored' },
+      ]),
+    ).toBeNull();
+    expect(
+      rollbackDependencyBlock('remote-share', states, [{ target: 'app', status: 'restored' }]),
+    ).toBeNull();
+    expect(rollbackDependencyBlock('remote-share', [{ target: 'remote-share' }], [])).toBeNull();
+  });
+
   it('withholds legacy PRO when signaling was not safely restored first', () => {
     const states = [{ target: 'signaling' }, { target: 'pro-room' }];
 
@@ -1646,7 +1681,7 @@ describe('release deployment rollback state', () => {
     const liveSmokeSteps = workflow
       .split(/(?=^      - name: )/gmu)
       .filter((step) => step.includes('npm run smoke:live:'));
-    expect(liveSmokeSteps).toHaveLength(8);
+    expect(liveSmokeSteps).toHaveLength(9);
     for (const step of liveSmokeSteps) {
       expect(step).not.toMatch(/CLOUDFLARE_(?:D1_)?API_TOKEN/u);
     }
@@ -1999,6 +2034,18 @@ describe('release deployment rollback state', () => {
     expect(workflow).toContain('RELEASE_SOURCE_RUN_ID');
     expect(workflow).toContain('RELEASE_SOURCE_RUN_ATTEMPT');
     expect(workflow).toContain('run-id: ${{ needs.validate.outputs.candidate_run_id }}');
+    const candidateVerification = workflow.indexOf('Verify candidate hashes and commit');
+    const timeSensitiveGuard = workflow.indexOf(
+      'Revalidate time-sensitive production security guards',
+    );
+    const bundleRevalidation = workflow.indexOf(
+      'Revalidate every production Worker bundle without deploying',
+    );
+    expect(timeSensitiveGuard).toBeGreaterThan(candidateVerification);
+    expect(bundleRevalidation).toBeGreaterThan(timeSensitiveGuard);
+    expect(workflow.slice(timeSensitiveGuard, bundleRevalidation)).toContain(
+      'npm run guard:prod-security',
+    );
 
     const validateStart = workflow.indexOf('  validate:');
     const deployStart = workflow.indexOf('  deploy:');
@@ -2096,10 +2143,26 @@ describe('release deployment rollback state', () => {
     expect(deploySteps).toBeGreaterThan(deployStart);
     expect(workflow.slice(deployStart, deploySteps)).toContain('timeout-minutes: 240');
 
+    const secretPreflight = workflow.indexOf(
+      '- name: Verify Remote Share assertion secret inventory',
+    );
+    const mutationAuthorization = workflow.indexOf(
+      '- name: Authorize production mutations from persisted checkpoint',
+    );
+    expect(secretPreflight).toBeGreaterThan(deploySteps);
+    expect(secretPreflight).toBeLessThan(mutationAuthorization);
+    const secretPreflightEnd = workflow.indexOf('\n      - name:', secretPreflight + 1);
+    const secretStep = workflow.slice(secretPreflight, secretPreflightEnd);
+    expect(secretStep).toContain('MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET');
+    expect(secretStep).toContain('cloudflare/wrangler.remote-share.toml');
+    expect(secretStep).toContain('cloudflare/wrangler.signaling.toml');
+    expect(secretStep).toContain("'any(.[]; .name == $name)'");
+
     for (const stepName of [
       'Smoke PRO media R2 CORS boundary',
       'Smoke remote-share Worker',
       'Smoke signaling Worker',
+      'Smoke Remote Share host assertion path',
       'Smoke Developer API Worker',
       'Smoke app generation endpoint',
       'Smoke anonymous app account boundary',
@@ -2114,6 +2177,33 @@ describe('release deployment rollback state', () => {
           : 'timeout-minutes: 5',
       );
     }
+
+    const assertionSmokeStart = workflow.indexOf('- name: Smoke Remote Share host assertion path');
+    const assertionSmokeEnd = workflow.indexOf('\n      - name:', assertionSmokeStart + 1);
+    const assertionSmoke = workflow.slice(assertionSmokeStart, assertionSmokeEnd);
+    expect(assertionSmoke).toContain("inputs.target == 'all' || inputs.target == 'signaling'");
+    expect(assertionSmoke).toContain('run: npm run smoke:live:remote-share -- --require-assertion');
+    expect(assertionSmoke).toContain(
+      'MXQR_EXPECTED_REMOTE_SHARE_VERSION: ${{ steps.remote_share_deployment.outputs.version_id }}',
+    );
+    expect(assertionSmoke).toContain(
+      'MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}',
+    );
+
+    const remoteDeployStart = workflow.indexOf('- name: Deploy and record remote-share Worker');
+    const remoteDeployEnd = workflow.indexOf('\n      - name:', remoteDeployStart + 1);
+    const remoteDeploy = workflow.slice(remoteDeployStart, remoteDeployEnd);
+    expect(remoteDeploy).toContain('id: remote_share_deployment');
+    expect(remoteDeploy).toContain(
+      'version_id="$(node scripts/release-deployment-state.mjs version remote-share)"',
+    );
+
+    const remoteSmokeStart = workflow.indexOf('- name: Smoke remote-share Worker');
+    const remoteSmokeEnd = workflow.indexOf('\n      - name:', remoteSmokeStart + 1);
+    const remoteSmoke = workflow.slice(remoteSmokeStart, remoteSmokeEnd);
+    expect(remoteSmoke).toContain(
+      'MXQR_EXPECTED_REMOTE_SHARE_VERSION: ${{ steps.remote_share_deployment.outputs.version_id }}',
+    );
 
     const proRoomSmokeStepNames = [
       'Smoke PRO room Worker',
@@ -2476,6 +2566,47 @@ describe('release deployment rollback state', () => {
         { target: 'app', status: 'skipped-compatibility-floor' },
         {
           target: 'signaling',
+          status: 'incompatible-baseline-dependent-worker',
+          error: expect.stringContaining('cross-Worker protocol boundary'),
+        },
+      ],
+    });
+    expect(runner).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a baseline Remote Share Worker is paired with a retained candidate App', () => {
+    const directory = createDirectory();
+    for (const target of ['app', 'remote-share'] as const) {
+      writeFileSync(
+        resolve(directory, `${target}-state.json`),
+        JSON.stringify({
+          schemaVersion: 1,
+          target,
+          config: `cloudflare/wrangler.${target}.toml`,
+          attempted: true,
+          beforeVersionId: `${target}-baseline-version`,
+          releaseMessage: CANONICAL_RELEASE_MESSAGE,
+        }),
+      );
+    }
+    const runner = vi.fn();
+
+    const report = rollback(directory, {
+      skipTargets: new Set(['app']),
+      queryCurrent: (target: string) => ({
+        deploymentId: `${target}-${target === 'app' ? 'candidate' : 'baseline'}-deployment`,
+        versionId: `${target}-${target === 'app' ? 'candidate' : 'baseline'}-version`,
+        message: target === 'app' ? CANONICAL_RELEASE_MESSAGE : `git:${'b'.repeat(40)}`,
+      }),
+      runner,
+    });
+
+    expect(report).toMatchObject({
+      status: 'partial-failure',
+      results: [
+        { target: 'app', status: 'skipped-compatibility-floor' },
+        {
+          target: 'remote-share',
           status: 'incompatible-baseline-dependent-worker',
           error: expect.stringContaining('cross-Worker protocol boundary'),
         },

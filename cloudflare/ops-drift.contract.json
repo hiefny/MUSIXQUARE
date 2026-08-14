@@ -78,6 +78,7 @@
       "worker": "musixquare-remote-share",
       "expectedNames": [
         "MXQR_CAPABILITY_SECRET",
+        "MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET",
         "R2_ACCESS_KEY_ID",
         "R2_ACCOUNT_ID",
         "R2_SECRET_ACCESS_KEY",
@@ -86,7 +87,11 @@
     },
     {
       "worker": "musixquare-signaling",
-      "expectedNames": ["MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET", "PRO_SIGNALING_SECRET"]
+      "expectedNames": [
+        "MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET",
+        "MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET",
+        "PRO_SIGNALING_SECRET"
+      ]
     }
   ],
   "github": {

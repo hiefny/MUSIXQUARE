@@ -17,7 +17,10 @@
  * - UPLOAD_TOKEN_TTL_SECONDS: presigned PUT start window, default 600
  * - RATE_LIMIT_WINDOW_SECONDS: default 3600
  * - IP_UPLOADS_PER_WINDOW: default 60
- * - ROOM_UPLOADS_PER_WINDOW: default 0 (disabled)
+ * - ROOM_UPLOADS_PER_WINDOW: default 120
+ * - ROOM_UPLOAD_ASSERTION_MODE: disabled (local/default), optional, or required
+ * - MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: signaling-shared HMAC secret,
+ *     required when ROOM_UPLOAD_ASSERTION_MODE is optional or required
  * - ROOM_STORAGE_QUOTA_BYTES: default 0. Production uses 1 GiB and requires
  *     the durable session-replay path.
  * - ALLOWED_ORIGINS: comma-separated origins
@@ -38,6 +41,10 @@ import {
   gateServiceMaintenance,
   readServiceMaintenance,
 } from './service-maintenance.js';
+import {
+  REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
+  verifyRemoteShareUploadAssertion,
+} from './remote-share-upload-assertion.js';
 
 // Cross-layer contract: client selection, protocol descriptors, and
 // stored-object validation all use this fixed 200 MiB whole-object ceiling.
@@ -46,7 +53,7 @@ const DEFAULT_TTL_SECONDS = 60 * 60;
 const DEFAULT_UPLOAD_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const DEFAULT_IP_UPLOADS_PER_WINDOW = 60;
-const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 0;
+const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 120;
 const DEFAULT_ROOM_STORAGE_QUOTA_BYTES = 0;
 const ROOM_STORAGE_LIST_PAGE_SIZE = 1000;
 const ROOM_STORAGE_SCAN_MAX_OBJECTS = 2000;
@@ -72,6 +79,15 @@ const EXPIRY_TOMBSTONE_QUIET_MS = 60 * 60 * 1000;
 const WHOLE_OBJECT_VERSION = 1;
 const WORKER_CONTRACT_VERSION = 3;
 const DOWNLOAD_AUTHORIZATION_VERSION = 1;
+const ROOM_UPLOAD_ASSERTION_HEADER = 'x-mxqr-room-upload-assertion';
+const ROOM_UPLOAD_ASSERTION_MODES = new Set(['disabled', 'optional', 'required']);
+const ROOM_UPLOAD_ASSERTION_METRICS = new Set([
+  'remote_share_upload_assertion_verified',
+  'remote_share_upload_assertion_legacy',
+  'remote_share_upload_assertion_rejected',
+]);
+const ROOM_UPLOAD_ASSERTION_REJECT_METRICS_PER_WINDOW = 10;
+const METRICS_TABLE = 'mxqr_metric_buckets';
 // Storage/token format name. The peer descriptor deliberately calls the same
 // downloaded bytes `whole-v1`; the distinct names identify the storage and wire layers.
 const WHOLE_OBJECT_STORAGE_FORMAT = 'whole-object-v1';
@@ -188,7 +204,7 @@ function corsHeaders(request, env) {
     'access-control-allow-origin': allowOrigin,
     'access-control-allow-methods': 'POST,GET,DELETE,OPTIONS',
     'access-control-allow-headers':
-      'content-type,authorization,x-mxqr-capability,x-mxqr-cleanup-token',
+      'content-type,authorization,x-mxqr-capability,x-mxqr-cleanup-token,x-mxqr-room-upload-assertion',
     'access-control-max-age': '86400',
     vary: 'origin',
   };
@@ -310,7 +326,10 @@ async function readJsonBodyLimited(request, maxBytes) {
     offset += chunk.byteLength;
   }
   try {
-    return { value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bodyBytes)) };
+    return {
+      value: JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bodyBytes)),
+      bodyBytes,
+    };
   } catch {
     return { error: 'invalid' };
   }
@@ -390,6 +409,94 @@ function parseOptionalLimit(value, fallback) {
 function getSigningSecret(env) {
   const secret = String(env.REMOTE_SHARE_SIGNING_SECRET || '').trim();
   return secret.length >= 32 ? secret : null;
+}
+
+function roomUploadAssertionMode(env) {
+  const configured = String(env.ROOM_UPLOAD_ASSERTION_MODE || 'disabled')
+    .trim()
+    .toLowerCase();
+  return ROOM_UPLOAD_ASSERTION_MODES.has(configured) ? configured : null;
+}
+
+function configuredRoomUploadAssertionSecret(env) {
+  return String(env.MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET || '');
+}
+
+function getRoomUploadAssertionSecret(env) {
+  const secret = configuredRoomUploadAssertionSecret(env);
+  return secret.length >= HMAC_SECRET_MIN_LENGTH ? secret : '';
+}
+
+function roomUploadAssertionConfigurationError(request, env) {
+  const mode = roomUploadAssertionMode(env);
+  if (!mode) {
+    return json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_MODE_INVALID' }, 503);
+  }
+  if (mode === 'disabled') return null;
+  const secret = configuredRoomUploadAssertionSecret(env);
+  if (!secret) {
+    return json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_NOT_CONFIGURED' }, 503);
+  }
+  if (secret.length < HMAC_SECRET_MIN_LENGTH) {
+    return json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_SECRET_INVALID' }, 503);
+  }
+  return null;
+}
+
+async function recordRoomUploadAssertionMetric(env, event, now = Date.now()) {
+  const db = env?.MUSIXQUARE_ADMIN_DB || env?.ADMIN_METRICS_DB || null;
+  if (!ROOM_UPLOAD_ASSERTION_METRICS.has(event) || !db?.prepare) return;
+  const bucketMinute = Math.floor(now / 60_000);
+  try {
+    await db
+      .prepare(
+        `INSERT INTO ${METRICS_TABLE} (bucket_minute, event, count)
+         VALUES (?1, ?2, 1)
+         ON CONFLICT(bucket_minute, event)
+         DO UPDATE SET count = count + 1`,
+      )
+      .bind(bucketMinute, event)
+      .run();
+  } catch (error) {
+    console.warn('[Metrics] Failed to record remote share assertion metric', event, error);
+  }
+}
+
+function deferRoomUploadAssertionMetric(context, env, event, now = Date.now()) {
+  const task = recordRoomUploadAssertionMetric(env, event, now);
+  try {
+    if (typeof context?.waitUntil === 'function') {
+      context.waitUntil(task);
+      return;
+    }
+  } catch {
+    // The metric write catches its own failures. A local runtime without a
+    // usable ExecutionContext still receives best-effort delivery below.
+  }
+  void task;
+}
+
+async function deferRejectedRoomUploadAssertionMetric(request, env, context, rateSecret) {
+  try {
+    const rateWindowSeconds = parseLimit(
+      env.RATE_LIMIT_WINDOW_SECONDS,
+      DEFAULT_RATE_LIMIT_WINDOW_SECONDS,
+    );
+    const ipKey = await rateLimitIpKey(rateSecret, request);
+    const metricRate = await consumeLimit(
+      env,
+      `${ipKey}:assertion-rejected-metric`,
+      ROOM_UPLOAD_ASSERTION_REJECT_METRICS_PER_WINDOW,
+      rateWindowSeconds,
+      undefined,
+    );
+    if (metricRate === 'allowed') {
+      deferRoomUploadAssertionMetric(context, env, 'remote_share_upload_assertion_rejected');
+    }
+  } catch {
+    // Telemetry is never an authorization dependency. A missing or unhealthy
+    // metric limiter suppresses the D1 write while the request still fails.
+  }
 }
 
 function configuredCapabilitySecret(env) {
@@ -622,10 +729,18 @@ async function authorizeSessionCapability(request, env, signingSecret) {
       };
 }
 
+function workerVersionFields(env) {
+  const workerVersionId = env?.CF_VERSION_METADATA?.id;
+  return typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {};
+}
+
 function handleSecurityConfig(request, env) {
   if (hasInvalidCapabilitySecret(env)) {
     return json(request, env, { error: 'CAPABILITY_SECRET_INVALID' }, 503);
   }
+  const assertionConfigurationError = roomUploadAssertionConfigurationError(request, env);
+  if (assertionConfigurationError) return assertionConfigurationError;
+  const assertionMode = roomUploadAssertionMode(env);
   return json(request, env, {
     capabilityRequired: isCapabilityRequired(env),
     scope: CAPABILITY_SCOPE,
@@ -635,6 +750,10 @@ function handleSecurityConfig(request, env) {
     sessionReplayEnabled: roomStorageSessionReplayEnabled(env),
     wholeObjectVersion: WHOLE_OBJECT_VERSION,
     downloadAuthorizationVersion: DOWNLOAD_AUTHORIZATION_VERSION,
+    roomUploadAssertionVersion: REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
+    roomUploadAssertionMode: assertionMode,
+    roomUploadAssertionRequired: assertionMode === 'required',
+    ...workerVersionFields(env),
   });
 }
 
@@ -642,6 +761,11 @@ async function sha256Hex(value) {
   const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
   const hash = await crypto.subtle.digest('SHA-256', bytes);
   return hex(new Uint8Array(hash));
+}
+
+async function sha256Base64Url(value) {
+  const bytes = typeof value === 'string' ? new TextEncoder().encode(value) : value;
+  return base64UrlEncode(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)));
 }
 
 function hex(bytes) {
@@ -1380,7 +1504,63 @@ async function issueUploadSession(reservation, env, secret, quotaEnabled) {
   };
 }
 
-async function handleSession(request, env) {
+async function authorizeRoomUploadAssertion(
+  request,
+  env,
+  context,
+  rateSecret,
+  bodyBytes,
+  expected,
+) {
+  const configurationError = roomUploadAssertionConfigurationError(request, env);
+  if (configurationError) return { error: configurationError, metric: null };
+  const mode = roomUploadAssertionMode(env);
+  if (mode === 'disabled') return { error: null, metric: null };
+
+  if (!request.headers.has(ROOM_UPLOAD_ASSERTION_HEADER)) {
+    if (mode === 'optional') {
+      return { error: null, metric: 'remote_share_upload_assertion_legacy' };
+    }
+    await deferRejectedRoomUploadAssertionMetric(request, env, context, rateSecret);
+    return {
+      error: json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_REQUIRED' }, 403),
+      metric: null,
+    };
+  }
+
+  const assertion = (request.headers.get(ROOM_UPLOAD_ASSERTION_HEADER) || '').trim();
+  if (!assertion) {
+    await deferRejectedRoomUploadAssertionMetric(request, env, context, rateSecret);
+    return {
+      error: json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_INVALID' }, 403),
+      metric: null,
+    };
+  }
+
+  const bodySha256 = await sha256Base64Url(bodyBytes);
+  const verified =
+    expected.actorId && expected.requestId
+      ? await verifyRemoteShareUploadAssertion(assertion, getRoomUploadAssertionSecret(env), {
+          roomId: expected.roomId,
+          sessionId: expected.sessionId,
+          queueItemId: expected.queueItemId,
+          size: expected.size,
+          actorId: expected.actorId,
+          requestId: expected.requestId,
+          bodySha256,
+        })
+      : null;
+  if (!verified) {
+    await deferRejectedRoomUploadAssertionMetric(request, env, context, rateSecret);
+    return {
+      error: json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_INVALID' }, 403),
+      metric: null,
+    };
+  }
+  return { error: null, metric: 'remote_share_upload_assertion_verified' };
+}
+
+async function handleSession(request, env, context) {
   const secret = getSigningSecret(env);
   if (!secret) return json(request, env, { error: 'signing secret missing' }, 500);
 
@@ -1426,6 +1606,23 @@ async function handleSession(request, env) {
 
   const name = metadataString(body?.name, 'track');
   const mime = metadataString(body?.mime, 'application/octet-stream');
+  const assertionAuthorization = await authorizeRoomUploadAssertion(
+    request,
+    env,
+    context,
+    secret,
+    parsedBody.bodyBytes,
+    {
+      roomId,
+      sessionId,
+      queueItemId,
+      size: storedSize,
+      actorId: clientActorId,
+      requestId: v3Body ? clientRequestId : null,
+    },
+  );
+  if (assertionAuthorization.error) return assertionAuthorization.error;
+  const assertionMetric = assertionAuthorization.metric;
   // Only the actor-secret-derived v3 nonce is replay-authoritative. Cached v2
   // request IDs are deterministic from public queue metadata; treating them as
   // durable lookup keys would keep the cross-peer authority leak alive during
@@ -1663,6 +1860,9 @@ async function handleSession(request, env) {
       return json(request, env, { error: 'upload session replay expired' }, 409);
     }
     const response = json(request, env, session);
+    if (assertionMetric && (!quotaEnabled || quotaReserved)) {
+      deferRoomUploadAssertionMetric(context, env, assertionMetric);
+    }
     quotaReserved = false;
     return response;
   } catch (error) {
@@ -2724,7 +2924,7 @@ export class RemoteShareQuota {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
 
@@ -2755,7 +2955,7 @@ export default {
         return handleSecurityConfig(request, env);
       }
       if (request.method === 'POST' && path === '/session') {
-        return await handleSession(request, env);
+        return await handleSession(request, env, context);
       }
       if (request.method === 'POST' && path === '/complete') {
         return await handleComplete(request, env);

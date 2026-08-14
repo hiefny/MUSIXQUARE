@@ -1206,6 +1206,7 @@ interface SetupGuestJoinFailure {
 }
 
 interface BaseEventMap {
+  'app:client-update-required': [source: 'pro-signaling'];
   'account:open': [];
   'account:deleted': [];
   'account:deletion-pending': [];

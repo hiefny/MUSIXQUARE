@@ -29,6 +29,7 @@ describe('MUSIXQUARE brand-capitalization guard', () => {
     'https://musixquare.com',
     'contact@musixquare.com',
     'const cache = "musixquare-static-v428"; // brand-capitalization: allow-technical',
+    'const audience = "musixquare-remote-share-upload";',
     'X-Musixquare-Navigation-Source',
     'MusixquareServiceControl',
     '/\\bmusixquare\\b/iu; // brand-capitalization: allow-technical',

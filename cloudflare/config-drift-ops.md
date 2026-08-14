@@ -2,7 +2,7 @@
 
 This runbook records which Cloudflare settings live outside Worker source and
 how to compare them with the repository without printing secret values. The
-repository inventory was reconciled on 2026-08-09. A date here records the
+repository inventory was reconciled on 2026-08-15. A date here records the
 checked-in contract, not proof that the live dashboard was inspected that day.
 
 ## R2 CORS and lifecycle
@@ -78,19 +78,23 @@ not queried and must never be interpreted as passing.
 
 ## Worker URL observability
 
-All six production Wrangler configs keep sampled custom Worker logs enabled,
-but set `observability.logs.invocation_logs = false` and disable automatic
-traces. This is a fleet-wide credential-minimization boundary: the App OAuth
+All six production Wrangler configs currently keep sampled custom Worker logs
+enabled, but set `observability.logs.invocation_logs = false` and disable
+automatic traces. This is the default credential-minimization boundary: the App OAuth
 callback receives one-use `code` and `state` query values, and cached PRO
 clients may use the signaling `ticket` query only until the documented rollout
 cutoff. Provider heuristics are not treated as reliable redaction. Application
 logs must remain structured and must not include raw request URLs, query
 strings, credentials, cookies, or authorization headers.
 
-Treat any dashboard or TOML drift that re-enables automatic invocation logs or
-traces as a security incident until the affected retention window and sampled
-events have been reviewed. Operational visibility comes from the sampled,
-credential-free custom event schema and the release/health summaries instead.
+Treat any unreviewed dashboard or TOML drift that re-enables automatic
+invocation logs or traces as a security incident until the affected retention
+window and sampled events have been reviewed. The only documented exception is
+signaling after the complete PRO query-ticket detector removal and privacy gate
+in `pro-signaling-query-ticket-cutover.md`; passing that gate still requires an
+intentional config, policy-test, and privacy review rather than automatic
+restoration. Operational visibility otherwise comes from the sampled,
+credential-free custom event schema and the release/health summaries.
 
 ## Worker Secret Inventory
 
@@ -129,10 +133,11 @@ secret-name inventory. Current requirements are:
   `PRO_ROOM_SESSION_SECRET`, `PRO_SIGNALING_SECRET`, `R2_ACCESS_KEY_ID`,
   `R2_ACCOUNT_ID`, and `R2_SECRET_ACCESS_KEY`.
 - Remote share (`musixquare-remote-share`): `MXQR_CAPABILITY_SECRET`,
-  `R2_ACCESS_KEY_ID`, `R2_ACCOUNT_ID`, `R2_SECRET_ACCESS_KEY`, and
-  `REMOTE_SHARE_SIGNING_SECRET`.
+  `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET`, `R2_ACCESS_KEY_ID`,
+  `R2_ACCOUNT_ID`, `R2_SECRET_ACCESS_KEY`, and `REMOTE_SHARE_SIGNING_SECRET`.
 - Signaling (`musixquare-signaling`):
-  `MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET` and `PRO_SIGNALING_SECRET`.
+  `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET`,
+  `MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET`, and `PRO_SIGNALING_SECRET`.
 
 The live audit requires exact set equality. A missing canonical name and any
 unexpected name both fail closed. Runtime-supported legacy aliases are not
@@ -153,6 +158,10 @@ stricter shape. The active `CLOUDFLARE_REALTIME_API_TOKEN` alias has the same
 minimum because it also signs the app's session capability. Share only the explicitly named
 App/Worker or PRO/signaling pairs; other provider-issued OAuth, R2, TURN,
 Gemini, and YouTube credentials retain their provider-defined formats.
+`MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` is the one additional explicit
+pair: it must have the same independent value on signaling and Remote Share,
+and must never reuse the capability, upload-token, standard-room account,
+PRO-signaling, or admin-session secret.
 
 `MXQR_ADMIN_PASSWORD` is not an HMAC key, but the App Worker still treats it as
 configured only at 16 through 256 UTF-8 bytes. `MXQR_ADMIN_SESSION_SECRET` is a
@@ -178,8 +187,9 @@ Inventory every deployed Worker, not only the three original services:
   D1.
 - PRO: room, service-control, signaling, and Developer API limiter Durable
   Objects; PRO media R2; and admin/auth/Developer API D1.
-- Remote share: temporary-media R2, the per-room quota Durable Object, and
-  service-control atomic rate limiting.
+- Remote share: temporary-media R2, the per-room quota Durable Object,
+  service-control atomic rate limiting, and the aggregate admin-metrics D1
+  binding used for assertion rollout counters.
 - Developer API: D1, its limiter and service-control Durable Objects, and the
   private facade service.
 - Developer API facade: private PRO-room and service-control Durable Object

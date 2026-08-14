@@ -29,7 +29,11 @@ export const INITIAL_TRANSFER_BUDGET = Object.freeze({
   // fixes while still rejecting material growth in the eager graph.
   // Bubble copy is also a core keyboard/click/hold action, so it stays in the
   // offline app shell instead of becoming a fallible lazy accessibility seam.
-  entryScriptRawBytes: 1_330_000,
+  // Remote Share's host-only upload assertion handshake must ship with the
+  // signaling transport so uploads fail closed on the first request. Its
+  // minified raw increase is bounded here while the prior gzip ceilings stay
+  // unchanged.
+  entryScriptRawBytes: 1_335_000,
   entryScriptGzipBytes: 400_000,
   eagerJavaScriptGzipBytes: 400_000,
   eagerTotalRawBytes: 1_700_000,

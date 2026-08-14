@@ -238,4 +238,19 @@ describe('guest setup recovery', () => {
     );
     expect(goBack).not.toHaveBeenCalled();
   });
+
+  it('turns a retired PRO signaling client into an explicit refresh request', async () => {
+    mocks.pendingAutoCode = '000001';
+    mocks.isProRoomCode.mockReturnValue(true);
+    mocks.enterProRoomFromSetup.mockRejectedValue(
+      new Error('PRO_SIGNALING_CLIENT_UPDATE_REQUIRED'),
+    );
+
+    startGuestFlow();
+    const start = mocks.actions[1]?.onClick as (() => Promise<void>) | undefined;
+    await start?.();
+
+    expect(mocks.busEmit).toHaveBeenCalledWith('app:client-update-required', 'pro-signaling');
+    expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-failure', expect.anything());
+  });
 });

@@ -402,6 +402,12 @@ function friendlyErrorMessage(error: unknown): string {
     raw === 'REMOTE_SHARE_DOWNLOAD_STALLED' ||
     raw === 'REMOTE_SHARE_SESSION_NETWORK' ||
     raw === 'REMOTE_SHARE_COMPLETE_NETWORK' ||
+    raw === 'REMOTE_SHARE_PROTOCOL_UNAVAILABLE' ||
+    raw === 'REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE' ||
+    raw === 'REMOTE_SHARE_UPLOAD_ASSERTION_TIMEOUT' ||
+    raw === 'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_CLOSED' ||
+    raw === 'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_REPLACED' ||
+    raw === 'REMOTE_SHARE_UPLOAD_ASSERTION_DESTROYED' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_503' ||
     raw === 'REMOTE_SHARE_COMPLETE_HTTP_503'
   ) {
@@ -410,7 +416,8 @@ function friendlyErrorMessage(error: unknown): string {
   if (
     raw === 'REMOTE_SHARE_SESSION_HTTP_429' ||
     raw === 'REMOTE_SHARE_COMPLETE_HTTP_429' ||
-    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429'
+    raw === 'REMOTE_SHARE_DIRECT_UPLOAD_HTTP_429' ||
+    raw === 'REMOTE_SHARE_UPLOAD_ASSERTION_RATE_LIMITED'
   ) {
     return t('share.remote.rate_limited');
   }
@@ -424,6 +431,9 @@ function friendlyErrorMessage(error: unknown): string {
     raw === 'REMOTE_SHARE_DOWNLOAD_SIZE_MISMATCH' ||
     raw === 'REMOTE_SHARE_OBJECT_SIZE_MISMATCH' ||
     raw === 'REMOTE_SHARE_DOWNLOAD_AUTH_INVALID' ||
+    raw === 'REMOTE_SHARE_UPLOAD_ASSERTION_INVALID' ||
+    raw === 'REMOTE_SHARE_UPLOAD_ASSERTION_INVALID_REQUEST' ||
+    raw === 'REMOTE_SHARE_SESSION_HTTP_401' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_403' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_404' ||
     raw === 'REMOTE_SHARE_SESSION_HTTP_500' ||

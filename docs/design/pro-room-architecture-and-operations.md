@@ -252,8 +252,12 @@ matched provider data/code checkpoint.
   Browsers offer the ticket in a non-selected WebSocket subprotocol token and
   the server selects only `mxqr.pro-signaling.v1`; new clients never put the
   bearer in a URL. The exact legacy `?ticket=` fallback expires on 2026-09-09
-  UTC, and automatic Worker invocation URL logs and traces stay disabled during
-  the entire grace window.
+  UTC. Valid pre-cutoff use and post-cutoff required-refresh responses increment
+  separate fixed-name, aggregate-only D1 counters with no ticket, URL, room,
+  participant, IP, or User-Agent dimension. Automatic Worker invocation URL
+  logs and traces stay disabled until the query detector is removed after the
+  zero-use gates in
+  [`cloudflare/pro-signaling-query-ticket-cutover.md`](../../cloudflare/pro-signaling-query-ticket-cutover.md).
 - Every successful browser entry owns a server-issued, RAM-only presence
   incarnation. Snapshot, heartbeat, signaling, PIN, playlist, playback, and
   media requests must present that tab-local participant/incarnation pair as

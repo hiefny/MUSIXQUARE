@@ -7,6 +7,7 @@ import {
 } from '../player/decode-admission.ts';
 import { currentAudioBufferPcmBytes, liveAudioBufferPcmBytes } from '../player/_state.ts';
 import { isQueueItemId } from '../player/queue-model.ts';
+import { getPeer } from '../network/peer-state.ts';
 import type { QueueItemId, RemoteFileSharePayload } from '../types/index.ts';
 
 interface UploadRemoteFileOptions {
@@ -65,6 +66,13 @@ export async function uploadRemoteFile(
         size: file.size,
         sessionId,
         queueItemId,
+        requestRoomUploadAssertion: (request, requestSignal) => {
+          const peer = getPeer();
+          if (!peer?.requestRemoteShareUploadAssertion) {
+            return Promise.reject(new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE'));
+          }
+          return peer.requestRemoteShareUploadAssertion(request, requestSignal);
+        },
       },
       (progress) => {
         if (publishState) {

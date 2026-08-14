@@ -369,6 +369,21 @@ export type TransportBackgroundRecoveryStatus =
   | 'stale-connection-closed';
 
 /**
+ * Exact Remote Share /session authority requested from an authenticated
+ * standard-room host signaling socket. The body digest binds even JSON key
+ * order and whitespace so the resulting bearer cannot authorize a rewritten
+ * upload reservation.
+ */
+export interface RemoteShareUploadAssertionRequest {
+  readonly actorId: string;
+  readonly requestId: string;
+  readonly sessionId: number;
+  readonly queueItemId: string;
+  readonly size: number;
+  readonly bodySha256: string;
+}
+
+/**
  * Result of a provider-specific foreground reconciliation after the document
  * spent time hidden. Providers that do not retain suspendable transports can
  * omit the hook entirely.
@@ -404,6 +419,15 @@ export interface TransportPeer {
   setProSignalingAccess?(access: ProSignalingOptions): boolean;
   refreshStandardRoomIdentity?(): Promise<void>;
   deleteStandardRoomIdentity?(): void;
+  /**
+   * Return null only when the admitted signaling deployment does not advertise
+   * this additive protocol. Once advertised, issuance failures reject rather
+   * than silently downgrading to the legacy upload path.
+   */
+  requestRemoteShareUploadAssertion?(
+    request: RemoteShareUploadAssertionRequest,
+    signal?: AbortSignal,
+  ): Promise<string | null>;
   destroy(): void;
   on(event: 'open', callback: (id: string) => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;

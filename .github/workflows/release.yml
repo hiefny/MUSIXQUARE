@@ -213,6 +213,9 @@ jobs:
       - name: Verify candidate hashes and commit
         run: npm run release:verify
 
+      - name: Revalidate time-sensitive production security guards
+        run: npm run guard:prod-security
+
       - name: Revalidate every production Worker bundle without deploying
         run: npm run check:worker-bundles
 
@@ -221,6 +224,23 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run --silent wrangler -- whoami
+
+      - name: Verify Remote Share assertion secret inventory
+        timeout-minutes: 5
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          secret_name='MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET'
+          for config in \
+            cloudflare/wrangler.remote-share.toml \
+            cloudflare/wrangler.signaling.toml; do
+            secrets="$(npm run --silent wrangler -- secret list --format json --config "$config")"
+            if ! jq -e --arg name "$secret_name" 'any(.[]; .name == $name)' <<< "$secrets" >/dev/null; then
+              echo "::error::$config is missing required secret $secret_name."
+              exit 1
+            fi
+          done
 
       - name: Verify partial release dependency compatibility
         if: inputs.target != 'all'
@@ -818,6 +838,7 @@ jobs:
 
       - name: Deploy and record remote-share Worker
         timeout-minutes: 15
+        id: remote_share_deployment
         if: inputs.target == 'all' || inputs.target == 'remote-share'
         shell: bash
         env:
@@ -846,11 +867,15 @@ jobs:
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
           if (( status_exit != 0 )); then exit "$status_exit"; fi
-          exit "$record_exit"
+          if (( record_exit != 0 )); then exit "$record_exit"; fi
+          version_id="$(node scripts/release-deployment-state.mjs version remote-share)"
+          echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke remote-share Worker
         if: inputs.target == 'all' || inputs.target == 'remote-share'
         timeout-minutes: 5
+        env:
+          MXQR_EXPECTED_REMOTE_SHARE_VERSION: ${{ steps.remote_share_deployment.outputs.version_id }}
         run: npm run smoke:live:remote-share
 
       - name: Record current signaling deployment
@@ -906,6 +931,14 @@ jobs:
         env:
           MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}
         run: npm run smoke:live:signaling
+
+      - name: Smoke Remote Share host assertion path
+        if: inputs.target == 'all' || inputs.target == 'signaling'
+        timeout-minutes: 5
+        env:
+          MXQR_EXPECTED_REMOTE_SHARE_VERSION: ${{ steps.remote_share_deployment.outputs.version_id }}
+          MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}
+        run: npm run smoke:live:remote-share -- --require-assertion
 
       - name: Record current Developer API facade deployment
         timeout-minutes: 10

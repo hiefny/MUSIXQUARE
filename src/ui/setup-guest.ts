@@ -12,6 +12,7 @@ import { getState, setState } from '../core/state.ts';
 import { PEER_NAME_PREFIX } from '../core/constants.ts';
 import { clearManagedTimer } from '../core/timers.ts';
 import { joinSession } from '../network/peer.ts';
+import { isProSignalingClientUpdateRequired } from '../network/pro-signaling-websocket.ts';
 import {
   t,
   bus,
@@ -226,6 +227,10 @@ async function _handleProRoomJoin(code: string): Promise<void> {
     if (!getState('setup.sessionStarted')) bus.emit('setup:guest-join-success');
   } catch (error) {
     log.error('[Setup] PRO room join failed', error);
+    if (isProSignalingClientUpdateRequired(error)) {
+      bus.emit('app:client-update-required', 'pro-signaling');
+      return;
+    }
     bus.emit('setup:guest-join-failure', {
       error,
       userMessage: t('pro.connect_failed'),

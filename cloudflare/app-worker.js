@@ -248,6 +248,23 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'guest_room_full', label: 'Room-full rejections' },
   { key: 'guest_pending_capacity', label: 'Pending guest handshake rejections' },
   { key: 'guest_identity_capacity', label: 'Guest identity limit rejections' },
+  { key: 'pro_ticket_legacy_query_used', label: 'Admitted legacy PRO ticket joins' },
+  {
+    key: 'pro_ticket_legacy_query_update_required',
+    label: 'Legacy PRO refresh-shaped requests',
+  },
+  {
+    key: 'remote_share_upload_assertion_verified',
+    label: 'New sessions with verified host assertions',
+  },
+  {
+    key: 'remote_share_upload_assertion_legacy',
+    label: 'New assertion-free Remote Share sessions',
+  },
+  {
+    key: 'remote_share_upload_assertion_rejected',
+    label: 'Bounded rejected assertion signals',
+  },
   { key: 'ws_message_oversized', label: 'Oversized signaling messages' },
   { key: 'ws_message_rate_limited', label: 'Rate-limited signaling messages' },
 ];

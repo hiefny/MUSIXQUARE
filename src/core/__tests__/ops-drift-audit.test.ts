@@ -95,7 +95,7 @@ describe('operations drift audit', () => {
       r2ExactLifecyclePolicyCount: 1,
       r2ShortLifecycleGuardCount: 1,
       workerSecretPolicyCount: 6,
-      workerSecretNameCount: 36,
+      workerSecretNameCount: 38,
       githubRuleCount: 2,
       manualCheckCount: 4,
     });
@@ -107,13 +107,24 @@ describe('operations drift audit', () => {
     const signalingInventory = contract.workerSecrets.find(
       (entry: { worker: string }) => entry.worker === 'musixquare-signaling',
     );
-    if (appInventory === undefined || signalingInventory === undefined) {
+    const remoteShareInventory = contract.workerSecrets.find(
+      (entry: { worker: string }) => entry.worker === 'musixquare-remote-share',
+    );
+    if (
+      appInventory === undefined ||
+      signalingInventory === undefined ||
+      remoteShareInventory === undefined
+    ) {
       throw new Error('Required Worker secret inventory is missing.');
     }
     expect(appInventory.expectedNames).toContain('CLOUDFLARE_REALTIME_API_TOKEN');
     expect(appInventory.expectedNames).not.toContain('CLOUDFLARE_REALTIME_APP_SECRET');
     expect(appInventory.expectedNames).not.toContain('MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET');
     expect(signalingInventory.expectedNames).not.toContain('PRO_ROOM_DECOMMISSION_VERIFY_SECRET');
+    expect(signalingInventory.expectedNames).toContain('MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET');
+    expect(remoteShareInventory.expectedNames).toContain(
+      'MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET',
+    );
   });
 
   it('keeps the live workflow limited to the narrow read-only Cloudflare token', () => {

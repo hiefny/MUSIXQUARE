@@ -40,11 +40,30 @@ describe('remote upload contract', () => {
     });
     expect(mocks.uploadWholeObject).toHaveBeenCalledWith(
       file,
-      expect.objectContaining({ roomId: '123456', size: 4 }),
+      expect.objectContaining({
+        roomId: '123456',
+        size: 4,
+        requestRoomUploadAssertion: expect.any(Function),
+      }),
       expect.any(Function),
       undefined,
     );
     expect(getState('share.remote').upload).toMatchObject({ status: 'done', progress: 1 });
+
+    const uploadMeta = mocks.uploadWholeObject.mock.calls[0]?.[1] as {
+      requestRoomUploadAssertion?: (request: Record<string, unknown>) => Promise<string | null>;
+    };
+    if (!uploadMeta.requestRoomUploadAssertion) throw new Error('missing assertion provider');
+    await expect(
+      uploadMeta.requestRoomUploadAssertion({
+        actorId: `rsa_${'a'.repeat(43)}`,
+        requestId: `rs3_${'r'.repeat(43)}`,
+        sessionId: 7,
+        queueItemId: Q0,
+        size: 4,
+        bodySha256: 'A'.repeat(43),
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
   });
 
   it('rejects invalid identity and source sizes before upload', async () => {

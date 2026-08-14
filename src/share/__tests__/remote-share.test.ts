@@ -1992,6 +1992,24 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     expect(getState('share.remote').upload.error).toBe('share.remote.network_error');
   });
 
+  it.each([
+    ['REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE', 'share.remote.network_error'],
+    ['REMOTE_SHARE_UPLOAD_ASSERTION_TIMEOUT', 'share.remote.network_error'],
+    ['REMOTE_SHARE_UPLOAD_ASSERTION_INVALID', 'share.remote.auth_failed'],
+    ['REMOTE_SHARE_UPLOAD_ASSERTION_RATE_LIMITED', 'share.remote.rate_limited'],
+    ['REMOTE_SHARE_SESSION_HTTP_401', 'share.remote.auth_failed'],
+  ] as const)('maps assertion failure %s to a user-facing message', async (code, expected) => {
+    const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+    const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+    setState('playlist.items', [fileItem(file, Q0)]);
+    setHostFile(file, Q0, 7);
+    mocks.uploadRemoteFile.mockRejectedValueOnce(new Error(code));
+
+    await shareRemoteFileIfNeeded(file, 7, undefined, { queueItemId: Q0 });
+
+    expect(getState('share.remote').upload.error).toBe(expected);
+  });
+
   it('keeps the newer foreground upload UI when an older upload reports progress and completes', async () => {
     const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
     const { showLoader, showToast, updateLoader } = await import('../../ui/toast.ts');

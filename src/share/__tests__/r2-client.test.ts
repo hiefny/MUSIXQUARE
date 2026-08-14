@@ -108,6 +108,8 @@ function securityConfig(overrides: Record<string, unknown> = {}): Response {
     sessionReplayEnabled: true,
     wholeObjectVersion: 1,
     downloadAuthorizationVersion: 1,
+    roomUploadAssertionVersion: 1,
+    roomUploadAssertionMode: 'optional',
     ...overrides,
   });
 }
@@ -340,6 +342,177 @@ describe('R2 canonical whole-object upload', () => {
       actorId: expect.stringMatching(/^rsa_[A-Za-z0-9_-]{43}$/),
     });
     expect(completeBody).toEqual({ roomId, objectId, completeToken });
+  });
+
+  it('binds an advertised room assertion to the exact session body and sends it only to /session', async () => {
+    const expiresAt = Date.now() + 86_400_000;
+    const cleanupToken = `${'c'.repeat(40)}.${'t'.repeat(43)}`;
+    const expectedUploadHeaders = canonicalUploadHeaders(expiresAt, cleanupToken);
+    const upload = presignedUpload(expectedUploadHeaders);
+    const assertion = `${'a'.repeat(80)}.${'b'.repeat(43)}`;
+    const requestRoomUploadAssertion = vi.fn(async (_request: unknown) => assertion);
+    let sessionBody = '';
+    let sessionHeaders = new Headers();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `${endpoint}/security-config`) {
+        return securityConfig({
+          roomUploadAssertionVersion: 1,
+          roomUploadAssertionMode: 'optional',
+        });
+      }
+      if (url === `${endpoint}/session`) {
+        sessionBody = String(init?.body);
+        sessionHeaders = new Headers(init?.headers);
+        return Response.json({
+          uploadUrl: upload.uploadUrl,
+          uploadHeaders: expectedUploadHeaders,
+          uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
+          completeToken,
+          objectId,
+          expiresAt,
+          cleanupToken,
+        });
+      }
+      if (url === `${endpoint}/complete`) {
+        return Response.json({
+          objectId,
+          downloadUrl,
+          storedSize: 4,
+          expiresAt,
+          cleanupToken,
+          downloadToken,
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    const pending = uploadWholeObject(new Blob(['data'], { type: 'audio/mpeg' }), {
+      roomId,
+      name: 'song.mp3',
+      mime: 'audio/mpeg',
+      size: 4,
+      sessionId: 7,
+      queueItemId,
+      requestRoomUploadAssertion,
+    });
+    await vi.waitFor(() => expect(FakeXmlHttpRequest.instances).toHaveLength(1));
+    const xhr = FakeXmlHttpRequest.instances[0]!;
+    xhr.onload?.call(xhr as unknown as XMLHttpRequest, new ProgressEvent('load'));
+    await expect(pending).resolves.toMatchObject({ objectId, storedSize: 4 });
+
+    const digest = new Uint8Array(
+      await crypto.subtle.digest('SHA-256', new TextEncoder().encode(sessionBody)),
+    );
+    let binary = '';
+    for (const byte of digest) binary += String.fromCharCode(byte);
+    const expectedBodySha256 = btoa(binary)
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/g, '');
+    expect(requestRoomUploadAssertion).toHaveBeenCalledOnce();
+    expect(requestRoomUploadAssertion.mock.calls[0]?.[0]).toMatchObject({
+      sessionId: 7,
+      queueItemId,
+      size: 4,
+      bodySha256: expectedBodySha256,
+      actorId: expect.stringMatching(/^rsa_[A-Za-z0-9_-]{43}$/),
+      requestId: expect.stringMatching(/^rs3_[A-Za-z0-9_-]{43}$/),
+    });
+    expect(sessionHeaders.get('x-mxqr-room-upload-assertion')).toBe(assertion);
+    expect(xhr.requestHeaders).not.toHaveProperty('x-mxqr-room-upload-assertion');
+  });
+
+  it('fails before /session when the Remote Worker requires an unsupported assertion', async () => {
+    const fetchMock = vi.fn(async () =>
+      securityConfig({
+        roomUploadAssertionVersion: 1,
+        roomUploadAssertionMode: 'required',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it('fails closed before /session when the Remote Worker disables the assertion contract', async () => {
+    const fetchMock = vi.fn(async () =>
+      securityConfig({
+        roomUploadAssertionVersion: 0,
+        roomUploadAssertionMode: 'disabled',
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
+  });
+
+  it('never downgrades after an assertion-aware security contract was observed', async () => {
+    let securityConfigReads = 0;
+    let sessionRequests = 0;
+    const requestRoomUploadAssertion = vi.fn(async (_request: unknown) =>
+      Promise.resolve(`${'a'.repeat(80)}.${'b'.repeat(43)}`),
+    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `${endpoint}/security-config`) {
+        securityConfigReads += 1;
+        return securityConfig(
+          securityConfigReads === 1
+            ? { roomUploadAssertionVersion: 1, roomUploadAssertionMode: 'optional' }
+            : { roomUploadAssertionVersion: 0, roomUploadAssertionMode: 'disabled' },
+        );
+      }
+      if (url === `${endpoint}/session`) {
+        sessionRequests += 1;
+        return Response.json({ error: 'unauthorized' }, { status: 401 });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const { uploadWholeObject } = await import('../r2-client.ts');
+
+    await expect(
+      uploadWholeObject(new Blob(['data']), {
+        roomId,
+        name: 'song.mp3',
+        mime: 'audio/mpeg',
+        size: 4,
+        sessionId: 7,
+        queueItemId,
+        requestRoomUploadAssertion,
+      }),
+    ).rejects.toThrow('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
+    expect(securityConfigReads).toBe(2);
+    expect(sessionRequests).toBe(1);
+    expect(requestRoomUploadAssertion).toHaveBeenCalledOnce();
+    expect(FakeXmlHttpRequest.instances).toHaveLength(0);
   });
 
   it('fails closed when the Worker does not advertise the sole contract', async () => {

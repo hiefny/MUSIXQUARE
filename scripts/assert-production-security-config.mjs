@@ -1,7 +1,11 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { validateAccountRolloutConfig } from './production-security-rollout.mjs';
+import {
+  validateAccountRolloutConfig,
+  validateRemoteShareRolloutConfig,
+} from './production-security-rollout.mjs';
+import { validateProSignalingTicketCutover } from './pro-signaling-ticket-cutover.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -67,6 +71,8 @@ function readAssignment(line, flag) {
 
 const hits = [];
 const rolloutErrors = [];
+const remoteShareRolloutErrors = [];
+const proSignalingCutoverErrors = [];
 
 for (const flag of dangerousFlags) {
   if (isTruthy(process.env[flag])) {
@@ -102,20 +108,50 @@ for (const file of configFiles) {
 // deploy/runbook time because Wrangler keeps them out of the repository.
 const proConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.pro-room.toml');
 const appConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.app.toml');
-const [proConfig, appConfig] = await Promise.all([
-  readFile(proConfigPath, 'utf8'),
-  readFile(appConfigPath, 'utf8'),
-]);
+const remoteShareConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.remote-share.toml');
+const signalingConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.signaling.toml');
+const signalingWorkerPath = path.join(repoRoot, 'cloudflare', 'signaling-worker.js');
+const adminWorkerPath = path.join(repoRoot, 'cloudflare', 'app-worker.js');
+const [proConfig, appConfig, remoteShareConfig, signalingConfig, signalingWorker, adminWorker] =
+  await Promise.all([
+    readFile(proConfigPath, 'utf8'),
+    readFile(appConfigPath, 'utf8'),
+    readFile(remoteShareConfigPath, 'utf8'),
+    readFile(signalingConfigPath, 'utf8'),
+    readFile(signalingWorkerPath, 'utf8'),
+    readFile(adminWorkerPath, 'utf8'),
+  ]);
 
 rolloutErrors.push(...validateAccountRolloutConfig(proConfig, appConfig));
+remoteShareRolloutErrors.push(
+  ...validateRemoteShareRolloutConfig(remoteShareConfig, signalingConfig),
+);
+proSignalingCutoverErrors.push(
+  ...validateProSignalingTicketCutover({
+    workerSource: signalingWorker,
+    signalingConfig,
+    adminWorkerSource: adminWorker,
+  }),
+);
 
-if (hits.length > 0 || rolloutErrors.length > 0) {
+if (
+  hits.length > 0 ||
+  rolloutErrors.length > 0 ||
+  remoteShareRolloutErrors.length > 0 ||
+  proSignalingCutoverErrors.length > 0
+) {
   console.error('[prod-security-guard] Unsafe production configuration detected:');
   for (const hit of hits) {
     console.error(`  - ${hit.source}: ${hit.flag}`);
   }
   for (const error of rolloutErrors) {
     console.error(`  - account rollout: ${error}`);
+  }
+  for (const error of remoteShareRolloutErrors) {
+    console.error(`  - Remote Share rollout: ${error}`);
+  }
+  for (const error of proSignalingCutoverErrors) {
+    console.error(`  - PRO signaling ticket cutover: ${error}`);
   }
   console.error(
     '[prod-security-guard] Fix the production security/rollout configuration before deploying.',

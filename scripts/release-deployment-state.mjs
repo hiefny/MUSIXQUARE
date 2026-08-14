@@ -129,6 +129,7 @@ const RELEASE_TARGET_WORKERS = Object.freeze({
 const TARGET_RUNTIME_PATHS = Object.freeze({
   'remote-share': [
     'cloudflare/remote-share-contract-version.txt',
+    'cloudflare/remote-share-upload-assertion.js',
     'cloudflare/remote-share-worker.js',
     'cloudflare/service-maintenance.js',
     'cloudflare/r2-cors.remote-share.json',
@@ -137,6 +138,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   ],
   signaling: [
     'cloudflare/signaling-worker.js',
+    'cloudflare/remote-share-upload-assertion.js',
     'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/standard-room-account-assertion.js',
@@ -1377,6 +1379,21 @@ function rollbackDependencyBlock(target, states, results) {
   // strand every PRO client served by the retained App. Keep signaling current
   // until App is known to be on its captured baseline.
   if (target === 'signaling' && states.some((state) => state.target === 'app')) {
+    const appResult = results.find((result) => result.target === 'app');
+    if (appResult && ['restored', 'already-restored'].includes(appResult.status)) {
+      return null;
+    }
+    return {
+      dependency: 'app',
+      dependencyStatus: appResult?.status || 'not-processed',
+    };
+  }
+
+  // The current App requires the assertion-v1 Remote Share security contract.
+  // If App rollback is withheld or cannot be verified, restoring an older
+  // Remote Share Worker would make every retained client reject /session
+  // before upload. Keep Remote Share current until App is proven baseline.
+  if (target === 'remote-share' && states.some((state) => state.target === 'app')) {
     const appResult = results.find((result) => result.target === 'app');
     if (appResult && ['restored', 'already-restored'].includes(appResult.status)) {
       return null;

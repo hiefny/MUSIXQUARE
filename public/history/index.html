@@ -200,7 +200,7 @@
   <div class="section-head"><h2>Ship · May 2026</h2><span class="phase">Phase 03</span></div>
   <div class="phase-meta">
     <span class="phase-tag ship"><span class="dot"></span>Ship</span>
-    <p class="phase-sub">RAM-only storage, encrypted remote file sharing, Cloudflare TURN and Realtime SFU, and a full WebRTC transport migration — all in one month.</p>
+    <p class="phase-sub">RAM-only storage, private remote file sharing, Cloudflare TURN and Realtime SFU, and a full WebRTC transport migration — all in one month.</p>
   </div>
   <ul class="log">
     <li>
@@ -208,8 +208,8 @@
       <div class="body">Removed the File System Access API (OPFS) entirely in favor of a RAM-only slot pool. Faster preloads, zero disk-leak bugs, a dramatically simpler storage lifecycle. Six-pass sweep to remove every OPFS residue from the codebase.</div>
     </li>
     <li>
-      <div class="lead">Encrypted remote file sharing</div>
-      <div class="body">Local audio now reaches guests outside the host's network through a temporary encrypted relay. Files are AES-encrypted in the browser before upload; the decryption key is never stored server-side. Guests receive and reconstruct the file locally as a browser Blob for synchronized playback. Short-lived upload authorization, R2 direct upload, origin checks, and expiry-on-session-end.</div>
+      <div class="lead">Private remote file sharing</div>
+      <div class="body">Local audio now reaches guests outside the host's network through a temporary private Cloudflare R2 relay. The feature originally launched with browser-side AES encryption; that application-layer E2EE was later removed under an updated storage policy. Current transfers use HTTPS, store the original file temporarily in private R2, and send short-lived download authorization to room participants, with origin checks and automatic expiry.</div>
     </li>
     <li>
       <div class="lead">Cloudflare TURN as primary relay</div>

@@ -446,6 +446,157 @@ afterEach(() => {
   });
 });
 
+describe('Remote Share upload assertions', () => {
+  const assertionRequest = {
+    actorId: `rsa_${'a'.repeat(43)}`,
+    requestId: `rs3_${'r'.repeat(43)}`,
+    sessionId: 7,
+    queueItemId: '10000000-0000-4000-8000-000000000001',
+    size: 4,
+    bodySha256: 'h'.repeat(43),
+  };
+  const assertionToken = `${'p'.repeat(80)}.${'s'.repeat(43)}`;
+
+  async function admittedHost(advertise = true): Promise<{
+    peer: CloudflareSignalingPeer;
+    socket: FakeWebSocket;
+  }> {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0]!;
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+        ...(advertise ? { remoteShareUploadAssertionVersion: 1 } : {}),
+      }),
+    );
+    await flushAsync();
+    return { peer, socket };
+  }
+
+  it('sends requests only after the admitted Worker advertises support', async () => {
+    const legacy = await admittedHost(false);
+    await expect(
+      legacy.peer.requestRemoteShareUploadAssertion(assertionRequest),
+    ).resolves.toBeNull();
+    expect(sentOfType(legacy.socket, 'remote-share-upload-assertion-request')).toHaveLength(0);
+    legacy.peer.destroy();
+
+    const current = await admittedHost();
+    const pending = current.peer.requestRemoteShareUploadAssertion(assertionRequest);
+    const request = sentOfType(current.socket, 'remote-share-upload-assertion-request')[0]!;
+    expect(request).toMatchObject({
+      type: 'remote-share-upload-assertion-request',
+      ...assertionRequest,
+    });
+    expect(request.correlationId).toMatch(/^rsaq_[A-Za-z0-9_-]{32}$/);
+
+    current.socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'remote-share-upload-assertion',
+        correlationId: request.correlationId,
+        assertion: assertionToken,
+        expiresAt: Math.floor(Date.now() / 1000) + 60,
+      }),
+    );
+    await expect(pending).resolves.toBe(assertionToken);
+    current.peer.destroy();
+  });
+
+  it('defers assertion expiry authority to the Worker when the browser clock is ahead', async () => {
+    const { peer, socket } = await admittedHost();
+    vi.useFakeTimers();
+    vi.setSystemTime(2_000_000_000_000);
+    const pending = peer.requestRemoteShareUploadAssertion(assertionRequest);
+    const request = sentOfType(socket, 'remote-share-upload-assertion-request')[0]!;
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'remote-share-upload-assertion',
+        correlationId: request.correlationId,
+        assertion: assertionToken,
+        // This is intentionally in the browser's apparent past. Only the
+        // issuing/verifying Workers share the authoritative expiry clock.
+        expiresAt: 1_800_000_060,
+      }),
+    );
+    const flushed = flushAsync();
+    await vi.advanceTimersByTimeAsync(0);
+    await flushed;
+    await vi.advanceTimersByTimeAsync(5_001);
+
+    await expect(pending).resolves.toBe(assertionToken);
+    peer.destroy();
+  });
+
+  it('correlates concurrent responses independently when they arrive out of order', async () => {
+    const { peer, socket } = await admittedHost();
+    const first = peer.requestRemoteShareUploadAssertion(assertionRequest);
+    const second = peer.requestRemoteShareUploadAssertion({ ...assertionRequest, sessionId: 8 });
+    const requests = sentOfType(socket, 'remote-share-upload-assertion-request');
+    expect(requests).toHaveLength(2);
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'remote-share-upload-assertion',
+        correlationId: requests[1]!.correlationId,
+        assertion: `${'q'.repeat(80)}.${'t'.repeat(43)}`,
+        expiresAt: Math.floor(Date.now() / 1000) + 60,
+      }),
+    );
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'remote-share-upload-assertion',
+        correlationId: requests[0]!.correlationId,
+        assertion: assertionToken,
+        expiresAt: Math.floor(Date.now() / 1000) + 60,
+      }),
+    );
+
+    await expect(first).resolves.toBe(assertionToken);
+    await expect(second).resolves.toBe(`${'q'.repeat(80)}.${'t'.repeat(43)}`);
+    peer.destroy();
+  });
+
+  it('rejects pending issuance on abort and socket close without legacy downgrade', async () => {
+    const { peer, socket } = await admittedHost();
+    const controller = new AbortController();
+    const aborted = peer.requestRemoteShareUploadAssertion(assertionRequest, controller.signal);
+    controller.abort();
+    await expect(aborted).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_ABORTED');
+
+    const closed = peer.requestRemoteShareUploadAssertion({ ...assertionRequest, sessionId: 9 });
+    socket.close();
+    await expect(closed).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_CLOSED');
+    await expect(
+      peer.requestRemoteShareUploadAssertion({ ...assertionRequest, sessionId: 10 }),
+    ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+
+    peer.reconnect();
+    const replacement = FakeWebSocket.instances.at(-1)!;
+    expect(replacement).not.toBe(socket);
+    replacement.dispatch('open');
+    replacement.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    await expect(
+      peer.requestRemoteShareUploadAssertion({ ...assertionRequest, sessionId: 11 }),
+    ).rejects.toThrow('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+    peer.destroy();
+  });
+});
+
 describe('deferred RTC configuration', () => {
   async function createDeferredHost(): Promise<{
     peer: CloudflareSignalingPeer;

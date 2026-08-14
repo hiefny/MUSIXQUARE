@@ -16,6 +16,7 @@ import { REMOTE_SHARE_MAX_BYTES } from '../core/constants.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { cancelResponseBody, withRequestDeadline } from '../core/request-lifetime.ts';
 import { resolveRemoteShareEndpointPolicy } from './remote-share-endpoint.ts';
+import type { RemoteShareUploadAssertionRequest } from '../network/transport/types.ts';
 
 export interface RemoteUploadResponse {
   objectId: string;
@@ -43,6 +44,10 @@ export interface RemoteUploadMeta {
   size: number;
   sessionId: number;
   queueItemId: QueueItemId;
+  requestRoomUploadAssertion?: (
+    request: RemoteShareUploadAssertionRequest,
+    signal?: AbortSignal,
+  ) => Promise<string | null>;
 }
 
 export type ProgressHandler = (progress: number) => void;
@@ -77,6 +82,8 @@ interface RemoteShareSecurityConfig {
   sessionReplayEnabled: boolean;
   wholeObjectVersion: number;
   downloadAuthorizationVersion: number;
+  roomUploadAssertionVersion: 1;
+  roomUploadAssertionMode: 'optional' | 'required';
 }
 
 const ENDPOINT_STORAGE_KEY = 'musixquare-remote-share-endpoint';
@@ -88,6 +95,8 @@ const SESSION_ACTOR_SECRET_RE = /^[A-Za-z0-9_-]{43}$/u;
 const REMOTE_SHARE_XHR_STALL_TIMEOUT_MS = 90_000;
 const REMOTE_SHARE_SECURITY_CONFIG_CACHE_MS = 5 * 60_000;
 const REMOTE_SHARE_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
+const REMOTE_SHARE_UPLOAD_ASSERTION_MAX_LENGTH = 4096;
+const REMOTE_SHARE_UPLOAD_ASSERTION_RE = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 const REMOTE_SHARE_CONTROL_RESPONSE_MAX_BYTES = 64 * 1024;
 const REMOTE_SHARE_R2_PRODUCTION_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
 const REMOTE_SHARE_R2_BUCKET = 'musixquare-remote-share';
@@ -552,7 +561,15 @@ async function getRemoteShareSecurityConfig(
         timeoutReason: 'REMOTE_SHARE_SECURITY_CONFIG_TIMEOUT',
       },
     );
-    const value = {
+    const roomUploadAssertionVersion = payload.roomUploadAssertionVersion;
+    const roomUploadAssertionMode = payload.roomUploadAssertionMode;
+    if (
+      roomUploadAssertionVersion !== 1 ||
+      (roomUploadAssertionMode !== 'optional' && roomUploadAssertionMode !== 'required')
+    ) {
+      throw new Error('REMOTE_SHARE_PROTOCOL_UNAVAILABLE');
+    }
+    const value: RemoteShareSecurityConfig = {
       capabilityRequired: payload.capabilityRequired === true,
       workerContractVersion:
         payload.workerContractVersion === 3 ? payload.workerContractVersion : 0,
@@ -561,6 +578,8 @@ async function getRemoteShareSecurityConfig(
       wholeObjectVersion: payload.wholeObjectVersion === 1 ? payload.wholeObjectVersion : 0,
       downloadAuthorizationVersion:
         payload.downloadAuthorizationVersion === 1 ? payload.downloadAuthorizationVersion : 0,
+      roomUploadAssertionVersion: 1,
+      roomUploadAssertionMode,
     };
     remoteShareSecurityConfigCache = {
       endpoint,
@@ -570,14 +589,9 @@ async function getRemoteShareSecurityConfig(
     return value;
   } catch (error) {
     if (signal?.aborted) throw error;
-    return {
-      capabilityRequired: false,
-      workerContractVersion: 0,
-      sessionReplayRequired: false,
-      sessionReplayEnabled: false,
-      wholeObjectVersion: 0,
-      downloadAuthorizationVersion: 0,
-    };
+    if (error instanceof Error && error.message === 'REMOTE_SHARE_PROTOCOL_UNAVAILABLE')
+      throw error;
+    throw new Error('REMOTE_SHARE_PROTOCOL_UNAVAILABLE', { cause: error });
   }
 }
 
@@ -604,10 +618,9 @@ function invalidateRemoteShareSecurityConfig(endpoint: string): void {
 }
 
 async function getRemoteShareSessionHeaders(
-  endpoint: string,
+  config: RemoteShareSecurityConfig,
   signal?: AbortSignal,
 ): Promise<Record<string, string>> {
-  const config = await getRemoteShareSecurityConfig(endpoint, signal);
   if (!config.capabilityRequired) return {};
   return getCapabilityHeaders(
     new URL('/api/capability-token', location.origin),
@@ -648,9 +661,18 @@ async function signSessionActorValue(secret: string, value: string): Promise<str
   const digest = new Uint8Array(
     await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value)),
   );
+  return bytesToBase64Url(digest);
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = '';
-  for (const byte of digest) binary += String.fromCharCode(byte);
+  for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+async function remoteShareSessionBodySha256(requestBody: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(requestBody));
+  return bytesToBase64Url(new Uint8Array(digest));
 }
 
 async function uploadSessionIdentity(
@@ -690,13 +712,43 @@ async function requestUploadSession(
       requestId,
       actorId,
     });
+    const bodySha256 = await remoteShareSessionBodySha256(requestBody);
     const capabilityTarget = new URL('/api/capability-token', location.origin);
-    const requestOnce = (capabilityHeaders: Record<string, string>) =>
+    const assertionRequest: RemoteShareUploadAssertionRequest = {
+      actorId,
+      requestId,
+      sessionId: meta.sessionId,
+      queueItemId: meta.queueItemId,
+      size: meta.size,
+      bodySha256,
+    };
+    const requestAssertionHeaders = async (
+      config: RemoteShareSecurityConfig,
+    ): Promise<Record<string, string>> => {
+      const assertion = meta.requestRoomUploadAssertion
+        ? await meta.requestRoomUploadAssertion(assertionRequest, signal)
+        : null;
+      if (!assertion) {
+        if (config.roomUploadAssertionMode === 'required') {
+          throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_UNAVAILABLE');
+        }
+        return {};
+      }
+      if (
+        assertion.length < 64 ||
+        assertion.length > REMOTE_SHARE_UPLOAD_ASSERTION_MAX_LENGTH ||
+        !REMOTE_SHARE_UPLOAD_ASSERTION_RE.test(assertion)
+      ) {
+        throw new Error('REMOTE_SHARE_UPLOAD_ASSERTION_INVALID');
+      }
+      return { 'X-MXQR-Room-Upload-Assertion': assertion };
+    };
+    const requestOnce = (authorizationHeaders: Record<string, string>) =>
       withRequestDeadline(
         async (requestSignal) => {
           const response = await fetch(`${endpoint}/session`, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', ...capabilityHeaders },
+            headers: { 'content-type': 'application/json', ...authorizationHeaders },
             body: requestBody,
             signal: requestSignal,
           });
@@ -721,16 +773,20 @@ async function requestUploadSession(
           timeoutReason: 'REMOTE_SHARE_SESSION_TIMEOUT',
         },
       );
-    let capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
-    let { response, body } = await requestOnce(capabilityHeaders);
+    let securityConfig = await getRemoteShareSecurityConfig(endpoint, signal);
+    let capabilityHeaders = await getRemoteShareSessionHeaders(securityConfig, signal);
+    let assertionHeaders = await requestAssertionHeaders(securityConfig);
+    let { response, body } = await requestOnce({ ...capabilityHeaders, ...assertionHeaders });
 
     // A 401 may mean the token is stale or the capability probe was inaccurate.
     // Invalidate both caches, probe again, and retry once.
     if (response.status === 401) {
       if (capabilityHeaders['X-MXQR-Capability']) invalidateCapabilityToken(capabilityTarget);
       invalidateRemoteShareSecurityConfig(endpoint);
-      capabilityHeaders = await getRemoteShareSessionHeaders(endpoint, signal);
-      ({ response, body } = await requestOnce(capabilityHeaders));
+      securityConfig = await getRemoteShareSecurityConfig(endpoint, signal);
+      capabilityHeaders = await getRemoteShareSessionHeaders(securityConfig, signal);
+      assertionHeaders = await requestAssertionHeaders(securityConfig);
+      ({ response, body } = await requestOnce({ ...capabilityHeaders, ...assertionHeaders }));
     }
 
     if (!response.ok) {

@@ -1,9 +1,15 @@
 #!/usr/bin/env node
 
 import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
+import { createRequire } from 'node:module';
+import type WebSocketClient from 'ws';
+import type { RawData } from 'ws';
+
+const WebSocket = createRequire(`${process.cwd()}/package.json`)('ws') as typeof WebSocketClient;
 
 const APP_ORIGIN = 'https://musixquare.com';
 const REMOTE_ORIGIN = 'https://share.musixquare.com';
+const SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
 const DEFAULT_BYTES = 32;
 const MAX_SMOKE_BYTES = 1024 * 1024;
 const FILE_NAME = 'live-remote-share-smoke.wav';
@@ -21,6 +27,31 @@ const RETRYABLE_SESSION_ERRORS = new Set([
   'room storage quota unavailable',
   'upload session replay unavailable',
 ]);
+
+interface RemoteShareReadiness {
+  roomUploadAssertionVersion: 1;
+  roomUploadAssertionMode: 'optional' | 'required';
+}
+
+interface RoomUploadAssertionRequest {
+  actorId: string;
+  requestId: string;
+  sessionId: number;
+  queueItemId: string;
+  size: number;
+  bodySha256: string;
+}
+
+type RoomUploadAssertionProvider = (request: RoomUploadAssertionRequest) => Promise<string | null>;
+
+class StaleSignalingVersionError extends Error {}
+
+interface SignalingVersionConvergenceOptions {
+  now?: () => number;
+  sleep?: (delayMs: number) => Promise<void>;
+  timeoutMs?: number;
+  retryIntervalMs?: number;
+}
 
 interface RemoteShareSession {
   uploadUrl: string;
@@ -55,6 +86,10 @@ function parseByteCount(): number {
   return value;
 }
 
+function requireRoomUploadAssertion(): boolean {
+  return process.argv.includes('--require-assertion');
+}
+
 function assertAllowedOrigin(response: Response, label: string): void {
   const allowedOrigin = response.headers.get('access-control-allow-origin');
   if (allowedOrigin !== APP_ORIGIN) {
@@ -71,8 +106,9 @@ function cancelResponseBody(response: Response, reason: string): void {
   }
 }
 
-async function waitForRemoteShareWorkerReady(): Promise<void> {
+async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
   const deadline = Date.now() + WORKER_PROPAGATION_TIMEOUT_MS;
+  const expectedWorkerVersion = process.env.MXQR_EXPECTED_REMOTE_SHARE_VERSION?.trim() || '';
   let consecutiveReadyReads = 0;
   let lastObservedContract = 'none';
 
@@ -94,21 +130,41 @@ async function waitForRemoteShareWorkerReady(): Promise<void> {
 
     const wholeObjectReady =
       config.wholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
+    const roomUploadAssertionVersion = config.roomUploadAssertionVersion === 1 ? 1 : 0;
+    const roomUploadAssertionMode =
+      config.roomUploadAssertionMode === 'required'
+        ? 'required'
+        : config.roomUploadAssertionMode === 'optional'
+          ? 'optional'
+          : null;
+    const actualWorkerVersion =
+      typeof config.workerVersionId === 'string' ? config.workerVersionId.trim() : '';
+    const workerVersionReady =
+      expectedWorkerVersion === '' || actualWorkerVersion === expectedWorkerVersion;
     lastObservedContract = JSON.stringify({
+      expectedWorkerVersion: expectedWorkerVersion || null,
+      workerVersionId: actualWorkerVersion || null,
       workerContractVersion: config.workerContractVersion,
       sessionReplayRequired: config.sessionReplayRequired,
       sessionReplayEnabled: config.sessionReplayEnabled,
       wholeObjectVersion: config.wholeObjectVersion,
       downloadAuthorizationVersion: config.downloadAuthorizationVersion,
+      roomUploadAssertionVersion: config.roomUploadAssertionVersion,
+      roomUploadAssertionMode: config.roomUploadAssertionMode,
     });
     if (
       config.workerContractVersion === 3 &&
       config.sessionReplayRequired === true &&
       config.sessionReplayEnabled === true &&
-      wholeObjectReady
+      wholeObjectReady &&
+      roomUploadAssertionVersion === 1 &&
+      roomUploadAssertionMode !== null &&
+      workerVersionReady
     ) {
       consecutiveReadyReads += 1;
-      if (consecutiveReadyReads >= 2) return;
+      if (consecutiveReadyReads >= 2) {
+        return { roomUploadAssertionVersion, roomUploadAssertionMode };
+      }
     } else consecutiveReadyReads = 0;
 
     if (Date.now() >= deadline) {
@@ -253,6 +309,193 @@ async function requestCapabilityToken(): Promise<string> {
   return payload.token;
 }
 
+function waitForSignalingMessage(
+  socket: WebSocketClient,
+  label: string,
+  predicate: (message: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const finish = (error: Error | null, message?: Record<string, unknown>) => {
+      clearTimeout(timer);
+      socket.off('message', onMessage);
+      socket.off('close', onClose);
+      socket.off('error', onError);
+      if (error) reject(error);
+      else resolve(message!);
+    };
+    const onMessage = (data: RawData) => {
+      let message: Record<string, unknown>;
+      try {
+        message = JSON.parse(data.toString()) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (!predicate(message)) return;
+      finish(null, message);
+    };
+    const onClose = (code: number, reason: Buffer) => {
+      finish(
+        new Error(
+          `${label} socket closed (${code}${reason.length > 0 ? `: ${reason.toString()}` : ''})`,
+        ),
+      );
+    };
+    const onError = (error: Error) => finish(error);
+    const timer = setTimeout(() => finish(new Error(`${label} timeout`)), REQUEST_TIMEOUT_MS);
+    socket.on('message', onMessage);
+    socket.once('close', onClose);
+    socket.once('error', onError);
+  });
+}
+
+async function openRoomUploadAssertionAuthorityAttempt(
+  roomId: string,
+  readiness: RemoteShareReadiness,
+  requireAssertion: boolean,
+  expectedSignalingVersion: string,
+  hostSecret: string,
+): Promise<{
+  provider: RoomUploadAssertionProvider | null;
+  close(): void;
+}> {
+  if (readiness.roomUploadAssertionVersion !== 1) {
+    return { provider: null, close: () => {} };
+  }
+  const url = new URL(`${SIGNALING_ORIGIN}/${roomId}/ws`);
+  url.searchParams.set('role', 'host');
+  url.searchParams.set('peerId', roomId);
+  const socket = new WebSocket(url, { origin: APP_ORIGIN });
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('remote-share signaling host open timeout')),
+      REQUEST_TIMEOUT_MS,
+    );
+    socket.once('open', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+    socket.once('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+  const admitted = waitForSignalingMessage(
+    socket,
+    'remote-share signaling host admission',
+    (message) => message.type === 'peer-open' || message.type === 'error',
+  );
+  socket.send(
+    JSON.stringify({
+      type: 'host-auth',
+      secret: hostSecret,
+    }),
+  );
+  const peerOpen = await admitted;
+  if (peerOpen.type === 'error') {
+    socket.close(1000, 'remote-share smoke host admission failed');
+    throw new Error(
+      `remote-share signaling host rejected: ${String(peerOpen.message || peerOpen.errorType)}`,
+    );
+  }
+  const actualSignalingVersion =
+    typeof peerOpen.workerVersionId === 'string' ? peerOpen.workerVersionId.trim() : '';
+  if (expectedSignalingVersion && actualSignalingVersion !== expectedSignalingVersion) {
+    socket.close(1000, 'stale signaling version');
+    throw new StaleSignalingVersionError(
+      `remote-share signaling version mismatch: expected ${expectedSignalingVersion}, received ${actualSignalingVersion || '<missing>'}`,
+    );
+  }
+  if (peerOpen.remoteShareUploadAssertionVersion !== 1) {
+    socket.close(1000, 'remote-share assertion unsupported');
+    if (readiness.roomUploadAssertionMode === 'required' || requireAssertion) {
+      throw new Error('required Remote Share upload assertion is unavailable from signaling');
+    }
+    return { provider: null, close: () => {} };
+  }
+
+  const provider: RoomUploadAssertionProvider = async (request) => {
+    const correlationId = `rsaq_${randomBytes(24).toString('base64url')}`;
+    const responsePromise = waitForSignalingMessage(
+      socket,
+      'remote-share upload assertion',
+      (message) =>
+        (message.type === 'remote-share-upload-assertion' ||
+          message.type === 'remote-share-upload-assertion-error') &&
+        message.correlationId === correlationId,
+    );
+    socket.send(
+      JSON.stringify({
+        type: 'remote-share-upload-assertion-request',
+        correlationId,
+        ...request,
+      }),
+    );
+    const response = await responsePromise;
+    if (response.type === 'remote-share-upload-assertion-error') {
+      throw new Error(`remote-share assertion rejected: ${String(response.errorType)}`);
+    }
+    if (
+      typeof response.assertion !== 'string' ||
+      !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(response.assertion) ||
+      !Number.isSafeInteger(response.expiresAt) ||
+      Number(response.expiresAt) <= 0
+    ) {
+      throw new Error('remote-share signaling returned an invalid upload assertion');
+    }
+    return response.assertion;
+  };
+  return {
+    provider,
+    close: () => socket.close(1000, 'remote-share smoke complete'),
+  };
+}
+
+async function withSignalingVersionConvergence<T>(
+  attempt: (hostSecret: string) => Promise<T>,
+  options: SignalingVersionConvergenceOptions = {},
+): Promise<T> {
+  const now = options.now ?? Date.now;
+  const sleep =
+    options.sleep ??
+    ((delayMs: number) => new Promise<void>((resolve) => setTimeout(resolve, delayMs)));
+  const timeoutMs = options.timeoutMs ?? WORKER_PROPAGATION_TIMEOUT_MS;
+  const retryIntervalMs = options.retryIntervalMs ?? WORKER_RETRY_INTERVAL_MS;
+  const deadline = now() + timeoutMs;
+  // A stale edge may have already admitted this room before revealing its
+  // version. Reuse the same authority secret so the current edge can recover
+  // that room instead of rejecting the retry as a competing host.
+  const hostSecret = randomBytes(24).toString('base64url');
+
+  for (;;) {
+    try {
+      return await attempt(hostSecret);
+    } catch (error) {
+      if (!(error instanceof StaleSignalingVersionError) || now() >= deadline) throw error;
+      await sleep(Math.min(retryIntervalMs, Math.max(0, deadline - now())));
+    }
+  }
+}
+
+async function openRoomUploadAssertionAuthority(
+  roomId: string,
+  readiness: RemoteShareReadiness,
+  requireAssertion: boolean,
+): Promise<{
+  provider: RoomUploadAssertionProvider | null;
+  close(): void;
+}> {
+  const expectedSignalingVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
+  return withSignalingVersionConvergence((hostSecret) =>
+    openRoomUploadAssertionAuthorityAttempt(
+      roomId,
+      readiness,
+      requireAssertion,
+      expectedSignalingVersion,
+      hostSecret,
+    ),
+  );
+}
+
 async function requestSession(
   token: string,
   roomId: string,
@@ -261,6 +504,7 @@ async function requestSession(
   sourceFile: File,
   requestId: string,
   actorId: string,
+  assertionProvider?: RoomUploadAssertionProvider | null,
 ): Promise<RemoteShareSession> {
   // A Worker version can become current just before its Durable Object and
   // cross-script bindings have converged at every edge. Reuse the exact v3
@@ -280,12 +524,23 @@ async function requestSession(
   let retryDelayMs = SESSION_RETRY_INITIAL_MS;
 
   for (;;) {
+    const assertion = assertionProvider
+      ? await assertionProvider({
+          actorId,
+          requestId,
+          sessionId,
+          queueItemId,
+          size: sourceFile.size,
+          bodySha256: createHash('sha256').update(requestBody).digest('base64url'),
+        })
+      : null;
     const response = await fetchWithTimeout(`${REMOTE_ORIGIN}/session`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Origin: APP_ORIGIN,
         ...(token ? { 'X-MXQR-Capability': token } : {}),
+        ...(assertion ? { 'X-MXQR-Room-Upload-Assertion': assertion } : {}),
       },
       body: requestBody,
     });
@@ -511,6 +766,7 @@ async function runWholeObjectSmoke(
   token: string,
   roomId: string,
   sourceBytes: Uint8Array<ArrayBuffer>,
+  assertionProvider: RoomUploadAssertionProvider | null,
 ): Promise<Record<string, unknown>> {
   const queueItemId = randomUUID();
   const sessionId = Date.now();
@@ -530,6 +786,7 @@ async function runWholeObjectSmoke(
       sourceFile,
       requestId,
       actorId,
+      assertionProvider,
     );
     assertSessionPlaybackContext(session, queueItemId, sessionId);
     assertCleanupAuthority(session, roomId);
@@ -550,6 +807,7 @@ async function runWholeObjectSmoke(
       sourceFile,
       requestId,
       actorId,
+      assertionProvider,
     );
     if (
       replay.objectId !== session.objectId ||
@@ -663,6 +921,7 @@ async function runWholeObjectSmoke(
       corsPreflight: true,
       exactByteRoundTrip: true,
       bearerHeaderOnly: true,
+      roomUploadAssertion: assertionProvider !== null,
       unauthorizedReadRejected: true,
       rangeRejected: true,
       noStore: true,
@@ -677,21 +936,30 @@ async function runWholeObjectSmoke(
 
 async function main(): Promise<void> {
   const byteCount = parseByteCount();
+  const requireAssertion = requireRoomUploadAssertion();
   // Exercise the same namespace the product can actually allocate. The object
   // UUID still makes concurrent smoke objects unique if two runs pick the same
   // six-digit room code.
   const roomId = String(randomInt(100_000, 1_000_000));
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const token = await requestCapabilityToken();
-  await waitForRemoteShareWorkerReady();
-  const anonymousProbeFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });
-  await assertAnonymousSessionRejected(roomId, randomUUID(), Date.now(), anonymousProbeFile);
-  const wholeObject = await runWholeObjectSmoke(token, roomId, sourceBytes);
+  const readiness = await waitForRemoteShareWorkerReady();
+  const authority = await openRoomUploadAssertionAuthority(roomId, readiness, requireAssertion);
+  let wholeObject: Record<string, unknown>;
+  try {
+    const anonymousProbeFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });
+    await assertAnonymousSessionRejected(roomId, randomUUID(), Date.now(), anonymousProbeFile);
+    wholeObject = await runWholeObjectSmoke(token, roomId, sourceBytes, authority.provider);
+  } finally {
+    authority.close();
+  }
 
   console.log(
     JSON.stringify({
       ok: true,
       anonymousSessionRejected: true,
+      assertionRequiredBySmoke: requireAssertion,
+      roomUploadAssertionMode: readiness.roomUploadAssertionMode,
       wholeObject,
     }),
   );

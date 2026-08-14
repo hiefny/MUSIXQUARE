@@ -150,6 +150,12 @@ requireMatch(
 );
 requireMatch(
   facadeConfig,
+  /^binding\s*=\s*"CF_VERSION_METADATA"\s*$/m,
+  'facade version metadata binding',
+  failures,
+);
+requireMatch(
+  facadeConfig,
   /^name\s*=\s*"PRO_ROOM_DEVELOPER_ROOMS"\s*$/m,
   'facade PRO room binding',
   failures,

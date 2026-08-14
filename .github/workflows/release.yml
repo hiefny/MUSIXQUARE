@@ -969,6 +969,7 @@ jobs:
 
       - name: Deploy and record Developer API facade Worker
         timeout-minutes: 15
+        id: developer_api_facade_deployment
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         shell: bash
         env:
@@ -997,7 +998,9 @@ jobs:
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
           if (( status_exit != 0 )); then exit "$status_exit"; fi
-          exit "$record_exit"
+          if (( record_exit != 0 )); then exit "$record_exit"; fi
+          version_id="$(node scripts/release-deployment-state.mjs version developer-api-facade)"
+          echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Record current Developer API deployment
         timeout-minutes: 10
@@ -1050,11 +1053,12 @@ jobs:
 
       - name: Smoke Developer API Worker
         if: inputs.target == 'all' || inputs.target == 'developer-api'
-        timeout-minutes: 5
+        timeout-minutes: 10
         env:
           MXQR_DEVELOPER_API_SMOKE_KEY: ${{ secrets.MXQR_DEVELOPER_API_SMOKE_KEY }}
           MXQR_DEVELOPER_API_SMOKE_ROOM: '000001'
           MXQR_EXPECTED_DEVELOPER_API_VERSION: ${{ steps.developer_api_deployment.outputs.version_id }}
+          MXQR_EXPECTED_DEVELOPER_API_FACADE_VERSION: ${{ steps.developer_api_facade_deployment.outputs.version_id }}
         run: npm run smoke:live:developer-api
 
       - name: Record current app deployment

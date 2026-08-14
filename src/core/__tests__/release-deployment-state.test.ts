@@ -134,6 +134,11 @@ describe('release deployment rollback state', () => {
     expect(workflow).toContain(
       'MXQR_DEVELOPER_API_SMOKE_KEY: ${{ secrets.MXQR_DEVELOPER_API_SMOKE_KEY }}',
     );
+    expect(workflow).toContain(
+      'MXQR_EXPECTED_DEVELOPER_API_FACADE_VERSION: ${{ steps.developer_api_facade_deployment.outputs.version_id }}',
+    );
+    expect(workflow).toContain('id: developer_api_facade_deployment');
+    expect(workflow).toContain('release-deployment-state.mjs version developer-api-facade');
 
     const deployAll = emergencyDeploymentPlan('all-workers', '1'.repeat(40)).flat().join(' ');
     const remoteConfig = deployAll.indexOf('cloudflare/wrangler.remote-share.toml');
@@ -2174,7 +2179,9 @@ describe('release deployment rollback state', () => {
       expect(step, stepName).toContain(
         stepName === 'Smoke PRO media R2 CORS boundary'
           ? 'timeout-minutes: 10'
-          : 'timeout-minutes: 5',
+          : stepName === 'Smoke Developer API Worker'
+            ? 'timeout-minutes: 10'
+            : 'timeout-minutes: 5',
       );
     }
 

@@ -117,9 +117,13 @@ describe('private Developer API facade', () => {
     );
     const response = await facadeWorker.fetch(
       request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'room' }),
-      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      {
+        PRO_ROOM_DEVELOPER_ROOMS: rooms,
+        CF_VERSION_METADATA: { id: 'facade-version-1' },
+      },
     );
     expect(response.status).toBe(200);
+    expect(response.headers.get('x-mxqr-developer-api-facade-version')).toBe('facade-version-1');
     expect(await response.json()).toEqual({
       schemaVersion: 1,
       view: 'room',

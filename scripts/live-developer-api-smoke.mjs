@@ -11,7 +11,22 @@ const API_ORIGIN = 'https://api.musixquare.com';
 export const DEVELOPER_API_READINESS_RETRY_DELAYS_MS = Object.freeze([
   0, 1_000, 2_000, 4_000, 8_000, 15_000, 20_000, 20_000, 20_000, 20_000, 20_000, 20_000,
 ]);
+// The exact API version can become healthy before its Worker-to-Worker and
+// Durable Object dependencies converge at the edge. Only the first read-only
+// canary request receives this narrower retry window; mutations are never
+// replayed by the smoke runner.
+export const DEVELOPER_API_CANARY_RETRY_DELAYS_MS = Object.freeze([
+  0, 1_000, 2_000, 4_000, 8_000, 15_000, 20_000,
+]);
 const REQUEST_TIMEOUT_MS = 30_000;
+const DEVELOPER_API_CANARY_CONVERGENCE_CODES = new Set([
+  'API_NOT_CONFIGURED',
+  'BACKEND_UNAVAILABLE',
+]);
+const DEVELOPER_API_REQUEST_ID_RE = /^req_[A-Za-z0-9_-]{22}$/;
+const DEVELOPER_API_VERSION_HEADER = 'x-mxqr-developer-api-version';
+const DEVELOPER_API_FACADE_VERSION_HEADER = 'x-mxqr-developer-api-facade-version';
+const CANARY_INITIAL_REQUEST_TIMEOUT_MS = 10_000;
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -177,6 +192,42 @@ async function readJson(response, label) {
   }
 }
 
+function hasExactKeys(value, keys) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.prototype.hasOwnProperty.call(value, key))
+  );
+}
+
+function canaryConvergenceFailure(response, payload) {
+  if (response.status !== 503) return '';
+  if (
+    hasExactKeys(payload, ['error']) &&
+    hasExactKeys(payload.error, ['code', 'message', 'requestId', 'retryable']) &&
+    DEVELOPER_API_CANARY_CONVERGENCE_CODES.has(payload.error.code) &&
+    typeof payload.error.message === 'string' &&
+    DEVELOPER_API_REQUEST_ID_RE.test(payload.error.requestId) &&
+    payload.error.retryable === true
+  ) {
+    return `HTTP 503 (${payload.error.code})`;
+  }
+  if (
+    hasExactKeys(payload, ['error', 'maintenance', 'revision', 'activatedAt', 'settlesAt']) &&
+    payload.error === 'SERVICE_MAINTENANCE_STATUS_UNAVAILABLE' &&
+    payload.maintenance === true &&
+    Number.isSafeInteger(payload.revision) &&
+    payload.revision >= 0 &&
+    (payload.activatedAt === null || Number.isSafeInteger(payload.activatedAt)) &&
+    (payload.settlesAt === null || Number.isSafeInteger(payload.settlesAt))
+  ) {
+    return 'HTTP 503 (SERVICE_MAINTENANCE_STATUS_UNAVAILABLE)';
+  }
+  return '';
+}
+
 function assertNoPrivateFields(value, label) {
   const forbidden = new Set([
     'assetId',
@@ -214,7 +265,16 @@ export async function assertDeveloperApiOff() {
   }
 }
 
-export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
+export async function assertDeveloperApiCanary(
+  apiKey,
+  roomCode = '000001',
+  {
+    expectedWorkerVersion = '',
+    expectedFacadeVersion = '',
+    retryDelaysMs = DEVELOPER_API_CANARY_RETRY_DELAYS_MS,
+    wait = delay,
+  } = {},
+) {
   if (!/^mxqr_live_[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}$/.test(apiKey)) {
     throw new Error('MXQR_DEVELOPER_API_SMOKE_KEY has an invalid format');
   }
@@ -229,14 +289,65 @@ export async function assertDeveloperApiCanary(apiKey, roomCode = '000001') {
   for (const suffix of ['', '/playback', '/queue', '/effects', '/queue-mode']) {
     const headers = { Accept: 'application/json', Authorization: authorization };
     if (suffix === '/effects') headers['X-MXQR-Effects-Version'] = '2';
-    const response = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/${roomCode}${suffix}`, {
-      cache: 'no-store',
-      headers,
-    });
-    if (response.status !== 200) {
-      throw new Error(`Developer API ${suffix || '/room'} smoke returned HTTP ${response.status}`);
+    const attemptDelays = suffix ? [0] : retryDelaysMs;
+    let response = null;
+    let payload = null;
+    let lastRetryableFailure = '';
+    let converged = false;
+    for (let attemptIndex = 0; attemptIndex < attemptDelays.length; attemptIndex += 1) {
+      const waitMs = attemptDelays[attemptIndex];
+      if (waitMs > 0) await wait(waitMs);
+      try {
+        response = await fetchWithTimeout(`${API_ORIGIN}/v1/rooms/${roomCode}${suffix}`, {
+          cache: 'no-store',
+          headers,
+          ...(!suffix ? { signal: AbortSignal.timeout(CANARY_INITIAL_REQUEST_TIMEOUT_MS) } : {}),
+        });
+      } catch (error) {
+        if (!suffix) {
+          lastRetryableFailure = `request failed (${error instanceof Error ? error.name : 'unknown error'})`;
+          continue;
+        }
+        throw new Error(
+          `Developer API ${suffix || '/room'} smoke request failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      payload = await readJson(response, `Developer API ${suffix || '/room'} smoke`);
+      if (response.status === 200) {
+        if (!suffix) {
+          const actualWorkerVersion =
+            response.headers.get(DEVELOPER_API_VERSION_HEADER)?.trim() || '';
+          const actualFacadeVersion =
+            response.headers.get(DEVELOPER_API_FACADE_VERSION_HEADER)?.trim() || '';
+          if (
+            (expectedWorkerVersion && actualWorkerVersion !== expectedWorkerVersion) ||
+            (expectedFacadeVersion && actualFacadeVersion !== expectedFacadeVersion)
+          ) {
+            lastRetryableFailure =
+              `data-plane version mismatch (worker ${actualWorkerVersion || '<missing>'}, ` +
+              `facade ${actualFacadeVersion || '<missing>'})`;
+            continue;
+          }
+        }
+        converged = true;
+        break;
+      }
+      const convergenceFailure = !suffix ? canaryConvergenceFailure(response, payload) : '';
+      if (convergenceFailure) {
+        lastRetryableFailure = convergenceFailure;
+        continue;
+      }
+      const code =
+        typeof payload?.error === 'string' ? payload.error : payload?.error?.code || '<missing>';
+      throw new Error(
+        `Developer API ${suffix || '/room'} smoke returned HTTP ${response.status} (${code})`,
+      );
     }
-    const payload = await readJson(response, `Developer API ${suffix || '/room'} smoke`);
+    if (!converged || response?.status !== 200 || !payload) {
+      throw new Error(
+        `Developer API /room smoke remained unavailable after ${attemptDelays.length} attempts: ${lastRetryableFailure || '<unknown>'}`,
+      );
+    }
     assertNoPrivateFields(payload, `Developer API ${suffix || '/room'} smoke`);
     if (payload?.roomCode !== roomCode) throw new Error('Developer API returned the wrong room');
     if (!suffix) {
@@ -451,10 +562,21 @@ export async function waitForDeveloperApiReady(
 
 export async function runDeveloperApiSmoke({ env = process.env, stdout = process.stdout } = {}) {
   const expectedVersion = env.MXQR_EXPECTED_DEVELOPER_API_VERSION?.trim() || '';
-  const readiness = await waitForDeveloperApiReady(expectedVersion);
   const smokeKey = env.MXQR_DEVELOPER_API_SMOKE_KEY?.trim() || '';
+  const expectedFacadeVersion = env.MXQR_EXPECTED_DEVELOPER_API_FACADE_VERSION?.trim() || '';
+  if (smokeKey && (!expectedVersion || !expectedFacadeVersion)) {
+    throw new Error('Developer API canary smoke requires exact public and facade Worker versions');
+  }
+  const readiness = await waitForDeveloperApiReady(expectedVersion);
   if (smokeKey) {
-    await assertDeveloperApiCanary(smokeKey, env.MXQR_DEVELOPER_API_SMOKE_ROOM?.trim() || '000001');
+    await assertDeveloperApiCanary(
+      smokeKey,
+      env.MXQR_DEVELOPER_API_SMOKE_ROOM?.trim() || '000001',
+      {
+        expectedWorkerVersion: expectedVersion,
+        expectedFacadeVersion,
+      },
+    );
   } else {
     await assertDeveloperApiOff();
   }

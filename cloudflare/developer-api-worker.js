@@ -88,6 +88,8 @@ const SECURITY_HEADERS = Object.freeze({
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
 });
+const DEVELOPER_API_VERSION_HEADER = 'x-mxqr-developer-api-version';
+const DEVELOPER_API_FACADE_VERSION_HEADER = 'x-mxqr-developer-api-facade-version';
 const ERROR_MESSAGES = Object.freeze({
   API_DISABLED: 'The Developer API is not enabled.',
   API_NOT_CONFIGURED: 'The Developer API is temporarily unavailable.',
@@ -242,6 +244,18 @@ function errorResponse(code, status, requestId, options = {}) {
     requestId,
     options.headers || {},
   );
+}
+
+function dataPlaneVersionHeaders(env, facadeWorkerVersionId) {
+  const headers = {};
+  const workerVersionId = env?.CF_VERSION_METADATA?.id;
+  if (typeof workerVersionId === 'string' && workerVersionId.length > 0) {
+    headers[DEVELOPER_API_VERSION_HEADER] = workerVersionId;
+  }
+  if (typeof facadeWorkerVersionId === 'string' && facadeWorkerVersionId.length > 0) {
+    headers[DEVELOPER_API_FACADE_VERSION_HEADER] = facadeWorkerVersionId;
+  }
+  return headers;
 }
 
 function configuredMode(env) {
@@ -1583,6 +1597,7 @@ async function facadeRead(env, route, principal, effectsVersion) {
     );
     if (!outcome) return { backendError: true };
     const { response, value } = outcome;
+    const facadeWorkerVersionId = response.headers.get(DEVELOPER_API_FACADE_VERSION_HEADER) || '';
     if (!response.ok) {
       if (response.status === 404) return { notFound: true };
       if (
@@ -1595,7 +1610,7 @@ async function facadeRead(env, route, principal, effectsVersion) {
       return { backendError: true };
     }
     const payload = validateFacadePayload(value, route.view, route.roomCode);
-    return payload ? { payload } : { invalidResponse: true };
+    return payload ? { payload, facadeWorkerVersionId } : { invalidResponse: true };
   } catch {
     return { backendError: true };
   }
@@ -2278,14 +2293,20 @@ async function handleApiRequest(request, env, context, requestId) {
   if (ifNoneMatch !== null && encoder.encode(ifNoneMatch).byteLength > ETAG_HEADER_MAX_BYTES) {
     return errorResponse('NOT_FOUND', 404, requestId);
   }
+  const versionHeaders = dataPlaneVersionHeaders(env, facade.facadeWorkerVersionId);
   if (ifNoneMatch !== null && ifNoneMatchMatches(ifNoneMatch, etag)) {
-    return emptyResponse(304, requestId, { ...limiterHeaders, ...representationHeaders, etag });
+    return emptyResponse(304, requestId, {
+      ...limiterHeaders,
+      ...representationHeaders,
+      ...versionHeaders,
+      etag,
+    });
   }
   return jsonResponse(
     facade.payload,
     200,
     requestId,
-    { ...limiterHeaders, ...representationHeaders, etag },
+    { ...limiterHeaders, ...representationHeaders, ...versionHeaders, etag },
     'private, no-cache',
   );
 }

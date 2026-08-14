@@ -91,6 +91,7 @@ const SECURITY_HEADERS = Object.freeze({
   'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff',
 });
+const FACADE_VERSION_HEADER = 'x-mxqr-developer-api-facade-version';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
 function hasExactKeys(value, required, optional = []) {
@@ -102,11 +103,22 @@ function hasExactKeys(value, required, optional = []) {
   );
 }
 
-function jsonResponse(body, status = 200) {
+function jsonResponse(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...SECURITY_HEADERS, 'content-type': 'application/json; charset=utf-8' },
+    headers: {
+      ...SECURITY_HEADERS,
+      ...extraHeaders,
+      'content-type': 'application/json; charset=utf-8',
+    },
   });
+}
+
+function facadeVersionHeaders(env) {
+  const versionId = env?.CF_VERSION_METADATA?.id;
+  return typeof versionId === 'string' && versionId.length > 0
+    ? { [FACADE_VERSION_HEADER]: versionId }
+    : {};
 }
 
 function isSafeNonNegativeInteger(value) {
@@ -1156,7 +1168,7 @@ export default {
       }
       const sanitized = sanitizeProjection(value, body.projection, body.roomCode);
       return sanitized
-        ? jsonResponse(sanitized)
+        ? jsonResponse(sanitized, 200, facadeVersionHeaders(env))
         : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
     }
 

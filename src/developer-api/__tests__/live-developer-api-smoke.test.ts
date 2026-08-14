@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertDeveloperApiCanary,
+  DEVELOPER_API_CANARY_RETRY_DELAYS_MS,
   DEVELOPER_API_READINESS_RETRY_DELAYS_MS,
+  runDeveloperApiSmoke,
   waitForDeveloperApiReady,
 } from '../../../scripts/live-developer-api-smoke.mjs';
 
@@ -12,6 +14,12 @@ const API_KEY = `mxqr_live_${'A'.repeat(16)}.${'B'.repeat(43)}`;
 const YOUTUBE_ITEM_ID = '123e4567-e89b-42d3-a456-426614174001';
 const AUDIO_ITEM_ID = '123e4567-e89b-42d3-a456-426614174002';
 const ASSET_ID = `asset_${'C'.repeat(24)}`;
+const WORKER_VERSION = 'developer-api-version-1';
+const FACADE_VERSION = 'developer-api-facade-version-1';
+const VERSION_HEADERS = {
+  'X-MXQR-Developer-API-Version': WORKER_VERSION,
+  'X-MXQR-Developer-API-Facade-Version': FACADE_VERSION,
+};
 
 function queue(items: Array<Record<string, unknown>> = [], playlistRevision = 1) {
   return {
@@ -24,8 +32,41 @@ function queue(items: Array<Record<string, unknown>> = [], playlistRevision = 1)
   };
 }
 
+function roomProjection() {
+  return {
+    schemaVersion: 1,
+    view: 'room',
+    roomCode: ROOM,
+    status: 'active',
+    runtime: 'sleeping',
+    revision: 1,
+    participantCount: 0,
+    controlAvailable: false,
+    quota: {
+      limitBytes: 1_073_741_824,
+      perAssetLimitBytes: 209_715_200,
+      usedBytes: 0,
+      reservedBytes: 0,
+    },
+  };
+}
+
 function json(value: unknown, status = 200, headers: HeadersInit = {}) {
   return Response.json(value, { status, headers });
+}
+
+function apiError(code: string, status = 503, retryable = true) {
+  return json(
+    {
+      error: {
+        code,
+        message: 'The request could not be completed.',
+        requestId: `req_${'R'.repeat(22)}`,
+        retryable,
+      },
+    },
+    status,
+  );
 }
 
 afterEach(() => {
@@ -33,6 +74,23 @@ afterEach(() => {
 });
 
 describe('Developer API live canary smoke', () => {
+  it('fails closed before network access unless both canary versions are pinned', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+
+    await expect(
+      runDeveloperApiSmoke({
+        env: {
+          MXQR_DEVELOPER_API_SMOKE_KEY: API_KEY,
+          MXQR_EXPECTED_DEVELOPER_API_VERSION: WORKER_VERSION,
+        },
+      }),
+    ).rejects.toThrow(
+      'Developer API canary smoke requires exact public and facade Worker versions',
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it('keeps the exact-version readiness fence long enough for edge propagation', async () => {
     expect(
       DEVELOPER_API_READINESS_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0),
@@ -66,16 +124,115 @@ describe('Developer API live canary smoke', () => {
     expect(wait).toHaveBeenCalledWith(1_000);
   });
 
+  it('bounds initial read-only canary convergence without retrying non-retryable errors', async () => {
+    expect(
+      DEVELOPER_API_CANARY_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0),
+    ).toBeGreaterThanOrEqual(50_000);
+
+    const retryableFetch = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(apiError('BACKEND_UNAVAILABLE')));
+    vi.stubGlobal('fetch', retryableFetch);
+    const wait = vi.fn().mockResolvedValue(undefined);
+
+    await expect(
+      assertDeveloperApiCanary(API_KEY, ROOM, {
+        retryDelaysMs: [0, 1_000, 2_000],
+        wait,
+      }),
+    ).rejects.toThrow(
+      'Developer API /room smoke remained unavailable after 3 attempts: HTTP 503 (BACKEND_UNAVAILABLE)',
+    );
+    expect(retryableFetch).toHaveBeenCalledTimes(3);
+    expect(wait.mock.calls).toEqual([[1_000], [2_000]]);
+
+    const staleFetch = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        json(roomProjection(), 200, {
+          'X-MXQR-Developer-API-Version': 'stale-worker-version',
+          'X-MXQR-Developer-API-Facade-Version': 'stale-facade-version',
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', staleFetch);
+    const staleWait = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      assertDeveloperApiCanary(API_KEY, ROOM, {
+        expectedWorkerVersion: WORKER_VERSION,
+        expectedFacadeVersion: FACADE_VERSION,
+        retryDelaysMs: [0, 1_000],
+        wait: staleWait,
+      }),
+    ).rejects.toThrow(
+      'Developer API /room smoke remained unavailable after 2 attempts: data-plane version mismatch',
+    );
+    expect(staleFetch).toHaveBeenCalledTimes(2);
+    expect(staleWait).toHaveBeenCalledExactlyOnceWith(1_000);
+
+    const rejectedFetch = vi
+      .fn()
+      .mockImplementation(() => Promise.reject(new TypeError('simulated edge reset')));
+    vi.stubGlobal('fetch', rejectedFetch);
+    const rejectedWait = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      assertDeveloperApiCanary(API_KEY, ROOM, {
+        retryDelaysMs: [0, 1_000],
+        wait: rejectedWait,
+      }),
+    ).rejects.toThrow(
+      'Developer API /room smoke remained unavailable after 2 attempts: request failed (TypeError)',
+    );
+    expect(rejectedFetch).toHaveBeenCalledTimes(2);
+    expect(rejectedWait).toHaveBeenCalledExactlyOnceWith(1_000);
+
+    for (const [code, status, retryable] of [
+      ['INTERNAL_RESPONSE_INVALID', 503, true],
+      ['API_DISABLED', 503, true],
+      ['RATE_LIMITED', 429, true],
+      ['UNAUTHORIZED', 401, false],
+    ] as const) {
+      const nonRetryableFetch = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(apiError(code, status, retryable)));
+      vi.stubGlobal('fetch', nonRetryableFetch);
+      const nonRetryableWait = vi.fn().mockResolvedValue(undefined);
+
+      await expect(
+        assertDeveloperApiCanary(API_KEY, ROOM, {
+          retryDelaysMs: [0, 1_000],
+          wait: nonRetryableWait,
+        }),
+      ).rejects.toThrow(`Developer API /room smoke returned HTTP ${status} (${code})`);
+      expect(nonRetryableFetch).toHaveBeenCalledOnce();
+      expect(nonRetryableWait).not.toHaveBeenCalled();
+    }
+
+    const malformedFetch = vi
+      .fn()
+      .mockImplementation(() => Promise.resolve(new Response('unavailable', { status: 503 })));
+    vi.stubGlobal('fetch', malformedFetch);
+    await expect(
+      assertDeveloperApiCanary(API_KEY, ROOM, {
+        retryDelaysMs: [0, 1_000],
+        wait: vi.fn(),
+      }),
+    ).rejects.toThrow('Developer API /room smoke returned invalid JSON');
+    expect(malformedFetch).toHaveBeenCalledOnce();
+  });
+
   it.each([
-    ['successful completion', 'success', null],
-    ['post-commit timeout', 'timeout', 'simulated post-commit timeout'],
-    ['post-commit damaged response', 'damaged', 'returned invalid JSON'],
+    ['stale data-plane convergence', 'success', null, 'stale'],
+    ['backend convergence', 'success', null, 'backend'],
+    ['mixed backend and network convergence', 'success', null, 'mixed'],
+    ['post-commit timeout', 'timeout', 'simulated post-commit timeout', 'maintenance'],
+    ['post-commit damaged response', 'damaged', 'returned invalid JSON', 'network'],
   ] as const)(
     'exercises scoped reads, queue mutations, direct upload, completion, and cleanup: %s',
-    async (_label, completionMode, expectedError) => {
+    async (_label, completionMode, expectedError, convergenceMode) => {
       let youtubePresent = false;
       let audioPresent = false;
       let uploadBytes = 0;
+      let roomReadAttempts = 0;
       const calls: string[] = [];
 
       vi.stubGlobal(
@@ -107,26 +264,35 @@ describe('Developer API live canary smoke', () => {
             return new Response(null, { status: 304 });
           }
           if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}`) {
-            return json(
-              {
-                schemaVersion: 1,
-                view: 'room',
-                roomCode: ROOM,
-                status: 'active',
-                runtime: 'sleeping',
-                revision: 1,
-                participantCount: 0,
-                controlAvailable: false,
-                quota: {
-                  limitBytes: 1_073_741_824,
-                  perAssetLimitBytes: 209_715_200,
-                  usedBytes: 0,
-                  reservedBytes: 0,
-                },
-              },
-              200,
-              { ETag: '"room-etag"' },
-            );
+            roomReadAttempts += 1;
+            if (convergenceMode === 'mixed' && roomReadAttempts === 2) {
+              throw new TypeError('simulated edge reset');
+            }
+            if (roomReadAttempts === 1) {
+              if (convergenceMode === 'stale') {
+                return json({ stale: true }, 200, {
+                  'X-MXQR-Developer-API-Version': 'stale-worker-version',
+                  'X-MXQR-Developer-API-Facade-Version': 'stale-facade-version',
+                });
+              }
+              if (convergenceMode === 'backend' || convergenceMode === 'mixed') {
+                return apiError('BACKEND_UNAVAILABLE');
+              }
+              if (convergenceMode === 'maintenance') {
+                return json(
+                  {
+                    error: 'SERVICE_MAINTENANCE_STATUS_UNAVAILABLE',
+                    maintenance: true,
+                    revision: 0,
+                    activatedAt: null,
+                    settlesAt: null,
+                  },
+                  503,
+                );
+              }
+              throw new TypeError('simulated edge reset');
+            }
+            return json(roomProjection(), 200, { ETag: '"room-etag"', ...VERSION_HEADERS });
           }
           if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}/playback`) {
             return json({
@@ -297,13 +463,24 @@ describe('Developer API live canary smoke', () => {
         }),
       );
 
-      const smoke = assertDeveloperApiCanary(API_KEY, ROOM);
+      const convergenceWait = vi.fn().mockResolvedValue(undefined);
+      const smoke = assertDeveloperApiCanary(API_KEY, ROOM, {
+        expectedWorkerVersion: WORKER_VERSION,
+        expectedFacadeVersion: FACADE_VERSION,
+        retryDelaysMs: [0, 1_000, 2_000],
+        wait: convergenceWait,
+      });
       if (expectedError) {
         await expect(smoke).rejects.toThrow(expectedError);
       } else {
         await expect(smoke).resolves.toBeUndefined();
       }
       expect(uploadBytes).toBe(46);
+      const expectedRoomReadAttempts = convergenceMode === 'mixed' ? 3 : 2;
+      expect(roomReadAttempts).toBe(expectedRoomReadAttempts);
+      expect(convergenceWait.mock.calls).toEqual(
+        convergenceMode === 'mixed' ? [[1_000], [2_000]] : [[1_000]],
+      );
       expect(youtubePresent).toBe(false);
       expect(audioPresent).toBe(false);
       expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`);
@@ -312,6 +489,9 @@ describe('Developer API live canary smoke', () => {
       ).toHaveLength(1);
       expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/queue-mode`);
       expect(calls).toContain('PUT https://storage.example/upload');
+      const mutationCalls = calls.filter((call) => /^(?:POST|PUT|DELETE) /u.test(call));
+      expect(mutationCalls.length).toBeGreaterThan(0);
+      expect(new Set(mutationCalls).size).toBe(mutationCalls.length);
       expect(calls.at(-1)).toBe(
         `DELETE https://api.musixquare.com/v1/rooms/${ROOM}/queue/items/${AUDIO_ITEM_ID}`,
       );

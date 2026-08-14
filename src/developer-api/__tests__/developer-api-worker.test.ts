@@ -225,8 +225,8 @@ function uploadCompletionPayload() {
   };
 }
 
-function jsonResponse(value: unknown, status = 200): Response {
-  return Response.json(value, { status });
+function jsonResponse(value: unknown, status = 200, headers: HeadersInit = {}): Response {
+  return Response.json(value, { status, headers });
 }
 
 function limiterNamespace(options: { block?: (name: string) => boolean } = {}) {
@@ -343,7 +343,9 @@ async function createEnvironment(
                 body.mutation?.type === 'add_youtube_batch'))
           ? 201
           : 200;
-    return jsonResponse(payload, options.facadeStatus ?? defaultStatus);
+    return jsonResponse(payload, options.facadeStatus ?? defaultStatus, {
+      'X-MXQR-Developer-API-Facade-Version': 'facade-version-1',
+    });
   });
   return {
     env: {
@@ -354,6 +356,7 @@ async function createEnvironment(
       DEVELOPER_API_DB: database,
       DEVELOPER_API_LIMITERS: limiter,
       DEVELOPER_API_FACADE: { fetch: facadeFetch },
+      CF_VERSION_METADATA: { id: 'developer-api-version-1' },
     },
     database,
     limiter,
@@ -557,6 +560,8 @@ describe('Developer API read-only public Worker', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('etag')).toMatch(/^"mxqr-room-[A-Za-z0-9_-]{43}"$/);
     expect(response.headers.get('cache-control')).toBe('private, no-cache');
+    expect(response.headers.get('x-mxqr-developer-api-version')).toBe('developer-api-version-1');
+    expect(response.headers.get('x-mxqr-developer-api-facade-version')).toBe('facade-version-1');
     expect(isDeveloperApiRequestId(response.headers.get('x-request-id'))).toBe(true);
     await expect(response.json()).resolves.toEqual(roomPayload());
     expect(database.first).toHaveBeenCalledTimes(1);

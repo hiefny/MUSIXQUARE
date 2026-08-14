@@ -5,8 +5,18 @@ export interface DeveloperApiReadiness {
 }
 
 export const DEVELOPER_API_READINESS_RETRY_DELAYS_MS: readonly number[];
+export const DEVELOPER_API_CANARY_RETRY_DELAYS_MS: readonly number[];
 export function assertDeveloperApiOff(): Promise<void>;
-export function assertDeveloperApiCanary(apiKey: string, roomCode?: string): Promise<void>;
+export function assertDeveloperApiCanary(
+  apiKey: string,
+  roomCode?: string,
+  dependencies?: {
+    expectedWorkerVersion?: string;
+    expectedFacadeVersion?: string;
+    retryDelaysMs?: readonly number[];
+    wait?: (milliseconds: number) => Promise<unknown>;
+  },
+): Promise<void>;
 export function waitForDeveloperApiReady(
   expectedVersion: string,
   dependencies?: {

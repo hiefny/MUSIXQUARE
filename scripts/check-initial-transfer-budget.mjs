@@ -21,13 +21,19 @@ import { gzipSync } from 'node:zlib';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const INITIAL_TRANSFER_BUDGET = Object.freeze({
-  entryScriptRawBytes: 1_324_000,
-  // Bubble copy is a core keyboard/click/hold action, so it stays in the
+  // Controlled onboarding rotation adds pause/resume, visibility, hover,
+  // touch, and reduced-motion lifecycle guards across the entry raw/gzip,
+  // eager-JS gzip, and eager-total gzip metrics below. Keep that first-screen
+  // interaction eager rather than creating an asynchronous initialization seam.
+  // Rounded limits retain a small maintenance reserve for harmless follow-up
+  // fixes while still rejecting material growth in the eager graph.
+  // Bubble copy is also a core keyboard/click/hold action, so it stays in the
   // offline app shell instead of becoming a fallible lazy accessibility seam.
-  entryScriptGzipBytes: 387_000,
-  eagerJavaScriptGzipBytes: 391_300,
+  entryScriptRawBytes: 1_330_000,
+  entryScriptGzipBytes: 400_000,
+  eagerJavaScriptGzipBytes: 400_000,
   eagerTotalRawBytes: 1_700_000,
-  eagerTotalGzipBytes: 453_200,
+  eagerTotalGzipBytes: 460_000,
   eagerFontBytes: 0,
 });
 

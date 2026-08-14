@@ -23,6 +23,8 @@ const ko = {
   'common.revoked': '회수됨',
   'common.stop': '정지',
   'common.pause': '일시정지',
+  'setup.carousel_pause': '슬라이드 자동 전환 일시정지',
+  'setup.carousel_play': '슬라이드 자동 전환 시작',
   'common.message': '메시지',
   'common.mix': '믹스',
   'common.wait': '잠시만요...',

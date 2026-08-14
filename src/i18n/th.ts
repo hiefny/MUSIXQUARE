@@ -24,6 +24,8 @@ const th: Record<I18nKey, string> = {
   'common.revoked': 'ถูกถอนสิทธิ์แล้ว',
   'common.stop': 'หยุด',
   'common.pause': 'หยุดชั่วคราว',
+  'setup.carousel_pause': 'หยุดการเลื่อนสไลด์อัตโนมัติชั่วคราว',
+  'setup.carousel_play': 'เริ่มการเลื่อนสไลด์อัตโนมัติ',
   'common.message': 'ข้อความ',
   'common.mix': 'ผสม',
   'common.wait': 'รอสักครู่...',

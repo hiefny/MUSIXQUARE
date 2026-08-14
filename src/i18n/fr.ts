@@ -27,6 +27,8 @@ const fr: Record<I18nKey, string> = {
   'common.revoked': 'révoqué',
   'common.stop': 'Arrêter',
   'common.pause': 'Pause',
+  'setup.carousel_pause': 'Suspendre la rotation automatique des diapositives',
+  'setup.carousel_play': 'Démarrer la rotation automatique des diapositives',
   'common.message': 'Message',
   'common.mix': 'Mixage',
   'common.wait': 'Veuillez patienter…',

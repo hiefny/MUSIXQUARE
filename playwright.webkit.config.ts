@@ -15,6 +15,7 @@ export default defineConfig({
     'playlist-title-marquee.test.ts',
     'chat-copy-tap.test.ts',
     'maintenance-inline-logo.test.ts',
+    'setup-carousel-autoplay.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

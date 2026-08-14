@@ -27,6 +27,8 @@ const id: Record<I18nKey, string> = {
   'common.revoked': 'dicabut',
   'common.stop': 'Berhenti',
   'common.pause': 'Jeda',
+  'setup.carousel_pause': 'Jeda rotasi slide otomatis',
+  'setup.carousel_play': 'Mulai rotasi slide otomatis',
   'common.message': 'Pesan',
   'common.mix': 'Campuran',
   'common.wait': 'Mohon tunggu...',

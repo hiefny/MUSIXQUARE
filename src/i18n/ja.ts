@@ -27,6 +27,8 @@ const ja: Record<I18nKey, string> = {
   'common.revoked': '解除済み',
   'common.stop': '停止',
   'common.pause': '一時停止',
+  'setup.carousel_pause': 'スライドの自動切り替えを一時停止',
+  'setup.carousel_play': 'スライドの自動切り替えを開始',
   'common.message': 'メッセージ',
   'common.mix': 'ミックス',
   'common.wait': 'しばらくお待ちください...',

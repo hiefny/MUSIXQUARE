@@ -12,7 +12,7 @@
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { isCompactLandscape } from '../core/platform.ts';
 import { animateTransition, updateOverlayOpenClass } from './dom.ts';
 import { showToast } from './toast.ts';
@@ -27,6 +27,9 @@ import { setCurrentState } from '../core/aria-state.ts';
 
 // ─── Constants ───────────────────────────────────────────────────
 const TOTAL_OB_SLIDES = 4;
+const OB_CAROUSEL_AUTOPLAY_DELAY_MS = 6000;
+const OB_CAROUSEL_AUTOPLAY_TIMER = 'setup-ob-carousel-autoplay';
+const OB_CAROUSEL_SWIPE_THRESHOLD_PX = 50;
 
 export const BACK_SVG =
   '<svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6 1.41-1.41z"/></svg>';
@@ -39,6 +42,13 @@ let _pendingGuestRoleMode: number | null = null;
 let _hostCodeFlowId = 0;
 let _setupOverlayAbort: AbortController | null = null;
 let _pendingAutoJoinCode: string | null = null;
+let _obCarouselInitialized = false;
+let _obCarouselAutoplayRequested = true;
+let _obCarouselHoverPaused = false;
+let _obCarouselTouchActive = false;
+let _obCarouselReducedMotion = false;
+let _obCarouselGreetingReady = false;
+let _obCarouselTogglePointerIntent: boolean | null = null;
 
 // ─── State Accessors ─────────────────────────────────────────────
 
@@ -204,11 +214,13 @@ export function showSetupOverlay(): void {
     }
     _setupOverlayEverShown = true;
     scheduleSetupScrollbarReveal();
+    scheduleObCarouselAutoplay();
   });
 }
 
 export function hideSetupOverlay(): void {
   activateNoSleep();
+  clearObCarouselAutoplayTimer();
   if (_setupOverlayAbort) {
     _setupOverlayAbort.abort();
     _setupOverlayAbort = null;
@@ -296,6 +308,8 @@ export function setupShowWelcome(show: boolean): void {
   const becameVisible = !!el && show && el.style.display !== 'flex';
   if (el) el.style.display = show ? 'flex' : 'none';
   syncDesktopLeftPanel();
+  if (show) scheduleObCarouselAutoplay();
+  else clearObCarouselAutoplayTimer();
   if (becameVisible) scheduleSetupScrollbarReveal();
 }
 
@@ -393,6 +407,287 @@ export function setupRenderActions(
 
 // ─── Onboarding Slider ──────────────────────────────────────────
 
+function clearObCarouselAutoplayTimer(): void {
+  clearManagedTimer(OB_CAROUSEL_AUTOPLAY_TIMER);
+}
+
+function isObCarouselWelcomeVisible(): boolean {
+  const overlay = setupEl('setup-overlay');
+  const welcome = setupEl('setup-welcome-area');
+  return (
+    !!overlay?.classList.contains('active') &&
+    !!welcome &&
+    !welcome.hidden &&
+    welcome.style.display !== 'none'
+  );
+}
+
+function canScheduleObCarouselAutoplay(): boolean {
+  return (
+    _obCarouselInitialized &&
+    _obCarouselGreetingReady &&
+    _obCarouselAutoplayRequested &&
+    !_obCarouselReducedMotion &&
+    !_obCarouselHoverPaused &&
+    !_obCarouselTouchActive &&
+    !document.hidden &&
+    isObCarouselWelcomeVisible()
+  );
+}
+
+function hasHoverCapableInput(): boolean {
+  try {
+    return window.matchMedia('(hover: hover)').matches;
+  } catch {
+    return false;
+  }
+}
+
+function updateObCarouselRotationUi(): void {
+  const area = setupEl('ob-slider-area');
+  const track = setupEl('ob-slider-track');
+  const toggle = setupEl('ob-autoplay-toggle') as HTMLButtonElement | null;
+  const rotationAvailable = !_obCarouselReducedMotion;
+  const rotationRequested = _obCarouselAutoplayRequested && rotationAvailable;
+
+  if (area) area.dataset.autoplay = rotationRequested ? 'playing' : 'paused';
+  if (track) track.setAttribute('aria-live', rotationRequested ? 'off' : 'polite');
+  if (!toggle) return;
+
+  const labelKey = rotationRequested ? 'setup.carousel_pause' : 'setup.carousel_play';
+  toggle.hidden = !rotationAvailable;
+  toggle.disabled = !rotationAvailable;
+  toggle.dataset.state = rotationRequested ? 'playing' : 'paused';
+  toggle.setAttribute('data-i18n-aria-label', labelKey);
+  toggle.setAttribute('aria-label', t(labelKey));
+}
+
+function scheduleObCarouselAutoplay(): void {
+  // A named one-shot timer gives every resume a fresh dwell and cannot catch
+  // up multiple slides after a background-tab throttle.
+  clearObCarouselAutoplayTimer();
+  if (!canScheduleObCarouselAutoplay()) return;
+
+  setManagedTimer(
+    OB_CAROUSEL_AUTOPLAY_TIMER,
+    () => {
+      if (!canScheduleObCarouselAutoplay()) return;
+      nextObSlide(true);
+    },
+    OB_CAROUSEL_AUTOPLAY_DELAY_MS,
+  );
+}
+
+function setObCarouselAutoplayRequested(requested: boolean): void {
+  _obCarouselAutoplayRequested = requested;
+  updateObCarouselRotationUi();
+  if (requested) scheduleObCarouselAutoplay();
+  else clearObCarouselAutoplayTimer();
+}
+
+function pauseObCarouselForUser(): void {
+  setObCarouselAutoplayRequested(false);
+}
+
+export function notifyObCarouselGreetingReady(): void {
+  _obCarouselGreetingReady = true;
+  scheduleObCarouselAutoplay();
+}
+
+/**
+ * Bind the welcome carousel for one setup-overlay lifetime.
+ * Manual interaction is a sticky stop; hover, visibility and touch tracking
+ * merely suspend requested rotation until their temporary condition ends.
+ */
+export function initObCarousel(signal: AbortSignal): void {
+  clearObCarouselAutoplayTimer();
+  _obCarouselInitialized = true;
+  _obCarouselAutoplayRequested = true;
+  _obCarouselHoverPaused = false;
+  _obCarouselTouchActive = false;
+  _obCarouselTogglePointerIntent = null;
+  const greetingRows = document.querySelectorAll<HTMLElement>('.setup-greeting-row');
+  _obCarouselGreetingReady =
+    greetingRows.length === 0 ||
+    Array.from(greetingRows).some((row) => row.classList.contains('is-visible'));
+
+  let reducedMotionQuery: MediaQueryList | null = null;
+  try {
+    reducedMotionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
+  } catch {
+    /* matchMedia is absent only in old or synthetic DOMs */
+  }
+  _obCarouselReducedMotion = reducedMotionQuery?.matches === true;
+
+  const handleReducedMotionChange = (event: MediaQueryListEvent): void => {
+    _obCarouselReducedMotion = event.matches;
+    updateObCarouselRotationUi();
+    if (event.matches) clearObCarouselAutoplayTimer();
+    else scheduleObCarouselAutoplay();
+  };
+  let removeReducedMotionListener = (): void => undefined;
+  if (reducedMotionQuery) {
+    if (typeof reducedMotionQuery.addEventListener === 'function') {
+      reducedMotionQuery.addEventListener('change', handleReducedMotionChange);
+      removeReducedMotionListener = () =>
+        reducedMotionQuery?.removeEventListener('change', handleReducedMotionChange);
+    } else {
+      reducedMotionQuery.addListener(handleReducedMotionChange);
+      removeReducedMotionListener = () =>
+        reducedMotionQuery?.removeListener(handleReducedMotionChange);
+    }
+  }
+
+  const area = setupEl('ob-slider-area');
+  const toggle = setupEl('ob-autoplay-toggle') as HTMLButtonElement | null;
+  const btnNext = setupEl('ob-next');
+  const btnPrev = setupEl('ob-prev');
+
+  toggle?.addEventListener(
+    'pointerdown',
+    () => {
+      // Pointer focus fires before click. Preserve what this press meant before
+      // focus-in performs its required sticky pause.
+      _obCarouselTogglePointerIntent = !_obCarouselAutoplayRequested;
+    },
+    { signal },
+  );
+  toggle?.addEventListener(
+    'pointercancel',
+    () => {
+      _obCarouselTogglePointerIntent = null;
+    },
+    { signal },
+  );
+  toggle?.addEventListener(
+    'click',
+    (event) => {
+      const requested =
+        event.detail === 0
+          ? !_obCarouselAutoplayRequested
+          : (_obCarouselTogglePointerIntent ?? !_obCarouselAutoplayRequested);
+      _obCarouselTogglePointerIntent = null;
+      setObCarouselAutoplayRequested(requested);
+    },
+    { signal },
+  );
+
+  btnNext?.addEventListener('click', () => nextObSlide(false), { signal });
+  btnPrev?.addEventListener('click', () => prevObSlide(false), { signal });
+
+  document.querySelectorAll<HTMLElement>('.ob-dot').forEach((dot) => {
+    dot.addEventListener(
+      'click',
+      (event) => {
+        const dotEl = (event.target as HTMLElement).closest('.ob-dot') as HTMLElement | null;
+        const idx = Number.parseInt(dotEl?.dataset.idx ?? '', 10);
+        if (Number.isNaN(idx)) return;
+        pauseObCarouselForUser();
+        setCurrentObSlide(idx);
+        updateObSlider();
+      },
+      { signal },
+    );
+  });
+
+  area?.addEventListener(
+    'mouseenter',
+    () => {
+      if (!hasHoverCapableInput()) return;
+      _obCarouselHoverPaused = true;
+      clearObCarouselAutoplayTimer();
+    },
+    { signal },
+  );
+  area?.addEventListener(
+    'mouseleave',
+    () => {
+      _obCarouselHoverPaused = false;
+      scheduleObCarouselAutoplay();
+    },
+    { signal },
+  );
+  area?.addEventListener('focusin', pauseObCarouselForUser, { signal });
+
+  let touchStartX: number | null = null;
+  const viewport = setupEl('ob-slider-viewport');
+  if (viewport) {
+    viewport.addEventListener(
+      'touchstart',
+      (event) => {
+        touchStartX = (event as TouchEvent).touches[0]?.clientX ?? null;
+        _obCarouselTouchActive = true;
+        clearObCarouselAutoplayTimer();
+      },
+      { passive: true, signal },
+    );
+    viewport.addEventListener(
+      'touchend',
+      (event) => {
+        const endX = (event as TouchEvent).changedTouches[0]?.clientX;
+        const diff = touchStartX != null && endX != null ? touchStartX - endX : 0;
+        touchStartX = null;
+        _obCarouselTouchActive = false;
+        if (Math.abs(diff) > OB_CAROUSEL_SWIPE_THRESHOLD_PX) {
+          if (diff > 0) nextObSlide(false);
+          else prevObSlide(false);
+          return;
+        }
+        scheduleObCarouselAutoplay();
+      },
+      { signal },
+    );
+    viewport.addEventListener(
+      'touchcancel',
+      () => {
+        touchStartX = null;
+        _obCarouselTouchActive = false;
+        scheduleObCarouselAutoplay();
+      },
+      { signal },
+    );
+  }
+
+  document.addEventListener(
+    'visibilitychange',
+    () => {
+      // Browsers may omit mouseleave/touchcancel while a page is backgrounded.
+      // Normalize those transient inputs so a stale gesture cannot suppress
+      // rotation forever or turn a late touchend into an accidental swipe.
+      touchStartX = null;
+      _obCarouselTouchActive = false;
+      if (document.hidden) {
+        _obCarouselHoverPaused = false;
+        clearObCarouselAutoplayTimer();
+        return;
+      }
+
+      _obCarouselHoverPaused = hasHoverCapableInput() && area?.matches(':hover') === true;
+      scheduleObCarouselAutoplay();
+    },
+    { signal },
+  );
+
+  const dispose = () => {
+    removeReducedMotionListener();
+    clearObCarouselAutoplayTimer();
+    _obCarouselInitialized = false;
+    _obCarouselHoverPaused = false;
+    _obCarouselTouchActive = false;
+    touchStartX = null;
+    _obCarouselGreetingReady = false;
+    _obCarouselTogglePointerIntent = null;
+  };
+  signal.addEventListener('abort', dispose, { once: true });
+  if (signal.aborted) {
+    dispose();
+    return;
+  }
+
+  updateObCarouselRotationUi();
+  scheduleObCarouselAutoplay();
+}
+
 export function updateObSlider(): void {
   const track = setupEl('ob-slider-track');
   const dots = document.querySelectorAll('.ob-dot');
@@ -414,16 +709,20 @@ export function updateObSlider(): void {
   });
 }
 
-export function nextObSlide(_isAuto = false): void {
+function nextObSlide(isAuto = false): void {
+  if (!isAuto) pauseObCarouselForUser();
   if (_currentObSlide < TOTAL_OB_SLIDES - 1) _currentObSlide++;
   else _currentObSlide = 0;
   updateObSlider();
+  if (isAuto) scheduleObCarouselAutoplay();
 }
 
-export function prevObSlide(): void {
+function prevObSlide(isAuto = false): void {
+  if (!isAuto) pauseObCarouselForUser();
   if (_currentObSlide > 0) _currentObSlide--;
   else _currentObSlide = TOTAL_OB_SLIDES - 1;
   updateObSlider();
+  if (isAuto) scheduleObCarouselAutoplay();
 }
 
 // ─── Role Selection Helpers ──────────────────────────────────────

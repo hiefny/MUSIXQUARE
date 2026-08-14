@@ -27,6 +27,8 @@ const zhHans: Record<I18nKey, string> = {
   'common.revoked': '已撤销',
   'common.stop': '停止',
   'common.pause': '暂停',
+  'setup.carousel_pause': '暂停自动轮播',
+  'setup.carousel_play': '开始自动轮播',
   'common.message': '消息',
   'common.mix': '混音',
   'common.wait': '请稍候...',

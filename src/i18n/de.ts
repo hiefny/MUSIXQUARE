@@ -27,6 +27,8 @@ const de: Record<I18nKey, string> = {
   'common.revoked': 'entzogen',
   'common.stop': 'Stopp',
   'common.pause': 'Pause',
+  'setup.carousel_pause': 'Automatischen Folienwechsel pausieren',
+  'setup.carousel_play': 'Automatischen Folienwechsel starten',
   'common.message': 'Nachricht',
   'common.mix': 'Mix',
   'common.wait': 'Einen Moment...',

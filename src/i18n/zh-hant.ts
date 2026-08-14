@@ -27,6 +27,8 @@ const zhHant: Record<I18nKey, string> = {
   'common.revoked': '已撤銷',
   'common.stop': '停止',
   'common.pause': '暫停',
+  'setup.carousel_pause': '暫停自動輪播',
+  'setup.carousel_play': '開始自動輪播',
   'common.message': '訊息',
   'common.mix': '混合',
   'common.wait': '請稍候…',

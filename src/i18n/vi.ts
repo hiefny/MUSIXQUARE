@@ -27,6 +27,8 @@ const vi: Record<I18nKey, string> = {
   'common.revoked': 'đã bị thu hồi',
   'common.stop': 'Dừng',
   'common.pause': 'Tạm dừng',
+  'setup.carousel_pause': 'Tạm dừng chuyển trang chiếu tự động',
+  'setup.carousel_play': 'Bắt đầu chuyển trang chiếu tự động',
   'common.message': 'Tin nhắn',
   'common.mix': 'Trộn',
   'common.wait': 'Vui lòng chờ...',

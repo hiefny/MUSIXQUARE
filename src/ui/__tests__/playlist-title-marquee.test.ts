@@ -81,11 +81,13 @@ describe('playlist title marquee', () => {
     }
   });
 
-  it('uses interaction capability rather than viewport width and respects reduced motion', async () => {
+  it('limits touch autoplay to narrow layouts and respects reduced motion', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
 
     expect(stylesheet).toContain('@media (any-hover: hover)');
-    expect(stylesheet).toContain('@media (hover: none) and (pointer: coarse)');
+    expect(stylesheet).toContain(
+      '@media (max-width: 1279px) and (hover: none) and (pointer: coarse)',
+    );
     expect(stylesheet).toContain('.playlist-entry:not(:has(.sub-track-item.active))');
     expect(stylesheet).toContain('.playlist-current-leading.is-current-playing');
     expect(stylesheet).toContain('.sub-track-item.active');
@@ -93,9 +95,6 @@ describe('playlist title marquee', () => {
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.playlist-title-marquee-content\s*\{[\s\S]*?animation:\s*none !important/,
     );
 
-    const touchRule = stylesheet.match(
-      /@media \(hover: none\) and \(pointer: coarse\) \{([\s\S]*?)\n\s*\}/,
-    )?.[1];
-    expect(touchRule).not.toMatch(/(?:min|max)-width/);
+    expect(stylesheet).not.toContain('@media (hover: none) and (pointer: coarse) {');
   });
 });

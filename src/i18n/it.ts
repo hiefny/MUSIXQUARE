@@ -24,6 +24,8 @@ const it: Record<I18nKey, string> = {
   'common.revoked': 'revocati',
   'common.stop': 'Interrompi',
   'common.pause': 'Pausa',
+  'setup.carousel_pause': 'Metti in pausa la rotazione automatica delle slide',
+  'setup.carousel_play': 'Avvia la rotazione automatica delle slide',
   'common.message': 'Messaggio',
   'common.mix': 'Mix',
   'common.wait': 'Un momento...',

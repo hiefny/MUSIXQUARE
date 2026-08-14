@@ -12,7 +12,7 @@
          apply Android viewport, language, and theme preflight. The main SPA
          deliberately does not load third-party analytics. Source:
          public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v431"></script>
+    <script src="/bootstrap.js?cache=v432"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -2414,9 +2414,9 @@
               <p class="setup-role-prompt" data-i18n="setup.hello_select_role"></p>
             </div>
 
-            <div id="ob-slider-area" class="ob-slider-block">
+            <div id="ob-slider-area" class="ob-slider-block" data-autoplay="playing">
               <div class="ob-slider-viewport" id="ob-slider-viewport">
-                <div class="ob-slider-track" id="ob-slider-track">
+                <div class="ob-slider-track" id="ob-slider-track" aria-live="off">
                   <!-- Slide 1: Invite -->
                   <div class="ob-slide active" aria-hidden="false">
                     <div class="ob-icon-circle">
@@ -2469,6 +2469,20 @@
 
               <div class="ob-nav-row">
                 <button
+                  type="button"
+                  class="ob-autoplay-toggle"
+                  id="ob-autoplay-toggle"
+                  data-state="playing"
+                  aria-label=""
+                  data-i18n-aria-label="setup.carousel_pause"
+                >
+                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                    <path data-ob-autoplay-icon="pause" d="M7 5h3v14H7zM14 5h3v14h-3z" />
+                    <path data-ob-autoplay-icon="play" d="M8 5v14l11-7z" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
                   class="ob-nav-arrow ob-nav-prev"
                   id="ob-prev"
                   aria-label=""
@@ -2498,6 +2512,7 @@
                   <button type="button" class="ob-dot" data-idx="3" aria-label="4 / 4"></button>
                 </div>
                 <button
+                  type="button"
                   class="ob-nav-arrow ob-nav-next"
                   id="ob-next"
                   aria-label=""

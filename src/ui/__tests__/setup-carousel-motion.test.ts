@@ -3,9 +3,13 @@
 import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ setManagedTimer: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  clearManagedTimer: vi.fn(),
+  setManagedTimer: vi.fn(),
+}));
 
 vi.mock('../../core/timers.ts', () => ({
+  clearManagedTimer: mocks.clearManagedTimer,
   setManagedTimer: mocks.setManagedTimer,
 }));
 
@@ -41,15 +45,120 @@ vi.mock('../../i18n/index.ts', () => ({
 }));
 
 import {
+  initObCarousel,
+  notifyObCarouselGreetingReady,
   setCurrentObSlide,
   setupHighlightJoinRole,
   setupRenderActions,
   setupSetGuestJoinError,
+  setupShowWelcome,
   updateObSlider,
 } from '../setup-shared.ts';
 
+const OB_CAROUSEL_AUTOPLAY_DELAY_MS = 6000;
+
+function installMatchMedia(options: { reduced?: boolean; hover?: boolean } = {}) {
+  const reducedListeners = new Set<(event: MediaQueryListEvent) => void>();
+  const reducedQuery = {
+    matches: options.reduced ?? false,
+    media: '(prefers-reduced-motion: reduce)',
+    onchange: null,
+    addEventListener: vi.fn((_type: string, listener: (event: MediaQueryListEvent) => void) => {
+      reducedListeners.add(listener);
+    }),
+    removeEventListener: vi.fn((_type: string, listener: (event: MediaQueryListEvent) => void) => {
+      reducedListeners.delete(listener);
+    }),
+    addListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+      reducedListeners.add(listener);
+    }),
+    removeListener: vi.fn((listener: (event: MediaQueryListEvent) => void) => {
+      reducedListeners.delete(listener);
+    }),
+    dispatchEvent: vi.fn(),
+  };
+  const hoverQuery = {
+    ...reducedQuery,
+    matches: options.hover ?? true,
+    media: '(hover: hover)',
+  };
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: vi.fn((query: string) =>
+      query === '(prefers-reduced-motion: reduce)' ? reducedQuery : hoverQuery,
+    ),
+  });
+
+  return {
+    reducedQuery,
+    setReduced(matches: boolean) {
+      reducedQuery.matches = matches;
+      const event = { matches, media: reducedQuery.media } as MediaQueryListEvent;
+      reducedListeners.forEach((listener) => listener(event));
+    },
+  };
+}
+
+function renderCarouselFixture(): void {
+  document.body.innerHTML = `
+    <div id="setup-overlay" class="active">
+      <div id="setup-welcome-area" style="display: flex">
+        <div id="ob-slider-area" data-autoplay="playing">
+          <div id="ob-slider-viewport">
+            <div id="ob-slider-track" aria-live="off">
+              <section class="ob-slide active" aria-hidden="false"></section>
+              <section class="ob-slide" aria-hidden="true" inert></section>
+              <section class="ob-slide" aria-hidden="true" inert></section>
+              <section class="ob-slide" aria-hidden="true" inert></section>
+            </div>
+          </div>
+          <div class="ob-nav-row">
+            <button id="ob-autoplay-toggle" data-state="playing">
+              <span data-ob-autoplay-icon="pause"></span>
+              <span data-ob-autoplay-icon="play" hidden></span>
+            </button>
+            <button id="ob-prev"></button>
+            <div id="ob-dots">
+              <button class="ob-dot" data-idx="0"></button>
+              <button class="ob-dot" data-idx="1"></button>
+              <button class="ob-dot" data-idx="2"></button>
+              <button class="ob-dot" data-idx="3"></button>
+            </div>
+            <button id="ob-next"></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  setCurrentObSlide(0);
+  updateObSlider();
+}
+
+function latestAutoplayCallback(): () => void {
+  const call = [...mocks.setManagedTimer.mock.calls]
+    .reverse()
+    .find(([name]) => name === 'setup-ob-carousel-autoplay');
+  if (!call) throw new Error('Autoplay timer was not scheduled');
+  return call[1] as () => void;
+}
+
+function autoplayScheduleCount(): number {
+  return mocks.setManagedTimer.mock.calls.filter(([name]) => name === 'setup-ob-carousel-autoplay')
+    .length;
+}
+
+function dispatchTouch(target: Element, type: 'touchstart' | 'touchend', clientX: number): void {
+  const event = new Event(type, { bubbles: true });
+  Object.defineProperty(event, type === 'touchstart' ? 'touches' : 'changedTouches', {
+    value: [{ clientX }],
+  });
+  target.dispatchEvent(event);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  installMatchMedia();
+  Object.defineProperty(document, 'hidden', { configurable: true, value: false });
 });
 
 describe('onboarding carousel motion preference', () => {
@@ -58,8 +167,14 @@ describe('onboarding carousel motion preference', () => {
     const parsed = new DOMParser().parseFromString(markup, 'text/html');
     const dots = parsed.querySelectorAll<HTMLButtonElement>('#ob-dots button.ob-dot');
     const slides = parsed.querySelectorAll<HTMLElement>('#ob-slider-track .ob-slide');
+    const nav = parsed.querySelector('.ob-nav-row');
+    const toggle = parsed.getElementById('ob-autoplay-toggle');
 
     expect(dots).toHaveLength(4);
+    expect(nav?.querySelector('button')?.id).toBe('ob-autoplay-toggle');
+    expect(toggle?.dataset.state).toBe('playing');
+    expect(toggle?.getAttribute('data-i18n-aria-label')).toBe('setup.carousel_pause');
+    expect(parsed.getElementById('ob-slider-track')?.getAttribute('aria-live')).toBe('off');
     expect(dots[0]?.getAttribute('aria-current')).toBe('true');
     expect(dots[3]?.getAttribute('aria-label')).toBe('4 / 4');
     expect(slides[0]?.getAttribute('aria-hidden')).toBe('false');
@@ -89,6 +204,208 @@ describe('onboarding carousel motion preference', () => {
     expect(slides[2]?.hasAttribute('inert')).toBe(false);
     expect(slides[0]?.getAttribute('aria-hidden')).toBe('true');
     expect(slides[0]?.hasAttribute('inert')).toBe(true);
+  });
+
+  it('uses a six-second one-shot timer and re-arms only after each automatic step', () => {
+    renderCarouselFixture();
+    const controller = new AbortController();
+
+    initObCarousel(controller.signal);
+
+    const timerCall = mocks.setManagedTimer.mock.calls.at(-1);
+    expect(timerCall?.[0]).toBe('setup-ob-carousel-autoplay');
+    expect(timerCall?.[2]).toBe(OB_CAROUSEL_AUTOPLAY_DELAY_MS);
+    expect(timerCall?.[3]).toBeUndefined();
+
+    latestAutoplayCallback()();
+
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
+    expect(autoplayScheduleCount()).toBe(2);
+    controller.abort();
+    expect(mocks.clearManagedTimer).toHaveBeenCalledWith('setup-ob-carousel-autoplay');
+  });
+
+  it('starts the first full dwell only after the greeting reveal finishes', () => {
+    renderCarouselFixture();
+    document
+      .getElementById('setup-welcome-area')
+      ?.insertAdjacentHTML(
+        'afterbegin',
+        '<div class="setup-greeting-row" aria-hidden="true"></div>',
+      );
+    const controller = new AbortController();
+
+    initObCarousel(controller.signal);
+    expect(autoplayScheduleCount()).toBe(0);
+
+    notifyObCarouselGreetingReady();
+    expect(autoplayScheduleCount()).toBe(1);
+    expect(mocks.setManagedTimer.mock.calls.at(-1)?.[2]).toBe(OB_CAROUSEL_AUTOPLAY_DELAY_MS);
+    controller.abort();
+  });
+
+  it('keeps manual navigation and focus paused until the explicit toggle restarts rotation', () => {
+    renderCarouselFixture();
+    const controller = new AbortController();
+    initObCarousel(controller.signal);
+    const area = document.getElementById('ob-slider-area') as HTMLElement;
+    const track = document.getElementById('ob-slider-track') as HTMLElement;
+    const toggle = document.getElementById('ob-autoplay-toggle') as HTMLButtonElement;
+
+    document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="2"]')?.click();
+    expect(area.dataset.autoplay).toBe('paused');
+    expect(track.getAttribute('aria-live')).toBe('polite');
+    expect(track.style.transform).toBe('translateX(-200%)');
+
+    area.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(autoplayScheduleCount()).toBe(1);
+
+    toggle.click();
+    expect(area.dataset.autoplay).toBe('playing');
+    expect(toggle.dataset.state).toBe('playing');
+    expect(toggle.getAttribute('aria-label')).toBe('setup.carousel_pause');
+    expect(autoplayScheduleCount()).toBe(2);
+
+    document.getElementById('ob-next')?.focus();
+    expect(area.dataset.autoplay).toBe('paused');
+    expect(track.getAttribute('aria-live')).toBe('polite');
+    controller.abort();
+  });
+
+  it('keeps pointer toggle intent deterministic when focus-in pauses before click', () => {
+    renderCarouselFixture();
+    const controller = new AbortController();
+    initObCarousel(controller.signal);
+    const area = document.getElementById('ob-slider-area') as HTMLElement;
+    const toggle = document.getElementById('ob-autoplay-toggle') as HTMLButtonElement;
+
+    toggle.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    toggle.focus();
+    toggle.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+
+    expect(area.dataset.autoplay).toBe('paused');
+
+    toggle.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    toggle.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
+    expect(area.dataset.autoplay).toBe('playing');
+    controller.abort();
+  });
+
+  it('temporarily suspends hover and visibility with a fresh dwell on return', () => {
+    renderCarouselFixture();
+    const controller = new AbortController();
+    initObCarousel(controller.signal);
+    const area = document.getElementById('ob-slider-area') as HTMLElement;
+
+    area.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(mocks.clearManagedTimer).toHaveBeenLastCalledWith('setup-ob-carousel-autoplay');
+    area.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(autoplayScheduleCount()).toBe(2);
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(autoplayScheduleCount()).toBe(3);
+
+    setupShowWelcome(false);
+    expect(mocks.clearManagedTimer).toHaveBeenLastCalledWith('setup-ob-carousel-autoplay');
+    setupShowWelcome(true);
+    expect(autoplayScheduleCount()).toBe(4);
+    controller.abort();
+  });
+
+  it('clears a hover pause lost while hidden and starts a fresh dwell on return', () => {
+    renderCarouselFixture();
+    const controller = new AbortController();
+    initObCarousel(controller.signal);
+    const area = document.getElementById('ob-slider-area') as HTMLElement;
+    vi.spyOn(area, 'matches').mockReturnValue(false);
+
+    area.dispatchEvent(new MouseEvent('mouseenter'));
+    expect(autoplayScheduleCount()).toBe(1);
+
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(autoplayScheduleCount()).toBe(2);
+    latestAutoplayCallback()();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
+    controller.abort();
+  });
+
+  it('clears a lost touch gesture while hidden and ignores its late touchend', () => {
+    renderCarouselFixture();
+    const controller = new AbortController();
+    initObCarousel(controller.signal);
+    const area = document.getElementById('ob-slider-area') as HTMLElement;
+    const viewport = document.getElementById('ob-slider-viewport') as HTMLElement;
+    const track = document.getElementById('ob-slider-track') as HTMLElement;
+    vi.spyOn(area, 'matches').mockReturnValue(false);
+
+    dispatchTouch(viewport, 'touchstart', 300);
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(autoplayScheduleCount()).toBe(2);
+    dispatchTouch(viewport, 'touchend', 100);
+    expect(area.dataset.autoplay).toBe('playing');
+    expect(track.style.transform).toBe('translateX(-0%)');
+    expect(autoplayScheduleCount()).toBe(3);
+
+    latestAutoplayCallback()();
+    expect(track.style.transform).toBe('translateX(-100%)');
+    controller.abort();
+  });
+
+  it('dynamically makes reduced-motion users manual-only and removes slide transitions', async () => {
+    const motion = installMatchMedia({ reduced: true, hover: false });
+    renderCarouselFixture();
+    const controller = new AbortController();
+    initObCarousel(controller.signal);
+    const area = document.getElementById('ob-slider-area') as HTMLElement;
+    const track = document.getElementById('ob-slider-track') as HTMLElement;
+    const toggle = document.getElementById('ob-autoplay-toggle') as HTMLButtonElement;
+
+    expect(toggle.hidden).toBe(true);
+    expect(area.dataset.autoplay).toBe('paused');
+    expect(track.getAttribute('aria-live')).toBe('polite');
+    expect(mocks.setManagedTimer).not.toHaveBeenCalled();
+
+    motion.setReduced(false);
+    expect(toggle.hidden).toBe(false);
+    expect(area.dataset.autoplay).toBe('playing');
+    expect(mocks.setManagedTimer).toHaveBeenCalledOnce();
+
+    motion.setReduced(true);
+    expect(toggle.hidden).toBe(true);
+    expect(area.dataset.autoplay).toBe('paused');
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    expect(stylesheet).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.ob-slider-track,[\s\S]*?transition: none !important;/,
+    );
+    controller.abort();
+  });
+
+  it('keeps controls working with the legacy MediaQueryList listener API', () => {
+    const motion = installMatchMedia();
+    Object.defineProperty(motion.reducedQuery, 'addEventListener', { value: undefined });
+    Object.defineProperty(motion.reducedQuery, 'removeEventListener', { value: undefined });
+    renderCarouselFixture();
+    const controller = new AbortController();
+
+    initObCarousel(controller.signal);
+    document.getElementById('ob-next')?.click();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
+
+    motion.setReduced(true);
+    expect((document.getElementById('ob-autoplay-toggle') as HTMLButtonElement).hidden).toBe(true);
+    controller.abort();
+    expect(motion.reducedQuery.removeListener).toHaveBeenCalledOnce();
   });
 });
 

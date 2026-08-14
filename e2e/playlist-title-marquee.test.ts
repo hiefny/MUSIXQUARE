@@ -91,7 +91,9 @@ async function animationName(page: Page, selector: string): Promise<string> {
   return page.locator(selector).evaluate((node) => getComputedStyle(node).animationName);
 }
 
-test('desktop hover, touch current-row, and reduced-motion marquee policy', async ({ browser }) => {
+test('desktop interaction, narrow touch autoplay, and reduced-motion marquee policy', async ({
+  browser,
+}) => {
   // A narrow hover-capable desktop still uses desktop policy: current alone
   // is static, while hovering an overflowing row opts it into motion.
   const content = '.playlist-title-marquee-content';
@@ -112,6 +114,10 @@ test('desktop hover, touch current-row, and reduced-motion marquee policy', asyn
         textOverflow: getComputedStyle(node.parentElement!).textOverflow,
       })),
     ).toEqual({ display: 'inline', overflow: 'hidden', textOverflow: 'ellipsis' });
+    await desktopPage.locator('#idle-entry .track-name').focus();
+    expect(await animationName(desktopPage, `#idle-entry ${content}`)).toBe('marquee-pingpong');
+    await desktopPage.locator('#idle-entry .track-name').blur();
+    expect(await animationName(desktopPage, `#idle-entry ${content}`)).toBe('none');
     await desktopPage.locator('#idle-entry .track-item').hover();
     expect(await animationName(desktopPage, `#idle-entry ${content}`)).toBe('marquee-pingpong');
     expect(
@@ -152,6 +158,31 @@ test('desktop hover, touch current-row, and reduced-motion marquee policy', asyn
     expect(await animationName(touchPage, `#current-entry ${content}`)).toBe('marquee-pingpong');
   } finally {
     await touch.close();
+  }
+
+  // The same non-hover coarse pointer must not opt a wide desktop layout into
+  // automatic motion. Hover-capable hardware can still use the global hover
+  // rule, and keyboard focus remains available on every viewport size.
+  const coarseDesktop = await browser.newContext({
+    hasTouch: true,
+    isMobile: false,
+    viewport: { width: 1440, height: 900 },
+  });
+  const coarseDesktopPage = await coarseDesktop.newPage();
+  try {
+    await mountMarqueeHarness(coarseDesktopPage);
+    expect(
+      await coarseDesktopPage.evaluate(
+        () => matchMedia('(hover: none)').matches && matchMedia('(pointer: coarse)').matches,
+      ),
+    ).toBe(true);
+    expect(await animationName(coarseDesktopPage, `#current-entry ${content}`)).toBe('none');
+    await coarseDesktopPage.locator('#current-entry .track-name').focus();
+    expect(await animationName(coarseDesktopPage, `#current-entry ${content}`)).toBe(
+      'marquee-pingpong',
+    );
+  } finally {
+    await coarseDesktop.close();
   }
 
   const reduced = await browser.newContext({

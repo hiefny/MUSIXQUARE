@@ -50,9 +50,9 @@ import {
   setupSetGuestJoinBusy,
   setupSetGuestJoinError,
   setupRenderActions,
+  initObCarousel,
+  notifyObCarouselGreetingReady,
   updateObSlider,
-  nextObSlide,
-  prevObSlide,
   handleSetupRolePreview,
   // State accessors
   setCurrentObSlide,
@@ -171,6 +171,7 @@ function revealSetupGreeting(): void {
     row.classList.add('is-visible');
     row.setAttribute('aria-hidden', 'false');
   });
+  notifyObCarouselGreetingReady();
 }
 
 function armSetupGreeting(signal: AbortSignal): void {
@@ -301,6 +302,7 @@ function initSetupOverlay(): void {
   showSetupOverlay();
   armSetupGreeting(signal);
   scheduleStandardRoomPrerequisiteWarmup();
+  initObCarousel(signal);
 
   setupEl('setup-overlay')?.addEventListener(
     'click',
@@ -311,52 +313,6 @@ function initSetupOverlay(): void {
     },
     { signal },
   );
-
-  // Bind slider events (use addEventListener with signal for proper cleanup)
-  const btnNext = setupEl('ob-next');
-  if (btnNext) btnNext.addEventListener('click', () => nextObSlide(false), { signal });
-  const btnPrev = setupEl('ob-prev');
-  if (btnPrev) btnPrev.addEventListener('click', () => prevObSlide(), { signal });
-
-  document.querySelectorAll<HTMLElement>('.ob-dot').forEach((dot) => {
-    dot.addEventListener(
-      'click',
-      (e) => {
-        const dotEl = (e.target as HTMLElement).closest('.ob-dot') as HTMLElement | null;
-        const idx = parseInt(dotEl?.dataset?.idx || '', 10);
-        if (isNaN(idx)) return;
-        setCurrentObSlide(idx);
-        updateObSlider();
-      },
-      { signal },
-    );
-  });
-
-  // Swipe (addEventListener + passive for better scroll perf)
-  const viewport = setupEl('ob-slider-viewport');
-  if (viewport) {
-    let startX = 0;
-    viewport.addEventListener(
-      'touchstart',
-      (e: Event) => {
-        startX = (e as TouchEvent).touches?.[0]?.clientX ?? 0;
-      },
-      { passive: true, signal },
-    );
-    viewport.addEventListener(
-      'touchend',
-      (e: Event) => {
-        const endX = (e as TouchEvent).changedTouches?.[0]?.clientX;
-        if (endX == null) return;
-        const diff = startX - endX;
-        if (Math.abs(diff) > 50) {
-          if (diff > 0) nextObSlide(false);
-          else prevObSlide();
-        }
-      },
-      { signal },
-    );
-  }
 }
 
 // ─── Wire goBack callbacks ───────────────────────────────────────

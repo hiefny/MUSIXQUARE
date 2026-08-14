@@ -34,6 +34,7 @@ type SignalingMessage =
       workerVersionId?: string;
       memberIdentity?: StandardRoomMemberIdentity;
       remoteShareUploadAssertionVersion?: 1;
+      remoteShareUploadAssertionKeyringVersion?: 1;
     }
   | { type: 'error'; errorType?: string; message?: string }
   | {

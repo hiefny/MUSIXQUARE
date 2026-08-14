@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyConn = any; // Partial mock for DataConnection in tests
 import { bus } from '../../core/events.ts';
 // ramstore is REAL in this file (only storage.ts/transfer.ts are mocked) —

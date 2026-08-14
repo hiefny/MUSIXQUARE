@@ -18,7 +18,7 @@ describe('Dead-export ratchet', () => {
   it(
     'has no fully-dead exports and exact shrink-only counts at the current baselines',
     () => {
-      let output = '';
+      let output: string;
       try {
         output = execFileSync('node', [script], {
           encoding: 'utf8',
@@ -30,6 +30,7 @@ describe('Dead-export ratchet', () => {
           e.code === 'ETIMEDOUT' ? `Analysis exceeded ${DEAD_EXPORT_PROCESS_TIMEOUT_MS}ms.\n` : '';
         throw new Error(
           `Dead-export check failed:\n${timeoutDetail}${e.stdout ?? ''}${e.stderr ?? ''}`,
+          { cause: err },
         );
       }
       const summary = output.split(/\r?\n/u).find((line) => line.includes('fully-dead:'));

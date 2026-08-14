@@ -17,6 +17,8 @@ import {
 } from './service-maintenance.js';
 import {
   createRemoteShareUploadAssertion,
+  parseRemoteShareUploadAssertionKeyring,
+  REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_VERSION,
   REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
 } from './remote-share-upload-assertion.js';
 
@@ -490,14 +492,19 @@ function workerVersionFields(env) {
 
 function remoteShareUploadAssertionSecret(env) {
   const secret = env?.MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET;
-  return typeof secret === 'string' && secret.length >= REMOTE_SHARE_UPLOAD_ASSERTION_SECRET_MIN_LENGTH
+  return typeof secret === 'string' &&
+    secret.length >= REMOTE_SHARE_UPLOAD_ASSERTION_SECRET_MIN_LENGTH &&
+    parseRemoteShareUploadAssertionKeyring(secret)
     ? secret
     : '';
 }
 
 function remoteShareUploadAssertionFeatureFields(env) {
   return remoteShareUploadAssertionSecret(env)
-    ? { remoteShareUploadAssertionVersion: REMOTE_SHARE_UPLOAD_ASSERTION_VERSION }
+    ? {
+        remoteShareUploadAssertionVersion: REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
+        remoteShareUploadAssertionKeyringVersion: REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_VERSION,
+      }
     : {};
 }
 

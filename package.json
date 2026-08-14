@@ -102,6 +102,8 @@
     "test:e2e:live-session": "tsx scripts/live-app-session-smoke.ts",
     "pretest:e2e": "npm run build:e2e",
     "test:e2e": "playwright test",
+    "pretest:e2e:critical": "npm run build:e2e",
+    "test:e2e:critical": "playwright test e2e/critical-browser.test.ts e2e/release-smoke.test.ts e2e/remote-upload-browser.test.ts --project=chromium --reporter=line",
     "pretest:e2e:release": "npm run build:e2e",
     "test:e2e:release": "playwright test e2e/release-smoke.test.ts --project=chromium --reporter=line",
     "pretest:e2e:report": "npm run build:e2e",

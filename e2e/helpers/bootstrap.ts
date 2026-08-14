@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 
-const EXPECTED_BOOTSTRAP_STEP_COUNT = '54';
+// src/app.ts records 53 synchronous initializers, I18n, and SyncWorker.
+const EXPECTED_BOOTSTRAP_STEP_COUNT = '55';
 
 interface BootstrapObservation {
   state: string | null;

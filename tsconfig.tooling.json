@@ -5,6 +5,7 @@
     "types": ["node"]
   },
   "include": [
+    "scripts/live-app-session-smoke.ts",
     "scripts/live-remote-share-smoke.ts",
     "vite.config.ts",
     "vitest.config.ts",

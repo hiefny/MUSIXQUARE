@@ -8,9 +8,10 @@ vi.mock('../../core/log.ts', () => ({
 }));
 
 vi.mock('../../core/events.ts', () => {
-  const handlers = new Map<string, Function[]>();
+  type TestHandler = (...args: unknown[]) => unknown;
+  const handlers = new Map<string, TestHandler[]>();
   const bus = {
-    on: vi.fn((event: string, handler: Function) => {
+    on: vi.fn((event: string, handler: TestHandler) => {
       if (!handlers.has(event)) handlers.set(event, []);
       handlers.get(event)!.push(handler);
       return () => {
@@ -31,7 +32,7 @@ vi.mock('../../core/events.ts', () => {
     createBusScope: vi.fn(() => {
       const cleanups: Array<() => void> = [];
       return {
-        on: vi.fn((event: string, fn: Function) => {
+        on: vi.fn((event: string, fn: TestHandler) => {
           cleanups.push(bus.on(event, fn));
         }),
         dispose: vi.fn(() => {

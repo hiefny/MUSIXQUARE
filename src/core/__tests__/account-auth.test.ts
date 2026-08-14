@@ -2177,6 +2177,7 @@ describe('account session mutations', () => {
     const db = new FakeAuthDb();
     const env = authEnv(db);
     const login = await completeLogin(env);
+    const accountId = [...db.accounts.keys()][0]!;
     const profile = await handleAccountAuthRequest(
       new Request('https://musixquare.com/api/auth/profile', {
         method: 'PATCH',
@@ -2197,11 +2198,7 @@ describe('account session mutations', () => {
       MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'facade-assertion-secret-'.padEnd(48, 'a'),
       PRO_ROOM_PUBLIC_API: { fetch: upstreamFetch },
     };
-    const unregisteredRoomCodes = Array.from({ length: 1_001 }, (_, index) =>
-      String(index + 1_000).padStart(6, '0'),
-    );
-
-    for (const roomCode of unregisteredRoomCodes) {
+    const attemptInvalidPin = async (roomCode: string): Promise<void> => {
       const response = await appWorker.fetch(
         new Request(`https://musixquare.com/api/pro-room/v1/rooms/${roomCode}/sessions`, {
           method: 'POST',
@@ -2216,10 +2213,39 @@ describe('account session mutations', () => {
         {},
       );
       expect(response.status).toBe(401);
-    }
+    };
 
-    expect(upstreamFetch).toHaveBeenCalledTimes(1_001);
+    // First preserve the direct invariant from the original regression: an
+    // invalid attempt against an empty reverse index must not create even one
+    // cleanup edge.
+    const emptyIndexRoomCode = '001000';
+    await attemptInvalidPin(emptyIndexRoomCode);
+    expect(upstreamFetch).toHaveBeenCalledTimes(1);
     expect(db.proRoomLinks.size).toBe(0);
+    expect(db.proRoomLinks.has(`${accountId}:${emptyIndexRoomCode}`)).toBe(false);
+
+    // Then exercise the same path at the actual production limit without
+    // paying for 1,001 complete Worker requests. An unregistered room must not
+    // be rejected locally as though it had consumed a cleanup edge.
+    for (let index = 0; index < 1_000; index += 1) {
+      const roomCode = String(index).padStart(6, '0');
+      db.proRoomLinks.set(`${accountId}:${roomCode}`, {
+        account_id: accountId,
+        room_code: roomCode,
+        first_linked_at: 1,
+        last_seen_at: 1,
+      });
+    }
+    const atLimitRoomCodes = ['001001', '001002', '001003'];
+    for (const roomCode of atLimitRoomCodes) await attemptInvalidPin(roomCode);
+
+    expect(upstreamFetch).toHaveBeenCalledTimes(1 + atLimitRoomCodes.length);
+    expect(db.proRoomLinks.size).toBe(1_000);
+    expect(
+      [emptyIndexRoomCode, ...atLimitRoomCodes].filter((roomCode) =>
+        db.proRoomLinks.has(`${accountId}:${roomCode}`),
+      ),
+    ).toEqual([]);
   });
 
   it('logs out one session, all sessions, and permanently deletes the account', async () => {

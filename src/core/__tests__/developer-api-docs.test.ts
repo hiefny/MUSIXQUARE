@@ -119,8 +119,8 @@ describe('Developer API public documentation', () => {
     ];
 
     expect(spec).toMatch(/^openapi: 3\.1\.0/m);
-    expect(spec).toMatch(/^  version: 1\.0\.0$/m);
-    expect(spec).not.toMatch(/^  version: .*beta/im);
+    expect(spec).toMatch(/^ {2}version: 1\.0\.0$/m);
+    expect(spec).not.toMatch(/^ {2}version: .*beta/im);
     expect(spec).toContain('url: https://api.musixquare.com');
     expect(spec).toContain('developerApiKey: []');
     expect(spec).toContain('highest-privilege room credential within its assigned scopes');

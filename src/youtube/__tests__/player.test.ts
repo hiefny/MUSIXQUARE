@@ -121,7 +121,7 @@ vi.mock('../../ui/toast.ts', () => ({
 }));
 
 vi.mock('../../ui/dom.ts', () => ({
-  animateTransition: vi.fn((fn: Function) => fn()),
+  animateTransition: vi.fn((fn: () => unknown) => fn()),
 }));
 
 beforeEach(() => {

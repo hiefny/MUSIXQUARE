@@ -72,11 +72,13 @@ the peer as host, it cannot mint the fresh proof needed for later retries.
   before R2, quota, or rate allocation work.
 
 Both `optional` and `required` fail closed with 503 if
-`MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` is missing or shorter than 32
-characters. This secret is shared only by signaling and Remote Share; do not
-reuse the upload-token or app capability secrets. `/security-config` advertises
-assertion version, mode, and whether it is required. Signaling advertises
-version 1 in `peer-open`, and new clients use the correlated WebSocket
+`MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` is missing, is a plain value shorter
+than 32 characters, or is a malformed prefixed keyring. Every keyring secret has
+the same 32-character minimum. This secret value is shared only by signaling and
+Remote Share; do not reuse the upload-token or app capability secrets.
+`/security-config` advertises assertion version, mode, and whether it is
+required. Signaling advertises version 1 in `peer-open`, and new clients use the
+correlated WebSocket
 `remote-share-upload-assertion-request` / `remote-share-upload-assertion`
 exchange only when that feature is present. This avoids treating an old
 signaling deployment as a transient assertion failure. Once a client has
@@ -236,9 +238,9 @@ the threshold only with production 429 evidence.
 - `REMOTE_SHARE_SIGNING_SECRET` and the capability HMAC secret must be random
   values of at least 32 characters and must remain purpose-separated. Only the
   capability secret is shared with the App Worker.
-- `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` must be a third independent
-  random value of at least 32 characters, shared only by signaling and Remote
-  Share.
+- Every key inside `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` must be a third
+  independent random value of at least 32 characters. The full plain or keyring
+  value is shared only by signaling and Remote Share.
 - `wrangler.remote-share.toml` retains Cloudflare's required append-only Durable
   Object migration entries. They are immutable infrastructure schema tags; do
   not reuse deleted class names or edit old tags. The canonical copy is
@@ -317,10 +319,56 @@ receive a generic failed upload. Recovery is the already-shipped
 service-worker update prompt or a hard refresh. Do not weaken required mode to
 manufacture an update message that the cached script cannot consume.
 
-The current single-key implementation cannot accept old and new assertion keys
-simultaneously, so secret rotation requires a coordinated signaling/Remote
-Share maintenance window (with uploads briefly unavailable) unless a separate
-previous-key verification slot is implemented and tested first.
+The existing plain `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` value remains a
+fully supported single-key configuration and continues to mint an unkeyed v1
+assertion. For a staged rotation, the same secret binding also accepts this
+explicit keyring form (paste the complete value only into Wrangler's interactive
+secret prompt; never put real key material in a command argument or repository):
+
+```text
+mxqr-keyring-v1:{"v":1,"current":{"kid":"2026-09-a","secret":"<new-random-32+-character-secret>"},"previous":{"kid":"2026-08-a","secret":"<old-secret>"}}
+```
+
+`kid` is a non-secret 1-64 character identifier using letters, digits, `.`, `_`,
+or `-`; current and previous IDs and secret values must differ. New signaling
+assertions carry the current `kid`. Remote Share selects that signed key ID and
+accepts either slot. During the migration window it also tries both slots for an
+old unkeyed assertion, so a signaling Worker still using the plain value does
+not lose authority. A malformed prefixed keyring fails readiness closed; it is
+never treated as a legacy HMAC string.
+
+Before changing the binding, first deploy the keyring-capable release to both
+Workers. Remote Share `/security-config` must report
+`roomUploadAssertionKeyringVersion: 1`, and signaling's authenticated host
+`peer-open` must report `remoteShareUploadAssertionKeyringVersion: 1`. The
+strict live Remote Share smoke verifies both markers and, during a release,
+their expected Worker version IDs. Record those two live version IDs against the
+approved release before rotation. A 200 response without the keyring marker is
+not sufficient: an older Remote Share Worker treats the prefixed JSON as one
+plain HMAC secret and can look healthy while rejecting every assertion. If
+either marker or approved version is missing, do not change either secret;
+finish or repair the two-Worker code rollout first.
+
+Rotate in this order:
+
+1. Generate the new independent secret and a new `kid`. Keep the old secret
+   available to the operator; do not reuse another MUSIXQUARE signing secret.
+2. Put the two-slot keyring on **Remote Share first**. Confirm
+   `/security-config` remains healthy and still reports keyring version 1. It
+   now verifies both old unkeyed/current traffic and the future keyed assertion.
+3. Put the byte-identical keyring on **signaling second**. Run the strict live
+   Remote Share smoke and confirm a real allocation succeeds. Never swap these
+   first two steps: a new keyed assertion cannot be verified by the old plain
+   Remote Share configuration.
+4. Wait at least 90 seconds after the signaling update (the 60-second assertion
+   lifetime plus the full 30-second verifier clock-skew allowance).
+5. Remove `previous` from Remote Share first, then set the same current-only
+   keyring on signaling. Re-run the strict smoke. Keep the retired secret out of
+   both Workers after evidence is saved.
+
+Before step 5, rollback means restoring the old plain value on signaling first
+and then on Remote Share. After previous-key removal, repair forward with the
+new current key; do not reintroduce a retired key without a new incident review.
 
 The six-field/v2 parsers and optional-mode runtime branch remain non-production
 compatibility scaffolding; required mode prevents them from authorizing a live
@@ -329,3 +377,72 @@ bump `remote-share-contract-version.txt` and `workerContractVersion`, update the
 client, live smoke, and release dependency mapping, and deploy the full
 Worker/signaling/app set together. It is not tied to a traffic-observation
 calendar.
+
+## Maintenance PUT drain and emergency write freeze
+
+Global maintenance blocks new Remote Share `/session` and `/complete` Worker
+requests, but it cannot recall a direct R2 presigned PUT that was returned before
+maintenance became effective. Production config sets `UPLOAD_TOKEN_TTL_SECONDS`
+to 600, and the Worker clamps every newly issued or replayed URL to a request
+start window of **at most 10 minutes** even if a larger value or a legacy receipt
+is supplied. This is not a PUT completion deadline: SigV4 expiry is checked when
+the HTTP request is admitted, so a request that starts just before expiry may
+finish afterward. The one-shot `If-Match` placeholder fence still applies, but
+operators must retain maintenance until in-flight work and delayed object
+visibility are resolved rather than relying on the ten-minute clock alone.
+
+For planned maintenance:
+
+1. Record the maintenance control's effective UTC timestamp as `T0`, the Remote
+   Share Worker version, and the active R2 S3 access-key ID. Do not record either
+   secret or any presigned URL in a ticket or log.
+2. Enable global maintenance and confirm a fresh `/session` request is rejected.
+   This stops new URLs; the ten-minute clock starts at `T0`, not when an operator
+   begins the change.
+3. Keep maintenance enabled through `T0 + 10 minutes`. Do not infer drain from
+   quiet application traffic. This deadline only prevents a client from starting
+   another request with the old URL; a PUT admitted before it can still commit
+   later.
+4. After the deadline, confirm a controlled pre-maintenance URL can no longer
+   **start** a PUT. Before changing storage or quota state, obtain provider
+   evidence that active/in-flight PUT requests for the bucket and dedicated key
+   are zero. If that evidence is unavailable or ambiguous, keep maintenance
+   enabled and use the dedicated-key revocation procedure below; a wall-clock
+   wait by itself is not a drain proof.
+5. Capture an object inventory and PUT/request metrics as snapshot `S1`. After
+   active requests reach zero (or dedicated-key revocation has propagated), wait
+   at least two complete provider metric intervals and never less than 90
+   seconds, then capture snapshot `S2`. Object keys, sizes, ETags, and
+   last-modified values at or after `T0` must be unchanged. PUT counters must be
+   stable, and any available active-request gauge must remain zero. Any late
+   commit or metric change resets the observation window. Do not proceed when
+   either snapshot or its time boundary cannot be proven.
+
+For an incident that requires an immediate strict write freeze, first enable
+maintenance and then revoke the **dedicated Remote Share R2 S3 access key** that
+signed outstanding URLs. Create a replacement credential restricted to the same
+bucket and update `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` while maintenance
+remains active. Confirm a controlled URL signed by the revoked key is rejected;
+do not assume revocation propagation from the dashboard state alone. Revocation
+prevents new request admission after propagation but does not, by itself, prove
+that an already admitted request was terminated. Repeat the `S1`/`S2` stability
+check above; a change that cannot tolerate one late commit additionally requires
+provider confirmation that no accepted PUT remains. Rotating
+`REMOTE_SHARE_SIGNING_SECRET`, the capability secret, or the upload-assertion
+keyring does not invalidate an already presigned R2 URL and is not a substitute
+for revoking the R2 credential. Do not rotate a credential shared with another
+bucket or service.
+
+Before leaving maintenance, preserve both stable snapshots and the read-only
+provider evidence for writes whose last-modified time is at or after `T0`.
+Investigate every such object against its room reservation and completion state.
+Do not blindly delete an object: use its authenticated cleanup path or normal
+expiry so Durable Object quota accounting remains conservative. Verify that no
+post-`T0` completion became downloadable, that the revoked/expired canary URL
+cannot start a PUT, and that a fresh `/session` is still maintenance-blocked.
+After maintenance is lifted, run the strict Remote Share live smoke; its
+controlled allocation exercises prefix reconciliation, completion, download,
+and cleanup.
+Keep maintenance enabled and repair forward if the object view, metrics,
+credential revocation test, or reconciliation result is unavailable or
+ambiguous.

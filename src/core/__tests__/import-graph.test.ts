@@ -16,12 +16,14 @@ const youtubeIframe = fileURLToPath(new URL('../../youtube/iframe.ts', import.me
 
 describe('Production import graph', () => {
   it('has no bootstrap back-imports, new cycles, or ui-layering violations', () => {
-    let output = '';
+    let output: string;
     try {
       output = execFileSync('node', [script], { encoding: 'utf8' });
     } catch (err) {
       const e = err as { stdout?: string; stderr?: string };
-      throw new Error(`Import graph check failed:\n${e.stdout ?? ''}${e.stderr ?? ''}`);
+      throw new Error(`Import graph check failed:\n${e.stdout ?? ''}${e.stderr ?? ''}`, {
+        cause: err,
+      });
     }
     expect(output).toContain('OK');
   });

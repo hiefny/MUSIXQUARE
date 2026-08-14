@@ -226,4 +226,41 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  browser-gate:
+    name: Critical browser gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact candidate
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # This deterministic gate covers PRO owner recovery, OAuth callback
+      # scrubbing, an actual browser WebSocket session, and Remote Share's
+      # signed-PUT CORS/XHR leg. The secret-backed host assertion remains the
+      # strict live smoke in release.yml so CI never needs production secrets.
+      - name: Run critical browser paths
+        run: npm run test:e2e:critical
+
+      - name: Upload critical browser failure artifacts
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: critical-browser-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
       # The full browser E2E suite remains manually dispatched in e2e.yml.

@@ -1,9 +1,13 @@
 name: Operations Drift Audit
 
-# Read-only, manually dispatched comparison of practical live controls with
-# their checked-in contracts. It never applies CORS or edits a GitHub ruleset.
+# Read-only weekly and manually dispatched comparison of practical live controls
+# with their checked-in contracts. It never applies CORS, changes secrets, or
+# edits a GitHub ruleset.
 
 on:
+  schedule:
+    # Mondays at 03:37 UTC. The non-hour boundary avoids common Actions load.
+    - cron: '37 3 * * 1'
   workflow_dispatch:
 
 permissions:

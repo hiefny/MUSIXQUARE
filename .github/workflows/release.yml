@@ -947,6 +947,9 @@ jobs:
           MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}
         run: npm run smoke:live:signaling
 
+      # CI exercises the browser signed-PUT CORS/XHR leg without production
+      # secrets. Keep the host assertion itself strict and live here, after
+      # both assertion-owning Workers have been deployed.
       - name: Smoke Remote Share host assertion path
         if: inputs.target == 'all' || inputs.target == 'signaling'
         timeout-minutes: 5

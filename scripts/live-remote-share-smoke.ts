@@ -30,6 +30,7 @@ const RETRYABLE_SESSION_ERRORS = new Set([
 
 interface RemoteShareReadiness {
   roomUploadAssertionVersion: 1;
+  roomUploadAssertionKeyringVersion: 1;
   roomUploadAssertionMode: 'required';
   roomUploadAssertionRequired: true;
 }
@@ -132,6 +133,8 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
     const wholeObjectReady =
       config.wholeObjectVersion === 1 && config.downloadAuthorizationVersion === 1;
     const roomUploadAssertionVersion = config.roomUploadAssertionVersion === 1 ? 1 : 0;
+    const roomUploadAssertionKeyringVersion =
+      config.roomUploadAssertionKeyringVersion === 1 ? 1 : 0;
     const roomUploadAssertionMode =
       config.roomUploadAssertionMode === 'required'
         ? 'required'
@@ -152,6 +155,7 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
       wholeObjectVersion: config.wholeObjectVersion,
       downloadAuthorizationVersion: config.downloadAuthorizationVersion,
       roomUploadAssertionVersion: config.roomUploadAssertionVersion,
+      roomUploadAssertionKeyringVersion: config.roomUploadAssertionKeyringVersion,
       roomUploadAssertionMode: config.roomUploadAssertionMode,
       roomUploadAssertionRequired: config.roomUploadAssertionRequired,
     });
@@ -161,6 +165,7 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
       config.sessionReplayEnabled === true &&
       wholeObjectReady &&
       roomUploadAssertionVersion === 1 &&
+      roomUploadAssertionKeyringVersion === 1 &&
       roomUploadAssertionMode === 'required' &&
       roomUploadAssertionRequired &&
       workerVersionReady
@@ -169,6 +174,7 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
       if (consecutiveReadyReads >= 2) {
         return {
           roomUploadAssertionVersion,
+          roomUploadAssertionKeyringVersion,
           roomUploadAssertionMode,
           roomUploadAssertionRequired,
         };
@@ -361,6 +367,7 @@ async function openRoomUploadAssertionAuthorityAttempt(
   readiness: RemoteShareReadiness,
   expectedSignalingVersion: string,
   hostSecret: string,
+  requireKeyringVersion: boolean,
 ): Promise<{
   provider: RoomUploadAssertionProvider | null;
   close(): void;
@@ -415,6 +422,10 @@ async function openRoomUploadAssertionAuthorityAttempt(
   if (peerOpen.remoteShareUploadAssertionVersion !== 1) {
     socket.close(1000, 'remote-share assertion unsupported');
     throw new Error('required Remote Share upload assertion is unavailable from signaling');
+  }
+  if (requireKeyringVersion && peerOpen.remoteShareUploadAssertionKeyringVersion !== 1) {
+    socket.close(1000, 'remote-share assertion keyring unsupported');
+    throw new Error('Remote Share upload assertion keyring is unavailable from signaling');
   }
 
   const provider: RoomUploadAssertionProvider = async (request) => {
@@ -483,6 +494,7 @@ async function withSignalingVersionConvergence<T>(
 async function openRoomUploadAssertionAuthority(
   roomId: string,
   readiness: RemoteShareReadiness,
+  requireKeyringVersion: boolean,
 ): Promise<{
   provider: RoomUploadAssertionProvider | null;
   close(): void;
@@ -494,6 +506,7 @@ async function openRoomUploadAssertionAuthority(
       readiness,
       expectedSignalingVersion,
       hostSecret,
+      requireKeyringVersion,
     ),
   );
 }
@@ -946,7 +959,7 @@ async function main(): Promise<void> {
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const token = await requestCapabilityToken();
   const readiness = await waitForRemoteShareWorkerReady();
-  const authority = await openRoomUploadAssertionAuthority(roomId, readiness);
+  const authority = await openRoomUploadAssertionAuthority(roomId, readiness, requireAssertion);
   let wholeObject: Record<string, unknown>;
   try {
     const anonymousProbeFile = new File([sourceBytes], FILE_NAME, { type: FILE_MIME });

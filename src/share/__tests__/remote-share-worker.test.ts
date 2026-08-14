@@ -2,7 +2,10 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.js';
-import { createRemoteShareUploadAssertion } from '../../../cloudflare/remote-share-upload-assertion.js';
+import {
+  REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX,
+  createRemoteShareUploadAssertion,
+} from '../../../cloudflare/remote-share-upload-assertion.js';
 import { SERVICE_CONTROL_OBJECT_NAME } from '../../../cloudflare/service-maintenance.js';
 import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
 
@@ -29,6 +32,7 @@ const ORIGIN = 'https://musixquare.com';
 const SIGNING_SECRET = 'remote-share-signing-secret-for-tests';
 const CAPABILITY_SECRET = 'remote-share-capability-secret-for-tests';
 const UPLOAD_ASSERTION_SECRET = 'remote-share-upload-assertion-secret-for-tests';
+const NEXT_UPLOAD_ASSERTION_SECRET = 'next-remote-share-upload-assertion-secret-for-tests';
 const CLIENT_IP = '203.0.113.7';
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
@@ -68,6 +72,10 @@ const remoteShareWranglerSource = await readFile(
 );
 const remoteShareExampleWranglerSource = await readFile(
   new URL('../../../cloudflare/wrangler.remote-share.example.toml', import.meta.url),
+  'utf8',
+);
+const remoteShareOpsSource = await readFile(
+  new URL('../../../cloudflare/remote-share-ops.md', import.meta.url),
   'utf8',
 );
 const releaseWorkflowSource = await readFile(
@@ -357,6 +365,17 @@ function sessionRequestBody(overrides: Record<string, unknown> = {}): string {
     size: 20,
     ...overrides,
   });
+}
+
+function uploadAssertionKeyring(
+  current: { kid: string; secret: string },
+  previous?: { kid: string; secret: string },
+): string {
+  return `${REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX}${JSON.stringify({
+    v: 1,
+    current,
+    ...(previous ? { previous } : {}),
+  })}`;
 }
 
 async function createTestUploadAssertion(
@@ -774,12 +793,19 @@ describe('remote-share Worker capability gate', () => {
     expect(liveSmokeSource).not.toContain('await response.body?.cancel');
     expect(liveSmokeSource).toContain("process.argv.includes('--require-assertion')");
     expect(liveSmokeSource).toContain('roomUploadAssertionVersion === 1');
+    expect(liveSmokeSource).toContain('roomUploadAssertionKeyringVersion === 1');
     expect(liveSmokeSource).toContain("roomUploadAssertionMode === 'required'");
     expect(liveSmokeSource).toContain('roomUploadAssertionRequired');
     expect(liveSmokeSource).toContain('MXQR_EXPECTED_REMOTE_SHARE_VERSION');
     expect(liveSmokeSource).toContain('actualWorkerVersion === expectedWorkerVersion');
     expect(liveSmokeSource).toContain('MXQR_EXPECTED_SIGNALING_VERSION');
     expect(liveSmokeSource).toContain('actualSignalingVersion !== expectedSignalingVersion');
+    expect(liveSmokeSource).toContain(
+      'requireKeyringVersion && peerOpen.remoteShareUploadAssertionKeyringVersion !== 1',
+    );
+    expect(liveSmokeSource).toContain(
+      'openRoomUploadAssertionAuthority(roomId, readiness, requireAssertion)',
+    );
     expect(liveSmokeSource).toContain('error instanceof StaleSignalingVersionError');
     expect(liveSmokeSource).toContain('attempt(hostSecret)');
     expect(liveSmokeSource).toContain('Number(response.expiresAt) <= 0');
@@ -791,7 +817,7 @@ describe('remote-share Worker capability gate', () => {
     );
   });
 
-  it('waits through optional and stale Workers before two exact required-candidate reads', async () => {
+  it('waits through unmarked, optional, and stale Workers before exact candidate reads', async () => {
     const waitForReady = await loadLiveSmokeWaitForRemoteShareWorkerReady();
     vi.useFakeTimers();
     vi.setSystemTime(1_800_000_000_000);
@@ -806,10 +832,16 @@ describe('remote-share Worker capability gate', () => {
       wholeObjectVersion: 1,
       downloadAuthorizationVersion: 1,
       roomUploadAssertionVersion: 1,
+      roomUploadAssertionKeyringVersion: 1,
       roomUploadAssertionMode: 'required',
       roomUploadAssertionRequired: true,
     };
     const payloads = [
+      {
+        ...baseConfig,
+        roomUploadAssertionKeyringVersion: 0,
+        workerVersionId: 'remote-current',
+      },
       {
         ...baseConfig,
         roomUploadAssertionMode: 'optional',
@@ -843,14 +875,15 @@ describe('remote-share Worker capability gate', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const pending = waitForReady();
-    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(5_000);
 
     await expect(pending).resolves.toEqual({
       roomUploadAssertionVersion: 1,
+      roomUploadAssertionKeyringVersion: 1,
       roomUploadAssertionMode: 'required',
       roomUploadAssertionRequired: true,
     });
-    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
   });
 
   it('reuses one host secret while retrying a stale signaling edge', async () => {
@@ -1125,6 +1158,7 @@ describe('remote-share Worker capability gate', () => {
       wholeObjectVersion: 1,
       downloadAuthorizationVersion: 1,
       roomUploadAssertionVersion: 1,
+      roomUploadAssertionKeyringVersion: 1,
       roomUploadAssertionMode: 'required',
       roomUploadAssertionRequired: true,
     });
@@ -1153,6 +1187,24 @@ describe('remote-share Worker capability gate', () => {
     expect(productionSecurityGuardSource).toContain("'MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION'");
   });
 
+  it('documents staged assertion rotation and the maintenance PUT drain boundary', () => {
+    expect(remoteShareOpsSource).toContain('mxqr-keyring-v1:');
+    expect(remoteShareOpsSource).toContain('Remote Share first');
+    expect(remoteShareOpsSource).toContain('signaling second');
+    expect(remoteShareOpsSource).toContain('roomUploadAssertionKeyringVersion: 1');
+    expect(remoteShareOpsSource).toContain('remoteShareUploadAssertionKeyringVersion: 1');
+    expect(remoteShareOpsSource).toContain('A 200 response without the keyring marker is');
+    expect(remoteShareOpsSource).toContain('Wait at least 90 seconds');
+    expect(remoteShareOpsSource).toContain('at most 10 minutes');
+    expect(remoteShareOpsSource).toContain('dedicated Remote Share R2 S3 access key');
+    expect(remoteShareOpsSource).toContain('active/in-flight PUT requests');
+    expect(remoteShareOpsSource).toContain('This is not a PUT completion deadline');
+    expect(remoteShareOpsSource).toContain('snapshot `S1`');
+    expect(remoteShareOpsSource).toContain('snapshot `S2`');
+    expect(remoteShareOpsSource).toContain('last-modified values at or after `T0`');
+    expect(remoteShareOpsSource).toContain('Do not blindly delete an object');
+  });
+
   it('fails readiness closed for invalid assertion rollout configuration', async () => {
     const missingSecret = await workerModule.default.fetch(
       request('/security-config'),
@@ -1169,6 +1221,23 @@ describe('remote-share Worker capability gate', () => {
       request('/security-config'),
       directUploadEnv({ ROOM_UPLOAD_ASSERTION_MODE: 'eventually' }),
     );
+    const invalidKeyring = await workerModule.default.fetch(
+      request('/security-config'),
+      directUploadEnv({
+        ROOM_UPLOAD_ASSERTION_MODE: 'required',
+        MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: `${REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX}{`,
+      }),
+    );
+    const duplicateSecretKeyring = await workerModule.default.fetch(
+      request('/security-config'),
+      directUploadEnv({
+        ROOM_UPLOAD_ASSERTION_MODE: 'required',
+        MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: uploadAssertionKeyring(
+          { kid: 'current', secret: UPLOAD_ASSERTION_SECRET },
+          { kid: 'previous', secret: UPLOAD_ASSERTION_SECRET },
+        ),
+      }),
+    );
 
     expect(missingSecret.status).toBe(503);
     await expect(missingSecret.json()).resolves.toEqual({
@@ -1182,6 +1251,55 @@ describe('remote-share Worker capability gate', () => {
     await expect(invalidMode.json()).resolves.toEqual({
       error: 'ROOM_UPLOAD_ASSERTION_MODE_INVALID',
     });
+    expect(invalidKeyring.status).toBe(503);
+    await expect(invalidKeyring.json()).resolves.toEqual({
+      error: 'ROOM_UPLOAD_ASSERTION_SECRET_INVALID',
+    });
+    expect(duplicateSecretKeyring.status).toBe(503);
+    await expect(duplicateSecretKeyring.json()).resolves.toEqual({
+      error: 'ROOM_UPLOAD_ASSERTION_SECRET_INVALID',
+    });
+  });
+
+  it('accepts an in-flight unkeyed assertion through the configured previous rotation slot', async () => {
+    const capability = await createCapabilityToken();
+    const body = sessionRequestBody({
+      actorId: `rsa_${'R'.repeat(43)}`,
+      requestId: `rs3_${'R'.repeat(43)}`,
+    });
+    const legacyAssertion = await createTestUploadAssertion(body, UPLOAD_ASSERTION_SECRET);
+    const rotating = uploadAssertionKeyring(
+      { kid: '2026-09-current', secret: NEXT_UPLOAD_ASSERTION_SECRET },
+      { kid: '2026-08-old', secret: UPLOAD_ASSERTION_SECRET },
+    );
+    const currentOnly = uploadAssertionKeyring({
+      kid: '2026-09-current',
+      secret: NEXT_UPLOAD_ASSERTION_SECRET,
+    });
+    const createSession = (keyringValue: string) =>
+      workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': capability,
+            'x-mxqr-room-upload-assertion': legacyAssertion,
+          },
+          body,
+        }),
+        directUploadEnv({
+          ROOM_UPLOAD_ASSERTION_MODE: 'required',
+          MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: keyringValue,
+        }),
+      );
+
+    const accepted = await createSession(rotating);
+    const retired = await createSession(currentOnly);
+
+    expect(accepted.status).toBe(200);
+    expect(retired.status).toBe(403);
+    await expect(retired.json()).resolves.toEqual({ error: 'ROOM_UPLOAD_ASSERTION_INVALID' });
   });
 
   it('binds a presented assertion to the raw v3 body and records only aggregate outcomes', async () => {
@@ -2746,14 +2864,14 @@ describe('remote-share Worker capability gate', () => {
     expect(control.rateFetchCount()).toBe(2);
   });
 
-  it('re-signs only inside the immutable initial PUT authority window', async () => {
+  it('caps and re-signs only inside the immutable ten-minute PUT authority window', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-09T00:00:00.000Z'));
     const workerEnv = directUploadQuotaEnv({
       REMOTE_SHARE_BUCKET: createQuotaBucket(),
       ROOM_STORAGE_QUOTA_BYTES: '64',
       OBJECT_TTL_SECONDS: '3600',
-      UPLOAD_TOKEN_TTL_SECONDS: '600',
+      UPLOAD_TOKEN_TTL_SECONDS: '3600',
     });
     const body = sessionRequestBody({
       requestId: `rs3_${'C'.repeat(43)}`,
@@ -2788,6 +2906,8 @@ describe('remote-share Worker capability gate', () => {
 
     expect(firstResponse.status).toBe(200);
     expect(replayResponse.status).toBe(200);
+    expect(new URL(first.uploadUrl).searchParams.get('X-Amz-Expires')).toBe('600');
+    expect(first.uploadUrlExpiresAt).toBe(new Date('2026-08-09T00:10:00.000Z').getTime());
     expect(replay).toMatchObject({
       objectId: first.objectId,
       expiresAt: first.expiresAt,
@@ -2803,6 +2923,56 @@ describe('remote-share Worker capability gate', () => {
     await expect(expiredReplay.json()).resolves.toEqual({
       error: 'upload session replay expired',
     });
+  });
+
+  it('caps a legacy long-window replay receipt to ten minutes from re-signing', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-09T00:00:00.000Z'));
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: createQuotaBucket(),
+      ROOM_STORAGE_QUOTA_BYTES: '64',
+      OBJECT_TTL_SECONDS: '3600',
+    });
+    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+    const body = sessionRequestBody({
+      requestId: `rs3_${'L'.repeat(43)}`,
+      actorId: `rsa_${'L'.repeat(43)}`,
+    });
+    const createSession = async () =>
+      workerModule.default.fetch(
+        request('/session', {
+          method: 'POST',
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': await createCapabilityToken(),
+          },
+          body,
+        }),
+        workerEnv,
+      );
+
+    const firstResponse = await createSession();
+    const first = (await firstResponse.json()) as SessionResponse & {
+      uploadUrl: string;
+      uploadUrlExpiresAt: number;
+    };
+    expect(firstResponse.status).toBe(200);
+    const state = namespace.instance('123456').storage.values.get('quota-state') as {
+      reservations: Record<string, Record<string, unknown>>;
+    };
+    // Model a receipt persisted by a pre-clamp deployment. Its immutable
+    // deadline remains long, but no newly signed URL may inherit that full TTL.
+    state.reservations[first.objectId]!.uploadAuthorityExpiresAt = first.expiresAt;
+
+    vi.setSystemTime(new Date('2026-08-09T00:01:00.500Z'));
+    const replayResponse = await createSession();
+    const replay = (await replayResponse.json()) as typeof first;
+
+    expect(replayResponse.status).toBe(200);
+    expect(new URL(replay.uploadUrl).searchParams.get('X-Amz-Expires')).toBe('600');
+    expect(replay.uploadUrlExpiresAt).toBe(new Date('2026-08-09T00:11:00.000Z').getTime());
+    expect(replay.uploadUrlExpiresAt).toBeLessThanOrEqual(Date.now() + 10 * 60 * 1000);
   });
 
   it('rolls back a reservation when presigning cannot finish', async () => {

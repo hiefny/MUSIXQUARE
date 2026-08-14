@@ -52,6 +52,7 @@ describe('tooling reproducibility contracts', () => {
     expect(toolingConfig.compilerOptions.types).toContain('node');
     expect([...toolingConfig.include].sort()).toEqual(
       [
+        'scripts/live-app-session-smoke.ts',
         'scripts/live-remote-share-smoke.ts',
         'vite.config.ts',
         'vitest.config.ts',

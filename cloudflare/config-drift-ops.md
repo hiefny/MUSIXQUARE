@@ -159,9 +159,12 @@ minimum because it also signs the app's session capability. Share only the expli
 App/Worker or PRO/signaling pairs; other provider-issued OAuth, R2, TURN,
 Gemini, and YouTube credentials retain their provider-defined formats.
 `MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET` is the one additional explicit
-pair: it must have the same independent value on signaling and Remote Share,
-and must never reuse the capability, upload-token, standard-room account,
-PRO-signaling, or admin-session secret.
+pair: its plain value or prefixed current/previous keyring must be byte-identical
+on signaling and Remote Share. Every contained HMAC key remains independent and
+must never reuse the capability, upload-token, standard-room account,
+PRO-signaling, or admin-session secret. The staged keyring procedure lives in
+`remote-share-ops.md`; the drift audit intentionally reads only the binding name,
+never this value.
 
 `MXQR_ADMIN_PASSWORD` is not an HMAC key, but the App Worker still treats it as
 configured only at 16 through 256 UTF-8 bytes. `MXQR_ADMIN_SESSION_SECRET` is a

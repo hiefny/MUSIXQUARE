@@ -10,12 +10,14 @@ const script = fileURLToPath(new URL('../../../scripts/check-bus-pairing.mjs', i
 
 describe('EventBus emit/listen pairing', () => {
   it('has no dead emits or orphan listeners', () => {
-    let output = '';
+    let output: string;
     try {
       output = execFileSync('node', [script], { encoding: 'utf8' });
     } catch (err) {
       const e = err as { stdout?: string; stderr?: string };
-      throw new Error(`Bus pairing check failed:\n${e.stdout ?? ''}${e.stderr ?? ''}`);
+      throw new Error(`Bus pairing check failed:\n${e.stdout ?? ''}${e.stderr ?? ''}`, {
+        cause: err,
+      });
     }
     expect(output).toContain('OK');
   });

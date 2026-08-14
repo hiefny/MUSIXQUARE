@@ -84,6 +84,27 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', '_legacy/', 'src/**/__tests__/'],
+    // Tests have their own TypeScript project and deliberately use native
+    // timers/console while exercising lifecycle and failure behavior. Keep
+    // the production rules everywhere else while still linting test code for
+    // unsafe constructs, undefined bindings, and unused values.
+    files: ['src/**/__tests__/**/*.ts'],
+    languageOptions: {
+      parserOptions: {
+        project: './tsconfig.test.json',
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      'no-console': 'off',
+      'no-restricted-globals': 'off',
+      // Self-referential harnesses intentionally assign controllers after
+      // their callbacks close over the binding, which prefer-const cannot
+      // distinguish from an unnecessary mutable declaration.
+      'prefer-const': 'off',
+    },
+  },
+  {
+    ignores: ['dist/', 'node_modules/', '_legacy/'],
   },
 );

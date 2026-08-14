@@ -14,13 +14,15 @@
  * Optional env:
  * - R2_BUCKET_NAME: default musixquare-remote-share
  * - OBJECT_TTL_SECONDS: default 3600
- * - UPLOAD_TOKEN_TTL_SECONDS: presigned PUT start window, default 600
+ * - UPLOAD_TOKEN_TTL_SECONDS: presigned PUT start window, default/maximum 600
  * - RATE_LIMIT_WINDOW_SECONDS: default 3600
  * - IP_UPLOADS_PER_WINDOW: default 60
  * - ROOM_UPLOADS_PER_WINDOW: default 120
  * - ROOM_UPLOAD_ASSERTION_MODE: disabled (local/default), optional, or required
  * - MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: signaling-shared HMAC secret,
- *     required when ROOM_UPLOAD_ASSERTION_MODE is optional or required
+ *     required when ROOM_UPLOAD_ASSERTION_MODE is optional or required. A
+ *     plain value preserves single-key behavior; the documented prefixed JSON
+ *     form enables current/previous rotation slots.
  * - ROOM_STORAGE_QUOTA_BYTES: default 0. Production uses 1 GiB and requires
  *     the durable session-replay path.
  * - ALLOWED_ORIGINS: comma-separated origins
@@ -42,6 +44,8 @@ import {
   readServiceMaintenance,
 } from './service-maintenance.js';
 import {
+  parseRemoteShareUploadAssertionKeyring,
+  REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_VERSION,
   REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
   verifyRemoteShareUploadAssertion,
 } from './remote-share-upload-assertion.js';
@@ -51,6 +55,7 @@ import {
 const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
 const DEFAULT_TTL_SECONDS = 60 * 60;
 const DEFAULT_UPLOAD_TOKEN_TTL_SECONDS = 10 * 60;
+const MAX_UPLOAD_TOKEN_TTL_SECONDS = 10 * 60;
 const DEFAULT_RATE_LIMIT_WINDOW_SECONDS = 60 * 60;
 const DEFAULT_IP_UPLOADS_PER_WINDOW = 60;
 const DEFAULT_ROOM_UPLOADS_PER_WINDOW = 120;
@@ -424,7 +429,9 @@ function configuredRoomUploadAssertionSecret(env) {
 
 function getRoomUploadAssertionSecret(env) {
   const secret = configuredRoomUploadAssertionSecret(env);
-  return secret.length >= HMAC_SECRET_MIN_LENGTH ? secret : '';
+  return secret.length >= HMAC_SECRET_MIN_LENGTH && parseRemoteShareUploadAssertionKeyring(secret)
+    ? secret
+    : '';
 }
 
 function roomUploadAssertionConfigurationError(request, env) {
@@ -437,7 +444,10 @@ function roomUploadAssertionConfigurationError(request, env) {
   if (!secret) {
     return json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_NOT_CONFIGURED' }, 503);
   }
-  if (secret.length < HMAC_SECRET_MIN_LENGTH) {
+  if (
+    secret.length < HMAC_SECRET_MIN_LENGTH ||
+    !parseRemoteShareUploadAssertionKeyring(secret)
+  ) {
     return json(request, env, { error: 'ROOM_UPLOAD_ASSERTION_SECRET_INVALID' }, 503);
   }
   return null;
@@ -751,6 +761,7 @@ function handleSecurityConfig(request, env) {
     wholeObjectVersion: WHOLE_OBJECT_VERSION,
     downloadAuthorizationVersion: DOWNLOAD_AUTHORIZATION_VERSION,
     roomUploadAssertionVersion: REMOTE_SHARE_UPLOAD_ASSERTION_VERSION,
+    roomUploadAssertionKeyringVersion: REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_VERSION,
     roomUploadAssertionMode: assertionMode,
     roomUploadAssertionRequired: assertionMode === 'required',
     ...workerVersionFields(env),
@@ -1446,6 +1457,7 @@ async function issueUploadSession(reservation, env, secret, quotaEnabled) {
   const authorityDeadline = Math.min(
     reservation.uploadAuthorityExpiresAt,
     reservation.expiresAt,
+    signingSecond + MAX_UPLOAD_TOKEN_TTL_SECONDS * 1000,
   );
   if (now >= authorityDeadline) return null;
   const uploadTtlSeconds = Math.floor((authorityDeadline - signingSecond) / 1000);
@@ -1662,9 +1674,9 @@ async function handleSession(request, env, context) {
   const now = Date.now();
   const objectTtlSeconds = parseLimit(env.OBJECT_TTL_SECONDS, DEFAULT_TTL_SECONDS);
   const expiresAt = Math.floor(now + objectTtlSeconds * 1000);
-  const uploadTtlSeconds = parseLimit(
-    env.UPLOAD_TOKEN_TTL_SECONDS,
-    DEFAULT_UPLOAD_TOKEN_TTL_SECONDS,
+  const uploadTtlSeconds = Math.min(
+    parseLimit(env.UPLOAD_TOKEN_TTL_SECONDS, DEFAULT_UPLOAD_TOKEN_TTL_SECONDS),
+    MAX_UPLOAD_TOKEN_TTL_SECONDS,
   );
   const uploadAuthorityExpiresAt =
     Math.floor(Math.min(now + uploadTtlSeconds * 1000, expiresAt) / 1000) * 1000;

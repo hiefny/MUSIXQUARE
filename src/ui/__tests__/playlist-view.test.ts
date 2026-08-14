@@ -1474,13 +1474,13 @@ describe('playlist queue identity rendering and actions', () => {
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', FILE_A);
     initPlaylistView();
-    let scrollTo = configurePlaylistFollowLayout();
+    configurePlaylistFollowLayout();
     await nextAnimationFrame();
 
     document.querySelector<HTMLButtonElement>('.btn-playlist-remove')!.click();
     setState('playlist.currentQueueItemId', YT_B);
     await nextAnimationFrame();
-    scrollTo = configurePlaylistFollowLayout();
+    const scrollTo = configurePlaylistFollowLayout();
 
     document.querySelector<HTMLButtonElement>('[data-selection-action="cancel"]')!.click();
     await Promise.resolve();

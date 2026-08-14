@@ -1684,7 +1684,7 @@ describe('release deployment rollback state', () => {
     }
 
     const liveSmokeSteps = workflow
-      .split(/(?=^      - name: )/gmu)
+      .split(/(?=^ {6}- name: )/gmu)
       .filter((step) => step.includes('npm run smoke:live:'));
     expect(liveSmokeSteps).toHaveLength(9);
     for (const step of liveSmokeSteps) {
@@ -1910,7 +1910,7 @@ describe('release deployment rollback state', () => {
     expect(releaseWorkflow).not.toContain('run: npm run format:check');
   });
 
-  it('uses CI critical coverage and front-loads partial compatibility without a release browser install', () => {
+  it('uses CI critical browser coverage while keeping the production release browser-free', () => {
     const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const coverage = ciWorkflow.indexOf('run: npm run test:coverage:critical');
@@ -1920,6 +1920,7 @@ describe('release deployment rollback state', () => {
     );
     const firstDeploy = workflow.indexOf('Deploy and record remote-share Worker');
     expect(coverage).toBeGreaterThan(-1);
+    expect(ciWorkflow).toContain('run: npm run test:e2e:critical');
     expect(compatibility).toBeGreaterThan(-1);
     expect(compatibility).toBeLessThan(generationFloor);
     expect(compatibility).toBeLessThan(firstDeploy);
@@ -1930,6 +1931,10 @@ describe('release deployment rollback state', () => {
     const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
       scripts: Record<string, string>;
     };
+    expect(packageJson.scripts['pretest:e2e:critical']).toBe('npm run build:e2e');
+    expect(packageJson.scripts['test:e2e:critical']).toBe(
+      'playwright test e2e/critical-browser.test.ts e2e/release-smoke.test.ts e2e/remote-upload-browser.test.ts --project=chromium --reporter=line',
+    );
     expect(packageJson.scripts['smoke:live:app-generation']).toBe(
       'node scripts/live-app-generation-smoke.mjs',
     );

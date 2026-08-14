@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   PRO_SIGNALING_QUERY_TICKET_CUTOFF_MS,
   validateProSignalingTicketCutover,
 } from '../../../scripts/pro-signaling-ticket-cutover.mjs';
+
+const CHECKED_IN_SIGNALING_WORKER = readFileSync('cloudflare/signaling-worker.js', 'utf8');
+const CHECKED_IN_SIGNALING_CONFIG = readFileSync('cloudflare/wrangler.signaling.toml', 'utf8');
+const CHECKED_IN_ADMIN_WORKER = readFileSync('cloudflare/app-worker.js', 'utf8');
 
 const LEGACY_WORKER = `
 const PRO_SIGNALING_CLIENT_UPDATE_REQUIRED = 'PRO_SIGNALING_CLIENT_UPDATE_REQUIRED';
@@ -69,6 +74,21 @@ function validate(
 }
 
 describe('PRO signaling query-ticket cutover guard', () => {
+  it('allows the checked-in grace path until the deadline and blocks that exact source at cutoff', () => {
+    const validateCheckedInSource = (nowMs: number) =>
+      validateProSignalingTicketCutover({
+        workerSource: CHECKED_IN_SIGNALING_WORKER,
+        signalingConfig: CHECKED_IN_SIGNALING_CONFIG,
+        adminWorkerSource: CHECKED_IN_ADMIN_WORKER,
+        nowMs,
+      });
+
+    expect(validateCheckedInSource(PRO_SIGNALING_QUERY_TICKET_CUTOFF_MS - 1)).toEqual([]);
+    expect(validateCheckedInSource(PRO_SIGNALING_QUERY_TICKET_CUTOFF_MS)).toContain(
+      'legacy PRO query-ticket admission is past cutoff; remove its ticket verification/admission branch before deploying',
+    );
+  });
+
   it('accepts the bounded, metric-backed grace contract before cutoff', () => {
     expect(validate()).toEqual([]);
   });

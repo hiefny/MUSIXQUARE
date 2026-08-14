@@ -104,10 +104,12 @@ authority-aware retained PRO Worker from being paired with a Developer API
 stack that omits the epoch and would reject valid active keys as stale.
 
 The complete serial Playwright suite is intentionally not a production deploy
-gate or a scheduled job. Start it manually from the `Full E2E` workflow when a
-change warrants the extra coverage. Review failures there as regression
-signals, while using the browser-free release smokes plus real-device
-verification for the production decision.
+gate or a scheduled job. A focused deterministic Chromium subset is blocking in
+exact-SHA CI, so an approved release cannot select a candidate until the critical
+owner-recovery, OAuth-return, host/guest, and signed-upload browser paths pass.
+Start the full suite manually from the `Full E2E` workflow when a change warrants
+the extra coverage. Neither browser automation tier replaces the required
+real-device verification for the production decision.
 
 The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its canonical
@@ -213,11 +215,13 @@ deleted runtime file is a change too.
 If the proof is unavailable or a counterpart changed, use target `all` rather
 than guessing that the contracts remain compatible.
 
-An app-only production release reuses the exact-SHA CI candidate, proves
-partial dependency compatibility before deployment, and runs browser-free
+An app-only production release reuses an exact-SHA CI candidate that has passed
+the focused Chromium gate, proves partial dependency compatibility before
+deployment, and keeps the production deploy job itself browser-free by running
 generation/initial-asset-graph and anonymous-session-boundary HTTP smokes after
-deployment. Host/guest application-session confidence comes from the required
-physical-device matrix; optional Playwright is only an auxiliary diagnostic.
+deployment. The full Playwright suite remains auxiliary, while production
+host/guest application-session confidence still requires the physical-device
+matrix.
 The emergency-only `emergency:deploy:app` command additionally runs the
 standalone live signaling smoke. A signaling protocol change must be deployed
 and smoked first (normally with release target `all`); the preflight fails
@@ -314,9 +318,11 @@ schema changes. If another Worker changed in the pushed commit, use
 `all-workers` only when the code-only fence still passes; otherwise use the
 approved `all` release.
 
-These automation checks are intentionally browser-free. After the deploy is
-live, verify the production URL and the touched host/guest flow on physical
-devices in fresh browser sessions; optional Playwright E2E is auxiliary only.
+These emergency-deployment checks are intentionally browser-free; the focused
+Chromium gate belongs to exact-SHA CI and is not a substitute for post-deploy
+device coverage. After the deploy is live, verify the production URL and the
+touched host/guest flow on physical devices in fresh browser sessions. The full
+Playwright E2E suite remains auxiliary.
 Confirm the active version with
 `npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`.
 

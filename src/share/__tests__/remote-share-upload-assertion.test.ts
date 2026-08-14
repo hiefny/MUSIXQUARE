@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
   REMOTE_SHARE_UPLOAD_ASSERTION_AUDIENCE,
+  REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX,
   REMOTE_SHARE_UPLOAD_ASSERTION_SCOPE,
   REMOTE_SHARE_UPLOAD_ASSERTION_TTL_SECONDS,
   createRemoteShareUploadAssertion,
+  parseRemoteShareUploadAssertionKeyring,
   verifyRemoteShareUploadAssertion,
 } from '../../../cloudflare/remote-share-upload-assertion.js';
 
 const SECRET = 'remote-share-upload-assertion-secret-for-tests';
+const NEXT_SECRET = 'next-remote-share-upload-assertion-secret-for-tests';
 const NOW_SECONDS = 1_800_000_000;
 const INPUT = {
   roomId: '123456',
@@ -28,6 +31,17 @@ function decodePayload(assertion: string): Record<string, unknown> {
     (character) => character.charCodeAt(0),
   );
   return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+}
+
+function keyring(
+  current: { kid: string; secret: string },
+  previous?: { kid: string; secret: string },
+): string {
+  return `${REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX}${JSON.stringify({
+    v: 1,
+    current,
+    ...(previous ? { previous } : {}),
+  })}`;
 }
 
 describe('remote share upload assertion', () => {
@@ -113,5 +127,88 @@ describe('remote share upload assertion', () => {
       ),
     ).resolves.toBeNull();
     await expect(createRemoteShareUploadAssertion(INPUT, 'weak', NOW_SECONDS)).resolves.toBeNull();
+  });
+
+  it('keeps a plain shared secret fully compatible with the original unkeyed assertion', async () => {
+    expect(parseRemoteShareUploadAssertionKeyring(SECRET)).toEqual({
+      current: { kid: null, secret: SECRET },
+      previous: null,
+    });
+    const issued = await createRemoteShareUploadAssertion(INPUT, SECRET, NOW_SECONDS);
+
+    expect(decodePayload(issued!.assertion)).not.toHaveProperty('kid');
+    await expect(
+      verifyRemoteShareUploadAssertion(issued!.assertion, SECRET, { nowSeconds: NOW_SECONDS }),
+    ).resolves.not.toBeNull();
+  });
+
+  it('selects current and previous verification slots by signed kid during staged rotation', async () => {
+    const oldOnly = keyring({ kid: '2026-08-old', secret: SECRET });
+    const rotating = keyring(
+      { kid: '2026-09-current', secret: NEXT_SECRET },
+      { kid: '2026-08-old', secret: SECRET },
+    );
+    const currentOnly = keyring({ kid: '2026-09-current', secret: NEXT_SECRET });
+    const oldIssued = await createRemoteShareUploadAssertion(INPUT, oldOnly, NOW_SECONDS);
+    const currentIssued = await createRemoteShareUploadAssertion(INPUT, rotating, NOW_SECONDS);
+
+    expect(decodePayload(oldIssued!.assertion)).toMatchObject({ kid: '2026-08-old' });
+    expect(decodePayload(currentIssued!.assertion)).toMatchObject({ kid: '2026-09-current' });
+    await expect(
+      verifyRemoteShareUploadAssertion(oldIssued!.assertion, rotating, {
+        nowSeconds: NOW_SECONDS,
+      }),
+    ).resolves.toMatchObject({ kid: '2026-08-old' });
+    await expect(
+      verifyRemoteShareUploadAssertion(currentIssued!.assertion, rotating, {
+        nowSeconds: NOW_SECONDS,
+      }),
+    ).resolves.toMatchObject({ kid: '2026-09-current' });
+    await expect(
+      verifyRemoteShareUploadAssertion(oldIssued!.assertion, currentOnly, {
+        nowSeconds: NOW_SECONDS,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('accepts an in-flight unkeyed assertion through the previous slot, then retires it', async () => {
+    const legacyIssued = await createRemoteShareUploadAssertion(INPUT, SECRET, NOW_SECONDS);
+    const rotating = keyring(
+      { kid: '2026-09-current', secret: NEXT_SECRET },
+      { kid: '2026-08-old', secret: SECRET },
+    );
+    const currentOnly = keyring({ kid: '2026-09-current', secret: NEXT_SECRET });
+
+    await expect(
+      verifyRemoteShareUploadAssertion(legacyIssued!.assertion, rotating, {
+        nowSeconds: NOW_SECONDS,
+      }),
+    ).resolves.not.toBeNull();
+    await expect(
+      verifyRemoteShareUploadAssertion(legacyIssued!.assertion, currentOnly, {
+        nowSeconds: NOW_SECONDS,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects malformed, ambiguous, and weak keyring configuration', async () => {
+    const malformed = `${REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX}{`;
+    const duplicateKid = keyring(
+      { kid: 'same-kid', secret: NEXT_SECRET },
+      { kid: 'same-kid', secret: SECRET },
+    );
+    const duplicateSecret = keyring(
+      { kid: 'current', secret: SECRET },
+      { kid: 'previous', secret: SECRET },
+    );
+    const weakCurrent = keyring({ kid: 'current', secret: 'weak' });
+
+    expect(parseRemoteShareUploadAssertionKeyring(malformed)).toBeNull();
+    expect(parseRemoteShareUploadAssertionKeyring(duplicateKid)).toBeNull();
+    expect(parseRemoteShareUploadAssertionKeyring(duplicateSecret)).toBeNull();
+    expect(parseRemoteShareUploadAssertionKeyring(weakCurrent)).toBeNull();
+    await expect(
+      createRemoteShareUploadAssertion(INPUT, malformed, NOW_SECONDS),
+    ).resolves.toBeNull();
   });
 });

@@ -156,6 +156,18 @@ describe('operations drift audit', () => {
     expect(source).not.toContain('env.CLOUDFLARE_DRIFT_AUDIT_TOKEN || env.CLOUDFLARE_API_TOKEN');
   });
 
+  it('runs the read-only drift audit weekly as well as on manual dispatch', () => {
+    const workflow = readFileSync('.github/workflows/ops-drift-audit.yml', 'utf8');
+
+    expect(workflow).toContain("cron: '37 3 * * 1'");
+    expect(workflow).toContain('workflow_dispatch:');
+    expect(workflow).toContain('permissions:\n  contents: read');
+    expect(workflow).not.toMatch(/permissions:[\s\S]*?\b(?:write|admin)\b/u);
+    expect(workflow).not.toContain('wrangler deploy');
+    expect(workflow).not.toContain('secret put');
+    expect(workflow).not.toContain('r2 bucket cors set');
+  });
+
   it('compares CORS semantically without depending on array or header case order', () => {
     const first = normalizeCorsPolicy({
       rules: [

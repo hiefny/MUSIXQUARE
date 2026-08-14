@@ -5,7 +5,10 @@ import {
   createStandardRoomAccountAssertion,
   createStandardRoomAccountDeletionAssertion,
 } from '../../../../cloudflare/standard-room-account-assertion.js';
-import { verifyRemoteShareUploadAssertion } from '../../../../cloudflare/remote-share-upload-assertion.js';
+import {
+  REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX,
+  verifyRemoteShareUploadAssertion,
+} from '../../../../cloudflare/remote-share-upload-assertion.js';
 import {
   ABUSE_RATE_CONSUME_PATH,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
@@ -63,6 +66,23 @@ const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
 const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
 const REMOTE_SHARE_UPLOAD_ASSERTION_SECRET =
   'remote-share-upload-assertion-secret-for-signaling-tests';
+const REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING = `${REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX}${JSON.stringify(
+  {
+    v: 1,
+    current: {
+      kid: '2026-09-current',
+      secret: 'next-remote-share-upload-assertion-secret-for-signaling-tests',
+    },
+    previous: { kid: '2026-08-old', secret: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET },
+  },
+)}`;
+const REMOTE_SHARE_UPLOAD_ASSERTION_DUPLICATE_SECRET_KEYRING = `${REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX}${JSON.stringify(
+  {
+    v: 1,
+    current: { kid: 'current', secret: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET },
+    previous: { kid: 'previous', secret: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET },
+  },
+)}`;
 const REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST = Object.freeze({
   type: 'remote-share-upload-assertion-request',
   correlationId: `rsaq_${'c'.repeat(32)}`,
@@ -765,6 +785,7 @@ describe('Cloudflare signaling Remote Share host assertions', () => {
       type: 'peer-open',
       roomId: '123456',
       remoteShareUploadAssertionVersion: 1,
+      remoteShareUploadAssertionKeyringVersion: 1,
     });
 
     host.sent.length = 0;
@@ -792,13 +813,46 @@ describe('Cloudflare signaling Remote Share host assertions', () => {
     expect(verified).toMatchObject({ roomId: '123456', hostPeerId: 'host-1' });
   });
 
-  it('does not advertise the feature without a strong dedicated secret', async () => {
+  it('does not advertise the feature with a weak or ambiguous dedicated secret', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, {
       MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: 'too-short',
     });
     const host = await authenticateHost(room, 'host-1', 'secret-a');
     expect(sent(host)[0]).not.toHaveProperty('remoteShareUploadAssertionVersion');
+    expect(sent(host)[0]).not.toHaveProperty('remoteShareUploadAssertionKeyringVersion');
+
+    const ambiguousState = new FakeDurableObjectState();
+    const ambiguousRoom = new workerModule.MusixquareRoom(ambiguousState, {
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET:
+        REMOTE_SHARE_UPLOAD_ASSERTION_DUPLICATE_SECRET_KEYRING,
+    });
+    const ambiguousHost = await authenticateHost(ambiguousRoom, 'host-2', 'secret-b');
+    expect(sent(ambiguousHost)[0]).not.toHaveProperty('remoteShareUploadAssertionVersion');
+    expect(sent(ambiguousHost)[0]).not.toHaveProperty('remoteShareUploadAssertionKeyringVersion');
+  });
+
+  it('signs new assertions with the keyring current kid while retaining previous verification', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING,
+    });
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    host.sent.length = 0;
+
+    await room.webSocketMessage(host, JSON.stringify(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST));
+    const response = sent(host)[0];
+    const verified = await verifyRemoteShareUploadAssertion(
+      String(response.assertion),
+      REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING,
+    );
+
+    expect(response).toMatchObject({ type: 'remote-share-upload-assertion' });
+    expect(verified).toMatchObject({
+      roomId: '123456',
+      hostPeerId: 'host-1',
+      kid: '2026-09-current',
+    });
   });
 
   it('ignores guest, malformed, and replaced-host assertion requests without relaying them', async () => {

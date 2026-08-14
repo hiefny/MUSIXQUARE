@@ -20,6 +20,13 @@ describe('CI quality and supply-chain gates', () => {
     );
   });
 
+  it('lints application tests through their dedicated TypeScript profile', () => {
+    const appLintConfig = readFileSync(resolve('eslint.config.js'), 'utf8');
+    expect(appLintConfig).toContain("files: ['src/**/__tests__/**/*.ts']");
+    expect(appLintConfig).toContain("project: './tsconfig.test.json'");
+    expect(appLintConfig).not.toContain("'src/**/__tests__/'");
+  });
+
   it('verifies registry signatures independently of the vulnerability audit', () => {
     expect(packageJson.scripts['security:signatures']).toBe('npm audit signatures');
     expect(ciWorkflow).toContain('run: npm run security:audit');

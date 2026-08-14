@@ -925,32 +925,27 @@ describe('Worker compatibility-floor recovery', () => {
 
   it('uses real Git ancestry to reject a pre-authority Developer API baseline', () => {
     const head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-    expect(
-      execFileSync(
-        'git',
-        [
-          'merge-base',
-          '--is-ancestor',
-          GENERATION_SUPPORT_SHA,
-          DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA,
-        ],
-        { stdio: 'ignore' },
-      ),
-    ).toBeDefined();
-    expect(() =>
-      execFileSync(
-        'git',
-        [
-          'merge-base',
-          '--is-ancestor',
-          DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA,
-          GENERATION_SUPPORT_SHA,
-        ],
-        { stdio: 'ignore' },
-      ),
-    ).toThrow();
+    const ancestryCache = new Map<string, boolean>();
+    const isAncestor = (baseSha: string, headSha: string): boolean => {
+      const key = `${baseSha}:${headSha}`;
+      const cached = ancestryCache.get(key);
+      if (cached !== undefined) return cached;
+      let result = false;
+      try {
+        execFileSync('git', ['merge-base', '--is-ancestor', baseSha, headSha], {
+          stdio: 'ignore',
+        });
+        result = true;
+      } catch {
+        // git merge-base exits non-zero when baseSha is not an ancestor.
+      }
+      ancestryCache.set(key, result);
+      return result;
+    };
+    expect(isAncestor(GENERATION_SUPPORT_SHA, DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA)).toBe(true);
+    expect(isAncestor(DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA, GENERATION_SUPPORT_SHA)).toBe(false);
 
-    const runCliAssessment = (beforeGitSha: string) => {
+    const runAssessment = (beforeGitSha: string) => {
       const checkpoint = directory();
       const payloadPath = resolve(checkpoint, 'floor.json');
       for (const target of DEVELOPER_AUTHORITY_WORKERS) {
@@ -973,26 +968,20 @@ describe('Worker compatibility-floor recovery', () => {
           entitlement: true,
         }),
       );
-      execFileSync(
-        process.execPath,
-        [SCRIPT_PATH, 'snapshot', 'developer-api', payloadPath, checkpoint],
-        { cwd: resolve('.'), stdio: 'pipe' },
-      );
-      execFileSync(process.execPath, [SCRIPT_PATH, 'assess', checkpoint, payloadPath, checkpoint], {
-        cwd: resolve('.'),
-        stdio: 'pipe',
+      const payload = JSON.parse(readFileSync(payloadPath, 'utf8')) as unknown;
+      const captured = captureWorkerFloorCheckpoint('developer-api', payload, checkpoint, {
+        isAncestor,
+      });
+      const assessment = assessWorkerFloorRecovery(checkpoint, payload, checkpoint, {
+        isAncestor,
       });
       return {
-        checkpoint: JSON.parse(
-          readFileSync(resolve(checkpoint, 'worker-floor-checkpoint.json'), 'utf8'),
-        ) as { workers: Array<Record<string, unknown>> },
-        assessment: JSON.parse(
-          readFileSync(resolve(checkpoint, 'worker-floor-recovery.json'), 'utf8'),
-        ) as { status: string; forwardRepairTargets: string[] },
+        checkpoint: captured as { workers: Array<Record<string, unknown>> },
+        assessment: assessment as { status: string; forwardRepairTargets: string[] },
       };
     };
 
-    const legacy = runCliAssessment(GENERATION_SUPPORT_SHA);
+    const legacy = runAssessment(GENERATION_SUPPORT_SHA);
     expect(legacy.checkpoint.workers).toEqual(
       DEVELOPER_AUTHORITY_WORKERS.map((target) =>
         expect.objectContaining({
@@ -1007,7 +996,7 @@ describe('Worker compatibility-floor recovery', () => {
       forwardRepairTargets: [...DEVELOPER_AUTHORITY_WORKERS],
     });
 
-    const supported = runCliAssessment(head);
+    const supported = runAssessment(head);
     expect(supported.checkpoint.workers).toEqual(
       DEVELOPER_AUTHORITY_WORKERS.map((target) =>
         expect.objectContaining({
@@ -1021,6 +1010,7 @@ describe('Worker compatibility-floor recovery', () => {
       status: 'rollback-compatible',
       forwardRepairTargets: [],
     });
+    expect(ancestryCache.size).toBeLessThanOrEqual(8);
   });
 
   it('wires the immutable floor checkpoint into both recovery paths', () => {

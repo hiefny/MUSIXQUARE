@@ -45,7 +45,8 @@ ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,http://loca
 # as the app Worker MXQR_CAPABILITY_SECRET so app-issued tokens verify here):
 # npm run wrangler -- secret put MXQR_CAPABILITY_SECRET --config cloudflare/wrangler.remote-share.toml
 # Shared only with the signaling Worker. Use the same independent random value
-# of at least 32 characters on both Workers:
+# of at least 32 characters on both Workers. The optional prefixed JSON
+# current/previous rotation form is documented in cloudflare/remote-share-ops.md:
 # npm run wrangler -- secret put MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET --config cloudflare/wrangler.remote-share.toml
 
 [[r2_buckets]]

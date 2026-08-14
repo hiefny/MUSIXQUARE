@@ -344,13 +344,28 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
         run: |
-          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
-            --remote --json --config cloudflare/wrangler.app.toml \
-            --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'disabled', release_sha = NULL, updated_at = unixepoch() * 1000 WHERE contract_version = 1; SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            | node scripts/capture-wrangler-d1-json.mjs \
-                release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json
+          fence_file='release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json'
+          fence_sql="UPDATE mxqr_pro_room_generation_cutover SET status = 'disabled', release_sha = NULL, updated_at = unixepoch() * 1000 WHERE contract_version = 1; SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1"
+
+          # Cloudflare can commit this idempotent disable while its CLI response is
+          # transiently unavailable. Replay the exact fence and verify returned state.
+          for attempt in 1 2 3; do
+            rm -f "$fence_file"
+            if npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+              --remote --json --config cloudflare/wrangler.app.toml \
+              --command "$fence_sql" \
+              | node scripts/capture-wrangler-d1-json.mjs "$fence_file"; then
+              break
+            fi
+            rm -f "$fence_file"
+            if (( attempt == 3 )); then
+              echo '::error::Unable to verify the idempotent room-code rollout fence after 3 attempts.'
+              exit 1
+            fi
+            sleep "$((attempt * 2))"
+          done
           node scripts/pro-room-generation-cutover.mjs verify-cutover \
-            release-artifacts/deployments/pro-room-generation-cutover-rollout-fenced.json \
+            "$fence_file" \
             disabled
 
       - name: Apply and verify lifetime room-count D1 contract

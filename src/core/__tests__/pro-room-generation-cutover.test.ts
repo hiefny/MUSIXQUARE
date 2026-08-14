@@ -102,6 +102,13 @@ describe('PRO room generation release fence', () => {
       'Verify full release honors immutable PRO generation floor',
     );
     const fence = workflow.indexOf('Fence room-code reuse during dependency rollout');
+    const fenceEnd = workflow.indexOf('Apply and verify lifetime room-count D1 contract', fence);
+    const fenceStep = workflow.slice(fence, fenceEnd);
+    const retryCommand = fenceStep.indexOf('--command "$fence_sql"');
+    const failedAttemptCleanup = fenceStep.indexOf('rm -f "$fence_file"', retryCommand);
+    const finalAttemptFailure = fenceStep.indexOf('if (( attempt == 3 )); then');
+    const retryLoopEnd = fenceStep.indexOf('\n          done');
+    const fenceVerification = fenceStep.indexOf('verify-cutover');
     const firstDeploy = workflow.indexOf('Deploy and record remote-share Worker');
     const finalVerification = workflow.indexOf(
       'Verify release still owns current production deployments',
@@ -112,6 +119,7 @@ describe('PRO room generation release fence', () => {
     expect(readFloor).toBeGreaterThan(prepareRecords);
     expect(verifyFloor).toBeGreaterThan(readFloor);
     expect(fence).toBeGreaterThan(verifyFloor);
+    expect(fenceEnd).toBeGreaterThan(fence);
     expect(firstDeploy).toBeGreaterThan(fence);
     expect(restoreReady).toBeGreaterThan(finalVerification);
     expect(workflow).toContain(
@@ -121,6 +129,13 @@ describe('PRO room generation release fence', () => {
       'WHERE contract_version = 1 AND ever_enabled = 1 AND floor_release_sha IS NOT NULL',
     );
     expect(workflow).not.toContain('COALESCE(floor_release_sha');
+    expect(fenceStep).toContain('for attempt in 1 2 3; do');
+    expect(fenceStep).toContain('--command "$fence_sql"');
+    expect(failedAttemptCleanup).toBeGreaterThan(retryCommand);
+    expect(failedAttemptCleanup).toBeLessThan(finalAttemptFailure);
+    expect(fenceStep).toContain('sleep "$((attempt * 2))"');
+    expect(fenceVerification).toBeGreaterThan(retryLoopEnd);
+    expect(fenceStep.match(/verify-cutover/gu)).toHaveLength(1);
   });
 
   it('retires the initial-room ceremony and keeps the failure fence before rollback', () => {

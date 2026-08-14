@@ -4,7 +4,7 @@ import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 const AUTOPLAY_DWELL_MS = 6_000;
 const EARLY_TRANSITION_GUARD_MS = 5_000;
 const TRANSITION_TOLERANCE_MS = 2_000;
-const STICKY_PAUSE_GUARD_MS = AUTOPLAY_DWELL_MS + 350;
+const STICKY_STOP_GUARD_MS = AUTOPLAY_DWELL_MS + 350;
 
 async function openSetupCarousel(page: Page): Promise<void> {
   // Browser Insights rejects preview origins in WebKit. Keep that third-party
@@ -15,11 +15,19 @@ async function openSetupCarousel(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await waitForBootstrapReady(page);
-  await expect(page.locator('#ob-slider-area')).toBeVisible();
-  await expect(page.locator('#ob-autoplay-toggle')).toBeVisible();
-  // The first dwell intentionally starts only after the logo hands off to the
-  // greeting, so anchor real-time assertions to that production lifecycle gate.
+
+  const slider = page.locator('#ob-slider-area');
+  const nav = slider.locator('.ob-nav-row');
+  await expect(slider).toBeVisible();
   await expect(page.locator('.setup-greeting-row').first()).toHaveClass(/is-visible/);
+
+  // The four-slide welcome surface intentionally exposes only direct
+  // navigation. Autoplay has no separate control or visual state badge.
+  await expect(page.locator('#ob-autoplay-toggle')).toHaveCount(0);
+  await expect(slider).not.toHaveAttribute('data-autoplay', /.+/);
+  await expect(nav.locator('button')).toHaveCount(6);
+  await expect(nav.locator('#ob-prev, #ob-next')).toHaveCount(2);
+  await expect(nav.locator('#ob-dots .ob-dot')).toHaveCount(4);
 }
 
 async function currentSlideIndex(page: Page): Promise<number> {
@@ -32,136 +40,149 @@ async function currentSlideIndex(page: Page): Promise<number> {
   return index;
 }
 
-async function expectAutoplayState(
-  slider: Locator,
-  toggle: Locator,
-  state: 'playing' | 'paused',
-): Promise<void> {
-  await expect(slider).toHaveAttribute('data-autoplay', state);
-  await expect(toggle).toHaveAttribute('data-state', state);
+async function expectStickyStop(page: Page, expectedIndex: number): Promise<void> {
+  await expect(page.locator('#ob-slider-track')).toHaveAttribute('aria-live', 'polite');
+  expect(await currentSlideIndex(page)).toBe(expectedIndex);
+  await page.waitForTimeout(STICKY_STOP_GUARD_MS);
+  expect(await currentSlideIndex(page)).toBe(expectedIndex);
 }
 
-async function dispatchSuccessfulSwipeLeft(viewport: Locator): Promise<void> {
-  await viewport.evaluate((element) => {
-    const dispatchTouch = (
-      type: 'touchstart' | 'touchend',
-      property: 'touches' | 'changedTouches',
-      clientX: number,
-    ) => {
-      const event = new Event(type, { bubbles: true, cancelable: true });
-      Object.defineProperty(event, property, {
-        configurable: true,
-        value: [{ clientX, clientY: 120 }],
-      });
-      element.dispatchEvent(event);
-    };
-
-    dispatchTouch('touchstart', 'touches', 300);
-    dispatchTouch('touchend', 'changedTouches', 180);
-  });
+async function expectAutoplayDotLabel(dot: Locator, position: string): Promise<void> {
+  const label = await dot.getAttribute('aria-label');
+  expect(label?.startsWith(`${position} `)).toBe(true);
+  expect(label?.codePointAt(position.length + 1)).toBe(0x2014);
+  expect(label?.slice(position.length + 2).trim()).toBeTruthy();
 }
 
-test.describe('setup carousel controlled autoplay', () => {
-  test('uses the production dwell and requires explicit resume after manual navigation', async ({
+async function dispatchTouch(viewport: Locator, startX: number, endX: number): Promise<void> {
+  await viewport.evaluate(
+    (element, { startX: touchStartX, endX: touchEndX }) => {
+      const dispatch = (
+        type: 'touchstart' | 'touchend',
+        property: 'touches' | 'changedTouches',
+        clientX: number,
+      ) => {
+        const event = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperty(event, property, {
+          configurable: true,
+          value: [{ clientX, clientY: 120 }],
+        });
+        element.dispatchEvent(event);
+      };
+
+      dispatch('touchstart', 'touches', touchStartX);
+      dispatch('touchend', 'changedTouches', touchEndX);
+    },
+    { startX, endX },
+  );
+}
+
+test.describe('setup carousel unobtrusive autoplay', () => {
+  test('advances every six seconds, wraps, and keeps rotating while untouched', async ({
     page,
   }) => {
     await openSetupCarousel(page);
 
-    const slider = page.locator('#ob-slider-area');
     const track = page.locator('#ob-slider-track');
-    const toggle = page.locator('#ob-autoplay-toggle');
-
-    await expectAutoplayState(slider, toggle, 'playing');
     await expect(track).toHaveAttribute('aria-live', 'off');
+    expect(await currentSlideIndex(page)).toBe(0);
 
-    const initialSlide = await currentSlideIndex(page);
-    await page.mouse.move(0, 0);
-    await expect
-      .poll(() => currentSlideIndex(page), {
-        timeout: AUTOPLAY_DWELL_MS + TRANSITION_TOLERANCE_MS,
-      })
-      .toBe((initialSlide + 1) % 4);
-
-    // Restart the one-shot timer at a known point so this assertion covers the
-    // configured six-second dwell rather than time spent bootstrapping.
-    const playingLabel = await toggle.getAttribute('aria-label');
-    expect(playingLabel).toBeTruthy();
-    await toggle.click();
-    await expectAutoplayState(slider, toggle, 'paused');
-    await expect(track).toHaveAttribute('aria-live', 'polite');
-    const pausedLabel = await toggle.getAttribute('aria-label');
-    expect(pausedLabel).toBeTruthy();
-    expect(pausedLabel).not.toBe(playingLabel);
-
-    await page.locator('#ob-dots .ob-dot[data-idx="3"]').click();
-    expect(await currentSlideIndex(page)).toBe(3);
-    await toggle.click();
-    await expectAutoplayState(slider, toggle, 'playing');
-    await expect(track).toHaveAttribute('aria-live', 'off');
-    // A real pointer click temporarily hovers the control; leaving the carousel
-    // begins the fresh dwell that a desktop user receives after pressing Play.
-    await page.mouse.move(0, 0);
-
-    const beforeTimer = await currentSlideIndex(page);
-    // Intentional real-time guard: this E2E test verifies the built app's timer,
-    // while the unit suite owns synthetic-timer edge cases.
+    // The first dwell starts only after the logo hands off to the greeting.
+    // Guard the configured delay in real time; unit tests own fake-timer edges.
     await page.waitForTimeout(EARLY_TRANSITION_GUARD_MS);
-    expect(await currentSlideIndex(page)).toBe(beforeTimer);
-    await expect
-      .poll(() => currentSlideIndex(page), { timeout: TRANSITION_TOLERANCE_MS })
-      .toBe((beforeTimer + 1) % 4);
-    expect((beforeTimer + 1) % 4).toBe(0);
+    expect(await currentSlideIndex(page)).toBe(0);
 
-    const manualTarget = 2;
-    await page.locator(`#ob-dots .ob-dot[data-idx="${manualTarget}"]`).click();
-    await expectAutoplayState(slider, toggle, 'paused');
-    await expect(track).toHaveAttribute('aria-live', 'polite');
-    expect(await currentSlideIndex(page)).toBe(manualTarget);
+    for (const expectedIndex of [1, 2, 3, 0, 1]) {
+      await expect
+        .poll(() => currentSlideIndex(page), { timeout: TRANSITION_TOLERANCE_MS + 6_000 })
+        .toBe(expectedIndex);
+    }
 
-    // A dot selection is sticky: it must not silently restart after one dwell.
-    await page.waitForTimeout(STICKY_PAUSE_GUARD_MS);
-    expect(await currentSlideIndex(page)).toBe(manualTarget);
+    // 4 -> 1 wrapped and a fifth transition still occurred, proving the
+    // untouched carousel continues rather than stopping after one cycle.
+    await expect(track).toHaveAttribute('aria-live', 'off');
+    await expectAutoplayDotLabel(page.locator('#ob-dots .ob-dot[data-idx="1"]'), '2 / 4');
+  });
 
-    // A successful mobile swipe is another explicit navigation and remains
-    // sticky-paused. dispatchEvent exercises the same touch listeners in both
-    // desktop Chromium and the real iPhone/WebKit lane.
-    await toggle.click();
-    await expectAutoplayState(slider, toggle, 'playing');
-    const viewport = page.locator('#ob-slider-viewport');
-    await dispatchSuccessfulSwipeLeft(viewport);
-    await expectAutoplayState(slider, toggle, 'paused');
-    expect(await currentSlideIndex(page)).toBe((manualTarget + 1) % 4);
+  test('a dot selection stops rotation at the selected slide', async ({ page }) => {
+    await openSetupCarousel(page);
+
+    const target = page.locator('#ob-dots .ob-dot[data-idx="2"]');
+    await expectAutoplayDotLabel(target, '3 / 4');
+    await target.click();
+    await expect(target).toHaveAttribute('aria-label', '3 / 4');
+    await expectStickyStop(page, 2);
+  });
+
+  test('an arrow wraps manually and stops rotation', async ({ page }) => {
+    await openSetupCarousel(page);
+
+    const previous = page.locator('#ob-prev');
+    test.skip(!(await previous.isVisible()), 'Arrow controls are hidden in the mobile layout');
+    await previous.click();
+    await expectStickyStop(page, 3);
+  });
+
+  test('a swipe advances once and stops rotation', async ({ page }) => {
+    await openSetupCarousel(page);
+
+    await dispatchTouch(page.locator('#ob-slider-viewport'), 300, 180);
+    await expectStickyStop(page, 1);
+  });
+
+  test('a non-swipe touch stops rotation without changing slides', async ({ page }) => {
+    await openSetupCarousel(page);
+
+    await dispatchTouch(page.locator('#ob-slider-viewport'), 240, 240);
+    await expectStickyStop(page, 0);
+  });
+
+  test('keyboard focus stops rotation without changing slides', async ({ page }) => {
+    await openSetupCarousel(page);
+
+    const currentDot = page.locator('#ob-dots .ob-dot[data-idx="0"]');
+    await currentDot.focus();
+    await expect(currentDot).toBeFocused();
+    await expectStickyStop(page, 0);
+  });
+
+  test('desktop hover only suspends rotation and restarts a fresh dwell on leave', async ({
+    page,
+  }) => {
+    const hoverCapable = await page.evaluate(() => matchMedia('(any-hover: hover)').matches);
+    test.skip(!hoverCapable, 'Desktop hover behavior does not apply to touch-only contexts');
+    await openSetupCarousel(page);
+
+    const area = page.locator('#ob-slider-area');
+    const track = page.locator('#ob-slider-track');
+    await area.hover();
+    await page.waitForTimeout(STICKY_STOP_GUARD_MS);
+    expect(await currentSlideIndex(page)).toBe(0);
+    await expect(track).toHaveAttribute('aria-live', 'off');
+
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(EARLY_TRANSITION_GUARD_MS);
+    expect(await currentSlideIndex(page)).toBe(0);
+    await expect.poll(() => currentSlideIndex(page), { timeout: TRANSITION_TOLERANCE_MS }).toBe(1);
+    await expect(track).toHaveAttribute('aria-live', 'off');
   });
 
   test('keeps reduced-motion users on a manual, transition-free carousel', async ({ page }) => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openSetupCarousel(page);
 
-    // This helper's visible-toggle assertion is intentionally bypassed because
-    // reduced motion removes the autoplay affordance altogether.
-    await page.route('https://static.cloudflareinsights.com/**', (route) =>
-      route.fulfill({ contentType: 'application/javascript', body: '' }),
-    );
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
-    await waitForBootstrapReady(page);
-
-    const slider = page.locator('#ob-slider-area');
     const track = page.locator('#ob-slider-track');
-    const toggle = page.locator('#ob-autoplay-toggle');
-    await expect(slider).toBeVisible();
-    await expect(page.locator('.setup-greeting-row').first()).toHaveClass(/is-visible/);
-    await expect(toggle).toHaveCount(1);
-    await expect(toggle).toBeHidden();
-    await expectAutoplayState(slider, toggle, 'paused');
     await expect(track).toHaveAttribute('aria-live', 'polite');
+    await expect(page.locator('#ob-dots .ob-dot[data-idx="0"]')).toHaveAttribute(
+      'aria-label',
+      '1 / 4',
+    );
     await expect
       .poll(() => track.evaluate((element) => getComputedStyle(element).transitionDuration))
       .toBe('0s');
 
     const initialSlide = await currentSlideIndex(page);
-    // Intentional real-time guard: no autoplay callback may survive reduced
-    // motion even after a complete production dwell has elapsed.
-    await page.waitForTimeout(STICKY_PAUSE_GUARD_MS);
+    await page.waitForTimeout(STICKY_STOP_GUARD_MS);
     expect(await currentSlideIndex(page)).toBe(initialSlide);
   });
 });

@@ -25,7 +25,6 @@ const ru: Record<I18nKey, string> = {
   'common.stop': 'Стоп',
   'common.pause': 'Пауза',
   'setup.carousel_pause': 'Приостановить автоматическую смену слайдов',
-  'setup.carousel_play': 'Запустить автоматическую смену слайдов',
   'common.message': 'Сообщение',
   'common.mix': 'Микс',
   'common.wait': 'Минутку...',

@@ -43,12 +43,10 @@ let _hostCodeFlowId = 0;
 let _setupOverlayAbort: AbortController | null = null;
 let _pendingAutoJoinCode: string | null = null;
 let _obCarouselInitialized = false;
-let _obCarouselAutoplayRequested = true;
+let _obCarouselUserStopped = false;
 let _obCarouselHoverPaused = false;
-let _obCarouselTouchActive = false;
 let _obCarouselReducedMotion = false;
 let _obCarouselGreetingReady = false;
-let _obCarouselTogglePointerIntent: boolean | null = null;
 
 // ─── State Accessors ─────────────────────────────────────────────
 
@@ -426,10 +424,9 @@ function canScheduleObCarouselAutoplay(): boolean {
   return (
     _obCarouselInitialized &&
     _obCarouselGreetingReady &&
-    _obCarouselAutoplayRequested &&
+    !_obCarouselUserStopped &&
     !_obCarouselReducedMotion &&
     !_obCarouselHoverPaused &&
-    !_obCarouselTouchActive &&
     !document.hidden &&
     isObCarouselWelcomeVisible()
   );
@@ -437,29 +434,24 @@ function canScheduleObCarouselAutoplay(): boolean {
 
 function hasHoverCapableInput(): boolean {
   try {
-    return window.matchMedia('(hover: hover)').matches;
+    return window.matchMedia('(any-hover: hover)').matches;
   } catch {
     return false;
   }
 }
 
-function updateObCarouselRotationUi(): void {
-  const area = setupEl('ob-slider-area');
+function updateObCarouselA11y(): void {
   const track = setupEl('ob-slider-track');
-  const toggle = setupEl('ob-autoplay-toggle') as HTMLButtonElement | null;
-  const rotationAvailable = !_obCarouselReducedMotion;
-  const rotationRequested = _obCarouselAutoplayRequested && rotationAvailable;
+  const autoplayEligible = !_obCarouselUserStopped && !_obCarouselReducedMotion;
+  if (track) track.setAttribute('aria-live', autoplayEligible ? 'off' : 'polite');
 
-  if (area) area.dataset.autoplay = rotationRequested ? 'playing' : 'paused';
-  if (track) track.setAttribute('aria-live', rotationRequested ? 'off' : 'polite');
-  if (!toggle) return;
-
-  const labelKey = rotationRequested ? 'setup.carousel_pause' : 'setup.carousel_play';
-  toggle.hidden = !rotationAvailable;
-  toggle.disabled = !rotationAvailable;
-  toggle.dataset.state = rotationRequested ? 'playing' : 'paused';
-  toggle.setAttribute('data-i18n-aria-label', labelKey);
-  toggle.setAttribute('aria-label', t(labelKey));
+  document.querySelectorAll<HTMLElement>('.ob-dot').forEach((dot, idx) => {
+    const position = `${idx + 1} / ${TOTAL_OB_SLIDES}`;
+    dot.setAttribute(
+      'aria-label',
+      autoplayEligible ? `${position} \u2014 ${t('setup.carousel_pause')}` : position,
+    );
+  });
 }
 
 function scheduleObCarouselAutoplay(): void {
@@ -478,15 +470,10 @@ function scheduleObCarouselAutoplay(): void {
   );
 }
 
-function setObCarouselAutoplayRequested(requested: boolean): void {
-  _obCarouselAutoplayRequested = requested;
-  updateObCarouselRotationUi();
-  if (requested) scheduleObCarouselAutoplay();
-  else clearObCarouselAutoplayTimer();
-}
-
-function pauseObCarouselForUser(): void {
-  setObCarouselAutoplayRequested(false);
+function stopObCarouselForUser(): void {
+  _obCarouselUserStopped = true;
+  updateObCarouselA11y();
+  clearObCarouselAutoplayTimer();
 }
 
 export function notifyObCarouselGreetingReady(): void {
@@ -496,16 +483,14 @@ export function notifyObCarouselGreetingReady(): void {
 
 /**
  * Bind the welcome carousel for one setup-overlay lifetime.
- * Manual interaction is a sticky stop; hover, visibility and touch tracking
- * merely suspend requested rotation until their temporary condition ends.
+ * Manual, focus, and touch interaction is a sticky stop for this welcome
+ * visit. Hover and page visibility only suspend rotation temporarily.
  */
 export function initObCarousel(signal: AbortSignal): void {
   clearObCarouselAutoplayTimer();
   _obCarouselInitialized = true;
-  _obCarouselAutoplayRequested = true;
+  _obCarouselUserStopped = false;
   _obCarouselHoverPaused = false;
-  _obCarouselTouchActive = false;
-  _obCarouselTogglePointerIntent = null;
   const greetingRows = document.querySelectorAll<HTMLElement>('.setup-greeting-row');
   _obCarouselGreetingReady =
     greetingRows.length === 0 ||
@@ -521,7 +506,7 @@ export function initObCarousel(signal: AbortSignal): void {
 
   const handleReducedMotionChange = (event: MediaQueryListEvent): void => {
     _obCarouselReducedMotion = event.matches;
-    updateObCarouselRotationUi();
+    updateObCarouselA11y();
     if (event.matches) clearObCarouselAutoplayTimer();
     else scheduleObCarouselAutoplay();
   };
@@ -539,38 +524,8 @@ export function initObCarousel(signal: AbortSignal): void {
   }
 
   const area = setupEl('ob-slider-area');
-  const toggle = setupEl('ob-autoplay-toggle') as HTMLButtonElement | null;
   const btnNext = setupEl('ob-next');
   const btnPrev = setupEl('ob-prev');
-
-  toggle?.addEventListener(
-    'pointerdown',
-    () => {
-      // Pointer focus fires before click. Preserve what this press meant before
-      // focus-in performs its required sticky pause.
-      _obCarouselTogglePointerIntent = !_obCarouselAutoplayRequested;
-    },
-    { signal },
-  );
-  toggle?.addEventListener(
-    'pointercancel',
-    () => {
-      _obCarouselTogglePointerIntent = null;
-    },
-    { signal },
-  );
-  toggle?.addEventListener(
-    'click',
-    (event) => {
-      const requested =
-        event.detail === 0
-          ? !_obCarouselAutoplayRequested
-          : (_obCarouselTogglePointerIntent ?? !_obCarouselAutoplayRequested);
-      _obCarouselTogglePointerIntent = null;
-      setObCarouselAutoplayRequested(requested);
-    },
-    { signal },
-  );
 
   btnNext?.addEventListener('click', () => nextObSlide(false), { signal });
   btnPrev?.addEventListener('click', () => prevObSlide(false), { signal });
@@ -582,7 +537,7 @@ export function initObCarousel(signal: AbortSignal): void {
         const dotEl = (event.target as HTMLElement).closest('.ob-dot') as HTMLElement | null;
         const idx = Number.parseInt(dotEl?.dataset.idx ?? '', 10);
         if (Number.isNaN(idx)) return;
-        pauseObCarouselForUser();
+        stopObCarouselForUser();
         setCurrentObSlide(idx);
         updateObSlider();
       },
@@ -607,7 +562,7 @@ export function initObCarousel(signal: AbortSignal): void {
     },
     { signal },
   );
-  area?.addEventListener('focusin', pauseObCarouselForUser, { signal });
+  area?.addEventListener('focusin', stopObCarouselForUser, { signal });
 
   let touchStartX: number | null = null;
   const viewport = setupEl('ob-slider-viewport');
@@ -616,8 +571,7 @@ export function initObCarousel(signal: AbortSignal): void {
       'touchstart',
       (event) => {
         touchStartX = (event as TouchEvent).touches[0]?.clientX ?? null;
-        _obCarouselTouchActive = true;
-        clearObCarouselAutoplayTimer();
+        stopObCarouselForUser();
       },
       { passive: true, signal },
     );
@@ -627,13 +581,10 @@ export function initObCarousel(signal: AbortSignal): void {
         const endX = (event as TouchEvent).changedTouches[0]?.clientX;
         const diff = touchStartX != null && endX != null ? touchStartX - endX : 0;
         touchStartX = null;
-        _obCarouselTouchActive = false;
         if (Math.abs(diff) > OB_CAROUSEL_SWIPE_THRESHOLD_PX) {
           if (diff > 0) nextObSlide(false);
           else prevObSlide(false);
-          return;
         }
-        scheduleObCarouselAutoplay();
       },
       { signal },
     );
@@ -641,8 +592,6 @@ export function initObCarousel(signal: AbortSignal): void {
       'touchcancel',
       () => {
         touchStartX = null;
-        _obCarouselTouchActive = false;
-        scheduleObCarouselAutoplay();
       },
       { signal },
     );
@@ -655,7 +604,6 @@ export function initObCarousel(signal: AbortSignal): void {
       // Normalize those transient inputs so a stale gesture cannot suppress
       // rotation forever or turn a late touchend into an accidental swipe.
       touchStartX = null;
-      _obCarouselTouchActive = false;
       if (document.hidden) {
         _obCarouselHoverPaused = false;
         clearObCarouselAutoplayTimer();
@@ -668,15 +616,16 @@ export function initObCarousel(signal: AbortSignal): void {
     { signal },
   );
 
+  const unsubscribeLanguageChange = bus.on('i18n:changed', updateObCarouselA11y);
+
   const dispose = () => {
+    unsubscribeLanguageChange();
     removeReducedMotionListener();
     clearObCarouselAutoplayTimer();
     _obCarouselInitialized = false;
     _obCarouselHoverPaused = false;
-    _obCarouselTouchActive = false;
     touchStartX = null;
     _obCarouselGreetingReady = false;
-    _obCarouselTogglePointerIntent = null;
   };
   signal.addEventListener('abort', dispose, { once: true });
   if (signal.aborted) {
@@ -684,7 +633,7 @@ export function initObCarousel(signal: AbortSignal): void {
     return;
   }
 
-  updateObCarouselRotationUi();
+  updateObCarouselA11y();
   scheduleObCarouselAutoplay();
 }
 
@@ -710,7 +659,7 @@ export function updateObSlider(): void {
 }
 
 function nextObSlide(isAuto = false): void {
-  if (!isAuto) pauseObCarouselForUser();
+  if (!isAuto) stopObCarouselForUser();
   if (_currentObSlide < TOTAL_OB_SLIDES - 1) _currentObSlide++;
   else _currentObSlide = 0;
   updateObSlider();
@@ -718,7 +667,7 @@ function nextObSlide(isAuto = false): void {
 }
 
 function prevObSlide(isAuto = false): void {
-  if (!isAuto) pauseObCarouselForUser();
+  if (!isAuto) stopObCarouselForUser();
   if (_currentObSlide > 0) _currentObSlide--;
   else _currentObSlide = TOTAL_OB_SLIDES - 1;
   updateObSlider();

@@ -28,7 +28,6 @@ const ptBr: Record<I18nKey, string> = {
   'common.stop': 'Parar',
   'common.pause': 'Pausar',
   'setup.carousel_pause': 'Pausar a rotação automática dos slides',
-  'setup.carousel_play': 'Iniciar a rotação automática dos slides',
   'common.message': 'Mensagem',
   'common.mix': 'Mixagem',
   'common.wait': 'Só um momento...',

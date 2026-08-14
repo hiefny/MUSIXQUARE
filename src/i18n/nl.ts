@@ -29,7 +29,6 @@ const nl: Record<I18nKey, string> = {
   'common.stop': 'Stoppen',
   'common.pause': 'Pauzeren',
   'setup.carousel_pause': 'Automatische diawisseling pauzeren',
-  'setup.carousel_play': 'Automatische diawisseling starten',
   'common.message': 'Bericht',
   'common.mix': 'Mix',
   'common.wait': 'Even geduld...',

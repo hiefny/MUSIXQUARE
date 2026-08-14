@@ -28,7 +28,6 @@ const es: Record<I18nKey, string> = {
   'common.stop': 'Detener',
   'common.pause': 'Pausar',
   'setup.carousel_pause': 'Pausar la rotación automática de diapositivas',
-  'setup.carousel_play': 'Iniciar la rotación automática de diapositivas',
   'common.message': 'Mensaje',
   'common.mix': 'Mezcla',
   'common.wait': 'Un momento...',

@@ -26,7 +26,6 @@ const en: Record<I18nKey, string> = {
   'common.stop': 'Stop',
   'common.pause': 'Pause',
   'setup.carousel_pause': 'Pause automatic slide rotation',
-  'setup.carousel_play': 'Start automatic slide rotation',
   'common.message': 'Message',
   'common.mix': 'Mix',
   'common.wait': 'Please wait...',

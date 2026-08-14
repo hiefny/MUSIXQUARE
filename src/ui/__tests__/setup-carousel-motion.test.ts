@@ -57,7 +57,9 @@ import {
 
 const OB_CAROUSEL_AUTOPLAY_DELAY_MS = 6000;
 
-function installMatchMedia(options: { reduced?: boolean; hover?: boolean } = {}) {
+function installMatchMedia(
+  options: { reduced?: boolean; anyHover?: boolean; primaryHover?: boolean } = {},
+) {
   const reducedListeners = new Set<(event: MediaQueryListEvent) => void>();
   const reducedQuery = {
     matches: options.reduced ?? false,
@@ -77,16 +79,22 @@ function installMatchMedia(options: { reduced?: boolean; hover?: boolean } = {})
     }),
     dispatchEvent: vi.fn(),
   };
-  const hoverQuery = {
+  const anyHoverQuery = {
     ...reducedQuery,
-    matches: options.hover ?? true,
+    matches: options.anyHover ?? true,
+    media: '(any-hover: hover)',
+  };
+  const primaryHoverQuery = {
+    ...reducedQuery,
+    matches: options.primaryHover ?? options.anyHover ?? true,
     media: '(hover: hover)',
   };
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
-    value: vi.fn((query: string) =>
-      query === '(prefers-reduced-motion: reduce)' ? reducedQuery : hoverQuery,
-    ),
+    value: vi.fn((query: string) => {
+      if (query === '(prefers-reduced-motion: reduce)') return reducedQuery;
+      return query === '(any-hover: hover)' ? anyHoverQuery : primaryHoverQuery;
+    }),
   });
 
   return {
@@ -103,7 +111,7 @@ function renderCarouselFixture(): void {
   document.body.innerHTML = `
     <div id="setup-overlay" class="active">
       <div id="setup-welcome-area" style="display: flex">
-        <div id="ob-slider-area" data-autoplay="playing">
+        <div id="ob-slider-area">
           <div id="ob-slider-viewport">
             <div id="ob-slider-track" aria-live="off">
               <section class="ob-slide active" aria-hidden="false"></section>
@@ -113,10 +121,6 @@ function renderCarouselFixture(): void {
             </div>
           </div>
           <div class="ob-nav-row">
-            <button id="ob-autoplay-toggle" data-state="playing">
-              <span data-ob-autoplay-icon="pause"></span>
-              <span data-ob-autoplay-icon="play" hidden></span>
-            </button>
             <button id="ob-prev"></button>
             <div id="ob-dots">
               <button class="ob-dot" data-idx="0"></button>
@@ -168,12 +172,11 @@ describe('onboarding carousel motion preference', () => {
     const dots = parsed.querySelectorAll<HTMLButtonElement>('#ob-dots button.ob-dot');
     const slides = parsed.querySelectorAll<HTMLElement>('#ob-slider-track .ob-slide');
     const nav = parsed.querySelector('.ob-nav-row');
-    const toggle = parsed.getElementById('ob-autoplay-toggle');
 
     expect(dots).toHaveLength(4);
-    expect(nav?.querySelector('button')?.id).toBe('ob-autoplay-toggle');
-    expect(toggle?.dataset.state).toBe('playing');
-    expect(toggle?.getAttribute('data-i18n-aria-label')).toBe('setup.carousel_pause');
+    expect(nav?.querySelector('button')?.id).toBe('ob-prev');
+    expect(parsed.getElementById('ob-autoplay-toggle')).toBeNull();
+    expect(markup).not.toContain('data-ob-autoplay-icon');
     expect(parsed.getElementById('ob-slider-track')?.getAttribute('aria-live')).toBe('off');
     expect(dots[0]?.getAttribute('aria-current')).toBe('true');
     expect(dots[3]?.getAttribute('aria-label')).toBe('4 / 4');
@@ -206,7 +209,7 @@ describe('onboarding carousel motion preference', () => {
     expect(slides[0]?.hasAttribute('inert')).toBe(true);
   });
 
-  it('uses a six-second one-shot timer and re-arms only after each automatic step', () => {
+  it('uses a continuous six-second one-shot timer and wraps after slide four', () => {
     renderCarouselFixture();
     const controller = new AbortController();
 
@@ -221,6 +224,16 @@ describe('onboarding carousel motion preference', () => {
 
     expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
     expect(autoplayScheduleCount()).toBe(2);
+
+    latestAutoplayCallback()();
+    latestAutoplayCallback()();
+    latestAutoplayCallback()();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-0%)');
+    expect(autoplayScheduleCount()).toBe(5);
+
+    latestAutoplayCallback()();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
+    expect(autoplayScheduleCount()).toBe(6);
     controller.abort();
     expect(mocks.clearManagedTimer).toHaveBeenCalledWith('setup-ob-carousel-autoplay');
   });
@@ -244,51 +257,34 @@ describe('onboarding carousel motion preference', () => {
     controller.abort();
   });
 
-  it('keeps manual navigation and focus paused until the explicit toggle restarts rotation', () => {
+  it('sticky-stops after manual navigation or focus with no resume control', () => {
     renderCarouselFixture();
     const controller = new AbortController();
     initObCarousel(controller.signal);
-    const area = document.getElementById('ob-slider-area') as HTMLElement;
     const track = document.getElementById('ob-slider-track') as HTMLElement;
-    const toggle = document.getElementById('ob-autoplay-toggle') as HTMLButtonElement;
+    const firstDot = document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="0"]');
+
+    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4 \u2014 setup.carousel_pause');
 
     document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="2"]')?.click();
-    expect(area.dataset.autoplay).toBe('paused');
     expect(track.getAttribute('aria-live')).toBe('polite');
     expect(track.style.transform).toBe('translateX(-200%)');
+    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4');
 
-    area.dispatchEvent(new MouseEvent('mouseleave'));
+    document.getElementById('ob-slider-area')?.dispatchEvent(new MouseEvent('mouseleave'));
+    setupShowWelcome(false);
+    setupShowWelcome(true);
     expect(autoplayScheduleCount()).toBe(1);
-
-    toggle.click();
-    expect(area.dataset.autoplay).toBe('playing');
-    expect(toggle.dataset.state).toBe('playing');
-    expect(toggle.getAttribute('aria-label')).toBe('setup.carousel_pause');
-    expect(autoplayScheduleCount()).toBe(2);
-
-    document.getElementById('ob-next')?.focus();
-    expect(area.dataset.autoplay).toBe('paused');
-    expect(track.getAttribute('aria-live')).toBe('polite');
+    expect(document.getElementById('ob-autoplay-toggle')).toBeNull();
     controller.abort();
-  });
 
-  it('keeps pointer toggle intent deterministic when focus-in pauses before click', () => {
     renderCarouselFixture();
-    const controller = new AbortController();
-    initObCarousel(controller.signal);
-    const area = document.getElementById('ob-slider-area') as HTMLElement;
-    const toggle = document.getElementById('ob-autoplay-toggle') as HTMLButtonElement;
-
-    toggle.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-    toggle.focus();
-    toggle.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
-
-    expect(area.dataset.autoplay).toBe('paused');
-
-    toggle.dispatchEvent(new Event('pointerdown', { bubbles: true }));
-    toggle.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
-    expect(area.dataset.autoplay).toBe('playing');
-    controller.abort();
+    const focusController = new AbortController();
+    initObCarousel(focusController.signal);
+    document.getElementById('ob-next')?.focus();
+    expect(document.getElementById('ob-slider-track')?.getAttribute('aria-live')).toBe('polite');
+    expect(autoplayScheduleCount()).toBe(2);
+    focusController.abort();
   });
 
   it('temporarily suspends hover and visibility with a fresh dwell on return', () => {
@@ -312,6 +308,24 @@ describe('onboarding carousel motion preference', () => {
     expect(mocks.clearManagedTimer).toHaveBeenLastCalledWith('setup-ob-carousel-autoplay');
     setupShowWelcome(true);
     expect(autoplayScheduleCount()).toBe(4);
+    controller.abort();
+  });
+
+  it('uses any-hover so a mouse still suspends autoplay on a touch-primary hybrid', () => {
+    installMatchMedia({ anyHover: true, primaryHover: false });
+    renderCarouselFixture();
+    const controller = new AbortController();
+    initObCarousel(controller.signal);
+    const area = document.getElementById('ob-slider-area') as HTMLElement;
+    const track = document.getElementById('ob-slider-track') as HTMLElement;
+
+    area.dispatchEvent(new MouseEvent('mouseenter'));
+    latestAutoplayCallback()();
+    expect(track.style.transform).toBe('translateX(-0%)');
+    expect(window.matchMedia).toHaveBeenCalledWith('(any-hover: hover)');
+
+    area.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(autoplayScheduleCount()).toBe(2);
     controller.abort();
   });
 
@@ -351,39 +365,37 @@ describe('onboarding carousel motion preference', () => {
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     document.dispatchEvent(new Event('visibilitychange'));
 
-    expect(autoplayScheduleCount()).toBe(2);
+    expect(autoplayScheduleCount()).toBe(1);
     dispatchTouch(viewport, 'touchend', 100);
-    expect(area.dataset.autoplay).toBe('playing');
+    expect(track.getAttribute('aria-live')).toBe('polite');
     expect(track.style.transform).toBe('translateX(-0%)');
-    expect(autoplayScheduleCount()).toBe(3);
+    expect(autoplayScheduleCount()).toBe(1);
 
     latestAutoplayCallback()();
-    expect(track.style.transform).toBe('translateX(-100%)');
+    expect(track.style.transform).toBe('translateX(-0%)');
     controller.abort();
   });
 
   it('dynamically makes reduced-motion users manual-only and removes slide transitions', async () => {
-    const motion = installMatchMedia({ reduced: true, hover: false });
+    const motion = installMatchMedia({ reduced: true, anyHover: false });
     renderCarouselFixture();
     const controller = new AbortController();
     initObCarousel(controller.signal);
-    const area = document.getElementById('ob-slider-area') as HTMLElement;
     const track = document.getElementById('ob-slider-track') as HTMLElement;
-    const toggle = document.getElementById('ob-autoplay-toggle') as HTMLButtonElement;
+    const firstDot = document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="0"]');
 
-    expect(toggle.hidden).toBe(true);
-    expect(area.dataset.autoplay).toBe('paused');
     expect(track.getAttribute('aria-live')).toBe('polite');
+    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4');
     expect(mocks.setManagedTimer).not.toHaveBeenCalled();
 
     motion.setReduced(false);
-    expect(toggle.hidden).toBe(false);
-    expect(area.dataset.autoplay).toBe('playing');
+    expect(track.getAttribute('aria-live')).toBe('off');
+    expect(firstDot?.getAttribute('aria-label')).toContain('setup.carousel_pause');
     expect(mocks.setManagedTimer).toHaveBeenCalledOnce();
 
     motion.setReduced(true);
-    expect(toggle.hidden).toBe(true);
-    expect(area.dataset.autoplay).toBe('paused');
+    expect(track.getAttribute('aria-live')).toBe('polite');
+    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4');
     const stylesheet = await readFile('css/style.css', 'utf8');
     expect(stylesheet).toMatch(
       /@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.ob-slider-track,[\s\S]*?transition: none !important;/,
@@ -403,7 +415,7 @@ describe('onboarding carousel motion preference', () => {
     expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
 
     motion.setReduced(true);
-    expect((document.getElementById('ob-autoplay-toggle') as HTMLButtonElement).hidden).toBe(true);
+    expect(document.getElementById('ob-slider-track')?.getAttribute('aria-live')).toBe('polite');
     controller.abort();
     expect(motion.reducedQuery.removeListener).toHaveBeenCalledOnce();
   });

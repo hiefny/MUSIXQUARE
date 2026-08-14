@@ -25,7 +25,6 @@ const tr: Record<I18nKey, string> = {
   'common.stop': 'Durdur',
   'common.pause': 'Duraklat',
   'setup.carousel_pause': 'Otomatik slayt geçişini duraklat',
-  'setup.carousel_play': 'Otomatik slayt geçişini başlat',
   'common.message': 'Mesaj',
   'common.mix': 'Karışım',
   'common.wait': 'Lütfen bekle...',

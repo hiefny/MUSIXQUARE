@@ -25,7 +25,6 @@ const pl: Record<I18nKey, string> = {
   'common.stop': 'Zatrzymaj',
   'common.pause': 'Pauza',
   'setup.carousel_pause': 'Wstrzymaj automatyczne przewijanie slajdów',
-  'setup.carousel_play': 'Uruchom automatyczne przewijanie slajdów',
   'common.message': 'Wiadomość',
   'common.mix': 'Miks',
   'common.wait': 'Chwileczkę…',

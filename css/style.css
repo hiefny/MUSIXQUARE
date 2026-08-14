@@ -5897,59 +5897,6 @@
     margin-bottom: 8px;
   }
 
-  .ob-autoplay-toggle {
-    appearance: none;
-    -webkit-appearance: none;
-    order: 4;
-    width: 28px;
-    height: 28px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    margin: 0;
-    border: 0;
-    border-radius: 50%;
-    background: transparent;
-    color: var(--text-sub, #888);
-    cursor: pointer;
-    transition:
-      color 0.2s,
-      background 0.15s,
-      transform 0.15s;
-  }
-
-  .ob-autoplay-toggle[hidden] {
-    display: none;
-  }
-
-  .ob-autoplay-toggle svg {
-    display: block;
-    fill: currentColor;
-  }
-
-  .ob-autoplay-toggle[data-state='playing'] [data-ob-autoplay-icon='play'],
-  .ob-autoplay-toggle[data-state='paused'] [data-ob-autoplay-icon='pause'] {
-    display: none;
-  }
-
-  @media (hover: hover) {
-    .ob-autoplay-toggle:hover {
-      color: var(--primary);
-      background: rgba(var(--primary-rgb, 0, 122, 255), 0.08);
-    }
-  }
-
-  .ob-autoplay-toggle:focus-visible {
-    color: var(--primary);
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
-
-  .ob-autoplay-toggle:active {
-    transform: scale(0.9);
-  }
-
   .ob-nav-prev {
     order: 1;
   }
@@ -5960,13 +5907,6 @@
 
   .ob-nav-next {
     order: 3;
-  }
-
-  @media (pointer: coarse) {
-    .ob-autoplay-toggle {
-      width: 36px;
-      height: 36px;
-    }
   }
 
   .ob-nav-arrow {
@@ -6016,8 +5956,7 @@
     .ob-slide .ob-title,
     .ob-slide .ob-desc,
     .ob-slide .ob-icon-circle,
-    .ob-dot,
-    .ob-autoplay-toggle {
+    .ob-dot {
       transition: none !important;
     }
   }

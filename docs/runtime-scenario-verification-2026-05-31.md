@@ -1,19 +1,19 @@
 # Runtime Scenario Verification - 2026-05-31
 
 > **Maintained checklist.** Originally added on 2026-05-31 and revalidated on
-> 2026-08-15. Physical-device and real-browser verification is the release
-> confidence principle. Browser E2E remains an optional auxiliary signal: a
-> failure can help locate a regression, but a pass never substitutes for the
-> real-device matrix.
+> 2026-08-15. Exact-SHA automated CI is the ordinary production release gate.
+> Physical-device verification is an optional, risk-based confidence pass for
+> browser, audio-hardware, lifecycle, and network behavior that automation
+> cannot reproduce faithfully.
 
 ## Scope
 
 This is the maintained verification order for runtime-sensitive flows across
 playback, network, transfer, YouTube, and system audio.
 
-Unit/static checks establish deterministic code confidence. Real devices then
-verify the browser, audio hardware, lifecycle, and network behavior that a
-headless browser cannot prove.
+Unit/static checks and the blocking browser subset establish deterministic
+release confidence. Use the real-device matrix when a change or incident needs
+additional browser, audio-hardware, lifecycle, or network observations.
 
 ## Optional Browser Automation Signal
 
@@ -32,10 +32,10 @@ The script builds the E2E bundle first, then runs:
 - `e2e/reconnection.test.ts`
 - `e2e/background-resume.test.ts`
 
-It is not a required release gate and must not delay the physical-device pass.
-Do not interpret a green focused or full E2E suite as evidence that Web Audio,
-background/resume, device routing, or real WebRTC network transitions work on
-the target hardware.
+This larger focused group is not a required release gate. Do not interpret a
+green focused or full E2E suite as proof that Web Audio, background/resume,
+device routing, or real WebRTC network transitions work on specific hardware;
+run the optional physical matrix when that assurance is needed.
 
 ## First 48 Hours
 
@@ -54,25 +54,27 @@ the target hardware.
 
 1. Keep deterministic regression tests close to each change and run `npm test`,
    `npm run lint`, and `npm run build:checked` before device work.
-2. Exercise the affected scenario on at least two physical devices when it
-   crosses host/guest, WebRTC, audio routing, or background lifecycle boundaries.
-3. Include the failure/recovery branch: disconnect/reconnect, background/resume,
-   rapid source replacement, or denied authorization as applicable.
-4. Use the memory checkpoints below and retain concise observations. Browser
-   E2E may be used as a quick diagnostic signal, but it is not a prerequisite
-   for continuing the real-device matrix.
+2. If the change warrants optional physical QA, exercise the affected scenario
+   on at least two devices when it crosses host/guest, WebRTC, audio routing, or
+   background lifecycle boundaries.
+3. In that optional pass, include the applicable failure/recovery branch:
+   disconnect/reconnect, background/resume, rapid source replacement, or denied
+   authorization.
+4. Use the memory checkpoints below and retain concise observations when
+   diagnosing runtime behavior.
 
 ### 24-48 hours: repeat, broaden, and decide
 
-1. Repeat every touched row in the manual matrix from a clean build and fresh
-   sessions; include both local-network and remote-network paths when relevant.
-2. Verify cleanup and recovery after leave, hard reload, and one background or
-   network interruption. Compare memory/debug state with the recorded baseline.
+1. When physical QA was selected, repeat every touched row in the manual matrix
+   from a clean build and fresh sessions; include both local-network and
+   remote-network paths when relevant.
+2. In that pass, verify cleanup and recovery after leave, hard reload, and one
+   background or network interruption. Compare memory/debug state with the
+   recorded baseline.
 3. Review Worker contract/deployment guards and the rollback boundary without
    performing an ad hoc production deploy.
-4. Record device/browser/network evidence and any accepted limitation. A release
-   candidate is not ready when a required real-device row is untested, even if
-   optional E2E is green.
+4. Record device/browser/network evidence and any accepted limitation when the
+   operator elected to require the physical-device gate for that release.
 
 Worker boundary changes must preserve the bounded-read contract. App, account,
 Developer API/facade, PRO grant/BOT, and remote-share JSON request readers use a
@@ -160,10 +162,10 @@ references may be counted more than once, while browser and audio-engine
 allocations may be absent. Diagnose component trends and whether each returns
 to its baseline after cleanup rather than treating this total alone as a leak.
 
-## Manual Runtime Matrix
+## Optional Manual Runtime Matrix
 
-Run the relevant rows on physical devices regardless of whether optional E2E
-was run:
+Run the relevant rows when a change, incident, or explicit release choice needs
+physical-device confidence beyond the automated gate:
 
 | Scenario                                                    | Expected signal                                                                                 |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -181,27 +183,29 @@ was run:
 - `npm run lint`
 - `npm test`
 - `npm run build:checked`
-- Manual matrix completed with recorded evidence for every browser/device class
-  and network boundary touched by the release.
-- Cleanup/recovery behavior returns to the expected state after leave, reload,
-  and the applicable interruption case.
+- When the optional physical-device release gate is selected, complete and
+  record its declared browser/device and network rows before dispatching the
+  release.
 
 Optional focused or full browser E2E results may accompany this evidence as a
 secondary signal. They are not an exit criterion.
 
 ## Persisting Production Release Evidence
 
-After the matrix is complete, dispatch
+When a release intentionally opts into physical-device evidence, complete the
+matrix and dispatch
 `.github/workflows/real-device-qa.yml` on the current `main` commit. The tester
 must supply the exact 40-character SHA, completion timestamp, HTTPS environment
 that served that commit, HTTPS detailed evidence link, and the physical device
 matrix. Every standard-room, PRO-room, media-source, and background/resume
-attestation must be explicitly checked. Releases that enable adaptive proof of
-work must also check its dedicated performance attestation: the linked log must
-record difficulty-16 cold and warm p50/p95 results on a supported iPhone and a
-desktop browser on a Korean connection, plus the build SHA, timestamp,
-Cloudflare colo, sample count, timeout/failure behavior, invite-code timing,
-and full RTC-readiness timing required by the security performance policy.
+attestation must be explicitly checked. The current canonical v2 artifact is a
+full-matrix attestation, so an operator selecting this optional gate must also
+check adaptive proof-of-work performance even when the production adaptive
+flag remains off. The linked log must record difficulty-16 cold and warm
+p50/p95 results on a supported iPhone and a desktop browser on a Korean
+connection, plus the build SHA, timestamp, Cloudflare colo, sample count,
+timeout/failure behavior, invite-code timing, and full RTC-readiness timing
+required by the security performance policy.
 
 The workflow verifies that the attested SHA is still current `main`, records the
 authenticated GitHub actor, creates a canonical JSON document, and retains the
@@ -212,8 +216,10 @@ The free-form device matrix is not a substitute for those measurements; it
 must identify the tested models and browser/OS versions, while `evidence_url`
 points to the retained raw observations.
 
-`.github/workflows/release.yml` selects a successful unexpired artifact from
-that workflow for the exact production candidate, downloads it by its source
-run ID, and verifies its canonical contents, SHA, repository, run attempt, and
-14-day freshness before any production mutation. A green optional E2E run does
-not satisfy this gate, and an artifact for an older commit cannot be reused.
+`.github/workflows/release.yml` uses this artifact only when
+`require_real_device_evidence` is selected. It then downloads the successful
+unexpired exact-SHA artifact by source run ID and verifies its canonical
+contents, repository, run attempt, and 14-day freshness before any production
+mutation. With the option left off, the immutable exact-SHA CI candidate and
+the workflow's automated production checks are sufficient; an older device
+artifact is never silently reused.

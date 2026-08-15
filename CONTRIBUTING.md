@@ -49,9 +49,10 @@ npm run check:workers
 npm run build:checked
 ```
 
-Browser E2E is an optional auxiliary signal. Release confidence comes from the
-relevant physical-device/browser matrix, especially WebRTC, background/resume,
-audio routing, and real network transitions. See
+The exact-SHA automated suite is the ordinary release-confidence gate. Use the
+optional physical-device/browser matrix when a change or incident needs extra
+confidence in WebRTC, background/resume, audio routing, or real network
+transitions. See
 [`docs/runtime-scenario-verification-2026-05-31.md`](docs/runtime-scenario-verification-2026-05-31.md)
 for the first-48-hours order and evidence checklist.
 

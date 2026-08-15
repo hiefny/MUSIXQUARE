@@ -181,16 +181,42 @@ describe('production real-device evidence', () => {
     ).toBe(20);
   });
 
-  it('gates production on an immutable exact-SHA device artifact', () => {
+  it('keeps immutable exact-SHA device evidence as an opt-in release gate', () => {
     const release = readFileSync('.github/workflows/release.yml', 'utf8');
     const deviceWorkflow = readFileSync('.github/workflows/real-device-qa.yml', 'utf8');
 
+    expect(release).toMatch(
+      /require_real_device_evidence:\s+description:[^\n]+\s+required: true\s+default: false\s+type: boolean/,
+    );
+    expect(release).toMatch(
+      /- name: Select exact-SHA real-device evidence\r?\n\s+if: inputs\.require_real_device_evidence\r?$/m,
+    );
+    expect(release).toMatch(
+      /- name: Download exact-SHA real-device evidence\r?\n\s+if: inputs\.require_real_device_evidence\r?$/m,
+    );
+    expect(release).toMatch(
+      /- name: Verify exact-SHA real-device evidence\r?\n\s+if: inputs\.require_real_device_evidence\r?$/m,
+    );
+    expect(release).toMatch(/- name: Select exact-SHA validated candidate\r?\n\s+id:/u);
+    expect(release).toMatch(/- name: Download validated production candidate\r?\n\s+uses:/u);
+    expect(release).toContain('needs: validate');
     expect(release).toContain('node scripts/release-evidence.mjs wait-device');
     expect(release).toContain('name: ${{ needs.validate.outputs.device_artifact_name }}');
     expect(release).toContain('node scripts/release-evidence.mjs verify-device');
     expect(release.indexOf('Verify exact-SHA real-device evidence')).toBeLessThan(
-      release.indexOf('Verify Cloudflare credentials'),
+      release.indexOf('Authorize production mutations from persisted checkpoint'),
     );
+    expect(release.indexOf('Verify candidate hashes and commit')).toBeLessThan(
+      release.indexOf('Authorize production mutations from persisted checkpoint'),
+    );
+    expect(release.indexOf('Revalidate time-sensitive production security guards')).toBeLessThan(
+      release.indexOf('Authorize production mutations from persisted checkpoint'),
+    );
+    expect(release.indexOf('Revalidate every production Worker bundle')).toBeLessThan(
+      release.indexOf('Authorize production mutations from persisted checkpoint'),
+    );
+    expect(release).toContain('Physical-device evidence: not requested (routine-release default).');
+    expect(release).toContain('Physical-device evidence: required; source run');
     expect(deviceWorkflow).toContain("if: github.ref == 'refs/heads/main'");
     expect(deviceWorkflow).toContain('MXQR_RELEASE_SHA: ${{ inputs.release_sha }}');
     expect(deviceWorkflow).toContain('if [[ "$current_main" != "$MXQR_RELEASE_SHA" ||');

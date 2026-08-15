@@ -19,18 +19,18 @@ standard-room startup path.
 
 ## Scope and method
 
-| Area | Evidence reviewed |
-| --- | --- |
-| Playback and playlist | ownership/lifecycle writers, async load and preload handoff, queue identity, rapid replacement tests |
-| File transfer and storage | RAM-only policy, chunk pumps, main/preload sessions, recovery, remote-share descriptors and quotas |
-| YouTube and synchronization | current rendezvous/zero-start contracts, repeated queue occurrences, clock and platform compensation |
-| Network and system audio | standard and PRO signaling, reconnect identity, WebSocket admission, P2P/SFU handoff, MediaConnection cleanup |
-| Cloudflare services | app, signaling, remote-share, PRO room, Developer API/facade, D1/R2/KV boundaries and Wrangler configuration |
-| PWA and public web | service-worker lifecycle/cache retirement, metadata, sitemap, static pages, desktop/mobile layouts |
+| Area                          | Evidence reviewed                                                                                              |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Playback and playlist         | ownership/lifecycle writers, async load and preload handoff, queue identity, rapid replacement tests           |
+| File transfer and storage     | RAM-only policy, chunk pumps, main/preload sessions, recovery, remote-share descriptors and quotas             |
+| YouTube and synchronization   | current rendezvous/zero-start contracts, repeated queue occurrences, clock and platform compensation           |
+| Network and system audio      | standard and PRO signaling, reconnect identity, WebSocket admission, P2P/SFU handoff, MediaConnection cleanup  |
+| Cloudflare services           | app, signaling, remote-share, PRO room, Developer API/facade, D1/R2/KV boundaries and Wrangler configuration   |
+| PWA and public web            | service-worker lifecycle/cache retirement, metadata, sitemap, static pages, desktop/mobile layouts             |
 | Security and abuse boundaries | authorization, origin/identity checks, request/frame limits, rate limits, relay canonicalization, secret scope |
-| UI, accessibility, i18n | dialogs, focus restoration, skip link, option semantics, translated/static pages, browser console and overflow |
-| Release and recovery | immutable artifact path, deployment ownership, smoke timeouts, rollback conflicts, cross-service compatibility |
-| Repository health | dependency graph, engine contract, audits, formatting, lint/typecheck, Worker syntax, generated/static guards |
+| UI, accessibility, i18n       | dialogs, focus restoration, skip link, option semantics, translated/static pages, browser console and overflow |
+| Release and recovery          | immutable artifact path, deployment ownership, smoke timeouts, rollback conflicts, cross-service compatibility |
+| Repository health             | dependency graph, engine contract, audits, formatting, lint/typecheck, Worker syntax, generated/static guards  |
 
 The audit also replayed the intended behavior against Git history where a guard
 looked unusually strict or a compatibility branch looked redundant. This kept
@@ -115,8 +115,8 @@ device-specific sync compensation intact.
 - The full Chromium Playwright suite and targeted iPhone WebKit smoke run
   nightly and remain manually dispatchable, but stay outside the production
   release gate by product decision. The production release uses browser-free
-  generation/initial-asset-graph and HTTP boundary smokes; real
-  iOS/Android/WebRTC/YouTube timing still requires physical-device verification.
+  generation/initial-asset-graph and HTTP boundary smokes. Optional physical
+  QA remains available when real iOS/Android/WebRTC/YouTube timing is needed.
 
 ## Residual, accepted boundaries
 
@@ -149,8 +149,7 @@ the final commit:
 - version-aware live smoke for every deployed Cloudflare service, followed by
   a no-drift check of deployment IDs, version IDs, and release messages.
 
-Production release confidence also requires physical-device verification of one
-standard room and one PRO room with host replacement, local/remote file preload
-activation, YouTube transition, and system-audio start/stop. It is the primary
-hardware/runtime confidence layer, not a reason to weaken the automated gates
-above.
+Ordinary production release confidence comes from the exact-SHA automated gate
+above. Physical verification of a standard or PRO room remains an optional
+hardware/runtime confidence layer for changes and incidents that warrant it;
+it does not weaken or replace any automated gate.

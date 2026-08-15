@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -16,6 +17,14 @@ async function sources(): Promise<StandardRoomHotPathSources> {
 }
 
 describe('standard-room security/performance policy', () => {
+  it('keeps unbenchmarked adaptive proof of work disabled in production', () => {
+    const productionConfig = readFileSync('cloudflare/wrangler.app.toml', 'utf8');
+
+    expect(productionConfig).toMatch(/^MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED = "false"\r?$/mu);
+    expect(productionConfig).not.toMatch(/^MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED = "true"\r?$/mu);
+    expect(productionConfig).toMatch(/^MXQR_CAPABILITY_POW_ADAPTIVE_MAX_DIFFICULTY = "16"\r?$/mu);
+  });
+
   it('keeps one composite TURN admission, same-tier WebSocket admission, and parallel startup', async () => {
     await expect(sources().then(assertStandardRoomHotPath)).resolves.toEqual({
       capabilityPowDifficulty: 12,

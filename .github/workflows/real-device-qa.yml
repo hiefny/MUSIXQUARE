@@ -1,4 +1,4 @@
-name: Real-device release evidence
+name: Risk-based real-device release evidence
 
 on:
   workflow_dispatch:

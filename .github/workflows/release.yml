@@ -20,6 +20,11 @@ on:
         required: true
         default: false
         type: boolean
+      require_real_device_evidence:
+        description: Require fresh exact-SHA physical-device evidence for this release
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -66,6 +71,7 @@ jobs:
         run: node scripts/release-evidence.mjs wait-candidate
 
       - name: Select exact-SHA real-device evidence
+        if: inputs.require_real_device_evidence
         id: device_evidence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -164,6 +170,7 @@ jobs:
           run-id: ${{ needs.validate.outputs.candidate_run_id }}
 
       - name: Download exact-SHA real-device evidence
+        if: inputs.require_real_device_evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ needs.validate.outputs.device_artifact_name }}
@@ -172,6 +179,7 @@ jobs:
           run-id: ${{ needs.validate.outputs.device_run_id }}
 
       - name: Verify exact-SHA real-device evidence
+        if: inputs.require_real_device_evidence
         env:
           MXQR_QA_RUN_ID: ${{ needs.validate.outputs.device_run_id }}
           MXQR_QA_RUN_ATTEMPT: ${{ needs.validate.outputs.device_run_attempt }}
@@ -1312,6 +1320,11 @@ jobs:
           echo "- Wrangler: \`${wrangler_version}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs nightly and remains manually dispatchable)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Candidate source: run \`${RELEASE_SOURCE_RUN_ID}\`, attempt \`${RELEASE_SOURCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ inputs.require_real_device_evidence }}" == 'true' ]]; then
+            echo "- Physical-device evidence: required; source run \`${RELEASE_DEVICE_EVIDENCE_RUN_ID}\`, attempt \`${RELEASE_DEVICE_EVIDENCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- Physical-device evidence: not requested (routine-release default)." >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation readiness restore: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery PRO generation fence: \`${{ steps.pro_room_generation_cutover_disable.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"

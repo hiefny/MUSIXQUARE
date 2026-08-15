@@ -122,11 +122,12 @@ CLOUDFLARE_TURN_TTL = "172800"
 # Human verification is disabled. Capability minting instead uses a short-lived,
 # IP/scope-bound proof-of-work challenge plus per-IP rate limits.
 MXQR_TURNSTILE_DISABLED = "true"
-# Keep the ordinary baseline at the reviewed iPhone-safe difficulty 12. The
-# location-local Rate Limiting bindings raise only post-threshold challenges to
-# 16 (room 150/minute, general 15/minute). Binding failure falls back to 12;
-# paid-resource atomic caps remain the fail-closed authorization/cost boundary.
-MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED = "true"
+# Keep the ordinary baseline at difficulty 12. Adaptive production challenges
+# stay disabled until the documented device benchmark exists. When explicitly
+# enabled, the location-local Rate Limiting bindings raise only post-threshold
+# challenges to 16 (room 150/minute, general 15/minute); binding failure falls
+# back to 12. Paid-resource atomic caps remain the fail-closed cost boundary.
+MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED = "false"
 MXQR_CAPABILITY_POW_ADAPTIVE_MAX_DIFFICULTY = "16"
 # Optional tuning; defaults are baseline difficulty 12 and challenge TTL 120
 # seconds. Thresholds are fixed by the two Rate Limiting bindings above; an

@@ -138,6 +138,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   ],
   signaling: [
     'cloudflare/signaling-worker.js',
+    'cloudflare/signaling-protocol.js',
     'cloudflare/remote-share-upload-assertion.js',
     'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',
@@ -150,6 +151,8 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
   'pro-room': [
     'cloudflare/service-control-contract-version.txt',
     'cloudflare/pro-room-worker.js',
+    'cloudflare/pro-room-body.js',
+    'cloudflare/service-control-object.js',
     'cloudflare/pro-room-grants.js',
     'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',

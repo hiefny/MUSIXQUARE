@@ -1,7 +1,53 @@
 import { defineConfig, loadEnv, transformWithEsbuild, type Plugin, type UserConfig } from 'vite';
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'path';
+import { INITIAL_TRANSFER_BUDGET } from './scripts/initial-transfer-budget-config.mjs';
 import { collectRenderedWorkerAssets } from './scripts/service-worker-app-shell-guard-lib.mjs';
+
+export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
+
+interface JavaScriptChunkSize {
+  readonly fileName: string;
+  readonly name: string;
+  readonly isEntry: boolean;
+  readonly rawBytes: number;
+}
+
+export function oversizedSecondaryJavaScriptChunks(
+  chunks: readonly JavaScriptChunkSize[],
+  limit = SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES,
+): JavaScriptChunkSize[] {
+  return chunks.filter(
+    (chunk) => !(chunk.isEntry && chunk.name === 'main') && chunk.rawBytes > limit,
+  );
+}
+
+function guardSecondaryJavaScriptChunkSizes(): Plugin {
+  return {
+    name: 'musixquare-secondary-javascript-chunk-size',
+    apply: 'build',
+    generateBundle(_options, bundle) {
+      const chunks = Object.values(bundle).flatMap((output) =>
+        output.type === 'chunk'
+          ? [
+              {
+                fileName: output.fileName,
+                name: output.name,
+                isEntry: output.isEntry,
+                rawBytes: Buffer.byteLength(output.code, 'utf8'),
+              },
+            ]
+          : [],
+      );
+      const oversized = oversizedSecondaryJavaScriptChunks(chunks);
+      if (oversized.length === 0) return;
+      this.error(
+        `Secondary JavaScript chunk limit exceeded (${SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES} B): ` +
+          oversized.map(({ fileName, rawBytes }) => `${fileName}=${rawBytes} B`).join(', '),
+      );
+    },
+  };
+}
 
 // Keep DNS rebinding protection enabled for local development. Vite always
 // accepts IP literals, so LAN/device testing through --host still works. A
@@ -530,11 +576,16 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       guardInitialAppBundleGraph(),
       minifyEarlyBootstrapBuild(),
       injectServiceWorkerBuildManifest(),
+      guardSecondaryJavaScriptChunkSizes(),
     ],
     build: {
       outDir: 'dist',
       target: 'es2022',
       sourcemap: false,
+      // Vite's built-in threshold is global. Suppress the known main-entry
+      // warning at its architectural ceiling; the build plugin above retains a
+      // strict 500 kB raw limit for every other emitted JavaScript chunk.
+      chunkSizeWarningLimit: INITIAL_TRANSFER_BUDGET.entryScriptRawBytes / 1_000,
       rollupOptions: {
         onwarn(warning, warn) {
           // playlist.ts is already part of the startup graph, but its reviewed

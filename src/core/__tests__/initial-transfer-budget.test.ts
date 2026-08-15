@@ -5,6 +5,11 @@ import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import {
+  createViteConfig,
+  oversizedSecondaryJavaScriptChunks,
+  SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES,
+} from '../../../vite.config.ts';
+import {
   INITIAL_TRANSFER_BUDGET,
   INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO,
   assertInitialTransferBudget,
@@ -154,6 +159,40 @@ describe('initial transfer budget', () => {
       'check-initial-transfer-budget.mjs',
     );
     expect(packageJson.scripts['build:checked']).toContain('guard:initial-transfer-budget');
+  });
+
+  it('aligns the main-entry warning while retaining a strict secondary-chunk limit', () => {
+    expect(createViteConfig({}).build?.chunkSizeWarningLimit).toBe(
+      INITIAL_TRANSFER_BUDGET.entryScriptRawBytes / 1_000,
+    );
+    expect(
+      oversizedSecondaryJavaScriptChunks([
+        {
+          fileName: 'assets/main.js',
+          name: 'main',
+          isEntry: true,
+          rawBytes: INITIAL_TRANSFER_BUDGET.entryScriptRawBytes,
+        },
+        {
+          fileName: 'assets/lazy-at-limit.js',
+          name: 'lazy-at-limit',
+          isEntry: false,
+          rawBytes: SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES,
+        },
+        {
+          fileName: 'assets/lazy-over.js',
+          name: 'lazy-over',
+          isEntry: false,
+          rawBytes: SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES + 1,
+        },
+        {
+          fileName: 'assets/landing-over.js',
+          name: 'landing',
+          isEntry: true,
+          rawBytes: SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES + 1,
+        },
+      ]).map(({ fileName }) => fileName),
+    ).toEqual(['assets/lazy-over.js', 'assets/landing-over.js']);
   });
 
   it('fails closed when an eager transfer is cross-origin, data-backed, or missing', async () => {

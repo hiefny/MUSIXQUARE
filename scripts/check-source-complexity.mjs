@@ -2,9 +2,12 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const DEFAULT_BUDGETS = Object.freeze([
-  { path: 'cloudflare/pro-room-worker.js', maxLines: 14_300 },
+  { path: 'cloudflare/pro-room-worker.js', maxLines: 13_300 },
+  { path: 'cloudflare/service-control-object.js', maxLines: 1_175 },
+  { path: 'cloudflare/pro-room-body.js', maxLines: 100 },
   { path: 'cloudflare/app-worker.js', maxLines: 13_100 },
-  { path: 'cloudflare/signaling-worker.js', maxLines: 5_450 },
+  { path: 'cloudflare/signaling-worker.js', maxLines: 5_000 },
+  { path: 'cloudflare/signaling-protocol.js', maxLines: 625 },
   { path: 'src/pro-room/runtime.ts', maxLines: 5_225 },
   { path: 'public/admin.js', maxLines: 5_350 },
   { path: '.github/workflows/release.yml', maxLines: 1_450, maxRunLines: 100 },

@@ -13,6 +13,12 @@ entry raw size was within roughly 1 KiB of its ceiling. A passing build could
 therefore regress through an otherwise routine fix while still appearing
 healthy.
 
+After the deferred boundaries below landed, the eager total raw graph still sat
+only 5.27% below its architectural limit. That left roughly 4.6 KB before the
+mandatory 5% maintenance ceiling, so the historical limits no longer provided
+a useful operating envelope even though the conditional loading boundaries were
+working as designed.
+
 The eager graph also contained standard-room and PRO system-audio listener
 implementations before a user had selected or entered any room. Those modules
 are not needed to render setup, restore local settings, recover the service
@@ -82,8 +88,19 @@ The build enforces both sides of the decision:
 - every positive initial-transfer budget must retain at least 5% headroom.
   Zero-byte budgets, such as eager fonts, remain strict zero-byte contracts.
 
-The architectural limits are unchanged. The 5% reserve is a guard inside
-those limits, not a budget increase.
+Raise every positive architectural limit by exactly 10% from its previous
+value. Keep the 5% reserve unchanged, so the enforceable maintenance ceiling
+remains 95% of each revised limit. This is a one-time re-baseline backed by the
+measurements below, not permission to make session-only features eager or to
+silently raise the limits again.
+
+Vite's `chunkSizeWarningLimit` is derived from the same entry-script raw-byte
+architectural limit, converted to Vite's decimal kB unit. The post-build guard
+remains stricter because it enforces the 5% reserve and also measures gzip and
+the complete HTML-declared eager graph. Because Vite applies that setting to
+every chunk, a build plugin separately fails any non-main JavaScript chunk over
+the original 500 kB raw boundary. Raising the main-entry envelope therefore
+does not make lazy or secondary page chunks invisible.
 
 ## Measurement
 
@@ -91,14 +108,14 @@ On the checked production build used for this decision, the generated main
 entry moved from 1,334.19 kB raw / 390.13 kB gzip to 1,243.94 kB raw /
 362.85 kB gzip. The deterministic guard measured:
 
-| Metric                | Actual bytes | Architectural limit |   Headroom |
-| --------------------- | -----------: | ------------------: | ---------: |
-| Entry script raw      |    1,243,939 |           1,335,000 |      6.82% |
-| Entry script gzip     |      362,851 |             400,000 |      9.29% |
-| Eager JavaScript gzip |      367,136 |             400,000 |      8.22% |
-| Eager total raw       |    1,610,438 |           1,700,000 |      5.27% |
-| Eager total gzip      |      429,901 |             460,000 |      6.54% |
-| Eager fonts           |            0 |                   0 | fixed zero |
+| Metric                | Actual bytes | Previous limit | Revised limit | 95% ceiling | Revised headroom |
+| --------------------- | -----------: | -------------: | ------------: | ----------: | ---------------: |
+| Entry script raw      |    1,243,939 |      1,335,000 |     1,468,500 |   1,395,075 |           15.29% |
+| Entry script gzip     |      362,851 |        400,000 |       440,000 |     418,000 |           17.53% |
+| Eager JavaScript gzip |      367,136 |        400,000 |       440,000 |     418,000 |           16.56% |
+| Eager total raw       |    1,610,438 |      1,700,000 |     1,870,000 |   1,776,500 |           13.88% |
+| Eager total gzip      |      429,901 |        460,000 |       506,000 |     480,700 |           15.04% |
+| Eager fonts           |            0 |              0 |             0 |           0 |       fixed zero |
 
 ## Consequences
 

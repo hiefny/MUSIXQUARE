@@ -14,6 +14,29 @@ export interface HostGuestPair {
 }
 
 const _pageErrors = new WeakMap<Page, Error[]>();
+const ANONYMOUS_ACCOUNT_SESSION = JSON.stringify({
+  configured: true,
+  authenticated: false,
+  account: null,
+  statsScope: null,
+});
+
+export async function useAnonymousAccountSession(...pages: Page[]): Promise<void> {
+  // The local Vite API boundary deliberately returns 503 for unmocked account
+  // routes. Tests that assert signed-out UI must opt into an explicit account
+  // verdict instead of accidentally exercising the service-outage fallback.
+  await Promise.all(
+    pages.map((page) =>
+      page.route('**/api/auth/session', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: ANONYMOUS_ACCOUNT_SESSION,
+        }),
+      ),
+    ),
+  );
+}
 
 /**
  * Attach a pageerror listener to track uncaught JS errors.

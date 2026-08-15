@@ -635,20 +635,6 @@ function createMetricsEnv() {
   };
 }
 
-function createExecutionContext() {
-  const tasks: Promise<unknown>[] = [];
-  return {
-    context: {
-      waitUntil(task: Promise<unknown>): void {
-        tasks.push(Promise.resolve(task));
-      },
-    },
-    async flush(): Promise<void> {
-      await Promise.all(tasks);
-    },
-  };
-}
-
 async function createHostRoom(): Promise<{
   room: InstanceType<WorkerModule['MusixquareRoom']>;
   state: FakeDurableObjectState;
@@ -1534,133 +1520,48 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(roomFetch).not.toHaveBeenCalled();
   });
 
-  it('counts pre-cutoff valid tickets and structurally plausible refresh demand after cutoff', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-08-10T00:00:00.000Z'));
+  it.each([
+    ['valid signed ticket', true],
+    ['opaque value', false],
+  ] as const)('rejects a URL ticket credential permanently: %s', async (_label, signed) => {
     const routed = workerEnv();
-    const metrics = createMetricsEnv();
-    const execution = createExecutionContext();
-    Object.assign(routed.env, metrics.env);
     routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
-    const legacyTicket = await proTicket({ participantId: 'cached-client-member' });
-    const legacyUrl = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
-    legacyUrl.searchParams.set('ticket', legacyTicket);
-    const beforeCutoff = await workerModule.default.fetch(
-      requestLike(legacyUrl.toString(), {
-        Origin: 'https://musixquare.com',
-        Upgrade: 'websocket',
-      }),
-      routed.env,
-      execution.context,
-    );
-    expect(beforeCutoff.status).toBe(101);
-    expect(routed.roomFetch).toHaveBeenCalledTimes(1);
-    await execution.flush();
-    expect(metrics.events).toEqual([
-      {
-        bucketMinute: Math.floor(Date.now() / 60000),
-        event: 'pro_ticket_legacy_query_used',
-      },
-    ]);
-    expect(JSON.stringify(metrics.events)).not.toContain(legacyTicket);
-    expect(JSON.stringify(metrics.events)).not.toContain('000001');
-    expect(JSON.stringify(metrics.events)).not.toContain('cached-client-member');
-
-    vi.setSystemTime(new Date('2026-09-09T00:00:00.000Z'));
-    const expiredExecution = createExecutionContext();
-    const afterTicket = await proTicket({ participantId: 'expired-grace-member' });
-    // Post-cutoff handling must not depend on or invoke the signing secret.
-    delete routed.env.PRO_SIGNALING_SECRET;
-    const afterUrl = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
-    afterUrl.searchParams.set('ticket', afterTicket);
-    const afterCutoff = await workerModule.default.fetch(
-      requestLike(afterUrl.toString(), {
-        Origin: 'https://musixquare.com',
-        Upgrade: 'websocket',
-      }),
-      routed.env,
-      expiredExecution.context,
-    );
-    expect(afterCutoff.status).toBe(426);
-    expect(afterCutoff.headers).toMatchObject({
-      'cache-control': 'no-store',
-      'x-mxqr-client-action': 'refresh',
-    });
-    expect(JSON.parse(String(afterCutoff.body))).toEqual({
-      error: 'PRO_SIGNALING_CLIENT_UPDATE_REQUIRED',
-      action: 'refresh',
-      requiredWebSocketProtocol: PRO_SIGNALING_WEBSOCKET_PROTOCOL,
-    });
-    expect(routed.roomFetch).toHaveBeenCalledTimes(1);
-    await expiredExecution.flush();
-    expect(metrics.events.at(-1)).toEqual({
-      bucketMinute: Math.floor(Date.now() / 60000),
-      event: 'pro_ticket_legacy_query_update_required',
-    });
-    expect(JSON.stringify(metrics.events)).not.toContain(afterTicket);
-  });
-
-  it('keeps malformed post-cutoff query requests out of the legacy-client metric', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-09T00:00:00.000Z'));
-    const routed = workerEnv();
-    const metrics = createMetricsEnv();
-    const execution = createExecutionContext();
-    Object.assign(routed.env, metrics.env);
-    routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const ticket = signed
+      ? await proTicket({ participantId: 'query-credential-member' })
+      : 'opaque';
+    const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
+    url.searchParams.set('ticket', ticket);
 
     const response = await workerModule.default.fetch(
-      requestLike('https://signal.example.test/api/pro-rooms/000001/ws?ticket=opaque', {
+      requestLike(url.toString(), {
         Origin: 'https://musixquare.com',
         Upgrade: 'websocket',
       }),
       routed.env,
-      execution.context,
     );
 
-    expect(response.status).toBe(426);
+    expect(response.status).toBe(401);
+    expect(JSON.parse(String(response.body))).toEqual({ error: 'INVALID_PRO_SIGNALING_TICKET' });
+    expect(routed.idFromName).not.toHaveBeenCalled();
     expect(routed.roomFetch).not.toHaveBeenCalled();
-    await execution.flush();
-    expect(metrics.events).toEqual([]);
   });
 
-  it('bounds structurally plausible post-cutoff refresh metrics per client', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-09-09T00:00:00.000Z'));
-    const routed = workerEnv();
-    const metrics = createMetricsEnv();
-    const execution = createExecutionContext();
-    const control = atomicRateBinding(1);
-    Object.assign(routed.env, metrics.env, {
-      PRO_SIGNALING_SECRET,
-      MUSIXQUARE_SERVICE_CONTROL: control.binding,
-    });
-    const shapedTicket = await proTicket({ participantId: 'refresh-metric-member' });
+  it('rejects URL ticket credentials inside the Durable Object boundary too', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+    const ticket = await proTicket({ participantId: 'direct-query-credential-member' });
     const url = new URL('https://signal.example.test/api/pro-rooms/000001/ws');
-    url.searchParams.set('ticket', shapedTicket);
+    url.searchParams.set('ticket', ticket);
 
-    for (let index = 0; index < 12; index += 1) {
-      const response = await workerModule.default.fetch(
-        requestLike(url.toString(), {
-          Origin: 'https://musixquare.com',
-          Upgrade: 'websocket',
-          'CF-Connecting-IP': '203.0.113.201',
-        }),
-        routed.env,
-        execution.context,
-      );
-      expect(response.status).toBe(426);
-    }
-    await execution.flush();
-
-    expect(control.rateFetchCount()).toBe(12);
-    expect(metrics.events).toEqual(
-      Array.from({ length: 10 }, () => ({
-        bucketMinute: Math.floor(Date.now() / 60000),
-        event: 'pro_ticket_legacy_query_update_required',
-      })),
+    const response = await room.fetch(
+      requestLike(url.toString(), {
+        Upgrade: 'websocket',
+      }),
     );
-    expect(routed.roomFetch).not.toHaveBeenCalled();
+
+    expect(response.status).toBe(401);
+    expect(state.sockets).toHaveLength(0);
+    expect(FakeWebSocketPair.pairs).toHaveLength(0);
   });
 
   it('selects only the stable PRO protocol and never echoes the bearer ticket', async () => {

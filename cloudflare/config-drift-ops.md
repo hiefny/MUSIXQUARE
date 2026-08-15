@@ -80,19 +80,17 @@ not queried and must never be interpreted as passing.
 
 All six production Wrangler configs currently keep sampled custom Worker logs
 enabled, but set `observability.logs.invocation_logs = false` and disable
-automatic traces. This is the default credential-minimization boundary: the App OAuth
-callback receives one-use `code` and `state` query values, and cached PRO
-clients may use the signaling `ticket` query only until the documented rollout
-cutoff. Provider heuristics are not treated as reliable redaction. Application
-logs must remain structured and must not include raw request URLs, query
+automatic traces. This is the default credential-minimization boundary: the App
+OAuth callback receives one-use `code` and `state` query values, while PRO
+signaling accepts its bearer only through the WebSocket subprotocol header.
+Provider heuristics are not treated as reliable redaction. Application logs
+must remain structured and must not include raw request URLs, query
 strings, credentials, cookies, or authorization headers.
 
 Treat any unreviewed dashboard or TOML drift that re-enables automatic
 invocation logs or traces as a security incident until the affected retention
-window and sampled events have been reviewed. The only documented exception is
-signaling after the complete PRO query-ticket detector removal and privacy gate
-in `pro-signaling-query-ticket-cutover.md`; passing that gate still requires an
-intentional config, policy-test, and privacy review rather than automatic
+window and sampled events have been reviewed. Changing this baseline requires
+an intentional config, policy-test, and privacy review rather than automatic
 restoration. Operational visibility otherwise comes from the sampled,
 credential-free custom event schema and the release/health summaries.
 

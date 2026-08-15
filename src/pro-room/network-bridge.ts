@@ -1,10 +1,6 @@
 import { log } from '../core/log.ts';
-import { bus } from '../core/events.ts';
 import { batchSetState, getState } from '../core/state.ts';
-import {
-  PRO_SIGNALING_CLIENT_UPDATE_REQUIRED,
-  proSignalingWebSocketProtocols,
-} from '../network/pro-signaling-websocket.ts';
+import { proSignalingWebSocketProtocols } from '../network/pro-signaling-websocket.ts';
 import { getRuntimeTransportConfig } from '../network/transport/config.ts';
 import type { ProRoomSignalingAccess } from './api.ts';
 import type { ProRoomPlaybackPrepareEvent } from './api.ts';
@@ -503,13 +499,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
             // unrelated signaling-start failure.
             return;
           }
-          finish(
-            new Error(
-              event.reason === PRO_SIGNALING_CLIENT_UPDATE_REQUIRED
-                ? PRO_SIGNALING_CLIENT_UPDATE_REQUIRED
-                : 'PRO_SIGNALING_START_FAILED',
-            ),
-          );
+          finish(new Error('PRO_SIGNALING_START_FAILED'));
         };
         const onAbort = () => {
           try {
@@ -559,7 +549,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     }
 
     socket.addEventListener('message', (event) => this.#handleMessage(event.data));
-    socket.addEventListener('close', (event) => {
+    socket.addEventListener('close', () => {
       if (generation !== this.#generation || this.#socket !== socket) return;
       this.#socket = null;
       this.#clearTimers();
@@ -567,10 +557,6 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       this.#clockPending.clear();
       this.#clockCalibrationRound = null;
       this.#publishConnected(false);
-      if (event.reason === PRO_SIGNALING_CLIENT_UPDATE_REQUIRED) {
-        bus.emit('app:client-update-required', 'pro-signaling');
-        return;
-      }
       if (!this.#intentionalClose) {
         log.warn('[PRO] Server control channel disconnected; recovery requested');
       }
@@ -595,20 +581,6 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     try {
       value = JSON.parse(raw);
     } catch {
-      return;
-    }
-
-    if (
-      isRecord(value) &&
-      value.type === 'error' &&
-      value.errorType === 'client-update-required' &&
-      value.message === PRO_SIGNALING_CLIENT_UPDATE_REQUIRED
-    ) {
-      try {
-        this.#socket?.close(1012, PRO_SIGNALING_CLIENT_UPDATE_REQUIRED);
-      } catch {
-        bus.emit('app:client-update-required', 'pro-signaling');
-      }
       return;
     }
 

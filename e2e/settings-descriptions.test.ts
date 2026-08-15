@@ -12,11 +12,11 @@ const GENERAL_SETTINGS: DescribedSetting[] = [
   { description: '#settings-theme-description', control: '#grid-theme' },
   { description: '#settings-ui-sounds-description', control: '#grid-ui-sounds' },
   { description: '#settings-visualizer-description', control: '#grid-visualizer' },
+  { description: '#settings-sync-description', control: '#grid-settings-sync' },
 ];
 
 const AUDIO_SETTINGS: DescribedSetting[] = [
   { description: '#settings-role-description', control: '#grid-standard' },
-  { description: '#settings-sync-description', control: '#grid-settings-sync' },
   { description: '#settings-reverb-description', control: '#grid-reverb' },
   { description: '#settings-eq-description', control: '#grid-eq' },
   { description: '#settings-virtual-effects-description', control: '#grid-virtual-effects' },
@@ -358,37 +358,50 @@ test.describe('settings description layout', () => {
   test.describe('desktop', () => {
     test.use({ viewport: { width: 1280, height: 800 } });
 
-    test('aligns supporting copy and keeps role, sync, and reverb in order', async ({ page }) => {
+    test('aligns supporting copy and keeps sync in General before Audio effects', async ({
+      page,
+    }) => {
       await page.addInitScript(() => localStorage.setItem('musixquare-lang', 'en'));
       await openSettings(page);
 
       await expectDesktopAlignment(page, GENERAL_SETTINGS);
+      const generalOrder = await page.evaluate(() => {
+        const visualizer = document.querySelector('#grid-visualizer')?.closest('.section-group');
+        const sync = document.querySelector('#settings-sync-section');
+        if (!visualizer || !sync) return null;
+
+        const visualizerRect = visualizer.getBoundingClientRect();
+        const syncRect = sync.getBoundingClientRect();
+        return {
+          dom: Boolean(visualizer.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING),
+          rendered: visualizerRect.bottom <= syncRect.top + 1,
+        };
+      });
+      expect(generalOrder?.dom).toBe(true);
+      expect(generalOrder?.rendered).toBe(true);
+
       await navigateToSubtab(page, 'audio');
       await expectDesktopAlignment(page, AUDIO_SETTINGS);
       await expectVirtualEffectsTwoByTwo(page);
 
-      const order = await page.evaluate(() => {
+      const audioOrder = await page.evaluate(() => {
         const role = document.querySelector('#grid-standard')?.closest('.section-group');
-        const sync = document.querySelector('#settings-sync-section');
         const reverb = document.querySelector('#grid-reverb')?.closest('.section-group');
-        if (!role || !sync || !reverb) return null;
+        if (!role || !reverb) return null;
 
         const roleRect = role.getBoundingClientRect();
-        const syncRect = sync.getBoundingClientRect();
         const reverbRect = reverb.getBoundingClientRect();
 
         return {
-          dom:
-            Boolean(role.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING) &&
-            Boolean(sync.compareDocumentPosition(reverb) & Node.DOCUMENT_POSITION_FOLLOWING),
-          rendered: roleRect.bottom <= syncRect.top + 1 && syncRect.bottom <= reverbRect.top + 1,
+          dom: Boolean(role.compareDocumentPosition(reverb) & Node.DOCUMENT_POSITION_FOLLOWING),
+          rendered: roleRect.bottom <= reverbRect.top + 1,
           roleDividerWidth: Number.parseFloat(getComputedStyle(role).borderBottomWidth),
         };
       });
 
-      expect(order?.dom).toBe(true);
-      expect(order?.rendered).toBe(true);
-      expect(order?.roleDividerWidth).toBeGreaterThan(0);
+      expect(audioOrder?.dom).toBe(true);
+      expect(audioOrder?.rendered).toBe(true);
+      expect(audioOrder?.roleDividerWidth).toBeGreaterThan(0);
 
       const roleDescriptionGap = await page.locator('#settings-role-description').evaluate((el) => {
         const diagram = el.parentElement?.querySelector<HTMLElement>('.settings-role-diagram');

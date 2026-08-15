@@ -2807,12 +2807,6 @@ describe('Cloudflare app worker admin dashboard', () => {
         { bucket_minute: nowMinute - 2, event: 'guest_reconnect_conflict', count: 8 },
         { bucket_minute: nowMinute - 2, event: 'guest_pending_capacity', count: 6 },
         { bucket_minute: nowMinute - 2, event: 'guest_identity_capacity', count: 7 },
-        { bucket_minute: nowMinute - 1, event: 'pro_ticket_legacy_query_used', count: 2 },
-        {
-          bucket_minute: nowMinute - 1,
-          event: 'pro_ticket_legacy_query_update_required',
-          count: 1,
-        },
         { bucket_minute: nowMinute - 1, event: 'ws_message_oversized', count: 3 },
         { bucket_minute: nowMinute, event: 'ws_message_rate_limited', count: 4 },
       ]),
@@ -2865,8 +2859,6 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(payload.summary?.last24?.guest_reconnect_conflict).toBe(8);
     expect(payload.summary?.last24?.guest_pending_capacity).toBe(6);
     expect(payload.summary?.last24?.guest_identity_capacity).toBe(7);
-    expect(payload.summary?.last24?.pro_ticket_legacy_query_used).toBe(2);
-    expect(payload.summary?.last24?.pro_ticket_legacy_query_update_required).toBe(1);
     expect(payload.summary?.last24?.ws_message_oversized).toBe(3);
     expect(payload.summary?.last24?.ws_message_rate_limited).toBe(4);
     expect(payload.summary?.daily).toHaveLength(7);
@@ -2875,15 +2867,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(
       payload.summary?.daily30?.reduce((sum, bucket) => sum + bucket.events.guest_joined, 0),
     ).toBe(11);
-    expect(payload.events).toEqual(
-      expect.arrayContaining([
-        { key: 'pro_ticket_legacy_query_used', label: 'Admitted legacy PRO ticket joins' },
-        {
-          key: 'pro_ticket_legacy_query_update_required',
-          label: 'Legacy PRO refresh-shaped requests',
-        },
-      ]),
-    );
+    expect(payload.events).toEqual(expect.arrayContaining([]));
     expect(payload.cards?.find((card) => card.key === 'guest_per_room')?.value).toBe(2.33);
   });
 
@@ -5470,9 +5454,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.57');
-    expect(html).toContain('/admin.js?v=8.3.57');
-    expect(html).toContain('data-admin-asset-version="8.3.57"');
+    expect(html).toContain('/admin.css?v=8.3.58');
+    expect(html).toContain('/admin.js?v=8.3.58');
+    expect(html).toContain('data-admin-asset-version="8.3.58"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -5491,7 +5475,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.57', '/admin.css?v=8.3.57']) {
+    for (const path of ['/admin.js?v=8.3.58', '/admin.css?v=8.3.58']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');

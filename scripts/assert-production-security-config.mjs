@@ -5,7 +5,7 @@ import {
   validateAccountRolloutConfig,
   validateRemoteShareRolloutConfig,
 } from './production-security-rollout.mjs';
-import { validateProSignalingTicketCutover } from './pro-signaling-ticket-cutover.mjs';
+import { validateProSignalingCredentialBoundary } from './pro-signaling-credential-boundary.mjs';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -72,7 +72,7 @@ function readAssignment(line, flag) {
 const hits = [];
 const rolloutErrors = [];
 const remoteShareRolloutErrors = [];
-const proSignalingCutoverErrors = [];
+const proSignalingCredentialErrors = [];
 
 for (const flag of dangerousFlags) {
   if (isTruthy(process.env[flag])) {
@@ -111,26 +111,22 @@ const appConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.app.toml');
 const remoteShareConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.remote-share.toml');
 const signalingConfigPath = path.join(repoRoot, 'cloudflare', 'wrangler.signaling.toml');
 const signalingWorkerPath = path.join(repoRoot, 'cloudflare', 'signaling-worker.js');
-const adminWorkerPath = path.join(repoRoot, 'cloudflare', 'app-worker.js');
-const [proConfig, appConfig, remoteShareConfig, signalingConfig, signalingWorker, adminWorker] =
+const [proConfig, appConfig, remoteShareConfig, signalingConfig, signalingWorker] =
   await Promise.all([
     readFile(proConfigPath, 'utf8'),
     readFile(appConfigPath, 'utf8'),
     readFile(remoteShareConfigPath, 'utf8'),
     readFile(signalingConfigPath, 'utf8'),
     readFile(signalingWorkerPath, 'utf8'),
-    readFile(adminWorkerPath, 'utf8'),
   ]);
 
 rolloutErrors.push(...validateAccountRolloutConfig(proConfig, appConfig));
 remoteShareRolloutErrors.push(
   ...validateRemoteShareRolloutConfig(remoteShareConfig, signalingConfig),
 );
-proSignalingCutoverErrors.push(
-  ...validateProSignalingTicketCutover({
+proSignalingCredentialErrors.push(
+  ...validateProSignalingCredentialBoundary({
     workerSource: signalingWorker,
-    signalingConfig,
-    adminWorkerSource: adminWorker,
   }),
 );
 
@@ -138,7 +134,7 @@ if (
   hits.length > 0 ||
   rolloutErrors.length > 0 ||
   remoteShareRolloutErrors.length > 0 ||
-  proSignalingCutoverErrors.length > 0
+  proSignalingCredentialErrors.length > 0
 ) {
   console.error('[prod-security-guard] Unsafe production configuration detected:');
   for (const hit of hits) {
@@ -150,8 +146,8 @@ if (
   for (const error of remoteShareRolloutErrors) {
     console.error(`  - Remote Share rollout: ${error}`);
   }
-  for (const error of proSignalingCutoverErrors) {
-    console.error(`  - PRO signaling ticket cutover: ${error}`);
+  for (const error of proSignalingCredentialErrors) {
+    console.error(`  - PRO signaling credential boundary: ${error}`);
   }
   console.error(
     '[prod-security-guard] Fix the production security/rollout configuration before deploying.',

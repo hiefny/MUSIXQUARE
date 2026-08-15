@@ -34,6 +34,10 @@ or a substitute for the current source and tests.
 - [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md) —
   accepted scope, rollback boundary, and the explicit decision to defer a
   stable-core/presence schema split until production scale justifies it.
+- [Initial bundle and lazy-loading policy](design/initial-bundle-loading-policy.md) —
+  the accepted boundary for keeping the current eager/lazy graph stable, plus
+  the measured failure and SLO-change criteria required before another broad
+  bundle split.
 - [Browser media storage policy](design/browser-media-storage-policy.md) —
   accepted RAM-only media-storage ADR and the gate for reconsidering OPFS.
 - [Playback state consumption contract](state-patterns.md) — current rules for

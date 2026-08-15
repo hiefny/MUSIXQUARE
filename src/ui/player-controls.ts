@@ -1124,7 +1124,7 @@ async function handleLogoReturnToMain(): Promise<void> {
 
 // ─── Android Range Drag Guard ────────────────────────────────────
 
-function installAndroidRangeScrollFix(): void {
+function installAndroidRangeScrollFix(signal: AbortSignal): void {
   if (!IS_ANDROID) return;
   try {
     const ranges = Array.from(document.querySelectorAll('input[type="range"]'));
@@ -1138,13 +1138,15 @@ function installAndroidRangeScrollFix(): void {
         scrollParent.style.overflowY = 'hidden';
       };
       const unlock = () => {
-        scrollParent.style.overflowY = prevOverflowY !== null ? prevOverflowY : '';
+        if (prevOverflowY === null) return;
+        scrollParent.style.overflowY = prevOverflowY;
         prevOverflowY = null;
       };
 
-      range.addEventListener('touchstart', lock, { passive: true });
-      range.addEventListener('touchend', unlock, { passive: true });
-      range.addEventListener('touchcancel', unlock, { passive: true });
+      range.addEventListener('touchstart', lock, { passive: true, signal });
+      range.addEventListener('touchend', unlock, { passive: true, signal });
+      range.addEventListener('touchcancel', unlock, { passive: true, signal });
+      signal.addEventListener('abort', unlock, { once: true });
     });
   } catch (e) {
     log.debug('[Android] Range scroll fix init failed:', e);
@@ -1184,12 +1186,16 @@ function syncVolumeAuthorityUI(): void {
 // ─── Init ────────────────────────────────────────────────────────
 
 const _busScope = createBusScope();
+let _domAbort: AbortController | null = null;
 
 export function initPlayerControls(): void {
-  // Release any prior-init subscriptions so HMR / future re-init paths
-  // don't stack duplicate handlers. Matches the pattern in connect.ts
-  // and playlist-view.ts.
+  // Release prior-init subscriptions and replaceable DOM listeners so HMR /
+  // future re-init paths don't stack duplicate handlers. Matches the pattern
+  // in connect.ts and playlist-view.ts.
   _busScope.dispose();
+  _domAbort?.abort();
+  _domAbort = new AbortController();
+  const { signal: domSignal } = _domAbort;
   _ytSyncLoadingOwners.clear();
   _ytPlayButtonLoading = false;
   _filePlayButtonLoading = false;
@@ -1206,9 +1212,11 @@ export function initPlayerControls(): void {
 
   const $on = (id: string, evt: string, fn: EventListener) => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener(evt, fn);
+    if (el) el.addEventListener(evt, fn, { signal: domSignal });
   };
 
+  // These overlay handlers are intentionally one-shot DOM bindings. Their
+  // dataset guards must outlive the replaceable listener scope above.
   const manualSyncOverlay = document.getElementById('manual-sync-overlay');
   if (manualSyncOverlay && manualSyncOverlay.dataset.keyboardBound !== '1') {
     manualSyncOverlay.dataset.keyboardBound = '1';
@@ -1294,21 +1302,29 @@ export function initPlayerControls(): void {
   // Role badge
   const roleBadge = document.getElementById('role-badge');
   if (roleBadge) {
-    roleBadge.addEventListener('click', (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      openAccountDialog();
-    });
+    roleBadge.addEventListener(
+      'click',
+      (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openAccountDialog();
+      },
+      { signal: domSignal },
+    );
   }
 
   // Logo — native <button>, so Enter/Space auto-fires click (no keydown handler needed)
   const logo = document.getElementById('app-logo') || document.querySelector('.app-logo');
   if (logo) {
-    logo.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handleLogoReturnToMain();
-    });
+    logo.addEventListener(
+      'click',
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleLogoReturnToMain();
+      },
+      { signal: domSignal },
+    );
   }
 
   // Player buttons
@@ -1413,37 +1429,51 @@ export function initPlayerControls(): void {
   // YouTube popup (contenteditable)
   const ytInput = document.getElementById('youtube-url-input');
   if (ytInput) {
-    ytInput.addEventListener('input', (e) => {
-      invalidateYouTubeGestureSubmit();
-      // Stray-<br> placeholder restore — shared helper, see dom.ts.
-      normalizeEmptyContentEditable(ytInput, e);
-      const inputText = ytInput.textContent || '';
-      applyUserTextFontFallback(ytInput, inputText);
-      bus.emit('youtube:preview', inputText);
-    });
-    ytInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        if (e.isComposing || e.keyCode === 229) return;
+    ytInput.addEventListener(
+      'input',
+      (e) => {
+        invalidateYouTubeGestureSubmit();
+        // Stray-<br> placeholder restore — shared helper, see dom.ts.
+        normalizeEmptyContentEditable(ytInput, e);
+        const inputText = ytInput.textContent || '';
+        applyUserTextFontFallback(ytInput, inputText);
+        bus.emit('youtube:preview', inputText);
+      },
+      { signal: domSignal },
+    );
+    ytInput.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key === 'Enter') {
+          if (e.isComposing || e.keyCode === 229) return;
+          e.preventDefault();
+          // URL preview deliberately keeps this button disabled while a
+          // playlist manifest is being prefetched. A fast Enter press must
+          // honor the same gate as a physical button click, otherwise iOS falls
+          // back to the asynchronous iframe indexer and loses this gesture.
+          const playButton = document.getElementById(
+            'youtube-play-btn',
+          ) as HTMLButtonElement | null;
+          if (playButton?.disabled) return;
+          submitYouTubeFromGesture(ytInput);
+        }
+      },
+      { signal: domSignal },
+    );
+    ytInput.addEventListener(
+      'paste',
+      (e) => {
         e.preventDefault();
-        // URL preview deliberately keeps this button disabled while a
-        // playlist manifest is being prefetched. A fast Enter press must
-        // honor the same gate as a physical button click, otherwise iOS falls
-        // back to the asynchronous iframe indexer and loses this gesture.
-        const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
-        if (playButton?.disabled) return;
-        submitYouTubeFromGesture(ytInput);
-      }
-    });
-    ytInput.addEventListener('paste', (e) => {
-      e.preventDefault();
-      const clipboard = (e as ClipboardEvent).clipboardData;
-      const text =
-        clipboard?.getData('text/plain') ||
-        clipboard?.getData('text/uri-list') ||
-        clipboard?.getData('URL') ||
-        '';
-      document.execCommand('insertText', false, text);
-    });
+        const clipboard = (e as ClipboardEvent).clipboardData;
+        const text =
+          clipboard?.getData('text/plain') ||
+          clipboard?.getData('text/uri-list') ||
+          clipboard?.getData('URL') ||
+          '';
+        document.execCommand('insertText', false, text);
+      },
+      { signal: domSignal },
+    );
   }
   $on('btn-yt-cancel', 'click', () => closeYouTubePopup());
   if (ytInput) {
@@ -1451,16 +1481,17 @@ export function initPlayerControls(): void {
   }
 
   // Seek bar
-  initSeekBar();
+  initSeekBar(domSignal);
 
-  // Range sliders
+  // Range sliders use their own dataset-backed one-shot installation and must
+  // remain live when the replaceable listener scope is aborted.
   installRangeDragGuard();
 
   syncVolumeSlider();
   syncVolumeAuthorityUI();
 
   // Prevent range drags from scrolling the containing tab on Android.
-  installAndroidRangeScrollFix();
+  installAndroidRangeScrollFix(domSignal);
 
   // Volume sync
   _busScope.on('audio:volume-changed', () => {
@@ -1498,9 +1529,13 @@ export function initPlayerControls(): void {
     updateRoleBadge();
   });
 
-  document.addEventListener('visibilitychange', () => {
-    scheduleRoleClockPulse(true);
-  });
+  document.addEventListener(
+    'visibilitychange',
+    () => {
+      scheduleRoleClockPulse(true);
+    },
+    { signal: domSignal },
+  );
 
   // Ordinary guests cannot select media, while every authenticated PRO
   // controller can. Derive the visual affordance from the same capability
@@ -1553,13 +1588,17 @@ export function initPlayerControls(): void {
   });
 
   // Invite code container click delegation
-  document.addEventListener('click', (e) => {
-    const target = (e.target as HTMLElement)?.closest?.('.invite-code-container');
-    if (target) {
-      e.preventDefault();
-      copyInviteCode();
-    }
-  });
+  document.addEventListener(
+    'click',
+    (e) => {
+      const target = (e.target as HTMLElement)?.closest?.('.invite-code-container');
+      if (target) {
+        e.preventDefault();
+        copyInviteCode();
+      }
+    },
+    { signal: domSignal },
+  );
 
   // Invite code update events
   _busScope.on('ui:settings-tab-opened', () => {
@@ -1570,11 +1609,15 @@ export function initPlayerControls(): void {
   const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
   if (fileInput) {
     fileInput.accept = AUDIO_FILE_ACCEPT;
-    fileInput.addEventListener('change', (e) => {
-      closeMediaSourcePopup();
-      bus.emit('app:files-selected', (e.target as HTMLInputElement).files);
-      (e.target as HTMLInputElement).value = '';
-    });
+    fileInput.addEventListener(
+      'change',
+      (e) => {
+        closeMediaSourcePopup();
+        bus.emit('app:files-selected', (e.target as HTMLInputElement).files);
+        (e.target as HTMLInputElement).value = '';
+      },
+      { signal: domSignal },
+    );
   }
 
   // Storage error handler (prevent silent error swallowing)

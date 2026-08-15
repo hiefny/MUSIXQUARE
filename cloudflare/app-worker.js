@@ -122,7 +122,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.3.57';
+const ADMIN_ASSET_VERSION = '8.3.58';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -248,11 +248,6 @@ const ADMIN_METRIC_EVENTS = [
   { key: 'guest_room_full', label: 'Room-full rejections' },
   { key: 'guest_pending_capacity', label: 'Pending guest handshake rejections' },
   { key: 'guest_identity_capacity', label: 'Guest identity limit rejections' },
-  { key: 'pro_ticket_legacy_query_used', label: 'Admitted legacy PRO ticket joins' },
-  {
-    key: 'pro_ticket_legacy_query_update_required',
-    label: 'Legacy PRO refresh-shaped requests',
-  },
   {
     key: 'remote_share_upload_assertion_verified',
     label: 'New sessions with verified host assertions',

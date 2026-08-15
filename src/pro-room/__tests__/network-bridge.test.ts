@@ -2,9 +2,7 @@
  * @vitest-environment jsdom
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { bus } from '../../core/events.ts';
 import { getState, resetState } from '../../core/state.ts';
-import { PRO_SIGNALING_CLIENT_UPDATE_REQUIRED } from '../../network/pro-signaling-websocket.ts';
 import type { ProRoomSignalingAccess } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
@@ -323,41 +321,6 @@ describe('coordinator-free PRO server channel', () => {
     expect(bridge.connected).toBe(false);
     expect(getState('network.isConnecting')).toBe(false);
     expect(connected).toEqual([false]);
-    unsubscribe();
-  });
-
-  it('preserves the server refresh contract when an opening socket requires an update', async () => {
-    const bridge = new ServerProRoomNetworkBridge();
-    const opening = bridge.connect(snapshot(), access());
-    const socket = FakeWebSocket.instances.at(-1);
-    if (!socket) throw new Error('fake socket was not created');
-
-    socket.close(1012, PRO_SIGNALING_CLIENT_UPDATE_REQUIRED);
-
-    await expect(opening).rejects.toThrow(PRO_SIGNALING_CLIENT_UPDATE_REQUIRED);
-    expect(socket.closeReason).toBe(PRO_SIGNALING_CLIENT_UPDATE_REQUIRED);
-    expect(bridge.connected).toBe(false);
-    expect(getState('network.isConnecting')).toBe(false);
-  });
-
-  it('publishes a required refresh when an established server channel is retired', async () => {
-    const bridge = new ServerProRoomNetworkBridge();
-    const required: string[] = [];
-    const unsubscribe = bus.on('app:client-update-required', (source) => required.push(source));
-    const socket = await openBridge(bridge);
-
-    socket.dispatch(
-      'message',
-      JSON.stringify({
-        type: 'error',
-        errorType: 'client-update-required',
-        message: PRO_SIGNALING_CLIENT_UPDATE_REQUIRED,
-      }),
-    );
-
-    expect(required).toEqual(['pro-signaling']);
-    expect(socket.closeCode).toBe(1012);
-    expect(socket.closeReason).toBe(PRO_SIGNALING_CLIENT_UPDATE_REQUIRED);
     unsubscribe();
   });
 

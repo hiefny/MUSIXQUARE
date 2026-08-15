@@ -11,6 +11,7 @@ import { test, expect, type Locator } from '@playwright/test';
 import {
   createHostGuestContexts,
   cleanupContexts,
+  useAnonymousAccountSession,
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
@@ -184,6 +185,7 @@ test.describe('Operator Mode', () => {
   });
 
   test('guest account entry remains LOGIN after administrator grant', async () => {
+    await useAnonymousAccountSession(pair.guestPage);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await grantAdministrator();
 

@@ -154,6 +154,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/service-maintenance.js',
     'cloudflare/pro-room-generation.js',
     'cloudflare/pro-room-effects.js',
+    'cloudflare/pro-room-permissions.js',
     'cloudflare/pro-room-queue-mode.js',
     'cloudflare/pro-room-validation.js',
     'cloudflare/account-assertion.js',
@@ -1375,9 +1376,9 @@ function rollbackDependencyBlock(target, states, results) {
   // The current browser and signaling Worker negotiate PRO bearer tickets as
   // an exact WebSocket subprotocol pair. Rollback runs App first; if that
   // rollback is withheld by a durable/R2 compatibility floor or otherwise
-  // cannot be verified, restoring an older query-ticket signaling Worker would
-  // strand every PRO client served by the retained App. Keep signaling current
-  // until App is known to be on its captured baseline.
+  // cannot be verified, restoring a Worker without the exact subprotocol
+  // contract would strand every PRO client served by the retained App. Keep
+  // signaling current until App is known to be on its captured baseline.
   if (target === 'signaling' && states.some((state) => state.target === 'app')) {
     const appResult = results.find((result) => result.target === 'app');
     if (appResult && ['restored', 'already-restored'].includes(appResult.status)) {

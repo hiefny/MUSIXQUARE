@@ -167,7 +167,7 @@ function scheduleSeekDraftRelease(slider: HTMLInputElement): void {
 
 // ─── Seek Bar Input Events ──────────────────────────────────────
 
-function initSeekBarInput(): void {
+function initSeekBarInput(signal?: AbortSignal): void {
   const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
   if (!slider) return;
 
@@ -179,14 +179,18 @@ function initSeekBarInput(): void {
     }
     beginSeekDraft(slider);
   };
-  slider.addEventListener('pointerdown', beginPointerDraft);
+  slider.addEventListener('pointerdown', beginPointerDraft, { signal });
   // Pointer-enabled browsers dispatch compatibility mouse/touch events after
   // pointerdown. Keep the legacy listeners only as a fallback so one physical
   // drag cannot open the same permission feedback twice.
-  slider.addEventListener('mousedown', (event) => {
-    if (typeof PointerEvent !== 'undefined') return;
-    beginPointerDraft(event);
-  });
+  slider.addEventListener(
+    'mousedown',
+    (event) => {
+      if (typeof PointerEvent !== 'undefined') return;
+      beginPointerDraft(event);
+    },
+    { signal },
+  );
   slider.addEventListener(
     'touchstart',
     (event) => {
@@ -195,49 +199,74 @@ function initSeekBarInput(): void {
     },
     {
       passive: false,
+      signal,
     },
   );
-  slider.addEventListener('input', () => {
-    if (rejectSeekInteraction(slider)) return;
-    // Keyboard seeks do not have a pointerdown/touchstart boundary.
-    beginSeekDraft(slider);
-    const formatted = fmtTime(parseFloat(slider.value));
-    const tc = document.getElementById('time-curr');
-    if (tc) tc.innerText = formatted;
-    slider.setAttribute('aria-valuetext', formatted);
-  });
+  slider.addEventListener(
+    'input',
+    () => {
+      if (rejectSeekInteraction(slider)) return;
+      // Keyboard seeks do not have a pointerdown/touchstart boundary.
+      beginSeekDraft(slider);
+      const formatted = fmtTime(parseFloat(slider.value));
+      const tc = document.getElementById('time-curr');
+      if (tc) tc.innerText = formatted;
+      slider.setAttribute('aria-valuetext', formatted);
+    },
+    { signal },
+  );
 
-  slider.addEventListener('change', () => {
-    if (rejectSeekInteraction(slider)) return;
-    beginSeekDraft(slider);
-    const seekTime = parseFloat(slider.value);
-    try {
-      // PRO command admission emits its pending token synchronously. Release
-      // the input draft only after that longer-lived projection can take over.
-      seekTo(seekTime);
-    } finally {
-      finishSeekDraft(slider);
-    }
-  });
+  slider.addEventListener(
+    'change',
+    () => {
+      if (rejectSeekInteraction(slider)) return;
+      beginSeekDraft(slider);
+      const seekTime = parseFloat(slider.value);
+      try {
+        // PRO command admission emits its pending token synchronously. Release
+        // the input draft only after that longer-lived projection can take over.
+        seekTo(seekTime);
+      } finally {
+        finishSeekDraft(slider);
+      }
+    },
+    { signal },
+  );
 
-  slider.addEventListener('mouseup', () => scheduleSeekDraftRelease(slider));
-  slider.addEventListener('pointerup', () => scheduleSeekDraftRelease(slider));
-  slider.addEventListener('lostpointercapture', () => scheduleSeekDraftRelease(slider));
-  slider.addEventListener('touchend', () => scheduleSeekDraftRelease(slider), { passive: true });
-  slider.addEventListener('pointercancel', () => finishSeekDraft(slider));
-  slider.addEventListener('touchcancel', () => finishSeekDraft(slider), { passive: true });
-  slider.addEventListener('contextmenu', () => finishSeekDraft(slider));
-  slider.addEventListener('blur', () => finishSeekDraft(slider));
-  slider.addEventListener('keydown', (event) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
-      return;
-    }
-    _seekDenialFeedbackActive = false;
-    if (rejectSeekInteraction(slider)) event.preventDefault();
+  slider.addEventListener('mouseup', () => scheduleSeekDraftRelease(slider), { signal });
+  slider.addEventListener('pointerup', () => scheduleSeekDraftRelease(slider), { signal });
+  slider.addEventListener('lostpointercapture', () => scheduleSeekDraftRelease(slider), {
+    signal,
   });
-  slider.addEventListener('keyup', () => {
-    _seekDenialFeedbackActive = false;
+  slider.addEventListener('touchend', () => scheduleSeekDraftRelease(slider), {
+    passive: true,
+    signal,
   });
+  slider.addEventListener('pointercancel', () => finishSeekDraft(slider), { signal });
+  slider.addEventListener('touchcancel', () => finishSeekDraft(slider), {
+    passive: true,
+    signal,
+  });
+  slider.addEventListener('contextmenu', () => finishSeekDraft(slider), { signal });
+  slider.addEventListener('blur', () => finishSeekDraft(slider), { signal });
+  slider.addEventListener(
+    'keydown',
+    (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(event.key)) {
+        return;
+      }
+      _seekDenialFeedbackActive = false;
+      if (rejectSeekInteraction(slider)) event.preventDefault();
+    },
+    { signal },
+  );
+  slider.addEventListener(
+    'keyup',
+    () => {
+      _seekDenialFeedbackActive = false;
+    },
+    { signal },
+  );
 
   syncSeekAvailability(slider);
 }
@@ -603,7 +632,7 @@ function initSeekBarBusHandlers(): void {
 
 // ─── Public Init ────────────────────────────────────────────────
 
-export function initSeekBar(): void {
-  initSeekBarInput();
+export function initSeekBar(signal?: AbortSignal): void {
+  initSeekBarInput(signal);
   initSeekBarBusHandlers();
 }

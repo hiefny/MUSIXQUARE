@@ -148,30 +148,6 @@ function checkSystemCompatibility(): void {
   }
 }
 
-let clientUpdatePromptActive = false;
-
-function initClientUpdateRecovery(): void {
-  bus.on('app:client-update-required', (source) => {
-    if (clientUpdatePromptActive) return;
-    clientUpdatePromptActive = true;
-    void showDialog({
-      title: t('dialog.sw_update_title'),
-      message: t('dialog.sw_update_msg'),
-      buttonText: t('common.refresh'),
-      dismissible: false,
-    })
-      .then((result) => {
-        if (result.action !== 'ok') return;
-        log.info(`[App] Required client refresh requested by ${source}`);
-        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
-      })
-      .catch((error) => log.warn('[App] Required client refresh dialog failed:', error))
-      .finally(() => {
-        clientUpdatePromptActive = false;
-      });
-  });
-}
-
 // ── Keyboard Shortcuts ──
 
 function initKeyboardShortcuts(): void {
@@ -510,7 +486,6 @@ async function bootstrap(): Promise<void> {
   await runBootstrapStepAsync(bootstrapReadiness, 'I18n', initI18n, (e) =>
     log.error('[App] I18n init failed:', e),
   );
-  safeInit('ClientUpdateRecovery', initClientUpdateRecovery);
   safeInit('Account', initAccount);
   safeInit('Account activity stats', initAccountActivityStats);
   safeInit('Account room identity', initAccountRoomIdentity);

@@ -28,10 +28,8 @@
     function apply() {
       var standalone = false;
       try {
-        standalone =
-          window.matchMedia &&
-          window.matchMedia('(display-mode: standalone)').matches;
-      } catch (e) {
+        standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+      } catch {
         standalone = false;
       }
 
@@ -40,7 +38,7 @@
           standalone = true;
           root.classList.add('ios-standalone');
         }
-      } catch (e) {
+      } catch {
         /* Standalone detection is optional on restricted browsers. */
       }
 
@@ -53,7 +51,7 @@
       var media = window.matchMedia('(display-mode: standalone)');
       if (media.addEventListener) media.addEventListener('change', apply);
       else if (media.addListener) media.addListener(apply);
-    } catch (e) {
+    } catch {
       /* Display-mode change tracking is optional on restricted browsers. */
     }
   }

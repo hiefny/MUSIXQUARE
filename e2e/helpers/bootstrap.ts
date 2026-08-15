@@ -1,7 +1,9 @@
 import type { Page } from '@playwright/test';
 
-// src/app.ts records 52 synchronous initializers, I18n, and SyncWorker.
-const EXPECTED_BOOTSTRAP_STEP_COUNT = '54';
+// src/app.ts records 46 eager wiring initializers, I18n, and SyncWorker.
+// Room-session implementations are deliberately absent: their readiness is
+// gated at transport creation instead of being counted as bootstrap work.
+const EXPECTED_BOOTSTRAP_STEP_COUNT = '48';
 
 interface BootstrapObservation {
   state: string | null;

@@ -30,7 +30,7 @@
     script.crossOrigin = 'anonymous';
     script.setAttribute('data-cf-beacon', JSON.stringify({ token: ANALYTICS_TOKEN, spa: false }));
     document.head.appendChild(script);
-  } catch (e) {
+  } catch {
     // Missing or constrained browser APIs fail closed without analytics.
   }
 })();

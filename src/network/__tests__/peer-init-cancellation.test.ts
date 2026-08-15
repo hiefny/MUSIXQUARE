@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   createTransportPeer: vi.fn(),
   fetchWithCapability: vi.fn(),
   getRuntimeTransportConfig: vi.fn(),
+  prepareRoomSessionFeatures: vi.fn((_signal?: AbortSignal) => Promise.resolve()),
   showDialog: vi.fn(async () => ({ action: 'cancel' })),
   showToast: vi.fn(),
 }));
@@ -28,6 +29,10 @@ vi.mock('../transport/index.ts', async (importOriginal) => {
 
 vi.mock('../transport/config.ts', () => ({
   getRuntimeTransportConfig: mocks.getRuntimeTransportConfig,
+}));
+
+vi.mock('../room-session-feature-loader.ts', () => ({
+  prepareRoomSessionFeatures: mocks.prepareRoomSessionFeatures,
 }));
 
 vi.mock('../../ui/dialog.ts', () => ({ showDialog: mocks.showDialog }));
@@ -144,6 +149,39 @@ afterEach(() => {
 });
 
 describe('network initialization ownership', () => {
+  it('waits for the room listener graph before creating a signaling transport', async () => {
+    const roomFeaturesReady = deferred<void>();
+    mocks.prepareRoomSessionFeatures.mockReturnValueOnce(roomFeaturesReady.promise);
+    const peer = makePeer('ROOM-FEATURE-READY', true);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+
+    const session = createHostSessionWithShortCode(1);
+    await Promise.resolve();
+    expect(mocks.createTransportPeer).not.toHaveBeenCalled();
+
+    roomFeaturesReady.resolve();
+    await waitForTransportCalls(1);
+    await expect(session).resolves.toMatch(/^\d{6}$/);
+  });
+
+  it('settles setup cancellation while the shared room feature import is still loading', async () => {
+    mocks.prepareRoomSessionFeatures.mockImplementationOnce(
+      (signal?: AbortSignal) =>
+        new Promise<void>((_resolve, reject) => {
+          signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        }),
+    );
+
+    const session = createHostSessionWithShortCode(1);
+    await vi.waitFor(() => expect(mocks.prepareRoomSessionFeatures).toHaveBeenCalledOnce());
+    expect(mocks.prepareRoomSessionFeatures).toHaveBeenCalledWith(expect.any(AbortSignal));
+
+    cancelPendingSessionSetup();
+
+    await expect(session).rejects.toThrow('NETWORK_INIT_CANCELLED');
+    expect(mocks.createTransportPeer).not.toHaveBeenCalled();
+  });
+
   it('returns a claimed Cloudflare host code before TURN settles and keeps RTC gated', async () => {
     const pendingTurn = deferred<Response>();
     mocks.fetchWithCapability.mockReturnValueOnce(pendingTurn.promise);

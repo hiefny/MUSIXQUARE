@@ -52,6 +52,21 @@ jobs:
       - name: Worker syntax check
         run: npm run check:workers
 
+      - name: Public runtime syntax check
+        run: npm run check:public-runtime
+
+      - name: Import graph integrity
+        run: npm run guard:import-graph
+
+      - name: Dead export detection
+        run: npm run guard:dead-exports
+
+      - name: EventBus producer-consumer pairing
+        run: npm run guard:bus-pairing
+
+      - name: Source complexity ratchet
+        run: npm run guard:source-complexity
+
       - name: Standard-room security and latency policy
         run: npm run guard:standard-room-hot-path
 

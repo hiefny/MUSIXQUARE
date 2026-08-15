@@ -19,6 +19,14 @@ or a substitute for the current source and tests.
   defines the standard/PRO/admin security tiers, the standard-room synchronous
   dependency budget, and the evidence required before an audit may add latency.
 
+- [Local Worker integration and environment boundaries](local-worker-integration.md)
+  maps browser, Vite, Worker, and CI namespaces; gives the fail-closed local
+  recipes; and points every Worker to its canonical binding/secret inventory.
+
+- [Source complexity ratchet](design/source-complexity-ratchet.md) defines the
+  extraction thresholds for the largest runtime and release ownership
+  boundaries and the ADR requirement for any ceiling change.
+
 - [Mobile application zoom policy](mobile-app-zoom-policy.md) defines the
   main SPA's fixed-scale viewport contract, its accessibility boundary, and the
   evidence required before a future audit may change that product decision.

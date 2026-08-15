@@ -2,7 +2,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { scheduleSessionReset } from '../core/session-reset.ts';
+import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
 import { getAccountSnapshot, getAccountStatsScope, subscribeAccount } from '../account/state.ts';
 import { ProRoomAccountReconciler } from './account-reconciliation.ts';
@@ -63,6 +63,7 @@ import {
   publishSignalingReconnectAttempt,
   SIGNALING_RECOVERY_MAX_ATTEMPTS,
 } from '../network/signaling-health.ts';
+import { prepareRoomSessionFeatures } from '../network/room-session-feature-loader.ts';
 import {
   ProRoomApiClient,
   ProRoomApiError,
@@ -4232,7 +4233,7 @@ async function recoverTerminalSession(error: ProRoomApiError): Promise<void> {
     return;
   }
   if (typeof window !== 'undefined') {
-    scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+    scheduleDocumentReload(t('dialog.refreshing_session'));
   }
 }
 
@@ -4868,6 +4869,7 @@ export async function resumeProRoom(
   code: string,
   options: EnterProRoomPresenceOptions = {},
 ): Promise<ProRoomSnapshot> {
+  await prepareRoomSessionFeatures(options.signal);
   const snapshot = await controller.resume(code, options);
   return finalizeOpenedRoom(snapshot);
 }
@@ -4876,6 +4878,7 @@ export async function joinProRoom(
   input: CreateProRoomSessionInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
+  await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.join(input, signal);
   return finalizeOpenedRoom(snapshot);
 }
@@ -4884,6 +4887,7 @@ export async function activateProRoom(
   input: ActivateProRoomInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
+  await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.activate(input, signal);
   return finalizeOpenedRoom(snapshot);
 }
@@ -4892,6 +4896,7 @@ export async function recoverProRoomOwner(
   input: RecoverProRoomOwnerInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
+  await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.recoverOwner(input, signal);
   return finalizeOpenedRoom(snapshot);
 }
@@ -4900,6 +4905,7 @@ export async function transferProRoomOwner(
   input: TransferProRoomOwnerInput,
   signal?: AbortSignal,
 ): Promise<ProRoomSnapshot> {
+  await prepareRoomSessionFeatures(signal);
   const snapshot = await controller.transferOwner(input, signal);
   return finalizeOpenedRoom(snapshot);
 }

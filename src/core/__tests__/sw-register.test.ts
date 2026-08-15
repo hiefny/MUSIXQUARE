@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const moduleMocks = vi.hoisted(() => ({
   getState: vi.fn(() => 'idle'),
+  scheduleDocumentReload: vi.fn(),
   scheduleSessionReset: vi.fn(),
   showDialog: vi.fn(),
   showToast: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock('../../ui/dialog.ts', () => ({ showDialog: moduleMocks.showDialog }));
 vi.mock('../../ui/toast.ts', () => ({ showToast: moduleMocks.showToast }));
 vi.mock('../timers.ts', () => ({ setManagedTimer: vi.fn() }));
 vi.mock('../session-reset.ts', () => ({
+  scheduleDocumentReload: moduleMocks.scheduleDocumentReload,
   scheduleSessionReset: moduleMocks.scheduleSessionReset,
 }));
 
@@ -165,6 +167,16 @@ describe('service-worker cache-retirement client handshake', () => {
     delete document.documentElement.dataset.mxqrNavigationSource;
     moduleMocks.getState.mockReturnValue('idle');
     moduleMocks.scheduleSessionReset.mockImplementation(() => createFakeResetHandle());
+    moduleMocks.scheduleDocumentReload.mockImplementation(
+      (message: string, onRecovered?: () => void) => {
+        const handle = moduleMocks.scheduleSessionReset(message, () => window.location.reload());
+        if (!handle) {
+          onRecovered?.();
+          return;
+        }
+        handle.onRecovered(() => onRecovered?.());
+      },
+    );
     moduleMocks.showDialog.mockResolvedValue(undefined);
   });
 

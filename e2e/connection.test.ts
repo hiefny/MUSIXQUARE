@@ -57,6 +57,53 @@ test.describe('Host-Guest Connection', () => {
     expect(guestOverlay).toBe(false);
   });
 
+  test('preflights room/media constraints and reveals the one-time Center role path', async () => {
+    const code = await setupHostAndStart(pair.hostPage);
+
+    await pair.guestPage.goto('/');
+    await pair.guestPage.waitForLoadState('domcontentloaded');
+    await pair.guestPage.waitForSelector('#btn-setup-guest', {
+      state: 'visible',
+      timeout: 15_000,
+    });
+    await pair.guestPage.click('#btn-setup-guest');
+    await pair.guestPage.waitForSelector('#setup-join-code', { state: 'visible' });
+
+    const joinInput = pair.guestPage.locator('#setup-join-code');
+    const roomInfo = pair.guestPage.locator('#setup-room-type-info');
+    await joinInput.fill('000001');
+    await expect(roomInfo).toHaveAttribute('data-room-kind', 'pro');
+    await expect(roomInfo).toHaveAttribute('data-i18n', 'setup.pro_room_summary');
+    await joinInput.fill(code);
+    await expect(roomInfo).toHaveAttribute('data-room-kind', 'standard');
+    await expect(roomInfo).toHaveAttribute('data-i18n', 'setup.standard_room_summary');
+
+    await setupGuest(pair.guestPage, code);
+    const roleGuide = pair.guestPage.locator('#center-role-guide');
+    await expect(roleGuide).toBeVisible({ timeout: 5_000 });
+    await expect(roleGuide.locator('#btn-center-role-settings')).toBeVisible();
+    expect(
+      await pair.guestPage.evaluate(() => localStorage.getItem('mxqr_center_role_guide_seen_v1')),
+    ).toBe('1');
+
+    await roleGuide.locator('#btn-center-role-settings').click();
+    await expect(pair.guestPage.locator('#tab-settings')).toHaveClass(/active/);
+    await expect(pair.guestPage.locator('#settings-role-title')).toBeFocused();
+
+    const hostGuideDismiss = pair.hostPage.locator('#btn-center-role-dismiss');
+    if (await hostGuideDismiss.isVisible()) await hostGuideDismiss.click();
+    await pair.hostPage.locator('#btn-media-source').click();
+    await expect(pair.hostPage.locator('#media-source-overlay')).toHaveClass(/active/);
+    await expect(pair.hostPage.locator('#media-local-file-description')).toContainText('200 MiB');
+    await expect(pair.hostPage.locator('#media-local-file-description')).toContainText('RAM');
+    await expect(pair.hostPage.locator('#media-system-audio-limits')).toContainText('4');
+    await expect(pair.hostPage.locator('#media-system-audio-limits')).toContainText('2');
+    await expect(pair.hostPage.locator('#btn-system-audio')).toHaveAttribute(
+      'aria-describedby',
+      'media-system-audio-limits media-system-audio-status',
+    );
+  });
+
   test('host sees guest in device list after connection', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 

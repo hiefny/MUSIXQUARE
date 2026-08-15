@@ -21,6 +21,7 @@ vi.mock('../../core/page-lifecycle.ts', () => ({
 }));
 
 vi.mock('../../core/session-reset.ts', () => ({
+  scheduleDocumentReload: vi.fn(),
   scheduleSessionReset: vi.fn(),
 }));
 
@@ -109,6 +110,7 @@ vi.mock('../setup-shared.ts', () => ({
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { cancelPendingSessionSetup } from '../../network/peer.ts';
+import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
 import { isPlaybackModeYouTube } from '../../player/ownership.ts';
 import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
 import { markProRoomTransportRecovered } from '../../pro-room/transport-recovery.ts';
@@ -219,6 +221,17 @@ describe('setup network error messages', () => {
     expect(showToast).not.toHaveBeenCalled();
     expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith('error.host_unreachable');
     expect(showToast).not.toHaveBeenCalledWith('network.cant_join');
+    expect(getState('network.isConnecting')).toBe(false);
+  });
+
+  it('routes a wrapped terminal feature failure to Refresh instead of Retry', () => {
+    const terminal = createLazyFeatureLoadError('room-session', new TypeError('chunk unavailable'));
+    // guest.ts clears this flag before surfacing its wrapped init error.
+    setState('network.isConnecting', false);
+    bus.emit('network:error', new Error('NETWORK_INIT_FAILED', { cause: terminal }));
+
+    expect(restoreGuestJoinControlsAfterFailure).toHaveBeenCalledWith('dialog.sw_update_msg', true);
+    expect(showToast).not.toHaveBeenCalled();
     expect(getState('network.isConnecting')).toBe(false);
   });
 

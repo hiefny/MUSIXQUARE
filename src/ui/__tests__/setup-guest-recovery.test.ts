@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   joinSession: vi.fn(),
   pendingAutoCode: null as string | null,
   pendingRole: 0 as number | null,
+  scheduleDocumentReload: vi.fn(),
   scheduleSessionReset: vi.fn(),
   setupRenderActions: vi.fn((buttons: Array<Record<string, unknown>>) => {
     mocks.actions = buttons;
@@ -53,6 +54,7 @@ vi.mock('../dom.ts', () => ({
 }));
 
 vi.mock('../../core/session-reset.ts', () => ({
+  scheduleDocumentReload: mocks.scheduleDocumentReload,
   scheduleSessionReset: mocks.scheduleSessionReset,
 }));
 
@@ -173,6 +175,20 @@ describe('guest setup recovery', () => {
     expect(goBack).toHaveBeenCalledOnce();
   });
 
+  it('renders a real Refresh action instead of retrying a terminal lazy failure', () => {
+    restoreGuestJoinControlsAfterFailure('dialog.sw_update_msg', true);
+
+    expect(mocks.actions[1]).toMatchObject({
+      id: 'btn-setup-confirm',
+      text: 'common.refresh',
+    });
+    const refresh = mocks.actions[1]?.onClick as (() => void) | undefined;
+    refresh?.();
+
+    expect(mocks.joinSession).not.toHaveBeenCalled();
+    expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith('dialog.refreshing_session');
+  });
+
   it('shows invalid code feedback inline without a transient toast', async () => {
     const input = document.getElementById('setup-join-code') as HTMLInputElement;
     input.value = '123';
@@ -237,5 +253,26 @@ describe('guest setup recovery', () => {
       expect.any(Function),
     );
     expect(goBack).not.toHaveBeenCalled();
+  });
+
+  it('keeps a terminal PRO lazy failure on a dedicated Refresh action', async () => {
+    const input = document.getElementById('setup-join-code') as HTMLInputElement;
+    input.value = '000001';
+    mocks.isProRoomCode.mockReturnValue(true);
+    mocks.enterProRoomFromSetup.mockResolvedValue('reload-required');
+
+    await handleSetupJoinWithRole(0);
+
+    expect(mocks.actions[0]).toMatchObject({ id: 'btn-setup-back', disabled: true });
+    expect(mocks.actions[1]).toMatchObject({
+      id: 'btn-setup-confirm',
+      text: 'common.refresh',
+    });
+    expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-success');
+    expect(mocks.busEmit).not.toHaveBeenCalledWith('setup:guest-join-failure', expect.anything());
+
+    const refresh = mocks.actions[1]?.onClick as (() => void) | undefined;
+    refresh?.();
+    expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith('dialog.refreshing_session');
   });
 });

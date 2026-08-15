@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   isClockCalibrated: vi.fn(() => true),
   broadcast: vi.fn(),
   safeSend: vi.fn(),
+  prepareMediaSession: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../../player/transport.ts', () => ({
@@ -41,6 +42,10 @@ vi.mock('../../network/peer.ts', () => ({
 
 vi.mock('../../player/decode.ts', () => ({
   loadDemoFile: vi.fn(),
+}));
+
+vi.mock('../../player/media-session-loader.ts', () => ({
+  prepareMediaSession: mocks.prepareMediaSession,
 }));
 
 vi.mock('../../audio/effects.ts', () => ({

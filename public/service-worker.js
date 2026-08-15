@@ -8,7 +8,7 @@
 
 // Bump this whenever a stable-path app-shell asset changes so existing clients
 // migrate to a fresh cache.
-const CACHE_VERSION = 'v438';
+const CACHE_VERSION = 'v439';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const OPTIONAL_CACHE = `musixquare-optional-${CACHE_VERSION}`;
@@ -41,7 +41,8 @@ const SENSITIVE_NAVIGATION_QUERY_PARAMETER =
 // Only list assets that keep stable paths after Vite build. index.html is the
 // canonical navigation shell; caching './' as well would store the same body
 // twice under different keys.
-// Vite injects the canonical app entry's static JS/CSS closure at build time.
+// Vite injects the canonical app entry plus reviewed deferred roots and their
+// static JS/CSS closure at build time.
 // Keeping this manifest deterministic makes a first successful install usable
 // offline, rather than depending on each hashed asset having been requested.
 const BUILD_ENTRY_ASSETS = [

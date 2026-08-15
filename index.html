@@ -12,7 +12,7 @@
          apply Android viewport, language, and theme preflight. The main SPA
          deliberately does not load third-party analytics. Source:
          public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v438"></script>
+    <script src="/bootstrap.js?cache=v439"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -2722,8 +2722,17 @@
                 spellcheck="false"
                 aria-label=""
                 data-i18n-aria-label="setup.enter_code"
-                aria-describedby="setup-guest-error"
+                aria-describedby="setup-room-type-info setup-guest-error"
               />
+              <p
+                id="setup-room-type-info"
+                class="setup-room-type-info"
+                data-room-kind="unknown"
+                data-i18n="setup.room_type_hint"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              ></p>
               <p
                 id="setup-guest-error"
                 class="setup-inline-error"
@@ -2745,6 +2754,15 @@
               <h2 data-i18n="setup.welcome_title"></h2>
               <p id="setup-auto-join-subtitle"></p>
             </div>
+            <p
+              id="setup-auto-join-room-type-info"
+              class="setup-room-type-info"
+              data-room-kind="unknown"
+              data-i18n="setup.room_type_hint"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+            ></p>
             <p
               id="setup-auto-join-error"
               class="setup-inline-error"
@@ -3224,6 +3242,43 @@
       <span id="toast-msg"></span>
     </div>
 
+    <aside
+      id="center-role-guide"
+      class="center-role-guide"
+      role="region"
+      aria-labelledby="center-role-guide-copy"
+      hidden
+    >
+      <div
+        id="center-role-guide-copy"
+        class="center-role-guide-copy"
+        data-i18n="setup.center_role_guide"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      ></div>
+      <div class="center-role-guide-actions">
+        <button
+          type="button"
+          id="btn-center-role-settings"
+          class="center-role-guide-primary"
+          data-i18n="setup.center_role_open_settings"
+        ></button>
+        <button
+          type="button"
+          id="btn-center-role-dismiss"
+          class="center-role-guide-dismiss"
+          data-i18n-aria-label="common.close"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M18.3 5.71 12 12l6.3 6.29-1.42 1.42L10.59 13.41 4.29 19.71 2.88 18.3 9.17 12 2.88 5.7 4.29 4.29 10.59 10.59 16.88 4.29z"
+            />
+          </svg>
+        </button>
+      </div>
+    </aside>
+
     <div class="manual-sync-overlay" id="manual-sync-overlay" aria-hidden="true">
       <div
         class="sync-glass-panel"
@@ -3559,13 +3614,24 @@
         </div>
 
         <div class="setup-slot-list" data-custom-scroll data-custom-scroll-contained>
-          <button class="file-select-btn" id="btn-local-file">
+          <button
+            class="file-select-btn"
+            id="btn-local-file"
+            aria-describedby="media-local-file-description"
+          >
             <div class="btn-icon-bg">
               <svg viewBox="0 0 24 24">
                 <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
               </svg>
             </div>
-            <span data-i18n="help.load_local"></span>
+            <span class="media-source-copy">
+              <span class="media-source-label-text" data-i18n="help.load_local"></span>
+              <small
+                id="media-local-file-description"
+                class="media-source-description"
+                data-i18n="help.local_memory_notice"
+              ></small>
+            </span>
           </button>
           <button class="file-select-btn" id="btn-youtube-source">
             <div class="btn-icon-bg youtube">
@@ -3577,7 +3643,11 @@
             </div>
             <span data-i18n="help.youtube_compat"></span>
           </button>
-          <button class="file-select-btn" id="btn-system-audio">
+          <button
+            class="file-select-btn"
+            id="btn-system-audio"
+            aria-describedby="media-system-audio-limits media-system-audio-status"
+          >
             <div class="btn-icon-bg">
               <svg viewBox="0 0 24 24">
                 <path
@@ -3593,9 +3663,24 @@
                 </svg>
               </span>
             </div>
-            <span class="media-source-label-row">
-              <span class="media-source-label-text" data-i18n="system_audio.button"></span>
-              <span class="feature-badge media-source-beta-badge" aria-label="Beta">BETA</span>
+            <span class="media-source-copy">
+              <span class="media-source-label-row">
+                <span class="media-source-label-text" data-i18n="system_audio.button"></span>
+                <span class="feature-badge media-source-beta-badge" aria-label="Beta">BETA</span>
+              </span>
+              <small
+                id="media-system-audio-limits"
+                class="media-source-description"
+                data-i18n="system_audio.preflight_limits"
+              ></small>
+              <small
+                id="media-system-audio-status"
+                class="media-source-disabled-reason"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                hidden
+              ></small>
             </span>
           </button>
         </div>

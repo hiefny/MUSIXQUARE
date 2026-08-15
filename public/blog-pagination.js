@@ -193,10 +193,7 @@
   function isPaginationMutation(mutation) {
     var target = mutation.target;
     return (
-      target &&
-      target.nodeType === 1 &&
-      target.closest &&
-      target.closest('[data-blog-pagination]')
+      target && target.nodeType === 1 && target.closest && target.closest('[data-blog-pagination]')
     );
   }
 

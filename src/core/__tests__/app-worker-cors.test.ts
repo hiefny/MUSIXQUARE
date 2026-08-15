@@ -918,6 +918,16 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     });
   }
 
+  function createAdaptivePressureBinding(allowedCalls: number) {
+    const counts = new Map<string, number>();
+    const limit = vi.fn(async ({ key }: { key: string }) => {
+      const next = (counts.get(key) || 0) + 1;
+      counts.set(key, next);
+      return { success: next <= allowedCalls };
+    });
+    return { binding: { limit }, limit };
+  }
+
   it('fails closed for paid endpoints when capability auth is not configured', async () => {
     const env = {};
 
@@ -1139,8 +1149,213 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       turnstileRequired: false,
       proofOfWorkRequired: true,
       proofOfWorkDifficulty: 12,
+      proofOfWorkAdaptive: false,
+      proofOfWorkMaxDifficulty: 12,
       proofOfWorkTtl: 120,
     });
+  });
+
+  it('keeps 100 same-NAT room challenges at baseline and escalates only after abusive pressure', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-15T00:00:30.000Z'));
+    installRateLimitCache();
+    const ip = '203.0.113.123';
+    const scopes = ['realtime', 'remote-share', 'turn', 'youtube-search'];
+    const roomPressure = createAdaptivePressureBinding(150);
+    const generalPressure = createAdaptivePressureBinding(15);
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'adaptive-capability-secret-at-least-32',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+      MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED: 'true',
+      MXQR_CAPABILITY_POW_ADAPTIVE_MAX_DIFFICULTY: '10',
+      MXQR_CAPABILITY_POW_ROOM_PRESSURE: roomPressure.binding,
+      MXQR_CAPABILITY_POW_GENERAL_PRESSURE: generalPressure.binding,
+    };
+    const challengeRequest = () =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/capability-challenge', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': ip,
+          },
+          body: JSON.stringify({ scopes }),
+        }),
+        env,
+      );
+    const failedProofRequest = () =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/capability-token', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': ip,
+          },
+          body: JSON.stringify({
+            scopes,
+            proofOfWork: { challenge: 'invalid.signature', solution: '0' },
+          }),
+        }),
+        env,
+      );
+
+    const securityConfig = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config', {
+        headers: { Origin: 'https://musixquare.com' },
+      }),
+      env,
+    );
+    await expect(securityConfig.json()).resolves.toMatchObject({
+      proofOfWorkDifficulty: 8,
+      proofOfWorkAdaptive: true,
+      proofOfWorkMaxDifficulty: 10,
+    });
+
+    for (let index = 0; index < 100; index += 1) {
+      const response = await challengeRequest();
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ difficulty: 8 });
+    }
+    for (let index = 0; index < 50; index += 1) {
+      const response = await failedProofRequest();
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({ error: 'PROOF_OF_WORK_FAILED' });
+    }
+
+    const escalated = await challengeRequest();
+    const challenge = (await escalated.json()) as {
+      challenge: string;
+      difficulty: number;
+    };
+    expect(escalated.status).toBe(200);
+    expect(challenge.difficulty).toBe(10);
+    expect(roomPressure.limit).toHaveBeenCalledTimes(151);
+    expect(generalPressure.limit).not.toHaveBeenCalled();
+
+    const mint = await mintWithProofOfWork(env, scopes, ip, {
+      challenge: challenge.challenge,
+      solution: await solveProofOfWork(challenge.challenge, challenge.difficulty),
+    });
+    expect(mint.status).toBe(200);
+    await expect(mint.json()).resolves.toMatchObject({ scopes });
+  });
+
+  it('uses the atomic edge-pressure binding across a concurrent threshold burst', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-15T00:00:30.000Z'));
+    // Every concurrent Cache match can observe the same old value before its
+    // put settles. The Rate Limiting binding fake remains atomic, proving that
+    // adaptive difficulty does not inherit that best-effort lost update.
+    installRateLimitCache();
+    const ip = '203.0.113.126';
+    const roomPressure = createAdaptivePressureBinding(150);
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'concurrent-pressure-secret-at-least-32',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+      MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED: 'true',
+      MXQR_CAPABILITY_POW_ADAPTIVE_MAX_DIFFICULTY: '10',
+      MXQR_CAPABILITY_POW_ROOM_PRESSURE: roomPressure.binding,
+    };
+    const responses = await Promise.all(
+      Array.from({ length: 151 }, () =>
+        appWorker.fetch(
+          new Request('https://musixquare.com/api/capability-challenge', {
+            method: 'POST',
+            headers: {
+              Origin: 'https://musixquare.com',
+              'Content-Type': 'application/json',
+              'CF-Connecting-IP': ip,
+            },
+            body: JSON.stringify({ scopes: ['turn'] }),
+          }),
+          env,
+        ),
+      ),
+    );
+    expect(responses.every((response) => response.status === 200)).toBe(true);
+    const payloads = (await Promise.all(responses.map((response) => response.json()))) as Array<{
+      difficulty: number;
+    }>;
+    expect(payloads.filter(({ difficulty }) => difficulty === 8)).toHaveLength(150);
+    expect(payloads.filter(({ difficulty }) => difficulty === 10)).toHaveLength(1);
+    expect(roomPressure.limit).toHaveBeenCalledTimes(151);
+    const pressureKeys = roomPressure.limit.mock.calls.map(([input]) => input.key);
+    expect(new Set(pressureKeys).size).toBe(1);
+    expect(pressureKeys[0]).not.toBe(ip);
+    expect(pressureKeys[0]).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+  });
+
+  it('uses a separate 15/min general pressure tier and falls back to baseline without a binding', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-15T00:00:30.000Z'));
+    installRateLimitCache();
+    const generalPressure = createAdaptivePressureBinding(15);
+    const adaptiveEnv = {
+      MXQR_CAPABILITY_SECRET: 'adaptive-general-secret-at-least-32',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+      MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED: 'true',
+      MXQR_CAPABILITY_POW_ADAPTIVE_MAX_DIFFICULTY: '10',
+      MXQR_CAPABILITY_POW_GENERAL_PRESSURE: generalPressure.binding,
+    };
+    const challenge = (env: Record<string, unknown>, ip: string) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/capability-challenge', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': ip,
+          },
+          body: JSON.stringify({ scopes: ['remote-share'] }),
+        }),
+        env,
+      );
+
+    for (let index = 0; index < 15; index += 1) {
+      await expect(
+        challenge(adaptiveEnv, '203.0.113.124').then((value) => value.json()),
+      ).resolves.toMatchObject({
+        difficulty: 8,
+      });
+    }
+    await expect(
+      challenge(adaptiveEnv, '203.0.113.124').then((value) => value.json()),
+    ).resolves.toMatchObject({ difficulty: 10 });
+    expect(generalPressure.limit).toHaveBeenCalledTimes(16);
+
+    const fallback = await challenge(
+      {
+        ...adaptiveEnv,
+        MXQR_CAPABILITY_POW_GENERAL_PRESSURE: undefined,
+      },
+      '203.0.113.125',
+    );
+    expect(fallback.status).toBe(200);
+    await expect(fallback.json()).resolves.toMatchObject({ difficulty: 8 });
+
+    for (const brokenBinding of [
+      { limit: vi.fn(async () => ({ success: 'not-boolean' })) },
+      {
+        limit: vi.fn(async () => {
+          throw new Error('rate-limit binding unavailable');
+        }),
+      },
+    ]) {
+      const response = await challenge(
+        {
+          ...adaptiveEnv,
+          MXQR_CAPABILITY_POW_GENERAL_PRESSURE: brokenBinding,
+        },
+        `203.0.113.${126 + brokenBinding.limit.mock.calls.length}`,
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({ difficulty: 8 });
+    }
   });
 
   it('rejects Turnstile tokens solved on an unexpected hostname', async () => {
@@ -5454,9 +5669,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.58');
-    expect(html).toContain('/admin.js?v=8.3.58');
-    expect(html).toContain('data-admin-asset-version="8.3.58"');
+    expect(html).toContain('/admin.css?v=8.3.59');
+    expect(html).toContain('/admin.js?v=8.3.59');
+    expect(html).toContain('data-admin-asset-version="8.3.59"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -5475,7 +5690,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.58', '/admin.css?v=8.3.58']) {
+    for (const path of ['/admin.js?v=8.3.59', '/admin.css?v=8.3.59']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');

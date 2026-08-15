@@ -1,4 +1,4 @@
-const ADMIN_SCRIPT_VERSION = '8.3.58';
+const ADMIN_SCRIPT_VERSION = '8.3.59';
 window.__MXQR_ADMIN_SCRIPT_VERSION__ = ADMIN_SCRIPT_VERSION;
 
 const root = document.querySelector('.admin-shell');
@@ -1914,7 +1914,7 @@ async function permanentlyDeleteProRoom() {
     );
     try {
       await loadProRooms();
-    } catch (loadError) {
+    } catch {
       proRoomsLoaded = false;
       setProRoomStatus(
         deletionPending

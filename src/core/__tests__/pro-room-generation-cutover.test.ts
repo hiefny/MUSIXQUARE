@@ -140,6 +140,7 @@ describe('PRO room generation release fence', () => {
 
   it('retires the initial-room ceremony and keeps the failure fence before rollback', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mjs'), 'utf8');
     for (const retired of [
       'apply_pro_room_generation_d1',
       'enable_pro_room_generation_cutover',
@@ -160,10 +161,10 @@ describe('PRO room generation release fence', () => {
     );
     expect(workflow).toContain('steps.worker_floor_assessment.outputs.forward_targets');
     expect(workflow).toContain('verify release-artifacts/recovery-checkpoint "$floor_file"');
-    expect(workflow).toContain(
-      'for target in pro-room signaling developer-api-facade developer-api app; do',
-    );
-    expect(workflow).toContain('append_skip_target "$target"');
+    expect(workflow).toContain('MXQR_GENERATION_FENCE_OUTCOME=');
+    expect(workflow).toContain('node scripts/release-recovery-plan.mjs');
+    expect(recoveryPlan).toContain("generationOutcome === 'failure'");
+    expect(recoveryPlan).toContain("'developer-api-facade'");
     expect(workflow).not.toContain(
       'rollback_skip_targets="pro-room,signaling,developer-api-facade,developer-api,app"',
     );

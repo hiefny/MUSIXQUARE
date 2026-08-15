@@ -1014,7 +1014,11 @@ describe('Worker compatibility-floor recovery', () => {
   });
 
   it('wires the immutable floor checkpoint into both recovery paths', () => {
-    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const workflow = [
+      readFileSync(resolve('.github/workflows/release.yml'), 'utf8'),
+      readFileSync(resolve('.github/workflows/release-recovery.yml'), 'utf8'),
+    ].join('\n');
+    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mjs'), 'utf8');
     const workerCheckpoint = workflow.indexOf('Capture immutable Worker compatibility floors');
     const persistedCheckpoint = workflow.indexOf('Persist pre-mutation recovery checkpoint');
     const authorization = workflow.indexOf(
@@ -1048,10 +1052,8 @@ describe('Worker compatibility-floor recovery', () => {
       expect(step).toContain('targets release-artifacts/recovery-checkpoint');
     }
     for (const step of [sameJobRollback, independentRollback]) {
-      expect(step).toContain(
-        "all) worker_floor_targets='pro-room,signaling,developer-api-facade,developer-api,app'",
-      );
-      expect(step).toContain('for target in ${worker_floor_targets//,/ }; do');
+      expect(step).toContain('MXQR_WORKER_FLOOR_TARGETS=');
+      expect(step).toContain('node scripts/release-recovery-plan.mjs');
       expect(step).toContain('rollback release-artifacts/recovery-checkpoint');
       expect(step).toContain(
         'service-control-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',
@@ -1061,6 +1063,9 @@ describe('Worker compatibility-floor recovery', () => {
       );
       expect(step).not.toMatch(/generation_floor[^\n]*== ['"]true['"]/u);
     }
+    expect(recoveryPlan).toContain(
+      "return ['pro-room', 'signaling', 'developer-api-facade', 'developer-api', 'app'];",
+    );
     expect(
       workflowStep(workflow, 'Reconcile R2 policy with the exact recovered Worker boundary'),
     ).toContain('release-artifacts/recovery-checkpoint');

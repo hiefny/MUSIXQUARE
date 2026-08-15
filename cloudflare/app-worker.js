@@ -32,6 +32,24 @@ import {
   updateAdminAnnouncementControl,
   updateServiceMaintenance,
 } from './service-maintenance.js';
+import {
+  CAPABILITY_JSON_BODY_MAX_BYTES,
+  consumeCapabilityPowPressure,
+  createCapabilityPowChallenge,
+  createCapabilityToken,
+  getCapabilitySecret,
+  hasInvalidCapabilitySecret,
+  isCapabilityAuthEnabled,
+  isCapabilityPowAdaptiveEnabled,
+  parseCapabilityPowDifficulty as parseConfiguredCapabilityPowDifficulty,
+  parseCapabilityPowMaxDifficulty,
+  parseCapabilityPowTtl,
+  parseCapabilityTtl,
+  parseRequestedScopes,
+  readCapabilityToken,
+  verifyCapabilityPowProof,
+  verifyCapabilityToken,
+} from './capability-security.js';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.js';
 import {
   abortProRoomOwnershipTransferEntitlement,
@@ -71,26 +89,7 @@ const MINUTES_PER_HOUR = 60;
 const CLOUDFLARE_TURN_TTL_DEFAULT = 48 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
 const CLOUDFLARE_TURN_TTL_MIN = 60;
 const CLOUDFLARE_TURN_TTL_MAX = CLOUDFLARE_TURN_TTL_DEFAULT;
-const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
-// Keep the minimum well above the 30s client refresh skew. If challenge mode
-// is enabled, a 60s TTL leaves only ~30s of usable cache and executes the
-// challenge too frequently for legitimate users.
-const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
-const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
-const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
-// A token containing every current scope and the PoW nonce is under 300
-// characters. Keep ample format-growth headroom while bounding attacker-owned
-// input before WebCrypto work.
-const CAPABILITY_TOKEN_MAX_LENGTH = 512;
-const CAPABILITY_TOKEN_PAYLOAD_RE = /^[A-Za-z0-9_-]+$/;
-const CAPABILITY_TOKEN_SIGNATURE_RE = /^[A-Za-z0-9_-]{43}$/;
 const CAPABILITY_POW_DIFFICULTY_DEFAULT = 12;
-const CAPABILITY_POW_DIFFICULTY_MIN = 8;
-const CAPABILITY_POW_DIFFICULTY_MAX = 24;
-const CAPABILITY_POW_TTL_DEFAULT = 2 * SECONDS_PER_MINUTE;
-const CAPABILITY_POW_TTL_MIN = 30;
-const CAPABILITY_POW_TTL_MAX = 5 * SECONDS_PER_MINUTE;
-const CAPABILITY_JSON_BODY_MAX_BYTES = 8 * 1024;
 const ADMIN_JSON_BODY_MAX_BYTES = 8 * 1024;
 const REALTIME_JSON_BODY_MAX_BYTES = 128 * 1024;
 const PUBLIC_JSON_BODY_TIMEOUT_MS = 10_000;
@@ -122,7 +121,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.3.58';
+const ADMIN_ASSET_VERSION = '8.3.59';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -1083,10 +1082,11 @@ async function checkRateLimit(
 
   if (count >= limit) return false;
 
+  const nextCount = count + 1;
   try {
     await cache.put(
       cacheKey,
-      new Response(String(count + 1), {
+      new Response(String(nextCount), {
         headers: { 'Cache-Control': `public, max-age=${windowSec * 2}` },
       }),
     );
@@ -1187,24 +1187,6 @@ function rateLimitUnavailableResponse(headers) {
   return json({ error: 'RATE_LIMIT_UNAVAILABLE' }, 503, headers);
 }
 
-function getCapabilitySecret(env) {
-  const secret = String(
-    env.MXQR_CAPABILITY_SECRET || env.CAPABILITY_HMAC_SECRET || env.CAPABILITY_SECRET || '',
-  );
-  return secret.length >= HMAC_SECRET_MIN_LENGTH ? secret : '';
-}
-
-function hasInvalidCapabilitySecret(env) {
-  const secret = String(
-    env.MXQR_CAPABILITY_SECRET || env.CAPABILITY_HMAC_SECRET || env.CAPABILITY_SECRET || '',
-  );
-  return secret.length > 0 && secret.length < HMAC_SECRET_MIN_LENGTH;
-}
-
-function isCapabilityAuthEnabled(env) {
-  return !!getCapabilitySecret(env);
-}
-
 function getTurnstileSiteKey(env) {
   return env.TURNSTILE_SITE_KEY || env.CLOUDFLARE_TURNSTILE_SITE_KEY || '';
 }
@@ -1286,36 +1268,8 @@ function allowUnguardedPaidApis(env) {
   return raw === '1' || raw === 'true' || raw === 'yes';
 }
 
-function parseCapabilityTtl(env) {
-  const parsed = Number.parseInt(env.MXQR_CAPABILITY_TTL || env.CAPABILITY_TTL || '', 10);
-  if (!Number.isFinite(parsed)) return CAPABILITY_TOKEN_TTL_DEFAULT;
-  return Math.min(CAPABILITY_TOKEN_TTL_MAX, Math.max(CAPABILITY_TOKEN_TTL_MIN, parsed));
-}
-
 function parseCapabilityPowDifficulty(env) {
-  const parsed = Number.parseInt(
-    env.MXQR_CAPABILITY_POW_DIFFICULTY || env.CAPABILITY_POW_DIFFICULTY || '',
-    10,
-  );
-  if (!Number.isFinite(parsed)) return CAPABILITY_POW_DIFFICULTY_DEFAULT;
-  return Math.min(CAPABILITY_POW_DIFFICULTY_MAX, Math.max(CAPABILITY_POW_DIFFICULTY_MIN, parsed));
-}
-
-function parseCapabilityPowTtl(env) {
-  const parsed = Number.parseInt(env.MXQR_CAPABILITY_POW_TTL || env.CAPABILITY_POW_TTL || '', 10);
-  if (!Number.isFinite(parsed)) return CAPABILITY_POW_TTL_DEFAULT;
-  return Math.min(CAPABILITY_POW_TTL_MAX, Math.max(CAPABILITY_POW_TTL_MIN, parsed));
-}
-
-function parseRequestedScopes(value) {
-  if (!Array.isArray(value)) return [];
-  const scopes = [];
-  for (const scope of value) {
-    if (typeof scope === 'string' && CAPABILITY_SCOPES.has(scope) && !scopes.includes(scope)) {
-      scopes.push(scope);
-    }
-  }
-  return scopes.sort();
+  return parseConfiguredCapabilityPowDifficulty(env, CAPABILITY_POW_DIFFICULTY_DEFAULT);
 }
 
 function bytesToBase64Url(bytes) {
@@ -1364,158 +1318,10 @@ async function sha256Bytes(value) {
   return new Uint8Array(digest);
 }
 
-function hasLeadingZeroBits(bytes, difficulty) {
-  let remaining = difficulty;
-  for (const byte of bytes) {
-    if (remaining <= 0) return true;
-    const bits = Math.min(8, remaining);
-    if ((byte & (0xff << (8 - bits))) !== 0) return false;
-    remaining -= bits;
-  }
-  return remaining <= 0;
-}
-
-async function capabilityIpHash(secret, request) {
-  return hmacSha256(secret, `ip:${getClientIp(request)}`);
-}
-
 function randomNonce(byteLength = 16) {
   const bytes = new Uint8Array(byteLength);
   crypto.getRandomValues(bytes);
   return bytesToBase64Url(bytes);
-}
-
-async function createCapabilityPowChallenge(scopes, request, env) {
-  const secret = getCapabilitySecret(env);
-  const now = Math.floor(Date.now() / 1000);
-  const payload = {
-    v: 1,
-    scopes,
-    iat: now,
-    exp: now + parseCapabilityPowTtl(env),
-    ip: await capabilityIpHash(secret, request),
-    difficulty: parseCapabilityPowDifficulty(env),
-    capabilityTtl: parseCapabilityTtl(env),
-    nonce: randomNonce(),
-  };
-  const payloadPart = stringToBase64Url(JSON.stringify(payload));
-  const signature = await hmacSha256(secret, `capability-pow:${payloadPart}`);
-  return {
-    challenge: `${payloadPart}.${signature}`,
-    difficulty: payload.difficulty,
-    expiresAt: payload.exp,
-    algorithm: 'sha256-leading-zero-bits',
-  };
-}
-
-async function verifyCapabilityPowProof(proof, scopes, request, env) {
-  if (!proof || typeof proof !== 'object') return null;
-  const challenge = typeof proof.challenge === 'string' ? proof.challenge : '';
-  const solution = typeof proof.solution === 'string' ? proof.solution : '';
-  if (!challenge || !/^\d{1,20}$/.test(solution)) return null;
-
-  const parts = challenge.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
-  const secret = getCapabilitySecret(env);
-  const expectedSignature = await hmacSha256(secret, `capability-pow:${parts[0]}`);
-  if (!constantTimeEqual(expectedSignature, parts[1])) return null;
-
-  let payload;
-  try {
-    payload = JSON.parse(base64UrlToString(parts[0]));
-  } catch {
-    return null;
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (payload?.v !== 1) return null;
-  if (!Array.isArray(payload.scopes) || JSON.stringify(payload.scopes) !== JSON.stringify(scopes)) {
-    return null;
-  }
-  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return null;
-  if (typeof payload.exp !== 'number' || payload.exp <= now) return null;
-  if (payload.exp - payload.iat !== parseCapabilityPowTtl(env)) return null;
-  if (payload.difficulty !== parseCapabilityPowDifficulty(env)) return null;
-  if (payload.capabilityTtl !== parseCapabilityTtl(env)) return null;
-  if (typeof payload.nonce !== 'string' || !payload.nonce) return null;
-
-  const expectedIp = await capabilityIpHash(secret, request);
-  if (!constantTimeEqual(String(payload.ip || ''), expectedIp)) return null;
-
-  const digest = await sha256Bytes(`mxqr-pow-v1:${challenge}:${solution}`);
-  if (!hasLeadingZeroBits(digest, payload.difficulty)) return null;
-  return payload;
-}
-
-function readCapabilityToken(request) {
-  const headerToken = request.headers.get('X-MXQR-Capability') || '';
-  if (headerToken) return headerToken.trim();
-  const authorization = request.headers.get('Authorization') || '';
-  const match = authorization.match(/^Bearer\s+(.+)$/i);
-  return match ? match[1].trim() : '';
-}
-
-async function createCapabilityToken(scopes, request, env, method, anchor = null) {
-  const secret = getCapabilitySecret(env);
-  const ttl = parseCapabilityTtl(env);
-  const now = Math.floor(Date.now() / 1000);
-  // Tokens are base64url-encoded, not encrypted. Do not embed the minting
-  // method because it would disclose the active verification path.
-  void method;
-  const payload = {
-    v: 1,
-    scopes,
-    iat: anchor?.iat ?? now,
-    exp: (anchor?.iat ?? now) + ttl,
-    ip: await capabilityIpHash(secret, request),
-    ...(anchor?.jti ? { jti: anchor.jti } : {}),
-  };
-  const payloadPart = stringToBase64Url(JSON.stringify(payload));
-  const signature = await hmacSha256(secret, payloadPart);
-  return {
-    token: `${payloadPart}.${signature}`,
-    expiresAt: payload.exp,
-    scopes,
-  };
-}
-
-async function verifyCapabilityToken(token, request, env, requiredScope) {
-  const secret = getCapabilitySecret(env);
-  if (
-    !secret ||
-    typeof token !== 'string' ||
-    !token ||
-    token.length > CAPABILITY_TOKEN_MAX_LENGTH
-  ) {
-    return false;
-  }
-  const parts = token.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
-  if (
-    !CAPABILITY_TOKEN_PAYLOAD_RE.test(parts[0]) ||
-    !CAPABILITY_TOKEN_SIGNATURE_RE.test(parts[1])
-  ) {
-    return false;
-  }
-
-  const expectedSignature = await hmacSha256(secret, parts[0]);
-  if (!constantTimeEqual(expectedSignature, parts[1])) return false;
-
-  let payload;
-  try {
-    payload = JSON.parse(base64UrlToString(parts[0]));
-  } catch {
-    return false;
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (payload?.v !== 1) return false;
-  if (!Array.isArray(payload.scopes) || !payload.scopes.includes(requiredScope)) return false;
-  if (typeof payload.iat !== 'number' || payload.iat > now + 60) return false;
-  if (typeof payload.exp !== 'number' || payload.exp <= now) return false;
-
-  const expectedIp = await capabilityIpHash(secret, request);
-  return constantTimeEqual(String(payload.ip || ''), expectedIp);
 }
 
 function isValidRealtimeSessionId(value) {
@@ -10091,6 +9897,7 @@ async function handleSecurityConfig(request, env) {
   const turnstileConfigured = isTurnstileConfigured(env);
   const capabilityRequired = isCapabilityAuthEnabled(env);
   const proofOfWorkRequired = capabilityRequired && !turnstileConfigured;
+  const proofOfWorkDifficulty = proofOfWorkRequired ? parseCapabilityPowDifficulty(env) : 0;
 
   return json(
     {
@@ -10098,7 +9905,11 @@ async function handleSecurityConfig(request, env) {
       turnstileSiteKey: turnstileConfigured ? getTurnstileSiteKey(env) : '',
       turnstileRequired: capabilityRequired && turnstileConfigured,
       proofOfWorkRequired,
-      proofOfWorkDifficulty: proofOfWorkRequired ? parseCapabilityPowDifficulty(env) : 0,
+      proofOfWorkDifficulty,
+      proofOfWorkAdaptive: proofOfWorkRequired && isCapabilityPowAdaptiveEnabled(env),
+      proofOfWorkMaxDifficulty: proofOfWorkRequired
+        ? parseCapabilityPowMaxDifficulty(env, proofOfWorkDifficulty)
+        : 0,
       proofOfWorkTtl: proofOfWorkRequired ? parseCapabilityPowTtl(env) : 0,
       ttl: parseCapabilityTtl(env),
     },
@@ -10127,17 +9938,21 @@ async function handleCapabilityChallenge(request, env) {
   const scopes = parseRequestedScopes(parsedBody.value?.scopes);
   if (scopes.length === 0) return json({ error: 'Invalid scopes' }, 400, headers);
   const roomBurst = scopes.includes('realtime') || scopes.includes('turn');
-  if (
-    !(await checkRateLimit(
-      request,
-      roomBurst ? 'capability-challenge-room' : 'capability-challenge',
-      roomBurst ? ROOM_BURST_CAPABILITY_LIMIT : 30,
-      60,
-    ))
-  ) {
+  const challengeRateLimit = roomBurst ? ROOM_BURST_CAPABILITY_LIMIT : 30;
+  const challengeRateKey = roomBurst ? 'capability-challenge-room' : 'capability-challenge';
+  if (!(await checkRateLimit(request, challengeRateKey, challengeRateLimit, 60))) {
     return rateLimitResponse(headers);
   }
-  return json(await createCapabilityPowChallenge(scopes, request, env), 200, headers);
+  const baselineDifficulty = parseCapabilityPowDifficulty(env);
+  const pressure = await consumeCapabilityPowPressure(request, env, {
+    roomBurst,
+    baselineDifficulty,
+  });
+  return json(
+    await createCapabilityPowChallenge(scopes, request, env, pressure.difficulty),
+    200,
+    headers,
+  );
 }
 
 async function handleCapabilityToken(request, env) {
@@ -10178,8 +9993,23 @@ async function handleCapabilityToken(request, env) {
     return json(await createCapabilityToken(scopes, request, env, 'turnstile'), 200, headers);
   }
   if (!isTurnstileConfigured(env)) {
-    const challenge = await verifyCapabilityPowProof(body?.proofOfWork, scopes, request, env);
-    if (!challenge) return json({ error: 'PROOF_OF_WORK_FAILED' }, 403, headers);
+    const baselineDifficulty = parseCapabilityPowDifficulty(env);
+    const challenge = await verifyCapabilityPowProof(
+      body?.proofOfWork,
+      scopes,
+      request,
+      env,
+      baselineDifficulty,
+    );
+    if (!challenge) {
+      if (body?.proofOfWork && typeof body.proofOfWork === 'object') {
+        await consumeCapabilityPowPressure(request, env, {
+          roomBurst,
+          baselineDifficulty,
+        });
+      }
+      return json({ error: 'PROOF_OF_WORK_FAILED' }, 403, headers);
+    }
     // Reusing the same proof returns the same token and cannot extend expiry.
     return json(
       await createCapabilityToken(scopes, request, env, 'proof-of-work', {

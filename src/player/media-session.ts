@@ -302,5 +302,14 @@ export function initMediaSession(): void {
     navigator.mediaSession.playbackState = mediaSessionStateFromActivity(activity);
   });
 
+  // This module can initialize after demo/room state has already committed.
+  // Seed the OS surface from canonical state so an import race cannot leave it
+  // blank until the next track or playback transition.
+  updateMediaSessionMetadata(getState('player.currentTrackMeta') ?? null);
+  const activity = getState('playback.activity');
+  if (isPlaybackActivityValue(activity)) {
+    navigator.mediaSession.playbackState = mediaSessionStateFromActivity(activity);
+  }
+
   log.info('[MediaSession] Initialized');
 }

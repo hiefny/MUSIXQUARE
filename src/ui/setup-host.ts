@@ -11,6 +11,8 @@
 import { log } from '../core/log.ts';
 import { getState, setState } from '../core/state.ts';
 import { setManagedTimer } from '../core/timers.ts';
+import { scheduleDocumentReload } from '../core/session-reset.ts';
+import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
 import { clearLatestPinnedNotice } from '../chat/protocol.ts';
 import { createHostSessionWithShortCode, broadcastDeviceList } from '../network/peer.ts';
 import {
@@ -38,6 +40,7 @@ import {
 import { animateTransition } from './dom.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
+import { scheduleCenterRoleGuideOnce } from './center-role-guide.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
@@ -162,7 +165,8 @@ async function proceedToHostCode(mode: number): Promise<void> {
     if (flowId !== getHostCodeFlowId()) return;
 
     log.error('[Setup] Host session init failed', e);
-    setupSetHostError(t('error.session_create_fail'));
+    const reloadRequired = isLazyFeatureLoadError(e);
+    setupSetHostError(t(reloadRequired ? 'dialog.sw_update_msg' : 'error.session_create_fail'));
     setupRenderActions(
       [
         {
@@ -174,9 +178,11 @@ async function proceedToHostCode(mode: number): Promise<void> {
         },
         {
           id: 'btn-setup-confirm',
-          text: t('common.retry'),
+          text: t(reloadRequired ? 'common.refresh' : 'common.retry'),
           kind: 'primary',
-          onClick: () => void proceedToHostCode(mode),
+          onClick: reloadRequired
+            ? () => scheduleDocumentReload(t('dialog.refreshing_session'))
+            : () => void proceedToHostCode(mode),
         },
       ],
       'horizontal-with-back',
@@ -201,6 +207,7 @@ function startSessionFromHost(mode: number = DEFAULT_SETUP_ROLE): void {
   clearLatestPinnedNotice();
   setState('setup.sessionStarted', true);
   hideSetupOverlay();
+  scheduleCenterRoleGuideOnce();
   updateRoleBadge();
 
   // Show host in device list immediately (don't wait for a guest to connect)

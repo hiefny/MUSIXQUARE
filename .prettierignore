@@ -4,7 +4,7 @@ _legacy/
 *.min.js
 
 # Exact-file exceptions for pre-existing tooling formatting debt. Keep this
-# list narrow so every new Worker, script, E2E helper, and config is gated.
+# list narrow so every new Worker, public runtime, script, E2E helper, and config is gated.
 cloudflare/account-assertion.js
 cloudflare/developer-api-worker.js
 cloudflare/remote-share-worker.js

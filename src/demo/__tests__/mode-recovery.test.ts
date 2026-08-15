@@ -35,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
   safeSend: vi.fn(),
   loadDemoFile: vi.fn(),
+  prepareMediaSession: vi.fn(() => Promise.resolve()),
   showLoader: vi.fn(),
   showToast: vi.fn(),
   updateLoader: vi.fn(),
@@ -61,6 +62,10 @@ vi.mock('../../network/peer.ts', () => ({
 
 vi.mock('../../player/decode.ts', () => ({
   loadDemoFile: mocks.loadDemoFile,
+}));
+
+vi.mock('../../player/media-session-loader.ts', () => ({
+  prepareMediaSession: mocks.prepareMediaSession,
 }));
 
 vi.mock('../../audio/effects.ts', () => ({
@@ -215,6 +220,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
 
     bus.emit('demo:enter');
     await flush();
+    expect(mocks.prepareMediaSession).toHaveBeenCalledOnce();
     expect(getState('demo.active')).toBe(true);
     expect(getState('demo.loading')).toBe(true);
     expect(FakeXHR.pending).toHaveLength(1);

@@ -11,6 +11,7 @@
  */
 
 import { log } from '../core/log.ts';
+import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
@@ -23,6 +24,7 @@ import { showToast, showLoader } from './toast.ts';
 import { showDialog } from './dialog.ts';
 import { updateRoleBadge } from './player-controls.ts';
 import { openLanguageDialog } from './settings.ts';
+import { initCenterRoleGuide, scheduleCenterRoleGuideOnce } from './center-role-guide.ts';
 
 // ─── Sub-module imports ──────────────────────────────────────────
 import { startHostFlow, setHostGoBack } from './setup-host.ts';
@@ -35,7 +37,7 @@ import {
   restoreGuestJoinControlsAfterFailure,
 } from './setup-guest.ts';
 import { animateTransition } from './dom.ts';
-import { scheduleSessionReset } from '../core/session-reset.ts';
+import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
 import { cancelPendingSessionSetup } from '../network/peer.ts';
 import {
   syncDesktopLeftPanel,
@@ -49,6 +51,7 @@ import {
   setupShowWelcome,
   setupSetGuestJoinBusy,
   setupSetGuestJoinError,
+  setupUpdateRoomTypeInfo,
   setupRenderActions,
   initObCarousel,
   notifyObCarouselGreetingReady,
@@ -325,6 +328,8 @@ setGuestGoBack(initSetupOverlay);
 // ─── Public Init ─────────────────────────────────────────────────
 
 export function initSetup(): void {
+  initCenterRoleGuide();
+
   // Desktop / compact landscape layout listener
   try {
     const mqlDesktop = window.matchMedia('(min-width: 1280px)');
@@ -374,6 +379,7 @@ export function initSetup(): void {
       const raw = joinInput.value || '';
       const digits = raw.replace(/\D+/g, '').slice(0, 6);
       if (raw !== digits) joinInput.value = digits;
+      setupUpdateRoomTypeInfo(digits);
     });
     joinInput.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
@@ -413,6 +419,7 @@ export function initSetup(): void {
 
     updateRoleBadge();
     hideSetupOverlay();
+    scheduleCenterRoleGuideOnce();
     // Clear pending join code & clean URL — connection succeeded
     setPendingAutoJoinCode(null);
     try {
@@ -438,6 +445,13 @@ export function initSetup(): void {
   };
 
   bus.on('setup:guest-join-failure', (failure) => {
+    if (isLazyFeatureLoadError(failure.error)) {
+      setState('network.isConnecting', false);
+      updateRoleBadge();
+      showLoader(false);
+      restoreGuestJoinControlsAfterFailure(t('dialog.sw_update_msg'), true);
+      return;
+    }
     restoreGuestJoinInputUI(failure.userMessage);
   });
 
@@ -457,6 +471,13 @@ export function initSetup(): void {
     const err = error as Record<string, unknown> | null;
     const msg = (err as Error | null)?.message || '';
     const peerType = err && typeof err === 'object' ? String(err.type || '') : '';
+    if (isLazyFeatureLoadError(error)) {
+      setState('network.isConnecting', false);
+      updateRoleBadge();
+      showLoader(false);
+      restoreGuestJoinControlsAfterFailure(t('dialog.sw_update_msg'), true);
+      return;
+    }
     if (
       (msg === 'HOST_DISCONNECTED' || msg === 'HOST_CONNECTION_ERROR') &&
       requestProRoomTransportRecovery()
@@ -574,7 +595,7 @@ export function initSetup(): void {
               startGuestFlow();
             }
           } else {
-            scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
+            scheduleDocumentReload(t('dialog.leaving_session'));
           }
         })
         .catch((e) => log.warn('[Setup] Reconnect dialog error:', e));
@@ -601,7 +622,7 @@ export function initSetup(): void {
   // Kicked from session (guest removed from host device list)
   bus.on('network:kicked-from-session', () => {
     showToast(t('toast.host_ended_connection'));
-    scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
+    scheduleDocumentReload(t('dialog.leaving_session'));
   });
 
   // Explicitly kicked by host (MSG.KICK_DEVICE)
@@ -614,7 +635,7 @@ export function initSetup(): void {
     })
       .catch((e) => log.warn('[Setup] Kick dialog error:', e))
       .finally(() => {
-        scheduleSessionReset(t('dialog.leaving_session'), () => window.location.reload());
+        scheduleDocumentReload(t('dialog.leaving_session'));
       });
   });
 

@@ -346,6 +346,15 @@ const de: Record<I18nKey, string> = {
   'setup.change_later': 'Du kannst es später in den Einstellungen ändern.',
   'setup.welcome_title': 'Willkommen',
   'setup.join_session_subtitle': 'Du trittst gleich Raum {{code}} bei.',
+  'setup.room_type_hint':
+    'Codes mit 0 führen zu dauerhaften PRO-Räumen, Codes mit 1–9 zu temporären Standardräumen.',
+  'setup.standard_room_summary':
+    'Standardraum · Temporär und endet, wenn der Host geht. Der Host verwaltet Wiedergabe und Berechtigungen; optional kann ein 8-stelliges Raumpasswort erforderlich sein.',
+  'setup.pro_room_summary':
+    'PRO-Raum · Playlist und Berechtigungen bleiben erhalten, wenn alle gehen. Eigentümer und Admins verwalten ihn; ein 8-stelliges PRO-Raumpasswort ist erforderlich.',
+  'setup.center_role_guide':
+    'Dieses Gerät ist als Center-Lautsprecher beigetreten. Ändere die Rolle unter Einstellungen → Audio → Rolle dieses Geräts festlegen.',
+  'setup.center_role_open_settings': 'Rolleneinstellungen öffnen',
   'setup.select_role': 'Bitte wähle eine Rolle',
   'setup.select_role_alt': 'Bitte wähle eine Rolle',
   'setup.greeting': 'Hallo!',
@@ -366,6 +375,8 @@ const de: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Verbindungen im selben Netzwerk sind am zuverlässigsten',
   'help.local_file': 'Lokale Datei wählen',
   'help.load_local': 'Lokale Datei laden',
+  'help.local_memory_notice':
+    'Die Datei wird im Geräte-RAM verarbeitet. Remote- und PRO-Übertragungen sind auf 200 MiB begrenzt; bei wenig Speicher können auch kleinere Dateien scheitern.',
   'help.youtube_compat': 'YouTube (Kompatibilitätsmodus)',
   'help.youtube_no_effects': 'Im YouTube-Modus sind Rollen und Audioeffekte nicht verfügbar.',
   'help.media_synced_detail':
@@ -455,6 +466,8 @@ const de: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Systemaudio',
+  'system_audio.preflight_limits':
+    'Desktop-Chromium (Chrome, Edge usw.) · bis zu {{count}} Geräte · bis zu {{hours}} Stunden',
   'system_audio.sharing': 'Systemaudio wird geteilt',
   'system_audio.receiving': 'Systemaudio wird empfangen',
   'system_audio.owner_active': '{{name}} teilt Systemaudio.',

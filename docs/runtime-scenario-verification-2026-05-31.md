@@ -1,7 +1,7 @@
 # Runtime Scenario Verification - 2026-05-31
 
 > **Maintained checklist.** Originally added on 2026-05-31 and revalidated on
-> 2026-08-09. Physical-device and real-browser verification is the release
+> 2026-08-15. Physical-device and real-browser verification is the release
 > confidence principle. Browser E2E remains an optional auxiliary signal: a
 > failure can help locate a regression, but a pass never substitutes for the
 > real-device matrix.
@@ -187,4 +187,33 @@ was run:
   and the applicable interruption case.
 
 Optional focused or full browser E2E results may accompany this evidence as a
-secondary signal. They are not an exit criterion or a production-release gate.
+secondary signal. They are not an exit criterion.
+
+## Persisting Production Release Evidence
+
+After the matrix is complete, dispatch
+`.github/workflows/real-device-qa.yml` on the current `main` commit. The tester
+must supply the exact 40-character SHA, completion timestamp, HTTPS environment
+that served that commit, HTTPS detailed evidence link, and the physical device
+matrix. Every standard-room, PRO-room, media-source, and background/resume
+attestation must be explicitly checked. Releases that enable adaptive proof of
+work must also check its dedicated performance attestation: the linked log must
+record difficulty-16 cold and warm p50/p95 results on a supported iPhone and a
+desktop browser on a Korean connection, plus the build SHA, timestamp,
+Cloudflare colo, sample count, timeout/failure behavior, invite-code timing,
+and full RTC-readiness timing required by the security performance policy.
+
+The workflow verifies that the attested SHA is still current `main`, records the
+authenticated GitHub actor, creates a canonical JSON document, and retains the
+immutable exact-SHA artifact for 90 days. It is an evidence recorder, not a test
+runner: do not check a row that was not actually exercised, and keep device,
+browser, network, observations, and screenshots in the linked detailed log.
+The free-form device matrix is not a substitute for those measurements; it
+must identify the tested models and browser/OS versions, while `evidence_url`
+points to the retained raw observations.
+
+`.github/workflows/release.yml` selects a successful unexpired artifact from
+that workflow for the exact production candidate, downloads it by its source
+run ID, and verifies its canonical contents, SHA, repository, run attempt, and
+14-day freshness before any production mutation. A green optional E2E run does
+not satisfy this gate, and an artifact for an older commit cannot be reused.

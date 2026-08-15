@@ -12,6 +12,8 @@ interface SecurityConfig {
   turnstileRequired: boolean;
   proofOfWorkRequired: boolean;
   proofOfWorkDifficulty: number;
+  proofOfWorkAdaptive: boolean;
+  proofOfWorkMaxDifficulty: number;
   proofOfWorkTtl: number;
   ttl: number;
 }
@@ -188,6 +190,16 @@ function normalizeSecurityConfig(value: unknown, strict = false): SecurityConfig
       typeof payload.proofOfWorkRequired !== 'boolean' ||
       typeof payload.proofOfWorkDifficulty !== 'number' ||
       !Number.isInteger(payload.proofOfWorkDifficulty) ||
+      (payload.proofOfWorkRequired === true &&
+        (payload.proofOfWorkDifficulty < 8 || payload.proofOfWorkDifficulty > 24)) ||
+      (payload.proofOfWorkAdaptive !== undefined &&
+        typeof payload.proofOfWorkAdaptive !== 'boolean') ||
+      (payload.proofOfWorkAdaptive === true && payload.proofOfWorkMaxDifficulty === undefined) ||
+      (payload.proofOfWorkMaxDifficulty !== undefined &&
+        (typeof payload.proofOfWorkMaxDifficulty !== 'number' ||
+          !Number.isInteger(payload.proofOfWorkMaxDifficulty) ||
+          payload.proofOfWorkMaxDifficulty < payload.proofOfWorkDifficulty ||
+          payload.proofOfWorkMaxDifficulty > 24)) ||
       typeof payload.proofOfWorkTtl !== 'number' ||
       !Number.isFinite(payload.proofOfWorkTtl) ||
       typeof payload.ttl !== 'number' ||
@@ -195,16 +207,25 @@ function normalizeSecurityConfig(value: unknown, strict = false): SecurityConfig
   ) {
     throw new Error('CAPABILITY_SECURITY_CONFIG_INVALID');
   }
+  const proofOfWorkDifficulty =
+    typeof payload.proofOfWorkDifficulty === 'number' &&
+    Number.isInteger(payload.proofOfWorkDifficulty)
+      ? payload.proofOfWorkDifficulty
+      : 0;
+  const proofOfWorkMaxDifficulty =
+    typeof payload.proofOfWorkMaxDifficulty === 'number' &&
+    Number.isInteger(payload.proofOfWorkMaxDifficulty) &&
+    payload.proofOfWorkMaxDifficulty >= proofOfWorkDifficulty
+      ? payload.proofOfWorkMaxDifficulty
+      : proofOfWorkDifficulty;
   return {
     capabilityRequired: payload.capabilityRequired === true,
     turnstileSiteKey: typeof payload.turnstileSiteKey === 'string' ? payload.turnstileSiteKey : '',
     turnstileRequired: payload.turnstileRequired === true,
     proofOfWorkRequired: payload.proofOfWorkRequired === true,
-    proofOfWorkDifficulty:
-      typeof payload.proofOfWorkDifficulty === 'number' &&
-      Number.isInteger(payload.proofOfWorkDifficulty)
-        ? payload.proofOfWorkDifficulty
-        : 0,
+    proofOfWorkDifficulty,
+    proofOfWorkAdaptive: payload.proofOfWorkAdaptive === true,
+    proofOfWorkMaxDifficulty,
     proofOfWorkTtl:
       typeof payload.proofOfWorkTtl === 'number' && Number.isFinite(payload.proofOfWorkTtl)
         ? payload.proofOfWorkTtl
@@ -260,6 +281,8 @@ async function getSecurityConfig(
       turnstileRequired: false,
       proofOfWorkRequired: false,
       proofOfWorkDifficulty: 0,
+      proofOfWorkAdaptive: false,
+      proofOfWorkMaxDifficulty: 0,
       proofOfWorkTtl: 0,
       ttl: 600,
     };
@@ -610,6 +633,7 @@ async function getCapabilityProofOfWork(
   scopes: CapabilityScope[],
   config: SecurityConfig,
   signal?: AbortSignal,
+  renegotiateOnEnvelopeMismatch = true,
 ): Promise<{ challenge: string; solution: string }> {
   throwIfAborted(signal);
   const cancelGeneration = capabilityCancelGeneration;
@@ -641,23 +665,48 @@ async function getCapabilityProofOfWork(
     throw createCapabilityChallengeCancelledError('Capability challenge cancelled');
   }
   const nowSeconds = Date.now() / 1000;
+  const challenge = payload.challenge;
+  const difficulty = payload.difficulty;
+  const expiresAt = payload.expiresAt;
+  const responseShapeValid =
+    typeof challenge === 'string' &&
+    challenge.length > 0 &&
+    payload.algorithm === 'sha256-leading-zero-bits' &&
+    typeof difficulty === 'number' &&
+    Number.isInteger(difficulty) &&
+    difficulty >= 8 &&
+    difficulty <= 24 &&
+    typeof expiresAt === 'number' &&
+    expiresAt > nowSeconds &&
+    expiresAt <= nowSeconds + config.proofOfWorkTtl + 5;
+  const difficultyInEnvelope =
+    typeof difficulty === 'number' &&
+    difficulty >= config.proofOfWorkDifficulty &&
+    difficulty <= config.proofOfWorkMaxDifficulty;
+  if (responseShapeValid && !difficultyInEnvelope && renegotiateOnEnvelopeMismatch) {
+    invalidateSecurityConfig(apiBase);
+    const refreshedConfig = await getSecurityConfig(apiBase, signal, false);
+    if (!refreshedConfig.capabilityRequired || !refreshedConfig.proofOfWorkRequired) {
+      throw new Error('Capability proof-of-work policy changed during negotiation');
+    }
+    return getCapabilityProofOfWork(apiBase, scopes, refreshedConfig, signal, false);
+  }
+  if (!responseShapeValid || !difficultyInEnvelope) {
+    throw new Error('Invalid capability proof-of-work response');
+  }
   if (
-    !payload.challenge ||
-    payload.algorithm !== 'sha256-leading-zero-bits' ||
-    typeof payload.difficulty !== 'number' ||
-    payload.difficulty !== config.proofOfWorkDifficulty ||
-    typeof payload.expiresAt !== 'number' ||
-    payload.expiresAt <= nowSeconds ||
-    payload.expiresAt > nowSeconds + config.proofOfWorkTtl + 5
+    typeof challenge !== 'string' ||
+    typeof difficulty !== 'number' ||
+    typeof expiresAt !== 'number'
   ) {
     throw new Error('Invalid capability proof-of-work response');
   }
   return {
-    challenge: payload.challenge,
+    challenge,
     solution: await solveCapabilityProofOfWork(
-      payload.challenge,
-      payload.difficulty,
-      payload.expiresAt,
+      challenge,
+      difficulty,
+      expiresAt,
       cancelGeneration,
       signal,
     ),

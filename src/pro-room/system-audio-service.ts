@@ -1045,9 +1045,10 @@ export function registerProSystemAudioServiceListeners(): void {
     cleanupSystemAudioSfuGuestRoute();
     const state = controller?.getCurrentState();
     if (state) void reconcileCoordinatorState(state);
-    void refreshProSystemAudioState()
-      .then((next) => reconcileCoordinatorState(next))
-      .catch(() => undefined);
+    // The PRO runtime owns the authoritative initial read and its safety
+    // deadline. Fetching here as well races that read and can issue a second
+    // request after a fast response without registering the result with the
+    // runtime's realtime-first refresh schedule.
   });
 
   onProSystemAudioSfuEvent((event) => {

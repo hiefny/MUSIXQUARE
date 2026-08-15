@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   INITIAL_TRANSFER_BUDGET,
+  INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO,
   assertInitialTransferBudget,
   collectEagerAssetUrls,
   measureInitialTransfer,
@@ -123,17 +124,28 @@ describe('initial transfer budget', () => {
   });
 
   it('rejects every metric independently and keeps the checked build wired', () => {
-    const passing = { ...INITIAL_TRANSFER_BUDGET };
+    const passing = Object.fromEntries(
+      Object.entries(INITIAL_TRANSFER_BUDGET).map(([metric, limit]) => [
+        metric,
+        limit === 0 ? 0 : Math.floor(limit * (1 - INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO)),
+      ]),
+    ) as typeof INITIAL_TRANSFER_BUDGET;
     expect(() => assertInitialTransferBudget(passing)).not.toThrow();
 
     for (const metric of Object.keys(INITIAL_TRANSFER_BUDGET) as Array<
       keyof typeof INITIAL_TRANSFER_BUDGET
     >) {
       const limit = INITIAL_TRANSFER_BUDGET[metric];
-      expect(() => assertInitialTransferBudget({ ...passing, [metric]: limit + 1 })).toThrow(
-        metric,
-      );
+      const maintenanceCeiling =
+        limit === 0 ? 0 : Math.floor(limit * (1 - INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO));
+      expect(() =>
+        assertInitialTransferBudget({ ...passing, [metric]: maintenanceCeiling + 1 }),
+      ).toThrow(metric);
     }
+
+    expect(() => assertInitialTransferBudget({ ...INITIAL_TRANSFER_BUDGET })).toThrow(
+      'maintenance ceiling',
+    );
 
     const packageJson = JSON.parse(readFileSync('package.json', 'utf8')) as {
       scripts: Record<string, string>;

@@ -344,6 +344,15 @@ const ja: Record<I18nKey, string> = {
   'setup.change_later': 'あとで設定からいつでも変更できます。',
   'setup.welcome_title': 'ようこそ',
   'setup.join_session_subtitle': 'ルーム{{code}}に参加します。',
+  'setup.room_type_hint':
+    '0で始まるコードは永続的なPROルーム、1〜9で始まるコードは一時的な通常ルームです。',
+  'setup.standard_room_summary':
+    '通常ルーム · ホストが退出すると終了する一時ルームです。再生と権限はホストが管理し、設定されている場合は8桁のルームパスワードが必要です。',
+  'setup.pro_room_summary':
+    'PROルーム · 全員が退出してもプレイリストと権限が保持されます。オーナーと管理者が運営し、8桁のPROルームパスワードが必要です。',
+  'setup.center_role_guide':
+    'このデバイスはセンタースピーカーとして参加しました。「設定」→「オーディオ」→「このデバイスの役割を設定」で変更できます。',
+  'setup.center_role_open_settings': '役割設定を開く',
   'setup.select_role': '役割を選択してください',
   'setup.select_role_alt': '役割を選択してください',
   'setup.greeting': 'こんにちは！',
@@ -364,6 +373,8 @@ const ja: Record<I18nKey, string> = {
   'help.connect_all_wifi': '同じネットワークでの接続が最も安定します',
   'help.local_file': 'ローカルファイルを選択',
   'help.load_local': 'ローカルファイルを読み込む',
+  'help.local_memory_notice':
+    'デバイスのRAMで処理します。リモート転送とPRO転送は最大200 MiBで、メモリが少ない端末ではより小さいファイルでも失敗することがあります。',
   'help.youtube_compat': 'YouTube（互換モード）',
   'help.youtube_no_effects': 'YouTubeモードでは、役割設定とオーディオ効果は利用できません。',
   'help.media_synced_detail': '選択したメディアは接続中のすべてのデバイスで同時に再生されます。',
@@ -447,6 +458,8 @@ const ja: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'システムオーディオ',
+  'system_audio.preflight_limits':
+    'パソコンのChromium系ブラウザ（Chrome、Edgeなど）・最大{{count}}台・最大{{hours}}時間',
   'system_audio.sharing': 'システムオーディオ共有中',
   'system_audio.receiving': 'システムオーディオ受信中',
   'system_audio.owner_active': '{{name}}さんがシステムオーディオを共有しています。',

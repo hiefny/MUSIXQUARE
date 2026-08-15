@@ -40,6 +40,7 @@ import { reacquireWakeLockIfActive } from './core/wake-lock.ts';
 import {
   isSessionResetPending,
   restoreSessionReset,
+  scheduleDocumentReload,
   scheduleSessionReset,
 } from './core/session-reset.ts';
 
@@ -56,10 +57,6 @@ import { initPeerHandlers, leaveSession, recoverPeerAfterBackground } from './ne
 import { initSync } from './network/sync.ts';
 import { initOrchestrator } from './network/orchestrator.ts';
 import { registerSystemCaptureListeners } from './audio/system-capture.ts';
-import { registerSystemAudioHostListeners } from './network/system-audio-host.ts';
-import { registerSystemAudioGuestListeners } from './network/system-audio-guest.ts';
-import { registerSystemAudioSfuListeners } from './network/system-audio-sfu.ts';
-import { registerProSystemAudioServiceListeners } from './pro-room/system-audio-service.ts';
 import { initStandardOperatorFileUplink } from './network/operator-file-uplink.ts';
 import { getRoomContext } from './rooms/authority.ts';
 // ── Storage ──
@@ -78,8 +75,6 @@ import {
 import { initPlayback } from './player/playback.ts';
 import { initPlaylist } from './player/playlist.ts';
 import { initDecodeHandlers } from './player/decode.ts';
-import { initMediaSession } from './player/media-session.ts';
-import { initLocalOutputRejoin } from './player/local-output-rejoin.ts';
 
 // ── YouTube ──
 import { initYouTube, scheduleYtAutoSync, tryBeginYouTubeZeroStart } from './youtube/player.ts';
@@ -104,7 +99,6 @@ import { initPlayerControls } from './ui/player-controls.ts';
 import { initGlobalFileDrop } from './ui/file-drop.ts';
 import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
 import { initSettings } from './ui/settings.ts';
-import { initConnect } from './ui/connect.ts';
 import { initSetup } from './ui/setup.ts';
 import { initDemoMode } from './demo/mode.ts';
 import { initAnnouncementPolling } from './ui/announcement.ts';
@@ -452,6 +446,38 @@ function recordCachedNavigationFallback(): void {
   }
 }
 
+let lazyFeatureRecoveryPrompt: Promise<void> | null = null;
+
+function reportLazyFeatureLoadFailure(
+  feature: 'connect' | 'pro-room' | 'room-session',
+  error: unknown,
+): void {
+  log.error(`[App] ${feature} feature load failed; reload required:`, error);
+  lazyFeatureRecoveryPrompt ??= showDialog({
+    title: t('dialog.sw_update_title'),
+    message: t('dialog.sw_update_msg'),
+    buttonText: t('common.refresh'),
+    dismissible: false,
+    defaultFocus: 'primary',
+  })
+    .then((result) => {
+      if (result.action !== 'ok') {
+        lazyFeatureRecoveryPrompt = null;
+        showToast(t('error.network_generic'));
+        return;
+      }
+      scheduleDocumentReload(t('dialog.refreshing_session'), () => {
+        lazyFeatureRecoveryPrompt = null;
+        reportLazyFeatureLoadFailure(feature, error);
+      });
+    })
+    .catch((dialogError: unknown) => {
+      lazyFeatureRecoveryPrompt = null;
+      log.error('[App] Lazy feature recovery dialog failed:', dialogError);
+      showToast(t('error.network_generic'));
+    });
+}
+
 // bootstrap.js probes before the module graph, while sw-register repeats the
 // probe after load. Consume both boundaries so a cache-served shell is never
 // published as fully online-ready even when the first worker reply races the
@@ -494,8 +520,6 @@ async function bootstrap(): Promise<void> {
   safeInit('Playback', initPlayback);
   safeInit('Playlist', initPlaylist);
   safeInit('DecodeHandlers', initDecodeHandlers);
-  safeInit('MediaSession', initMediaSession);
-  safeInit('LocalOutputRejoin', initLocalOutputRejoin);
 
   // 4. Audio engine (deferred init — Web Audio API context on user interaction)
   // Engine, effects, channel register bus listeners at import time
@@ -510,10 +534,6 @@ async function bootstrap(): Promise<void> {
   safeInit('SyncFlightRecorder', initSyncFlightRecorder);
   safeInit('Orchestrator', initOrchestrator);
   safeInit('SystemAudioCapture', registerSystemCaptureListeners);
-  safeInit('SystemAudioHost', registerSystemAudioHostListeners);
-  safeInit('SystemAudioGuest', registerSystemAudioGuestListeners);
-  safeInit('SystemAudioSFU', registerSystemAudioSfuListeners);
-  safeInit('ProSystemAudio', registerProSystemAudioServiceListeners);
   safeInit('StandardOperatorFileUplink', initStandardOperatorFileUplink);
   // 6. Workers & Storage
   setSyncWorkerFailureObserver(recordSyncWorkerFallback);
@@ -555,7 +575,34 @@ async function bootstrap(): Promise<void> {
   safeInit('PlayerControls', initPlayerControls);
   safeInit('GlobalFileDrop', initGlobalFileDrop);
   safeInit('Settings', initSettings);
-  safeInit('Connect', initConnect);
+  safeInit('Connect', () => {
+    bus.on('app:lazy-feature-load-failed', reportLazyFeatureLoadFailure);
+    let loading: Promise<void> | null = null;
+    let loadFailure: unknown;
+    let loadFailed = false;
+    const load = (): void => {
+      if (loadFailed) {
+        bus.emit('app:lazy-feature-load-failed', 'connect', loadFailure);
+        return;
+      }
+      loading ??= import('./ui/connect-session-runtime.ts')
+        .then(() => undefined)
+        .catch((error) => {
+          // A failed ESM evaluation may remain cached for this document. Keep
+          // this boundary terminal and offer a real reload instead of a fake
+          // same-specifier retry.
+          loadFailure = error;
+          loadFailed = true;
+          bus.emit('app:lazy-feature-load-failed', 'connect', error);
+        });
+    };
+    bus.on('state:network.appRole', (role) => {
+      if (role === 'host' || role === 'guest') load();
+    });
+    bus.on('ui:connect-tab-opened', load);
+    const role = getState('network.appRole');
+    if (role === 'host' || role === 'guest') load();
+  });
   safeInit('CustomScrollbars', initAllCustomScrollbars);
   safeInit('Setup', initSetup);
   safeInit('DemoMode', initDemoMode);
@@ -585,8 +632,7 @@ async function bootstrap(): Promise<void> {
       leaveSession: () => leaveSession({ preserveAccountLoginReturn: true }),
       // A pending bfcache reset is restored immediately before this callback,
       // so the coordinator can paint a fresh overlay and own reload recovery.
-      reload: () =>
-        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload()),
+      reload: () => scheduleDocumentReload(t('dialog.refreshing_session')),
       hasPendingReset: isSessionResetPending,
       restorePendingReset: restoreSessionReset,
       log,

@@ -27,6 +27,9 @@ const botProtocolMocks = vi.hoisted(() => ({
 const userTextFontMocks = vi.hoisted(() => ({
   preloadLocaleFontGlyphs: vi.fn(async () => true),
 }));
+const playerTransportMocks = vi.hoisted(() => ({
+  seekTo: vi.fn(),
+}));
 
 window.matchMedia =
   window.matchMedia ||
@@ -79,6 +82,10 @@ vi.mock('../player-controls.ts', () => ({
   getRoleLabelByChannelMode: vi.fn(() => 'Left'),
   updateRoleBadge: vi.fn(),
   updateInviteCodeUI: vi.fn(),
+}));
+
+vi.mock('../../player/transport.ts', () => ({
+  seekTo: playerTransportMocks.seekTo,
 }));
 
 // Chat title timers call the oEmbed leaf directly; isolate them from network
@@ -1561,6 +1568,7 @@ describe('Chat Module', () => {
     it.each([
       ['3:45', '225'],
       ['1:30:00', '5400'],
+      ['99:59:59', '359999'],
       ['0:00', '0'],
       ['1:05', '65'],
     ])('renders %s with the production seek value %s', async (timestamp, seconds) => {
@@ -1569,6 +1577,58 @@ describe('Chat Module', () => {
       root.innerHTML = parseMessageContent(`Jump to ${timestamp}`);
 
       expect(root.querySelector('.chat-timestamp')?.getAttribute('data-seek')).toBe(seconds);
+    });
+
+    it.each(['1:60', '60:00', '1:99', '1:60:00', '1:00:60', '99:99:99'])(
+      'leaves out-of-range timestamp %s as inert text',
+      async (timestamp) => {
+        const { parseMessageContent } = await import('../chat-render.ts');
+        const root = document.createElement('div');
+        root.innerHTML = parseMessageContent(`Jump to ${timestamp}`);
+
+        expect(root.querySelector('.chat-timestamp')).toBeNull();
+        expect(root.textContent).toBe(`Jump to ${timestamp}`);
+      },
+    );
+
+    it('seeks a valid timestamp by click, Enter, and Space while invalid times stay inert', async () => {
+      document.body.innerHTML = `
+        <div id="chat-drawer">
+          <div id="chat-messages"><div class="chat-empty"></div></div>
+        </div>
+      `;
+      const [{ initChat }, { addChatMessage }] = await Promise.all([
+        import('../chat.ts'),
+        import('../chat-render.ts'),
+      ]);
+      initChat();
+      addChatMessage('Peer', 'valid 1:05; invalid 1:99 and 99:99:99', false);
+
+      const timestamps = document.querySelectorAll<HTMLElement>('.chat-timestamp');
+      expect(timestamps).toHaveLength(1);
+      const timestamp = timestamps[0]!;
+      expect(timestamp.textContent).toBe('1:05');
+
+      timestamp.dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }));
+      const enter = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: 'Enter',
+      });
+      timestamp.dispatchEvent(enter);
+      const space = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key: ' ',
+      });
+      timestamp.dispatchEvent(space);
+
+      expect(enter.defaultPrevented).toBe(true);
+      expect(space.defaultPrevented).toBe(true);
+      expect(playerTransportMocks.seekTo).toHaveBeenNthCalledWith(1, 65);
+      expect(playerTransportMocks.seekTo).toHaveBeenNthCalledWith(2, 65);
+      expect(playerTransportMocks.seekTo).toHaveBeenNthCalledWith(3, 65);
+      expect(playerTransportMocks.seekTo).toHaveBeenCalledTimes(3);
     });
 
     it.each([

@@ -94,6 +94,26 @@ script_name = "musixquare-signaling"
 binding = "PRO_ROOM_PUBLIC_API"
 service = "musixquare-pro-room"
 
+# Adaptive PoW pressure is an edge-local, eventually consistent friction
+# signal, not an authorization or paid-resource quota. Keep these namespaces
+# distinct: bundled browser capabilities include TURN/realtime and use the room
+# allowance, while bespoke non-room scope clients use the general allowance.
+[[ratelimits]]
+name = "MXQR_CAPABILITY_POW_ROOM_PRESSURE"
+namespace_id = "831501601"
+
+[ratelimits.simple]
+limit = 150
+period = 60
+
+[[ratelimits]]
+name = "MXQR_CAPABILITY_POW_GENERAL_PRESSURE"
+namespace_id = "830015601"
+
+[ratelimits.simple]
+limit = 15
+period = 60
+
 [vars]
 YOUTUBE_SEARCH_MAX_RESULTS = "10"
 YOUTUBE_SAFE_SEARCH = "moderate"
@@ -102,7 +122,15 @@ CLOUDFLARE_TURN_TTL = "172800"
 # Human verification is disabled. Capability minting instead uses a short-lived,
 # IP/scope-bound proof-of-work challenge plus per-IP rate limits.
 MXQR_TURNSTILE_DISABLED = "true"
-# Optional tuning; defaults are difficulty 12 and challenge TTL 120 seconds.
+# Keep the ordinary baseline at the reviewed iPhone-safe difficulty 12. The
+# location-local Rate Limiting bindings raise only post-threshold challenges to
+# 16 (room 150/minute, general 15/minute). Binding failure falls back to 12;
+# paid-resource atomic caps remain the fail-closed authorization/cost boundary.
+MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED = "true"
+MXQR_CAPABILITY_POW_ADAPTIVE_MAX_DIFFICULTY = "16"
+# Optional tuning; defaults are baseline difficulty 12 and challenge TTL 120
+# seconds. Thresholds are fixed by the two Rate Limiting bindings above; an
+# attempted invalid proof consumes one additional event in its scope class.
 # MXQR_CAPABILITY_POW_DIFFICULTY = "12"
 # MXQR_CAPABILITY_POW_TTL = "120"
 # Optional comma/space-separated exact origins for trusted deploy previews.

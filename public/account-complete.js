@@ -155,7 +155,9 @@
   let savedLanguage = null;
   try {
     savedLanguage = localStorage.getItem('musixquare-lang');
-  } catch {}
+  } catch {
+    /* Language storage is optional in restricted browsing contexts. */
+  }
   const systemLanguages = navigator.languages?.length
     ? navigator.languages
     : [navigator.language || ''];
@@ -169,15 +171,21 @@
 
   try {
     window.opener?.postMessage(message, window.location.origin);
-  } catch {}
+  } catch {
+    /* The opener may have closed or use an incompatible origin. */
+  }
   try {
     const channel = new BroadcastChannel('mxqr-account-v1');
     channel.postMessage(message);
     channel.close();
-  } catch {}
+  } catch {
+    /* BroadcastChannel is optional on older or restricted browsers. */
+  }
   try {
     localStorage.setItem(storageKey, JSON.stringify(message));
-  } catch {}
+  } catch {
+    /* Cross-tab storage signaling is best-effort. */
+  }
 
   const close = () => window.close();
   document.getElementById('account-complete-close').addEventListener('click', close);

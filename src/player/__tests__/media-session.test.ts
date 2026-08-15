@@ -219,6 +219,20 @@ describe('updateMediaSessionMetadata', () => {
 });
 
 describe('initMediaSession with partial browser support', () => {
+  it('seeds metadata and playback state that committed before deferred initialization', () => {
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'Late-bound demo.mp3',
+      title: 'Late-bound demo',
+    });
+    setState('playback.activity', 'playing');
+
+    initMediaSession();
+
+    expect(navigator.mediaSession.metadata?.title).toBe('Late-bound demo');
+    expect(navigator.mediaSession.playbackState).toBe('playing');
+  });
+
   it('keeps later actions and state observers when one action is unsupported', () => {
     vi.mocked(navigator.mediaSession.setActionHandler).mockImplementation((action, handler) => {
       if (action === 'seekbackward') throw new DOMException('unsupported', 'NotSupportedError');

@@ -291,6 +291,40 @@ export function setupShowAutoJoinArea(show: boolean): void {
 export function setupSetAutoJoinCode(code: string): void {
   const el = setupEl('setup-auto-join-subtitle');
   if (el) el.textContent = t('setup.join_session_subtitle', { code });
+  setupUpdateRoomTypeInfo(code, 'setup-auto-join-room-type-info');
+}
+
+type SetupRoomKind = 'unknown' | 'standard' | 'pro';
+
+/**
+ * The two room namespaces never overlap: a leading zero is PRO and every
+ * other six-digit code is a temporary standard room. Classifying partial
+ * input lets the setup screen explain the choice before the user submits it.
+ */
+function classifySetupRoomCode(value: string): SetupRoomKind {
+  const digits = value.replace(/\D+/g, '').slice(0, 6);
+  if (!digits) return 'unknown';
+  return digits.startsWith('0') ? 'pro' : 'standard';
+}
+
+export function setupUpdateRoomTypeInfo(
+  code: string,
+  elementId = 'setup-room-type-info',
+): SetupRoomKind {
+  const kind = classifySetupRoomCode(code);
+  const element = setupEl(elementId);
+  if (!element) return kind;
+
+  const key =
+    kind === 'pro'
+      ? 'setup.pro_room_summary'
+      : kind === 'standard'
+        ? 'setup.standard_room_summary'
+        : 'setup.room_type_hint';
+  element.dataset.roomKind = kind;
+  element.dataset.i18n = key;
+  element.textContent = t(key);
+  return kind;
 }
 
 export function setupShowRoleArea(show: boolean): void {

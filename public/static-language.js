@@ -90,7 +90,7 @@
   function readStore(key) {
     try {
       return localStorage.getItem(key);
-    } catch (e) {
+    } catch {
       return null;
     }
   }
@@ -98,7 +98,7 @@
   function writeStore(key, value) {
     try {
       localStorage.setItem(key, value);
-    } catch (e) {
+    } catch {
       /* Storage may be unavailable in private or restricted contexts. */
     }
   }
@@ -107,7 +107,7 @@
     var qLang = null;
     try {
       qLang = new URLSearchParams(location.search).get('lang');
-    } catch (e) {
+    } catch {
       qLang = null;
     }
 
@@ -126,7 +126,7 @@
         navigator.languages && navigator.languages.length
           ? navigator.languages
           : [navigator.language];
-    } catch (e) {
+    } catch {
       navs = [];
     }
 
@@ -156,7 +156,7 @@
       if (code === 'en') url.searchParams.delete('lang');
       else url.searchParams.set('lang', code);
       history.replaceState(null, '', url.pathname + url.search + url.hash);
-    } catch (e) {
+    } catch {
       /* URL/history APIs may be unavailable in embedded browsers. */
     }
   }
@@ -176,7 +176,7 @@
   function isMobilePicker() {
     try {
       return window.matchMedia(MOBILE_PICKER_QUERY).matches;
-    } catch (e) {
+    } catch {
       return window.innerWidth <= 640;
     }
   }
@@ -221,7 +221,7 @@
 
     try {
       window.scrollTo(0, saved.scrollY);
-    } catch (e) {
+    } catch {
       /* Some embedded browsers do not expose scrollTo. */
     }
   }
@@ -422,7 +422,7 @@
       if (mobileQuery.addEventListener)
         mobileQuery.addEventListener('change', handlePickerModeChange);
       else if (mobileQuery.addListener) mobileQuery.addListener(handlePickerModeChange);
-    } catch (e) {
+    } catch {
       /* matchMedia may be unavailable in restricted embedded browsers. */
     }
   }

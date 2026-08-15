@@ -6,6 +6,7 @@ import {
   type ProRoomOwnerRecoveryClaimToken,
   type ProRoomOwnerTransferClaimToken,
 } from './credentials.ts';
+import { registerPendingClaimReloadPreparation } from '../core/document-reload.ts';
 
 const PRO_ROOM_CLAIM_FRAGMENT_KEY = 'pro-claim';
 const PRO_ROOM_RECOVERY_FRAGMENT_KEY = 'pro-recovery';
@@ -48,6 +49,11 @@ interface QueryClaimScan {
   recoveryPresent: boolean;
   transferPresent: boolean;
   sanitizedSearch: string;
+}
+
+interface RestorableClaim {
+  key: string;
+  token: string;
 }
 
 declare global {
@@ -140,6 +146,73 @@ function scanQueryClaims(search: string): QueryClaimScan {
 // then lives only in this module closure until the direct-entry flow takes it.
 let earlyFragmentClaims = takeEarlyClaimHandoff();
 
+function singleRestorableClaim(claims: ProRoomFragmentClaims): RestorableClaim | null {
+  const values = [
+    {
+      key: PRO_ROOM_CLAIM_FRAGMENT_KEY,
+      token: claims.activationClaimToken,
+      present: claims.activationClaimPresent,
+    },
+    {
+      key: PRO_ROOM_RECOVERY_FRAGMENT_KEY,
+      token: claims.ownerRecoveryClaimToken,
+      present: claims.ownerRecoveryClaimPresent,
+    },
+    {
+      key: PRO_ROOM_TRANSFER_FRAGMENT_KEY,
+      token: claims.ownerTransferClaimToken,
+      present: claims.ownerTransferClaimPresent,
+    },
+  ];
+  const present = values.filter((value) => value.present || value.token);
+  if (present.length !== 1 || !present[0]?.token) return null;
+  return { key: present[0].key, token: present[0].token };
+}
+
+function armClaimReloadPreparation(
+  claims: ProRoomFragmentClaims,
+  location: ClaimLocation,
+  history: ClaimHistory,
+): void {
+  const claim = singleRestorableClaim(claims);
+  const roomMatch = /^\/(0\d{5})\/?$/.exec(location.pathname);
+  if (!claim || !roomMatch || location.hash) return;
+  const cleanUrl = `${location.pathname}${location.search}`;
+  const restoredHash = `#${claim.key}=${encodeURIComponent(claim.token)}`;
+  const restoredUrl = `/${roomMatch[1]}${location.search}${restoredHash}`;
+
+  registerPendingClaimReloadPreparation(() => {
+    const scrub = () => {
+      history.replaceState(history.state, '', cleanUrl);
+    };
+    if (`${location.pathname}${location.search}` !== cleanUrl || location.hash) {
+      throw new Error('CLAIM_RELOAD_PREPARATION_REJECTED');
+    }
+    try {
+      history.replaceState(history.state, '', restoredUrl);
+      if (location.pathname !== `/${roomMatch[1]}` || location.hash !== restoredHash) {
+        throw new Error('CLAIM_RELOAD_PREPARATION_FAILED');
+      }
+    } catch {
+      try {
+        scrub();
+      } catch {
+        // The reset coordinator will keep the current document blocked only
+        // until its bounded navigation recovery restores interactivity.
+      }
+      throw new Error('CLAIM_RELOAD_PREPARATION_FAILED');
+    }
+    return () => {
+      scrub();
+      if (location.hash) throw new Error('CLAIM_RELOAD_ROLLBACK_FAILED');
+    };
+  });
+}
+
+if (earlyFragmentClaims && typeof window !== 'undefined') {
+  armClaimReloadPreparation(earlyFragmentClaims, window.location, window.history);
+}
+
 /**
  * Consume every owner credential from the URL fragment in one synchronous
  * operation and immediately remove the complete fragment from the address
@@ -214,7 +287,7 @@ export function takeProRoomClaimsFromFragment(
       ownerTransferClaimPresent: queryClaims.transferPresent || transferClaims.length > 0,
     };
   }
-  return {
+  const claims = {
     activationClaimToken:
       activationClaims.length === 1 ? parseProRoomClaimToken(activationClaims[0]) : null,
     activationClaimPresent: activationClaims.length > 0,
@@ -225,4 +298,6 @@ export function takeProRoomClaimsFromFragment(
       transferClaims.length === 1 ? parseProRoomOwnerTransferClaimToken(transferClaims[0]) : null,
     ownerTransferClaimPresent: transferClaims.length > 0,
   };
+  if (!location && !history) armClaimReloadPreparation(claims, currentLocation, currentHistory);
+  return claims;
 }

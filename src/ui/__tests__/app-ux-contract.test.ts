@@ -42,6 +42,63 @@ describe('app UX markup contract', () => {
     );
   });
 
+  it('announces room type before join and exposes an actionable one-time role guide', () => {
+    const input = appDocument.getElementById('setup-join-code');
+    const roomInfo = appDocument.getElementById('setup-room-type-info');
+    const autoJoinInfo = appDocument.getElementById('setup-auto-join-room-type-info');
+    const describedBy = input?.getAttribute('aria-describedby')?.split(/\s+/) ?? [];
+
+    expect(describedBy).toContain('setup-room-type-info');
+    expect(describedBy).toContain('setup-guest-error');
+    expect(roomInfo?.getAttribute('role')).toBe('status');
+    expect(roomInfo?.getAttribute('aria-live')).toBe('polite');
+    expect(roomInfo?.getAttribute('data-i18n')).toBe('setup.room_type_hint');
+    expect(autoJoinInfo?.getAttribute('role')).toBe('status');
+
+    const guide = appDocument.getElementById('center-role-guide');
+    const guideCopy = appDocument.getElementById('center-role-guide-copy');
+    expect(guide?.hasAttribute('hidden')).toBe(true);
+    expect(guide?.getAttribute('role')).toBe('region');
+    expect(guide?.getAttribute('aria-labelledby')).toBe('center-role-guide-copy');
+    expect(guideCopy?.getAttribute('role')).toBe('status');
+    expect(guideCopy?.getAttribute('aria-live')).toBe('polite');
+    expect(guide?.querySelector('#btn-center-role-settings')?.getAttribute('data-i18n')).toBe(
+      'setup.center_role_open_settings',
+    );
+    expect(
+      guide?.querySelector('#btn-center-role-dismiss')?.getAttribute('data-i18n-aria-label'),
+    ).toBe('common.close');
+  });
+
+  it('describes media constraints and disabled system-audio reasons accessibly', () => {
+    const local = appDocument.getElementById('btn-local-file');
+    const system = appDocument.getElementById('btn-system-audio');
+    const localDescription = appDocument.getElementById('media-local-file-description');
+    const systemLimits = appDocument.getElementById('media-system-audio-limits');
+    const systemStatus = appDocument.getElementById('media-system-audio-status');
+
+    expect(local?.getAttribute('aria-describedby')).toBe('media-local-file-description');
+    expect(localDescription?.getAttribute('data-i18n')).toBe('help.local_memory_notice');
+    expect(system?.getAttribute('aria-describedby')?.split(/\s+/)).toEqual([
+      'media-system-audio-limits',
+      'media-system-audio-status',
+    ]);
+    expect(systemLimits?.getAttribute('data-i18n')).toBe('system_audio.preflight_limits');
+    expect(systemStatus?.getAttribute('role')).toBe('status');
+    expect(systemStatus?.getAttribute('aria-live')).toBe('polite');
+    expect(systemStatus?.hasAttribute('hidden')).toBe(true);
+  });
+
+  it('keeps the new guidance bounded on narrow screens and media rows content-sized', () => {
+    expect(appStylesheet).toContain('width: min(390px, calc(100vw - 32px));');
+    expect(appStylesheet).toContain('@media (max-width: 420px)');
+    expect(appStylesheet).toContain('width: calc(100vw - 24px);');
+    expect(appStylesheet).toMatch(
+      /\.file-select-btn\s*\{[\s\S]*?min-height:\s*72px;[\s\S]*?height:\s*auto;/u,
+    );
+    expect(appStylesheet).toContain('.media-source-disabled-reason[hidden]');
+  });
+
   it('keeps the iOS audio primer rooted on trailing-slash invite documents', () => {
     const primer = appDocument.getElementById('silent-trigger');
     const source = primer?.getAttribute('src');
@@ -124,6 +181,21 @@ describe('app UX markup contract', () => {
       "document.documentElement.dataset.mxqrNavigationSource === 'cache-fallback'",
     );
     expect(appRuntimeSource).toContain("detail?.source === 'cache-fallback'");
+  });
+
+  it('turns a terminal lazy-feature failure into an explicit reload action', () => {
+    const connectBoundaryStart = appRuntimeSource.indexOf("safeInit('Connect'");
+    const connectBoundaryEnd = appRuntimeSource.indexOf(
+      "safeInit('CustomScrollbars'",
+      connectBoundaryStart,
+    );
+    const connectBoundary = appRuntimeSource.slice(connectBoundaryStart, connectBoundaryEnd);
+
+    expect(appRuntimeSource).toContain("bus.on('app:lazy-feature-load-failed'");
+    expect(appRuntimeSource).toContain("buttonText: t('common.refresh')");
+    expect(appRuntimeSource).toContain("scheduleDocumentReload(t('dialog.refreshing_session')");
+    expect(connectBoundary).toContain("bus.emit('app:lazy-feature-load-failed', 'connect', error)");
+    expect(connectBoundary).not.toContain('loading = null');
   });
 
   it('places settings sync last in General and keeps one lock around every Audio section', () => {

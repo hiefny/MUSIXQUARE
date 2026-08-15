@@ -1,0 +1,117 @@
+name: Real-device release evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Exact 40-character main commit tested on devices
+        required: true
+        type: string
+      tested_at:
+        description: Canonical UTC completion time, for example 2026-08-15T09:30:00Z
+        required: true
+        type: string
+      environment_url:
+        description: HTTPS URL serving the exact commit during the matrix
+        required: true
+        type: string
+      evidence_url:
+        description: HTTPS link to the detailed test log/screenshots
+        required: true
+        type: string
+      device_matrix:
+        description: iPhone Safari, Android Chrome, and desktop Chromium models/versions
+        required: true
+        type: string
+      standard_room:
+        description: Standard host/guest join and synchronized playback passed
+        required: true
+        default: false
+        type: boolean
+      pro_room:
+        description: PRO join, role/permission, queue, and recovery paths passed
+        required: true
+        default: false
+        type: boolean
+      media_sources:
+        description: Local, Remote Share, YouTube, and system-audio matrix passed
+        required: true
+        default: false
+        type: boolean
+      background_resume:
+        description: Mobile lock/background/resume recovery passed
+        required: true
+        default: false
+        type: boolean
+      adaptive_pow:
+        description: Difficulty-16 iPhone/desktop cold+warm p50/p95 evidence passed
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-device-evidence-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  attest:
+    name: Persist exact-SHA device matrix
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout dispatched main commit
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify attested commit is current main
+        shell: bash
+        env:
+          MXQR_RELEASE_SHA: ${{ inputs.release_sha }}
+        run: |
+          if [[ ! "$MXQR_RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::release_sha must be a lowercase 40-character commit SHA.'
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          current_main="$(git rev-parse origin/main)"
+          checked_out="$(git rev-parse HEAD)"
+          if [[ "$current_main" != "$MXQR_RELEASE_SHA" ||
+                "$checked_out" != "$MXQR_RELEASE_SHA" ||
+                "$GITHUB_SHA" != "$MXQR_RELEASE_SHA" ]]; then
+            echo "::error::Evidence must be dispatched on and attest the current main commit ($current_main)."
+            exit 1
+          fi
+
+      - name: Create canonical real-device evidence
+        env:
+          MXQR_QA_RELEASE_SHA: ${{ github.sha }}
+          MXQR_QA_TESTED_AT: ${{ inputs.tested_at }}
+          MXQR_QA_ENVIRONMENT_URL: ${{ inputs.environment_url }}
+          MXQR_QA_EVIDENCE_URL: ${{ inputs.evidence_url }}
+          MXQR_QA_TESTER: ${{ github.actor }}
+          MXQR_QA_DEVICE_MATRIX: ${{ inputs.device_matrix }}
+          MXQR_QA_STANDARDROOM: ${{ inputs.standard_room }}
+          MXQR_QA_PROROOM: ${{ inputs.pro_room }}
+          MXQR_QA_LOCALANDREMOTEMEDIA: ${{ inputs.media_sources }}
+          MXQR_QA_YOUTUBEPLAYBACK: ${{ inputs.media_sources }}
+          MXQR_QA_SYSTEMAUDIO: ${{ inputs.media_sources }}
+          MXQR_QA_BACKGROUNDRESUME: ${{ inputs.background_resume }}
+          MXQR_QA_ADAPTIVEPOWPERFORMANCE: ${{ inputs.adaptive_pow }}
+        run: |
+          mkdir -p release-artifacts
+          node scripts/release-evidence.mjs create-device release-artifacts/real-device-evidence.json
+
+      - name: Upload immutable real-device evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: real-device-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/real-device-evidence.json
+          if-no-files-found: error
+          retention-days: 90

@@ -8,7 +8,11 @@
 import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
-import { MAX_SYSTEM_AUDIO_DEVICES, PLAYBACK_STATE } from '../core/constants.ts';
+import {
+  MAX_SYSTEM_AUDIO_DEVICES,
+  PLAYBACK_STATE,
+  SYSTEM_AUDIO_SHARE_LIMIT_MS,
+} from '../core/constants.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
@@ -559,9 +563,10 @@ function openMediaSourcePopup(focusFirstAction = true): void {
   }
   const systemAudioButton = document.getElementById('btn-system-audio');
   if (systemAudioButton) {
-    systemAudioButton.hidden =
-      !hasRoomCapability('system-audio.publish') ||
-      !(isCoordinator() || getRoomContext().kind === 'pro');
+    // Keep the option discoverable even when unavailable. The visible
+    // preflight text explains the browser, authority, device, or room-state
+    // reason before the user attempts capture.
+    systemAudioButton.hidden = false;
   }
   _mediaSourcePreviousFocus = rememberOverlayOpener('btn-media-source');
   syncSystemAudioSourceButton();
@@ -598,17 +603,95 @@ function showProSystemAudioOwnerToast(): void {
   }
 }
 
+interface SystemAudioSourceAvailability {
+  disabled: boolean;
+  busy: boolean;
+  reasonKey: I18nKey | null;
+  reasonParams?: Record<string, string | number>;
+}
+
+function getSystemAudioSourceAvailability(): SystemAudioSourceAvailability {
+  const room = getRoomContext();
+  const isProRoom = room.kind === 'pro';
+  const view = getProSystemAudioViewState();
+
+  if (!hasRoomCapability('system-audio.publish') || (!isProRoom && !isCoordinator())) {
+    return {
+      disabled: true,
+      busy: false,
+      reasonKey: 'toast.system_audio_owner_required',
+    };
+  }
+  if (isProRoom && view.localRequestPending) {
+    return { disabled: true, busy: true, reasonKey: 'system_audio.pro_preparing' };
+  }
+  if (isProRoom && view.initialized && view.phase !== 'idle') {
+    const name = getProSystemAudioOwnerDisplayName();
+    return name
+      ? {
+          disabled: true,
+          busy: view.phase === 'preparing',
+          reasonKey:
+            view.phase === 'preparing'
+              ? 'system_audio.owner_preparing'
+              : 'system_audio.owner_active',
+          reasonParams: { name },
+        }
+      : { disabled: true, busy: view.phase === 'preparing', reasonKey: 'system_audio.sharing' };
+  }
+  if (isProRoom && !canPublishProSystemAudioWithCurrentCoordinator()) {
+    return {
+      disabled: true,
+      busy: false,
+      reasonKey: 'system_audio.coordinator_update_required',
+    };
+  }
+  if (!canCaptureSystemAudio()) {
+    return { disabled: true, busy: false, reasonKey: 'system_audio.desktop_only' };
+  }
+  if (!isProRoom && !hasSystemAudioDeviceCapacity()) {
+    return {
+      disabled: true,
+      busy: false,
+      reasonKey: 'system_audio.device_limit',
+      reasonParams: { count: MAX_SYSTEM_AUDIO_DEVICES },
+    };
+  }
+  return { disabled: false, busy: false, reasonKey: null };
+}
+
 function syncSystemAudioSourceButton(): void {
   const button = document.getElementById('btn-system-audio') as HTMLButtonElement | null;
   if (!button) return;
   const label = button.querySelector<HTMLElement>('.media-source-label-text');
-  const isProRoom = getRoomContext().kind === 'pro';
-  const view = getProSystemAudioViewState();
-  const pending = isProRoom && view.localRequestPending;
-  button.disabled = pending;
-  button.setAttribute('aria-busy', String(pending));
+  const limits = document.getElementById('media-system-audio-limits');
+  const status = document.getElementById('media-system-audio-status');
+  const availability = getSystemAudioSourceAvailability();
+  const durationHours = SYSTEM_AUDIO_SHARE_LIMIT_MS / (60 * 60 * 1000);
+
+  if (limits) {
+    limits.textContent = t('system_audio.preflight_limits', {
+      count: MAX_SYSTEM_AUDIO_DEVICES,
+      hours: durationHours,
+    });
+  }
+
+  button.disabled = availability.disabled;
+  button.setAttribute('aria-disabled', String(availability.disabled));
+  button.setAttribute('aria-busy', String(availability.busy));
+  button.classList.toggle('unavailable', availability.disabled);
+  button.classList.toggle('unsupported', availability.reasonKey === 'system_audio.desktop_only');
+
+  const reason = availability.reasonKey ? t(availability.reasonKey, availability.reasonParams) : '';
+  if (status) {
+    status.textContent = reason;
+    status.hidden = !reason;
+  }
+  if (reason) button.title = reason.replace(/\n/g, ' ');
+  else button.removeAttribute('title');
+
   if (!label) return;
-  const key: I18nKey = pending ? 'system_audio.pro_preparing' : 'system_audio.button';
+  const key: I18nKey = availability.busy ? 'system_audio.pro_preparing' : 'system_audio.button';
   label.textContent = t(key);
   label.setAttribute('data-i18n', key);
 }
@@ -1413,9 +1496,7 @@ export function initPlayerControls(): void {
       showToast(t('system_audio.desktop_only'));
     }
   });
-  if (!canCaptureSystemAudio()) {
-    document.getElementById('btn-system-audio')?.classList.add('unsupported');
-  }
+  syncSystemAudioSourceButton();
   $on('btn-close-media-popup', 'click', () => closeMediaSourcePopup());
 
   // Demo button (Help tab — desktop + mobile)
@@ -1542,24 +1623,28 @@ export function initPlayerControls(): void {
   // guard as the click handler instead of the legacy host/guest topology.
   _busScope.on('state:network.hostConn', () => {
     syncMediaSourceButtonAuthority();
+    syncSystemAudioSourceButton();
     syncPlayButtonAuthority();
     syncMainSyncButtonState();
   });
   _busScope.on('state:network.appRole', () => {
     updateRoleBadge();
     syncMediaSourceButtonAuthority();
+    syncSystemAudioSourceButton();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
     syncMainSyncButtonState();
   });
   _busScope.on('state:network.standardRoomCapabilities', () => {
     syncMediaSourceButtonAuthority();
+    syncSystemAudioSourceButton();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
   });
   _busScope.on('state:room.context', () => {
     updateRoleBadge();
     syncMediaSourceButtonAuthority();
+    syncSystemAudioSourceButton();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
     syncMainSyncButtonState();
@@ -1576,6 +1661,7 @@ export function initPlayerControls(): void {
     refreshTrackTitle();
     setTabTitleTrack(getTabTitleTrack());
     syncMediaSourceButtonAuthority();
+    syncSystemAudioSourceButton();
     syncMainSyncButtonState();
   };
   _busScope.on('i18n:changed', refreshPlayerText);
@@ -1820,6 +1906,7 @@ export function initPlayerControls(): void {
     // A standard-room ADMIN grant/revoke changes media-source capabilities
     // without changing hostConn or room.context.
     syncMediaSourceButtonAuthority();
+    syncSystemAudioSourceButton();
     syncQueueModeButtonAuthority();
     syncPlayButtonAuthority();
   });
@@ -1840,6 +1927,7 @@ export function initPlayerControls(): void {
     syncSystemAudioSourceButton();
     syncMediaSourceButtonAuthority();
   });
+  _busScope.on('state:network.connectedPeers', syncSystemAudioSourceButton);
   _busScope.on('state:playlist.items', () => {
     const pendingQueueItemId = getState('network.pendingTrackChangeQueueItemId');
     if (

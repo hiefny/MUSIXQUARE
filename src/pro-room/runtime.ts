@@ -4,13 +4,16 @@ import { batchSetState, getState, setState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { t } from '../i18n/index.ts';
-import {
-  getAccountSnapshot,
-  getAccountStatsScope,
-  subscribeAccount,
-  type AccountSnapshot,
-} from '../account/state.ts';
+import { getAccountSnapshot, getAccountStatsScope, subscribeAccount } from '../account/state.ts';
 import { ProRoomAccountReconciler } from './account-reconciliation.ts';
+import {
+  isProRoomAccountDetachRecoveryTarget,
+  proRoomAccountCommitIdentityMatchesSnapshot,
+  proRoomAccountIdentityProjectionKey,
+  projectProRoomAccountCommitIdentity,
+  sameProRoomAccountCommitIdentity,
+  type ProRoomAccountCommitIdentity,
+} from './account-runtime-identity.ts';
 import {
   classifyProAccountIdentityLeaseFailure,
   getProAccountIdentityLeaseRenewDelayMs,
@@ -150,6 +153,10 @@ import {
   type ProPlaybackTimingMode,
   type ProPlaybackUserIntent,
 } from './playback-authority-hooks.ts';
+import {
+  cloneProRoomAdministrators,
+  reconcileProRoomAdministratorDirectory,
+} from './administrator-directory.ts';
 import { completeProRoomPinRotation } from './pin-rotation.ts';
 import { ProRoomPlaylistProjection } from './playlist-projection.ts';
 import {
@@ -246,13 +253,6 @@ let accountIdentityLeaseExpiresAtMs: number | null = null;
 let accountIdentityLeaseRetryAttempt = 0;
 /** Invalidates lease responses issued for an older App-account projection. */
 let accountIdentityGeneration = 0;
-interface AccountMediaHookCommitIdentity {
-  roomCode: string;
-  participantId: string;
-  presenceIncarnationId: string;
-  memberId: string;
-  isAuthenticated: boolean;
-}
 let accountMediaHookRenewal: ReturnType<typeof invalidateProRoomMediaHookSession> = null;
 let accountMediaHookRecovery: {
   renewal: NonNullable<ReturnType<typeof invalidateProRoomMediaHookSession>>;
@@ -261,7 +261,10 @@ let accountMediaHookRecovery: {
   roomCode: string;
   playlistLease: PlaylistRuntimeLease;
 } | null = null;
-let acceptedAccountIdentityProjectionKey = proAccountIdentityProjectionKey(getAccountSnapshot());
+let acceptedAccountIdentityProjectionKey = proRoomAccountIdentityProjectionKey(
+  getAccountSnapshot(),
+  getAccountStatsScope(),
+);
 let systemAudioSafetyRefreshAtMs = 0;
 const heartbeatSingleFlight = new ProRoomHeartbeatSingleFlight();
 const playlistProjectionListeners = new Set<() => void>();
@@ -691,7 +694,7 @@ function renewAccountMediaHooksIfCurrent(
   identityGeneration: number,
   sessionLease: number,
   playlistLease: PlaylistRuntimeLease | null,
-  expectedIdentity: AccountMediaHookCommitIdentity,
+  expectedIdentity: ProRoomAccountCommitIdentity,
 ): boolean {
   if (
     !renewal ||
@@ -712,53 +715,8 @@ function renewAccountMediaHooksIfCurrent(
   return renewed;
 }
 
-function accountMediaHookCommitIdentity(
-  snapshot: ProRoomSnapshot,
-): AccountMediaHookCommitIdentity | null {
-  const viewer = snapshot.viewer;
-  if (!viewer) return null;
-  return {
-    roomCode: snapshot.roomCode,
-    participantId: viewer.participantId,
-    presenceIncarnationId: viewer.presenceIncarnationId,
-    memberId: viewer.memberId,
-    isAuthenticated: viewer.isAuthenticated,
-  };
-}
-
-function isAccountMediaHookCommitIdentityCurrent(
-  expected: AccountMediaHookCommitIdentity,
-): boolean {
-  const current = controller.snapshot;
-  const viewer = current?.viewer;
-  return !!(
-    current?.roomCode === expected.roomCode &&
-    viewer &&
-    viewer.participantId === expected.participantId &&
-    viewer.presenceIncarnationId === expected.presenceIncarnationId &&
-    viewer.memberId === expected.memberId &&
-    viewer.isAuthenticated === expected.isAuthenticated
-  );
-}
-
-function sameAccountMediaHookCommitIdentity(
-  left: AccountMediaHookCommitIdentity,
-  right: AccountMediaHookCommitIdentity,
-): boolean {
-  return (
-    left.roomCode === right.roomCode &&
-    left.participantId === right.participantId &&
-    left.presenceIncarnationId === right.presenceIncarnationId &&
-    left.memberId === right.memberId &&
-    left.isAuthenticated === right.isAuthenticated
-  );
-}
-
-function isAccountDetachRecoveryTarget(account: Readonly<AccountSnapshot>): boolean {
-  return (
-    account.status === 'anonymous' ||
-    (account.status === 'authenticated' && account.account?.profileComplete === false)
-  );
+function isAccountMediaHookCommitIdentityCurrent(expected: ProRoomAccountCommitIdentity): boolean {
+  return proRoomAccountCommitIdentityMatchesSnapshot(expected, controller.snapshot);
 }
 
 function recoverAccountMediaHooksFromCanonicalSnapshot(snapshot: ProRoomSnapshot): void {
@@ -781,7 +739,11 @@ function recoverAccountMediaHooksFromCanonicalSnapshot(snapshot: ProRoomSnapshot
   // signed anonymous viewer is sufficient proof for a lost detach response.
   // This includes an incomplete successor account shedding old account A
   // before onboarding; it is not evidence that successor B was attached.
-  if (!isAccountDetachRecoveryTarget(account) || !viewer || viewer.isAuthenticated === true) {
+  if (
+    !isProRoomAccountDetachRecoveryTarget(account) ||
+    !viewer ||
+    viewer.isAuthenticated === true
+  ) {
     return;
   }
   const renewed = renewAccountMediaHooksIfCurrent(
@@ -789,7 +751,7 @@ function recoverAccountMediaHooksFromCanonicalSnapshot(snapshot: ProRoomSnapshot
     recovery.identityGeneration,
     recovery.sessionLease,
     recovery.playlistLease,
-    accountMediaHookCommitIdentity(snapshot)!,
+    projectProRoomAccountCommitIdentity(snapshot)!,
   );
   if (!renewed) return;
   // The reconciler failed before it could invoke acceptAnonymous(), so the
@@ -1384,57 +1346,17 @@ function reconcileAuthoritativePeers(snapshot: ProRoomSnapshot): void {
   bus.emit('network:device-list-update', list);
 }
 
-function cloneProRoomAdministrators(
-  administrators: readonly ProRoomAdministrator[],
-): ProRoomAdministrator[] {
-  return administrators.map((administrator) => ({
-    ...administrator,
-    permissions: { ...administrator.permissions },
-    inheritedPermissions: [...administrator.inheritedPermissions],
-  }));
-}
-
-function proRoomAdministratorEqual(
-  left: Readonly<ProRoomAdministrator>,
-  right: Readonly<ProRoomAdministrator>,
-): boolean {
-  return (
-    left.memberId === right.memberId &&
-    left.memberDisplayNumber === right.memberDisplayNumber &&
-    left.isAuthenticated === right.isAuthenticated &&
-    left.displayName === right.displayName &&
-    left.role === right.role &&
-    left.onlineDeviceCount === right.onlineDeviceCount &&
-    left.permissions['media.add'] === right.permissions['media.add'] &&
-    left.permissions['playback.control'] === right.permissions['playback.control'] &&
-    left.permissions['members.kick'] === right.permissions['members.kick'] &&
-    left.permissions['chat.notice'] === right.permissions['chat.notice'] &&
-    left.inheritedPermissions.length === right.inheritedPermissions.length &&
-    left.inheritedPermissions.every((permission) => right.inheritedPermissions.includes(permission))
-  );
-}
-
-function proRoomAdministratorDirectoriesEqual(
-  left: readonly ProRoomAdministrator[],
-  right: readonly ProRoomAdministrator[],
-): boolean {
-  return (
-    left.length === right.length &&
-    left.every((administrator, index) => proRoomAdministratorEqual(administrator, right[index]!))
-  );
-}
-
 function publishProRoomAdministratorDirectory(
   administrators: readonly ProRoomAdministrator[],
 ): ProRoomAdministrator[] {
-  const next = cloneProRoomAdministrators(administrators);
-  if (proRoomAdministratorDirectoriesEqual(acceptedProAdministrators, next)) {
-    return cloneProRoomAdministrators(acceptedProAdministrators);
-  }
-  acceptedProAdministrators = next;
-  const projection = cloneProRoomAdministrators(acceptedProAdministrators);
-  bus.emit('pro-room:administrators-updated', projection);
-  return projection;
+  const reconciliation = reconcileProRoomAdministratorDirectory(
+    acceptedProAdministrators,
+    administrators,
+  );
+  if (!reconciliation.changed) return reconciliation.projection;
+  acceptedProAdministrators = reconciliation.accepted;
+  bus.emit('pro-room:administrators-updated', reconciliation.projection);
+  return reconciliation.projection;
 }
 
 function publishProRoomAdministrators(snapshot: ProRoomSnapshot): void {
@@ -4050,10 +3972,10 @@ async function acceptAccountReconciliationSnapshot(
   const renewal = invalidateProRoomMediaHookSession();
   accountMediaHookRecovery = null;
   accountMediaHookRenewal = renewal;
-  const finalCommit: { identity: AccountMediaHookCommitIdentity | null } = { identity: null };
+  const finalCommit: { identity: ProRoomAccountCommitIdentity | null } = { identity: null };
   let finalCommitRejected = false;
   const finalCommitIdentity = (committed: ProRoomSnapshot): void => {
-    finalCommit.identity = accountMediaHookCommitIdentity(committed);
+    finalCommit.identity = projectProRoomAccountCommitIdentity(committed);
   };
   const acceptCommittedAccountAuthority = (committed: ProRoomSnapshot, isFinalCommit = true) => {
     // Record signed proof only. The awaited channel/playlist acceptance below
@@ -4147,7 +4069,7 @@ async function acceptAccountReconciliationSnapshot(
       snapshot = detached.snapshot ?? (await recoverMissingDetachedPresence());
       if (detached.snapshot === null) acceptCommittedAnonymousAuthority(snapshot);
     }
-    const acceptedIdentity = accountMediaHookCommitIdentity(snapshot);
+    const acceptedIdentity = projectProRoomAccountCommitIdentity(snapshot);
     const committedIdentity = finalCommit.identity;
     if (
       signal.aborted ||
@@ -4159,7 +4081,7 @@ async function acceptAccountReconciliationSnapshot(
     if (
       !acceptedIdentity ||
       !committedIdentity ||
-      !sameAccountMediaHookCommitIdentity(acceptedIdentity, committedIdentity) ||
+      !sameProRoomAccountCommitIdentity(acceptedIdentity, committedIdentity) ||
       !isAccountMediaHookCommitIdentityCurrent(committedIdentity) ||
       (operation === 'attach' && snapshot.viewer?.isAuthenticated !== true) ||
       (operation === 'detach' && snapshot.viewer?.isAuthenticated === true)
@@ -4219,7 +4141,7 @@ function recoverAccountMediaHooksAfterUncertainMutation(operation: 'attach' | 'd
   const account = getAccountSnapshot();
   if (
     operation === 'detach' &&
-    isAccountDetachRecoveryTarget(account) &&
+    isProRoomAccountDetachRecoveryTarget(account) &&
     renewal &&
     snapshot &&
     playlistLease
@@ -4535,7 +4457,7 @@ async function renewAccountIdentityLease(): Promise<void> {
   }
   if (
     accountMediaHookRenewal &&
-    isAccountDetachRecoveryTarget(account) &&
+    isProRoomAccountDetachRecoveryTarget(account) &&
     snapshot.viewer?.isAuthenticated === true
   ) {
     // A signed authenticated heartbeat cannot prove that a lost detach
@@ -5100,20 +5022,8 @@ for (const event of ['state:playlist.repeatMode', 'state:playlist.isShuffle'] as
 }
 bus.on('playlist:shuffle-order-changed', () => scheduleQueueModeCheckpoint());
 
-function proAccountIdentityProjectionKey(snapshot: Readonly<AccountSnapshot>): string {
-  if (snapshot.status === 'authenticated' && snapshot.account) {
-    return JSON.stringify([
-      'authenticated',
-      getAccountStatsScope(),
-      snapshot.account.nickname,
-      snapshot.account.profileComplete,
-    ]);
-  }
-  return JSON.stringify([snapshot.status, snapshot.configured]);
-}
-
 subscribeAccount((snapshot) => {
-  const projectionKey = proAccountIdentityProjectionKey(snapshot);
+  const projectionKey = proRoomAccountIdentityProjectionKey(snapshot, getAccountStatsScope());
   // `/api/auth/session` can publish the same profile on every foreground
   // refresh. Treat that as lease observation, not an authority transition: it
   // must neither abort an in-flight renewal nor keep postponing the timer.

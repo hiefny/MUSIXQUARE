@@ -20,6 +20,7 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
+import { configureSystemAudioCaptureActivityProbe } from './system-capture-activity-port.ts';
 import { getTrackPosition, stopAllMediaAsync } from '../player/transport.ts';
 import {
   claimPlaybackOwner,
@@ -234,6 +235,10 @@ function startSystemAudioShareLimitTimer(
 export function isSystemAudioActive(): boolean {
   return _capturedStream !== null && _capturedStream.active;
 }
+
+// Keep capture state and listener ownership in this module while exposing the
+// exact predicate to transport through a leaf port that cannot import us back.
+configureSystemAudioCaptureActivityProbe(isSystemAudioActive);
 
 /** Get the L track stream */
 export function getStreamL(): MediaStream | null {

@@ -21,9 +21,8 @@
  *     excluded here: it is this repo's sanctioned lazy cycle-break idiom
  *     (player/transport.ts -> playlist.ts etc.) — counting those edges
  *     would merge the player domain into one giant baseline SCC and weaken
- *     the ratchet. Every SCC found must be a SUBSET of a recorded baseline
- *     entry: shrinkage passes (update the baseline when it does), growth or
- *     any new cycle fails. Do NOT add baseline entries to silence a finding.
+ *     the ratchet. The former two-cycle baseline has been removed. Every SCC
+ *     now fails; do not reintroduce a baseline entry to silence a finding.
  *
  *   RULE C — ui layering (allowlist of importer -> ui-module pairs).
  *     Files outside src/ui/ may import from src/ui/ only via the entries
@@ -55,23 +54,9 @@ const SRC = join(ROOT, 'src');
 const APP = 'src/app.ts';
 
 // ── RULE B baseline ──────────────────────────────────────────────
-// The two reviewed pre-existing cycles are frozen as a shrink-only baseline.
-// Any new member or cycle fails the guard.
-const SCC_BASELINE = [
-  {
-    reason:
-      'audio/system-capture <-> player/transport: system-audio mode and file transport ' +
-      'mutually arbitrate playback ownership (audit-hardened cluster; untangling is its ' +
-      'own project, not a drive-by)',
-    members: ['src/audio/system-capture.ts', 'src/player/transport.ts'],
-  },
-  {
-    reason:
-      'youtube player/handlers command wiring; the iframe and sync runtimes are ' +
-      'now leaf-bridged and must never rejoin this SCC',
-    members: ['src/youtube/handlers.ts', 'src/youtube/player.ts'],
-  },
-];
+// All reviewed production cycles have been removed. Keep this empty: a future
+// cycle is a regression and must be broken rather than recorded here.
+const SCC_BASELINE = [];
 
 // ── RULE C allowlist ─────────────────────────────────────────────
 // ui modules importable from ANY non-ui production file.

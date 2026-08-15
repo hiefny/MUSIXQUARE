@@ -14,7 +14,10 @@ import { safeSend } from '../network/peer.ts';
 import { verifyOperator } from '../network/protocol.ts';
 import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_state.ts';
 import { loadYouTubeVideo } from './iframe.ts';
-import { scheduleYtAutoSync, tryBeginYouTubeZeroStart } from './player.ts';
+import {
+  scheduleYtAutoSyncFromHandler as scheduleYtAutoSync,
+  tryBeginYouTubeZeroStartFromHandler as tryBeginYouTubeZeroStart,
+} from './handler-runtime-bridge.ts';
 import { toCanonicalYouTubeTime } from './local-offset.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';

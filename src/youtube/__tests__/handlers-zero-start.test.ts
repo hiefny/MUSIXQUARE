@@ -32,8 +32,6 @@ vi.mock('../../core/log.ts', () => ({
 vi.mock('../../network/peer.ts', () => ({ safeSend: vi.fn(() => true) }));
 vi.mock('../../network/protocol.ts', () => ({ verifyOperator: vi.fn(() => true) }));
 
-vi.mock('../player.ts', () => ({ scheduleYtAutoSync, tryBeginYouTubeZeroStart }));
-
 vi.mock('../_state.ts', () => ({
   getYouTubePlayer: vi.fn(() => ({
     getCurrentTime: () => playerFacade.currentTime,
@@ -71,6 +69,7 @@ import {
   handleRequestYouTubePlay,
   handleRequestYouTubeToggle,
 } from '../handlers.ts';
+import { configureYouTubeHandlerRuntimeHooks } from '../handler-runtime-bridge.ts';
 
 const operatorConnection = { peer: 'operator-peer', open: true } as never;
 const request = { queueItemId: QUEUE_ITEM_ID };
@@ -84,6 +83,7 @@ describe('YouTube operator handler zero-start dispatch', () => {
     playerFacade.state = 2;
     playerFacade.videoId = VIDEO_ID;
     zeroStartFacade.accepted = false;
+    configureYouTubeHandlerRuntimeHooks({ scheduleYtAutoSync, tryBeginYouTubeZeroStart });
     setState('youtube.currentSubIndex', 0);
     vi.stubGlobal('YT', { PlayerState: { PLAYING: 1 } });
   });

@@ -13,7 +13,7 @@ import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/const
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { IS_WINDOWS } from '../core/platform.ts';
 import { getFilePlaybackDestination, initAudio } from '../audio/engine.ts';
-import { isSystemAudioActive } from '../audio/system-capture.ts';
+import { isSystemAudioCaptureActive } from '../audio/system-capture-activity-port.ts';
 import {
   getPlaybackOwnership,
   getPlaybackModeActivity,
@@ -390,7 +390,7 @@ function stopAllMediaLegacy(opts: StopMediaOptions = {}): void {
   }
 
   // Stop system audio if active (without recursive loop — cleanup only disconnects nodes)
-  if (isSystemAudioActive()) {
+  if (isSystemAudioCaptureActive()) {
     bus.emit('system-audio:force-stop');
   }
 

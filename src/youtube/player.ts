@@ -68,6 +68,7 @@ import {
   configureYouTubePlayerRuntimeHooks,
   type PendingAutoSyncOptions,
 } from './player-runtime-bridge.ts';
+import type { YouTubeAutoSyncOverrides } from './handler-runtime-bridge.ts';
 
 // YouTube rendezvous-autoplay intent: set by any caller that loaded a track
 // with autoplay=false but wants playback to start once the player (or its
@@ -538,16 +539,7 @@ export function tryBeginYouTubeZeroStart(videoId: string, subIndex: number | nul
  * made the broadcast carry stale state or position too often. The 2-stage
  * delay always-on is slower but predictable across device + network mixes.
  */
-export function scheduleYtAutoSync(
-  targetTime: number,
-  overrides?: {
-    subIndex?: number;
-    videoId?: string;
-    skipSeek?: boolean;
-    rendezvousDelayMs?: number;
-    state?: number;
-  },
-): void {
+export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSyncOverrides): void {
   if (getRoomContext().kind === 'pro') {
     // Coordinator-free PRO playback is owned exclusively by the server
     // PREPARE/COMMIT timeline. A delayed legacy autoplay event from the

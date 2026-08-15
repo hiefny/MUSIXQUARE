@@ -44,6 +44,7 @@ import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import { log } from '../../core/log.ts';
+import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-capture-activity-port.ts';
 
 const lazyPlaylistMocks = vi.hoisted(() => ({
   loadPlaylistModule: vi.fn(),
@@ -223,6 +224,20 @@ describe('stopPlayerNode', () => {
 // ─── stopAllMedia ────────────────────────────────────────────────────
 
 describe('stopAllMedia', () => {
+  it('force-stops an active local capture through the leaf activity port', () => {
+    const forceStop = vi.fn();
+    bus.on('system-audio:force-stop', forceStop);
+    const restoreProbe = configureSystemAudioCaptureActivityProbe(() => true);
+
+    try {
+      stopAllMedia({ silent: true });
+    } finally {
+      restoreProbe();
+    }
+
+    expect(forceStop).toHaveBeenCalledTimes(1);
+  });
+
   it('resets playback mode/activity to idle', () => {
     setPlaybackFilePlaying();
     stopAllMedia();

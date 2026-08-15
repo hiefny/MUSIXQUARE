@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 // Ratchet: keep the production import graph clean — app.ts import-terminal
-// (RULE A), no new/grown import cycles beyond the frozen 2-SCC baseline
+// (RULE A), no static runtime import cycles
 // (RULE B), and ui-layering respected so wire-protocol code can never import
 // from a render module again (RULE C). The actual
 // analysis lives in scripts/check-import-graph.mjs (single source of truth,

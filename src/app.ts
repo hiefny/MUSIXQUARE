@@ -82,8 +82,9 @@ import { initMediaSession } from './player/media-session.ts';
 import { initLocalOutputRejoin } from './player/local-output-rejoin.ts';
 
 // ── YouTube ──
-import { initYouTube } from './youtube/player.ts';
+import { initYouTube, scheduleYtAutoSync, tryBeginYouTubeZeroStart } from './youtube/player.ts';
 import { guestRendezvousSync, initYouTubeSync } from './youtube/sync.ts';
+import { configureYouTubeHandlerRuntimeHooks } from './youtube/handler-runtime-bridge.ts';
 
 // ── UI ──
 import { initOverlayObservers, isAnyOverlayShown } from './ui/dom.ts';
@@ -119,6 +120,11 @@ declare global {
     __MXQR?: unknown;
   }
 }
+
+// Wire player-owned commands at the eager composition root. Protocol handler
+// registration remains owned by initYouTube(), while this leaf port prevents
+// handlers.ts from back-importing the player coordinator.
+configureYouTubeHandlerRuntimeHooks({ scheduleYtAutoSync, tryBeginYouTubeZeroStart });
 
 // Tee console output into a ring buffer so `/debug console` can surface it on
 // iOS, where Safari Web Inspector needs a tethered Mac. Install before the rest

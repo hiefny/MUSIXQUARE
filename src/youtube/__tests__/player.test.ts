@@ -196,6 +196,27 @@ describe('YouTube Player', () => {
       );
       playerRuntime.setPendingAutoSyncOnReady(false);
     });
+
+    it('leaves protocol listener ownership in initYouTube', async () => {
+      const playerRuntime = await import('../player.ts');
+      const { registerHandlers } = await import('../../network/protocol.ts');
+
+      expect(registerHandlers).not.toHaveBeenCalled();
+
+      playerRuntime.initYouTube();
+
+      expect(registerHandlers).toHaveBeenCalledOnce();
+      expect(vi.mocked(registerHandlers).mock.calls[0]?.[0]).toEqual(
+        expect.objectContaining({
+          [MSG.YOUTUBE_PLAY]: expect.any(Function),
+          [MSG.REQUEST_YOUTUBE_PLAY]: expect.any(Function),
+          [MSG.REQUEST_YOUTUBE_PAUSE]: expect.any(Function),
+          [MSG.REQUEST_YOUTUBE_TOGGLE]: expect.any(Function),
+          [MSG.REQUEST_YOUTUBE_SUB_SEEK]: expect.any(Function),
+          [MSG.REQUEST_YOUTUBE_PLAYLIST_INFO]: expect.any(Function),
+        }),
+      );
+    });
   });
 
   describe('zero-start runtime capability', () => {

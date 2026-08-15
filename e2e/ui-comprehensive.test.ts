@@ -16,6 +16,7 @@ import { test, expect } from '@playwright/test';
 import {
   createHostGuestContexts,
   cleanupContexts,
+  useAnonymousAccountSession,
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
@@ -187,6 +188,7 @@ test.describe('Comprehensive UI', () => {
   // ── Account Entry Point ────────────────────────────────────────
 
   test('anonymous host shows LOGIN account entry point', async () => {
+    await useAnonymousAccountSession(pair.hostPage);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await expect(pair.hostPage.locator('#role-text')).toHaveText('LOGIN');
@@ -197,6 +199,7 @@ test.describe('Comprehensive UI', () => {
   });
 
   test('anonymous guest shows LOGIN account entry point', async () => {
+    await useAnonymousAccountSession(pair.guestPage);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await expect(pair.guestPage.locator('#role-text')).toHaveText('LOGIN');

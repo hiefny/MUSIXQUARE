@@ -68,6 +68,12 @@ export default defineConfig({
           functions: 90,
           lines: 79,
         },
+        'cloudflare/pro-room-body.js': {
+          statements: 99,
+          branches: 99,
+          functions: 99,
+          lines: 99,
+        },
         'cloudflare/pro-room-worker.js': {
           statements: 83,
           branches: 78,
@@ -85,6 +91,20 @@ export default defineConfig({
           branches: 79,
           functions: 94,
           lines: 86,
+        },
+        // Post-extraction baselines (2026-08-15) keep the new ownership
+        // boundaries from hiding behind their former parent files' averages.
+        'cloudflare/service-control-object.js': {
+          statements: 91,
+          branches: 86,
+          functions: 99,
+          lines: 92,
+        },
+        'cloudflare/signaling-protocol.js': {
+          statements: 92,
+          branches: 91,
+          functions: 99,
+          lines: 99,
         },
       },
     },

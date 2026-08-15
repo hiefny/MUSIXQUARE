@@ -17,22 +17,14 @@ import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
+import {
+  INITIAL_TRANSFER_BUDGET,
+  INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO,
+} from './initial-transfer-budget-config.mjs';
+
+export { INITIAL_TRANSFER_BUDGET, INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO };
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-
-export const INITIAL_TRANSFER_BUDGET = Object.freeze({
-  // These are architectural ceilings, not spendable targets. The assertion
-  // below reserves a fixed percentage of every positive limit so ordinary
-  // maintenance cannot silently consume all remaining capacity.
-  entryScriptRawBytes: 1_335_000,
-  entryScriptGzipBytes: 400_000,
-  eagerJavaScriptGzipBytes: 400_000,
-  eagerTotalRawBytes: 1_700_000,
-  eagerTotalGzipBytes: 460_000,
-  eagerFontBytes: 0,
-});
-
-export const INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO = 0.05;
 
 const EAGER_LINK_RELATIONS = new Set(['modulepreload', 'preload', 'stylesheet']);
 const FONT_EXTENSION = /\.(?:woff2?|ttf|otf)$/iu;

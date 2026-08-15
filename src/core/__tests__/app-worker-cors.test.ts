@@ -900,6 +900,29 @@ describe('Cloudflare app worker WebAssembly CSP', () => {
     expect(response.headers.get('Cross-Origin-Opener-Policy')).toBeNull();
     expect(response.headers.get('Cross-Origin-Embedder-Policy')).toBeNull();
   });
+
+  it('keeps Worker and Static Assets CSPs identical with form and framing restrictions', async () => {
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config'),
+      {},
+    );
+    const workerCsp = response.headers.get('Content-Security-Policy') || '';
+    const staticHeaders = await readFile(
+      new URL('../../../cloudflare/app-static-assets/_headers', import.meta.url),
+      'utf8',
+    );
+    const staticCsp =
+      staticHeaders
+        .split(/\r?\n/u)
+        .find((line) => line.trimStart().startsWith('Content-Security-Policy:'))
+        ?.trimStart()
+        .slice('Content-Security-Policy:'.length)
+        .trim() || '';
+
+    expect(workerCsp).toBe(staticCsp);
+    expect(directive(workerCsp, 'form-action')).toEqual(['form-action', "'self'"]);
+    expect(directive(workerCsp, 'frame-ancestors')).toEqual(['frame-ancestors', "'none'"]);
+  });
 });
 
 describe('Cloudflare app worker sensitive endpoint rate limit', () => {
@@ -1662,6 +1685,10 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   });
 
   it('serves rate-limit rejections with the shared security headers', async () => {
+    // Keep the complete burst in one rate-limit bucket when this test starts
+    // immediately before a real wall-clock minute edge.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-19T00:00:30.000Z'));
     const control = createAtomicRateControlBinding();
     vi.stubGlobal(
       'fetch',
@@ -5669,9 +5696,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.59');
-    expect(html).toContain('/admin.js?v=8.3.59');
-    expect(html).toContain('data-admin-asset-version="8.3.59"');
+    expect(html).toContain('/admin.css?v=8.3.60');
+    expect(html).toContain('/admin.js?v=8.3.60');
+    expect(html).toContain('data-admin-asset-version="8.3.60"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -5690,7 +5717,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.59', '/admin.css?v=8.3.59']) {
+    for (const path of ['/admin.js?v=8.3.60', '/admin.css?v=8.3.60']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');

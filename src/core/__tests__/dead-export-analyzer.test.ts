@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 
 interface BindingResult {
   readonly name: string;
@@ -28,16 +28,21 @@ interface AnalyzerResult {
 
 const script = fileURLToPath(new URL('../../../scripts/check-dead-exports.mjs', import.meta.url));
 const fixtureRoot = fileURLToPath(new URL('./fixtures/dead-export-analyzer/', import.meta.url));
+let fixtureAnalysisJson = '';
+let fixtureAnalysis!: AnalyzerResult;
+let analyzerSubprocessRuns = 0;
 
 function analyzeFixture(): AnalyzerResult {
-  return JSON.parse(analyzeFixtureJson()) as AnalyzerResult;
+  return fixtureAnalysis;
 }
 
-function analyzeFixtureJson(): string {
-  return execFileSync('node', [script, '--analyze-json', fixtureRoot], {
+beforeAll(() => {
+  analyzerSubprocessRuns += 1;
+  fixtureAnalysisJson = execFileSync('node', [script, '--analyze-json', fixtureRoot], {
     encoding: 'utf8',
   });
-}
+  fixtureAnalysis = JSON.parse(fixtureAnalysisJson) as AnalyzerResult;
+}, 120_000);
 
 function hasSite(binding: BindingResult, file: string, name: string): boolean {
   return binding.sites.some((site) => site.file === file && site.name === name);
@@ -97,7 +102,29 @@ describe('Binding-aware dead-export analyzer', () => {
     expect(result.ignoredDefaultExports).toEqual([{ file: 'src/default.ts', name: 'default' }]);
   });
 
-  it('emits deterministic binding and reachability order', () => {
-    expect(analyzeFixtureJson()).toBe(analyzeFixtureJson());
+  it('caches one analyzer subprocess and emits canonical binding and reachability order', () => {
+    const result = analyzeFixture();
+
+    expect(analyzerSubprocessRuns).toBe(1);
+    expect(fixtureAnalysisJson.trim()).toBe(JSON.stringify(result));
+    expect(result.fullyDead.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
+      'value:collision',
+    ]);
+    expect(result.testOnly.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
+      'value:collision',
+      'type:TestType',
+    ]);
+    expect(result.selfOnly.map(({ kind, name }) => `${kind}:${name}`)).toEqual(['value:selfValue']);
+    expect(result.live.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
+      'value:used',
+      'value:namespaced',
+      'value:reexported',
+      'value:overloaded',
+      'type:ReachableType',
+    ]);
+    expect(result.sanctionedSeams.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
+      'value:resetForTests',
+    ]);
+    expect(result.moduleReachability.unreachableFiles).toEqual(['src/feature-b.ts', 'src/self.ts']);
   });
 });

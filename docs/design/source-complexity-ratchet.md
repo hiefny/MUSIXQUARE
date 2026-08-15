@@ -3,6 +3,13 @@
 Status: accepted
 Date: 2026-08-15
 
+## Extracted ownership boundaries
+
+The service-control Durable Object and signaling protocol are independent
+production modules with their own ceilings. Their extraction also lowered the
+parent PRO and signaling Worker ceilings, so moving those responsibilities back
+into either parent cannot silently spend the space freed by the extraction.
+
 Large files are not defects by themselves, but the App, PRO, signaling, PRO
 browser runtime, admin runtime, and production release paths are high-blast-
 radius ownership boundaries. Unbounded growth in those files makes review and

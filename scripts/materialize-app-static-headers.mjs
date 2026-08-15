@@ -34,6 +34,8 @@ export function validateAppStaticHeaders(source) {
     'Referrer-Policy: strict-origin-when-cross-origin',
     'Permissions-Policy:',
     'Content-Security-Policy:',
+    "form-action 'self'",
+    "frame-ancestors 'none'",
   ];
   for (const required of requiredLines) {
     if (!source.includes(required)) {

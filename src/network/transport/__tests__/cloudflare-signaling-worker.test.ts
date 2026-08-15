@@ -34,6 +34,19 @@ type WorkerModule = {
   };
 };
 
+type SignalingProtocolModule = {
+  WS_MESSAGE_MAX_BYTES: number;
+  hasExactKeys(value: unknown, required: string[], optional?: string[]): boolean;
+  isRecord(value: unknown): boolean;
+  isStandardRoomIdentityMutation(message: unknown): boolean;
+  isValidPeerId(peerId: unknown): boolean;
+  normalizeProBroadcastTargets(value: unknown): string[] | null;
+  normalizeProRealtimeFrame(value: unknown): unknown;
+  normalizeProServerEvent(value: unknown): unknown;
+  rawMessageByteLength(raw: unknown): number | null;
+  validateIncomingMessage(message: unknown, role: string): 'valid' | 'ignore' | 'oversized';
+};
+
 type RoomMeta = {
   v: 1;
   roomSecret: string | null;
@@ -96,6 +109,7 @@ const REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST = Object.freeze({
 const originalWebSocketPair = (globalThis as typeof globalThis & { WebSocketPair?: unknown })
   .WebSocketPair;
 let workerModule: WorkerModule;
+let signalingProtocol: SignalingProtocolModule;
 
 class FakeResponse {
   body: unknown;
@@ -745,6 +759,9 @@ async function standardAccountDeletionAssertion(input: {
 
 beforeAll(async () => {
   workerModule = (await import('../../../../cloudflare/signaling-worker.js')) as WorkerModule;
+  signalingProtocol = await vi.importActual<SignalingProtocolModule>(
+    '../../../../cloudflare/signaling-protocol.js',
+  );
 });
 
 beforeEach(() => {
@@ -758,6 +775,219 @@ afterEach(() => {
 
 afterAll(() => {
   restoreWorkerGlobals();
+});
+
+describe('Cloudflare signaling protocol validation boundaries', () => {
+  it('measures every supported WebSocket frame representation without coercion', () => {
+    const bytes = new Uint8Array([1, 2, 3, 4]);
+
+    expect(signalingProtocol.rawMessageByteLength('한')).toBe(3);
+    expect(
+      signalingProtocol.rawMessageByteLength(
+        'x'.repeat(signalingProtocol.WS_MESSAGE_MAX_BYTES + 1),
+      ),
+    ).toBe(signalingProtocol.WS_MESSAGE_MAX_BYTES + 1);
+    expect(signalingProtocol.rawMessageByteLength(bytes.buffer)).toBe(4);
+    expect(signalingProtocol.rawMessageByteLength(bytes.subarray(1, 3))).toBe(2);
+    expect(signalingProtocol.rawMessageByteLength({ byteLength: 4 })).toBeNull();
+  });
+
+  it('keeps record, exact-key, peer-id, and identity-mutation checks fail closed', () => {
+    expect(signalingProtocol.isRecord({})).toBe(true);
+    expect(signalingProtocol.isRecord(null)).toBe(false);
+    expect(signalingProtocol.isRecord([])).toBe(false);
+    expect(signalingProtocol.hasExactKeys({ required: 1 }, ['required'])).toBe(true);
+    expect(
+      signalingProtocol.hasExactKeys({ required: 1, optional: 2 }, ['required'], ['optional']),
+    ).toBe(true);
+    expect(signalingProtocol.hasExactKeys({ required: 1, extra: 2 }, ['required'])).toBe(false);
+    expect(signalingProtocol.hasExactKeys({}, ['required'])).toBe(false);
+    expect(signalingProtocol.isValidPeerId('peer_01-valid')).toBe(true);
+    expect(signalingProtocol.isValidPeerId('bad.peer')).toBe(false);
+    expect(signalingProtocol.isValidPeerId(42)).toBe(false);
+
+    for (const type of [
+      'account-identity-refresh',
+      'account-identity-clear',
+      'account-identity-delete',
+    ]) {
+      expect(signalingProtocol.isStandardRoomIdentityMutation({ type })).toBe(true);
+    }
+    expect(signalingProtocol.isStandardRoomIdentityMutation({ type: 'signal-offer' })).toBe(false);
+    expect(signalingProtocol.isStandardRoomIdentityMutation(null)).toBe(false);
+  });
+
+  it('normalizes bounded PRO server events and rejects dangerous object keys', () => {
+    const event = {
+      type: 'pro-playback-commit',
+      sequence: 3,
+      nested: { enabled: true, value: null },
+      items: [1, 'two'],
+    };
+    expect(signalingProtocol.normalizeProServerEvent(event)).toEqual(event);
+
+    for (const forbiddenKey of ['', '__proto__', 'prototype', 'constructor', 'x'.repeat(65)]) {
+      const candidate: Record<string, unknown> = { type: 'pro-playback-commit', safe: true };
+      Object.defineProperty(candidate, forbiddenKey, { enumerable: true, value: true });
+      expect(signalingProtocol.normalizeProServerEvent(candidate)).toBeNull();
+    }
+    expect(
+      signalingProtocol.normalizeProServerEvent({
+        type: 'pro-presence-snapshot',
+        presenceRevision: -1,
+      }),
+    ).toBeNull();
+    expect(
+      signalingProtocol.normalizeProServerEvent({
+        type: 'pro-playback-commit',
+        value: Number.POSITIVE_INFINITY,
+      }),
+    ).toBeNull();
+  });
+
+  it('validates PRO broadcast targets and each realtime channel boundary', () => {
+    const incarnation = 'presence-boundary-0001';
+    const eventId = 'protocol-event-0001';
+    const commandId = 'protocol-command-0001';
+    const frame = (channel: string, payload: Record<string, unknown>) => ({
+      type: 'pro-realtime',
+      version: 1,
+      eventId,
+      channel,
+      payload,
+    });
+
+    expect(signalingProtocol.normalizeProBroadcastTargets([incarnation])).toEqual([incarnation]);
+    expect(signalingProtocol.normalizeProBroadcastTargets('not-an-array')).toBeNull();
+    expect(signalingProtocol.normalizeProBroadcastTargets(Array(101).fill(incarnation))).toBeNull();
+    expect(signalingProtocol.normalizeProBroadcastTargets([incarnation, incarnation])).toBeNull();
+    expect(signalingProtocol.normalizeProBroadcastTargets([42])).toBeNull();
+
+    expect(
+      signalingProtocol.normalizeProRealtimeFrame(frame('presence', { state: 'active' })),
+    ).toMatchObject({ channel: 'presence', payload: { state: 'active' } });
+    expect(
+      signalingProtocol.normalizeProRealtimeFrame(
+        frame('control-ready', { commandId, sequence: 0, ready: true }),
+      ),
+    ).toMatchObject({ channel: 'control-ready', payload: { commandId, sequence: 0, ready: true } });
+    expect(
+      signalingProtocol.normalizeProRealtimeFrame(
+        frame('clock', { requestId: 0, clientSentAtMs: 1 }),
+      ),
+    ).toMatchObject({ channel: 'clock', payload: { requestId: 0, clientSentAtMs: 1 } });
+
+    const invalidFrames = [
+      frame('chat', { kind: 'unknown' }),
+      frame('chat', {
+        kind: 'bot-result',
+        requestId: 'protocol-request-0001',
+        result: { kind: 'unknown' },
+      }),
+      frame('presence', { state: 'idle' }),
+      frame('presence', { state: 'active', extra: true }),
+      frame('control-ready', { commandId: 'short', sequence: 0, ready: true }),
+      frame('control-ready', { commandId, sequence: -1, ready: true }),
+      frame('control-ready', { commandId, sequence: 0, ready: 'yes' }),
+      frame('clock', { requestId: -1, clientSentAtMs: 1 }),
+      frame('clock', { requestId: 0, clientSentAtMs: Number.NaN }),
+      frame('clock', { requestId: 0, clientSentAtMs: -1 }),
+      frame('future-channel', {}),
+      { ...frame('presence', { state: 'active' }), extra: true },
+      { ...frame('presence', { state: 'active' }), eventId: 'short' },
+      { ...frame('presence', { state: 'active' }), payload: [] },
+    ];
+    for (const invalidFrame of invalidFrames) {
+      expect(signalingProtocol.normalizeProRealtimeFrame(invalidFrame)).toBeNull();
+    }
+  });
+
+  it('rejects malformed ICE metadata and covers role-specific terminal messages', () => {
+    const guestCandidate = (candidate: Record<string, unknown>) => ({
+      type: 'signal-candidate',
+      to: 'host',
+      negotiationId: NEGOTIATION_ID,
+      candidate,
+    });
+    expect(
+      signalingProtocol.validateIncomingMessage(
+        guestCandidate({
+          candidate: 'candidate:1',
+          sdpMid: null,
+          sdpMLineIndex: null,
+          usernameFragment: null,
+        }),
+        'guest',
+      ),
+    ).toBe('valid');
+    for (const candidate of [
+      { candidate: 'candidate:1', sdpMid: 1 },
+      { candidate: 'candidate:1', sdpMLineIndex: -1 },
+      { candidate: 'candidate:1', sdpMLineIndex: 1.5 },
+      { candidate: 'candidate:1', usernameFragment: 1 },
+    ]) {
+      expect(signalingProtocol.validateIncomingMessage(guestCandidate(candidate), 'guest')).toBe(
+        'ignore',
+      );
+    }
+
+    expect(
+      signalingProtocol.validateIncomingMessage(
+        { type: 'media-close', to: 'host', callId: 'call-1' },
+        'guest',
+      ),
+    ).toBe('valid');
+    expect(
+      signalingProtocol.validateIncomingMessage(
+        { type: 'media-close', to: 'host', callId: 'bad.call' },
+        'guest',
+      ),
+    ).toBe('ignore');
+    expect(
+      signalingProtocol.validateIncomingMessage(
+        {
+          type: 'guest-auth',
+          password: '',
+          reconnectSecret: 'r'.repeat(43),
+          accountAssertion: 'x'.repeat(2049),
+        },
+        'pending',
+      ),
+    ).toBe('ignore');
+
+    const hostIdentityFrames = [
+      { type: 'account-identity-refresh', accountAssertion: 'assertion' },
+      { type: 'account-identity-clear' },
+      { type: 'account-identity-delete', deletionAssertion: 'assertion' },
+    ];
+    for (const message of hostIdentityFrames) {
+      expect(signalingProtocol.validateIncomingMessage(message, 'host')).toBe('valid');
+      expect(signalingProtocol.validateIncomingMessage({ ...message, extra: true }, 'host')).toBe(
+        'ignore',
+      );
+    }
+    expect(
+      signalingProtocol.validateIncomingMessage(
+        { type: 'media-close', to: 'guest-1', callId: 'call-1' },
+        'host',
+      ),
+    ).toBe('valid');
+    expect(
+      signalingProtocol.validateIncomingMessage(
+        { type: 'media-close', to: 'guest-1', callId: 'bad.call' },
+        'host',
+      ),
+    ).toBe('ignore');
+    expect(
+      signalingProtocol.validateIncomingMessage({ type: 'future-message', to: 'guest-1' }, 'host'),
+    ).toBe('ignore');
+    expect(
+      signalingProtocol.validateIncomingMessage({ type: 'future-message' }, 'future-role'),
+    ).toBe('ignore');
+    for (const malformed of [null, [], {}, { type: 1 }, { type: 'x'.repeat(65) }]) {
+      expect(signalingProtocol.validateIncomingMessage(malformed, 'host')).toBe('ignore');
+    }
+  });
 });
 
 describe('Cloudflare signaling Remote Share host assertions', () => {

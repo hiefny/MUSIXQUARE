@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+// @ts-expect-error Internal Worker helper intentionally has no public declaration surface.
+import { cancelReadableBody, readBodyBytesLimited } from '../../../cloudflare/pro-room-body.js';
 import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js';
 import {
   ABUSE_RATE_CONSUME_PATH,
@@ -137,6 +139,148 @@ async function payload(response: Response): Promise<Record<string, unknown>> {
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+describe('PRO room bounded request bodies', () => {
+  function requestWithReader(
+    reader: {
+      read(): Promise<{ done: boolean; value?: Uint8Array | ArrayBuffer }>;
+      cancel(reason?: unknown): unknown;
+      releaseLock(): void;
+    },
+    {
+      contentLength,
+      signal = new AbortController().signal,
+    }: { contentLength?: string; signal?: AbortSignal } = {},
+  ): Request {
+    return {
+      headers: new Headers(contentLength === undefined ? {} : { 'Content-Length': contentLength }),
+      body: { getReader: () => reader },
+      signal,
+    } as unknown as Request;
+  }
+
+  it.each([
+    ['a malformed content length', 'not-a-number', 16, 'invalid'],
+    ['a negative content length', '-1', 16, 'invalid'],
+    ['a declared body over the limit', '17', 16, 'too-large'],
+  ])('rejects %s before acquiring a stream reader', async (_label, length, limit, error) => {
+    const getReader = vi.fn();
+    const request = {
+      headers: new Headers({ 'Content-Length': length }),
+      body: { getReader },
+      signal: new AbortController().signal,
+    } as unknown as Request;
+
+    await expect(readBodyBytesLimited(request, limit, 100)).resolves.toEqual({ error });
+    expect(getReader).not.toHaveBeenCalled();
+  });
+
+  it('returns an explicit null body without acquiring a reader', async () => {
+    await expect(
+      readBodyBytesLimited(new Request('https://service-control.internal/empty'), 16, 100),
+    ).resolves.toEqual({ body: null });
+  });
+
+  it('assembles mixed stream chunks and always releases the reader lock', async () => {
+    const releaseLock = vi.fn();
+    const reader = {
+      read: vi
+        .fn()
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array([1, 2]) })
+        .mockResolvedValueOnce({ done: false, value: new Uint8Array([3, 4]).buffer })
+        .mockResolvedValueOnce({ done: true }),
+      cancel: vi.fn(),
+      releaseLock,
+    };
+
+    const outcome = await readBodyBytesLimited(
+      requestWithReader(reader, { contentLength: '4' }),
+      4,
+      100,
+    );
+
+    expect(outcome).toEqual({ body: new Uint8Array([1, 2, 3, 4]) });
+    expect(reader.cancel).not.toHaveBeenCalled();
+    expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('maps a stream read rejection to invalid and tolerates releaseLock failure', async () => {
+    const releaseLock = vi.fn(() => {
+      throw new Error('already released');
+    });
+    const reader = {
+      read: vi.fn().mockRejectedValue(new Error('stream failed')),
+      cancel: vi.fn(),
+      releaseLock,
+    };
+
+    await expect(readBodyBytesLimited(requestWithReader(reader), 16, 100)).resolves.toEqual({
+      error: 'invalid',
+    });
+    expect(releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('cancels an actual body overflow and releases the reader lock', async () => {
+    const reader = {
+      read: vi.fn().mockResolvedValue({ done: false, value: new Uint8Array([1, 2, 3]) }),
+      cancel: vi.fn().mockResolvedValue(undefined),
+      releaseLock: vi.fn(),
+    };
+
+    await expect(readBodyBytesLimited(requestWithReader(reader), 2, 100)).resolves.toEqual({
+      error: 'too-large',
+    });
+    expect(reader.cancel).toHaveBeenCalledWith('PRO_ROOM_REQUEST_BODY_TOO_LARGE');
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('bounds a stalled read, cancels it, and ignores asynchronous cancel rejection', async () => {
+    vi.useFakeTimers();
+    const reader = {
+      read: vi.fn(() => new Promise<never>(() => {})),
+      cancel: vi.fn().mockRejectedValue(new Error('cancel rejected')),
+      releaseLock: vi.fn(),
+    };
+    const pending = readBodyBytesLimited(requestWithReader(reader), 16, 2_000);
+
+    await vi.advanceTimersByTimeAsync(2_001);
+
+    await expect(pending).resolves.toEqual({ error: 'timeout' });
+    expect(reader.cancel).toHaveBeenCalledWith('PRO_ROOM_REQUEST_BODY_TIMEOUT');
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('honors a pre-aborted request and ignores synchronous cancel failure', async () => {
+    const abort = new AbortController();
+    const reason = new Error('request aborted');
+    abort.abort(reason);
+    const reader = {
+      read: vi.fn(() => new Promise<never>(() => {})),
+      cancel: vi.fn(() => {
+        throw new Error('cancel failed');
+      }),
+      releaseLock: vi.fn(),
+    };
+
+    await expect(
+      readBodyBytesLimited(requestWithReader(reader, { signal: abort.signal }), 16, 100),
+    ).resolves.toEqual({ error: 'aborted' });
+    expect(reader.cancel).toHaveBeenCalledWith(reason);
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('cancels response-like wrappers and ignores non-cancellable values', () => {
+    const cancel = vi.fn();
+    const reason = new Error('stop');
+
+    cancelReadableBody({ body: { cancel } }, reason);
+    cancelReadableBody(undefined, reason);
+    cancelReadableBody({ body: {} }, reason);
+
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledWith(reason);
+  });
 });
 
 describe('MusixquareServiceControl', () => {
@@ -569,6 +713,95 @@ describe('MusixquareServiceControl', () => {
     expect(next.status).toBe(200);
   });
 
+  it.each([
+    ['a malformed declared length', 'not-a-number'],
+    ['an oversized declared length', '1025'],
+  ])('rejects %s before reading an abuse-rate body', async (_label, contentLength) => {
+    const { control } = setup();
+    const response = await control.fetch(
+      new Request(`https://service-control.internal${ABUSE_RATE_CONSUME_PATH}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': contentLength,
+        },
+        body: '{}',
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(payload(response)).resolves.toEqual({ error: 'REQUEST_TOO_LARGE' });
+  });
+
+  it('maps an invalid declared maintenance length to invalid JSON', async () => {
+    const { control } = setup();
+    const request = stateRequest(true, 0, '123e4567-e89b-42d3-a456-426614174091');
+    request.headers.set('Content-Length', 'not-a-number');
+
+    const response = await control.fetch(request);
+
+    expect(response.status).toBe(400);
+    await expect(payload(response)).resolves.toEqual({ error: 'INVALID_JSON' });
+  });
+
+  it('rejects an undeclared private body that exceeds its byte limit while streaming', async () => {
+    const { control } = setup();
+    const response = await control.fetch(
+      new Request(`https://service-control.internal${ABUSE_RATE_CONSUME_PATH}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: new Uint8Array(1_025),
+      }),
+    );
+
+    expect(response.status).toBe(413);
+    await expect(payload(response)).resolves.toEqual({ error: 'REQUEST_TOO_LARGE' });
+  });
+
+  it('maps a rejected private body read to invalid JSON', async () => {
+    const { control } = setup();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.error(new Error('stream failed'));
+      },
+    });
+    const response = await control.fetch(
+      new Request('https://service-control.internal/internal/service-maintenance/v1/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(payload(response)).resolves.toEqual({ error: 'INVALID_JSON' });
+  });
+
+  it('maps an aborted private body read to a bounded timeout response', async () => {
+    const { control } = setup();
+    const abort = new AbortController();
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({ cancel });
+    const request = new Request(
+      'https://service-control.internal/internal/service-maintenance/v1/state',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal: abort.signal,
+        duplex: 'half',
+      } as RequestInit & { duplex: 'half' },
+    );
+    abort.abort(new Error('request aborted'));
+
+    const response = await control.fetch(request);
+
+    expect(response.status).toBe(408);
+    await expect(payload(response)).resolves.toEqual({ error: 'REQUEST_TIMEOUT' });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('rejects malformed UTF-8 in a bounded private JSON body', async () => {
     const { control } = setup();
     const response = await control.fetch(
@@ -580,6 +813,39 @@ describe('MusixquareServiceControl', () => {
     );
     expect(response.status).toBe(400);
     await expect(payload(response)).resolves.toEqual({ error: 'INVALID_JSON' });
+  });
+
+  it('repairs a future single-rate alarm and later expires its persisted state', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-11T08:00:30.000Z'));
+    const storage = new ServiceControlStorage();
+    const { control } = setup(storage, 'musixquare-abuse-rate-v1:app-turn:alarm-lifecycle');
+    expect((await control.fetch(rateRequest(ABUSE_RATE_CONSUME_PATH, undefined, 3))).status).toBe(
+      200,
+    );
+
+    await (control as unknown as { alarm(): Promise<void> }).alarm();
+    expect(storage.data.has('abuse-rate-state-v1')).toBe(true);
+    expect(storage.setAlarmCalls).toEqual([
+      Date.parse('2026-08-11T08:01:00.000Z'),
+      Date.parse('2026-08-11T08:01:00.000Z'),
+    ]);
+
+    vi.setSystemTime(new Date('2026-08-11T08:01:00.001Z'));
+    await (control as unknown as { alarm(): Promise<void> }).alarm();
+    expect(storage.data.has('abuse-rate-state-v1')).toBe(false);
+    expect(storage.alarmAt).toBeNull();
+  });
+
+  it('clears a missing single-rate alarm state idempotently', async () => {
+    const storage = new ServiceControlStorage();
+    storage.alarmAt = Date.now() + 60_000;
+    const { control } = setup(storage, 'musixquare-abuse-rate-v1:app-turn:missing-alarm-state');
+
+    await (control as unknown as { alarm(): Promise<void> }).alarm();
+
+    expect(storage.data.has('abuse-rate-state-v1')).toBe(false);
+    expect(storage.alarmAt).toBeNull();
   });
 
   it('starts operational and persists one strongly ordered maintenance transition', async () => {

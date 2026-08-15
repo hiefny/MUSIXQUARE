@@ -16,7 +16,7 @@ describe('CI quality and supply-chain gates', () => {
   it('fails both application and tooling lint on the first warning', () => {
     expect(packageJson.scripts['lint:app']).toBe('eslint src/ --max-warnings=0');
     expect(packageJson.scripts['lint:tooling']).toBe(
-      'eslint --config eslint.tooling.config.js cloudflare scripts e2e "*.config.{js,mjs,ts}" "eslint*.config.js" --max-warnings=0',
+      'eslint --config eslint.tooling.config.js cloudflare scripts e2e "public/*.js" "*.config.{js,mjs,ts}" "eslint*.config.js" --max-warnings=0',
     );
   });
 

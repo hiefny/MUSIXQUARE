@@ -39,12 +39,20 @@
       if (!id) return;
 
       if (accordion.open) {
-        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${id}`);
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}#${id}`,
+        );
         return;
       }
 
       if (decodedHash() === id) {
-        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+        window.history.replaceState(
+          null,
+          '',
+          `${window.location.pathname}${window.location.search}`,
+        );
       }
     });
   }

@@ -55,7 +55,7 @@
           resolved =
             normalizeFallback(localStorage.getItem('mxqr-landing-lang')) ||
             normalizeFallback(localStorage.getItem('musixquare-lang'));
-        } catch (e) {
+        } catch {
           /* Storage may be unavailable in private or restricted contexts. */
         }
       }
@@ -71,7 +71,7 @@
       }
       lang = resolved || 'en';
     }
-  } catch (e) {
+  } catch {
     /* Keep the English document default when language APIs fail. */
   }
 
@@ -86,7 +86,7 @@
       document.documentElement.classList.add('ios-standalone');
     }
     if (standalone) document.documentElement.classList.add('standalone');
-  } catch (e) {
+  } catch {
     /* Standalone detection is optional. */
   }
 

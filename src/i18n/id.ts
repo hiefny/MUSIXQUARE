@@ -347,6 +347,15 @@ const id: Record<I18nKey, string> = {
   'setup.change_later': 'Anda bisa mengubahnya nanti di Pengaturan.',
   'setup.welcome_title': 'Selamat datang',
   'setup.join_session_subtitle': 'Anda akan masuk ke ruang {{code}}.',
+  'setup.room_type_hint':
+    'Kode yang diawali 0 adalah ruang PRO permanen; kode yang diawali 1–9 adalah ruang standar sementara.',
+  'setup.standard_room_summary':
+    'Ruang standar · Bersifat sementara dan berakhir saat host keluar. Host mengatur pemutaran dan izin; kata sandi ruang 8 digit opsional mungkin diminta.',
+  'setup.pro_room_summary':
+    'Ruang PRO · Playlist dan izin tetap tersimpan setelah semua orang keluar. Pemilik dan admin mengelolanya; kata sandi PRO 8 digit wajib.',
+  'setup.center_role_guide':
+    'Perangkat ini bergabung sebagai speaker Tengah. Ubah di Pengaturan → Audio → Atur peran perangkat ini.',
+  'setup.center_role_open_settings': 'Buka pengaturan peran',
   'setup.select_role': 'Silakan pilih peran',
   'setup.select_role_alt': 'Silakan pilih peran',
   'setup.greeting': 'Halo!',
@@ -367,6 +376,8 @@ const id: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Koneksi jaringan yang sama adalah yang paling stabil',
   'help.local_file': 'Pilih file lokal',
   'help.load_local': 'Muat file lokal',
+  'help.local_memory_notice':
+    'File diproses di RAM perangkat. Transfer jarak jauh dan PRO dibatasi hingga 200 MiB; perangkat dengan memori rendah dapat gagal pada file yang lebih kecil.',
   'help.youtube_compat': 'YouTube (Mode Kompatibilitas)',
   'help.youtube_no_effects': 'Dalam mode YouTube, pengaturan peran dan efek audio tidak tersedia.',
   'help.media_synced_detail':
@@ -451,6 +462,8 @@ const id: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Audio sistem',
+  'system_audio.preflight_limits':
+    'Chromium desktop (Chrome, Edge, dll.) · hingga {{count}} perangkat · hingga {{hours}} jam',
   'system_audio.sharing': 'Berbagi audio sistem',
   'system_audio.receiving': 'Menerima audio sistem',
   'system_audio.owner_active': '{{name}} sedang berbagi audio sistem.',

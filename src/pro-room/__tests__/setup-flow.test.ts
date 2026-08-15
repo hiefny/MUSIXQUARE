@@ -2,6 +2,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProRoomApiError } from '../api.ts';
+import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
+import {
+  __resetDocumentReloadForTests,
+  registerPendingClaimReloadPreparation,
+  requestDocumentReload,
+} from '../../core/document-reload.ts';
 import {
   __accountLoginReturnForTests,
   rememberAccountLoginReturn,
@@ -44,6 +50,7 @@ import { clearPendingSessionRequestIdsForTests, enterProRoomFromSetup } from '..
 
 const ROOM_CODE = '000001';
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
+type DocumentReloadAttempt = Parameters<Parameters<typeof requestDocumentReload>[0]>[0];
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -65,15 +72,86 @@ beforeEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   clearPendingSessionRequestIdsForTests();
+  __resetDocumentReloadForTests();
 });
 
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  __resetDocumentReloadForTests();
 });
 
 describe('PRO room setup flow', () => {
+  it.each([
+    {
+      purpose: 'activation',
+      claims: {
+        activationClaimToken: CLAIM,
+        activationClaimPresent: true,
+        ownerRecoveryClaimToken: null,
+        ownerRecoveryClaimPresent: false,
+        ownerTransferClaimToken: null,
+        ownerTransferClaimPresent: false,
+      },
+      status: 'activation_required',
+      operation: 'activate' as const,
+    },
+    {
+      purpose: 'recovery',
+      claims: {
+        activationClaimToken: null,
+        activationClaimPresent: false,
+        ownerRecoveryClaimToken: CLAIM,
+        ownerRecoveryClaimPresent: true,
+        ownerTransferClaimToken: null,
+        ownerTransferClaimPresent: false,
+      },
+      status: 'pin_required',
+      operation: 'recoverOwner' as const,
+    },
+    {
+      purpose: 'transfer',
+      claims: {
+        activationClaimToken: null,
+        activationClaimPresent: false,
+        ownerRecoveryClaimToken: null,
+        ownerRecoveryClaimPresent: false,
+        ownerTransferClaimToken: CLAIM,
+        ownerTransferClaimPresent: true,
+      },
+      status: 'suspended',
+      operation: 'transferOwner' as const,
+    },
+  ])(
+    'retains the $purpose claim only when the room-session lazy gate fails before mutation',
+    async ({ claims, status, operation }) => {
+      mocks.takeClaims.mockReturnValue(claims);
+      mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status });
+      mocks.showDialog.mockResolvedValue({ action: 'ok', inputValue: '87654321' });
+      const prepare = vi.fn(() => vi.fn());
+      registerPendingClaimReloadPreparation(prepare);
+      let reloadAttempt: DocumentReloadAttempt | undefined;
+      const startReload = vi.fn((attempt: DocumentReloadAttempt) => {
+        reloadAttempt = attempt;
+      });
+      mocks[operation].mockImplementationOnce(async () => {
+        requestDocumentReload(startReload);
+        expect(startReload).not.toHaveBeenCalled();
+        throw createLazyFeatureLoadError('room-session', new TypeError('chunk unavailable'));
+      });
+
+      await expect(enterProRoomFromSetup(ROOM_CODE)).resolves.toBe('reload-required');
+      expect(startReload).toHaveBeenCalledOnce();
+      reloadAttempt!.navigate(vi.fn());
+      expect(prepare).toHaveBeenCalledOnce();
+      expect(mocks.showDialog).not.toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'pro.claim_retry_title' }),
+      );
+      reloadAttempt!.recover();
+    },
+  );
+
   it('resumes an active cookie session without opening a PIN dialog', async () => {
     mocks.bootstrap.mockResolvedValue({ roomCode: ROOM_CODE, status: 'pin_required' });
 

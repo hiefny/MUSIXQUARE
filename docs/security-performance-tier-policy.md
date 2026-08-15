@@ -10,11 +10,11 @@ being protected.
 
 ## Security tiers
 
-| Tier | Assets and examples | Required boundary | Synchronous work policy |
-| --- | --- | --- | --- |
-| Standard/free room | Ephemeral six-digit room, ordinary signaling, locally held media | Signed short-lived capability where an API has direct cost; Origin validation; host secret and first-frame host authentication; bounded pending sockets, messages, rooms, and lifetimes | Keep room-code claim independent of TURN completion. At most one remote atomic security decision may precede a TURN credential mint. Standard WebSocket admission must not add a service-control decision in front of the room Durable Object. |
-| PRO and stored media | Persistent room authority, PRO signaling tickets, D1 ownership, remote-share and R2 bytes | Server-authoritative owner/member tickets, D1 compare-and-set/generation/tombstone rules, exact allocation and byte quotas, private R2 objects and scoped signed URLs | Exact D1/DO/R2 decisions are permitted when they protect durable authority, allocation, or billable bytes. They must not become a dependency of a standard/free-room flow. |
-| Admin and release | Administrative state, secrets, schema migrations, production artifacts and deployment authority | Cloudflare Access or equivalent strong identity, CSRF/session boundaries, secret separation, immutable artifact identity, append-only migration and deployment-order guards | Strong fail-closed checks are expected. Release-only checks do not count against runtime latency, but their code or service owner must not be imported into a standard-room request merely for reuse. |
+| Tier                 | Assets and examples                                                                             | Required boundary                                                                                                                                                                       | Synchronous work policy                                                                                                                                                                                                                        |
+| -------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Standard/free room   | Ephemeral six-digit room, ordinary signaling, locally held media                                | Signed short-lived capability where an API has direct cost; Origin validation; host secret and first-frame host authentication; bounded pending sockets, messages, rooms, and lifetimes | Keep room-code claim independent of TURN completion. At most one remote atomic security decision may precede a TURN credential mint. Standard WebSocket admission must not add a service-control decision in front of the room Durable Object. |
+| PRO and stored media | Persistent room authority, PRO signaling tickets, D1 ownership, remote-share and R2 bytes       | Server-authoritative owner/member tickets, D1 compare-and-set/generation/tombstone rules, exact allocation and byte quotas, private R2 objects and scoped signed URLs                   | Exact D1/DO/R2 decisions are permitted when they protect durable authority, allocation, or billable bytes. They must not become a dependency of a standard/free-room flow.                                                                     |
+| Admin and release    | Administrative state, secrets, schema migrations, production artifacts and deployment authority | Cloudflare Access or equivalent strong identity, CSRF/session boundaries, secret separation, immutable artifact identity, append-only migration and deployment-order guards             | Strong fail-closed checks are expected. Release-only checks do not count against runtime latency, but their code or service owner must not be imported into a standard-room request merely for reuse.                                          |
 
 Provider credentials stay server-side in every tier. Input and response bounds,
 strict parsing, Origin checks, cryptographic verification, in-process
@@ -79,6 +79,64 @@ helpers already exist.
 - Proof of work is friction, not human authentication. Its difficulty must be
   benchmarked on supported iPhones and may be raised conditionally for observed
   abuse; it must not be treated as a substitute for a capability or cost cap.
+
+### Adaptive proof-of-work envelope
+
+The reviewed ordinary baseline remains difficulty 12. When Turnstile is
+disabled, the App Worker may raise an individual IP's newly issued challenge
+directly from 12 to the bounded maximum 16 only after a Cloudflare Workers Rate
+Limiting binding reports pressure above its fixed location-local allowance. See
+the [Cloudflare Workers Rate Limiting binding contract](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/).
+Calls to `limit({ key })` update eventually consistent counters in the serving
+Cloudflare location; awaiting the API does not wait on a network request. A
+concurrent multi-isolate burst may overshoot the nominal cutover, and no access
+or spending decision relies on an exact threshold.
+
+The official browser client mints the bundled scope set `realtime`,
+`remote-share`, `turn`, and `youtube-search`. Because that bundle contains both
+`turn` and `realtime`, it always uses the room path: the existing best-effort
+Cache admission limit remains 300 challenges/minute and the separate room
+pressure binding allows 150 events/minute before returning difficulty 16. One
+bundled challenge per browser keeps the documented 100-browser same-NAT venue
+below the adaptive threshold. The general path is only for bespoke clients that
+request neither `turn` nor `realtime`; it retains Cache admission at 30/minute
+and uses a distinct Rate Limiting namespace with a 15/minute pressure allowance.
+
+An attempted invalid proof consumes one additional event from the appropriate
+pressure binding; an absent proof and a successful mint do not. The Cache API
+counter remains admission-only and does not choose PoW difficulty. The Rate
+Limiting key is an HMAC pseudonym of the client IP. This shared-IP signal is
+acceptable only with the room headroom above and must not be described as a
+user quota or exact global counter.
+
+A missing binding, thrown call, or malformed binding result produces difficulty
+12 so an optional friction signal cannot create an outage. This availability
+fallback does not grant access: signed, IP/scope-bound capabilities and each
+paid endpoint's independent atomic rate/cost limits remain authoritative and
+keep their existing fail-closed behavior. The adaptive call adds no
+Service-Control, D1, R2, or provider hop to startup.
+
+The current client advertises the accepted baseline-to-maximum envelope. If a
+five-minute cached security config rejects a newly adaptive challenge, it
+invalidates that config, performs one strict refetch, and renegotiates the
+challenge once. Tabs running the pre-envelope client still compare difficulty
+for exact equality and may require a reload after their location crosses the
+threshold; keeping ordinary 100-browser venues below 150 limits that rollout
+residual.
+
+The exact-SHA device record described in
+[`runtime-scenario-verification-2026-05-31.md`](runtime-scenario-verification-2026-05-31.md)
+must link supported-iPhone timing evidence for solving difficulty 16 before the
+adaptive production release is authorized. Canonical real-device schema v2
+requires `matrix.adaptivePowPerformance` to be true; the timing,
+device/browser version, sample count, p50/p95, failure rate, and tested SHA must
+also appear in its required `evidence_url` log.
+Raising the ordinary baseline above 12, reducing either 150/60s or 15/60s
+allowance, raising the ceiling above 16, or replacing the location-local signal
+with an exact remote decision requires the full evidence and approval below.
+Rollback is disabling `MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED`; that returns every
+newly issued challenge to the baseline without weakening capability verification
+or paid-resource caps.
 
 Low traffic is not a reason to expose provider credentials or remove authority
 checks. It is a reason to prefer a small number of high-value boundaries over

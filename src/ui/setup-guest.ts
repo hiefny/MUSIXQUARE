@@ -37,7 +37,7 @@ import {
   setupRenderActions,
 } from './setup-shared.ts';
 import { animateTransition } from './dom.ts';
-import { scheduleSessionReset } from '../core/session-reset.ts';
+import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
 import { showDialog } from './dialog.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
@@ -134,7 +134,7 @@ export function startGuestFlow(): void {
 /** Render actions for invite-link flow: back icon + primary start.
  *  The back icon does a hard navigation to '/' so a user who landed here via /CODE
  *  can start fresh if the host is gone or they want to leave the invite flow. */
-function _renderInviteLinkActions(retry = false): void {
+function _renderInviteLinkActions(retry = false, reloadRequired = false): void {
   setupRenderActions(
     [
       {
@@ -150,9 +150,11 @@ function _renderInviteLinkActions(retry = false): void {
       },
       {
         id: 'btn-setup-confirm',
-        text: t(retry ? 'common.retry' : 'common.start'),
+        text: t(reloadRequired ? 'common.refresh' : retry ? 'common.retry' : 'common.start'),
         kind: 'primary',
-        onClick: () => _handleInviteLinkJoin(DEFAULT_SETUP_ROLE),
+        onClick: reloadRequired
+          ? () => scheduleDocumentReload(t('dialog.refreshing_session'))
+          : () => _handleInviteLinkJoin(DEFAULT_SETUP_ROLE),
       },
     ],
     'horizontal-with-back',
@@ -216,6 +218,10 @@ async function _handleInviteLinkJoin(mode: number): Promise<void> {
 async function _handleProRoomJoin(code: string): Promise<void> {
   try {
     const joined = await enterProRoomFromSetup(code);
+    if (joined === 'reload-required') {
+      _renderProRoomReloadRequired();
+      return;
+    }
     if (!joined) {
       restoreJoinControlsAfterPasswordCancel();
       return;
@@ -231,6 +237,29 @@ async function _handleProRoomJoin(code: string): Promise<void> {
       userMessage: t('pro.connect_failed'),
     });
   }
+}
+
+function _renderProRoomReloadRequired(): void {
+  setupSetGuestJoinBusy(false);
+  setupRenderActions(
+    [
+      {
+        id: 'btn-setup-back',
+        html: BACK_SVG,
+        ariaLabel: t('dialog.go_back'),
+        kind: 'icon-only',
+        onClick: () => undefined,
+        disabled: true,
+      },
+      {
+        id: 'btn-setup-confirm',
+        text: t('common.refresh'),
+        kind: 'primary',
+        onClick: () => scheduleDocumentReload(t('dialog.refreshing_session')),
+      },
+    ],
+    'horizontal-with-back',
+  );
 }
 
 function proceedToGuestCode(mode: number): void {
@@ -373,14 +402,17 @@ function restoreJoinControlsAfterPasswordCancel(): void {
   }
 }
 
-export function restoreGuestJoinControlsAfterFailure(message: string | null): void {
+export function restoreGuestJoinControlsAfterFailure(
+  message: string | null,
+  reloadRequired = false,
+): void {
   setupSetGuestJoinBusy(false);
   const inviteLink = _pendingPasswordJoin?.inviteLink ?? !!getPendingAutoJoinCode();
   setupSetGuestJoinError(message, inviteLink);
   const retry = !!message;
 
   if (inviteLink) {
-    _renderInviteLinkActions(retry);
+    _renderInviteLinkActions(retry, reloadRequired);
     return;
   }
 
@@ -395,9 +427,11 @@ export function restoreGuestJoinControlsAfterFailure(message: string | null): vo
       },
       {
         id: 'btn-setup-confirm',
-        text: t(retry ? 'common.retry' : 'common.start'),
+        text: t(reloadRequired ? 'common.refresh' : retry ? 'common.retry' : 'common.start'),
         kind: 'primary',
-        onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
+        onClick: reloadRequired
+          ? () => scheduleDocumentReload(t('dialog.refreshing_session'))
+          : () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
       },
     ],
     'horizontal-with-back',

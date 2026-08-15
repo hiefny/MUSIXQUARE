@@ -10,6 +10,7 @@
 
 import { clearIntentionalNav, markIntentionalNav } from './page-lifecycle.ts';
 import { log } from './log.ts';
+import { requestDocumentReload } from './document-reload.ts';
 
 const OVERLAY_ID = 'session-reset-overlay';
 const MESSAGE_ID = 'session-reset-message';
@@ -293,6 +294,31 @@ export function scheduleSessionReset(
       return () => attempt.recoveryListeners.delete(listener);
     },
   };
+}
+
+/**
+ * Route every app-owned hard reload through the pending-claim coordinator.
+ * The fragment is restored only inside the deferred navigation action and is
+ * scrubbed again before the same document becomes interactive after recovery.
+ */
+export function scheduleDocumentReload(message: string, onRecovered?: () => void): void {
+  requestDocumentReload((attempt) => {
+    const resetHandle = scheduleSessionReset(message, () =>
+      attempt.navigate(() => window.location.reload()),
+    );
+    const recover = () => {
+      try {
+        attempt.recover();
+      } finally {
+        onRecovered?.();
+      }
+    };
+    if (!resetHandle) {
+      recover();
+      return;
+    }
+    resetHandle.onRecovered(recover);
+  });
 }
 
 /** @internal Test-only cleanup for module-scoped listeners and timers. */

@@ -6,6 +6,7 @@ import { MSG } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { loadDemoFile } from '../player/decode.ts';
 import { getCurrentAudioBuffer, newLoadEpoch, setCurrentAudioBuffer } from '../player/_state.ts';
+import { prepareMediaSession } from '../player/media-session-loader.ts';
 import {
   getPlaybackModeActivitySnapshot,
   setPlaybackFilePaused,
@@ -1234,6 +1235,10 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
   // stale markup cannot split a PRO participant from the canonical session.
   if (isProRoomDemoBlocked()) return getSupersededDemoResult();
   if (getState('demo.loading')) return getSupersededDemoResult();
+  // Guided demo playback never creates a room transport. Start the same
+  // document-scoped optional Media Session loader used by room entry so lock
+  // screen/hardware controls are not silently lost after the bundle split.
+  void prepareMediaSession();
   if (getState('demo.active')) {
     const nextIndex = normalizeDemoTrackIndex(options.index ?? _demoTrackIndex);
     // Reload also when the buffer is missing: a guest whose own fetch failed

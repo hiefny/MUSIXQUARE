@@ -5,7 +5,13 @@ import tseslint from 'typescript-eslint';
 const workerJavaScriptFiles = ['cloudflare/**/*.js'];
 const nodeJavaScriptFiles = ['scripts/**/*.{js,mjs}', '*.config.{js,mjs}', 'eslint*.config.js'];
 const e2eJavaScriptFiles = ['e2e/**/*.{js,mjs}'];
-const javascriptFiles = [...workerJavaScriptFiles, ...nodeJavaScriptFiles, ...e2eJavaScriptFiles];
+const publicJavaScriptFiles = ['public/*.js'];
+const javascriptFiles = [
+  ...workerJavaScriptFiles,
+  ...nodeJavaScriptFiles,
+  ...e2eJavaScriptFiles,
+  ...publicJavaScriptFiles,
+];
 
 const workerTypescriptFiles = ['cloudflare/**/*.ts'];
 const nodeTypescriptFiles = ['scripts/**/*.{ts,mts}', '*.config.ts'];
@@ -54,6 +60,7 @@ const workerGlobals = Object.fromEntries(
 );
 const nodeGlobals = globals.nodeBuiltin;
 const e2eGlobals = { ...nodeGlobals, ...globals.browser };
+const publicGlobals = { ...globals.browser, ...globals.serviceworker };
 
 const typescriptRecommended = tseslint.configs.recommended.map((config) => ({
   ...config,
@@ -122,6 +129,13 @@ export default tseslint.config(
   {
     files: [...e2eJavaScriptFiles, ...e2eTypescriptFiles],
     languageOptions: { globals: e2eGlobals },
+  },
+  {
+    files: publicJavaScriptFiles,
+    languageOptions: {
+      globals: publicGlobals,
+      sourceType: 'script',
+    },
   },
   {
     files: typescriptFiles,

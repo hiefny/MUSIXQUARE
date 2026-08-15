@@ -117,9 +117,14 @@ signal; it does not replace the physical-device/browser matrix.
 
 ## Features
 
-- **6-Digit Code Join**: Guests enter a short code to connect instantly.
-- **Speaker Role Routing**: Each device picks its role: Center (stereo), Left,
-  Right, or Subwoofer.
+- **6-Digit Code Join**: Codes `100000`–`999999` open temporary standard rooms
+  that end when the host leaves; codes `000000`–`099999` identify persistent
+  PRO rooms whose playlist and delegated permissions survive an empty room.
+  Standard rooms can optionally require an 8-digit password, while active PRO
+  rooms require their 8-digit room password and are managed by owners/admins.
+- **Speaker Role Routing**: New devices start as Center (stereo), with a one-time
+  shortcut to Settings → Audio where the role can be changed to Left, Right, or
+  Subwoofer.
 - **Local File Sharing**: Host sends audio files directly to nearby guests when
   a direct WebRTC path is available. Precise sync supported. Local video files
   are rejected; video playback uses the YouTube path.
@@ -130,7 +135,9 @@ signal; it does not replace the physical-device/browser matrix.
   budget; transfer and native decode are attempted on a best-effort basis. A
   browser may still reject an allocation or terminate a memory-constrained tab.
 - **YouTube Together**: Watch together with synced playback. Works across different networks.
-- **System Audio Sharing**: Stream desktop or tab audio to connected devices in real-time stereo.
+- **System Audio Sharing**: Stream desktop or tab audio in real-time stereo from
+  a desktop Chromium browser such as Chrome or Edge. A share supports at most
+  4 connected devices and automatically ends after 2 hours.
 - **Audio Effects**: 5-band EQ, reverb, stereo widener, virtual bass, all processed locally via Web Audio API.
 - **Chat**: Real-time P2P messaging with commands, whisper, and moderation.
 - **Precision Sync**: NTP-style rolling RTT measurement with min-latency selection for file mode. 2-stage rendezvous-synchronized playback for YouTube mode.

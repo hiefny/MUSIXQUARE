@@ -10,7 +10,7 @@ import { log } from '../core/log.ts';
 import { t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState, batchSetState } from '../core/state.ts';
-import { scheduleSessionReset } from '../core/session-reset.ts';
+import { scheduleDocumentReload } from '../core/session-reset.ts';
 import { deactivateNoSleep } from '../core/wake-lock.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { MAX_GUEST_SLOTS, TRANSFER_STATE, PLAYBACK_STATE } from '../core/constants.ts';
@@ -19,6 +19,7 @@ import { stopWorkerTimer } from './sync-worker.ts';
 import type { DataConnection, AnyProtocolMsg, PeerInstance } from '../types/index.ts';
 import { getRuntimeTransportConfig } from './transport/config.ts';
 import { createTransportPeer, type TransportPeerOptions } from './transport/index.ts';
+import { prepareRoomSessionFeatures } from './room-session-feature-loader.ts';
 import type { TransportBackgroundRecoveryResult } from './transport/types.ts';
 import { setPlaybackIdle } from '../player/ownership.ts';
 import {
@@ -385,6 +386,19 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
   }
 
   try {
+    // The deferred room listener graph must be ready before signaling can
+    // deliver media calls or protocol frames. This await is the fail-closed
+    // race boundary for interactive, direct API, and autojoin use.
+    try {
+      await prepareRoomSessionFeatures(owner.controller.signal);
+    } catch (error) {
+      // Translate caller cancellation to the stable setup contract while
+      // preserving a real terminal chunk failure for the reload UI.
+      assertNetworkInitStillActive(owner);
+      throw error;
+    }
+    assertNetworkInitStillActive(owner);
+
     // ICE servers: STUN always, TURN via the Cloudflare app Worker.
     const isE2eBuild = import.meta.env.MODE === 'e2e';
     const iceServers: RTCIceServer[] = isE2eBuild
@@ -740,7 +754,7 @@ function schedulePeerDisconnectGrace(peer: PeerInstance): void {
         buttonText: t('dialog.session_lost_btn'),
       }).then((res) => {
         if (res.action !== 'ok') return; // ESC / background dismiss
-        scheduleSessionReset(t('dialog.refreshing_session'), () => window.location.reload());
+        scheduleDocumentReload(t('dialog.refreshing_session'));
       });
     },
     5000,

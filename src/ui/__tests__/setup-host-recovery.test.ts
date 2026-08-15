@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   actions: [] as Array<Record<string, unknown>>,
   createSession: vi.fn(),
   flowId: 0,
+  scheduleDocumentReload: vi.fn(),
   setupRenderActions: vi.fn((buttons: Array<Record<string, unknown>>) => {
     mocks.actions = buttons;
   }),
@@ -21,6 +22,10 @@ vi.mock('../../core/state.ts', () => ({
 
 vi.mock('../../core/timers.ts', () => ({
   setManagedTimer: vi.fn(),
+}));
+
+vi.mock('../../core/session-reset.ts', () => ({
+  scheduleDocumentReload: mocks.scheduleDocumentReload,
 }));
 
 vi.mock('../../chat/protocol.ts', () => ({
@@ -69,6 +74,7 @@ vi.mock('../setup-shared.ts', () => ({
 }));
 
 import { setHostGoBack, startHostFlow } from '../setup-host.ts';
+import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -161,5 +167,26 @@ describe('host setup recovery', () => {
     const back = mocks.actions[0]?.onClick as (() => void) | undefined;
     back?.();
     expect(goBack).toHaveBeenCalledOnce();
+  });
+
+  it('replaces a fake retry with Refresh after a terminal room-feature failure', async () => {
+    mocks.createSession.mockRejectedValueOnce(
+      createLazyFeatureLoadError('room-session', new TypeError('chunk unavailable')),
+    );
+
+    startHostFlow();
+
+    await vi.waitFor(() => {
+      expect(mocks.setupSetHostError).toHaveBeenLastCalledWith('dialog.sw_update_msg');
+    });
+    expect(mocks.actions[1]).toMatchObject({
+      id: 'btn-setup-confirm',
+      text: 'common.refresh',
+    });
+
+    const refresh = mocks.actions[1]?.onClick as (() => void) | undefined;
+    refresh?.();
+    expect(mocks.createSession).toHaveBeenCalledOnce();
+    expect(mocks.scheduleDocumentReload).toHaveBeenCalledWith('dialog.refreshing_session');
   });
 });

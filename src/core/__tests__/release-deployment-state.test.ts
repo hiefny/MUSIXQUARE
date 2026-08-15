@@ -221,6 +221,10 @@ describe('release deployment rollback state', () => {
     expect(runtimePathsForWorker('developer-api')).toContain(sharedGate);
   });
 
+  it('tracks the extracted capability security runtime with the app Worker', () => {
+    expect(runtimePathsForWorker('app')).toContain('cloudflare/capability-security.js');
+  });
+
   it('tracks the Remote Share host assertion primitive with both importing Workers', () => {
     const assertionPrimitive = 'cloudflare/remote-share-upload-assertion.js';
     expect(runtimePathsForWorker('remote-share')).toContain(assertionPrimitive);
@@ -365,7 +369,10 @@ describe('release deployment rollback state', () => {
     );
     expect(rollbackStep).toContain('service-control-forward-floor "$GITHUB_SHA"');
     expect(rollbackStep).not.toContain('git diff --quiet "${GITHUB_SHA}^"');
-    expect(rollbackStep).toContain('for target in pro-room app');
+    expect(rollbackStep).toContain('node scripts/release-recovery-plan.mjs');
+    expect(readFileSync(resolve('scripts/release-recovery-plan.mjs'), 'utf8')).toContain(
+      "skip.add('pro-room')",
+    );
   });
 
   it('keeps a multi-commit first service-control cutover on the forward-repair floor', () => {
@@ -1654,6 +1661,7 @@ describe('release deployment rollback state', () => {
 
   it('keeps the Worker deployment token out of setup and smoke steps', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mjs'), 'utf8');
     const deployStart = workflow.indexOf('  deploy:');
     const deploySteps = workflow.indexOf('    steps:', deployStart);
     expect(workflow.slice(deployStart, deploySteps)).not.toContain(
@@ -1722,17 +1730,14 @@ describe('release deployment rollback state', () => {
     expect(workerStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     expect(workerStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
     expect(workerStep).toContain('inputs.apply_developer_api_d1');
-    expect(workerStep).toContain('for target in developer-api-facade developer-api');
     expect(workerStep).toContain('steps.worker_floor_assessment.outputs.forward_targets');
-    expect(workerStep).toContain('for target in pro-room app');
-    expect(workerStep).toContain(
-      'for target in pro-room signaling developer-api-facade developer-api app',
-    );
-    const r2ForwardRepairUnion = workerStep.indexOf('for target in ${r2_forward_targets//,/ }; do');
-    expect(r2ForwardRepairUnion).toBeGreaterThan(-1);
-    expect(workerStep.slice(r2ForwardRepairUnion)).not.toMatch(
-      /rollback_skip_targets="(?:pro-room|developer-api)/u,
-    );
+    expect(workerStep).toContain('node scripts/release-recovery-plan.mjs');
+    expect(workerStep).toContain('MXQR_R2_FORWARD_TARGETS=');
+    expect(workerStep).toContain('MXQR_GENERATION_FENCE_OUTCOME=');
+    expect(workerStep).toContain('MXQR_WORKER_FLOOR_TARGETS=');
+    expect(recoveryPlan).toContain("skip.add('developer-api-facade')");
+    expect(recoveryPlan).toContain("skip.add('pro-room')");
+    expect(recoveryPlan).toContain("skip.add('remote-share')");
     const skippedTargetsOutput = workerStep.indexOf(
       'echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"',
     );
@@ -2023,6 +2028,7 @@ describe('release deployment rollback state', () => {
   it('reuses the successful exact-SHA main CI artifact for every release target', () => {
     const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const evidenceTool = readFileSync(resolve('scripts/release-evidence.mjs'), 'utf8');
     const ciBuild = ciWorkflow.indexOf('Build and verify production bundle');
     const ciArtifact = ciWorkflow.indexOf('Upload immutable main-CI production candidate');
     expect(ciArtifact).toBeGreaterThan(ciBuild);
@@ -2034,13 +2040,14 @@ describe('release deployment rollback state', () => {
 
     expect(workflow).toContain('actions: read');
     expect(workflow).toContain('Select exact-SHA validated candidate');
-    expect(workflow).toContain('actions/workflows/ci.yml/runs');
-    expect(workflow).toContain('-f head_sha="$GITHUB_SHA"');
-    expect(workflow).toContain('select(.conclusion == "success")');
-    expect(workflow).toContain('actions/runs/$run_id/artifacts');
-    expect(workflow).toContain('.name | startswith($prefix)');
-    expect(workflow).toContain('artifact_prefix="production-candidate-$GITHUB_SHA-$run_id-"');
-    expect(workflow).toContain('run_attempt="${artifact_name##*-}"');
+    expect(workflow).toContain('node scripts/release-evidence.mjs wait-candidate');
+    expect(evidenceTool).toContain("workflow: 'ci.yml'");
+    expect(evidenceTool).toContain("event: 'push'");
+    expect(evidenceTool).toContain("prefix: 'production-candidate-'");
+    expect(evidenceTool).toContain('head_sha: sha');
+    expect(evidenceTool).toContain("run.conclusion === 'success'");
+    expect(evidenceTool).toContain('/actions/runs/${run.id}/artifacts?per_page=100');
+    expect(evidenceTool).toContain('artifact.name === `${prefix}${expected.runAttempt}`');
     expect(workflow).toContain('RELEASE_SOURCE_RUN_ID');
     expect(workflow).toContain('RELEASE_SOURCE_RUN_ATTEMPT');
     expect(workflow).toContain('run-id: ${{ needs.validate.outputs.candidate_run_id }}');
@@ -2276,6 +2283,10 @@ describe('release deployment rollback state', () => {
 
   it('persists a pre-mutation checkpoint and reserves an independent recovery job', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const recoveryWorkflow = readFileSync(
+      resolve('.github/workflows/release-recovery.yml'),
+      'utf8',
+    );
     const capture = workflow.indexOf('Capture immutable Worker and R2 recovery checkpoint');
     const persist = workflow.indexOf('Persist pre-mutation recovery checkpoint');
     const authorize = workflow.indexOf('Authorize production mutations from persisted checkpoint');
@@ -2352,9 +2363,15 @@ describe('release deployment rollback state', () => {
     expect(finalFailureStep).toContain("steps.r2_policy_reconciliation.outcome == 'failure'");
     expect(finalFailureStep).toContain("steps.paired_recovery_verification.outcome == 'failure'");
     expect(recoveryJob).toBeGreaterThan(firstWorkerMutation);
-    const recovery = workflow.slice(recoveryJob);
-    expect(recovery).toContain('needs: [validate, deploy]');
-    expect(recovery).toContain("needs.deploy.outputs.production_committed != 'true'");
+    const recoveryCaller = workflow.slice(recoveryJob);
+    const recovery = recoveryWorkflow;
+    expect(recoveryCaller).toContain('needs: [validate, deploy]');
+    expect(recoveryCaller).toContain("needs.deploy.outputs.production_committed != 'true'");
+    expect(recoveryCaller).toContain('uses: ./.github/workflows/release-recovery.yml');
+    expect(recoveryCaller).toContain('secrets: inherit');
+    expect(recovery).not.toContain('needs: [validate, deploy]');
+    expect(recovery).not.toContain('needs.validate');
+    expect(recovery).not.toContain('needs.deploy');
     expect(recovery).toContain('timeout-minutes: 90');
     expect(recovery).toContain('Recover persisted coherent-production marker');
     expect(recovery).toContain('Retry coherent-production marker download');
@@ -2383,7 +2400,7 @@ describe('release deployment rollback state', () => {
     expect(recovery).toContain(
       'The downloaded immutable checkpoint is absent, nested at an unexpected path, or structurally incomplete.',
     );
-    expect(recovery).toContain('needs.deploy.outputs.mutation_authorized');
+    expect(recovery).toContain('inputs.mutation_authorized');
     expect(recovery).toContain("recovery_checkpoint_ready.outputs.available == 'true'");
     expect(recovery).toContain('assess release-artifacts/recovery-checkpoint');
     expect(recovery).toContain('rollback release-artifacts/recovery-checkpoint');
@@ -2406,7 +2423,7 @@ describe('release deployment rollback state', () => {
   });
 
   it('renders independent recovery Markdown without Bash command substitution', () => {
-    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const workflow = readFileSync(resolve('.github/workflows/release-recovery.yml'), 'utf8');
     const recoverySummaryStart = workflow.indexOf('- name: Failed-release recovery summary');
     const recoverySummary = workflow.slice(recoverySummaryStart);
     const markdownLines = recoverySummary

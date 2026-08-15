@@ -11,7 +11,7 @@ import { getState } from './core/state.ts';
 import { showDialog } from './ui/dialog.ts';
 import { showToast } from './ui/toast.ts';
 import { setManagedTimer } from './core/timers.ts';
-import { scheduleSessionReset } from './core/session-reset.ts';
+import { scheduleDocumentReload } from './core/session-reset.ts';
 
 const SW_UPDATE_KEY = 'sw-updated-at';
 const SW_CONTROLLER_CONFIRMED_KEY = 'sw-controller-confirmed-at';
@@ -71,10 +71,6 @@ function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
   // document can therefore distinguish this aligned reload from the legacy
   // v267 flow, which reloaded before activation completed.
   writeSessionMarker(SW_CONTROLLER_CONFIRMED_KEY, String(confirmedAt));
-  const resetHandle = scheduleSessionReset(t('dialog.refreshing_session'), () =>
-    window.location.reload(),
-  );
-
   const recoverReloadAttempt = () => {
     // A late recovery signal from an abandoned predecessor must never release
     // a successor's reload latch or activation state.
@@ -84,11 +80,7 @@ function reloadForServiceWorkerUpdate(onRecovered: () => void): void {
     onRecovered();
   };
 
-  if (!resetHandle) {
-    recoverReloadAttempt();
-    return;
-  }
-  resetHandle.onRecovered(recoverReloadAttempt);
+  scheduleDocumentReload(t('dialog.refreshing_session'), recoverReloadAttempt);
 }
 
 function isReloadNavigation(): boolean {

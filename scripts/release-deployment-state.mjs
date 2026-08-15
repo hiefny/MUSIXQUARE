@@ -198,6 +198,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/app-static-assets/_headers',
     'scripts/materialize-app-static-headers.mjs',
     'cloudflare/app-worker.js',
+    'cloudflare/capability-security.js',
     'cloudflare/service-maintenance.js',
     'cloudflare/pro-bot.js',
     'cloudflare/pro-room-grants.js',

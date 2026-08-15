@@ -1,106 +1,136 @@
-# ADR: Preserve the Current Initial Bundle Boundaries
+# ADR: Defer Session-Only Feature Graphs with Guaranteed Headroom
 
 - **Status:** Accepted
 - **Decision date:** 2026-08-15
-- **Applies to:** the Vite application entry graph, feature-level dynamic imports,
-  the service-worker app shell, and optional font loading
+- **Applies to:** the Vite application entry graph, room-session readiness,
+  the service-worker app shell, and initial-transfer budgets
 
 ## Context
 
-MUSIXQUARE is a realtime, multi-device audio application for modern,
-high-capability browsers. Its intended operating environment is a venue or room
-with a good network, not a low-bandwidth content-reading path. Correct startup,
-session recovery, synchronized state, and a dependable offline app shell are
-more important to that product than reducing the headline entry-chunk size in
-isolation.
+The checked production build remained below its architectural transfer limits,
+but several metrics had effectively no maintenance reserve. In particular, the
+entry raw size was within roughly 1 KiB of its ceiling. A passing build could
+therefore regress through an otherwise routine fix while still appearing
+healthy.
 
-The build already maintains deliberate loading boundaries:
+The eager graph also contained standard-room and PRO system-audio listener
+implementations before a user had selected or entered any room. Those modules
+are not needed to render setup, restore local settings, recover the service
+worker, or present the first usable application state. They are needed before
+the first signaling transport or PRO presence can deliver a system-audio
+frame, so a fire-and-forget import would not be a safe boundary.
 
-- PeerJS and QR encoding stay outside the static closure of `src/app.ts` and are
-  loaded only after session actions need them;
-- optional primary-font assets stay outside the initial script and stylesheet
-  graph; and
-- the checked build measures the complete HTML-declared eager graph and rejects
-  growth beyond its raw, gzip, JavaScript, total-transfer, and eager-font
-  budgets.
-
-The service worker also derives its deterministic app-shell closure from the
-rendered entry graph. Adding more feature-level chunks is therefore not only a
-transfer-size change. Each new boundary can add an asynchronous initialization
-and recovery seam, loading and failure states, cancellation and stale-result
-races, and another asset set whose cold-offline install and update behavior must
-remain coherent.
-
-Current measurements remain inside the checked-build budgets. No supported
-field or venue measurement currently shows that JavaScript transfer, parsing,
-or execution at the existing boundary prevents the app from meeting an agreed
-startup objective. Under the current product and network assumptions, the
-expected benefit of another broad bundle split is lower than its runtime,
-recovery, and offline-stability cost.
+Demo mode is not a safe conditional boundary today. Its protocol handlers must
+exist before an incoming demo frame and its first-run prompt observes bootstrap
+state. Loading it unconditionally through `await import()` would reduce an HTML
+graph measurement without reducing readiness work, so demo remains eager and
+is counted honestly in the entry.
 
 ## Decision
 
-Preserve the current initial and lazy-loading boundaries. Do not introduce an
-additional feature-level bundle split solely to improve a static bundle-size
-recommendation or the size of one generated chunk.
+Add genuinely conditional session boundaries. The room-session boundary
+contains:
 
-In particular:
+- standard host system-audio routing;
+- standard guest system-audio reception;
+- the standard-room SFU route;
+- the PRO system-audio service; and
+- local-output rejoin, which is meaningful only for an entered room.
 
-- keep bootstrap, shared state/event registration, lifecycle recovery, and the
-  controls needed for the first usable application state in the existing eager
-  graph;
-- retain the established session-only dependency and optional-font lazy
-  boundaries;
-- keep the initial-transfer budget and app-shell guards as shrink-or-hold
-  ratchets; this decision is not permission for unmeasured eager growth; and
-- prefer removing unused work, reducing bytes within an existing boundary, or
-  deferring non-runtime media before adding a new asynchronous application
-  seam.
+Media Session controls use a separate shared optional loader. Room entry starts
+it from the listener runtime, while guided-demo entry starts it directly because
+demo playback creates no signaling transport. Late initialization seeds the OS
+metadata and playback state from canonical app state, so neither route loses a
+track update during the import race. Failure remains an isolated enhancement
+failure and never blocks playback.
 
-No bundle or runtime code changes are part of this decision.
+The Connect boundary contains the panel, which loads after a host/guest
+role is selected or when the Connect tab is explicitly opened.
+
+`room-session-feature-loader.ts` owns a shared import promise. Standard-room
+transport creation awaits that promise before creating a signaling peer. Every
+PRO room open path (resume, join, activate, owner recovery, and owner transfer)
+awaits the same promise before calling its controller. Each caller races the
+shared import against its own AbortSignal, so cancelling setup settles that
+caller immediately without cancelling a load another room entry can reuse.
+This makes role-driven concurrency and direct/autojoin calls converge on one
+initialization and fails closed if the reviewed listener graph cannot load. No
+protocol frame can race ahead of listener registration. Protocol-critical
+listeners fail closed; optional Media Session and local-output enhancements
+fail independently. A terminal ESM load/evaluation failure is retained for the
+document and shown as an explicit reload action rather than a same-specifier
+retry that browsers may not re-evaluate. The PRO runtime import uses the same
+terminal document-scoped policy, so one-time claim flows cannot mistake an ESM
+failure for a replayable network operation. Connect replays the canonical
+device-list and PRO administrator snapshots after registering its listeners so
+an update cannot be lost during import.
+
+The deferred roots remain part of the deterministic offline contract. The Vite
+service-worker manifest includes the Connect, room-session, and Media Session
+roots plus their static JS/CSS closure, even though they are absent from the
+HTML-declared eager graph. A newly installed or updated worker therefore caches
+the exact hashed chunks required to initialize these reviewed deferred
+boundaries after an offline shell launch. This shifts parse/evaluation work out
+of the HTML critical path; the service-worker install still downloads the
+deferred closure in the background and is not claimed as a reduction in total
+first-install wire bytes.
+
+The build enforces both sides of the decision:
+
+- Connect, room-session, and Media Session implementation modules must not
+  re-enter the static closure of `src/app.ts`; and
+- every positive initial-transfer budget must retain at least 5% headroom.
+  Zero-byte budgets, such as eager fonts, remain strict zero-byte contracts.
+
+The architectural limits are unchanged. The 5% reserve is a guard inside
+those limits, not a budget increase.
+
+## Measurement
+
+On the checked production build used for this decision, the generated main
+entry moved from 1,334.19 kB raw / 390.13 kB gzip to 1,243.94 kB raw /
+362.85 kB gzip. The deterministic guard measured:
+
+| Metric                | Actual bytes | Architectural limit |   Headroom |
+| --------------------- | -----------: | ------------------: | ---------: |
+| Entry script raw      |    1,243,939 |           1,335,000 |      6.82% |
+| Entry script gzip     |      362,851 |             400,000 |      9.29% |
+| Eager JavaScript gzip |      367,136 |             400,000 |      8.22% |
+| Eager total raw       |    1,610,438 |           1,700,000 |      5.27% |
+| Eager total gzip      |      429,901 |             460,000 |      6.54% |
+| Eager fonts           |            0 |                   0 | fixed zero |
 
 ## Consequences
 
-The entry chunk may remain larger than a generic website-oriented audit would
-recommend. In exchange, the application keeps one well-tested bootstrap path,
-fewer partial-initialization states, and a smaller recovery and offline-update
-surface. Performance reviews must evaluate the full eager graph and observable
-startup behavior rather than treating a single chunk size as the outcome.
+Setup, local/offline recovery, demo protocol/UI, visualizer, file-drop, and
+accessibility bindings remain eager. The asynchronous seams are limited to the
+Connect surface, a network-session feature graph, and the shared optional Media
+Session integration started by demo or room entry. Standard and PRO entry
+points explicitly own network-listener readiness rather than relying on timing.
 
-Existing lazy paths are still contracts. A change that accidentally pulls
-PeerJS, QR encoding, optional fonts, or another reviewed deferred asset into the
-initial graph must continue to fail the relevant build guard.
+The service worker downloads the reviewed deferred chunks during app-shell
+installation. They do not block the document's eager transfer graph, but they
+do consume cache storage. This is intentional: predictable offline recovery is
+more important than omitting room-critical code from the installed generation.
+
+Future changes may shrink these boundaries, but cannot spend the maintenance
+reserve, make room entry race listener registration, remove the reviewed chunks
+from the offline app shell, or pull them back into the initial static graph
+without changing this decision and its guards.
 
 ## Reconsideration Criteria
 
-Reopen this decision when measured evidence shows at least one of the following:
+Revisit the boundary when representative startup or room-entry measurements
+show that one of the following is true:
 
-- representative cold-start tests on supported devices and venue networks miss
-  an adopted startup or interaction-readiness SLO, and profiling attributes a
-  material share of the miss to eager JavaScript transfer, parse, compile, or
-  execution;
-- production or controlled field evidence shows repeated startup failure,
-  browser termination, or unusable first interaction attributable to the eager
-  graph;
-- the product SLO, supported device class, or network target changes to include
-  materially slower hardware, constrained links, or an offline-first startup
-  requirement;
-- the eager graph cannot remain inside the checked-build budget after unused
-  code and assets have been removed and the proposed product work is otherwise
-  justified; or
-- cold-offline installation or service-worker update reliability fails because
-  of the size or composition of the current app-shell closure.
+- loading the room-session chunk materially delays room entry on a supported
+  device/network despite the existing loading UI;
+- service-worker installation reliability or cache pressure is harmed by the
+  reviewed deferred closure;
+- protocol architecture provides a smaller synchronous registration facade
+  that can safely queue every affected frame; or
+- the product adopts a different offline or startup SLO.
 
-A future split proposal must include representative before/after raw and gzip
-bytes, browser parse/execute and main-thread measurements, and cold-cache and
-offline install/update results. It must also define chunk ownership, loading
-UI, timeout/cancellation behavior, stale-result recovery, service-worker cache
-migration, real-device verification, and rollback. A smaller generated chunk
-without those end-to-end results is not sufficient evidence.
-
-## Non-goals
-
-This decision does not freeze the module graph, remove current dynamic imports,
-weaken the initial-transfer budget, or forbid a later evidence-backed split. It
-records why further broad separation is intentionally deferred under the
-current product assumptions.
+Any replacement must include before/after raw and gzip measurements, standard
+and PRO race tests, cold-cache and offline update verification, and a rollback
+plan.

@@ -216,6 +216,15 @@ matched provider data/code checkpoint.
   third-party analytics can run. It retains the value only in a non-enumerable,
   one-use in-memory closure; the eager app module consumes that closure before
   Cloudflare Analytics is loaded. Scrub or handoff failure is fail-closed.
+  While that exact valid claim is still replay-safe, a document-scoped RAM-only
+  reload guard may reconstruct one canonical claim fragment only inside an
+  app-owned hard-reload callback; a failed navigation immediately scrubs it
+  again. The guard never writes the claim to query parameters, Web Storage,
+  cookies, DOM, or an enumerable global. Activation, recovery, and transfer
+  mutation calls fence reloads until their outcome is known. Only a tagged lazy
+  room-gate failure, which occurs before the mutation, re-enables restoration;
+  success, a definitive refusal, or user exit discards the guard before any
+  queued reload continues.
 - The owner credential manages PIN/recovery security and owner-visible room
   configuration. Access-protected operators manage suspension and permanent
   deletion. A separate member session controls live-room actions. Linking the

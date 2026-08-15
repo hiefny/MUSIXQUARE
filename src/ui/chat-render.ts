@@ -66,6 +66,14 @@ function parseTimestamp(ts: string): number {
   return 0;
 }
 
+function isValidTimestamp(ts: string): boolean {
+  const parts = ts.split(':').map(Number);
+  if (parts.length !== 2 && parts.length !== 3) return false;
+
+  const minuteIndex = parts.length === 3 ? 1 : 0;
+  return parts[minuteIndex] <= 59 && parts[minuteIndex + 1] <= 59;
+}
+
 // Non-global for .test() — avoids fragile lastIndex resets
 const _ytTestRegex =
   /(https?:\/\/)?(www\.)?(youtube\.com\/playlist\?list=|youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/)[a-zA-Z0-9_-]+[^\s]*/i;
@@ -107,7 +115,7 @@ export function parseMessageContent(text: string): string {
         () => updateYouTubeChatTitle(uniqueId, cleanUrl),
         100,
       );
-    } else if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(matchedText)) {
+    } else if (isValidTimestamp(matchedText)) {
       const seconds = parseTimestamp(matchedText);
       result += `<span class="chat-timestamp" role="button" tabindex="0" aria-label="${escapeAttr(t('chat.seek_to', { time: matchedText }))}" data-seek="${seconds}">${escapeHtml(matchedText)}</span>`;
     } else {

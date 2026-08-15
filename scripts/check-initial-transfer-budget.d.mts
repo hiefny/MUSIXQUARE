@@ -20,6 +20,7 @@ export interface InitialTransferMeasurement extends InitialTransferBudget {
 }
 
 export const INITIAL_TRANSFER_BUDGET: Readonly<InitialTransferBudget>;
+export const INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO: number;
 
 export function collectEagerAssetUrls(html: string): {
   urls: string[];

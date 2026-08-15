@@ -35,7 +35,7 @@
   try {
     fragmentParams = new URLSearchParams(fragment);
     queryParams = new URLSearchParams(query);
-  } catch (e) {
+  } catch {
     // URLSearchParams is universal in supported browsers. If parsing is
     // unavailable, do not guess whether an encoded query/hash key is a
     // credential or expose an unsafe handoff.
@@ -97,7 +97,7 @@
   if (!hasFragmentCredential) cleanUrl += rawHash;
   try {
     window.history.replaceState(window.history.state, '', cleanUrl);
-  } catch (e) {
+  } catch {
     return;
   }
   if (hasFragmentCredential && window.location.hash) return;
@@ -113,7 +113,7 @@
         if (claimPurpose(key)) queryStillSensitive = true;
       });
       if (queryStillSensitive) return;
-    } catch (e) {
+    } catch {
       return;
     }
   }
@@ -184,7 +184,7 @@
         return handoff;
       },
     });
-  } catch (e) {
+  } catch {
     // A conflicting/tampered bridge must not gain access to the credential.
     // Continue first-paint bootstrap without exposing the credential.
     clearClaimMemory();
@@ -400,7 +400,7 @@
     }
 
     document.documentElement.setAttribute('lang', htmlLangByCode[resolvedLang || 'en'] || 'en');
-  } catch (e) {
+  } catch {
     /* localStorage / navigator denied - keep the HTML default */
   }
 })();
@@ -430,7 +430,7 @@
     document.querySelectorAll('meta[name="color-scheme"]').forEach(function (meta) {
       meta.setAttribute('content', resolved);
     });
-  } catch (e) {
+  } catch {
     /* localStorage / matchMedia denied — fall back to whatever default the HTML/CSS picks */
   }
 })();

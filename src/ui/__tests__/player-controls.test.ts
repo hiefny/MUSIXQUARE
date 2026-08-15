@@ -632,7 +632,10 @@ describe('PRO room media-source capabilities', () => {
     expect(reveal).toHaveBeenCalledWith(document.getElementById('youtube-url-overlay'));
     expect(youtubePrimer.prime).toHaveBeenCalledTimes(1);
 
-    expect(document.getElementById('btn-system-audio')?.hidden).toBe(true);
+    const systemAudio = document.getElementById('btn-system-audio') as HTMLButtonElement;
+    expect(systemAudio.hidden).toBe(false);
+    expect(systemAudio.disabled).toBe(true);
+    expect(systemAudio.title).toBe(t('toast.system_audio_owner_required'));
   });
 
   it('focuses, traps, escapes, and restores the media picker dialog', async () => {
@@ -800,6 +803,8 @@ describe('PRO room media-source capabilities', () => {
       <button id="btn-add-media"></button>
       <div id="media-source-overlay"></div>
       <button id="btn-system-audio"><span class="media-source-label-text"></span></button>
+      <small id="media-system-audio-limits"></small>
+      <small id="media-system-audio-status" hidden></small>
     `;
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
@@ -828,7 +833,10 @@ describe('PRO room media-source capabilities', () => {
     document.getElementById('btn-system-audio')?.click();
 
     expect(startSpy).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith(t('system_audio.owner_active', { name: 'Peer 2' }));
+    expect((document.getElementById('btn-system-audio') as HTMLButtonElement).disabled).toBe(true);
+    expect(document.getElementById('media-system-audio-status')?.textContent).toBe(
+      t('system_audio.owner_active', { name: 'Peer 2' }),
+    );
   });
 
   it('reports an unavailable PRO publishing capability before opening the native picker', () => {
@@ -836,6 +844,8 @@ describe('PRO room media-source capabilities', () => {
       <button id="btn-add-media"></button>
       <div id="media-source-overlay"></div>
       <button id="btn-system-audio"><span class="media-source-label-text"></span></button>
+      <small id="media-system-audio-limits"></small>
+      <small id="media-system-audio-status" hidden></small>
     `;
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
@@ -857,11 +867,17 @@ describe('PRO room media-source capabilities', () => {
     document.getElementById('btn-system-audio')?.click();
 
     expect(startSpy).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith(t('system_audio.coordinator_update_required'));
+    expect((document.getElementById('btn-system-audio') as HTMLButtonElement).disabled).toBe(true);
+    expect(document.getElementById('media-system-audio-status')?.textContent).toBe(
+      t('system_audio.coordinator_update_required'),
+    );
   });
 
   it('keeps standard-room live capture coordinator-only', () => {
-    document.body.innerHTML = '<button id="btn-system-audio"></button>';
+    document.body.innerHTML = `
+      <button id="btn-system-audio"></button>
+      <small id="media-system-audio-status" hidden></small>
+    `;
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection('host-1'));
     const startSpy = vi.fn();
@@ -871,7 +887,30 @@ describe('PRO room media-source capabilities', () => {
     document.getElementById('btn-system-audio')?.click();
 
     expect(startSpy).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith(t('toast.system_audio_owner_required'));
+    expect((document.getElementById('btn-system-audio') as HTMLButtonElement).disabled).toBe(true);
+    expect(document.getElementById('media-system-audio-status')?.textContent).toBe(
+      t('toast.system_audio_owner_required'),
+    );
+  });
+
+  it('shows browser, device, duration, and unsupported-browser preflight before capture', () => {
+    document.body.innerHTML = `
+      <button id="btn-system-audio"><span class="media-source-label-text"></span></button>
+      <small id="media-system-audio-limits"></small>
+      <small id="media-system-audio-status" hidden></small>
+    `;
+    setActiveStandardHost();
+
+    initPlayerControls();
+
+    const button = document.getElementById('btn-system-audio') as HTMLButtonElement;
+    const limits = document.getElementById('media-system-audio-limits');
+    const status = document.getElementById('media-system-audio-status');
+    expect(limits?.textContent).toBe(t('system_audio.preflight_limits', { count: 4, hours: 2 }));
+    expect(button.disabled).toBe(true);
+    expect(button.classList).toContain('unsupported');
+    expect(status?.hidden).toBe(false);
+    expect(status?.textContent).toBe(t('system_audio.desktop_only'));
   });
 });
 

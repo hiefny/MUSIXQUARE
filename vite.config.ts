@@ -225,8 +225,26 @@ const minifyEarlyBootstrapBuild = (): Plugin => {
   };
 };
 
-// QR encoding and PeerJS are needed only after session actions. Fail the build
-// if either dependency accidentally re-enters the static closure of app.ts.
+const REVIEWED_DEFERRED_APP_SHELL_ROOTS = [
+  '/src/network/room-session-feature-runtime.ts',
+  '/src/player/media-session.ts',
+  '/src/ui/connect-session-runtime.ts',
+] as const;
+
+const DEFERRED_ENTRY_MODULES = [
+  ...REVIEWED_DEFERRED_APP_SHELL_ROOTS,
+  '/src/network/system-audio-host.ts',
+  '/src/network/system-audio-guest.ts',
+  '/src/network/system-audio-sfu.ts',
+  '/src/pro-room/system-audio-service.ts',
+  '/src/player/media-session.ts',
+  '/src/player/local-output-rejoin.ts',
+  '/src/ui/connect.ts',
+] as const;
+
+// QR encoding, PeerJS, Connect, and room-only listeners are needed only after
+// explicit user/session actions. Fail the build if any reviewed deferred
+// dependency accidentally re-enters the static closure of app.ts.
 const guardInitialAppBundleGraph = (): Plugin => ({
   name: 'guard-initial-app-bundle-graph',
   apply: 'build',
@@ -267,6 +285,21 @@ const guardInitialAppBundleGraph = (): Plugin => ({
           .join('\n')}`,
       );
     }
+
+    const deferredLeaks = [...staticClosure].flatMap((fileName) => {
+      const chunk = chunks.get(fileName);
+      if (!chunk) return [];
+      return Object.keys(chunk.modules)
+        .map((id) => id.replace(/\\/g, '/'))
+        .filter((id) => DEFERRED_ENTRY_MODULES.some((suffix) => id.endsWith(suffix)));
+    });
+    if (deferredLeaks.length > 0) {
+      this.error(
+        `Reviewed deferred modules leaked into the initial app graph:\n${deferredLeaks
+          .map((id) => `  - ${id}`)
+          .join('\n')}`,
+      );
+    }
   },
 });
 
@@ -293,7 +326,10 @@ interface StaticBuildChunk {
   viteMetadata?: { importedCss?: Set<string> };
 }
 
-/** Collect the complete JS/CSS closure required to execute the canonical app entry. */
+/**
+ * Collect the complete JS/CSS closure required to execute the canonical app
+ * entry plus reviewed deferred roots that must survive a cold-offline update.
+ */
 export function collectStaticAppEntryAssets(bundle: Record<string, unknown>): string[] {
   const chunks = new Map(
     Object.values(bundle)
@@ -311,9 +347,19 @@ export function collectStaticAppEntryAssets(bundle: Record<string, unknown>): st
   );
   if (!appEntry) return [];
 
+  const deferredRoots = REVIEWED_DEFERRED_APP_SHELL_ROOTS.map((moduleSuffix) => {
+    const chunk = [...chunks.values()].find((candidate) =>
+      Object.keys(candidate.modules).some((id) => id.replace(/\\/gu, '/').endsWith(moduleSuffix)),
+    );
+    if (!chunk) {
+      throw new Error(`Could not locate reviewed deferred app-shell root ${moduleSuffix}.`);
+    }
+    return chunk.fileName;
+  });
+
   const assets = new Set<string>();
   const visited = new Set<string>();
-  const pending = [appEntry.fileName];
+  const pending = [appEntry.fileName, ...deferredRoots];
   while (pending.length > 0) {
     const fileName = pending.pop();
     if (!fileName || visited.has(fileName)) continue;

@@ -204,6 +204,18 @@ export async function waitForOverlayDismissed(page: Page, timeout = 20_000): Pro
 }
 
 /**
+ * Acknowledge the one-time Center role guide through its user-facing close
+ * control. The guide is intentionally delayed, so callers must wait for it
+ * instead of using an immediate visibility check that can race its timer.
+ */
+export async function dismissCenterRoleGuide(page: Page, timeout = 5_000): Promise<void> {
+  const guide = page.locator('#center-role-guide');
+  await guide.waitFor({ state: 'visible', timeout });
+  await guide.locator('#btn-center-role-dismiss').click();
+  await guide.waitFor({ state: 'hidden', timeout });
+}
+
+/**
  * Wait for the playlist UI to have at least N items.
  */
 export async function waitForPlaylistCount(

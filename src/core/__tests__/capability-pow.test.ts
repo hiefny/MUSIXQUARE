@@ -87,6 +87,154 @@ describe('capability proof-of-work client', () => {
     expect(document.querySelector('#mxqr-turnstile-container')).toBeNull();
   });
 
+  it('accepts a signed challenge inside the advertised adaptive difficulty envelope', async () => {
+    const challenge = 'adaptive-stateless-challenge.signature';
+    const baselineDifficulty = 8;
+    const adaptiveDifficulty = 9;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/security-config')) {
+        return Response.json({
+          capabilityRequired: true,
+          turnstileSiteKey: '',
+          turnstileRequired: false,
+          proofOfWorkRequired: true,
+          proofOfWorkDifficulty: baselineDifficulty,
+          proofOfWorkAdaptive: true,
+          proofOfWorkMaxDifficulty: adaptiveDifficulty,
+          proofOfWorkTtl: 120,
+          ttl: 600,
+        });
+      }
+      if (url.endsWith('/api/capability-challenge')) {
+        return Response.json({
+          challenge,
+          difficulty: adaptiveDifficulty,
+          expiresAt: Math.floor(Date.now() / 1000) + 120,
+          algorithm: 'sha256-leading-zero-bits',
+        });
+      }
+      if (url.endsWith('/api/capability-token')) {
+        const body = JSON.parse(String(init?.body)) as {
+          proofOfWork?: { challenge?: string; solution?: string };
+        };
+        const digest = new Uint8Array(
+          await crypto.subtle.digest(
+            'SHA-256',
+            new TextEncoder().encode(
+              `mxqr-pow-v1:${challenge}:${body.proofOfWork?.solution || ''}`,
+            ),
+          ),
+        );
+        expect(hasLeadingZeroBits(digest, adaptiveDifficulty)).toBe(true);
+        return Response.json({ token: 'adaptive-capability', expiresAt: Date.now() / 1000 + 600 });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getCapabilityHeaders } = await import('../capability.ts');
+    await expect(getCapabilityHeaders('/api/get-turn-config', ['turn'])).resolves.toEqual({
+      'X-MXQR-Capability': 'adaptive-capability',
+    });
+  });
+
+  it('strictly refreshes stale cached policy and renegotiates one adaptive challenge', async () => {
+    let securityConfigRequests = 0;
+    let challengeRequests = 0;
+    let tokenRequests = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/security-config')) {
+        securityConfigRequests += 1;
+        return Response.json({
+          capabilityRequired: true,
+          turnstileSiteKey: '',
+          turnstileRequired: false,
+          proofOfWorkRequired: true,
+          proofOfWorkDifficulty: 8,
+          proofOfWorkAdaptive: securityConfigRequests > 1,
+          proofOfWorkMaxDifficulty: securityConfigRequests > 1 ? 9 : 8,
+          proofOfWorkTtl: 120,
+          ttl: 600,
+        });
+      }
+      if (url.endsWith('/api/capability-challenge')) {
+        challengeRequests += 1;
+        return Response.json({
+          challenge: `renegotiated-challenge-${challengeRequests}.signature`,
+          difficulty: 9,
+          expiresAt: Math.floor(Date.now() / 1000) + 120,
+          algorithm: 'sha256-leading-zero-bits',
+        });
+      }
+      if (url.endsWith('/api/capability-token')) {
+        tokenRequests += 1;
+        const body = JSON.parse(String(init?.body)) as {
+          proofOfWork?: { challenge?: string };
+        };
+        expect(body.proofOfWork?.challenge).toBe('renegotiated-challenge-2.signature');
+        return Response.json({
+          token: 'renegotiated-capability',
+          expiresAt: Date.now() / 1000 + 600,
+        });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { getCapabilityHeaders } = await import('../capability.ts');
+    await expect(getCapabilityHeaders('/api/get-turn-config', ['turn'])).resolves.toEqual({
+      'X-MXQR-Capability': 'renegotiated-capability',
+    });
+    expect(securityConfigRequests).toBe(2);
+    expect(challengeRequests).toBe(2);
+    expect(tokenRequests).toBe(1);
+  });
+
+  it('bounds stale-policy challenge renegotiation to one retry', async () => {
+    let securityConfigRequests = 0;
+    let challengeRequests = 0;
+    let tokenRequests = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/security-config')) {
+          securityConfigRequests += 1;
+          return Response.json({
+            capabilityRequired: true,
+            turnstileSiteKey: '',
+            turnstileRequired: false,
+            proofOfWorkRequired: true,
+            proofOfWorkDifficulty: 8,
+            proofOfWorkAdaptive: false,
+            proofOfWorkMaxDifficulty: 8,
+            proofOfWorkTtl: 120,
+            ttl: 600,
+          });
+        }
+        if (url.endsWith('/api/capability-challenge')) {
+          challengeRequests += 1;
+          return Response.json({
+            challenge: `still-outside-envelope-${challengeRequests}.signature`,
+            difficulty: 9,
+            expiresAt: Math.floor(Date.now() / 1000) + 120,
+            algorithm: 'sha256-leading-zero-bits',
+          });
+        }
+        if (url.endsWith('/api/capability-token')) tokenRequests += 1;
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { getCapabilityHeaders } = await import('../capability.ts');
+    await expect(getCapabilityHeaders('/api/get-turn-config', ['turn'])).resolves.toEqual({});
+    expect(securityConfigRequests).toBe(2);
+    expect(challengeRequests).toBe(2);
+    expect(tokenRequests).toBe(0);
+  });
+
   it('stops proof-of-work after the current batch when its upload is aborted', async () => {
     const controller = new AbortController();
     let tokenRequests = 0;

@@ -344,6 +344,15 @@ const it: Record<I18nKey, string> = {
   'setup.change_later': 'Potrai modificarlo in qualsiasi momento dalle Impostazioni.',
   'setup.welcome_title': 'Ti diamo il benvenuto',
   'setup.join_session_subtitle': 'Stai per accedere alla stanza {{code}}',
+  'setup.room_type_hint':
+    'I codici che iniziano con 0 sono stanze PRO permanenti; quelli da 1 a 9 sono stanze standard temporanee.',
+  'setup.standard_room_summary':
+    'Stanza standard · È temporanea e termina quando l’host esce. L’host gestisce riproduzione e permessi; può essere richiesta una password facoltativa di 8 cifre.',
+  'setup.pro_room_summary':
+    'Stanza PRO · Conserva playlist e permessi anche quando tutti escono. È gestita da proprietari e amministratori e richiede una password PRO di 8 cifre.',
+  'setup.center_role_guide':
+    'Questo dispositivo è entrato come altoparlante centrale. Cambia ruolo in Impostazioni → Audio → Imposta il ruolo di questo dispositivo.',
+  'setup.center_role_open_settings': 'Apri impostazioni ruolo',
   'setup.select_role': 'Seleziona un ruolo',
   'setup.select_role_alt': 'Seleziona un ruolo',
   'setup.greeting': 'Ciao!',
@@ -365,6 +374,8 @@ const it: Record<I18nKey, string> = {
     'La connessione è più stabile quando tutti i dispositivi sono sulla stessa rete',
   'help.local_file': 'Seleziona file locale',
   'help.load_local': 'Carica file locale',
+  'help.local_memory_notice':
+    'Il file viene elaborato nella RAM del dispositivo. I trasferimenti remoti e PRO sono limitati a 200 MiB; sui dispositivi con poca memoria possono fallire anche file più piccoli.',
   'help.youtube_compat': 'YouTube (Modalità compatibilità)',
   'help.youtube_no_effects':
     'In modalità YouTube, gli effetti audio avanzati e la gestione dei ruoli non sono disponibili.',
@@ -817,6 +828,8 @@ const it: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Audio di sistema',
+  'system_audio.preflight_limits':
+    'Chromium desktop (Chrome, Edge ecc.) · fino a {{count}} dispositivi · fino a {{hours}} ore',
   'system_audio.sharing': "Condivisione dell'audio di sistema",
   'system_audio.receiving': "Ricezione dell'audio di sistema",
   'system_audio.owner_active': '{{name}} sta condividendo l’audio di sistema.',

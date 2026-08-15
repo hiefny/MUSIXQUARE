@@ -7,8 +7,6 @@
  */
 
 (function () {
-  var STORE_KEY = 'mxqr-landing-lang';
-
   var i18n = {
     en: {
       'meta.title': 'About · MUSIXQUARE',
@@ -1625,31 +1623,6 @@
     if (ogAlt) ogAlt.setAttribute('content', lang === 'en' ? 'ko_KR' : 'en_US');
 
     if (staticLang) staticLang.update(selected);
-  }
-
-  function setLang(lang) {
-    var selected = normalizeSelection(lang);
-    if (window.MXQRStaticLang) {
-      selected = window.MXQRStaticLang.persist(selected);
-    } else {
-      try {
-        localStorage.setItem(STORE_KEY, selected);
-      } catch (e) {
-        /* Language persistence is optional when storage is unavailable. */
-      }
-    }
-    applyLang(selected);
-    // Reflect in URL so the choice is shareable. replaceState avoids polluting history.
-    if (!window.MXQRStaticLang) {
-      try {
-        var url = new URL(location.href);
-        if (selected === 'en') url.searchParams.delete('lang');
-        else url.searchParams.set('lang', selected);
-        history.replaceState(null, '', url.toString());
-      } catch (e) {
-        /* URL reflection is optional when the URL API is unavailable. */
-      }
-    }
   }
 
   window.addEventListener('mxqr:static-language-change', function (event) {

@@ -21,18 +21,9 @@ import { gzipSync } from 'node:zlib';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export const INITIAL_TRANSFER_BUDGET = Object.freeze({
-  // Controlled onboarding rotation adds pause/resume, visibility, hover,
-  // touch, and reduced-motion lifecycle guards across the entry raw/gzip,
-  // eager-JS gzip, and eager-total gzip metrics below. Keep that first-screen
-  // interaction eager rather than creating an asynchronous initialization seam.
-  // Rounded limits retain a small maintenance reserve for harmless follow-up
-  // fixes while still rejecting material growth in the eager graph.
-  // Bubble copy is also a core keyboard/click/hold action, so it stays in the
-  // offline app shell instead of becoming a fallible lazy accessibility seam.
-  // Remote Share's host-only upload assertion handshake must ship with the
-  // signaling transport so uploads fail closed on the first request. Its
-  // minified raw increase is bounded here while the prior gzip ceilings stay
-  // unchanged.
+  // These are architectural ceilings, not spendable targets. The assertion
+  // below reserves a fixed percentage of every positive limit so ordinary
+  // maintenance cannot silently consume all remaining capacity.
   entryScriptRawBytes: 1_335_000,
   entryScriptGzipBytes: 400_000,
   eagerJavaScriptGzipBytes: 400_000,
@@ -40,6 +31,8 @@ export const INITIAL_TRANSFER_BUDGET = Object.freeze({
   eagerTotalGzipBytes: 460_000,
   eagerFontBytes: 0,
 });
+
+export const INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO = 0.05;
 
 const EAGER_LINK_RELATIONS = new Set(['modulepreload', 'preload', 'stylesheet']);
 const FONT_EXTENSION = /\.(?:woff2?|ttf|otf)$/iu;
@@ -199,8 +192,15 @@ export function assertInitialTransferBudget(measurement, budget = INITIAL_TRANSF
   const failures = [];
   for (const [metric, limit] of Object.entries(budget)) {
     const actual = measurement[metric];
+    const maintenanceCeiling =
+      limit === 0 ? 0 : Math.floor(limit * (1 - INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO));
     if (!Number.isFinite(actual)) failures.push(`${metric} was not measured`);
-    else if (actual > limit) failures.push(`${metric}: ${actual} B > ${limit} B`);
+    else if (actual > maintenanceCeiling) {
+      failures.push(
+        `${metric}: ${actual} B > ${maintenanceCeiling} B maintenance ceiling ` +
+          `(${limit} B architectural budget; ${INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO * 100}% reserved)`,
+      );
+    }
   }
   if (failures.length > 0) {
     throw new Error(
@@ -223,6 +223,7 @@ async function main() {
       `eager JS ${kib(measurement.eagerJavaScriptGzipBytes)} gzip`,
       `eager total ${kib(measurement.eagerTotalRawBytes)} raw / ${kib(measurement.eagerTotalGzipBytes)} gzip`,
       `eager fonts ${kib(measurement.eagerFontBytes)}`,
+      `${INITIAL_TRANSFER_MINIMUM_HEADROOM_RATIO * 100}% minimum headroom preserved for every positive budget`,
     ].join('\n  '),
   );
 }

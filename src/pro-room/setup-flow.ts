@@ -1,4 +1,10 @@
 import { getState } from '../core/state.ts';
+import { bus } from '../core/events.ts';
+import {
+  createLazyFeatureLoadError,
+  isLazyFeatureLoadError,
+} from '../core/lazy-feature-failure.ts';
+import { capturePendingClaimReloadGuard } from '../core/document-reload.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from '../ui/dialog.ts';
 import { ProRoomApiError } from './api.ts';
@@ -45,6 +51,28 @@ const CLAIM_ACCOUNT_CAPACITY_ERROR_CODES = new Set([
   'ACCOUNT_MEMBER_CAPACITY_EXCEEDED',
   'ACCOUNT_PRO_ROOM_LIMIT_REACHED',
 ]);
+
+type ProRoomRuntimeModule = typeof import('./runtime.ts');
+let proRoomRuntimeFlight: Promise<ProRoomRuntimeModule> | null = null;
+let proRoomRuntimeFailure: Error | null = null;
+let proRoomRuntimeFailed = false;
+
+function loadProRoomRuntime(): Promise<ProRoomRuntimeModule> {
+  if (proRoomRuntimeFailed) {
+    bus.emit('app:lazy-feature-load-failed', 'pro-room', proRoomRuntimeFailure);
+  }
+  proRoomRuntimeFlight ??= import('./runtime.ts').catch((error: unknown) => {
+    // A failed ESM evaluation may remain cached for this document. Latch the
+    // real failure and let the app offer reload instead of treating a TypeError
+    // as a retryable claim/network operation.
+    const terminalError = createLazyFeatureLoadError('pro-room', error);
+    proRoomRuntimeFailure = terminalError;
+    proRoomRuntimeFailed = true;
+    bus.emit('app:lazy-feature-load-failed', 'pro-room', terminalError);
+    throw terminalError;
+  });
+  return proRoomRuntimeFlight;
+}
 
 function pendingSessionRequestStorageKey(code: string): string {
   return `mxqr-pro-session-request:${code}`;
@@ -277,6 +305,11 @@ async function runClaimProtectedOperation<T>(
     try {
       return { ok: true, value: await operation() };
     } catch (error) {
+      // The document-scoped ESM flight cannot be retried reliably. Its catch
+      // already queued the single reload-required dialog; do not compete with
+      // it using the claim retry surface.
+      if (isLazyFeatureLoadError(error)) throw error;
+
       // Expired, used, invalid, and already-consumed claims must never be
       // replayed. Keep their server details collapsed to one safe message.
       if (isTerminalClaimFailure(error)) {
@@ -390,7 +423,9 @@ function waitForActiveTabRelease(): Promise<void> {
  * Authenticate and connect a reserved PRO room. UI orchestration remains here
  * while the runtime owns cookies, authority, heartbeats, and WebRTC topology.
  */
-export async function enterProRoomFromSetup(code: string): Promise<boolean> {
+type ProRoomSetupEntryResult = boolean | 'reload-required';
+
+export async function enterProRoomFromSetup(code: string): Promise<ProRoomSetupEntryResult> {
   if (!isProRoomCode(code)) throw new Error('INVALID_PRO_ROOM_CODE');
   // Consume and scrub every one-time credential before the first dynamic
   // import, network request, or dialog turn can yield back to the browser.
@@ -405,80 +440,83 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
     Number(activationClaimPresent) +
     Number(ownerRecoveryClaimPresent) +
     Number(ownerTransferClaimPresent);
+  const claimReloadGuard = claimPurposeCount > 0 ? capturePendingClaimReloadGuard() : null;
+  let retainClaimForReload = false;
 
-  // Reject damaged, duplicated, or mixed one-time credentials locally. They
-  // must never encounter an outage retry dialog before their terminal result.
-  if (
-    claimPurposeCount > 1 ||
-    (activationClaimPresent && !fragmentClaims.activationClaimToken) ||
-    (ownerRecoveryClaimPresent && !fragmentClaims.ownerRecoveryClaimToken) ||
-    (ownerTransferClaimPresent && !fragmentClaims.ownerTransferClaimToken)
-  ) {
-    await showNewClaimLinkGuidance();
-    return false;
-  }
-
-  const ownerTransferRequestId = ownerTransferClaimPresent ? createProRoomIdempotencyKey() : null;
-  const existingOwnerLoginPolicy = {
-    // Recovery is also bound to the room's already linked owner account. Only
-    // first activation may legitimately continue through profile creation.
-    requiresExistingAccount: ownerTransferClaimPresent || ownerRecoveryClaimPresent,
-  } as const;
-  const hasClaimCredential = claimPurposeCount === 1;
-  // Lazy-load the runtime after the setup/guest module graph has initialized;
-  // the runtime bridges back into peer.ts and would otherwise form an eager
-  // guest -> runtime -> peer -> guest evaluation cycle at app startup.
-  const runtimeResult = hasClaimCredential
-    ? await runClaimProtectedOperation(() => import('./runtime.ts'), existingOwnerLoginPolicy)
-    : { ok: true as const, value: await import('./runtime.ts') };
-  if (!runtimeResult.ok) return false;
-  const runtime = runtimeResult.value;
-  const resumeExistingSession = async (options: { takeover?: boolean } = {}) => {
-    const result = await runEntryOperation((signal) =>
-      runtime.resumeProRoom(code, { ...options, signal }),
-    );
-    // A successful cookie-backed resume proves that no earlier PIN admission
-    // remains outcome-unknown. Retaining its request id would let a later,
-    // unrelated PIN entry replay stale admission state after the cookie expires.
-    clearPendingSessionRequestId(code);
-    return result;
-  };
-  // Consume this one-time route hint before any network turn. Only a marker
-  // retained by this exact browsing context may silently reclaim its
-  // pre-OAuth presence; a durable PWA-relaunch hint keeps the normal active-tab
-  // confirmation boundary.
-  const accountLoginReturn = consumeAccountLoginReturnForRoom(code);
-  const returningFromSameTabLogin = accountLoginReturn?.allowSilentTakeover === true;
-  const bootstrapResult = hasClaimCredential
-    ? await runClaimProtectedOperation(
-        () => runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal)),
-        existingOwnerLoginPolicy,
-      )
-    : {
-        ok: true as const,
-        value: await runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal)),
-      };
-  if (!bootstrapResult.ok) return false;
-  const bootstrap = bootstrapResult.value;
-
-  if (ownerTransferClaimPresent) {
-    const ownerTransferClaimToken = fragmentClaims.ownerTransferClaimToken;
-    if (!ownerTransferClaimToken || !ownerTransferRequestId) {
+  try {
+    // Reject damaged, duplicated, or mixed one-time credentials locally. They
+    // must never encounter an outage retry dialog before their terminal result.
+    if (
+      claimPurposeCount > 1 ||
+      (activationClaimPresent && !fragmentClaims.activationClaimToken) ||
+      (ownerRecoveryClaimPresent && !fragmentClaims.ownerRecoveryClaimToken) ||
+      (ownerTransferClaimPresent && !fragmentClaims.ownerTransferClaimToken)
+    ) {
       await showNewClaimLinkGuidance();
       return false;
     }
-    const newPin = await promptPin({
-      title: t('pro.transfer_title'),
-      message: t('pro.transfer_message'),
-      autocomplete: 'new-password',
-    });
-    if (!newPin) return false;
-    // The App facade and room object replay this exact request id after an
-    // uncertain prepare/commit response. Retrying a different operation first
-    // could strand a completed transfer before its final cookies are released.
-    const transfer = await runClaimProtectedOperation(
-      () =>
-        runEntryOperation((signal) =>
+
+    const ownerTransferRequestId = ownerTransferClaimPresent ? createProRoomIdempotencyKey() : null;
+    const existingOwnerLoginPolicy = {
+      // Recovery is also bound to the room's already linked owner account. Only
+      // first activation may legitimately continue through profile creation.
+      requiresExistingAccount: ownerTransferClaimPresent || ownerRecoveryClaimPresent,
+    } as const;
+    const hasClaimCredential = claimPurposeCount === 1;
+    // Lazy-load the runtime after the setup/guest module graph has initialized;
+    // the runtime bridges back into peer.ts and would otherwise form an eager
+    // guest -> runtime -> peer -> guest evaluation cycle at app startup.
+    const runtimeResult = hasClaimCredential
+      ? await runClaimProtectedOperation(loadProRoomRuntime, existingOwnerLoginPolicy)
+      : { ok: true as const, value: await loadProRoomRuntime() };
+    if (!runtimeResult.ok) return false;
+    const runtime = runtimeResult.value;
+    const resumeExistingSession = async (options: { takeover?: boolean } = {}) => {
+      const result = await runEntryOperation((signal) =>
+        runtime.resumeProRoom(code, { ...options, signal }),
+      );
+      // A successful cookie-backed resume proves that no earlier PIN admission
+      // remains outcome-unknown. Retaining its request id would let a later,
+      // unrelated PIN entry replay stale admission state after the cookie expires.
+      clearPendingSessionRequestId(code);
+      return result;
+    };
+    // Consume this one-time route hint before any network turn. Only a marker
+    // retained by this exact browsing context may silently reclaim its
+    // pre-OAuth presence; a durable PWA-relaunch hint keeps the normal active-tab
+    // confirmation boundary.
+    const accountLoginReturn = consumeAccountLoginReturnForRoom(code);
+    const returningFromSameTabLogin = accountLoginReturn?.allowSilentTakeover === true;
+    const bootstrapResult = hasClaimCredential
+      ? await runClaimProtectedOperation(
+          () => runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal)),
+          existingOwnerLoginPolicy,
+        )
+      : {
+          ok: true as const,
+          value: await runEntryOperation((signal) => runtime.getProRoomBootstrap(code, signal)),
+        };
+    if (!bootstrapResult.ok) return false;
+    const bootstrap = bootstrapResult.value;
+
+    if (ownerTransferClaimPresent) {
+      const ownerTransferClaimToken = fragmentClaims.ownerTransferClaimToken;
+      if (!ownerTransferClaimToken || !ownerTransferRequestId) {
+        await showNewClaimLinkGuidance();
+        return false;
+      }
+      const newPin = await promptPin({
+        title: t('pro.transfer_title'),
+        message: t('pro.transfer_message'),
+        autocomplete: 'new-password',
+      });
+      if (!newPin) return false;
+      // The App facade and room object replay this exact request id after an
+      // uncertain prepare/commit response. Retrying a different operation first
+      // could strand a completed transfer before its final cookies are released.
+      const transfer = await runClaimProtectedOperation(async () => {
+        await claimReloadGuard?.fenceOutcomeUnknownMutation();
+        return runEntryOperation((signal) =>
           runtime.transferProRoomOwner(
             {
               code,
@@ -488,210 +526,223 @@ export async function enterProRoomFromSetup(code: string): Promise<boolean> {
             },
             signal,
           ),
-        ),
-      existingOwnerLoginPolicy,
-    );
-    if (transfer.ok) clearPendingSessionRequestId(code);
-    return transfer.ok;
-  }
+        );
+      }, existingOwnerLoginPolicy);
+      if (transfer.ok) clearPendingSessionRequestId(code);
+      return transfer.ok;
+    }
 
-  if (ownerRecoveryClaimPresent) {
-    // Recovery is meaningful only for the active incarnation that issued it.
-    // Resolve recycled, suspended, or otherwise stale links locally instead
-    // of turning a registry/account-assertion refusal into a retryable outage.
-    if (bootstrap.status !== 'pin_required') {
+    if (ownerRecoveryClaimPresent) {
+      // Recovery is meaningful only for the active incarnation that issued it.
+      // Resolve recycled, suspended, or otherwise stale links locally instead
+      // of turning a registry/account-assertion refusal into a retryable outage.
+      if (bootstrap.status !== 'pin_required') {
+        await showNewClaimLinkGuidance();
+        return false;
+      }
+      const ownerRecoveryClaimToken = fragmentClaims.ownerRecoveryClaimToken!;
+      let recoveryMayHaveCommitted = false;
+      const recovery = await runClaimProtectedOperation(async () => {
+        if (recoveryMayHaveCommitted) {
+          try {
+            return await resumeExistingSession();
+          } catch (error) {
+            if (!isMissingCookieSession(error)) throw error;
+            recoveryMayHaveCommitted = false;
+          }
+        }
+        try {
+          await claimReloadGuard?.fenceOutcomeUnknownMutation();
+          return await runEntryOperation((signal) =>
+            runtime.recoverProRoomOwner(
+              {
+                code,
+                claimToken: ownerRecoveryClaimToken,
+              },
+              signal,
+            ),
+          );
+        } catch (error) {
+          // Only an uncertain transport/service result may have committed while
+          // losing its response. ACCOUNT_SESSION_REQUIRED must retry the actual
+          // claim after login so an unrelated stale owner cookie cannot bypass
+          // the account-link conflict check.
+          recoveryMayHaveCommitted = isTransientClaimFailure(error);
+          throw error;
+        }
+      }, existingOwnerLoginPolicy);
+      if (recovery.ok) clearPendingSessionRequestId(code);
+      return recovery.ok;
+    }
+
+    // Activation claims are meaningful only while the room still awaits its
+    // first activation. A recycled or already-used link must not fall through
+    // to cookie resume/PIN entry or generic suspended-room guidance.
+    if (activationClaimPresent && bootstrap.status !== 'activation_required') {
       await showNewClaimLinkGuidance();
       return false;
     }
-    const ownerRecoveryClaimToken = fragmentClaims.ownerRecoveryClaimToken!;
-    let recoveryMayHaveCommitted = false;
-    const recovery = await runClaimProtectedOperation(async () => {
-      if (recoveryMayHaveCommitted) {
-        try {
-          return await resumeExistingSession();
-        } catch (error) {
-          if (!isMissingCookieSession(error)) throw error;
-          recoveryMayHaveCommitted = false;
-        }
+
+    if (bootstrap.status === 'suspended') {
+      await showUnavailable(t('pro.suspended_title'), t('pro.suspended_message'));
+      return false;
+    }
+
+    if (bootstrap.status === 'activation_required') {
+      const activationClaimToken = fragmentClaims.activationClaimToken;
+      if (!activationClaimToken) {
+        if (fragmentClaims.activationClaimPresent) await showNewClaimLinkGuidance();
+        else await showUnavailable(t('pro.not_ready_title'), t('pro.not_ready_message'));
+        return false;
       }
-      try {
-        return await runEntryOperation((signal) =>
-          runtime.recoverProRoomOwner(
+      const temporaryPin = deriveTemporaryProRoomPin(code);
+      const newPin = await promptPin({
+        title: t('pro.activation_title'),
+        message: t('pro.activation_message'),
+        autocomplete: 'new-password',
+        temporaryPin,
+      });
+      if (!newPin) return false;
+      let activationAttempts = 0;
+      const activation = await runClaimProtectedOperation(async () => {
+        if (activationAttempts > 0) {
+          const freshBootstrap = await runEntryOperation((signal) =>
+            runtime.getProRoomBootstrap(code, signal),
+          );
+          if (freshBootstrap.status === 'pin_required') {
+            try {
+              return await resumeExistingSession();
+            } catch (error) {
+              if (isMissingCookieSession(error)) {
+                throw new ProRoomApiError('ACTIVATION_UNAVAILABLE', 409);
+              }
+              throw error;
+            }
+          }
+        }
+        activationAttempts += 1;
+        await claimReloadGuard?.fenceOutcomeUnknownMutation();
+        return runEntryOperation((signal) =>
+          runtime.activateProRoom(
             {
               code,
-              claimToken: ownerRecoveryClaimToken,
+              claimToken: activationClaimToken,
+              temporaryPin,
+              newPin,
+              ownerName: getState('network.myDeviceLabel') || 'Owner',
             },
             signal,
           ),
         );
-      } catch (error) {
-        // Only an uncertain transport/service result may have committed while
-        // losing its response. ACCOUNT_SESSION_REQUIRED must retry the actual
-        // claim after login so an unrelated stale owner cookie cannot bypass
-        // the account-link conflict check.
-        recoveryMayHaveCommitted = isTransientClaimFailure(error);
-        throw error;
-      }
-    }, existingOwnerLoginPolicy);
-    if (recovery.ok) clearPendingSessionRequestId(code);
-    return recovery.ok;
-  }
-
-  // Activation claims are meaningful only while the room still awaits its
-  // first activation. A recycled or already-used link must not fall through
-  // to cookie resume/PIN entry or generic suspended-room guidance.
-  if (activationClaimPresent && bootstrap.status !== 'activation_required') {
-    await showNewClaimLinkGuidance();
-    return false;
-  }
-
-  if (bootstrap.status === 'suspended') {
-    await showUnavailable(t('pro.suspended_title'), t('pro.suspended_message'));
-    return false;
-  }
-
-  if (bootstrap.status === 'activation_required') {
-    const activationClaimToken = fragmentClaims.activationClaimToken;
-    if (!activationClaimToken) {
-      if (fragmentClaims.activationClaimPresent) await showNewClaimLinkGuidance();
-      else await showUnavailable(t('pro.not_ready_title'), t('pro.not_ready_message'));
-      return false;
-    }
-    const temporaryPin = deriveTemporaryProRoomPin(code);
-    const newPin = await promptPin({
-      title: t('pro.activation_title'),
-      message: t('pro.activation_message'),
-      autocomplete: 'new-password',
-      temporaryPin,
-    });
-    if (!newPin) return false;
-    let activationAttempts = 0;
-    const activation = await runClaimProtectedOperation(async () => {
-      if (activationAttempts > 0) {
-        const freshBootstrap = await runEntryOperation((signal) =>
-          runtime.getProRoomBootstrap(code, signal),
-        );
-        if (freshBootstrap.status === 'pin_required') {
-          try {
-            return await resumeExistingSession();
-          } catch (error) {
-            if (isMissingCookieSession(error)) {
-              throw new ProRoomApiError('ACTIVATION_UNAVAILABLE', 409);
-            }
-            throw error;
-          }
-        }
-      }
-      activationAttempts += 1;
-      return runEntryOperation((signal) =>
-        runtime.activateProRoom(
-          {
-            code,
-            claimToken: activationClaimToken,
-            temporaryPin,
-            newPin,
-            ownerName: getState('network.myDeviceLabel') || 'Owner',
-          },
-          signal,
-        ),
-      );
-    });
-    if (activation.ok) clearPendingSessionRequestId(code);
-    return activation.ok;
-  }
-
-  // A host-only HttpOnly cookie survives a reload. Try it before asking for
-  // the 8-digit PIN again; only an authentication miss falls through.
-  let resumeError: unknown;
-  try {
-    await resumeExistingSession();
-    return true;
-  } catch (error) {
-    resumeError = error;
-  }
-
-  if (isActiveInAnotherTab(resumeError)) {
-    if (returningFromSameTabLogin) {
-      await resumeExistingSession({ takeover: true });
-      announceProRoomTabTakeover(code);
-      return true;
+      });
+      if (activation.ok) clearPendingSessionRequestId(code);
+      return activation.ok;
     }
 
-    // A refresh/update can race the previous document's unload keepalive.
-    // Retry once without takeover so a real sibling tab remains protected.
-    await waitForActiveTabRelease();
+    // A host-only HttpOnly cookie survives a reload. Try it before asking for
+    // the 8-digit PIN again; only an authentication miss falls through.
+    let resumeError: unknown;
     try {
       await resumeExistingSession();
       return true;
     } catch (error) {
       resumeError = error;
     }
-  }
 
-  if (isActiveInAnotherTab(resumeError)) {
-    const result = await showDialog({
-      title: t('pro.active_tab_title'),
-      message: t('pro.active_tab_message'),
-      buttonText: t('pro.use_this_tab'),
-      secondaryText: t('common.cancel'),
-      dismissible: false,
-      defaultFocus: 'secondary',
-    });
-    if (result.action !== 'ok') return false;
-    await resumeExistingSession({ takeover: true });
-    // The server is the source of truth. Broadcast only after it commits the
-    // new incarnation so the previous tab can stop immediately instead of
-    // waiting for its next signaling/heartbeat failure.
-    announceProRoomTabTakeover(code);
-    return true;
-  }
-  if (!isMissingCookieSession(resumeError)) throw resumeError;
+    if (isActiveInAnotherTab(resumeError)) {
+      if (returningFromSameTabLogin) {
+        await resumeExistingSession({ takeover: true });
+        announceProRoomTabTakeover(code);
+        return true;
+      }
 
-  let retry = false;
-  // Keep one logical admission ID across an uncertain App/DO response. The
-  // value is not a credential and sessionStorage is deliberately tab-scoped;
-  // it survives a reload without letting another tab silently inherit the
-  // pending admission. A definitive PIN result or successful cookie response
-  // clears it below.
-  while (true) {
-    const pin = await promptPin({
-      title: t('pro.pin_title'),
-      message: t(retry ? 'pro.pin_retry_message' : 'pro.pin_message'),
-      autocomplete: 'current-password',
-    });
-    if (!pin) {
-      clearPendingSessionRequestId(code);
-      return false;
+      // A refresh/update can race the previous document's unload keepalive.
+      // Retry once without takeover so a real sibling tab remains protected.
+      await waitForActiveTabRelease();
+      try {
+        await resumeExistingSession();
+        return true;
+      } catch (error) {
+        resumeError = error;
+      }
     }
-    const requestId = getOrCreatePendingSessionRequestId(code);
-    try {
-      await runEntryOperation((signal) =>
-        runtime.joinProRoom(
-          {
-            code,
-            pin,
-            requestId,
-          },
-          signal,
-        ),
-      );
-      clearPendingSessionRequestId(code);
+
+    if (isActiveInAnotherTab(resumeError)) {
+      const result = await showDialog({
+        title: t('pro.active_tab_title'),
+        message: t('pro.active_tab_message'),
+        buttonText: t('pro.use_this_tab'),
+        secondaryText: t('common.cancel'),
+        dismissible: false,
+        defaultFocus: 'secondary',
+      });
+      if (result.action !== 'ok') return false;
+      await resumeExistingSession({ takeover: true });
+      // The server is the source of truth. Broadcast only after it commits the
+      // new incarnation so the previous tab can stop immediately instead of
+      // waiting for its next signaling/heartbeat failure.
+      announceProRoomTabTakeover(code);
       return true;
-    } catch (error) {
-      if (error instanceof ProRoomApiError && error.code === 'PIN_INVALID') {
-        clearPendingSessionRequestId(code);
-        retry = true;
-        continue;
-      }
-      // A canonical 4xx proves that this logical admission did not produce a
-      // usable cookie. Do not poison later attempts with a requestId that will
-      // deterministically replay the same conflict/fence. Transport failures,
-      // local deadlines, invalid success responses, and 5xx responses retain
-      // the ID because their mutation outcome is unknown.
-      if (isDefinitiveSessionAdmissionError(error)) {
-        clearPendingSessionRequestId(code);
-      }
-      throw error;
     }
+    if (!isMissingCookieSession(resumeError)) throw resumeError;
+
+    let retry = false;
+    // Keep one logical admission ID across an uncertain App/DO response. The
+    // value is not a credential and sessionStorage is deliberately tab-scoped;
+    // it survives a reload without letting another tab silently inherit the
+    // pending admission. A definitive PIN result or successful cookie response
+    // clears it below.
+    while (true) {
+      const pin = await promptPin({
+        title: t('pro.pin_title'),
+        message: t(retry ? 'pro.pin_retry_message' : 'pro.pin_message'),
+        autocomplete: 'current-password',
+      });
+      if (!pin) {
+        clearPendingSessionRequestId(code);
+        return false;
+      }
+      const requestId = getOrCreatePendingSessionRequestId(code);
+      try {
+        await runEntryOperation((signal) =>
+          runtime.joinProRoom(
+            {
+              code,
+              pin,
+              requestId,
+            },
+            signal,
+          ),
+        );
+        clearPendingSessionRequestId(code);
+        return true;
+      } catch (error) {
+        if (error instanceof ProRoomApiError && error.code === 'PIN_INVALID') {
+          clearPendingSessionRequestId(code);
+          retry = true;
+          continue;
+        }
+        // A canonical 4xx proves that this logical admission did not produce a
+        // usable cookie. Do not poison later attempts with a requestId that will
+        // deterministically replay the same conflict/fence. Transport failures,
+        // local deadlines, invalid success responses, and 5xx responses retain
+        // the ID because their mutation outcome is unknown.
+        if (isDefinitiveSessionAdmissionError(error)) {
+          clearPendingSessionRequestId(code);
+        }
+        throw error;
+      }
+    }
+  } catch (error) {
+    if (isLazyFeatureLoadError(error)) {
+      if (claimReloadGuard) {
+        retainClaimForReload = true;
+        claimReloadGuard.restoreAfterLazyFeatureFailure();
+      }
+      return 'reload-required';
+    }
+    throw error;
+  } finally {
+    if (!retainClaimForReload) claimReloadGuard?.release();
   }
 }

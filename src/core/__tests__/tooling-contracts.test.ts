@@ -64,6 +64,18 @@ describe('tooling reproducibility contracts', () => {
     expect(packageManifest.scripts.typecheck).toContain('tsc -p tsconfig.tooling.json');
   });
 
+  it('keeps full browser E2E scheduled overnight and manually dispatchable', () => {
+    const workflow = readFileSync('.github/workflows/e2e.yml', 'utf8');
+    const triggerBlock = workflow.slice(
+      workflow.indexOf('on:'),
+      workflow.indexOf('\npermissions:'),
+    );
+
+    expect(triggerBlock).toContain('schedule:');
+    expect(triggerBlock).toContain("- cron: '17 18 * * *'");
+    expect(triggerBlock).toContain('workflow_dispatch:');
+  });
+
   it('runs the report viewer from the exact lockfile dependency', () => {
     expect(packageManifest.scripts['test:report-viewer']).toBe('serve . -p 3333 -s');
     expect(packageManifest.devDependencies.serve).toMatch(/^\d+\.\d+\.\d+$/u);

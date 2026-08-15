@@ -250,14 +250,14 @@ matched provider data/code checkpoint.
   Object persists bounded participant and presence high-water marks so an older
   delayed ticket cannot replace a newer socket or re-enter after removal.
   Browsers offer the ticket in a non-selected WebSocket subprotocol token and
-  the server selects only `mxqr.pro-signaling.v1`; new clients never put the
-  bearer in a URL. The exact legacy `?ticket=` fallback expires on 2026-09-09
-  UTC. Valid pre-cutoff use and post-cutoff required-refresh responses increment
-  separate fixed-name, aggregate-only D1 counters with no ticket, URL, room,
-  participant, IP, or User-Agent dimension. Automatic Worker invocation URL
-  logs and traces stay disabled until the query detector is removed after the
-  zero-use gates in
-  [`cloudflare/pro-signaling-query-ticket-cutover.md`](../../cloudflare/pro-signaling-query-ticket-cutover.md).
+  the server selects only `mxqr.pro-signaling.v1`. The signaling edge and its
+  Durable Object reject every URL search string and require exactly the stable
+  marker followed by one `mxqr.ticket.*` token; there is no URL credential or
+  refresh compatibility path.
+  On 2026-08-15, the owner confirmed that the sole active PRO user was already
+  on the current client and explicitly accepted immediate removal of the former
+  URL-credential grace path. Cached clients using that retired transport are
+  intentionally unsupported rather than kept alive by a delayed cutoff.
 - Every successful browser entry owns a server-issued, RAM-only presence
   incarnation. Snapshot, heartbeat, signaling, PIN, playlist, playback, and
   media requests must present that tab-local participant/incarnation pair as

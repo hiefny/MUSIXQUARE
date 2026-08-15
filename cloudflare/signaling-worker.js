@@ -87,11 +87,6 @@ const PRO_SIGNALING_TICKET_KIND = 'pro-signaling';
 const PRO_SIGNALING_TICKET_VERSION = 1;
 const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
 const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
-const PRO_SIGNALING_CLIENT_UPDATE_REQUIRED = 'PRO_SIGNALING_CLIENT_UPDATE_REQUIRED';
-// Cached pre-cutover clients may still place their one-use ticket in the URL.
-// Keep that compatibility path bounded; platform invocation URL logs and
-// traces stay disabled for the entire grace window in Wrangler.
-const PRO_SIGNALING_LEGACY_QUERY_ACCEPT_UNTIL_MS = Date.UTC(2026, 8, 9);
 const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
 const PRO_SIGNALING_TICKET_MAX_SECONDS = 5 * 60;
 const PRO_SIGNALING_CLOCK_SKEW_SECONDS = 30;
@@ -153,18 +148,6 @@ function json(data, status = 200, headers = {}) {
       ...headers,
     },
   });
-}
-
-function proSignalingClientUpdateRequired() {
-  return json(
-    {
-      error: PRO_SIGNALING_CLIENT_UPDATE_REQUIRED,
-      action: 'refresh',
-      requiredWebSocketProtocol: PRO_SIGNALING_WEBSOCKET_PROTOCOL,
-    },
-    426,
-    { 'x-mxqr-client-action': 'refresh' },
-  );
 }
 
 function isAllowedOrigin(origin, env = {}) {
@@ -394,79 +377,24 @@ async function verifyProSignalingTicket(ticket, expectedRoomId, env, now = Date.
   }
 }
 
-function isStructurallyPlausibleProSignalingTicket(ticket, expectedRoomId, now = Date.now()) {
-  if (typeof ticket !== 'string' || ticket.length > 4096) return false;
-  const parts = ticket.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1] || parts[0].length > 3072) return false;
-  const presentedSignature = base64UrlToBytes(parts[1]);
-  const payloadBytes = base64UrlToBytes(parts[0]);
-  if (!presentedSignature || presentedSignature.byteLength !== 32 || !payloadBytes) return false;
-  try {
-    const decoded = new TextDecoder('utf-8', { fatal: true }).decode(payloadBytes);
-    return !!normalizeProTicketPayload(
-      JSON.parse(decoded),
-      expectedRoomId,
-      Math.floor(now / 1000),
-    );
-  } catch {
-    return false;
-  }
-}
-
-function readProSignalingCredential(request, url, nowMs = Date.now()) {
+function readProSignalingCredential(request, url) {
+  if (url.search || url.hash) return null;
   const protocolHeader = request.headers.get('Sec-WebSocket-Protocol');
-  if (protocolHeader !== null) {
-    if (url.search || protocolHeader.length > 8192) return null;
-    const protocols = protocolHeader.split(',').map((value) => value.trim());
-    if (
-      protocols.length !== 2 ||
-      protocols[0] !== PRO_SIGNALING_WEBSOCKET_PROTOCOL ||
-      !protocols[1].startsWith(PRO_SIGNALING_TICKET_PROTOCOL_PREFIX)
-    ) {
-      return null;
-    }
-    const ticket = protocols[1].slice(PRO_SIGNALING_TICKET_PROTOCOL_PREFIX.length);
-    if (!ticket || ticket.length > 4096) return null;
-    return {
-      ticket,
-      responseProtocol: PRO_SIGNALING_WEBSOCKET_PROTOCOL,
-      transport: 'subprotocol',
-    };
-  }
-
-  const ticketValues = url.searchParams.getAll('ticket');
+  if (protocolHeader === null || protocolHeader.length > 8192) return null;
+  const protocols = protocolHeader.split(',').map((value) => value.trim());
   if (
-    ticketValues.length !== 1 ||
-    !ticketValues[0] ||
-    ticketValues[0].length > 4096 ||
-    [...url.searchParams.keys()].some((key) => key !== 'ticket')
+    protocols.length !== 2 ||
+    protocols[0] !== PRO_SIGNALING_WEBSOCKET_PROTOCOL ||
+    !protocols[1].startsWith(PRO_SIGNALING_TICKET_PROTOCOL_PREFIX)
   ) {
     return null;
   }
-  if (nowMs >= PRO_SIGNALING_LEGACY_QUERY_ACCEPT_UNTIL_MS) {
-    // A WebSocket constructor cannot expose a failed-upgrade body to old
-    // JavaScript, but the explicit HTTP/header contract remains visible to
-    // diagnostics and non-browser clients. Cached browsers recover through the
-    // already-shipped service-worker refresh flow described in the cutover
-    // runbook. After cutoff, never return the bearer or invoke its HMAC
-    // verifier. A bounded structural check filters malformed probes from the
-    // aggregate recovery signal, but that metric is not authentication truth.
-    const expectedRoomId = url.pathname.match(PRO_ROOM_PATH)?.[1] || '';
-    return {
-      error: PRO_SIGNALING_CLIENT_UPDATE_REQUIRED,
-      metricEligible: isStructurallyPlausibleProSignalingTicket(
-        ticketValues[0],
-        expectedRoomId,
-        nowMs,
-      ),
-      transport: 'legacy-query-expired',
-    };
-  }
-  return { ticket: ticketValues[0], responseProtocol: null, transport: 'legacy-query' };
-}
-
-function isProSignalingClientUpdateRequired(credential) {
-  return credential?.error === PRO_SIGNALING_CLIENT_UPDATE_REQUIRED;
+  const ticket = protocols[1].slice(PRO_SIGNALING_TICKET_PROTOCOL_PREFIX.length);
+  if (!ticket || ticket.length > 4096) return null;
+  return {
+    ticket,
+    responseProtocol: PRO_SIGNALING_WEBSOCKET_PROTOCOL,
+  };
 }
 
 async function hashGuestReconnectSecret(secret) {
@@ -1527,14 +1455,6 @@ async function checkProRateLimit(
   });
 }
 
-// Compatibility telemetry is advisory and has a separate, much tighter
-// budget. Keep this named wrapper distinct from the one PRO admission decision
-// so the standard-room hot-path guard can continue proving that admission is
-// isolated to the PRO routing branch.
-async function checkProQueryRefreshMetricRateLimit(request, env) {
-  return checkProRateLimit(request, env, 'pro-query-refresh-metric', 10, 60 * 60);
-}
-
 function send(ws, message) {
   try {
     ws.send(JSON.stringify(message));
@@ -1587,20 +1507,6 @@ async function recordMetric(env, event, now = Date.now()) {
   } catch (error) {
     console.warn('[Metrics] Failed to record signaling metric', event, error);
   }
-}
-
-function deferMetric(context, env, event, now = Date.now()) {
-  const task = recordMetric(env, event, now);
-  try {
-    if (typeof context?.waitUntil === 'function') {
-      context.waitUntil(task);
-      return;
-    }
-  } catch {
-    // The write already owns its error handling. Local runtimes without a
-    // usable ExecutionContext still get best-effort metric delivery below.
-  }
-  void task;
 }
 
 function defaultRoomMeta() {
@@ -3532,20 +3438,10 @@ export class MusixquareRoom {
       if (!isProNamespaceRoomCode(proRoomId)) {
         return json({ error: 'PRO_ROOM_NOT_CONFIGURED' }, 404);
       }
-      // New clients carry the signed ticket in a non-selected WebSocket
-      // subprotocol token so platform URL telemetry cannot capture it. The
-      // bounded query fallback exists only for cached pre-cutover clients.
+      // The signed bearer is accepted only as a non-selected WebSocket
+      // subprotocol token so URL telemetry cannot capture or replay it.
       const credential = readProSignalingCredential(request, url);
       if (!credential) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
-      if (isProSignalingClientUpdateRequired(credential)) {
-        if (credential.metricEligible) {
-          const metricRate = await checkProQueryRefreshMetricRateLimit(request, this.env);
-          if (metricRate.status === 'ok' && metricRate.allowed) {
-            this.recordMetric('pro_ticket_legacy_query_update_required');
-          }
-        }
-        return proSignalingClientUpdateRequired();
-      }
       const ticket = await verifyProSignalingTicket(
         credential.ticket,
         proRoomId,
@@ -5466,7 +5362,7 @@ export class MusixquareRoom {
 }
 
 export default {
-  async fetch(request, env, context) {
+  async fetch(request, env) {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/internal/')) {
       return json({ error: 'NOT_FOUND' }, 404);
@@ -5500,15 +5396,6 @@ export default {
       }
       const credential = readProSignalingCredential(request, url);
       if (!credential) return json({ error: 'INVALID_PRO_SIGNALING_TICKET' }, 401);
-      if (isProSignalingClientUpdateRequired(credential)) {
-        if (credential.metricEligible) {
-          const metricRate = await checkProQueryRefreshMetricRateLimit(request, env);
-          if (metricRate.status === 'ok' && metricRate.allowed) {
-            deferMetric(context, env, 'pro_ticket_legacy_query_update_required');
-          }
-        }
-        return proSignalingClientUpdateRequired();
-      }
       const ticket = await verifyProSignalingTicket(
         credential.ticket,
         roomId,
@@ -5523,13 +5410,7 @@ export default {
       }
       const id = env.MUSIXQUARE_ROOMS.idFromName(proRoomObject);
       const room = env.MUSIXQUARE_ROOMS.get(id);
-      const response = await room.fetch(request);
-      if (credential.transport === 'legacy-query' && response.status === 101) {
-        // Fixed-name, aggregate-only D1 counter. Never attach the request URL,
-        // room, participant, ticket, IP, or User-Agent to this metric.
-        deferMetric(context, env, 'pro_ticket_legacy_query_used');
-      }
-      return response;
+      return room.fetch(request);
     }
 
     const role = url.searchParams.get('role');

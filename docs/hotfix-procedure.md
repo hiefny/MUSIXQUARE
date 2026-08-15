@@ -104,12 +104,14 @@ authority-aware retained PRO Worker from being paired with a Developer API
 stack that omits the epoch and would reject valid active keys as stale.
 
 The complete serial Playwright suite is intentionally not a production deploy
-gate or a scheduled job. A focused deterministic Chromium subset is blocking in
-exact-SHA CI, so an approved release cannot select a candidate until the critical
-owner-recovery, OAuth-return, host/guest, and signed-upload browser paths pass.
-Start the full suite manually from the `Full E2E` workflow when a change warrants
-the extra coverage. Neither browser automation tier replaces the required
-real-device verification for the production decision.
+gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit
+smoke every night at 03:17 KST and remains manually dispatchable when a change
+warrants the extra coverage before the next scheduled run. A focused
+deterministic Chromium subset is blocking in exact-SHA CI, so an approved
+release cannot select a candidate until the critical owner-recovery,
+OAuth-return, host/guest, and signed-upload browser paths pass. No browser
+automation tier replaces the required real-device verification for the
+production decision.
 
 The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its canonical
@@ -197,7 +199,7 @@ authentication and the exact PRO WebSocket subprotocol ticket negotiation.
 Rollback restores the App first and restores signaling only after that App
 baseline is verified. If a durable or R2 compatibility floor keeps the current
 App, recovery also keeps the current signaling Worker; otherwise a retained
-subprotocol client could be paired with an older query-ticket Worker.
+subprotocol-only client could be paired with an older incompatible Worker.
 Signaling still delegates PRO chat and authority decisions to the PRO room
 Worker. If signaling cannot be verified as restored, recovery keeps the current
 PRO Worker instead of creating a known broken new-signaling/old-PRO pairing.

@@ -23,6 +23,17 @@ import {
   QUEUE_ITEM_ID_RE,
   shuffledQueueItemIds,
 } from './pro-room-queue-mode.js';
+import {
+  capabilitiesFromPermissions,
+  clonePermissionSet,
+  DELEGATED_ADMIN_PERMISSIONS,
+  isProInternalAuthorityPermission,
+  MEMBER_PERMISSIONS,
+  normalizePermissionSet,
+  OWNER_PERMISSIONS,
+  PRO_ROOM_PERMISSION_KEYS,
+  requiredProSystemMessagePermission,
+} from './pro-room-permissions.js';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.js';
 import { isSafeVisibleDisplayName } from './display-name-policy.js';
 import {
@@ -348,78 +359,10 @@ const DEVELOPER_COMMAND_RESULT_CODES = new Set([
   'execution_failed',
 ]);
 
-const CONTROLLER_CAPABILITIES = [
-  'queue.mutate',
-  'playback.control',
-  'effects.control',
-  'asset.upload',
-  'members.manage',
-];
-const MEMBER_CAPABILITIES = [];
-const OWNER_CAPABILITIES = [...CONTROLLER_CAPABILITIES, 'room.configure'];
-const PRO_ROOM_PERMISSION_KEYS = ['media.add', 'playback.control', 'members.kick', 'chat.notice'];
-const PRO_INTERNAL_AUTHORITY_PERMISSIONS = new Set([
-  ...PRO_ROOM_PERMISSION_KEYS,
-  'room.configure',
-  'chat.manage',
-  'bot.result',
-  'system.broadcast',
-]);
-const PRO_SYSTEM_MESSAGE_PERMISSION = new Map([
-  ['chat.decode_skip_system_message', 'playback.control'],
-  ['chat.system_audio_started_system_message', 'room.configure'],
-  ['chat.system_audio_stopped_system_message', 'room.configure'],
-]);
-const MEMBER_PERMISSIONS = Object.freeze({
-  'media.add': false,
-  'playback.control': false,
-  'members.kick': false,
-  'chat.notice': false,
-});
-const DELEGATED_ADMIN_PERMISSIONS = Object.freeze({
-  'media.add': true,
-  'playback.control': true,
-  'members.kick': true,
-  'chat.notice': true,
-});
-const OWNER_PERMISSIONS = DELEGATED_ADMIN_PERMISSIONS;
 const ACCOUNT_MEMBER_MAX_ITEMS = 100;
 const ANONYMOUS_ADMIN_MAX_ITEMS = 100;
 const ACCOUNT_DELETION_TOMBSTONE_MAX_ITEMS = 256;
 const ACCOUNT_DELETION_TOMBSTONE_TTL_MS = 5 * 60 * 1000;
-
-function clonePermissionSet(permissions) {
-  return Object.fromEntries(
-    PRO_ROOM_PERMISSION_KEYS.map((key) => [key, permissions[key] === true]),
-  );
-}
-
-function normalizePermissionSet(value, fallback = null) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return fallback ? clonePermissionSet(fallback) : null;
-  }
-  if (!hasExactKeys(value, PRO_ROOM_PERMISSION_KEYS)) return null;
-  if (PRO_ROOM_PERMISSION_KEYS.some((key) => typeof value[key] !== 'boolean')) return null;
-  return clonePermissionSet(value);
-}
-
-function capabilitiesFromPermissions(role, permissions) {
-  if (role === 'owner') {
-    return [...OWNER_CAPABILITIES];
-  }
-  if (role === 'member') return [...MEMBER_CAPABILITIES];
-  // `media.add` is the stable v1 wire/storage key for media management.
-  // Project queue.mutate for add, remove, and reorder while retaining the
-  // existing key across rolling clients. Playback remains an independent
-  // delegated permission.
-  const effective = permissions['media.add']
-    ? ['effects.control', 'queue.mutate']
-    : ['effects.control'];
-  if (permissions['playback.control']) effective.push('playback.control');
-  if (permissions['media.add']) effective.push('asset.upload');
-  if (permissions['members.kick']) effective.push('members.manage');
-  return effective;
-}
 
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
@@ -8521,7 +8464,7 @@ export class MusixquareProRoom {
       exactInternalRoomGeneration(request, parsed.value) !== this.room.roomGeneration ||
       !OPAQUE_ID_RE.test(parsed.value.participantId || '') ||
       !OPAQUE_ID_RE.test(parsed.value.presenceIncarnationId || '') ||
-      !PRO_INTERNAL_AUTHORITY_PERMISSIONS.has(permission)
+      !isProInternalAuthorityPermission(permission)
     ) {
       return parsed.response || errorResponse('INVALID_REQUEST', 400);
     }
@@ -8540,7 +8483,7 @@ export class MusixquareProRoom {
       } else if (permission === 'chat.manage') {
         allowed = session.role === 'owner' || session.role === 'controller';
       } else if (permission === 'system.broadcast') {
-        const requiredPermission = PRO_SYSTEM_MESSAGE_PERMISSION.get(parsed.value.i18nKey);
+        const requiredPermission = requiredProSystemMessagePermission(parsed.value.i18nKey);
         allowed =
           requiredPermission === 'room.configure'
             ? session.role === 'owner'

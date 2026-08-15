@@ -1008,6 +1008,27 @@ describe('initPlayerControls playback mode rendering', () => {
     expectYouTubeSyncOverlay(false);
   });
 
+  it('replaces DOM listeners when re-initialized on the same controls', () => {
+    renderPlaybackControls();
+    const previousTrack = vi.fn();
+    const togglePlay = vi.fn();
+    const nextTrack = vi.fn();
+    bus.on('playlist:prev-track', previousTrack);
+    bus.on('player:toggle-play', togglePlay);
+    bus.on('playlist:next-track', nextTrack);
+
+    initPlayerControls();
+    initPlayerControls();
+
+    document.getElementById('btn-prev')?.click();
+    document.getElementById('play-btn')?.click();
+    document.getElementById('btn-next')?.click();
+
+    expect(previousTrack).toHaveBeenCalledTimes(1);
+    expect(togglePlay).toHaveBeenCalledTimes(1);
+    expect(nextTrack).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the shield for pending PRO YouTube play and playing-seek controls', () => {
     renderPlaybackControls();
     setState('playback.mode', 'youtube');

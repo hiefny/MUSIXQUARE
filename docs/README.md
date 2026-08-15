@@ -38,7 +38,7 @@ or a substitute for the current source and tests.
   cross-domain audit method, confirmed corrections, and residual boundaries.
 - [PRO room architecture and operations](design/pro-room-architecture-and-operations.md) —
   persistent-room ADR, Cloudflare runbook, offline activation, rollback, and
-  physical-device QA gate.
+  optional physical-device QA matrix.
 - [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md) —
   accepted scope, rollback boundary, and the explicit decision to defer a
   stable-core/presence schema split until production scale justifies it.
@@ -63,8 +63,9 @@ or a substitute for the current source and tests.
 - [Known and accepted risks](known-accepted.md) — intentional tradeoffs that
   still require code-path verification before being reused.
 - [Runtime scenario verification](runtime-scenario-verification-2026-05-31.md) —
-  maintained first-48-hours order and physical-device release-confidence matrix;
-  browser E2E is an optional auxiliary signal despite the document's original date.
+  maintained first-48-hours order and optional physical-device confidence matrix;
+  exact-SHA automated CI is the ordinary release gate despite the document's
+  original date.
 - [System sync compensation](system-sync-compensation.md) — current constants
   and the distinction between platform compensation and shared WebRTC buffering.
 - [Translation guide](i18n-translation-guide.md) and

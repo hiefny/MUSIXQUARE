@@ -76,9 +76,11 @@ helpers already exist.
 - PRO ownership, D1 mutations, R2 allocation, remote-share quotas, and admin
   actions protect durable authority or direct cost. Exact fail-closed decisions
   remain appropriate there even when they are slower.
-- Proof of work is friction, not human authentication. Its difficulty must be
-  benchmarked on supported iPhones and may be raised conditionally for observed
-  abuse; it must not be treated as a substitute for a capability or cost cap.
+- Proof of work is friction, not human authentication. Its baseline and
+  adaptive envelope must remain bounded and covered by automated compatibility
+  tests. The production adaptive flag stays off until its higher difficulty is
+  benchmarked on supported iPhones, and proof of work must not be treated as a
+  substitute for a capability or cost cap.
 
 ### Adaptive proof-of-work envelope
 
@@ -124,19 +126,20 @@ for exact equality and may require a reload after their location crosses the
 threshold; keeping ordinary 100-browser venues below 150 limits that rollout
 residual.
 
-The exact-SHA device record described in
+The production configuration keeps `MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED=false`,
+so ordinary releases use difficulty 12 and do not require a physical-device
+artifact. Enabling adaptive difficulty in production requires the operator to
+select the exact-SHA device gate described in
 [`runtime-scenario-verification-2026-05-31.md`](runtime-scenario-verification-2026-05-31.md)
-must link supported-iPhone timing evidence for solving difficulty 16 before the
-adaptive production release is authorized. Canonical real-device schema v2
-requires `matrix.adaptivePowPerformance` to be true; the timing,
-device/browser version, sample count, p50/p95, failure rate, and tested SHA must
-also appear in its required `evidence_url` log.
+and retain supported-iPhone and desktop timing observations for difficulty 16.
 Raising the ordinary baseline above 12, reducing either 150/60s or 15/60s
 allowance, raising the ceiling above 16, or replacing the location-local signal
-with an exact remote decision requires the full evidence and approval below.
-Rollback is disabling `MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED`; that returns every
-newly issued challenge to the baseline without weakening capability verification
-or paid-resource caps.
+with an exact remote decision also requires an explicit policy and automated
+guard update.
+If adaptive difficulty is later enabled, rollback is disabling
+`MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED`; that returns every newly issued
+challenge to the baseline without weakening capability verification or
+paid-resource caps.
 
 Low traffic is not a reason to expose provider credentials or remove authority
 checks. It is a reason to prefer a small number of high-value boundaries over

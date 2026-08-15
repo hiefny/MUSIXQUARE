@@ -1,8 +1,8 @@
 # ADR and Runbook: Persistent PRO Rooms
 
 - **Status:** Accepted operations baseline, amended by
-  `pro-room-server-authority.md`; production activation requires the real-device
-  checklist below
+  `pro-room-server-authority.md`; the real-device checklist below is optional
+  for routine releases and required for a seeded room's one-time initial launch
 - **Decision date:** 2026-07-16
 - **Last repository contract review:** 2026-08-09
 - **Applies to:** the reserved `0xxxxx` namespace, the built-in `000000` launch
@@ -884,10 +884,12 @@ If only the client is faulty, leave the PRO backend and reserved signaling
 codes deployed and roll back the app alone. This is safer than reopening the
 codes or deleting persistent media.
 
-## Manual Real-device QA Gate
+## Risk-based Manual Real-device QA Matrix
 
-Automation is supporting evidence, not the release gate for synchronized audio
-and browser lifecycle behavior. Complete this matrix with physical devices:
+Exact-SHA automated CI is the normal production gate. Use this additional
+matrix when a PRO change or incident needs physical synchronized-audio and
+browser-lifecycle observations. Complete it before a seeded room's one-time
+initial launch; routine releases opt in only when the operator needs it:
 
 - current physical iPhone in Safari;
 - the same iPhone with MUSIXQUARE installed as a Home Screen PWA;
@@ -897,7 +899,7 @@ and browser lifecycle behavior. Complete this matrix with physical devices:
 Exercise both same-Wi-Fi and mixed Wi-Fi/mobile-data connections. Record device,
 OS, browser/PWA mode, network, room code, build/version, and observed result.
 
-### Required scenarios
+### Matrix scenarios
 
 1. Open `000000` without a claim and confirm it cannot be seized. At the API
    regression layer, try an invalid claim, a wrong derived bootstrap value, and
@@ -968,5 +970,7 @@ OS, browser/PWA mode, network, room code, build/version, and observed result.
   corresponding R2 deletion succeeds.
 - The room link and QR remain identical across leave/rejoin and deployment.
 
-Do not direct launch traffic to either seeded room until both pass this gate and
-a rollback rehearsal preserves their Durable Object and R2 data.
+For the one-time initial launch of either seeded room, complete this matrix and
+a rollback rehearsal before directing launch traffic to it. Routine releases
+use the automated gate unless the operator explicitly opts back into this
+matrix.

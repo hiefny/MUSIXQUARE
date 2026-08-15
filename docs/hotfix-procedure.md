@@ -37,6 +37,13 @@ hotfix. Every target reuses that exact-SHA CI candidate without a second
 validation pass or environment self-approval, then runs its live smokes with
 an immutable recovery checkpoint and fail-closed forward-repair reporting.
 
+`Require fresh exact-SHA physical-device evidence for this release` defaults to
+off. Leave it off for ordinary releases: the exact-SHA automated candidate,
+production security guards, Worker dry-runs, and live smokes are the normal
+release gate. Turn it on only when the operator intentionally wants a physical
+browser/hardware sign-off; that opt-in path still requires the canonical
+real-device artifact before any production mutation.
+
 Leave `Apply the current Developer API D1 baseline` disabled for an ordinary
 Worker release. Enable it only when the approved commit intentionally changes
 the Developer API database contract and carries the required manifest entry
@@ -109,9 +116,9 @@ smoke every night at 03:17 KST and remains manually dispatchable when a change
 warrants the extra coverage before the next scheduled run. A focused
 deterministic Chromium subset is blocking in exact-SHA CI, so an approved
 release cannot select a candidate until the critical owner-recovery,
-OAuth-return, host/guest, and signed-upload browser paths pass. No browser
-automation tier replaces the required real-device verification for the
-production decision.
+OAuth-return, host/guest, and signed-upload browser paths pass. Physical-device
+verification is a separate, operator-selected confidence check rather than a
+prerequisite for every production decision.
 
 The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its canonical
@@ -222,8 +229,8 @@ the focused Chromium gate, proves partial dependency compatibility before
 deployment, and keeps the production deploy job itself browser-free by running
 generation/initial-asset-graph and anonymous-session-boundary HTTP smokes after
 deployment. The full Playwright suite remains auxiliary, while production
-host/guest application-session confidence still requires the physical-device
-matrix.
+host/guest application-session behavior can be checked with the optional
+physical-device matrix when a change warrants that additional confidence.
 The emergency-only `emergency:deploy:app` command additionally runs the
 standalone live signaling smoke. A signaling protocol change must be deployed
 and smoked first (normally with release target `all`); the preflight fails
@@ -321,10 +328,10 @@ schema changes. If another Worker changed in the pushed commit, use
 approved `all` release.
 
 These emergency-deployment checks are intentionally browser-free; the focused
-Chromium gate belongs to exact-SHA CI and is not a substitute for post-deploy
-device coverage. After the deploy is live, verify the production URL and the
-touched host/guest flow on physical devices in fresh browser sessions. The full
-Playwright E2E suite remains auxiliary.
+Chromium gate belongs to exact-SHA CI. After the deploy is live, verify the
+production URL. Use fresh physical-device sessions for the touched host/guest
+flow when the incident is specific to browser hardware or lifecycle behavior.
+The full Playwright E2E suite remains auxiliary.
 Confirm the active version with
 `npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`.
 
@@ -361,8 +368,8 @@ remains usable while backends roll forward:
 5. `cloudflare/wrangler.developer-api.toml`, then its authenticated live smoke
    against the fixed `000001` smoke room;
 6. `cloudflare/wrangler.app.toml` with the verified artifact, then browser-free
-   generation/initial-asset-graph and anonymous-session-boundary smokes. Complete the
-   touched host/guest QA separately on physical devices.
+   generation/initial-asset-graph and anonymous-session-boundary smokes. Run
+   separate physical host/guest QA only when the release opts into that check.
 
 The production environment secret `MXQR_DEVELOPER_API_SMOKE_KEY` must contain a
 valid key limited to room `000001`; it is used only by the release smoke and is

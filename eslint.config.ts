@@ -21,7 +21,7 @@ export default tseslint.config(
           varsIgnorePattern: '^_',
         },
       ],
-      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-empty-function': 'off',
       'no-console': 'warn',
       // Application timers must be registered for lifecycle cleanup.
@@ -39,32 +39,19 @@ export default tseslint.config(
     },
   },
   {
-    files: ['src/core/log.ts', 'src/core/events.ts', 'src/ui/toast.ts', 'src/core/timers.ts'],
+    files: [
+      'src/core/log.ts',
+      'src/core/log-capture.ts',
+      'src/core/events.ts',
+      'src/ui/toast.ts',
+      'src/core/timers.ts',
+    ],
     rules: { 'no-console': 'off' },
   },
   {
     // Managed-timer internals require the native timer APIs.
     files: ['src/core/timers.ts'],
     rules: { 'no-restricted-globals': 'off' },
-  },
-  {
-    // AudioWorklet assets run in AudioWorkletGlobalScope rather than the DOM
-    // or the TypeScript project. Keep them linted as plain modules with only
-    // the platform globals the processor is allowed to use.
-    files: ['src/audio/worklets/**/*.js'],
-    languageOptions: {
-      parserOptions: { project: false },
-      globals: {
-        AudioWorkletProcessor: 'readonly',
-        currentFrame: 'readonly',
-        registerProcessor: 'readonly',
-        sampleRate: 'readonly',
-      },
-    },
-    rules: {
-      '@typescript-eslint/no-unused-vars': 'off',
-      'no-restricted-globals': 'off',
-    },
   },
   {
     // Dedicated workers use their own WebWorker-only TypeScript project.
@@ -88,7 +75,7 @@ export default tseslint.config(
     // timers/console while exercising lifecycle and failure behavior. Keep
     // the production rules everywhere else while still linting test code for
     // unsafe constructs, undefined bindings, and unused values.
-    files: ['src/**/__tests__/**/*.ts'],
+    files: ['src/**/__tests__/**/*.{cts,mts,ts,tsx}'],
     languageOptions: {
       parserOptions: {
         project: './tsconfig.test.json',
@@ -96,6 +83,7 @@ export default tseslint.config(
       },
     },
     rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
       'no-console': 'off',
       'no-restricted-globals': 'off',
       // Self-referential harnesses intentionally assign controllers after
@@ -105,6 +93,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ['dist/', 'node_modules/', '_legacy/'],
+    ignores: ['dist/', 'node_modules/'],
   },
 );

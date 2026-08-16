@@ -72,6 +72,15 @@ interface UploadTarget {
   uploadHeaders: Record<string, string>;
 }
 
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === 'string')
+  );
+}
+
 function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
   return fetch(input, {
     ...init,
@@ -586,14 +595,21 @@ async function requestSession(
       typeof session.objectId !== 'string' ||
       typeof session.cleanupToken !== 'string' ||
       typeof session.expiresAt !== 'number' ||
-      !session.uploadHeaders ||
-      typeof session.uploadHeaders !== 'object' ||
-      Array.isArray(session.uploadHeaders) ||
-      !Object.values(session.uploadHeaders).every((value) => typeof value === 'string')
+      !isStringRecord(session.uploadHeaders)
     ) {
       throw new Error('invalid remote-share session response');
     }
-    return { ...session, queueItemId, sessionId } as unknown as RemoteShareSession;
+    return {
+      uploadUrl: session.uploadUrl,
+      uploadUrlExpiresAt: session.uploadUrlExpiresAt,
+      uploadHeaders: session.uploadHeaders,
+      completeToken: session.completeToken,
+      objectId: session.objectId,
+      cleanupToken: session.cleanupToken,
+      expiresAt: session.expiresAt,
+      queueItemId,
+      sessionId,
+    };
   }
 }
 

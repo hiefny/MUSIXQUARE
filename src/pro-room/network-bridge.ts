@@ -97,7 +97,66 @@ function hasExactKeys(value: JsonRecord, expected: readonly string[]): boolean {
 }
 
 function isSafePositiveInteger(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 1;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 1;
+}
+
+function isSafeIntegerBetween(value: unknown, minimum: number, maximum: number): value is number {
+  return (
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum
+  );
+}
+
+function isProServerEventEnvelope(value: JsonRecord): value is JsonRecord & ProServerEventEnvelope {
+  return (
+    value.type === 'pro-server-event' &&
+    value.version === 1 &&
+    typeof value.roomCode === 'string' &&
+    /^\d{6}$/.test(value.roomCode) &&
+    isSafePositiveInteger(value.coordinatorEpoch) &&
+    isRecord(value.event) &&
+    typeof value.event.type === 'string'
+  );
+}
+
+function isProRealtimeRelayEnvelope(
+  value: JsonRecord,
+): value is JsonRecord & ProRealtimeRelayEnvelope {
+  if (
+    value.type !== 'pro-realtime' ||
+    value.version !== 1 ||
+    typeof value.roomCode !== 'string' ||
+    !/^\d{6}$/.test(value.roomCode) ||
+    !isSafePositiveInteger(value.coordinatorEpoch) ||
+    typeof value.eventId !== 'string' ||
+    typeof value.channel !== 'string' ||
+    !isRecord(value.payload) ||
+    !isRecord(value.sender) ||
+    typeof value.sender.participantId !== 'string' ||
+    typeof value.sender.presenceIncarnationId !== 'string' ||
+    (value.sender.memberId !== undefined &&
+      (typeof value.sender.memberId !== 'string' ||
+        !/^(?:member|owner)_[A-Za-z0-9_-]{16,128}$/.test(value.sender.memberId))) ||
+    (value.sender.displayName !== undefined && typeof value.sender.displayName !== 'string')
+  ) {
+    return false;
+  }
+  return (
+    value.channel !== 'chat-control-snapshot' ||
+    (value.sender.participantId === 'server' &&
+      value.sender.presenceIncarnationId === 'server-chat-state' &&
+      hasExactKeys(value.payload, [
+        'revision',
+        'frozen',
+        'filterEnabled',
+        'slowmodeSeconds',
+        'muted',
+      ]) &&
+      isSafeIntegerBetween(value.payload.revision, 0, Number.MAX_SAFE_INTEGER) &&
+      typeof value.payload.frozen === 'boolean' &&
+      typeof value.payload.filterEnabled === 'boolean' &&
+      isSafeIntegerBetween(value.payload.slowmodeSeconds, 0, 60) &&
+      typeof value.payload.muted === 'boolean')
+  );
 }
 
 function randomEventId(): string {
@@ -127,60 +186,9 @@ function signalingSocketUrl(roomCode: string): string {
 function parseServerFrame(
   value: unknown,
 ): ProServerEventEnvelope | ProRealtimeRelayEnvelope | null {
-  if (!isRecord(value) || value.version !== 1) return null;
-  if (value.type === 'pro-server-event') {
-    if (
-      typeof value.roomCode !== 'string' ||
-      !/^\d{6}$/.test(value.roomCode) ||
-      !isSafePositiveInteger(value.coordinatorEpoch) ||
-      !isRecord(value.event) ||
-      typeof value.event.type !== 'string'
-    ) {
-      return null;
-    }
-    return value as unknown as ProServerEventEnvelope;
-  }
-  if (value.type === 'pro-realtime') {
-    if (
-      typeof value.roomCode !== 'string' ||
-      !/^\d{6}$/.test(value.roomCode) ||
-      !isSafePositiveInteger(value.coordinatorEpoch) ||
-      typeof value.eventId !== 'string' ||
-      typeof value.channel !== 'string' ||
-      !isRecord(value.payload) ||
-      !isRecord(value.sender) ||
-      typeof value.sender.participantId !== 'string' ||
-      typeof value.sender.presenceIncarnationId !== 'string' ||
-      (value.sender.memberId !== undefined &&
-        (typeof value.sender.memberId !== 'string' ||
-          !/^(?:member|owner)_[A-Za-z0-9_-]{16,128}$/.test(value.sender.memberId)))
-    ) {
-      return null;
-    }
-    if (
-      value.channel === 'chat-control-snapshot' &&
-      (value.sender.participantId !== 'server' ||
-        value.sender.presenceIncarnationId !== 'server-chat-state' ||
-        !hasExactKeys(value.payload, [
-          'revision',
-          'frozen',
-          'filterEnabled',
-          'slowmodeSeconds',
-          'muted',
-        ]) ||
-        !Number.isSafeInteger(value.payload.revision) ||
-        (value.payload.revision as number) < 0 ||
-        typeof value.payload.frozen !== 'boolean' ||
-        typeof value.payload.filterEnabled !== 'boolean' ||
-        !Number.isSafeInteger(value.payload.slowmodeSeconds) ||
-        (value.payload.slowmodeSeconds as number) < 0 ||
-        (value.payload.slowmodeSeconds as number) > 60 ||
-        typeof value.payload.muted !== 'boolean')
-    ) {
-      return null;
-    }
-    return value as unknown as ProRealtimeRelayEnvelope;
-  }
+  if (!isRecord(value)) return null;
+  if (isProServerEventEnvelope(value)) return value;
+  if (isProRealtimeRelayEnvelope(value)) return value;
   return null;
 }
 

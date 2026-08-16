@@ -83,6 +83,12 @@ describe('Binding-aware dead-export analyzer', () => {
     ).toBe(true);
   });
 
+  it('counts native Node .mts consumers as live references', () => {
+    const result = analyzeFixture();
+
+    expect(result.live.some((binding) => binding.name === 'usedByMts')).toBe(true);
+  });
+
   it('resolves namespace imports and coalesces re-export sites by declaration binding', () => {
     const result = analyzeFixture();
     const namespaced = result.live.find((binding) => binding.name === 'namespaced');
@@ -117,6 +123,7 @@ describe('Binding-aware dead-export analyzer', () => {
     expect(result.selfOnly.map(({ kind, name }) => `${kind}:${name}`)).toEqual(['value:selfValue']);
     expect(result.live.map(({ kind, name }) => `${kind}:${name}`)).toEqual([
       'value:used',
+      'value:usedByMts',
       'value:namespaced',
       'value:reexported',
       'value:overloaded',

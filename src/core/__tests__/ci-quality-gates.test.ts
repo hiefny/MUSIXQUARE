@@ -19,13 +19,13 @@ describe('CI quality and supply-chain gates', () => {
   it('fails both application and tooling lint on the first warning', () => {
     expect(packageJson.scripts['lint:app']).toBe('eslint src/ --max-warnings=0');
     expect(packageJson.scripts['lint:tooling']).toBe(
-      'eslint --config eslint.tooling.config.ts browser cloudflare scripts e2e "*.config.{js,mjs,ts}" "eslint*.config.ts" --ignore-pattern "cloudflare/types/**" --max-warnings=0',
+      'eslint --config eslint.tooling.config.ts .workshop browser cloudflare scripts e2e "*.config.ts" "eslint*.config.ts" --ignore-pattern "cloudflare/types/**" --max-warnings=0',
     );
   });
 
   it('lints application tests through their dedicated TypeScript profile', () => {
     const appLintConfig = readFileSync(resolve('eslint.config.ts'), 'utf8');
-    expect(appLintConfig).toContain("files: ['src/**/__tests__/**/*.ts']");
+    expect(appLintConfig).toContain("files: ['src/**/__tests__/**/*.{cts,mts,ts,tsx}']");
     expect(appLintConfig).toContain("project: './tsconfig.test.json'");
     expect(appLintConfig).not.toContain("'src/**/__tests__/'");
   });
@@ -35,27 +35,51 @@ describe('CI quality and supply-chain gates', () => {
     expect(packageJson.devDependencies.eslint).toBe('^10.0.2');
     expect(packageJson.devDependencies.jiti).toBe('2.7.0');
     expect(toolingTsconfig.include).toEqual(
-      expect.arrayContaining(['eslint.config.ts', 'eslint.tooling.config.ts']),
+      expect.arrayContaining([
+        '.workshop/promo/render.ts',
+        'eslint.config.ts',
+        'eslint.tooling.config.ts',
+      ]),
     );
-    expect(packageJson.scripts['format:tooling']).toContain('"*.{js,mjs,mts,ts,json}"');
-    expect(packageJson.scripts['format:check:tooling']).toContain('"*.{js,mjs,mts,ts,json}"');
+    expect(toolingTsconfig.include).not.toContain('.workshop/landing/main.ts');
+    expect(packageJson.scripts['typecheck:workshop-landing']).toBe(
+      'tsc -p tsconfig.workshop-landing.json',
+    );
+    expect(packageJson.scripts.typecheck).toContain('npm run typecheck:workshop-landing');
+    expect(packageJson.scripts['format:tooling']).toContain('".workshop/**/*.{ts,tsx}"');
+    expect(packageJson.scripts['format:check:tooling']).toContain('".workshop/**/*.{ts,tsx}"');
+    expect(packageJson.scripts['format:tooling']).toContain('"*.{mts,ts,json}"');
+    expect(packageJson.scripts['format:check:tooling']).toContain('"*.{mts,ts,json}"');
+    expect(packageJson.scripts['format:app']).toBe('prettier --write "src/**/*.{cts,mts,ts,tsx}"');
+    expect(packageJson.scripts['format:check:app']).toBe(
+      'prettier --check "src/**/*.{cts,mts,ts,tsx}"',
+    );
+    expect(packageJson.scripts['format:tooling']).not.toContain('js,mjs');
+    expect(packageJson.scripts['format:check:tooling']).not.toContain('js,mjs');
   });
 
-  it('runs every shrink-only TypeScript migration ratchet in checked builds and typechecks', () => {
+  it('keeps the permanent zero-JavaScript guards in checked builds and typechecks', () => {
     expect(packageJson.scripts['guard:authored-js-inventory']).toBe(
       'node scripts/check-authored-js-inventory.mts',
-    );
-    expect(packageJson.scripts['guard:typescript-diagnostics']).toBe(
-      'node scripts/check-typescript-diagnostic-ratchet.mts',
     );
     expect(packageJson.scripts['guard:authored-inline-js']).toBe(
       'node scripts/check-authored-inline-js-inventory.mts',
     );
+    expect(packageJson.scripts['guard:typescript-diagnostics']).toBeUndefined();
+    expect(packageJson.scripts['guard:declaration-ownership']).toBe(
+      'node scripts/check-typescript-declaration-ownership.mts',
+    );
+    expect(packageJson.scripts['guard:typescript-project-coverage']).toBe(
+      'node scripts/check-typescript-project-coverage.mts',
+    );
+    expect(packageJson.scripts['guard:script-module-exports']).toBeUndefined();
     for (const scriptName of ['build:checked', 'typecheck']) {
       const command = packageJson.scripts[scriptName];
       expect(command).toContain('npm run guard:authored-js-inventory');
       expect(command).toContain('npm run guard:authored-inline-js');
-      expect(command).toContain('npm run guard:typescript-diagnostics');
+      expect(command).not.toContain('guard:typescript-diagnostics');
+      expect(command).toContain('npm run guard:declaration-ownership');
+      expect(command).toContain('npm run guard:typescript-project-coverage');
     }
   });
 
@@ -70,10 +94,8 @@ describe('CI quality and supply-chain gates', () => {
       expect(packageJson.scripts[scriptName]).toContain('npm run guard:classic-runtime');
     }
     expect(packageJson.scripts.typecheck).toContain('npm run typecheck:browser-classic');
-    expect(packageJson.scripts['check:public-runtime']).toBe(
-      'node scripts/check-public-runtime.mts',
-    );
-    expect(packageJson.scripts['check:public-runtime']).not.toContain(' -e ');
+    expect(packageJson.scripts['check:public-runtime']).toBeUndefined();
+    expect(ciWorkflow).not.toContain('check:public-runtime');
   });
 
   it('guards and typechecks the TS-backed stable service-worker asset', () => {
@@ -120,7 +142,8 @@ describe('CI quality and supply-chain gates', () => {
     expect(ciWorkflow).toContain('run: npm run test:coverage:workers');
 
     const workerCoverage = readFileSync(resolve('vitest.workers.config.ts'), 'utf8');
-    expect(workerCoverage).toContain("include: ['cloudflare/**/*.{js,ts}']");
+    expect(workerCoverage).toContain("include: ['cloudflare/**/*.ts']");
+    expect(workerCoverage).not.toContain('{js,ts}');
     expect(workerCoverage).toContain(
       "exclude: ['cloudflare/**/*.d.ts', 'cloudflare/**/*.contract.ts']",
     );

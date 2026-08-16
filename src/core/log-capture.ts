@@ -26,7 +26,6 @@ function push(level: string, args: unknown[]): void {
 }
 
 type ConsoleMethod = 'log' | 'info' | 'warn' | 'error' | 'debug';
-type MutableConsole = Record<ConsoleMethod, (...args: unknown[]) => void>;
 
 /** Install early enough to capture boot failures; repeated calls are harmless. */
 export function installConsoleCapture(): void {
@@ -34,16 +33,15 @@ export function installConsoleCapture(): void {
   _installed = true;
 
   const methods: ConsoleMethod[] = ['log', 'info', 'warn', 'error', 'debug'];
-  const c = console as unknown as MutableConsole;
   for (const m of methods) {
-    const orig = c[m]?.bind(console);
-    c[m] = (...args: unknown[]): void => {
+    const original: unknown = console[m];
+    console[m] = (...args: unknown[]): void => {
       try {
         push(m.toUpperCase(), args);
       } catch {
         /* never let capture break logging */
       }
-      orig?.(...args);
+      if (typeof original === 'function') Reflect.apply(original, console, args);
     };
   }
 

@@ -5,6 +5,7 @@
     "types": ["node"]
   },
   "include": [
+    ".workshop/promo/render.ts",
     "scripts/classic-runtime-assets.ts",
     "scripts/auxiliary-browser-assets.ts",
     "scripts/service-worker-asset.ts",

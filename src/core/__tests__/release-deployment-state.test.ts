@@ -925,6 +925,8 @@ describe('release deployment rollback state', () => {
         expect(paths).toContain('scripts/materialize-app-static-headers.mts');
         expect(paths).toContain('tsconfig.browser-classic.json');
         expect(paths).toContain('tsconfig.auxiliary-browser.json');
+        expect(paths).toContain('tsconfig.auxiliary-browser-remote.json');
+        expect(paths).toContain('tsconfig.workshop-landing.json');
         expect(paths).toContain('tsconfig.service-worker.json');
         expect(paths).toContain('tsconfig.ui-kit.json');
         expect(paths).not.toContain('package.json');

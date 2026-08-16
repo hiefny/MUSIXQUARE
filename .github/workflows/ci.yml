@@ -52,9 +52,6 @@ jobs:
       - name: Worker syntax check
         run: npm run check:workers
 
-      - name: Public runtime syntax check
-        run: npm run check:public-runtime
-
       - name: Import graph integrity
         run: npm run guard:import-graph
 

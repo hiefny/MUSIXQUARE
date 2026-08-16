@@ -14,7 +14,7 @@
 | `scripts/**/*.mjs`   |      55 |       17,197 | 검사, 생성, smoke, release와 recovery          |
 | `public/**/*.js`     |      16 |       10,660 | classic browser runtime, admin, Service Worker |
 | `public/**/*.jsx`    |       9 |          302 | 디자인 시스템의 브라우저 Babel UI kit          |
-| `eslint*.config.ts`  |       2 |          265 | lint 설정                                      |
+| `eslint*.config.js`  |       2 |          265 | lint 설정                                      |
 | **합계**             | **107** |   **77,793** | JS/MJS 98개 77,491줄 + JSX 9개 302줄           |
 
 파일 단위 근거는 `authored-js-baseline.json`이다. HTML 안의 실행 가능한 inline script는
@@ -190,9 +190,13 @@ coverage 경로가 바뀌어도 threshold 숫자는 낮추지 않는다. `.js`�
 
 - 임시 URL을 억지 canary로 만들지 않는다. 기존 exact-SHA release, checkpoint,
   smoke와 자동 복구 계약을 사용한다.
-- 작은 Worker는 하나씩 배포하고 최소 24시간 관찰한다.
-- Signaling은 최소 24시간, PRO/App은 48~72시간 관찰한다.
-- Service Worker는 최소 한 cache generation을 관찰한다.
+- 공유 모듈을 함께 바꾼 전체 전환은 exact-SHA `target=all` release 안에서 dependency
+  순서대로 배포하고, mutation authorization과 immutable checkpoint 뒤에만 production을
+  변경한다.
+- 배포 성공 뒤 작은 Worker와 Signaling은 24시간, PRO/App은 48~72시간, Service Worker는
+  최소 한 cache generation을 운영 관찰한다. 이 관찰은 완료된 source migration을 다시
+  미완료로 만드는 시간 기반 gate가 아니라 회귀 발견 시 rollback/forward-fix를 시작하는
+  post-release 운영 절차다.
 - 공유 모듈 변경은 한 소비 Worker만 부분 배포하지 않는다.
 - 실패 시 기준 SHA의 immutable Worker version으로 되돌린다. storage/migration과 wire
   format을 건드리지 않았다는 불변식이 rollback 가능성의 전제다.
@@ -207,5 +211,6 @@ coverage 경로가 바뀌어도 threshold 숫자는 낮추지 않는다. `.js`�
 - 외부 데이터 runtime validator 유지
 - companion `.d.ts/.d.mts` 제거 또는 실제 외부 declaration만 명시적 예외
 - 기존 coverage floor, 전체 CI와 여섯 Worker production dry-run 통과
-- 서비스 순차 배포, smoke, soak와 live drift 검증 완료
+- exact-SHA release 안의 서비스 순차 배포, production smoke와 live drift 검증 완료
+- post-release 관찰 시작 시점과 대응 절차가 `STATUS.md`에 기록됨
 - `STATUS.md`의 모든 단계가 complete이고 manifest의 모든 항목이 `retired`

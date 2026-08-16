@@ -196,7 +196,10 @@ export function createSocketInbox(
   label: string,
   options: {
     expectedInitialHostVersion?: string;
-    createWebSocket?: (target: string, clientOptions: WebSocket.ClientOptions) => SocketLifecyclePort;
+    createWebSocket?: (
+      target: string,
+      clientOptions: WebSocket.ClientOptions,
+    ) => SocketLifecyclePort;
   } = {},
 ): SocketInbox<SocketLifecyclePort> {
   const expectedInitialHostVersion = options.expectedInitialHostVersion ?? '';

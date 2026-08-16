@@ -299,6 +299,35 @@ async function executeReportViewer(report: Record<string, unknown>): Promise<JSD
 }
 
 describe('strict TypeScript auxiliary browser assets', () => {
+  it('pins local and remote Three.js types to their exact runtime versions', async () => {
+    const packageManifest = JSON.parse(await readFile('package.json', 'utf8')) as {
+      devDependencies: Record<string, string>;
+    };
+    const localConfig = JSON.parse(await readFile('tsconfig.auxiliary-browser.json', 'utf8')) as {
+      exclude: string[];
+    };
+    const remoteConfig = JSON.parse(
+      await readFile('tsconfig.auxiliary-browser-remote.json', 'utf8'),
+    ) as {
+      compilerOptions: { paths: Record<string, string[]> };
+      include: string[];
+    };
+    const declarations = await readFile('browser/auxiliary-runtime/remote-modules.d.ts', 'utf8');
+
+    expect(packageManifest.devDependencies.three).toBe('0.184.0');
+    expect(packageManifest.devDependencies['@types/three']).toBe('0.184.0');
+    expect(packageManifest.devDependencies['three-types-0162']).toBe('npm:@types/three@0.162.0');
+    expect(packageManifest.devDependencies['lil-gui']).toBe('0.19.2');
+    expect(remoteConfig.compilerOptions.paths).toEqual({
+      three: ['node_modules/three-types-0162/index.d.ts'],
+      'three/*': ['node_modules/three-types-0162/*'],
+    });
+    expect(remoteConfig.include).toContain('browser/auxiliary-runtime/promo/music-note-3d.ts');
+    expect(localConfig.exclude).toEqual(expect.arrayContaining(remoteConfig.include));
+    expect(declarations).toContain("export * from 'three-types-0162';");
+    expect(declarations).not.toContain("from 'three';");
+  });
+
   it('owns all seven external scripts and leaves no executable inline blocks', async () => {
     await expect(assertAuxiliaryBrowserSourceCompleteness(REPOSITORY)).resolves.toBeUndefined();
     expect(AUXILIARY_BROWSER_ASSETS.map((asset) => asset.outputPath)).toEqual([

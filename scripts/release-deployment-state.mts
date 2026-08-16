@@ -396,6 +396,8 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'tsconfig.json',
     'tsconfig.browser-classic.json',
     'tsconfig.auxiliary-browser.json',
+    'tsconfig.auxiliary-browser-remote.json',
+    'tsconfig.workshop-landing.json',
     'tsconfig.service-worker.json',
     'tsconfig.ui-kit.json',
     'cloudflare/app-static-assets/_headers',

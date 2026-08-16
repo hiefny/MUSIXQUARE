@@ -15,12 +15,20 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { fileURLToPath } from 'url';
 
+declare global {
+  interface Window {
+    appReady?: boolean;
+    __promoSetTime?: (milliseconds: number) => void;
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // FFMPEG_PATH overrides the common WinGet installation used by this local
 // rendering tool.
-const FFMPEG_BIN = process.env.FFMPEG_PATH ||
+const FFMPEG_BIN =
+  process.env.FFMPEG_PATH ||
   path.join(
     process.env.LOCALAPPDATA || '',
     'Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.0.1-full_build/bin/ffmpeg.exe',
@@ -43,22 +51,20 @@ interface Orientation {
 }
 
 const ALL_SCENES: SceneConfig[] = [
-  { name: 'ui-showcase',     htmlFile: 'scenes/ui-showcase.html',     durationMs: 40000, fps: 60 },
-  { name: 'ui-showcase-2',   htmlFile: 'scenes/ui-showcase-2.html',   durationMs: 30000, fps: 60 },
-  { name: 'logo-animation',  htmlFile: 'scenes/logo-animation.html',  durationMs: 5000,  fps: 60 },
+  { name: 'ui-showcase', htmlFile: 'scenes/ui-showcase.html', durationMs: 40000, fps: 60 },
+  { name: 'ui-showcase-2', htmlFile: 'scenes/ui-showcase-2.html', durationMs: 30000, fps: 60 },
+  { name: 'logo-animation', htmlFile: 'scenes/logo-animation.html', durationMs: 5000, fps: 60 },
 ];
 
-const requestedScenes = new Set(process.argv.slice(2).filter(arg => !arg.startsWith('-')));
+const requestedScenes = new Set(process.argv.slice(2).filter((arg) => !arg.startsWith('-')));
 const SCENES = requestedScenes.size
-  ? ALL_SCENES.filter(scene => requestedScenes.has(scene.name))
+  ? ALL_SCENES.filter((scene) => requestedScenes.has(scene.name))
   : ALL_SCENES;
 
-const ORIENTATIONS: Orientation[] = [
-  { name: 'portrait',  width: 1080, height: 1920 },
-];
+const ORIENTATIONS: Orientation[] = [{ name: 'portrait', width: 1080, height: 1920 }];
 
-const ROOT       = path.resolve(__dirname);
-const REPO_ROOT  = path.resolve(ROOT, '..', '..');
+const ROOT = path.resolve(__dirname);
+const REPO_ROOT = path.resolve(ROOT, '..', '..');
 const FRAMES_DIR = path.join(ROOT, 'frames');
 const OUTPUT_DIR = path.join(ROOT, 'output');
 
@@ -139,7 +145,7 @@ async function captureFrames(
   if (hasIframe) {
     console.log('  Waiting for iframe to load...');
     // Wait for the iframe's load event and app setup
-    await page.waitForFunction(() => (window as any).appReady === true, undefined, {
+    await page.waitForFunction(() => window.appReady === true, undefined, {
       timeout: 30000,
     });
     // Extra wait for iframe CSS to fully render
@@ -157,20 +163,20 @@ async function captureFrames(
 
   // Cancel CSS animations because __promoSetTime drives a deterministic clock.
   await page.evaluate(() => {
-    document.getAnimations().forEach(a => a.cancel());
+    document.getAnimations().forEach((a) => a.cancel());
     // The embedded app must use the same deterministic frame clock.
     const iframe = document.getElementById('app-frame') as HTMLIFrameElement;
     if (iframe?.contentDocument) {
-      iframe.contentDocument.getAnimations().forEach(a => a.cancel());
+      iframe.contentDocument.getAnimations().forEach((a) => a.cancel());
     }
     // Initialize the scene timeline at t=0.
-    if (typeof (window as any).__promoSetTime === 'function') {
-      (window as any).__promoSetTime(0);
+    if (typeof window.__promoSetTime === 'function') {
+      window.__promoSetTime(0);
     }
   });
 
   const totalFrames = Math.ceil((scene.durationMs / 1000) * scene.fps);
-  const msPerFrame  = 1000 / scene.fps;
+  const msPerFrame = 1000 / scene.fps;
 
   console.log(`  Capturing ${totalFrames} frames @ ${scene.fps}fps...`);
 
@@ -179,8 +185,8 @@ async function captureFrames(
 
     // Advance the JS-driven promo timeline (all animation is JS-controlled)
     await page.evaluate((t) => {
-      if (typeof (window as any).__promoSetTime === 'function') {
-        (window as any).__promoSetTime(t);
+      if (typeof window.__promoSetTime === 'function') {
+        window.__promoSetTime(t);
       }
     }, timeMs);
 
@@ -212,14 +218,22 @@ function encodeToMp4(frameDir: string, outputFile: string, fps: number) {
   const inputPattern = path.join(frameDir, 'frame_%05d.jpeg');
 
   const cmd = [
-    `"${FFMPEG_BIN}"`, '-y',
-    '-framerate', String(fps),
-    '-i', `"${inputPattern}"`,
-    '-c:v', 'libx264',
-    '-preset', 'slow',
-    '-crf', '18',
-    '-pix_fmt', 'yuv420p',
-    '-movflags', '+faststart',
+    `"${FFMPEG_BIN}"`,
+    '-y',
+    '-framerate',
+    String(fps),
+    '-i',
+    `"${inputPattern}"`,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'slow',
+    '-crf',
+    '18',
+    '-pix_fmt',
+    'yuv420p',
+    '-movflags',
+    '+faststart',
     `"${outputFile}"`,
   ].join(' ');
 
@@ -235,7 +249,9 @@ async function main() {
   console.log('========================\n');
 
   if (SCENES.length === 0) {
-    console.error(`ERROR: No matching scene. Available scenes: ${ALL_SCENES.map(s => s.name).join(', ')}`);
+    console.error(
+      `ERROR: No matching scene. Available scenes: ${ALL_SCENES.map((s) => s.name).join(', ')}`,
+    );
     process.exit(1);
   }
 
@@ -257,10 +273,7 @@ async function main() {
   try {
     browser = await chromium.launch({
       headless: true,
-      args: [
-        '--disable-gpu',
-        '--no-sandbox',
-      ],
+      args: ['--disable-gpu', '--no-sandbox'],
     });
 
     for (const scene of SCENES) {
@@ -270,8 +283,10 @@ async function main() {
 
         const frameDir = await captureFrames(browser, scene, orient, origin);
 
-        const outputFile = path.join(OUTPUT_DIR,
-          `${scene.name}-${orient.name}-${orient.width}x${orient.height}.mp4`);
+        const outputFile = path.join(
+          OUTPUT_DIR,
+          `${scene.name}-${orient.name}-${orient.width}x${orient.height}.mp4`,
+        );
 
         encodeToMp4(frameDir, outputFile, scene.fps);
         results.push(outputFile);
@@ -288,11 +303,11 @@ async function main() {
 
   console.log('\n========================');
   console.log('All videos rendered!\n');
-  results.forEach(r => console.log(`  ${r}`));
+  results.forEach((r) => console.log(`  ${r}`));
   console.log('');
 }
 
-main().catch(err => {
+main().catch((err) => {
   console.error('Render failed:', err);
   process.exit(1);
 });

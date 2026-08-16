@@ -22,7 +22,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],
       reportsDirectory: 'coverage/worker-runtime',
-      include: ['cloudflare/**/*.{js,ts}'],
+      include: ['cloudflare/**/*.ts'],
       exclude: ['cloudflare/**/*.d.ts', 'cloudflare/**/*.contract.ts'],
       thresholds: {
         // Initial Node 24 baseline (2026-08-09): statements 82.31,

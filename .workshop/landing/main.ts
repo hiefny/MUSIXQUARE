@@ -5,8 +5,17 @@
 
 const EDITORIAL_LOAD_DELAY_MS = 300;
 
+type LandingTranslator = (key: string, fallback: string) => string;
+type LandingWindow = Window & { __landingT?: LandingTranslator };
+
 let updateHeaderProgress: (() => void) | null = null;
 let pendingEditorialNavigation = false;
+
+function translateLanding(key: string, fallback: string): string {
+  const landingWindow: LandingWindow = window;
+  const translator = landingWindow.__landingT;
+  return typeof translator === 'function' ? translator(key, fallback) : fallback;
+}
 
 function isInViewport(el: HTMLElement): boolean {
   const r = el.getBoundingClientRect();
@@ -165,20 +174,13 @@ function initCopyInvite(): void {
     }, 2000);
   };
 
-  // Toast text resolved at call time via the landing's i18n helper, so a
-  // runtime language toggle is reflected on the next click.
-  const t = (key: string, fallback: string): string => {
-    const fn = (window as unknown as { __landingT?: (k: string, f: string) => string }).__landingT;
-    return typeof fn === 'function' ? fn(key, fallback) : fallback;
-  };
-
   btn.addEventListener('click', async () => {
     const url = 'https://musixquare.com';
     try {
       await navigator.clipboard.writeText(url);
-      flash(t('code.toast_success', 'Invite link copied'));
+      flash(translateLanding('code.toast_success', 'Invite link copied'));
     } catch {
-      flash(t('code.toast_fail', 'Copy failed'));
+      flash(translateLanding('code.toast_fail', 'Copy failed'));
     }
   });
 }
@@ -192,15 +194,10 @@ function initRoomCount(): void {
   const count = Number.isSafeInteger(parsedCount) && parsedCount >= 0 ? parsedCount : null;
   if (count == null) return;
 
-  const t = (key: string, fallback: string): string => {
-    const fn = (window as unknown as { __landingT?: (k: string, f: string) => string }).__landingT;
-    return typeof fn === 'function' ? fn(key, fallback) : fallback;
-  };
-
   const render = (): void => {
     if (count == null) return;
 
-    const template = t('hero.rooms_opened', '{{count}} rooms opened so far.');
+    const template = translateLanding('hero.rooms_opened', '{{count}} rooms opened so far.');
     const placeholder = '{{count}}';
     const placeholderIndex = template.indexOf(placeholder);
     if (placeholderIndex < 0) return;
@@ -273,7 +270,10 @@ function initSyncClock(): void {
   // First text node (the "00:29." part before the em)
   let hostPrefixNode: Text | null = null;
   for (const n of host.childNodes) {
-    if (n.nodeType === Node.TEXT_NODE) { hostPrefixNode = n as Text; break; }
+    if (n.nodeType === Node.TEXT_NODE) {
+      hostPrefixNode = n as Text;
+      break;
+    }
   }
 
   // Count 00:00.000 → 00:32.000 continuously, then hold dark for 0.5s.
@@ -294,7 +294,7 @@ function initSyncClock(): void {
 
     if (elapsed < FADE_IN_END) {
       hostMs = elapsed;
-      opacity = elapsed / FADE_IN_END;                                    // 0 → 1
+      opacity = elapsed / FADE_IN_END; // 0 → 1
     } else if (elapsed < FADE_OUT_START) {
       hostMs = elapsed;
       opacity = 1;
@@ -302,7 +302,7 @@ function initSyncClock(): void {
       hostMs = elapsed;
       opacity = 1 - (elapsed - FADE_OUT_START) / (FADE_OUT_END - FADE_OUT_START); // 1 → 0
     } else {
-      hostMs = 0;                                                         // pre-reset during dark
+      hostMs = 0; // pre-reset during dark
       opacity = 0;
     }
 
@@ -332,11 +332,11 @@ function initCodeCycle(): void {
   if (digits.length === 0) return;
 
   let i = 0;
-  digits[i].classList.add('is-lit');
+  digits.item(i).classList.add('is-lit');
   setInterval(() => {
-    digits[i].classList.remove('is-lit');
+    digits.item(i).classList.remove('is-lit');
     i = (i + 1) % digits.length;
-    digits[i].classList.add('is-lit');
+    digits.item(i).classList.add('is-lit');
   }, 1000);
 }
 
@@ -347,8 +347,12 @@ function initPhoneTilt(): void {
 
   const base = { rx: 6, ry: -14 };
   let raf = 0;
-  let targetRx = base.rx, targetRy = base.ry, targetTy = 0;
-  let curRx = base.rx, curRy = base.ry, curTy = 0;
+  let targetRx = base.rx,
+    targetRy = base.ry,
+    targetTy = 0;
+  let curRx = base.rx,
+    curRy = base.ry,
+    curTy = 0;
 
   const onMove = (e: PointerEvent) => {
     const dx = (e.clientX - window.innerWidth / 2) / window.innerWidth;
@@ -368,16 +372,42 @@ function initPhoneTilt(): void {
     curRx += (targetRx - curRx) * 0.08;
     curRy += (targetRy - curRy) * 0.08;
     curTy += (targetTy - curTy) * 0.08;
-    phone.style.transform =
-      `translateY(${curTy.toFixed(2)}px) rotateY(${curRy.toFixed(2)}deg) rotateX(${curRx.toFixed(2)}deg)`;
-    if (Math.abs(targetRx - curRx) > 0.01 || Math.abs(targetRy - curRy) > 0.01 || Math.abs(targetTy - curTy) > 0.05) {
+    phone.style.transform = `translateY(${curTy.toFixed(2)}px) rotateY(${curRy.toFixed(2)}deg) rotateX(${curRx.toFixed(2)}deg)`;
+    if (
+      Math.abs(targetRx - curRx) > 0.01 ||
+      Math.abs(targetRy - curRy) > 0.01 ||
+      Math.abs(targetTy - curTy) > 0.05
+    ) {
       raf = requestAnimationFrame(tick);
     }
   };
-  const schedule = () => { if (!raf) raf = requestAnimationFrame(tick); };
-  window.addEventListener('pointermove', (e) => { onMove(e); schedule(); }, { passive: true });
-  window.addEventListener('scroll', () => { onScroll(); schedule(); }, { passive: true });
-  window.addEventListener('resize', () => { onScroll(); schedule(); }, { passive: true });
+  const schedule = () => {
+    if (!raf) raf = requestAnimationFrame(tick);
+  };
+  window.addEventListener(
+    'pointermove',
+    (e) => {
+      onMove(e);
+      schedule();
+    },
+    { passive: true },
+  );
+  window.addEventListener(
+    'scroll',
+    () => {
+      onScroll();
+      schedule();
+    },
+    { passive: true },
+  );
+  window.addEventListener(
+    'resize',
+    () => {
+      onScroll();
+      schedule();
+    },
+    { passive: true },
+  );
   onScroll();
   schedule();
 }

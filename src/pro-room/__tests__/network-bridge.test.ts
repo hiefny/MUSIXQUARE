@@ -179,6 +179,33 @@ function access(): ProRoomSignalingAccess {
   };
 }
 
+function chatControlSnapshot(
+  revision: number,
+  eventId: string,
+  frozen = false,
+): Record<string, unknown> {
+  return {
+    type: 'pro-realtime',
+    version: 1,
+    roomCode: ROOM_CODE,
+    coordinatorEpoch: 2,
+    eventId,
+    channel: 'chat-control-snapshot',
+    payload: {
+      revision,
+      frozen,
+      filterEnabled: false,
+      slowmodeSeconds: 0,
+      muted: false,
+    },
+    sender: {
+      participantId: 'server',
+      presenceIncarnationId: 'server-chat-state',
+      displayName: 'MUSIXQUARE',
+    },
+  };
+}
+
 async function openBridge(bridge: ServerProRoomNetworkBridge): Promise<FakeWebSocket> {
   const connecting = bridge.connect(snapshot(), access());
   const socket = FakeWebSocket.instances.at(-1);
@@ -303,6 +330,87 @@ describe('coordinator-free PRO server channel', () => {
     expect(originalSocket.closeReason).toBe('PRO_SOCKET_REPLACED');
     expect(getState('network.myDeviceLabel')).toBe('Renamed member');
     bridge.disconnect();
+  });
+
+  it('rejects late frames from a superseded socket generation', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const received: unknown[] = [];
+    const unsubscribe = onProRoomRealtimeEvent((frame) => received.push(frame));
+
+    try {
+      const originalSocket = await openBridge(bridge);
+      const replacementAccess: ProRoomSignalingAccess = {
+        ...access(),
+        ticket: `${'c'.repeat(32)}.${'D'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
+        ticketSequence: 2,
+      };
+      const replacing = bridge.reconfigure(snapshot(), replacementAccess);
+      const replacementSocket = FakeWebSocket.instances.at(-1);
+      if (!replacementSocket || replacementSocket === originalSocket) {
+        throw new Error('replacement fake socket was not created');
+      }
+      replacementSocket.dispatch('open');
+      await replacing;
+
+      const currentSnapshot = chatControlSnapshot(8, 'control-current');
+      const lateServerEvent = {
+        type: 'pro-server-event',
+        version: 1,
+        roomCode: ROOM_CODE,
+        coordinatorEpoch: 2,
+        event: { type: 'pro-room-invalidated', source: 'superseded-socket' },
+      };
+      const lateHigherRevision = chatControlSnapshot(9, 'control-late', true);
+
+      replacementSocket.dispatch('message', JSON.stringify(currentSnapshot));
+      originalSocket.dispatch('message', JSON.stringify(lateServerEvent));
+      originalSocket.dispatch('message', JSON.stringify(lateHigherRevision));
+
+      expect(received).toEqual([currentSnapshot]);
+    } finally {
+      unsubscribe();
+      bridge.disconnect();
+    }
+  });
+
+  it('accepts only increasing chat-control revisions within each socket generation', async () => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const received: unknown[] = [];
+    const unsubscribe = onProRoomRealtimeEvent((frame) => received.push(frame));
+
+    try {
+      const originalSocket = await openBridge(bridge);
+      const revision8 = chatControlSnapshot(8, 'control-revision-8');
+      const staleRevision7 = chatControlSnapshot(7, 'control-revision-7', true);
+      const conflictingRevision8 = chatControlSnapshot(8, 'control-revision-8-conflict', true);
+      const revision9 = chatControlSnapshot(9, 'control-revision-9', true);
+
+      for (const frame of [revision8, staleRevision7, conflictingRevision8, revision9]) {
+        originalSocket.dispatch('message', JSON.stringify(frame));
+      }
+      expect(received).toEqual([revision8, revision9]);
+
+      const replacementAccess: ProRoomSignalingAccess = {
+        ...access(),
+        ticket: `${'e'.repeat(32)}.${'F'.repeat(43)}` as ProRoomSignalingAccess['ticket'],
+        ticketSequence: 2,
+      };
+      const replacing = bridge.reconfigure(snapshot(), replacementAccess);
+      const replacementSocket = FakeWebSocket.instances.at(-1);
+      if (!replacementSocket || replacementSocket === originalSocket) {
+        throw new Error('replacement fake socket was not created');
+      }
+      replacementSocket.dispatch('open');
+      await replacing;
+
+      const replacementHydration = chatControlSnapshot(9, 'control-replacement-hydration', true);
+      replacementSocket.dispatch('message', JSON.stringify(replacementHydration));
+
+      expect(received).toEqual([revision8, revision9, replacementHydration]);
+    } finally {
+      unsubscribe();
+      bridge.disconnect();
+    }
   });
 
   it('closes and releases a socket whose initial connection reports an error', async () => {

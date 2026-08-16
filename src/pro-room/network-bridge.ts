@@ -206,6 +206,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
   #access: ProRoomSignalingAccess | null = null;
   #snapshot: ProRoomSnapshot | null = null;
   #generation = 0;
+  #latestChatControlSnapshotRevision = -1;
   #intentionalClose = false;
   #clockRequestSequence = 0;
   #clockPending = new Map<number, ClockPendingSample>();
@@ -337,6 +338,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
   disconnect(): void {
     ++this.#generation;
     this.#intentionalClose = true;
+    this.#latestChatControlSnapshotRevision = -1;
     this.#clearTimers();
     this.#settleClockWaiters(false);
     this.#clockPending.clear();
@@ -398,6 +400,10 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     );
   }
 
+  #ownsSocket(socket: WebSocket, generation: number): boolean {
+    return generation === this.#generation && this.#socket === socket;
+  }
+
   async #open(
     snapshot: ProRoomSnapshot,
     access: ProRoomSignalingAccess,
@@ -414,6 +420,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
 
     const generation = ++this.#generation;
     this.#intentionalClose = true;
+    this.#latestChatControlSnapshotRevision = -1;
     this.#clearTimers();
     this.#settleClockWaiters(false);
     try {
@@ -539,7 +546,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       throw error;
     }
 
-    if (generation !== this.#generation || this.#socket !== socket) {
+    if (!this.#ownsSocket(socket, generation)) {
       try {
         socket.close(1000, 'PRO_CONNECT_SUPERSEDED');
       } catch {
@@ -548,10 +555,14 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       throw new Error('PRO_ROOM_SESSION_SUPERSEDED');
     }
 
-    socket.addEventListener('message', (event) => this.#handleMessage(event.data));
+    socket.addEventListener('message', (event) => {
+      if (!this.#ownsSocket(socket, generation)) return;
+      this.#handleMessage(event.data);
+    });
     socket.addEventListener('close', () => {
-      if (generation !== this.#generation || this.#socket !== socket) return;
+      if (!this.#ownsSocket(socket, generation)) return;
       this.#socket = null;
+      this.#latestChatControlSnapshotRevision = -1;
       this.#clearTimers();
       this.#settleClockWaiters(false);
       this.#clockPending.clear();
@@ -562,7 +573,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       }
     });
     socket.addEventListener('error', () => {
-      if (generation === this.#generation && this.#socket === socket) {
+      if (this.#ownsSocket(socket, generation)) {
         log.warn('[PRO] Server control channel reported a socket error');
       }
     });
@@ -640,6 +651,11 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       frame.coordinatorEpoch !== snapshot.presence.coordinatorEpoch
     ) {
       return;
+    }
+    if (frame.type === 'pro-realtime' && frame.channel === 'chat-control-snapshot') {
+      const revision = frame.payload.revision as number;
+      if (revision <= this.#latestChatControlSnapshotRevision) return;
+      this.#latestChatControlSnapshotRevision = revision;
     }
     for (const listener of realtimeListeners) {
       try {

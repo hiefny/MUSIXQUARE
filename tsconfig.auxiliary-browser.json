@@ -13,5 +13,12 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": []
   },
-  "include": ["browser/auxiliary-runtime/**/*.ts"]
+  "include": ["browser/auxiliary-runtime/**/*.ts"],
+  "exclude": [
+    "browser/auxiliary-runtime/remote-modules.d.ts",
+    "browser/auxiliary-runtime/promo/music-note-3d.ts",
+    "browser/auxiliary-runtime/promo/product-hero-runtime.ts",
+    "browser/auxiliary-runtime/promo/product-hero.ts",
+    "browser/auxiliary-runtime/promo/product-hero-2.ts"
+  ]
 }

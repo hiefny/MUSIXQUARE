@@ -41,6 +41,13 @@ interface RamSlot {
   finalizedBlob: Blob | null;
 }
 
+function blobPartFromChunk(chunk: Uint8Array): Uint8Array<ArrayBuffer> {
+  if (chunk.buffer instanceof ArrayBuffer) {
+    return new Uint8Array(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+  }
+  return Uint8Array.from(chunk);
+}
+
 // ─── State ──────────────────────────────────────────────────────
 
 /** Single main slot — at most one main-channel transfer in flight. */
@@ -216,13 +223,11 @@ export function ramEnd(
   }
 
   const sortedKeys = Array.from(slot.chunks.keys()).sort((a, b) => a - b);
-  // BlobPart's strict type rejects `Uint8Array<ArrayBufferLike>` (the
-  // generic introduced when SharedArrayBuffer is part of the union); we
-  // cast through unknown so the strict check passes without changing
-  // runtime behaviour — Blob constructor handles ArrayBufferView fine.
+  // BlobPart accepts only ArrayBuffer-backed views. Preserve ordinary views
+  // without copying and materialize a regular ArrayBuffer only for SAB input.
   const parts: BlobPart[] = [];
   for (const k of sortedKeys) {
-    parts.push(slot.chunks.get(k)! as unknown as BlobPart);
+    parts.push(blobPartFromChunk(slot.chunks.get(k)!));
   }
   let blob = new Blob(parts, { type: slot.mime });
 

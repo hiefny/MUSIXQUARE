@@ -1,5 +1,6 @@
-import { ESLint } from 'eslint';
+import { readFileSync } from 'node:fs';
 import { relative } from 'node:path';
+import { ESLint } from 'eslint';
 import { describe, expect, it } from 'vitest';
 
 const eslint = new ESLint({
@@ -7,53 +8,41 @@ const eslint = new ESLint({
   overrideConfigFile: 'eslint.tooling.config.ts',
 });
 
-async function undefinedNames(source: string, filePath: string): Promise<string[]> {
-  const [result] = await eslint.lintText(source, { filePath, warnIgnored: false });
-  return result.messages
-    .filter(({ ruleId }) => ruleId === 'no-undef')
-    .map(({ message }) => message.match(/^'([^']+)'/u)?.[1] ?? message);
+interface TypeScriptConfigShape {
+  compilerOptions: {
+    lib?: string[];
+    types?: string[];
+  };
 }
 
-describe('tooling ESLint runtime profiles', () => {
-  it('rejects Node-only globals in Cloudflare Workers', async () => {
-    await expect(
-      undefinedNames('void process.env; void Buffer.from("x");', 'cloudflare/runtime-probe.js'),
-    ).resolves.toEqual(['process', 'Buffer']);
-  }, 30_000);
+function readTypeScriptConfig(path: string): TypeScriptConfigShape {
+  return JSON.parse(readFileSync(path, 'utf8')) as TypeScriptConfigShape;
+}
 
-  it('rejects generic service-worker globals that Cloudflare does not implement', async () => {
-    await expect(
-      undefinedNames(
-        'void clients; void registration; void skipWaiting; void importScripts;',
-        'cloudflare/runtime-probe.js',
-      ),
-    ).resolves.toEqual(['clients', 'registration', 'skipWaiting', 'importScripts']);
-  }, 30_000);
+describe('tooling ESLint and runtime TypeScript profiles', () => {
+  it('keeps Worker, Node, browser, and Service Worker ambient types isolated', () => {
+    const worker = readTypeScriptConfig('cloudflare/tsconfig.worker.base.json');
+    const node = readTypeScriptConfig('tsconfig.node-scripts.json');
+    const browser = readTypeScriptConfig('tsconfig.browser-classic.json');
+    const serviceWorker = readTypeScriptConfig('tsconfig.service-worker.json');
 
-  it('rejects Cloudflare-only globals in Node tooling', async () => {
-    await expect(
-      undefinedNames('void WebSocketPair; void HTMLRewriter;', 'scripts/runtime-probe.mjs'),
-    ).resolves.toEqual(['WebSocketPair', 'HTMLRewriter']);
-  }, 30_000);
+    expect(worker.compilerOptions.types).toEqual([]);
+    expect(worker.compilerOptions.lib).toEqual(['ES2022']);
+    expect(node.compilerOptions.types).toEqual(['node']);
+    expect(browser.compilerOptions.lib).toContain('DOM');
+    expect(browser.compilerOptions.lib).not.toContain('WebWorker');
+    expect(serviceWorker.compilerOptions.lib).toContain('WebWorker');
+    expect(serviceWorker.compilerOptions.lib).not.toContain('DOM');
+  });
 
-  it('accepts each runtime own globals', async () => {
-    await expect(
-      undefinedNames(
-        'void WebSocketPair; void HTMLRewriter; void caches;',
-        'cloudflare/runtime-probe.js',
-      ),
-    ).resolves.toEqual([]);
-    await expect(
-      undefinedNames('void process.env; void Buffer.from("x");', 'scripts/runtime-probe.mjs'),
-    ).resolves.toEqual([]);
-  }, 30_000);
-
-  it('keeps the complete tooling scope warning-free', async () => {
+  it('keeps the complete authored tooling scope warning-free', async () => {
     const results = await eslint.lintFiles([
+      '.workshop',
+      'browser',
       'cloudflare',
       'scripts',
       'e2e',
-      '*.config.{js,mjs,ts}',
+      '*.config.ts',
       'eslint*.config.ts',
     ]);
     const identities = results.flatMap((result) =>

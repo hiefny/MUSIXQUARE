@@ -20,7 +20,6 @@ type StableMethodName =
   | 'cuePlaylist';
 
 type PlayerMethod = (...args: unknown[]) => unknown;
-type WrappedPlayerMethod = PlayerMethod & { [WRAPPED_METHOD]?: true };
 
 interface ExpectedStableState {
   token: number;
@@ -54,17 +53,8 @@ const STABLE_METHODS: readonly StableMethodSpec[] = [
 const instrumentationByPlayer = new WeakMap<YouTubePlayerInstance, PlayerInstrumentation>();
 let expectedStateSequence = 0;
 
-function asMethodRecord(
-  player: YouTubePlayerInstance,
-): Record<StableMethodName, PlayerMethod | undefined> {
-  return player as unknown as Record<StableMethodName, PlayerMethod | undefined>;
-}
-
 function isTestMock(fn: unknown): boolean {
-  return (
-    typeof fn === 'function' &&
-    (fn as unknown as { _isMockFunction?: boolean })._isMockFunction === true
-  );
+  return typeof fn === 'function' && Reflect.get(fn, '_isMockFunction') === true;
 }
 
 function pruneExpected(instrumentation: PlayerInstrumentation, now = Date.now()): void {
@@ -113,17 +103,16 @@ function installStableMethod(
   instrumentation: PlayerInstrumentation,
   spec: StableMethodSpec,
 ): boolean {
-  const methods = asMethodRecord(player);
-  const current = methods[spec.name] as WrappedPlayerMethod | undefined;
+  const current: unknown = Reflect.get(player, spec.name);
   if (typeof current !== 'function') return !spec.required;
-  if (current[WRAPPED_METHOD] === true) return true;
+  if (Reflect.get(current, WRAPPED_METHOD) === true) return true;
 
   // Existing tests often expose vi.fn() methods and assert against the exact
   // function object. Skip those synthetic players. A real player that cannot
   // be instrumented fails closed and leaves the old behaviour untouched.
   if (isTestMock(current)) return false;
 
-  const wrapped: WrappedPlayerMethod = (...args) => {
+  const wrapped: PlayerMethod = (...args) => {
     const token = armExpectedState(
       player,
       instrumentation,
@@ -131,7 +120,7 @@ function installStableMethod(
       spec.alwaysExpect === true,
     );
     try {
-      return current.apply(player, args);
+      return Reflect.apply(current, player, args);
     } catch (error) {
       if (token !== null) removeExpectedToken(instrumentation, token);
       throw error;
@@ -149,12 +138,12 @@ function installStableMethod(
     });
   } catch {
     try {
-      methods[spec.name] = wrapped;
+      if (!Reflect.set(player, spec.name, wrapped)) return false;
     } catch {
       return false;
     }
   }
-  return methods[spec.name] === wrapped;
+  return Reflect.get(player, spec.name) === wrapped;
 }
 
 export function instrumentYouTubeStableControls(player: YouTubePlayerInstance): boolean {

@@ -21,7 +21,12 @@ import { restartProRoomTransportRecovery } from '../pro-room/transport-recovery.
 import { requestAccountNicknameChange } from './account.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { groupConnectedRoomMembers, type ConnectedRoomMember } from '../rooms/member-directory.ts';
-import type { DeviceInfo, DevicePlatform, StandardRoomPermissionSet } from '../types/index.ts';
+import type {
+  DeviceInfo,
+  DevicePlatform,
+  RoomCapability,
+  StandardRoomPermissionSet,
+} from '../types/index.ts';
 import type {
   ProRoomAdministrator,
   ProRoomPermission,
@@ -29,10 +34,83 @@ import type {
 } from '../pro-room/contracts.ts';
 
 let _langObserver: MutationObserver | null = null;
-let _lastDeviceList: Array<Record<string, unknown>> = [];
+let _lastDeviceList: DeviceInfo[] = [];
 let _lastProAdministrators: ProRoomAdministrator[] = [];
 const _expandedDeviceMemberKeys = new Set<string>();
 let _deviceExpansionRoomBoundary = '';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isDevicePlatform(value: unknown): value is DevicePlatform {
+  return (
+    value === 'ios' ||
+    value === 'android' ||
+    value === 'windows' ||
+    value === 'macos' ||
+    value === 'linux' ||
+    value === 'other'
+  );
+}
+
+function isRoomCapability(value: unknown): value is RoomCapability {
+  return (
+    value === 'media.add' ||
+    value === 'queue.mutate' ||
+    value === 'playback.control' ||
+    value === 'effects.control' ||
+    value === 'asset.upload' ||
+    value === 'system-audio.publish' ||
+    value === 'members.manage' ||
+    value === 'chat.notice' ||
+    value === 'room.configure' ||
+    value === 'coordinator.eligible'
+  );
+}
+
+function isDeviceInfo(value: unknown): value is DeviceInfo {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    typeof value.label === 'string' &&
+    typeof value.isOp === 'boolean' &&
+    typeof value.isHost === 'boolean' &&
+    typeof value.status === 'string' &&
+    (value.joinOrder === undefined || typeof value.joinOrder === 'number') &&
+    (value.connectionType === undefined || typeof value.connectionType === 'string') &&
+    (value.devicePlatform === undefined || isDevicePlatform(value.devicePlatform)) &&
+    (value.memberId === undefined || typeof value.memberId === 'string') &&
+    (value.memberDisplayNumber === undefined || typeof value.memberDisplayNumber === 'number') &&
+    (value.isAuthenticated === undefined || typeof value.isAuthenticated === 'boolean') &&
+    (value.role === undefined ||
+      value.role === 'owner' ||
+      value.role === 'controller' ||
+      value.role === 'member') &&
+    (value.capabilities === undefined ||
+      (Array.isArray(value.capabilities) && value.capabilities.every(isRoomCapability)))
+  );
+}
+
+function normalizeDeviceInfo(value: unknown): DeviceInfo | null {
+  if (isDeviceInfo(value)) return value;
+  if (!isRecord(value)) return null;
+
+  // PeerJS BinaryPack serializes an own-property `undefined` as `null`.
+  // Remove only nullable optional fields before applying the strict validator;
+  // malformed non-null authority data still rejects the whole projection.
+  const normalized = { ...value };
+  if (normalized.joinOrder === null) delete normalized.joinOrder;
+  if (normalized.connectionType === null) delete normalized.connectionType;
+  if (normalized.devicePlatform === null) delete normalized.devicePlatform;
+  if (normalized.memberId === null) delete normalized.memberId;
+  if (normalized.memberDisplayNumber === null) delete normalized.memberDisplayNumber;
+  if (normalized.isAuthenticated === null) delete normalized.isAuthenticated;
+  if (normalized.role === null) delete normalized.role;
+  if (normalized.capabilities === null) delete normalized.capabilities;
+
+  return isDeviceInfo(normalized) ? normalized : null;
+}
 
 // ─── Host-Ctrl Lock (shared pattern) ────────────────────────────
 
@@ -1372,13 +1450,15 @@ function initAdministratorPermissionsDialog(): void {
   });
 }
 
-function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
-  _lastDeviceList = list;
-  _lastDeviceCount = list.length;
+function renderConnectDeviceList(list: readonly unknown[]): void {
+  const devices = list
+    .map(normalizeDeviceInfo)
+    .filter((device): device is DeviceInfo => device !== null);
+  _lastDeviceList = devices;
+  _lastDeviceCount = devices.length;
   _updateDeviceTitles();
   syncDeviceExpansionRoomBoundary();
   const isProRoom = _isProRoom();
-  const devices = list as unknown as DeviceInfo[];
   const currentDeviceId = getState('network.myId') || '';
   const deviceById = new Map(
     devices
@@ -1626,7 +1706,7 @@ function renderConnectDeviceList(list: Array<Record<string, unknown>>): void {
               // The confirmation dialog can outlive a room switch or a
               // heartbeat update. Re-resolve every identity and authority
               // decision from the latest projection before dispatching.
-              const latestDevices = _lastDeviceList as unknown as DeviceInfo[];
+              const latestDevices = _lastDeviceList;
               const latestDeviceById = new Map(
                 latestDevices
                   .filter((candidate) => candidate && typeof candidate.id === 'string')
@@ -1748,7 +1828,7 @@ export function initConnect(): void {
 
   _busScope.on('network:device-list-update', (list: unknown[]) => {
     if (Array.isArray(list)) {
-      renderConnectDeviceList(list as Array<Record<string, unknown>>);
+      renderConnectDeviceList(list);
     }
   });
   _busScope.on('state:network.standardRoomAdministrators', () => {

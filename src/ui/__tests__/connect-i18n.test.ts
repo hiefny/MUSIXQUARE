@@ -561,6 +561,47 @@ describe('connect i18n refresh', () => {
     );
   });
 
+  it('normalizes nullable optional wire fields without dropping connected devices', () => {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'guest-device');
+    initConnect();
+
+    bus.emit('network:device-list-update', [
+      {
+        id: 'host-device',
+        label: 'HOST',
+        joinOrder: 0,
+        status: 'connected',
+        isHost: true,
+        isOp: true,
+        memberId: null,
+        memberDisplayNumber: null,
+        isAuthenticated: false,
+        devicePlatform: 'windows',
+      },
+      {
+        id: 'guest-device',
+        label: 'Peer 1',
+        joinOrder: 1,
+        status: 'connected',
+        isHost: false,
+        isOp: false,
+        memberId: null,
+        memberDisplayNumber: null,
+        isAuthenticated: false,
+        devicePlatform: 'windows',
+        capabilities: [],
+      },
+    ]);
+
+    const rows = document.querySelectorAll('#connect-device-list .device-row');
+    expect(rows).toHaveLength(2);
+    expect([...rows].map((row) => row.querySelector('.d-name')?.textContent)).toEqual([
+      'HOST',
+      'Peer 1',
+    ]);
+  });
+
   it('removes inline ADMIN badges and keeps authority in the dedicated section', () => {
     setState('network.appRole', 'host');
     initConnect();

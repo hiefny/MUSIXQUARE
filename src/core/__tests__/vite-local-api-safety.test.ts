@@ -324,7 +324,7 @@ describe('service-worker build entry manifest', () => {
     expect(injected).toContain('"./primary-font-loader.js"');
     expect(injected).toContain('"./primary-font.css"');
     expect(injected).toContain('"./designsystem/fonts/PretendardVariable.woff2"');
-    expect(injected).toContain("const CACHE_VERSION = 'v445';");
+    expect(injected).toContain("const CACHE_VERSION = 'v446';");
     expect(injected).not.toContain('__MUSIXQUARE_CACHE_VERSION__');
     expect(injected).not.toContain('__MUSIXQUARE_BUILD_ENTRY_ASSETS__');
     expect(injected).not.toContain('__MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__');

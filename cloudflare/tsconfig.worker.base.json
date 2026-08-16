@@ -13,8 +13,6 @@
     "useUnknownInCatchVariables": true,
     "forceConsistentCasingInFileNames": true,
     "allowImportingTsExtensions": true,
-    "allowJs": false,
-    "checkJs": false,
     "skipLibCheck": true,
     "lib": ["ES2022"],
     "types": []

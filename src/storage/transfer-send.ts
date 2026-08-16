@@ -164,8 +164,10 @@ export function sendFilePrepareByDelivery(
 ): void {
   if (sessionId === null || !Number.isSafeInteger(sessionId) || sessionId <= 0) return;
   freezeFileDeliveryMode(sessionId);
-  const prepareData = prepareMsg as unknown as Record<string, unknown>;
-  const queueItemId = typeof prepareData.queueItemId === 'string' ? prepareData.queueItemId : null;
+  const queueItemId =
+    'queueItemId' in prepareMsg && typeof prepareMsg.queueItemId === 'string'
+      ? prepareMsg.queueItemId
+      : null;
   const peers = getState('network.connectedPeers') || [];
   for (const peer of peers) {
     const conn = peer.conn as DataConnection | null;
@@ -182,10 +184,8 @@ export function sendFilePrepareByDelivery(
       const owner = _peerTransferOwners.get(peer.id);
       if (owner && isExactPeerTransfer(owner, conn, queueItemId, sessionId)) continue;
     }
-    safeSend(
-      conn,
-      useR2 ? ({ ...prepareMsg, delivery: 'r2' } as unknown as AnyProtocolMsg) : prepareMsg,
-    );
+    const outbound = useR2 ? { ...prepareMsg, delivery: 'r2' as const } : prepareMsg;
+    safeSend(conn, outbound);
   }
 }
 

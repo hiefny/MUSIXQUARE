@@ -72,6 +72,10 @@ function walk(dir: string, extensions: readonly string[], out: string[] = []): s
   return out;
 }
 
+function isDeclarationPath(file: string): boolean {
+  return /\.d\.(?:ts|mts|cts)$/u.test(slash(file));
+}
+
 function sourceRole(root: string, file: string): SourceRole {
   const path = slash(relative(root, file));
   if (path.startsWith('src/')) return isTestPath(path) ? 'test' : 'prod';
@@ -89,8 +93,6 @@ function readCompilerOptions(root: string): ts.CompilerOptions {
   }
   return {
     ...inherited,
-    allowJs: true,
-    checkJs: false,
     noEmit: true,
     skipLibCheck: true,
     module: ts.ModuleKind.ESNext,
@@ -102,11 +104,12 @@ function readCompilerOptions(root: string): ts.CompilerOptions {
 
 function gatherCorpus(root: string): string[] {
   const files: string[] = [];
-  for (const file of walk(join(root, 'src'), ['.ts'])) {
-    if (!file.endsWith('.d.ts')) files.push(file);
+  for (const file of walk(join(root, 'src'), ['.ts', '.tsx', '.mts', '.cts'])) {
+    if (!isDeclarationPath(file)) files.push(file);
   }
-  for (const directory of ['e2e', 'scripts']) {
-    for (const file of walk(join(root, directory), ['.ts', '.js', '.mjs'])) {
+  for (const directory of ['e2e', 'scripts', 'browser', '.workshop']) {
+    for (const file of walk(join(root, directory), ['.ts', '.tsx', '.mts', '.cts'])) {
+      if (isDeclarationPath(file)) continue;
       const path = slash(relative(root, file));
       if (
         path === 'scripts/check-dead-exports.mts' ||
@@ -117,7 +120,6 @@ function gatherCorpus(root: string): string[] {
       files.push(file);
     }
   }
-  for (const file of walk(join(root, 'public'), ['.js', '.mjs'])) files.push(file);
   return [...new Set(files.map((file) => resolve(file)))];
 }
 

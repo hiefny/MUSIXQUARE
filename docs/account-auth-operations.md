@@ -1,6 +1,6 @@
 # Account authentication provisioning
 
-The optional account service is implemented in `cloudflare/account-auth.js`,
+The optional account service is implemented in `cloudflare/account-auth.ts`,
 but it deliberately stays disabled until its dedicated D1 database and all
 server-only secrets are provisioned. When any requirement is missing,
 `GET /api/auth/session` returns:

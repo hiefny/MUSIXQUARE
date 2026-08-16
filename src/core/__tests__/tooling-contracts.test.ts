@@ -52,6 +52,7 @@ describe('tooling reproducibility contracts', () => {
     expect(toolingConfig.compilerOptions.types).toContain('node');
     expect([...toolingConfig.include].sort()).toEqual(
       [
+        '.workshop/promo/render.ts',
         'eslint.config.ts',
         'eslint.tooling.config.ts',
         'scripts/auxiliary-browser-assets.ts',
@@ -67,6 +68,10 @@ describe('tooling reproducibility contracts', () => {
         'vitest.workers.config.ts',
       ].sort(),
     );
+    expect(packageManifest.scripts['typecheck:workshop-landing']).toBe(
+      'tsc -p tsconfig.workshop-landing.json',
+    );
+    expect(packageManifest.scripts.typecheck).toContain('npm run typecheck:workshop-landing');
     expect(packageManifest.scripts.typecheck).toContain('tsc -p tsconfig.tooling.json');
   });
 

@@ -22,15 +22,21 @@ git ls-files "*.js" "*.mjs" "*.cjs" "*.jsx"
 ## 문서 지도
 
 - [ROADMAP.md](./ROADMAP.md): 의존 순서, 품질 게이트, 배포와 롤백 전략
-- [STATUS.md](./STATUS.md): 현재 수치, 단계별 진행 상태와 다음 작업
+- [STATUS.md](./STATUS.md): 현재 수치, 단계별 완료 상태와 배포·운영 증거
 - [authored-js-baseline.json](./authored-js-baseline.json): 파일 단위의 기계 판독 가능
   역사적 기준선과 현재 remaining/retired 상태
 - [`scripts/check-authored-js-inventory.mts`](../../scripts/check-authored-js-inventory.mts):
-  새 JavaScript 경로와 기준선 역행을 차단하는 shrink-only guard
-- [strict-js-diagnostics-baseline.json](./strict-js-diagnostics-baseline.json): 남아 있는
-  JavaScript의 파일별 TypeScript 오류 코드/개수 기준선
-- [`scripts/check-typescript-diagnostic-ratchet.mts`](../../scripts/check-typescript-diagnostic-ratchet.mts):
-  타입 부채 증가를 차단하고 감소와 source retirement만 허용하는 guard
+  새 JavaScript 경로와 기준선 역행을 영구 차단하는 zero-JavaScript guard
+- [`scripts/check-typescript-declaration-ownership.mts`](../../scripts/check-typescript-declaration-ownership.mts):
+  Wrangler 생성 타입과 실제 외부 declaration을 exact allowlist로 고정하고 native
+  companion 재도입을 차단하는 ownership guard
+- [`scripts/check-typescript-project-coverage.mts`](../../scripts/check-typescript-project-coverage.mts):
+  모든 tracked 및 새 unignored TS·TSX·MTS·CTS가 19개 strict `tsc` project 중 하나에 실제로
+  포함되는지 검증하는 project-coverage guard
+
+전환 중 사용한 JavaScript strict-diagnostic ratchet과 수기 companion declaration은
+remaining source가 0이 된 Phase 10에서 제거했다. 현재 타입 안전성은 각 런타임의 strict
+TypeScript project, production type-escape guard와 전체 CI가 직접 강제한다.
 
 충돌 시 우선순위는 `authored-js-baseline.json`의 실제 파일 상태, `STATUS.md`,
 `ROADMAP.md` 순이다. 문서가 코드와 어긋난 것을 발견한 PR은 같은 PR에서 상태를

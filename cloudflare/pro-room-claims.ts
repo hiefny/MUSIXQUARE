@@ -131,7 +131,130 @@ function isProRoomCode(value: unknown): value is string {
 }
 
 function isSafeInteger(value: unknown): value is number {
-  return Number.isSafeInteger(value);
+  return typeof value === 'number' && Number.isSafeInteger(value);
+}
+
+function isValidActivationClaim(
+  claim: Record<string, unknown>,
+  roomCode: string,
+  nowMs: number,
+): claim is Record<string, unknown> & ProRoomActivationClaimPayload {
+  return (
+    claim.v === 1 &&
+    claim.purpose === 'pro-room-activation' &&
+    claim.roomCode === roomCode &&
+    isSafeInteger(claim.iat) &&
+    claim.iat <= nowMs + 60_000 &&
+    isSafeInteger(claim.exp) &&
+    claim.exp > nowMs &&
+    claim.exp - claim.iat <= PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS &&
+    typeof claim.nonce === 'string' &&
+    claim.nonce.length >= 16 &&
+    isSafeInteger(claim.generation) &&
+    claim.generation >= 0 &&
+    isProRoomGeneration(claim.roomGeneration) &&
+    (claim.targetAccountId === undefined ||
+      (typeof claim.targetAccountId === 'string' && ACCOUNT_ID_RE.test(claim.targetAccountId)))
+  );
+}
+
+function isValidOwnerRecoveryClaim(
+  payload: unknown,
+  roomCode: string,
+  nowMs: number,
+): payload is Record<string, unknown> & ProRoomOwnerRecoveryClaimPayload {
+  return (
+    hasExactKeys(payload, [
+      'v',
+      'purpose',
+      'roomCode',
+      'iat',
+      'exp',
+      'nonce',
+      'ownerAuthorityEpoch',
+      'roomGeneration',
+    ]) &&
+    payload.v === 1 &&
+    payload.purpose === 'pro-room-owner-recovery' &&
+    payload.roomCode === roomCode &&
+    isSafeInteger(payload.iat) &&
+    payload.iat <= nowMs + 60_000 &&
+    isSafeInteger(payload.exp) &&
+    payload.exp > nowMs &&
+    payload.exp - payload.iat <= PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_LIFETIME_MS &&
+    isProRoomGeneration(payload.roomGeneration) &&
+    isSafeNonNegativeInteger(payload.ownerAuthorityEpoch) &&
+    typeof payload.nonce === 'string' &&
+    CLAIM_NONCE_RE.test(payload.nonce)
+  );
+}
+
+function isValidOwnerTransferClaim(
+  payload: unknown,
+  roomCode: string,
+  nowMs: number,
+): payload is Record<string, unknown> & ProRoomOwnerTransferClaimPayload {
+  return (
+    hasExactKeys(payload, [
+      'v',
+      'purpose',
+      'roomCode',
+      'roomGeneration',
+      'targetAccountId',
+      'claimGeneration',
+      'ownerAuthorityEpoch',
+      'iat',
+      'exp',
+      'nonce',
+    ]) &&
+    payload.v === 1 &&
+    payload.purpose === 'pro-room-owner-transfer' &&
+    payload.roomCode === roomCode &&
+    isProRoomGeneration(payload.roomGeneration) &&
+    typeof payload.targetAccountId === 'string' &&
+    ACCOUNT_ID_RE.test(payload.targetAccountId) &&
+    isSafeNonNegativeInteger(payload.claimGeneration) &&
+    isSafeNonNegativeInteger(payload.ownerAuthorityEpoch) &&
+    isSafeInteger(payload.iat) &&
+    payload.iat <= nowMs + 60_000 &&
+    isSafeInteger(payload.exp) &&
+    payload.exp > payload.iat &&
+    payload.exp - payload.iat <= PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS &&
+    typeof payload.nonce === 'string' &&
+    CLAIM_NONCE_RE.test(payload.nonce)
+  );
+}
+
+function isValidOwnerTransferRevocationReceipt(
+  payload: unknown,
+  expected: ProRoomOwnerTransferRevocationIdentity,
+  nowMs: number,
+): payload is Record<string, unknown> & ProRoomOwnerTransferRevocationReceiptPayload {
+  return (
+    hasExactKeys(payload, [
+      'purpose',
+      'roomCode',
+      'roomGeneration',
+      'transferId',
+      'targetAccountId',
+      'requestId',
+      'revokedAtMs',
+      'expiresAtMs',
+    ]) &&
+    payload.purpose === 'pro-room-owner-transfer-revocation' &&
+    payload.roomCode === expected.roomCode &&
+    payload.roomGeneration === expected.roomGeneration &&
+    payload.transferId === expected.transferId &&
+    payload.targetAccountId === expected.targetAccountId &&
+    payload.requestId === expected.requestId &&
+    isSafeInteger(payload.revokedAtMs) &&
+    payload.revokedAtMs <= nowMs + 60_000 &&
+    isSafeInteger(payload.expiresAtMs) &&
+    payload.expiresAtMs > nowMs &&
+    payload.expiresAtMs > payload.revokedAtMs &&
+    payload.expiresAtMs - payload.revokedAtMs <=
+      PRO_ROOM_OWNER_TRANSFER_REVOCATION_RECEIPT_MAX_LIFETIME_MS
+  );
 }
 
 function assertClaimIssuerInputs(roomCode: unknown, secret: unknown): asserts roomCode is string {
@@ -211,22 +334,7 @@ export async function verifyProRoomActivationClaim(
   const payload = await verifySignedToken(token, secret);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
   const claim = payload as Record<string, unknown>;
-  return claim.v === 1 &&
-    claim.purpose === 'pro-room-activation' &&
-    claim.roomCode === roomCode &&
-    isSafeInteger(claim.iat) &&
-    claim.iat <= nowMs + 60_000 &&
-    isSafeInteger(claim.exp) &&
-    claim.exp > nowMs &&
-    claim.exp - claim.iat <= PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS &&
-    typeof claim.nonce === 'string' &&
-    claim.nonce.length >= 16 &&
-    isSafeInteger(claim.generation) &&
-    claim.generation >= 0 &&
-    isProRoomGeneration(claim.roomGeneration) &&
-    (claim.targetAccountId === undefined || ACCOUNT_ID_RE.test(claim.targetAccountId as string))
-    ? (claim as unknown as ProRoomActivationClaimPayload)
-    : null;
+  return isValidActivationClaim(claim, roomCode, nowMs) ? claim : null;
 }
 
 export async function issueProRoomOwnerRecoveryClaim(
@@ -274,34 +382,7 @@ export async function verifyProRoomOwnerRecoveryClaim(
 ): Promise<ProRoomOwnerRecoveryClaimPayload | null> {
   if (typeof secret !== 'string' || secret.length < 32) return null;
   const payload = await verifySignedToken(token, secret);
-  if (
-    !payload ||
-    !hasExactKeys(payload, [
-      'v',
-      'purpose',
-      'roomCode',
-      'iat',
-      'exp',
-      'nonce',
-      'ownerAuthorityEpoch',
-      'roomGeneration',
-    ]) ||
-    payload.v !== 1 ||
-    payload.purpose !== 'pro-room-owner-recovery' ||
-    payload.roomCode !== roomCode ||
-    !isSafeInteger(payload.iat) ||
-    payload.iat > nowMs + 60_000 ||
-    !isSafeInteger(payload.exp) ||
-    payload.exp <= nowMs ||
-    payload.exp - payload.iat > PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_LIFETIME_MS ||
-    !isProRoomGeneration(payload.roomGeneration) ||
-    !isSafeNonNegativeInteger(payload.ownerAuthorityEpoch) ||
-    typeof payload.nonce !== 'string' ||
-    !CLAIM_NONCE_RE.test(payload.nonce)
-  ) {
-    return null;
-  }
-  return payload as unknown as ProRoomOwnerRecoveryClaimPayload;
+  return isValidOwnerRecoveryClaim(payload, roomCode, nowMs) ? payload : null;
 }
 
 export async function issueProRoomOwnerTransferClaim(
@@ -356,39 +437,11 @@ export async function inspectProRoomOwnerTransferClaim(
     return { error: 'OWNER_TRANSFER_CLAIM_INVALID' };
   }
   const payload = await verifySignedToken(token, secret);
-  if (
-    !payload ||
-    !hasExactKeys(payload, [
-      'v',
-      'purpose',
-      'roomCode',
-      'roomGeneration',
-      'targetAccountId',
-      'claimGeneration',
-      'ownerAuthorityEpoch',
-      'iat',
-      'exp',
-      'nonce',
-    ]) ||
-    payload.v !== 1 ||
-    payload.purpose !== 'pro-room-owner-transfer' ||
-    payload.roomCode !== roomCode ||
-    !isProRoomGeneration(payload.roomGeneration) ||
-    !ACCOUNT_ID_RE.test((payload.targetAccountId || '') as string) ||
-    !isSafeNonNegativeInteger(payload.claimGeneration) ||
-    !isSafeNonNegativeInteger(payload.ownerAuthorityEpoch) ||
-    !isSafeInteger(payload.iat) ||
-    payload.iat > nowMs + 60_000 ||
-    !isSafeInteger(payload.exp) ||
-    payload.exp <= payload.iat ||
-    payload.exp - payload.iat > PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS ||
-    typeof payload.nonce !== 'string' ||
-    !CLAIM_NONCE_RE.test(payload.nonce)
-  ) {
+  if (!isValidOwnerTransferClaim(payload, roomCode, nowMs)) {
     return { error: 'OWNER_TRANSFER_CLAIM_INVALID' };
   }
   return {
-    claim: payload as unknown as ProRoomOwnerTransferClaimPayload,
+    claim: payload,
     expired: payload.exp <= nowMs,
   };
 }
@@ -481,34 +534,7 @@ export async function verifyProRoomOwnerTransferRevocationReceipt(
     );
     if (!constantTimeEqual(expectedMac, parts[2])) return null;
     const payload: unknown = JSON.parse(decoder.decode(base64UrlDecode(parts[1])));
-    if (
-      !hasExactKeys(payload, [
-        'purpose',
-        'roomCode',
-        'roomGeneration',
-        'transferId',
-        'targetAccountId',
-        'requestId',
-        'revokedAtMs',
-        'expiresAtMs',
-      ]) ||
-      payload.purpose !== 'pro-room-owner-transfer-revocation' ||
-      payload.roomCode !== expected.roomCode ||
-      payload.roomGeneration !== expected.roomGeneration ||
-      payload.transferId !== expected.transferId ||
-      payload.targetAccountId !== expected.targetAccountId ||
-      payload.requestId !== expected.requestId ||
-      !isSafeInteger(payload.revokedAtMs) ||
-      payload.revokedAtMs > nowMs + 60_000 ||
-      !isSafeInteger(payload.expiresAtMs) ||
-      payload.expiresAtMs <= nowMs ||
-      payload.expiresAtMs <= payload.revokedAtMs ||
-      payload.expiresAtMs - payload.revokedAtMs >
-        PRO_ROOM_OWNER_TRANSFER_REVOCATION_RECEIPT_MAX_LIFETIME_MS
-    ) {
-      return null;
-    }
-    return payload as unknown as ProRoomOwnerTransferRevocationReceiptPayload;
+    return isValidOwnerTransferRevocationReceipt(payload, expected, nowMs) ? payload : null;
   } catch {
     return null;
   }

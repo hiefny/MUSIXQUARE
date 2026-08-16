@@ -4,6 +4,6 @@
     "types": ["vitest/globals"],
     "lib": ["ES2023", "DOM", "DOM.Iterable"]
   },
-  "include": ["src/**/__tests__/**/*.ts", "src/**/*.ts"],
+  "include": ["src/**/__tests__/**/*.ts", "src/**/*.ts", "src/**/*.mts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
+import criticalCoverageConfig from '../../../vitest.critical.config.ts';
 import toolingCoverageConfig from '../../../vitest.tooling.config.ts';
 
 const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
@@ -45,6 +46,30 @@ describe('CI quality and supply-chain gates', () => {
     expect(workerCoverage).toContain("'cloudflare/app-worker.js'");
     expect(workerCoverage).toContain("'cloudflare/pro-room-worker.js'");
     expect(workerCoverage).toContain("'cloudflare/signaling-worker.js'");
+  });
+
+  it('keeps extracted PRO playback authority inside the critical coverage ratchet', () => {
+    const coverage = criticalCoverageConfig.test?.coverage as {
+      include?: string[];
+      thresholds?: Record<
+        string,
+        number | { statements: number; branches: number; functions: number; lines: number }
+      >;
+    };
+
+    expect(coverage.include).toContain('src/pro-room/playback-controller.ts');
+    expect(coverage.thresholds?.['src/pro-room/{runtime,playback-controller}.ts']).toEqual({
+      statements: 66,
+      branches: 58,
+      functions: 69,
+      lines: 70,
+    });
+    expect(coverage.thresholds?.['src/pro-room/playback-controller.ts']).toEqual({
+      statements: 80,
+      branches: 72,
+      functions: 87,
+      lines: 85,
+    });
   });
 
   it('keeps high-risk release tooling inside an independent read-only coverage ratchet', () => {

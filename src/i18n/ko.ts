@@ -336,14 +336,6 @@ const ko = {
   'setup.change_later': '나중에 설정에서 바꿀 수 있어요.',
   'setup.welcome_title': '환영합니다',
   'setup.join_session_subtitle': '{{code}}번 세션에 입장하려고 해요',
-  'setup.room_type_hint': '0으로 시작하면 영구 PRO 방, 1–9로 시작하면 임시 일반 방이에요.',
-  'setup.standard_room_summary':
-    '일반 방 · 방장이 나가면 종료되는 임시 방이에요. 재생과 권한은 방장이 관리하며, 설정한 경우 8자리 방 암호를 입력해요.',
-  'setup.pro_room_summary':
-    'PRO 방 · 모두 나가도 유지되고 재생목록과 권한이 저장돼요. 소유자·관리자가 운영하며 8자리 PRO 방 암호가 필요해요.',
-  'setup.center_role_guide':
-    '현재 이 기기는 중앙 스피커예요. 설정 → 오디오의 ‘이 기기 역할 설정하기’에서 바꿀 수 있어요.',
-  'setup.center_role_open_settings': '역할 설정 열기',
   'setup.select_role': '역할을 선택해주세요',
   'setup.select_role_alt': '역할을 선택해 주세요',
   'setup.greeting': '안녕하세요!',
@@ -364,8 +356,6 @@ const ko = {
   'help.connect_all_wifi': '같은 네트워크에서 가장 안정적이에요',
   'help.local_file': '로컬 파일 선택',
   'help.load_local': '로컬파일 불러오기',
-  'help.local_memory_notice':
-    '기기 RAM에서 처리해요. 원격·PRO 전송은 최대 200 MiB이며, 메모리가 부족하면 더 작은 파일도 실패할 수 있어요.',
   'help.youtube_compat': '유튜브 (호환 모드)',
   'help.youtube_no_effects': 'YouTube 모드에서는 역할 설정과 음향 효과를 쓸 수 없어요.',
   'help.media_synced_detail': '연결된 모든 기기에서 선택한 미디어가 동시에 재생돼요.',
@@ -794,8 +784,6 @@ const ko = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': '시스템 오디오 공유',
-  'system_audio.preflight_limits':
-    'PC의 Chrome·Edge 등 Chromium 브라우저 · 최대 {{count}}대 · 최대 {{hours}}시간',
   'system_audio.sharing': '시스템 오디오 공유 중',
   'system_audio.receiving': '시스템 오디오 수신 중',
   'system_audio.owner_active': '{{name}} 님이 시스템 오디오를 공유 중이에요.',

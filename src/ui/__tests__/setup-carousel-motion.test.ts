@@ -51,37 +51,9 @@ import {
   setupHighlightJoinRole,
   setupRenderActions,
   setupSetGuestJoinError,
-  setupUpdateRoomTypeInfo,
   setupShowWelcome,
   updateObSlider,
 } from '../setup-shared.ts';
-
-describe('setup room-code guidance', () => {
-  it('classifies partial and complete codes before submission', () => {
-    document.body.innerHTML = `
-      <p id="setup-room-type-info" data-room-kind="unknown"></p>
-      <p id="setup-auto-join-room-type-info" data-room-kind="unknown"></p>
-    `;
-
-    expect(setupUpdateRoomTypeInfo('')).toBe('unknown');
-    expect(document.getElementById('setup-room-type-info')?.dataset.i18n).toBe(
-      'setup.room_type_hint',
-    );
-
-    expect(setupUpdateRoomTypeInfo('0')).toBe('pro');
-    expect(document.getElementById('setup-room-type-info')?.dataset.i18n).toBe(
-      'setup.pro_room_summary',
-    );
-
-    expect(setupUpdateRoomTypeInfo('123456')).toBe('standard');
-    expect(document.getElementById('setup-room-type-info')?.dataset.i18n).toBe(
-      'setup.standard_room_summary',
-    );
-
-    expect(setupUpdateRoomTypeInfo('000001', 'setup-auto-join-room-type-info')).toBe('pro');
-    expect(document.getElementById('setup-auto-join-room-type-info')?.dataset.roomKind).toBe('pro');
-  });
-});
 
 const OB_CAROUSEL_AUTOPLAY_DELAY_MS = 6000;
 

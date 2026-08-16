@@ -343,15 +343,6 @@ const pl: Record<I18nKey, string> = {
   'setup.change_later': 'Możesz to zmienić w dowolnym momencie w Ustawieniach.',
   'setup.welcome_title': 'Witaj',
   'setup.join_session_subtitle': 'Za chwilę dołączysz do pokoju {{code}}.',
-  'setup.room_type_hint':
-    'Kody zaczynające się od 0 oznaczają trwałe pokoje PRO, a od 1–9 — tymczasowe pokoje standardowe.',
-  'setup.standard_room_summary':
-    'Pokój standardowy · Jest tymczasowy i zamyka się po wyjściu hosta. Host zarządza odtwarzaniem i uprawnieniami; może być wymagane opcjonalne 8-cyfrowe hasło.',
-  'setup.pro_room_summary':
-    'Pokój PRO · Zachowuje playlistę i uprawnienia po wyjściu wszystkich osób. Zarządzają nim właściciele i administratorzy; wymagane jest 8-cyfrowe hasło PRO.',
-  'setup.center_role_guide':
-    'To urządzenie dołączyło jako głośnik centralny. Zmień rolę w Ustawienia → Dźwięk → Ustaw rolę tego urządzenia.',
-  'setup.center_role_open_settings': 'Otwórz ustawienia roli',
   'setup.select_role': 'Wybierz rolę',
   'setup.select_role_alt': 'Wybierz rolę',
   'setup.greeting': 'Cześć!',
@@ -373,8 +364,6 @@ const pl: Record<I18nKey, string> = {
     'Połączenie jest najbardziej stabilne, gdy wszystkie urządzenia korzystają z tej samej sieci lokalnej',
   'help.local_file': 'Wybierz plik lokalny',
   'help.load_local': 'Załaduj plik lokalny',
-  'help.local_memory_notice':
-    'Plik jest przetwarzany w pamięci RAM urządzenia. Transfer zdalny i PRO jest ograniczony do 200 MiB; przy małej ilości pamięci mogą nie zadziałać także mniejsze pliki.',
   'help.youtube_compat': 'YouTube (Tryb zgodności)',
   'help.youtube_no_effects': 'W trybie YouTube ustawienia ról i efekty dźwiękowe są niedostępne.',
   'help.media_synced_detail':
@@ -821,8 +810,6 @@ const pl: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Dźwięk systemowy',
-  'system_audio.preflight_limits':
-    'Chromium na komputerze (Chrome, Edge itp.) · limit urządzeń: {{count}} · limit czasu: {{hours}} godz.',
   'system_audio.sharing': 'Udostępnianie dźwięku systemowego',
   'system_audio.receiving': 'Odbieranie dźwięku systemowego',
   'system_audio.owner_active': '{{name}} udostępnia dźwięk systemowy.',

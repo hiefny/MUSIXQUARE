@@ -342,15 +342,6 @@ const vi: Record<I18nKey, string> = {
   'setup.change_later': 'Bạn có thể đổi sau trong Cài đặt.',
   'setup.welcome_title': 'Chào mừng',
   'setup.join_session_subtitle': 'Bạn sắp vào phòng {{code}}.',
-  'setup.room_type_hint':
-    'Mã bắt đầu bằng 0 là phòng PRO lâu dài; mã bắt đầu bằng 1–9 là phòng thường tạm thời.',
-  'setup.standard_room_summary':
-    'Phòng thường · Chỉ tồn tại tạm thời và đóng khi chủ phòng rời đi. Chủ phòng quản lý phát nhạc và quyền; có thể cần mật khẩu phòng 8 chữ số nếu đã bật.',
-  'setup.pro_room_summary':
-    'Phòng PRO · Danh sách phát và quyền vẫn được lưu khi mọi người rời đi. Chủ sở hữu và quản trị viên quản lý phòng; bắt buộc có mật khẩu PRO 8 chữ số.',
-  'setup.center_role_guide':
-    'Thiết bị này đã tham gia với vai trò loa Trung tâm. Hãy đổi tại Cài đặt → Âm thanh → Đặt vai trò cho thiết bị này.',
-  'setup.center_role_open_settings': 'Mở cài đặt vai trò',
   'setup.select_role': 'Vui lòng chọn vai trò',
   'setup.select_role_alt': 'Vui lòng chọn vai trò',
   'setup.greeting': 'Xin chào!',
@@ -371,8 +362,6 @@ const vi: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Kết nối cùng mạng là ổn định nhất',
   'help.local_file': 'Chọn tệp trên thiết bị',
   'help.load_local': 'Mở tệp trên thiết bị',
-  'help.local_memory_notice':
-    'Tệp được xử lý trong RAM của thiết bị. Truyền từ xa và PRO giới hạn ở 200 MiB; thiết bị ít bộ nhớ có thể thất bại với tệp nhỏ hơn.',
   'help.youtube_compat': 'YouTube (Chế độ tương thích)',
   'help.youtube_no_effects': 'Trong chế độ YouTube, vai trò và hiệu ứng âm thanh không khả dụng.',
   'help.media_synced_detail': 'Nội dung đã chọn sẽ phát đồng thời trên tất cả thiết bị đã kết nối.',
@@ -456,8 +445,6 @@ const vi: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Âm thanh hệ thống',
-  'system_audio.preflight_limits':
-    'Chromium trên máy tính (Chrome, Edge, v.v.) · tối đa {{count}} thiết bị · tối đa {{hours}} giờ',
   'system_audio.sharing': 'Đang chia sẻ âm thanh hệ thống',
   'system_audio.receiving': 'Đang nhận âm thanh hệ thống',
   'system_audio.owner_active': '{{name}} đang chia sẻ âm thanh hệ thống.',

@@ -340,15 +340,6 @@ const en: Record<I18nKey, string> = {
   'setup.change_later': 'You can adjust this anytime in Settings.',
   'setup.welcome_title': 'Welcome',
   'setup.join_session_subtitle': "You're about to join session {{code}}.",
-  'setup.room_type_hint':
-    'Codes starting with 0 are persistent PRO rooms; 1–9 are temporary standard rooms.',
-  'setup.standard_room_summary':
-    'Standard room · Temporary and ends when the host leaves. The host manages playback and permissions; an optional 8-digit room password may be required.',
-  'setup.pro_room_summary':
-    'PRO room · Persists after everyone leaves, including its playlist and permissions. Owners and admins manage it, and an 8-digit PRO room password is required.',
-  'setup.center_role_guide':
-    'This device joined as the Center speaker. Change it under Settings → Audio → Set this device’s role.',
-  'setup.center_role_open_settings': 'Open role settings',
   'setup.select_role': 'Please select a role',
   'setup.select_role_alt': 'Please select a role',
   'setup.greeting': 'Hello!',
@@ -369,8 +360,6 @@ const en: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Same-network connections are the most reliable',
   'help.local_file': 'Choose local file',
   'help.load_local': 'Load local file',
-  'help.local_memory_notice':
-    'Processed in device RAM. Remote and PRO transfers are limited to 200 MiB; low-memory devices may fail with smaller files.',
   'help.youtube_compat': 'YouTube (Compatibility Mode)',
   'help.youtube_no_effects': 'In YouTube mode, role settings and audio effects are unavailable.',
   'help.media_synced_detail': 'The selected media plays simultaneously on all connected devices.',
@@ -801,8 +790,6 @@ const en: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'System Audio',
-  'system_audio.preflight_limits':
-    'Desktop Chromium (Chrome, Edge, etc.) · up to {{count}} devices · up to {{hours}} hours',
   'system_audio.sharing': 'Sharing System Audio',
   'system_audio.receiving': 'Receiving System Audio',
   'system_audio.owner_active': '{{name}} is sharing system audio.',

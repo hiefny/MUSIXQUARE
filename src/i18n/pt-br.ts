@@ -345,15 +345,6 @@ const ptBr: Record<I18nKey, string> = {
   'setup.change_later': 'Você pode mudar isso depois nas Configurações.',
   'setup.welcome_title': 'Boas-vindas',
   'setup.join_session_subtitle': 'Você vai entrar na sala {{code}}.',
-  'setup.room_type_hint':
-    'Códigos iniciados em 0 são salas PRO permanentes; de 1 a 9 são salas padrão temporárias.',
-  'setup.standard_room_summary':
-    'Sala padrão · É temporária e termina quando o anfitrião sai. O anfitrião gerencia reprodução e permissões; uma senha opcional de 8 dígitos pode ser solicitada.',
-  'setup.pro_room_summary':
-    'Sala PRO · Mantém playlist e permissões mesmo depois que todos saem. Proprietários e administradores gerenciam a sala, que exige uma senha PRO de 8 dígitos.',
-  'setup.center_role_guide':
-    'Este dispositivo entrou como alto-falante central. Altere em Configurações → Áudio → Definir a função deste dispositivo.',
-  'setup.center_role_open_settings': 'Abrir configurações de função',
   'setup.select_role': 'Selecione uma função',
   'setup.select_role_alt': 'Selecione uma função',
   'setup.greeting': 'Olá!',
@@ -374,8 +365,6 @@ const ptBr: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Conexões na mesma rede são as mais confiáveis',
   'help.local_file': 'Escolher arquivo local',
   'help.load_local': 'Carregar arquivo local',
-  'help.local_memory_notice':
-    'O arquivo é processado na RAM do dispositivo. Transferências remotas e PRO são limitadas a 200 MiB; dispositivos com pouca memória podem falhar com arquivos menores.',
   'help.youtube_compat': 'YouTube (modo de compatibilidade)',
   'help.youtube_no_effects': 'No modo YouTube, funções e efeitos de áudio ficam indisponíveis.',
   'help.media_synced_detail':
@@ -463,8 +452,6 @@ const ptBr: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Áudio do sistema',
-  'system_audio.preflight_limits':
-    'Chromium no computador (Chrome, Edge etc.) · até {{count}} dispositivos · até {{hours}} horas',
   'system_audio.sharing': 'Compartilhando áudio do sistema',
   'system_audio.receiving': 'Recebendo áudio do sistema',
   'system_audio.owner_active': '{{name}} está compartilhando o áudio do sistema.',

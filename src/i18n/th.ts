@@ -335,15 +335,6 @@ const th: Record<I18nKey, string> = {
   'setup.change_later': 'เปลี่ยนได้ทุกเมื่อในการตั้งค่า',
   'setup.welcome_title': 'ยินดีต้อนรับ',
   'setup.join_session_subtitle': 'กำลังจะเข้าร่วมห้อง {{code}}',
-  'setup.room_type_hint':
-    'รหัสที่ขึ้นต้นด้วย 0 คือห้อง PRO แบบถาวร ส่วนรหัสที่ขึ้นต้นด้วย 1–9 คือห้องมาตรฐานชั่วคราว',
-  'setup.standard_room_summary':
-    'ห้องมาตรฐาน · เป็นห้องชั่วคราวและจะปิดเมื่อโฮสต์ออก โฮสต์จัดการการเล่นและสิทธิ์ และอาจต้องใช้รหัสผ่านห้อง 8 หลักหากเปิดไว้',
-  'setup.pro_room_summary':
-    'ห้อง PRO · เพลย์ลิสต์และสิทธิ์ยังคงอยู่แม้ทุกคนออก เจ้าของและผู้ดูแลเป็นผู้จัดการ และต้องใช้รหัสผ่าน PRO 8 หลัก',
-  'setup.center_role_guide':
-    'อุปกรณ์นี้เข้าร่วมเป็นลำโพงกลาง เปลี่ยนได้ที่ การตั้งค่า → เสียง → ตั้งค่าบทบาทของอุปกรณ์นี้',
-  'setup.center_role_open_settings': 'เปิดการตั้งค่าบทบาท',
   'setup.select_role': 'เลือกบทบาท',
   'setup.select_role_alt': 'เลือกบทบาท',
   'setup.greeting': 'สวัสดี!',
@@ -365,8 +356,6 @@ const th: Record<I18nKey, string> = {
     'การเชื่อมต่อจะเสถียรที่สุดเมื่อทุกอุปกรณ์เชื่อมต่อ Wi-Fi เครือข่ายเดียวกัน',
   'help.local_file': 'เลือกไฟล์ในเครื่อง',
   'help.load_local': 'โหลดไฟล์ในเครื่อง',
-  'help.local_memory_notice':
-    'ไฟล์ประมวลผลใน RAM ของอุปกรณ์ การส่งระยะไกลและ PRO จำกัดที่ 200 MiB และอุปกรณ์ที่มีหน่วยความจำน้อยอาจใช้ไฟล์ที่เล็กกว่านี้ไม่สำเร็จ',
   'help.youtube_compat': 'YouTube (โหมดเข้ากันได้)',
   'help.youtube_no_effects':
     'ในโหมด YouTube จะไม่สามารถแยกช่องสัญญาณลำโพงและใช้เอฟเฟกต์เสียงขั้นสูงได้',
@@ -792,8 +781,6 @@ const th: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'เสียงระบบ',
-  'system_audio.preflight_limits':
-    'Chromium บนคอมพิวเตอร์ (Chrome, Edge ฯลฯ) · สูงสุด {{count}} อุปกรณ์ · สูงสุด {{hours}} ชั่วโมง',
   'system_audio.sharing': 'กำลังแชร์เสียงระบบ',
   'system_audio.receiving': 'กำลังรับเสียงระบบ',
   'system_audio.owner_active': '{{name}} กำลังแชร์เสียงระบบ',

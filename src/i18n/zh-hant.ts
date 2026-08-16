@@ -331,14 +331,6 @@ const zhHant: Record<I18nKey, string> = {
   'setup.change_later': '你隨時可以在「設定」中進行調整。',
   'setup.welcome_title': '歡迎',
   'setup.join_session_subtitle': '你即將加入房間 {{code}}。',
-  'setup.room_type_hint': '以0開頭的代碼是常駐 PRO 房間；以1–9開頭的是臨時一般房間。',
-  'setup.standard_room_summary':
-    '一般房間 · 房主離開後即關閉。播放與權限由房主管理；若已啟用，還需輸入8位房間密碼。',
-  'setup.pro_room_summary':
-    'PRO 房間 · 所有人離開後仍會保留播放清單與權限。由擁有者和管理員管理，且需要8位 PRO 房間密碼。',
-  'setup.center_role_guide':
-    '此裝置已以中央喇叭角色加入。可在「設定 → 音訊 → 設定此裝置的角色」中變更。',
-  'setup.center_role_open_settings': '開啟角色設定',
   'setup.select_role': '請選擇角色',
   'setup.select_role_alt': '請選擇角色',
   'setup.greeting': '你好！',
@@ -359,8 +351,6 @@ const zhHant: Record<I18nKey, string> = {
   'help.connect_all_wifi': '同一網路連線最穩定',
   'help.local_file': '選擇本機檔案',
   'help.load_local': '載入本機檔案',
-  'help.local_memory_notice':
-    '檔案會在裝置記憶體中處理。遠端與 PRO 傳輸上限為200 MiB；記憶體較少的裝置處理更小檔案時也可能失敗。',
   'help.youtube_compat': 'YouTube（相容模式）',
   'help.youtube_no_effects': '在 YouTube 模式下，角色設定和音訊效果無法使用。',
   'help.media_synced_detail': '所選媒體會在所有已連線裝置上同步播放。',
@@ -442,8 +432,6 @@ const zhHant: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': '系統音訊',
-  'system_audio.preflight_limits':
-    '桌面版 Chromium 瀏覽器（Chrome、Edge 等）· 最多{{count}}部裝置 · 最長{{hours}}小時',
   'system_audio.sharing': '正在分享系統音訊',
   'system_audio.receiving': '正在接收系統音訊',
   'system_audio.owner_active': '{{name}} 正在分享系統音訊。',

@@ -40,7 +40,6 @@ import {
 import { animateTransition } from './dom.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
-import { scheduleCenterRoleGuideOnce } from './center-role-guide.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
@@ -207,7 +206,6 @@ function startSessionFromHost(mode: number = DEFAULT_SETUP_ROLE): void {
   clearLatestPinnedNotice();
   setState('setup.sessionStarted', true);
   hideSetupOverlay();
-  scheduleCenterRoleGuideOnce();
   updateRoleBadge();
 
   // Show host in device list immediately (don't wait for a guest to connect)

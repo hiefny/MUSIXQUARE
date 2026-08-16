@@ -345,15 +345,6 @@ const nl: Record<I18nKey, string> = {
   'setup.change_later': 'Je kunt dit later altijd aanpassen in Instellingen.',
   'setup.welcome_title': 'Welkom',
   'setup.join_session_subtitle': 'Je gaat deelnemen aan kamer {{code}}.',
-  'setup.room_type_hint':
-    'Codes die met 0 beginnen zijn blijvende PRO-ruimtes; codes met 1–9 zijn tijdelijke standaardruimtes.',
-  'setup.standard_room_summary':
-    'Standaardruimte · Tijdelijk en sluit als de host vertrekt. De host beheert afspelen en rechten; optioneel kan een 8-cijferig ruimtewachtwoord nodig zijn.',
-  'setup.pro_room_summary':
-    'PRO-ruimte · Afspeellijst en rechten blijven bewaard als iedereen vertrekt. Eigenaren en beheerders beheren de ruimte; een 8-cijferig PRO-wachtwoord is vereist.',
-  'setup.center_role_guide':
-    'Dit apparaat is als middenspeaker verbonden. Wijzig dit via Instellingen → Audio → Rol van dit apparaat instellen.',
-  'setup.center_role_open_settings': 'Rolinstellingen openen',
   'setup.select_role': 'Kies een rol',
   'setup.select_role_alt': 'Kies een rol',
   'setup.greeting': 'Hallo!',
@@ -374,8 +365,6 @@ const nl: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Verbindingen op hetzelfde netwerk zijn het betrouwbaarst',
   'help.local_file': 'Lokaal bestand kiezen',
   'help.load_local': 'Lokaal bestand laden',
-  'help.local_memory_notice':
-    'Het bestand wordt in het RAM van het apparaat verwerkt. Overdracht op afstand en via PRO is beperkt tot 200 MiB; apparaten met weinig geheugen kunnen ook bij kleinere bestanden mislukken.',
   'help.youtube_compat': 'YouTube (compatibiliteitsmodus)',
   'help.youtube_no_effects':
     'In YouTube-modus zijn rolinstellingen en audio-effecten niet beschikbaar.',
@@ -811,8 +800,6 @@ const nl: Record<I18nKey, string> = {
 
   // System audio sharing
   'system_audio.button': 'Systeemaudio',
-  'system_audio.preflight_limits':
-    'Chromium op desktop (Chrome, Edge enz.) · maximaal {{count}} apparaten · maximaal {{hours}} uur',
   'system_audio.sharing': 'Systeemaudio delen',
   'system_audio.receiving': 'Systeemaudio ontvangen',
   'system_audio.owner_active': '{{name}} deelt systeemaudio.',

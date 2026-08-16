@@ -35,6 +35,28 @@ import {
   requiredProSystemMessagePermission,
 } from './pro-room-permissions.js';
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.js';
+import {
+  PRO_ROOM_ACTIVATION_CLAIM_MAX_LIFETIME_MS as ACTIVATION_CLAIM_MAX_LIFETIME_MS,
+  PRO_ROOM_OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS as OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS,
+  createProRoomOwnerTransferCommitProof as ownerTransferCommitProof,
+  inspectProRoomOwnerTransferClaim as inspectOwnerTransferClaim,
+  issueProRoomActivationClaim,
+  issueProRoomOwnerRecoveryClaim,
+  issueProRoomOwnerTransferClaim,
+  verifyProRoomActivationClaim as verifyActivationClaim,
+  verifyProRoomOwnerRecoveryClaim as verifyOwnerRecoveryClaim,
+  verifyProRoomOwnerTransferRevocationReceipt as verifyOwnerTransferRevocationReceipt,
+} from './pro-room-claims.js';
+import {
+  base64UrlDecode,
+  base64UrlEncode,
+  constantTimeEqual,
+  hmacBase64Url,
+  hmacBytes,
+  randomToken,
+  sha256Base64Url,
+  sha256Bytes,
+} from './pro-room-crypto.js';
 import { isSafeVisibleDisplayName } from './display-name-policy.js';
 import {
   INITIAL_PRO_ROOM_GENERATION,
@@ -52,6 +74,11 @@ import {
 } from './pro-room-grants.js';
 
 export { MusixquareServiceControl } from './service-control-object.js';
+export {
+  issueProRoomActivationClaim,
+  issueProRoomOwnerRecoveryClaim,
+  issueProRoomOwnerTransferClaim,
+} from './pro-room-claims.js';
 
 /**
  * MUSIXQUARE persistent PRO room service.
@@ -67,10 +94,6 @@ const INITIAL_PRO_ROOMS = Object.freeze([
   Object.freeze({ roomCode: '000000', label: 'MUSIXQUARE Developer' }),
 ]);
 const INITIAL_PRO_ROOM_CODES = new Set(INITIAL_PRO_ROOMS.map((room) => room.roomCode));
-const ACTIVATION_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
-const OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
-const OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS = 10 * 60 * 1000;
-const OWNER_TRANSFER_REVOCATION_RECEIPT_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const OWNER_TRANSFER_COMPLETED_REPLAY_TTL_MS = 10 * 60 * 1000;
 const OWNER_TRANSFER_COMPLETED_REPLAY_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const PRO_ROOM_REGISTRY_MAX_ITEMS = 1000;
@@ -301,7 +324,6 @@ const PLAYBACK_ENDED_NEAR_END_TOLERANCE_SECONDS = 2;
 const PLAYBACK_UNKNOWN_DURATION_POSITION_TOLERANCE_SECONDS = 10;
 const PLAYBACK_UNKNOWN_DURATION_MIN_PLAYING_MS = 750;
 const PLAYBACK_TRANSITION_ID_RE = /^transition_[A-Za-z0-9_-]{22}$/;
-const RECOVERY_CLAIM_MAX_LIFETIME_MS = 15 * 60 * 1000;
 const OWNER_COOKIE_MAX_AGE_SECONDS = 400 * 24 * 60 * 60;
 // v1 covers direct playback controls and queue invalidations. v2 adds
 // set_effects; v3 adds aggregate-aware next; v4 adds a bounded first-track
@@ -354,7 +376,6 @@ const SECURITY_HEADERS = {
 };
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true });
 
 function configuredNumber(value, fallback, min = 1, max = Number.MAX_SAFE_INTEGER) {
   const parsed = Number(value);
@@ -626,90 +647,9 @@ function queueAdditionTrackTitle(value) {
   return result || null;
 }
 
-function base64UrlEncode(value) {
-  const bytes = value instanceof Uint8Array ? value : new Uint8Array(value);
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function base64UrlDecode(value) {
-  const padded = value
-    .replace(/-/g, '+')
-    .replace(/_/g, '/')
-    .padEnd(Math.ceil(value.length / 4) * 4, '=');
-  const binary = atob(padded);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
-function randomToken(bytes = 24) {
-  const value = new Uint8Array(bytes);
-  crypto.getRandomValues(value);
-  return base64UrlEncode(value);
-}
-
-function constantTimeEqual(left, right) {
-  if (typeof left !== 'string' || typeof right !== 'string') return false;
-  let difference = left.length ^ right.length;
-  const length = Math.max(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    difference |= (left.charCodeAt(index) || 0) ^ (right.charCodeAt(index) || 0);
-  }
-  return difference === 0;
-}
-
-async function sha256Bytes(value) {
-  const bytes = typeof value === 'string' ? encoder.encode(value) : value;
-  return new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
-}
-
-async function sha256Base64Url(value) {
-  return base64UrlEncode(await sha256Bytes(value));
-}
-
-async function hmacBytes(secret, value) {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    typeof secret === 'string' ? encoder.encode(secret) : secret,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  return new Uint8Array(
-    await crypto.subtle.sign(
-      'HMAC',
-      key,
-      typeof value === 'string' ? encoder.encode(value) : value,
-    ),
-  );
-}
-
-async function hmacBase64Url(secret, value) {
-  return base64UrlEncode(await hmacBytes(secret, value));
-}
-
-async function createSignedToken(payload, secret) {
-  const encoded = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
-  return `v1.${encoded}.${await hmacBase64Url(secret, `v1.${encoded}`)}`;
-}
-
 async function createProSignalingTicket(payload, secret) {
   const encoded = base64UrlEncode(encoder.encode(JSON.stringify(payload)));
   return `${encoded}.${await hmacBase64Url(secret, encoded)}`;
-}
-
-async function verifySignedToken(token, secret) {
-  try {
-    const parts = String(token || '').split('.');
-    if (parts.length !== 3 || parts[0] !== 'v1' || !parts[1] || !parts[2]) return null;
-    const expected = await hmacBase64Url(secret, `${parts[0]}.${parts[1]}`);
-    if (!constantTimeEqual(expected, parts[2])) return null;
-    return JSON.parse(decoder.decode(base64UrlDecode(parts[1])));
-  } catch {
-    return null;
-  }
 }
 
 async function createOpaqueCredential(secret) {
@@ -727,291 +667,6 @@ async function verifyOpaqueCredential(token, secret) {
   const parts = token.split('.');
   if (parts.length !== 3 || parts[0] !== 'v1' || !parts[1] || !parts[2]) return false;
   return constantTimeEqual(await hmacBase64Url(secret, `${parts[0]}.${parts[1]}`), parts[2]);
-}
-
-/** Owner-claim issuer used by the offline CLI and the Access-gated admin API. */
-export async function issueProRoomActivationClaim(roomCode, secret, options = {}) {
-  if (!isProRoomCode(roomCode)) throw new Error('Unsupported PRO room code');
-  if (typeof secret !== 'string' || secret.length < 32)
-    throw new Error('Activation secret too short');
-  const nowMs = options.nowMs ?? Date.now();
-  const expiresAtMs = options.expiresAtMs ?? nowMs + ACTIVATION_CLAIM_MAX_LIFETIME_MS;
-  if (
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= nowMs ||
-    expiresAtMs - nowMs > ACTIVATION_CLAIM_MAX_LIFETIME_MS
-  ) {
-    throw new Error('Invalid expiry');
-  }
-  const generation = options.generation ?? 0;
-  if (!Number.isSafeInteger(generation) || generation < 0) throw new Error('Invalid generation');
-  const roomGeneration = options.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION;
-  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
-  const targetAccountId = options.targetAccountId ?? null;
-  if (targetAccountId !== null && !ACCOUNT_ID_RE.test(targetAccountId)) {
-    throw new Error('Invalid target account');
-  }
-  const nonce = options.nonce ?? randomToken(18);
-  if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
-    throw new Error('Invalid nonce');
-  }
-  return createSignedToken(
-    {
-      v: 1,
-      purpose: 'pro-room-activation',
-      roomCode,
-      iat: nowMs,
-      exp: expiresAtMs,
-      nonce,
-      generation,
-      ...proRoomGenerationWireFields(roomGeneration),
-      ...(targetAccountId === null ? {} : { targetAccountId }),
-    },
-    secret,
-  );
-}
-
-async function verifyActivationClaim(token, roomCode, secret, nowMs) {
-  if (typeof secret !== 'string' || secret.length < 32) return null;
-  const payload = await verifySignedToken(token, secret);
-  return payload &&
-    payload.v === 1 &&
-    payload.purpose === 'pro-room-activation' &&
-    payload.roomCode === roomCode &&
-    Number.isSafeInteger(payload.iat) &&
-    payload.iat <= nowMs + 60_000 &&
-    Number.isSafeInteger(payload.exp) &&
-    payload.exp > nowMs &&
-    payload.exp - payload.iat <= ACTIVATION_CLAIM_MAX_LIFETIME_MS &&
-    typeof payload.nonce === 'string' &&
-    payload.nonce.length >= 16 &&
-    Number.isSafeInteger(payload.generation) &&
-    payload.generation >= 0 &&
-    isProRoomGeneration(payload.roomGeneration) &&
-    (payload.targetAccountId === undefined || ACCOUNT_ID_RE.test(payload.targetAccountId))
-    ? payload
-    : null;
-}
-
-export async function issueProRoomOwnerRecoveryClaim(roomCode, secret, options = {}) {
-  if (!isProRoomCode(roomCode)) throw new Error('Unsupported PRO room code');
-  if (typeof secret !== 'string' || secret.length < 32)
-    throw new Error('Activation secret too short');
-  const nowMs = options.nowMs ?? Date.now();
-  const expiresAtMs = options.expiresAtMs ?? nowMs + 10 * 60 * 1000;
-  if (
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= nowMs ||
-    expiresAtMs - nowMs > RECOVERY_CLAIM_MAX_LIFETIME_MS
-  ) {
-    throw new Error('Invalid expiry');
-  }
-  const nonce = options.nonce ?? randomToken(18);
-  const roomGeneration = options.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION;
-  // The legacy offline helper can only describe the first activated owner
-  // incarnation. Runtime issuance always supplies the current durable fence.
-  const ownerAuthorityEpoch = options.ownerAuthorityEpoch ?? 1;
-  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
-  if (!isSafeNonNegativeInteger(ownerAuthorityEpoch)) {
-    throw new Error('Invalid owner authority epoch');
-  }
-  if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
-    throw new Error('Invalid nonce');
-  }
-  return createSignedToken(
-    {
-      v: 1,
-      purpose: 'pro-room-owner-recovery',
-      roomCode,
-      iat: nowMs,
-      exp: expiresAtMs,
-      nonce,
-      ownerAuthorityEpoch,
-      ...proRoomGenerationWireFields(roomGeneration),
-    },
-    secret,
-  );
-}
-
-async function verifyOwnerRecoveryClaim(token, roomCode, secret, nowMs) {
-  if (typeof secret !== 'string' || secret.length < 32) return null;
-  const payload = await verifySignedToken(token, secret);
-  if (
-    !payload ||
-    !hasExactKeys(payload, [
-      'v',
-      'purpose',
-      'roomCode',
-      'iat',
-      'exp',
-      'nonce',
-      'ownerAuthorityEpoch',
-      'roomGeneration',
-    ]) ||
-    payload.v !== 1 ||
-    payload.purpose !== 'pro-room-owner-recovery' ||
-    payload.roomCode !== roomCode ||
-    !Number.isSafeInteger(payload.iat) ||
-    payload.iat > nowMs + 60_000 ||
-    !Number.isSafeInteger(payload.exp) ||
-    payload.exp <= nowMs ||
-    payload.exp - payload.iat > RECOVERY_CLAIM_MAX_LIFETIME_MS ||
-    !isProRoomGeneration(payload.roomGeneration) ||
-    !isSafeNonNegativeInteger(payload.ownerAuthorityEpoch) ||
-    typeof payload.nonce !== 'string' ||
-    !/^[A-Za-z0-9_-]{16,128}$/.test(payload.nonce)
-  ) {
-    return null;
-  }
-  return payload;
-}
-
-export async function issueProRoomOwnerTransferClaim(roomCode, secret, options = {}) {
-  if (!isProRoomCode(roomCode)) throw new Error('Unsupported PRO room code');
-  if (typeof secret !== 'string' || secret.length < 32) {
-    throw new Error('Activation secret too short');
-  }
-  if (!ACCOUNT_ID_RE.test(options.targetAccountId || '')) {
-    throw new Error('Invalid target account');
-  }
-  if (!isSafeNonNegativeInteger(options.claimGeneration)) {
-    throw new Error('Invalid claim generation');
-  }
-  if (!isSafeNonNegativeInteger(options.ownerAuthorityEpoch)) {
-    throw new Error('Invalid owner authority epoch');
-  }
-  const roomGeneration = options.roomGeneration ?? INITIAL_PRO_ROOM_GENERATION;
-  if (!isProRoomGeneration(roomGeneration)) throw new Error('Invalid room generation');
-  const nowMs = options.nowMs ?? Date.now();
-  const expiresAtMs = options.expiresAtMs ?? nowMs + OWNER_TRANSFER_CLAIM_DEFAULT_LIFETIME_MS;
-  if (
-    !Number.isSafeInteger(expiresAtMs) ||
-    expiresAtMs <= nowMs ||
-    expiresAtMs - nowMs > OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS
-  ) {
-    throw new Error('Invalid expiry');
-  }
-  const nonce = options.nonce ?? randomToken(18);
-  if (typeof nonce !== 'string' || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce)) {
-    throw new Error('Invalid nonce');
-  }
-  return createSignedToken(
-    {
-      v: 1,
-      purpose: 'pro-room-owner-transfer',
-      roomCode,
-      roomGeneration,
-      targetAccountId: options.targetAccountId,
-      claimGeneration: options.claimGeneration,
-      ownerAuthorityEpoch: options.ownerAuthorityEpoch,
-      iat: nowMs,
-      exp: expiresAtMs,
-      nonce,
-    },
-    secret,
-  );
-}
-
-async function inspectOwnerTransferClaim(token, roomCode, secret, nowMs) {
-  if (typeof secret !== 'string' || secret.length < 32) {
-    return { error: 'OWNER_TRANSFER_CLAIM_INVALID' };
-  }
-  const payload = await verifySignedToken(token, secret);
-  if (
-    !payload ||
-    !hasExactKeys(payload, [
-      'v',
-      'purpose',
-      'roomCode',
-      'roomGeneration',
-      'targetAccountId',
-      'claimGeneration',
-      'ownerAuthorityEpoch',
-      'iat',
-      'exp',
-      'nonce',
-    ]) ||
-    payload.v !== 1 ||
-    payload.purpose !== 'pro-room-owner-transfer' ||
-    payload.roomCode !== roomCode ||
-    !isProRoomGeneration(payload.roomGeneration) ||
-    !ACCOUNT_ID_RE.test(payload.targetAccountId || '') ||
-    !isSafeNonNegativeInteger(payload.claimGeneration) ||
-    !isSafeNonNegativeInteger(payload.ownerAuthorityEpoch) ||
-    !Number.isSafeInteger(payload.iat) ||
-    payload.iat > nowMs + 60_000 ||
-    !Number.isSafeInteger(payload.exp) ||
-    payload.exp <= payload.iat ||
-    payload.exp - payload.iat > OWNER_TRANSFER_CLAIM_MAX_LIFETIME_MS ||
-    typeof payload.nonce !== 'string' ||
-    !/^[A-Za-z0-9_-]{16,128}$/.test(payload.nonce)
-  ) {
-    return { error: 'OWNER_TRANSFER_CLAIM_INVALID' };
-  }
-  return {
-    claim: payload,
-    expired: payload.exp <= nowMs,
-  };
-}
-
-async function ownerTransferCommitProof(room, pending, secret) {
-  return createSignedToken(
-    {
-      v: 1,
-      purpose: 'pro-room-owner-transfer-commit',
-      roomCode: room.roomCode,
-      roomGeneration: room.roomGeneration,
-      transferId: pending.transferId,
-      requestId: pending.requestId,
-      targetAccountId: pending.targetAccountId,
-      ownerAuthorityEpoch: pending.ownerAuthorityEpoch,
-      preparedAtMs: pending.preparedAtMs,
-    },
-    secret,
-  );
-}
-
-async function verifyOwnerTransferRevocationReceipt(token, expected, secret, nowMs) {
-  if (typeof token !== 'string' || typeof secret !== 'string' || secret.length < 32) return null;
-  try {
-    const parts = token.split('.');
-    if (parts.length !== 3 || parts[0] !== 'v1' || !parts[1] || !parts[2]) return null;
-    const expectedMac = await hmacBase64Url(
-      secret,
-      `owner-transfer-revocation:v1\u0000${parts[1]}`,
-    );
-    if (!constantTimeEqual(expectedMac, parts[2])) return null;
-    const payload = JSON.parse(decoder.decode(base64UrlDecode(parts[1])));
-    if (
-      !hasExactKeys(payload, [
-        'purpose',
-        'roomCode',
-        'roomGeneration',
-        'transferId',
-        'targetAccountId',
-        'requestId',
-        'revokedAtMs',
-        'expiresAtMs',
-      ]) ||
-      payload.purpose !== 'pro-room-owner-transfer-revocation' ||
-      payload.roomCode !== expected.roomCode ||
-      payload.roomGeneration !== expected.roomGeneration ||
-      payload.transferId !== expected.transferId ||
-      payload.targetAccountId !== expected.targetAccountId ||
-      payload.requestId !== expected.requestId ||
-      !Number.isSafeInteger(payload.revokedAtMs) ||
-      payload.revokedAtMs > nowMs + 60_000 ||
-      !Number.isSafeInteger(payload.expiresAtMs) ||
-      payload.expiresAtMs <= nowMs ||
-      payload.expiresAtMs <= payload.revokedAtMs ||
-      payload.expiresAtMs - payload.revokedAtMs > OWNER_TRANSFER_REVOCATION_RECEIPT_MAX_LIFETIME_MS
-    ) {
-      return null;
-    }
-    return payload;
-  } catch {
-    return null;
-  }
 }
 
 async function derivePinHash(pin, salt, pepper, iterations = PBKDF2_ITERATIONS) {

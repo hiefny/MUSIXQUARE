@@ -1,9 +1,15 @@
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.js';
 
+/** @typedef {{ queueItemId: string }} QueueModePlaylistItem */
+/** @typedef {{ repeatMode: 0 | 1 | 2, shuffleEnabled: boolean, shuffleOrder: string[] }} QueueModeValues */
+/** @typedef {QueueModeValues & { revision: number, updatedAtMs: number }} StoredQueueMode */
+/** @typedef {{ roomCode: string, playlistRevision: number, queueMode: StoredQueueMode }} RoomWithQueueMode */
+
 export const QUEUE_ITEM_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const PLAYLIST_MAX_ITEMS = 1000;
 
+/** @returns {StoredQueueMode} */
 export function initialQueueModeState() {
   return {
     revision: 0,
@@ -14,6 +20,12 @@ export function initialQueueModeState() {
   };
 }
 
+/**
+ * @param {unknown} value
+ * @param {readonly QueueModePlaylistItem[]} playlist
+ * @param {boolean} [stored]
+ * @returns {QueueModeValues | StoredQueueMode | null}
+ */
 export function parseQueueModeValues(value, playlist, stored = false) {
   const keys = stored
     ? ['revision', 'updatedAtMs', 'repeatMode', 'shuffleEnabled', 'shuffleOrder']
@@ -31,9 +43,11 @@ export function parseQueueModeValues(value, playlist, stored = false) {
     return null;
   }
   const liveIds = new Set(playlist.map((item) => item.queueItemId));
+  /** @type {Set<string>} */
   const seen = new Set();
+  /** @type {string[]} */
   const shuffleOrder = [];
-  for (const queueItemId of value.shuffleOrder) {
+  for (const queueItemId of /** @type {string[]} */ (value.shuffleOrder)) {
     if (
       !QUEUE_ITEM_ID_RE.test(queueItemId || '') ||
       !liveIds.has(queueItemId) ||
@@ -58,10 +72,19 @@ export function parseQueueModeValues(value, playlist, stored = false) {
   };
 }
 
+/**
+ * @param {unknown} value
+ * @param {readonly QueueModePlaylistItem[]} playlist
+ * @returns {StoredQueueMode | null}
+ */
 export function normalizeStoredQueueMode(value, playlist) {
-  return parseQueueModeValues(value, playlist, true);
+  return /** @type {StoredQueueMode | null} */ (parseQueueModeValues(value, playlist, true));
 }
 
+/**
+ * @param {RoomWithQueueMode} room
+ * @returns {{ schemaVersion: 1, view: 'queue-mode', roomCode: string, revision: number, playlistRevision: number, updatedAtMs: number, repeatMode: 0 | 1 | 2, shuffleEnabled: boolean, shuffleOrder: string[] }}
+ */
 export function publicQueueMode(room) {
   return {
     schemaVersion: 1,
@@ -76,6 +99,10 @@ export function publicQueueMode(room) {
   };
 }
 
+/**
+ * @param {RoomWithQueueMode} room
+ * @returns {{ schemaVersion: 1, view: 'queue-mode', roomCode: string, revision: number, playlistRevision: number, updatedAtMs: number, repeatMode: 'off' | 'all' | 'one', shuffleEnabled: boolean }}
+ */
 export function developerQueueMode(room) {
   return {
     schemaVersion: 1,
@@ -90,6 +117,10 @@ export function developerQueueMode(room) {
   };
 }
 
+/**
+ * @param {readonly QueueModePlaylistItem[]} playlist
+ * @returns {string[]}
+ */
 export function shuffledQueueItemIds(playlist) {
   const queueItemIds = playlist.map((item) => item.queueItemId);
   const random = new Uint32Array(1);

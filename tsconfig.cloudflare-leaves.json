@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": [
+    "cloudflare/pro-room-validation.js",
+    "cloudflare/pro-room-permissions.js",
+    "cloudflare/pro-room-generation.js",
+    "cloudflare/pro-room-body.js",
+    "cloudflare/pro-room-effects.js",
+    "cloudflare/pro-room-queue-mode.js"
+  ]
+}

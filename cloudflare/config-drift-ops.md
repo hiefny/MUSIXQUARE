@@ -44,36 +44,72 @@ or less. This catches a copied temporary-media cleanup rule without pretending
 that the audit manages bucket state.
 
 The checked-in source-to-live mapping is
-`cloudflare/ops-drift.contract.json`. The manually dispatched
+`cloudflare/ops-drift.contract.json`. The daily and manually dispatched
 `Operations Drift Audit` GitHub workflow performs **GET-only** comparisons for
 all three R2 CORS policies, the exact remote-share lifecycle, the PRO short-delete
-guard, all six Workers' exact secret-name inventories, and the effective `main`
-branch rules. It never applies a bucket policy, edits a Worker secret, or edits a
-GitHub ruleset. The workflow runs only for `main` and injects credentials only
-into the live comparison step. Its production environment
+guard, all six Workers' exact secret-name inventories, non-secret bindings,
+custom domains (including their production environment), workers.dev/Preview
+URL exposure, and the effective `main` branch rules. Each Worker surface points
+to its production Wrangler TOML, which is the exact binding source. The binding
+audit reads the first deployment returned by Cloudflare, requires its active
+traffic split to contain one or two unique non-zero versions totaling 100%, and
+compares every serving version's `resources.bindings` with that source. This
+prevents a 50/50 rollout from passing merely because one version is correct.
+In addition to the six service-filtered custom-domain reads, one unfiltered
+account inventory read covers the contracted `musixquare.com` hostname tree.
+It catches a project hostname attached to an uncontracted Worker without
+retaining the unexpected hostname or service name in the report.
+D1/KV/rate-limit identifiers and plain-text values are compared in memory but
+reduced to a generic match/mismatch marker before the report is built. Secret
+values, opaque deployment/resource/domain/route IDs, certificate IDs, and
+version IDs are never serialized. It never applies a bucket policy,
+edits a Worker secret, or edits a GitHub ruleset. The workflow runs only for
+`main` and injects credentials only into the live comparison step. Its production environment
 `CLOUDFLARE_DRIFT_AUDIT_TOKEN` requires exactly the account-level
 `Workers R2 Storage Read` and `Workers Scripts Read` permissions for the
 production account. The latter is required by Cloudflare's
-`GET /accounts/{account_id}/workers/scripts/{script_name}/secrets` endpoint.
+`GET /accounts/{account_id}/workers/scripts/{script_name}/secrets` endpoint and
+also covers the read-only deployment, version-detail, subdomain, and
+custom-domain queries.
 A missing narrow credential fails closed; the audit workflow never receives or
 falls back to the production deployment token. GitHub follows the optional
 `GITHUB_DRIFT_AUDIT_TOKEN` then built-in `github.token` order. Source CORS
 objects are exact-key validated so misspelled fields fail before any live
 query; the audit script contains no mutating HTTP method.
 
-Schema v3 rollout precondition: before its first live dispatch, replace the
-GitHub `production` environment's R2-only `CLOUDFLARE_DRIFT_AUDIT_TOKEN` with a
-new account-scoped token containing exactly `Workers R2 Storage Read` and
-`Workers Scripts Read`. Dispatch this audit with the new token, confirm that the
-Worker-secret rows reached comparison rather than authorization errors, and
-only then revoke the old R2-only token. Do not use the deployment token as a
-temporary bridge; leaving the audit failed closed until the narrow rotation is
-complete is the safe fallback.
+Schema v4 rollout precondition: before its first live dispatch, verify that the
+GitHub `production` environment's existing narrow
+`CLOUDFLARE_DRIFT_AUDIT_TOKEN` still contains exactly
+`Workers R2 Storage Read` and `Workers Scripts Read`. Schema v3 already required
+both permissions for its R2 and six Worker secret-name reads, so do not rotate a
+conforming token solely for this schema change. If either permission is absent
+or the token has broader deployment rights, replace it with a new account-scoped
+token containing exactly those two reads. Dispatch the audit, confirm that the
+Worker secret, active-deployment/version, subdomain, and custom-domain rows
+reached comparison rather than authorization errors, and only then revoke a
+superseded token. Do
+not use the deployment token as a temporary bridge; leaving the audit failed
+closed until a required narrow rotation is complete is the safe fallback.
+
+Zone route coverage is optional because Cloudflare scopes it separately. To
+enable it, set the production environment variable `CLOUDFLARE_ZONE_ID` and the
+secret `CLOUDFLARE_WORKERS_ROUTES_READ_TOKEN` together; the token needs only
+`Workers Routes Read` for that zone. The audit then calls
+`GET /zones/{zone_id}/workers/routes` and requires exact equality across the
+entire zone, including routes targeting an unexpected Worker or no Worker.
+This matters because a foreign route can intercept a contracted custom domain
+before its intended Worker. Current Wrangler sources declare only custom
+domains, so the exact zone-route set is empty. If both values are absent,
+the report says `MANUAL`; setting only one is a configuration error. The route
+token is never substituted for either the Worker-script reader or deployment
+credential.
 
 The workflow retains a JSON report for 90 days and writes a compact table to
-the Actions summary. A missing credential, API error, missing required branch
-rule, CORS mismatch, lifecycle mismatch, or forbidden short delete rule fails the
-job. Rows marked `MANUAL` were deliberately
+the Actions summary. A missing required credential, API error, missing required
+branch rule, CORS mismatch, lifecycle mismatch, forbidden short delete, binding
+mismatch, or unexpected public exposure fails the job. API/protocol failures
+are `ERROR`; successfully queried state that differs from contract is `DRIFT`.
+Rows marked `MANUAL` were deliberately
 not queried and must never be interpreted as passing.
 
 ## Worker URL observability
@@ -179,6 +215,19 @@ stored values: confirm a backup or accept re-issuance before running
 `wrangler secret delete`.
 
 ## Bindings and D1
+
+The exact public surface is intentionally small. Every checked-in Worker surface
+declares `environment: production`. App owns `musixquare.com` and
+`www.musixquare.com`; Developer API owns `api.musixquare.com`; Remote Share owns
+`share.musixquare.com`; and Signaling owns `signal.musixquare.com`. Developer API
+facade and PRO room must have zero custom domains, zero project zone routes, no
+workers.dev endpoint, and no Preview URLs. All six Workers keep workers.dev and
+Preview URLs disabled. A new hostname, route, or alternate Worker endpoint is a
+contract change requiring the same security review as a new public API.
+Cloudflare may omit the deprecated custom-domain `environment` field; the audit
+treats omission as `production` for API compatibility. Any explicit non-production
+value, including `staging`, differs from the production contract and fails as
+drift.
 
 Inventory every deployed Worker, not only the three original services:
 

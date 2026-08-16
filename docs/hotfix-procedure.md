@@ -38,11 +38,16 @@ validation pass or environment self-approval, then runs its live smokes with
 an immutable recovery checkpoint and fail-closed forward-repair reporting.
 
 `Require fresh exact-SHA physical-device evidence for this release` defaults to
-off. Leave it off for ordinary releases: the exact-SHA automated candidate,
-production security guards, Worker dry-runs, and live smokes are the normal
-release gate. Turn it on only when the operator intentionally wants a physical
-browser/hardware sign-off; that opt-in path still requires the canonical
-real-device artifact before any production mutation.
+off for ordinary server-only and low-risk browser releases. The release reads
+the current App Worker deployment's canonical `git:<sha>` annotation and
+compares it with the candidate using
+`cloudflare/release-device-risk.contract.json`. When the candidate changes an
+audio, playback, synchronization, WebRTC, YouTube/iOS, background/resume, or
+service-worker boundary, the workflow rejects the default and requires the
+canonical real-device artifact before any production mutation. An unreadable
+deployment annotation or ancestry is also fail-closed. Select the option before
+dispatching such a release; never weaken the contract to bypass unavailable
+device evidence.
 
 Leave `Apply the current Developer API D1 baseline` disabled for an ordinary
 Worker release. Enable it only when the approved commit intentionally changes

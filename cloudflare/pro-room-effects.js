@@ -1,5 +1,16 @@
 import { hasExactKeys, isSafeNonNegativeInteger } from './pro-room-validation.js';
 
+/** @typedef {{ mixPercent: number, decaySeconds: number, preDelaySeconds: number, lowCutPercent: number, highCutPercent: number }} RoomEffectsReverb */
+/** @typedef {{ bandsDb: number[] }} RoomEffectsEqualizer */
+/** @typedef {{ strengthPercent: number }} RoomEffectsVirtualBass */
+/** @typedef {{ widthPercent: number }} RoomEffectsVirtualSurround */
+/** @typedef {{ enabled: boolean }} RoomEffectsVirtualTreble */
+/** @typedef {{ reverb: RoomEffectsReverb, equalizer: RoomEffectsEqualizer, virtualBass: RoomEffectsVirtualBass, virtualSurround: RoomEffectsVirtualSurround, virtualTreble: RoomEffectsVirtualTreble }} RoomEffects */
+/** @typedef {{ reverb?: Partial<RoomEffectsReverb>, equalizer?: RoomEffectsEqualizer, virtualBass?: RoomEffectsVirtualBass, virtualSurround?: RoomEffectsVirtualSurround, virtualTreble?: RoomEffectsVirtualTreble }} RoomEffectsPatch */
+/** @typedef {{ revision: number, updatedAtMs: number, masterVolume: number, effects: RoomEffects }} RoomEffectsState */
+/** @typedef {{ roomCode: string, effects: RoomEffectsState }} RoomWithEffects */
+
+/** @returns {RoomEffectsState} */
 export function initialEffectsState() {
   return {
     revision: 0,
@@ -21,6 +32,7 @@ export function initialEffectsState() {
   };
 }
 
+/** @type {Readonly<Record<keyof RoomEffectsReverb, readonly [number, number]>>} */
 const EFFECT_REVERB_FIELDS = Object.freeze({
   mixPercent: [0, 100],
   decaySeconds: [0.1, 30],
@@ -29,18 +41,30 @@ const EFFECT_REVERB_FIELDS = Object.freeze({
   highCutPercent: [0, 100],
 });
 
+/**
+ * @param {unknown} value
+ * @param {number} minimum
+ * @param {number} maximum
+ * @returns {value is number}
+ */
 function boundedEffectNumber(value, minimum, maximum) {
   return (
     typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum
   );
 }
 
+/**
+ * @param {unknown} value
+ * @param {boolean} [complete]
+ * @returns {RoomEffectsReverb | Partial<RoomEffectsReverb> | null}
+ */
 function parseEffectsReverb(value, complete = true) {
-  const fields = Object.keys(EFFECT_REVERB_FIELDS);
+  const fields = /** @type {(keyof RoomEffectsReverb)[]} */ (Object.keys(EFFECT_REVERB_FIELDS));
   if (!hasExactKeys(value, complete ? fields : [], complete ? [] : fields)) return null;
   if (!complete && Object.keys(value).length === 0) return null;
+  /** @type {Partial<RoomEffectsReverb>} */
   const result = {};
-  for (const key of Object.keys(value)) {
+  for (const key of /** @type {(keyof RoomEffectsReverb)[]} */ (Object.keys(value))) {
     const [minimum, maximum] = EFFECT_REVERB_FIELDS[key];
     if (!boundedEffectNumber(value[key], minimum, maximum)) return null;
     result[key] = value[key];
@@ -48,6 +72,10 @@ function parseEffectsReverb(value, complete = true) {
   return result;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {RoomEffectsEqualizer | null}
+ */
 function parseEffectsEqualizer(value) {
   if (
     !hasExactKeys(value, ['bandsDb']) ||
@@ -60,6 +88,10 @@ function parseEffectsEqualizer(value) {
   return { bandsDb: [...value.bandsDb] };
 }
 
+/**
+ * @param {unknown} value
+ * @returns {RoomEffectsVirtualBass | null}
+ */
 function parseEffectsVirtualBass(value) {
   return hasExactKeys(value, ['strengthPercent']) &&
     boundedEffectNumber(value.strengthPercent, 0, 100)
@@ -67,25 +99,37 @@ function parseEffectsVirtualBass(value) {
     : null;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {RoomEffectsVirtualSurround | null}
+ */
 function parseEffectsVirtualSurround(value) {
   return hasExactKeys(value, ['widthPercent']) && boundedEffectNumber(value.widthPercent, 0, 200)
     ? { widthPercent: value.widthPercent }
     : null;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {RoomEffectsVirtualTreble | null}
+ */
 function parseEffectsVirtualTreble(value) {
   return hasExactKeys(value, ['enabled']) && typeof value.enabled === 'boolean'
     ? { enabled: value.enabled }
     : null;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {RoomEffects | null}
+ */
 export function parseRoomEffects(value) {
   if (
     !hasExactKeys(value, ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'])
   ) {
     return null;
   }
-  const reverb = parseEffectsReverb(value.reverb);
+  const reverb = /** @type {RoomEffectsReverb | null} */ (parseEffectsReverb(value.reverb));
   const equalizer = parseEffectsEqualizer(value.equalizer);
   const virtualBass = parseEffectsVirtualBass(value.virtualBass);
   const virtualSurround = parseEffectsVirtualSurround(value.virtualSurround);
@@ -95,11 +139,16 @@ export function parseRoomEffects(value) {
     : null;
 }
 
+/**
+ * @param {unknown} value
+ * @returns {RoomEffectsPatch | null}
+ */
 export function parseRoomEffectsPatch(value) {
   const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'];
   if (!hasExactKeys(value, [], allowed) || Object.keys(value).length === 0) return null;
+  /** @type {RoomEffectsPatch} */
   const result = {};
-  for (const key of Object.keys(value)) {
+  for (const key of /** @type {(keyof RoomEffectsPatch)[]} */ (Object.keys(value))) {
     const parsed =
       key === 'reverb'
         ? parseEffectsReverb(value.reverb, false)
@@ -111,11 +160,16 @@ export function parseRoomEffectsPatch(value) {
               ? parseEffectsVirtualSurround(value.virtualSurround)
               : parseEffectsVirtualTreble(value.virtualTreble);
     if (!parsed) return null;
-    result[key] = parsed;
+    /** @type {Record<string, unknown>} */ (result)[key] = parsed;
   }
   return result;
 }
 
+/**
+ * @param {RoomEffects} current
+ * @param {RoomEffectsPatch} patch
+ * @returns {RoomEffects}
+ */
 export function mergeRoomEffectsPatch(current, patch) {
   return {
     reverb: { ...current.reverb, ...(patch.reverb || {}) },
@@ -128,6 +182,10 @@ export function mergeRoomEffectsPatch(current, patch) {
   };
 }
 
+/**
+ * @param {unknown} value
+ * @returns {{ state: RoomEffectsState, migrated: boolean } | null}
+ */
 export function normalizeStoredEffects(value) {
   if (
     !hasExactKeys(value, ['revision', 'updatedAtMs', 'effects'], ['masterVolume']) ||
@@ -151,11 +209,19 @@ export function normalizeStoredEffects(value) {
     : null;
 }
 
+/**
+ * @param {Request} request
+ * @returns {2 | null}
+ */
 export function effectsContractVersion(request) {
   const version = request.headers.get('x-mxqr-pro-effects-version');
   return version === '2' ? 2 : null;
 }
 
+/**
+ * @param {RoomWithEffects} room
+ * @returns {{ schemaVersion: 2, view: 'effects', roomCode: string, revision: number, updatedAtMs: number, effects: RoomEffects }}
+ */
 export function publicEffects(room) {
   return {
     schemaVersion: 2,
@@ -167,6 +233,10 @@ export function publicEffects(room) {
   };
 }
 
+/**
+ * @param {RoomWithEffects} room
+ * @returns {{ schemaVersion: 1, view: 'settings-sync', roomCode: string, revision: number, updatedAtMs: number, masterVolume: number, effects: RoomEffects }}
+ */
 export function publicSettingsSync(room) {
   return {
     schemaVersion: 1,

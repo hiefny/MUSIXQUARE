@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import {
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
-} from '../cloudflare/pro-room-worker.js';
+} from '../cloudflare/pro-room-claims.js';
 
 const SUPPORTED_ROOM_CODES = new Set(['000000']);
 const CLAIM_TOKEN_RE = /^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;

@@ -244,7 +244,7 @@ jobs:
   browser-gate:
     name: Critical browser gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 3
 
     steps:
       - name: Checkout exact candidate
@@ -264,9 +264,14 @@ jobs:
 
       # This deterministic gate covers PRO owner recovery, OAuth callback
       # scrubbing, an actual browser WebSocket session, and Remote Share's
-      # signed-PUT CORS/XHR leg. The secret-backed host assertion remains the
-      # strict live smoke in release.yml so CI never needs production secrets.
+      # signed-PUT CORS/XHR leg, plus mobile background-resume recovery. The
+      # secret-backed host assertion remains the strict live smoke in
+      # release.yml so CI never needs production secrets.
       - name: Run critical browser paths
+        # background-resume owns a 90-second diagnostic timeout. Leave enough
+        # room for Playwright to emit its trace instead of killing the process
+        # first, while the whole browser gate remains capped at three minutes.
+        timeout-minutes: 2
         run: npm run test:e2e:critical
 
       - name: Upload critical browser failure artifacts

@@ -233,7 +233,8 @@ jobs:
         if: >-
           always() &&
           steps.production_commit_state.outputs.state == 'absent' &&
-          steps.recovery_checkpoint_ready.outputs.available != 'true'
+          (steps.recovery_checkpoint_ready.outputs.available != 'true' ||
+           inputs.mutation_authorized != 'true')
         run: |
           echo "### MUSIXQUARE failed-release recovery" >> "$GITHUB_STEP_SUMMARY"
           if [[ "${{ inputs.mutation_authorized }}" == 'true' ]]; then
@@ -244,19 +245,25 @@ jobs:
           echo "- The deploy job stopped before the persisted checkpoint authorized any D1, R2, or Worker mutation." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js for recovery
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true'
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version-file: .node-version
           cache: npm
 
       - name: Install recovery tooling with pinned npm
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true'
         run: corepack npm ci
 
       - name: Assess persisted R2 recovery constraints
         id: fallback_r2_policy_assessment
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true'
         continue-on-error: true
         timeout-minutes: 5
         env:
@@ -273,7 +280,10 @@ jobs:
 
       - name: Reassert disabled PRO generation fence
         id: fallback_generation_fence
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && inputs.target == 'all'
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          inputs.target == 'all'
         continue-on-error: true
         timeout-minutes: 10
         env:
@@ -293,7 +303,10 @@ jobs:
 
       - name: Assess persisted Worker compatibility floors
         id: fallback_worker_floor_assessment
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && inputs.target != 'remote-share'
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          inputs.target != 'remote-share'
         continue-on-error: true
         timeout-minutes: 10
         env:
@@ -313,7 +326,9 @@ jobs:
 
       - name: Restore release-owned Workers or record a forward-repair boundary
         id: fallback_worker_recovery
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true'
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true'
         continue-on-error: true
         timeout-minutes: 20
         env:
@@ -345,7 +360,10 @@ jobs:
               rollback release-artifacts/recovery-checkpoint
       - name: Reconcile persisted R2 policy with recovered Workers
         id: fallback_r2_policy_reconciliation
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && always()
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          always()
         continue-on-error: true
         timeout-minutes: 10
         env:
@@ -359,7 +377,10 @@ jobs:
 
       - name: Verify final paired R2 and Worker recovery boundary
         id: fallback_final_verification
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && always()
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          always()
         timeout-minutes: 10
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -373,6 +394,7 @@ jobs:
       - name: Freshly verify persisted Worker compatibility floors
         id: fallback_worker_floor_verification
         if: >-
+          inputs.mutation_authorized == 'true' &&
           steps.recovery_checkpoint_ready.outputs.available == 'true' &&
           inputs.target != 'remote-share' &&
           always()
@@ -391,7 +413,10 @@ jobs:
             release-artifacts/recovery-checkpoint
 
       - name: Upload independent recovery report
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && always()
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: production-recovery-report-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
@@ -400,7 +425,10 @@ jobs:
           retention-days: 90
 
       - name: Failed-release recovery summary
-        if: steps.recovery_checkpoint_ready.outputs.available == 'true' && always()
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          always()
         run: |
           echo "### MUSIXQUARE independent failed-release recovery" >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' '- R2 recovery assessment: `${{ steps.fallback_r2_policy_assessment.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
@@ -415,6 +443,7 @@ jobs:
 
       - name: Fail independent recovery when automatic recovery is incomplete
         if: >-
+          inputs.mutation_authorized == 'true' &&
           steps.recovery_checkpoint_ready.outputs.available == 'true' &&
           always() &&
           (steps.fallback_r2_policy_assessment.outcome == 'failure' ||

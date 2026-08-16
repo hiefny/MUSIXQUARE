@@ -9,10 +9,12 @@ import {
 } from '../../../cloudflare/account-assertion.js';
 import appWorker from '../../../cloudflare/app-worker.js';
 import {
-  MusixquareProRoom,
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
   issueProRoomOwnerTransferClaim,
+} from '../../../cloudflare/pro-room-claims.js';
+import {
+  MusixquareProRoom,
   default as proRoomWorker,
 } from '../../../cloudflare/pro-room-worker.js';
 import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.js';

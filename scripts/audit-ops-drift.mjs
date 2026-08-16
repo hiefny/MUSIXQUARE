@@ -10,7 +10,7 @@ import {
 export const OPS_DRIFT_CONTRACT_PATH = 'cloudflare/ops-drift.contract.json';
 export const DEFAULT_OPS_DRIFT_REPORT_PATH = 'release-artifacts/ops-drift/report.json';
 
-const CONTRACT_VERSION = 3;
+const CONTRACT_VERSION = 4;
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const GITHUB_API = 'https://api.github.com';
 const LIVE_CHECK_TIMEOUT_MS = 15_000;
@@ -76,6 +76,8 @@ export function assertOpsDriftContract({
       'r2Cors',
       'r2Lifecycle',
       'workerSecrets',
+      'workerSurfaces',
+      'workerRoutes',
       'github',
       'manualChecks',
     ]) ||
@@ -196,6 +198,140 @@ export function assertOpsDriftContract({
     workerSecretNameCount += entry.expectedNames.length;
   }
 
+  if (!Array.isArray(contract.workerSurfaces) || contract.workerSurfaces.length === 0) {
+    throw new Error('Operations drift contract must declare exact Worker surfaces.');
+  }
+  const surfaceWorkers = new Set();
+  const sourceRoutes = [];
+  let workerBindingCount = 0;
+  let workerCustomDomainCount = 0;
+  for (const entry of contract.workerSurfaces) {
+    if (
+      !hasExactKeys(entry, [
+        'worker',
+        'source',
+        'exposure',
+        'environment',
+        'workersDev',
+        'previewUrls',
+        'customDomains',
+      ])
+    ) {
+      throw new Error(
+        'Every Worker surface must contain exactly worker, source, exposure, environment, workersDev, previewUrls, and customDomains.',
+      );
+    }
+    if (
+      typeof entry.worker !== 'string' ||
+      !/^[a-z0-9][a-z0-9-]{1,62}$/u.test(entry.worker) ||
+      surfaceWorkers.has(entry.worker)
+    ) {
+      throw new Error(`Invalid or duplicate Worker surface: ${entry.worker}`);
+    }
+    surfaceWorkers.add(entry.worker);
+    assertRepoFile(root, entry.source, `${entry.worker}.source`, '.toml');
+    if (
+      (entry.exposure !== 'none' && entry.exposure !== 'custom-domains') ||
+      entry.environment !== 'production' ||
+      typeof entry.workersDev !== 'boolean' ||
+      typeof entry.previewUrls !== 'boolean'
+    ) {
+      throw new Error(`${entry.worker} has an invalid exposure or subdomain contract.`);
+    }
+    uniqueStrings(entry.customDomains, `${entry.worker}.customDomains`, { allowEmpty: true });
+    if (
+      entry.customDomains.some(
+        (hostname) =>
+          hostname !== hostname.toLowerCase() ||
+          !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/u.test(hostname),
+      )
+    ) {
+      throw new Error(`${entry.worker}.customDomains contains an invalid hostname.`);
+    }
+    const sortedDomains = [...entry.customDomains].sort();
+    if (!sameJson(entry.customDomains, sortedDomains)) {
+      throw new Error(`${entry.worker}.customDomains must be sorted.`);
+    }
+    if (
+      entry.workersDev ||
+      entry.previewUrls ||
+      (entry.exposure === 'none' && entry.customDomains.length !== 0) ||
+      (entry.exposure === 'custom-domains' && entry.customDomains.length === 0)
+    ) {
+      throw new Error(`${entry.worker} violates its declared public-exposure boundary.`);
+    }
+
+    const sourceSurface = parseWorkerToml(
+      readFileSync(resolve(root, entry.source), 'utf8'),
+      entry.source,
+    );
+    if (
+      sourceSurface.worker !== entry.worker ||
+      sourceSurface.workersDev !== entry.workersDev ||
+      sourceSurface.previewUrls !== entry.previewUrls ||
+      !sameJson(sourceSurface.customDomains, entry.customDomains)
+    ) {
+      throw new Error(`${entry.worker} surface contract does not exactly match ${entry.source}.`);
+    }
+    if (entry.exposure === 'none' && sourceSurface.routes.length !== 0) {
+      throw new Error(
+        `${entry.worker} is private but its Wrangler source declares a public route.`,
+      );
+    }
+    workerBindingCount += sourceSurface.bindings.length;
+    workerCustomDomainCount += entry.customDomains.length;
+    sourceRoutes.push(
+      ...sourceSurface.routes.map((pattern) => ({ pattern, worker: entry.worker })),
+    );
+  }
+  if (
+    surfaceWorkers.size !== secretWorkers.size ||
+    [...surfaceWorkers].some((worker) => !secretWorkers.has(worker))
+  ) {
+    throw new Error('Worker surface and Worker secret inventories must cover the same scripts.');
+  }
+  if (workerCustomDomainScopes(contract.workerSurfaces).length === 0) {
+    throw new Error('Worker surfaces must establish at least one custom-domain inventory scope.');
+  }
+
+  if (!hasExactKeys(contract.workerRoutes, ['zoneIdEnv', 'readTokenEnv', 'expected'])) {
+    throw new Error('Worker routes must declare exactly zoneIdEnv, readTokenEnv, and expected.');
+  }
+  for (const [key, value] of [
+    ['zoneIdEnv', contract.workerRoutes.zoneIdEnv],
+    ['readTokenEnv', contract.workerRoutes.readTokenEnv],
+  ]) {
+    if (typeof value !== 'string' || !/^[A-Z][A-Z0-9_]{2,127}$/u.test(value)) {
+      throw new Error(`workerRoutes.${key} must be an environment variable name.`);
+    }
+  }
+  if (!Array.isArray(contract.workerRoutes.expected)) {
+    throw new Error('workerRoutes.expected must be an array.');
+  }
+  const expectedRoutes = contract.workerRoutes.expected.map((route, index) => {
+    if (
+      !hasExactKeys(route, ['pattern', 'worker']) ||
+      typeof route.pattern !== 'string' ||
+      route.pattern.length === 0 ||
+      route.pattern.length > 255 ||
+      !surfaceWorkers.has(route.worker)
+    ) {
+      throw new Error(`workerRoutes.expected[${index}] is invalid.`);
+    }
+    return { pattern: route.pattern, worker: route.worker };
+  });
+  const sortedExpectedRoutes = [...expectedRoutes].sort(stableCompare);
+  if (
+    new Set(expectedRoutes.map((route) => `${route.worker}\n${route.pattern}`)).size !==
+      expectedRoutes.length ||
+    !sameJson(expectedRoutes, sortedExpectedRoutes)
+  ) {
+    throw new Error('workerRoutes.expected must be unique and sorted.');
+  }
+  if (!sameJson([...sourceRoutes].sort(stableCompare), expectedRoutes)) {
+    throw new Error('workerRoutes.expected does not exactly match the non-custom Wrangler routes.');
+  }
+
   if (!hasExactKeys(contract.github, ['repository', 'branch', 'requiredEffectiveRuleTypes'])) {
     throw new Error(
       'GitHub drift contract must declare repository, branch, and requiredEffectiveRuleTypes.',
@@ -243,6 +379,10 @@ export function assertOpsDriftContract({
     r2ShortLifecycleGuardCount: contract.r2Lifecycle.forbiddenShortDeletePolicies.length,
     workerSecretPolicyCount: secretWorkers.size,
     workerSecretNameCount,
+    workerSurfacePolicyCount: surfaceWorkers.size,
+    workerBindingCount,
+    workerCustomDomainCount,
+    workerRouteCount: expectedRoutes.length,
     githubRuleCount: contract.github.requiredEffectiveRuleTypes.length,
     manualCheckCount: manualIds.size,
   };
@@ -507,6 +647,505 @@ export function normalizeWorkerSecretNames(value, label = 'Worker secrets') {
   return names.sort();
 }
 
+function stripTomlComment(value) {
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index++) {
+    const character = value[index];
+    if (quoted && escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quoted && character === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (character === '"') quoted = !quoted;
+    if (!quoted && character === '#') return value.slice(0, index).trim();
+  }
+  return value.trim();
+}
+
+function parseSimpleToml(source, label) {
+  if (typeof source !== 'string') throw new Error(`${label} must be TOML source text.`);
+  const root = { name: '', values: new Map() };
+  const tables = [];
+  let current = root;
+  for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
+    const line = stripTomlComment(rawLine).trim();
+    if (!line) continue;
+    const arrayHeader = line.match(/^\[\[([A-Za-z0-9_.-]+)\]\]$/u);
+    const tableHeader = line.match(/^\[([A-Za-z0-9_.-]+)\]$/u);
+    if (arrayHeader || tableHeader) {
+      current = {
+        name: (arrayHeader || tableHeader)[1],
+        array: Boolean(arrayHeader),
+        values: new Map(),
+      };
+      tables.push(current);
+      continue;
+    }
+    const assignment = line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(.+)$/u);
+    if (!assignment) continue;
+    if (current.values.has(assignment[1])) {
+      throw new Error(`${label}:${index + 1} repeats ${assignment[1]}.`);
+    }
+    current.values.set(assignment[1], assignment[2].trim());
+  }
+  return { root, tables };
+}
+
+function parseTomlScalar(raw, label) {
+  if (typeof raw !== 'string') throw new Error(`${label} is missing.`);
+  if (raw.startsWith('"')) {
+    try {
+      const value = JSON.parse(raw);
+      if (typeof value !== 'string') throw new Error('not a string');
+      return value;
+    } catch (error) {
+      throw new Error(`${label} must be a basic TOML string.`, { cause: error });
+    }
+  }
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  if (/^-?(?:0|[1-9][0-9]*)$/u.test(raw)) return Number(raw);
+  throw new Error(`${label} must be a string, boolean, or integer.`);
+}
+
+function requiredTomlValue(table, key, label) {
+  return parseTomlScalar(table.values.get(key), `${label}.${key}`);
+}
+
+function optionalTomlValue(table, key, label) {
+  return table.values.has(key) ? requiredTomlValue(table, key, label) : undefined;
+}
+
+function requiredTomlString(table, key, label) {
+  const value = requiredTomlValue(table, key, label);
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`${label}.${key} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function optionalTomlString(table, key, label) {
+  const value = optionalTomlValue(table, key, label);
+  if (value !== undefined && (typeof value !== 'string' || value.length === 0)) {
+    throw new Error(`${label}.${key} must be a non-empty string when present.`);
+  }
+  return value;
+}
+
+function assertBindingName(name, label) {
+  if (typeof name !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/u.test(name)) {
+    throw new Error(`${label} is not a valid Worker binding name.`);
+  }
+  return name;
+}
+
+function parseWorkerToml(source, label = 'Worker TOML') {
+  const document = parseSimpleToml(source, label);
+  const worker = requiredTomlString(document.root, 'name', label);
+  const workersDev = requiredTomlValue(document.root, 'workers_dev', label);
+  const previewUrls = requiredTomlValue(document.root, 'preview_urls', label);
+  if (typeof workersDev !== 'boolean' || typeof previewUrls !== 'boolean') {
+    throw new Error(`${label} must explicitly declare boolean workers_dev and preview_urls.`);
+  }
+
+  const bindings = [];
+  const addBinding = (canonical, matches) => {
+    assertBindingName(canonical.name, `${label} binding`);
+    bindings.push({ canonical, matches });
+  };
+  const tables = (name) => document.tables.filter((table) => table.name === name);
+  const allowedRootKeys = new Set([
+    'name',
+    'main',
+    'compatibility_date',
+    'workers_dev',
+    'preview_urls',
+  ]);
+  const unknownRootKeys = [...document.root.values.keys()].filter(
+    (key) => !allowedRootKeys.has(key),
+  );
+  const allowedTables = new Set([
+    'assets',
+    'd1_databases',
+    'durable_objects.bindings',
+    'kv_namespaces',
+    'migrations',
+    'observability',
+    'observability.logs',
+    'observability.traces',
+    'r2_buckets',
+    'ratelimits',
+    'ratelimits.simple',
+    'routes',
+    'services',
+    'triggers',
+    'vars',
+    'version_metadata',
+  ]);
+  const unknownTables = document.tables
+    .map((table) => table.name)
+    .filter((name) => !allowedTables.has(name));
+  if (unknownRootKeys.length > 0 || unknownTables.length > 0) {
+    throw new Error(
+      `${label} contains source fields the binding audit does not understand: ${[
+        ...unknownRootKeys,
+        ...unknownTables,
+      ].join(', ')}.`,
+    );
+  }
+  for (const singleton of ['assets', 'vars', 'version_metadata']) {
+    if (tables(singleton).length > 1) throw new Error(`${label} repeats [${singleton}].`);
+  }
+
+  for (const [index, table] of tables('assets').entries()) {
+    const name = requiredTomlString(table, 'binding', `${label}.assets[${index}]`);
+    addBinding({ name, type: 'assets' }, () => true);
+  }
+  for (const [index, table] of tables('version_metadata').entries()) {
+    const name = requiredTomlString(table, 'binding', `${label}.version_metadata[${index}]`);
+    addBinding({ name, type: 'version_metadata' }, () => true);
+  }
+  for (const [index, table] of tables('vars').entries()) {
+    for (const [name, raw] of table.values) {
+      assertBindingName(name, `${label}.vars[${index}]`);
+      const expected = parseTomlScalar(raw, `${label}.vars.${name}`);
+      addBinding(
+        { name, type: 'plain_text', target: 'source-config' },
+        (actual) => actual.text === String(expected),
+      );
+    }
+  }
+  for (const [index, table] of tables('r2_buckets').entries()) {
+    const tableLabel = `${label}.r2_buckets[${index}]`;
+    const name = requiredTomlString(table, 'binding', tableLabel);
+    const bucketName = requiredTomlString(table, 'bucket_name', tableLabel);
+    const jurisdiction = optionalTomlString(table, 'jurisdiction', tableLabel);
+    const canonical = { name, type: 'r2_bucket', target: bucketName };
+    if (jurisdiction !== undefined) canonical.jurisdiction = jurisdiction;
+    addBinding(
+      canonical,
+      (actual) =>
+        actual.bucket_name === bucketName && (actual.jurisdiction ?? undefined) === jurisdiction,
+    );
+  }
+  for (const [index, table] of tables('kv_namespaces').entries()) {
+    const tableLabel = `${label}.kv_namespaces[${index}]`;
+    const name = requiredTomlString(table, 'binding', tableLabel);
+    const namespaceId = requiredTomlString(table, 'id', tableLabel);
+    addBinding(
+      { name, type: 'kv_namespace', target: 'source-config' },
+      (actual) => actual.namespace_id === namespaceId,
+    );
+  }
+  for (const [index, table] of tables('d1_databases').entries()) {
+    const tableLabel = `${label}.d1_databases[${index}]`;
+    const name = requiredTomlString(table, 'binding', tableLabel);
+    const databaseName = requiredTomlString(table, 'database_name', tableLabel);
+    const databaseId = requiredTomlString(table, 'database_id', tableLabel);
+    addBinding(
+      { name, type: 'd1', target: databaseName },
+      (actual) => (actual.database_id ?? actual.id) === databaseId,
+    );
+  }
+  for (const [index, table] of tables('durable_objects.bindings').entries()) {
+    const tableLabel = `${label}.durable_objects.bindings[${index}]`;
+    const name = requiredTomlString(table, 'name', tableLabel);
+    const className = requiredTomlString(table, 'class_name', tableLabel);
+    const scriptName = optionalTomlString(table, 'script_name', tableLabel) ?? worker;
+    const environment = optionalTomlString(table, 'environment', tableLabel);
+    const canonical = {
+      name,
+      type: 'durable_object_namespace',
+      className,
+      scriptName,
+    };
+    if (environment !== undefined) canonical.environment = environment;
+    addBinding(
+      canonical,
+      (actual) =>
+        actual.class_name === className &&
+        (actual.script_name ?? worker) === scriptName &&
+        (actual.environment ?? undefined) === environment,
+    );
+  }
+  for (const [index, table] of tables('services').entries()) {
+    const tableLabel = `${label}.services[${index}]`;
+    const name = requiredTomlString(table, 'binding', tableLabel);
+    const service = requiredTomlString(table, 'service', tableLabel);
+    const environment = optionalTomlString(table, 'environment', tableLabel) ?? 'production';
+    const entrypoint = optionalTomlString(table, 'entrypoint', tableLabel);
+    const canonical = { name, type: 'service', target: service, environment };
+    if (entrypoint !== undefined) canonical.entrypoint = entrypoint;
+    addBinding(
+      canonical,
+      (actual) =>
+        actual.service === service &&
+        (actual.environment ?? 'production') === environment &&
+        (actual.entrypoint ?? undefined) === entrypoint,
+    );
+  }
+  const rateLimits = tables('ratelimits');
+  const rateLimitSimple = tables('ratelimits.simple');
+  if (rateLimits.length !== rateLimitSimple.length) {
+    throw new Error(`${label} must give every ratelimit binding one simple table.`);
+  }
+  for (const [index, table] of rateLimits.entries()) {
+    const tableLabel = `${label}.ratelimits[${index}]`;
+    const name = requiredTomlString(table, 'name', tableLabel);
+    const namespaceId = requiredTomlString(table, 'namespace_id', tableLabel);
+    const simple = rateLimitSimple[index];
+    const limit = requiredTomlValue(simple, 'limit', `${tableLabel}.simple`);
+    const period = requiredTomlValue(simple, 'period', `${tableLabel}.simple`);
+    if (!Number.isSafeInteger(limit) || !Number.isSafeInteger(period)) {
+      throw new Error(`${tableLabel}.simple must contain integer limit and period values.`);
+    }
+    addBinding(
+      { name, type: 'ratelimit', target: 'source-config' },
+      (actual) =>
+        actual.namespace_id === namespaceId &&
+        actual.simple?.limit === limit &&
+        actual.simple?.period === period &&
+        (actual.simple?.mitigation_timeout ?? 0) === 0,
+    );
+  }
+
+  const bindingKeys = bindings.map(({ canonical }) => canonical.name);
+  if (new Set(bindingKeys).size !== bindingKeys.length) {
+    throw new Error(`${label} contains a duplicate non-secret binding name and type.`);
+  }
+  bindings.sort((left, right) => stableCompare(left.canonical, right.canonical));
+
+  const customDomains = [];
+  const routes = [];
+  for (const [index, table] of tables('routes').entries()) {
+    const tableLabel = `${label}.routes[${index}]`;
+    const pattern = requiredTomlString(table, 'pattern', tableLabel);
+    const customDomain = optionalTomlValue(table, 'custom_domain', tableLabel) ?? false;
+    if (typeof customDomain !== 'boolean') {
+      throw new Error(`${tableLabel}.custom_domain must be boolean.`);
+    }
+    (customDomain ? customDomains : routes).push(customDomain ? pattern.toLowerCase() : pattern);
+  }
+  customDomains.sort();
+  routes.sort();
+  return { worker, workersDev, previewUrls, customDomains, routes, bindings };
+}
+
+export function workerSurfaceFromToml(source, label = 'Worker TOML') {
+  const surface = parseWorkerToml(source, label);
+  return {
+    worker: surface.worker,
+    workersDev: surface.workersDev,
+    previewUrls: surface.previewUrls,
+    customDomains: surface.customDomains,
+    routes: surface.routes,
+    bindings: surface.bindings.map(({ canonical }) => canonical),
+  };
+}
+
+export function normalizeWorkerBindings(value, source, label = 'Worker bindings') {
+  if (!Array.isArray(value)) throw new Error(`${label} must be a binding array.`);
+  const sourceSurface = parseWorkerToml(source, `${label} source`);
+  const expected = new Map(
+    sourceSurface.bindings.map((entry) => [
+      `${entry.canonical.type}\n${entry.canonical.name}`,
+      entry,
+    ]),
+  );
+  const normalized = [];
+  const seenNames = new Set();
+  for (let index = 0; index < value.length; index++) {
+    const binding = value[index];
+    if (!binding || typeof binding !== 'object' || Array.isArray(binding)) {
+      throw new Error(`${label}[${index}] must be a binding object.`);
+    }
+    if (binding.type === 'secret_text' || binding.type === 'secret_key') continue;
+    const name = assertBindingName(binding.name, `${label}[${index}].name`);
+    if (typeof binding.type !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/u.test(binding.type)) {
+      throw new Error(`${label}[${index}].type is invalid.`);
+    }
+    if (seenNames.has(name)) throw new Error(`${label} contains a duplicate binding name.`);
+    seenNames.add(name);
+    const reference = expected.get(`${binding.type}\n${name}`);
+    normalized.push(
+      reference === undefined
+        ? { name, type: binding.type }
+        : reference.matches(binding)
+          ? reference.canonical
+          : { name, type: binding.type, target: 'unexpected-configuration' },
+    );
+  }
+  return normalized.sort(stableCompare);
+}
+
+export function normalizeActiveDeploymentVersions(value, label = 'Worker deployments') {
+  if (!Array.isArray(value) || value.length === 0) {
+    throw new Error(`${label} must contain an active deployment.`);
+  }
+  const active = value[0];
+  if (!active || typeof active !== 'object' || Array.isArray(active)) {
+    throw new Error(`${label} active deployment is invalid.`);
+  }
+  if (!Array.isArray(active.versions) || active.versions.length < 1 || active.versions.length > 2) {
+    throw new Error(`${label} active deployment must contain one or two serving versions.`);
+  }
+  const versions = [];
+  const seen = new Set();
+  let totalPercentage = 0;
+  for (let index = 0; index < active.versions.length; index++) {
+    const version = active.versions[index];
+    if (
+      !version ||
+      typeof version !== 'object' ||
+      Array.isArray(version) ||
+      typeof version.version_id !== 'string' ||
+      version.version_id.length === 0 ||
+      version.version_id.length > 200 ||
+      typeof version.percentage !== 'number' ||
+      !Number.isFinite(version.percentage) ||
+      version.percentage <= 0 ||
+      version.percentage > 100
+    ) {
+      throw new Error(`${label} active deployment contains an invalid serving version.`);
+    }
+    if (seen.has(version.version_id)) {
+      throw new Error(`${label} active deployment contains a duplicate serving version.`);
+    }
+    seen.add(version.version_id);
+    totalPercentage += version.percentage;
+    versions.push({ versionId: version.version_id, percentage: version.percentage });
+  }
+  if (Math.abs(totalPercentage - 100) > 1e-9) {
+    throw new Error(`${label} active deployment percentages must sum to 100.`);
+  }
+  return versions;
+}
+
+export function normalizeWorkerCustomDomains(value, worker, label = 'Worker custom domains') {
+  if (!Array.isArray(value)) throw new Error(`${label} must be a domain array.`);
+  const domains = [];
+  const seen = new Set();
+  for (let index = 0; index < value.length; index++) {
+    const domain = value[index];
+    if (
+      !domain ||
+      typeof domain !== 'object' ||
+      Array.isArray(domain) ||
+      typeof domain.hostname !== 'string' ||
+      typeof domain.service !== 'string' ||
+      (domain.environment !== undefined &&
+        (typeof domain.environment !== 'string' || domain.environment.length === 0))
+    ) {
+      throw new Error(`${label}[${index}] is invalid.`);
+    }
+    if (domain.service !== worker) continue;
+    const hostname = domain.hostname.toLowerCase();
+    const environment = (domain.environment ?? 'production').toLowerCase();
+    const key = `${environment}\n${hostname}`;
+    if (seen.has(key)) throw new Error(`${label} contains a duplicate hostname and environment.`);
+    seen.add(key);
+    domains.push({ hostname, environment });
+  }
+  return domains.sort(stableCompare);
+}
+
+function workerCustomDomainScopes(workerSurfaces) {
+  const domains = [...new Set(workerSurfaces.flatMap((entry) => entry.customDomains))].sort();
+  return domains.filter(
+    (candidate) => !domains.some((other) => candidate !== other && candidate.endsWith(`.${other}`)),
+  );
+}
+
+function normalizeWorkerDomainInventory(
+  value,
+  domainScopes,
+  contractedWorkers,
+  label = 'Worker custom-domain inventory',
+) {
+  if (!Array.isArray(value)) throw new Error(`${label} must be a domain array.`);
+  const workerSet = new Set(contractedWorkers);
+  const domains = [];
+  const seen = new Set();
+  for (let index = 0; index < value.length; index++) {
+    const domain = value[index];
+    if (
+      !domain ||
+      typeof domain !== 'object' ||
+      Array.isArray(domain) ||
+      typeof domain.hostname !== 'string'
+    ) {
+      throw new Error(`${label}[${index}] is invalid.`);
+    }
+    const hostname = domain.hostname.toLowerCase();
+    if (!domainScopes.some((scope) => hostname === scope || hostname.endsWith(`.${scope}`))) {
+      continue;
+    }
+    if (
+      typeof domain.service !== 'string' ||
+      (domain.environment !== undefined &&
+        (typeof domain.environment !== 'string' || domain.environment.length === 0))
+    ) {
+      throw new Error(`${label}[${index}] is invalid.`);
+    }
+    const environment = (domain.environment ?? 'production').toLowerCase();
+    const key = `${environment}\n${hostname}`;
+    if (seen.has(key)) throw new Error(`${label} contains a duplicate hostname and environment.`);
+    seen.add(key);
+    domains.push({
+      hostname,
+      environment,
+      worker: workerSet.has(domain.service) ? domain.service : null,
+    });
+  }
+  return domains.sort(stableCompare);
+}
+
+export function normalizeWorkerSubdomain(value, label = 'Worker subdomain') {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    typeof value.enabled !== 'boolean' ||
+    typeof value.previews_enabled !== 'boolean'
+  ) {
+    throw new Error(`${label} must contain boolean enabled and previews_enabled values.`);
+  }
+  return { workersDev: value.enabled, previewUrls: value.previews_enabled };
+}
+
+export function normalizeWorkerRoutes(value, workers, label = 'Worker routes') {
+  if (!Array.isArray(value) || !Array.isArray(workers)) {
+    throw new Error(`${label} requires route and Worker arrays.`);
+  }
+  const workerSet = new Set(workers);
+  const routes = [];
+  const seen = new Set();
+  for (let index = 0; index < value.length; index++) {
+    const route = value[index];
+    if (
+      !route ||
+      typeof route !== 'object' ||
+      Array.isArray(route) ||
+      typeof route.pattern !== 'string' ||
+      (route.script !== undefined && typeof route.script !== 'string')
+    ) {
+      throw new Error(`${label}[${index}] is invalid.`);
+    }
+    const key = `${route.script ?? ''}\n${route.pattern}`;
+    if (seen.has(key)) throw new Error(`${label} contains a duplicate route.`);
+    seen.add(key);
+    routes.push({
+      pattern: route.pattern,
+      worker: workerSet.has(route.script) ? route.script : null,
+    });
+  }
+  return routes.sort(stableCompare);
+}
+
 function sameJson(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -533,8 +1172,14 @@ function cancelResponseBody(response, reason) {
   }
 }
 
+class SafeOpsDriftError extends Error {}
+
+function safeOpsDriftError(message, options) {
+  return new SafeOpsDriftError(message, options);
+}
+
 function timeoutError(label) {
-  return new Error(`${label} response timed out.`);
+  return safeOpsDriftError(`${label} response timed out.`);
 }
 
 function absorbLateFetch(fetchPromise, label) {
@@ -593,7 +1238,9 @@ async function readJsonResponse(response, signal, label) {
   const declaredLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(declaredLength) && declaredLength > LIVE_RESPONSE_MAX_BYTES) {
     cancelResponseBody(response, `${label} exceeded the response ceiling.`);
-    throw new Error(`${label} exceeded the ${LIVE_RESPONSE_MAX_BYTES}-byte response ceiling.`);
+    throw safeOpsDriftError(
+      `${label} exceeded the ${LIVE_RESPONSE_MAX_BYTES}-byte response ceiling.`,
+    );
   }
 
   const chunks = [];
@@ -607,7 +1254,7 @@ async function readJsonResponse(response, signal, label) {
         byteLength += value.byteLength;
         if (byteLength > LIVE_RESPONSE_MAX_BYTES) {
           cancelReader(reader, `${label} exceeded the response ceiling.`);
-          throw new Error(
+          throw safeOpsDriftError(
             `${label} exceeded the ${LIVE_RESPONSE_MAX_BYTES}-byte response ceiling.`,
           );
         }
@@ -634,12 +1281,12 @@ async function readJsonResponse(response, signal, label) {
   try {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   } catch (error) {
-    throw new Error(`${label} did not return valid UTF-8 JSON.`, { cause: error });
+    throw safeOpsDriftError(`${label} did not return valid UTF-8 JSON.`, { cause: error });
   }
 }
 
 async function fetchJson(fetcher, url, token, label, extraHeaders = {}) {
-  if (!token) throw new Error(`${label} credential is not configured.`);
+  if (!token) throw safeOpsDriftError(`${label} credential is not configured.`);
   const signal = AbortSignal.timeout(LIVE_CHECK_TIMEOUT_MS);
   const fetchPromise = Promise.resolve().then(() =>
     fetcher(url, {
@@ -652,12 +1299,54 @@ async function fetchJson(fetcher, url, token, label, extraHeaders = {}) {
       },
     }),
   );
-  const response = await waitForResponse(fetchPromise, signal, label);
+  let response;
+  try {
+    response = await waitForResponse(fetchPromise, signal, label);
+  } catch (error) {
+    if (error instanceof SafeOpsDriftError) throw error;
+    throw safeOpsDriftError(`${label} request failed.`);
+  }
   if (!response.ok) {
     cancelResponseBody(response, `${label} returned a non-success status.`);
-    throw new Error(`${label} returned HTTP ${response.status}.`);
+    throw safeOpsDriftError(`${label} returned HTTP ${response.status}.`);
   }
-  return readJsonResponse(response, signal, label);
+  try {
+    return await readJsonResponse(response, signal, label);
+  } catch (error) {
+    if (error instanceof SafeOpsDriftError) throw error;
+    throw safeOpsDriftError(`${label} response could not be read safely.`);
+  }
+}
+
+async function fetchCloudflarePages(fetcher, url, token, label) {
+  const items = [];
+  let page = 1;
+  let totalPages = 1;
+  do {
+    const pageUrl = new URL(url);
+    pageUrl.searchParams.set('page', String(page));
+    pageUrl.searchParams.set('per_page', '100');
+    const payload = await fetchJson(fetcher, pageUrl.href, token, label);
+    if (payload?.success !== true || !Array.isArray(payload.result)) {
+      throw new Error(`${label} returned an invalid API envelope.`);
+    }
+    items.push(...payload.result);
+    const reportedTotalPages = payload.result_info?.total_pages;
+    if (reportedTotalPages !== undefined) {
+      if (
+        !Number.isSafeInteger(reportedTotalPages) ||
+        reportedTotalPages < 1 ||
+        reportedTotalPages > 100
+      ) {
+        throw new Error(`${label} returned invalid pagination metadata.`);
+      }
+      totalPages = reportedTotalPages;
+    } else if (payload.result.length === 100) {
+      throw new Error(`${label} omitted pagination metadata for a full result page.`);
+    }
+    page += 1;
+  } while (page <= totalPages);
+  return items;
 }
 
 function result(id, label, status, detail) {
@@ -858,6 +1547,282 @@ export async function runOpsDriftAudit({
         result(
           id,
           `Worker secrets ${entry.worker}`,
+          'error',
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
+  }
+
+  // Version resources contain secret/plain-text values and provider-managed
+  // identifiers. Comparisons use them in memory, but normalization emits only
+  // binding names/types and safe target names or a generic mismatch marker.
+  // The first deployment returned by Cloudflare is the active deployment; all
+  // of its one or two non-zero traffic versions must match the source contract.
+  for (const entry of contract.workerSurfaces) {
+    const source = readFileSync(resolve(root, entry.source), 'utf8');
+    const expectedSurface = workerSurfaceFromToml(source, entry.source);
+
+    const bindingId = `worker-bindings:${entry.worker}`;
+    try {
+      if (!accountId) throw new Error('Cloudflare account ID is not configured.');
+      const deploymentsPayload = await fetchJson(
+        fetcher,
+        `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(entry.worker)}/deployments`,
+        env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,
+        `Worker active deployment ${entry.worker}`,
+      );
+      if (
+        deploymentsPayload?.success !== true ||
+        !Array.isArray(deploymentsPayload.result?.deployments)
+      ) {
+        throw new Error(
+          `Worker active deployment ${entry.worker} returned an invalid API envelope.`,
+        );
+      }
+      const servingVersions = normalizeActiveDeploymentVersions(
+        deploymentsPayload.result.deployments,
+        `Worker active deployment ${entry.worker}`,
+      );
+      const actualVersions = [];
+      for (const servingVersion of servingVersions) {
+        const versionPayload = await fetchJson(
+          fetcher,
+          `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(entry.worker)}/versions/${encodeURIComponent(servingVersion.versionId)}`,
+          env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,
+          `Worker serving version bindings ${entry.worker}`,
+        );
+        if (
+          versionPayload?.success !== true ||
+          !Array.isArray(versionPayload.result?.resources?.bindings)
+        ) {
+          throw new Error(
+            `Worker serving version bindings ${entry.worker} returned an invalid API envelope.`,
+          );
+        }
+        actualVersions.push(
+          normalizeWorkerBindings(
+            versionPayload.result.resources.bindings,
+            source,
+            `live:${entry.worker}`,
+          ),
+        );
+      }
+      const matches = actualVersions.every((actual) => sameJson(actual, expectedSurface.bindings));
+      checks.push(
+        matches
+          ? result(
+              bindingId,
+              `Worker bindings ${entry.worker}`,
+              'pass',
+              `Every actively serving version's non-secret bindings exactly match ${entry.source}.`,
+            )
+          : result(
+              bindingId,
+              `Worker bindings ${entry.worker}`,
+              'drift',
+              `At least one actively serving version's non-secret binding names, types, or source-backed targets differ from ${entry.source}.`,
+            ),
+      );
+    } catch (error) {
+      checks.push(
+        result(
+          bindingId,
+          `Worker bindings ${entry.worker}`,
+          'error',
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
+
+    const subdomainId = `worker-subdomain:${entry.worker}`;
+    try {
+      if (!accountId) throw new Error('Cloudflare account ID is not configured.');
+      const payload = await fetchJson(
+        fetcher,
+        `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(entry.worker)}/subdomain`,
+        env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,
+        `Worker subdomain ${entry.worker}`,
+      );
+      if (payload?.success !== true || !payload.result) {
+        throw new Error(`Worker subdomain ${entry.worker} returned an invalid API envelope.`);
+      }
+      const actual = normalizeWorkerSubdomain(payload.result, `live:${entry.worker}`);
+      const expected = { workersDev: entry.workersDev, previewUrls: entry.previewUrls };
+      checks.push(
+        sameJson(actual, expected)
+          ? result(
+              subdomainId,
+              `Worker subdomain ${entry.worker}`,
+              'pass',
+              `workers.dev and Preview URLs match the exact disabled-state contract.`,
+            )
+          : result(
+              subdomainId,
+              `Worker subdomain ${entry.worker}`,
+              'drift',
+              `workers.dev or Preview URL exposure differs from the contract.`,
+            ),
+      );
+    } catch (error) {
+      checks.push(
+        result(
+          subdomainId,
+          `Worker subdomain ${entry.worker}`,
+          'error',
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
+
+    const domainsId = `worker-domains:${entry.worker}`;
+    try {
+      if (!accountId) throw new Error('Cloudflare account ID is not configured.');
+      const url = new URL(
+        `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/domains`,
+      );
+      url.searchParams.set('service', entry.worker);
+      const payload = await fetchCloudflarePages(
+        fetcher,
+        url.href,
+        env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,
+        `Worker custom domains ${entry.worker}`,
+      );
+      const actual = normalizeWorkerCustomDomains(payload, entry.worker, `live:${entry.worker}`);
+      const expected = entry.customDomains.map((hostname) => ({
+        hostname,
+        environment: entry.environment,
+      }));
+      checks.push(
+        sameJson(actual, expected)
+          ? result(
+              domainsId,
+              `Worker custom domains ${entry.worker}`,
+              'pass',
+              entry.customDomains.length === 0
+                ? 'No public custom domain is attached.'
+                : `Exact custom domains are attached: ${entry.customDomains.join(', ')}.`,
+            )
+          : result(
+              domainsId,
+              `Worker custom domains ${entry.worker}`,
+              'drift',
+              `Live custom-domain exposure differs from the exact contract.`,
+            ),
+      );
+    } catch (error) {
+      checks.push(
+        result(
+          domainsId,
+          `Worker custom domains ${entry.worker}`,
+          'error',
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+    }
+  }
+
+  const domainInventoryId = 'worker-domain-inventory';
+  try {
+    if (!accountId) throw new Error('Cloudflare account ID is not configured.');
+    const payload = await fetchCloudflarePages(
+      fetcher,
+      `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/domains`,
+      env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,
+      'Worker account custom-domain inventory',
+    );
+    const contractedWorkers = contract.workerSurfaces.map((entry) => entry.worker);
+    const actual = normalizeWorkerDomainInventory(
+      payload,
+      workerCustomDomainScopes(contract.workerSurfaces),
+      contractedWorkers,
+      'live Worker account custom-domain inventory',
+    );
+    const expected = contract.workerSurfaces
+      .flatMap((entry) =>
+        entry.customDomains.map((hostname) => ({
+          hostname,
+          environment: entry.environment,
+          worker: entry.worker,
+        })),
+      )
+      .sort(stableCompare);
+    checks.push(
+      sameJson(actual, expected)
+        ? result(
+            domainInventoryId,
+            'Worker account custom-domain inventory',
+            'pass',
+            'Every project-domain hostname is attached to the exact contracted Worker and environment.',
+          )
+        : result(
+            domainInventoryId,
+            'Worker account custom-domain inventory',
+            'drift',
+            'Project-domain custom-domain exposure differs from the exact account inventory contract.',
+          ),
+    );
+  } catch (error) {
+    checks.push(
+      result(
+        domainInventoryId,
+        'Worker account custom-domain inventory',
+        'error',
+        error instanceof Error ? error.message : String(error),
+      ),
+    );
+  }
+
+  const routeWorkers = contract.workerSurfaces.map((entry) => entry.worker);
+  const routeZoneId = env[contract.workerRoutes.zoneIdEnv];
+  const routeToken = env[contract.workerRoutes.readTokenEnv];
+  const routesId = 'worker-routes';
+  if (!routeZoneId && !routeToken) {
+    checks.push(
+      result(
+        routesId,
+        'Worker zone routes',
+        'manual-only',
+        `Exact zone-route comparison was not queried because ${contract.workerRoutes.zoneIdEnv} and ${contract.workerRoutes.readTokenEnv} are both unset.`,
+      ),
+    );
+  } else {
+    try {
+      if (!routeZoneId || !routeToken) {
+        throw new Error(
+          `Worker route audit requires both ${contract.workerRoutes.zoneIdEnv} and ${contract.workerRoutes.readTokenEnv}.`,
+        );
+      }
+      const payload = await fetchJson(
+        fetcher,
+        `${CLOUDFLARE_API}/zones/${encodeURIComponent(routeZoneId)}/workers/routes`,
+        routeToken,
+        'Worker zone routes',
+      );
+      if (payload?.success !== true || !Array.isArray(payload.result)) {
+        throw new Error('Worker zone routes returned an invalid API envelope.');
+      }
+      const actual = normalizeWorkerRoutes(payload.result, routeWorkers, 'live Worker routes');
+      checks.push(
+        sameJson(actual, contract.workerRoutes.expected)
+          ? result(
+              routesId,
+              'Worker zone routes',
+              'pass',
+              `Every live zone route exactly matches the ${contract.workerRoutes.expected.length}-route contract.`,
+            )
+          : result(
+              routesId,
+              'Worker zone routes',
+              'drift',
+              'Live zone routes differ from the exact route contract.',
+            ),
+      );
+    } catch (error) {
+      checks.push(
+        result(
+          routesId,
+          'Worker zone routes',
           'error',
           error instanceof Error ? error.message : String(error),
         ),

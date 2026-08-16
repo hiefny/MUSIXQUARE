@@ -3,6 +3,16 @@
  * service-control Durable Object.
  */
 
+/** @typedef {{ kind: 'timeout' } | { kind: 'aborted' }} BodyStopOutcome */
+/** @typedef {{ kind: 'read', value: ReadableStreamReadResult<Uint8Array> } | { kind: 'invalid' } | BodyStopOutcome} BodyReadOutcome */
+/** @typedef {{ cancel?: (reason?: unknown) => unknown, body?: CancellableBody | null }} CancellableBody */
+
+/**
+ * @param {Request} request
+ * @param {number} maxBytes
+ * @param {number} timeoutMs
+ * @returns {Promise<{ body: Uint8Array | null } | { error: 'invalid' | 'too-large' | 'timeout' | 'aborted' }>}
+ */
 export async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
   const declared = request.headers.get('content-length');
   if (declared !== null) {
@@ -13,18 +23,21 @@ export async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
   if (!request.body) return { body: null };
 
   const reader = request.body.getReader();
+  /** @type {Uint8Array[]} */
   const chunks = [];
   let totalBytes = 0;
+  /** @type {((outcome: BodyStopOutcome) => void) | undefined} */
   let stop;
+  /** @type {Promise<BodyStopOutcome>} */
   const stopped = new Promise((resolve) => {
     stop = resolve;
   });
   const timeout = setTimeout(() => {
-    stop({ kind: 'timeout' });
+    /** @type {(outcome: BodyStopOutcome) => void} */ (stop)({ kind: 'timeout' });
     cancelReadableBody(reader, 'PRO_ROOM_REQUEST_BODY_TIMEOUT');
   }, timeoutMs);
   const abort = () => {
-    stop({ kind: 'aborted' });
+    /** @type {(outcome: BodyStopOutcome) => void} */ (stop)({ kind: 'aborted' });
     cancelReadableBody(reader, request.signal.reason);
   };
   if (request.signal.aborted) abort();
@@ -32,10 +45,11 @@ export async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
 
   try {
     while (true) {
+      /** @type {BodyReadOutcome} */
       const outcome = await Promise.race([
         reader.read().then(
-          (value) => ({ kind: 'read', value }),
-          () => ({ kind: 'invalid' }),
+          (value) => /** @type {const} */ ({ kind: 'read', value }),
+          () => /** @type {const} */ ({ kind: 'invalid' }),
         ),
         stopped,
       ]);
@@ -71,6 +85,11 @@ export async function readBodyBytesLimited(request, maxBytes, timeoutMs) {
   return { body };
 }
 
+/**
+ * @param {CancellableBody | null | undefined} bodyOrReader
+ * @param {unknown} reason
+ * @returns {void}
+ */
 export function cancelReadableBody(bodyOrReader, reason) {
   const body = bodyOrReader?.body || bodyOrReader;
   if (!body || typeof body.cancel !== 'function') return;

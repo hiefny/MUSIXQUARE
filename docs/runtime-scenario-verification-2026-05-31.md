@@ -162,10 +162,13 @@ references may be counted more than once, while browser and audio-engine
 allocations may be absent. Diagnose component trends and whether each returns
 to its baseline after cleanup rather than treating this total alone as a leak.
 
-## Optional Manual Runtime Matrix
+## Risk-based Manual Runtime Matrix
 
 Run the relevant rows when a change, incident, or explicit release choice needs
-physical-device confidence beyond the automated gate:
+physical-device confidence beyond the automated gate. The production workflow
+automatically requires this evidence when the candidate changes a path in
+`cloudflare/release-device-risk.contract.json` relative to the current App
+Worker deployment:
 
 | Scenario                                                    | Expected signal                                                                                 |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -183,7 +186,7 @@ physical-device confidence beyond the automated gate:
 - `npm run lint`
 - `npm test`
 - `npm run build:checked`
-- When the optional physical-device release gate is selected, complete and
+- When the physical-device release gate is selected or automatically required, complete and
   record its declared browser/device and network rows before dispatching the
   release.
 
@@ -192,8 +195,8 @@ secondary signal. They are not an exit criterion.
 
 ## Persisting Production Release Evidence
 
-When a release intentionally opts into physical-device evidence, complete the
-matrix and dispatch
+When a release opts into or is classified as requiring physical-device
+evidence, complete the matrix and dispatch
 `.github/workflows/real-device-qa.yml` on the current `main` commit. The tester
 must supply the exact 40-character SHA, completion timestamp, HTTPS environment
 that served that commit, HTTPS detailed evidence link, and the physical device
@@ -216,10 +219,12 @@ The free-form device matrix is not a substitute for those measurements; it
 must identify the tested models and browser/OS versions, while `evidence_url`
 points to the retained raw observations.
 
-`.github/workflows/release.yml` uses this artifact only when
-`require_real_device_evidence` is selected. It then downloads the successful
+`.github/workflows/release.yml` downloads this artifact when
+`require_real_device_evidence` is selected, then independently rejects an app
+or full-stack release if the checked-in risk contract requires evidence and
+the option was left off. It downloads the successful
 unexpired exact-SHA artifact by source run ID and verifies its canonical
 contents, repository, run attempt, and 14-day freshness before any production
-mutation. With the option left off, the immutable exact-SHA CI candidate and
-the workflow's automated production checks are sufficient; an older device
-artifact is never silently reused.
+mutation. With the option left off for a verified low-risk diff, the immutable
+exact-SHA CI candidate and automated production checks are sufficient; an
+older device artifact is never silently reused.

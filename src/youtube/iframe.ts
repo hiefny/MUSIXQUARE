@@ -88,6 +88,10 @@ import {
 import { preserveNativeProControllerPlayBeforeAutoplayGuard } from './native-control-authority.ts';
 import { applyYouTubeCaptionPolicy } from './caption-policy.ts';
 import {
+  RetainedYouTubePlayerController,
+  type RetainedPlayerHandoffRequest,
+} from './retained-player-controller.ts';
+import {
   handleYouTubeZeroStartPlayerState,
   isYouTubeZeroStartInFlight,
   isYouTubeZeroStartProtocolActive,
@@ -135,23 +139,6 @@ const PRO_TITLE_PERSIST_MAX_ATTEMPTS = 3;
 const SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER = 'yt-same-video-occurrence-handoff';
 const SAME_VIDEO_OCCURRENCE_PAUSE_POLL_MS = 20;
 const SAME_VIDEO_OCCURRENCE_PAUSE_TIMEOUT_MS = 500;
-const RETAINED_PLAYER_PARK_CONFIRM_TIMER = 'yt-retained-player-park-confirm';
-const RETAINED_PLAYER_TARGET_CONFIRM_TIMER = 'yt-retained-player-target-confirm';
-const RETAINED_PLAYER_CONFIRM_POLL_MS = 40;
-// A YouTube cue/load is a network operation inside the iframe. One second was
-// short enough that a healthy iPhone on a cold/mobile route regularly lost its
-// already-unlocked iframe to the destroy fallback. Both background PRIME
-// parking and a real target get a 10 s cold-network window; hard mute is
-// reverified on every sample, so retaining the exact iframe remains safe.
-const RETAINED_PLAYER_PARK_CONFIRM_MAX_POLLS = 250;
-const RETAINED_PLAYER_TARGET_CONFIRM_MAX_POLLS = 250;
-// mute() is a local iframe command, unlike cue/load identity convergence. Do
-// not keep an offscreen owner for the full cold-network window unless its
-// physical mute can be read back continuously. One second permits normal
-// postMessage convergence while bounding unknown or ineffective mute APIs.
-const RETAINED_PLAYER_HARD_MUTE_CONFIRM_MAX_POLLS = 25;
-const RETAINED_PLAYER_STABLE_SAMPLES = 2;
-
 /**
  * A persistent iframe cannot distinguish two queue occurrences that point to
  * the same YouTube video: cueVideoById(sameId) may be coalesced and any late
@@ -174,58 +161,35 @@ let preparedSameVideoOccurrenceRestart: {
 } | null = null;
 
 /**
- * A retained iOS iframe is parked on MUSIXQUARE's silent prime video while
- * another playback mode owns the page. The same YT.Player object is reused on
- * the next YouTube load, so player identity alone cannot distinguish a late
- * ENDED/CUED callback from the parked occurrence. Keep the handoff identity
- * until the incoming video's first usable state proves that it owns the
- * iframe.
+ * The controller owns every retained-player phase, generation, and confirmation
+ * timer. Player creation and normal state/UI callbacks stay in this module.
  */
-type RetainedPlayerPhase =
-  | 'parking-prime'
-  | 'parking-prime-after-bounce'
-  | 'parked'
-  | 'loading-target'
-  | 'releasing-target'
-  | 'active-target';
-
-interface RetainedPlayerParking {
-  player: YouTubePlayerInstance;
-  generation: number;
-  phase: RetainedPlayerPhase;
-  outgoingVideoId: string;
-  targetVideoId: string | null;
-  targetPlaylistId: string | null;
-  targetPlaylistIndex: number | null;
-  commandIssued: boolean;
-  acceptedState: number | null;
-  acceptedVideoId: string | null;
-  acceptedPlaylistIndex: number | null;
-  releaseAccepted: boolean;
-  pauseBackObserved: boolean;
-  stableVideoId: string | null;
-  stablePlaylistIndex: number | null;
-  stableState: number | null;
-  stableSamples: number;
-  pollCount: number;
-  hardMuteUnconfirmedPolls: number;
-  releaseLoadInProgressOnTargetProof: boolean;
-  sessionId: number | null;
-  queueItemId: QueueItemId | null;
-  retry: {
-    videoId: string | null;
-    playlistId: string | null;
-    autoplay: boolean;
-    subIndex: number;
-  } | null;
-}
-
-let retainedPlayerParking: RetainedPlayerParking | null = null;
-let retainedPlayerParkingGeneration = 0;
+const retainedPlayerController = new RetainedYouTubePlayerController({
+  loadTarget({ videoId, playlistId, autoplay, subIndex }) {
+    createYouTubePlayer(videoId, playlistId, autoplay, subIndex);
+  },
+  dispatchStableState(player, state) {
+    onYouTubePlayerStateChange({ data: state, target: player });
+  },
+  invalidateDurationCache() {
+    invalidateYtDurationCache();
+  },
+  hideSyncOverlay() {
+    showYouTubeSyncOverlay(false);
+    setYtIOSWatchdog(null);
+  },
+  finalizeDestroy({ resetHost, recreatePrime }) {
+    if (resetHost) {
+      const container = document.getElementById('youtube-player-container');
+      if (container) resetYouTubePlayerHost(container);
+      bus.emit('youtube:zero-start-readiness-changed');
+    }
+    if (recreatePrime) precreateYouTubePlayer();
+  },
+});
 
 function sanitizeRetainedPlaylistIndex(subIndex: number): number {
-  if (!Number.isFinite(subIndex)) return 0;
-  return Math.max(0, Math.trunc(subIndex));
+  return retainedPlayerController.sanitizePlaylistIndex(subIndex);
 }
 
 function resolveRetainedCommandPlaylistId(
@@ -233,580 +197,14 @@ function resolveRetainedCommandPlaylistId(
   playlistId: string | null,
   indexingRequested: boolean,
 ): string | null {
-  if (!playlistId) return null;
-  // Pure playlist loads have no single-video fallback. When both IDs exist,
-  // createYouTubePlayer keeps the native list only for the coordinator's
-  // scrape/index path; connected guests intentionally load the resolved video.
-  if (!videoId || !getState('network.hostConn') || indexingRequested) return playlistId;
-  return null;
-}
-
-function clearRetainedPlayerTimers(): void {
-  clearManagedTimer(RETAINED_PLAYER_PARK_CONFIRM_TIMER);
-  clearManagedTimer(RETAINED_PLAYER_TARGET_CONFIRM_TIMER);
-}
-
-function readRetainedPlayerIdentity(player: YouTubePlayerInstance): {
-  videoId: string;
-  state: number;
-} | null {
-  if (!player.getVideoData || !player.getPlayerState) return null;
-  try {
-    const videoId = player.getVideoData()?.video_id || '';
-    const state = player.getPlayerState();
-    if (!videoId || !Number.isFinite(state)) return null;
-    return { videoId, state };
-  } catch {
-    return null;
-  }
-}
-
-function readRetainedPlayerPlaylistIdentity(player: YouTubePlayerInstance): {
-  videoId: string;
-  state: number;
-  playlistIndex: number;
-} | null {
-  const identity = readRetainedPlayerIdentity(player);
-  if (!identity || identity.videoId === YOUTUBE_PRIME_VIDEO_ID) return null;
-  try {
-    const playlistIndex = player.getPlaylistIndex?.();
-    const playlist = player.getPlaylist?.();
-    if (
-      typeof playlistIndex !== 'number' ||
-      !Number.isInteger(playlistIndex) ||
-      playlistIndex < 0 ||
-      !Array.isArray(playlist) ||
-      playlist[playlistIndex] !== identity.videoId
-    ) {
-      return null;
-    }
-    return { ...identity, playlistIndex };
-  } catch {
-    return null;
-  }
-}
-
-function readRetainedPlayerMuteState(player: YouTubePlayerInstance): boolean | null {
-  if (!player.isMuted) return null;
-  try {
-    return player.isMuted() === true;
-  } catch {
-    return null;
-  }
-}
-
-function readRetainedPlayerSnapshot(player: YouTubePlayerInstance): {
-  videoId: string;
-  state: number;
-  muted: boolean;
-} | null {
-  // Read the two proofs independently. In particular, an empty/throwing video
-  // identity must never prevent callers from observing a lost physical mute.
-  const identity = readRetainedPlayerIdentity(player);
-  const muted = readRetainedPlayerMuteState(player);
-  if (!identity || muted === null) return null;
-  return { ...identity, muted };
-}
-
-function issueRetainedPlayerHardMute(player: YouTubePlayerInstance): boolean {
-  if (!player.mute || !player.isMuted) return false;
-  try {
-    player.mute();
-    // IFrame commands cross a postMessage boundary. isMuted() may remain
-    // false in this same JavaScript task even though mute() was accepted; the
-    // bounded PRIME/target confirmation polls verify physical convergence.
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-type RetainedPlayerHardMuteProof =
-  | { status: 'confirmed' }
-  | { status: 'pending' }
-  | { status: 'failed'; reason: string };
-
-/**
- * Prove physical mute separately from video identity/state. Identity can stay
- * cold for ten seconds on iPhone, but an offscreen iframe may consume that
- * budget only while isMuted() keeps returning true. A false or unreadable
- * result is re-muted and gets its own short, consecutive confirmation budget.
- */
-function proveRetainedPlayerHardMute(parking: RetainedPlayerParking): RetainedPlayerHardMuteProof {
-  const initialMuteState = readRetainedPlayerMuteState(parking.player);
-  if (initialMuteState === true) {
-    parking.hardMuteUnconfirmedPolls = 0;
-    return { status: 'confirmed' };
-  }
-
-  if (!issueRetainedPlayerHardMute(parking.player)) {
-    return { status: 'failed', reason: 'hard-mute-command-failed' };
-  }
-
-  const retriedMuteState = readRetainedPlayerMuteState(parking.player);
-  if (retriedMuteState === true) {
-    parking.hardMuteUnconfirmedPolls = 0;
-    return { status: 'confirmed' };
-  }
-
-  parking.hardMuteUnconfirmedPolls += 1;
-  if (parking.hardMuteUnconfirmedPolls >= RETAINED_PLAYER_HARD_MUTE_CONFIRM_MAX_POLLS) {
-    return {
-      status: 'failed',
-      reason: retriedMuteState === false ? 'hard-mute-unconfirmed' : 'hard-mute-unreadable',
-    };
-  }
-  return { status: 'pending' };
-}
-
-function destroyRetainedYouTubePlayer(
-  parking: RetainedPlayerParking,
-  recreatePrime: boolean,
-): void {
-  if (retainedPlayerParking !== parking) return;
-  clearRetainedPlayerTimers();
-  retainedPlayerParking = null;
-
-  const { player } = parking;
-  for (const command of [
-    () => player.mute?.(),
-    () => player.pauseVideo?.(),
-    () => player.stopVideo?.(),
-    () => player.destroy?.(),
-  ]) {
-    try {
-      command();
-    } catch (error) {
-      log.debug('[YouTube] Retained-player destruction cleanup failed:', error);
-    }
-  }
-  if (getYouTubePlayer() === player) {
-    setYouTubePlayer(null);
-    setYtPrimed(false);
-    setYtPrimeReady(false);
-    setYtPriming(false);
-    setYtPrimeBouncePending(false);
-    const container = document.getElementById('youtube-player-container');
-    if (container) resetYouTubePlayerHost(container);
-    bus.emit('youtube:zero-start-readiness-changed');
-  }
-
-  if (recreatePrime && !isPlaybackModeYouTube()) precreateYouTubePlayer();
-}
-
-function failRetainedPlayerParking(parking: RetainedPlayerParking, reason: string): void {
-  if (retainedPlayerParking !== parking) return;
-  if (parking.retry && retainedTargetRequestStillCurrent(parking)) {
-    retryRetainedTargetWithFreshPlayer(parking, reason);
-    return;
-  }
-  log.warn(`[YouTube] Retained-player parking failed (${reason}); rebuilding iframe`);
-  destroyRetainedYouTubePlayer(parking, IS_IOS);
-}
-
-function pollRetainedPlayerParking(parking: RetainedPlayerParking): void {
-  if (
-    retainedPlayerParking !== parking ||
-    (parking.phase !== 'parking-prime' && parking.phase !== 'parking-prime-after-bounce') ||
-    getYouTubePlayer() !== parking.player
-  ) {
-    return;
-  }
-
-  const hardMuteProof = proveRetainedPlayerHardMute(parking);
-  if (hardMuteProof.status === 'failed') {
-    failRetainedPlayerParking(parking, hardMuteProof.reason);
-    return;
-  }
-  if (hardMuteProof.status === 'pending') {
-    // Stable identity proof must be consecutive across samples whose physical
-    // mute is readable. An uncertain interval breaks the occurrence fence.
-    parking.stableSamples = 0;
-    setManagedTimer(
-      RETAINED_PLAYER_PARK_CONFIRM_TIMER,
-      () => pollRetainedPlayerParking(parking),
-      RETAINED_PLAYER_CONFIRM_POLL_MS,
-    );
-    return;
-  }
-
-  // The cold-network identity budget advances only on samples that have just
-  // independently proven the iframe physically muted.
-  parking.pollCount += 1;
-  const identity = readRetainedPlayerIdentity(parking.player);
-
-  const confirmed =
-    identity?.videoId === YOUTUBE_PRIME_VIDEO_ID &&
-    (identity.state === YT.PlayerState.CUED || identity.state === YT.PlayerState.PAUSED);
-  parking.stableSamples = confirmed ? parking.stableSamples + 1 : 0;
-  if (parking.stableSamples >= RETAINED_PLAYER_STABLE_SAMPLES) {
-    parking.phase = 'parked';
-    parking.pollCount = 0;
-    parking.stableSamples = 0;
-    setCachedYtPlaylistIdx(-1);
-    invalidateYtDurationCache();
-    if (parking.retry) {
-      if (!retainedTargetRequestStillCurrent(parking)) {
-        const ownedCurrentLoad = parking.sessionId === getCurrentSessionId();
-        parking.retry = null;
-        parking.sessionId = null;
-        parking.queueItemId = null;
-        if (ownedCurrentLoad) setYtLoadInProgress(false);
-      } else if (!beginRetainedPlayerTargetHandoff(parking)) {
-        retryRetainedTargetWithFreshPlayer(parking, 'hard-mute-command-failed');
-        return;
-      } else {
-        const retry = parking.retry;
-        if (!retry) return;
-        setYtLoadInProgress(true);
-        createYouTubePlayer(retry.videoId, retry.playlistId, retry.autoplay, retry.subIndex);
-        return;
-      }
-    }
-    // Never publish gesture-bounce readiness merely because cueVideoById()
-    // returned. The exact silent occurrence and its hard mute are now live.
-    setYtPrimeReady(!isYtPrimed() && isYtPlayerReady());
-    bus.emit('youtube:zero-start-readiness-changed');
-    return;
-  }
-
-  // Keep the two ownership budgets explicit even though both currently allow
-  // 10 seconds: a pending target follows target policy, while off-mode parking
-  // follows the silent PRIME policy. Hard mute is reverified on every sample.
-  const maxPolls = parking.retry
-    ? RETAINED_PLAYER_TARGET_CONFIRM_MAX_POLLS
-    : RETAINED_PLAYER_PARK_CONFIRM_MAX_POLLS;
-  if (parking.pollCount >= maxPolls) {
-    failRetainedPlayerParking(parking, 'silent-prime-unconfirmed');
-    return;
-  }
-  setManagedTimer(
-    RETAINED_PLAYER_PARK_CONFIRM_TIMER,
-    () => pollRetainedPlayerParking(parking),
-    RETAINED_PLAYER_CONFIRM_POLL_MS,
-  );
-}
-
-function retainedTargetRequestStillCurrent(parking: RetainedPlayerParking): boolean {
-  return (
-    parking.retry !== null &&
-    parking.sessionId === getCurrentSessionId() &&
-    parking.queueItemId === getCurrentQueueItemId() &&
-    isPlaybackModeYouTube()
-  );
-}
-
-function beginRetainedPlayerTargetHandoff(parking: RetainedPlayerParking): boolean {
-  const retry = parking.retry;
-  if (!retry || !issueRetainedPlayerHardMute(parking.player)) return false;
-
-  clearRetainedPlayerTimers();
-  parking.generation = ++retainedPlayerParkingGeneration;
-  parking.phase = 'loading-target';
-  parking.targetVideoId = retry.videoId;
-  parking.commandIssued = false;
-  parking.acceptedState = null;
-  parking.acceptedVideoId = null;
-  parking.acceptedPlaylistIndex = null;
-  parking.releaseAccepted = false;
-  parking.pauseBackObserved = false;
-  parking.stableVideoId = null;
-  parking.stablePlaylistIndex = null;
-  parking.stableState = null;
-  parking.stableSamples = 0;
-  parking.pollCount = 0;
-  parking.releaseLoadInProgressOnTargetProof = false;
-  setYtPrimeReady(false);
-  return true;
-}
-
-function retryRetainedTargetWithFreshPlayer(parking: RetainedPlayerParking, reason: string): void {
-  if (retainedPlayerParking !== parking) return;
-  const retry = parking.retry;
-  const stillCurrent = retainedTargetRequestStillCurrent(parking);
-  log.warn(`[YouTube] Retained-player target handoff failed (${reason}); rebuilding iframe`);
-  destroyRetainedYouTubePlayer(parking, false);
-  if (!stillCurrent || !retry) return;
-  setYtLoadInProgress(true);
-  createYouTubePlayer(retry.videoId, retry.playlistId, retry.autoplay, retry.subIndex);
-}
-
-interface RetainedPlayerTargetIdentity {
-  videoId: string;
-  state: number;
-  playlistIndex: number | null;
-}
-
-function readRetainedPlayerTargetIdentity(
-  parking: RetainedPlayerParking,
-): RetainedPlayerTargetIdentity | null {
-  if (parking.targetPlaylistId) {
-    const playlistIdentity = readRetainedPlayerPlaylistIdentity(parking.player);
-    if (!playlistIdentity || playlistIdentity.playlistIndex !== parking.targetPlaylistIndex) {
-      return null;
-    }
-    return playlistIdentity;
-  }
-
-  const identity = readRetainedPlayerIdentity(parking.player);
-  if (!identity || !parking.targetVideoId || identity.videoId !== parking.targetVideoId) {
-    return null;
-  }
-  return { ...identity, playlistIndex: null };
-}
-
-function resetRetainedPlayerTargetStableProof(parking: RetainedPlayerParking): void {
-  parking.stableVideoId = null;
-  parking.stablePlaylistIndex = null;
-  parking.stableState = null;
-  parking.stableSamples = 0;
-}
-
-function scheduleRetainedPlayerTargetPoll(
-  parking: RetainedPlayerParking,
-  generation = parking.generation,
-): void {
-  setManagedTimer(
-    RETAINED_PLAYER_TARGET_CONFIRM_TIMER,
-    () => pollRetainedPlayerTarget(parking, generation),
-    RETAINED_PLAYER_CONFIRM_POLL_MS,
-  );
-}
-
-function pollRetainedPlayerTarget(parking: RetainedPlayerParking, generation: number): void {
-  if (
-    retainedPlayerParking !== parking ||
-    parking.generation !== generation ||
-    parking.phase !== 'loading-target' ||
-    !parking.commandIssued ||
-    getYouTubePlayer() !== parking.player
-  ) {
-    return;
-  }
-  if (!retainedTargetRequestStillCurrent(parking)) {
-    retryRetainedTargetWithFreshPlayer(parking, 'target-request-superseded');
-    return;
-  }
-
-  const hardMuteProof = proveRetainedPlayerHardMute(parking);
-  if (hardMuteProof.status === 'failed') {
-    retryRetainedTargetWithFreshPlayer(parking, hardMuteProof.reason);
-    return;
-  }
-  if (hardMuteProof.status === 'pending') {
-    resetRetainedPlayerTargetStableProof(parking);
-    scheduleRetainedPlayerTargetPoll(parking, generation);
-    return;
-  }
-
-  // As with PRIME parking, target identity may use the long network budget
-  // only on samples with a fresh physical-mute proof.
-  parking.pollCount += 1;
-  const identity = readRetainedPlayerTargetIdentity(parking);
-
-  const usableState =
-    identity?.state === YT.PlayerState.CUED ||
-    identity?.state === YT.PlayerState.PAUSED ||
-    identity?.state === YT.PlayerState.PLAYING;
-  const targetResident = Boolean(identity && usableState);
-  if (targetResident && identity) {
-    if (
-      parking.stableVideoId === identity.videoId &&
-      parking.stablePlaylistIndex === identity.playlistIndex &&
-      parking.stableState === identity.state
-    ) {
-      parking.stableSamples += 1;
-    } else {
-      parking.stableVideoId = identity.videoId;
-      parking.stablePlaylistIndex = identity.playlistIndex;
-      parking.stableState = identity.state;
-      parking.stableSamples = 1;
-    }
-  } else {
-    resetRetainedPlayerTargetStableProof(parking);
-  }
-
-  if (identity && parking.stableSamples >= RETAINED_PLAYER_STABLE_SAMPLES) {
-    if (
-      identity.state === YT.PlayerState.PLAYING &&
-      !getYtAutoplayIntent() &&
-      parking.pauseBackObserved
-    ) {
-      try {
-        parking.player.pauseVideo?.();
-      } catch (error) {
-        log.debug('[YouTube] Retained target pause-back retry failed:', error);
-      }
-      resetRetainedPlayerTargetStableProof(parking);
-      if (parking.pollCount >= RETAINED_PLAYER_TARGET_CONFIRM_MAX_POLLS) {
-        retryRetainedTargetWithFreshPlayer(parking, 'pause-back-unconfirmed');
-        return;
-      }
-      scheduleRetainedPlayerTargetPoll(parking, generation);
-      return;
-    }
-    parking.phase = 'releasing-target';
-    parking.acceptedState = identity.state;
-    parking.acceptedVideoId = identity.videoId;
-    parking.acceptedPlaylistIndex = identity.playlistIndex;
-    parking.releaseAccepted = false;
-    const releasesOrdinaryLoad =
-      parking.releaseLoadInProgressOnTargetProof &&
-      !(identity.state === YT.PlayerState.PLAYING && !getYtAutoplayIntent());
-    if (releasesOrdinaryLoad) setYtLoadInProgress(false);
-    // Native callbacks received while loading were deliberately discarded.
-    // Replay only this post-command, stable live snapshot through the normal
-    // state owner while the hard-mute fence is still closed.
-    onYouTubePlayerStateChange({ data: identity.state, target: parking.player });
-    if (
-      retainedPlayerParking !== parking ||
-      parking.generation !== generation ||
-      getYouTubePlayer() !== parking.player
-    ) {
-      return;
-    }
-    if (!parking.releaseAccepted) {
-      parking.phase = 'loading-target';
-      parking.acceptedState = null;
-      parking.acceptedVideoId = null;
-      parking.acceptedPlaylistIndex = null;
-      resetRetainedPlayerTargetStableProof(parking);
-      scheduleRetainedPlayerTargetPoll(parking, generation);
-      return;
-    }
-    if (identity.state === YT.PlayerState.PLAYING && !getYtAutoplayIntent()) {
-      // The ordinary handler above issued pause-back and consumed any pending
-      // start owner. Keep the physical mute fence until WebKit proves PAUSED
-      // or a newly-intended PLAYING state becomes live.
-      parking.phase = 'loading-target';
-      parking.acceptedState = null;
-      parking.acceptedVideoId = null;
-      parking.acceptedPlaylistIndex = null;
-      parking.releaseAccepted = false;
-      parking.pauseBackObserved = true;
-      resetRetainedPlayerTargetStableProof(parking);
-      scheduleRetainedPlayerTargetPoll(parking, generation);
-      return;
-    }
-    parking.phase = 'active-target';
-    parking.acceptedState = null;
-    parking.acceptedVideoId = null;
-    parking.acceptedPlaylistIndex = null;
-    parking.releaseAccepted = false;
-    parking.retry = null;
-    resetRetainedPlayerTargetStableProof(parking);
-    parking.releaseLoadInProgressOnTargetProof = false;
-    // State processing above may have transferred hard-mute ownership to
-    // zero-start/PRO preparation. Volume application respects those owners.
-    bus.emit('audio:apply-youtube-volume');
-    return;
-  }
-
-  if (parking.pollCount >= RETAINED_PLAYER_TARGET_CONFIRM_MAX_POLLS) {
-    retryRetainedTargetWithFreshPlayer(parking, 'target-unconfirmed');
-    return;
-  }
-  scheduleRetainedPlayerTargetPoll(parking, generation);
+  return retainedPlayerController.resolveCommandPlaylistId(videoId, playlistId, indexingRequested);
 }
 
 function armRetainedPlayerHandoff(
   player: YouTubePlayerInstance | null,
-  request: {
-    videoId: string | null;
-    playlistId: string | null;
-    commandPlaylistId: string | null;
-    autoplay: boolean;
-    subIndex: number;
-    sessionId: number;
-    sameVideoReuse: boolean;
-  },
+  request: RetainedPlayerHandoffRequest,
 ): 'ready' | 'deferred' | 'rebuilt' {
-  const parking = retainedPlayerParking;
-  if (!player || parking?.player !== player) return 'ready';
-
-  const targetVideoId = request.videoId;
-  const invalidTarget =
-    (!targetVideoId && !request.commandPlaylistId) || targetVideoId === YOUTUBE_PRIME_VIDEO_ID;
-  if (invalidTarget) {
-    destroyRetainedYouTubePlayer(parking, false);
-    return 'rebuilt';
-  }
-
-  const hasConfirmedPrimeBoundary =
-    parking.phase === 'parked' ||
-    parking.phase === 'parking-prime' ||
-    parking.phase === 'parking-prime-after-bounce';
-  if (request.commandPlaylistId && !hasConfirmedPrimeBoundary) {
-    // The IFrame API exposes playlist contents/index but not the active list
-    // ID. Two different playlists can therefore present the same live
-    // video/index/state tuple while cuePlaylist() is still crossing the
-    // postMessage boundary. Return through the exact silent PRIME occurrence
-    // before every native-list command so that tuple cannot be mistaken for
-    // proof of the new playlist occurrence.
-    const parked = parkRetainedYouTubePlayer(player);
-    const replacementParking = retainedPlayerParking;
-    if (!parked || replacementParking?.player !== player) {
-      if (replacementParking?.player === player) {
-        destroyRetainedYouTubePlayer(replacementParking, false);
-      }
-      return 'rebuilt';
-    }
-    return armRetainedPlayerHandoff(player, request);
-  }
-
-  // Once an active retained target owns the iframe, a same-video queue
-  // occurrence is already protected by the dedicated pause/cue handoff. Drop
-  // only the obsolete parking fence; destroying the iframe here would discard
-  // WebKit's gesture proof for no safety benefit.
-  if (parking.phase === 'active-target' && request.sameVideoReuse) {
-    forgetRetainedYouTubePlayer(player);
-    return 'ready';
-  }
-
-  parking.sessionId = request.sessionId;
-  parking.queueItemId = getCurrentQueueItemId();
-  parking.targetVideoId = targetVideoId;
-  parking.targetPlaylistId = request.commandPlaylistId;
-  parking.targetPlaylistIndex = request.commandPlaylistId ? request.subIndex : null;
-  parking.retry = {
-    videoId: targetVideoId,
-    playlistId: request.playlistId,
-    autoplay: request.autoplay,
-    subIndex: request.subIndex,
-  };
-
-  const parkingPrime =
-    parking.phase === 'parking-prime' || parking.phase === 'parking-prime-after-bounce';
-  if (parkingPrime) {
-    // Do not replace PRIME with the real target until two live snapshots prove
-    // that the old occurrence is gone. Queueing instead of rebuilding keeps
-    // the exact iOS media element (and its user-gesture grant) alive.
-    if (!issueRetainedPlayerHardMute(player)) {
-      destroyRetainedYouTubePlayer(parking, false);
-      return 'rebuilt';
-    }
-    // A target arriving near the original parking deadline is fresh work. Give
-    // PRIME a new bounded window instead of destroying the gesture-bearing
-    // iframe on the next poll because most of the old budget was already spent.
-    parking.pollCount = 0;
-    parking.stableSamples = 0;
-    setYtPrimeReady(false);
-    setManagedTimer(
-      RETAINED_PLAYER_PARK_CONFIRM_TIMER,
-      () => pollRetainedPlayerParking(parking),
-      RETAINED_PLAYER_CONFIRM_POLL_MS,
-    );
-    return 'deferred';
-  }
-
-  if (!beginRetainedPlayerTargetHandoff(parking)) {
-    destroyRetainedYouTubePlayer(parking, false);
-    return 'rebuilt';
-  }
-  // A confirmed silent PRIME is an occurrence boundary. The requested ID may
-  // safely equal the just-ended ID, and a resolved playlist may carry both its
-  // concrete videoId and playlistId without forcing a new iframe.
-  return 'ready';
+  return retainedPlayerController.armHandoff(player, request);
 }
 
 function markRetainedPlayerLoadCommand(
@@ -816,295 +214,53 @@ function markRetainedPlayerLoadCommand(
   subIndex: number,
   releaseLoadInProgressOnTargetProof: boolean,
 ): boolean {
-  const parking = retainedPlayerParking;
-  const commandMatches = parking?.targetPlaylistId
-    ? playlistId === parking.targetPlaylistId && subIndex === parking.targetPlaylistIndex
-    : !playlistId && videoId !== null && parking?.targetVideoId === videoId;
-  if (
-    !parking ||
-    parking.player !== player ||
-    parking.phase !== 'loading-target' ||
-    !commandMatches
-  ) {
-    return false;
-  }
-  parking.generation = ++retainedPlayerParkingGeneration;
-  parking.commandIssued = true;
-  parking.pollCount = 0;
-  resetRetainedPlayerTargetStableProof(parking);
-  parking.releaseLoadInProgressOnTargetProof = releaseLoadInProgressOnTargetProof;
-  scheduleRetainedPlayerTargetPoll(parking);
-  return true;
+  return retainedPlayerController.markLoadCommand(
+    player,
+    videoId,
+    playlistId,
+    subIndex,
+    releaseLoadInProgressOnTargetProof,
+  );
 }
 
-/**
- * Reassert the physical mute owned by parking/target handoff. A missing or
- * throwing mute API cannot be treated as a soft failure: destroy the exact
- * hidden audio owner and rebuild through the appropriate bounded path.
- */
 export function ensureRetainedYouTubePlayerHardMuted(player: YouTubePlayerInstance): boolean {
-  const parking = retainedPlayerParking;
-  if (!parking || parking.player !== player) return true;
-  if (!issueRetainedPlayerHardMute(player)) {
-    if (parking.retry && isPlaybackModeYouTube()) {
-      retryRetainedTargetWithFreshPlayer(parking, 'hard-mute-command-failed');
-    } else {
-      destroyRetainedYouTubePlayer(parking, IS_IOS && !isPlaybackModeYouTube());
-    }
-    return false;
-  }
-
-  const muted = readRetainedPlayerMuteState(player);
-  if (muted === true) {
-    parking.hardMuteUnconfirmedPolls = 0;
-    return true;
-  }
-
-  // mute() was accepted but its postMessage has not converged yet. Reopen the
-  // matching bounded confirmation instead of publishing/releasing state.
-  if (
-    parking.phase === 'parked' ||
-    parking.phase === 'parking-prime' ||
-    parking.phase === 'parking-prime-after-bounce'
-  ) {
-    const confirmsPostBouncePause =
-      (parking.phase === 'parked' || parking.phase === 'parking-prime-after-bounce') &&
-      isYtPrimed() &&
-      readRetainedPlayerIdentity(player)?.videoId === YOUTUBE_PRIME_VIDEO_ID;
-    if (parking.phase === 'parked') parking.hardMuteUnconfirmedPolls = 0;
-    parking.phase = confirmsPostBouncePause ? 'parking-prime-after-bounce' : 'parking-prime';
-    parking.pollCount = 0;
-    parking.stableSamples = 0;
-    setYtPrimeReady(false);
-    setManagedTimer(
-      RETAINED_PLAYER_PARK_CONFIRM_TIMER,
-      () => pollRetainedPlayerParking(parking),
-      RETAINED_PLAYER_CONFIRM_POLL_MS,
-    );
-  } else {
-    if (parking.phase === 'active-target' || parking.phase === 'releasing-target') {
-      parking.hardMuteUnconfirmedPolls = 0;
-    }
-    parking.phase = 'loading-target';
-    parking.acceptedState = null;
-    parking.acceptedVideoId = null;
-    parking.acceptedPlaylistIndex = null;
-    parking.releaseAccepted = false;
-    parking.pollCount = 0;
-    parking.stableSamples = 0;
-    parking.stableVideoId = null;
-    parking.stablePlaylistIndex = null;
-    parking.stableState = null;
-    if (parking.commandIssued) {
-      scheduleRetainedPlayerTargetPoll(parking);
-    }
-  }
-  return true;
+  return retainedPlayerController.ensureHardMuted(player);
 }
 
 function shouldIgnoreRetainedPlayerCallback(
   player: YouTubePlayerInstance,
   state?: number,
 ): boolean {
-  const parking = retainedPlayerParking;
-  if (!parking || parking.player !== player) return false;
-
-  // A late native PLAYING transition from the offscreen occurrence must be
-  // silenced, not merely ignored. pauseVideo() alone is racy on WebKit while
-  // a native playlist transition is settling; hard mute closes the output
-  // immediately and pause converges the iframe state afterward.
-  if (!isPlaybackModeYouTube()) {
-    const snapshot = readRetainedPlayerSnapshot(player);
-    const intentionalPrimeBounce =
-      state === YT.PlayerState.PLAYING &&
-      parking.phase === 'parked' &&
-      isYtPrimeBouncePending() &&
-      snapshot?.videoId === YOUTUBE_PRIME_VIDEO_ID &&
-      snapshot.state === YT.PlayerState.PLAYING;
-    if (intentionalPrimeBounce) return false;
-
-    if (state === YT.PlayerState.PLAYING) {
-      const hardMuteIssued = ensureRetainedYouTubePlayerHardMuted(player);
-      try {
-        player.pauseVideo?.();
-      } catch (error) {
-        log.debug('[YouTube] Failed to pause a parked-player callback:', error);
-      }
-      if (hardMuteIssued && retainedPlayerParking === parking) {
-        if (
-          (parking.phase !== 'parked' &&
-            parking.phase !== 'parking-prime' &&
-            parking.phase !== 'parking-prime-after-bounce') ||
-          snapshot?.videoId !== YOUTUBE_PRIME_VIDEO_ID
-        ) {
-          // A caller wrote IDLE before the teardown event reached its owner.
-          // Replace the active/loading target with the owned silent occurrence
-          // immediately, preserving only a freshly confirmed hard mute.
-          const parked = parkRetainedYouTubePlayer(player);
-          const failedParking = retainedPlayerParking;
-          if (!parked && failedParking?.player === player) {
-            destroyRetainedYouTubePlayer(failedParking, IS_IOS);
-          }
-        }
-      }
-    }
-    return true;
-  }
-
-  if (parking.phase === 'releasing-target') {
-    let accepted = false;
-    if (state !== undefined && state === parking.acceptedState) {
-      if (parking.targetPlaylistId) {
-        const playlistIdentity = readRetainedPlayerPlaylistIdentity(player);
-        accepted =
-          readRetainedPlayerMuteState(player) === true &&
-          playlistIdentity !== null &&
-          playlistIdentity.videoId === parking.acceptedVideoId &&
-          playlistIdentity.playlistIndex === parking.acceptedPlaylistIndex &&
-          playlistIdentity.state === state;
-      } else {
-        const snapshot = readRetainedPlayerSnapshot(player);
-        accepted =
-          snapshot?.videoId === parking.acceptedVideoId &&
-          snapshot.state === state &&
-          snapshot.muted;
-      }
-    }
-    if (accepted) parking.releaseAccepted = true;
-    return !accepted;
-  }
-  if (parking.phase === 'active-target') {
-    if (parking.targetPlaylistId) {
-      const playlistIdentity = readRetainedPlayerPlaylistIdentity(player);
-      if (state === undefined) return !playlistIdentity;
-      return !playlistIdentity || playlistIdentity.state !== state;
-    }
-    const snapshot = readRetainedPlayerSnapshot(player);
-    if (state === undefined) return snapshot?.videoId !== parking.targetVideoId;
-    return !(snapshot?.videoId === parking.targetVideoId && snapshot.state === state);
-  }
-
-  // Parking and target-loading callbacks are never occurrence proof. The
-  // bounded live-snapshot polls above establish the command boundary and
-  // replay exactly one current state; queued native states stay quarantined.
-  return true;
+  return retainedPlayerController.shouldIgnoreCallback(player, state);
 }
 
 /** Whether volume policy must keep this exact inactive/handoff player muted. */
 export function isRetainedYouTubePlayerParked(player: YouTubePlayerInstance | null): boolean {
-  return (
-    !!player &&
-    retainedPlayerParking?.player === player &&
-    (retainedPlayerParking.phase !== 'active-target' || !isPlaybackModeYouTube())
-  );
+  return retainedPlayerController.isParked(player);
 }
 
 function isRetainedPlayerTargetHandoffPending(player: YouTubePlayerInstance | null): boolean {
-  return (
-    !!player &&
-    retainedPlayerParking?.player === player &&
-    (retainedPlayerParking.phase === 'loading-target' ||
-      retainedPlayerParking.phase === 'releasing-target')
-  );
+  return retainedPlayerController.isTargetHandoffPending(player);
 }
 
 function rebindRetainedPlayerActiveTargetToVideo(
   player: YouTubePlayerInstance,
   videoId: string,
 ): void {
-  const parking = retainedPlayerParking;
-  if (!videoId || parking?.player !== player || parking.phase !== 'active-target') return;
-  parking.targetVideoId = videoId;
-  parking.targetPlaylistId = null;
-  parking.targetPlaylistIndex = null;
+  retainedPlayerController.rebindActiveTargetToVideo(player, videoId);
 }
 
 /**
  * Move an exact retained player away from room media before its iframe is
- * hidden. Muting precedes every asynchronous API command so a native
- * auto-advance cannot leak audio between pause and cue completion.
+ * hidden. Muting still precedes every asynchronous player command.
  */
 export function parkRetainedYouTubePlayer(player: YouTubePlayerInstance): boolean {
-  if (getYouTubePlayer() !== player) return false;
-
-  clearRetainedPlayerTimers();
-  let outgoingVideoId = '';
-  try {
-    outgoingVideoId = player.getVideoData?.()?.video_id || '';
-  } catch {
-    /* the hard-mute/cue confirmation below remains authoritative */
-  }
-
-  const parking: RetainedPlayerParking = {
-    player,
-    generation: ++retainedPlayerParkingGeneration,
-    phase: 'parking-prime',
-    outgoingVideoId,
-    targetVideoId: null,
-    targetPlaylistId: null,
-    targetPlaylistIndex: null,
-    commandIssued: false,
-    acceptedState: null,
-    acceptedVideoId: null,
-    acceptedPlaylistIndex: null,
-    releaseAccepted: false,
-    pauseBackObserved: false,
-    stableVideoId: null,
-    stablePlaylistIndex: null,
-    stableState: null,
-    stableSamples: 0,
-    pollCount: 0,
-    hardMuteUnconfirmedPolls: 0,
-    releaseLoadInProgressOnTargetProof: false,
-    sessionId: null,
-    queueItemId: null,
-    retry: null,
-  };
-  retainedPlayerParking = parking;
-  setYtAutoplayIntent(false);
-  showYouTubeSyncOverlay(false);
-  setYtIOSWatchdog(null);
-  setYtPrimeReady(false);
-
-  if (!issueRetainedPlayerHardMute(player)) {
-    return false;
-  }
-  try {
-    player.pauseVideo?.();
-  } catch (error) {
-    log.debug('[YouTube] Failed to pause retained player before parking:', error);
-  }
-
-  if (YOUTUBE_PRIME_MODE === 'B' && YOUTUBE_PRIME_VIDEO_ID && player.cueVideoById) {
-    try {
-      player.cueVideoById(YOUTUBE_PRIME_VIDEO_ID, 0);
-      setManagedTimer(
-        RETAINED_PLAYER_PARK_CONFIRM_TIMER,
-        () => pollRetainedPlayerParking(parking),
-        RETAINED_PLAYER_CONFIRM_POLL_MS,
-      );
-      return true;
-    } catch (error) {
-      log.warn('[YouTube] Failed to park retained player on the silent prime video:', error);
-    }
-  }
-
-  // A player that cannot be moved to the owned silent occurrence is not safe
-  // to retain. Stop it best-effort, then let stopYouTubeMode destroy it and
-  // create a fresh prime iframe.
-  try {
-    player.stopVideo?.();
-  } catch {
-    /* caller performs definitive destruction */
-  }
-  return false;
+  return retainedPlayerController.park(player);
 }
 
 /** Release parking metadata when stopYouTubeMode destroys the exact player. */
 export function forgetRetainedYouTubePlayer(player: YouTubePlayerInstance): void {
-  if (retainedPlayerParking?.player !== player) return;
-  clearRetainedPlayerTimers();
-  retainedPlayerParking = null;
+  retainedPlayerController.forget(player);
 }
 
 function routeCurrentProYouTubeObservation(kind: 'ended' | 'unavailable'): boolean {
@@ -1773,59 +929,11 @@ export function precreateYouTubePlayer(): void {
 let primeBounceAttempt = 0;
 
 function verifyRetainedPlayerBeforePrimeBounce(player: YouTubePlayerInstance): boolean {
-  const parking = retainedPlayerParking;
-  if (!parking || parking.player !== player) return true;
-  const snapshot = readRetainedPlayerSnapshot(player);
-  const safeResident =
-    parking.phase === 'parked' &&
-    snapshot?.videoId === YOUTUBE_PRIME_VIDEO_ID &&
-    snapshot.muted &&
-    (snapshot.state === YT.PlayerState.CUED || snapshot.state === YT.PlayerState.PAUSED);
-  if (safeResident) return true;
-
-  // Prime readiness is only a cached affordance. Revalidate at the exact
-  // gesture-bound unMute/play TOCTOU seam so a late native playlist change
-  // can never turn the user's setup tap into playback of old room media.
-  setYtPrimeReady(false);
-  setYtPrimeBouncePending(false);
-  clearManagedTimer('yt-prime-bounce-timeout');
-  const parked = parkRetainedYouTubePlayer(player);
-  const failedParking = retainedPlayerParking;
-  if (!parked && failedParking?.player === player) {
-    destroyRetainedYouTubePlayer(failedParking, IS_IOS);
-  }
-  return false;
+  return retainedPlayerController.verifyBeforePrimeBounce(player);
 }
 
 function recoverPrimeBounceForRetry(player: YouTubePlayerInstance | null): void {
-  setYtPrimeBouncePending(false);
-  setYtPrimeReady(false);
-  clearManagedTimer('yt-prime-bounce-timeout');
-
-  if (!player || getYouTubePlayer() !== player || isYtPrimed()) {
-    bus.emit('youtube:zero-start-readiness-changed');
-    return;
-  }
-
-  const parking = retainedPlayerParking;
-  if (parking?.player === player) {
-    // The gesture seam unmuted this persistent iframe before the failed or
-    // unobserved bounce. Re-cue the owned silent occurrence under a new hard-
-    // mute confirmation boundary; publishing ready immediately would let the
-    // next gesture discover the unsafe state and spend itself only reparking.
-    const parked = parkRetainedYouTubePlayer(player);
-    const failedParking = retainedPlayerParking;
-    if (!parked && failedParking?.player === player) {
-      destroyRetainedYouTubePlayer(failedParking, IS_IOS);
-    }
-    bus.emit('youtube:zero-start-readiness-changed');
-    return;
-  }
-
-  // A fresh precreated PRIME iframe keeps the historical retry contract. It
-  // has no retained room-media occurrence or parking boundary to recover.
-  if (isYtPlayerReady()) setYtPrimeReady(true);
-  bus.emit('youtube:zero-start-readiness-changed');
+  retainedPlayerController.recoverPrimeBounceForRetry(player);
 }
 
 export function primeYouTubePlayer(options: { retryPending?: boolean } = {}): boolean {

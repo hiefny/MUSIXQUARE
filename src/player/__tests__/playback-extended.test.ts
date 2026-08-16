@@ -44,7 +44,7 @@ import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem } from '../../types/index.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
 import { log } from '../../core/log.ts';
-import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-capture-activity-port.ts';
+import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 
 const lazyPlaylistMocks = vi.hoisted(() => ({
   loadPlaylistModule: vi.fn(),

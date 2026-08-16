@@ -68,7 +68,6 @@ import {
   configureYouTubePlayerRuntimeHooks,
   type PendingAutoSyncOptions,
 } from './player-runtime-bridge.ts';
-import type { YouTubeAutoSyncOverrides } from './handler-runtime-bridge.ts';
 
 // YouTube rendezvous-autoplay intent: set by any caller that loaded a track
 // with autoplay=false but wants playback to start once the player (or its
@@ -330,12 +329,14 @@ import {
 import { showLoader } from '../ui/toast.ts';
 
 import {
+  configureYouTubeHandlerRuntimeHooks,
   handleYouTubePlay,
   handleRequestYouTubePlay,
   handleRequestYouTubePause,
   handleRequestYouTubeToggle,
   handleRequestYouTubeSubSeek,
   handleRequestYouTubePlaylistInfo,
+  type YouTubeAutoSyncOverrides,
 } from './handlers.ts';
 import { broadcastYouTubeSync, cancelGuestRendezvous, resetYouTubeSyncState } from './sync.ts';
 import {
@@ -506,7 +507,7 @@ function clampZeroStartTarget(seconds: number, duration: number): number {
  * advertised support. A mixed-version room fails closed to the existing
  * rendezvous path as one cohort, so an old client can never be stranded.
  */
-export function tryBeginYouTubeZeroStart(videoId: string, subIndex: number | null): boolean {
+function tryBeginYouTubeZeroStart(videoId: string, subIndex: number | null): boolean {
   const queueItemId = getCurrentQueueItemId();
   if (!queueItemId || !videoId || getYouTubeZeroStartRole() !== 'host') return false;
   if (!canUseYouTubeZeroStart()) return false;
@@ -1288,6 +1289,8 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
 // ─── Init ──────────────────────────────────────────────────────────
 
 export function initYouTube(): void {
+  configureYouTubeHandlerRuntimeHooks({ scheduleYtAutoSync, tryBeginYouTubeZeroStart });
+
   interface ProPlaylistResolutionAttempt {
     readonly session: ProRoomMediaHookSession;
     readonly roomId: string;

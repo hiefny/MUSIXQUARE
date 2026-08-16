@@ -37,8 +37,8 @@ describe('Dead-export ratchet', () => {
       expect(summary).toBeDefined();
       expect(summary).toContain('fully-dead: 0 ');
       expect(summary).toContain('test-only: 22 ');
-      expect(summary).toContain('baseline 22), self-only: 80 ');
-      expect(summary).toMatch(/self-only: 80 .*baseline 80\)$/u);
+      expect(summary).toContain('baseline 22), self-only: 79 ');
+      expect(summary).toMatch(/self-only: 79 .*baseline 80\)$/u);
       expect(output).toContain('OK');
     },
     DEAD_EXPORT_TEST_TIMEOUT_MS,

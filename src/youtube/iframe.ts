@@ -2198,7 +2198,7 @@ export function loadYouTubeVideo(
   log.debug('[YouTube] Loaded:', videoId || playlistId, 'autoplay:', autoplay);
 }
 
-export interface YouTubeAuthorityPreparationRequest {
+interface YouTubeAuthorityPreparationRequest {
   authorityKey: string;
   queueItemId: QueueItemId;
   videoId: string;
@@ -2207,7 +2207,7 @@ export interface YouTubeAuthorityPreparationRequest {
   timeoutMs?: number;
 }
 
-export type YouTubeAuthorityPreparationResult =
+type YouTubeAuthorityPreparationResult =
   | { ready: true; durationSeconds: number | null; videoId: string; subIndex: number }
   | {
       ready: false;

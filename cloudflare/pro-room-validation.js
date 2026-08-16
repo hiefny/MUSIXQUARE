@@ -1,3 +1,9 @@
+/**
+ * @param {unknown} value
+ * @param {readonly string[]} required
+ * @param {readonly string[]} [optional]
+ * @returns {value is Record<string, unknown>}
+ */
 export function hasExactKeys(value, required, optional = []) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const allowed = new Set([...required, ...optional]);
@@ -7,6 +13,10 @@ export function hasExactKeys(value, required, optional = []) {
   );
 }
 
+/**
+ * @param {unknown} value
+ * @returns {value is number}
+ */
 export function isSafeNonNegativeInteger(value) {
-  return Number.isSafeInteger(value) && value >= 0;
+  return Number.isSafeInteger(/** @type {number} */ (value)) && /** @type {number} */ (value) >= 0;
 }

@@ -22,6 +22,7 @@ import {
   proRoomGenerationHeaderValue,
   proRoomObjectName,
 } from './pro-room-generation.js';
+import { issueProRoomOwnerTransferRevocationReceipt } from './pro-room-claims.js';
 import {
   consumeAbuseRateLimit,
   consumeAbuseRateLimitPair,
@@ -119,7 +120,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.3.63';
+const ADMIN_ASSET_VERSION = '8.3.64';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -1894,6 +1895,40 @@ async function handleAdminSession(request, env) {
 
 const adminProRoomRegistryReadyByDb = new WeakMap();
 
+function adminRegistryStatementKind(sql) {
+  const operation = String(sql || '')
+    .trimStart()
+    .split(/\s+/u, 1)[0]
+    ?.toUpperCase();
+  if (operation === 'SELECT' || operation === 'PRAGMA') return 'read';
+  if (operation === 'CREATE' || operation === 'ALTER' || operation === 'DROP') return 'ddl';
+  if (operation === 'INSERT' || operation === 'UPDATE' || operation === 'DELETE') return 'write';
+  return 'other';
+}
+
+function observeAdminRegistryDb(db, observation) {
+  const observeStatement = (statement, kind) => {
+    const observed = {};
+    if (typeof statement?.bind === 'function') {
+      observed.bind = (...values) => observeStatement(statement.bind(...values), kind);
+    }
+    for (const method of ['run', 'all', 'first', 'raw']) {
+      if (typeof statement?.[method] !== 'function') continue;
+      observed[method] = (...args) => {
+        observation.statementCount += 1;
+        observation.statementKinds[kind] += 1;
+        return statement[method](...args);
+      };
+    }
+    return observed;
+  };
+  return {
+    prepare(sql) {
+      return observeStatement(db.prepare(sql), adminRegistryStatementKind(sql));
+    },
+  };
+}
+
 function getProRoomAdminNamespace(env) {
   const namespace = env.PRO_ROOM_ADMIN_ROOMS;
   return namespace &&
@@ -1907,7 +1942,23 @@ async function ensureAdminProRoomRegistry(db) {
   if (!db?.prepare) return false;
   const existing = adminProRoomRegistryReadyByDb.get(db);
   if (existing) return existing;
+  const sourceDb = db;
+  const startedAtMs = Date.now();
+  const observation = {
+    statementCount: 0,
+    statementKinds: { read: 0, write: 0, ddl: 0, other: 0 },
+  };
+  const observeCompletion = (outcome) => {
+    console.info('[PRO registry] schema ensure', {
+      event: 'admin_pro_room_registry_schema_ensure',
+      outcome,
+      durationMs: Math.max(0, Date.now() - startedAtMs),
+      statementCount: observation.statementCount,
+      statementKinds: observation.statementKinds,
+    });
+  };
   const initialize = (async () => {
+    const db = observeAdminRegistryDb(sourceDb, observation);
     await db
       .prepare(
         `CREATE TABLE IF NOT EXISTS ${ADMIN_PRO_ROOM_REGISTRY_TABLE} (
@@ -2591,7 +2642,16 @@ async function ensureAdminProRoomRegistry(db) {
         .run();
     }
     return true;
-  })();
+  })().then(
+    (value) => {
+      observeCompletion('ready');
+      return value;
+    },
+    (error) => {
+      observeCompletion('error');
+      throw error;
+    },
+  );
   adminProRoomRegistryReadyByDb.set(db, initialize);
   try {
     return await initialize;
@@ -2600,6 +2660,8 @@ async function ensureAdminProRoomRegistry(db) {
     throw error;
   }
 }
+
+export const ensureAdminProRoomRegistryForTests = ensureAdminProRoomRegistry;
 
 function normalizeAdminProRoomRow(row) {
   if (!row || !ADMIN_PRO_ROOM_CODE_RE.test(row.room_code)) return null;
@@ -5061,20 +5123,20 @@ async function createOwnerTransferRevocationReceipt(
 ) {
   const secret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
   if (secret.length < 32) throw new Error('PRO account assertion secret unavailable');
-  const payloadPart = stringToBase64Url(
-    JSON.stringify({
-      purpose: 'pro-room-owner-transfer-revocation',
+  return issueProRoomOwnerTransferRevocationReceipt(
+    {
       roomCode: prepared.roomCode,
       roomGeneration: prepared.roomGeneration,
       transferId: prepared.transferId,
       targetAccountId,
       requestId,
+    },
+    secret,
+    {
       revokedAtMs,
       expiresAtMs: revokedAtMs + PRO_ROOM_OWNER_TRANSFER_RECEIPT_TTL_MS,
-    }),
+    },
   );
-  const signature = await hmacSha256(secret, `owner-transfer-revocation:v1\u0000${payloadPart}`);
-  return `v1.${payloadPart}.${signature}`;
 }
 
 function ownerTransferPrepareAuditResult(response, payload) {

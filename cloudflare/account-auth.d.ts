@@ -29,6 +29,7 @@ export interface AccountDeletionCleanupResult {
   pendingAccounts: number;
 }
 
+export function isAccountAuthConfigured(env: unknown): boolean;
 export function resolveAccountSession(
   request: Request,
   env: unknown,
@@ -57,6 +58,12 @@ export function retireAccountProRoomLinks(
   roomCode: string,
   roomGeneration: number,
 ): Promise<{ configured: boolean; retired: boolean }>;
+export function retireAccountProRoomLinkForAccount(
+  env: unknown,
+  accountId: string,
+  roomCode: string,
+  roomGeneration: number,
+): Promise<boolean>;
 export function retireAccountProRoomLinkBatch(
   env: unknown,
   incarnations: readonly AccountProRoomIncarnation[],

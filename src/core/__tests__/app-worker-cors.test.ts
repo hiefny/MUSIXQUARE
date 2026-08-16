@@ -4,6 +4,7 @@ import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, {
   cleanupExpiredProRoomAdminAuditForTests,
+  ensureAdminProRoomRegistryForTests,
   fetchAndConsumeWithTimeout,
   readResponseBodyLimitedForTests,
   purgeProRoomAccountAuthorityForTests,
@@ -194,6 +195,94 @@ afterEach(() => {
   vi.unstubAllGlobals();
   for (const database of centralEntitlementDatabases) database.close();
   centralEntitlementDatabases.clear();
+});
+
+function createAdminRegistryTelemetryDb(options: { failFirstRun?: boolean } = {}) {
+  const database = new sqlite.DatabaseSync(':memory:');
+  centralEntitlementDatabases.add(database);
+  let failFirstRun = options.failFirstRun === true;
+
+  const observeFailure = (statement: CentralEntitlementStatement) => ({
+    bind(...values: CentralSqlValue[]) {
+      return observeFailure(statement.bind(...values));
+    },
+    all: () => statement.all(),
+    first: () => statement.first(),
+    async run() {
+      if (failFirstRun) {
+        failFirstRun = false;
+        throw new Error('synthetic registry initialization failure');
+      }
+      return statement.run();
+    },
+  });
+
+  return {
+    prepare(sql: string) {
+      return observeFailure(new CentralEntitlementStatement(database.prepare(sql)));
+    },
+  };
+}
+
+describe('Cloudflare app Worker admin registry schema telemetry', () => {
+  it('records one aggregate, identifier-free event for concurrent successful initialization', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const db = createAdminRegistryTelemetryDb();
+
+    await expect(
+      Promise.all([ensureAdminProRoomRegistryForTests(db), ensureAdminProRoomRegistryForTests(db)]),
+    ).resolves.toEqual([true, true]);
+    await expect(ensureAdminProRoomRegistryForTests(db)).resolves.toBe(true);
+
+    expect(info).toHaveBeenCalledTimes(1);
+    const [message, details] = info.mock.calls[0] as [string, Record<string, unknown>];
+    expect(message).toBe('[PRO registry] schema ensure');
+    expect(Object.keys(details).sort()).toEqual([
+      'durationMs',
+      'event',
+      'outcome',
+      'statementCount',
+      'statementKinds',
+    ]);
+    expect(details).toMatchObject({
+      event: 'admin_pro_room_registry_schema_ensure',
+      outcome: 'ready',
+    });
+    expect(details.durationMs).toEqual(expect.any(Number));
+    expect(details.statementCount).toEqual(expect.any(Number));
+    expect(details.statementCount).toBeGreaterThan(0);
+    const statementKinds = details.statementKinds as Record<string, number>;
+    expect(Object.keys(statementKinds).sort()).toEqual(['ddl', 'other', 'read', 'write']);
+    expect(Object.values(statementKinds).reduce((sum, count) => sum + count, 0)).toBe(
+      details.statementCount,
+    );
+    expect(JSON.stringify([message, details])).not.toMatch(
+      /CREATE\s+TABLE|ALTER\s+TABLE|room_code|account_id|\b\d{6}\b/iu,
+    );
+    info.mockRestore();
+  });
+
+  it('records a failed attempt once and retries the same database cleanly', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const db = createAdminRegistryTelemetryDb({ failFirstRun: true });
+
+    await expect(ensureAdminProRoomRegistryForTests(db)).rejects.toThrow(
+      'synthetic registry initialization failure',
+    );
+    await expect(ensureAdminProRoomRegistryForTests(db)).resolves.toBe(true);
+
+    expect(info).toHaveBeenCalledTimes(2);
+    expect(info.mock.calls.map(([, details]) => (details as { outcome: string }).outcome)).toEqual([
+      'error',
+      'ready',
+    ]);
+    for (const [message, details] of info.mock.calls) {
+      expect(JSON.stringify([message, details])).not.toContain(
+        'synthetic registry initialization failure',
+      );
+    }
+    info.mockRestore();
+  });
 });
 
 describe('Cloudflare app Worker PRO activation projection repair', () => {
@@ -5696,9 +5785,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.63');
-    expect(html).toContain('/admin.js?v=8.3.63');
-    expect(html).toContain('data-admin-asset-version="8.3.63"');
+    expect(html).toContain('/admin.css?v=8.3.64');
+    expect(html).toContain('/admin.js?v=8.3.64');
+    expect(html).toContain('data-admin-asset-version="8.3.64"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -5717,7 +5806,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.63', '/admin.css?v=8.3.63']) {
+    for (const path of ['/admin.js?v=8.3.64', '/admin.css?v=8.3.64']) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');

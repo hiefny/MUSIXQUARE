@@ -1628,6 +1628,123 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     resolveAbandoned({ status: 'applied', authority: abandonedAuthority });
   });
 
+  it('does not let a late command response poison a new room incarnation revision', async () => {
+    let resolveAbandoned!: (
+      value: Awaited<ReturnType<ProRoomApiClient['executePlaybackCommand']>>,
+    ) => void;
+    executeCommand.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveAbandoned = resolve;
+        }),
+    );
+
+    routeProPlaybackCommand(
+      { kind: 'pause', queueItemId: QUEUE_ITEM_ID, positionSeconds: 5 },
+      { wasPlaying: true },
+    );
+    await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
+
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+
+    resolveAbandoned({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      status: 'unchanged',
+      transition: null,
+      playback: playback(99),
+      serverTimeMs: 10_099,
+    });
+    await Promise.resolve();
+
+    routeProPlaybackCommand(
+      { kind: 'play', queueItemId: QUEUE_ITEM_ID, positionSeconds: 0 },
+      { wasPlaying: false },
+    );
+    await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledTimes(2));
+    expect(executeCommand.mock.calls[1]?.[0].command).toEqual({
+      type: 'play',
+      baseRevision: 0,
+    });
+  });
+
+  it('does not run an old queued command after rejoining the same room incarnation', async () => {
+    let resolveAbandoned!: (
+      value: Awaited<ReturnType<ProRoomApiClient['executePlaybackCommand']>>,
+    ) => void;
+    executeCommand.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveAbandoned = resolve;
+        }),
+    );
+
+    routeProPlaybackCommand(
+      { kind: 'pause', queueItemId: QUEUE_ITEM_ID, positionSeconds: 5 },
+      { wasPlaying: true },
+    );
+    await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
+    routeProPlaybackCommand(
+      { kind: 'play', queueItemId: QUEUE_ITEM_ID, positionSeconds: 0 },
+      { wasPlaying: false },
+    );
+
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+
+    resolveAbandoned({
+      schemaVersion: 1,
+      roomCode: ROOM_CODE,
+      status: 'unchanged',
+      transition: null,
+      playback: playback(0),
+      serverTimeMs: 10_000,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(executeCommand).toHaveBeenCalledOnce();
+
+    routeProPlaybackCommand(
+      { kind: 'play', queueItemId: QUEUE_ITEM_ID, positionSeconds: 0 },
+      { wasPlaying: false },
+    );
+    await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledTimes(2));
+    expect(executeCommand.mock.calls[1]?.[0].command).toEqual({
+      type: 'play',
+      baseRevision: 0,
+    });
+  });
+
+  it('does not let a late terminal command error close a new room incarnation', async () => {
+    let rejectAbandoned!: (reason: unknown) => void;
+    executeCommand.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectAbandoned = reject;
+        }),
+    );
+
+    routeProPlaybackCommand(
+      { kind: 'pause', queueItemId: QUEUE_ITEM_ID, positionSeconds: 5 },
+      { wasPlaying: true },
+    );
+    await vi.waitFor(() => expect(executeCommand).toHaveBeenCalledOnce());
+
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
+    const closeCallsAfterRejoin = closeSession.mock.calls.length;
+
+    rejectAbandoned(new ProRoomApiError('SESSION_REQUIRED'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(getState('room.context')).toMatchObject({ kind: 'pro', roomId: ROOM_CODE });
+    expect(closeSession).toHaveBeenCalledTimes(closeCallsAfterRejoin);
+  });
+
   it('applies one matching COMMIT, ignores duplicate/stale epochs, and fences CANCEL by transition', async () => {
     const prepared = prepareEvent(TRANSITION_COMMIT);
     acceptProRoomRealtimeFrameForTests(serverFrame(prepared as unknown as Record<string, unknown>));

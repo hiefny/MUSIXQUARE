@@ -249,6 +249,30 @@ https://musixquare.com/admin
 
 ## D1 Drift and Retention Check
 
+### Runtime schema-initialization measurement
+
+The App Worker emits one sampled custom-log event per isolate and bound Admin
+D1 instance when `ensureAdminProRoomRegistry` initializes. The event name is
+`admin_pro_room_registry_schema_ensure`; it contains only `outcome`,
+`durationMs`, the total statement count, and aggregate read/write/DDL/other
+counts. It contains no SQL text, room code, actor, account, request, or binding
+identifier. Cloudflare's configured custom-log sampling applies to this event.
+
+Review a continuous 14-day window before changing the initializer. Implement a
+read-only readiness fast path only when at least one of these measured
+conditions is true:
+
+- initialization p95 exceeds 100 ms;
+- initialization exceeds 10% of the affected admin/grant request latency; or
+- initialization statements exceed 1% of the App Worker's observed D1
+  operations.
+
+The first optimization must be additive: a complete schema returns after one
+read-only readiness probe, while an incomplete or ambiguous schema falls back
+to the existing initializer. Do not remove ALTER/backfill/self-healing paths
+until the release preflight independently verifies every required table,
+column, index, and trigger in production.
+
 Inspect table names and aggregate row ages without exposing user data:
 
 ```powershell

@@ -215,8 +215,10 @@ describe('production real-device evidence', () => {
     expect(release.indexOf('Revalidate every production Worker bundle')).toBeLessThan(
       release.indexOf('Authorize production mutations from persisted checkpoint'),
     );
-    expect(release).toContain('Physical-device evidence: not requested (routine-release default).');
-    expect(release).toContain('Physical-device evidence: required; source run');
+    expect(release).toContain('Physical-device evidence: not required');
+    expect(release).toContain('Physical-device evidence: required (');
+    expect(release).toContain('Physical-device evidence: required but not selected');
+    expect(release).toContain('Physical-device evidence: risk classification did not run.');
     expect(deviceWorkflow).toContain("if: github.ref == 'refs/heads/main'");
     expect(deviceWorkflow).toContain('MXQR_RELEASE_SHA: ${{ inputs.release_sha }}');
     expect(deviceWorkflow).toContain('if [[ "$current_main" != "$MXQR_RELEASE_SHA" ||');

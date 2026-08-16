@@ -1934,7 +1934,7 @@ describe('release deployment rollback state', () => {
     };
     expect(packageJson.scripts['pretest:e2e:critical']).toBe('npm run build:e2e');
     expect(packageJson.scripts['test:e2e:critical']).toBe(
-      'playwright test e2e/critical-browser.test.ts e2e/release-smoke.test.ts e2e/remote-upload-browser.test.ts --project=chromium --reporter=line',
+      'playwright test e2e/critical-browser.test.ts e2e/release-smoke.test.ts e2e/remote-upload-browser.test.ts e2e/background-resume.test.ts --project=chromium --reporter=line',
     );
     expect(packageJson.scripts['smoke:live:app-generation']).toBe(
       'node scripts/live-app-generation-smoke.mjs',

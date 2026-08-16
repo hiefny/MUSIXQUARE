@@ -49,10 +49,11 @@ npm run check:workers
 npm run build:checked
 ```
 
-The exact-SHA automated suite is the ordinary release-confidence gate. Use the
-optional physical-device/browser matrix when a change or incident needs extra
-confidence in WebRTC, background/resume, audio routing, or real network
-transitions. See
+The exact-SHA automated suite is the ordinary release-confidence gate. The
+production workflow requires the physical-device/browser matrix when the
+candidate crosses a checked-in WebRTC, background/resume, audio routing,
+playback, YouTube/iOS, or service-worker risk boundary; operators may also opt
+in for other changes. See
 [`docs/runtime-scenario-verification-2026-05-31.md`](docs/runtime-scenario-verification-2026-05-31.md)
 for the first-48-hours order and evidence checklist.
 

@@ -55,4 +55,5 @@ export function cleanupExpiredProRoomAdminAuditForTests(
   env: Record<string, unknown>,
   nowMs?: number,
 ): Promise<'unconfigured' | 'cleaned' | 'failed'>;
+export function ensureAdminProRoomRegistryForTests(db: unknown): Promise<boolean>;
 export default appWorker;

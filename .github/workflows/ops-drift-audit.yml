@@ -1,13 +1,13 @@
 name: Operations Drift Audit
 
-# Read-only weekly and manually dispatched comparison of practical live controls
+# Read-only daily and manually dispatched comparison of practical live controls
 # with their checked-in contracts. It never applies CORS, changes secrets, or
 # edits a GitHub ruleset.
 
 on:
   schedule:
-    # Mondays at 03:37 UTC. The non-hour boundary avoids common Actions load.
-    - cron: '37 3 * * 1'
+    # Daily at 03:37 UTC. The non-hour boundary avoids common Actions load.
+    - cron: '37 3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -52,6 +52,11 @@ jobs:
           # Missing configuration must fail closed rather than borrowing the
           # production deployment token.
           CLOUDFLARE_DRIFT_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_DRIFT_AUDIT_TOKEN }}
+          # Optional exact zone-route coverage uses a separate least-privilege
+          # credential. Optional separate permission: Workers Routes Read.
+          # Set both values or neither; a partial setup fails closed.
+          CLOUDFLARE_ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          CLOUDFLARE_WORKERS_ROUTES_READ_TOKEN: ${{ secrets.CLOUDFLARE_WORKERS_ROUTES_READ_TOKEN }}
           GITHUB_DRIFT_AUDIT_TOKEN: ${{ secrets.GITHUB_DRIFT_AUDIT_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}

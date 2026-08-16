@@ -1,3 +1,6 @@
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -102,5 +105,20 @@ describe('offline PRO room activation-claim CLI', () => {
     expect(() => formatProRoomOwnerRecoveryFragment(`${CLAIM}&view=debug`)).toThrow(
       'Owner recovery claim generation failed',
     );
+  });
+
+  it('runs the real CLI entrypoint against the standalone claim module', () => {
+    const output = execFileSync(
+      process.execPath,
+      [resolve('scripts/issue-pro-room-activation-claim.mjs'), '000000'],
+      {
+        cwd: resolve('.'),
+        encoding: 'utf8',
+        env: { ...process.env, PRO_ROOM_ACTIVATION_SECRET: SECRET },
+      },
+    );
+
+    expect(output.trim()).toMatch(/^#pro-claim=v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u);
+    expect(output).not.toContain(SECRET);
   });
 });

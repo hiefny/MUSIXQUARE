@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "r2Cors": [
     {
       "bucket": "musixquare-demo-tracks",
@@ -94,6 +94,67 @@
       ]
     }
   ],
+  "workerSurfaces": [
+    {
+      "worker": "musixquare-app",
+      "source": "cloudflare/wrangler.app.toml",
+      "exposure": "custom-domains",
+      "environment": "production",
+      "workersDev": false,
+      "previewUrls": false,
+      "customDomains": ["musixquare.com", "www.musixquare.com"]
+    },
+    {
+      "worker": "musixquare-developer-api",
+      "source": "cloudflare/wrangler.developer-api.toml",
+      "exposure": "custom-domains",
+      "environment": "production",
+      "workersDev": false,
+      "previewUrls": false,
+      "customDomains": ["api.musixquare.com"]
+    },
+    {
+      "worker": "musixquare-developer-api-facade",
+      "source": "cloudflare/wrangler.developer-api-facade.toml",
+      "exposure": "none",
+      "environment": "production",
+      "workersDev": false,
+      "previewUrls": false,
+      "customDomains": []
+    },
+    {
+      "worker": "musixquare-pro-room",
+      "source": "cloudflare/wrangler.pro-room.toml",
+      "exposure": "none",
+      "environment": "production",
+      "workersDev": false,
+      "previewUrls": false,
+      "customDomains": []
+    },
+    {
+      "worker": "musixquare-remote-share",
+      "source": "cloudflare/wrangler.remote-share.toml",
+      "exposure": "custom-domains",
+      "environment": "production",
+      "workersDev": false,
+      "previewUrls": false,
+      "customDomains": ["share.musixquare.com"]
+    },
+    {
+      "worker": "musixquare-signaling",
+      "source": "cloudflare/wrangler.signaling.toml",
+      "exposure": "custom-domains",
+      "environment": "production",
+      "workersDev": false,
+      "previewUrls": false,
+      "customDomains": ["signal.musixquare.com"]
+    }
+  ],
+  "workerRoutes": {
+    "zoneIdEnv": "CLOUDFLARE_ZONE_ID",
+    "readTokenEnv": "CLOUDFLARE_WORKERS_ROUTES_READ_TOKEN",
+    "expected": []
+  },
   "github": {
     "repository": "hiefny/MUSIXQUARE",
     "branch": "main",

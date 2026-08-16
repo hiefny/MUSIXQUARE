@@ -38,6 +38,7 @@ export default defineConfig({
         'src/audio/system-capture.ts',
         'src/pro-room/api.ts',
         'src/pro-room/media-transfer.ts',
+        'src/pro-room/playback-controller.ts',
         'src/pro-room/runtime.ts',
         'src/pro-room/playlist-state-manager.ts',
         'src/player/transport.ts',
@@ -148,11 +149,26 @@ export default defineConfig({
           functions: 97,
           lines: 89,
         },
-        'src/pro-room/runtime.ts': {
+        // Playback authority moved out of runtime.ts on 2026-08-17. Preserve
+        // the pre-extraction logical-unit floor, then keep both files on
+        // independent floors so neither can hide a regression in the other.
+        'src/pro-room/{runtime,playback-controller}.ts': {
           statements: 66,
           branches: 58,
           functions: 69,
           lines: 70,
+        },
+        'src/pro-room/playback-controller.ts': {
+          statements: 80,
+          branches: 72,
+          functions: 87,
+          lines: 85,
+        },
+        'src/pro-room/runtime.ts': {
+          statements: 61,
+          branches: 51,
+          functions: 65,
+          lines: 65,
         },
         'src/share/r2-client.ts': {
           statements: 75,

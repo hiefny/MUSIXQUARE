@@ -339,15 +339,6 @@ const tr: Record<I18nKey, string> = {
   'setup.change_later': "Bunu istediğin zaman Ayarlar'dan değiştirebilirsin.",
   'setup.welcome_title': 'Hoş geldin',
   'setup.join_session_subtitle': '{{code}} numaralı odaya katılmak üzeresin',
-  'setup.room_type_hint':
-    '0 ile başlayan kodlar kalıcı PRO odalarını, 1–9 ile başlayanlar geçici standart odaları açar.',
-  'setup.standard_room_summary':
-    'Standart oda · Geçicidir ve sunucu ayrıldığında kapanır. Oynatma ve izinleri sunucu yönetir; isteğe bağlı 8 haneli oda parolası istenebilir.',
-  'setup.pro_room_summary':
-    'PRO oda · Herkes ayrılsa da çalma listesi ve izinler korunur. Sahipler ve yöneticiler tarafından yönetilir; 8 haneli PRO oda parolası gerekir.',
-  'setup.center_role_guide':
-    'Bu cihaz Merkez hoparlör olarak katıldı. Ayarlar → Ses → Bu cihazın rolünü ayarla bölümünden değiştirebilirsiniz.',
-  'setup.center_role_open_settings': 'Rol ayarlarını aç',
   'setup.select_role': 'Bir rol seç',
   'setup.select_role_alt': 'Bir rol seç',
   'setup.greeting': 'Merhaba!',
@@ -368,8 +359,6 @@ const tr: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Tüm cihazlar aynı yerel ağdayken bağlantı en kararlıdır',
   'help.local_file': 'Yerel Dosya Seç',
   'help.load_local': 'Yerel Dosyayı Yükle',
-  'help.local_memory_notice':
-    'Dosya cihazın RAM’inde işlenir. Uzak ve PRO aktarımları 200 MiB ile sınırlıdır; belleği az cihazlarda daha küçük dosyalar da başarısız olabilir.',
   'help.youtube_compat': 'YouTube (Uyumlu Mod)',
   'help.youtube_no_effects': 'YouTube modunda rol ayarları ve ses efektleri kullanılamaz.',
   'help.media_synced_detail': 'Seçilen medya tüm bağlı cihazlarda aynı anda oynatılır.',
@@ -806,8 +795,6 @@ const tr: Record<I18nKey, string> = {
 
   // ─── System Audio Sharing ─────────────────────────────────────
   'system_audio.button': 'Sistem Sesi',
-  'system_audio.preflight_limits':
-    'Masaüstü Chromium (Chrome, Edge vb.) · en fazla {{count}} cihaz · en fazla {{hours}} saat',
   'system_audio.sharing': 'Sistem Sesi Paylaşılıyor',
   'system_audio.receiving': 'Sistem Sesi Alınıyor',
   'system_audio.owner_active': '{{name}} sistem sesini paylaşıyor.',

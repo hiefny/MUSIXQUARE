@@ -8,7 +8,6 @@ import {
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
-  dismissCenterRoleGuide,
   openChatDrawer,
   sendChat,
   waitForChatMessage,
@@ -32,14 +31,6 @@ test.describe('Production release smoke', () => {
     await Promise.all([
       waitForDeviceCount(pair.hostPage, 2),
       waitForDeviceCount(pair.guestPage, 2),
-    ]);
-
-    // Fresh release-smoke contexts exercise the real first-use path. Wait for
-    // the guide's delayed entrance and acknowledge it before testing the app
-    // controls beneath the intentionally interactive floating region.
-    await Promise.all([
-      dismissCenterRoleGuide(pair.hostPage),
-      dismissCenterRoleGuide(pair.guestPage),
     ]);
 
     await Promise.all([openChatDrawer(pair.hostPage), openChatDrawer(pair.guestPage)]);

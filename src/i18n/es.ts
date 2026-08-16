@@ -347,15 +347,6 @@ const es: Record<I18nKey, string> = {
   'setup.change_later': 'Puedes ajustar esto en cualquier momento en Ajustes.',
   'setup.welcome_title': 'Te damos la bienvenida',
   'setup.join_session_subtitle': 'Vas a entrar a la sala {{code}}.',
-  'setup.room_type_hint':
-    'Los códigos que empiezan por 0 son salas PRO persistentes; los que empiezan por 1–9 son salas estándar temporales.',
-  'setup.standard_room_summary':
-    'Sala estándar · Es temporal y se cierra cuando sale el anfitrión. El anfitrión gestiona la reproducción y los permisos; puede solicitarse una contraseña opcional de 8 dígitos.',
-  'setup.pro_room_summary':
-    'Sala PRO · Conserva la lista y los permisos aunque todos salgan. La gestionan propietarios y administradores, y requiere una contraseña PRO de 8 dígitos.',
-  'setup.center_role_guide':
-    'Este dispositivo se unió como altavoz central. Cámbialo en Ajustes → Audio → Configurar el rol de este dispositivo.',
-  'setup.center_role_open_settings': 'Abrir ajustes de rol',
   'setup.select_role': 'Selecciona un rol',
   'setup.select_role_alt': 'Selecciona un rol',
   'setup.greeting': '¡Hola!',
@@ -376,8 +367,6 @@ const es: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Las conexiones en la misma red son las más fiables',
   'help.local_file': 'Elegir archivo local',
   'help.load_local': 'Cargar archivo local',
-  'help.local_memory_notice':
-    'El archivo se procesa en la RAM del dispositivo. Las transferencias remotas y PRO admiten hasta 200 MiB; en dispositivos con poca memoria pueden fallar archivos más pequeños.',
   'help.youtube_compat': 'YouTube (modo de compatibilidad)',
   'help.youtube_no_effects': 'En modo YouTube, los roles y efectos de audio no están disponibles.',
   'help.media_synced_detail':
@@ -466,8 +455,6 @@ const es: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Audio del sistema',
-  'system_audio.preflight_limits':
-    'Chromium de escritorio (Chrome, Edge, etc.) · hasta {{count}} dispositivos · hasta {{hours}} horas',
   'system_audio.sharing': 'Compartiendo audio del sistema',
   'system_audio.receiving': 'Recibiendo audio del sistema',
   'system_audio.owner_active': '{{name}} está compartiendo el audio del sistema.',

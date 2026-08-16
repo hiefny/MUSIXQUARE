@@ -42,61 +42,24 @@ describe('app UX markup contract', () => {
     );
   });
 
-  it('announces room type before join and exposes an actionable one-time role guide', () => {
-    const input = appDocument.getElementById('setup-join-code');
-    const roomInfo = appDocument.getElementById('setup-room-type-info');
-    const autoJoinInfo = appDocument.getElementById('setup-auto-join-room-type-info');
-    const describedBy = input?.getAttribute('aria-describedby')?.split(/\s+/) ?? [];
+  it('keeps setup and media actions on the compact pre-audit surface', () => {
+    const joinInput = appDocument.getElementById('setup-join-code');
+    const localFile = appDocument.getElementById('btn-local-file');
+    const systemAudio = appDocument.getElementById('btn-system-audio');
 
-    expect(describedBy).toContain('setup-room-type-info');
-    expect(describedBy).toContain('setup-guest-error');
-    expect(roomInfo?.getAttribute('role')).toBe('status');
-    expect(roomInfo?.getAttribute('aria-live')).toBe('polite');
-    expect(roomInfo?.getAttribute('data-i18n')).toBe('setup.room_type_hint');
-    expect(autoJoinInfo?.getAttribute('role')).toBe('status');
-
-    const guide = appDocument.getElementById('center-role-guide');
-    const guideCopy = appDocument.getElementById('center-role-guide-copy');
-    expect(guide?.hasAttribute('hidden')).toBe(true);
-    expect(guide?.getAttribute('role')).toBe('region');
-    expect(guide?.getAttribute('aria-labelledby')).toBe('center-role-guide-copy');
-    expect(guideCopy?.getAttribute('role')).toBe('status');
-    expect(guideCopy?.getAttribute('aria-live')).toBe('polite');
-    expect(guide?.querySelector('#btn-center-role-settings')?.getAttribute('data-i18n')).toBe(
-      'setup.center_role_open_settings',
-    );
-    expect(
-      guide?.querySelector('#btn-center-role-dismiss')?.getAttribute('data-i18n-aria-label'),
-    ).toBe('common.close');
-  });
-
-  it('describes media constraints and disabled system-audio reasons accessibly', () => {
-    const local = appDocument.getElementById('btn-local-file');
-    const system = appDocument.getElementById('btn-system-audio');
-    const localDescription = appDocument.getElementById('media-local-file-description');
-    const systemLimits = appDocument.getElementById('media-system-audio-limits');
-    const systemStatus = appDocument.getElementById('media-system-audio-status');
-
-    expect(local?.getAttribute('aria-describedby')).toBe('media-local-file-description');
-    expect(localDescription?.getAttribute('data-i18n')).toBe('help.local_memory_notice');
-    expect(system?.getAttribute('aria-describedby')?.split(/\s+/)).toEqual([
-      'media-system-audio-limits',
-      'media-system-audio-status',
-    ]);
-    expect(systemLimits?.getAttribute('data-i18n')).toBe('system_audio.preflight_limits');
-    expect(systemStatus?.getAttribute('role')).toBe('status');
-    expect(systemStatus?.getAttribute('aria-live')).toBe('polite');
-    expect(systemStatus?.hasAttribute('hidden')).toBe(true);
-  });
-
-  it('keeps the new guidance bounded on narrow screens and media rows content-sized', () => {
-    expect(appStylesheet).toContain('width: min(390px, calc(100vw - 32px));');
-    expect(appStylesheet).toContain('@media (max-width: 420px)');
-    expect(appStylesheet).toContain('width: calc(100vw - 24px);');
+    expect(joinInput?.getAttribute('aria-describedby')).toBe('setup-guest-error');
+    expect(appDocument.getElementById('setup-room-type-info')).toBeNull();
+    expect(appDocument.getElementById('center-role-guide')).toBeNull();
+    expect(appDocument.getElementById('media-local-file-description')).toBeNull();
+    expect(appDocument.getElementById('media-system-audio-limits')).toBeNull();
+    expect(localFile?.hasAttribute('aria-describedby')).toBe(false);
+    expect(systemAudio?.hasAttribute('aria-describedby')).toBe(false);
     expect(appStylesheet).toMatch(
-      /\.file-select-btn\s*\{[\s\S]*?min-height:\s*72px;[\s\S]*?height:\s*auto;/u,
+      /\.file-select-btn\s*\{[\s\S]*?height:\s*72px;[\s\S]*?padding:\s*0 20px;/u,
     );
-    expect(appStylesheet).toContain('.media-source-disabled-reason[hidden]');
+    expect(appStylesheet).toMatch(
+      /#btn-sync,\s*\n\s*#btn-media-source\s*\{[\s\S]*?height:\s*56px;/u,
+    );
   });
 
   it('keeps the iOS audio primer rooted on trailing-slash invite documents', () => {

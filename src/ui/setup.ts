@@ -24,7 +24,6 @@ import { showToast, showLoader } from './toast.ts';
 import { showDialog } from './dialog.ts';
 import { updateRoleBadge } from './player-controls.ts';
 import { openLanguageDialog } from './settings.ts';
-import { initCenterRoleGuide, scheduleCenterRoleGuideOnce } from './center-role-guide.ts';
 
 // ─── Sub-module imports ──────────────────────────────────────────
 import { startHostFlow, setHostGoBack } from './setup-host.ts';
@@ -51,7 +50,6 @@ import {
   setupShowWelcome,
   setupSetGuestJoinBusy,
   setupSetGuestJoinError,
-  setupUpdateRoomTypeInfo,
   setupRenderActions,
   initObCarousel,
   notifyObCarouselGreetingReady,
@@ -328,8 +326,6 @@ setGuestGoBack(initSetupOverlay);
 // ─── Public Init ─────────────────────────────────────────────────
 
 export function initSetup(): void {
-  initCenterRoleGuide();
-
   // Desktop / compact landscape layout listener
   try {
     const mqlDesktop = window.matchMedia('(min-width: 1280px)');
@@ -379,7 +375,6 @@ export function initSetup(): void {
       const raw = joinInput.value || '';
       const digits = raw.replace(/\D+/g, '').slice(0, 6);
       if (raw !== digits) joinInput.value = digits;
-      setupUpdateRoomTypeInfo(digits);
     });
     joinInput.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
@@ -419,7 +414,6 @@ export function initSetup(): void {
 
     updateRoleBadge();
     hideSetupOverlay();
-    scheduleCenterRoleGuideOnce();
     // Clear pending join code & clean URL — connection succeeded
     setPendingAutoJoinCode(null);
     try {

@@ -331,14 +331,6 @@ const zhHans: Record<I18nKey, string> = {
   'setup.change_later': '你随时可以在“设置”中进行调整。',
   'setup.welcome_title': '欢迎',
   'setup.join_session_subtitle': '你即将加入房间 {{code}}。',
-  'setup.room_type_hint': '以0开头的代码是永久 PRO 房间；以1–9开头的是临时普通房间。',
-  'setup.standard_room_summary':
-    '普通房间 · 房主离开后房间即关闭。播放和权限由房主管理；如已启用，还需输入8位房间密码。',
-  'setup.pro_room_summary':
-    'PRO 房间 · 所有人离开后仍会保留播放列表和权限。由所有者和管理员管理，并且需要8位 PRO 房间密码。',
-  'setup.center_role_guide':
-    '此设备已作为中央扬声器加入。可在“设置 → 音频 → 设置此设备的角色”中更改。',
-  'setup.center_role_open_settings': '打开角色设置',
   'setup.select_role': '请选择角色',
   'setup.select_role_alt': '请选择角色',
   'setup.greeting': '你好！',
@@ -359,8 +351,6 @@ const zhHans: Record<I18nKey, string> = {
   'help.connect_all_wifi': '同一网络连接最稳定',
   'help.local_file': '选择本地文件',
   'help.load_local': '加载本地文件',
-  'help.local_memory_notice':
-    '文件在设备内存中处理。远程和 PRO 传输上限为200 MiB；内存较少的设备处理更小文件时也可能失败。',
   'help.youtube_compat': 'YouTube（兼容模式）',
   'help.youtube_no_effects': '在 YouTube 模式下，角色设置和音频效果不可用。',
   'help.media_synced_detail': '所选媒体会在所有已连接设备上同步播放。',
@@ -442,8 +432,6 @@ const zhHans: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': '系统音频',
-  'system_audio.preflight_limits':
-    '桌面版 Chromium 浏览器（Chrome、Edge 等）· 最多{{count}}台设备 · 最长{{hours}}小时',
   'system_audio.sharing': '正在共享系统音频',
   'system_audio.receiving': '正在接收系统音频',
   'system_audio.owner_active': '{{name}} 正在共享系统音频。',

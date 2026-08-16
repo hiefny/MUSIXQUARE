@@ -346,15 +346,6 @@ const fr: Record<I18nKey, string> = {
   'setup.change_later': 'Vous pouvez ajuster cela à tout moment dans les Réglages.',
   'setup.welcome_title': 'Bienvenue',
   'setup.join_session_subtitle': 'Vous allez rejoindre le salon {{code}}.',
-  'setup.room_type_hint':
-    'Les codes commençant par 0 ouvrent des salles PRO persistantes ; ceux de 1 à 9, des salles standard temporaires.',
-  'setup.standard_room_summary':
-    'Salle standard · Temporaire, elle se ferme au départ de l’hôte. L’hôte gère la lecture et les autorisations ; un mot de passe facultatif à 8 chiffres peut être demandé.',
-  'setup.pro_room_summary':
-    'Salle PRO · La playlist et les autorisations restent après le départ de tous. Elle est gérée par ses propriétaires et administrateurs et requiert un mot de passe PRO à 8 chiffres.',
-  'setup.center_role_guide':
-    'Cet appareil a rejoint la salle comme enceinte centrale. Modifiez ce rôle dans Paramètres → Audio → Définir le rôle de cet appareil.',
-  'setup.center_role_open_settings': 'Ouvrir les réglages du rôle',
   'setup.select_role': 'Veuillez sélectionner un rôle',
   'setup.select_role_alt': 'Veuillez sélectionner un rôle',
   'setup.greeting': 'Bonjour !',
@@ -375,8 +366,6 @@ const fr: Record<I18nKey, string> = {
   'help.connect_all_wifi': 'Les connexions sur le même réseau sont les plus fiables',
   'help.local_file': 'Choisir un fichier local',
   'help.load_local': 'Charger un fichier local',
-  'help.local_memory_notice':
-    'Le fichier est traité dans la RAM de l’appareil. Les transferts distants et PRO sont limités à 200 Mio ; un appareil manquant de mémoire peut échouer avec un fichier plus petit.',
   'help.youtube_compat': 'YouTube (mode de compatibilité)',
   'help.youtube_no_effects':
     'En mode YouTube, les réglages de rôle et les effets audio ne sont pas disponibles.',
@@ -464,8 +453,6 @@ const fr: Record<I18nKey, string> = {
 
   // System Audio Sharing
   'system_audio.button': 'Audio système',
-  'system_audio.preflight_limits':
-    'Chromium sur ordinateur (Chrome, Edge, etc.) · {{count}} appareils max. · {{hours}} h max.',
   'system_audio.sharing': 'Partage de l’audio système',
   'system_audio.receiving': 'Réception de l’audio système',
   'system_audio.owner_active': '{{name}} partage l’audio système.',

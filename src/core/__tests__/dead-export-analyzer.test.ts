@@ -26,7 +26,7 @@ interface AnalyzerResult {
   };
 }
 
-const script = fileURLToPath(new URL('../../../scripts/check-dead-exports.mjs', import.meta.url));
+const script = fileURLToPath(new URL('../../../scripts/check-dead-exports.mts', import.meta.url));
 const fixtureRoot = fileURLToPath(new URL('./fixtures/dead-export-analyzer/', import.meta.url));
 let fixtureAnalysisJson = '';
 let fixtureAnalysis!: AnalyzerResult;

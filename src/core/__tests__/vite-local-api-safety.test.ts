@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -7,14 +9,17 @@ import {
   createViteConfig,
   injectBuildEntryAssets,
   isExpectedPlaylistImportOverlapWarning,
-  minifyEarlyBootstrap,
   productionApiProxyEnabled,
 } from '../../../vite.config.ts';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 import {
   collectActiveStartupAssets,
   collectRenderedWorkerAssets,
   parseServiceWorkerAppShell,
-} from '../../../scripts/service-worker-app-shell-guard-lib.mjs';
+} from '../../../scripts/service-worker-app-shell-guard-lib.mts';
 
 type DevMiddleware = (
   request: { method?: string; url?: string },
@@ -184,19 +189,16 @@ describe('Vite dynamic/static overlap policy', () => {
 
 describe('service-worker build entry manifest', () => {
   it('minifies the readable early bootstrap before release output', async () => {
-    const source = `
-      /* source remains auditable */
-      (function () {
-        var runtimeUrl = '/primary-font-loader.js';
-        window.__testBootstrapRuntimeUrl = runtimeUrl;
-      })();
-    `;
-
-    const minified = await minifyEarlyBootstrap(source);
+    const asset = CLASSIC_RUNTIME_ASSETS.find(
+      (candidate) => candidate.outputPath === 'bootstrap.js',
+    );
+    if (!asset) throw new Error('Classic bootstrap runtime is missing from the manifest.');
+    const source = await readFile(resolve(asset.sourcePath), 'utf8');
+    const minified = (await compileClassicRuntimeAsset(resolve('.'), asset)).code;
 
     expect(minified.length).toBeLessThan(source.length);
     expect(minified).toContain('/primary-font-loader.js');
-    expect(minified).not.toContain('source remains auditable');
+    expect(minified).not.toContain('Synchronous setup that must run before first paint');
   });
 
   it('collects the canonical entry JS/CSS and emitted Worker/file closure', () => {
@@ -302,6 +304,7 @@ describe('service-worker build entry manifest', () => {
 
   it('injects exactly one non-empty manifest and rejects missing contracts', () => {
     const source = `
+      const CACHE_VERSION = '__MUSIXQUARE_CACHE_VERSION__';
       const BUILD_ENTRY_ASSETS = [/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */];
       const OPTIONAL_PRIMARY_FONT_ASSETS = [/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */];
     `;
@@ -321,6 +324,8 @@ describe('service-worker build entry manifest', () => {
     expect(injected).toContain('"./primary-font-loader.js"');
     expect(injected).toContain('"./primary-font.css"');
     expect(injected).toContain('"./designsystem/fonts/PretendardVariable.woff2"');
+    expect(injected).toContain("const CACHE_VERSION = 'v445';");
+    expect(injected).not.toContain('__MUSIXQUARE_CACHE_VERSION__');
     expect(injected).not.toContain('__MUSIXQUARE_BUILD_ENTRY_ASSETS__');
     expect(injected).not.toContain('__MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__');
     expect(() => injectBuildEntryAssets(source, [], optional)).toThrow('manifest is empty');

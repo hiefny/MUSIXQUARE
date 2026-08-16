@@ -7,10 +7,14 @@ import {
   deriveStandardRoomMemberId,
   verifyStandardRoomAccountAssertion,
   verifyStandardRoomAccountDeletionAssertion,
-} from '../../../cloudflare/standard-room-account-assertion.js';
+} from '../../../cloudflare/standard-room-account-assertion.ts';
 
 const assertionSecret = 'standard-room-assertion-secret-at-least-32-bytes';
 const accountId = 'acct_0123456789abcdefghijkl';
+const GOLDEN_ATTACH_ASSERTION =
+  'eyJ2IjoxLCJhdWQiOiJzdGFuZGFyZC1yb29tIiwicm9vbUNvZGUiOiIxMjM0NTYiLCJhY2NvdW50U3ViamVjdCI6InN1Yl91R1pmOExfa28wbWhwUElyQXNjQjZYIiwibmlja25hbWUiOiJNaW5zdSIsInBlZXJJZCI6Imd1ZXN0LWRldmljZS1hIiwicm9sZSI6Imd1ZXN0IiwiaWF0IjoxNzg0NTI0ODAwLCJleHAiOjE3ODQ1MjQ4NjB9.EVDErgXac263AJdTtSKhZ2rQsIQCjN8BejuDiMTVcnY';
+const GOLDEN_DELETE_ASSERTION =
+  'eyJ2IjoxLCJhdWQiOiJzdGFuZGFyZC1yb29tLWRlbGV0ZSIsInJvb21Db2RlIjoiMTIzNDU2IiwiYWNjb3VudFN1YmplY3QiOiJzdWJfdUdaZjhMX2tvMG1ocFBJckFzY0I2WCIsInBlZXJJZCI6Imd1ZXN0LWRldmljZS1hIiwicm9sZSI6Imd1ZXN0IiwiaWF0IjoxNzg0NTI0ODAwLCJleHAiOjE3ODQ1MjQ4NjB9.bDkMVD84uFEWB6bYaftItGX11od3VceBW7z76X460to';
 
 function base64Url(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('base64url');
@@ -34,6 +38,33 @@ async function signRawAssertionPayload(bytes: Uint8Array): Promise<string> {
 }
 
 describe('standard-room account assertions', () => {
+  it('matches the frozen attach/deletion byte vectors and generation pseudonyms', async () => {
+    const nowSeconds = 1_784_524_800;
+    const input = {
+      accountId,
+      roomCode: '123456',
+      peerId: 'guest-device-a',
+      role: 'guest' as const,
+    };
+
+    await expect(
+      createStandardRoomAccountAssertion(
+        { ...input, nickname: 'Minsu' },
+        assertionSecret,
+        nowSeconds,
+      ),
+    ).resolves.toBe(GOLDEN_ATTACH_ASSERTION);
+    await expect(
+      createStandardRoomAccountDeletionAssertion(input, assertionSecret, nowSeconds),
+    ).resolves.toBe(GOLDEN_DELETE_ASSERTION);
+    await expect(
+      deriveStandardRoomAccountSubject(accountId, '123456', assertionSecret),
+    ).resolves.toBe('sub_uGZf8L_ko0mhpPIrAscB6X');
+    await expect(
+      deriveStandardRoomMemberId('first-room-secret', 'sub_uGZf8L_ko0mhpPIrAscB6X'),
+    ).resolves.toBe('member_y5y-9bVlKopa1O_BwtyO7n');
+  });
+
   it('projects a short-lived room/peer/role-bound pseudonym without the global account ID', async () => {
     const nowSeconds = 1_784_524_800;
     const token = await createStandardRoomAccountAssertion(
@@ -224,6 +255,30 @@ describe('standard-room account assertions', () => {
         role: 'guest',
         nowSeconds,
       }),
+    ).resolves.toBeNull();
+  });
+
+  it('rejects a correctly signed payload that adds authority outside the exact schema', async () => {
+    const nowSeconds = 1_784_524_800;
+    const token = await signRawAssertionPayload(
+      new TextEncoder().encode(
+        JSON.stringify({
+          v: 1,
+          aud: 'standard-room',
+          roomCode: '123456',
+          accountSubject: 'sub_uGZf8L_ko0mhpPIrAscB6X',
+          nickname: 'Minsu',
+          peerId: 'guest-device-a',
+          role: 'guest',
+          iat: nowSeconds,
+          exp: nowSeconds + 60,
+          capability: 'admin',
+        }),
+      ),
+    );
+
+    await expect(
+      verifyStandardRoomAccountAssertion(token, assertionSecret, { nowSeconds }),
     ).resolves.toBeNull();
   });
 });

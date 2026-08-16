@@ -16,7 +16,7 @@
 >   `src/player/__tests__/load-epoch.test.ts` (pin h, Stage B; pin i retired
 >   2026-06-12 — the alias deletion made its threat a TypeScript error;
 >   pin j added 2026-06-13: finalize transfer-session snapshot)
-> - Static guard: `scripts/check-lifecycle-writes.mjs` (`guard:lifecycle-writes`)
+> - Static guard: `scripts/check-lifecycle-writes.mts` (`guard:lifecycle-writes`)
 > - Compact inventory: header comment in `src/player/_state.ts`
 > - Related pins already in place: `busy-guard.test.ts` (SA-04 family),
 >   `playback-extended.test.ts` (token arithmetic ±0/+1, lifecycle gate, SA-03),

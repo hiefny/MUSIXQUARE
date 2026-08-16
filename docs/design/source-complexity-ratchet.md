@@ -63,7 +63,7 @@ into an existing domain module when the dependency graph remains acyclic.
 
 ## Guard behavior
 
-`scripts/check-source-complexity.mjs` runs in `build:checked` and main CI. It
+`scripts/check-source-complexity.mts` runs in `build:checked` and main CI. It
 continues to catch accidental source generation, pasted artifacts, and
 unreviewed workflow growth. Typechecking, ESLint, dead-export/import-graph
 checks, Worker bundle validation, security checks, and behavior tests remain

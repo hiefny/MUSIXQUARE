@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import appWorker from '../../../cloudflare/app-worker.js';
+import appWorker from '../../../cloudflare/app-worker.ts';
 
 const EVENT_TEMPLATE_PATH = '/events/index.html';
 

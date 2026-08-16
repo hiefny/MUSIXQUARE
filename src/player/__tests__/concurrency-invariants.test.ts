@@ -7,7 +7,7 @@
  * owner, lifecycle FSM, and pending-play mailbox have distinct scopes. This
  * suite covers their interactions. Full matrix:
  * docs/design/playback-concurrency-invariants.md. Static writer-set guard:
- * scripts/check-lifecycle-writes.mjs.
+ * scripts/check-lifecycle-writes.mts.
  *
  * Contract cases (letters also identify the describe blocks):
  *   (a) use-preloaded(B) superseding in-flight load(A): flag stays true

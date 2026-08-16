@@ -190,7 +190,7 @@ Targets:
 - `.github/workflows/ci.yml`
 - `.github/workflows/e2e.yml`
 - `scripts/assert-production-build-clean.mjs`
-- `scripts/assert-production-security-config.mjs`
+- `scripts/assert-production-security-config.mts`
 - Cloudflare Wrangler configs.
 
 Questions:

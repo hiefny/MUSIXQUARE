@@ -7,6 +7,10 @@ or a substitute for the current source and tests.
 
 ## Current References
 
+- [Repository-wide TypeScript migration](typescript-migration/README.md) is the
+  authoritative roadmap, remaining-source inventory, progress record, and
+  completion contract for eliminating tracked authored JavaScript.
+
 - [Release versioning](release-versioning.md) defines the independent product
   SemVer, PWA cache epoch, API/schema versions, document dates, and immutable
   deployment identifiers.

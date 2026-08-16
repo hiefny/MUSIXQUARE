@@ -2,26 +2,27 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { assertProMediaCorsPreflight } from '../../../scripts/live-pro-media-cors-smoke.mts';
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
   ACCOUNT_ASSERTION_HEADER,
   createAccountAssertion,
-} from '../../../cloudflare/account-assertion.js';
-import appWorker from '../../../cloudflare/app-worker.js';
+} from '../../../cloudflare/account-assertion.ts';
+import appWorker from '../../../cloudflare/app-worker.ts';
 import {
   issueProRoomActivationClaim,
   issueProRoomOwnerRecoveryClaim,
   issueProRoomOwnerTransferClaim,
-} from '../../../cloudflare/pro-room-claims.js';
+} from '../../../cloudflare/pro-room-claims.ts';
 import {
   MusixquareProRoom,
   default as proRoomWorker,
-} from '../../../cloudflare/pro-room-worker.js';
-import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.js';
+} from '../../../cloudflare/pro-room-worker.ts';
+import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.ts';
 import developerApiWorker, {
   deriveDeveloperApiKeyDigest,
   developerApiScopes,
-} from '../../../cloudflare/developer-api-worker.js';
+} from '../../../cloudflare/developer-api-worker.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import { ProRoomApiError, type UpdateProRoomCompactSnapshotInput } from '../api.ts';
 import type { ProRoomR2Source, ProRoomSnapshot } from '../contracts.ts';
@@ -46,7 +47,7 @@ const proMediaCorsPolicy = JSON.parse(
   await readFile(new URL('../../../cloudflare/r2-cors.pro-media.json', import.meta.url), 'utf8'),
 ) as { rules: ProMediaCorsRule[] };
 const proMediaCorsSmokeSource = await readFile(
-  new URL('../../../scripts/live-pro-media-cors-smoke.mjs', import.meta.url),
+  new URL('../../../scripts/live-pro-media-cors-smoke.mts', import.meta.url),
   'utf8',
 );
 const proGrantMigration = await readFile(
@@ -203,6 +204,26 @@ describe('PRO room server-authoritative playback', () => {
   });
 
   it('waits for PRO media Range CORS data-plane propagation before app deployment', () => {
+    const headers = new Map([
+      ['access-control-allow-origin', 'https://musixquare.com'],
+      ['access-control-allow-methods', 'GET, HEAD'],
+      ['access-control-allow-headers', 'Range'],
+    ]);
+    expect(() =>
+      assertProMediaCorsPreflight({
+        ok: true,
+        status: 204,
+        headers: { get: (name) => headers.get(name.toLowerCase()) ?? null },
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertProMediaCorsPreflight({
+        ok: true,
+        status: 204,
+        headers: { get: (name) => (name === 'access-control-allow-origin' ? 'invalid' : null) },
+      }),
+    ).toThrow('wrong allowed origin');
+
     expect(proMediaCorsSmokeSource).toContain("APP_ORIGIN = 'https://musixquare.com'");
     expect(proMediaCorsSmokeSource).toContain('PROPAGATION_TIMEOUT_MS = 45_000');
     expect(proMediaCorsSmokeSource).toContain('RETRY_INTERVAL_MS = 2_000');
@@ -2445,24 +2466,40 @@ class FakeR2Bucket {
     return { objects, truncated: objects.length === limit };
   }
 
-  async head(key: string): Promise<unknown> {
+  async head(key: string) {
     return structuredClone(this.objects.get(key)) ?? null;
   }
 
-  async get(key: string): Promise<unknown> {
+  async get(key: string) {
     const object = this.objects.get(key);
     return object ? { ...structuredClone(object), body: { size: object.size } } : null;
   }
 
   async put(
     key: string,
-    body: { size?: number },
-    options: { httpMetadata?: unknown; customMetadata?: unknown },
+    body: ReadableStream | ArrayBuffer | ArrayBufferView | string | null,
+    options?: unknown,
   ): Promise<void> {
+    const size =
+      body && typeof body === 'object' && 'size' in body && typeof body.size === 'number'
+        ? body.size
+        : body instanceof ArrayBuffer || ArrayBuffer.isView(body)
+          ? body.byteLength
+          : typeof body === 'string'
+            ? new TextEncoder().encode(body).byteLength
+            : 0;
+    const httpMetadata =
+      options && typeof options === 'object' && 'httpMetadata' in options
+        ? options.httpMetadata
+        : undefined;
+    const customMetadata =
+      options && typeof options === 'object' && 'customMetadata' in options
+        ? options.customMetadata
+        : undefined;
     this.objects.set(key, {
-      size: body.size ?? 0,
-      httpMetadata: structuredClone(options.httpMetadata),
-      customMetadata: structuredClone(options.customMetadata),
+      size,
+      httpMetadata: structuredClone(httpMetadata),
+      customMetadata: structuredClone(customMetadata),
     });
   }
 

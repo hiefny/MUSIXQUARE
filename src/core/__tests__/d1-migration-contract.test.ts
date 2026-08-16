@@ -10,7 +10,7 @@ import {
   assertD1MigrationRepositoryHistory,
   loadD1MigrationManifest,
   trackedD1PathsForDatabase,
-} from '../../../scripts/check-d1-migration-contract.mjs';
+} from '../../../scripts/check-d1-migration-contract.mts';
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;

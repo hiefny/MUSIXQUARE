@@ -5,7 +5,7 @@ import {
   assertStandardRoomHotPath,
   loadStandardRoomHotPathSources,
   type StandardRoomHotPathSources,
-} from '../../../scripts/check-standard-room-hot-path.mjs';
+} from '../../../scripts/check-standard-room-hot-path.mts';
 
 function replaceOrThrow(source: string, search: string, replacement: string): string {
   if (!source.includes(search)) throw new Error(`Fixture anchor is missing: ${search}`);
@@ -53,9 +53,9 @@ describe('standard-room security/performance policy', () => {
     const current = await sources();
     const stacked = replaceOrThrow(
       current.appWorker,
-      '  if (\n    options.combinePerCapabilityRateLimit === true',
+      '  if (options.combinePerCapabilityRateLimit === true && perCapabilityLimit !== null) {',
       '  await checkPaidRateLimit(request, env, rateLimitKey, authenticatedRateLimit, 60);\n' +
-        '  if (\n    options.combinePerCapabilityRateLimit === true',
+        '  if (options.combinePerCapabilityRateLimit === true && perCapabilityLimit !== null) {',
     );
 
     expect(() => assertStandardRoomHotPath({ ...current, appWorker: stacked })).toThrow(

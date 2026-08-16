@@ -23,8 +23,10 @@ replacement for those immutable IDs.
 
 ## Service-worker cache epoch
 
-`CACHE_VERSION` in `public/service-worker.js` is a monotonic cache epoch. A
-value such as `v226` means "the 226th app-shell cache boundary," not
+`SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts` is the
+canonical monotonic cache epoch injected into the strict
+`browser/service-worker.ts` source during dev and production builds. A value
+such as `v226` means "the 226th app-shell cache boundary," not
 "MUSIXQUARE version 226." It changes only when the PWA cache/update contract
 requires existing clients to migrate. `guard:sw-cache-version` independently
 checks its history and monotonicity.

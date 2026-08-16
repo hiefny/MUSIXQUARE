@@ -12,9 +12,9 @@ import appWorker, {
   reconcileStaleAdminProRoomActivationsForTests,
   retireDecommissionedAccountProRoomEdgesForTests,
   sanitizeSoroArticleHtmlForTests,
-} from '../../../cloudflare/app-worker.js';
-import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.js';
-import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js';
+} from '../../../cloudflare/app-worker.ts';
+import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.ts';
+import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 
 const proGrantMigration = await readFile(

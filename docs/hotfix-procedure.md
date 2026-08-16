@@ -1,10 +1,10 @@
 # Production Hotfix And Rollback Procedure
 
-Reviewed against `public/service-worker.js`, `src/sw-register.ts`, the six
-Wrangler configs, the production release workflow, and the live-smoke scripts
-on 2026-08-09. Read the current
-`CACHE_VERSION` from the service-worker source rather than copying a number
-from this procedure.
+Reviewed against `browser/service-worker.ts`, `scripts/service-worker-asset.ts`,
+`src/sw-register.ts`, the six Wrangler configs, the production release
+workflow, and the live-smoke scripts on 2026-08-09. Read the current
+`SERVICE_WORKER_CACHE_VERSION` from the compiler manifest rather than copying a
+number from this procedure.
 
 This document is the canonical production hotfix note. Untracked workshop
 drafts are not release instructions.
@@ -435,7 +435,13 @@ and Cloudflare Worker version IDs identify the exact deployed build.
 | User dismisses update dialog                | The waiting worker is not activated by app code. The update applies on a later natural load/update path.                                                                                                                                                                                                                                                                                                                                          |
 | PWA/background tab                          | Delivery depends on when the browser wakes the page and allows the update check. Treat this as browser-controlled.                                                                                                                                                                                                                                                                                                                                |
 
-Bumping `CACHE_VERSION` in `public/service-worker.js` creates fresh active app-shell caches and is the current lightweight way to make existing clients notice an app-shell migration. Prior generations are retired only after the page/worker readiness handshake confirms that no live tab still needs them (or when activation sees no live window clients). It still does not create a guaranteed instant reload for every active/background client.
+Bumping `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`
+creates fresh active app-shell caches and is the current lightweight way to
+make existing clients notice an app-shell migration. The build injects that
+epoch into the stable `/service-worker.js` output. Prior generations are
+retired only after the page/worker readiness handshake confirms that no live
+tab still needs them (or when activation sees no live window clients). It still
+does not create a guaranteed instant reload for every active/background client.
 
 `npm run guard:sw-cache-version` enforces this migration boundary for committed
 PWA runtime changes. A feature commit may be followed by a separate version-bump
@@ -451,7 +457,7 @@ candidate build and release deployment checkout must retain full git history
 Use this when stale clients are likely to keep hitting a severe bug.
 
 1. Make the minimal code fix.
-2. Bump `CACHE_VERSION` in `public/service-worker.js`.
+2. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
 3. Run the full verification gate:
 
 ```bash

@@ -22,7 +22,7 @@ import {
   updateServiceMaintenance,
   updateAdminAnnouncementControl,
   type ServiceMaintenanceState,
-} from '../../../cloudflare/service-maintenance.js';
+} from '../../../cloudflare/service-maintenance.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 
 function activeState(overrides: Partial<ServiceMaintenanceState> = {}): ServiceMaintenanceState {

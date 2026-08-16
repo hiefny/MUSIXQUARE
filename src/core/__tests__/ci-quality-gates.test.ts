@@ -6,6 +6,8 @@ import criticalCoverageConfig from '../../../vitest.critical.config.ts';
 import toolingCoverageConfig from '../../../vitest.tooling.config.ts';
 
 const packageJson = JSON.parse(readFileSync(resolve('package.json'), 'utf8')) as {
+  devDependencies: Record<string, string>;
+  engines: Record<string, string>;
   scripts: Record<string, string>;
 };
 const toolingTsconfig = JSON.parse(readFileSync(resolve('tsconfig.tooling.json'), 'utf8')) as {
@@ -17,15 +19,91 @@ describe('CI quality and supply-chain gates', () => {
   it('fails both application and tooling lint on the first warning', () => {
     expect(packageJson.scripts['lint:app']).toBe('eslint src/ --max-warnings=0');
     expect(packageJson.scripts['lint:tooling']).toBe(
-      'eslint --config eslint.tooling.config.js cloudflare scripts e2e "public/*.js" "*.config.{js,mjs,ts}" "eslint*.config.js" --max-warnings=0',
+      'eslint --config eslint.tooling.config.ts browser cloudflare scripts e2e "*.config.{js,mjs,ts}" "eslint*.config.ts" --ignore-pattern "cloudflare/types/**" --max-warnings=0',
     );
   });
 
   it('lints application tests through their dedicated TypeScript profile', () => {
-    const appLintConfig = readFileSync(resolve('eslint.config.js'), 'utf8');
+    const appLintConfig = readFileSync(resolve('eslint.config.ts'), 'utf8');
     expect(appLintConfig).toContain("files: ['src/**/__tests__/**/*.ts']");
     expect(appLintConfig).toContain("project: './tsconfig.test.json'");
     expect(appLintConfig).not.toContain("'src/**/__tests__/'");
+  });
+
+  it('loads both strict TypeScript ESLint configs through the pinned Node contract', () => {
+    expect(packageJson.engines.node).toBe('24.13.1');
+    expect(packageJson.devDependencies.eslint).toBe('^10.0.2');
+    expect(packageJson.devDependencies.jiti).toBe('2.7.0');
+    expect(toolingTsconfig.include).toEqual(
+      expect.arrayContaining(['eslint.config.ts', 'eslint.tooling.config.ts']),
+    );
+    expect(packageJson.scripts['format:tooling']).toContain('"*.{js,mjs,mts,ts,json}"');
+    expect(packageJson.scripts['format:check:tooling']).toContain('"*.{js,mjs,mts,ts,json}"');
+  });
+
+  it('runs every shrink-only TypeScript migration ratchet in checked builds and typechecks', () => {
+    expect(packageJson.scripts['guard:authored-js-inventory']).toBe(
+      'node scripts/check-authored-js-inventory.mts',
+    );
+    expect(packageJson.scripts['guard:typescript-diagnostics']).toBe(
+      'node scripts/check-typescript-diagnostic-ratchet.mts',
+    );
+    expect(packageJson.scripts['guard:authored-inline-js']).toBe(
+      'node scripts/check-authored-inline-js-inventory.mts',
+    );
+    for (const scriptName of ['build:checked', 'typecheck']) {
+      const command = packageJson.scripts[scriptName];
+      expect(command).toContain('npm run guard:authored-js-inventory');
+      expect(command).toContain('npm run guard:authored-inline-js');
+      expect(command).toContain('npm run guard:typescript-diagnostics');
+    }
+  });
+
+  it('guards and typechecks TS-backed classic browser runtime assets', () => {
+    expect(packageJson.scripts['guard:classic-runtime']).toBe(
+      'node scripts/check-classic-runtime-assets.mts',
+    );
+    expect(packageJson.scripts['typecheck:browser-classic']).toBe(
+      'tsc -p tsconfig.browser-classic.json',
+    );
+    for (const scriptName of ['build:checked', 'typecheck']) {
+      expect(packageJson.scripts[scriptName]).toContain('npm run guard:classic-runtime');
+    }
+    expect(packageJson.scripts.typecheck).toContain('npm run typecheck:browser-classic');
+    expect(packageJson.scripts['check:public-runtime']).toBe(
+      'node scripts/check-public-runtime.mts',
+    );
+    expect(packageJson.scripts['check:public-runtime']).not.toContain(' -e ');
+  });
+
+  it('guards and typechecks the TS-backed stable service-worker asset', () => {
+    expect(packageJson.scripts['guard:service-worker']).toBe(
+      'node scripts/check-service-worker-asset.mts',
+    );
+    expect(packageJson.scripts['guard:service-worker-build']).toBe(
+      'node scripts/check-service-worker-asset.mts --dist',
+    );
+    expect(packageJson.scripts['typecheck:service-worker']).toBe(
+      'tsc -p tsconfig.service-worker.json',
+    );
+    expect(packageJson.scripts['build:checked']).toContain('npm run guard:service-worker');
+    expect(packageJson.scripts['build:checked']).toContain('npm run guard:service-worker-build');
+    expect(packageJson.scripts.typecheck).toContain('npm run guard:service-worker');
+    expect(packageJson.scripts.typecheck).toContain('npm run typecheck:service-worker');
+  });
+
+  it('guards and typechecks the TSX-backed stable UI kit asset', () => {
+    expect(packageJson.scripts['guard:ui-kit']).toBe('node scripts/check-ui-kit-asset.mts');
+    expect(packageJson.scripts['guard:ui-kit-build']).toBe(
+      'node scripts/check-ui-kit-asset.mts --dist',
+    );
+    expect(packageJson.scripts['typecheck:ui-kit']).toBe('tsc -p tsconfig.ui-kit.json');
+    expect(packageJson.scripts['build:checked']).toContain('npm run guard:ui-kit');
+    expect(packageJson.scripts['build:checked']).toContain('npm run guard:ui-kit-build');
+    expect(packageJson.scripts.typecheck).toContain('npm run guard:ui-kit');
+    expect(packageJson.scripts.typecheck).toContain('npm run typecheck:ui-kit');
+    expect(packageJson.scripts['format:tooling']).toContain('browser/**/*.{ts,tsx}');
+    expect(packageJson.scripts['format:check:tooling']).toContain('browser/**/*.{ts,tsx}');
   });
 
   it('verifies registry signatures independently of the vulnerability audit', () => {
@@ -34,7 +112,7 @@ describe('CI quality and supply-chain gates', () => {
     expect(ciWorkflow).toContain('run: npm run security:signatures');
   });
 
-  it('keeps production Worker JavaScript inside a dedicated coverage ratchet', () => {
+  it('keeps production Worker runtime modules inside a dedicated coverage ratchet', () => {
     expect(packageJson.scripts['test:coverage:workers']).toBe(
       'vitest run --coverage --config vitest.workers.config.ts',
     );
@@ -42,10 +120,13 @@ describe('CI quality and supply-chain gates', () => {
     expect(ciWorkflow).toContain('run: npm run test:coverage:workers');
 
     const workerCoverage = readFileSync(resolve('vitest.workers.config.ts'), 'utf8');
-    expect(workerCoverage).toContain("include: ['cloudflare/**/*.js']");
-    expect(workerCoverage).toContain("'cloudflare/app-worker.js'");
-    expect(workerCoverage).toContain("'cloudflare/pro-room-worker.js'");
-    expect(workerCoverage).toContain("'cloudflare/signaling-worker.js'");
+    expect(workerCoverage).toContain("include: ['cloudflare/**/*.{js,ts}']");
+    expect(workerCoverage).toContain(
+      "exclude: ['cloudflare/**/*.d.ts', 'cloudflare/**/*.contract.ts']",
+    );
+    expect(workerCoverage).toContain("'cloudflare/app-worker.ts'");
+    expect(workerCoverage).toContain("'cloudflare/pro-room-worker.ts'");
+    expect(workerCoverage).toContain("'cloudflare/signaling-worker.ts'");
   });
 
   it('keeps extracted PRO playback authority inside the critical coverage ratchet', () => {
@@ -108,16 +189,16 @@ describe('CI quality and supply-chain gates', () => {
       >;
     };
     const coveredScripts = [
-      'scripts/audit-ops-drift.mjs',
-      'scripts/check-d1-migration-contract.mjs',
-      'scripts/check-durable-object-migration-contract.mjs',
-      'scripts/emergency-deploy.mjs',
-      'scripts/guard-emergency-deploy.mjs',
-      'scripts/release-deployment-state.mjs',
-      'scripts/release-identity.mjs',
-      'scripts/release-manifest.mjs',
-      'scripts/release-r2-policy-state.mjs',
-      'scripts/release-worker-floor-state.mjs',
+      'scripts/audit-ops-drift.mts',
+      'scripts/check-d1-migration-contract.mts',
+      'scripts/check-durable-object-migration-contract.mts',
+      'scripts/emergency-deploy.mts',
+      'scripts/guard-emergency-deploy.mts',
+      'scripts/release-deployment-state.mts',
+      'scripts/release-identity.mts',
+      'scripts/release-manifest.mts',
+      'scripts/release-r2-policy-state.mts',
+      'scripts/release-worker-floor-state.mts',
     ];
     expect(coverage.include).toEqual(coveredScripts);
     expect(coverage.thresholds).toEqual({
@@ -125,61 +206,61 @@ describe('CI quality and supply-chain gates', () => {
       branches: 68,
       functions: 85,
       lines: 75,
-      'scripts/audit-ops-drift.mjs': {
+      'scripts/audit-ops-drift.mts': {
         statements: 72,
         branches: 71,
         functions: 82,
         lines: 73,
       },
-      'scripts/check-d1-migration-contract.mjs': {
+      'scripts/check-d1-migration-contract.mts': {
         statements: 79,
         branches: 74,
         functions: 95,
         lines: 80,
       },
-      'scripts/check-durable-object-migration-contract.mjs': {
+      'scripts/check-durable-object-migration-contract.mts': {
         statements: 80,
         branches: 77,
         functions: 95,
         lines: 82,
       },
-      'scripts/emergency-deploy.mjs': {
+      'scripts/emergency-deploy.mts': {
         statements: 81,
         branches: 82,
         functions: 82,
         lines: 81,
       },
-      'scripts/guard-emergency-deploy.mjs': {
+      'scripts/guard-emergency-deploy.mts': {
         statements: 70,
         branches: 57,
         functions: 65,
         lines: 72,
       },
-      'scripts/release-deployment-state.mjs': {
+      'scripts/release-deployment-state.mts': {
         statements: 70,
         branches: 60,
         functions: 83,
         lines: 71,
       },
-      'scripts/release-identity.mjs': {
+      'scripts/release-identity.mts': {
         statements: 77,
         branches: 78,
         functions: 74,
         lines: 80,
       },
-      'scripts/release-manifest.mjs': {
+      'scripts/release-manifest.mts': {
         statements: 69,
         branches: 68,
         functions: 79,
         lines: 70,
       },
-      'scripts/release-r2-policy-state.mjs': {
+      'scripts/release-r2-policy-state.mts': {
         statements: 74,
         branches: 61,
         functions: 87,
         lines: 75,
       },
-      'scripts/release-worker-floor-state.mjs': {
+      'scripts/release-worker-floor-state.mts': {
         statements: 81,
         branches: 74,
         functions: 83,
@@ -200,9 +281,14 @@ describe('CI quality and supply-chain gates', () => {
   });
 
   it('does not relabel the installed Wrangler version with a CI constant', () => {
-    const releaseManifest = readFileSync(resolve('scripts/release-manifest.mjs'), 'utf8');
+    const releaseManifest = readFileSync(resolve('scripts/release-manifest.mts'), 'utf8');
+    const releaseWorkflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     expect(ciWorkflow).not.toContain('WRANGLER_VERSION:');
     expect(releaseManifest).toContain('wrangler: installedWranglerVersion()');
     expect(releaseManifest).not.toContain('DEFAULT_WRANGLER_VERSION');
+    expect(releaseWorkflow).toContain(
+      'wrangler_version="$(node scripts/print-wrangler-version.mts)"',
+    );
+    expect(releaseWorkflow).not.toContain('node -p');
   });
 });

@@ -7,17 +7,24 @@
     "checkJs": true,
     "noEmit": true,
     "strict": true,
+    "allowImportingTsExtensions": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": []
   },
   "include": [
-    "cloudflare/pro-room-validation.js",
-    "cloudflare/pro-room-permissions.js",
-    "cloudflare/pro-room-generation.js",
-    "cloudflare/pro-room-body.js",
-    "cloudflare/pro-room-effects.js",
-    "cloudflare/pro-room-queue-mode.js"
+    "cloudflare/account-assertion.ts",
+    "cloudflare/account-nickname.ts",
+    "cloudflare/display-name-policy.ts",
+    "cloudflare/pro-room-validation.ts",
+    "cloudflare/pro-room-permissions.ts",
+    "cloudflare/pro-room-generation.ts",
+    "cloudflare/pro-room-body.ts",
+    "cloudflare/pro-room-claims.ts",
+    "cloudflare/pro-room-crypto.ts",
+    "cloudflare/pro-room-effects.ts",
+    "cloudflare/pro-room-queue-mode.ts",
+    "cloudflare/service-maintenance.ts"
   ]
 }

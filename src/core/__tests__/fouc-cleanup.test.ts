@@ -1,6 +1,18 @@
-import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
+
+async function foucCleanupRuntime(): Promise<string> {
+  const asset = CLASSIC_RUNTIME_ASSETS.find(
+    (candidate) => candidate.outputPath === 'fouc-cleanup.js',
+  );
+  if (!asset) throw new Error('Classic FOUC runtime is missing from the manifest.');
+  return (await compileClassicRuntimeAsset(resolve('.'), asset)).code;
+}
 
 describe('FOUC cleanup fallback', () => {
   it('stops polling for CSS after the timeout reveals the page', async () => {
@@ -10,7 +22,7 @@ describe('FOUC cleanup fallback', () => {
     const getComputedStyle = vi.fn(() => ({
       getPropertyValue: () => '',
     }));
-    const source = await readFile('public/fouc-cleanup.js', 'utf8');
+    const source = await foucCleanupRuntime();
 
     vm.runInNewContext(source, {
       document: {
@@ -47,7 +59,7 @@ describe('FOUC cleanup fallback', () => {
   it('reveals a cold-restored hidden document at DOMContentLoaded without waiting for a frame', async () => {
     const documentListeners = new Map<string, () => void>();
     const add = vi.fn();
-    const source = await readFile('public/fouc-cleanup.js', 'utf8');
+    const source = await foucCleanupRuntime();
 
     vm.runInNewContext(source, {
       document: {
@@ -73,7 +85,7 @@ describe('FOUC cleanup fallback', () => {
   it('re-asserts the reveal class when WebKit returns the document via pageshow', async () => {
     const windowListeners = new Map<string, () => void>();
     const add = vi.fn();
-    const source = await readFile('public/fouc-cleanup.js', 'utf8');
+    const source = await foucCleanupRuntime();
 
     vm.runInNewContext(source, {
       document: {

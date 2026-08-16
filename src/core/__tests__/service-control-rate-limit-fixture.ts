@@ -1,9 +1,9 @@
-import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js';
+import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   ABUSE_RATE_PAIR_CONSUME_PATH,
-} from '../../../cloudflare/service-maintenance.js';
+} from '../../../cloudflare/service-maintenance.ts';
 
 class RateControlStorage {
   private readonly values = new Map<string, unknown>();

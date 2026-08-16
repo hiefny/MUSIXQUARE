@@ -3,37 +3,54 @@ import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
 
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 import { LANGUAGE_OPTIONS } from '../index.ts';
 
 type LandingDictionary = Record<string, Record<string, string>>;
 type StaticLanguageOption = { code: string };
 
 async function loadLandingDictionary(): Promise<LandingDictionary> {
-  const source = await readFile('public/landing-i18n.js', 'utf8');
-  const marker = '  function normalizeSelection(lang) {';
-  expect(source).toContain(marker);
+  const asset = CLASSIC_RUNTIME_ASSETS.find(
+    (candidate) => candidate.outputPath === 'landing-i18n.js',
+  );
+  if (!asset) throw new Error('Classic landing i18n runtime is missing from the manifest.');
+  const source = (await compileClassicRuntimeAsset(process.cwd(), asset)).code;
+  const marker = /(\s+function normalizeSelection\(lang\) \{)/u;
+  expect(source).toMatch(marker);
 
   const windowObject: Record<string, unknown> = {};
   vm.runInNewContext(
-    source.replace(marker, `  window.__landingI18n = i18n;\n  return;\n${marker}`),
+    source.replace(marker, '\n    window.__landingI18n = i18n;\n    return;\n$1'),
     { window: windowObject },
   );
   return windowObject.__landingI18n as LandingDictionary;
 }
 
 async function loadStaticLanguageOptions(): Promise<StaticLanguageOption[]> {
-  const source = await readFile('public/static-language.js', 'utf8');
-  const marker = '  var optionByCode = {};';
-  expect(source).toContain(marker);
-
-  const windowObject: Record<string, unknown> = {};
-  vm.runInNewContext(
-    source.replace(marker, `  window.__staticLanguageOptions = OPTIONS;\n  return;\n${marker}`),
-    {
-      window: windowObject,
-    },
+  const asset = CLASSIC_RUNTIME_ASSETS.find(
+    (candidate) => candidate.outputPath === 'static-language.js',
   );
-  return windowObject.__staticLanguageOptions as StaticLanguageOption[];
+  if (!asset) throw new Error('Classic static-language runtime is missing from the manifest.');
+  const source = (await compileClassicRuntimeAsset(process.cwd(), asset)).code;
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    runScripts: 'outside-only',
+    url: 'https://musixquare.com/',
+  });
+  try {
+    dom.window.eval(source);
+    const runtime = (
+      dom.window as unknown as {
+        MXQRStaticLang?: { options: StaticLanguageOption[] };
+      }
+    ).MXQRStaticLang;
+    if (!runtime) throw new Error('Compiled static-language runtime did not publish its API.');
+    return runtime.options;
+  } finally {
+    dom.window.close();
+  }
 }
 
 describe('landing-page translation integrity', () => {

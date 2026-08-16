@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 function runGuard(...args: string[]) {
-  return spawnSync(process.execPath, ['scripts/check-source-complexity.mjs', ...args], {
+  return spawnSync(process.execPath, ['scripts/check-source-complexity.mts', ...args], {
     cwd: process.cwd(),
     encoding: 'utf8',
   });
@@ -18,14 +18,14 @@ describe('source complexity safety limit', () => {
       maxLines: number;
       maxRunLines?: number;
     }> = [
-      { path: 'cloudflare/pro-room-worker.js', maxLines: 20_000 },
-      { path: 'cloudflare/service-control-object.js', maxLines: 2_000 },
-      { path: 'cloudflare/pro-room-body.js', maxLines: 500 },
-      { path: 'cloudflare/app-worker.js', maxLines: 20_000 },
-      { path: 'cloudflare/signaling-worker.js', maxLines: 10_000 },
-      { path: 'cloudflare/signaling-protocol.js', maxLines: 1_000 },
+      { path: 'cloudflare/pro-room-worker.ts', maxLines: 20_000 },
+      { path: 'cloudflare/service-control-object.ts', maxLines: 2_000 },
+      { path: 'cloudflare/pro-room-body.ts', maxLines: 500 },
+      { path: 'cloudflare/app-worker.ts', maxLines: 20_000 },
+      { path: 'cloudflare/signaling-worker.ts', maxLines: 10_000 },
+      { path: 'cloudflare/signaling-protocol.ts', maxLines: 1_000 },
       { path: 'src/pro-room/runtime.ts', maxLines: 10_000 },
-      { path: 'public/admin.js', maxLines: 10_000 },
+      { path: 'browser/classic-runtime/admin.ts', maxLines: 10_000 },
       { path: '.github/workflows/release.yml', maxLines: 2_000, maxRunLines: 200 },
       { path: '.github/workflows/release-recovery.yml', maxLines: 1_000, maxRunLines: 200 },
     ];
@@ -58,7 +58,7 @@ describe('source complexity safety limit', () => {
       scripts: Record<string, string>;
     };
     const workflow = readFileSync('.github/workflows/ci.yml', 'utf8');
-    expect(manifest.scripts['guard:source-complexity']).toContain('check-source-complexity.mjs');
+    expect(manifest.scripts['guard:source-complexity']).toContain('check-source-complexity.mts');
     expect(manifest.scripts['build:checked']).toContain('guard:source-complexity');
     expect(workflow).toContain('npm run guard:source-complexity');
   });

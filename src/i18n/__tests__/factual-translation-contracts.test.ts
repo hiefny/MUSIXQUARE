@@ -1,6 +1,10 @@
-import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
+
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 
 import de from '../de.ts';
 import en from '../en.ts';
@@ -216,11 +220,15 @@ const completedLanguageContracts = {
 } as const;
 
 async function loadLandingDictionary(): Promise<LandingDictionary> {
-  const source = await readFile('public/landing-i18n.js', 'utf8');
-  const marker = '  function normalizeSelection(lang) {';
+  const asset = CLASSIC_RUNTIME_ASSETS.find(
+    (candidate) => candidate.outputPath === 'landing-i18n.js',
+  );
+  if (!asset) throw new Error('Classic landing i18n runtime is missing from the manifest.');
+  const source = (await compileClassicRuntimeAsset(process.cwd(), asset)).code;
+  const marker = /(\s+function normalizeSelection\(lang\) \{)/u;
   const windowObject: Record<string, unknown> = {};
   vm.runInNewContext(
-    source.replace(marker, `  window.__landingI18n = i18n;\n  return;\n${marker}`),
+    source.replace(marker, '\n    window.__landingI18n = i18n;\n    return;\n$1'),
     { window: windowObject },
   );
   return windowObject.__landingI18n as LandingDictionary;

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 const DOC_PATH = '.workshop/developers/developers.html';
 const OPENAPI_PATH = 'public/developers/openapi.yaml';
-const WORKER_PATH = 'cloudflare/developer-api-worker.js';
+const WORKER_PATH = 'cloudflare/developer-api-worker.ts';
 
 const PUBLIC_ERROR_CONTRACT = [
   ['API_DISABLED', 503, true],
@@ -347,7 +347,7 @@ describe('Developer API public documentation', () => {
 
     const resultCodesBlock = extractDeclarationBlock(
       worker,
-      'const COMMAND_RESULT_CODES = new Set([',
+      'const COMMAND_RESULT_CODES: ReadonlySet<unknown> = new Set([',
       '\n]);',
     );
     const runtimeResultCodes = [...resultCodesBlock.matchAll(/'([a-z_]+)'/g)].map(

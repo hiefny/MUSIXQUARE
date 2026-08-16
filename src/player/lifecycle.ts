@@ -11,7 +11,7 @@
  *     module (which applies them via ownership.ts setPlaybackLifecycleState).
  *     The only other sanctioned writers are ownership.ts setPlaybackIdle and
  *     the session-leave full reset in network/peer.ts. Direct setState calls
- *     are forbidden — statically enforced by scripts/check-lifecycle-writes.mjs
+ *     are forbidden — statically enforced by scripts/check-lifecycle-writes.mts
  *     (guard:lifecycle-writes), which also checks the sanctioned call sites
  *     for setPlaybackLifecycleState, setPlayPreloadedInProgress, and
  *     newLoadEpoch.

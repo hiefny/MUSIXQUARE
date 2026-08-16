@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const SCRIPT_PATH = resolve(process.cwd(), 'scripts', 'check-sw-cache-version.mjs');
+const SCRIPT_PATH = resolve(process.cwd(), 'scripts', 'check-sw-cache-version.mts');
+const SERVICE_WORKER_MANIFEST_PATH = 'scripts/service-worker-asset.ts';
+const LEGACY_SERVICE_WORKER_PATH = 'public/service-worker.js';
 const temporaryDirectories: string[] = [];
 
 interface FixturePackageManifest {
@@ -32,6 +34,10 @@ function write(directory: string, filePath: string, contents: string): void {
 
 function serviceWorker(version: number, extra = ''): string {
   return `'use strict';\nconst CACHE_VERSION = 'v${version}';\n${extra}`;
+}
+
+function serviceWorkerManifest(version: number): string {
+  return `export const SERVICE_WORKER_CACHE_VERSION = 'v${version}';\n`;
 }
 
 function packageManifest(overrides: Partial<FixturePackageManifest> = {}): string {
@@ -68,12 +74,13 @@ function createRepository(): string {
   git(directory, 'config', 'user.email', 'guard@example.invalid');
   git(directory, 'config', 'user.name', 'SW Guard Test');
 
-  write(directory, 'public/service-worker.js', serviceWorker(1));
+  write(directory, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(1));
+  write(directory, 'browser/service-worker.ts', 'self.addEventListener("fetch", () => {});\n');
   write(directory, 'src/app.ts', 'export const app = true;\n');
   write(directory, 'package.json', packageManifest());
   commit(directory, 'initial app');
 
-  write(directory, 'public/service-worker.js', serviceWorker(2));
+  write(directory, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(2));
   commit(directory, 'bump cache to v2');
   return directory;
 }
@@ -104,7 +111,7 @@ describe('service-worker CACHE_VERSION guard', () => {
     );
 
     expect(packageJson.scripts['build:checked']).toContain('guard:sw-cache-version');
-    expect(packageJson.scripts['guard:sw-cache-version']).toContain('check-sw-cache-version.mjs');
+    expect(packageJson.scripts['guard:sw-cache-version']).toContain('check-sw-cache-version.mts');
     expect(ciWorkflow).toMatch(/Checkout[\s\S]*?fetch-depth:\s*0/u);
     expect(releaseWorkflow).toMatch(/Checkout exact release commit[\s\S]*?fetch-depth:\s*0/u);
   });
@@ -121,13 +128,30 @@ describe('service-worker CACHE_VERSION guard', () => {
     expect(result.stderr).toContain('src/player.ts');
   });
 
+  it.each([
+    ['browser/classic-runtime/wordmark-anim.ts', 'document.body.dataset.ready = "true";\n'],
+    ['scripts/classic-runtime-assets.ts', 'export const target = "wordmark-anim.js";\n'],
+    ['browser/ui-kit/app/entry.tsx', 'document.body.dataset.kit = "ready";\n'],
+    ['scripts/ui-kit-asset.ts', 'export const target = "app.js";\n'],
+    ['tsconfig.ui-kit.json', '{"compilerOptions":{"strict":true}}\n'],
+  ])('tracks the browser build input %s as a PWA runtime change', (filePath, source) => {
+    const repository = createRepository();
+    write(repository, filePath, source);
+    commit(repository, 'change classic runtime build input');
+
+    const result = runGuard(repository);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(filePath);
+  });
+
   it('accepts a separate follow-up bump commit', () => {
     const repository = createRepository();
     write(repository, 'src/player.ts', 'export const player = true;\n');
     commit(repository, 'change player');
     expect(runGuard(repository).status).toBe(1);
 
-    write(repository, 'public/service-worker.js', serviceWorker(3));
+    write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(3));
     commit(repository, 'bump cache to v3');
 
     const result = runGuard(repository);
@@ -138,7 +162,7 @@ describe('service-worker CACHE_VERSION guard', () => {
   it('accepts a runtime change and bump in the same commit', () => {
     const repository = createRepository();
     write(repository, 'src/player.ts', 'export const player = true;\n');
-    write(repository, 'public/service-worker.js', serviceWorker(3));
+    write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(3));
     commit(repository, 'change player and bump cache');
 
     const result = runGuard(repository);
@@ -148,7 +172,7 @@ describe('service-worker CACHE_VERSION guard', () => {
 
   it('allows backend, repository docs, test-only, and promo workshop changes', () => {
     const repository = createRepository();
-    write(repository, 'cloudflare/app-worker.js', 'export default {};\n');
+    write(repository, 'cloudflare/app-worker.ts', 'export default {};\n');
     write(repository, 'docs/runbook.md', '# Runbook\n');
     write(repository, 'src/core/__tests__/only.test.ts', 'it("passes", () => {});\n');
     write(repository, 'e2e/release.test.ts', 'export {};\n');
@@ -164,9 +188,9 @@ describe('service-worker CACHE_VERSION guard', () => {
   it('allows only the reviewed Static Assets build-policy transition', () => {
     const repository = createRepository();
     const manifest = JSON.parse(packageManifest()) as FixturePackageManifest;
-    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mjs';
+    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mts';
     write(repository, 'package.json', `${JSON.stringify(manifest)}\n`);
-    write(repository, 'scripts/materialize-app-static-headers.mjs', 'export {};\n');
+    write(repository, 'scripts/materialize-app-static-headers.mts', 'export {};\n');
     commit(repository, 'materialize static asset headers after build');
 
     const result = runGuard(repository);
@@ -191,7 +215,7 @@ describe('service-worker CACHE_VERSION guard', () => {
   ])('does not hide a concurrent %s change in package.json', (_label, mutate) => {
     const repository = createRepository();
     const manifest = JSON.parse(packageManifest()) as FixturePackageManifest;
-    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mjs';
+    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mts';
     mutate(manifest);
     write(repository, 'package.json', `${JSON.stringify(manifest, null, 2)}\n`);
     commit(repository, 'mix build policy with another package change');
@@ -205,7 +229,7 @@ describe('service-worker CACHE_VERSION guard', () => {
     const repository = createRepository();
     const manifest = JSON.parse(packageManifest()) as FixturePackageManifest;
     manifest.scripts.build =
-      'vite build && node scripts/materialize-app-static-headers.mjs && node scripts/extra.mjs';
+      'vite build && node scripts/materialize-app-static-headers.mts && node scripts/extra.mjs';
     write(repository, 'package.json', `${JSON.stringify(manifest, null, 2)}\n`);
     commit(repository, 'extend build command');
 
@@ -220,7 +244,7 @@ describe('service-worker CACHE_VERSION guard', () => {
   ])('keeps %s classified as runtime beside the allowed package transition', (filePath, source) => {
     const repository = createRepository();
     const manifest = JSON.parse(packageManifest()) as FixturePackageManifest;
-    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mjs';
+    manifest.scripts.build = 'vite build && node scripts/materialize-app-static-headers.mts';
     write(repository, 'package.json', `${JSON.stringify(manifest, null, 2)}\n`);
     write(repository, filePath, source);
     commit(repository, 'mix build policy with another build input');
@@ -244,21 +268,21 @@ describe('service-worker CACHE_VERSION guard', () => {
     const repository = createRepository();
     write(
       repository,
-      'public/service-worker.js',
-      serviceWorker(2, "self.addEventListener('fetch', () => {});\n"),
+      'browser/service-worker.ts',
+      'self.addEventListener("fetch", () => {});\nself.skipWaiting();\n',
     );
     commit(repository, 'change service worker behavior');
 
     const result = runGuard(repository);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('public/service-worker.js');
+    expect(result.stderr).toContain('browser/service-worker.ts');
   });
 
   it('still detects a runtime deletion when git recognizes a rename into docs', () => {
     const repository = createRepository();
     write(repository, 'src/renamed.ts', 'export const renamed = true;\n');
     commit(repository, 'add runtime module and bump later');
-    write(repository, 'public/service-worker.js', serviceWorker(3));
+    write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(3));
     commit(repository, 'bump cache to v3');
 
     mkdirSync(join(repository, 'docs'), { recursive: true });
@@ -272,7 +296,7 @@ describe('service-worker CACHE_VERSION guard', () => {
 
   it('does not accept a CACHE_VERSION rollback as a bump', () => {
     const repository = createRepository();
-    write(repository, 'public/service-worker.js', serviceWorker(1));
+    write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(1));
     commit(repository, 'accidentally roll cache backwards');
 
     const result = runGuard(repository);
@@ -296,5 +320,20 @@ describe('service-worker CACHE_VERSION guard', () => {
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('shallow history');
     expect(result.stderr).toContain('fetch-depth: 0');
+  });
+
+  it('follows cache history across the legacy public worker to compiler-manifest cutover', () => {
+    const repository = createRepository();
+    rmSync(join(repository, SERVICE_WORKER_MANIFEST_PATH));
+    write(repository, LEGACY_SERVICE_WORKER_PATH, serviceWorker(2));
+    commit(repository, 'restore a legacy service-worker history point');
+
+    rmSync(join(repository, LEGACY_SERVICE_WORKER_PATH));
+    write(repository, SERVICE_WORKER_MANIFEST_PATH, serviceWorkerManifest(3));
+    commit(repository, 'move the cache epoch into the compiler manifest');
+
+    const result = runGuard(repository);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('PASS: v3');
   });
 });

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   findBrandCapitalizationViolations,
   isBrandCopySource,
-} from '../../../scripts/check-brand-capitalization.mjs';
+} from '../../../scripts/check-brand-capitalization.mts';
 
 function violations(source: string): string[] {
   return findBrandCapitalizationViolations('public/example.js', source).map(
@@ -48,10 +48,11 @@ describe('MUSIXQUARE brand-capitalization guard', () => {
     expect(isBrandCopySource('public/manifest.webmanifest')).toBe(true);
     expect(isBrandCopySource('public/developers/openapi.yaml')).toBe(true);
     expect(isBrandCopySource('public/wordmark.svg')).toBe(true);
+    expect(isBrandCopySource('scripts/release-tool.mts')).toBe(true);
   });
 
   it('does not reinterpret tests or the guard implementation as product copy', () => {
     expect(isBrandCopySource('src/core/__tests__/example.test.ts')).toBe(false);
-    expect(isBrandCopySource('scripts/check-brand-capitalization.mjs')).toBe(false);
+    expect(isBrandCopySource('scripts/check-brand-capitalization.mts')).toBe(false);
   });
 });

@@ -9,7 +9,7 @@
  *
  * Keep this module a LEAF: imports limited to core/log, core/capability,
  * core/html-entities, and youtube/constants.ts. No bus, no state, no
- * network/* imports — scripts/check-import-graph.mjs ratchets the graph.
+ * network/* imports — scripts/check-import-graph.mts ratchets the graph.
  */
 
 import { log } from '../core/log.ts';

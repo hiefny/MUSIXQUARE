@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import appWorker from '../../../cloudflare/app-worker.js';
+import appWorker from '../../../cloudflare/app-worker.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_PATH,
   clearServiceMaintenanceCacheForTests,
-} from '../../../cloudflare/service-maintenance.js';
+} from '../../../cloudflare/service-maintenance.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 
 interface ControlState {

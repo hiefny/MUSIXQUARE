@@ -1,9 +1,16 @@
-import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 
-const BOOTSTRAP_SOURCE = readFileSync(resolve('public/bootstrap.js'), 'utf8');
+const BOOTSTRAP_ASSET = CLASSIC_RUNTIME_ASSETS.find(
+  (candidate) => candidate.outputPath === 'bootstrap.js',
+);
+if (!BOOTSTRAP_ASSET) throw new Error('Classic bootstrap runtime is missing from the manifest.');
+const BOOTSTRAP_SOURCE = (await compileClassicRuntimeAsset(resolve('.'), BOOTSTRAP_ASSET)).code;
 
 interface ScheduledTask {
   callback: () => void;

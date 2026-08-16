@@ -9,7 +9,7 @@ import {
   parseProRoomClaimRequest,
   parseProRoomClaimRoomCode,
   runProRoomActivationClaimCli,
-} from '../../../scripts/issue-pro-room-activation-claim.mjs';
+} from '../../../scripts/issue-pro-room-activation-claim.mts';
 
 const SECRET = 'offline-activation-secret'.padEnd(48, 's');
 const CLAIM = `v1.${'a'.repeat(32)}.${'b'.repeat(43)}`;
@@ -110,7 +110,7 @@ describe('offline PRO room activation-claim CLI', () => {
   it('runs the real CLI entrypoint against the standalone claim module', () => {
     const output = execFileSync(
       process.execPath,
-      [resolve('scripts/issue-pro-room-activation-claim.mjs'), '000000'],
+      [resolve('scripts/issue-pro-room-activation-claim.mts'), '000000'],
       {
         cwd: resolve('.'),
         encoding: 'utf8',

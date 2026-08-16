@@ -1,35 +1,41 @@
-import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
+import {
+  SERVICE_WORKER_CACHE_VERSION,
+  compileServiceWorkerAsset,
+} from '../../../scripts/service-worker-asset.ts';
 
-const SERVICE_WORKER_SOURCE = readFileSync(
-  new URL('../../../public/service-worker.js', import.meta.url),
-  'utf8',
+const BOOTSTRAP_ASSET = CLASSIC_RUNTIME_ASSETS.find(
+  (candidate) => candidate.outputPath === 'bootstrap.js',
 );
-const BOOTSTRAP_SOURCE = readFileSync(
-  new URL('../../../public/bootstrap.js', import.meta.url),
-  'utf8',
-);
+if (!BOOTSTRAP_ASSET) throw new Error('Classic bootstrap runtime is missing from the manifest.');
+const BOOTSTRAP_SOURCE = (await compileClassicRuntimeAsset(process.cwd(), BOOTSTRAP_ASSET)).code;
 const TEST_OPTIONAL_FONT_RUNTIME = './primary-font-loader.js';
 const TEST_OPTIONAL_FONT_CSS = './primary-font.css';
 const TEST_OPTIONAL_FONT_BODY = './designsystem/fonts/PretendardVariable.woff2';
-const EXECUTABLE_SERVICE_WORKER_SOURCE = SERVICE_WORKER_SOURCE.replace(
-  '/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */',
-  `'${TEST_OPTIONAL_FONT_RUNTIME}', '${TEST_OPTIONAL_FONT_CSS}', '${TEST_OPTIONAL_FONT_BODY}'`,
-);
-const ACTIVE_CACHE_VERSION = /^const CACHE_VERSION = '([^']+)';$/mu.exec(
-  SERVICE_WORKER_SOURCE,
-)?.[1];
-if (!ACTIVE_CACHE_VERSION) {
-  throw new Error('Unable to resolve the active service worker cache version');
-}
+const [SERVICE_WORKER_SOURCE, EXECUTABLE_SERVICE_WORKER_SOURCE] = await Promise.all([
+  compileServiceWorkerAsset(process.cwd()).then(({ code }) => code),
+  compileServiceWorkerAsset(process.cwd(), {
+    buildEntryAssets: [],
+    optionalPrimaryFontAssets: [
+      TEST_OPTIONAL_FONT_RUNTIME,
+      TEST_OPTIONAL_FONT_CSS,
+      TEST_OPTIONAL_FONT_BODY,
+    ],
+  }).then(({ code }) => code),
+]);
+const ACTIVE_CACHE_VERSION = SERVICE_WORKER_CACHE_VERSION;
 const NAVIGATION_NETWORK_TIMEOUT_MS = Number(
-  /^const NAVIGATION_NETWORK_TIMEOUT_MS = ([\d_]+);$/mu
+  /^\s*const NAVIGATION_NETWORK_TIMEOUT_MS = ([\de_+.]+);$/mu
     .exec(SERVICE_WORKER_SOURCE)?.[1]
     ?.replaceAll('_', ''),
 );
 const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = Number(
-  /^const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = ([\d_]+);$/mu
+  /^\s*const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = ([\de_+.]+);$/mu
     .exec(SERVICE_WORKER_SOURCE)?.[1]
     ?.replaceAll('_', ''),
 );
@@ -82,14 +88,14 @@ describe('service worker cache policy', () => {
   let windowClients: Array<{ id: string; postMessage: ReturnType<typeof vi.fn> }>;
 
   it('precaches both stable first-paint scripts with the navigation shell', () => {
-    expect(APP_SHELL_SOURCE).toContain("'./fouc-cleanup.js'");
-    expect(APP_SHELL_SOURCE).toContain("'./wordmark-anim.js'");
+    expect(APP_SHELL_SOURCE).toContain('./fouc-cleanup.js');
+    expect(APP_SHELL_SOURCE).toContain('./wordmark-anim.js');
   });
 
   it('precaches the queryless account-completion document and its stable assets', () => {
-    expect(APP_SHELL_SOURCE).toContain("'./account-complete.html'");
-    expect(APP_SHELL_SOURCE).toContain("'./account-complete.js'");
-    expect(APP_SHELL_SOURCE).toContain("'./account-complete.css'");
+    expect(APP_SHELL_SOURCE).toContain('./account-complete.html');
+    expect(APP_SHELL_SOURCE).toContain('./account-complete.js');
+    expect(APP_SHELL_SOURCE).toContain('./account-complete.css');
   });
 
   it('does not spend the first service-worker install on the optional 2 MiB app font', () => {
@@ -102,9 +108,9 @@ describe('service worker cache policy', () => {
   });
 
   it('probes cached-navigation state in the early bootstrap before the app module runs', () => {
-    expect(BOOTSTRAP_SOURCE).toContain("data.type !== 'MXQR_CACHE_STATUS_REQUEST'");
-    expect(BOOTSTRAP_SOURCE).toContain("'data-mxqr-navigation-source'");
-    expect(BOOTSTRAP_SOURCE).toContain("{ type: 'MXQR_CACHE_STATUS_PROBE' }");
+    expect(BOOTSTRAP_SOURCE).toContain('MXQR_CACHE_STATUS_REQUEST');
+    expect(BOOTSTRAP_SOURCE).toContain('data-mxqr-navigation-source');
+    expect(BOOTSTRAP_SOURCE).toContain('MXQR_CACHE_STATUS_PROBE');
   });
 
   beforeEach(async () => {
@@ -136,6 +142,7 @@ describe('service worker cache policy', () => {
         listeners.set(type, listener);
       },
       skipWaiting,
+      registration: {},
       clients: {
         claim: clientsClaim,
         matchAll: vi.fn(async () => windowClients),

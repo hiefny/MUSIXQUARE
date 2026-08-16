@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 /**
- * Coverage ratchet for production Cloudflare Worker JavaScript. The broad and
+ * Coverage ratchet for production Cloudflare Worker runtime modules. The broad and
  * critical TypeScript profiles intentionally cover only `src/`, so this profile
  * instruments the deployed Worker modules through their focused unit suites.
  */
@@ -22,7 +22,8 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'text-summary', 'lcov'],
       reportsDirectory: 'coverage/worker-runtime',
-      include: ['cloudflare/**/*.js'],
+      include: ['cloudflare/**/*.{js,ts}'],
+      exclude: ['cloudflare/**/*.d.ts', 'cloudflare/**/*.contract.ts'],
       thresholds: {
         // Initial Node 24 baseline (2026-08-09): statements 82.31,
         // branches 78.11, functions 91.32, lines 87.08. Keep roughly one
@@ -32,61 +33,61 @@ export default defineConfig({
         branches: 77,
         functions: 90,
         lines: 86,
-        'cloudflare/account-auth.js': {
+        'cloudflare/account-auth.ts': {
           statements: 83,
           branches: 78,
           functions: 93,
           lines: 89,
         },
-        'cloudflare/app-worker.js': {
+        'cloudflare/app-worker.ts': {
           statements: 75,
           branches: 71,
           functions: 82,
           lines: 80,
         },
-        'cloudflare/developer-api-facade-worker.js': {
+        'cloudflare/developer-api-facade-worker.ts': {
           statements: 82,
           branches: 80,
           functions: 88,
           lines: 86,
         },
-        'cloudflare/developer-api-worker.js': {
+        'cloudflare/developer-api-worker.ts': {
           statements: 86,
           branches: 83,
           functions: 89,
           lines: 89,
         },
-        'cloudflare/pro-bot.js': {
+        'cloudflare/pro-bot.ts': {
           statements: 82,
           branches: 74,
           functions: 85,
           lines: 87,
         },
-        'cloudflare/pro-room-grants.js': {
+        'cloudflare/pro-room-grants.ts': {
           statements: 75,
           branches: 71,
           functions: 90,
           lines: 79,
         },
-        'cloudflare/pro-room-body.js': {
+        'cloudflare/pro-room-body.ts': {
           statements: 99,
           branches: 99,
           functions: 99,
           lines: 99,
         },
-        'cloudflare/pro-room-worker.js': {
+        'cloudflare/pro-room-worker.ts': {
           statements: 83,
           branches: 78,
           functions: 94,
           lines: 88,
         },
-        'cloudflare/remote-share-worker.js': {
+        'cloudflare/remote-share-worker.ts': {
           statements: 84,
           branches: 77,
           functions: 92,
           lines: 88,
         },
-        'cloudflare/signaling-worker.js': {
+        'cloudflare/signaling-worker.ts': {
           statements: 81,
           branches: 79,
           functions: 94,
@@ -94,13 +95,13 @@ export default defineConfig({
         },
         // Post-extraction baselines (2026-08-15) keep the new ownership
         // boundaries from hiding behind their former parent files' averages.
-        'cloudflare/service-control-object.js': {
+        'cloudflare/service-control-object.ts': {
           statements: 91,
           branches: 86,
           functions: 99,
           lines: 92,
         },
-        'cloudflare/signaling-protocol.js': {
+        'cloudflare/signaling-protocol.ts': {
           statements: 92,
           branches: 91,
           functions: 99,

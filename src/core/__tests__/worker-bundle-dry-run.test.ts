@@ -8,7 +8,7 @@ import {
   readPinnedWranglerToolchain,
   workerBundleDryRunArgs,
   workerBundleDryRunEnvironment,
-} from '../../../scripts/check-worker-bundles.mjs';
+} from '../../../scripts/check-worker-bundles.mts';
 
 const expectedConfigs = [
   'cloudflare/wrangler.app.toml',
@@ -84,10 +84,10 @@ describe('production Worker bundle dry-run contract', () => {
     };
     const ci = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const release = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    const bundleGuard = readFileSync(resolve('scripts/check-worker-bundles.mjs'), 'utf8');
+    const bundleGuard = readFileSync(resolve('scripts/check-worker-bundles.mts'), 'utf8');
 
     expect(packageJson.scripts['check:worker-bundles']).toBe(
-      'node scripts/check-worker-bundles.mjs',
+      'node scripts/check-worker-bundles.mts',
     );
     expect(ci.indexOf('npm run check:worker-bundles')).toBeGreaterThan(
       ci.indexOf('npm run build:checked'),

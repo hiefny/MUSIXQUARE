@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-17",
+  "policy": "authored-inline-js-shrink-only",
+  "historicalBlocks": 8,
+  "remainingBlocks": 0,
+  "sources": [
+    {
+      "path": ".workshop/promo/scenes/logo-animation.html",
+      "baselineBlocks": 1,
+      "status": "retired"
+    },
+    {
+      "path": ".workshop/promo/scenes/music-note-3d.html",
+      "baselineBlocks": 1,
+      "status": "retired"
+    },
+    {
+      "path": ".workshop/promo/scenes/product-hero-2.html",
+      "baselineBlocks": 1,
+      "status": "retired"
+    },
+    {
+      "path": ".workshop/promo/scenes/product-hero.html",
+      "baselineBlocks": 1,
+      "status": "retired"
+    },
+    {
+      "path": ".workshop/promo/scenes/ui-showcase-2.html",
+      "baselineBlocks": 1,
+      "status": "retired"
+    },
+    {
+      "path": ".workshop/promo/scenes/ui-showcase.html",
+      "baselineBlocks": 1,
+      "status": "retired"
+    },
+    { "path": "e2e/report-viewer.html", "baselineBlocks": 1, "status": "retired" },
+    {
+      "path": "public/designsystem/ui_kits/app/index.html",
+      "baselineBlocks": 1,
+      "status": "retired"
+    }
+  ]
+}

@@ -1,12 +1,21 @@
-import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 
 type LandingWindow = Window & typeof globalThis & { __landingLang?: string };
 
+async function classicRuntime(outputPath: string): Promise<string> {
+  const asset = CLASSIC_RUNTIME_ASSETS.find((candidate) => candidate.outputPath === outputPath);
+  if (!asset) throw new Error(`Classic runtime is missing from the manifest: ${outputPath}`);
+  return (await compileClassicRuntimeAsset(process.cwd(), asset)).code;
+}
+
 describe('static locale fallbacks without the shared resolver', () => {
   it('resolves every supported query locale before the About page paints', async () => {
-    const source = await readFile('public/landing-bootstrap.js', 'utf8');
+    const source = await classicRuntime('landing-bootstrap.js');
     const dom = new JSDOM('<!doctype html><html lang="en"><body></body></html>', {
       runScripts: 'outside-only',
       url: 'https://musixquare.com/about?lang=nl-NL',
@@ -21,7 +30,7 @@ describe('static locale fallbacks without the shared resolver', () => {
   });
 
   it('preserves explicit Chinese script tags and canonical Open Graph locales', async () => {
-    const source = await readFile('public/landing-i18n.js', 'utf8');
+    const source = await classicRuntime('landing-i18n.js');
     const dom = new JSDOM(
       '<!doctype html><html lang="en"><head><meta property="og:locale" content="en_US"></head><body><span data-i18n="header.try"></span></body></html>',
       {

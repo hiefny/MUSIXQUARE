@@ -14,7 +14,7 @@ const BASE_ENV = {
 };
 
 function plan(overrides: Record<string, string> = {}) {
-  return spawnSync(process.execPath, ['scripts/release-recovery-plan.mjs'], {
+  return spawnSync(process.execPath, ['scripts/release-recovery-plan.mts'], {
     cwd: process.cwd(),
     env: { ...process.env, ...BASE_ENV, ...overrides },
     encoding: 'utf8',

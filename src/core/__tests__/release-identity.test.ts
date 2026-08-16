@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseReleaseIdentity, readReleaseIdentity } from '../../../scripts/release-identity.mjs';
+import { parseReleaseIdentity, readReleaseIdentity } from '../../../scripts/release-identity.mts';
 
 function sources(
   overrides: {
@@ -84,8 +84,8 @@ describe('canonical release identity', () => {
 
     expect(identity.productVersion).toBe(manifest.version);
     expect(identity.serviceWorkerCacheEpoch).toBeGreaterThan(0);
-    expect(manifest.scripts['guard:release-identity']).toContain('release-identity.mjs');
+    expect(manifest.scripts['guard:release-identity']).toContain('release-identity.mts');
     expect(manifest.scripts['build:checked']).toContain('guard:release-identity');
-    expect(manifest.scripts['version:status']).toContain('release-identity.mjs');
+    expect(manifest.scripts['version:status']).toContain('release-identity.mts');
   });
 });

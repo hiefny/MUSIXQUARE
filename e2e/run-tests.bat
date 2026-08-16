@@ -2,6 +2,8 @@
 cd /d "%~dp0.."
 del /q "e2e-report.json" 2>nul
 del /q "e2e\e2e-report-data.js" 2>nul
+node scripts\materialize-auxiliary-browser-assets.mts
+if errorlevel 1 exit /b %ERRORLEVEL%
 echo [MUSIXQUARE] Opening report viewer...
 start "" "%~dp0report-viewer.html"
 echo [MUSIXQUARE] Running E2E tests...

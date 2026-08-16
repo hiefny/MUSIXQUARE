@@ -5,7 +5,7 @@ import {
   hasVisibleDisplayNameContent,
   isSafeVisibleDisplayName,
   sanitizeDisplayNameForValidation,
-} from '../../../cloudflare/display-name-policy.js';
+} from '../../../cloudflare/display-name-policy.ts';
 
 describe('visible display-name policy', () => {
   it('rejects default-ignorable and blank filler characters anywhere', () => {

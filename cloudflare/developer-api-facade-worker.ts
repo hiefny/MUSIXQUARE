@@ -1,0 +1,1634 @@
+/**
+ * Private service-binding facade for the MUSIXQUARE Developer API.
+ *
+ * This Worker has no public route. It is the only Developer API component
+ * bound to MusixquareProRoom and accepts one fixed read intent. It never
+ * forwards caller headers, cookies, API keys, or caller-selected paths.
+ */
+
+import {
+  isProRoomGeneration,
+  proRoomGenerationHeaderValue,
+  proRoomObjectName,
+} from './pro-room-generation.ts';
+import { gateServiceMaintenance } from './service-maintenance.ts';
+
+type JsonRecord = Record<string, unknown>;
+type BodyReader = ReadableStreamDefaultReader<Uint8Array>;
+type CancellableBody = { cancel(reason?: unknown): Promise<void> };
+type Projection = 'room' | 'playback' | 'queue' | 'effects' | 'queue-mode';
+
+interface DeveloperApiFacadeEnvPort {
+  readonly CF_VERSION_METADATA?: unknown;
+  readonly MUSIXQUARE_SERVICE_CONTROL?: unknown;
+  readonly PRO_ROOM_DEVELOPER_ROOMS?: unknown;
+}
+
+interface DurableObjectStubPort {
+  fetch(request: Request): Promise<Response>;
+}
+
+interface DurableObjectNamespacePort {
+  idFromName(name: string): unknown;
+  get(id: unknown): unknown;
+}
+
+interface FacadeFetchHandler {
+  fetch(request: Request, env: DeveloperApiFacadeEnvPort): Promise<Response>;
+}
+
+type SanitizedQueueItem =
+  | (JsonRecord & {
+      queueItemId: string;
+      kind: 'audio';
+      name: string;
+      byteLength: number;
+    })
+  | (JsonRecord & {
+      queueItemId: string;
+      kind: 'youtube';
+      name: string;
+    });
+
+interface YouTubeMutationItem extends JsonRecord {
+  videoId: string;
+  name: string;
+  playlistId?: string;
+  videoIds?: string[];
+}
+
+interface MediaMetadata extends JsonRecord {
+  name: string;
+  title?: string;
+  artist?: string;
+  thumbnail?: string;
+}
+
+interface QueueMutation extends JsonRecord {
+  type: string;
+}
+
+interface MediaUpload extends JsonRecord {
+  name: string;
+  byteLength: number;
+  mime: string;
+  sha256?: string;
+}
+
+type RoomCallResult =
+  | { backendError: true; response?: never; value?: never }
+  | { response: Response; value: unknown; backendError?: never };
+
+function isRecord(value: unknown): value is JsonRecord {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isDurableObjectNamespace(value: unknown): value is DurableObjectNamespacePort {
+  return (
+    isRecord(value) && typeof value.idFromName === 'function' && typeof value.get === 'function'
+  );
+}
+
+function isDurableObjectStub(value: unknown): value is DurableObjectStubPort {
+  return isRecord(value) && typeof value.fetch === 'function';
+}
+
+function hasNoNull<T>(values: readonly (T | null)[]): values is T[] {
+  return values.every((value) => value !== null);
+}
+
+function isProjection(value: unknown): value is Projection {
+  return (
+    value === 'room' ||
+    value === 'playback' ||
+    value === 'queue' ||
+    value === 'effects' ||
+    value === 'queue-mode'
+  );
+}
+
+const PRO_ROOM_GENERATION_HEADER = 'x-mxqr-pro-room-generation';
+const REQUEST_MAX_BYTES = 64 * 1024;
+// A valid public 128 KiB queue mutation gains a small authenticated envelope.
+const QUEUE_MUTATION_REQUEST_MAX_BYTES = 192 * 1024;
+// Room and queue projections can legally contain the bounded 1,000-item list.
+// PRO room v2 keeps playlist rows outside the 1.2 MiB core record and bounds
+// the public queue projection below 3 MiB. Preserve framing headroom while
+// allowing the unchanged Developer API contract to read that larger queue.
+const PROJECTION_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
+const COMMAND_RESPONSE_MAX_BYTES = 8 * 1024;
+const MUTATION_RESPONSE_MAX_BYTES = 64 * 1024;
+const REQUEST_BODY_TIMEOUT_MS = 10_000;
+const ROOM_RESPONSE_TIMEOUT_MS = 5_000;
+const ROOM_CODE_RE = /^0\d{5}$/;
+const QUEUE_ITEM_ID_RE = /^[A-Za-z0-9_-]{16,128}$/;
+const QUEUE_ITEM_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const API_KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
+const IDEMPOTENCY_KEY_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._~-]{14,126})[A-Za-z0-9]$/;
+const COMMAND_ID_RE = /^cmd_[A-Za-z0-9_-]{22}$/;
+const PLAYBACK_MAX_POSITION_SECONDS = 7 * 24 * 60 * 60;
+const ASSET_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+const MIME_RE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
+const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
+const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
+const QUEUE_ITEM_ADDED_BY_VALUES = new Set(['participant', 'current_api_key', 'another_api_key']);
+const PLAYLIST_MAX_ITEMS = 1_000;
+const YOUTUBE_BATCH_MAX_ITEMS = 100;
+const ASSET_MAX_BYTES = 200 * 1024 * 1024;
+const COMMAND_STATUSES = new Set(['pending', 'dispatched', 'applied', 'rejected', 'expired']);
+const COMMAND_RESULT_CODES = new Set([
+  'applied',
+  'already_applied',
+  'busy',
+  'no_media',
+  'stale_queue',
+  'unsupported_mode',
+  'expired',
+  'execution_failed',
+  'coordinator_changed',
+  'coordinator_incompatible',
+  'coordinator_unavailable',
+]);
+const BACKEND_ERROR_MAP: Readonly<Record<string, { error: string; status: number }>> =
+  Object.freeze({
+    INVALID_REQUEST: { error: 'INVALID_REQUEST', status: 400 },
+    INVALID_MEDIA: { error: 'INVALID_REQUEST', status: 400 },
+    ROOM_NOT_FOUND: { error: 'NOT_FOUND', status: 404 },
+    COMMAND_NOT_FOUND: { error: 'NOT_FOUND', status: 404 },
+    QUEUE_ITEM_NOT_FOUND: { error: 'NOT_FOUND', status: 404 },
+    ASSET_NOT_FOUND: { error: 'NOT_FOUND', status: 404 },
+    ROOM_SLEEPING: { error: 'ROOM_SLEEPING', status: 409 },
+    COORDINATOR_INCOMPATIBLE: { error: 'COORDINATOR_INCOMPATIBLE', status: 409 },
+    NO_MEDIA: { error: 'NO_MEDIA', status: 409 },
+    IDEMPOTENCY_CONFLICT: { error: 'IDEMPOTENCY_CONFLICT', status: 409 },
+    COMMAND_CAPACITY_EXCEEDED: { error: 'COMMAND_CAPACITY_EXCEEDED', status: 409 },
+    PLAYLIST_CAPACITY_EXCEEDED: { error: 'PLAYLIST_CAPACITY_EXCEEDED', status: 409 },
+    PLAYLIST_REVISION_CONFLICT: { error: 'PLAYLIST_REVISION_CONFLICT', status: 409 },
+    QUEUE_MODE_REVISION_CONFLICT: { error: 'QUEUE_MODE_REVISION_CONFLICT', status: 409 },
+    ASSET_CAPACITY_EXCEEDED: { error: 'ASSET_CAPACITY_EXCEEDED', status: 409 },
+    RESERVATION_CAPACITY_EXCEEDED: { error: 'RESERVATION_CAPACITY_EXCEEDED', status: 409 },
+    ROOM_QUOTA_EXCEEDED: { error: 'ROOM_QUOTA_EXCEEDED', status: 409 },
+    UPLOAD_INCOMPLETE: { error: 'UPLOAD_INCOMPLETE', status: 409 },
+    UPLOAD_MISMATCH: { error: 'UPLOAD_MISMATCH', status: 409 },
+    PLAYBACK_REVISION_EXHAUSTED: { error: 'ROOM_STATE_CAPACITY_EXCEEDED', status: 409 },
+    ROOM_STATE_CAPACITY_EXCEEDED: { error: 'ROOM_STATE_CAPACITY_EXCEEDED', status: 409 },
+    DEVELOPER_API_AUTHORITY_STALE: { error: 'DEVELOPER_API_AUTHORITY_STALE', status: 409 },
+    MEDIA_NOT_CONFIGURED: { error: 'BACKEND_UNAVAILABLE', status: 503 },
+    MEDIA_STORAGE_UNAVAILABLE: { error: 'BACKEND_UNAVAILABLE', status: 503 },
+    ROOM_STATE_INVALID: { error: 'BACKEND_UNAVAILABLE', status: 503 },
+  });
+const SECURITY_HEADERS = Object.freeze({
+  'cache-control': 'no-store',
+  'content-security-policy':
+    "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'referrer-policy': 'no-referrer',
+  'x-content-type-options': 'nosniff',
+});
+const FACADE_VERSION_HEADER = 'x-mxqr-developer-api-facade-version';
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false });
+
+function hasExactKeys(
+  value: unknown,
+  required: readonly string[],
+  optional: readonly string[] = [],
+): value is JsonRecord {
+  if (!isRecord(value)) return false;
+  const allowed = new Set([...required, ...optional]);
+  return (
+    required.every((key) => Object.prototype.hasOwnProperty.call(value, key)) &&
+    Object.keys(value).every((key) => allowed.has(key))
+  );
+}
+
+function jsonResponse(
+  body: unknown,
+  status = 200,
+  extraHeaders: Readonly<Record<string, string>> = {},
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...SECURITY_HEADERS,
+      ...extraHeaders,
+      'content-type': 'application/json; charset=utf-8',
+    },
+  });
+}
+
+function facadeVersionHeaders(env: DeveloperApiFacadeEnvPort): Readonly<Record<string, string>> {
+  const metadata = env.CF_VERSION_METADATA;
+  const versionId = isRecord(metadata) ? metadata.id : undefined;
+  return typeof versionId === 'string' && versionId.length > 0
+    ? { [FACADE_VERSION_HEADER]: versionId }
+    : {};
+}
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isFiniteNonNegative(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function boundedString(value: unknown, maxLength: number): string | null {
+  return typeof value === 'string' && value.length > 0 && value.length <= maxLength ? value : null;
+}
+
+function validActorName(value: unknown): value is string {
+  const name = boundedString(value, 64);
+  return name !== null && !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/.test(name);
+}
+
+function boundedMetadataString(value: unknown, maxLength: number): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  if (value.length <= maxLength) return value;
+  const truncated = value.slice(0, maxLength);
+  return /[\uD800-\uDBFF]$/.test(truncated) ? truncated.slice(0, -1) : truncated;
+}
+
+function cancelBodyReader(reader: CancellableBody | null, reason: unknown): void {
+  try {
+    Promise.resolve(reader?.cancel(reason)).catch(() => {});
+  } catch {
+    // Cancellation is best-effort and must never delay a bounded response.
+  }
+}
+
+async function readJsonBody(request: Request, maxBytes: number): Promise<unknown | null> {
+  if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
+    return null;
+  }
+  const declared = request.headers.get('content-length');
+  if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
+    return null;
+  }
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  let stop: ((outcome: { kind: 'timeout' | 'aborted' }) => void) | undefined;
+  const stopped = new Promise<{ kind: 'timeout' | 'aborted' }>((resolve) => {
+    stop = resolve;
+  });
+  const timeout = setTimeout(() => {
+    stop?.({ kind: 'timeout' });
+    cancelBodyReader(reader, 'REQUEST_BODY_TIMEOUT');
+  }, REQUEST_BODY_TIMEOUT_MS);
+  const abort = () => {
+    stop?.({ kind: 'aborted' });
+    cancelBodyReader(reader, request.signal.reason);
+  };
+  if (request.signal.aborted) abort();
+  else request.signal.addEventListener('abort', abort, { once: true });
+  try {
+    while (true) {
+      const outcome = await Promise.race([
+        reader.read().then(
+          (value) => ({ kind: 'read' as const, value }),
+          () => ({ kind: 'invalid' as const }),
+        ),
+        stopped,
+      ]);
+      if (outcome.kind !== 'read') return null;
+      const { done, value } = outcome.value;
+      if (done) break;
+      if (!value) continue;
+      length += value.byteLength;
+      if (length > maxBytes) {
+        cancelBodyReader(reader, 'REQUEST_BODY_TOO_LARGE');
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    clearTimeout(timeout);
+    request.signal.removeEventListener('abort', abort);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A non-cooperative stream may still own its timed-out read.
+    }
+  }
+  if (length === 0) return null;
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    const value: unknown = JSON.parse(decoder.decode(bytes));
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+async function readJsonResponse(
+  response: Response,
+  maxBytes: number,
+  registerReader: (reader: BodyReader | null) => void = () => {},
+): Promise<unknown | null> {
+  if (!/^application\/json(?:\s*;|$)/i.test(response.headers.get('content-type') || '')) {
+    return null;
+  }
+  const declared = response.headers.get('content-length');
+  if (declared !== null && (!/^\d+$/.test(declared.trim()) || Number(declared) > maxBytes)) {
+    return null;
+  }
+  if (!response.body) return null;
+  const reader = response.body.getReader();
+  registerReader(reader);
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      length += value.byteLength;
+      if (length > maxBytes) {
+        cancelBodyReader(reader, 'RESPONSE_BODY_TOO_LARGE');
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  } finally {
+    registerReader(null);
+    try {
+      reader.releaseLock();
+    } catch {
+      // A timed-out non-cooperative stream may still own its pending read.
+    }
+  }
+  if (length === 0) return null;
+  const bytes = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    const value: unknown = JSON.parse(decoder.decode(bytes));
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+function sanitizeQueueItem(value: unknown): SanitizedQueueItem | null {
+  const name = isRecord(value) ? boundedMetadataString(value.name, 512) : null;
+  if (
+    !isRecord(value) ||
+    typeof value.queueItemId !== 'string' ||
+    !QUEUE_ITEM_ID_RE.test(value.queueItemId) ||
+    (value.kind !== 'youtube' && value.kind !== 'audio') ||
+    name === null
+  ) {
+    return null;
+  }
+  if (typeof value.addedBy !== 'string' || !QUEUE_ITEM_ADDED_BY_VALUES.has(value.addedBy)) {
+    return null;
+  }
+  const optional: JsonRecord = {};
+  for (const key of ['title', 'artist']) {
+    if (value[key] !== undefined) {
+      const parsed = boundedMetadataString(value[key], 512);
+      if (parsed === null) return null;
+      optional[key] = parsed;
+    }
+  }
+  if (value.thumbnail !== undefined) {
+    const thumbnail = boundedString(value.thumbnail, 2_048);
+    if (thumbnail === null) return null;
+    optional.thumbnail = thumbnail;
+  }
+  optional.addedBy = value.addedBy;
+  if (value.kind === 'audio') {
+    if (!isSafeNonNegativeInteger(value.byteLength) || value.byteLength <= 0) return null;
+    return {
+      queueItemId: value.queueItemId,
+      kind: 'audio',
+      name,
+      ...optional,
+      byteLength: value.byteLength,
+    };
+  }
+  return {
+    queueItemId: value.queueItemId,
+    kind: 'youtube',
+    name,
+    ...optional,
+  };
+}
+
+function sanitizeProjection(value: unknown, projection: Projection, roomCode: string) {
+  if (!isRecord(value) || value.roomCode !== roomCode) return null;
+  if (
+    value.view !== projection ||
+    (projection === 'effects' ? value.schemaVersion !== 2 : value.schemaVersion !== 1)
+  ) {
+    return null;
+  }
+  if (projection === 'room') {
+    const quota = isRecord(value.quota) ? value.quota : null;
+    if (
+      typeof value.status !== 'string' ||
+      !['unactivated', 'active', 'suspended'].includes(value.status) ||
+      (value.runtime !== 'awake' && value.runtime !== 'sleeping') ||
+      !isSafeNonNegativeInteger(value.revision) ||
+      !isSafeNonNegativeInteger(value.participantCount) ||
+      typeof value.controlAvailable !== 'boolean' ||
+      !quota ||
+      !['limitBytes', 'perAssetLimitBytes', 'usedBytes', 'reservedBytes'].every((key) =>
+        isSafeNonNegativeInteger(quota[key]),
+      )
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      view: 'room',
+      roomCode,
+      status: value.status,
+      runtime: value.runtime,
+      revision: value.revision,
+      participantCount: value.participantCount,
+      controlAvailable: value.controlAvailable,
+      quota: {
+        limitBytes: quota.limitBytes,
+        perAssetLimitBytes: quota.perAssetLimitBytes,
+        usedBytes: quota.usedBytes,
+        reservedBytes: quota.reservedBytes,
+      },
+    };
+  }
+  if (projection === 'playback') {
+    const item = value.item === null ? null : sanitizeQueueItem(value.item);
+    if (
+      !isSafeNonNegativeInteger(value.revision) ||
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      typeof value.state !== 'string' ||
+      !['idle', 'playing', 'paused'].includes(value.state) ||
+      (value.queueItemId !== null &&
+        (typeof value.queueItemId !== 'string' || !QUEUE_ITEM_ID_RE.test(value.queueItemId))) ||
+      !isFiniteNonNegative(value.positionSeconds) ||
+      !isSafeNonNegativeInteger(value.observedAtMs) ||
+      (value.item !== null && item === null) ||
+      (item === null) !== (value.queueItemId === null) ||
+      (item && item.queueItemId !== value.queueItemId) ||
+      (value.state === 'idle' &&
+        (value.queueItemId !== null || value.item !== null || value.positionSeconds !== 0)) ||
+      (value.state !== 'idle' && (value.queueItemId === null || value.item === null))
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      view: 'playback',
+      roomCode,
+      revision: value.revision,
+      playlistRevision: value.playlistRevision,
+      state: value.state,
+      queueItemId: value.queueItemId,
+      positionSeconds: value.positionSeconds,
+      observedAtMs: value.observedAtMs,
+      item,
+    };
+  }
+  if (projection === 'queue') {
+    if (
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      (value.currentQueueItemId !== null &&
+        (typeof value.currentQueueItemId !== 'string' ||
+          !QUEUE_ITEM_ID_RE.test(value.currentQueueItemId))) ||
+      !Array.isArray(value.items) ||
+      value.items.length > 1_000
+    ) {
+      return null;
+    }
+    const items = value.items.map(sanitizeQueueItem);
+    if (
+      !hasNoNull(items) ||
+      new Set(items.map((item) => item.queueItemId)).size !== items.length ||
+      (value.currentQueueItemId !== null &&
+        !items.some((item) => item.queueItemId === value.currentQueueItemId))
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      view: 'queue',
+      roomCode,
+      playlistRevision: value.playlistRevision,
+      currentQueueItemId: value.currentQueueItemId,
+      items,
+    };
+  }
+  if (projection === 'effects') {
+    const effects = parseEffectsState(value.effects);
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'revision',
+        'updatedAtMs',
+        'effects',
+      ]) ||
+      !isSafeNonNegativeInteger(value.revision) ||
+      !isSafeNonNegativeInteger(value.updatedAtMs) ||
+      !effects
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: value.schemaVersion,
+      view: 'effects',
+      roomCode,
+      revision: value.revision,
+      updatedAtMs: value.updatedAtMs,
+      effects,
+    };
+  }
+  if (projection === 'queue-mode') {
+    if (
+      !hasExactKeys(value, [
+        'schemaVersion',
+        'view',
+        'roomCode',
+        'revision',
+        'playlistRevision',
+        'updatedAtMs',
+        'repeatMode',
+        'shuffleEnabled',
+      ]) ||
+      !isSafeNonNegativeInteger(value.revision) ||
+      !isSafeNonNegativeInteger(value.playlistRevision) ||
+      !isSafeNonNegativeInteger(value.updatedAtMs) ||
+      typeof value.repeatMode !== 'string' ||
+      !['off', 'all', 'one'].includes(value.repeatMode) ||
+      typeof value.shuffleEnabled !== 'boolean'
+    ) {
+      return null;
+    }
+    return {
+      schemaVersion: 1,
+      view: 'queue-mode',
+      roomCode,
+      revision: value.revision,
+      playlistRevision: value.playlistRevision,
+      updatedAtMs: value.updatedAtMs,
+      repeatMode: value.repeatMode,
+      shuffleEnabled: value.shuffleEnabled,
+    };
+  }
+  return null;
+}
+
+function parseQueueModeUpdate(value: unknown) {
+  return hasExactKeys(value, ['baseRevision', 'repeatMode', 'shuffleEnabled']) &&
+    isSafeNonNegativeInteger(value.baseRevision) &&
+    typeof value.repeatMode === 'string' &&
+    ['off', 'all', 'one'].includes(value.repeatMode) &&
+    typeof value.shuffleEnabled === 'boolean'
+    ? {
+        baseRevision: value.baseRevision,
+        repeatMode: value.repeatMode,
+        shuffleEnabled: value.shuffleEnabled,
+      }
+    : null;
+}
+
+function parseDeveloperCommand(value: unknown) {
+  if (!isRecord(value)) return null;
+  if (value.type === 'play' || value.type === 'pause' || value.type === 'next') {
+    return hasExactKeys(value, ['type']) ? { type: value.type } : null;
+  }
+  if (value.type === 'seek') {
+    return hasExactKeys(value, ['type', 'positionSeconds']) &&
+      typeof value.positionSeconds === 'number' &&
+      Number.isFinite(value.positionSeconds) &&
+      value.positionSeconds >= 0 &&
+      value.positionSeconds <= PLAYBACK_MAX_POSITION_SECONDS
+      ? { type: 'seek', positionSeconds: value.positionSeconds }
+      : null;
+  }
+  if (value.type === 'play_item') {
+    return hasExactKeys(value, ['type', 'queueItemId']) &&
+      typeof value.queueItemId === 'string' &&
+      QUEUE_ITEM_UUID_RE.test(value.queueItemId)
+      ? { type: 'play_item', queueItemId: value.queueItemId }
+      : null;
+  }
+  if (value.type === 'set_effects') {
+    const effects = hasExactKeys(value, ['type', 'effects'])
+      ? parseEffectsPatch(value.effects)
+      : null;
+    return effects ? { type: 'set_effects', effects } : null;
+  }
+  return null;
+}
+
+const EFFECT_REVERB_FIELDS: Readonly<Record<string, readonly [number, number]>> = Object.freeze({
+  mixPercent: [0, 100],
+  decaySeconds: [0.1, 30],
+  preDelaySeconds: [0, 1],
+  lowCutPercent: [0, 100],
+  highCutPercent: [0, 100],
+});
+
+function boundedFiniteNumber(value: unknown, minimum: number, maximum: number): value is number {
+  return (
+    typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum
+  );
+}
+
+function parseReverbPatch(value: unknown, requireComplete = false): JsonRecord | null {
+  if (!isRecord(value)) return null;
+  const keys = Object.keys(value);
+  const allowed = Object.keys(EFFECT_REVERB_FIELDS);
+  if (
+    keys.length === 0 ||
+    keys.some((key) => !allowed.includes(key)) ||
+    (requireComplete &&
+      (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+  ) {
+    return null;
+  }
+  const parsed: JsonRecord = {};
+  for (const key of keys) {
+    const limits = EFFECT_REVERB_FIELDS[key];
+    if (!limits) return null;
+    const [minimum, maximum] = limits;
+    if (!boundedFiniteNumber(value[key], minimum, maximum)) return null;
+    parsed[key] = value[key];
+  }
+  return parsed;
+}
+
+function parseEqualizer(value: unknown) {
+  if (
+    !hasExactKeys(value, ['bandsDb']) ||
+    !Array.isArray(value.bandsDb) ||
+    value.bandsDb.length !== 5 ||
+    value.bandsDb.some((band) => !boundedFiniteNumber(band, -12, 12))
+  ) {
+    return null;
+  }
+  return { bandsDb: [...value.bandsDb] };
+}
+
+function parseVirtualBass(value: unknown) {
+  return hasExactKeys(value, ['strengthPercent']) &&
+    boundedFiniteNumber(value.strengthPercent, 0, 100)
+    ? { strengthPercent: value.strengthPercent }
+    : null;
+}
+
+function parseVirtualSurround(value: unknown) {
+  return hasExactKeys(value, ['widthPercent']) && boundedFiniteNumber(value.widthPercent, 0, 200)
+    ? { widthPercent: value.widthPercent }
+    : null;
+}
+
+function parseVirtualTreble(value: unknown) {
+  return hasExactKeys(value, ['enabled']) && typeof value.enabled === 'boolean'
+    ? { enabled: value.enabled }
+    : null;
+}
+
+function parseEffects(value: unknown, requireComplete: boolean): JsonRecord | null {
+  if (!isRecord(value)) return null;
+  const allowed = ['reverb', 'equalizer', 'virtualBass', 'virtualSurround', 'virtualTreble'];
+  const keys = Object.keys(value);
+  if (
+    keys.length === 0 ||
+    keys.some((key) => !allowed.includes(key)) ||
+    (requireComplete &&
+      (keys.length !== allowed.length || allowed.some((key) => !keys.includes(key))))
+  ) {
+    return null;
+  }
+  const effects: JsonRecord = {};
+  for (const key of keys) {
+    const parsed =
+      key === 'reverb'
+        ? parseReverbPatch(value.reverb, requireComplete)
+        : key === 'equalizer'
+          ? parseEqualizer(value.equalizer)
+          : key === 'virtualBass'
+            ? parseVirtualBass(value.virtualBass)
+            : key === 'virtualSurround'
+              ? parseVirtualSurround(value.virtualSurround)
+              : parseVirtualTreble(value.virtualTreble);
+    if (!parsed) return null;
+    effects[key] = parsed;
+  }
+  return effects;
+}
+
+function parseEffectsPatch(value: unknown): JsonRecord | null {
+  return parseEffects(value, false);
+}
+
+function parseEffectsState(value: unknown): JsonRecord | null {
+  return parseEffects(value, true);
+}
+
+function parseMetadata(value: unknown): MediaMetadata | null {
+  if (!isRecord(value)) return null;
+  const name = boundedString(value.name, 512);
+  if (!name) return null;
+  const metadata: MediaMetadata = { name };
+  for (const key of ['title', 'artist', 'thumbnail']) {
+    if (value[key] === undefined) continue;
+    const parsed = boundedString(value[key], 512);
+    if (!parsed) return null;
+    metadata[key] = parsed;
+  }
+  return metadata;
+}
+
+function parseYouTubeVideoIds(
+  value: unknown,
+  playlistId: unknown,
+  videoId: unknown,
+): string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (
+    typeof playlistId !== 'string' ||
+    typeof videoId !== 'string' ||
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS ||
+    value.some((item) => typeof item !== 'string' || !YOUTUBE_VIDEO_ID_RE.test(item)) ||
+    !value.includes(videoId)
+  ) {
+    return null;
+  }
+  return [...value];
+}
+
+function canonicalizeYouTubeBatchItems(
+  items: readonly YouTubeMutationItem[],
+): YouTubeMutationItem[] | null {
+  const result: YouTubeMutationItem[] = [];
+  const playlistStates = new Map<string, { index: number; hasManifest: boolean }>();
+  for (const item of items) {
+    if (item.playlistId === undefined) {
+      result.push(item);
+      continue;
+    }
+    const state = playlistStates.get(item.playlistId);
+    if (state === undefined) {
+      playlistStates.set(item.playlistId, {
+        index: result.length,
+        hasManifest: item.videoIds !== undefined,
+      });
+      result.push(item);
+      continue;
+    }
+
+    const existing = result[state.index];
+    if (!existing) return null;
+    if (state.hasManifest !== (item.videoIds !== undefined)) return null;
+    if (state.hasManifest) {
+      const existingVideoIds = existing.videoIds;
+      const itemVideoIds = item.videoIds;
+      if (!existingVideoIds || !itemVideoIds) return null;
+      if (
+        existingVideoIds.length !== itemVideoIds.length ||
+        existingVideoIds.some((videoId, index) => videoId !== itemVideoIds[index])
+      ) {
+        return null;
+      }
+      continue;
+    }
+
+    const videoIds = [...(existing.videoIds || [existing.videoId]), item.videoId];
+    if (videoIds.length > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS) return null;
+    result[state.index] = { ...existing, videoIds };
+  }
+  return result;
+}
+
+function parseQueueMutation(value: unknown): QueueMutation | null {
+  if (!isRecord(value)) return null;
+  if (value.type === 'clear') {
+    return hasExactKeys(value, ['type']) ? { type: 'clear' } : null;
+  }
+  if (value.type === 'clear_owned') {
+    return hasExactKeys(value, ['type']) ? { type: 'clear_owned' } : null;
+  }
+  if (value.type === 'add_youtube') {
+    if (
+      !hasExactKeys(
+        value,
+        ['type', 'videoId', 'name'],
+        ['playlistId', 'videoIds', 'title', 'artist', 'thumbnail'],
+      ) ||
+      typeof value.videoId !== 'string' ||
+      !YOUTUBE_VIDEO_ID_RE.test(value.videoId) ||
+      (value.playlistId !== undefined &&
+        (typeof value.playlistId !== 'string' || !YOUTUBE_PLAYLIST_ID_RE.test(value.playlistId)))
+    ) {
+      return null;
+    }
+    const videoIds = parseYouTubeVideoIds(value.videoIds, value.playlistId, value.videoId);
+    if (videoIds === null) return null;
+    const metadata = parseMetadata(value);
+    return metadata
+      ? {
+          type: 'add_youtube',
+          videoId: value.videoId,
+          ...(value.playlistId === undefined ? {} : { playlistId: value.playlistId }),
+          ...(videoIds === undefined ? {} : { videoIds }),
+          ...metadata,
+        }
+      : null;
+  }
+  if (value.type === 'add_youtube_batch') {
+    if (
+      !hasExactKeys(value, ['type', 'items']) ||
+      !Array.isArray(value.items) ||
+      value.items.length === 0 ||
+      value.items.length > YOUTUBE_BATCH_MAX_ITEMS
+    ) {
+      return null;
+    }
+    const items = value.items.map((item): YouTubeMutationItem | null => {
+      if (
+        !hasExactKeys(
+          item,
+          ['videoId', 'name'],
+          ['playlistId', 'videoIds', 'title', 'artist', 'thumbnail'],
+        ) ||
+        typeof item.videoId !== 'string' ||
+        !YOUTUBE_VIDEO_ID_RE.test(item.videoId) ||
+        (item.playlistId !== undefined &&
+          (typeof item.playlistId !== 'string' || !YOUTUBE_PLAYLIST_ID_RE.test(item.playlistId)))
+      ) {
+        return null;
+      }
+      const videoIds = parseYouTubeVideoIds(item.videoIds, item.playlistId, item.videoId);
+      if (videoIds === null) return null;
+      const metadata = parseMetadata(item);
+      return metadata
+        ? {
+            videoId: item.videoId,
+            ...(item.playlistId === undefined ? {} : { playlistId: item.playlistId }),
+            ...(videoIds === undefined ? {} : { videoIds }),
+            ...metadata,
+          }
+        : null;
+    });
+    if (!hasNoNull(items)) return null;
+    const canonicalItems = canonicalizeYouTubeBatchItems(items);
+    return canonicalItems ? { type: 'add_youtube_batch', items: canonicalItems } : null;
+  }
+  if (value.type === 'remove') {
+    return hasExactKeys(value, ['type', 'queueItemId']) &&
+      typeof value.queueItemId === 'string' &&
+      QUEUE_ITEM_UUID_RE.test(value.queueItemId)
+      ? { type: 'remove', queueItemId: value.queueItemId }
+      : null;
+  }
+  if (value.type === 'reorder') {
+    if (
+      !hasExactKeys(value, ['type', 'basePlaylistRevision', 'queueItemIds']) ||
+      !isSafeNonNegativeInteger(value.basePlaylistRevision) ||
+      !Array.isArray(value.queueItemIds) ||
+      value.queueItemIds.length > PLAYLIST_MAX_ITEMS ||
+      value.queueItemIds.some(
+        (queueItemId) => typeof queueItemId !== 'string' || !QUEUE_ITEM_UUID_RE.test(queueItemId),
+      ) ||
+      new Set(value.queueItemIds).size !== value.queueItemIds.length
+    ) {
+      return null;
+    }
+    return {
+      type: 'reorder',
+      basePlaylistRevision: value.basePlaylistRevision,
+      queueItemIds: [...value.queueItemIds],
+    };
+  }
+  return null;
+}
+
+function parseMediaUpload(value: unknown): MediaUpload | null {
+  if (
+    !hasExactKeys(
+      value,
+      ['name', 'byteLength', 'mime'],
+      ['sha256', 'title', 'artist', 'thumbnail'],
+    ) ||
+    !isSafeNonNegativeInteger(value.byteLength) ||
+    value.byteLength <= 0 ||
+    value.byteLength > ASSET_MAX_BYTES ||
+    typeof value.mime !== 'string' ||
+    !MIME_RE.test(value.mime) ||
+    (value.sha256 !== undefined &&
+      (typeof value.sha256 !== 'string' || !SHA256_RE.test(value.sha256)))
+  ) {
+    return null;
+  }
+  const metadata = parseMetadata(value);
+  return metadata
+    ? {
+        ...metadata,
+        byteLength: value.byteLength,
+        mime: value.mime,
+        ...(value.sha256 === undefined ? {} : { sha256: value.sha256 }),
+      }
+    : null;
+}
+
+function sanitizeQuota(value: unknown) {
+  if (
+    !isRecord(value) ||
+    !['limitBytes', 'perAssetLimitBytes', 'usedBytes', 'reservedBytes'].every((key) =>
+      isSafeNonNegativeInteger(value[key]),
+    )
+  ) {
+    return null;
+  }
+  return {
+    limitBytes: value.limitBytes,
+    perAssetLimitBytes: value.perAssetLimitBytes,
+    usedBytes: value.usedBytes,
+    reservedBytes: value.reservedBytes,
+  };
+}
+
+function sanitizeUpload(
+  value: unknown,
+  roomCode: string,
+  roomGeneration: number,
+  expectedMedia: MediaUpload,
+) {
+  const quota = sanitizeQuota(isRecord(value) ? value.quota : undefined);
+  if (
+    !hasExactKeys(value, [
+      'schemaVersion',
+      'roomCode',
+      'assetId',
+      'queueItemId',
+      'byteLength',
+      'uploadExpiresAtMs',
+      'completionExpiresAtMs',
+      'upload',
+      'quota',
+    ]) ||
+    value.schemaVersion !== 1 ||
+    value.roomCode !== roomCode ||
+    typeof value.assetId !== 'string' ||
+    !ASSET_ID_RE.test(value.assetId) ||
+    typeof value.queueItemId !== 'string' ||
+    !QUEUE_ITEM_UUID_RE.test(value.queueItemId) ||
+    !isSafeNonNegativeInteger(value.byteLength) ||
+    value.byteLength <= 0 ||
+    value.byteLength > ASSET_MAX_BYTES ||
+    value.byteLength !== expectedMedia.byteLength ||
+    !isSafeNonNegativeInteger(value.uploadExpiresAtMs) ||
+    !isSafeNonNegativeInteger(value.completionExpiresAtMs) ||
+    value.completionExpiresAtMs < value.uploadExpiresAtMs ||
+    !quota ||
+    !hasExactKeys(value.upload, ['method', 'url', 'headers']) ||
+    value.upload.method !== 'PUT' ||
+    typeof value.upload.url !== 'string'
+  ) {
+    return null;
+  }
+  let uploadUrl: URL;
+  try {
+    uploadUrl = new URL(value.upload.url);
+  } catch {
+    return null;
+  }
+  if (
+    uploadUrl.protocol !== 'https:' ||
+    uploadUrl.username ||
+    uploadUrl.password ||
+    uploadUrl.hash ||
+    !/^[a-f0-9]{32}\.r2\.cloudflarestorage\.com$/i.test(uploadUrl.hostname) ||
+    !uploadUrl.searchParams.has('X-Amz-Signature')
+  ) {
+    return null;
+  }
+  const headers = value.upload.headers;
+  if (!isRecord(headers)) return null;
+  const allowedHeaders = new Set([
+    'content-length',
+    'content-type',
+    'x-amz-meta-mxqr-room',
+    'x-amz-meta-mxqr-generation',
+    'x-amz-meta-mxqr-asset',
+    'x-amz-meta-mxqr-version',
+    'x-amz-meta-mxqr-bytes',
+    'x-amz-meta-mxqr-sha256',
+  ]);
+  if (
+    Object.keys(headers).some((key) => !allowedHeaders.has(key)) ||
+    headers['content-length'] !== String(value.byteLength) ||
+    headers['x-amz-meta-mxqr-room'] !== roomCode ||
+    headers['x-amz-meta-mxqr-generation'] !== String(roomGeneration) ||
+    headers['x-amz-meta-mxqr-asset'] !== value.assetId ||
+    headers['x-amz-meta-mxqr-version'] !== '1' ||
+    headers['x-amz-meta-mxqr-bytes'] !== String(value.byteLength) ||
+    typeof headers['content-type'] !== 'string' ||
+    !MIME_RE.test(headers['content-type']) ||
+    headers['content-type'] !== expectedMedia.mime ||
+    (headers['x-amz-meta-mxqr-sha256'] !== undefined &&
+      (typeof headers['x-amz-meta-mxqr-sha256'] !== 'string' ||
+        !SHA256_RE.test(headers['x-amz-meta-mxqr-sha256']))) ||
+    (expectedMedia.sha256 === undefined
+      ? headers['x-amz-meta-mxqr-sha256'] !== undefined
+      : headers['x-amz-meta-mxqr-sha256'] !== expectedMedia.sha256)
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    roomCode,
+    assetId: value.assetId,
+    queueItemId: value.queueItemId,
+    byteLength: value.byteLength,
+    uploadExpiresAtMs: value.uploadExpiresAtMs,
+    completionExpiresAtMs: value.completionExpiresAtMs,
+    upload: { method: 'PUT', url: uploadUrl.toString(), headers: { ...headers } },
+    quota,
+  };
+}
+
+function sanitizeUploadCompletion(value: unknown, roomCode: string, expectedAssetId: string) {
+  const quota = sanitizeQuota(isRecord(value) ? value.quota : undefined);
+  const queueItem = sanitizeQueueItem(isRecord(value) ? value.queueItem : undefined);
+  if (
+    !hasExactKeys(value, [
+      'schemaVersion',
+      'roomCode',
+      'asset',
+      'queueItem',
+      'playlistRevision',
+      'quota',
+    ]) ||
+    value.schemaVersion !== 1 ||
+    value.roomCode !== roomCode ||
+    !isSafeNonNegativeInteger(value.playlistRevision) ||
+    !quota ||
+    !queueItem ||
+    queueItem.kind !== 'audio' ||
+    !hasExactKeys(value.asset, ['kind', 'assetId', 'version', 'byteLength', 'mime'], ['sha256']) ||
+    value.asset.kind !== 'pro-r2' ||
+    typeof value.asset.assetId !== 'string' ||
+    !ASSET_ID_RE.test(value.asset.assetId) ||
+    value.asset.assetId !== expectedAssetId ||
+    value.asset.version !== 1 ||
+    !isSafeNonNegativeInteger(value.asset.byteLength) ||
+    value.asset.byteLength <= 0 ||
+    value.asset.byteLength > ASSET_MAX_BYTES ||
+    value.asset.byteLength !== queueItem.byteLength ||
+    typeof value.asset.mime !== 'string' ||
+    !MIME_RE.test(value.asset.mime) ||
+    (value.asset.sha256 !== undefined &&
+      (typeof value.asset.sha256 !== 'string' || !SHA256_RE.test(value.asset.sha256)))
+  ) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    roomCode,
+    asset: { ...value.asset },
+    queueItem,
+    playlistRevision: value.playlistRevision,
+    quota,
+  };
+}
+
+function sanitizeCommand(value: unknown, roomCode: string) {
+  if (
+    !isRecord(value) ||
+    typeof value.commandId !== 'string' ||
+    !COMMAND_ID_RE.test(value.commandId) ||
+    typeof value.status !== 'string' ||
+    !COMMAND_STATUSES.has(value.status) ||
+    !isSafeNonNegativeInteger(value.createdAtMs) ||
+    !isSafeNonNegativeInteger(value.expiresAtMs) ||
+    value.expiresAtMs <= value.createdAtMs
+  ) {
+    return null;
+  }
+  const terminal =
+    value.status === 'applied' || value.status === 'rejected' || value.status === 'expired';
+  const optional: JsonRecord = {};
+  if (terminal) {
+    if (
+      !isSafeNonNegativeInteger(value.completedAtMs) ||
+      value.completedAtMs < value.createdAtMs ||
+      typeof value.resultCode !== 'string' ||
+      !COMMAND_RESULT_CODES.has(value.resultCode)
+    ) {
+      return null;
+    }
+    if (
+      value.status === 'applied' &&
+      value.resultCode !== 'applied' &&
+      value.resultCode !== 'already_applied'
+    ) {
+      return null;
+    }
+    if (value.status === 'expired' && value.resultCode !== 'expired') return null;
+    if (
+      value.status === 'rejected' &&
+      ['applied', 'already_applied', 'expired'].includes(value.resultCode)
+    ) {
+      return null;
+    }
+    optional.completedAtMs = value.completedAtMs;
+    optional.resultCode = value.resultCode;
+  } else if (value.completedAtMs !== undefined || value.resultCode !== undefined) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    roomCode,
+    commandId: value.commandId,
+    status: value.status,
+    createdAtMs: value.createdAtMs,
+    expiresAtMs: value.expiresAtMs,
+    ...optional,
+  };
+}
+
+function backendError(value: unknown, status: number) {
+  if (!hasExactKeys(value, ['error']) || typeof value.error !== 'string') return null;
+  const mapped = BACKEND_ERROR_MAP[value.error];
+  return mapped && mapped.status === status ? mapped : null;
+}
+
+function exactFacadeRoomGeneration(
+  request: Request,
+  body: unknown,
+): { valid: true; roomGeneration: number } | { valid: false; roomGeneration: number | null } {
+  const header = request.headers.get(PRO_ROOM_GENERATION_HEADER);
+  const roomGeneration = /^(?:0|[1-9]\d*)$/.test(header || '') ? Number(header) : null;
+  return isProRoomGeneration(roomGeneration) &&
+    isRecord(body) &&
+    body.roomGeneration === roomGeneration
+    ? { valid: true, roomGeneration }
+    : { valid: false, roomGeneration };
+}
+
+function developerAuthorityWireFields(developerAuthorityEpoch: number | undefined): {
+  developerAuthorityEpoch?: number;
+} {
+  return developerAuthorityEpoch === undefined ? {} : { developerAuthorityEpoch };
+}
+
+async function callRoom(
+  namespace: DurableObjectNamespacePort,
+  roomCode: string,
+  roomGeneration: number,
+  path: string,
+  body: unknown,
+  maxResponseBytes: number,
+): Promise<RoomCallResult> {
+  let activeReader: BodyReader | null = null;
+  let timedOut = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const operation: Promise<RoomCallResult> = Promise.resolve()
+    .then(() => {
+      const stub = namespace.get(namespace.idFromName(proRoomObjectName(roomCode, roomGeneration)));
+      if (!isDurableObjectStub(stub)) throw new Error('PRO_ROOM_DEVELOPER_ROOMS_INVALID_STUB');
+      return stub.fetch(
+        new Request(`https://pro-room.internal${path}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': roomCode,
+            [PRO_ROOM_GENERATION_HEADER]: proRoomGenerationHeaderValue(roomGeneration),
+          },
+          body: JSON.stringify(body),
+        }),
+      );
+    })
+    .then(
+      async (response) => {
+        if (timedOut) {
+          cancelBodyReader(response.body, 'ROOM_RESPONSE_TIMEOUT');
+          return { backendError: true as const };
+        }
+        const value = await readJsonResponse(response, maxResponseBytes, (reader) => {
+          activeReader = reader;
+        });
+        return timedOut ? { backendError: true as const } : { response, value };
+      },
+      () => ({ backendError: true as const }),
+    );
+  const timeout = new Promise<RoomCallResult>((resolve) => {
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      cancelBodyReader(activeReader, 'ROOM_RESPONSE_TIMEOUT');
+      resolve({ backendError: true });
+    }, ROOM_RESPONSE_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([operation, timeout]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
+
+const developerApiFacadeWorker = {
+  async fetch(request: Request, env: DeveloperApiFacadeEnvPort): Promise<Response> {
+    const url = new URL(request.url);
+    const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
+    if (maintenanceResponse) return maintenanceResponse;
+    if (
+      request.method !== 'POST' ||
+      ![
+        '/internal/v1/read',
+        '/internal/v1/commands/create',
+        '/internal/v1/commands/status',
+        '/internal/v1/queue-mode/update',
+        '/internal/v1/queue/mutate',
+        '/internal/v1/media/uploads/create',
+        '/internal/v1/media/uploads/complete',
+      ].includes(url.pathname) ||
+      url.search ||
+      url.hash ||
+      request.headers.has('authorization') ||
+      request.headers.has('cookie') ||
+      request.headers.has('origin')
+    ) {
+      return jsonResponse({ error: 'NOT_FOUND' }, 404);
+    }
+    const rawBody = await readJsonBody(
+      request,
+      url.pathname === '/internal/v1/queue/mutate'
+        ? QUEUE_MUTATION_REQUEST_MAX_BYTES
+        : REQUEST_MAX_BYTES,
+    );
+    const namespace = env.PRO_ROOM_DEVELOPER_ROOMS;
+    if (!isDurableObjectNamespace(namespace)) {
+      return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+    }
+    const generation = exactFacadeRoomGeneration(request, rawBody);
+    if (!generation.valid || !isRecord(rawBody)) {
+      return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const body = rawBody;
+    const roomGeneration = generation.roomGeneration;
+    if (
+      body?.developerAuthorityEpoch !== undefined &&
+      !isSafeNonNegativeInteger(body.developerAuthorityEpoch)
+    ) {
+      return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const developerAuthorityEpoch =
+      typeof body.developerAuthorityEpoch === 'number' ? body.developerAuthorityEpoch : undefined;
+
+    if (url.pathname === '/internal/v1/read') {
+      if (
+        !hasExactKeys(
+          body,
+          ['roomCode', 'roomGeneration', 'projection'],
+          ['developerAuthorityEpoch', 'keyId', 'effectsVersion'],
+        ) ||
+        typeof body.roomCode !== 'string' ||
+        !ROOM_CODE_RE.test(body.roomCode) ||
+        (body.keyId !== undefined &&
+          (typeof body.keyId !== 'string' || !API_KEY_ID_RE.test(body.keyId))) ||
+        (body.projection === 'effects'
+          ? body.effectsVersion !== 2
+          : body.effectsVersion !== undefined) ||
+        !isProjection(body.projection)
+      ) {
+        return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      }
+      const called = await callRoom(
+        namespace,
+        body.roomCode,
+        roomGeneration,
+        '/internal/developer/v1/read',
+        {
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
+          ...(body.keyId === undefined ? {} : { keyId: body.keyId }),
+          ...(body.projection === 'effects' ? { effectsVersion: 2 } : {}),
+          projection: body.projection,
+        },
+        PROJECTION_RESPONSE_MAX_BYTES,
+      );
+      if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      const value = called.value;
+      if (called.response.status === 404) return jsonResponse({ error: 'NOT_FOUND' }, 404);
+      if (!called.response.ok) {
+        const mapped = backendError(value, called.response.status);
+        return mapped
+          ? jsonResponse({ error: mapped.error }, mapped.status)
+          : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      if (!value) {
+        return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      const sanitized = sanitizeProjection(value, body.projection, body.roomCode);
+      return sanitized
+        ? jsonResponse(sanitized, 200, facadeVersionHeaders(env))
+        : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
+    }
+
+    if (url.pathname === '/internal/v1/queue-mode/update') {
+      if (
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'queueMode'],
+          ['developerAuthorityEpoch'],
+        ) ||
+        typeof body.keyId !== 'string' ||
+        !API_KEY_ID_RE.test(body.keyId) ||
+        typeof body.roomCode !== 'string' ||
+        !ROOM_CODE_RE.test(body.roomCode) ||
+        typeof body.idempotencyKey !== 'string' ||
+        !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey)
+      ) {
+        return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      }
+      const queueMode = parseQueueModeUpdate(body.queueMode);
+      if (!queueMode) return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      const called = await callRoom(
+        namespace,
+        body.roomCode,
+        roomGeneration,
+        '/internal/developer/v1/queue-mode/update',
+        {
+          roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
+          keyId: body.keyId,
+          idempotencyKey: body.idempotencyKey,
+          queueMode,
+        },
+        COMMAND_RESPONSE_MAX_BYTES,
+      );
+      if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      const value = called.value;
+      if (!called.response.ok) {
+        const mapped = backendError(value, called.response.status);
+        return mapped
+          ? jsonResponse({ error: mapped.error }, mapped.status)
+          : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      const sanitized = sanitizeProjection(value, 'queue-mode', body.roomCode);
+      return called.response.status === 200 && sanitized
+        ? jsonResponse(sanitized)
+        : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
+    }
+
+    if (url.pathname === '/internal/v1/commands/create') {
+      if (
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'command'],
+          ['developerAuthorityEpoch'],
+        ) ||
+        typeof body.keyId !== 'string' ||
+        !API_KEY_ID_RE.test(body.keyId) ||
+        typeof body.roomCode !== 'string' ||
+        !ROOM_CODE_RE.test(body.roomCode) ||
+        typeof body.idempotencyKey !== 'string' ||
+        !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey)
+      ) {
+        return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      }
+      const command = parseDeveloperCommand(body.command);
+      if (!command) return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      const called = await callRoom(
+        namespace,
+        body.roomCode,
+        roomGeneration,
+        '/internal/developer/v1/commands/create',
+        {
+          roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
+          keyId: body.keyId,
+          idempotencyKey: body.idempotencyKey,
+          command,
+        },
+        COMMAND_RESPONSE_MAX_BYTES,
+      );
+      if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      const value = called.value;
+      if (!called.response.ok) {
+        const mapped = backendError(value, called.response.status);
+        return mapped
+          ? jsonResponse({ error: mapped.error }, mapped.status)
+          : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      if (called.response.status !== 202) {
+        return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      const sanitized = sanitizeCommand(value, body.roomCode);
+      // An idempotent retry can arrive after the first accepted request has
+      // already reached a terminal result. Preserve that canonical result
+      // instead of turning successful response-loss recovery into a 503.
+      return sanitized
+        ? jsonResponse(sanitized, 202)
+        : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
+    }
+
+    if (url.pathname === '/internal/v1/queue/mutate') {
+      if (
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'mutation'],
+          ['developerAuthorityEpoch', 'actorName'],
+        ) ||
+        typeof body.keyId !== 'string' ||
+        !API_KEY_ID_RE.test(body.keyId) ||
+        typeof body.roomCode !== 'string' ||
+        !ROOM_CODE_RE.test(body.roomCode) ||
+        typeof body.idempotencyKey !== 'string' ||
+        !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey) ||
+        (body.actorName !== undefined && !validActorName(body.actorName))
+      ) {
+        return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      }
+      const mutation = parseQueueMutation(body.mutation);
+      if (!mutation) return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      const called = await callRoom(
+        namespace,
+        body.roomCode,
+        roomGeneration,
+        '/internal/developer/v1/queue/mutate',
+        {
+          roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
+          keyId: body.keyId,
+          ...(body.actorName === undefined ? {} : { actorName: body.actorName }),
+          idempotencyKey: body.idempotencyKey,
+          mutation,
+        },
+        PROJECTION_RESPONSE_MAX_BYTES,
+      );
+      if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      const value = called.value;
+      if (!called.response.ok) {
+        const mapped = backendError(value, called.response.status);
+        return mapped
+          ? jsonResponse({ error: mapped.error }, mapped.status)
+          : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      const expectedStatus =
+        mutation.type === 'add_youtube' || mutation.type === 'add_youtube_batch' ? 201 : 200;
+      const sanitized = sanitizeProjection(value, 'queue', body.roomCode);
+      return called.response.status === expectedStatus && sanitized
+        ? jsonResponse(sanitized, expectedStatus)
+        : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
+    }
+
+    if (url.pathname === '/internal/v1/media/uploads/create') {
+      if (
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'media'],
+          ['developerAuthorityEpoch'],
+        ) ||
+        typeof body.keyId !== 'string' ||
+        !API_KEY_ID_RE.test(body.keyId) ||
+        typeof body.roomCode !== 'string' ||
+        !ROOM_CODE_RE.test(body.roomCode) ||
+        typeof body.idempotencyKey !== 'string' ||
+        !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey)
+      ) {
+        return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      }
+      const media = parseMediaUpload(body.media);
+      if (!media) return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      const called = await callRoom(
+        namespace,
+        body.roomCode,
+        roomGeneration,
+        '/internal/developer/v1/media/uploads/create',
+        {
+          roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
+          keyId: body.keyId,
+          idempotencyKey: body.idempotencyKey,
+          media,
+        },
+        MUTATION_RESPONSE_MAX_BYTES,
+      );
+      if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      const value = called.value;
+      if (!called.response.ok) {
+        const mapped = backendError(value, called.response.status);
+        return mapped
+          ? jsonResponse({ error: mapped.error }, mapped.status)
+          : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      const sanitized = sanitizeUpload(value, body.roomCode, roomGeneration, media);
+      return called.response.status === 201 && sanitized
+        ? jsonResponse(sanitized, 201)
+        : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
+    }
+
+    if (url.pathname === '/internal/v1/media/uploads/complete') {
+      if (
+        !hasExactKeys(
+          body,
+          ['keyId', 'roomCode', 'roomGeneration', 'idempotencyKey', 'assetId'],
+          ['developerAuthorityEpoch', 'actorName'],
+        ) ||
+        typeof body.keyId !== 'string' ||
+        !API_KEY_ID_RE.test(body.keyId) ||
+        typeof body.roomCode !== 'string' ||
+        !ROOM_CODE_RE.test(body.roomCode) ||
+        typeof body.idempotencyKey !== 'string' ||
+        !IDEMPOTENCY_KEY_RE.test(body.idempotencyKey) ||
+        typeof body.assetId !== 'string' ||
+        !ASSET_ID_RE.test(body.assetId) ||
+        (body.actorName !== undefined && !validActorName(body.actorName))
+      ) {
+        return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+      }
+      const called = await callRoom(
+        namespace,
+        body.roomCode,
+        roomGeneration,
+        '/internal/developer/v1/media/uploads/complete',
+        {
+          roomCode: body.roomCode,
+          ...developerAuthorityWireFields(developerAuthorityEpoch),
+          keyId: body.keyId,
+          ...(body.actorName === undefined ? {} : { actorName: body.actorName }),
+          idempotencyKey: body.idempotencyKey,
+          assetId: body.assetId,
+        },
+        MUTATION_RESPONSE_MAX_BYTES,
+      );
+      if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      const value = called.value;
+      if (!called.response.ok) {
+        const mapped = backendError(value, called.response.status);
+        return mapped
+          ? jsonResponse({ error: mapped.error }, mapped.status)
+          : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+      }
+      const sanitized = sanitizeUploadCompletion(value, body.roomCode, body.assetId);
+      return called.response.status === 201 && sanitized
+        ? jsonResponse(sanitized, 201)
+        : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
+    }
+
+    if (
+      !hasExactKeys(
+        body,
+        ['roomCode', 'roomGeneration', 'keyId', 'commandId'],
+        ['developerAuthorityEpoch'],
+      ) ||
+      typeof body.roomCode !== 'string' ||
+      !ROOM_CODE_RE.test(body.roomCode) ||
+      typeof body.keyId !== 'string' ||
+      !API_KEY_ID_RE.test(body.keyId) ||
+      typeof body.commandId !== 'string' ||
+      !COMMAND_ID_RE.test(body.commandId)
+    ) {
+      return jsonResponse({ error: 'INVALID_REQUEST' }, 400);
+    }
+    const called = await callRoom(
+      namespace,
+      body.roomCode,
+      roomGeneration,
+      '/internal/developer/v1/commands/status',
+      {
+        roomCode: body.roomCode,
+        ...developerAuthorityWireFields(developerAuthorityEpoch),
+        keyId: body.keyId,
+        commandId: body.commandId,
+      },
+      COMMAND_RESPONSE_MAX_BYTES,
+    );
+    if (!called.response) return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+    const value = called.value;
+    if (!called.response.ok) {
+      const mapped = backendError(value, called.response.status);
+      return mapped
+        ? jsonResponse({ error: mapped.error }, mapped.status)
+        : jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+    }
+    if (called.response.status !== 200) {
+      return jsonResponse({ error: 'BACKEND_UNAVAILABLE' }, 503);
+    }
+    const sanitized = sanitizeCommand(value, body.roomCode);
+    return sanitized
+      ? jsonResponse(sanitized)
+      : jsonResponse({ error: 'INVALID_BACKEND_RESPONSE' }, 503);
+  },
+} satisfies FacadeFetchHandler;
+
+export default developerApiFacadeWorker;

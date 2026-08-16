@@ -5,8 +5,14 @@
     "types": ["node"]
   },
   "include": [
+    "scripts/classic-runtime-assets.ts",
+    "scripts/auxiliary-browser-assets.ts",
+    "scripts/service-worker-asset.ts",
+    "scripts/ui-kit-asset.ts",
     "scripts/live-app-session-smoke.ts",
     "scripts/live-remote-share-smoke.ts",
+    "eslint.config.ts",
+    "eslint.tooling.config.ts",
     "vite.config.ts",
     "vitest.config.ts",
     "vitest.critical.config.ts",

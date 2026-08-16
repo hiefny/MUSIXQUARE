@@ -49,7 +49,7 @@ import {
   DEFAULT_CONTROL_REQUEST_TIMEOUT_MS,
   withRequestDeadline,
 } from '../core/request-lifetime.ts';
-import { isSafeVisibleDisplayName } from '../../cloudflare/display-name-policy.js';
+import { isSafeVisibleDisplayName } from '../../cloudflare/display-name-policy.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';

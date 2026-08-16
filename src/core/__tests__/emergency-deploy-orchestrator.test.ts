@@ -8,7 +8,7 @@ import {
   emergencyNpmInvocation,
   parseEmergencyDeploymentArgs,
   runEmergencyDeployment,
-} from '../../../scripts/emergency-deploy.mjs';
+} from '../../../scripts/emergency-deploy.mts';
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
 function deployCommands(plan: string[][]): string[][] {

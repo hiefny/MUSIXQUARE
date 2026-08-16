@@ -7,8 +7,8 @@ import developerApiWorker, {
   expireDeveloperApiKeys,
   isDeveloperApiRequestId,
   parseDeveloperApiKey,
-} from '../../../cloudflare/developer-api-worker.js';
-import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.js';
+} from '../../../cloudflare/developer-api-worker.ts';
+import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.ts';
 
 const ROOM_CODE = '000001';
 const KEY_ID = 'A'.repeat(16);

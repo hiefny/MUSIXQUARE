@@ -21,6 +21,7 @@ promo/output/
 e2e-report.json
 e2e-results.log
 e2e/e2e-report-data.js
+e2e/report-viewer.js
 test-results/
 coverage/
 release-artifacts/

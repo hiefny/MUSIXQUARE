@@ -4,16 +4,16 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import {
   createStandardRoomAccountAssertion,
   createStandardRoomAccountDeletionAssertion,
-} from '../../../../cloudflare/standard-room-account-assertion.js';
+} from '../../../../cloudflare/standard-room-account-assertion.ts';
 import {
   REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX,
   verifyRemoteShareUploadAssertion,
-} from '../../../../cloudflare/remote-share-upload-assertion.js';
+} from '../../../../cloudflare/remote-share-upload-assertion.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
   SERVICE_CONTROL_STATUS_PATH,
-} from '../../../../cloudflare/service-maintenance.js';
+} from '../../../../cloudflare/service-maintenance.ts';
 
 type WorkerModule = {
   MusixquareRoom: new (
@@ -758,9 +758,10 @@ async function standardAccountDeletionAssertion(input: {
 }
 
 beforeAll(async () => {
-  workerModule = (await import('../../../../cloudflare/signaling-worker.js')) as WorkerModule;
+  const signalingWorkerModulePath = '../../../../cloudflare/signaling-worker.ts';
+  workerModule = (await import(signalingWorkerModulePath)) as WorkerModule;
   signalingProtocol = await vi.importActual<SignalingProtocolModule>(
-    '../../../../cloudflare/signaling-protocol.js',
+    '../../../../cloudflare/signaling-protocol.ts',
   );
 });
 
@@ -986,6 +987,33 @@ describe('Cloudflare signaling protocol validation boundaries', () => {
     ).toBe('ignore');
     for (const malformed of [null, [], {}, { type: 1 }, { type: 'x'.repeat(65) }]) {
       expect(signalingProtocol.validateIncomingMessage(malformed, 'host')).toBe('ignore');
+    }
+  });
+
+  it('keeps Remote Share authority frames exact, scalar-typed, and host-only', () => {
+    expect(
+      signalingProtocol.validateIncomingMessage(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST, 'host'),
+    ).toBe('valid');
+    expect(
+      signalingProtocol.validateIncomingMessage(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST, 'guest'),
+    ).toBe('ignore');
+
+    for (const mutation of [
+      { correlationId: { toString: () => REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.correlationId } },
+      { actorId: 1 },
+      { requestId: null },
+      { sessionId: String(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST.sessionId) },
+      { queueItemId: {} },
+      { size: 4.5 },
+      { bodySha256: ['A'.repeat(43)] },
+      { extraCapability: true },
+    ]) {
+      expect(
+        signalingProtocol.validateIncomingMessage(
+          { ...REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST, ...mutation },
+          'host',
+        ),
+      ).toBe('ignore');
     }
   });
 });
@@ -7867,7 +7895,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
   });
 
   it('does not use non-hibernatable WebSocket or timer APIs', async () => {
-    const source = await readFile(resolve(process.cwd(), 'cloudflare/signaling-worker.js'), 'utf8');
+    const source = await readFile(resolve(process.cwd(), 'cloudflare/signaling-worker.ts'), 'utf8');
 
     expect(source).not.toContain('server.accept(');
     expect(source).not.toContain('addEventListener(');

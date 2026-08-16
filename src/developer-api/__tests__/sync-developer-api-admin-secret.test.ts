@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   readDeveloperApiAdminPepper,
   syncDeveloperApiAdminPepper,
-} from '../../../scripts/sync-developer-api-admin-secret.mjs';
+} from '../../../scripts/sync-developer-api-admin-secret.mts';
 
 describe('Developer API admin secret sync', () => {
   it('prefers the environment and never reads the local secret file', () => {
@@ -25,6 +25,18 @@ describe('Developer API admin secret sync', () => {
     });
 
     expect(pepper).toBe('l'.repeat(64));
+  });
+
+  it('rejects malformed local JSON shapes instead of coercing secret material', () => {
+    expect(() =>
+      readDeveloperApiAdminPepper({
+        env: {},
+        secretFile: 'private.json',
+        readFile: vi.fn(() =>
+          JSON.stringify({ developerApiKeyPepper: ['not-a-string'.repeat(8)] }),
+        ),
+      }),
+    ).toThrow('does not contain a valid developerApiKeyPepper');
   });
 
   it('pipes the secret to Wrangler without placing it in arguments or output', () => {
@@ -56,5 +68,35 @@ describe('Developer API admin secret sync', () => {
         stdout: { write: vi.fn() },
       }),
     ).toThrow('npm run developer-api:admin-secret:sync');
+  });
+
+  it('redacts child-process failures that may contain the piped secret', () => {
+    const secret = 's'.repeat(64);
+    expect(() =>
+      syncDeveloperApiAdminPepper({
+        env: {
+          MXQR_DEVELOPER_API_KEY_PEPPER: secret,
+          npm_execpath: 'C:\\node\\npm-cli.js',
+        },
+        execute: () => {
+          throw new Error(`failed input: ${secret}`);
+        },
+        stdout: { write: vi.fn() },
+      }),
+    ).toThrow('Failed to sync MXQR_DEVELOPER_API_KEY_PEPPER');
+    try {
+      syncDeveloperApiAdminPepper({
+        env: {
+          MXQR_DEVELOPER_API_KEY_PEPPER: secret,
+          npm_execpath: 'C:\\node\\npm-cli.js',
+        },
+        execute: () => {
+          throw new Error(`failed input: ${secret}`);
+        },
+        stdout: { write: vi.fn() },
+      });
+    } catch (error) {
+      expect(error instanceof Error ? error.message : String(error)).not.toContain(secret);
+    }
   });
 });

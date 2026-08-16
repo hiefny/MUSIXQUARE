@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// @ts-expect-error Internal Worker helper intentionally has no public declaration surface.
-import { cancelReadableBody, readBodyBytesLimited } from '../../../cloudflare/pro-room-body.js';
-import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.js';
+import { cancelReadableBody, readBodyBytesLimited } from '../../../cloudflare/pro-room-body.ts';
+import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.ts';
 import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
@@ -11,7 +10,7 @@ import {
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   SERVICE_CONTROL_STATUS_PATH,
-} from '../../../cloudflare/service-maintenance.js';
+} from '../../../cloudflare/service-maintenance.ts';
 
 class ServiceControlStorage {
   readonly data = new Map<string, unknown>();
@@ -284,6 +283,44 @@ describe('PRO room bounded request bodies', () => {
 });
 
 describe('MusixquareServiceControl', () => {
+  it('fails malformed storage ports explicitly instead of trusting untyped runtime state', async () => {
+    const control = new MusixquareServiceControl({ storage: {} });
+
+    await expect(
+      control.fetch(new Request(`https://service-control.internal${SERVICE_CONTROL_STATUS_PATH}`)),
+    ).rejects.toThrow('Service-control storage get() is unavailable');
+  });
+
+  it('rejects malformed typed control envelopes before any mutation', async () => {
+    const { control } = setup();
+    const pair = setup(
+      new ServiceControlStorage(),
+      'musixquare-abuse-rate-pair-v1:app-turn-config:invalid-envelope',
+    ).control;
+    const invalidAnnouncement = new Request(
+      `https://service-control.internal${ADMIN_ANNOUNCEMENT_STATE_PATH}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      },
+    );
+
+    const responses = await Promise.all([
+      control.fetch(rateRequest(ABUSE_RATE_IDEMPOTENT_CONSUME_PATH, 'short')),
+      pair.fetch(pairRateRequest(null, { limit: 0 })),
+      control.fetch(stateRequest(true, -1, '123e4567-e89b-42d3-a456-426614174099')),
+      control.fetch(invalidAnnouncement),
+    ]);
+
+    expect(responses.map((response) => response.status)).toEqual([400, 400, 400, 400]);
+    await Promise.all(
+      responses.map((response) =>
+        expect(payload(response)).resolves.toEqual({ error: 'INVALID_REQUEST' }),
+      ),
+    );
+  });
+
   it('loads only announcement keys and exposes only announcement routes for the separated object', async () => {
     const { control, storage } = setup(
       new ServiceControlStorage(),

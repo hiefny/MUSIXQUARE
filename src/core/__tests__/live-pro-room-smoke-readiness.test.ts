@@ -5,7 +5,7 @@ import {
   PRO_ROOM_READINESS_RETRY_DELAYS_MS,
   verifyProRoomPublicBoundary,
   waitForProRoomReady,
-} from '../../../scripts/live-pro-room-smoke.mjs';
+} from '../../../scripts/live-pro-room-smoke.mts';
 
 describe('live PRO room smoke readiness', () => {
   it('requires the activation and PIN canaries to expose their exact public states', async () => {

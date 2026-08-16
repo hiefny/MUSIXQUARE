@@ -13,7 +13,7 @@ import {
   parseProGrantCampaignCommand,
   reserveProGrantArtifact,
   runProGrantCampaignCli,
-} from '../../../scripts/pro-grant-campaign.mjs';
+} from '../../../scripts/pro-grant-campaign.mts';
 
 const temporaryRoots: string[] = [];
 

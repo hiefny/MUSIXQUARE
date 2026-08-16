@@ -270,7 +270,8 @@ type ContractWorkerRoom = {
 };
 
 async function createContractWorkerRoom(): Promise<ContractWorkerRoom> {
-  const workerModule = (await import('../../../../cloudflare/signaling-worker.js')) as unknown as {
+  const signalingWorkerModulePath = '../../../../cloudflare/signaling-worker.ts';
+  const workerModule = (await import(signalingWorkerModulePath)) as unknown as {
     MusixquareRoom: new (state: ContractWorkerState) => ContractWorkerRoom;
   };
   return new workerModule.MusixquareRoom(new ContractWorkerState());

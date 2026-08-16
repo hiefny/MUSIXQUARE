@@ -32,10 +32,10 @@ import {
   verifyCurrentRelease,
   verifyRecoveryBoundary,
   verifyProductionVersion,
-} from '../../../scripts/release-deployment-state.mjs';
-import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mjs';
+} from '../../../scripts/release-deployment-state.mts';
+import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mts';
 
-const SCRIPT_PATH = resolve('scripts/release-deployment-state.mjs');
+const SCRIPT_PATH = resolve('scripts/release-deployment-state.mts');
 const CANONICAL_RELEASE_MESSAGE = `git:${'a'.repeat(40)}`;
 const temporaryDirectories: string[] = [];
 
@@ -92,11 +92,11 @@ describe('release deployment rollback state', () => {
       expect(workflow).toMatch(
         new RegExp(
           `if \\[\\[ "\\$RELEASE_TARGET" != 'all' \\]\\]; then` +
-            `\\s+node scripts/release-deployment-state\\.mjs compatibility-recheck ` +
+            `\\s+node scripts/release-deployment-state\\.mts compatibility-recheck ` +
             `"\\$RELEASE_TARGET" "\\$GITHUB_SHA"\\s+fi` +
-            `\\s+node scripts/release-deployment-state\\.mjs[^\\r\\n]*` +
+            `\\s+node scripts/release-deployment-state\\.mts[^\\r\\n]*` +
             `\\s+preflight ${target} release-artifacts/recovery-checkpoint` +
-            `\\s+node scripts/release-deployment-state\\.mjs attempt ${target}` +
+            `\\s+node scripts/release-deployment-state\\.mts attempt ${target}` +
             `\\s+set \\+e\\s+npm run --silent wrangler -- deploy`,
         ),
       );
@@ -107,7 +107,7 @@ describe('release deployment rollback state', () => {
       // Bash needs exactly one trailing backslash to continue the command.
       // Two backslashes pass a literal "\\" mode and terminate the line.
       expect(workflowLines[preflightLine - 1]?.trim()).toBe(
-        'node scripts/release-deployment-state.mjs \\',
+        'node scripts/release-deployment-state.mts \\',
       );
     }
   });
@@ -176,7 +176,7 @@ describe('release deployment rollback state', () => {
       'MXQR_EXPECTED_DEVELOPER_API_FACADE_VERSION: ${{ steps.developer_api_facade_deployment.outputs.version_id }}',
     );
     expect(workflow).toContain('id: developer_api_facade_deployment');
-    expect(workflow).toContain('release-deployment-state.mjs version developer-api-facade');
+    expect(workflow).toContain('release-deployment-state.mts version developer-api-facade');
 
     const deployAll = emergencyDeploymentPlan('all-workers', '1'.repeat(40)).flat().join(' ');
     const remoteConfig = deployAll.indexOf('cloudflare/wrangler.remote-share.toml');
@@ -213,12 +213,12 @@ describe('release deployment rollback state', () => {
 
   it('maps every transitive local Worker import into the compatibility contract', () => {
     const entries: Record<string, string> = {
-      'remote-share': 'cloudflare/remote-share-worker.js',
-      signaling: 'cloudflare/signaling-worker.js',
-      'pro-room': 'cloudflare/pro-room-worker.js',
-      'developer-api-facade': 'cloudflare/developer-api-facade-worker.js',
-      'developer-api': 'cloudflare/developer-api-worker.js',
-      app: 'cloudflare/app-worker.js',
+      'remote-share': 'cloudflare/remote-share-worker.ts',
+      signaling: 'cloudflare/signaling-worker.ts',
+      'pro-room': 'cloudflare/pro-room-worker.ts',
+      'developer-api-facade': 'cloudflare/developer-api-facade-worker.ts',
+      'developer-api': 'cloudflare/developer-api-worker.ts',
+      app: 'cloudflare/app-worker.ts',
     };
     const collect = (entry: string, found = new Set<string>()): Set<string> => {
       const normalized = entry.replaceAll('\\', '/');
@@ -249,7 +249,7 @@ describe('release deployment rollback state', () => {
   });
 
   it('treats the shared service-maintenance gate as one cross-Worker release contract', () => {
-    const sharedGate = 'cloudflare/service-maintenance.js';
+    const sharedGate = 'cloudflare/service-maintenance.ts';
 
     expect(runtimePathsForWorker('app')).toContain(sharedGate);
     expect(runtimePathsForWorker('signaling')).toContain(sharedGate);
@@ -260,7 +260,7 @@ describe('release deployment rollback state', () => {
   });
 
   it('tracks the Remote Share host assertion primitive with both importing Workers', () => {
-    const assertionPrimitive = 'cloudflare/remote-share-upload-assertion.js';
+    const assertionPrimitive = 'cloudflare/remote-share-upload-assertion.ts';
     expect(runtimePathsForWorker('remote-share')).toContain(assertionPrimitive);
     expect(runtimePathsForWorker('signaling')).toContain(assertionPrimitive);
   });
@@ -330,10 +330,10 @@ describe('release deployment rollback state', () => {
     const changed = changedRuntimePaths('a'.repeat(40), 'b'.repeat(40), ['src', 'public'], {
       runner: (args: string[]) => {
         calls.push(args);
-        return args[0] === 'diff' ? 'src/app.ts\npublic/service-worker.js\nsrc/app.ts\n' : '';
+        return args[0] === 'diff' ? 'src/app.ts\nbrowser/service-worker.ts\nsrc/app.ts\n' : '';
       },
     });
-    expect(changed).toEqual(['public/service-worker.js', 'src/app.ts']);
+    expect(changed).toEqual(['browser/service-worker.ts', 'src/app.ts']);
     expect(calls).toEqual([
       ['merge-base', '--is-ancestor', 'a'.repeat(40), 'b'.repeat(40)],
       [
@@ -403,8 +403,8 @@ describe('release deployment rollback state', () => {
     );
     expect(rollbackStep).toContain('service-control-forward-floor "$GITHUB_SHA"');
     expect(rollbackStep).not.toContain('git diff --quiet "${GITHUB_SHA}^"');
-    expect(rollbackStep).toContain('node scripts/release-recovery-plan.mjs');
-    expect(readFileSync(resolve('scripts/release-recovery-plan.mjs'), 'utf8')).toContain(
+    expect(rollbackStep).toContain('node scripts/release-recovery-plan.mts');
+    expect(readFileSync(resolve('scripts/release-recovery-plan.mts'), 'utf8')).toContain(
       "skip.add('pro-room')",
     );
   });
@@ -849,7 +849,7 @@ describe('release deployment rollback state', () => {
     );
   });
 
-  it.each(['cloudflare/pro-room-grants.js', 'cloudflare/admin-metrics.pro-grants.migration.sql'])(
+  it.each(['cloudflare/pro-room-grants.ts', 'cloudflare/admin-metrics.pro-grants.migration.sql'])(
     'tracks %s as a shared PRO room runtime dependency',
     (changedPath) => {
       const directory = createDirectory();
@@ -884,7 +884,7 @@ describe('release deployment rollback state', () => {
           _head: string,
           _paths: string[],
           context: { target: string },
-        ) => (context.target === 'signaling' ? ['cloudflare/signaling-worker.js'] : []),
+        ) => (context.target === 'signaling' ? ['cloudflare/signaling-worker.ts'] : []),
       }),
     ).toThrow('signaling has undeployed production-source changes');
 
@@ -914,10 +914,19 @@ describe('release deployment rollback state', () => {
         if (context.target !== 'app') return [];
         if (context.kind === 'dependency-manifest') return [];
         expect(paths).toContain('src');
+        expect(paths).toContain('browser');
         expect(paths).toContain('css');
         expect(paths).toContain('.workshop/privacy');
         expect(paths).toContain('cloudflare/app-static-assets/_headers');
-        expect(paths).toContain('scripts/materialize-app-static-headers.mjs');
+        expect(paths).toContain('scripts/classic-runtime-assets.ts');
+        expect(paths).toContain('scripts/auxiliary-browser-assets.ts');
+        expect(paths).toContain('scripts/service-worker-asset.ts');
+        expect(paths).toContain('scripts/ui-kit-asset.ts');
+        expect(paths).toContain('scripts/materialize-app-static-headers.mts');
+        expect(paths).toContain('tsconfig.browser-classic.json');
+        expect(paths).toContain('tsconfig.auxiliary-browser.json');
+        expect(paths).toContain('tsconfig.service-worker.json');
+        expect(paths).toContain('tsconfig.ui-kit.json');
         expect(paths).not.toContain('package.json');
         expect(paths).not.toContain('package-lock.json');
         return [];
@@ -1054,6 +1063,25 @@ describe('release deployment rollback state', () => {
       RELEASE_MESSAGE: CANONICAL_RELEASE_MESSAGE,
     });
     expect(prepare.status, String(prepare.stderr)).toBe(0);
+    expect(readFileSync(resolve(directory, 'signaling-state.json'), 'utf8')).toBe(
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          target: 'signaling',
+          config: 'cloudflare/wrangler.signaling.toml',
+          releaseMessage: CANONICAL_RELEASE_MESSAGE,
+          beforeDeploymentId: 'deployment-before',
+          beforeVersionId: 'before',
+          beforeMessage: CANONICAL_RELEASE_MESSAGE,
+          attempted: false,
+          afterDeploymentId: null,
+          afterVersionId: null,
+          changed: false,
+        },
+        null,
+        2,
+      )}\n`,
+    );
     expect(runScript(['attempt', 'signaling', directory]).status).toBe(0);
     writeFileSync(resolve(directory, 'signaling.json'), JSON.stringify(deployment('after')));
     expect(runScript(['record', 'signaling', directory]).status).toBe(0);
@@ -1695,7 +1723,7 @@ describe('release deployment rollback state', () => {
 
   it('keeps the Worker deployment token out of setup and smoke steps', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mjs'), 'utf8');
+    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mts'), 'utf8');
     const deployStart = workflow.indexOf('  deploy:');
     const deploySteps = workflow.indexOf('    steps:', deployStart);
     expect(workflow.slice(deployStart, deploySteps)).not.toContain(
@@ -1759,13 +1787,13 @@ describe('release deployment rollback state', () => {
     expect(generationFenceStep).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
     expect(generationFenceStep).toContain('system:entitlement-backfill');
     expect(generationFenceStep).toContain('entitlement.backfill');
-    expect(generationFenceStep).toContain('release-worker-floor-state.mjs');
+    expect(generationFenceStep).toContain('release-worker-floor-state.mts');
     expect(generationFenceStep).toContain('entitlement_floor');
     expect(workerStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     expect(workerStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
     expect(workerStep).toContain('inputs.apply_developer_api_d1');
     expect(workerStep).toContain('steps.worker_floor_assessment.outputs.forward_targets');
-    expect(workerStep).toContain('node scripts/release-recovery-plan.mjs');
+    expect(workerStep).toContain('node scripts/release-recovery-plan.mts');
     expect(workerStep).toContain('MXQR_R2_FORWARD_TARGETS=');
     expect(workerStep).toContain('MXQR_GENERATION_FENCE_OUTCOME=');
     expect(workerStep).toContain('MXQR_WORKER_FLOOR_TARGETS=');
@@ -1801,7 +1829,7 @@ describe('release deployment rollback state', () => {
     expect(step).toContain('null_guard_count');
     expect(step).toContain('invalid_suspended_count');
     expect(step).toContain('invalid_active_count');
-    expect(step).toContain('capture-wrangler-d1-json.mjs');
+    expect(step).toContain('capture-wrangler-d1-json.mts');
   });
 
   it('applies and verifies the lifetime room-count contract before app-serving rollouts', () => {
@@ -1829,7 +1857,7 @@ describe('release deployment rollback state', () => {
     expect(step).toContain('increment_guard_count');
     expect(step).toContain('rooms_opened');
     expect(step).toContain('retained_rooms_opened');
-    expect(step).toContain('capture-wrangler-d1-json.mjs');
+    expect(step).toContain('capture-wrangler-d1-json.mts');
   });
 
   it('installs and verifies the secret-free generic PRO grant ledger before app rollouts', () => {
@@ -1866,7 +1894,7 @@ describe('release deployment rollback state', () => {
     expect(step).toContain('(.table_count | tonumber) == 9');
     expect(step).toContain('(.index_count | tonumber) == 11');
     expect(step).toContain('(.trigger_count | tonumber) == 14');
-    expect(step).toContain('capture-wrangler-d1-json.mjs');
+    expect(step).toContain('capture-wrangler-d1-json.mts');
   });
 
   it('installs the secret-free owner-transfer journal before the matched Worker rollout', () => {
@@ -1975,15 +2003,15 @@ describe('release deployment rollback state', () => {
       'playwright test e2e/critical-browser.test.ts e2e/release-smoke.test.ts e2e/remote-upload-browser.test.ts e2e/background-resume.test.ts --project=chromium --reporter=line',
     );
     expect(packageJson.scripts['smoke:live:app-generation']).toBe(
-      'node scripts/live-app-generation-smoke.mjs',
+      'node scripts/live-app-generation-smoke.mts',
     );
     const appGenerationSmoke = readFileSync(
-      resolve('scripts/live-app-generation-smoke.mjs'),
+      resolve('scripts/live-app-generation-smoke.mts'),
       'utf8',
     );
     expect(appGenerationSmoke).not.toMatch(/playwright|chromium/iu);
     const smokeSourceFile = ts.createSourceFile(
-      'live-app-generation-smoke.mjs',
+      'live-app-generation-smoke.mts',
       appGenerationSmoke,
       ts.ScriptTarget.Latest,
       true,
@@ -2021,7 +2049,7 @@ describe('release deployment rollback state', () => {
     expect(step).toContain("if: inputs.target != 'all'");
     expect(step).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     expect(step).toContain(
-      'node scripts/release-deployment-state.mjs compatibility "$RELEASE_TARGET" "${{ github.sha }}"',
+      'node scripts/release-deployment-state.mts compatibility "$RELEASE_TARGET" "${{ github.sha }}"',
     );
   });
 
@@ -2036,7 +2064,7 @@ describe('release deployment rollback state', () => {
       ['Deploy and record app Worker with immutable dist', 'app'],
     ] as const;
     const recheckCommand =
-      'node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"';
+      'node scripts/release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"';
 
     for (const [stepName, target] of deployments) {
       const start = workflow.indexOf(`- name: ${stepName}`);
@@ -2062,7 +2090,7 @@ describe('release deployment rollback state', () => {
   it('reuses the successful exact-SHA main CI artifact for every release target', () => {
     const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    const evidenceTool = readFileSync(resolve('scripts/release-evidence.mjs'), 'utf8');
+    const evidenceTool = readFileSync(resolve('scripts/release-evidence.mts'), 'utf8');
     const ciBuild = ciWorkflow.indexOf('Build and verify production bundle');
     const ciArtifact = ciWorkflow.indexOf('Upload immutable main-CI production candidate');
     expect(ciArtifact).toBeGreaterThan(ciBuild);
@@ -2074,7 +2102,7 @@ describe('release deployment rollback state', () => {
 
     expect(workflow).toContain('actions: read');
     expect(workflow).toContain('Select exact-SHA validated candidate');
-    expect(workflow).toContain('node scripts/release-evidence.mjs wait-candidate');
+    expect(workflow).toContain('node scripts/release-evidence.mts wait-candidate');
     expect(evidenceTool).toContain("workflow: 'ci.yml'");
     expect(evidenceTool).toContain("event: 'push'");
     expect(evidenceTool).toContain("prefix: 'production-candidate-'");
@@ -2178,10 +2206,10 @@ describe('release deployment rollback state', () => {
     ];
     for (const target of targets) {
       expect(packageJson.scripts[`deploy:${target}`]).toBe(
-        `node scripts/guard-emergency-deploy.mjs reject ${target}`,
+        `node scripts/guard-emergency-deploy.mts reject ${target}`,
       );
       expect(packageJson.scripts[`emergency:deploy:${target}`]).toBe(
-        `node scripts/emergency-deploy.mjs ${target}`,
+        `node scripts/emergency-deploy.mts ${target}`,
       );
     }
   });
@@ -2248,7 +2276,7 @@ describe('release deployment rollback state', () => {
     const remoteDeploy = workflow.slice(remoteDeployStart, remoteDeployEnd);
     expect(remoteDeploy).toContain('id: remote_share_deployment');
     expect(remoteDeploy).toContain(
-      'version_id="$(node scripts/release-deployment-state.mjs version remote-share)"',
+      'version_id="$(node scripts/release-deployment-state.mts version remote-share)"',
     );
 
     const remoteSmokeStart = workflow.indexOf('- name: Smoke remote-share Worker');
@@ -2291,11 +2319,11 @@ describe('release deployment rollback state', () => {
       expect(step, stepName).toMatch(/timeout-minutes: (?:10|15|20)/u);
     }
 
-    const npmInvocation = readFileSync(resolve('scripts/npm-invocation.mjs'), 'utf8');
+    const npmInvocation = readFileSync(resolve('scripts/npm-invocation.mts'), 'utf8');
     expect(npmInvocation).toContain('timeout: options.timeout ?? 10 * 60 * 1000');
 
     for (const scriptPath of [
-      'scripts/live-developer-api-smoke.mjs',
+      'scripts/live-developer-api-smoke.mts',
       'scripts/live-remote-share-smoke.ts',
     ]) {
       const source = readFileSync(resolve(scriptPath), 'utf8');
@@ -2305,7 +2333,7 @@ describe('release deployment rollback state', () => {
       expect(source.match(/\bfetchWithTimeout\(/g)?.length, scriptPath).toBeGreaterThan(1);
     }
 
-    const proRoomSmokePath = 'scripts/live-pro-room-smoke.mjs';
+    const proRoomSmokePath = 'scripts/live-pro-room-smoke.mts';
     const proRoomSmoke = readFileSync(resolve(proRoomSmokePath), 'utf8');
     expect(proRoomSmoke).toContain('export const PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS = 10_000;');
     expect(proRoomSmoke).toContain('AbortSignal.timeout(PRO_ROOM_HEALTH_REQUEST_TIMEOUT_MS)');
@@ -2444,10 +2472,10 @@ describe('release deployment rollback state', () => {
     expect(recovery).toContain('service_control_forward_floor="$(');
     expect(recovery).toContain('remote_share_forward_floor="$(');
     expect(recovery).not.toContain(
-      'if [[ "$(node scripts/release-deployment-state.mjs service-control-forward-floor',
+      'if [[ "$(node scripts/release-deployment-state.mts service-control-forward-floor',
     );
     expect(recovery).not.toContain(
-      'if [[ "$(node scripts/release-deployment-state.mjs remote-share-forward-floor',
+      'if [[ "$(node scripts/release-deployment-state.mts remote-share-forward-floor',
     );
     expect(
       recovery.indexOf('Reconcile persisted R2 policy with recovered Workers'),

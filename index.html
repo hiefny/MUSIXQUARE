@@ -11,8 +11,8 @@
     <!-- Sync bootstrap: scrub one-time PRO credentials before app code, then
          apply Android viewport, language, and theme preflight. The main SPA
          deliberately does not load third-party analytics. Source:
-         public/bootstrap.js -->
-    <script src="/bootstrap.js?cache=v444"></script>
+         browser/classic-runtime/bootstrap.ts -->
+    <script src="/bootstrap.js?cache=v445"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -71,11 +71,11 @@
     <link rel="stylesheet" href="css/flat-controls.css" />
 
     <!-- Reveal body (toggles body.fouc-loaded) once style.css has parsed.
-         Source: public/fouc-cleanup.js -->
+         Source: browser/classic-runtime/fouc-cleanup.ts -->
     <script src="/fouc-cleanup.js"></script>
 
     <!-- Apply wordmark animation timing (data-wt/data-wd → CSS custom props).
-         Source: public/wordmark-anim.js -->
+         Source: browser/classic-runtime/wordmark-anim.ts -->
     <script src="/wordmark-anim.js" defer></script>
   </head>
 

@@ -3,7 +3,7 @@
  *
  * Shared by the active-file and preload broadcast senders. Centralizing the
  * loop keeps their per-peer backpressure and exclusion behavior consistent;
- * scripts/check-chunk-pump.mjs prevents additional multi-peer pumps.
+ * scripts/check-chunk-pump.mts prevents additional multi-peer pumps.
  *
  * Design contract:
  *   - The engine is SIDE-EFFECT-FREE with respect to the state tree: it never

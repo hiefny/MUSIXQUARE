@@ -1,0 +1,288 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-08-17",
+  "policy": "authored-js-family-shrink-only",
+  "lineCountMethod": "LF characters (wc -l semantics)",
+  "extensions": [".js", ".mjs", ".cjs", ".jsx"],
+  "historical": {
+    "totalFiles": 107,
+    "totalLines": 77793,
+    "jsMjsFiles": 98,
+    "jsMjsLines": 77491,
+    "jsxFiles": 9,
+    "jsxLines": 302
+  },
+  "remaining": {
+    "totalFiles": 0,
+    "totalLines": 0,
+    "jsMjsFiles": 0,
+    "jsMjsLines": 0,
+    "jsxFiles": 0,
+    "jsxLines": 0
+  },
+  "sources": [
+    { "path": "cloudflare/account-assertion.js", "baselineLines": 161, "status": "retired" },
+    { "path": "cloudflare/account-auth.js", "baselineLines": 2159, "status": "retired" },
+    { "path": "cloudflare/account-nickname.js", "baselineLines": 106, "status": "retired" },
+    { "path": "cloudflare/app-worker.js", "baselineLines": 13292, "status": "retired" },
+    {
+      "path": "cloudflare/developer-api-facade-worker.js",
+      "baselineLines": 1442,
+      "status": "retired"
+    },
+    { "path": "cloudflare/developer-api-worker.js", "baselineLines": 2686, "status": "retired" },
+    { "path": "cloudflare/display-name-policy.js", "baselineLines": 127, "status": "retired" },
+    { "path": "cloudflare/pro-bot.js", "baselineLines": 1585, "status": "retired" },
+    { "path": "cloudflare/pro-room-body.js", "baselineLines": 101, "status": "retired" },
+    { "path": "cloudflare/pro-room-claims.js", "baselineLines": 352, "status": "retired" },
+    { "path": "cloudflare/pro-room-crypto.js", "baselineLines": 83, "status": "retired" },
+    { "path": "cloudflare/pro-room-effects.js", "baselineLines": 250, "status": "retired" },
+    { "path": "cloudflare/pro-room-generation.js", "baselineLines": 59, "status": "retired" },
+    { "path": "cloudflare/pro-room-grants.js", "baselineLines": 2633, "status": "retired" },
+    { "path": "cloudflare/pro-room-permissions.js", "baselineLines": 132, "status": "retired" },
+    { "path": "cloudflare/pro-room-queue-mode.js", "baselineLines": 133, "status": "retired" },
+    { "path": "cloudflare/pro-room-validation.js", "baselineLines": 22, "status": "retired" },
+    { "path": "cloudflare/pro-room-worker.js", "baselineLines": 12802, "status": "retired" },
+    {
+      "path": "cloudflare/remote-share-upload-assertion.js",
+      "baselineLines": 285,
+      "status": "retired"
+    },
+    { "path": "cloudflare/remote-share-worker.js", "baselineLines": 2995, "status": "retired" },
+    {
+      "path": "cloudflare/service-control-object.js",
+      "baselineLines": 1057,
+      "status": "retired"
+    },
+    { "path": "cloudflare/service-maintenance.js", "baselineLines": 1130, "status": "retired" },
+    { "path": "cloudflare/signaling-protocol.js", "baselineLines": 562, "status": "retired" },
+    { "path": "cloudflare/signaling-worker.js", "baselineLines": 4893, "status": "retired" },
+    {
+      "path": "cloudflare/standard-room-account-assertion.js",
+      "baselineLines": 322,
+      "status": "retired"
+    },
+    { "path": "eslint.config.js", "baselineLines": 110, "status": "retired" },
+    { "path": "eslint.tooling.config.js", "baselineLines": 155, "status": "retired" },
+    { "path": "public/account-complete.js", "baselineLines": 196, "status": "retired" },
+    { "path": "public/admin.js", "baselineLines": 5327, "status": "retired" },
+    { "path": "public/analytics-bootstrap.js", "baselineLines": 36, "status": "retired" },
+    { "path": "public/blog-pagination.js", "baselineLines": 211, "status": "retired" },
+    { "path": "public/bootstrap.js", "baselineLines": 436, "status": "retired" },
+    {
+      "path": "public/designsystem/ui_kits/app/AppShell.jsx",
+      "baselineLines": 30,
+      "status": "retired"
+    },
+    {
+      "path": "public/designsystem/ui_kits/app/Connect.jsx",
+      "baselineLines": 33,
+      "status": "retired"
+    },
+    {
+      "path": "public/designsystem/ui_kits/app/Home.jsx",
+      "baselineLines": 42,
+      "status": "retired"
+    },
+    {
+      "path": "public/designsystem/ui_kits/app/icons.jsx",
+      "baselineLines": 45,
+      "status": "retired"
+    },
+    {
+      "path": "public/designsystem/ui_kits/app/Playlist.jsx",
+      "baselineLines": 31,
+      "status": "retired"
+    },
+    {
+      "path": "public/designsystem/ui_kits/app/RoleSetup.jsx",
+      "baselineLines": 36,
+      "status": "retired"
+    },
+    {
+      "path": "public/designsystem/ui_kits/app/Settings.jsx",
+      "baselineLines": 56,
+      "status": "retired"
+    },
+    {
+      "path": "public/designsystem/ui_kits/app/Start.jsx",
+      "baselineLines": 19,
+      "status": "retired"
+    },
+    {
+      "path": "public/designsystem/ui_kits/app/Toast.jsx",
+      "baselineLines": 10,
+      "status": "retired"
+    },
+    { "path": "public/editorial-pages.js", "baselineLines": 252, "status": "retired" },
+    { "path": "public/events/event.js", "baselineLines": 855, "status": "retired" },
+    { "path": "public/events/theme.js", "baselineLines": 18, "status": "retired" },
+    { "path": "public/fouc-cleanup.js", "baselineLines": 62, "status": "retired" },
+    { "path": "public/landing-bootstrap.js", "baselineLines": 94, "status": "retired" },
+    { "path": "public/landing-i18n.js", "baselineLines": 1635, "status": "retired" },
+    { "path": "public/policy-accordion.js", "baselineLines": 62, "status": "retired" },
+    { "path": "public/primary-font-loader.js", "baselineLines": 146, "status": "retired" },
+    { "path": "public/service-worker.js", "baselineLines": 854, "status": "retired" },
+    { "path": "public/static-language.js", "baselineLines": 446, "status": "retired" },
+    { "path": "public/wordmark-anim.js", "baselineLines": 30, "status": "retired" },
+    {
+      "path": "scripts/assert-production-build-clean.mjs",
+      "baselineLines": 60,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/assert-production-security-config.mjs",
+      "baselineLines": 158,
+      "status": "retired"
+    },
+    { "path": "scripts/audit-ops-drift.mjs", "baselineLines": 1953, "status": "retired" },
+    {
+      "path": "scripts/benchmark-pro-room-heartbeats.mjs",
+      "baselineLines": 799,
+      "status": "retired"
+    },
+    { "path": "scripts/capture-wrangler-d1-json.mjs", "baselineLines": 98, "status": "retired" },
+    { "path": "scripts/check-app-font.mjs", "baselineLines": 422, "status": "retired" },
+    {
+      "path": "scripts/check-brand-capitalization.mjs",
+      "baselineLines": 137,
+      "status": "retired"
+    },
+    { "path": "scripts/check-bus-pairing.mjs", "baselineLines": 152, "status": "retired" },
+    { "path": "scripts/check-chunk-pump.mjs", "baselineLines": 165, "status": "retired" },
+    {
+      "path": "scripts/check-d1-migration-contract.mjs",
+      "baselineLines": 429,
+      "status": "retired"
+    },
+    { "path": "scripts/check-dead-exports.mjs", "baselineLines": 158, "status": "retired" },
+    {
+      "path": "scripts/check-developer-api-boundaries.mjs",
+      "baselineLines": 188,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/check-developer-api-schema-release.mjs",
+      "baselineLines": 178,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/check-durable-object-migration-contract.mjs",
+      "baselineLines": 449,
+      "status": "retired"
+    },
+    { "path": "scripts/check-import-graph.mjs", "baselineLines": 356, "status": "retired" },
+    {
+      "path": "scripts/check-initial-transfer-budget.mjs",
+      "baselineLines": 228,
+      "status": "retired"
+    },
+    { "path": "scripts/check-lifecycle-writes.mjs", "baselineLines": 238, "status": "retired" },
+    {
+      "path": "scripts/check-playwright-waitforfunction-options.mjs",
+      "baselineLines": 108,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/check-script-module-exports.mjs",
+      "baselineLines": 140,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/check-service-worker-app-shell.mjs",
+      "baselineLines": 119,
+      "status": "retired"
+    },
+    { "path": "scripts/check-source-complexity.mjs", "baselineLines": 105, "status": "retired" },
+    {
+      "path": "scripts/check-standard-room-hot-path.mjs",
+      "baselineLines": 620,
+      "status": "retired"
+    },
+    { "path": "scripts/check-sw-cache-version.mjs", "baselineLines": 273, "status": "retired" },
+    { "path": "scripts/check-worker-bundles.mjs", "baselineLines": 181, "status": "retired" },
+    { "path": "scripts/developer-api-key.mjs", "baselineLines": 308, "status": "retired" },
+    { "path": "scripts/emergency-deploy.mjs", "baselineLines": 189, "status": "retired" },
+    {
+      "path": "scripts/generate-profanity-patterns.mjs",
+      "baselineLines": 80,
+      "status": "retired"
+    },
+    { "path": "scripts/generate-static-og.mjs", "baselineLines": 160, "status": "retired" },
+    { "path": "scripts/guard-emergency-deploy.mjs", "baselineLines": 139, "status": "retired" },
+    {
+      "path": "scripts/initial-transfer-budget-config.mjs",
+      "baselineLines": 17,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/issue-pro-room-activation-claim.mjs",
+      "baselineLines": 110,
+      "status": "retired"
+    },
+    { "path": "scripts/lib/dead-export-analyzer.mjs", "baselineLines": 548, "status": "retired" },
+    {
+      "path": "scripts/live-app-generation-smoke.mjs",
+      "baselineLines": 605,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/live-app-public-boundary-smoke.mjs",
+      "baselineLines": 110,
+      "status": "retired"
+    },
+    { "path": "scripts/live-developer-api-smoke.mjs", "baselineLines": 590, "status": "retired" },
+    { "path": "scripts/live-pro-media-cors-smoke.mjs", "baselineLines": 73, "status": "retired" },
+    { "path": "scripts/live-pro-room-smoke.mjs", "baselineLines": 260, "status": "retired" },
+    { "path": "scripts/live-signaling-smoke.mjs", "baselineLines": 579, "status": "retired" },
+    {
+      "path": "scripts/materialize-app-static-headers.mjs",
+      "baselineLines": 119,
+      "status": "retired"
+    },
+    { "path": "scripts/npm-invocation.mjs", "baselineLines": 45, "status": "retired" },
+    { "path": "scripts/pro-grant-campaign.mjs", "baselineLines": 968, "status": "retired" },
+    {
+      "path": "scripts/pro-room-generation-cutover.mjs",
+      "baselineLines": 121,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/pro-signaling-credential-boundary.mjs",
+      "baselineLines": 141,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/production-security-rollout.mjs",
+      "baselineLines": 89,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/release-deployment-state.mjs",
+      "baselineLines": 1720,
+      "status": "retired"
+    },
+    { "path": "scripts/release-evidence.mjs", "baselineLines": 371, "status": "retired" },
+    { "path": "scripts/release-identity.mjs", "baselineLines": 97, "status": "retired" },
+    { "path": "scripts/release-manifest.mjs", "baselineLines": 249, "status": "retired" },
+    { "path": "scripts/release-r2-policy-state.mjs", "baselineLines": 809, "status": "retired" },
+    { "path": "scripts/release-recovery-plan.mjs", "baselineLines": 126, "status": "retired" },
+    {
+      "path": "scripts/release-worker-floor-state.mjs",
+      "baselineLines": 514,
+      "status": "retired"
+    },
+    {
+      "path": "scripts/service-worker-app-shell-guard-lib.mjs",
+      "baselineLines": 162,
+      "status": "retired"
+    },
+    { "path": "scripts/sql-schema-normalization.mjs", "baselineLines": 12, "status": "retired" },
+    { "path": "scripts/subset-og-fonts.mjs", "baselineLines": 98, "status": "retired" },
+    {
+      "path": "scripts/sync-developer-api-admin-secret.mjs",
+      "baselineLines": 74,
+      "status": "retired"
+    }
+  ]
+}

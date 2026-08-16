@@ -1,177 +1,104 @@
 <!doctype html>
 <html>
-<head>
-  <meta charset="utf-8">
-  <title>MUSIXQUARE · UI Kit</title>
-  <link rel="stylesheet" href="../../colors_and_type.css">
-  <link rel="stylesheet" href="app.css">
-  <style>
-    html, body {
-      margin: 0; background: #0a0a0a;
-      font-family: var(--font-sans);
-      min-height: 100vh;
-      display: flex; align-items: flex-start; justify-content: center;
-      padding: 24px;
-      box-sizing: border-box;
-    }
-    @media (max-width: 760px) {
-      body { justify-content: flex-start; padding: 12px; }
-      .legend { display: none; }
-    }
-    .phone {
-      border: 10px solid #1f1f1f;
-      border-radius: 48px;
-      overflow: hidden;
-      box-shadow: 0 40px 80px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05);
-      width: 390px; height: 844px;
-      flex-shrink: 0;
-    }
-    .legend {
-      color: #666; font-size: 12px; margin-left: 28px; max-width: 260px; margin-top: 40px;
-    }
-    .legend h1 { color: #ddd; font-size: 16px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 8px; }
-    .legend p { line-height: 1.55; margin: 0 0 12px; }
-    .legend ul { padding-left: 18px; margin: 0; }
-    .legend li { margin-bottom: 4px; }
-    .legend kbd { background: #1f1f1f; color: #ddd; padding: 1px 6px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 11px; }
-  </style>
+  <head>
+    <meta charset="utf-8" />
+    <title>MUSIXQUARE · UI Kit</title>
+    <link rel="stylesheet" href="../../colors_and_type.css" />
+    <link rel="stylesheet" href="app.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: #0a0a0a;
+        font-family: var(--font-sans);
+        min-height: 100vh;
+        display: flex;
+        align-items: flex-start;
+        justify-content: center;
+        padding: 24px;
+        box-sizing: border-box;
+      }
+      @media (max-width: 760px) {
+        body {
+          justify-content: flex-start;
+          padding: 12px;
+        }
+        .legend {
+          display: none;
+        }
+      }
+      .phone {
+        border: 10px solid #1f1f1f;
+        border-radius: 48px;
+        overflow: hidden;
+        box-shadow:
+          0 40px 80px rgba(0, 0, 0, 0.4),
+          0 0 0 1px rgba(255, 255, 255, 0.05);
+        width: 390px;
+        height: 844px;
+        flex-shrink: 0;
+      }
+      .legend {
+        color: #666;
+        font-size: 12px;
+        margin-left: 28px;
+        max-width: 260px;
+        margin-top: 40px;
+      }
+      .legend h1 {
+        color: #ddd;
+        font-size: 16px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+        margin: 0 0 8px;
+      }
+      .legend p {
+        line-height: 1.55;
+        margin: 0 0 12px;
+      }
+      .legend ul {
+        padding-left: 18px;
+        margin: 0;
+      }
+      .legend li {
+        margin-bottom: 4px;
+      }
+      .legend kbd {
+        background: #1f1f1f;
+        color: #ddd;
+        padding: 1px 6px;
+        border-radius: 4px;
+        font-family: ui-monospace, monospace;
+        font-size: 11px;
+      }
+    </style>
 
-  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-</head>
-<body>
-  <div class="phone"><div id="root"></div></div>
-  <div class="legend">
-    <h1>MUSIXQUARE UI Kit</h1>
-    <p>Click-thru recreation of the production web app. State is fake — toggling theme, picking a role, playing a track, and flipping tabs all work.</p>
-    <ul>
-      <li>Start on the landing screen and tap <strong>I'll host</strong></li>
-      <li>Pick a role, then explore the 4 tabs</li>
-      <li><kbd>Settings</kbd> → Light / Dark toggles themes</li>
-    </ul>
-  </div>
+    <script
+      src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+      integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+      integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body>
+    <div class="phone"><div id="root"></div></div>
+    <div class="legend">
+      <h1>MUSIXQUARE UI Kit</h1>
+      <p>
+        Click-thru recreation of the production web app. State is fake — toggling theme, picking a
+        role, playing a track, and flipping tabs all work.
+      </p>
+      <ul>
+        <li>Start on the landing screen and tap <strong>I'll host</strong></li>
+        <li>Pick a role, then explore the 4 tabs</li>
+        <li><kbd>Settings</kbd> — Light / Dark toggles themes</li>
+      </ul>
+    </div>
 
-  <script type="text/babel" src="icons.jsx"></script>
-  <script type="text/babel" src="Toast.jsx"></script>
-  <script type="text/babel" src="Start.jsx"></script>
-  <script type="text/babel" src="RoleSetup.jsx"></script>
-  <script type="text/babel" src="Home.jsx"></script>
-  <script type="text/babel" src="Playlist.jsx"></script>
-  <script type="text/babel" src="Connect.jsx"></script>
-  <script type="text/babel" src="Settings.jsx"></script>
-  <script type="text/babel" src="AppShell.jsx"></script>
-
-  <script type="text/babel">
-  const { useState, useEffect, useRef } = React;
-
-  const TRACKS = [
-    { title: 'Aurora Hymn',          artist: 'Kaia Voss',       dur: '3:42' },
-    { title: 'Midnight Protocol',    artist: 'Noctis',          dur: '4:08' },
-    { title: 'Coastal Drift',        artist: 'Seon-u & Rafael', dur: '5:21' },
-    { title: 'Paper Lanterns',       artist: 'Hyejin Park',     dur: '2:58' },
-    { title: 'Slow Weather',         artist: 'Archive Signal',  dur: '4:33' },
-  ];
-
-  const DEVICES = [
-    { name: 'iPhone 15 Pro (host)', role: 'CENTER', online: true },
-    { name: 'MacBook Air',          role: 'LEFT',   online: true },
-    { name: 'Pixel 8',              role: 'RIGHT',  online: true },
-    { name: 'iPad mini',            role: 'WOOFER', online: true },
-  ];
-
-  function App() {
-    const [stage, setStage] = useState('start');
-    const [tab, setTab] = useState('home');
-    const [role, setRole] = useState('center');
-    const [playing, setPlaying] = useState(true);
-    const [trackIdx, setTrackIdx] = useState(1);
-    const [theme, setTheme] = useState('dark');
-    const [reverb, setReverb] = useState('Studio');
-    const [volume, setVolume] = useState(65);
-    const [toast, setToast] = useState(null);
-    const toastTimer = useRef(null);
-
-    useEffect(() => {
-      document.documentElement.dataset.theme = theme;
-    }, [theme]);
-
-    const showToast = (msg) => {
-      setToast(msg);
-      clearTimeout(toastTimer.current);
-      toastTimer.current = setTimeout(() => setToast(null), 2200);
-    };
-
-    const cur = TRACKS[trackIdx];
-    const track = {
-      title: cur.title,
-      artist: cur.artist,
-      cur: '1:24',
-      dur: cur.dur,
-      progress: 34,
-    };
-
-    if (stage === 'start') {
-      return (
-        <div className="mq-app">
-          <Toast message={toast}/>
-          <Start
-            onHost={() => { setStage('role'); showToast('Invite code: 492815'); }}
-            onGuest={() => { setStage('role'); showToast('Joining...'); }}
-            onDemo={() => { setStage('app'); showToast('Loading demo track...'); }}
-          />
-        </div>
-      );
-    }
-
-    if (stage === 'role') {
-      return (
-        <div className="mq-app">
-          <Toast message={toast}/>
-          <div className="mq-body" style={{ padding: '40px 20px 40px' }}>
-            <RoleSetup selected={role}
-                       onSelect={(r) => { setRole(r); showToast(r.toUpperCase() + ' selected'); }}
-                       onDone={() => setStage('app')} />
-          </div>
-        </div>
-      );
-    }
-
-    let body = null;
-    if (tab === 'home') {
-      body = <Home playing={playing}
-                   track={track}
-                   onTogglePlay={() => setPlaying(p => !p)}
-                   onPrev={() => setTrackIdx(i => Math.max(0, i - 1))}
-                   onNext={() => setTrackIdx(i => Math.min(TRACKS.length - 1, i + 1))}/>;
-    } else if (tab === 'playlist') {
-      body = <Playlist tracks={TRACKS}
-                       activeIdx={trackIdx}
-                       onPick={(i) => { setTrackIdx(i); setPlaying(true); showToast('Playing: ' + TRACKS[i].title); }}
-                       onAdd={() => showToast('No media yet')}/>;
-    } else if (tab === 'connect') {
-      body = <Connect code="492815"
-                      devices={DEVICES}
-                      onCopy={() => showToast('Invite link copied')}/>;
-    } else {
-      body = <Settings theme={theme} onTheme={setTheme}
-                       reverb={reverb} onReverb={(r) => { setReverb(r); showToast('Reverb: ' + r); }}
-                       volume={volume} onVolume={setVolume}/>;
-    }
-
-    return (
-      <div className="mq-app">
-        <Toast message={toast}/>
-        <AppShell tab={tab}
-                  onTab={setTab}
-                  onLeave={() => setStage('start')}>
-          {body}
-        </AppShell>
-      </div>
-    );
-  }
-
-  ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
-  </script>
-</body>
+    <script src="/designsystem/ui_kits/app/app.js"></script>
+  </body>
 </html>

@@ -1,10 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 
 const COMPLETION_HTML = 'public/account-complete.html';
 const COMPLETION_CSS = 'public/account-complete.css';
-const COMPLETION_SCRIPT = 'public/account-complete.js';
 
 type CompletionDom = JSDOM & {
   scheduledTimeouts: Array<() => void>;
@@ -33,9 +36,13 @@ const localizedCompletionCopy = [
 ] as const;
 
 async function renderCompletion(language: string, marker = ''): Promise<CompletionDom> {
+  const asset = CLASSIC_RUNTIME_ASSETS.find(
+    (candidate) => candidate.outputPath === 'account-complete.js',
+  );
+  if (!asset) throw new Error('Classic account-complete runtime is missing from the manifest.');
   const [html, script] = await Promise.all([
     readFile(COMPLETION_HTML, 'utf8'),
-    readFile(COMPLETION_SCRIPT, 'utf8'),
+    compileClassicRuntimeAsset(process.cwd(), asset).then(({ code }) => code),
   ]);
   const dom = new JSDOM(html, {
     runScripts: 'outside-only',

@@ -177,7 +177,7 @@ function initKeyboardShortcuts(): void {
 // module) so feature code (ui/setup-shared.ts) never back-imports the
 // bootstrap module. app.ts only owns the visibilitychange listener
 // installation. app.ts must stay import-terminal (zero exports) — enforced
-// by scripts/check-import-graph.mjs RULE A.
+// by scripts/check-import-graph.mts RULE A.
 
 function initWakeLock(): void {
   document.addEventListener('visibilitychange', () => {

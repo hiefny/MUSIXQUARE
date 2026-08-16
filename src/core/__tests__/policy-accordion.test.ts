@@ -1,12 +1,16 @@
 import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 
 const DEVELOPER_DOC_PATH = '.workshop/developers/developers.html';
 const FAQ_PATH = '.workshop/faq/faq.html';
 const PRIVACY_PATH = '.workshop/privacy/privacy.html';
 const TERMS_PATH = '.workshop/terms/terms.html';
-const SCRIPT_PATH = 'public/policy-accordion.js';
 const SITEMAP_PATH = 'public/sitemap.xml';
 const STYLE_PATH = 'public/legal-pages.css';
 
@@ -31,6 +35,14 @@ async function readDocument(path: string, url: string): Promise<JSDOM> {
     runScripts: 'outside-only',
     url,
   });
+}
+
+async function policyAccordionRuntime(): Promise<string> {
+  const asset = CLASSIC_RUNTIME_ASSETS.find(
+    (candidate) => candidate.outputPath === 'policy-accordion.js',
+  );
+  if (!asset) throw new Error('Classic policy accordion runtime is missing from the manifest.');
+  return (await compileClassicRuntimeAsset(resolve('.'), asset)).code;
 }
 
 function normalizedPolicyDate(document: Document): string {
@@ -220,8 +232,8 @@ describe('policy-page accordions', () => {
         readDocument(TERMS_PATH, 'https://musixquare.com/terms'),
         readFile('src/rooms/authority.ts', 'utf8'),
         readFile('src/storage/preload.ts', 'utf8'),
-        readFile('cloudflare/account-auth.js', 'utf8'),
-        readFile('cloudflare/pro-room-worker.js', 'utf8'),
+        readFile('cloudflare/account-auth.ts', 'utf8'),
+        readFile('cloudflare/pro-room-worker.ts', 'utf8'),
       ]);
     const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
     const faqText = normalizeText(faq.window.document.body.textContent ?? '');
@@ -395,7 +407,7 @@ describe('policy-page accordions', () => {
     const dom = await readDocument(DEVELOPER_DOC_PATH, 'https://musixquare.com/developers#errors');
     const scrollIntoView = vi.fn();
     dom.window.HTMLElement.prototype.scrollIntoView = scrollIntoView;
-    dom.window.eval(await readFile(SCRIPT_PATH, 'utf8'));
+    dom.window.eval(await policyAccordionRuntime());
 
     const overview = dom.window.document.querySelector<HTMLDetailsElement>('#overview');
     const errors = dom.window.document.querySelector<HTMLDetailsElement>('#errors');

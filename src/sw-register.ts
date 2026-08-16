@@ -2,7 +2,7 @@
  * MUSIXQUARE — Service Worker Registration
  *
  * Registers the service worker and handles update checks.
- * The service-worker.js itself remains in public/ as plain JS (outside Vite build).
+ * Vite compiles the strict service-worker TypeScript source to the stable /service-worker.js URL.
  */
 
 import { log } from './core/log.ts';

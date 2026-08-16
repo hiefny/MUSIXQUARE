@@ -10,7 +10,7 @@ import {
   OWNER_PERMISSIONS,
   PRO_ROOM_PERMISSION_KEYS,
   requiredProSystemMessagePermission,
-} from '../../../cloudflare/pro-room-permissions.js';
+} from '../../../cloudflare/pro-room-permissions.ts';
 
 describe('PRO room permission projection', () => {
   it('keeps owner, member, and delegated controller capabilities distinct', () => {

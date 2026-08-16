@@ -37,17 +37,20 @@ hotfix. Every target reuses that exact-SHA CI candidate without a second
 validation pass or environment self-approval, then runs its live smokes with
 an immutable recovery checkpoint and fail-closed forward-repair reporting.
 
-`Require fresh exact-SHA physical-device evidence for this release` defaults to
-off for ordinary server-only and low-risk browser releases. The release reads
-the current App Worker deployment's canonical `git:<sha>` annotation and
-compares it with the candidate using
-`cloudflare/release-device-risk.contract.json`. When the candidate changes an
-audio, playback, synchronization, WebRTC, YouTube/iOS, background/resume, or
-service-worker boundary, the workflow rejects the default and requires the
-canonical real-device artifact before any production mutation. An unreadable
-deployment annotation or ancestry is also fail-closed. Select the option before
-dispatching such a release; never weaken the contract to bypass unavailable
-device evidence.
+Physical-device QA is not an input to, or authorization gate for, the
+`Production Release` workflow. The repository does not provide an isolated
+full-stack preview environment: a static or tunneled frontend URL cannot open
+Standard or PRO rooms without the corresponding signaling, service bindings,
+Durable Objects, and storage services. Release authorization therefore relies
+on the immutable exact-SHA CI candidate, production security and bundle checks,
+the pre-mutation checkpoint, and target-specific live smoke tests. Do not enter
+invented device results or use a frontend-only preview as release evidence.
+
+`.github/workflows/real-device-qa.yml` remains an optional standalone recorder
+for a full device matrix that was actually exercised, such as post-release QA
+on the production URL or future testing on a complete non-production stack. Its
+artifact is archival and is not downloaded or evaluated by the production
+release workflow.
 
 Leave `Apply the current Developer API D1 baseline` disabled for an ordinary
 Worker release. Enable it only when the approved commit intentionally changes
@@ -373,8 +376,9 @@ remains usable while backends roll forward:
 5. `cloudflare/wrangler.developer-api.toml`, then its authenticated live smoke
    against the fixed `000001` smoke room;
 6. `cloudflare/wrangler.app.toml` with the verified artifact, then browser-free
-   generation/initial-asset-graph and anonymous-session-boundary smokes. Run
-   separate physical host/guest QA only when the release opts into that check.
+   generation/initial-asset-graph and anonymous-session-boundary smokes. Run a
+   separate physical host/guest QA pass only when additional platform confidence
+   is useful; it is not part of release authorization.
 
 The production environment secret `MXQR_DEVELOPER_API_SMOKE_KEY` must contain a
 valid key limited to room `000001`; it is used only by the release smoke and is

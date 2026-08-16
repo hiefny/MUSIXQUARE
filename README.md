@@ -108,10 +108,10 @@ npm run check:workers
 npm run build:checked
 ```
 
-Worker-specific bindings, the minimal configuration path, and the real-device
-release-confidence workflow are documented in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md). Browser E2E is an optional auxiliary
-signal; it does not replace the physical-device/browser matrix.
+Worker-specific bindings, the minimal configuration path, and the optional
+standalone real-device QA record are documented in
+[`CONTRIBUTING.md`](./CONTRIBUTING.md). The exact-SHA blocking browser subset
+remains part of CI; the manual device record is not a production release input.
 
 ---
 

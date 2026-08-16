@@ -20,11 +20,6 @@ on:
         required: true
         default: false
         type: boolean
-      require_real_device_evidence:
-        description: Require fresh exact-SHA physical-device evidence for this release
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   actions: read
@@ -45,9 +40,6 @@ jobs:
       candidate_run_attempt: ${{ steps.candidate_source.outputs.run_attempt }}
       candidate_run_id: ${{ steps.candidate_source.outputs.run_id }}
       candidate_validation_profile: ${{ steps.candidate_source.outputs.validation_profile }}
-      device_artifact_name: ${{ steps.device_evidence.outputs.device_artifact_name }}
-      device_run_attempt: ${{ steps.device_evidence.outputs.device_run_attempt }}
-      device_run_id: ${{ steps.device_evidence.outputs.device_run_id }}
 
     steps:
       - name: Validate release options
@@ -69,13 +61,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-evidence.mjs wait-candidate
-
-      - name: Select exact-SHA real-device evidence
-        if: inputs.require_real_device_evidence
-        id: device_evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-evidence.mjs wait-device
 
   deploy:
     name: Deploy validated candidate
@@ -99,8 +84,6 @@ jobs:
       RELEASE_SOURCE_RUN_ATTEMPT: ${{ needs.validate.outputs.candidate_run_attempt }}
       RELEASE_SOURCE_RUN_ID: ${{ needs.validate.outputs.candidate_run_id }}
       RELEASE_VALIDATION_PROFILE: ${{ needs.validate.outputs.candidate_validation_profile }}
-      RELEASE_DEVICE_EVIDENCE_RUN_ATTEMPT: ${{ needs.validate.outputs.device_run_attempt }}
-      RELEASE_DEVICE_EVIDENCE_RUN_ID: ${{ needs.validate.outputs.device_run_id }}
 
     steps:
       - name: Checkout exact release commit
@@ -169,24 +152,6 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ needs.validate.outputs.candidate_run_id }}
 
-      - name: Download exact-SHA real-device evidence
-        if: inputs.require_real_device_evidence
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.validate.outputs.device_artifact_name }}
-          path: release-artifacts/real-device-evidence
-          github-token: ${{ github.token }}
-          run-id: ${{ needs.validate.outputs.device_run_id }}
-
-      - name: Verify exact-SHA real-device evidence
-        if: inputs.require_real_device_evidence
-        env:
-          MXQR_QA_RUN_ID: ${{ needs.validate.outputs.device_run_id }}
-          MXQR_QA_RUN_ATTEMPT: ${{ needs.validate.outputs.device_run_attempt }}
-        run: >-
-          node scripts/release-evidence.mjs verify-device
-          release-artifacts/real-device-evidence/real-device-evidence.json
-
       - name: Verify candidate hashes and commit
         run: npm run release:verify
 
@@ -201,29 +166,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run --silent wrangler -- whoami
-
-      - name: Enforce risk-based physical-device evidence
-        timeout-minutes: 5
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: |
-          mkdir -p release-artifacts/deployments
-          if [[ "$RELEASE_TARGET" == 'app' || "$RELEASE_TARGET" == 'all' ]]; then
-            npm run --silent wrangler -- deployments status \
-              --config cloudflare/wrangler.app.toml \
-              --json \
-              > "$RUNNER_TEMP/app-device-risk-baseline.json"
-          else
-            echo '{}' > "$RUNNER_TEMP/app-device-risk-baseline.json"
-          fi
-          node scripts/release-device-risk.mjs \
-            evaluate \
-            "$RELEASE_TARGET" \
-            "$RUNNER_TEMP/app-device-risk-baseline.json" \
-            "$GITHUB_SHA" \
-            "${{ inputs.require_real_device_evidence }}" \
-            release-artifacts/deployments/real-device-risk.json
 
       - name: Verify Remote Share assertion secret inventory
         timeout-minutes: 5
@@ -1350,22 +1292,6 @@ jobs:
           echo "- Wrangler: \`${wrangler_version}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs nightly and remains manually dispatchable)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Candidate source: run \`${RELEASE_SOURCE_RUN_ID}\`, attempt \`${RELEASE_SOURCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
-          risk_report='release-artifacts/deployments/real-device-risk.json'
-          if [[ -f "$risk_report" ]]; then
-            risk_required="$(node -p "String(JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).required)" "$risk_report")"
-            risk_reason="$(node -p "String(JSON.parse(require('node:fs').readFileSync(process.argv[1], 'utf8')).reason)" "$risk_report")"
-            if [[ "$risk_required" == 'true' && "${{ inputs.require_real_device_evidence }}" == 'true' ]]; then
-              echo "- Physical-device evidence: required (\`${risk_reason}\`); source run \`${RELEASE_DEVICE_EVIDENCE_RUN_ID}\`, attempt \`${RELEASE_DEVICE_EVIDENCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
-            elif [[ "$risk_required" == 'true' ]]; then
-              echo "- Physical-device evidence: required but not selected (\`${risk_reason}\`); release stopped before mutation." >> "$GITHUB_STEP_SUMMARY"
-            elif [[ "${{ inputs.require_real_device_evidence }}" == 'true' ]]; then
-              echo "- Physical-device evidence: optional evidence supplied (\`${risk_reason}\`); source run \`${RELEASE_DEVICE_EVIDENCE_RUN_ID}\`, attempt \`${RELEASE_DEVICE_EVIDENCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "- Physical-device evidence: not required (\`${risk_reason}\`)." >> "$GITHUB_STEP_SUMMARY"
-            fi
-          else
-            echo "- Physical-device evidence: risk classification did not run." >> "$GITHUB_STEP_SUMMARY"
-          fi
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation readiness restore: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery PRO generation fence: \`${{ steps.pro_room_generation_cutover_disable.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"

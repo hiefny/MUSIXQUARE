@@ -50,10 +50,10 @@ npm run build:checked
 ```
 
 The exact-SHA automated suite is the ordinary release-confidence gate. The
-production workflow requires the physical-device/browser matrix when the
-candidate crosses a checked-in WebRTC, background/resume, audio routing,
-playback, YouTube/iOS, or service-worker risk boundary; operators may also opt
-in for other changes. See
+physical-device/browser matrix is an optional standalone QA record for changes
+that need additional WebRTC, background/resume, audio-routing, playback, or
+mobile-browser observations; it does not authorize or block production
+deployment. See
 [`docs/runtime-scenario-verification-2026-05-31.md`](docs/runtime-scenario-verification-2026-05-31.md)
 for the first-48-hours order and evidence checklist.
 

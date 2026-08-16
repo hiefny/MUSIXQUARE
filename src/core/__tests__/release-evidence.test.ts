@@ -34,7 +34,7 @@ function input() {
   };
 }
 
-describe('production real-device evidence', () => {
+describe('manual real-device evidence', () => {
   it('creates and verifies a canonical exact-SHA attestation', () => {
     const evidence = createRealDeviceEvidence(input(), NOW);
     expect(
@@ -181,44 +181,42 @@ describe('production real-device evidence', () => {
     ).toBe(20);
   });
 
-  it('keeps immutable exact-SHA device evidence as an opt-in release gate', () => {
+  it('keeps manual device evidence standalone from production release authorization', () => {
     const release = readFileSync('.github/workflows/release.yml', 'utf8');
     const deviceWorkflow = readFileSync('.github/workflows/real-device-qa.yml', 'utf8');
 
-    expect(release).toMatch(
-      /require_real_device_evidence:\s+description:[^\n]+\s+required: true\s+default: false\s+type: boolean/,
-    );
-    expect(release).toMatch(
-      /- name: Select exact-SHA real-device evidence\r?\n\s+if: inputs\.require_real_device_evidence\r?$/m,
-    );
-    expect(release).toMatch(
-      /- name: Download exact-SHA real-device evidence\r?\n\s+if: inputs\.require_real_device_evidence\r?$/m,
-    );
-    expect(release).toMatch(
-      /- name: Verify exact-SHA real-device evidence\r?\n\s+if: inputs\.require_real_device_evidence\r?$/m,
-    );
+    for (const removedReleaseCoupling of [
+      'require_real_device_evidence',
+      'wait-device',
+      'verify-device',
+      'device_artifact_name',
+      'device_run_id',
+      'RELEASE_DEVICE_EVIDENCE',
+      'real-device-evidence',
+      'real-device-qa.yml',
+      'release-device-risk',
+      'real-device-risk',
+      'Physical-device evidence:',
+    ]) {
+      expect(release).not.toContain(removedReleaseCoupling);
+    }
     expect(release).toMatch(/- name: Select exact-SHA validated candidate\r?\n\s+id:/u);
     expect(release).toMatch(/- name: Download validated production candidate\r?\n\s+uses:/u);
     expect(release).toContain('needs: validate');
-    expect(release).toContain('node scripts/release-evidence.mjs wait-device');
-    expect(release).toContain('name: ${{ needs.validate.outputs.device_artifact_name }}');
-    expect(release).toContain('node scripts/release-evidence.mjs verify-device');
-    expect(release.indexOf('Verify exact-SHA real-device evidence')).toBeLessThan(
-      release.indexOf('Authorize production mutations from persisted checkpoint'),
+    const authorization = release.indexOf(
+      'Authorize production mutations from persisted checkpoint',
     );
-    expect(release.indexOf('Verify candidate hashes and commit')).toBeLessThan(
-      release.indexOf('Authorize production mutations from persisted checkpoint'),
-    );
-    expect(release.indexOf('Revalidate time-sensitive production security guards')).toBeLessThan(
-      release.indexOf('Authorize production mutations from persisted checkpoint'),
-    );
-    expect(release.indexOf('Revalidate every production Worker bundle')).toBeLessThan(
-      release.indexOf('Authorize production mutations from persisted checkpoint'),
-    );
-    expect(release).toContain('Physical-device evidence: not required');
-    expect(release).toContain('Physical-device evidence: required (');
-    expect(release).toContain('Physical-device evidence: required but not selected');
-    expect(release).toContain('Physical-device evidence: risk classification did not run.');
+    expect(authorization).toBeGreaterThan(-1);
+    for (const prerequisite of [
+      'Verify candidate hashes and commit',
+      'Revalidate time-sensitive production security guards',
+      'Revalidate every production Worker bundle',
+    ]) {
+      const prerequisiteIndex = release.indexOf(prerequisite);
+      expect(prerequisiteIndex).toBeGreaterThan(-1);
+      expect(prerequisiteIndex).toBeLessThan(authorization);
+    }
+    expect(deviceWorkflow).toContain('name: Optional manual real-device QA record');
     expect(deviceWorkflow).toContain("if: github.ref == 'refs/heads/main'");
     expect(deviceWorkflow).toContain('MXQR_RELEASE_SHA: ${{ inputs.release_sha }}');
     expect(deviceWorkflow).toContain('if [[ "$current_main" != "$MXQR_RELEASE_SHA" ||');
@@ -227,6 +225,10 @@ describe('production real-device evidence', () => {
       'real-device-evidence-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
     );
     expect(deviceWorkflow).toContain('retention-days: 90');
+    expect(deviceWorkflow).not.toContain('workflow_call:');
+    expect(deviceWorkflow).not.toContain('workflow_run:');
+    expect(deviceWorkflow).not.toContain('environment:\n      name: production');
     expect(deviceWorkflow).not.toContain('secrets:');
+    expect(deviceWorkflow).not.toContain('wrangler -- deploy');
   });
 });

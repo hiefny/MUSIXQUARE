@@ -63,6 +63,14 @@ function runScript(
   });
 }
 
+function workflowStepSource(workflow: string, name: string): string {
+  const marker = `      - name: ${name}`;
+  const start = workflow.indexOf(marker);
+  if (start < 0) throw new Error(`Workflow step is missing: ${name}`);
+  const next = workflow.indexOf('\n      - name:', start + marker.length);
+  return workflow.slice(start, next < 0 ? workflow.length : next);
+}
+
 afterEach(() => {
   while (temporaryDirectories.length > 0) {
     rmSync(temporaryDirectories.pop()!, { recursive: true, force: true });
@@ -111,6 +119,36 @@ describe('release deployment rollback state', () => {
       /^\s+RELEASE_ROLLBACK_MESSAGE: rollback:\$\{\{ github\.run_id \}\}:\$\{\{ github\.run_attempt \}\}\s*$/mu,
     );
     expect(CANONICAL_RELEASE_MESSAGE.length).toBe(44);
+  });
+
+  it('requires persisted mutation authorization for every failed-release recovery path', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    for (const name of [
+      'Disable PRO room generation cutover before failed-release rollback',
+      'Restore release-owned Workers after a failed release',
+      'Reconcile R2 policy with the exact recovered Worker boundary',
+    ]) {
+      expect(workflowStepSource(workflow, name)).toContain(
+        "steps.mutation_authorization.outputs.authorized == 'true'",
+      );
+    }
+
+    const independentRecoveryJob = workflow.slice(workflow.indexOf('\n  recovery:'));
+    expect(independentRecoveryJob).toContain("needs.deploy.outputs.mutation_authorized == 'true'");
+
+    const recoveryWorkflow = readFileSync(
+      resolve('.github/workflows/release-recovery.yml'),
+      'utf8',
+    );
+    for (const name of [
+      'Reassert disabled PRO generation fence',
+      'Restore release-owned Workers or record a forward-repair boundary',
+      'Reconcile persisted R2 policy with recovered Workers',
+    ]) {
+      expect(workflowStepSource(recoveryWorkflow, name)).toContain(
+        "inputs.mutation_authorized == 'true'",
+      );
+    }
   });
 
   it('keeps the cross-Worker release chain in dependency order', () => {

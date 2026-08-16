@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import appWorker from '../../../cloudflare/app-worker.js';
+import appWorker from '../../../cloudflare/app-worker.ts';
 
 afterEach(() => {
   vi.unstubAllGlobals();

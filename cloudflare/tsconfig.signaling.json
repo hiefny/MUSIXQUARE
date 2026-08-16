@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.worker.base.json",
+  "files": [
+    "types/signaling.generated.d.ts",
+    "display-name-policy.ts",
+    "pro-room-generation.ts",
+    "standard-room-account-assertion.ts",
+    "remote-share-upload-assertion.ts",
+    "service-maintenance.ts",
+    "signaling-protocol.ts"
+  ],
+  "include": ["signaling-worker.ts", "signaling-worker.contract.ts"]
+}

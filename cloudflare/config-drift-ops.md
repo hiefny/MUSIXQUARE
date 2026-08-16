@@ -275,7 +275,7 @@ remain in the manifest as immutable history; they are not routine release
 runners.
 
 `cloudflare/d1-migrations.manifest.json` is the fail-closed inventory for all
-checked-in D1 baselines and migrations. `scripts/check-d1-migration-contract.mjs`
+checked-in D1 baselines and migrations. `scripts/check-d1-migration-contract.mts`
 rejects an unregistered `.schema.sql`, `.migration.sql`, or `.rollback.sql`
 file. A migration must declare one of two honest contracts:
 

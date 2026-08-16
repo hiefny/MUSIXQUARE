@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.worker.base.json",
+  "files": [
+    "types/remote-share.generated.d.ts",
+    "remote-share-upload-assertion.ts",
+    "service-maintenance.ts"
+  ],
+  "include": ["remote-share-worker.ts", "remote-share-worker.contract.ts"]
+}

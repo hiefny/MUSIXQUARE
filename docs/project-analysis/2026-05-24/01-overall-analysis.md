@@ -66,7 +66,7 @@ Important entry/config files:
 - `playwright.config.ts`: serial Playwright configuration.
 - `tsconfig.json`: strict app TypeScript config.
 - `src/workers/tsconfig.json`: worker TypeScript config.
-- `eslint.config.js`: lint rules and no raw timer restrictions.
+- `eslint.config.ts`: lint rules and no raw timer restrictions.
 - `package.json`: scripts and dependency manifest.
 
 ## Size and Complexity Snapshot
@@ -285,7 +285,7 @@ The HTML translation path is intentionally separated through `tHtml()` with inte
 
 The Cloudflare layer is three separate edge services:
 
-- `cloudflare/app-worker.js`: app API, security headers, capability token minting, Turnstile validation, YouTube search proxy, TURN credentials.
+- `cloudflare/app-worker.ts`: app API, security headers, capability token minting, Turnstile validation, YouTube search proxy, TURN credentials.
 - `cloudflare/signaling-worker.js`: Durable Object signaling room service.
 - `cloudflare/remote-share-worker.js`: R2 object session creation, presigned upload/download, HMAC signing, capability gate.
 

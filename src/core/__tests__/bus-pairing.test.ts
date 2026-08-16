@@ -3,10 +3,10 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 // Every hand-authored domain bus event must remain paired (emit <-> listen).
-// scripts/check-bus-pairing.mjs owns the analysis and is also exposed through
-// `npm run guard:bus-pairing`; this test invokes it as a subprocess to avoid
-// coupling TypeScript test resolution to the .mjs module.
-const script = fileURLToPath(new URL('../../../scripts/check-bus-pairing.mjs', import.meta.url));
+// scripts/check-bus-pairing.mts owns the analysis and is also exposed through
+// `npm run guard:bus-pairing`; this test invokes the real CLI so stdout and
+// the failure exit code remain part of the contract.
+const script = fileURLToPath(new URL('../../../scripts/check-bus-pairing.mts', import.meta.url));
 
 describe('EventBus emit/listen pairing', () => {
   it('has no dead emits or orphan listeners', () => {

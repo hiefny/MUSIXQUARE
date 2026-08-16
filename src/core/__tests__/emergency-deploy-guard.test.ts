@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   EMERGENCY_DEPLOY_CONFIRM_ENV,
@@ -6,7 +6,7 @@ import {
   authorizeEmergencyDeploy,
   expectedEmergencyDeployConfirmation,
   parseRemoteMainSha,
-} from '../../../scripts/guard-emergency-deploy.mjs';
+} from '../../../scripts/guard-emergency-deploy.mts';
 
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
 
@@ -72,6 +72,25 @@ describe('emergency deployment guard', () => {
     expect(() => expectedEmergencyDeployConfirmation('app', COMMIT.slice(0, 12))).toThrow(
       'full lowercase Git commit SHA',
     );
+  });
+
+  it('rejects unknown targets before any live Git/network read', () => {
+    const readGit = vi.fn(() => {
+      throw new Error('must not run');
+    });
+    expect(() => authorizeEmergencyDeploy('unknown', { readGit })).toThrow(
+      'Unknown emergency deployment target',
+    );
+    expect(readGit).not.toHaveBeenCalled();
+  });
+
+  it('does not echo a rejected operator confirmation', () => {
+    const supplied = `private-confirmation-${'s'.repeat(64)}`;
+    try {
+      assertEmergencyDeployAuthorization(authorization({ confirmation: supplied }));
+    } catch (error) {
+      expect(error instanceof Error ? error.message : String(error)).not.toContain(supplied);
+    }
   });
 
   it('accepts only one exact live origin/main ref', () => {

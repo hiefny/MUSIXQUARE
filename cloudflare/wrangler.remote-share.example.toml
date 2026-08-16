@@ -1,5 +1,5 @@
 name = "musixquare-remote-share"
-main = "remote-share-worker.js"
+main = "remote-share-worker.ts"
 compatibility_date = "2026-05-03"
 
 [version_metadata]

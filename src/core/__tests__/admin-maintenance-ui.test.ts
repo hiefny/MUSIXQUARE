@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const adminScript = readFileSync(resolve(process.cwd(), 'public/admin.js'), 'utf8');
+import { compileClassicRuntimeForBrowserTest } from './classic-runtime-test-asset.ts';
+
+const adminScript = compileClassicRuntimeForBrowserTest('admin.js');
 
 function installDom(): void {
   document.body.innerHTML = `

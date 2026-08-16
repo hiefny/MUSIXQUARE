@@ -28,16 +28,16 @@ export default defineConfig({
       reporter: ['text', 'text-summary', 'lcov'],
       reportsDirectory: 'coverage/release-tooling',
       include: [
-        'scripts/audit-ops-drift.mjs',
-        'scripts/check-d1-migration-contract.mjs',
-        'scripts/check-durable-object-migration-contract.mjs',
-        'scripts/emergency-deploy.mjs',
-        'scripts/guard-emergency-deploy.mjs',
-        'scripts/release-deployment-state.mjs',
-        'scripts/release-identity.mjs',
-        'scripts/release-manifest.mjs',
-        'scripts/release-r2-policy-state.mjs',
-        'scripts/release-worker-floor-state.mjs',
+        'scripts/audit-ops-drift.mts',
+        'scripts/check-d1-migration-contract.mts',
+        'scripts/check-durable-object-migration-contract.mts',
+        'scripts/emergency-deploy.mts',
+        'scripts/guard-emergency-deploy.mts',
+        'scripts/release-deployment-state.mts',
+        'scripts/release-identity.mts',
+        'scripts/release-manifest.mts',
+        'scripts/release-r2-policy-state.mts',
+        'scripts/release-worker-floor-state.mts',
       ],
       thresholds: {
         // Initial Node 24 baseline (2026-08-10): statements 75.31,
@@ -48,61 +48,61 @@ export default defineConfig({
         branches: 68,
         functions: 85,
         lines: 75,
-        'scripts/audit-ops-drift.mjs': {
+        'scripts/audit-ops-drift.mts': {
           statements: 72,
           branches: 71,
           functions: 82,
           lines: 73,
         },
-        'scripts/check-d1-migration-contract.mjs': {
+        'scripts/check-d1-migration-contract.mts': {
           statements: 79,
           branches: 74,
           functions: 95,
           lines: 80,
         },
-        'scripts/check-durable-object-migration-contract.mjs': {
+        'scripts/check-durable-object-migration-contract.mts': {
           statements: 80,
           branches: 77,
           functions: 95,
           lines: 82,
         },
-        'scripts/emergency-deploy.mjs': {
+        'scripts/emergency-deploy.mts': {
           statements: 81,
           branches: 82,
           functions: 82,
           lines: 81,
         },
-        'scripts/guard-emergency-deploy.mjs': {
+        'scripts/guard-emergency-deploy.mts': {
           statements: 70,
           branches: 57,
           functions: 65,
           lines: 72,
         },
-        'scripts/release-deployment-state.mjs': {
+        'scripts/release-deployment-state.mts': {
           statements: 70,
           branches: 60,
           functions: 83,
           lines: 71,
         },
-        'scripts/release-identity.mjs': {
+        'scripts/release-identity.mts': {
           statements: 77,
           branches: 78,
           functions: 74,
           lines: 80,
         },
-        'scripts/release-manifest.mjs': {
+        'scripts/release-manifest.mts': {
           statements: 69,
           branches: 68,
           functions: 79,
           lines: 70,
         },
-        'scripts/release-r2-policy-state.mjs': {
+        'scripts/release-r2-policy-state.mts': {
           statements: 74,
           branches: 61,
           functions: 87,
           lines: 75,
         },
-        'scripts/release-worker-floor-state.mjs': {
+        'scripts/release-worker-floor-state.mts': {
           statements: 81,
           branches: 74,
           functions: 83,

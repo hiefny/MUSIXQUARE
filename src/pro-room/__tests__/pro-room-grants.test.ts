@@ -19,7 +19,7 @@ import {
   reserveProRoomOwnershipTransferEntitlement,
   revokeProRoomEntitlement,
   upsertProRoomOwnerEntitlement,
-} from '../../../cloudflare/pro-room-grants.js';
+} from '../../../cloudflare/pro-room-grants.ts';
 
 const sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 const MIGRATION = readFileSync(

@@ -5,7 +5,7 @@ import {
   parseDeveloperApiKeyCommand,
   resolveCurrentProRoomGeneration,
   runDeveloperApiKeyCli,
-} from '../../../scripts/developer-api-key.mjs';
+} from '../../../scripts/developer-api-key.mts';
 
 describe('Developer API key CLI', () => {
   it('defaults to read-only access and accepts all room-bound v1 scopes explicitly', () => {

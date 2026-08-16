@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { verifyRecoveryBoundary } from '../../../scripts/release-deployment-state.mjs';
+import { verifyRecoveryBoundary } from '../../../scripts/release-deployment-state.mts';
 import {
   DEVELOPER_AUTHORITY_SUPPORT_RELEASE_SHA,
   ENTITLEMENT_SUPPORT_RELEASE_SHA,
@@ -12,9 +12,9 @@ import {
   captureWorkerFloorCheckpoint,
   readWorkerFloorForwardRepairTargets,
   verifyWorkerFloorRecovery,
-} from '../../../scripts/release-worker-floor-state.mjs';
+} from '../../../scripts/release-worker-floor-state.mts';
 
-const SCRIPT_PATH = resolve('scripts/release-worker-floor-state.mjs');
+const SCRIPT_PATH = resolve('scripts/release-worker-floor-state.mts');
 const CANDIDATE_SHA = 'c'.repeat(40);
 const FLOOR_SHA = 'a'.repeat(40);
 const LEGACY_ENTITLEMENT_BLIND_SHA = 'e1eb9b7ce15316d875f55b16e8be134eba521813';
@@ -1018,7 +1018,7 @@ describe('Worker compatibility-floor recovery', () => {
       readFileSync(resolve('.github/workflows/release.yml'), 'utf8'),
       readFileSync(resolve('.github/workflows/release-recovery.yml'), 'utf8'),
     ].join('\n');
-    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mjs'), 'utf8');
+    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mts'), 'utf8');
     const workerCheckpoint = workflow.indexOf('Capture immutable Worker compatibility floors');
     const persistedCheckpoint = workflow.indexOf('Persist pre-mutation recovery checkpoint');
     const authorization = workflow.indexOf(
@@ -1028,7 +1028,7 @@ describe('Worker compatibility-floor recovery', () => {
     expect(persistedCheckpoint).toBeGreaterThan(workerCheckpoint);
     expect(authorization).toBeGreaterThan(persistedCheckpoint);
     expect(workflow.slice(workerCheckpoint, persistedCheckpoint)).toContain(
-      'release-worker-floor-state.mjs',
+      'release-worker-floor-state.mts',
     );
 
     const sameJobAssessment = workflowStep(
@@ -1053,7 +1053,7 @@ describe('Worker compatibility-floor recovery', () => {
     }
     for (const step of [sameJobRollback, independentRollback]) {
       expect(step).toContain('MXQR_WORKER_FLOOR_TARGETS=');
-      expect(step).toContain('node scripts/release-recovery-plan.mjs');
+      expect(step).toContain('node scripts/release-recovery-plan.mts');
       expect(step).toContain('rollback release-artifacts/recovery-checkpoint');
       expect(step).toContain(
         'service-control-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',

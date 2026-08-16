@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import developerApiWorker, {
   DeveloperApiRateLimiter,
-} from '../../../cloudflare/developer-api-worker.js';
-import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.js';
-import { clearServiceMaintenanceCacheForTests } from '../../../cloudflare/service-maintenance.js';
+} from '../../../cloudflare/developer-api-worker.ts';
+import developerApiFacadeWorker from '../../../cloudflare/developer-api-facade-worker.ts';
+import { clearServiceMaintenanceCacheForTests } from '../../../cloudflare/service-maintenance.ts';
 
 type RemoteShareWorkerModule = {
   default: {
@@ -18,7 +18,7 @@ type RemoteShareWorkerModule = {
   };
 };
 
-const remoteShareWorkerModulePath = '../../../cloudflare/remote-share-worker.js';
+const remoteShareWorkerModulePath = '../../../cloudflare/remote-share-worker.ts';
 const { default: remoteShareWorker, RemoteShareQuota } = (await import(
   remoteShareWorkerModulePath
 )) as RemoteShareWorkerModule;

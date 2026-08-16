@@ -1,8 +1,17 @@
-import { defineConfig, loadEnv, transformWithEsbuild, type Plugin, type UserConfig } from 'vite';
-import { readFile, writeFile } from 'node:fs/promises';
+import { defineConfig, loadEnv, type Plugin, type UserConfig } from 'vite';
 import { resolve } from 'path';
-import { INITIAL_TRANSFER_BUDGET } from './scripts/initial-transfer-budget-config.mjs';
-import { collectRenderedWorkerAssets } from './scripts/service-worker-app-shell-guard-lib.mjs';
+import { INITIAL_TRANSFER_BUDGET } from './scripts/initial-transfer-budget-config.mts';
+import { collectRenderedWorkerAssets } from './scripts/service-worker-app-shell-guard-lib.mts';
+import { classicRuntimeAssets } from './scripts/classic-runtime-assets.ts';
+import {
+  SERVICE_WORKER_OUTPUT_PATH,
+  assertServiceWorkerJavaScript,
+  assertServiceWorkerSourceCompleteness,
+  compileServiceWorkerAsset,
+  injectServiceWorkerSource,
+} from './scripts/service-worker-asset.ts';
+import { uiKitAsset } from './scripts/ui-kit-asset.ts';
+import { auxiliaryBrowserAssets } from './scripts/auxiliary-browser-assets.ts';
 
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
 
@@ -243,34 +252,6 @@ const prioritizeStylesheetsInHtml = (): Plugin => ({
   },
 });
 
-export async function minifyEarlyBootstrap(source: string): Promise<string> {
-  const transformed = await transformWithEsbuild(source, 'bootstrap.js', {
-    loader: 'js',
-    minify: true,
-    target: 'es2018',
-  });
-  return transformed.code;
-}
-
-// publicDir scripts are copied verbatim by Vite. Keep the credential scrubber
-// auditable in source while shipping its now larger recovery bootstrap with
-// the same production minification as the app entry.
-const minifyEarlyBootstrapBuild = (): Plugin => {
-  let outDir = '';
-  return {
-    name: 'minify-early-bootstrap',
-    apply: 'build',
-    configResolved(config) {
-      outDir = resolve(config.root, config.build.outDir);
-    },
-    async closeBundle() {
-      const bootstrapPath = resolve(outDir, 'bootstrap.js');
-      const source = await readFile(bootstrapPath, 'utf8');
-      await writeFile(bootstrapPath, await minifyEarlyBootstrap(source), 'utf8');
-    },
-  };
-};
-
 const REVIEWED_DEFERRED_APP_SHELL_ROOTS = [
   '/src/network/room-session-feature-runtime.ts',
   '/src/player/media-session.ts',
@@ -349,8 +330,6 @@ const guardInitialAppBundleGraph = (): Plugin => ({
   },
 });
 
-const BUILD_ENTRY_ASSETS_MARKER = '/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */';
-const OPTIONAL_PRIMARY_FONT_ASSETS_MARKER = '/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */';
 const OPTIONAL_PRIMARY_FONT_ASSETS = [
   './primary-font-loader.js',
   './primary-font.css',
@@ -453,57 +432,88 @@ export function injectBuildEntryAssets(
   assets: readonly string[],
   optionalPrimaryFontAssets: readonly string[],
 ): string {
-  const markerCount = serviceWorker.split(BUILD_ENTRY_ASSETS_MARKER).length - 1;
-  if (markerCount !== 1) {
-    throw new Error(`Expected one service-worker build manifest marker, found ${markerCount}.`);
-  }
-  const optionalMarkerCount = serviceWorker.split(OPTIONAL_PRIMARY_FONT_ASSETS_MARKER).length - 1;
-  if (optionalMarkerCount !== 1) {
-    throw new Error(
-      `Expected one service-worker optional font manifest marker, found ${optionalMarkerCount}.`,
-    );
-  }
   if (assets.length === 0) throw new Error('Canonical app entry manifest is empty.');
   if (optionalPrimaryFontAssets.length !== OPTIONAL_PRIMARY_FONT_ASSETS.length) {
     throw new Error('Optional primary-font manifest is incomplete.');
   }
-  const manifest = assets.map((asset) => JSON.stringify(asset)).join(',\n  ');
-  const optionalManifest = optionalPrimaryFontAssets
-    .map((asset) => JSON.stringify(asset))
-    .join(',\n  ');
-  return serviceWorker
-    .replace(BUILD_ENTRY_ASSETS_MARKER, manifest)
-    .replace(OPTIONAL_PRIMARY_FONT_ASSETS_MARKER, optionalManifest);
+  return injectServiceWorkerSource(serviceWorker, {
+    buildEntryAssets: assets,
+    optionalPrimaryFontAssets,
+  });
 }
 
-const injectServiceWorkerBuildManifest = (): Plugin => {
-  let assets: string[] = [];
-  let optionalPrimaryFontAssets: string[] = [];
-  let outDir = '';
+export const serviceWorkerAsset = (): Plugin => {
+  let repoRoot = '';
+  let productionBuild = false;
+  let emittedReferenceId = '';
   return {
-    name: 'inject-service-worker-build-manifest',
-    apply: 'build',
+    name: 'musixquare-service-worker-asset',
     configResolved(config) {
-      outDir = resolve(config.root, config.build.outDir);
+      repoRoot = config.root;
+      productionBuild = config.command === 'build';
     },
-    generateBundle(_options, bundle) {
-      assets = collectStaticAppEntryAssets(bundle as unknown as Record<string, unknown>);
+    async configureServer(server) {
+      await assertServiceWorkerSourceCompleteness(server.config.root);
+      server.middlewares.use(async (request, response, next) => {
+        if (request.method !== 'GET' && request.method !== 'HEAD') {
+          next();
+          return;
+        }
+        let pathname = '';
+        try {
+          pathname = new URL(request.url ?? '', 'http://vite.local').pathname;
+        } catch {
+          next();
+          return;
+        }
+        if (pathname !== `/${SERVICE_WORKER_OUTPUT_PATH}`) {
+          next();
+          return;
+        }
+        try {
+          const { code } = await compileServiceWorkerAsset(server.config.root);
+          response.statusCode = 200;
+          response.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+          response.setHeader('Cache-Control', 'no-cache');
+          response.end(request.method === 'HEAD' ? undefined : code);
+        } catch (error) {
+          next(error);
+        }
+      });
+    },
+    async buildStart() {
+      if (!productionBuild) return;
+      await assertServiceWorkerSourceCompleteness(repoRoot);
+      emittedReferenceId = this.emitFile({
+        type: 'asset',
+        fileName: SERVICE_WORKER_OUTPUT_PATH,
+      });
+    },
+    async generateBundle(_options, bundle) {
+      if (!productionBuild) return;
+      const assets = collectStaticAppEntryAssets(bundle);
       if (assets.length === 0) this.error('Could not collect the MUSIXQUARE app entry manifest.');
-      optionalPrimaryFontAssets = collectOptionalPrimaryFontAssets(
-        bundle as unknown as Record<string, unknown>,
-      );
+      const optionalPrimaryFontAssets = collectOptionalPrimaryFontAssets(bundle);
       if (optionalPrimaryFontAssets.length !== OPTIONAL_PRIMARY_FONT_ASSETS.length) {
         this.error('Could not collect the MUSIXQUARE optional primary-font manifest.');
       }
-    },
-    async closeBundle() {
-      const serviceWorkerPath = resolve(outDir, 'service-worker.js');
-      const serviceWorker = await readFile(serviceWorkerPath, 'utf8');
-      await writeFile(
-        serviceWorkerPath,
-        injectBuildEntryAssets(serviceWorker, assets, optionalPrimaryFontAssets),
-        'utf8',
-      );
+      const compiled = await compileServiceWorkerAsset(repoRoot, {
+        buildEntryAssets: assets,
+        optionalPrimaryFontAssets,
+      });
+      if (!emittedReferenceId) this.error('Service-worker output reference was not emitted.');
+      this.setAssetSource(emittedReferenceId, compiled.code);
+      const output = bundle[SERVICE_WORKER_OUTPUT_PATH];
+      if (!output || output.type !== 'asset') {
+        this.error(`Service-worker build output is missing: ${SERVICE_WORKER_OUTPUT_PATH}`);
+      }
+      output.source = compiled.code;
+      assertServiceWorkerJavaScript(compiled.code);
+      if (bundle[`${SERVICE_WORKER_OUTPUT_PATH}.map`]) {
+        this.error(
+          `Service-worker sourcemap must not be emitted: ${SERVICE_WORKER_OUTPUT_PATH}.map`,
+        );
+      }
     },
   };
 };
@@ -569,13 +579,15 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       },
     },
     plugins: [
+      serviceWorkerAsset(),
+      classicRuntimeAssets(),
+      uiKitAsset(),
+      auxiliaryBrowserAssets(),
       flattenWorkshopHtml(),
       devPageAliases(),
       failClosedDevApi(proxyProductionApi),
       prioritizeStylesheetsInHtml(),
       guardInitialAppBundleGraph(),
-      minifyEarlyBootstrapBuild(),
-      injectServiceWorkerBuildManifest(),
       guardSecondaryJavaScriptChunkSizes(),
     ],
     build: {

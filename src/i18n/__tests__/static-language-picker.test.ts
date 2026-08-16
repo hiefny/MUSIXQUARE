@@ -1,6 +1,20 @@
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
+
+const STATIC_LANGUAGE_ASSET = CLASSIC_RUNTIME_ASSETS.find(
+  (candidate) => candidate.outputPath === 'static-language.js',
+);
+if (!STATIC_LANGUAGE_ASSET) {
+  throw new Error('Classic static-language runtime is missing from the manifest.');
+}
+const STATIC_LANGUAGE_RUNTIME = (
+  await compileClassicRuntimeAsset(process.cwd(), STATIC_LANGUAGE_ASSET)
+).code;
 
 type PickerHarness = {
   dom: JSDOM;
@@ -46,8 +60,7 @@ async function createPickerHarness(mobile: boolean): Promise<PickerHarness> {
     value: scrollTo,
   });
 
-  const source = await readFile('public/static-language.js', 'utf8');
-  dom.window.eval(source);
+  dom.window.eval(STATIC_LANGUAGE_RUNTIME);
   dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
 
   return { dom, scrollTo };

@@ -6,7 +6,7 @@ import {
   DEVELOPER_API_READINESS_RETRY_DELAYS_MS,
   runDeveloperApiSmoke,
   waitForDeveloperApiReady,
-} from '../../../scripts/live-developer-api-smoke.mjs';
+} from '../../../scripts/live-developer-api-smoke.mts';
 
 const ROOM = '000001';
 const OTHER_ROOM = '000000';

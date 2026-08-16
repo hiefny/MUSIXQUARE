@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.worker.base.json",
+  "files": [
+    "types/pro-room.generated.d.ts",
+    "account-assertion.ts",
+    "account-nickname.ts",
+    "display-name-policy.ts",
+    "pro-room-body.ts",
+    "pro-room-claims.ts",
+    "pro-room-crypto.ts",
+    "pro-room-effects.ts",
+    "pro-room-generation.ts",
+    "pro-room-grants.ts",
+    "pro-room-permissions.ts",
+    "pro-room-queue-mode.ts",
+    "pro-room-validation.ts",
+    "service-control-object.ts",
+    "service-maintenance.ts"
+  ],
+  "include": ["pro-room-worker.ts", "pro-room-worker.contract.ts"]
+}

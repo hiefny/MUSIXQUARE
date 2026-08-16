@@ -11,7 +11,7 @@ simulation or a monkey-patched `persist()`.
 From the repository root:
 
 ```powershell
-node scripts/benchmark-pro-room-heartbeats.mjs `
+node scripts/benchmark-pro-room-heartbeats.mts `
   --json docs/performance/results/pro-room-heartbeat-hybrid-working-tree.json
 ```
 

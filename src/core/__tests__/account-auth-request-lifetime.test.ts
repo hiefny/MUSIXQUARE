@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   fetchTextWithTimeout,
   handleAccountAuthRequest,
-} from '../../../cloudflare/account-auth.js';
+} from '../../../cloudflare/account-auth.ts';
 
 function configuredAuthEnv(): Record<string, unknown> {
   return {

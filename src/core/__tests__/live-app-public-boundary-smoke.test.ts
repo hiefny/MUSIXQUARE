@@ -4,7 +4,7 @@ import {
   APP_PUBLIC_BOUNDARY_TIMEOUT_MS,
   verifyAnonymousAccountSessionBoundary,
   verifyProductionCapabilityBoundary,
-} from '../../../scripts/live-app-public-boundary-smoke.mjs';
+} from '../../../scripts/live-app-public-boundary-smoke.mts';
 
 describe('live app public boundary smoke', () => {
   it('accepts only the no-store anonymous account-session projection', async () => {

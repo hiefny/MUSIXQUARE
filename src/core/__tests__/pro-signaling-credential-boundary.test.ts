@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { validateProSignalingCredentialBoundary } from '../../../scripts/pro-signaling-credential-boundary.mjs';
+import { validateProSignalingCredentialBoundary } from '../../../scripts/pro-signaling-credential-boundary.mts';
 
-const CHECKED_IN_SIGNALING_WORKER = readFileSync('cloudflare/signaling-worker.js', 'utf8');
+const CHECKED_IN_SIGNALING_WORKER = readFileSync('cloudflare/signaling-worker.ts', 'utf8');
 
 const SUBPROTOCOL_ONLY_WORKER = `
 const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';

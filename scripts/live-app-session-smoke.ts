@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 
 import { chromium, type Browser, type BrowserContext, type Page } from '@playwright/test';
 
-import { expectedMainScript, verifyPublicAppGeneration } from './live-app-generation-smoke.mjs';
+import { expectedMainScript, verifyPublicAppGeneration } from './live-app-generation-smoke.mts';
 
 const APP_ORIGIN = 'https://musixquare.com';
 const NAVIGATION_TIMEOUT_MS = 30_000;

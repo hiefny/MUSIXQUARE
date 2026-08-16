@@ -4,7 +4,7 @@ import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
   createAccountAssertion,
   verifyAccountAssertion,
-} from '../../../cloudflare/account-assertion.js';
+} from '../../../cloudflare/account-assertion.ts';
 
 const secret = '0123456789abcdef0123456789abcdef';
 

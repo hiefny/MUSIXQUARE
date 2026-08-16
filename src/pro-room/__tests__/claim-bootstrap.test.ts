@@ -2,10 +2,22 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
+import {
+  SERVICE_WORKER_CACHE_VERSION,
+  compileServiceWorkerAsset,
+} from '../../../scripts/service-worker-asset.ts';
 
-const BOOTSTRAP_SOURCE = readFileSync(resolve('public/bootstrap.js'), 'utf8');
+const BOOTSTRAP_ASSET = CLASSIC_RUNTIME_ASSETS.find(
+  (candidate) => candidate.outputPath === 'bootstrap.js',
+);
+if (!BOOTSTRAP_ASSET) throw new Error('Classic bootstrap runtime is missing from the manifest.');
+const BOOTSTRAP_SOURCE = (await compileClassicRuntimeAsset(resolve('.'), BOOTSTRAP_ASSET)).code;
 const INDEX_SOURCE = readFileSync(resolve('index.html'), 'utf8');
-const SERVICE_WORKER_SOURCE = readFileSync(resolve('public/service-worker.js'), 'utf8');
+const SERVICE_WORKER_SOURCE = (await compileServiceWorkerAsset(resolve('.'))).code;
 const CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
 const HANDOFF_KEY = '__mxqrTakeProRoomFragmentClaims';
 const ANALYTICS_SRC = 'https://static.cloudflareinsights.com/beacon.min.js';
@@ -118,12 +130,11 @@ function runBootstrap(
 
 describe('early PRO claim bootstrap', () => {
   it('keeps the self-hosted scrubber ahead of app code and removes the static analytics tag', () => {
-    const cacheVersion = SERVICE_WORKER_SOURCE.match(/const CACHE_VERSION = '(v\d+)';/)?.[1];
-    const bootstrapSource = `/bootstrap.js?cache=${cacheVersion}`;
+    const bootstrapSource = `/bootstrap.js?cache=${SERVICE_WORKER_CACHE_VERSION}`;
     const bootstrapIndex = INDEX_SOURCE.indexOf(`<script src="${bootstrapSource}"></script>`);
     const appIndex = INDEX_SOURCE.indexOf('<script type="module" src="/src/app.ts"></script>');
 
-    expect(cacheVersion).toMatch(/^v\d+$/);
+    expect(SERVICE_WORKER_CACHE_VERSION).toMatch(/^v\d+$/);
     expect(bootstrapIndex).toBeGreaterThan(-1);
     expect(bootstrapIndex).toBeLessThan(appIndex);
     expect(SERVICE_WORKER_SOURCE).toContain(

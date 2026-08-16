@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.worker.base.json",
+  "files": [
+    "types/developer-api-facade.generated.d.ts",
+    "pro-room-generation.ts",
+    "service-maintenance.ts"
+  ],
+  "include": ["developer-api-facade-worker.ts", "developer-api-facade-worker.contract.ts"]
+}

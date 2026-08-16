@@ -492,7 +492,7 @@ Risk:
 
 ### App Worker
 
-File: `cloudflare/app-worker.js`.
+File: `cloudflare/app-worker.ts`.
 
 Responsibilities:
 

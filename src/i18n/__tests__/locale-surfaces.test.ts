@@ -2,7 +2,17 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 import { LANGUAGE_OPTIONS } from '../index.ts';
+
+async function classicRuntime(outputPath: string): Promise<string> {
+  const asset = CLASSIC_RUNTIME_ASSETS.find((candidate) => candidate.outputPath === outputPath);
+  if (!asset) throw new Error(`Classic runtime is missing from the manifest: ${outputPath}`);
+  return (await compileClassicRuntimeAsset(process.cwd(), asset)).code;
+}
 
 function sourceFile(source: string, fileName: string): ts.SourceFile {
   return ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
@@ -75,10 +85,10 @@ describe('locale surface parity', () => {
     const [appSource, bootstrapSource, staticSource, accountSource, maintenanceSource] =
       await Promise.all([
         readFile('src/i18n/index.ts', 'utf8'),
-        readFile('public/bootstrap.js', 'utf8'),
-        readFile('public/static-language.js', 'utf8'),
-        readFile('public/account-complete.js', 'utf8'),
-        readFile('cloudflare/service-maintenance.js', 'utf8'),
+        classicRuntime('bootstrap.js'),
+        classicRuntime('static-language.js'),
+        classicRuntime('account-complete.js'),
+        readFile('cloudflare/service-maintenance.ts', 'utf8'),
       ]);
     const expectedCodes = LANGUAGE_OPTIONS.map(({ code }) => code).sort();
 
@@ -89,13 +99,13 @@ describe('locale surface parity', () => {
     expect([...lazyLocaleCodes, 'en', 'ko'].sort()).toEqual(expectedCodes);
 
     const bootstrapCodes = objectKeys(
-      variableInitializer(bootstrapSource, 'public/bootstrap.js', 'htmlLangByCode'),
+      variableInitializer(bootstrapSource, 'bootstrap.js', 'htmlLangByCode'),
       'htmlLangByCode',
     );
     expect(bootstrapCodes.sort()).toEqual(expectedCodes);
 
     const accountTranslations = unwrapObject(
-      variableInitializer(accountSource, 'public/account-complete.js', 'translations'),
+      variableInitializer(accountSource, 'account-complete.js', 'translations'),
       'translations',
     );
     expect(accountTranslations.properties.map(propertyName).sort()).toEqual(expectedCodes);
@@ -119,14 +129,14 @@ describe('locale surface parity', () => {
     const maintenanceCodes = objectKeys(
       variableInitializer(
         maintenanceSource,
-        'cloudflare/service-maintenance.js',
+        'cloudflare/service-maintenance.ts',
         'localizedDescriptions',
       ),
       'localizedDescriptions',
     );
     expect(maintenanceCodes.sort()).toEqual(expectedCodes);
 
-    const staticOptions = variableInitializer(staticSource, 'public/static-language.js', 'OPTIONS');
+    const staticOptions = variableInitializer(staticSource, 'static-language.js', 'OPTIONS');
     if (!ts.isArrayLiteralExpression(staticOptions)) throw new Error('OPTIONS must be an array');
     const optionRows = staticOptions.elements.map((entry) => {
       if (!ts.isObjectLiteralExpression(entry)) throw new Error('OPTIONS entry must be an object');

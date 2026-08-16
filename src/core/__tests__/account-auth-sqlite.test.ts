@@ -7,8 +7,8 @@ import {
   handleAccountAuthRequest as handleMaybeAccountAuthRequest,
   recordAccountProRoomLink,
   resetAccountAuthCachesForTests,
-} from '../../../cloudflare/account-auth.js';
-import { normalizeSchemaSql } from '../../../scripts/sql-schema-normalization.mjs';
+} from '../../../cloudflare/account-auth.ts';
+import { normalizeSchemaSql } from '../../../scripts/sql-schema-normalization.mts';
 
 const ORIGIN = 'https://musixquare.com';
 const SESSION_PEPPER = 'sqlite-session-pepper-for-tests-at-least-32-bytes';

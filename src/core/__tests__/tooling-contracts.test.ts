@@ -52,8 +52,14 @@ describe('tooling reproducibility contracts', () => {
     expect(toolingConfig.compilerOptions.types).toContain('node');
     expect([...toolingConfig.include].sort()).toEqual(
       [
+        'eslint.config.ts',
+        'eslint.tooling.config.ts',
+        'scripts/auxiliary-browser-assets.ts',
+        'scripts/classic-runtime-assets.ts',
         'scripts/live-app-session-smoke.ts',
         'scripts/live-remote-share-smoke.ts',
+        'scripts/service-worker-asset.ts',
+        'scripts/ui-kit-asset.ts',
         'vite.config.ts',
         'vitest.config.ts',
         'vitest.critical.config.ts',
@@ -77,7 +83,9 @@ describe('tooling reproducibility contracts', () => {
   });
 
   it('runs the report viewer from the exact lockfile dependency', () => {
-    expect(packageManifest.scripts['test:report-viewer']).toBe('serve . -p 3333 -s');
+    expect(packageManifest.scripts['test:report-viewer']).toBe(
+      'node scripts/materialize-auxiliary-browser-assets.mts && serve . -p 3333 -s',
+    );
     expect(packageManifest.devDependencies.serve).toMatch(/^\d+\.\d+\.\d+$/u);
     expect(packageLock.packages[''].devDependencies?.serve).toBe(
       packageManifest.devDependencies.serve,

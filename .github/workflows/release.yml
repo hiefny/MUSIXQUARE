@@ -60,7 +60,7 @@ jobs:
         id: candidate_source
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-evidence.mjs wait-candidate
+        run: node scripts/release-evidence.mts wait-candidate
 
   deploy:
     name: Deploy validated candidate
@@ -189,7 +189,7 @@ jobs:
         timeout-minutes: 5
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node scripts/release-deployment-state.mjs compatibility "$RELEASE_TARGET" "${{ github.sha }}"
+        run: node scripts/release-deployment-state.mts compatibility "$RELEASE_TARGET" "${{ github.sha }}"
 
       - name: Prepare deployment records
         run: mkdir -p release-artifacts/deployments
@@ -200,10 +200,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           mkdir -p release-artifacts/recovery-checkpoint
-          node scripts/release-deployment-state.mjs \
+          node scripts/release-deployment-state.mts \
             checkpoint "$RELEASE_TARGET" \
             release-artifacts/recovery-checkpoint
-          node scripts/release-r2-policy-state.mjs \
+          node scripts/release-r2-policy-state.mts \
             snapshot "$RELEASE_TARGET" \
             release-artifacts/recovery-checkpoint
 
@@ -222,8 +222,8 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor, CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            | node scripts/capture-wrangler-d1-json.mjs "$floor_file"
-          node scripts/release-worker-floor-state.mjs \
+            | node scripts/capture-wrangler-d1-json.mts "$floor_file"
+          node scripts/release-worker-floor-state.mts \
             snapshot "$RELEASE_TARGET" "$floor_file" \
             release-artifacts/recovery-checkpoint
 
@@ -251,9 +251,9 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            | node scripts/capture-wrangler-d1-json.mjs \
+            | node scripts/capture-wrangler-d1-json.mts \
                 release-artifacts/deployments/pro-room-generation-cutover-before-rollout.json
-          node scripts/pro-room-generation-cutover.mjs cutover-outputs \
+          node scripts/pro-room-generation-cutover.mts cutover-outputs \
             release-artifacts/deployments/pro-room-generation-cutover-before-rollout.json \
             >> "$GITHUB_OUTPUT"
 
@@ -296,7 +296,7 @@ jobs:
             if npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
               --remote --json --config cloudflare/wrangler.app.toml \
               --command "$fence_sql" \
-              | node scripts/capture-wrangler-d1-json.mjs "$fence_file"; then
+              | node scripts/capture-wrangler-d1-json.mts "$fence_file"; then
               break
             fi
             rm -f "$fence_file"
@@ -306,7 +306,7 @@ jobs:
             fi
             sleep "$((attempt * 2))"
           done
-          node scripts/pro-room-generation-cutover.mjs verify-cutover \
+          node scripts/pro-room-generation-cutover.mts verify-cutover \
             "$fence_file" \
             disabled
 
@@ -329,7 +329,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_lifetime_metric_totals' AND instr(lower(sql), 'count integer not null') > 0 AND instr(lower(sql), 'check (count >= 0)') > 0) AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_lifetime_room_opened_insert', 'mxqr_lifetime_room_opened_increment')) AS trigger_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_lifetime_room_opened_insert', 'mxqr_lifetime_room_opened_increment') AND instr(lower(sql), 'new.event = ''room_opened''') > 0 AND instr(lower(sql), 'mxqr_lifetime_metric_totals') > 0) AS room_opened_guard_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'mxqr_lifetime_room_opened_insert' AND instr(lower(sql), 'new.count > 0') > 0) AS insert_guard_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'mxqr_lifetime_room_opened_increment' AND instr(lower(sql), 'new.count > old.count') > 0 AND instr(lower(sql), 'new.count - old.count') > 0) AS increment_guard_count, (SELECT COUNT(*) FROM mxqr_lifetime_metric_totals WHERE event = 'room_opened' AND typeof(count) = 'integer' AND count >= 0) AS row_count, (SELECT count FROM mxqr_lifetime_metric_totals WHERE event = 'room_opened') AS rooms_opened, (SELECT COALESCE(SUM(count), 0) FROM mxqr_metric_buckets WHERE event = 'room_opened') AS retained_rooms_opened" \
-            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
           jq -e '
             .[0].results[0]
             | (.table_count | tonumber) == 1
@@ -364,7 +364,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('mxqr_pro_grant_campaigns', 'mxqr_pro_grant_voucher_batches', 'mxqr_pro_grant_vouchers', 'mxqr_pro_grant_account_fences', 'mxqr_pro_grants', 'mxqr_pro_grant_allocations', 'mxqr_pro_grant_redemptions', 'mxqr_pro_grant_audit', 'mxqr_pro_account_entitlements')) AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_mxqr_pro_grant_vouchers_campaign_status', 'idx_mxqr_pro_grant_vouchers_batch', 'idx_mxqr_pro_grants_one_current_pro_per_account', 'idx_mxqr_pro_grants_validity_status', 'idx_mxqr_pro_grant_allocations_room_status', 'idx_mxqr_pro_grant_redemptions_account_campaign', 'idx_mxqr_pro_grant_audit_campaign_created', 'idx_mxqr_pro_account_entitlements_one_current_account', 'idx_mxqr_pro_account_entitlements_one_reserved_room', 'idx_mxqr_pro_account_entitlements_room_status', 'idx_mxqr_pro_account_entitlements_transfer_request')) AS index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_pro_grant_campaigns_no_delete', 'mxqr_pro_grant_voucher_batches_no_delete', 'mxqr_pro_grant_voucher_material_immutable', 'mxqr_pro_grant_voucher_registry_guard', 'mxqr_pro_grant_vouchers_no_delete', 'mxqr_pro_grants_no_delete', 'mxqr_pro_grant_account_fences_no_update', 'mxqr_pro_grant_account_fences_no_delete', 'mxqr_pro_grant_allocations_no_delete', 'mxqr_pro_grant_redemptions_no_delete', 'mxqr_pro_account_entitlements_material_immutable', 'mxqr_pro_account_entitlements_no_delete', 'mxqr_pro_grant_audit_no_update', 'mxqr_pro_grant_audit_no_delete')) AS trigger_count, (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_grant_vouchers') WHERE lower(name) IN ('code', 'raw_code', 'plaintext_code')) + (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_grant_audit') WHERE lower(name) IN ('code', 'code_digest', 'raw_code', 'plaintext_code', 'claim_token', 'cookie', 'pin')) AS forbidden_secret_column_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mxqr_pro_grants_one_current_pro_per_account' AND instr(lower(sql), 'pending_activation') > 0 AND instr(lower(sql), 'active') > 0 AND instr(lower(sql), 'suspended') > 0) AS account_limit_index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_pro_grant_account_fences' AND instr(lower(sql), 'account_deleted') > 0) AS account_fence_table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mxqr_pro_account_entitlements_one_current_account' AND instr(lower(sql), '''reserved''') > 0 AND instr(lower(sql), '''active''') > 0 AND instr(lower(sql), '''suspended''') > 0 AND instr(lower(sql), '''transfer_source_reserved''') > 0 AND instr(lower(sql), '''transfer_source_active''') > 0 AND instr(lower(sql), '''transfer_source_suspended''') > 0) AS entitlement_account_index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mxqr_pro_account_entitlements_one_reserved_room' AND instr(lower(sql), '''reserved''') > 0 AND instr(lower(sql), '''active''') > 0 AND instr(lower(sql), '''suspended''') > 0 AND instr(lower(sql), '''orphaned''') > 0 AND instr(lower(sql), 'transfer_source') = 0) AS entitlement_room_index_count" \
-            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
           jq -e '
             .[0].results[0]
             | (.table_count | tonumber) == 9
@@ -396,7 +396,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT COUNT(*) AS column_count FROM pragma_table_info('mxqr_pro_room_registry') WHERE name = 'suspension_reason'" \
-            | node scripts/capture-wrangler-d1-json.mjs "$probe_file"
+            | node scripts/capture-wrangler-d1-json.mts "$probe_file"
           column_count="$(jq -er '.[0].results[0].column_count | tonumber' "$probe_file")"
           if [[ "$column_count" == '0' ]]; then
             npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
@@ -432,7 +432,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_registry') WHERE name = 'suspension_reason') AS column_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_pro_room_registry_suspension_reason_insert_guard', 'mxqr_pro_room_registry_suspension_reason_update_guard')) AS trigger_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_pro_room_registry_suspension_reason_insert_guard', 'mxqr_pro_room_registry_suspension_reason_update_guard') AND instr(lower(sql), 'new.suspension_reason is null') > 0) AS null_guard_count, (SELECT COUNT(*) FROM mxqr_pro_room_registry WHERE status = 'suspended' AND (suspension_reason IS NULL OR suspension_reason NOT IN ('operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'))) AS invalid_suspended_count, (SELECT COUNT(*) FROM mxqr_pro_room_registry WHERE status <> 'suspended' AND suspension_reason IS NOT NULL) AS invalid_active_count" \
-            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
           jq -e '
             .[0].results[0]
             | (.column_count | tonumber) == 1
@@ -464,7 +464,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('mxqr_pro_room_owner_transfer_sagas', 'mxqr_pro_room_owner_transfer_issuances')) AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_mxqr_pro_room_owner_transfer_sagas_txn', 'idx_mxqr_pro_room_owner_transfer_sagas_state_updated', 'idx_mxqr_pro_room_owner_transfer_issuances_txn', 'idx_mxqr_pro_room_owner_transfer_issuances_state_expiry')) AS index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('trg_mxqr_pro_room_owner_transfer_issuance_expiry_audit', 'trg_mxqr_pro_room_owner_transfer_saga_expiry_audit') AND instr(lower(sql), 'new.state = ''expired''') > 0 AND instr(lower(sql), 'mxqr_pro_room_admin_audit') > 0) AS trigger_count, (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_owner_transfer_sagas') WHERE lower(name) IN ('claim_token', 'claim_nonce', 'commit_proof', 'pin', 'cookie', 'revocation_receipt')) + (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_owner_transfer_issuances') WHERE lower(name) IN ('claim_token', 'claim_nonce', 'commit_proof', 'pin', 'cookie', 'revocation_receipt')) AS secret_column_count" \
-            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
           jq -e '
             .[0].results[0]
             | (.table_count | tonumber) == 2
@@ -492,7 +492,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-developer-api \
             --remote --json --config cloudflare/wrangler.developer-api.toml \
             --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_developer_api_room_authority_fences') AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mxqr_developer_api_room_authority_fences_status') AS index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('trg_mxqr_developer_api_keys_authority_fenced_insert', 'trg_mxqr_developer_api_keys_authority_fenced_update')) AS trigger_count" \
-            | node scripts/capture-wrangler-d1-json.mjs "$probe_file"
+            | node scripts/capture-wrangler-d1-json.mts "$probe_file"
           table_count="$(jq -er '.[0].results[0].table_count | tonumber' "$probe_file")"
           index_count="$(jq -er '.[0].results[0].index_count | tonumber' "$probe_file")"
           trigger_count="$(jq -er '.[0].results[0].trigger_count | tonumber' "$probe_file")"
@@ -535,7 +535,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-developer-api \
             --remote --json --config cloudflare/wrangler.developer-api.toml \
             --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_developer_api_room_authority_fences' AND instr(lower(sql), 'primary key (room_code, room_generation)') > 0 AND instr(lower(sql), 'status in (''active'', ''cleared'')') > 0) AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mxqr_developer_api_room_authority_fences_status') AS index_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('trg_mxqr_developer_api_keys_authority_fenced_insert', 'trg_mxqr_developer_api_keys_authority_fenced_update') AND instr(lower(sql), 'developer_api_authority_fenced') > 0) AS trigger_count, (SELECT COUNT(*) FROM mxqr_developer_api_room_authority_fences WHERE status NOT IN ('active', 'cleared') OR reason NOT IN ('owner_account_deleted', 'ownership_transfer_pending')) AS invalid_fence_count" \
-            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
           jq -e '
             .[0].results[0]
             | (.table_count | tonumber) == 1
@@ -563,7 +563,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-developer-api \
             --remote --json --config cloudflare/wrangler.developer-api.toml \
             --command "SELECT (SELECT COUNT(*) FROM pragma_table_info('mxqr_developer_api_keys') WHERE name = 'authority_epoch') AS column_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'trg_mxqr_developer_api_keys_authority_epoch_immutable') AS trigger_count" \
-            | node scripts/capture-wrangler-d1-json.mjs "$probe_file"
+            | node scripts/capture-wrangler-d1-json.mts "$probe_file"
           column_count="$(jq -er '.[0].results[0].column_count | tonumber' "$probe_file")"
           trigger_count="$(jq -er '.[0].results[0].trigger_count | tonumber' "$probe_file")"
           if [[ "$column_count" == '0' ]]; then
@@ -591,7 +591,7 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-developer-api \
             --remote --json --config cloudflare/wrangler.developer-api.toml \
             --command "SELECT (SELECT COUNT(*) FROM pragma_table_info('mxqr_developer_api_keys') WHERE name = 'authority_epoch' AND \"notnull\" = 1 AND dflt_value = '0') AS column_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_developer_api_keys' AND instr(lower(sql), 'authority_epoch integer not null default 0 check (authority_epoch >= 0)') > 0) AS constraint_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'trg_mxqr_developer_api_keys_authority_epoch_immutable' AND instr(lower(sql), 'new.authority_epoch <> old.authority_epoch') > 0) AS trigger_count, (SELECT COUNT(*) FROM mxqr_developer_api_keys WHERE authority_epoch < 0) AS invalid_epoch_count" \
-            | node scripts/capture-wrangler-d1-json.mjs "$verify_file"
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
           jq -e '
             .[0].results[0]
             | (.column_count | tonumber) == 1
@@ -633,7 +633,7 @@ jobs:
       - name: Verify Developer API schema release intent
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         run: |
-          node scripts/check-developer-api-schema-release.mjs \
+          node scripts/check-developer-api-schema-release.mts \
             release-artifacts/deployments/developer-api-before.json \
             "${{ github.sha }}" \
             "${{ inputs.apply_developer_api_d1 }}"
@@ -644,7 +644,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          node scripts/release-r2-policy-state.mjs \
+          node scripts/release-r2-policy-state.mts \
             preflight remote-share-cors release-artifacts/recovery-checkpoint
           npm run --silent wrangler -- r2 bucket cors set musixquare-remote-share \
             --file cloudflare/r2-cors.remote-share.json \
@@ -681,7 +681,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          node scripts/release-r2-policy-state.mjs \
+          node scripts/release-r2-policy-state.mts \
             preflight remote-share-lifecycle release-artifacts/recovery-checkpoint
           npm run --silent wrangler -- r2 bucket lifecycle set musixquare-remote-share \
             --file cloudflare/r2-lifecycle.remote-share.json \
@@ -705,7 +705,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
-          node scripts/release-r2-policy-state.mjs \
+          node scripts/release-r2-policy-state.mts \
             preflight pro-media-cors release-artifacts/recovery-checkpoint
           npm run --silent wrangler -- r2 bucket cors set musixquare-pro-media \
             --file cloudflare/r2-cors.pro-media.json \
@@ -735,7 +735,7 @@ jobs:
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.pro-room.toml --json \
             > release-artifacts/deployments/pro-room-before.json
-          node scripts/release-deployment-state.mjs prepare pro-room
+          node scripts/release-deployment-state.mts prepare pro-room
 
       - name: Deploy and record PRO room Worker
         timeout-minutes: 15
@@ -746,11 +746,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
-            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+            node scripts/release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs \
+          node scripts/release-deployment-state.mts \
             preflight pro-room release-artifacts/recovery-checkpoint
-          node scripts/release-deployment-state.mjs attempt pro-room
+          node scripts/release-deployment-state.mts attempt pro-room
           set +e
           npm run --silent wrangler -- deploy \
             --config cloudflare/wrangler.pro-room.toml \
@@ -762,14 +762,14 @@ jobs:
           status_exit=$?
           record_exit=0
           if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mjs record pro-room
+            node scripts/release-deployment-state.mts record pro-room
             record_exit=$?
           fi
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
           if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
-          version_id="$(node scripts/release-deployment-state.mjs version pro-room)"
+          version_id="$(node scripts/release-deployment-state.mts version pro-room)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke PRO room Worker
@@ -791,7 +791,7 @@ jobs:
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.remote-share.toml --json \
             > release-artifacts/deployments/remote-share-before.json
-          node scripts/release-deployment-state.mjs prepare remote-share
+          node scripts/release-deployment-state.mts prepare remote-share
 
       - name: Deploy and record remote-share Worker
         timeout-minutes: 15
@@ -802,11 +802,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
-            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+            node scripts/release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs \
+          node scripts/release-deployment-state.mts \
             preflight remote-share release-artifacts/recovery-checkpoint
-          node scripts/release-deployment-state.mjs attempt remote-share
+          node scripts/release-deployment-state.mts attempt remote-share
           set +e
           npm run --silent wrangler -- deploy \
             --config cloudflare/wrangler.remote-share.toml \
@@ -818,14 +818,14 @@ jobs:
           status_exit=$?
           record_exit=0
           if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mjs record remote-share
+            node scripts/release-deployment-state.mts record remote-share
             record_exit=$?
           fi
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
           if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
-          version_id="$(node scripts/release-deployment-state.mjs version remote-share)"
+          version_id="$(node scripts/release-deployment-state.mts version remote-share)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke remote-share Worker
@@ -845,7 +845,7 @@ jobs:
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.signaling.toml --json \
             > release-artifacts/deployments/signaling-before.json
-          node scripts/release-deployment-state.mjs prepare signaling
+          node scripts/release-deployment-state.mts prepare signaling
 
       - name: Deploy and record signaling Worker
         timeout-minutes: 15
@@ -856,11 +856,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
-            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+            node scripts/release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs \
+          node scripts/release-deployment-state.mts \
             preflight signaling release-artifacts/recovery-checkpoint
-          node scripts/release-deployment-state.mjs attempt signaling
+          node scripts/release-deployment-state.mts attempt signaling
           set +e
           npm run --silent wrangler -- deploy \
             --config cloudflare/wrangler.signaling.toml \
@@ -872,14 +872,14 @@ jobs:
           status_exit=$?
           record_exit=0
           if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mjs record signaling
+            node scripts/release-deployment-state.mts record signaling
             record_exit=$?
           fi
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
           if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
-          version_id="$(node scripts/release-deployment-state.mjs version signaling)"
+          version_id="$(node scripts/release-deployment-state.mts version signaling)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke signaling Worker
@@ -910,7 +910,7 @@ jobs:
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.developer-api-facade.toml --json \
             > release-artifacts/deployments/developer-api-facade-before.json
-          node scripts/release-deployment-state.mjs prepare developer-api-facade
+          node scripts/release-deployment-state.mts prepare developer-api-facade
 
       - name: Deploy and record Developer API facade Worker
         timeout-minutes: 15
@@ -921,11 +921,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
-            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+            node scripts/release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs \
+          node scripts/release-deployment-state.mts \
             preflight developer-api-facade release-artifacts/recovery-checkpoint
-          node scripts/release-deployment-state.mjs attempt developer-api-facade
+          node scripts/release-deployment-state.mts attempt developer-api-facade
           set +e
           npm run --silent wrangler -- deploy \
             --config cloudflare/wrangler.developer-api-facade.toml \
@@ -937,14 +937,14 @@ jobs:
           status_exit=$?
           record_exit=0
           if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mjs record developer-api-facade
+            node scripts/release-deployment-state.mts record developer-api-facade
             record_exit=$?
           fi
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
           if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
-          version_id="$(node scripts/release-deployment-state.mjs version developer-api-facade)"
+          version_id="$(node scripts/release-deployment-state.mts version developer-api-facade)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Record current Developer API deployment
@@ -952,7 +952,7 @@ jobs:
         if: inputs.target == 'all' || inputs.target == 'developer-api'
         shell: bash
         run: |
-          node scripts/release-deployment-state.mjs prepare developer-api
+          node scripts/release-deployment-state.mts prepare developer-api
 
       - name: Apply Developer API base schema
         timeout-minutes: 10
@@ -970,11 +970,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
-            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+            node scripts/release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs \
+          node scripts/release-deployment-state.mts \
             preflight developer-api release-artifacts/recovery-checkpoint
-          node scripts/release-deployment-state.mjs attempt developer-api
+          node scripts/release-deployment-state.mts attempt developer-api
           set +e
           npm run --silent wrangler -- deploy \
             --config cloudflare/wrangler.developer-api.toml \
@@ -986,14 +986,14 @@ jobs:
           status_exit=$?
           record_exit=0
           if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mjs record developer-api
+            node scripts/release-deployment-state.mts record developer-api
             record_exit=$?
           fi
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
           if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
-          version_id="$(node scripts/release-deployment-state.mjs version developer-api)"
+          version_id="$(node scripts/release-deployment-state.mts version developer-api)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
 
       - name: Smoke Developer API Worker
@@ -1016,7 +1016,7 @@ jobs:
           npm run --silent wrangler -- deployments status \
             --config cloudflare/wrangler.app.toml --json \
             > release-artifacts/deployments/app-before.json
-          node scripts/release-deployment-state.mjs prepare app
+          node scripts/release-deployment-state.mts prepare app
 
       - name: Deploy and record app Worker with immutable dist
         timeout-minutes: 15
@@ -1026,11 +1026,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           if [[ "$RELEASE_TARGET" != 'all' ]]; then
-            node scripts/release-deployment-state.mjs compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
+            node scripts/release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"
           fi
-          node scripts/release-deployment-state.mjs \
+          node scripts/release-deployment-state.mts \
             preflight app release-artifacts/recovery-checkpoint
-          node scripts/release-deployment-state.mjs attempt app
+          node scripts/release-deployment-state.mts attempt app
           set +e
           npm run --silent wrangler -- deploy \
             --config cloudflare/wrangler.app.toml \
@@ -1042,7 +1042,7 @@ jobs:
           status_exit=$?
           record_exit=0
           if (( status_exit == 0 )); then
-            node scripts/release-deployment-state.mjs record app
+            node scripts/release-deployment-state.mts record app
             record_exit=$?
           fi
           set -e
@@ -1070,7 +1070,7 @@ jobs:
         id: final_verification
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node scripts/release-deployment-state.mjs verify-current
+        run: node scripts/release-deployment-state.mts verify-current
 
       - name: Restore PRO room generation readiness
         timeout-minutes: 10
@@ -1083,9 +1083,9 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'ready', release_sha = '${{ github.sha }}', updated_at = unixepoch() * 1000 WHERE contract_version = 1 AND ever_enabled = 1 AND floor_release_sha IS NOT NULL; SELECT contract_version, status, release_sha, ever_enabled, floor_release_sha, ever_enabled AS generation_floor FROM mxqr_pro_room_generation_cutover WHERE contract_version = 1" \
-            | node scripts/capture-wrangler-d1-json.mjs \
+            | node scripts/capture-wrangler-d1-json.mts \
                 release-artifacts/deployments/pro-room-generation-cutover-ready.json
-          node scripts/pro-room-generation-cutover.mjs verify-cutover \
+          node scripts/pro-room-generation-cutover.mts verify-cutover \
             release-artifacts/deployments/pro-room-generation-cutover-ready.json \
             ready \
             "${{ github.sha }}"
@@ -1121,10 +1121,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         shell: bash
         run: |
-          node scripts/release-r2-policy-state.mjs \
+          node scripts/release-r2-policy-state.mts \
             assess release-artifacts/recovery-checkpoint
           forward_targets="$(
-            node scripts/release-r2-policy-state.mjs \
+            node scripts/release-r2-policy-state.mts \
               targets release-artifacts/recovery-checkpoint
           )"
           echo "forward_targets=${forward_targets}" >> "$GITHUB_OUTPUT"
@@ -1146,12 +1146,12 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "UPDATE mxqr_pro_room_generation_cutover SET status = 'disabled', release_sha = NULL, updated_at = unixepoch() * 1000 WHERE contract_version = 1; SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            | node scripts/capture-wrangler-d1-json.mjs \
+            | node scripts/capture-wrangler-d1-json.mts \
                 release-artifacts/deployments/pro-room-generation-cutover-disabled.json
-          node scripts/pro-room-generation-cutover.mjs verify-cutover \
+          node scripts/pro-room-generation-cutover.mts verify-cutover \
             release-artifacts/deployments/pro-room-generation-cutover-disabled.json \
             disabled
-          node scripts/pro-room-generation-cutover.mjs cutover-outputs \
+          node scripts/pro-room-generation-cutover.mts cutover-outputs \
             release-artifacts/deployments/pro-room-generation-cutover-disabled.json \
             >> "$GITHUB_OUTPUT"
 
@@ -1173,11 +1173,11 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor, CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            | node scripts/capture-wrangler-d1-json.mjs "$floor_file"
-          node scripts/release-worker-floor-state.mjs \
+            | node scripts/capture-wrangler-d1-json.mts "$floor_file"
+          node scripts/release-worker-floor-state.mts \
             assess release-artifacts/recovery-checkpoint "$floor_file" \
             release-artifacts/recovery-checkpoint
-          forward_targets="$(node scripts/release-worker-floor-state.mjs targets release-artifacts/recovery-checkpoint)"
+          forward_targets="$(node scripts/release-worker-floor-state.mts targets release-artifacts/recovery-checkpoint)"
           echo "forward_targets=${forward_targets}" >> "$GITHUB_OUTPUT"
 
       - name: Restore release-owned Workers after a failed release
@@ -1193,11 +1193,11 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           service_control_forward_floor="$(
-            node scripts/release-deployment-state.mjs \
+            node scripts/release-deployment-state.mts \
               service-control-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
           remote_share_forward_floor="$(
-            node scripts/release-deployment-state.mjs \
+            node scripts/release-deployment-state.mts \
               remote-share-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
           rollback_skip_targets="$(
@@ -1209,11 +1209,11 @@ jobs:
             MXQR_APPLY_DEVELOPER_API_D1="${{ inputs.apply_developer_api_d1 }}" \
             MXQR_SERVICE_CONTROL_FORWARD_FLOOR="$service_control_forward_floor" \
             MXQR_REMOTE_SHARE_FORWARD_FLOOR="$remote_share_forward_floor" \
-            node scripts/release-recovery-plan.mjs
+            node scripts/release-recovery-plan.mts
           )"
           echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"
           MXQR_ROLLBACK_SKIP_TARGETS="$rollback_skip_targets" \
-            node scripts/release-deployment-state.mjs \
+            node scripts/release-deployment-state.mts \
               rollback release-artifacts/recovery-checkpoint
       - name: Reconcile R2 policy with the exact recovered Worker boundary
         timeout-minutes: 10
@@ -1227,7 +1227,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         shell: bash
         run: |
-          node scripts/release-r2-policy-state.mjs \
+          node scripts/release-r2-policy-state.mts \
             reconcile \
             release-artifacts/recovery-checkpoint \
             release-artifacts/recovery-checkpoint
@@ -1244,7 +1244,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         shell: bash
         run: |
-          node scripts/release-r2-policy-state.mjs \
+          node scripts/release-r2-policy-state.mts \
             verify-paired-recovery \
             release-artifacts/recovery-checkpoint \
             release-artifacts/recovery-checkpoint
@@ -1266,8 +1266,8 @@ jobs:
           npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
             --remote --json --config cloudflare/wrangler.app.toml \
             --command "SELECT cutover.contract_version, cutover.status, cutover.release_sha, cutover.ever_enabled, cutover.floor_release_sha, CASE WHEN cutover.ever_enabled = 1 OR EXISTS (SELECT 1 FROM mxqr_pro_room_registry WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_history WHERE room_generation > 0) OR EXISTS (SELECT 1 FROM mxqr_pro_room_generation_allocations WHERE room_generation > 0) THEN 1 ELSE 0 END AS generation_floor, CASE WHEN EXISTS (SELECT 1 FROM mxqr_pro_grant_audit WHERE actor_id = 'system:entitlement-backfill' AND action = 'entitlement.backfill' AND result = 'complete') THEN 1 ELSE 0 END AS entitlement_floor FROM mxqr_pro_room_generation_cutover AS cutover WHERE cutover.contract_version = 1" \
-            | node scripts/capture-wrangler-d1-json.mjs "$floor_file"
-          node scripts/release-worker-floor-state.mjs \
+            | node scripts/capture-wrangler-d1-json.mts "$floor_file"
+          node scripts/release-worker-floor-state.mts \
             verify release-artifacts/recovery-checkpoint "$floor_file" \
             release-artifacts/recovery-checkpoint
 
@@ -1285,7 +1285,7 @@ jobs:
       - name: Release summary
         if: always()
         run: |
-          wrangler_version="$(node -p "require('./node_modules/wrangler/package.json').version")"
+          wrangler_version="$(node scripts/print-wrangler-version.mts)"
           echo "### MUSIXQUARE production release" >> "$GITHUB_STEP_SUMMARY"
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
@@ -1303,7 +1303,7 @@ jobs:
           echo "- Fresh paired recovery verification: \`${{ steps.paired_recovery_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery compatibility floor: \`${{ steps.worker_rollback.outputs.skipped_targets || 'none' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Cloudflare deployment records are attached to this run." >> "$GITHUB_STEP_SUMMARY"
-          node scripts/release-deployment-state.mjs \
+          node scripts/release-deployment-state.mts \
             summary release-artifacts/recovery-checkpoint
 
       - name: Fail release when automatic recovery is incomplete

@@ -2,11 +2,15 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { extname, join, relative, resolve, sep } from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
+import {
+  CLASSIC_RUNTIME_ASSETS,
+  compileClassicRuntimeAsset,
+} from '../../../scripts/classic-runtime-assets.ts';
 
 const ANALYTICS_SRC = 'https://static.cloudflareinsights.com/beacon.min.js';
 const ANALYTICS_INTEGRITY =
   'sha384-RPC48PglHYv6iOCN3mmnZnP3gNOZVwfDZ7lX5wedb4S/ZijsfoDPi/hoEMk+9Nyw';
-const SOURCE_ROOTS = ['public', '.workshop'];
+const SOURCE_ROOTS = ['public', '.workshop', 'browser/classic-runtime'];
 const STATIC_ANALYTICS_PAGES = [
   '.workshop/developers/developers.html',
   '.workshop/faq/faq.html',
@@ -35,11 +39,11 @@ function sourceFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const path = join(directory, entry.name);
     if (entry.isDirectory()) return sourceFiles(path);
-    return entry.isFile() && ['.html', '.js'].includes(extname(entry.name)) ? [path] : [];
+    return entry.isFile() && ['.html', '.js', '.ts'].includes(extname(entry.name)) ? [path] : [];
   });
 }
 
-function runStandaloneAnalyticsLoader({
+async function runStandaloneAnalyticsLoader({
   hash = '',
   hostname = 'musixquare.com',
   pathname = '/privacy',
@@ -51,7 +55,7 @@ function runStandaloneAnalyticsLoader({
   pathname?: string;
   referrer?: string;
   search?: string;
-} = {}): FakeScript[] {
+} = {}): Promise<FakeScript[]> {
   const appendedScripts: FakeScript[] = [];
   const location = { hash, hostname, pathname, search };
   const document = {
@@ -73,7 +77,11 @@ function runStandaloneAnalyticsLoader({
     },
   };
   const windowObject = { document, location };
-  const source = readFileSync(resolve('public/analytics-bootstrap.js'), 'utf8');
+  const asset = CLASSIC_RUNTIME_ASSETS.find(
+    (candidate) => candidate.outputPath === 'analytics-bootstrap.js',
+  );
+  if (!asset) throw new Error('Classic analytics runtime is missing from the manifest.');
+  const { code: source } = await compileClassicRuntimeAsset(resolve('.'), asset);
   vm.runInContext(source, vm.createContext({ URL, document, location, window: windowObject }));
   return appendedScripts;
 }
@@ -106,14 +114,14 @@ describe('Cloudflare Web Analytics supply-chain boundary', () => {
     expect(accountComplete).not.toContain('/analytics-bootstrap.js');
   });
 
-  it('allows only the two guarded first-party loaders to inject the pinned script', () => {
-    const javascriptFiles = analyticsFiles
-      .filter((path) => extname(path) === '.js')
+  it('allows only the two guarded first-party loaders to inject the pinned script', async () => {
+    const runtimeSourceFiles = analyticsFiles
+      .filter((path) => ['.js', '.ts'].includes(extname(path)))
       .map((path) => portablePath(relative(repositoryRoot, path)))
       .sort();
-    expect(javascriptFiles).toEqual(['public/analytics-bootstrap.js']);
+    expect(runtimeSourceFiles).toEqual(['browser/classic-runtime/analytics-bootstrap.ts']);
 
-    for (const path of javascriptFiles) {
+    for (const path of runtimeSourceFiles) {
       const source = readFileSync(resolve(path), 'utf8');
       expect(source).toContain(`'${ANALYTICS_INTEGRITY}'`);
       expect(source).toContain('script.integrity = ANALYTICS_INTEGRITY;');
@@ -121,7 +129,11 @@ describe('Cloudflare Web Analytics supply-chain boundary', () => {
       expect(source).toContain('JSON.stringify({ token: ANALYTICS_TOKEN, spa: false })');
     }
 
-    const appBootstrap = readFileSync(resolve('public/bootstrap.js'), 'utf8');
+    const bootstrapAsset = CLASSIC_RUNTIME_ASSETS.find(
+      (candidate) => candidate.outputPath === 'bootstrap.js',
+    );
+    if (!bootstrapAsset) throw new Error('Classic bootstrap runtime is missing from the manifest.');
+    const appBootstrap = (await compileClassicRuntimeAsset(repositoryRoot, bootstrapAsset)).code;
     expect(appBootstrap).not.toContain(ANALYTICS_SRC);
     expect(appBootstrap).not.toContain('data-cf-beacon');
   });
@@ -129,8 +141,8 @@ describe('Cloudflare Web Analytics supply-chain boundary', () => {
   it.each([
     ['musixquare.com', '/privacy'],
     ['listen.musixquare.com', '/blog'],
-  ])('loads on production queryless non-room URL %s%s', (hostname, pathname) => {
-    const scripts = runStandaloneAnalyticsLoader({ hostname, pathname, search: '' });
+  ])('loads on production queryless non-room URL %s%s', async (hostname, pathname) => {
+    const scripts = await runStandaloneAnalyticsLoader({ hostname, pathname, search: '' });
 
     expect(scripts).toHaveLength(1);
     expect(scripts[0]).toMatchObject({
@@ -153,22 +165,28 @@ describe('Cloudflare Web Analytics supply-chain boundary', () => {
     ['musixquare.com', '/privacy', '', '#claim_token=secret'],
     ['localhost', '/privacy', '', ''],
     ['preview.example.com', '/privacy', '', ''],
-  ])('fails closed on host=%s path=%s search=%s hash=%s', (hostname, pathname, search, hash) => {
-    expect(runStandaloneAnalyticsLoader({ hash, hostname, pathname, search })).toEqual([]);
-  });
+  ])(
+    'fails closed on host=%s path=%s search=%s hash=%s',
+    async (hostname, pathname, search, hash) => {
+      expect(await runStandaloneAnalyticsLoader({ hash, hostname, pathname, search })).toEqual([]);
+    },
+  );
 
   it.each([
     'https://musixquare.com/000001',
     'https://musixquare.com/000001/',
     'https://musixquare.com/about?claim_token=secret',
-  ])('fails closed when the document referrer can expose room or query state: %s', (referrer) => {
-    expect(runStandaloneAnalyticsLoader({ referrer })).toEqual([]);
-  });
+  ])(
+    'fails closed when the document referrer can expose room or query state: %s',
+    async (referrer) => {
+      expect(await runStandaloneAnalyticsLoader({ referrer })).toEqual([]);
+    },
+  );
 
-  it('allows a path-only non-room referrer', () => {
-    expect(runStandaloneAnalyticsLoader({ referrer: 'https://musixquare.com/about' })).toHaveLength(
-      1,
-    );
+  it('allows a path-only non-room referrer', async () => {
+    expect(
+      await runStandaloneAnalyticsLoader({ referrer: 'https://musixquare.com/about' }),
+    ).toHaveLength(1);
   });
 
   it('keeps the pinned analytics endpoints explicit in the static CSP contract', () => {

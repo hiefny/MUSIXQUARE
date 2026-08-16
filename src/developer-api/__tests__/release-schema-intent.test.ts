@@ -4,8 +4,8 @@ import {
   assertBaselineContractChanged,
   assertDeveloperApiSchemaRelease,
   releaseCommitFromDeployment,
-} from '../../../scripts/check-developer-api-schema-release.mjs';
-import { loadD1MigrationManifest } from '../../../scripts/check-d1-migration-contract.mjs';
+} from '../../../scripts/check-developer-api-schema-release.mts';
+import { loadD1MigrationManifest } from '../../../scripts/check-d1-migration-contract.mts';
 
 const PREVIOUS = '1'.repeat(40);
 const CURRENT = '2'.repeat(40);

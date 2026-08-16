@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.worker.base.json",
+  "files": [
+    "types/app.generated.d.ts",
+    "account-auth.ts",
+    "account-assertion.ts",
+    "pro-room-claims.ts",
+    "pro-room-grants.ts",
+    "pro-bot.ts",
+    "service-maintenance.ts",
+    "standard-room-account-assertion.ts"
+  ],
+  "include": ["app-worker.ts", "app-worker.contract.ts"]
+}

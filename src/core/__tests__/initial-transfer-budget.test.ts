@@ -15,7 +15,7 @@ import {
   assertInitialTransferBudget,
   collectEagerAssetUrls,
   measureInitialTransfer,
-} from '../../../scripts/check-initial-transfer-budget.mjs';
+} from '../../../scripts/check-initial-transfer-budget.mts';
 
 const temporaryDirectories: string[] = [];
 
@@ -156,7 +156,7 @@ describe('initial transfer budget', () => {
       scripts: Record<string, string>;
     };
     expect(packageJson.scripts['guard:initial-transfer-budget']).toContain(
-      'check-initial-transfer-budget.mjs',
+      'check-initial-transfer-budget.mts',
     );
     expect(packageJson.scripts['build:checked']).toContain('guard:initial-transfer-budget');
   });

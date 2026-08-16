@@ -9,8 +9,9 @@ import {
   issueProRoomOwnerTransferRevocationReceipt,
   verifyProRoomActivationClaim,
   verifyProRoomOwnerRecoveryClaim,
+  verifyProRoomOwnerTransferCommitProof,
   verifyProRoomOwnerTransferRevocationReceipt,
-} from '../../../cloudflare/pro-room-claims.js';
+} from '../../../cloudflare/pro-room-claims.ts';
 
 const NOW_MS = 1_700_000_000_000;
 const EXPIRES_AT_MS = NOW_MS + 60_000;
@@ -149,22 +150,47 @@ describe('PRO room claim wire contract', () => {
   });
 
   it('keeps owner-transfer commit proof bytes stable across rolling Worker versions', async () => {
-    const token = await createProRoomOwnerTransferCommitProof(
-      {
-        roomCode: ROOM_CODE,
-        roomGeneration: 3,
-      },
-      {
-        transferId: 'transfer_0123456789abcdefABCDEF',
-        requestId: 'request-id-000001',
-        targetAccountId: TARGET_ACCOUNT_ID,
-        ownerAuthorityEpoch: 9,
-        preparedAtMs: NOW_MS,
-      },
-      SECRET,
-    );
+    const room = {
+      roomCode: ROOM_CODE,
+      roomGeneration: 3,
+    };
+    const pending = {
+      transferId: 'transfer_0123456789abcdefABCDEF',
+      requestId: 'request-id-000001',
+      targetAccountId: TARGET_ACCOUNT_ID,
+      ownerAuthorityEpoch: 9,
+      preparedAtMs: NOW_MS,
+    };
+    const token = await createProRoomOwnerTransferCommitProof(room, pending, SECRET);
 
     expect(token).toBe(EXPECTED_TRANSFER_COMMIT_PROOF);
+    await expect(verifyProRoomOwnerTransferCommitProof(token, room, pending, SECRET)).resolves.toBe(
+      true,
+    );
+
+    const tamperedToken = `${token.slice(0, -1)}${token.endsWith('A') ? 'B' : 'A'}`;
+    await expect(
+      verifyProRoomOwnerTransferCommitProof(tamperedToken, room, pending, SECRET),
+    ).resolves.toBe(false);
+    await expect(
+      verifyProRoomOwnerTransferCommitProof(
+        token,
+        { ...room, roomGeneration: room.roomGeneration + 1 },
+        pending,
+        SECRET,
+      ),
+    ).resolves.toBe(false);
+    await expect(
+      verifyProRoomOwnerTransferCommitProof(
+        token,
+        room,
+        pending,
+        'different-characterization-secret'.padEnd(48, 'x'),
+      ),
+    ).resolves.toBe(false);
+    await expect(verifyProRoomOwnerTransferCommitProof(null, room, pending, SECRET)).resolves.toBe(
+      false,
+    );
   });
 
   it('issues and verifies the exact revocation receipt contract across the App and PRO workers', async () => {

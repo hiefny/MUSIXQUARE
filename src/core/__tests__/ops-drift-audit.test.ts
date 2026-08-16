@@ -16,7 +16,7 @@ import {
   runOpsDriftAudit,
   shortDeleteLifecycleRules,
   workerSurfaceFromToml,
-} from '../../../scripts/audit-ops-drift.mjs';
+} from '../../../scripts/audit-ops-drift.mts';
 
 function jsonResponse(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
@@ -303,6 +303,12 @@ describe('operations drift audit', () => {
     expect(
       contract.workerSurfaces.map((entry: { environment: string }) => entry.environment),
     ).toEqual(Array.from({ length: 6 }, () => 'production'));
+    expect(
+      contract.workerSurfaces.map(
+        (entry: { source: string }) =>
+          workerSurfaceFromToml(readFileSync(entry.source, 'utf8'), entry.source).uploadSourceMaps,
+      ),
+    ).toEqual(Array.from({ length: 6 }, () => true));
     const appInventory = contract.workerSecrets.find(
       (entry: { worker: string }) => entry.worker === 'musixquare-app',
     );
@@ -356,6 +362,9 @@ describe('operations drift audit', () => {
     const step = workflow.slice(stepStart, nextStep);
 
     expect(stepStart).toBeGreaterThan(-1);
+    expect(workflow).toContain('node scripts/audit-ops-drift.mts --source-only');
+    expect(workflow).toContain('run: node scripts/audit-ops-drift.mts');
+    expect(workflow).not.toContain('scripts/audit-ops-drift.mjs');
     expect(step).toContain(
       'CLOUDFLARE_DRIFT_AUDIT_TOKEN: ${{ secrets.CLOUDFLARE_DRIFT_AUDIT_TOKEN }}',
     );
@@ -378,7 +387,7 @@ describe('operations drift audit', () => {
       'Do not use the deployment token as a temporary bridge',
     );
 
-    const source = readFileSync('scripts/audit-ops-drift.mjs', 'utf8');
+    const source = readFileSync('scripts/audit-ops-drift.mts', 'utf8');
     expect(source).toContain('env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,');
     expect(source).not.toContain('env.CLOUDFLARE_DRIFT_AUDIT_TOKEN || env.CLOUDFLARE_API_TOKEN');
   });
@@ -616,6 +625,7 @@ describe('operations drift audit', () => {
     const source = `name = "fixture-worker"
 workers_dev = false
 preview_urls = false
+upload_source_maps = true
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"
@@ -645,6 +655,7 @@ service = "fixture-upstream"
       worker: 'fixture-worker',
       workersDev: false,
       previewUrls: false,
+      uploadSourceMaps: true,
       customDomains: ['fixture.example.com'],
       routes: [],
     });
@@ -667,6 +678,19 @@ service = "fixture-upstream"
     expect(JSON.stringify(normalized)).not.toContain('must-never-be-canonicalized');
     expect(JSON.stringify(normalized)).not.toContain('expected-opaque-database-id');
     expect(JSON.stringify(normalized)).not.toContain('opaque-version-id');
+
+    expect(() =>
+      workerSurfaceFromToml(
+        source.replace('upload_source_maps = true', 'upload_source_maps = false'),
+        'fixture with disabled source maps',
+      ),
+    ).toThrow('upload_source_maps must be true');
+    expect(() =>
+      workerSurfaceFromToml(
+        source.replace('upload_source_maps = true\n', ''),
+        'fixture without source maps',
+      ),
+    ).toThrow('upload_source_maps is missing');
 
     const wrongBindings = liveBindings.map((binding) =>
       binding.name === 'DB'

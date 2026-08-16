@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   validateAccountRolloutConfig,
   validateRemoteShareRolloutConfig,
-} from '../../../scripts/production-security-rollout.mjs';
+} from '../../../scripts/production-security-rollout.mts';
 
 const PRO_WITH_AUTH_DB = `
 [[d1_databases]]

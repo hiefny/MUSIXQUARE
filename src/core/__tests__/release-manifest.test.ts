@@ -7,9 +7,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   createReleaseManifest,
   verifyReleaseManifest,
-} from '../../../scripts/release-manifest.mjs';
+} from '../../../scripts/release-manifest.mts';
 
-const SCRIPT_PATH = resolve('scripts/release-manifest.mjs');
+const SCRIPT_PATH = resolve('scripts/release-manifest.mts');
 const COMMIT = '0123456789abcdef0123456789abcdef01234567';
 const temporaryDirectories: string[] = [];
 
@@ -295,5 +295,25 @@ describe('release manifest validation profile', () => {
 
     expect(verifyResult.status).not.toBe(0);
     expect(verifyResult.stderr).toContain('Release manifest product version 999.0.0');
+  });
+
+  it('fails closed before parsing when the release manifest is missing', () => {
+    const { dist, manifest } = createFixture();
+
+    const verifyResult = runManifest('verify', dist, manifest);
+
+    expect(verifyResult.status).toBe(1);
+    expect(verifyResult.stderr).toContain('Release manifest does not exist');
+  });
+
+  it('rejects a non-canonical commit before writing a release manifest', () => {
+    const { dist, manifest } = createFixture();
+    const result = runManifest('create', dist, manifest, undefined, {
+      GITHUB_SHA: '0123456789ab',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('full lowercase Git commit SHA');
+    expect(existsSync(manifest)).toBe(false);
   });
 });

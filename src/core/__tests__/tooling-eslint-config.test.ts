@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const eslint = new ESLint({
   cwd: process.cwd(),
-  overrideConfigFile: 'eslint.tooling.config.js',
+  overrideConfigFile: 'eslint.tooling.config.ts',
 });
 
 async function undefinedNames(source: string, filePath: string): Promise<string[]> {
@@ -54,7 +54,7 @@ describe('tooling ESLint runtime profiles', () => {
       'scripts',
       'e2e',
       '*.config.{js,mjs,ts}',
-      'eslint*.config.js',
+      'eslint*.config.ts',
     ]);
     const identities = results.flatMap((result) =>
       result.messages

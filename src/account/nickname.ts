@@ -5,7 +5,7 @@ import {
   hasDisplayNameWhitespaceOrFiller,
   hasVisibleDisplayNameContent,
   sanitizeDisplayNameForValidation,
-} from '../../cloudflare/display-name-policy.js';
+} from '../../cloudflare/display-name-policy.ts';
 import { t } from '../i18n/index.ts';
 import { AccountApiError } from './api.ts';
 import { saveAccountNickname } from './session.ts';

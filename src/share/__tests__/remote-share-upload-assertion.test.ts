@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   REMOTE_SHARE_UPLOAD_ASSERTION_AUDIENCE,
   REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX,
@@ -7,11 +7,14 @@ import {
   createRemoteShareUploadAssertion,
   parseRemoteShareUploadAssertionKeyring,
   verifyRemoteShareUploadAssertion,
-} from '../../../cloudflare/remote-share-upload-assertion.js';
+} from '../../../cloudflare/remote-share-upload-assertion.ts';
 
 const SECRET = 'remote-share-upload-assertion-secret-for-tests';
 const NEXT_SECRET = 'next-remote-share-upload-assertion-secret-for-tests';
 const NOW_SECONDS = 1_800_000_000;
+const GOLDEN_JTI = '30000000-0000-4000-8000-000000000003';
+const GOLDEN_ASSERTION =
+  'eyJ2IjoxLCJhdWQiOiJtdXNpeHF1YXJlLXJlbW90ZS1zaGFyZS11cGxvYWQiLCJzY29wZSI6InJlbW90ZS1zaGFyZS51cGxvYWQiLCJyb2xlIjoiaG9zdCIsInJvb21JZCI6IjEyMzQ1NiIsImhvc3RQZWVySWQiOiJob3N0X3BlZXJfMSIsInNlc3Npb25JZCI6NywicXVldWVJdGVtSWQiOiIxMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJzaXplIjoyMCwiYWN0b3JJZCI6InJzYV9BQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBIiwicmVxdWVzdElkIjoicnMzX0JCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkIiLCJib2R5U2hhMjU2IjoiQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQSIsImp0aSI6IjMwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMyIsImlhdCI6MTgwMDAwMDAwMCwiZXhwIjoxODAwMDAwMDYwfQ.HUNg8c7aXfJmPWdEVVwwyls_B3zjHZfMdm-E7UshXAE';
 const INPUT = {
   roomId: '123456',
   hostPeerId: 'host_peer_1',
@@ -45,6 +48,18 @@ function keyring(
 }
 
 describe('remote share upload assertion', () => {
+  it('matches the frozen payload-order and HMAC byte vector', async () => {
+    const randomUuid = vi.spyOn(crypto, 'randomUUID').mockReturnValue(GOLDEN_JTI);
+    try {
+      await expect(createRemoteShareUploadAssertion(INPUT, SECRET, NOW_SECONDS)).resolves.toEqual({
+        assertion: GOLDEN_ASSERTION,
+        expiresAt: NOW_SECONDS + REMOTE_SHARE_UPLOAD_ASSERTION_TTL_SECONDS,
+      });
+    } finally {
+      randomUuid.mockRestore();
+    }
+  });
+
   it('issues a host-only, short-lived assertion and verifies every bound field', async () => {
     const issued = await createRemoteShareUploadAssertion(INPUT, SECRET, NOW_SECONDS);
 

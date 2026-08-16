@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import facadeWorker from '../../../cloudflare/developer-api-facade-worker.js';
+import facadeWorker from '../../../cloudflare/developer-api-facade-worker.ts';
 
 const ROOM_CODE = '000001';
 const KEY_ID = 'A'.repeat(16);

@@ -1,8 +1,9 @@
 name = "musixquare-remote-share"
-main = "remote-share-worker.js"
+main = "remote-share-worker.ts"
 compatibility_date = "2026-05-03"
 workers_dev = false
 preview_urls = false
+upload_source_maps = true
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"

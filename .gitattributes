@@ -17,3 +17,6 @@
 *.avif binary
 *.wasm binary
 *.pdf  binary
+
+# Wrangler-generated declarations are byte-checked against the generator output.
+cloudflare/types/*.generated.d.ts -whitespace

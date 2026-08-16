@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import appWorker from '../../../cloudflare/app-worker.js';
+import appWorker from '../../../cloudflare/app-worker.ts';
 import {
   cleanupPendingAccountDeletions,
   cleanupExpiredAccountSessions,
@@ -8,16 +8,24 @@ import {
   retireAccountProRoomLinks,
   resetAccountAuthCachesForTests,
   resolveAccountSession,
-} from '../../../cloudflare/account-auth.js';
+} from '../../../cloudflare/account-auth.ts';
 import {
   ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
   ACCOUNT_ASSERTION_HEADER,
   verifyAccountAssertion,
-} from '../../../cloudflare/account-assertion.js';
+} from '../../../cloudflare/account-assertion.ts';
 import {
   verifyStandardRoomAccountAssertion,
   verifyStandardRoomAccountDeletionAssertion,
-} from '../../../cloudflare/standard-room-account-assertion.js';
+} from '../../../cloudflare/standard-room-account-assertion.ts';
+
+function createAppExecutionContextFixture() {
+  return {
+    waitUntil(promise: Promise<unknown>): void {
+      void promise;
+    },
+  };
+}
 
 interface AccountRow {
   account_id: string;
@@ -899,7 +907,7 @@ describe('optional account authentication configuration', () => {
     const appResponse = await appWorker.fetch(
       new Request('https://musixquare.com/api/auth/session'),
       {},
-      {},
+      createAppExecutionContextFixture(),
     );
     expect(appResponse.status).toBe(200);
     expect(appResponse.headers.get('X-Content-Type-Options')).toBe('nosniff');
@@ -940,7 +948,7 @@ describe('optional account authentication configuration', () => {
           }),
         },
       },
-      {},
+      createAppExecutionContextFixture(),
     );
 
     expect(response.status).toBe(200);
@@ -2096,7 +2104,7 @@ describe('account session mutations', () => {
           }),
         },
       },
-      {},
+      createAppExecutionContextFixture(),
     );
     expect(response.status).toBe(200);
     expect(response.headers.get('x-mxqr-account-linked')).toBeNull();
@@ -2157,7 +2165,7 @@ describe('account session mutations', () => {
           }),
         },
       },
-      {},
+      createAppExecutionContextFixture(),
     );
     expect(response.status).toBe(200);
     expect(db.proRoomLinks.size).toBe(0);
@@ -2210,7 +2218,7 @@ describe('account session mutations', () => {
           body: JSON.stringify({ pin: '99999999', displayName: 'Peer' }),
         }),
         facadeEnv,
-        {},
+        createAppExecutionContextFixture(),
       );
       expect(response.status).toBe(401);
     };
@@ -3067,7 +3075,7 @@ describe('account endpoint abuse bounds', () => {
           headers: { 'CF-Connecting-IP': '203.0.113.7' },
         }),
         env,
-        {},
+        createAppExecutionContextFixture(),
       );
       expect(response.status).toBe(302);
     }
@@ -3076,7 +3084,7 @@ describe('account endpoint abuse bounds', () => {
         headers: { 'CF-Connecting-IP': '203.0.113.7' },
       }),
       env,
-      {},
+      createAppExecutionContextFixture(),
     );
     expect(limited.status).toBe(429);
     expect(limited.headers.get('Retry-After')).toBe('600');
@@ -3100,10 +3108,10 @@ describe('account endpoint abuse bounds', () => {
       });
 
     for (let index = 0; index < 120; index += 1) {
-      const response = await appWorker.fetch(request(), env, {});
+      const response = await appWorker.fetch(request(), env, createAppExecutionContextFixture());
       expect(response.status, `callback ${index + 1}`).toBe(400);
     }
-    const limited = await appWorker.fetch(request(), env, {});
+    const limited = await appWorker.fetch(request(), env, createAppExecutionContextFixture());
     expect(limited.status).toBe(429);
     expect(limited.headers.get('Retry-After')).toBe('600');
   });
@@ -3126,10 +3134,14 @@ describe('account endpoint abuse bounds', () => {
       });
 
     for (let index = 0; index < 300; index += 1) {
-      const response = await appWorker.fetch(statsRequest(), env, {});
+      const response = await appWorker.fetch(
+        statsRequest(),
+        env,
+        createAppExecutionContextFixture(),
+      );
       expect(response.status, `stats read ${index + 1}`).toBe(401);
     }
-    const limited = await appWorker.fetch(statsRequest(), env, {});
+    const limited = await appWorker.fetch(statsRequest(), env, createAppExecutionContextFixture());
     expect(limited.status).toBe(429);
 
     const profile = await appWorker.fetch(
@@ -3144,7 +3156,7 @@ describe('account endpoint abuse bounds', () => {
         body: JSON.stringify({ nickname: 'Minsu' }),
       }),
       env,
-      {},
+      createAppExecutionContextFixture(),
     );
     expect(profile.status).toBe(401);
   });
@@ -3173,10 +3185,10 @@ describe('account endpoint abuse bounds', () => {
       });
 
     for (let index = 0; index < 600; index += 1) {
-      const response = await appWorker.fetch(request(), env, {});
+      const response = await appWorker.fetch(request(), env, createAppExecutionContextFixture());
       expect(response.status, `renewal ${index + 1}`).not.toBe(429);
     }
-    const limited = await appWorker.fetch(request(), env, {});
+    const limited = await appWorker.fetch(request(), env, createAppExecutionContextFixture());
     expect(limited.status).toBe(429);
 
     // The high-frequency lease bucket must not consume the lower-frequency
@@ -3193,7 +3205,7 @@ describe('account endpoint abuse bounds', () => {
         body: JSON.stringify({ nickname: 'Minsu' }),
       }),
       env,
-      {},
+      createAppExecutionContextFixture(),
     );
     expect(mutation.status).toBe(401);
   });

@@ -6,7 +6,7 @@ import {
   assertDurableObjectMigrationRepositoryHistory,
   loadDurableObjectMigrationManifest,
   parseProductionWranglerMigrations,
-} from '../../../scripts/check-durable-object-migration-contract.mjs';
+} from '../../../scripts/check-durable-object-migration-contract.mts';
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;

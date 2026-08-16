@@ -39,11 +39,11 @@ jobs:
 
       - name: Validate source contracts
         run: |
-          node scripts/check-d1-migration-contract.mjs
-          node scripts/audit-ops-drift.mjs --source-only
+          node scripts/check-d1-migration-contract.mts
+          node scripts/audit-ops-drift.mts --source-only
 
       - name: Compare read-only live controls
-        run: node scripts/audit-ops-drift.mjs
+        run: node scripts/audit-ops-drift.mts
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           # This GET-only job receives only the narrowly scoped read credential.

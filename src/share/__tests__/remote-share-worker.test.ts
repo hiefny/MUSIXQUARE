@@ -1,12 +1,12 @@
 import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import appWorker from '../../../cloudflare/app-worker.js';
+import appWorker from '../../../cloudflare/app-worker.ts';
 import {
   REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX,
   createRemoteShareUploadAssertion,
-} from '../../../cloudflare/remote-share-upload-assertion.js';
-import { SERVICE_CONTROL_OBJECT_NAME } from '../../../cloudflare/service-maintenance.js';
+} from '../../../cloudflare/remote-share-upload-assertion.ts';
+import { SERVICE_CONTROL_OBJECT_NAME } from '../../../cloudflare/service-maintenance.ts';
 import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
 
 type RemoteShareWorker = {
@@ -26,7 +26,7 @@ type RemoteShareWorker = {
   };
 };
 
-const remoteShareWorkerModulePath = '../../../cloudflare/remote-share-worker.js';
+const remoteShareWorkerModulePath = '../../../cloudflare/remote-share-worker.ts';
 const workerModule = (await import(remoteShareWorkerModulePath)) as RemoteShareWorker;
 const ORIGIN = 'https://musixquare.com';
 const SIGNING_SECRET = 'remote-share-signing-secret-for-tests';
@@ -83,7 +83,7 @@ const releaseWorkflowSource = await readFile(
   'utf8',
 );
 const productionSecurityGuardSource = await readFile(
-  new URL('../../../scripts/assert-production-security-config.mjs', import.meta.url),
+  new URL('../../../scripts/assert-production-security-config.mts', import.meta.url),
   'utf8',
 );
 const remoteShareContractVersion = (

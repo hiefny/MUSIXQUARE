@@ -5,7 +5,7 @@ import {
   selectExactArtifact,
   selectLatestSuccessfulRun,
   verifyRealDeviceEvidence,
-} from '../../../scripts/release-evidence.mjs';
+} from '../../../scripts/release-evidence.mts';
 
 const SHA = 'a'.repeat(40);
 const NOW = Date.parse('2026-08-15T10:00:00.000Z');

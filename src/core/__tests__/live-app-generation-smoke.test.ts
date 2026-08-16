@@ -11,7 +11,7 @@ import {
   readPublicIndex,
   readPublicMainAsset,
   verifyPublicAppGeneration,
-} from '../../../scripts/live-app-generation-smoke.mjs';
+} from '../../../scripts/live-app-generation-smoke.mts';
 
 const EXPECTED_MAIN = '/assets/main-Cand1234.js';
 const EXPECTED_ASSET = new TextEncoder().encode('console.log("candidate");');

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import appWorker from '../../../cloudflare/app-worker.js';
-import { handleProBotRequest, proBotInternalsForTests } from '../../../cloudflare/pro-bot.js';
+import appWorker from '../../../cloudflare/app-worker.ts';
+import { handleProBotRequest, proBotInternalsForTests } from '../../../cloudflare/pro-bot.ts';
 
 const ROOM_CODE = '000001';
 const REQUEST_ID = 'bot-request-00000001';

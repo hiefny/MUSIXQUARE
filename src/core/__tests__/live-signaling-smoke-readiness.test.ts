@@ -13,7 +13,7 @@ import {
   initialHostSocketError,
   settleUnexpectedInitialHostResponse,
   withSignalingReadinessRetry,
-} from '../../../scripts/live-signaling-smoke.mjs';
+} from '../../../scripts/live-signaling-smoke.mts';
 
 const EXPECTED_VERSION = '11111111-1111-4111-8111-111111111111';
 const STALE_VERSION = '22222222-2222-4222-8222-222222222222';

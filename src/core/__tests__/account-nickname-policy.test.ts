@@ -4,7 +4,7 @@ import {
   accountNicknameKey,
   normalizeAccountNickname,
   normalizeNewAccountNickname,
-} from '../../../cloudflare/account-nickname.js';
+} from '../../../cloudflare/account-nickname.ts';
 
 describe('account nickname length policy', () => {
   it('accepts at most 12 Unicode code points for every new profile write', () => {

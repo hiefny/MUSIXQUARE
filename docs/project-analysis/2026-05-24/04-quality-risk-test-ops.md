@@ -305,8 +305,8 @@ Areas to keep watching:
 Files:
 
 - `cloudflare/wrangler.app.toml`
-- `cloudflare/app-worker.js`
-- `scripts/assert-production-security-config.mjs`
+- `cloudflare/app-worker.ts`
+- `scripts/assert-production-security-config.mts`
 
 Observed config:
 

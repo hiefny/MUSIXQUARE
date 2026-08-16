@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
+  checkDeclarationTarget,
   compareRuntimeExports,
   declaredRuntimeNames,
   runDeclarationExportChecks,
   runtimeNameForDeclaration,
   runtimeSourceNames,
-} from '../../../scripts/check-script-module-exports.mjs';
+} from '../../../scripts/check-script-module-exports.mts';
 
 describe('runtime declaration export guard', () => {
   it('collects named value exports and default exports without treating types as runtime', () => {
@@ -56,11 +60,35 @@ describe('runtime declaration export guard', () => {
     );
   });
 
+  it('checks only legacy declaration/runtime pairs and ignores native TypeScript owners', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'musixquare-export-pairs-'));
+    try {
+      writeFileSync(join(directory, 'legacy.d.mts'), 'export declare const VALUE: string;\n');
+      writeFileSync(join(directory, 'legacy.mjs'), "export const VALUE = 'legacy';\n");
+      writeFileSync(join(directory, 'native.d.mts'), 'export declare const VALUE: string;\n');
+      writeFileSync(join(directory, 'native.mts'), "export const VALUE: string = 'native';\n");
+
+      await expect(
+        checkDeclarationTarget({
+          label: 'fixture',
+          directory,
+          declarationSuffix: '.d.mts',
+          runtimeSuffix: '.mjs',
+          nativeSourceSuffix: '.mts',
+        }),
+      ).resolves.toEqual({ count: 1, failures: [] });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('keeps every repository script and Cloudflare declaration aligned with runtime exports', async () => {
     const result = await runDeclarationExportChecks();
 
     expect(result.failures).toEqual([]);
-    expect(result.results.map(({ label }) => label)).toEqual(['script', 'Cloudflare']);
-    expect(result.results.every(({ count }) => count > 0)).toBe(true);
+    expect(result.results).toEqual([
+      { label: 'script', count: 0 },
+      { label: 'Cloudflare', count: 0 },
+    ]);
   });
 });

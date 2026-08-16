@@ -12,7 +12,7 @@ import {
   verifyPairedRecoveryBoundary,
   verifyR2PolicyRecovery,
   verifyR2PolicyPreflight,
-} from '../../../scripts/release-r2-policy-state.mjs';
+} from '../../../scripts/release-r2-policy-state.mts';
 
 const temporaryDirectories: string[] = [];
 const CANDIDATE_RELEASE_MESSAGE = `git:${'c'.repeat(40)}`;

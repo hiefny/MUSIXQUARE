@@ -23,7 +23,7 @@ import type { PlaylistItem, QueueItemId, QueueTarget } from '../types/index.ts';
 // pendingPlayTime policy live in
 // docs/design/playback-concurrency-invariants.md. The contract is covered by
 // __tests__/concurrency-invariants.test.ts and
-// scripts/check-lifecycle-writes.mjs.
+// scripts/check-lifecycle-writes.mts.
 //
 //   M1 _loadEpoch               — user/track-change intent. Allocated only at
 //                                 pipeline entry points (playlist.ts playTrack +
@@ -185,7 +185,7 @@ export function setCurrentAudioBuffer(buf: AudioBuffer | null): void {
 // This monotonic counter answers whether a newer logical file-load run has
 // started. Preload-activation handles record the epoch that owns them.
 //
-// Allocation is restricted by scripts/check-lifecycle-writes.mjs:
+// Allocation is restricted by scripts/check-lifecycle-writes.mts:
 // newLoadEpoch() may be called only at the outermost entry of a pipeline run:
 //   playlist.ts   playTrack + repeat-one ended-advance
 //   playback.ts   handlePlayMsg preload-match + storage:use-preloaded handler

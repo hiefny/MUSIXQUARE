@@ -1,8 +1,9 @@
 name = "musixquare-developer-api"
-main = "developer-api-worker.js"
+main = "developer-api-worker.ts"
 compatibility_date = "2026-07-17"
 workers_dev = false
 preview_urls = false
+upload_source_maps = true
 
 [triggers]
 crons = ["0 */6 * * *"]

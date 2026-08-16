@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest';
 import {
   assertGenerationCutoverStatus,
   generationCutoverWorkflowOutputs,
-} from '../../../scripts/pro-room-generation-cutover.mjs';
-import { parseWranglerD1JsonOutput } from '../../../scripts/capture-wrangler-d1-json.mjs';
+} from '../../../scripts/pro-room-generation-cutover.mts';
+import { parseWranglerD1JsonOutput } from '../../../scripts/capture-wrangler-d1-json.mts';
 
 function d1(results: Array<Record<string, unknown>>, success = true) {
   return [{ success, results }];
@@ -140,7 +140,7 @@ describe('PRO room generation release fence', () => {
 
   it('retires the initial-room ceremony and keeps the failure fence before rollback', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
-    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mjs'), 'utf8');
+    const recoveryPlan = readFileSync(resolve('scripts/release-recovery-plan.mts'), 'utf8');
     for (const retired of [
       'apply_pro_room_generation_d1',
       'enable_pro_room_generation_cutover',
@@ -162,7 +162,7 @@ describe('PRO room generation release fence', () => {
     expect(workflow).toContain('steps.worker_floor_assessment.outputs.forward_targets');
     expect(workflow).toContain('verify release-artifacts/recovery-checkpoint "$floor_file"');
     expect(workflow).toContain('MXQR_GENERATION_FENCE_OUTCOME=');
-    expect(workflow).toContain('node scripts/release-recovery-plan.mjs');
+    expect(workflow).toContain('node scripts/release-recovery-plan.mts');
     expect(recoveryPlan).toContain("generationOutcome === 'failure'");
     expect(recoveryPlan).toContain("'developer-api-facade'");
     expect(workflow).not.toContain(
@@ -175,11 +175,11 @@ describe('PRO room generation release fence', () => {
     const d1JsonExecutions = workflow.match(
       /npm run --silent wrangler -- d1 execute[\s\S]*?--remote --json[\s\S]*?(?=\n {10}npm run|\n {10}node|\n {6}- name:)/gu,
     );
-    const strictCaptures = workflow.match(/\| node scripts\/capture-wrangler-d1-json\.mjs/gu);
+    const strictCaptures = workflow.match(/\| node scripts\/capture-wrangler-d1-json\.mts/gu);
     expect(d1JsonExecutions?.length).toBeGreaterThan(0);
     expect(strictCaptures).toHaveLength(d1JsonExecutions?.length ?? 0);
     for (const execution of d1JsonExecutions ?? []) {
-      expect(execution).toContain('| node scripts/capture-wrangler-d1-json.mjs');
+      expect(execution).toContain('| node scripts/capture-wrangler-d1-json.mts');
     }
   });
 

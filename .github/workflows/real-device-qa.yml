@@ -1,4 +1,4 @@
-name: Risk-based real-device release evidence
+name: Optional manual real-device QA record
 
 on:
   workflow_dispatch:
@@ -58,7 +58,7 @@ concurrency:
 
 jobs:
   attest:
-    name: Persist exact-SHA device matrix
+    name: Persist optional exact-SHA device matrix
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5

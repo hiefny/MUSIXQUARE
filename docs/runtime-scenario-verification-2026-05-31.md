@@ -74,7 +74,7 @@ run the optional physical matrix when that assurance is needed.
 3. Review Worker contract/deployment guards and the rollback boundary without
    performing an ad hoc production deploy.
 4. Record device/browser/network evidence and any accepted limitation when the
-   operator elected to require the physical-device gate for that release.
+   team performed the optional physical-device QA pass.
 
 Worker boundary changes must preserve the bounded-read contract. App, account,
 Developer API/facade, PRO grant/BOT, and remote-share JSON request readers use a
@@ -162,13 +162,11 @@ references may be counted more than once, while browser and audio-engine
 allocations may be absent. Diagnose component trends and whether each returns
 to its baseline after cleanup rather than treating this total alone as a leak.
 
-## Risk-based Manual Runtime Matrix
+## Optional Manual Runtime Matrix
 
-Run the relevant rows when a change, incident, or explicit release choice needs
-physical-device confidence beyond the automated gate. The production workflow
-automatically requires this evidence when the candidate changes a path in
-`cloudflare/release-device-risk.contract.json` relative to the current App
-Worker deployment:
+Run the relevant rows when a change or incident needs physical-device confidence
+beyond automated browser coverage. This matrix is advisory and is not consumed
+by the production release workflow:
 
 | Scenario                                                    | Expected signal                                                                                 |
 | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -186,23 +184,21 @@ Worker deployment:
 - `npm run lint`
 - `npm test`
 - `npm run build:checked`
-- When the physical-device release gate is selected or automatically required, complete and
-  record its declared browser/device and network rows before dispatching the
-  release.
+- When manual physical-device QA is performed, record only the browser/device
+  and network rows that were actually exercised.
 
 Optional focused or full browser E2E results may accompany this evidence as a
-secondary signal. They are not an exit criterion.
+secondary signal. They are not a production release prerequisite.
 
-## Persisting Production Release Evidence
+## Persisting Optional Device QA Evidence
 
-When a release opts into or is classified as requiring physical-device
-evidence, complete the matrix and dispatch
+When a team chooses to archive a completed full physical-device matrix, dispatch
 `.github/workflows/real-device-qa.yml` on the current `main` commit. The tester
 must supply the exact 40-character SHA, completion timestamp, HTTPS environment
 that served that commit, HTTPS detailed evidence link, and the physical device
 matrix. Every standard-room, PRO-room, media-source, and background/resume
 attestation must be explicitly checked. The current canonical v2 artifact is a
-full-matrix attestation, so an operator selecting this optional gate must also
+full-matrix attestation, so an operator using this optional recorder must also
 check adaptive proof-of-work performance even when the production adaptive
 flag remains off. The linked log must record difficulty-16 cold and warm
 p50/p95 results on a supported iPhone and a desktop browser on a Korean
@@ -219,12 +215,11 @@ The free-form device matrix is not a substitute for those measurements; it
 must identify the tested models and browser/OS versions, while `evidence_url`
 points to the retained raw observations.
 
-`.github/workflows/release.yml` downloads this artifact when
-`require_real_device_evidence` is selected, then independently rejects an app
-or full-stack release if the checked-in risk contract requires evidence and
-the option was left off. It downloads the successful
-unexpired exact-SHA artifact by source run ID and verifies its canonical
-contents, repository, run attempt, and 14-day freshness before any production
-mutation. With the option left off for a verified low-risk diff, the immutable
-exact-SHA CI candidate and automated production checks are sufficient; an
-older device artifact is never silently reused.
+This artifact is a standalone QA record. `.github/workflows/release.yml` does
+not discover, download, validate, or require it, and the artifact does not grant
+production mutation authority. A frontend-only preview or quick tunnel is not a
+valid room test environment because it does not provide the production service
+bindings and room backends. Until a complete isolated staging stack exists,
+record the full matrix only against an environment that genuinely serves the
+tested SHA and supports every attested scenario; otherwise leave the workflow
+undispatched rather than fabricating a pass.

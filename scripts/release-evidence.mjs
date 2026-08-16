@@ -343,16 +343,6 @@ async function main() {
     });
     return;
   }
-  if (command === 'wait-device') {
-    await waitForArtifact({
-      workflow: 'real-device-qa.yml',
-      event: 'workflow_dispatch',
-      prefix: 'real-device-evidence-',
-      outputPrefix: 'device_',
-      timeoutMs: 2 * 60 * 1_000,
-    });
-    return;
-  }
   if (command === 'create-device' && path) {
     const evidence = createRealDeviceEvidence(evidenceInputFromEnvironment());
     writeFileSync(resolve(path), `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
@@ -368,7 +358,7 @@ async function main() {
     return;
   }
   throw new Error(
-    'Usage: release-evidence.mjs <wait-candidate|wait-device|create-device FILE|verify-device FILE>',
+    'Usage: release-evidence.mjs <wait-candidate|create-device FILE|verify-device FILE>',
   );
 }
 

@@ -128,10 +128,13 @@ residual.
 
 The production configuration keeps `MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED=false`,
 so ordinary releases use difficulty 12 and do not require a physical-device
-artifact. Enabling adaptive difficulty in production requires the operator to
-select the exact-SHA device gate described in
+artifact. Before enabling adaptive difficulty in production, the operator must
+complete and archive the standalone exact-SHA QA record described in
 [`runtime-scenario-verification-2026-05-31.md`](runtime-scenario-verification-2026-05-31.md)
-and retain supported-iPhone and desktop timing observations for difficulty 16.
+with supported-iPhone and desktop timing observations for difficulty 16. That
+policy prerequisite is a reviewed operational decision, not a release-workflow
+input or automated mutation gate.
+
 Raising the ordinary baseline above 12, reducing either 150/60s or 15/60s
 allowance, raising the ceiling above 16, or replacing the location-local signal
 with an exact remote decision also requires an explicit policy and automated

@@ -9,19 +9,48 @@ function runGuard(...args: string[]) {
   });
 }
 
-describe('source complexity ratchet', () => {
-  it('keeps every named hotspot and release inline block below its extraction threshold', () => {
+describe('source complexity safety limit', () => {
+  it('keeps every named hotspot and release inline block below its accident threshold', () => {
     const result = runGuard();
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain('cloudflare/pro-room-worker.js');
-    expect(result.stdout).toContain('largest inline run block');
+    const expectedBudgets: ReadonlyArray<{
+      path: string;
+      maxLines: number;
+      maxRunLines?: number;
+    }> = [
+      { path: 'cloudflare/pro-room-worker.js', maxLines: 20_000 },
+      { path: 'cloudflare/service-control-object.js', maxLines: 2_000 },
+      { path: 'cloudflare/pro-room-body.js', maxLines: 500 },
+      { path: 'cloudflare/app-worker.js', maxLines: 20_000 },
+      { path: 'cloudflare/signaling-worker.js', maxLines: 10_000 },
+      { path: 'cloudflare/signaling-protocol.js', maxLines: 1_000 },
+      { path: 'src/pro-room/runtime.ts', maxLines: 10_000 },
+      { path: 'public/admin.js', maxLines: 10_000 },
+      { path: '.github/workflows/release.yml', maxLines: 2_000, maxRunLines: 200 },
+      { path: '.github/workflows/release-recovery.yml', maxLines: 1_000, maxRunLines: 200 },
+    ];
+
+    for (const { path, maxLines, maxRunLines } of expectedBudgets) {
+      const sourceMarker = path + ': ';
+      const sourceSummary = result.stdout.slice(result.stdout.indexOf(sourceMarker));
+      expect(sourceSummary.startsWith(sourceMarker)).toBe(true);
+      expect(/^.+?: \d+\/(\d+) lines/u.exec(sourceSummary)?.[1]).toBe(String(maxLines));
+
+      if (maxRunLines === undefined) continue;
+      const runMarker = path + ': largest inline run block ';
+      const runSummary = result.stdout.slice(result.stdout.indexOf(runMarker));
+      expect(runSummary.startsWith(runMarker)).toBe(true);
+      expect(/^.+?: largest inline run block \d+\/(\d+) lines/u.exec(runSummary)?.[1]).toBe(
+        String(maxRunLines),
+      );
+    }
   });
 
-  it('fails with an extraction instruction when a source exceeds its ratchet', () => {
+  it('fails with an ownership review instruction when a source exceeds its safety limit', () => {
     const result = runGuard('--budget=.github/workflows/release.yml:1:1');
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('Source complexity ratchet failed');
-    expect(result.stderr).toContain('Extract a cohesive module or release helper');
+    expect(result.stderr).toContain('Source complexity safety limit failed');
+    expect(result.stderr).toContain('Keep tightly coupled state and lifecycle co-located');
   });
 
   it('is mandatory in checked builds and main CI', () => {

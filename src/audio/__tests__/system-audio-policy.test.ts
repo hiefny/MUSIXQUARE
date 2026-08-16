@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   configureSystemAudioCaptureActivityProbe,
   isSystemAudioCaptureActive,
-} from '../system-capture-activity-port.ts';
+} from '../system-audio-policy.ts';
 
-describe('system capture activity port', () => {
+describe('system audio policy', () => {
   it('defaults to inactive when no capture implementation is loaded', () => {
     expect(isSystemAudioCaptureActive()).toBe(false);
   });

@@ -65,11 +65,11 @@ vi.mock('../../player/queue-model.ts', () => ({
 }));
 
 import {
+  configureYouTubeHandlerRuntimeHooks,
   handleRequestYouTubePause,
   handleRequestYouTubePlay,
   handleRequestYouTubeToggle,
 } from '../handlers.ts';
-import { configureYouTubeHandlerRuntimeHooks } from '../handler-runtime-bridge.ts';
 
 const operatorConnection = { peer: 'operator-peer', open: true } as never;
 const request = { queueItemId: QUEUE_ITEM_ID };

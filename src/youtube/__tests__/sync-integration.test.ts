@@ -184,6 +184,7 @@ vi.mock('../../ui/toast.ts', () => ({
 
 // handlers.ts — stub handlers not under test
 vi.mock('../handlers.ts', () => ({
+  configureYouTubeHandlerRuntimeHooks: vi.fn(),
   handleYouTubePlay: vi.fn(),
   handleRequestYouTubePlay: vi.fn(),
   handleRequestYouTubePause: vi.fn(),

@@ -13,7 +13,7 @@ import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG, PLAYBACK_STATE } from '../core/const
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { IS_WINDOWS } from '../core/platform.ts';
 import { getFilePlaybackDestination, initAudio } from '../audio/engine.ts';
-import { isSystemAudioCaptureActive } from '../audio/system-capture-activity-port.ts';
+import { isSystemAudioCaptureActive } from '../audio/system-audio-policy.ts';
 import {
   getPlaybackOwnership,
   getPlaybackModeActivity,

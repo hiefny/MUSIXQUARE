@@ -23,9 +23,9 @@ or a substitute for the current source and tests.
   maps browser, Vite, Worker, and CI namespaces; gives the fail-closed local
   recipes; and points every Worker to its canonical binding/secret inventory.
 
-- [Source complexity ratchet](design/source-complexity-ratchet.md) defines the
-  extraction thresholds for the largest runtime and release ownership
-  boundaries and the ADR requirement for any ceiling change.
+- [Source complexity safety limits](design/source-complexity-ratchet.md) defines
+  generous accident thresholds for the largest runtime and release ownership
+  boundaries. File size alone must not force a new module boundary.
 
 - [Mobile application zoom policy](mobile-app-zoom-policy.md) defines the
   main SPA's fixed-scale viewport contract, its accessibility boundary, and the

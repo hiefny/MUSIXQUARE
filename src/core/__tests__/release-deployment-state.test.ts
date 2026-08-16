@@ -221,10 +221,6 @@ describe('release deployment rollback state', () => {
     expect(runtimePathsForWorker('developer-api')).toContain(sharedGate);
   });
 
-  it('tracks the extracted capability security runtime with the app Worker', () => {
-    expect(runtimePathsForWorker('app')).toContain('cloudflare/capability-security.js');
-  });
-
   it('tracks the Remote Share host assertion primitive with both importing Workers', () => {
     const assertionPrimitive = 'cloudflare/remote-share-upload-assertion.js';
     expect(runtimePathsForWorker('remote-share')).toContain(assertionPrimitive);

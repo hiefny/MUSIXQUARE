@@ -20,7 +20,6 @@ import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
-import { configureSystemAudioCaptureActivityProbe } from './system-capture-activity-port.ts';
 import { getTrackPosition, stopAllMediaAsync } from '../player/transport.ts';
 import {
   claimPlaybackOwner,
@@ -34,7 +33,10 @@ import { broadcast } from '../network/peer.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
-import { hasSystemAudioDeviceCapacity } from './system-audio-policy.ts';
+import {
+  configureSystemAudioCaptureActivityProbe,
+  hasSystemAudioDeviceCapacity,
+} from './system-audio-policy.ts';
 import type { QueueItemId, SystemAudioStopReason, TrackMeta } from '../types/index.ts';
 import {
   beginLocalProSystemAudioLeaseAttempt,
@@ -237,7 +239,7 @@ export function isSystemAudioActive(): boolean {
 }
 
 // Keep capture state and listener ownership in this module while exposing the
-// exact predicate to transport through a leaf port that cannot import us back.
+// exact predicate through the acyclic audio-policy boundary.
 configureSystemAudioCaptureActivityProbe(isSystemAudioActive);
 
 /** Get the L track stream */

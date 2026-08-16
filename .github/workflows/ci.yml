@@ -64,7 +64,7 @@ jobs:
       - name: EventBus producer-consumer pairing
         run: npm run guard:bus-pairing
 
-      - name: Source complexity ratchet
+      - name: Source complexity safety limits
         run: npm run guard:source-complexity
 
       - name: Standard-room security and latency policy

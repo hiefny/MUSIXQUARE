@@ -130,15 +130,20 @@ function runBootstrap(
 
 describe('early PRO claim bootstrap', () => {
   it('keeps the self-hosted scrubber ahead of app code and removes the static analytics tag', () => {
-    const bootstrapSource = `/bootstrap.js?cache=${SERVICE_WORKER_CACHE_VERSION}`;
+    const bootstrapMatch = INDEX_SOURCE.match(
+      /<script src="\/bootstrap\.js\?cache=(v\d+)"><\/script>/,
+    );
+    const bootstrapVersion = bootstrapMatch?.[1] ?? null;
+    const bootstrapSource = bootstrapVersion ? `/bootstrap.js?cache=${bootstrapVersion}` : '';
     const bootstrapIndex = INDEX_SOURCE.indexOf(`<script src="${bootstrapSource}"></script>`);
     const appIndex = INDEX_SOURCE.indexOf('<script type="module" src="/src/app.ts"></script>');
 
     expect(SERVICE_WORKER_CACHE_VERSION).toMatch(/^v\d+$/);
+    expect(bootstrapVersion).toMatch(/^v\d+$/);
     expect(bootstrapIndex).toBeGreaterThan(-1);
     expect(bootstrapIndex).toBeLessThan(appIndex);
     expect(SERVICE_WORKER_SOURCE).toContain(
-      'const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;',
+      `const BOOTSTRAP_CACHE_KEY = './bootstrap.js?cache=${bootstrapVersion}';`,
     );
     expect(SERVICE_WORKER_SOURCE).toContain('BOOTSTRAP_CACHE_KEY,');
     expect(INDEX_SOURCE).not.toContain(`src="${ANALYTICS_SRC}"`);

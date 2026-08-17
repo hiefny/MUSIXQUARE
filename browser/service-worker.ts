@@ -31,7 +31,7 @@ const CACHE_VERSION = '__MUSIXQUARE_CACHE_VERSION__';
 const STATIC_CACHE = `musixquare-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `musixquare-runtime-${CACHE_VERSION}`;
 const OPTIONAL_CACHE = `musixquare-optional-${CACHE_VERSION}`;
-const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
+const BOOTSTRAP_CACHE_KEY = './bootstrap.js?cache=v449';
 // iOS can resume a standalone app with a half-open radio path where fetch()
 // neither succeeds nor rejects for a long time. A navigation must reach the
 // active cached shell instead of leaving WebKit on its blank provisional page.

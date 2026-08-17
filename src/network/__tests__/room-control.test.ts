@@ -121,9 +121,9 @@ describe('room control plane', () => {
   it('keeps member removal behind current room and exact connection authority', async () => {
     const { resolveRoomControlKickTarget } = await import('../room-control.ts');
 
-    expect(
-      resolveRoomControlKickTarget({ targetPeerId: 'target' }, senderConn, 'member'),
-    ).toBe('target');
+    expect(resolveRoomControlKickTarget({ targetPeerId: 'target' }, senderConn, 'member')).toBe(
+      'target',
+    );
     expect(
       resolveRoomControlKickTarget({ targetPeerId: 'sender' }, senderConn, 'member'),
     ).toBeNull();

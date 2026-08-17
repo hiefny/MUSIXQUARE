@@ -193,9 +193,7 @@ function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConne
       broadcast({ type: MSG.CHAT_SLOWMODE, seconds });
       bus.emit(
         'chat:system-message',
-        seconds > 0
-          ? t('chat.cmd_slowmode_on', { sec: seconds })
-          : t('chat.cmd_slowmode_off'),
+        seconds > 0 ? t('chat.cmd_slowmode_on', { sec: seconds }) : t('chat.cmd_slowmode_off'),
       );
       break;
     }

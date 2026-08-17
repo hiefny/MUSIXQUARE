@@ -75,6 +75,10 @@ describe('strict TypeScript classic browser runtimes', () => {
         outputPath: 'blog-pagination.js',
       },
       {
+        sourcePath: 'browser/classic-runtime/clearable-editors.ts',
+        outputPath: 'clearable-editors.js',
+      },
+      {
         sourcePath: 'browser/classic-runtime/bootstrap.ts',
         outputPath: 'bootstrap.js',
         minify: true,
@@ -176,6 +180,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       'admin.js': 'ADMIN_SCRIPT_VERSION',
       'analytics-bootstrap.js': 'installStandaloneAnalytics',
       'blog-pagination.js': 'installBlogPagination',
+      'clearable-editors.js': 'clearable-editor-button',
       'bootstrap.js': '__mxqrTakeProRoomFragmentClaims',
       'editorial-pages.js': 'installEditorialPageRuntime',
       'events/event.js': 'CAMPAIGN_SLUG_PATTERN',
@@ -536,6 +541,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       ]);
 
     expect(eventHtml).toContain('<script src="/events/theme.js"></script>');
+    expect(eventHtml).toContain('<script src="/clearable-editors.js" defer></script>');
     expect(eventHtml).toContain('<script src="/events/event.js" defer></script>');
     expect(appHtml).toContain('<script src="/fouc-cleanup.js"></script>');
     expect(appHtml).toContain('<script src="/wordmark-anim.js" defer></script>');
@@ -550,6 +556,7 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(blogHtml).toContain('<script src="/editorial-pages.js"></script>');
     expect(blogHtml).toContain('<script src="/blog-pagination.js" defer></script>');
     expect(eventHtml).not.toContain('type="module" src="/events/theme.js"');
+    expect(eventHtml).not.toContain('type="module" src="/clearable-editors.js"');
     expect(eventHtml).not.toContain('type="module" src="/events/event.js"');
     expect(appHtml).not.toContain('type="module" src="/fouc-cleanup.js"');
     expect(appHtml).not.toContain('type="module" src="/wordmark-anim.js"');
@@ -566,6 +573,9 @@ describe('strict TypeScript classic browser runtimes', () => {
       'const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;',
     );
     expect(eventHtml.indexOf('/events/theme.js')).toBeLessThan(
+      eventHtml.indexOf('/clearable-editors.js'),
+    );
+    expect(eventHtml.indexOf('/clearable-editors.js')).toBeLessThan(
       eventHtml.indexOf('/events/event.js'),
     );
     expect(landingHtml.indexOf('/static-language.js')).toBeLessThan(

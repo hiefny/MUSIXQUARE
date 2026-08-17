@@ -126,7 +126,9 @@ describe('app maintenance administration', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-02T12:00:00.000Z'));
     const control = createServiceControl();
+    const assetFetch = vi.fn(async () => new Response('clearable runtime'));
     const env = {
+      ASSETS: { fetch: assetFetch },
       MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
       MUSIXQUARE_SERVICE_CONTROL: control.binding,
@@ -275,6 +277,17 @@ describe('app maintenance administration', () => {
     expect(adminBody).toContain('data-service-status-dialog');
     expect(adminBody).toContain('data-service-status-preview');
     expect(adminBody).toContain('data-admin-tab="operations">Analytics');
+
+    const clearableAsset = await appWorker.fetch(
+      new Request('https://musixquare.com/clearable-editors.js?v=8.3.67'),
+      env,
+    );
+    expect(clearableAsset.status).toBe(200);
+    expect(await clearableAsset.text()).toBe('clearable runtime');
+    expect(clearableAsset.headers.get('Cache-Control')).toBe(
+      'no-store, max-age=0, must-revalidate',
+    );
+    expect(assetFetch).toHaveBeenCalledOnce();
 
     const disabled = await appWorker.fetch(
       new Request('https://musixquare.com/api/admin/service-status', {

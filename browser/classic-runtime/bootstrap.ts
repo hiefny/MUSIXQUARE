@@ -405,23 +405,79 @@
       return primary && isAppLanguageCode(primary) ? primary : null;
     }
 
-    const savedLang = localStorage.getItem('musixquare-lang') || 'system';
+    function browserLanguageCandidates(): unknown[] {
+      try {
+        const languages = navigator.languages;
+        if (languages && languages.length) return Array.from(languages);
+      } catch {
+        /* fall through to the independent navigator.language surface */
+      }
+      try {
+        const language = navigator.language;
+        return language ? [language] : [];
+      } catch {
+        return [];
+      }
+    }
+
+    // Storage can be denied independently of navigator/DOM access (private
+    // browsing, embedded contexts, or hardened browser policies). Treat that
+    // as an unsaved `system` preference instead of abandoning locale
+    // resolution and the manifest observer altogether.
+    let savedLang = 'system';
+    try {
+      savedLang = localStorage.getItem('musixquare-lang') || 'system';
+    } catch {
+      /* continue with the browser language */
+    }
     let resolvedLang = savedLang === 'system' ? null : matchLanguage(savedLang);
 
     if (!resolvedLang) {
-      const languages =
-        navigator.languages && navigator.languages.length
-          ? navigator.languages
-          : [navigator.language || ''];
+      const languages = browserLanguageCandidates();
       for (let i = 0; i < languages.length; i += 1) {
         resolvedLang = matchLanguage(languages[i]);
         if (resolvedLang) break;
       }
     }
 
-    document.documentElement.setAttribute('lang', htmlLangByCode[resolvedLang || 'en'] || 'en');
+    function syncManifest(code: AppLanguageCode): void {
+      const manifest = document.querySelector('link#app-manifest[rel~="manifest"]');
+      if (!manifest) return;
+      const href = `/manifests/${code}.webmanifest`;
+      if (manifest.getAttribute('href') !== href) manifest.setAttribute('href', href);
+    }
+
+    const initialLanguage = resolvedLang || 'en';
+    document.documentElement.setAttribute('lang', htmlLangByCode[initialLanguage] || 'en');
+    // The parser has already created the href-less manifest link immediately
+    // before this script. Assigning its href only after locale resolution
+    // avoids an eager fetch of the wrong language's install metadata.
+    syncManifest(initialLanguage);
+
+    // Language changes after startup update html[lang]. Keep the install
+    // metadata aligned as well, without coupling the classic bootstrap to the
+    // app module graph or its event bus.
+    if (typeof MutationObserver === 'function') {
+      const manifestObserver = new MutationObserver(function () {
+        syncManifest(matchLanguage(document.documentElement.getAttribute('lang')) || 'en');
+      });
+      manifestObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['lang'],
+      });
+    }
   } catch {
-    /* localStorage / navigator denied - keep the HTML default */
+    // Unexpected DOM/runtime failures must not leave the href-less link
+    // unusable. Expected storage and navigator getter failures are isolated
+    // above so they still reach normal html/manifest synchronization.
+    try {
+      const manifest = document.querySelector('link#app-manifest[rel~="manifest"]');
+      if (manifest && !manifest.getAttribute('href')) {
+        manifest.setAttribute('href', '/manifests/en.webmanifest');
+      }
+    } catch {
+      /* keep the HTML default when even DOM access is unavailable */
+    }
   }
 })();
 

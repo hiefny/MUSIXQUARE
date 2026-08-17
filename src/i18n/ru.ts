@@ -12,6 +12,7 @@ const ru: Record<I18nKey, string> = {
   'common.cancel': 'Отмена',
   'common.close': 'Закрыть',
   'common.reset': 'Сброс',
+  'common.clear_input': 'Очистить поле',
   'common.refresh': 'Обновить',
   'common.retry': 'Повторить',
   'common.later': 'Позже',

@@ -213,6 +213,7 @@ describe('Dialog System', () => {
       const hint = document.querySelector<HTMLElement>('.dialog-hint');
       expect(group).not.toBeNull();
       expect(segments).toHaveLength(2);
+      expect([...segments].every((segment) => segment.dataset.clearable === 'false')).toBe(true);
       expect(group?.nextElementSibling).toBe(hint);
 
       segments[0]!.value = '8765';

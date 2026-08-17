@@ -15,6 +15,7 @@ const de: Record<I18nKey, string> = {
   'common.cancel': 'Abbrechen',
   'common.close': 'Schließen',
   'common.reset': 'Zurücksetzen',
+  'common.clear_input': 'Eingabe löschen',
   'common.refresh': 'Aktualisieren',
   'common.retry': 'Erneut versuchen',
   'common.later': 'Später',

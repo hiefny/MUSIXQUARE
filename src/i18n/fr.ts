@@ -15,6 +15,7 @@ const fr: Record<I18nKey, string> = {
   'common.cancel': 'Annuler',
   'common.close': 'Fermer',
   'common.reset': 'Réinitialiser',
+  'common.clear_input': 'Effacer le champ',
   'common.refresh': 'Actualiser',
   'common.retry': 'Réessayer',
   'common.later': 'Plus tard',

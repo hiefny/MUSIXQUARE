@@ -309,7 +309,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.3.66';
+const ADMIN_ASSET_VERSION = '8.3.67';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -10600,6 +10600,7 @@ function isServiceMaintenanceAdminBypass(request: Request, url: URL) {
     (pathname === '/admin' ||
       pathname === '/admin/' ||
       pathname === '/admin.js' ||
+      pathname === '/clearable-editors.js' ||
       pathname === '/admin.css' ||
       pathname === '/designsystem/assets/favicon.svg' ||
       pathname === '/designsystem/assets/logo-wordmark.svg' ||
@@ -11129,6 +11130,7 @@ function renderAdminPage(request: Request, env: AppEnv) {
   <title>MUSIXQUARE Admin</title>
   <link rel="icon" href="/designsystem/assets/favicon.svg">
   <link rel="stylesheet" href="/admin.css?v=${ADMIN_ASSET_VERSION}">
+  <script src="/clearable-editors.js?v=${ADMIN_ASSET_VERSION}" defer></script>
   <script src="/admin.js?v=${ADMIN_ASSET_VERSION}" defer></script>
 </head>
 <body>
@@ -14309,7 +14311,11 @@ function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record
       'X-Robots-Tag': 'noindex, nofollow',
     };
   }
-  if (assetPathname === '/admin.js' || assetPathname === '/admin.css') {
+  if (
+    assetPathname === '/admin.js' ||
+    assetPathname === '/admin.css' ||
+    assetPathname === '/clearable-editors.js'
+  ) {
     return APP_SHELL_FRESH_CACHE_HEADERS;
   }
   if (assetPathname === '/service-worker.js') return { 'Cache-Control': 'no-cache' };

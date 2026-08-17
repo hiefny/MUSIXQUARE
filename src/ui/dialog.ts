@@ -212,6 +212,10 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'dialog-input-segment';
+        // The two segments form one logical PIN. Per-segment clear buttons
+        // compete with four digits in a compact field and imply the wrong
+        // clearing scope, so keep the group on its native editing controls.
+        input.dataset.clearable = 'false';
         input.inputMode = inputCfg.inputMode || 'text';
         input.maxLength = size;
         if (inputCfg.pattern) input.pattern = inputCfg.pattern;

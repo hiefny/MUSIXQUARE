@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.3.66",
+  "version": "8.3.67",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/materialize-app-static-headers.mts",
-    "build:checked": "npm run guard:authored-js-inventory && npm run guard:authored-inline-js && npm run guard:typescript-project-coverage && npm run guard:classic-runtime && npm run guard:auxiliary-browser && npm run guard:service-worker && npm run guard:ui-kit && npm run guard:release-identity && npm run guard:brand-capitalization && npm run guard:declaration-ownership && npm run guard:source-complexity && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:service-worker-build && npm run guard:ui-kit-build && npm run guard:initial-transfer-budget && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build && npm run guard:sw-app-shell",
+    "build:checked": "npm run guard:authored-js-inventory && npm run guard:authored-inline-js && npm run guard:typescript-project-coverage && npm run guard:classic-runtime && npm run guard:auxiliary-browser && npm run guard:service-worker && npm run guard:ui-kit && npm run guard:release-identity && npm run guard:brand-capitalization && npm run guard:declaration-ownership && npm run guard:source-complexity && npm run guard:room-authority-boundaries && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:service-worker-build && npm run guard:ui-kit-build && npm run guard:initial-transfer-budget && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build && npm run guard:sw-app-shell",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "promo:render": "tsx .workshop/promo/render.ts",
@@ -45,6 +45,7 @@
     "guard:source-complexity": "node scripts/check-source-complexity.mts",
     "guard:sw-cache-version": "node scripts/check-sw-cache-version.mts",
     "guard:standard-room-hot-path": "node scripts/check-standard-room-hot-path.mts",
+    "guard:room-authority-boundaries": "node scripts/check-room-authority-boundaries.mts",
     "guard:developer-api-boundaries": "node scripts/check-developer-api-boundaries.mts",
     "guard:d1-migrations": "node scripts/check-d1-migration-contract.mts",
     "guard:ops-drift-contract": "node scripts/audit-ops-drift.mts --source-only",

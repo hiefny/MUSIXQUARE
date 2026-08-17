@@ -5785,9 +5785,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.66');
-    expect(html).toContain('/admin.js?v=8.3.66');
-    expect(html).toContain('data-admin-asset-version="8.3.66"');
+    expect(html).toContain('/admin.css?v=8.3.67');
+    expect(html).toContain('/clearable-editors.js?v=8.3.67');
+    expect(html).toContain('/admin.js?v=8.3.67');
+    expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
+    expect(html).toContain('data-admin-asset-version="8.3.67"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
@@ -5806,14 +5808,18 @@ describe('Cloudflare app worker admin dashboard', () => {
     );
     const env = { ASSETS: { fetch: assetFetch } };
 
-    for (const path of ['/admin.js?v=8.3.66', '/admin.css?v=8.3.66']) {
+    for (const path of [
+      '/admin.js?v=8.3.67',
+      '/admin.css?v=8.3.67',
+      '/clearable-editors.js?v=8.3.67',
+    ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
       expect(response.headers.get('CDN-Cache-Control')).toBe('no-store');
       expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     }
-    expect(assetFetch).toHaveBeenCalledTimes(2);
+    expect(assetFetch).toHaveBeenCalledTimes(3);
   });
 
   it('does not publish the development-only interactive UI kit', async () => {

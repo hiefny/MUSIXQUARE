@@ -20,6 +20,7 @@ import {
   collectRenderedWorkerAssets,
   parseServiceWorkerAppShell,
 } from '../../../scripts/service-worker-app-shell-guard-lib.mts';
+import { SERVICE_WORKER_CACHE_VERSION } from '../../../scripts/service-worker-asset.ts';
 
 type DevMiddleware = (
   request: { method?: string; url?: string },
@@ -324,7 +325,7 @@ describe('service-worker build entry manifest', () => {
     expect(injected).toContain('"./primary-font-loader.js"');
     expect(injected).toContain('"./primary-font.css"');
     expect(injected).toContain('"./designsystem/fonts/PretendardVariable.woff2"');
-    expect(injected).toContain("const CACHE_VERSION = 'v448';");
+    expect(injected).toContain(`const CACHE_VERSION = '${SERVICE_WORKER_CACHE_VERSION}';`);
     expect(injected).not.toContain('__MUSIXQUARE_CACHE_VERSION__');
     expect(injected).not.toContain('__MUSIXQUARE_BUILD_ENTRY_ASSETS__');
     expect(injected).not.toContain('__MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__');

@@ -469,8 +469,22 @@ interface StagingCleanupFields {
   stagingEmptySinceMs?: number | null;
 }
 
+interface AssetDeletionRequest {
+  scope: string;
+  key: string;
+  fingerprint: string;
+}
+
+interface AssetDeletionPending {
+  reason: 'explicit' | 'reservation-expired' | 'orphan-gc';
+  originalStatus: 'reserved' | 'ready';
+  requestedAtMs: number;
+  retryAtMs: number;
+  request?: AssetDeletionRequest;
+}
+
 interface RoomAsset extends StagingCleanupFields {
-  status: 'reserved' | 'ready';
+  status: 'reserved' | 'ready' | 'deleting';
   assetId: string;
   objectKey: string;
   stagingObjectKey?: string;
@@ -492,6 +506,7 @@ interface RoomAsset extends StagingCleanupFields {
   upload?: JsonRecord;
   name?: string;
   createdAtMs?: number;
+  deletionPending?: AssetDeletionPending;
 }
 
 interface RateLimitRecord {
@@ -726,6 +741,7 @@ interface InMemoryCheckpoint {
   accountIdentityMigrationPending: boolean;
   developerCommandMigrationPending: boolean;
   playbackAuthorityMigrationPending: boolean;
+  assetDeletionMigrationPending: boolean;
   alarmMaintenanceDirty: boolean;
   alarmMaintenanceRetryAttempt: number;
   alarmMaintenanceRetryTimer: ReturnType<typeof setTimeout> | null;
@@ -1037,6 +1053,7 @@ const SYSTEM_AUDIO_LIVE_TTL_MS = 2 * 60 * 60 * 1000;
 const SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH = 160;
 const SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH = 64;
 const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const ASSET_DELETE_PENDING_EXPIRES_AT_MS = Number.MAX_SAFE_INTEGER;
 // Session admission sits behind the App facade's bounded response window. A
 // room mutation can therefore commit after the browser receives a gateway
 // timeout. Retain a compact receipt long enough for an explicit retry while
@@ -3751,6 +3768,7 @@ export class MusixquareProRoom {
   accountIdentityMigrationPending: boolean;
   developerCommandMigrationPending: boolean;
   playbackAuthorityMigrationPending: boolean;
+  assetDeletionMigrationPending: boolean;
   persistedPlaylistSignatures: Map<string, string>;
   persistedPresenceLastSeenAtMs: Map<string, number>;
   hasV2Persistence: boolean;
@@ -3783,6 +3801,7 @@ export class MusixquareProRoom {
     this.accountIdentityMigrationPending = false;
     this.developerCommandMigrationPending = false;
     this.playbackAuthorityMigrationPending = false;
+    this.assetDeletionMigrationPending = false;
     this.persistedPlaylistSignatures = new Map();
     this.persistedPresenceLastSeenAtMs = new Map();
     this.hasV2Persistence = false;
@@ -3810,6 +3829,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedPlaybackAuthority();
       this.normalizeLoadedPlaybackBroadcasts();
       this.normalizeLoadedPresenceBroadcast();
+      this.normalizeLoadedAssetDeletions();
     };
     if (typeof state.blockConcurrencyWhile === 'function') state.blockConcurrencyWhile(load);
     else this.ready = load();
@@ -3867,6 +3887,7 @@ export class MusixquareProRoom {
     this.normalizeLoadedPlaybackAuthority();
     this.normalizeLoadedPlaybackBroadcasts();
     this.normalizeLoadedPresenceBroadcast();
+    this.normalizeLoadedAssetDeletions();
     this.reconcileMemberAuthoritySessions();
     if (!Object.prototype.hasOwnProperty.call(this.activeRoom.playback, 'youtubeVideoId')) {
       this.activeRoom.playback.youtubeVideoId = null;
@@ -4574,6 +4595,137 @@ export class MusixquareProRoom {
     }
   }
 
+  normalizeLoadedAssetDeletions() {
+    if (!this.room) return;
+    const expectedReceipts = new Map<string, { assetId: string; request: AssetDeletionRequest }>();
+    const duplicateReceiptKeys = new Set<string>();
+    for (const [assetId, asset] of Object.entries(this.activeRoom.assets || {})) {
+      const pending = asset.deletionPending as unknown;
+      if (pending === undefined) {
+        if (asset.status === 'deleting') {
+          // A deleting sentinel without a usable intent cannot be executed
+          // safely. Restore access non-destructively using the persisted asset
+          // shape rather than guessing that its bytes should be removed.
+          asset.status = isSafeNonNegativeInteger(asset.completedAtMs) ? 'ready' : 'reserved';
+          this.assetDeletionMigrationPending = true;
+        }
+        continue;
+      }
+      const request = isRecord(pending) ? pending.request : undefined;
+      const validRequest =
+        isRecord(request) &&
+        typeof request.scope === 'string' &&
+        /^participant:[A-Za-z0-9][A-Za-z0-9_-]{15,127}:delete$/.test(request.scope) &&
+        typeof request.key === 'string' &&
+        IDEMPOTENCY_KEY_RE.test(request.key) &&
+        typeof request.fingerprint === 'string' &&
+        /^[A-Za-z0-9_-]{43}$/.test(request.fingerprint);
+      const storedOriginalStatus = isRecord(pending) ? pending.originalStatus : undefined;
+      const originalStatus =
+        storedOriginalStatus === 'reserved' || storedOriginalStatus === 'ready'
+          ? storedOriginalStatus
+          : asset.status === 'reserved' || asset.status === 'ready'
+            ? asset.status
+            : null;
+      const validPending =
+        isRecord(pending) &&
+        originalStatus !== null &&
+        ['explicit', 'reservation-expired', 'orphan-gc'].includes(String(pending.reason)) &&
+        isSafeNonNegativeInteger(pending.requestedAtMs) &&
+        isSafeNonNegativeInteger(pending.retryAtMs) &&
+        (pending.reason === 'explicit' ||
+          (pending.reason === 'reservation-expired' && originalStatus === 'reserved') ||
+          (pending.reason === 'orphan-gc' && originalStatus === 'ready')) &&
+        ((pending.reason === 'explicit' && validRequest) ||
+          (pending.reason !== 'explicit' && request === undefined)) &&
+        (asset.status === 'deleting' || asset.status === originalStatus);
+      if (validPending && originalStatus) {
+        if (storedOriginalStatus !== originalStatus) {
+          (asset.deletionPending as AssetDeletionPending).originalStatus = originalStatus;
+          this.assetDeletionMigrationPending = true;
+        }
+        if (asset.status !== 'deleting') {
+          // `deleting` is intentionally unknown to the previous Worker. Its
+          // exact reserved/ready checks therefore fail closed during rollback.
+          asset.status = 'deleting';
+          this.assetDeletionMigrationPending = true;
+        }
+        if (validRequest && isRecord(request)) {
+          const typedRequest: AssetDeletionRequest = {
+            scope: String(request.scope),
+            key: String(request.key),
+            fingerprint: String(request.fingerprint),
+          };
+          const storageKey = `${typedRequest.scope}:${typedRequest.key}`;
+          if (expectedReceipts.has(storageKey)) duplicateReceiptKeys.add(storageKey);
+          else expectedReceipts.set(storageKey, { assetId, request: typedRequest });
+        }
+        continue;
+      }
+      // Older rows have no marker and future formats may add fields, so the
+      // validator is deliberately additive. A genuinely malformed marker is
+      // removed instead of being converted into a destructive cleanup intent:
+      // deleting a referenced ready asset from corrupt metadata would be the
+      // less recoverable outcome.
+      const fallbackStatus =
+        storedOriginalStatus === 'reserved' || storedOriginalStatus === 'ready'
+          ? storedOriginalStatus
+          : isSafeNonNegativeInteger(asset.completedAtMs)
+            ? 'ready'
+            : 'reserved';
+      asset.status = fallbackStatus;
+      delete asset.deletionPending;
+      this.assetDeletionMigrationPending = true;
+    }
+
+    if (duplicateReceiptKeys.size > 0) {
+      for (const asset of Object.values(this.activeRoom.assets)) {
+        const pending = asset.deletionPending;
+        const request = pending?.request;
+        if (!request || !duplicateReceiptKeys.has(`${request.scope}:${request.key}`)) continue;
+        asset.status = pending.originalStatus;
+        delete asset.deletionPending;
+        this.assetDeletionMigrationPending = true;
+      }
+      for (const storageKey of duplicateReceiptKeys) expectedReceipts.delete(storageKey);
+    }
+
+    for (const [storageKey, record] of Object.entries(this.activeRoom.idempotency)) {
+      if (record.kind !== 'asset-delete-pending') continue;
+      const expected = expectedReceipts.get(storageKey);
+      if (!expected || !constantTimeEqual(record.fingerprint, expected.request.fingerprint)) {
+        delete this.activeRoom.idempotency[storageKey];
+        this.assetDeletionMigrationPending = true;
+        continue;
+      }
+      const canonical = this.assetDeletePendingReceipt(expected.request);
+      if (JSON.stringify(record) !== JSON.stringify(canonical)) {
+        this.activeRoom.idempotency[storageKey] = canonical;
+        this.assetDeletionMigrationPending = true;
+      }
+      expectedReceipts.delete(storageKey);
+    }
+    for (const [storageKey, record] of Object.entries(
+      this.activeRoom.developerMutationIdempotency,
+    )) {
+      if (record.kind !== 'asset-delete-pending') continue;
+      delete this.activeRoom.developerMutationIdempotency[storageKey];
+      this.assetDeletionMigrationPending = true;
+    }
+    for (const { request: missingRequest } of expectedReceipts.values()) {
+      try {
+        const records = this.reserveIdempotencySlot(missingRequest.scope, missingRequest.key);
+        records[`${missingRequest.scope}:${missingRequest.key}`] =
+          this.assetDeletePendingReceipt(missingRequest);
+        this.assetDeletionMigrationPending = true;
+      } catch (error) {
+        if (!(error instanceof RoomStateCapacityError)) throw error;
+        // The marker itself remains an authoritative same-key fence. Retry
+        // receipt repair after ordinary idempotency records expire.
+      }
+    }
+  }
+
   async withMutation<T>(callback: () => T | Promise<T>): Promise<T> {
     let release!: () => void;
     const previous = this.mutationTail;
@@ -4606,6 +4758,7 @@ export class MusixquareProRoom {
       accountIdentityMigrationPending: this.accountIdentityMigrationPending,
       developerCommandMigrationPending: this.developerCommandMigrationPending,
       playbackAuthorityMigrationPending: this.playbackAuthorityMigrationPending,
+      assetDeletionMigrationPending: this.assetDeletionMigrationPending,
       alarmMaintenanceDirty: this.alarmMaintenanceDirty,
       alarmMaintenanceRetryAttempt: this.alarmMaintenanceRetryAttempt,
       alarmMaintenanceRetryTimer: this.alarmMaintenanceRetryTimer,
@@ -4641,6 +4794,7 @@ export class MusixquareProRoom {
     this.accountIdentityMigrationPending = checkpoint.accountIdentityMigrationPending;
     this.developerCommandMigrationPending = checkpoint.developerCommandMigrationPending;
     this.playbackAuthorityMigrationPending = checkpoint.playbackAuthorityMigrationPending;
+    this.assetDeletionMigrationPending = checkpoint.assetDeletionMigrationPending;
     this.alarmMaintenanceDirty = checkpoint.alarmMaintenanceDirty;
     this.alarmMaintenanceRetryAttempt = checkpoint.alarmMaintenanceRetryAttempt;
     this.alarmMaintenanceRetryTimer = checkpoint.alarmMaintenanceRetryTimer;
@@ -4958,6 +5112,11 @@ export class MusixquareProRoom {
       candidates.push(this.activeRoom.systemAudio.liveExpiresAt);
     }
     for (const asset of Object.values(this.activeRoom.assets)) {
+      if (asset.deletionPending) {
+        const retryAtMs = asset.deletionPending.retryAtMs;
+        candidates.push(retryAtMs <= nowMs ? nowMs + 1 : retryAtMs);
+        continue;
+      }
       if (asset.status === 'reserved') candidates.push(asset.expiresAtMs);
       if (Number.isSafeInteger(asset.stagingCleanupAfterMs)) {
         candidates.push(asset.stagingCleanupAfterMs);
@@ -5088,7 +5247,7 @@ export class MusixquareProRoom {
   reconcileAssetGarbageCollection(nowMs: number, referenced = this.referencedAssetIds()) {
     let changed = false;
     for (const asset of Object.values(this.activeRoom.assets)) {
-      if (asset.status !== 'ready') continue;
+      if (asset.status !== 'ready' || asset.deletionPending) continue;
       if (referenced.has(asset.assetId)) {
         if (asset.gcAfterMs !== undefined) {
           delete asset.gcAfterMs;
@@ -5113,6 +5272,138 @@ export class MusixquareProRoom {
       objectKey: asset.stagingObjectKey,
       cleanupAfterMs,
     };
+  }
+
+  assetDeletionResponse(assetId: string) {
+    return { ok: true, assetId, quota: { ...this.activeRoom.quota } };
+  }
+
+  assetDeletePendingReceipt(request: AssetDeletionRequest): IdempotencyRecord {
+    return {
+      fingerprint: request.fingerprint,
+      kind: 'asset-delete-pending',
+      status: 503,
+      body: { error: 'MEDIA_STORAGE_UNAVAILABLE' },
+      // The matching deletion marker, rather than wall-clock time, owns this
+      // fence. Normalization removes a dangling receipt once no marker points
+      // at it, so an interrupted deletion cannot lose exactly-once protection
+      // and a corrupt receipt cannot leak capacity forever.
+      expiresAtMs: ASSET_DELETE_PENDING_EXPIRES_AT_MS,
+    };
+  }
+
+  findAssetDeletionRequest(scope: string, key: string) {
+    for (const [assetId, asset] of Object.entries(this.activeRoom.assets)) {
+      const request = asset.deletionPending?.request;
+      if (request?.scope === scope && request.key === key) {
+        return { assetId, request };
+      }
+    }
+    return null;
+  }
+
+  async beginAssetDeletion(
+    asset: RoomAsset,
+    pending: Omit<AssetDeletionPending, 'originalStatus'>,
+  ) {
+    if (asset.deletionPending) return;
+    if (asset.status !== 'reserved' && asset.status !== 'ready') {
+      throw new Error('PRO_ROOM_ASSET_DELETION_STATUS_INVALID');
+    }
+    const originalStatus = asset.status;
+    const deletionPending: AssetDeletionPending = { ...pending, originalStatus };
+    const request = pending.request;
+    const storageKey = request ? `${request.scope}:${request.key}` : null;
+    const records = request ? this.idempotencyLedger(request.scope).records : null;
+    const previousRecord =
+      storageKey && records?.[storageKey] ? structuredClone(records[storageKey]) : undefined;
+    const pendingRecords = request ? this.reserveIdempotencySlot(request.scope, request.key) : null;
+    asset.status = 'deleting';
+    asset.deletionPending = structuredClone(deletionPending);
+    try {
+      if (request && pendingRecords) {
+        pendingRecords[`${request.scope}:${request.key}`] = this.assetDeletePendingReceipt(request);
+      }
+      // The intent and any explicit-request replay fence must be durable before
+      // either object is touched. A restart can then resume from this marker.
+      await this.persist({ retainEarlierAlarm: true });
+    } catch (error) {
+      asset.status = originalStatus;
+      delete asset.deletionPending;
+      if (storageKey && records) {
+        if (previousRecord) records[storageKey] = previousRecord;
+        else delete records[storageKey];
+      }
+      await this.scheduleHeartbeatPersistRetryAlarm();
+      throw error;
+    }
+  }
+
+  async continueAssetDeletion(assetId: string, nowMs: number) {
+    const asset = this.activeRoom.assets[assetId];
+    const pending = asset?.deletionPending;
+    if (!asset || !pending) return null;
+    // beginAssetDeletion() (or an earlier retry) has already committed this
+    // exact pending state. Keep it as the canonical rollback point for the
+    // post-R2 finalization commit.
+    const pendingCheckpoint = this.captureInMemoryState();
+    const bucket = this.env.PRO_MEDIA_BUCKET;
+    if (!bucket) {
+      pending.retryAtMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+      try {
+        await this.persist({ retainEarlierAlarm: true });
+      } catch (error) {
+        await this.scheduleHeartbeatPersistRetryAlarm();
+        throw error;
+      }
+      return null;
+    }
+    const objectKeys = [...new Set([asset.stagingObjectKey, asset.objectKey])].filter(
+      (key): key is string => typeof key === 'string' && key.length > 0,
+    );
+    try {
+      // R2 deletion is idempotent. If the first key succeeds and the second
+      // fails, the durable marker and full quota charge remain for a retry.
+      for (const objectKey of objectKeys) await bucket.delete(objectKey);
+    } catch {
+      pending.retryAtMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+      try {
+        await this.persist({ retainEarlierAlarm: true });
+      } catch (error) {
+        await this.scheduleHeartbeatPersistRetryAlarm();
+        throw error;
+      }
+      return null;
+    }
+
+    try {
+      if (pending.originalStatus === 'reserved') {
+        this.activeRoom.quota.reservedBytes -= asset.byteLength;
+      } else {
+        this.activeRoom.quota.usedBytes -= asset.byteLength;
+      }
+      this.retainStagingTombstone(asset, nowMs);
+      const request = pending.request;
+      delete this.activeRoom.assets[assetId];
+      this.activeRoom.revision += 1;
+      const responseBody = this.assetDeletionResponse(assetId);
+      if (request) {
+        this.storeIdempotency(request.scope, request.key, request.fingerprint, responseBody);
+      }
+      // Only this commit releases quota and removes the ledger row. If it
+      // fails, the previously committed marker survives restart and R2
+      // deletion is safely replayed until this canonical transition lands.
+      await this.persist();
+      return responseBody;
+    } catch (error) {
+      // R2 bytes cannot be restored, but R2 delete is idempotent. Put memory
+      // back on the already-durable marker/quota/pending-receipt state so a
+      // same-isolate request retries finalization instead of replaying a
+      // success that never reached durable storage.
+      this.restoreInMemoryState(pendingCheckpoint);
+      await this.scheduleHeartbeatPersistRetryAlarm();
+      throw error;
+    }
   }
 
   async advanceStagingObjectCleanup(
@@ -5450,9 +5741,10 @@ export class MusixquareProRoom {
       // Completion may leave a verified immutable final object in R2 before
       // the room-state commit. Its retry path now treats that object as the
       // recovery source, so rewinding the in-memory reservation on a storage
-      // commit failure is both safe and required. Deletion is different: once
-      // an R2 object is removed there is no recovery source, therefore only
-      // that route keeps its post-side-effect state on commit failure.
+      // commit failure is both safe and required. Deletion is different: its
+      // helper restores the already-durable pending marker after a post-R2
+      // commit failure, and the outer checkpoint must not rewind past that
+      // intent into the pre-deletion state.
       const hasIrreversibleMediaDelete = request.method === 'DELETE' && deleteMediaMatch !== null;
       return this.withStateCapacityRollback(
         async () => {
@@ -6855,7 +7147,9 @@ export class MusixquareProRoom {
     const replay = this.replayIdempotency(scope, parsed.value.idempotencyKey, fingerprint);
     if (replay) return replay;
     const asset = this.activeRoom.assets[assetId];
-    if (!asset || asset.status !== 'reserved') return errorResponse('ASSET_NOT_FOUND', 404);
+    if (!asset || asset.status !== 'reserved' || asset.deletionPending) {
+      return errorResponse('ASSET_NOT_FOUND', 404);
+    }
     if (!constantTimeEqual(asset.reservedByDeveloperKeyId || '', parsed.value.keyId)) {
       return errorResponse('ASSET_NOT_FOUND', 404);
     }
@@ -13263,6 +13557,9 @@ export class MusixquareProRoom {
   }
 
   idempotencyExpiresAt(storageKey: string, record: IdempotencyRecord) {
+    if (record.kind === 'asset-delete-pending') {
+      return ASSET_DELETE_PENDING_EXPIRES_AT_MS;
+    }
     if (!storageKey.includes(PLAYBACK_IDEMPOTENCY_SCOPE_SEGMENT)) {
       return record.expiresAtMs;
     }
@@ -13407,6 +13704,7 @@ export class MusixquareProRoom {
       if (
         !asset ||
         asset.status !== 'ready' ||
+        asset.deletionPending !== undefined ||
         asset.version !== item.source.version ||
         asset.byteLength !== item.source.byteLength ||
         asset.mime !== item.source.mime ||
@@ -13807,7 +14105,9 @@ export class MusixquareProRoom {
     const replay = this.replayIdempotency(scope, key, fingerprint);
     if (replay) return replay;
     const asset = this.activeRoom.assets[assetId];
-    if (!asset || asset.status !== 'reserved') return errorResponse('ASSET_NOT_FOUND', 404);
+    if (!asset || asset.status !== 'reserved' || asset.deletionPending) {
+      return errorResponse('ASSET_NOT_FOUND', 404);
+    }
     if (asset.reservedByParticipantId !== auth.session.participantId) {
       return errorResponse('RESERVATION_OWNER_REQUIRED', 403);
     }
@@ -13925,7 +14225,9 @@ export class MusixquareProRoom {
     if (auth.response) return auth.response;
     if (!OPAQUE_ID_RE.test(assetId)) return errorResponse('INVALID_ASSET_ID', 400);
     const asset = this.activeRoom.assets[assetId];
-    if (!asset || asset.status !== 'ready') return errorResponse('ASSET_NOT_FOUND', 404);
+    if (!asset || asset.status !== 'ready' || asset.deletionPending) {
+      return errorResponse('ASSET_NOT_FOUND', 404);
+    }
     const nowMs = Date.now();
     const ttl = configuredNumber(this.env.PRESIGN_TTL_SECONDS, PRESIGN_TTL_SECONDS, 60, 3600);
     const url = await createR2PresignedUrl({
@@ -13955,11 +14257,55 @@ export class MusixquareProRoom {
       return errorResponse('INVALID_REQUEST', 400);
     const scope = `participant:${auth.session.participantId}:delete`;
     const fingerprint = await this.idempotencyFingerprint(scope, { assetId });
-    const replay = this.replayIdempotency(scope, key, fingerprint);
-    if (replay) return replay;
+    const markerFence = this.findAssetDeletionRequest(scope, key);
+    if (
+      markerFence &&
+      (markerFence.assetId !== assetId ||
+        !constantTimeEqual(markerFence.request.fingerprint, fingerprint))
+    ) {
+      return errorResponse('IDEMPOTENCY_CONFLICT', 409);
+    }
+    const existingRecord = this.idempotencyRecord(scope, key);
+    if (existingRecord) {
+      if (!constantTimeEqual(existingRecord.fingerprint, fingerprint)) {
+        return errorResponse('IDEMPOTENCY_CONFLICT', 409);
+      }
+      if (existingRecord.kind !== 'asset-delete-pending') {
+        const replay = this.replayIdempotency(scope, key, fingerprint);
+        if (replay) return replay;
+      }
+    }
     const asset = this.activeRoom.assets[assetId];
-    if (!asset || (asset.status !== 'reserved' && asset.status !== 'ready')) {
-      return errorResponse('ASSET_NOT_FOUND', 404);
+    if (
+      !asset ||
+      (asset.status !== 'reserved' && asset.status !== 'ready' && asset.status !== 'deleting')
+    ) {
+      return existingRecord?.kind === 'asset-delete-pending'
+        ? errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503)
+        : errorResponse('ASSET_NOT_FOUND', 404);
+    }
+    if (asset.deletionPending) {
+      const pendingRequest = asset.deletionPending.request;
+      if (
+        !pendingRequest ||
+        pendingRequest.scope !== scope ||
+        pendingRequest.key !== key ||
+        !constantTimeEqual(pendingRequest.fingerprint, fingerprint)
+      ) {
+        return errorResponse('ASSET_NOT_FOUND', 404);
+      }
+      if (
+        asset.deletionPending.originalStatus === 'ready' &&
+        this.activeRoom.playlist.some(
+          (item) => item.source.kind === 'pro-r2' && item.source.assetId === assetId,
+        )
+      ) {
+        return errorResponse('ASSET_IN_USE', 409);
+      }
+      const responseBody = await this.continueAssetDeletion(assetId, Date.now());
+      return responseBody
+        ? jsonResponse(responseBody)
+        : errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
     }
     if (
       this.activeRoom.playlist.some(
@@ -13969,23 +14315,17 @@ export class MusixquareProRoom {
       return errorResponse('ASSET_IN_USE', 409);
     }
     if (!this.env.PRO_MEDIA_BUCKET) return errorResponse('MEDIA_NOT_CONFIGURED', 503);
-    try {
-      if (asset.stagingObjectKey) {
-        await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
-      }
-      if (asset.status === 'ready') await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey);
-    } catch {
-      return errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
-    }
-    if (asset.status === 'reserved') this.activeRoom.quota.reservedBytes -= asset.byteLength;
-    else this.activeRoom.quota.usedBytes -= asset.byteLength;
-    this.retainStagingTombstone(asset);
-    delete this.activeRoom.assets[assetId];
-    this.activeRoom.revision += 1;
-    const responseBody = { ok: true, assetId, quota: { ...this.activeRoom.quota } };
-    this.storeIdempotency(scope, key, fingerprint, responseBody);
-    await this.persist();
-    return jsonResponse(responseBody);
+    const nowMs = Date.now();
+    await this.beginAssetDeletion(asset, {
+      reason: 'explicit',
+      requestedAtMs: nowMs,
+      retryAtMs: nowMs,
+      request: { scope, key, fingerprint },
+    });
+    const responseBody = await this.continueAssetDeletion(assetId, nowMs);
+    return responseBody
+      ? jsonResponse(responseBody)
+      : errorResponse('MEDIA_STORAGE_UNAVAILABLE', 503);
   }
 
   async prune(nowMs: number) {
@@ -14010,6 +14350,7 @@ export class MusixquareProRoom {
       this.accountIdentityMigrationPending ||
       this.developerCommandMigrationPending ||
       this.playbackAuthorityMigrationPending ||
+      this.assetDeletionMigrationPending ||
       this.reconcileSystemAudio(nowMs);
     if (
       this.activeRoom.pendingPlaybackTransition &&
@@ -14022,7 +14363,7 @@ export class MusixquareProRoom {
     // playlist reference scan. Rooms with ready media compute the set once and
     // reuse it for both marker repair and the due-GC safety check below.
     const hasReadyAssets = Object.values(this.activeRoom.assets).some(
-      (asset) => asset.status === 'ready',
+      (asset) => asset.status === 'ready' || asset.deletionPending?.originalStatus === 'ready',
     );
     const referencedAssets = hasReadyAssets ? this.referencedAssetIds() : new Set<string>();
     changed = this.reconcileAssetGarbageCollection(nowMs, referencedAssets) || changed;
@@ -14109,6 +14450,20 @@ export class MusixquareProRoom {
       }
     }
     for (const [assetId, asset] of Object.entries(this.activeRoom.assets)) {
+      if (asset.deletionPending) {
+        if (asset.deletionPending.retryAtMs <= nowMs) {
+          // A valid intent is created only after the reference check. Treat an
+          // impossible stored conflict conservatively rather than deleting a
+          // ready asset that a playlist still names.
+          if (asset.deletionPending.originalStatus === 'ready' && referencedAssets.has(assetId)) {
+            asset.deletionPending.retryAtMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
+            changed = true;
+          } else {
+            await this.continueAssetDeletion(assetId, nowMs);
+          }
+        }
+        continue;
+      }
       const stagingObjectKey = asset.stagingObjectKey;
       const stagingCleanupAfterMs = asset.stagingCleanupAfterMs;
       if (
@@ -14144,28 +14499,12 @@ export class MusixquareProRoom {
       }
       const expiresAtMs = asset.expiresAtMs;
       if (asset.status === 'reserved' && isSafeInteger(expiresAtMs) && expiresAtMs <= nowMs) {
-        if (!this.env.PRO_MEDIA_BUCKET) {
-          asset.expiresAtMs = nowMs + 60_000;
-          changed = true;
-          continue;
-        }
-        const reservedObjectKey = asset.stagingObjectKey;
-        if (!reservedObjectKey) {
-          asset.expiresAtMs = nowMs + 60_000;
-          changed = true;
-          continue;
-        }
-        try {
-          await this.env.PRO_MEDIA_BUCKET.delete(reservedObjectKey);
-        } catch {
-          asset.expiresAtMs = nowMs + 60_000;
-          changed = true;
-          continue;
-        }
-        this.activeRoom.quota.reservedBytes -= asset.byteLength;
-        this.retainStagingTombstone(asset, nowMs);
-        delete this.activeRoom.assets[assetId];
-        changed = true;
+        await this.beginAssetDeletion(asset, {
+          reason: 'reservation-expired',
+          requestedAtMs: nowMs,
+          retryAtMs: nowMs,
+        });
+        await this.continueAssetDeletion(assetId, nowMs);
         continue;
       }
       const gcAfterMs = asset.gcAfterMs;
@@ -14177,28 +14516,12 @@ export class MusixquareProRoom {
           changed = true;
           continue;
         }
-        if (!this.env.PRO_MEDIA_BUCKET) {
-          asset.gcAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
-          changed = true;
-          continue;
-        }
-        try {
-          await this.env.PRO_MEDIA_BUCKET.delete(asset.objectKey);
-          if (asset.stagingObjectKey) {
-            await this.env.PRO_MEDIA_BUCKET.delete(asset.stagingObjectKey);
-          }
-        } catch {
-          // R2 is authoritative for byte deletion. Keep both the asset ledger
-          // and used-byte charge intact until deletion succeeds.
-          asset.gcAfterMs = nowMs + ASSET_GC_RETRY_SECONDS * 1000;
-          changed = true;
-          continue;
-        }
-        this.activeRoom.quota.usedBytes -= asset.byteLength;
-        this.retainStagingTombstone(asset, nowMs);
-        delete this.activeRoom.assets[assetId];
-        this.activeRoom.revision += 1;
-        changed = true;
+        await this.beginAssetDeletion(asset, {
+          reason: 'orphan-gc',
+          requestedAtMs: nowMs,
+          retryAtMs: nowMs,
+        });
+        await this.continueAssetDeletion(assetId, nowMs);
       }
     }
     for (const [key, value] of Object.entries(this.activeRoom.rateLimits)) {
@@ -14237,6 +14560,7 @@ export class MusixquareProRoom {
       this.accountIdentityMigrationPending = false;
       this.developerCommandMigrationPending = false;
       this.playbackAuthorityMigrationPending = false;
+      this.assetDeletionMigrationPending = false;
     }
     return changed;
   }
@@ -14271,6 +14595,7 @@ export class MusixquareProRoom {
       this.normalizeLoadedPlaybackAuthority();
       this.normalizeLoadedPlaybackBroadcasts();
       this.normalizeLoadedPresenceBroadcast();
+      this.normalizeLoadedAssetDeletions();
       const nowMs = Date.now();
       await this.prune(nowMs);
       if (this.heartbeatDurabilityDirty) {

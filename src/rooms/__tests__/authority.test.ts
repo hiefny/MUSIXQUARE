@@ -165,6 +165,27 @@ describe('room authority compatibility layer', () => {
     expect(hasRoomCapability('playback.control')).toBe(false);
   });
 
+  it('ignores the host/operator compatibility projection for PRO authority', () => {
+    setRoomContext(proContext({ role: 'member', coordinatorId: null, capabilities: [] }));
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setState('network.isOperator', true);
+
+    expect(isCoordinator()).toBe(false);
+    expect(hasRoomCapability('queue.mutate')).toBe(false);
+    expect(hasRoomCapability('playback.control')).toBe(false);
+
+    setRoomContext(
+      proContext({
+        role: 'member',
+        coordinatorId: null,
+        capabilities: ['playback.control'],
+      }),
+    );
+    expect(hasRoomCapability('playback.control')).toBe(true);
+    expect(hasRoomCapability('queue.mutate')).toBe(false);
+  });
+
   it('keeps coordinator identity separate from owner/controller role', () => {
     setRoomContext(proContext({ role: 'coordinator' }));
     setState('network.appRole', 'host');

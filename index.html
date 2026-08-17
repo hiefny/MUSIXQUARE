@@ -12,7 +12,11 @@
          apply Android viewport, language, and theme preflight. The main SPA
          deliberately does not load third-party analytics. Source:
          browser/classic-runtime/bootstrap.ts -->
-    <script src="/bootstrap.js?cache=v448"></script>
+    <!-- bootstrap assigns the locale-specific href synchronously. Keeping the
+         link href-less until then prevents a race that could pin install UI to
+         the wrong language. -->
+    <link id="app-manifest" rel="manifest" />
+    <script src="/bootstrap.js?cache=v449"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -60,8 +64,6 @@
     <link rel="icon" href="/icons/icon-32.png" sizes="32x32" type="image/png" />
     <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
-
     <!-- FOUC guard lives inside style.css (`body { opacity: 0 }` unlayered)
          and gets revealed by adding body.fouc-loaded once the stylesheet
          parses. No inline <style> needed → CSP can drop style-src
@@ -1842,6 +1844,7 @@
             id="chat-ime-dummy"
             tabindex="-1"
             aria-hidden="true"
+            data-clearable="false"
             autocomplete="off"
             autocorrect="off"
             autocapitalize="off"

@@ -12,6 +12,7 @@ const pl: Record<I18nKey, string> = {
   'common.cancel': 'Anuluj',
   'common.close': 'Zamknij',
   'common.reset': 'Resetuj',
+  'common.clear_input': 'Wyczyść pole',
   'common.refresh': 'Odśwież',
   'common.retry': 'Spróbuj ponownie',
   'common.later': 'Później',

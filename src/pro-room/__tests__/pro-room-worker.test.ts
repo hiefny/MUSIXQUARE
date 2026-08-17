@@ -2365,7 +2365,7 @@ type StoredRoom = {
   assets: Record<
     string,
     {
-      status: 'reserved' | 'ready';
+      status: 'reserved' | 'ready' | 'deleting';
       assetId: string;
       objectKey: string;
       stagingObjectKey: string;
@@ -2377,6 +2377,13 @@ type StoredRoom = {
       expiresAtMs?: number;
       gcAfterMs?: number;
       stagingCleanupAfterMs?: number;
+      deletionPending?: {
+        reason: 'explicit' | 'reservation-expired' | 'orphan-gc';
+        originalStatus: 'reserved' | 'ready';
+        requestedAtMs: number;
+        retryAtMs: number;
+        request?: { scope: string; key: string; fingerprint: string };
+      };
     }
   >;
 };
@@ -16680,6 +16687,546 @@ describe('persistent PRO room private media accounting', () => {
     });
   });
 
+  it('reclaims both staging and an uncommitted final object when the reservation expires', async () => {
+    const context = await activatedRoom();
+    const reservation = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 6144, name: 'abandoned.flac', mime: 'audio/flac' },
+          context.ownerCookie,
+          `${IDEMPOTENCY_KEY}-abandoned-reserve`,
+        ),
+      ),
+    );
+    const assetId = reservation.reservation.assetId as string;
+    const internal = context.worker as unknown as { room: StoredRoom; alarm(): Promise<void> };
+    const asset = structuredClone(internal.room.assets[assetId]!);
+    context.bucket.objects.set(asset.stagingObjectKey, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-generation': String(asset.roomGeneration ?? 0),
+        'mxqr-asset': asset.assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+
+    const originalPut = context.state.storage.put.bind(context.state.storage);
+    let failCoreOnce = true;
+    context.state.storage.put = async (key, value) => {
+      if (failCoreOnce && key === 'pro-room:v2:core') {
+        failCoreOnce = false;
+        throw new Error('simulated abandoned completion commit failure');
+      }
+      return originalPut(key, value);
+    };
+    await expect(
+      context.worker.fetch(
+        request(
+          `/media/${assetId}/complete`,
+          {
+            method: 'POST',
+            headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-abandoned-complete` },
+          },
+          context.ownerCookie,
+        ),
+      ),
+    ).rejects.toMatchObject({ name: 'RoomStateStorageCommitError' });
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(true);
+    expect(context.bucket.objects.has(asset.stagingObjectKey)).toBe(true);
+
+    context.state.storage.put = originalPut;
+    internal.room.assets[assetId]!.expiresAtMs = Date.now() - 1;
+    const originalDelete = context.bucket.delete.bind(context.bucket);
+    let sawDurableIntentBeforeDelete = false;
+    context.bucket.delete = async (key) => {
+      const persistedAsset = storedCanonicalRoom(context.state).assets[assetId];
+      expect(persistedAsset?.deletionPending).toMatchObject({ reason: 'reservation-expired' });
+      expect(storedCanonicalRoom(context.state).quota).toMatchObject({
+        usedBytes: 0,
+        reservedBytes: asset.byteLength,
+      });
+      sawDurableIntentBeforeDelete = true;
+      return originalDelete(key);
+    };
+
+    await internal.alarm();
+
+    expect(sawDurableIntentBeforeDelete).toBe(true);
+    expect(context.bucket.objects.has(asset.stagingObjectKey)).toBe(false);
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(false);
+    expect(storedCanonicalRoom(context.state).assets[assetId]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).quota).toMatchObject({
+      usedBytes: 0,
+      reservedBytes: 0,
+    });
+  });
+
+  it('keeps deletion pending, blocks reuse, and retries after only one R2 key was deleted', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'partial-delete', 7168);
+    context.bucket.objects.set(asset.stagingObjectKey, { size: asset.byteLength });
+    const originalDelete = context.bucket.delete.bind(context.bucket);
+    let failFinalOnce = true;
+    context.bucket.delete = async (key) => {
+      if (failFinalOnce && key === asset.objectKey) {
+        failFinalOnce = false;
+        throw new Error('simulated final-key delete failure');
+      }
+      return originalDelete(key);
+    };
+    const deleteKey = `${IDEMPOTENCY_KEY}-partial-delete`;
+
+    const failed = await context.worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
+        context.ownerCookie,
+      ),
+    );
+    expect(failed.status).toBe(503);
+    expect(context.bucket.objects.has(asset.stagingObjectKey)).toBe(false);
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(true);
+    expect(asset.deletionPending).toMatchObject({ reason: 'explicit' });
+    expect((context.worker as unknown as { room: StoredRoom }).room.quota).toMatchObject({
+      usedBytes: asset.byteLength,
+      reservedBytes: 0,
+    });
+
+    const download = await context.worker.fetch(
+      request(`/media/${assetId}/download`, {}, context.ownerCookie),
+    );
+    expect(download.status).toBe(404);
+    const addWhilePending = await replacePlaylist(
+      context,
+      [playlistItem('aaaaaaa1-aaaa-4aaa-8aaa-aaaaaaaaaaa1', asset)],
+      'pending-delete-reuse',
+    );
+    expect(addWhilePending.status).toBe(409);
+    await expect(addWhilePending.json()).resolves.toEqual({ error: 'ASSET_NOT_READY' });
+
+    asset.deletionPending!.retryAtMs = Date.now() - 1;
+    await (context.worker as unknown as { alarm(): Promise<void> }).alarm();
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(false);
+    expect(
+      (context.worker as unknown as { room: StoredRoom }).room.assets[assetId],
+    ).toBeUndefined();
+    expect((context.worker as unknown as { room: StoredRoom }).room.quota).toMatchObject({
+      usedBytes: 0,
+      reservedBytes: 0,
+    });
+
+    const replay = await context.worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
+        context.ownerCookie,
+      ),
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      ok: true,
+      assetId,
+      quota: { usedBytes: 0, reservedBytes: 0 },
+    });
+  });
+
+  it('recovers an explicit deletion after R2 succeeds but the final DO commit fails', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'delete-commit-recovery', 9216);
+    const originalPut = context.state.storage.put.bind(context.state.storage);
+    let intentPersisted = false;
+    let failFinalCommitOnce = true;
+    context.state.storage.put = async (key, value) => {
+      if (key === 'pro-room:v2:core') {
+        const envelope = value as { core?: StoredRoom };
+        if (envelope.core?.assets[assetId]?.deletionPending) intentPersisted = true;
+        else if (intentPersisted && failFinalCommitOnce) {
+          failFinalCommitOnce = false;
+          throw new Error('simulated delete finalization commit failure');
+        }
+      }
+      return originalPut(key, value);
+    };
+    const deleteKey = `${IDEMPOTENCY_KEY}-delete-commit-recovery`;
+
+    await expect(
+      context.worker.fetch(
+        request(
+          `/media/${assetId}`,
+          { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
+          context.ownerCookie,
+        ),
+      ),
+    ).rejects.toMatchObject({ name: 'RoomStateStorageCommitError' });
+    expect(intentPersisted).toBe(true);
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(false);
+    expect((context.worker as unknown as { room: StoredRoom }).room.assets[assetId]).toMatchObject({
+      deletionPending: { reason: 'explicit' },
+    });
+    expect((context.worker as unknown as { room: StoredRoom }).room.quota).toMatchObject({
+      usedBytes: asset.byteLength,
+      reservedBytes: 0,
+    });
+    const persistedPending = storedCanonicalRoom(context.state);
+    expect(persistedPending.assets[assetId]?.deletionPending).toMatchObject({ reason: 'explicit' });
+    expect(persistedPending.quota).toMatchObject({ usedBytes: asset.byteLength, reservedBytes: 0 });
+
+    context.state.storage.put = originalPut;
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    await (restarted as unknown as { alarm(): Promise<void> }).alarm();
+    expect(storedCanonicalRoom(context.state).assets[assetId]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).quota).toMatchObject({
+      usedBytes: 0,
+      reservedBytes: 0,
+    });
+
+    const replay = await restarted.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
+        context.ownerCookie,
+      ),
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({ quota: { usedBytes: 0 } });
+  });
+
+  it('retries delete finalization in the same isolate after its DO commit fails', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'delete-same-isolate', 10_240);
+    const originalPut = context.state.storage.put.bind(context.state.storage);
+    let intentPersisted = false;
+    let failFinalCommitOnce = true;
+    context.state.storage.put = async (key, value) => {
+      if (key === 'pro-room:v2:core') {
+        const envelope = value as { core?: StoredRoom };
+        if (envelope.core?.assets[assetId]?.deletionPending) intentPersisted = true;
+        else if (intentPersisted && failFinalCommitOnce) {
+          failFinalCommitOnce = false;
+          throw new Error('simulated same-isolate finalization failure');
+        }
+      }
+      return originalPut(key, value);
+    };
+    const deleteKey = `${IDEMPOTENCY_KEY}-delete-same-isolate`;
+    const deletion = () =>
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
+        context.ownerCookie,
+      );
+
+    await expect(context.worker.fetch(deletion())).rejects.toMatchObject({
+      name: 'RoomStateStorageCommitError',
+    });
+    const internal = context.worker as unknown as { room: StoredRoom };
+    expect(internal.room.assets[assetId]).toMatchObject({
+      deletionPending: { reason: 'explicit' },
+    });
+    expect(internal.room.quota).toMatchObject({
+      usedBytes: asset.byteLength,
+      reservedBytes: 0,
+    });
+
+    context.state.storage.put = originalPut;
+    const retry = await context.worker.fetch(deletion());
+    expect(retry.status).toBe(200);
+    await expect(retry.json()).resolves.toMatchObject({
+      ok: true,
+      assetId,
+      quota: { usedBytes: 0, reservedBytes: 0 },
+    });
+    expect(internal.room.assets[assetId]).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).assets[assetId]).toBeUndefined();
+  });
+
+  it('normalizes a malformed deletion marker without deleting a referenced legacy asset', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'malformed-delete-marker', 11_264);
+    expect(
+      (
+        await replacePlaylist(
+          context,
+          [playlistItem('bbbbbbb2-bbbb-4bbb-8bbb-bbbbbbbbbbb2', asset)],
+          'malformed-delete-marker-reference',
+        )
+      ).status,
+    ).toBe(200);
+    const internal = context.worker as unknown as {
+      room: StoredRoom;
+      persist(): Promise<void>;
+    };
+    (internal.room.assets[assetId] as any).deletionPending = {
+      reason: 'unknown-future-state',
+      requestedAtMs: Date.now(),
+      retryAtMs: Date.now() - 1,
+    };
+    await internal.persist();
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const snapshot = await restarted.fetch(request('/snapshot', {}, context.ownerCookie));
+    expect(snapshot.status).toBe(200);
+    const restartedInternal = restarted as unknown as { room: StoredRoom };
+    expect(restartedInternal.room.assets[assetId]?.deletionPending).toBeUndefined();
+    expect(restartedInternal.room.assets[assetId]).toMatchObject({ status: 'ready' });
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(true);
+    expect(context.bucket.deleted).not.toContain(asset.objectKey);
+  });
+
+  it('accepts additive deletion-marker fields during a rolling deployment', async () => {
+    const context = await activatedRoom();
+    const reservation = await responseJson(
+      await context.worker.fetch(
+        jsonRequest(
+          '/media/reservations',
+          'POST',
+          { byteLength: 12_288, name: 'rolling-marker.wav', mime: 'audio/wav' },
+          context.ownerCookie,
+          `${IDEMPOTENCY_KEY}-rolling-marker-reserve`,
+        ),
+      ),
+    );
+    const assetId = reservation.reservation.assetId as string;
+    const internal = context.worker as unknown as {
+      room: StoredRoom;
+      persist(): Promise<void>;
+    };
+    (internal.room.assets[assetId] as any).deletionPending = {
+      reason: 'reservation-expired',
+      requestedAtMs: Date.now(),
+      retryAtMs: Date.now() + 60_000,
+      futureAttempt: 3,
+    };
+    await internal.persist();
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const snapshot = await restarted.fetch(request('/snapshot', {}, context.ownerCookie));
+    expect(snapshot.status).toBe(200);
+    expect(
+      (restarted as unknown as { room: StoredRoom }).room.assets[assetId]?.deletionPending,
+    ).toMatchObject({
+      reason: 'reservation-expired',
+      originalStatus: 'reserved',
+      futureAttempt: 3,
+    });
+    expect((restarted as unknown as { room: StoredRoom }).room.assets[assetId]?.status).toBe(
+      'deleting',
+    );
+    expect(context.bucket.deleted).not.toContain(internal.room.assets[assetId]!.objectKey);
+  });
+
+  it('keeps a pending delete receipt fenced past its old TTL and rejects same-key reuse', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-18T02:00:00.000Z'));
+    const context = await activatedRoom();
+    const reserve = async (suffix: string) =>
+      responseJson(
+        await context.worker.fetch(
+          jsonRequest(
+            '/media/reservations',
+            'POST',
+            { byteLength: 4096, name: `${suffix}.wav`, mime: 'audio/wav' },
+            context.ownerCookie,
+            `${IDEMPOTENCY_KEY}-${suffix}-reserve`,
+          ),
+        ),
+      );
+    const first = await reserve('ttl-first');
+    const second = await reserve('ttl-second');
+    const firstAssetId = first.reservation.assetId as string;
+    const secondAssetId = second.reservation.assetId as string;
+    const internal = context.worker as unknown as {
+      room: StoredRoom & {
+        idempotency: Record<string, any>;
+        sessions: Record<string, any>;
+        presence: { participants: Record<string, any> };
+      };
+    };
+    const firstAsset = internal.room.assets[firstAssetId]!;
+    context.bucket.objects.set(firstAsset.stagingObjectKey, { size: firstAsset.byteLength });
+    context.bucket.deleteError = new Error('hold deletion open across the old TTL');
+    const sharedKey = `${IDEMPOTENCY_KEY}-ttl-shared-delete`;
+    const firstDelete = await context.worker.fetch(
+      request(
+        `/media/${firstAssetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': sharedKey } },
+        context.ownerCookie,
+      ),
+    );
+    expect(firstDelete.status).toBe(503);
+    const pendingEntry = Object.entries(internal.room.idempotency).find(
+      ([, record]) => record.kind === 'asset-delete-pending',
+    );
+    expect(pendingEntry).toBeDefined();
+    const [pendingStorageKey, pendingReceipt] = pendingEntry!;
+    // Model the receipt written by the immediately previous rollout.
+    pendingReceipt.expiresAtMs = Date.now() + 24 * 60 * 60 * 1000;
+
+    vi.setSystemTime(new Date(Date.now() + 24 * 60 * 60 * 1000 + 1));
+    const nowMs = Date.now();
+    internal.room.assets[firstAssetId]!.deletionPending!.retryAtMs = nowMs + 60_000;
+    internal.room.assets[secondAssetId]!.expiresAtMs = nowMs + 60_000;
+    for (const session of Object.values(internal.room.sessions)) {
+      session.expiresAtMs = nowMs + 60_000;
+      if (session.accountId) session.accountLeaseExpiresAtMs = nowMs + 60_000;
+    }
+    for (const participant of Object.values(internal.room.presence.participants)) {
+      participant.lastSeenAtMs = nowMs;
+    }
+
+    const reused = await context.worker.fetch(
+      request(
+        `/media/${secondAssetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': sharedKey } },
+        context.ownerCookie,
+      ),
+    );
+    expect(reused.status).toBe(409);
+    await expect(reused.json()).resolves.toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
+    expect(internal.room.assets[secondAssetId]?.deletionPending).toBeUndefined();
+    expect(internal.room.idempotency[pendingStorageKey]).toMatchObject({
+      kind: 'asset-delete-pending',
+      expiresAtMs: Number.MAX_SAFE_INTEGER,
+    });
+  });
+
+  it('restores durable pending state when final receipt storage is at capacity', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'receipt-capacity', 13_312);
+    context.bucket.deleteError = new Error('persist the deletion intent first');
+    const deleteKey = `${IDEMPOTENCY_KEY}-receipt-capacity-delete`;
+    const failed = await context.worker.fetch(
+      request(
+        `/media/${assetId}`,
+        { method: 'DELETE', headers: { 'idempotency-key': deleteKey } },
+        context.ownerCookie,
+      ),
+    );
+    expect(failed.status).toBe(503);
+    const internal = context.worker as unknown as {
+      room: StoredRoom & { idempotency: Record<string, any> };
+      persist(): Promise<void>;
+      continueAssetDeletion(assetId: string, nowMs: number): Promise<Record<string, any> | null>;
+    };
+    internal.room.idempotency = {};
+    for (let index = 0; index < 256; index += 1) {
+      internal.room.idempotency[`capacity-filler-${index}`] = {
+        fingerprint: 'f'.repeat(43),
+        status: 200,
+        body: { ok: true },
+        expiresAtMs: Date.now() + 60_000,
+      };
+    }
+    await internal.persist();
+    context.bucket.deleteError = null;
+
+    await expect(internal.continueAssetDeletion(assetId, Date.now())).rejects.toMatchObject({
+      name: 'RoomStateCapacityError',
+    });
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(false);
+    expect(internal.room.assets[assetId]).toMatchObject({
+      status: 'deleting',
+      deletionPending: { reason: 'explicit', originalStatus: 'ready' },
+    });
+    expect(internal.room.quota).toMatchObject({
+      usedBytes: asset.byteLength,
+      reservedBytes: 0,
+    });
+    expect(storedCanonicalRoom(context.state).assets[assetId]).toMatchObject({
+      status: 'deleting',
+      deletionPending: { reason: 'explicit', originalStatus: 'ready' },
+    });
+
+    delete internal.room.idempotency['capacity-filler-0'];
+    const recovered = await internal.continueAssetDeletion(assetId, Date.now());
+    expect(recovered).toMatchObject({
+      ok: true,
+      assetId,
+      quota: { usedBytes: 0, reservedBytes: 0 },
+    });
+    expect(internal.room.assets[assetId]).toBeUndefined();
+  });
+
+  it('removes a dangling pending receipt so it cannot leak ledger capacity', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as {
+      room: StoredRoom & { idempotency: Record<string, any> };
+      persist(): Promise<void>;
+    };
+    const danglingKey = `participant:participant_aaaaaaaaaaaaaaaaaaaaaa:delete:${IDEMPOTENCY_KEY}-dangling`;
+    internal.room.idempotency[danglingKey] = {
+      fingerprint: 'd'.repeat(43),
+      kind: 'asset-delete-pending',
+      status: 503,
+      body: { error: 'MEDIA_STORAGE_UNAVAILABLE' },
+      expiresAtMs: Number.MAX_SAFE_INTEGER,
+    };
+    await internal.persist();
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    expect((await restarted.fetch(request('/snapshot', {}, context.ownerCookie))).status).toBe(200);
+    expect(
+      (restarted as unknown as { room: StoredRoom & { idempotency: Record<string, any> } }).room
+        .idempotency[danglingKey],
+    ).toBeUndefined();
+    expect(storedCanonicalRoom(context.state).idempotency[danglingKey]).toBeUndefined();
+  });
+
+  it('persists a rollback-safe deleting sentinel that legacy exact checks reject', async () => {
+    const context = await activatedRoom();
+    const { assetId, asset } = await completeReadyAsset(context, 'rollback-sentinel', 14_336);
+    context.bucket.deleteError = new Error('leave the durable deletion intent pending');
+    const response = await context.worker.fetch(
+      request(
+        `/media/${assetId}`,
+        {
+          method: 'DELETE',
+          headers: { 'idempotency-key': `${IDEMPOTENCY_KEY}-rollback-sentinel-delete` },
+        },
+        context.ownerCookie,
+      ),
+    );
+    expect(response.status).toBe(503);
+    const persisted = storedCanonicalRoom(context.state).assets[assetId]!;
+    expect(persisted).toMatchObject({
+      status: 'deleting',
+      deletionPending: { originalStatus: 'ready' },
+    });
+
+    // These are the previous Worker's exact guards. `deleting` is deliberately
+    // outside both legacy states, so a release rollback cannot resurrect use.
+    expect({
+      complete: persisted.status === 'reserved',
+      download: persisted.status === 'ready',
+      playlistInsert: persisted.status === 'ready',
+      legacyReadyGc: persisted.status === 'ready',
+    }).toEqual({
+      complete: false,
+      download: false,
+      playlistInsert: false,
+      legacyReadyGc: false,
+    });
+    expect(context.bucket.objects.has(asset.objectKey)).toBe(true);
+    expect(storedCanonicalRoom(context.state).quota.usedBytes).toBe(asset.byteLength);
+  });
+
   it('completes and indexes a local upload beside a playlist above the legacy state budget', async () => {
     const { worker, bucket, ownerCookie } = await activatedRoom();
     const internal = worker as unknown as {
@@ -17067,20 +17614,27 @@ describe('persistent PRO room private media accounting', () => {
     let stored = storedCanonicalRoom(state) as StoredRoom & {
       quota: { usedBytes: number; reservedBytes: number };
     };
-    expect(stored.assets[assetId]).toBeDefined();
+    expect(stored.assets[assetId]).toMatchObject({
+      deletionPending: { reason: 'explicit' },
+    });
     expect(stored.quota).toMatchObject({ usedBytes: 0, reservedBytes: 8192 });
 
     const internal = worker as unknown as {
       room: {
         assets: Record<
           string,
-          { expiresAtMs: number; objectKey: string; stagingObjectKey: string }
+          {
+            expiresAtMs: number;
+            objectKey: string;
+            stagingObjectKey: string;
+            deletionPending: { retryAtMs: number };
+          }
         >;
         quota: { reservedBytes: number };
       };
       alarm(): Promise<void>;
     };
-    internal.room.assets[assetId]!.expiresAtMs = Date.now() - 1;
+    internal.room.assets[assetId]!.deletionPending.retryAtMs = Date.now() - 1;
     bucket.deleteError = null;
     await internal.alarm();
     stored = storedCanonicalRoom(state) as StoredRoom & {
@@ -17648,11 +18202,12 @@ describe('persistent PRO room orphan asset garbage collection', () => {
       internal.room.quota.limitBytes,
     );
     expect(internal.room.revision).toBe(revisionBeforeFailure);
-    expect(asset.gcAfterMs).toBeGreaterThan(Date.now());
-    expect(context.state.storage.alarm).toBe(asset.gcAfterMs);
+    expect(asset.deletionPending).toMatchObject({ reason: 'orphan-gc' });
+    expect(asset.deletionPending!.retryAtMs).toBeGreaterThan(Date.now());
+    expect(context.state.storage.alarm).toBe(asset.deletionPending!.retryAtMs);
 
     context.bucket.deleteError = null;
-    asset.gcAfterMs = Date.now() - 1;
+    asset.deletionPending!.retryAtMs = Date.now() - 1;
     await internal.alarm();
     expect(internal.room.assets[assetId]).toBeUndefined();
     expect(internal.room.quota).toMatchObject({ usedBytes: 0, reservedBytes: 0 });

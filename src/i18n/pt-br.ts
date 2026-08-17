@@ -15,6 +15,7 @@ const ptBr: Record<I18nKey, string> = {
   'common.cancel': 'Cancelar',
   'common.close': 'Fechar',
   'common.reset': 'Redefinir',
+  'common.clear_input': 'Limpar campo',
   'common.refresh': 'Atualizar',
   'common.retry': 'Tentar novamente',
   'common.later': 'Mais tarde',

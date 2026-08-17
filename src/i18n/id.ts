@@ -15,6 +15,7 @@ const id: Record<I18nKey, string> = {
   'common.cancel': 'Batal',
   'common.close': 'Tutup',
   'common.reset': 'Atur ulang',
+  'common.clear_input': 'Hapus isi',
   'common.refresh': 'Muat ulang',
   'common.retry': 'Coba lagi',
   'common.later': 'Nanti',

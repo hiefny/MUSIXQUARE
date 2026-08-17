@@ -67,6 +67,9 @@ jobs:
       - name: Standard-room security and latency policy
         run: npm run guard:standard-room-hot-path
 
+      - name: Room authority compatibility boundary
+        run: npm run guard:room-authority-boundaries
+
       - name: Storage static invariants
         run: npm run guard:chunk-pump && npm run guard:lifecycle-writes
 

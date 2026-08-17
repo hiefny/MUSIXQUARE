@@ -51,9 +51,11 @@ is missing** — so a complete file must define every key.
 3. **Never translate** brand/technical tokens:
    `MUSIXQUARE` · `YouTube` · `Cloudflare` · `QR` · `API` ·
    and units `Hz` `kHz` `dB` `ms` `%` (+ the numbers).
-4. **Preserve the source ellipsis form.** Both three ASCII periods `...` and the
-   single `…` (U+2026) are intentional in the English reference; do not normalize
-   one to the other as a style-only translation change.
+4. **Respect the target locale's established ellipsis style.** Both three ASCII
+   periods `...` and the single `…` (U+2026) are intentional across the locale
+   files. When revising an existing locale, preserve each key's current form
+   unless the translation itself needs correction; never apply a global
+   style-only normalization from one form to the other.
 5. **Escape apostrophes** for a single-quoted JS string (`'it\'s'`) or use the
    language's typographic quote (`'`, `’`, `»`). A raw `'` inside `'...'` breaks
    the build.
@@ -155,7 +157,8 @@ Output rules:
 - Preserve \n newlines and leading/trailing spaces.
 - Never translate: MUSIXQUARE, YouTube, Cloudflare, QR, API, GLOBAL, LOCAL,
   or units (Hz, kHz, dB, ms, %).
-- Preserve whether each source ellipsis uses ... (three periods) or … (U+2026).
+- Follow the target locale's established ellipsis style; never globally normalize
+  ... (three periods) to … (U+2026), or vice versa, as a style-only change.
 - Escape an apostrophe inside the value as \' (or use the language's curly quote).
 - Tone: friendly, casual — a party/music app. Labels short & idiomatic (imperative
   or noun per your language's UI norm, not dictionary infinitives).
@@ -226,7 +229,8 @@ Their current English sources — paste into the §5 prompt if re-doing them:
 - [ ] `npm run typecheck` passes (no missing keys or unescaped quotes).
 - [ ] `npm exec vitest run -- src/i18n/__tests__` passes.
 - [ ] Every `{{placeholder}}` from the English source still present, unaltered.
-- [ ] No `…` characters (`grep -n '…'` should be empty).
+- [ ] Existing ellipses follow the target locale's established form; no global
+      style-only normalization between `...` and `…` was applied.
 - [ ] Spot-check **every key in the §4 glossary** for the right sense.
 - [ ] `common.right` ≠ the same value as `common.ok` (the classic tell).
 - [ ] Direction labels match: `common.left`/`role.left` and

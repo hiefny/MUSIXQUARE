@@ -12,6 +12,7 @@ const th: Record<I18nKey, string> = {
   'common.cancel': 'ยกเลิก',
   'common.close': 'ปิด',
   'common.reset': 'รีเซ็ต',
+  'common.clear_input': 'ล้างข้อความ',
   'common.refresh': 'รีเฟรช',
   'common.retry': 'ลองอีกครั้ง',
   'common.later': 'ภายหลัง',

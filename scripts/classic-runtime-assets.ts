@@ -37,6 +37,10 @@ export const CLASSIC_RUNTIME_ASSETS = [
     outputPath: 'blog-pagination.js',
   },
   {
+    sourcePath: 'browser/classic-runtime/clearable-editors.ts',
+    outputPath: 'clearable-editors.js',
+  },
+  {
     sourcePath: 'browser/classic-runtime/bootstrap.ts',
     outputPath: 'bootstrap.js',
     minify: true,

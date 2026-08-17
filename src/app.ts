@@ -96,6 +96,7 @@ import { initChat } from './ui/chat.ts';
 import { initPlaylistView } from './ui/playlist-view.ts';
 import { initPlayerControls } from './ui/player-controls.ts';
 import { initGlobalFileDrop } from './ui/file-drop.ts';
+import { initClearableEditors } from './ui/clearable-editors.ts';
 import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
 import { initSettings } from './ui/settings.ts';
 import { initSetup } from './ui/setup.ts';
@@ -568,6 +569,7 @@ async function bootstrap(): Promise<void> {
   safeInit('PlaylistView', initPlaylistView);
   safeInit('PlayerControls', initPlayerControls);
   safeInit('GlobalFileDrop', initGlobalFileDrop);
+  safeInit('ClearableEditors', initClearableEditors);
   safeInit('Settings', initSettings);
   safeInit('Connect', () => {
     bus.on('app:lazy-feature-load-failed', reportLazyFeatureLoadFailure);

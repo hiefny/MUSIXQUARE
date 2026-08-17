@@ -15,6 +15,7 @@ const ja: Record<I18nKey, string> = {
   'common.cancel': 'キャンセル',
   'common.close': '閉じる',
   'common.reset': 'リセット',
+  'common.clear_input': '入力内容を消去',
   'common.refresh': '更新',
   'common.retry': '再試行',
   'common.later': '後で',

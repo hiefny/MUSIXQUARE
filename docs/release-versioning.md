@@ -51,7 +51,8 @@ The two values must agree only within their own boundary: `index.html` and the
 service worker must request the same bootstrap URL, while the app-shell cache
 name must use the current `SERVICE_WORKER_CACHE_VERSION`. Tests enforce both
 relationships without requiring the two independent revisions to be
-numerically equal.
+numerically equal. This keeps app-shell migration and classic-bootstrap cache
+invalidation independently auditable.
 
 ## API, protocol, and storage schemas
 

@@ -1,0 +1,60 @@
+name: Agent Reassemble Sync Once
+
+on:
+  push:
+    branches:
+      - agent/quality-hardening-no-ui-changes
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/quality-hardening-no-ui-changes
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Reassemble exact sync source
+        run: |
+          cat .agent-sync/part-* | base64 --decode > src/network/sync.ts
+          echo 'b856536ea7155f8dbe18886819967c64c592009b9a1507ad84445fe709cb47b3  src/network/sync.ts' | sha256sum --check --strict
+          test "$(wc -c < src/network/sync.ts)" -eq 20013
+
+      - name: Format restored source
+        run: npx prettier --write src/network/sync.ts
+
+      - name: Verify restored compatibility facade
+        run: |
+          grep -F "function resolveRequestedKickTarget(" src/network/sync.ts
+          grep -F "bus.on('state:network.appRole'" src/network/sync.ts
+          grep -F "log.info('[Sync] Handlers registered');" src/network/sync.ts
+          npx prettier --check src/network/sync.ts
+
+      - name: Remove one-shot reconstruction assets
+        run: |
+          rm -rf .agent-sync
+          rm .github/workflows/agent-reassemble-sync-once.yml
+
+      - name: Commit restored source
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "fix: restore complete sync compatibility facade"
+          git push origin HEAD:agent/quality-hardening-no-ui-changes

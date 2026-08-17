@@ -47,7 +47,11 @@ import {
 } from '../player/ownership.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
-import { initRoomControl, resolveRoomControlKickTarget } from './room-control.ts';
+import {
+  initRoomControl,
+  resolveRoomControlKickTarget,
+  type RequestedKickScope,
+} from './room-control.ts';
 import { initHeartbeatMonitor, recordPeerHeartbeat } from './heartbeat-monitor.ts';
 
 let syncPingCounter = 0;
@@ -513,8 +517,6 @@ function sendImmediatePing(): void {
     /* noop */
   }
 }
-
-type RequestedKickScope = 'member' | 'physical';
 
 // Keep the legacy standard-room compatibility read at the established sync
 // facade while the actual room authority and peer-identity checks live in the

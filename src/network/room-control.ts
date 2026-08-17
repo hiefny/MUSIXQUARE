@@ -18,7 +18,7 @@ import { rememberPinnedNotice } from '../chat/protocol.ts';
 import { playAnnouncementSound } from '../audio/ui-sounds.ts';
 import { getRoomContext, isCoordinator, verifyPeerCapability } from '../rooms/authority.ts';
 
-type RequestedKickScope = 'member' | 'physical';
+export type RequestedKickScope = 'member' | 'physical';
 type KickTargetResolver = (
   data: Record<string, unknown>,
   conn: DataConnection,

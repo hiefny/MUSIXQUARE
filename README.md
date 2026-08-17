@@ -108,10 +108,9 @@ npm run check:workers
 npm run build:checked
 ```
 
-Worker-specific bindings, the minimal configuration path, and the optional
-standalone real-device QA record are documented in
+Worker-specific bindings and the minimal configuration path are documented in
 [`CONTRIBUTING.md`](./CONTRIBUTING.md). The exact-SHA blocking browser subset
-remains part of CI; the manual device record is not a production release input.
+remains part of CI.
 
 ---
 

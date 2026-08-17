@@ -127,13 +127,13 @@ threshold; keeping ordinary 100-browser venues below 150 limits that rollout
 residual.
 
 The production configuration keeps `MXQR_CAPABILITY_POW_ADAPTIVE_ENABLED=false`,
-so ordinary releases use difficulty 12 and do not require a physical-device
-artifact. Before enabling adaptive difficulty in production, the operator must
-complete and archive the standalone exact-SHA QA record described in
-[`runtime-scenario-verification-2026-05-31.md`](runtime-scenario-verification-2026-05-31.md)
-with supported-iPhone and desktop timing observations for difficulty 16. That
-policy prerequisite is a reviewed operational decision, not a release-workflow
-input or automated mutation gate.
+so ordinary releases use difficulty 12 and have no device-specific timing
+prerequisite. Before enabling adaptive difficulty in production, the operator must
+collect and review the difficulty-16 timing observations required in
+[the evidence section below](#required-evidence-for-security-audit-changes),
+then attach them to the enabling change or incident record. That policy
+prerequisite is a reviewed operational decision, not a release-workflow input or
+automated mutation gate.
 
 Raising the ordinary baseline above 12, reducing either 150/60s or 15/60s
 allowance, raising the ceiling above 16, or replacing the location-local signal

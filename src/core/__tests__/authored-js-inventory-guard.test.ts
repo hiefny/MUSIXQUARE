@@ -1,4 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -6,6 +9,7 @@ import {
   type AuthoredJavaScriptManifest,
   checkCurrentInventory,
   checkInlineNodeJavaScript,
+  checkRepositoryInlineNodeJavaScript,
   checkMonotonicProgress,
   isAuthoredJavaScriptPath,
   listCurrentAuthoredJavaScriptSources,
@@ -81,6 +85,24 @@ describe('authored JavaScript inventory shrink-only guard', () => {
     }
     expect(checkInlineNodeJavaScript('package.json', 'node scripts/check.mts')).toEqual([]);
     expect(checkInlineNodeJavaScript('release.yml', 'npm exec wrangler --version')).toEqual([]);
+  });
+
+  it('ignores a tracked workflow that was deleted from the working tree', () => {
+    const repository = mkdtempSync(join(tmpdir(), 'mxqr-authored-js-'));
+    try {
+      execFileSync('git', ['init'], { cwd: repository, stdio: 'ignore' });
+      const workflowDirectory = join(repository, '.github', 'workflows');
+      const workflowPath = join(workflowDirectory, 'retired.yml');
+      mkdirSync(workflowDirectory, { recursive: true });
+      writeFileSync(join(repository, 'package.json'), '{"scripts":{}}\n', 'utf8');
+      writeFileSync(workflowPath, 'name: retired\n', 'utf8');
+      execFileSync('git', ['add', '.'], { cwd: repository, stdio: 'ignore' });
+      unlinkSync(workflowPath);
+
+      expect(checkRepositoryInlineNodeJavaScript(repository)).toEqual([]);
+    } finally {
+      rmSync(repository, { recursive: true, force: true });
+    }
   });
 
   it('rejects a new JavaScript path even when the total count does not grow', () => {

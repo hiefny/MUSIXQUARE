@@ -49,13 +49,12 @@ npm run check:workers
 npm run build:checked
 ```
 
-The exact-SHA automated suite is the ordinary release-confidence gate. The
-physical-device/browser matrix is an optional standalone QA record for changes
-that need additional WebRTC, background/resume, audio-routing, playback, or
-mobile-browser observations; it does not authorize or block production
-deployment. See
+The exact-SHA automated suite is the ordinary release-confidence gate. A defect
+that depends on WebRTC, background/resume, audio routing, playback hardware, or
+a particular mobile browser may still need reproduction on the affected
+hardware during diagnosis. See
 [`docs/runtime-scenario-verification-2026-05-31.md`](docs/runtime-scenario-verification-2026-05-31.md)
-for the first-48-hours order and evidence checklist.
+for the automated verification order and the limits of browser automation.
 
 ## Worker configuration
 

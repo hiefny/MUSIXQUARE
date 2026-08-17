@@ -12,7 +12,7 @@ and live values must never be copied into a checkout.
 | Browser UI, playback state, and ordinary P2P work | `npm run dev`                                       | None                                    | Vite UI and localhost PeerJS behavior                                    |
 | Deterministic Worker behavior                     | The focused Vitest file                             | None                                    | Request, binding, timeout, and failure contracts with in-memory fixtures |
 | One Worker in a local runtime                     | `npm run wrangler -- dev --local --config <config>` | Local-only values for that Worker       | Workerd compatibility and that Worker's standalone routes                |
-| Cross-Worker or browser/device behavior           | Relevant tests; optional physical-device matrix     | Never production values in the checkout | Contract composition and, when exercised, actual device behavior         |
+| Cross-Worker behavior                             | Relevant integration tests                          | Never production values in the checkout | Contract composition                                                     |
 
 A single `wrangler dev` process is not a complete MUSIXQUARE stack. App, PRO,
 signaling, remote-share, Developer API, and service-control paths use service,
@@ -81,9 +81,6 @@ inventory is authoritative in these files:
   Worker. Cross-Worker pairs must match only where the owning runbook says so.
 - `CLOUDFLARE_*`, `GITHUB_*`, release smoke values, and drift-audit tokens used
   by Actions belong in protected GitHub environments, not `.env.local`.
-- `MXQR_QA_*` values in the real-device evidence workflow are ephemeral action
-  inputs used to construct the exact-SHA attestation; they are not runtime
-  Worker configuration.
 
 ## Verification routes
 
@@ -100,5 +97,4 @@ npm run check:worker-bundles
 
 Before handoff, run the repository verification ladder in `CONTRIBUTING.md`.
 Browser media, WebRTC network transitions, system audio, and background/resume
-cannot be fully proven by local emulation or green E2E. Use the maintained
-physical-device matrix when that additional platform confidence is needed.
+cannot be fully proven on specific hardware by local emulation or green E2E.

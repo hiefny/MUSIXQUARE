@@ -302,6 +302,10 @@ export function checkRepositoryInlineNodeJavaScript(repository = process.cwd()):
     .filter(Boolean)
     .map(normalizeRepositoryPath);
   const policyFiles = repositoryFiles
+    .filter((path) => {
+      const absolutePath = resolve(repository, path);
+      return existsSync(absolutePath) && statSync(absolutePath).isFile();
+    })
     .filter(
       (path) =>
         path === 'package.json' || (/^\.github\/workflows\//u.test(path) && /\.ya?ml$/u.test(path)),

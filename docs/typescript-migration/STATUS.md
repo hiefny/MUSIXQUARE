@@ -52,7 +52,7 @@ authored source가 아니다.
 - production TypeScript: explicit `any`, `@ts-nocheck`, `@ts-ignore`, `@ts-expect-error` 0
 - 수기 JS companion declaration: 0; 남은 `.d.ts`는 Wrangler 생성 타입, Vite/외부 모듈 및
   타입이 없는 외부 패키지 declaration뿐
-- 전체 단위 테스트: 334 files / 5,877 tests
+- 전체 단위 테스트: 334 files / 5,874 tests
 - 전체 coverage: statements 80.47%, branches 74.12%, functions 87.97%, lines 84.04%
 - Worker coverage: 22 files / 1,189 tests; 기존 모든 floor 유지
 - Chromium critical E2E: 5/5
@@ -73,6 +73,3 @@ authored source가 아니다.
 48~72시간(PRO/App), 한 cache generation(Service Worker)의 관찰 권고는 migration 완료를
 지연시키는 별도 승인 gate가 아니다. 이상 발견 시 exact-SHA checkpoint rollback 또는 더
 높은 cache epoch의 forward fix를 사용하며, daily live drift audit은 계속 유지한다.
-
-실기기 QA는 사용자 결정대로 release와 분리된 standalone advisory workflow다. 임시 테스트
-URL이나 실기기 증빙이 없다는 이유로 production release를 차단하지 않는다.

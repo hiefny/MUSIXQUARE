@@ -1,76 +1,9 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const SHA_RE = /^[0-9a-f]{40}$/u;
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
-const POSITIVE_INTEGER_RE = /^[1-9]\d*$/u;
-const CANONICAL_UTC_TIMESTAMP_RE = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,3}))?Z$/u;
-const DEVICE_EVIDENCE_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1_000;
-const DEVICE_EVIDENCE_FUTURE_SKEW_MS = 5 * 60 * 1_000;
-const DEVICE_MATRIX_KEYS = [
-  'standardRoom',
-  'proRoom',
-  'localAndRemoteMedia',
-  'youtubePlayback',
-  'systemAudio',
-  'backgroundResume',
-  'adaptivePowPerformance',
-] as const;
-
-interface RealDeviceMatrixInput {
-  standardRoom: true | 'true';
-  proRoom: true | 'true';
-  localAndRemoteMedia: true | 'true';
-  youtubePlayback: true | 'true';
-  systemAudio: true | 'true';
-  backgroundResume: true | 'true';
-  adaptivePowPerformance: true | 'true';
-}
-
-interface RealDeviceMatrix {
-  standardRoom: true;
-  proRoom: true;
-  localAndRemoteMedia: true;
-  youtubePlayback: true;
-  systemAudio: true;
-  backgroundResume: true;
-  adaptivePowPerformance: true;
-}
-
-export interface RealDeviceEvidenceInput {
-  releaseSha: string;
-  repository: string;
-  testedAt: string;
-  environmentUrl: string;
-  evidenceUrl: string;
-  tester: string;
-  workflowActor: string;
-  deviceMatrix: string;
-  matrix: RealDeviceMatrixInput;
-  source: { runId: number | string; runAttempt: number | string };
-}
-
-export interface RealDeviceEvidence {
-  schemaVersion: 2;
-  releaseSha: string;
-  repository: string;
-  testedAt: string;
-  environmentUrl: string;
-  evidenceUrl: string;
-  tester: string;
-  workflowActor: string;
-  deviceMatrix: string;
-  matrix: RealDeviceMatrix;
-  source: { workflow: 'real-device-qa.yml'; runId: number; runAttempt: number };
-}
-
-interface EvidenceExpectation {
-  releaseSha: string;
-  repository: string;
-  runId: number | string;
-  runAttempt: number | string;
-}
 
 interface RunSelection {
   sha: string;
@@ -125,133 +58,6 @@ function requiredText(value: unknown, label: string, minLength = 1, maxLength = 
     throw new Error(`${label} must contain ${minLength}-${maxLength} characters.`);
   }
   return normalized;
-}
-
-function positiveInteger(value: unknown, label: string): number {
-  const normalized = String(value ?? '').trim();
-  if (!POSITIVE_INTEGER_RE.test(normalized)) {
-    throw new Error(`${label} must be a positive integer.`);
-  }
-  const parsed = Number(normalized);
-  if (!Number.isSafeInteger(parsed)) throw new Error(`${label} exceeds the safe integer range.`);
-  return parsed;
-}
-
-function exactHttpsUrl(value: unknown, label: string): string {
-  const normalized = requiredText(value, label, 1, 2_048);
-  let parsed: URL;
-  try {
-    parsed = new URL(normalized);
-  } catch {
-    throw new Error(`${label} must be an absolute HTTPS URL.`);
-  }
-  if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.hash) {
-    throw new Error(`${label} must be an absolute HTTPS URL without credentials or a fragment.`);
-  }
-  return parsed.href;
-}
-
-function exactBoolean(value: unknown, label: string): true {
-  if (value === true || value === 'true') return true;
-  throw new Error(`${label} must be explicitly attested as true.`);
-}
-
-function parseTestedAt(value: unknown, nowMs: number): string {
-  const normalized = requiredText(value, 'testedAt', 20, 40);
-  const match = CANONICAL_UTC_TIMESTAMP_RE.exec(normalized);
-  if (!match) {
-    throw new Error('testedAt must be a canonical UTC ISO-8601 timestamp ending in Z.');
-  }
-  const testedAtMs = Date.parse(normalized);
-  const timestamp = match[1];
-  if (timestamp === undefined) {
-    throw new Error('testedAt must be a canonical UTC ISO-8601 timestamp ending in Z.');
-  }
-  const canonicalInput = `${timestamp}.${(match[2] || '').padEnd(3, '0')}Z`;
-  if (!Number.isFinite(testedAtMs) || new Date(testedAtMs).toISOString() !== canonicalInput) {
-    throw new Error('testedAt must be a valid canonical UTC ISO-8601 timestamp.');
-  }
-  if (testedAtMs > nowMs + DEVICE_EVIDENCE_FUTURE_SKEW_MS) {
-    throw new Error('testedAt is too far in the future.');
-  }
-  if (testedAtMs < nowMs - DEVICE_EVIDENCE_MAX_AGE_MS) {
-    throw new Error('Real-device evidence is older than 14 days.');
-  }
-  return new Date(testedAtMs).toISOString();
-}
-
-function canonicalDeviceMatrix(value: unknown): RealDeviceMatrix {
-  const matrix = isRecord(value) ? value : {};
-  return {
-    standardRoom: exactBoolean(matrix.standardRoom, 'matrix.standardRoom'),
-    proRoom: exactBoolean(matrix.proRoom, 'matrix.proRoom'),
-    localAndRemoteMedia: exactBoolean(matrix.localAndRemoteMedia, 'matrix.localAndRemoteMedia'),
-    youtubePlayback: exactBoolean(matrix.youtubePlayback, 'matrix.youtubePlayback'),
-    systemAudio: exactBoolean(matrix.systemAudio, 'matrix.systemAudio'),
-    backgroundResume: exactBoolean(matrix.backgroundResume, 'matrix.backgroundResume'),
-    adaptivePowPerformance: exactBoolean(
-      matrix.adaptivePowPerformance,
-      'matrix.adaptivePowPerformance',
-    ),
-  };
-}
-
-function canonicalRealDeviceEvidence(input: unknown, nowMs: number): RealDeviceEvidence {
-  const value = isRecord(input) ? input : {};
-  const source = isRecord(value.source) ? value.source : {};
-  const releaseSha = requiredText(value.releaseSha, 'releaseSha', 40, 40).toLowerCase();
-  if (!SHA_RE.test(releaseSha)) throw new Error('releaseSha must be a lowercase 40-character SHA.');
-  const repository = requiredText(value.repository, 'repository', 3, 200);
-  if (!REPOSITORY_RE.test(repository)) throw new Error('repository must use the owner/name form.');
-
-  return {
-    schemaVersion: 2,
-    releaseSha,
-    repository,
-    testedAt: parseTestedAt(value.testedAt, nowMs),
-    environmentUrl: exactHttpsUrl(value.environmentUrl, 'environmentUrl'),
-    evidenceUrl: exactHttpsUrl(value.evidenceUrl, 'evidenceUrl'),
-    tester: requiredText(value.tester, 'tester', 2, 120),
-    workflowActor: requiredText(value.workflowActor, 'workflowActor', 1, 120),
-    deviceMatrix: requiredText(value.deviceMatrix, 'deviceMatrix', 20, 800),
-    matrix: canonicalDeviceMatrix(value.matrix),
-    source: {
-      workflow: 'real-device-qa.yml',
-      runId: positiveInteger(source.runId, 'source.runId'),
-      runAttempt: positiveInteger(source.runAttempt, 'source.runAttempt'),
-    },
-  };
-}
-
-export function createRealDeviceEvidence(
-  input: RealDeviceEvidenceInput,
-  nowMs = Date.now(),
-): RealDeviceEvidence {
-  return canonicalRealDeviceEvidence(input, nowMs);
-}
-
-export function verifyRealDeviceEvidence(
-  evidence: unknown,
-  expected: EvidenceExpectation,
-  nowMs = Date.now(),
-): RealDeviceEvidence {
-  const canonical = canonicalRealDeviceEvidence(evidence, nowMs);
-  if (JSON.stringify(canonical) !== JSON.stringify(evidence)) {
-    throw new Error('Real-device evidence must use the canonical schema without extra fields.');
-  }
-  if (canonical.releaseSha !== expected.releaseSha) {
-    throw new Error('Real-device evidence does not match the release SHA.');
-  }
-  if (canonical.repository !== expected.repository) {
-    throw new Error('Real-device evidence does not match the repository.');
-  }
-  if (canonical.source.runId !== positiveInteger(expected.runId, 'expected runId')) {
-    throw new Error('Real-device evidence does not match the selected workflow run.');
-  }
-  if (canonical.source.runAttempt !== positiveInteger(expected.runAttempt, 'expected runAttempt')) {
-    throw new Error('Real-device evidence does not match the selected workflow attempt.');
-  }
-  return canonical;
 }
 
 function canonicalWorkflowRuns(value: unknown): Record<string, unknown>[] {
@@ -453,42 +259,8 @@ async function waitForArtifact({
   throw new Error(`Timed out waiting for ${workflow} on exact commit ${sha}.`);
 }
 
-function evidenceInputFromEnvironment(): RealDeviceEvidenceInput {
-  const matrix = Object.fromEntries(
-    DEVICE_MATRIX_KEYS.map((key) => [key, process.env[`MXQR_QA_${key.toUpperCase()}`]]),
-  );
-  return {
-    releaseSha: requiredText(process.env.MXQR_QA_RELEASE_SHA, 'MXQR_QA_RELEASE_SHA', 40, 40),
-    repository: requiredText(process.env.GITHUB_REPOSITORY, 'GITHUB_REPOSITORY', 3, 200),
-    testedAt: requiredText(process.env.MXQR_QA_TESTED_AT, 'MXQR_QA_TESTED_AT', 20, 40),
-    environmentUrl: requiredText(
-      process.env.MXQR_QA_ENVIRONMENT_URL,
-      'MXQR_QA_ENVIRONMENT_URL',
-      1,
-      2_048,
-    ),
-    evidenceUrl: requiredText(process.env.MXQR_QA_EVIDENCE_URL, 'MXQR_QA_EVIDENCE_URL', 1, 2_048),
-    tester: requiredText(process.env.MXQR_QA_TESTER, 'MXQR_QA_TESTER', 2, 120),
-    workflowActor: requiredText(process.env.GITHUB_ACTOR, 'GITHUB_ACTOR', 1, 120),
-    deviceMatrix: requiredText(process.env.MXQR_QA_DEVICE_MATRIX, 'MXQR_QA_DEVICE_MATRIX', 20, 800),
-    matrix: canonicalDeviceMatrix(matrix),
-    source: {
-      runId: requiredText(process.env.GITHUB_RUN_ID, 'GITHUB_RUN_ID'),
-      runAttempt: requiredText(process.env.GITHUB_RUN_ATTEMPT, 'GITHUB_RUN_ATTEMPT'),
-    },
-  };
-}
-
-function readJsonFile(path: string): unknown {
-  try {
-    return JSON.parse(readFileSync(resolve(path), 'utf8'));
-  } catch {
-    throw new Error('Unable to read real-device evidence.');
-  }
-}
-
 async function main(): Promise<void> {
-  const [command, path] = process.argv.slice(2);
+  const [command] = process.argv.slice(2);
   if (command === 'wait-candidate') {
     await waitForArtifact({
       workflow: 'ci.yml',
@@ -499,23 +271,7 @@ async function main(): Promise<void> {
     });
     return;
   }
-  if (command === 'create-device' && path) {
-    const evidence = createRealDeviceEvidence(evidenceInputFromEnvironment());
-    writeFileSync(resolve(path), `${JSON.stringify(evidence, null, 2)}\n`, 'utf8');
-    return;
-  }
-  if (command === 'verify-device' && path) {
-    verifyRealDeviceEvidence(readJsonFile(path), {
-      releaseSha: requiredText(process.env.GITHUB_SHA, 'GITHUB_SHA', 40, 40),
-      repository: requiredText(process.env.GITHUB_REPOSITORY, 'GITHUB_REPOSITORY', 3, 200),
-      runId: requiredText(process.env.MXQR_QA_RUN_ID, 'MXQR_QA_RUN_ID'),
-      runAttempt: requiredText(process.env.MXQR_QA_RUN_ATTEMPT, 'MXQR_QA_RUN_ATTEMPT'),
-    });
-    return;
-  }
-  throw new Error(
-    'Usage: release-evidence.mts <wait-candidate|create-device FILE|verify-device FILE>',
-  );
+  throw new Error('Usage: release-evidence.mts wait-candidate');
 }
 
 const invokedPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : '';

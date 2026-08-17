@@ -52,7 +52,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Frequently Asked Questions</h1>
-        <p class="policy-date">Last updated: August 9, 2026</p>
+        <p class="policy-date">Last updated: August 17, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -81,11 +81,21 @@
               </dd>
             </div>
             <div>
+              <dt>How do I get a PRO room?</dt>
+              <dd>
+                Standard rooms can be created by anyone. PRO access remains operator-controlled: it
+                may be issued directly or obtained by signing in and redeeming a one-time voucher
+                from an operator-run campaign. There is no paid plan, public checkout, or
+                subscription at present.
+              </dd>
+            </div>
+            <div>
               <dt>How do I create or join a room?</dt>
               <dd>
-                The host creates a room and shares the 6-digit code. Guests enter the code or use an
-                invite link or QR code; the current flow assigns the Center role initially, and the
-                role can be changed after joining.
+                For a standard room, the browser host creates the room and shares its 6-digit code.
+                PRO codes are provisioned in advance. Participants enter the code or use an invite
+                link or QR code, then provide the room password when required. The current flow
+                assigns the Center role initially, and the role can be changed after joining.
               </dd>
             </div>
           </dl>
@@ -97,9 +107,12 @@
             <div>
               <dt>Do I need an account?</dt>
               <dd>
-                No. You can join rooms, play media, and chat without signing in. Google sign-in is
-                for keeping a chosen nickname across rooms and enabling account-aware identity where
-                that feature is available.
+                No for ordinary participation. You can join rooms, play media, and chat without
+                signing in. Google sign-in keeps a chosen nickname across rooms and enables
+                account-aware identity where available. A verified account is required for PRO
+                voucher redemption and entitlement activation, and for account-based owner recovery
+                or transfer. Ordinary participants do not need an account merely to enter an active
+                PRO room.
               </dd>
             </div>
             <div>
@@ -181,25 +194,28 @@
             <div>
               <dt>How many people can join?</dt>
               <dd>
-                A room supports up to 100 connected devices, including the host. The capacity is
-                fixed; actual performance still depends on each device and network.
+                A room supports up to 100 connected devices. In a standard room, the browser host
+                counts toward that limit. A PRO room has no browser host and every connection counts
+                toward the same capacity, while owner and delegated permissions still apply. Actual
+                performance depends on each device and network.
               </dd>
             </div>
             <div>
               <dt>How can I keep outsiders from joining?</dt>
               <dd>
-                The host can enable an 8-digit numeric password in the Connection tab. When the
-                password is enabled, new guests must enter both the 6-digit room code and the
-                8-digit password.
+                A standard-room host can enable an optional 8-digit numeric password in the
+                Connection tab. An active PRO room always requires its 8-digit room password. New
+                participants enter both the 6-digit room code and the applicable password.
               </dd>
             </div>
             <div>
               <dt>Do all devices have to be on the same Wi-Fi?</dt>
               <dd>
-                The same network is the most stable option, and file and system audio sharing is
-                usually exchanged directly there. For remote participants or in large rooms, this
-                data may route through Cloudflare. Quality can vary depending on the network, VPN,
-                firewall, and browser policies.
+                No. In standard rooms, local files can transfer directly over WebRTC or use
+                temporary private R2 for remote or larger-room delivery. System Audio Sharing (Beta)
+                uses a live WebRTC path, directly or through Cloudflare Realtime, and is limited to
+                four connected devices regardless of the room's larger capacity. Quality can vary
+                with the network, VPN, firewall, and browser policies.
               </dd>
             </div>
           </dl>
@@ -211,7 +227,7 @@
             <div>
               <dt>Who can add local files?</dt>
               <dd>
-                The host and a standard-room operator with media-upload permission can add local
+                The host and a standard-room operator with media-management permission can add local
                 audio. In a PRO room, the owner or another participant with media-management
                 permission can upload. Regular guests without that permission cannot add files.
               </dd>
@@ -231,11 +247,14 @@
               <dt>Are shared files stored on a server?</dt>
               <dd>
                 Ordinary-room files are usually transferred directly on the same network. For remote
-                participants or in large rooms, files are temporarily kept in private Cloudflare R2
+                participants or in larger rooms, files are temporarily kept in private Cloudflare R2
                 storage and made available only to room participants with temporary download
-                authorization. The objects are automatically deleted within an intended maximum of
-                24 hours. MUSIXQUARE does not access, analyze, or retain session content outside
-                what is necessary to provide features, operate the service, and maintain security.
+                authorization. Those objects are automatically deleted within an intended maximum of
+                24 hours. PRO media is different: authorized uploads persist in private R2, with a 1
+                GiB room quota and 200 MiB per-asset limit, until the last playlist reference is
+                removed and cleanup succeeds or the operator deletes the room data. MUSIXQUARE does
+                not access, analyze, or retain session content outside what is necessary to provide
+                features, operate the service, and maintain security.
               </dd>
             </div>
             <div>
@@ -268,41 +287,43 @@
             <div>
               <dt>YouTube works. Are Spotify, Apple Music, or Netflix supported?</dt>
               <dd>
-                Those services are not integrated with MUSIXQUARE. If the host is on a PC, consider
-                using System Audio Sharing for audio sources that the browser allows the host to
-                share.
+                Those services are not integrated with MUSIXQUARE. If an authorized participant is
+                using a supported computer, consider System Audio Sharing (Beta) for sources that
+                the browser allows that participant to share.
               </dd>
             </div>
           </dl>
         </details>
 
         <details class="policy-accordion" id="system-audio-sharing">
-          <summary class="policy-accordion__summary"><h2>7. System Audio Sharing</h2></summary>
+          <summary class="policy-accordion__summary">
+            <h2>7. System Audio Sharing (Beta)</h2>
+          </summary>
           <dl>
             <div>
               <dt>Where can I use system audio sharing?</dt>
               <dd>
-                System Audio Sharing is available in desktop Chromium-based browsers such as Chrome
-                and Edge. The audio sources offered by the browser vary by operating system and by
-                the selected tab, window, or screen. Mobile browsers and Safari are not currently
-                supported.
+                System Audio Sharing is currently a beta feature available in desktop Chromium-based
+                browsers such as Chrome and Edge. The audio sources offered by the browser vary by
+                operating system and by the selected tab, window, or screen. Mobile browsers and
+                Safari are not currently supported.
               </dd>
             </div>
             <div>
               <dt>How many devices can share system audio, and for how long?</dt>
               <dd>
-                System audio can be shared with up to four connected devices, including the host. If
-                a fifth device joins, sharing ends automatically. Each sharing session also ends
-                after two hours and can be started again if the room is back within the device
-                limit.
+                System audio can be shared with up to four connected devices, including the
+                authorized publisher. If a fifth device joins, sharing ends automatically. Each
+                sharing session also ends after two hours and can be started again if the room is
+                back within the device limit.
               </dd>
             </div>
             <div>
-              <dt>Why does System Audio Sharing feel delayed compared with the host?</dt>
+              <dt>Why does System Audio Sharing feel delayed compared with the sharing device?</dt>
               <dd>
-                The host's audio needs time to be processed and transmitted. This mode is meant for
-                muting the host's own speaker, syncing sound through the remaining participant
-                devices, and applying audio effects there.
+                The publisher's audio needs time to be processed and transmitted. This mode is meant
+                for muting the sharing device's own speaker, syncing sound through the remaining
+                participant devices, and applying audio effects there.
               </dd>
             </div>
           </dl>
@@ -358,8 +379,18 @@
             <div>
               <dt>I cannot connect, or there is no sound.</dt>
               <dd>
-                Check the room code, make sure the host is still keeping the session open, and check
-                browser mute or iOS silent mode. If the issue continues, restart the browser.
+                Check the room code and browser mute or iOS silent mode. For a standard room,
+                confirm that the browser host is still connected. A PRO room persists without a
+                host, so verify its active status and required password, then reconnect. If the
+                issue continues, restart the browser.
+              </dd>
+            </div>
+            <div>
+              <dt>Which interface languages are available?</dt>
+              <dd>
+                The in-room language picker is currently a beta feature with 17 language choices and
+                a system-language option. Static policy and Developer API pages may remain in
+                English unless that page provides its own localized copy.
               </dd>
             </div>
             <div>

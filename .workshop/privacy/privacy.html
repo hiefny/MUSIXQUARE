@@ -54,7 +54,7 @@
     <main class="policy-shell">
       <section class="policy-hero">
         <h1>Privacy Policy</h1>
-        <p class="policy-date">Effective date: August 9, 2026</p>
+        <p class="policy-date">Effective date: August 17, 2026</p>
       </section>
 
       <article class="policy-doc">
@@ -125,6 +125,18 @@
               </dd>
             </div>
             <div>
+              <dt>PRO grants and voucher redemption</dt>
+              <dd>
+                Operator-run PRO campaigns and voucher redemption may process the random account
+                ID; campaign, batch, voucher, grant, allocation, entitlement, and redemption
+                identifiers; the assigned room code and generation; status and timestamps; and
+                operator or audit identifiers. MUSIXQUARE stores a keyed digest of each one-time
+                voucher code rather than the plaintext code. These records are used to enforce
+                one-time redemption and per-account limits, allocate the correct room, recover a
+                partially completed operation, prevent replay, and audit security-sensitive changes.
+              </dd>
+            </div>
+            <div>
               <dt>Room identity</dt>
               <dd>
                 In account-aware rooms, a signed-in user is represented by a room-scoped member
@@ -155,10 +167,9 @@
             <div>
               <dt>System audio</dt>
               <dd>
-                System audio is usually exchanged directly when participants are on the same
-                network, but it may be relayed through Cloudflare infrastructure for remote
-                participants or in large rooms. MUSIXQUARE does not intentionally record or store
-                this audio.
+                System audio may use direct WebRTC or Cloudflare Realtime for live delivery. A share
+                is limited to four connected devices and two hours. MUSIXQUARE does not
+                intentionally record or store this audio.
               </dd>
             </div>
             <div>
@@ -185,18 +196,18 @@
             <div>
               <dt>Operational and security records</dt>
               <dd>
-                MUSIXQUARE may store PRO-room registry data and operator labels, administrator audit
-                records, aggregate reliability metrics, Developer API key digests, scopes and usage
-                timestamps, and deletion-security records. Operator labels should not be used to
-                enter personal or sensitive information.
+                MUSIXQUARE may store PRO-room registry and grant-ledger data, operator labels,
+                administrator audit records, aggregate reliability metrics, Developer API key
+                digests, scopes and usage timestamps, and deletion-security records. Operator
+                labels should not be used to enter personal or sensitive information.
               </dd>
             </div>
             <div>
               <dt>Cloudflare data stores</dt>
               <dd>
                 Cloudflare D1 databases hold optional-account and authentication records, aggregate
-                service metrics, administrator audit and PRO-room registry records, and Developer
-                API records. Durable Objects hold live ordinary-room and PRO-room state plus
+                service metrics, administrator audit, PRO-room registry and grant records, and
+                Developer API records. Durable Objects hold live ordinary-room and PRO-room state plus
                 service-control, quota, and rate-limit state. R2 holds temporary ordinary-room
                 remote-share objects, persistent PRO-room media, and mirrored Soro featured images.
                 Workers KV holds a backup copy of the public Soro RSS feed; it is not used for room
@@ -225,10 +236,11 @@
                 Sampled, credential-free custom Cloudflare Worker logs are enabled for service
                 health, failures, abuse prevention, and security operations. Automatic invocation
                 logs that include request URLs and automatic Worker traces are disabled for all six
-                public workers. Application logging does not include raw request URLs, query
-                strings, credentials, cookies, or authorization headers. MUSIXQUARE does not
-                configure a separate retention period for the sampled custom logs in application
-                code; Cloudflare account settings and provider policies govern their retention.
+                Worker deployments; not every deployment has a public route. Application logging
+                does not include raw request URLs, query strings, credentials, cookies, or
+                authorization headers. MUSIXQUARE does not configure a separate retention period for
+                the sampled custom logs in application code; Cloudflare account settings and
+                provider policies govern their retention.
               </dd>
             </div>
             <div>
@@ -259,9 +271,9 @@
           <p>
             Data is processed to provide optional sign-in, keep a chosen nickname, represent a
             person across their devices, establish and protect rooms, synchronize playback, deliver
-            requested sharing features, show cumulative account activity totals, interpret
-            individual AI BOT requests, diagnose failures, prevent abuse, and understand aggregate
-            service reliability.
+            requested sharing features, issue and redeem operator-controlled PRO grants, show
+            cumulative account activity totals, interpret individual AI BOT requests, diagnose
+            failures, prevent abuse, and understand aggregate service reliability.
           </p>
           <p>
             MUSIXQUARE does not access, analyze, or retain ordinary-room shared content except as
@@ -299,6 +311,15 @@
             the deleted room cannot become valid in a later room that reuses the same public code.
           </p>
           <p>
+            PRO campaign, voucher, grant, allocation, entitlement, redemption, and grant-audit rows
+            form the current retained acquisition and security ledger. Their status may change, but
+            the schema does not delete the rows; grant audit and account-deletion fences are
+            append-only. The internal account ID, room code and generation, keyed voucher digest,
+            source identifiers, status, and timestamps may therefore remain after an account or
+            room lifecycle change to prevent voucher replay and duplicate allocation and to preserve
+            the audit trail. Plaintext voucher codes are never stored.
+          </p>
+          <p>
             A PRO-room browser session and its room-session record expire no later than 30 days
             after issuance under the current service configuration. The separate owner-recovery
             cookie may remain in that browser for up to 400 days unless it is cleared, replaced, or
@@ -325,8 +346,10 @@
             account record and cumulative totals are removed after cleanup finishes. Account
             deletion does not decommission a PRO room or invalidate its separate room-recovery
             credential, and it does not automatically delete media already shared in that room. The
-            media follows the room's retention rules. Provider-managed point-in-time recovery data
-            may remain for the applicable backup-retention period.
+            media follows the room's retention rules. Account deletion does not erase the retained
+            PRO grant/security ledger described above; an internal account ID retained there cannot
+            be used to sign in. Provider-managed point-in-time recovery data may remain for the
+            applicable backup-retention period.
           </p>
           <p>
             Short-lived rate-limit records used to protect Remote Share, signaling connection opens,

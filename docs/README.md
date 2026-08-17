@@ -8,8 +8,9 @@ or a substitute for the current source and tests.
 ## Current References
 
 - [Repository-wide TypeScript migration](typescript-migration/README.md) is the
-  authoritative roadmap, remaining-source inventory, progress record, and
-  completion contract for eliminating tracked authored JavaScript.
+  completed execution record, zero-authored-JavaScript inventory, and permanent
+  guard/completion contract. Its phased roadmap is historical, not a current
+  Worker deployment order.
 
 - [Release versioning](release-versioning.md) defines the independent product
   SemVer, PWA cache epoch, API/schema versions, document dates, and immutable
@@ -42,6 +43,9 @@ or a substitute for the current source and tests.
   cross-domain audit method, confirmed corrections, and residual boundaries.
 - [PRO room architecture and operations](design/pro-room-architecture-and-operations.md) —
   persistent-room ADR, Cloudflare runbook, offline activation, and rollback.
+- [Coordinator-free PRO room server authority](design/pro-room-server-authority.md) —
+  current canonical timeline, command, presence, and sleep/wake authority
+  contract that amends the original PRO-room baseline.
 - [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md) —
   accepted scope, rollback boundary, and the explicit decision to defer a
   stable-core/presence schema split until production scale justifies it.
@@ -89,6 +93,8 @@ The following are intentionally retained as historical evidence. Their dates,
 commit references, test totals, line numbers, proposed phases, and statements
 such as “current” describe their audit baseline, not today's repository:
 
+- [Documentation truth audit — 2026-08-17](documentation-truth-audit-2026-08-17.md)
+  (completed maintained-document and public-copy correction ledger)
 - `project-analysis/2026-05-24/`
 - `css-cleanup-2026-05-30.md`
 - `large-file-split-design-2026-05-30.md` (large _source files_, not large media)

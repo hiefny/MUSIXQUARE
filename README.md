@@ -2,7 +2,7 @@
 
 **Multi-Device Synchronized Audio System**
 
-MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchronized wireless audio system. It supports local-room playback, remote file sharing, YouTube Together, and desktop system audio sharing through WebRTC.
+MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchronized wireless audio system. Temporary standard rooms use a browser-hosted WebRTC model; persistent PRO rooms use server-owned control and private Cloudflare storage. Both room types support synchronized playback, YouTube Together, and desktop system audio sharing.
 
 **https://musixquare.com/about**
 
@@ -121,25 +121,50 @@ remains part of CI.
   PRO rooms whose playlist and delegated permissions survive an empty room.
   Standard rooms can optionally require an 8-digit password, while active PRO
   rooms require their 8-digit room password and are managed by owners/admins.
-- **Speaker Role Routing**: New devices start as Center (stereo), with a one-time
-  shortcut to Settings → Audio where the role can be changed to Left, Right, or
+- **Speaker Role Routing**: New devices start as Center (stereo). After joining,
+  the role can be changed manually in Settings → Audio to Left, Right, or
   Subwoofer.
-- **Local File Sharing**: Host sends audio files directly to nearby guests when
-  a direct WebRTC path is available. Precise sync supported. Local video files
-  are rejected; video playback uses the YouTube path.
-- **Remote File Sharing**: Remote guests can receive temporary file handoffs
+- **Local File Sharing**: In a standard room, the host sends audio files directly
+  to nearby guests when a direct WebRTC path is available. PRO owners and
+  authorized media managers instead upload file-backed queue items to the
+  room's persistent private R2 storage. Local video files are rejected; video
+  playback uses the YouTube path.
+- **Remote File Sharing**: In a standard room, remote guests can receive temporary file handoffs
   through private Cloudflare-backed storage with participant-authorized
   downloads. The 200 MiB figure is the remote wire/storage ceiling. The
   AudioBuffer engine does not pre-reject files from a predicted device-memory
   budget; transfer and native decode are attempted on a best-effort basis. A
   browser may still reject an allocation or terminate a memory-constrained tab.
-- **YouTube Together**: Watch together with synced playback. Works across different networks.
-- **System Audio Sharing**: Stream desktop or tab audio in real-time stereo from
+- **YouTube Together**: Watch together with synced playback across different
+  networks. YouTube uses the IFrame Player, so MUSIXQUARE channel routing and
+  audio effects do not apply to that path.
+- **System Audio Sharing (Beta)**: Stream desktop or tab audio in real-time stereo from
   a desktop Chromium browser such as Chrome or Edge. A share supports at most
   4 connected devices and automatically ends after 2 hours.
-- **Audio Effects**: 5-band EQ, reverb, stereo widener, virtual bass, all processed locally via Web Audio API.
-- **Chat**: Real-time P2P messaging with commands, whisper, and moderation.
-- **Precision Sync**: NTP-style rolling RTT measurement with min-latency selection for file mode. 2-stage rendezvous-synchronized playback for YouTube mode.
+- **Audio Effects**: 5-band EQ, reverb, stereo widener, and virtual bass on the
+  local-file and system-audio paths, processed locally via Web Audio API.
+- **Chat**: Real-time messaging with commands, whisper, and moderation. Standard
+  rooms use the host/P2P path; PRO rooms use the authenticated server path.
+- **Precision Sync**: Standard rooms use host-relative rolling RTT measurement;
+  PRO rooms use the server-owned timeline and fenced prepare/commit transitions.
+- **Language Picker (Beta)**: The in-room interface supports 17 language choices
+  plus the system-language setting. Static policy and Developer API pages remain
+  English unless a page explicitly provides localized copy.
+
+### Room Types
+
+|              | Standard room                                         | PRO room                                                     |
+| ------------ | ----------------------------------------------------- | ------------------------------------------------------------ |
+| Code range   | `100000`–`999999`                                     | `000000`–`099999`                                            |
+| Lifetime     | Temporary; ends when the browser host leaves          | Persistent across empty-room sleep/wake cycles               |
+| Password     | Optional 8-digit room password                        | Required 8-digit room password after activation              |
+| Authority    | Browser host over the standard-room P2P control path  | Server-owned Durable Object with owner/delegated permissions |
+| File storage | Browser RAM, direct transfer, or temporary private R2 | Persistent private R2; 1 GiB per room and 200 MiB per asset  |
+| Availability | Anyone can create one                                 | Operator-issued directly or through an operator-run voucher campaign |
+
+PRO access remains operator-controlled. It may be issued directly or redeemed
+from a one-time voucher distributed through an operator-run campaign. There is
+no paid plan, public checkout, or subscription at present.
 
 ---
 
@@ -147,17 +172,20 @@ remains part of CI.
 
 - **TypeScript + Vite**: ES modules, strict mode, hot module replacement.
 - **Web Audio API**: Native browser audio graph, no external audio library.
-- **WebRTC Transport**: Data channels for control, chat, sync, and file transfer. Media streams for system audio.
+- **WebRTC Transport**: Standard-room data channels carry control, chat, sync,
+  and direct file transfer. Media streams carry system audio; PRO persistent
+  control is server-authoritative rather than browser-host authoritative.
 - **Cloudflare Signaling**: Durable Object signaling transport for production room connection and raw WebRTC negotiation.
 - **PeerJS Local Adapter**: PeerJS remains available for localhost and explicit
   local-development configurations. Public production hosts force the
   Cloudflare signaling transport; there is no automatic production failover
   to PeerJS.
 - **Remote Share Worker**: Cloudflare Worker + private R2 path for temporary,
-  participant-authorized remote file sharing.
+  participant-authorized standard-room remote file sharing.
 - **STUN + TURN**: Browser ICE with Cloudflare TURN support.
-- **RAM-only media storage**: Local playback buffers and received chunks stay
-  in browser memory. Practical file capacity is device- and codec-dependent.
+- **RAM-only browser media**: Decoded local playback buffers and received chunks
+  stay in browser memory. PRO source objects remain in persistent private R2;
+  practical browser decode capacity is still device- and codec-dependent.
 
 The production browser-media storage boundary and the conditions for revisiting
 OPFS are documented in [the RAM-only storage ADR](./docs/design/browser-media-storage-policy.md).
@@ -207,7 +235,7 @@ Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled 
 3. Choose a media source:
    - **Load local file**: audio from your device
    - **YouTube**: paste a video link, playlist URL, or search term
-   - **System Audio**: stream desktop, tab, or system audio from a supported browser
+   - **System Audio (Beta)**: stream desktop, tab, or system audio from a supported browser
 
 ### Guest
 

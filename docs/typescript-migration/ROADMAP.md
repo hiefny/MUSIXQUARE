@@ -1,7 +1,11 @@
 # 저장소 전체 TypeScript 전환 로드맵
 
-상태: **accepted execution plan**
+상태: **completed migration execution record**
 목표: 직접 작성 `.js`, `.mjs`, `.cjs`, `.jsx` 소스 0개
+
+아래 phase와 rollout 순서는 완료된 전환의 역사적 계획·실행 기록이다. 현재 배포와
+rollback에는 [`../hotfix-procedure.md`](../hotfix-procedure.md) 및 해당 Worker 운영
+runbook을 사용한다.
 
 ## 1. 출발점과 범위
 

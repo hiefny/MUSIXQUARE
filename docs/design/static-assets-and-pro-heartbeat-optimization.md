@@ -73,7 +73,9 @@ boundary, including:
 - room-control incarnation, presence topology, or authorization changes;
 - PIN, room lifecycle, system-audio, playback transition/READY, playlist,
   quota, or media mutations; and
-- Developer API command changes and required legacy rollback-shadow refreshes.
+- Developer API command changes and every other semantically meaningful full
+  room mutation. The current persistence-v2 contract has no legacy rollback
+  shadow to refresh.
 
 An immediate persistence absorbs any pending heartbeat flush, cancels its
 timer, and generation-fences an already-dispatched callback so older work

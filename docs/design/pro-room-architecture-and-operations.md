@@ -3,7 +3,7 @@
 - **Status:** Accepted operations baseline, amended by
   `pro-room-server-authority.md`
 - **Decision date:** 2026-07-16
-- **Last repository contract review:** 2026-08-09
+- **Last repository contract review:** 2026-08-17
 - **Applies to:** the reserved `0xxxxx` namespace, the built-in `000000` launch
   canary, the PRO control plane, dedicated PRO signaling, and persistent PRO
   media
@@ -15,9 +15,11 @@ for a cafe, routine listener, or invited group: its URL and QR code do not
 change, its authoritative playlist survives an empty room, and it resumes from
 the last server-owned playback anchor.
 
-This checkpoint implements manually granted entitlement through the
-Access-protected MUSIXQUARE admin screen. It does not add billing, checkout,
-subscription, or automatic code allocation.
+PRO entitlement remains operator-controlled. It can be issued directly through
+the Access-protected MUSIXQUARE admin screen or through a one-time voucher from
+an operator-run campaign. Voucher redemption allocates a pre-registered PRO
+room to a verified account; there is no paid plan, public checkout, or
+subscription.
 
 ## Decision
 
@@ -110,13 +112,16 @@ cutover state fails closed. This global release marker proves protocol compatibi
 it never replaces the per-incarnation deletion evidence, tombstones, zero-key
 check, and empty-prefix verification required before re-registration.
 
-Registration and activation-link issuance also write a bounded audit event
-containing only a session-scoped pseudonymous actor, action/result, room code,
-immutable room generation, and timestamp. PINs, claims, and activation
-URLs are forbidden in both the registry and audit table. If the issuance audit
-write fails, the admin endpoint discards the just-issued URL and returns an
-error; retrying rotates `activationClaimGeneration` again, so no unaudited link
-can later become the current credential.
+Admin registration and direct admin activation-link issuance write a bounded
+operator-audit event containing only a session-scoped pseudonymous actor,
+action/result, room code, immutable room generation, and timestamp. PINs,
+claims, and activation URLs are forbidden in both the registry and operator
+audit table. If the direct issuance audit write fails, the admin endpoint
+discards the just-issued URL and returns an error; retrying rotates
+`activationClaimGeneration` again, so no unaudited admin link can later become
+the current credential. Operator-run voucher issuance and redemption instead
+use the retained grant ledger and append-only redemption audit. The subsequent
+account-bound activation handoff does not claim a separate admin-issuance audit.
 
 ### Permanent room deletion
 
@@ -191,12 +196,13 @@ matched provider data/code checkpoint.
 
 - Public bootstrap returns only `activation_required`, `pin_required`, or
   `suspended`. It never issues or returns an activation claim.
-- An owner activation claim is issued from the Access-protected admin screen
-  (with a generation-`0` offline CLI retained for emergency operations), scoped to
-  one room, signed with `PRO_ROOM_ACTIVATION_SECRET`, and delivered only in the
-  URL fragment `#pro-claim=...`. It expires within fifteen minutes. Issuance
-  atomically advances a room-local `activationClaimGeneration`, so issuing
-  again immediately invalidates every older unredeemed activation link.
+- An owner activation claim is issued either from the Access-protected admin
+  screen, from the generation-`0` emergency offline CLI, or as an account-bound
+  setup handoff after a verified account redeems an operator-run voucher. It is
+  scoped to one room, signed with `PRO_ROOM_ACTIVATION_SECRET`, and delivered
+  only in the URL fragment `#pro-claim=...`. It expires within fifteen minutes.
+  Issuance atomically advances a room-local `activationClaimGeneration`, so
+  issuing again immediately invalidates every older unredeemed activation link.
   Activation consumes that claim counter by moving the room out of
   `unactivated` state. It is independent of immutable `roomGeneration`.
 - A separate short-lived, one-time `#pro-recovery=...` claim restores ownership
@@ -546,8 +552,10 @@ commands mutate Cloudflare and are intentionally not part of automated tests.
 4. Confirm the bucket has no lifecycle rule copied from
    `musixquare-remote-share`.
 
-5. Provision the Durable Object and custom domain by deploying the PRO Worker
-   only after all secrets below are present.
+5. Provision the Durable Object class/migrations and service-binding backend by
+   deploying the PRO Worker only after all secrets below are present. The PRO
+   Worker has no browser-facing custom domain; production browser ingress stays
+   on the App Worker facade.
 
 6. Confirm the App Worker has the cross-script Durable Object binding
    `PRO_ROOM_ADMIN_ROOMS` targeting class `MusixquareProRoom` in script
@@ -675,9 +683,11 @@ Production releases use the repository's `Production Release` GitHub workflow
 for the exact reviewed `main` commit. Select `all` for a cross-Worker contract
 change or `pro-room` for an isolated PRO-only change, and retain the
 recorded deployment IDs. Every target reuses the successful exact-SHA CI
-candidate, so validation and the production build run once per commit. The
-workflow owns the dependency order above, immutable app artifact, live smokes,
-and conflict-aware rollback.
+candidate. The full CI/test suite and production build run once per commit and
+are not repeated during release; the
+workflow does recheck manifest/hash integrity, time-sensitive production
+security rules, and Worker bundles. It owns the dependency order above,
+immutable app artifact, live smokes, and conflict-aware rollback.
 
 The current service-control marker is
 `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`. Announcement v2

@@ -229,10 +229,15 @@ treats omission as `production` for API compatibility. Any explicit non-producti
 value, including `staging`, differs from the production contract and fails as
 drift.
 
-Inventory every deployed Worker, not only the three original services:
+The following is an orientation summary, not an exhaustive binding list. The
+production Wrangler TOML and `cloudflare/ops-drift.contract.json` remain the
+exact machine-checked inventories. Inventory every deployed Worker, not only
+the three original services:
 
 - App: Static Assets, Soro R2/KV, admin/auth/Developer API D1, PRO service,
-  PRO-admin and signaling Durable Object bindings, and service control.
+  PRO-admin and signaling Durable Object bindings, service control, and the
+  `MXQR_CAPABILITY_POW_ROOM_PRESSURE` / `MXQR_CAPABILITY_POW_GENERAL_PRESSURE`
+  Rate Limiting bindings.
 - Signaling: room, service-control, and PRO-authority Durable Objects plus admin
   D1.
 - PRO: room, service-control, signaling, and Developer API limiter Durable
@@ -244,6 +249,11 @@ Inventory every deployed Worker, not only the three original services:
   private facade service.
 - Developer API facade: private PRO-room and service-control Durable Object
   bindings only.
+
+Signaling, PRO, Remote Share, Developer API, and the private Developer API
+facade also expose `CF_VERSION_METADATA`; the App Worker does not. The exact-set
+audit compares these and every other serving-version binding even when this
+human summary does not name each binding.
 
 `cloudflare/durable-object-migrations.manifest.json` is the canonical ordered
 history for every production `wrangler*.toml`, including App and Developer API
@@ -258,13 +268,13 @@ Cloudflare's newer declarative `exports` lifecycle is a separate migration and
 must not be mixed into a legacy migration-array Worker without extending this
 contract and reviewing the provider transition.
 
-The tracked admin schema contains `mxqr_metric_buckets`,
-`mxqr_lifetime_metric_totals`,
-`mxqr_pro_room_registry`, and `mxqr_pro_room_admin_audit`, and explicitly drops
-the retired `mxqr_api_rate_limits` table. Production metrics were reconciled on
-2026-07-16 without deleting metric rows; apply the current schema before the
-first PRO-room admin rollout. Use the drift and retention procedure in
-`admin-dashboard-ops.md` before changing any other table found in production.
+The tracked admin baseline currently defines 18 application tables covering
+metrics, room generations, owner-transfer sagas, grants, entitlements, and
+their audits, and explicitly drops the retired `mxqr_api_rate_limits` table.
+`cloudflare/admin-metrics.schema.sql` is the exact schema source; the complete
+human inventory and read-only production query live in
+`admin-dashboard-ops.md`. The source contract was rechecked on 2026-08-17, but
+live table presence remains a separate provider check before maintenance.
 
 The independent `musixquare-auth` and `musixquare-developer-api` databases must
 match their current declarative baselines. A Developer API release compares the

@@ -134,32 +134,32 @@ describe('landing-page translation integrity', () => {
     );
   });
 
-  it('uses concise chat and NTP feature labels in every language', async () => {
+  it('uses concise chat and room-authority labels in every language', async () => {
     const dictionaries = await loadLandingDictionary();
-    const expected: Record<string, readonly [chat: string, sync: string]> = {
-      en: ['Real-time chat', '60-sample NTP-style sync'],
-      ko: ['실시간 채팅', '60샘플 NTP 방식 동기화'],
-      ja: ['リアルタイムチャット', '60サンプルのNTP方式同期'],
-      'zh-hans': ['实时聊天', '60 个样本的 NTP 方式同步'],
-      'zh-hant': ['即時聊天', 'NTP 式同步（60 次取樣）'],
-      es: ['Chat en tiempo real', 'Sincronización tipo NTP con 60 muestras'],
-      'pt-br': ['Chat em tempo real', 'Sincronização tipo NTP com 60 amostras'],
-      fr: ['Chat en temps réel', 'Synchronisation de type NTP sur 60 échantillons'],
-      de: ['Echtzeit-Chat', 'NTP-ähnliche Synchronisierung mit 60 Messungen'],
-      nl: ['Realtimechat', 'NTP-achtige synchronisatie met 60 metingen'],
-      it: ['Chat in tempo reale', 'Sincronizzazione tipo NTP con 60 campioni'],
-      pl: ['Czat w czasie rzeczywistym', 'Synchronizacja typu NTP z 60 próbkami'],
-      ru: ['Чат в реальном времени', 'Синхронизация в стиле NTP по 60 замерам'],
-      tr: ['Gerçek zamanlı sohbet', '60 örnekli NTP tarzı senkronizasyon'],
-      id: ['Chat waktu nyata', 'Sinkronisasi ala NTP dengan 60 sampel'],
-      vi: ['Trò chuyện thời gian thực', 'Đồng bộ kiểu NTP với 60 mẫu'],
-      th: ['แชตแบบเรียลไทม์', 'ซิงก์แบบ NTP ด้วย 60 ตัวอย่าง'],
+    const expected: Record<string, readonly [chat: string, authority: string]> = {
+      en: ['Real-time chat', 'Room authority'],
+      ko: ['실시간 채팅', '방 제어 권한'],
+      ja: ['リアルタイムチャット', 'ルーム制御権限'],
+      'zh-hans': ['实时聊天', '房间控制权'],
+      'zh-hant': ['即時聊天', '房間控制權'],
+      es: ['Chat en tiempo real', 'Autoridad de la sala'],
+      'pt-br': ['Chat em tempo real', 'Autoridade da sala'],
+      fr: ['Chat en temps réel', 'Autorité du salon'],
+      de: ['Echtzeit-Chat', 'Raumsteuerung'],
+      nl: ['Realtimechat', 'Kamerbesturing'],
+      it: ['Chat in tempo reale', 'Autorità della stanza'],
+      pl: ['Czat w czasie rzeczywistym', 'Sterowanie pokojem'],
+      ru: ['Чат в реальном времени', 'Управление комнатой'],
+      tr: ['Gerçek zamanlı sohbet', 'Oda denetimi'],
+      id: ['Chat waktu nyata', 'Otoritas ruang'],
+      vi: ['Trò chuyện thời gian thực', 'Quyền điều khiển phòng'],
+      th: ['แชตแบบเรียลไทม์', 'สิทธิ์ควบคุมห้อง'],
     };
 
     expect(Object.keys(expected).sort()).toEqual(Object.keys(dictionaries).sort());
-    for (const [language, [chat, sync]] of Object.entries(expected)) {
+    for (const [language, [chat, authority]] of Object.entries(expected)) {
       expect(dictionaries[language]['remote.chat_value'], language).toBe(chat);
-      expect(dictionaries[language]['sync.meta'], language).toBe(sync);
+      expect(dictionaries[language]['sync.transport_label'], language).toBe(authority);
     }
   });
 
@@ -173,8 +173,9 @@ describe('landing-page translation integrity', () => {
     expect(dictionary['remote.peer_name']).toBe('Peserta 1');
     expect(dictionary['sync.h2']).not.toMatch(/frame/i);
     expect(dictionary['sync.video_value']).toBe('Pemutaran media tersinkronisasi');
-    expect(dictionary['sync.lead']).toContain('latensi bolak-balik');
-    expect(dictionary['sync.lead']).toContain('jam utama bersama');
+    expect(dictionary['code.lead']).toContain('Setelah diaktifkan');
+    expect(dictionary['sync.transport_value']).toContain('host browser melalui WebRTC');
+    expect(dictionary['sync.transport_value']).toContain('server ruang');
   });
 
   it('provides a localized lifetime room-count sentence in every language', async () => {

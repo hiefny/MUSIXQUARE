@@ -3,11 +3,16 @@
 The `/admin` dashboard is served by `musixquare-app` and reads aggregate room
 metrics plus the operator-managed PRO room registry from a shared D1 database.
 The signaling Worker writes minute-level counters for successful session
-transitions and rejected signaling traffic. The App Worker owns PRO registry
-mutations and its bounded operator audit.
+transitions and rejected signaling traffic. The Remote Share Worker writes the
+three upload-assertion rollout counters to the same aggregate table. The App
+Worker owns operator/admin registry mutations and the bounded operator audit;
+the PRO Worker writes activation, suspension, decommission, and generation
+history projections for its room lifecycle.
 
-The production database identity, APAC region, schema, and event inventory were
-last reconciled with Wrangler and both Workers on 2026-07-16.
+The checked-in database identity, schema, binding consumers, and 17-event
+inventory were last reconciled with the current Worker sources on 2026-08-17.
+That source review is not proof of the live D1 table set; use the read-only drift
+query below before production schema maintenance.
 
 ## Data Model
 
@@ -121,11 +126,12 @@ npm run wrangler -- d1 create musixquare-admin-metrics
 ```
 
 Copy the returned `database_id`, then update the active `[[d1_databases]]`
-blocks in all three files:
+blocks in all four files:
 
 - `cloudflare/wrangler.app.toml`
 - `cloudflare/wrangler.signaling.toml`
 - `cloudflare/wrangler.pro-room.toml`
+- `cloudflare/wrangler.remote-share.toml`
 
 Apply or re-apply the schema:
 
@@ -231,8 +237,9 @@ https://musixquare.com/admin
   `ADMIN_DB_NOT_CONFIGURED` and PRO room management returns
   `PRO_ROOM_ADMIN_NOT_CONFIGURED`.
 - Before the schema is applied, metrics return `ADMIN_METRICS_SCHEMA_MISSING`.
-- The dashboard starts showing useful data only after the signaling Worker has
-  been redeployed with the D1 binding.
+- The dashboard starts showing room/signaling data only after the signaling
+  Worker has been redeployed with the D1 binding. Remote Share assertion
+  counters additionally require that Worker's matching binding.
 - The dashboard reads the most recent 30 days. The app Worker's six-hour
   scheduled task retains 90 days of aggregate history and removes older rows
   independently from the Soro refresh, so a D1 cleanup failure cannot block
@@ -243,7 +250,7 @@ https://musixquare.com/admin
 - The same scheduled event independently retains 365 days of PRO admin audit
   metadata. Audit cleanup failure does not cancel metrics cleanup or Soro
   refresh and never weakens claim issuance auditing.
-- Historical event names that are no longer in the 15-event inventory are
+- Historical event names that are no longer in the 17-event inventory are
   ignored by current dashboard summaries. Keep them only while their audit
   value is useful.
 
@@ -279,19 +286,30 @@ Inspect table names and aggregate row ages without exposing user data:
 npm run wrangler -- d1 execute musixquare-admin-metrics --remote --json --command "SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name; SELECT MIN(bucket_minute) AS oldest_minute, MAX(bucket_minute) AS newest_minute, COUNT(*) AS rows FROM mxqr_metric_buckets;"
 ```
 
-The tracked application tables are `mxqr_metric_buckets`,
-`mxqr_lifetime_metric_totals`,
-`mxqr_pro_room_registry`, `mxqr_pro_room_generation_history`,
-`mxqr_pro_room_generation_allocations`,
-`mxqr_pro_room_generation_cutover`, and `mxqr_pro_room_admin_audit`; `_cf_KV`
-is managed by Cloudflare. Applying `admin-metrics.schema.sql` also removes the
-retired `mxqr_api_rate_limits` table, which has no current Worker reader or
-writer. The current registry is capped by application policy; generation
-history and the allocation ledger are immutable and unbounded by that
-active-room cap; the cutover row is a singleton release fence; and the audit
-contains metadata, never credentials. For any other unexpected table, first
-search the deployed Worker source, take a D1 export or confirm Time Travel
-coverage, and record the maintenance decision.
+The declarative baseline currently defines these 18 application tables; `_cf_KV`
+is managed by Cloudflare:
+
+- metrics: `mxqr_metric_buckets`, `mxqr_lifetime_metric_totals`;
+- registry and generation: `mxqr_pro_room_registry`,
+  `mxqr_pro_room_generation_history`,
+  `mxqr_pro_room_generation_allocations`,
+  `mxqr_pro_room_generation_cutover`, `mxqr_pro_room_admin_audit`;
+- owner transfer: `mxqr_pro_room_owner_transfer_sagas`,
+  `mxqr_pro_room_owner_transfer_issuances`;
+- grants and entitlements: `mxqr_pro_grant_campaigns`,
+  `mxqr_pro_grant_voucher_batches`, `mxqr_pro_grant_vouchers`,
+  `mxqr_pro_grant_account_fences`, `mxqr_pro_grants`,
+  `mxqr_pro_grant_allocations`, `mxqr_pro_account_entitlements`,
+  `mxqr_pro_grant_redemptions`, and `mxqr_pro_grant_audit`.
+
+`cloudflare/admin-metrics.schema.sql` is the canonical table/trigger/index
+inventory. Applying it also removes the retired `mxqr_api_rate_limits` table,
+which has no current Worker reader or writer. The current registry is capped by
+application policy; generation history and the allocation ledger are immutable
+and unbounded by that active-room cap; the cutover row is a singleton release
+fence; and audit tables contain metadata, never credentials. For any other
+unexpected table, first search the deployed Worker source, take a D1 export or
+confirm Time Travel coverage, and record the maintenance decision.
 
 The runtime retention cutoff is 90 days. To audit what the next scheduled
 cleanup would remove, preview the affected row count with:

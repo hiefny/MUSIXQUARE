@@ -45,11 +45,15 @@ baseline before handing off a change:
 npm test
 npm run typecheck
 npm run lint
+npm run format:check
 npm run check:workers
 npm run build:checked
 ```
 
-The exact-SHA automated suite is the ordinary release-confidence gate. A defect
+The exact-SHA automated suite is the ordinary release-confidence gate. It also
+runs the security/coverage ratchets, Worker bundle dry-runs, and blocking
+Chromium owner-recovery, OAuth-return, host/guest, background-resume, and signed
+upload paths. A defect
 that depends on WebRTC, background/resume, audio routing, playback hardware, or
 a particular mobile browser may still need reproduction on the affected
 hardware during diagnosis. See

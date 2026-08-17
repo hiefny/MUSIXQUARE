@@ -3,9 +3,9 @@
 상태: **authoritative**
 기준일: 2026-08-17
 
-이 디렉터리는 MUSIXQUARE 저장소의 직접 작성 JavaScript를 TypeScript로 전환하는
-작업의 단일 제어면이다. 전환 범위, 순서, 불변식, 현재 상태와 완료 판정은 이곳을
-기준으로 판단한다.
+이 디렉터리는 MUSIXQUARE 저장소의 직접 작성 JavaScript를 TypeScript로 전환한
+완료 기록이자 zero-JavaScript 불변식의 현재 제어면이다. 현재 상태와 완료 판정,
+재도입 방지 규칙은 이곳을 기준으로 판단하며, 전환 순서와 rollout 단계는 역사 기록이다.
 
 ## 목표
 
@@ -21,7 +21,8 @@ git ls-files "*.js" "*.mjs" "*.cjs" "*.jsx"
 
 ## 문서 지도
 
-- [ROADMAP.md](./ROADMAP.md): 의존 순서, 품질 게이트, 배포와 롤백 전략
+- [ROADMAP.md](./ROADMAP.md): 완료된 전환에서 사용하도록 설계한 역사적 의존 순서,
+  품질 게이트, rollout·rollback 기록. 현재 배포 절차로 사용하지 않는다.
 - [STATUS.md](./STATUS.md): 현재 수치, 단계별 완료 상태와 배포·운영 증거
 - [authored-js-baseline.json](./authored-js-baseline.json): 파일 단위의 기계 판독 가능
   역사적 기준선과 현재 remaining/retired 상태
@@ -38,9 +39,9 @@ git ls-files "*.js" "*.mjs" "*.cjs" "*.jsx"
 remaining source가 0이 된 Phase 10에서 제거했다. 현재 타입 안전성은 각 런타임의 strict
 TypeScript project, production type-escape guard와 전체 CI가 직접 강제한다.
 
-충돌 시 우선순위는 `authored-js-baseline.json`의 실제 파일 상태, `STATUS.md`,
-`ROADMAP.md` 순이다. 문서가 코드와 어긋난 것을 발견한 PR은 같은 PR에서 상태를
-바로잡는다.
+현재 인벤토리가 충돌할 때는 `authored-js-baseline.json`의 실제 파일 상태와
+`STATUS.md`를 우선한다. `ROADMAP.md`는 완료된 전환의 역사 기록이다. 문서가 코드와
+어긋난 것을 발견한 PR은 같은 PR에서 상태를 바로잡는다.
 
 ## 기준선 갱신 규약
 

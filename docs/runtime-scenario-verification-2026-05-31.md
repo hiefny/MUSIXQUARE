@@ -49,8 +49,10 @@ device routing, or real WebRTC network transitions work on specific hardware.
 
 ### 2-24 hours: implement and exercise the risky path
 
-1. Keep deterministic regression tests close to each change and run `npm test`,
-   `npm run lint`, and `npm run build:checked` before handoff.
+1. Keep deterministic regression tests close to each change and run the
+   canonical non-E2E baseline in `CONTRIBUTING.md`: `npm test`,
+   `npm run typecheck`, `npm run lint`, `npm run format:check`,
+   `npm run check:workers`, and `npm run build:checked` before handoff.
 2. Use the memory checkpoints below and retain concise observations when
    diagnosing runtime behavior.
 
@@ -151,7 +153,9 @@ to its baseline after cleanup rather than treating this total alone as a leak.
 
 - `npm run typecheck`
 - `npm run lint`
+- `npm run format:check`
 - `npm test`
+- `npm run check:workers`
 - `npm run build:checked`
 
 Optional focused or full browser E2E results are a secondary signal. They are

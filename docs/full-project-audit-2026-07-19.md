@@ -3,7 +3,7 @@
 Baseline: `e61408da` on `main` (`CACHE_VERSION` v181).
 
 > **Maintained operational addendum:** The residual boundaries and verification
-> contract below were revalidated against the repository on 2026-08-09. The
+> contract below were revalidated against the repository on 2026-08-17. The
 > baseline SHA, cache epoch, and original defect narrative remain the dated
 > audit snapshot.
 
@@ -104,9 +104,12 @@ device-specific sync compensation intact.
 
 ## Deliberately unchanged
 
-- OPFS remains prohibited by the current RAM-only ADR; no storage-engine pivot
-  was introduced.
-- The bounded/preloaded AudioBuffer engine remains the production engine.
+- Production media payloads remain RAM-only in the browser under the current
+  storage ADR; no OPFS-backed media-storage pivot was introduced. The ADR does
+  not prohibit every possible use of the OPFS API outside that payload scope.
+- The AudioBuffer engine remains the production decode/playback engine. It does
+  not apply a predicted device-memory cap before production decode; transfer and
+  native decode are attempted on a bounded-wire, best-effort basis.
 - Turnstile was not reintroduced and user-visible admission policy was not made
   stricter.
 - Platform sync compensation, DSP tuning, and YouTube rendezvous behavior were
@@ -124,13 +127,16 @@ device-specific sync compensation intact.
   remote-share allocation, and signaling admission limits use the shared
   service-control Durable Object for serialized atomic decisions and fail
   closed when that production binding is unavailable.
-- Worker JavaScript remains JavaScript, but Cloudflare, scripts, E2E, and config
-  files are covered by the runtime-scoped tooling ESLint profile. Worker syntax,
-  behavior, module/export, and boundary guards remain decisive; selected
-  release-smoke and Vite/Vitest TypeScript configs are also CI-typechecked.
+- The repository-wide TypeScript migration is complete: all six Wrangler entry
+  files are TypeScript, authored JavaScript is zero, and 19 strict projects cover
+  the tracked TypeScript-family source. Type-escape, declaration-ownership,
+  project-coverage, Worker-bundle, and executable boundary guards prevent a
+  silent return to untyped runtime ownership.
 - Browser media policy, WebRTC timing, background audio, and YouTube iframe
   behavior cannot be completely proven by jsdom.
-- Existing bundle-size warnings are known topology, not a release regression.
+- Initial-transfer budgets, the main-chunk architectural ceiling, and the
+  fail-closed secondary-chunk guard enforce the currently accepted bundle
+  topology and headroom.
 
 ## Verification contract
 

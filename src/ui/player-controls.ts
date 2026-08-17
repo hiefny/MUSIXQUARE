@@ -28,6 +28,7 @@ import { showDialog } from './dialog.ts';
 import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
+import { exitYouTubeFullscreen } from '../player/video.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
@@ -1253,6 +1254,10 @@ export function initPlayerControls(): void {
     const target = videoWrapper || el;
 
     const enterFake = () => {
+      // A native fullscreen request can reject after playback has already
+      // advanced to a local file. Never let that late rejection resurrect the
+      // YouTube-only fake fullscreen shell around non-YouTube playback.
+      if (getState('playback.mode') !== 'youtube') return;
       videoWrapper?.classList.add('fake-fullscreen');
       document.body.classList.add('has-fake-fullscreen');
     };
@@ -1271,13 +1276,22 @@ export function initPlayerControls(): void {
     try {
       if (!isFullscreen) {
         if (target.requestFullscreen) {
-          target.requestFullscreen().catch(enterFake);
+          target.requestFullscreen().then(() => {
+            // A fullscreen request may settle after Next has already handed
+            // playback to a local file. Teardown again now that the browser
+            // has actually installed the fullscreen element.
+            if (getState('playback.mode') !== 'youtube') exitYouTubeFullscreen();
+          }, enterFake);
         } else if (target.webkitRequestFullscreen) {
           target.webkitRequestFullscreen();
           // webkit's call is sync and silent on failure — verify after a tick.
           setManagedTimer(
             'webkit-fullscreen-fallback',
             () => {
+              if (getState('playback.mode') !== 'youtube') {
+                exitYouTubeFullscreen();
+                return;
+              }
               if (!document.fullscreenElement && !doc.webkitFullscreenElement) enterFake();
             },
             100,

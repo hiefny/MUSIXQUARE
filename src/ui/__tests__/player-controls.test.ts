@@ -134,6 +134,8 @@ afterEach(() => {
   clearAllManagedTimers();
   setCurrentAudioBuffer(null);
   bus.clear();
+  delete (document as unknown as Record<string, unknown>).fullscreenElement;
+  delete (document as unknown as Record<string, unknown>).exitFullscreen;
 });
 
 function makeConnection(peer: string): DataConnection {
@@ -1302,6 +1304,75 @@ describe('initPlayerControls playback mode rendering', () => {
       status: 'applied',
       positionSeconds: 31,
     });
+  });
+});
+
+describe('initPlayerControls fullscreen fallback', () => {
+  it('does not enter fake fullscreen when a rejected native request settles after mode exit', async () => {
+    document.body.innerHTML = `
+      <div class="video-wrapper">
+        <button id="btn-fullscreen"></button>
+      </div>
+    `;
+    const wrapper = document.querySelector('.video-wrapper') as HTMLElement & {
+      requestFullscreen: () => Promise<void>;
+    };
+    let rejectFullscreen!: (reason?: unknown) => void;
+    wrapper.requestFullscreen = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectFullscreen = reject;
+        }),
+    );
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+
+    document.getElementById('btn-fullscreen')?.click();
+    setState('playback.mode', 'file');
+    rejectFullscreen(new Error('request superseded'));
+    await Promise.resolve();
+
+    expect(wrapper.classList.contains('fake-fullscreen')).toBe(false);
+    expect(document.body.classList.contains('has-fake-fullscreen')).toBe(false);
+  });
+
+  it('exits a native fullscreen request that resolves after YouTube mode has ended', async () => {
+    document.body.innerHTML = `
+      <div class="video-wrapper">
+        <div id="youtube-player-container"></div>
+        <button id="btn-fullscreen"></button>
+      </div>
+    `;
+    const wrapper = document.querySelector('.video-wrapper') as HTMLElement & {
+      requestFullscreen: () => Promise<void>;
+    };
+    let resolveFullscreen!: () => void;
+    let activeFullscreenElement: Element | null = null;
+    const exitFullscreen = vi.fn(() => Promise.resolve());
+    wrapper.requestFullscreen = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveFullscreen = resolve;
+        }),
+    );
+    Object.defineProperty(document, 'fullscreenElement', {
+      configurable: true,
+      get: () => activeFullscreenElement,
+    });
+    Object.defineProperty(document, 'exitFullscreen', {
+      configurable: true,
+      value: exitFullscreen,
+    });
+    setState('playback.mode', 'youtube');
+    initPlayerControls();
+
+    document.getElementById('btn-fullscreen')?.click();
+    setState('playback.mode', 'file');
+    activeFullscreenElement = wrapper;
+    resolveFullscreen();
+    await Promise.resolve();
+
+    expect(exitFullscreen).toHaveBeenCalledOnce();
   });
 });
 

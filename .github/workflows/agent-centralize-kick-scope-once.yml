@@ -1,0 +1,82 @@
+name: Agent Centralize Kick Scope Once
+
+on:
+  push:
+    branches:
+      - agent/quality-hardening-no-ui-changes
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/quality-hardening-no-ui-changes
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Centralize kick scope declaration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          room_control_path = Path('src/network/room-control.ts')
+          room_control = room_control_path.read_text()
+          old_scope = "type RequestedKickScope = 'member' | 'physical';"
+          new_scope = "export type RequestedKickScope = 'member' | 'physical';"
+          if room_control.count(old_scope) != 1:
+              raise SystemExit('room-control kick scope declaration changed')
+          room_control_path.write_text(room_control.replace(old_scope, new_scope, 1))
+
+          sync_path = Path('src/network/sync.ts')
+          sync = sync_path.read_text()
+          old_import = "import { initRoomControl, resolveRoomControlKickTarget } from './room-control.ts';"
+          new_import = """import {
+            initRoomControl,
+            resolveRoomControlKickTarget,
+            type RequestedKickScope,
+          } from './room-control.ts';"""
+          old_local_scope = "\ntype RequestedKickScope = 'member' | 'physical';\n"
+          if sync.count(old_import) != 1:
+              raise SystemExit('sync room-control import changed')
+          if sync.count(old_local_scope) != 1:
+              raise SystemExit('sync local kick scope declaration changed')
+          sync = sync.replace(old_import, new_import, 1)
+          sync = sync.replace(old_local_scope, '\n', 1)
+          sync_path.write_text(sync)
+          PY
+
+      - name: Format affected sources
+        run: npx prettier --write src/network/room-control.ts src/network/sync.ts
+
+      - name: Verify declaration ownership
+        run: npm run guard:declaration-ownership
+
+      - name: Verify focused runtime contracts
+        run: npx vitest run src/network/__tests__/room-control.test.ts src/network/__tests__/sync.test.ts
+
+      - name: Remove one-shot workflow
+        run: rm .github/workflows/agent-centralize-kick-scope-once.yml
+
+      - name: Commit canonical declaration
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "refactor: centralize kick scope declaration"
+          git push origin HEAD:agent/quality-hardening-no-ui-changes

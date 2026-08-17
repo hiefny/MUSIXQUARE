@@ -37,20 +37,13 @@ hotfix. Every target reuses that exact-SHA CI candidate without a second
 validation pass or environment self-approval, then runs its live smokes with
 an immutable recovery checkpoint and fail-closed forward-repair reporting.
 
-Physical-device QA is not an input to, or authorization gate for, the
-`Production Release` workflow. The repository does not provide an isolated
-full-stack preview environment: a static or tunneled frontend URL cannot open
-Standard or PRO rooms without the corresponding signaling, service bindings,
-Durable Objects, and storage services. Release authorization therefore relies
-on the immutable exact-SHA CI candidate, production security and bundle checks,
-the pre-mutation checkpoint, and target-specific live smoke tests. Do not enter
-invented device results or use a frontend-only preview as release evidence.
-
-`.github/workflows/real-device-qa.yml` remains an optional standalone recorder
-for a full device matrix that was actually exercised, such as post-release QA
-on the production URL or future testing on a complete non-production stack. Its
-artifact is archival and is not downloaded or evaluated by the production
-release workflow.
+The repository does not provide an isolated full-stack preview environment: a
+static or tunneled frontend URL cannot open Standard or PRO rooms without the
+corresponding signaling, service bindings, Durable Objects, and storage
+services. Release authorization therefore relies on the immutable exact-SHA CI
+candidate, production security and bundle checks, the pre-mutation checkpoint,
+and target-specific live smoke tests. Do not treat a frontend-only preview as a
+valid room test.
 
 Leave `Apply the current Developer API D1 baseline` disabled for an ordinary
 Worker release. Enable it only when the approved commit intentionally changes
@@ -124,9 +117,7 @@ smoke every night at 03:17 KST and remains manually dispatchable when a change
 warrants the extra coverage before the next scheduled run. A focused
 deterministic Chromium subset is blocking in exact-SHA CI, so an approved
 release cannot select a candidate until the critical owner-recovery,
-OAuth-return, host/guest, and signed-upload browser paths pass. Physical-device
-verification is a separate, operator-selected confidence check rather than a
-prerequisite for every production decision.
+OAuth-return, host/guest, and signed-upload browser paths pass.
 
 The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its canonical
@@ -236,9 +227,7 @@ An app-only production release reuses an exact-SHA CI candidate that has passed
 the focused Chromium gate, proves partial dependency compatibility before
 deployment, and keeps the production deploy job itself browser-free by running
 generation/initial-asset-graph and anonymous-session-boundary HTTP smokes after
-deployment. The full Playwright suite remains auxiliary, while production
-host/guest application-session behavior can be checked with the optional
-physical-device matrix when a change warrants that additional confidence.
+deployment. The full Playwright suite remains auxiliary.
 The emergency-only `emergency:deploy:app` command additionally runs the
 standalone live signaling smoke. A signaling protocol change must be deployed
 and smoked first (normally with release target `all`); the preflight fails
@@ -337,9 +326,7 @@ approved `all` release.
 
 These emergency-deployment checks are intentionally browser-free; the focused
 Chromium gate belongs to exact-SHA CI. After the deploy is live, verify the
-production URL. Use fresh physical-device sessions for the touched host/guest
-flow when the incident is specific to browser hardware or lifecycle behavior.
-The full Playwright E2E suite remains auxiliary.
+production URL. The full Playwright E2E suite remains auxiliary.
 Confirm the active version with
 `npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`.
 
@@ -376,9 +363,7 @@ remains usable while backends roll forward:
 5. `cloudflare/wrangler.developer-api.toml`, then its authenticated live smoke
    against the fixed `000001` smoke room;
 6. `cloudflare/wrangler.app.toml` with the verified artifact, then browser-free
-   generation/initial-asset-graph and anonymous-session-boundary smokes. Run a
-   separate physical host/guest QA pass only when additional platform confidence
-   is useful; it is not part of release authorization.
+   generation/initial-asset-graph and anonymous-session-boundary smokes.
 
 The production environment secret `MXQR_DEVELOPER_API_SMOKE_KEY` must contain a
 valid key limited to room `000001`; it is used only by the release smoke and is

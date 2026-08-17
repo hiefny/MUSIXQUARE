@@ -2,9 +2,6 @@
 
 > **Maintained checklist.** Originally added on 2026-05-31 and revalidated on
 > 2026-08-15. Exact-SHA automated CI is the ordinary production release gate.
-> Physical-device verification is an optional, risk-based confidence pass for
-> browser, audio-hardware, lifecycle, and network behavior that automation
-> cannot reproduce faithfully.
 
 ## Scope
 
@@ -12,8 +9,9 @@ This is the maintained verification order for runtime-sensitive flows across
 playback, network, transfer, YouTube, and system audio.
 
 Unit/static checks and the blocking browser subset establish deterministic
-release confidence. Use the real-device matrix when a change or incident needs
-additional browser, audio-hardware, lifecycle, or network observations.
+release confidence. Automation cannot prove browser, audio-hardware, lifecycle,
+or network behavior on every device; reproduce an affected environment when
+diagnosing a device-specific report.
 
 ## Optional Browser Automation Signal
 
@@ -34,8 +32,7 @@ The script builds the E2E bundle first, then runs:
 
 This larger focused group is not a required release gate. Do not interpret a
 green focused or full E2E suite as proof that Web Audio, background/resume,
-device routing, or real WebRTC network transitions work on specific hardware;
-run the optional physical matrix when that assurance is needed.
+device routing, or real WebRTC network transitions work on specific hardware.
 
 ## First 48 Hours
 
@@ -47,34 +44,22 @@ run the optional physical matrix when that assurance is needed.
    SPA HTML and not a production response.
 3. Run the smallest focused unit test for the touched area, then run
    `npm run typecheck` and `npm run check:workers` when Worker code is involved.
-4. Record the devices, browser versions, audio roles, and network shapes needed
-   for the touched scenarios. Capture a fresh-load memory/debug baseline.
+4. Capture a fresh-load memory/debug baseline when the touched code affects
+   retained runtime state.
 
 ### 2-24 hours: implement and exercise the risky path
 
 1. Keep deterministic regression tests close to each change and run `npm test`,
-   `npm run lint`, and `npm run build:checked` before device work.
-2. If the change warrants optional physical QA, exercise the affected scenario
-   on at least two devices when it crosses host/guest, WebRTC, audio routing, or
-   background lifecycle boundaries.
-3. In that optional pass, include the applicable failure/recovery branch:
-   disconnect/reconnect, background/resume, rapid source replacement, or denied
-   authorization.
-4. Use the memory checkpoints below and retain concise observations when
+   `npm run lint`, and `npm run build:checked` before handoff.
+2. Use the memory checkpoints below and retain concise observations when
    diagnosing runtime behavior.
 
 ### 24-48 hours: repeat, broaden, and decide
 
-1. When physical QA was selected, repeat every touched row in the manual matrix
-   from a clean build and fresh sessions; include both local-network and
-   remote-network paths when relevant.
-2. In that pass, verify cleanup and recovery after leave, hard reload, and one
-   background or network interruption. Compare memory/debug state with the
-   recorded baseline.
-3. Review Worker contract/deployment guards and the rollback boundary without
+1. Repeat the deterministic verification ladder from a clean install when the
+   implementation changed after the prior full run.
+2. Review Worker contract/deployment guards and the rollback boundary without
    performing an ad hoc production deploy.
-4. Record device/browser/network evidence and any accepted limitation when the
-   team performed the optional physical-device QA pass.
 
 Worker boundary changes must preserve the bounded-read contract. App, account,
 Developer API/facade, PRO grant/BOT, and remote-share JSON request readers use a
@@ -162,64 +147,12 @@ references may be counted more than once, while browser and audio-engine
 allocations may be absent. Diagnose component trends and whether each returns
 to its baseline after cleanup rather than treating this total alone as a leak.
 
-## Optional Manual Runtime Matrix
-
-Run the relevant rows when a change or incident needs physical-device confidence
-beyond automated browser coverage. This matrix is advisory and is not consumed
-by the production release workflow:
-
-| Scenario                                                    | Expected signal                                                                                 |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Remote guest late-joins a local-file room                   | Guest receives the authorized whole-object remote-share handoff, then syncs near host position. |
-| Local guest late-joins a local-file room                    | Guest receives the direct WebRTC file transfer, then syncs near host position.                  |
-| Host rapidly switches local files while a preload is active | Guest does not play the wrong file; stale chunks do not keep transfer stuck.                    |
-| YouTube load, manual sync, then stop mode                   | Guest enters and exits YouTube projection without stale play timers.                            |
-| Desktop system-audio share over local P2P                   | Guest receives one stream and cleanup restores previous UI state.                               |
-| Remote system-audio SFU path                                | Guest receives SFU stream, host stop clears placeholder/receiving state.                        |
-| Background/resume on mobile browser                         | App attempts recovery and warns if sync may be stale.                                           |
-
 ## Exit Criteria
 
 - `npm run typecheck`
 - `npm run lint`
 - `npm test`
 - `npm run build:checked`
-- When manual physical-device QA is performed, record only the browser/device
-  and network rows that were actually exercised.
 
-Optional focused or full browser E2E results may accompany this evidence as a
-secondary signal. They are not a production release prerequisite.
-
-## Persisting Optional Device QA Evidence
-
-When a team chooses to archive a completed full physical-device matrix, dispatch
-`.github/workflows/real-device-qa.yml` on the current `main` commit. The tester
-must supply the exact 40-character SHA, completion timestamp, HTTPS environment
-that served that commit, HTTPS detailed evidence link, and the physical device
-matrix. Every standard-room, PRO-room, media-source, and background/resume
-attestation must be explicitly checked. The current canonical v2 artifact is a
-full-matrix attestation, so an operator using this optional recorder must also
-check adaptive proof-of-work performance even when the production adaptive
-flag remains off. The linked log must record difficulty-16 cold and warm
-p50/p95 results on a supported iPhone and a desktop browser on a Korean
-connection, plus the build SHA, timestamp, Cloudflare colo, sample count,
-timeout/failure behavior, invite-code timing, and full RTC-readiness timing
-required by the security performance policy.
-
-The workflow verifies that the attested SHA is still current `main`, records the
-authenticated GitHub actor, creates a canonical JSON document, and retains the
-immutable exact-SHA artifact for 90 days. It is an evidence recorder, not a test
-runner: do not check a row that was not actually exercised, and keep device,
-browser, network, observations, and screenshots in the linked detailed log.
-The free-form device matrix is not a substitute for those measurements; it
-must identify the tested models and browser/OS versions, while `evidence_url`
-points to the retained raw observations.
-
-This artifact is a standalone QA record. `.github/workflows/release.yml` does
-not discover, download, validate, or require it, and the artifact does not grant
-production mutation authority. A frontend-only preview or quick tunnel is not a
-valid room test environment because it does not provide the production service
-bindings and room backends. Until a complete isolated staging stack exists,
-record the full matrix only against an environment that genuinely serves the
-tested SHA and supports every attested scenario; otherwise leave the workflow
-undispatched rather than fabricating a pass.
+Optional focused or full browser E2E results are a secondary signal. They are
+not a production release prerequisite.

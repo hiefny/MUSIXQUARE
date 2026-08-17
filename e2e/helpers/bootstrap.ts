@@ -1,9 +1,5 @@
 import type { Page } from '@playwright/test';
-
-// src/app.ts records 47 eager wiring initializers, I18n, and SyncWorker.
-// Room-session implementations are deliberately absent: their readiness is
-// gated at transport creation instead of being counted as bootstrap work.
-const EXPECTED_BOOTSTRAP_STEP_COUNT = '49';
+import { BOOTSTRAP_REQUIRED_STEP_COUNT } from '../../src/core/bootstrap-contract.ts';
 
 interface BootstrapObservation {
   state: string | null;
@@ -59,7 +55,7 @@ export async function waitForBootstrapReady(page: Page, timeout = 15_000): Promi
 
   if (
     observation.state !== 'ready' ||
-    observation.stepCount !== EXPECTED_BOOTSTRAP_STEP_COUNT ||
+    observation.stepCount !== String(BOOTSTRAP_REQUIRED_STEP_COUNT) ||
     observation.failureCount !== '0' ||
     observation.fallbackCount !== '0'
   ) {

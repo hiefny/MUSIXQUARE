@@ -3,6 +3,19 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 
+const runtimeMocks = vi.hoisted(() => ({
+  initHeartbeatMonitor: vi.fn(),
+  initRoomControl: vi.fn(),
+}));
+
+vi.mock('../heartbeat-monitor.ts', () => ({
+  initHeartbeatMonitor: runtimeMocks.initHeartbeatMonitor,
+}));
+
+vi.mock('../room-control.ts', () => ({
+  initRoomControl: runtimeMocks.initRoomControl,
+}));
+
 vi.mock('../../core/log.ts', () => ({
   log: {
     debug: vi.fn(),
@@ -21,6 +34,15 @@ describe('peer routing orchestrator', () => {
     vi.clearAllMocks();
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
+  });
+
+  it('initializes room-control and heartbeat ownership behind the existing bootstrap step', async () => {
+    const { initOrchestrator } = await import('../orchestrator.ts');
+
+    initOrchestrator();
+
+    expect(runtimeMocks.initRoomControl).toHaveBeenCalledOnce();
+    expect(runtimeMocks.initHeartbeatMonitor).toHaveBeenCalledOnce();
   });
 
   it('emits data-target-ready without peer-joined when a remote peer is reclassified local', async () => {

@@ -9107,6 +9107,11 @@
       line-height: 18px;
       white-space: nowrap;
       overflow-wrap: normal;
+      /* In compact landscape the header is the full-height sidebar, so the
+         base downward exit remains visible below the 54px logo rail and
+         crosses the navigation. Return the status through the clipped top
+         edge instead; the loading state still overrides this with translateY(0). */
+      transform: translateY(-100%);
     }
 
     /* ── Tab navigation: centered between logo and role badge ── */

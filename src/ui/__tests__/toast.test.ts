@@ -569,6 +569,15 @@ describe('header loader layout contract', () => {
     expect(compactLoaderRules).toMatch(/line-height:\s*18px;/);
     expect(compactLoaderRules).toMatch(/white-space:\s*nowrap;/);
     expect(compactLoaderRules).toMatch(/overflow-wrap:\s*normal;/);
+    // Unlike the portrait header, the compact header is the full-height
+    // sidebar. A downward exit would therefore stay visible across its nav;
+    // moving through the sidebar's clipped top edge keeps the swap on the
+    // logo rail.
+    expect(compactStyles.match(/\n\s*header\s*\{([^}]*)\}/)?.[1] ?? '').toMatch(
+      /overflow:\s*hidden\s*!important;/,
+    );
+    expect(compactLoaderRules).toMatch(/transform:\s*translateY\(-100%\);/);
+    expect(compactLoaderRules).not.toMatch(/transform:\s*translateY\(100%\);/);
   });
 
   it('keeps every responsive header loader on one line with ellipsis overflow', async () => {

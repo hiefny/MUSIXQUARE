@@ -8,6 +8,7 @@
 
 import { bus } from '../core/events.ts';
 import type { PlaybackModeValue } from '../core/constants.ts';
+import { clearManagedTimer } from '../core/timers.ts';
 import {
   isPlaybackModeValue,
   isPlaybackPlaying,
@@ -39,10 +40,68 @@ export function setEngineMode(mode: 'audio' | 'buffer' | 'youtube'): void {
 
 // Body-class sync driven by decomposed playback mode.
 
+type WebKitFullscreenDocument = Document & {
+  webkitFullscreenElement?: Element | null;
+  webkitCurrentFullScreenElement?: Element | null;
+  webkitIsFullScreen?: boolean;
+  webkitExitFullscreen?: () => void;
+  webkitCancelFullScreen?: () => void;
+};
+
+/**
+ * Leave every fullscreen surface owned by the YouTube player before its
+ * wrapper is parked offscreen. Mobile browsers can otherwise keep the wrapper
+ * (or its iframe) as the active fullscreen element after local-file playback
+ * takes ownership, leaving the app chrome inaccessible. Fake fullscreen must
+ * be cleared too because its `!important` layout rules override parking.
+ */
+export function exitYouTubeFullscreen(): void {
+  const ytContainer = document.getElementById('youtube-player-container');
+  const videoWrapper = (ytContainer?.closest('.video-wrapper') ??
+    document.querySelector('.video-wrapper')) as HTMLElement | null;
+  const pageWasYouTube = document.body.classList.contains('mode-youtube');
+  clearManagedTimer('webkit-fullscreen-fallback');
+  videoWrapper?.classList.remove('fake-fullscreen');
+  document.body.classList.remove('has-fake-fullscreen');
+
+  const doc = document as WebKitFullscreenDocument;
+  const fullscreenElement =
+    document.fullscreenElement ??
+    doc.webkitFullscreenElement ??
+    doc.webkitCurrentFullScreenElement ??
+    null;
+  const playerOwnsFullscreen = Boolean(
+    fullscreenElement &&
+    (fullscreenElement === videoWrapper ||
+      videoWrapper?.contains(fullscreenElement) ||
+      (pageWasYouTube && fullscreenElement === document.documentElement)),
+  );
+  const legacyPlayerFullscreen = pageWasYouTube && doc.webkitIsFullScreen === true;
+  if (!playerOwnsFullscreen && !legacyPlayerFullscreen) return;
+
+  const exitFullscreen =
+    document.exitFullscreen ?? doc.webkitExitFullscreen ?? doc.webkitCancelFullScreen;
+  if (!exitFullscreen) return;
+
+  try {
+    const pendingExit: void | Promise<void> = exitFullscreen.call(document);
+    if (pendingExit && typeof pendingExit.catch === 'function') {
+      void pendingExit.catch(() => undefined);
+    }
+  } catch {
+    // Fullscreen teardown is best-effort on older WebKit. The fake-fullscreen
+    // cleanup above still restores the app layout when the native API throws.
+  }
+}
+
 function updateBodyModeClass(mode: PlaybackModeValue): void {
   const body = document.body;
 
   const wantYouTube = mode === 'youtube';
+  const ytContainer = document.getElementById('youtube-player-container');
+  const ytWrapper = ytContainer?.closest('.video-wrapper') as HTMLElement | null;
+  if (!wantYouTube) exitYouTubeFullscreen();
+
   if (body.classList.contains('mode-youtube') !== wantYouTube) {
     body.classList.toggle('mode-youtube', wantYouTube);
   }
@@ -52,9 +111,7 @@ function updateBodyModeClass(mode: PlaybackModeValue): void {
     body.classList.toggle('mode-system-audio', wantSysAudio);
   }
 
-  const ytContainer = document.getElementById('youtube-player-container');
   if (ytContainer) {
-    const ytWrapper = ytContainer.closest('.video-wrapper') as HTMLElement | null;
     const hasIframe = !!ytContainer.querySelector('iframe');
 
     if (mode === 'youtube') {

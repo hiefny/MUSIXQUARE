@@ -234,10 +234,22 @@ test.describe('Linelight demo mode', () => {
       .poll(() =>
         page.evaluate(() => {
           const controls = document.querySelector<HTMLElement>('.demo-control-stage')!;
-          return controls.scrollHeight > controls.clientHeight + 1;
+          const controlHeight = controls.getBoundingClientRect().height;
+          const track = document.querySelector<HTMLElement>('.demo-mobile-shell > .cscroll-track');
+          const thumb = track?.querySelector<HTMLElement>('.cscroll-thumb');
+          const trackHeight = track?.getBoundingClientRect().height ?? 0;
+          return {
+            hasOverflow: controls.scrollHeight > controls.clientHeight + 1,
+            trackMatchesControls: Math.abs(trackHeight - controlHeight) < 0.05,
+            thumbVisible: thumb ? getComputedStyle(thumb).display !== 'none' : false,
+          };
         }),
       )
-      .toBe(true);
+      .toEqual({
+        hasOverflow: true,
+        trackMatchesControls: true,
+        thumbVisible: true,
+      });
     const tinyPortrait = await page.evaluate(() => {
       const visual = document.querySelector('.demo-visual-stage')!.getBoundingClientRect();
       const controls = document.querySelector<HTMLElement>('.demo-control-stage')!;

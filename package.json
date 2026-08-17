@@ -158,7 +158,7 @@
     "serve": "14.2.6",
     "subset-font": "^2.5.0",
     "three": "0.184.0",
-    "tsx": "^4.20.6",
+    "tsx": "^4.23.12",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
     "vite": "^6.4.3",

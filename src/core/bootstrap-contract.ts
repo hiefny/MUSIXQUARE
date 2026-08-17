@@ -57,5 +57,3 @@ export const BOOTSTRAP_REQUIRED_STEPS = [
   'PageLifecycle',
   'BackButtonGuard',
 ] as const;
-
-export const BOOTSTRAP_REQUIRED_STEP_COUNT = BOOTSTRAP_REQUIRED_STEPS.length;

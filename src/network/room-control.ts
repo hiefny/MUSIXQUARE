@@ -13,20 +13,30 @@ import { getState, setState } from '../core/state.ts';
 import { MSG, MAX_MSG_LENGTH, MAX_SENDER_LABEL_LENGTH } from '../core/constants.ts';
 import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
-import { broadcast } from './peer.ts';
+import { broadcast } from './peer-state.ts';
 import { rememberPinnedNotice } from '../chat/protocol.ts';
 import { playAnnouncementSound } from '../audio/ui-sounds.ts';
-import { getRoomContext, verifyPeerCapability } from '../rooms/authority.ts';
+import { getRoomContext, isCoordinator, verifyPeerCapability } from '../rooms/authority.ts';
 
 type RequestedKickScope = 'member' | 'physical';
+type KickTargetResolver = (
+  data: Record<string, unknown>,
+  conn: DataConnection,
+  scope: RequestedKickScope,
+) => string | null;
 
-export function resolveRequestedKickTarget(
+/**
+ * Resolve the exact live peer that a browser-hosted room-control request may
+ * remove. The sync compatibility facade performs the coarse physical-host
+ * check before calling this canonical room-context implementation.
+ */
+export function resolveRoomControlKickTarget(
   data: Record<string, unknown>,
   conn: DataConnection,
   scope: RequestedKickScope,
 ): string | null {
   const room = getRoomContext();
-  if (getState('network.hostConn') || getState('network.appRole') !== 'host') return null;
+  if (!isCoordinator()) return null;
   if (room.kind === 'pro') {
     if (
       room.role !== 'coordinator' ||
@@ -102,37 +112,7 @@ export function resolveRequestedKickTarget(
   return targetPeerId;
 }
 
-export function handleRequestKickDevice(
-  data: Record<string, unknown>,
-  conn: DataConnection,
-): void {
-  const targetPeerId = resolveRequestedKickTarget(data, conn, 'member');
-  if (!targetPeerId) return;
-
-  // The established member-level path expands authenticated targets to every
-  // sibling connection and revokes account-level administrator authority.
-  bus.emit('network:kick-device', targetPeerId);
-}
-
-export function handleRequestKickPhysicalDevice(
-  data: Record<string, unknown>,
-  conn: DataConnection,
-): void {
-  // PRO removals are server-authoritative (`/presence/kick`). Never let a
-  // peer frame bypass the Worker’s owner/administrator protections and turn
-  // the coordinator transport into an alternate exact-kick endpoint.
-  if (getRoomContext().kind !== 'standard') return;
-  const targetPeerId = resolveRequestedKickTarget(data, conn, 'physical');
-  if (!targetPeerId) return;
-
-  // Exact connection removal deliberately preserves sibling devices and the
-  // member's account-level administrator grant.
-  bus.emit('network:kick-physical-device', targetPeerId);
-}
-
-export function resolveChatTargetForHost(
-  arg: string,
-): { peerId: string; label: string } | null {
+function resolveChatTargetForHost(arg: string): { peerId: string; label: string } | null {
   const peers = getState('network.connectedPeers');
   if (arg.startsWith('#')) {
     const order = parseInt(arg.slice(1), 10);
@@ -148,12 +128,9 @@ export function resolveChatTargetForHost(
   return peer ? { peerId: peer.id, label: peer.label } : null;
 }
 
-export function handleRequestChatCommand(
-  data: Record<string, unknown>,
-  conn: DataConnection,
-): void {
+function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConnection): void {
   const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only the browser-host coordinator processes this path.
+  if (hostConn) return;
 
   const peerId = conn?.peer;
   if (!peerId) return;
@@ -230,8 +207,6 @@ export function handleRequestChatCommand(
       break;
     }
     case 'notice': {
-      // Cap length before broadcast so an operator cannot amplify an unbounded
-      // argument to every connected participant.
       const text = args.join(' ').trim().slice(0, MAX_MSG_LENGTH);
       if (!text) return;
       const peerLabel = (peer.label || 'OP').substring(0, MAX_SENDER_LABEL_LENGTH);
@@ -253,7 +228,27 @@ export function handleRequestChatCommand(
   }
 }
 
-export function initRoomControl(): void {
+export function initRoomControl(resolveKickTarget: KickTargetResolver): void {
+  function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnection): void {
+    const targetPeerId = resolveKickTarget(data, conn, 'member');
+    if (!targetPeerId) return;
+
+    bus.emit('network:kick-device', targetPeerId);
+  }
+
+  function handleRequestKickPhysicalDevice(
+    data: Record<string, unknown>,
+    conn: DataConnection,
+  ): void {
+    // PRO removals are server-authoritative (`/presence/kick`). Never let a
+    // peer frame bypass the Worker’s owner/administrator protections.
+    if (getRoomContext().kind !== 'standard') return;
+    const targetPeerId = resolveKickTarget(data, conn, 'physical');
+    if (!targetPeerId) return;
+
+    bus.emit('network:kick-physical-device', targetPeerId);
+  }
+
   registerHandlers({
     [MSG.REQUEST_KICK_DEVICE]: handleRequestKickDevice,
     [MSG.REQUEST_KICK_PHYSICAL_DEVICE]: handleRequestKickPhysicalDevice,

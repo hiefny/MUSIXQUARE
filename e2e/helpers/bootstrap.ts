@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test';
-import { BOOTSTRAP_REQUIRED_STEP_COUNT } from '../../src/core/bootstrap-contract.ts';
+import { BOOTSTRAP_REQUIRED_STEPS } from '../../src/core/bootstrap-contract.ts';
 
 interface BootstrapObservation {
   state: string | null;
@@ -55,7 +55,7 @@ export async function waitForBootstrapReady(page: Page, timeout = 15_000): Promi
 
   if (
     observation.state !== 'ready' ||
-    observation.stepCount !== String(BOOTSTRAP_REQUIRED_STEP_COUNT) ||
+    observation.stepCount !== String(BOOTSTRAP_REQUIRED_STEPS.length) ||
     observation.failureCount !== '0' ||
     observation.fallbackCount !== '0'
   ) {

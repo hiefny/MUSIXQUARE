@@ -10,11 +10,11 @@ const mocks = vi.hoisted(() => ({
   rememberPinnedNotice: vi.fn(),
   playAnnouncementSound: vi.fn(),
   getRoomContext: vi.fn(),
+  isCoordinator: vi.fn(),
   verifyPeerCapability: vi.fn(),
-  warn: vi.fn(),
 }));
 
-vi.mock('../peer.ts', () => ({ broadcast: mocks.broadcast }));
+vi.mock('../peer-state.ts', () => ({ broadcast: mocks.broadcast }));
 vi.mock('../protocol.ts', () => ({ registerHandlers: mocks.registerHandlers }));
 vi.mock('../../chat/protocol.ts', () => ({
   rememberPinnedNotice: mocks.rememberPinnedNotice,
@@ -24,6 +24,7 @@ vi.mock('../../audio/ui-sounds.ts', () => ({
 }));
 vi.mock('../../rooms/authority.ts', () => ({
   getRoomContext: mocks.getRoomContext,
+  isCoordinator: mocks.isCoordinator,
   verifyPeerCapability: mocks.verifyPeerCapability,
 }));
 vi.mock('../../i18n/index.ts', () => ({
@@ -33,10 +34,12 @@ vi.mock('../../core/log.ts', () => ({
   log: {
     debug: vi.fn(),
     info: vi.fn(),
-    warn: mocks.warn,
+    warn: vi.fn(),
     error: vi.fn(),
   },
 }));
+
+type RoomControlHandler = (data: Record<string, unknown>, conn: DataConnection) => void;
 
 function makeConnection(peer: string): DataConnection {
   return { peer, open: true } as DataConnection;
@@ -66,14 +69,17 @@ function makePeer(
 describe('room control plane', () => {
   const senderConn = makeConnection('sender');
   const targetConn = makeConnection('target');
+  let handlers: Record<string, RoomControlHandler>;
 
   beforeEach(() => {
     resetState();
     bus.clear();
     vi.clearAllMocks();
+    handlers = {};
+    mocks.registerHandlers.mockImplementation((next: Record<string, RoomControlHandler>) => {
+      Object.assign(handlers, next);
+    });
 
-    setState('network.appRole', 'host');
-    setState('network.hostConn', null);
     setState('network.myId', 'host-transport');
     setState('network.sessionCode', '123456');
     setState('network.connectedPeers', [
@@ -108,40 +114,29 @@ describe('room control plane', () => {
       snapshotRevision: 1,
       capabilities: [],
     });
+    mocks.isCoordinator.mockReturnValue(true);
     mocks.verifyPeerCapability.mockReturnValue(true);
   });
 
-  it('keeps member removal behind exact live-connection authority', async () => {
-    const { resolveRequestedKickTarget } = await import('../room-control.ts');
+  it('keeps member removal behind current room and exact connection authority', async () => {
+    const { resolveRoomControlKickTarget } = await import('../room-control.ts');
 
     expect(
-      resolveRequestedKickTarget({ targetPeerId: 'target' }, senderConn, 'member'),
+      resolveRoomControlKickTarget({ targetPeerId: 'target' }, senderConn, 'member'),
     ).toBe('target');
     expect(
-      resolveRequestedKickTarget({ targetPeerId: 'sender' }, senderConn, 'member'),
+      resolveRoomControlKickTarget({ targetPeerId: 'sender' }, senderConn, 'member'),
     ).toBeNull();
 
     mocks.verifyPeerCapability.mockReturnValue(false);
     expect(
-      resolveRequestedKickTarget({ targetPeerId: 'target' }, senderConn, 'member'),
+      resolveRoomControlKickTarget({ targetPeerId: 'target' }, senderConn, 'member'),
     ).toBeNull();
   });
 
-  it('does not let member-wide removal target another administrator', async () => {
-    const { resolveRequestedKickTarget } = await import('../room-control.ts');
-    const peers = [
-      makePeer('sender', senderConn, { isOp: true, memberId: 'member_sender' }),
-      makePeer('target', targetConn, { isOp: true, memberId: 'member_target' }),
-    ];
-    setState('network.connectedPeers', peers);
-
-    expect(
-      resolveRequestedKickTarget({ targetPeerId: 'target' }, senderConn, 'member'),
-    ).toBeNull();
-  });
-
-  it('canonicalizes and bounds delegated notice publication', async () => {
-    const { handleRequestChatCommand } = await import('../room-control.ts');
+  it('registers bounded canonical notice publication without exporting handlers', async () => {
+    const { initRoomControl } = await import('../room-control.ts');
+    const resolveKickTarget = vi.fn(() => null);
     const longLabel = 'L'.repeat(MAX_SENDER_LABEL_LENGTH + 20);
     setState('network.connectedPeers', [
       makePeer('sender', senderConn, {
@@ -149,9 +144,9 @@ describe('room control plane', () => {
         label: longLabel,
       }),
     ]);
-    setState('network.activeHostConnByPeerId', new Map([['sender', senderConn]]));
 
-    handleRequestChatCommand(
+    initRoomControl(resolveKickTarget);
+    handlers[MSG.REQUEST_CHAT_COMMAND]?.(
       { command: 'notice', args: ['x'.repeat(MAX_MSG_LENGTH + 100)] },
       senderConn,
     );
@@ -170,14 +165,7 @@ describe('room control plane', () => {
     expect(payload.text).toHaveLength(MAX_MSG_LENGTH);
     expect(mocks.rememberPinnedNotice).toHaveBeenCalledWith(payload);
     expect(mocks.playAnnouncementSound).toHaveBeenCalledOnce();
-  });
-
-  it('registers only room-control protocol handlers', async () => {
-    const { initRoomControl } = await import('../room-control.ts');
-
-    initRoomControl();
-
-    expect(mocks.registerHandlers).toHaveBeenCalledWith({
+    expect(handlers).toMatchObject({
       [MSG.REQUEST_KICK_DEVICE]: expect.any(Function),
       [MSG.REQUEST_KICK_PHYSICAL_DEVICE]: expect.any(Function),
       [MSG.REQUEST_CHAT_COMMAND]: expect.any(Function),

@@ -11,22 +11,16 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../types/index.ts';
-import { broadcastDeviceList } from './peer.ts';
+import { broadcastDeviceList } from './peer-state.ts';
 import { detachHostPeerConnection } from './host-peer-departure.ts';
 
 const HEARTBEAT_STALE_THRESHOLD = 8_000;
 const HEARTBEAT_CHECK_INTERVAL = 5_000;
-// Browser/worker timers may be suspended while a mobile guest is backgrounded.
-// A still-open RTC transport is stronger liveness evidence than the absence of
-// an application heartbeat, so retain it through a bounded background grace.
-// Truly dead/unknown transports keep the short stale threshold so abandoned
-// slots cannot consume room capacity indefinitely.
 const HEARTBEAT_LIVE_TRANSPORT_GRACE = 90_000;
 const HEARTBEAT_RECOVERING_TRANSPORT_GRACE = 30_000;
 
-// Keep the one-ping-per-peer hot path off the immutable state tree. Keying by
-// the live connection also prevents a reconnect that reuses a peer id from
-// inheriting the previous connection's lease.
+// Keying by the live connection prevents a reconnect that reuses a peer id
+// from inheriting the previous connection's heartbeat lease.
 const lastHeartbeatByConnection = new WeakMap<DataConnection, number>();
 
 export function recordPeerHeartbeat(conn: DataConnection, now = Date.now()): void {
@@ -41,7 +35,7 @@ export function recordPeerHeartbeat(conn: DataConnection, now = Date.now()): voi
   }
 }
 
-export function heartbeatTransportGrace(conn: DataConnection | undefined): number {
+function heartbeatTransportGrace(conn: DataConnection | undefined): number {
   if (!conn?.open) return HEARTBEAT_STALE_THRESHOLD;
 
   const pcState = conn.peerConnection?.connectionState;
@@ -71,10 +65,14 @@ export function heartbeatTransportGrace(conn: DataConnection | undefined): numbe
   return HEARTBEAT_STALE_THRESHOLD;
 }
 
+function stopHeartbeatMonitor(): void {
+  clearManagedTimer('heartbeat-monitor');
+}
+
 function startHeartbeatMonitor(): void {
   stopHeartbeatMonitor();
   const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only the browser-host coordinator monitors peers.
+  if (hostConn) return;
 
   setManagedTimer(
     'heartbeat-monitor',
@@ -99,7 +97,7 @@ function startHeartbeatMonitor(): void {
         const staleThreshold = heartbeatTransportGrace(conn);
         if (elapsed > staleThreshold) {
           log.warn(
-            `[Heartbeat] Peer ${peer.label || peer.id} stale (${(elapsed / 1000).toFixed(1)}s; transport=${conn?.peerConnection?.connectionState ?? 'unknown'}) — marking disconnected`,
+            `[Heartbeat] Peer ${peer.label || peer.id} stale (${(elapsed / 1_000).toFixed(1)}s; transport=${conn?.peerConnection?.connectionState ?? 'unknown'}) — marking disconnected`,
           );
           stalePeers.push(peer);
         }
@@ -136,15 +134,16 @@ function startHeartbeatMonitor(): void {
   log.info('[Heartbeat] Monitor started');
 }
 
-function stopHeartbeatMonitor(): void {
-  clearManagedTimer('heartbeat-monitor');
-}
-
 export function initHeartbeatMonitor(): void {
   bus.on('state:setup.sessionStarted', (started) => {
     if (started) startHeartbeatMonitor();
     else stopHeartbeatMonitor();
   });
+
+  // initSync may run after setup state was already projected in tests, hot
+  // recovery, or a retained page. Reconcile the current snapshot as well as
+  // future state events.
+  if (getState('setup.sessionStarted')) startHeartbeatMonitor();
 
   log.info('[Heartbeat] Lifecycle handlers registered');
 }

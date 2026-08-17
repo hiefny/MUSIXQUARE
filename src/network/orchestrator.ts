@@ -1,17 +1,13 @@
 /**
- * Browser-host network runtime orchestrator.
- *
- * Owns initialization of the room-control and transport-liveness subdomains,
- * then routes local/remote data-plane targets after ICE classification. Clock
- * synchronization remains isolated in sync.ts.
+ * Host-side data-plane routing after ICE classification. Local peers receive
+ * file bytes directly; remote peers retain the control connection and obtain
+ * local files through authenticated whole-object remote share.
  */
 
 import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import type { StateTree } from '../core/state.ts';
-import { initHeartbeatMonitor } from './heartbeat-monitor.ts';
-import { initRoomControl } from './room-control.ts';
 
 type ConnectedPeer = StateTree['network']['connectedPeers'][number];
 
@@ -25,28 +21,26 @@ function getConnectedPeers(): readonly ConnectedPeer[] {
 
 function setPeerDataTarget(peerId: string, value: boolean): void {
   const peers = getConnectedPeers();
-  const peer = peers.find((candidate) => candidate.id === peerId);
+  const peer = peers.find((p) => p.id === peerId);
   if (!peer || peer.isDataTarget === value) return;
 
   setState(
     'network.connectedPeers',
-    peers.map((candidate) =>
-      candidate.id === peerId ? { ...candidate, isDataTarget: value } : candidate,
-    ),
+    peers.map((p) => (p.id === peerId ? { ...p, isDataTarget: value } : p)),
   );
 }
 
 function evaluatePeer(peerId: string, isInitial = false): void {
   if (!isHost()) return;
 
-  const peer = getConnectedPeers().find((candidate) => candidate.id === peerId);
+  const peer = getConnectedPeers().find((p) => p.id === peerId);
   if (!peer || peer.status !== 'connected') return;
 
-  const connectionType = peer.connectionType;
-  if (connectionType === 'unknown') return;
+  const connType = peer.connectionType;
+  if (connType === 'unknown') return;
 
   const wasDataTarget = peer.isDataTarget === true;
-  const shouldBeDataTarget = connectionType === 'local';
+  const shouldBeDataTarget = connType === 'local';
   setPeerDataTarget(peerId, shouldBeDataTarget);
   bus.emit('orchestrator:peer-evaluated', peerId);
   if (isInitial) bus.emit('orchestrator:peer-joined', peerId);
@@ -66,9 +60,6 @@ function handlePeerDisconnect(peerId: string): void {
 }
 
 export function initOrchestrator(): void {
-  initRoomControl();
-  initHeartbeatMonitor();
-
   bus.on('orchestrator:peer-type-detected', (peerId: string, isInitial = true) => {
     evaluatePeer(peerId, isInitial);
   });
@@ -77,5 +68,5 @@ export function initOrchestrator(): void {
     handlePeerDisconnect(peerId);
   });
 
-  log.info('[Orchestrator] Network runtime initialized');
+  log.info('[Orchestrator] Peer routing orchestrator initialized');
 }

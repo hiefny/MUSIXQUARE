@@ -176,10 +176,11 @@
 
       <section class="lp-section lp-section--split lp-section--code" data-animate>
         <div class="lp-split__copy">
-          <h2 class="lp-h2" data-i18n="code.h2">Six digits.<br />Nothing else.</h2>
+          <h2 class="lp-h2" data-i18n="code.h2">Share a room code.<br />Join in seconds.</h2>
           <p class="lp-lead" data-i18n="code.lead">
-            Start a session and share the six-digit code. Anyone with a supported browser can join
-            in seconds.
+            Standard rooms use a six-digit code and may require an eight-digit password. Persistent
+            PRO rooms require their eight-digit room password after activation. Anyone with a
+            supported browser can join.
           </p>
           <div
             class="lp-code"
@@ -353,8 +354,8 @@
         <div class="lp-split__copy">
           <h2 class="lp-h2" data-i18n="sync.h2">Synchronized playback.<br />Across networks.</h2>
           <p class="lp-lead" data-i18n="sync.lead">
-            Each device measures its round-trip latency against the host, then aligns playback to a
-            shared master clock.
+            Devices align to a shared playback timeline. Standard rooms calibrate against the
+            browser host; PRO rooms follow server-owned authority.
           </p>
           <dl class="lp-specs">
             <div>
@@ -362,8 +363,10 @@
               <dd data-i18n="sync.video_value">Synchronized media playback</dd>
             </div>
             <div>
-              <dt data-i18n="sync.transport_label">Transport</dt>
-              <dd data-i18n="sync.transport_value">Peer-to-peer, WebRTC</dd>
+              <dt data-i18n="sync.transport_label">Room authority</dt>
+              <dd data-i18n="sync.transport_value">
+                Standard: browser host over WebRTC · PRO: room server
+              </dd>
             </div>
             <div>
               <dt data-i18n="sync.effects_label">Effects</dt>
@@ -400,7 +403,9 @@
                 </dd>
               </div>
             </dl>
-            <p class="lp-sync__meta" data-i18n="sync.meta">60-sample NTP-style sync</p>
+            <p class="lp-sync__meta" data-i18n="sync.meta">
+              Standard-room example · host-relative sync
+            </p>
           </div>
         </aside>
       </section>
@@ -429,7 +434,7 @@
             </div>
             <div>
               <dt data-i18n="standin.feature_label">Feature</dt>
-              <dd data-i18n="standin.feature_value">System audio sharing mode</dd>
+              <dd data-i18n="standin.feature_value">System Audio Sharing (Beta)</dd>
             </div>
             <div>
               <dt data-i18n="standin.platform_label">Platform</dt>
@@ -437,8 +442,9 @@
             </div>
           </dl>
           <p class="lp-caveat" data-i18n="standin.caveat">
-            Note: System audio sharing mode has unavoidable latency, so the host should lower their
-            device volume as much as possible.
+            Beta: desktop Chromium only, up to four connected devices including the publisher, and
+            two hours per share. Live audio has unavoidable latency, so the sharing device should
+            lower its volume.
           </p>
         </div>
         <aside class="lp-split__aside">

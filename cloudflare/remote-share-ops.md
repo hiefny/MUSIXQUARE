@@ -187,9 +187,12 @@ One remote whole-file upload attempt roughly means:
 - Missing, malformed, and `0xxxxx` room IDs are rejected before a presigned URL
   is issued. The complete `0xxxxx` namespace is reserved for PRO rooms, whose
   persistent media uses a separate bucket and control plane.
-- R2 bucket CORS includes the exact MUSIXQUARE web origins, Toss production
-  origin, and local development origins. Every new production web origin must
-  be added explicitly because R2 Origin matching is exact.
+- R2 bucket CORS must match the checked-in source list. It contains explicit
+  MUSIXQUARE and local-development origins plus Toss origin-pattern entries.
+  The live write smoke proves only `https://musixquare.com`; it does not prove
+  that the provider accepts or matches the Toss patterns. Before relying on
+  those entries, verify the current provider contract, replace patterns with
+  explicit production origins when required, and exercise each intended origin.
 - The app Worker CSP allows direct R2 upload connections through
   `https://*.r2.cloudflarestorage.com`.
 
@@ -252,8 +255,8 @@ the threshold only with production 429 evidence.
   before atomic quota is enabled; later releases do not repeat it.
 - Emergency remote-share deployments fail closed until that lifecycle bridge
   is present in production.
-- `/session`, `/complete`, `/download`, and `/object` are the complete public
-  remote-share surface.
+- `GET /security-config` plus `/session`, `/complete`, `/download`, and
+  `/object` are the complete public remote-share surface.
 - `cloudflare/remote-share-contract-version.txt` is the explicit public
   app/Worker cutover marker. Change it in the same commit as an incompatible
   contract change; the release workflow then rejects every target except
@@ -280,9 +283,12 @@ the threshold only with production 429 evidence.
 
 ## Required-Assertion Cutover Record
 
-The permanent production order is Remote Share, signaling, then the app. The
-release workflow enforces a full release for this shared contract and verifies
-the exact deployed Remote Share and signaling versions.
+Among the three components affected by the upload-assertion contract, the
+permanent relative production order is Remote Share, signaling, then the App.
+The full `all` release additionally deploys PRO before them and the Developer
+API facade/public Worker before the App. The workflow enforces a full release
+for this shared contract and verifies the exact deployed Remote Share and
+signaling versions.
 The contract marker was advanced to
 `canonical-whole-object-actor-replay-v3+host-assertion-required-v1`, so once a
 required candidate is observed live, both same-job and independent recovery

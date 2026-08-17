@@ -80,7 +80,7 @@ paths:
       operationId: getEffects
       description: |
         Returns the canonical full room-wide audio-effect state. Requires effects:read. The state remains
-        readable while the PRO room is sleeping and persists across sleep/wake cycles and coordinator handoffs.
+        readable while the PRO room is sleeping and persists across sleep/wake cycles and client reconnects.
         X-MXQR-Effects-Version: 2 is required. The version 2 representation includes virtualTreble.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
@@ -109,7 +109,7 @@ paths:
       operationId: getQueueMode
       description: |
         Returns the canonical repeat and shuffle settings. Requires playback:read. The state remains readable
-        while the PRO room is sleeping and persists across sleep/wake cycles and coordinator handoffs. The
+        while the PRO room is sleeping and persists across sleep/wake cycles and client reconnects. The
         server-owned exact shuffle order is intentionally not exposed.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
@@ -193,9 +193,10 @@ paths:
         playback:control; set_effects requires effects:control. next behaves like the app's Next button: it advances
         inside the current YouTube playlist aggregate first, then advances to the next top-level queue item using
         the room's repeat and shuffle settings. play_item instead force-selects the exact top-level queueItemId.
-        An applied play_item command means the coordinator accepted the item; devices may still be loading it.
-        set_effects is applied directly by the room server while the room is active and does not wait for a browser
-        coordinator. The canonical effect state remains readable across room sleep/wake cycles.
+        Playback and effect commands are authorized and applied by the PRO room server, including while the runtime is
+        sleeping. An applied play_item command means the server committed the canonical selection; connected or
+        returning devices may still be loading it. There is no browser coordinator. The sleeping timeline remains
+        frozen until participants return, and canonical state remains readable across sleep/wake cycles.
       parameters:
         - $ref: '#/components/parameters/RoomCode'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -704,7 +705,9 @@ components:
       description: |
         Terminal result for a command that was already accepted with HTTP 202. These lowercase values are not
         immediate HTTP error codes. applied and already_applied are successful; all other values require the client
-        to read canonical playback and queue state before deciding whether to submit a new intent.
+        to read canonical playback and queue state before deciding whether to submit a new intent. The three
+        coordinator_* values remain in v1 only for wire compatibility; current server-authoritative PRO rooms do not
+        elect a browser coordinator.
       enum:
         - applied
         - already_applied
@@ -717,6 +720,7 @@ components:
         - coordinator_changed
         - coordinator_incompatible
         - coordinator_unavailable
+      x-legacy-values: [coordinator_changed, coordinator_incompatible, coordinator_unavailable]
       x-result-catalog:
         applied: { terminalStatus: applied, successful: true }
         already_applied: { terminalStatus: applied, successful: true }
@@ -789,7 +793,9 @@ components:
         runtime: { enum: [awake, sleeping] }
         revision: { type: integer, minimum: 0 }
         participantCount: { type: integer, minimum: 0 }
-        controlAvailable: { type: boolean }
+        controlAvailable:
+          type: boolean
+          description: True for an active PRO room, independent of whether its participant runtime is awake or sleeping.
         quota:
           $ref: '#/components/schemas/Quota'
     Playback:
@@ -984,7 +990,10 @@ components:
       description: |
         Stable code returned inside error.code for an immediate non-2xx HTTP response. The associated HTTP status
         and retryable flag are part of the public contract below. Honor Retry-After for RATE_LIMITED and
-        UPLOAD_INCOMPLETE. Full remediation guidance is published at https://musixquare.com/developers#errors.
+        UPLOAD_INCOMPLETE. COORDINATOR_INCOMPATIBLE and ROOM_SLEEPING remain in v1 only as legacy compatibility
+        values; current server-authoritative PRO rooms do not require a browser coordinator and accept canonical
+        playback/effect commands while sleeping. Full remediation guidance is published at
+        https://musixquare.com/developers#errors.
       enum:
         - API_DISABLED
         - API_NOT_CONFIGURED
@@ -1011,6 +1020,7 @@ components:
         - UNAUTHORIZED
         - UPLOAD_INCOMPLETE
         - UPLOAD_MISMATCH
+      x-legacy-values: [COORDINATOR_INCOMPATIBLE, ROOM_SLEEPING]
       x-error-catalog:
         API_DISABLED: { httpStatus: 503, retryable: true }
         API_NOT_CONFIGURED: { httpStatus: 503, retryable: true }

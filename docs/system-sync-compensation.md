@@ -2,7 +2,7 @@
 
 This table tracks per-platform sync compensation used by MUSIXQUARE.
 
-Last static source review: 2026-07-11
+Last static source review: 2026-08-17
 
 ## Sign Convention
 
@@ -14,7 +14,7 @@ Last static source review: 2026-07-11
 
 ## Shared System-Audio Buffering
 
-Both P2P and SFU system-audio receive paths currently request a
+The standard-room P2P/SFU and PRO-room SFU system-audio receive paths currently request a
 `playoutDelayHint` of **0.5 seconds** where the browser supports it. This is a
 shared jitter-buffer target intended to reduce cross-device variance; it is not
 a measured per-platform compensation and therefore is not added to the
@@ -47,10 +47,10 @@ down the replacement.
 | YouTube | Windows | 0 ms | 0 ms | No platform baseline confirmed yet. | `src/youtube/sync.ts` | `getEffectiveGuestPlayLatencyMs()`, `guestRendezvousSync()` | 2026-06-03 | Watch |
 | YouTube | iOS | 0 ms | 0 ms | No platform baseline confirmed yet. | `src/youtube/sync.ts` | `getEffectiveGuestPlayLatencyMs()`, `guestRendezvousSync()` | 2026-06-03 | Watch |
 | YouTube | macOS | 0 ms | 0 ms | No platform baseline confirmed yet. | `src/youtube/sync.ts` | `getEffectiveGuestPlayLatencyMs()`, `guestRendezvousSync()` | 2026-06-03 | Watch |
-| System audio sharing | Windows | 0 ms | 0 ms | No platform-specific baseline confirmed; the shared 500 ms receiver hint applies first. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()` | 2026-07-11 | Watch |
-| System audio sharing | Android | 0 ms | 0 ms | No platform-specific baseline confirmed; the shared 500 ms receiver hint applies first. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()` | 2026-07-11 | Watch |
-| System audio sharing | iOS | 0 ms | 0 ms | No platform-specific baseline confirmed; the shared 500 ms receiver hint applies first. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()` | 2026-07-11 | Watch |
-| System audio sharing | macOS | 0 ms | 0 ms | No platform-specific baseline confirmed; the shared 500 ms receiver hint applies first. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()` | 2026-07-11 | Watch |
+| System audio sharing | Windows | 0 ms | 0 ms | No platform-specific baseline confirmed; the shared 500 ms receiver hint applies first. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts`, `src/network/pro-system-audio-sfu.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()` | 2026-08-17 | Watch |
+| System audio sharing | Android | 0 ms | 0 ms | No platform-specific baseline confirmed; the shared 500 ms receiver hint applies first. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts`, `src/network/pro-system-audio-sfu.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()` | 2026-08-17 | Watch |
+| System audio sharing | iOS | 0 ms | 0 ms | No platform-specific baseline confirmed; the shared 500 ms receiver hint applies first. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts`, `src/network/pro-system-audio-sfu.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()` | 2026-08-17 | Watch |
+| System audio sharing | macOS | 0 ms | 0 ms | No platform-specific baseline confirmed; the shared 500 ms receiver hint applies first. | `src/network/system-audio-guest.ts`, `src/network/system-audio-sfu.ts`, `src/network/pro-system-audio-sfu.ts` | `SYSTEM_AUDIO_PLAYOUT_DELAY_S`, receiver `playoutDelayHint` block, `setReceiverDelay()` | 2026-08-17 | Watch |
 
 ## Notes
 

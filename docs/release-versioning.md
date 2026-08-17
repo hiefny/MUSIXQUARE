@@ -6,8 +6,10 @@ different compatibility boundaries and must not be made numerically equal.
 ## Product release
 
 `package.json` is the single source of truth for the human-facing MUSIXQUARE
-product version. `package-lock.json` only mirrors it. The
-`guard:release-identity` check fails if either lockfile location drifts.
+product version. Both `package-lock.json` locations mirror it, as do
+`ADMIN_ASSET_VERSION` in `cloudflare/app-worker.ts` and `ADMIN_SCRIPT_VERSION`
+in `browser/classic-runtime/admin.ts`. The `guard:release-identity` check fails
+if any mirror drifts.
 
 The product follows semantic versioning:
 
@@ -20,6 +22,11 @@ room-authority generation added after the 7.0 YouTube synchronization release.
 Git commit SHA and Cloudflare Worker version IDs remain the exact identifiers
 for a deployment; SemVer is the understandable product milestone, not a
 replacement for those immutable IDs.
+
+Advancing product SemVer updates the browser admin mirror, which is a PWA
+runtime input, so the same release also needs a covering monotonic
+`SERVICE_WORKER_CACHE_VERSION` advance. A pure Worker-only change may leave both
+identifiers untouched when product policy does not call for a SemVer release.
 
 ## Service-worker cache epoch
 

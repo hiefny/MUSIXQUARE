@@ -2,7 +2,7 @@
 
 Reviewed against `browser/service-worker.ts`, `scripts/service-worker-asset.ts`,
 `src/sw-register.ts`, the six Wrangler configs, the production release
-workflow, and the live-smoke scripts on 2026-08-09. Read the current
+workflow, and the live-smoke scripts on 2026-08-17. Read the current
 `SERVICE_WORKER_CACHE_VERSION` from the compiler manifest rather than copying a
 number from this procedure.
 
@@ -19,13 +19,23 @@ git pull origin main
 
 # make the fix
 
+# Advance the product patch version when shipped behavior or product copy changes.
+# For public/PWA runtime inputs, also bump SERVICE_WORKER_CACHE_VERSION in the
+# same commit. See "Client Update Behavior" below.
+
 npm run typecheck
 npm run lint
+npm run format:check
 npm test
+npm run check:workers
 npm run build:checked
 
 git add <files>
 git commit -m "fix(domain): describe the fix"
+
+# The cache-history guard reads committed HEAD, not uncommitted files.
+npm run build:checked
+
 git push origin main
 ```
 
@@ -33,9 +43,24 @@ Pushing `main` does not deploy production. CI runs static checks, tests, and the
 production build in parallel. A successful `main` CI run records one immutable
 production candidate for that exact commit. Run the `Production Release`
 workflow from the Actions tab and select only the Worker scope changed by the
-hotfix. Every target reuses that exact-SHA CI candidate without a second
-validation pass or environment self-approval, then runs its live smokes with
-an immutable recovery checkpoint and fail-closed forward-repair reporting.
+hotfix. Every target reuses that exact-SHA CI candidate without rebuilding the
+artifact or rerunning the full CI/test suite. The release still rechecks the
+manifest and hashes, time-sensitive production-security rules, and Worker
+bundles before running live smokes with an immutable recovery checkpoint and
+fail-closed forward-repair reporting.
+
+Documentation publication has two distinct paths:
+
+- Changes limited to `README.md`, `CONTRIBUTING.md`, `docs/**`, or
+  `cloudflare/*ops.md` are published by merging to GitHub. They are not App
+  artifact inputs, so do not run a Cloudflare Production Release for them.
+- Changes under `public/**` or the production
+  `.workshop/{landing,privacy,terms,faq,developers}/**` trees are hosted App
+  inputs. Advance the required product/cache identifiers, merge the change,
+  wait for the exact merge-SHA `main` push CI candidate to succeed, then run
+  `Production Release` with target `app` and Developer API D1 application
+  disabled. The App target still applies and verifies its ordinary idempotent
+  admin-D1 baselines; it is not a generic no-op documentation deploy.
 
 The repository does not provide an isolated full-stack preview environment: a
 static or tunneled frontend URL cannot open Standard or PRO rooms without the
@@ -117,7 +142,8 @@ smoke every night at 03:17 KST and remains manually dispatchable when a change
 warrants the extra coverage before the next scheduled run. A focused
 deterministic Chromium subset is blocking in exact-SHA CI, so an approved
 release cannot select a candidate until the critical owner-recovery,
-OAuth-return, host/guest, and signed-upload browser paths pass.
+OAuth-return, host/guest, background-resume, and signed-upload browser paths
+pass.
 
 The workflow rebuilds once, records every `dist` file hash together with the
 commit and tool versions, and deploys that same artifact. Its canonical
@@ -157,9 +183,10 @@ individual smoke; a mismatch fails the release and recovery will not overwrite
 the newer deployment.
 
 Standalone live-smoke steps have a five-minute hard ceiling, except for the
-PRO-room probe, which has eight minutes for edge propagation. The PRO media
-CORS apply/read-back step and its adjacent public smoke each have ten minutes.
-Developer API and remote-share HTTP requests abort after 30 seconds; PRO-room,
+PRO-room probe, which has eight minutes for edge propagation. The Developer API
+smoke, the PRO media CORS apply/read-back step, and its adjacent public smoke
+each have ten minutes. Developer API and remote-share HTTP requests abort after
+30 seconds; PRO-room,
 app-generation, app-public, and signaling protocol requests use their own
 shorter limits. These limits are intentionally far above the tiny synthetic
 payloads' normal latency, but prevent a half-open response from indefinitely
@@ -261,9 +288,10 @@ action and prefer a new exact-SHA `all` release. Deployment records and the
 Actions summary are written even when the in-job recovery path fails; the
 independent job retains the pre-mutation checkpoint and its own report.
 
-Cloudflare's separate Git-triggered app deployment is intentionally disabled;
-do not enable it while the GitHub release workflow is authoritative. Keeping
-both paths enabled creates an unapproved duplicate deployment.
+Cloudflare's separate Git-triggered app deployment must remain disabled while
+the GitHub release workflow is authoritative. The source audit cannot prove
+that dashboard-only state, so verify it manually; keeping both paths enabled
+creates an unapproved duplicate deployment.
 
 The ordinary local `deploy:*` scripts are deliberately non-deploying traps: they
 always stop and direct the operator back to the approved GitHub workflow. For a
@@ -330,10 +358,12 @@ production URL. The full Playwright E2E suite remains auxiliary.
 Confirm the active version with
 `npm run wrangler -- deployments status --config cloudflare/wrangler.app.toml --json`.
 
-The `production` environment uses an account-owned Cloudflare Worker deployment
-token that expires on 2027-07-16. Rotate it before expiry and update the
-environment secret named `CLOUDFLARE_API_TOKEN`; never copy a local Wrangler
-OAuth credential into GitHub. Keep D1 writes on a separate account token in
+As manually recorded on 2026-08-17, the `production` environment uses an
+account-owned Cloudflare Worker deployment token with a recorded 2027-07-16
+expiry. Repository automation cannot verify that provider-side date; confirm it
+in Cloudflare and rotate before expiry. Update the environment secret named
+`CLOUDFLARE_API_TOKEN`; never copy a local Wrangler OAuth credential into
+GitHub. Keep D1 writes on a separate account token in
 `CLOUDFLARE_D1_API_TOKEN`, restricted to this account with the `D1:Edit`
 permission. The Worker token is injected only into steps that call Cloudflare
 management APIs for credential verification, checkpoint/status reads, R2 policy
@@ -406,8 +436,9 @@ Current behavior:
 
 Product SemVer and the service-worker cache epoch are intentionally independent.
 See [release versioning](release-versioning.md). A hotfix normally advances the
-product patch version when it changes shipped behavior; it advances
-`CACHE_VERSION` only when the PWA cache boundary also needs to move. The Git SHA
+product patch version when it changes shipped behavior or public product copy;
+it advances `SERVICE_WORKER_CACHE_VERSION` only when the PWA cache boundary also
+needs to move. The Git SHA
 and Cloudflare Worker version IDs identify the exact deployed build.
 
 | Client state                                | Expected behavior                                                                                                                                                                                                                                                                                                                                                                                                                                 |
@@ -429,13 +460,20 @@ tab still needs them (or when activation sees no live window clients). It still
 does not create a guaranteed instant reload for every active/background client.
 
 `npm run guard:sw-cache-version` enforces this migration boundary for committed
-PWA runtime changes. A feature commit may be followed by a separate version-bump
-commit, or may include the bump itself; the guard passes once the latest bump
-covers the resulting app tree. Cloudflare Worker code, repository documentation,
-and test-only changes do not require a bump. The check intentionally fails on a
-shallow clone because it cannot prove where the latest bump occurred, so the CI
-candidate build and release deployment checkout must retain full git history
-(`fetch-depth: 0`).
+PWA runtime changes. Include the bump in the feature commit when practical. A
+separate bump commit is also valid if it lands before push and the final
+committed `HEAD` passes `npm run build:checked`; the guard passes once the latest
+bump covers the resulting app tree. Repository-only documents such as `README.md`,
+`CONTRIBUTING.md`, `docs/**`, and `cloudflare/*ops.md`, plus Worker-only and
+test-only changes that do not advance product SemVer or its browser admin
+mirror, do not require a bump. Files under `public/**` and the
+production `.workshop/{landing,privacy,terms,faq,developers}/**` trees are App
+artifact inputs and do require a covering bump. The guard reads committed
+first-parent `HEAD`, not the working tree, so rerun `npm run build:checked` after
+the final bump commit and before pushing. The check
+intentionally fails on a shallow clone because it cannot prove where the latest
+bump occurred, so the CI candidate build and release deployment checkout must
+retain full git history (`fetch-depth: 0`).
 
 ## Emergency Hotfix
 
@@ -443,12 +481,14 @@ Use this when stale clients are likely to keep hitting a severe bug.
 
 1. Make the minimal code fix.
 2. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
-3. Run the full verification gate:
+3. Run the repository's non-E2E verification baseline:
 
 ```bash
 npm run typecheck
 npm run lint
+npm run format:check
 npm test
+npm run check:workers
 npm run build:checked
 ```
 
@@ -471,20 +511,37 @@ If a deployment is bad:
    forward floor is active. Cloudflare Worker rollback has no atomic ownership
    precondition, so coordinate a manual change and recheck that no newer deploy
    appeared before applying it.
-2. In git, prefer a revert commit:
+2. In git, prepare a revert without committing it immediately:
 
 ```bash
-git revert <bad-commit-sha>
+git revert --no-commit <bad-commit-sha>
+
+# If the bad release advanced product SemVer, keep moving forward to a new
+# patch version and update every required mirror. If it advanced the PWA cache
+# epoch, choose an epoch greater than the bad release; never restore an older one.
+
 npm run typecheck
 npm run lint
+npm run format:check
 npm test
+npm run check:workers
+npm run build:checked
+
+git add <revert-and-forward-version-files>
+git commit -m "revert: restore the last known-good behavior"
+
+# Recheck committed first-parent history, including monotonic cache/version guards.
 npm run build:checked
 git push origin main
 ```
 
-3. Run the `Production Release` workflow for the reverted Worker scope, then
-   rerun its live smoke; a revert push alone does not update Cloudflare.
-4. If the rollback changes app-shell behavior or users may be pinned to stale cached assets, include a `CACHE_VERSION` bump in the rollback commit.
+   When the reverted commit advanced product SemVer, set `package.json` to a new
+   higher patch version and update `package-lock.json`, `ADMIN_ASSET_VERSION`,
+   and `ADMIN_SCRIPT_VERSION` before the single rollback commit. When it touched
+   PWA inputs or advanced `SERVICE_WORKER_CACHE_VERSION`, set a new cache epoch
+   greater than the bad release in that same commit.
+3. Run the `Production Release` workflow for the reverted scope, then rerun its
+   live smoke; a revert push alone does not update Cloudflare.
 
 Avoid `git reset --hard` plus force push on `main` unless there is no reasonable alternative.
 

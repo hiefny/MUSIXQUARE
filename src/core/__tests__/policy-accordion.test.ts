@@ -257,9 +257,9 @@ describe('policy-page accordions', () => {
       ].map((path) => readFile(path, 'utf8')),
     );
 
-    expect(privacyText).toContain('Effective date: August 9, 2026');
-    expect(termsText).toContain('Effective date: August 9, 2026');
-    expect(faqText).toContain('Last updated: August 9, 2026');
+    expect(privacyText).toContain('Effective date: August 17, 2026');
+    expect(termsText).toContain('Effective date: August 17, 2026');
+    expect(faqText).toContain('Last updated: August 17, 2026');
 
     for (const phrase of [
       'Cloudflare D1 databases',
@@ -273,7 +273,7 @@ describe('policy-page accordions', () => {
       'CacheStorage',
       'Sampled, credential-free custom Cloudflare Worker logs',
       'Automatic invocation logs that include request URLs',
-      'automatic Worker traces are disabled for all six public workers',
+      'automatic Worker traces are disabled for all six Worker deployments',
       'selected standalone production pages',
       'no query string or fragment',
       'referrer exposes neither a query nor a six-digit room route',
@@ -281,6 +281,8 @@ describe('policy-page accordions', () => {
       'up to 400 days',
       'signaling connection opens',
       'paid-provider API access',
+      'keyed digest of each one-time voucher code rather than the plaintext code',
+      'grant audit and account-deletion fences are append-only',
     ]) {
       expect(privacyText).toContain(phrase);
     }
@@ -290,8 +292,9 @@ describe('policy-page accordions', () => {
 
     for (const phrase of [
       'sessions joined, seconds listened, and tracks played',
-      'standard-room operator with media-upload permission',
+      'standard-room operator with media-management permission',
       'participant with media-management permission',
+      'one-time voucher from an operator-run campaign',
       'when remote delivery is selected',
       'PRO rooms can prefetch',
       'not integrated with MUSIXQUARE',

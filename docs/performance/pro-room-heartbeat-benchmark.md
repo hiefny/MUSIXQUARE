@@ -105,7 +105,8 @@ The following remain immediate full-persistence boundaries:
 - room-control incarnation, presence topology, or authorization changes
 - PIN, lifecycle, system-audio, playback transition/READY, playlist, quota, and
   media mutations
-- Developer command changes and required legacy rollback-shadow checkpoints
+- Developer command changes and every other semantically meaningful full room
+  mutation; the current persistence-v2 contract has no legacy rollback shadow
 
 An immediate mutation cancels and generation-fences an older timer only after
 its full transaction and alarm maintenance succeed. A failed deferred flush

@@ -43,7 +43,7 @@ Those five values overloaded two orthogonal axes:
 
 Three concrete problems caused by the overload:
 
-1. **No "youtube paused" representation in the state tree.** YouTube's paused state lives inside the iframe player instance (`player.getPlayerState()`). Code that needs to know "is YouTube currently paused" reads async iframe state and is race-prone. The state tree cannot answer the question.
+1. **At the migration baseline, there was no "youtube paused" representation in the state tree.** YouTube's paused state lived inside the iframe player instance (`player.getPlayerState()`). Code that needed to know "is YouTube currently paused" read async iframe state and was race-prone. The former state tree could not answer the question.
 
 2. **No "system-audio paused" representation.** "Pause" for system audio means "stop sharing". A future mode such as recorded podcast or prerecorded stream would want a real paused state. The former enum could not accommodate it without a new top-level value per mode.
 
@@ -64,7 +64,11 @@ state.playback = {
   loadSource: LoadSourceValue | null,
   pendingPlayTime: number | undefined,
   pendingPlayTimeSetAt: number,
-  pendingRecoveryTarget: { index: number; name: string } | null,
+  pendingRecoveryTarget: {
+    queueItemId: QueueItemId,
+    indexHint: number,
+    name: string,
+  } | null,
   // ...
 }
 
@@ -105,7 +109,7 @@ rg -n "appState|claimPlaybackOwner|releasePlaybackOwner|isPlaybackIdleCompat" sr
 
 - `ownership.ts::claimPlaybackOwner` writes `playback.mode/activity`.
 - `ownership.ts::releasePlaybackOwner` clears playback to `{ mode: null, activity: 'idle' }` after the matching owner releases or a forced release runs.
-- New semantic writers (`setPlaybackIdle`, `setPlaybackFilePlaying`, `setPlaybackFilePaused`, `setPlaybackYouTubePlaying`, `setPlaybackSystemAudioPlaying`) are the preferred write API for non-protocol callers.
+- New semantic writers (`setPlaybackIdle`, `setPlaybackFilePlaying`, `setPlaybackFilePaused`, `setPlaybackYouTubePlaying`, `setPlaybackYouTubePaused`, `setPlaybackSystemAudioPlaying`) are the preferred write API for non-protocol callers.
 
 This single-writer position was the entire reason Phase 5 was feasible. Before the Phase 1-4 work, this number was much higher.
 
@@ -120,9 +124,9 @@ This single-writer position was the entire reason Phase 5 was feasible. Before t
 
 - `src/player/ownership.ts` - the central ownership and mode/activity helper surface; it also owns the narrow strict-IDLE compatibility predicate.
 - `src/player/transport.ts` - writes playback through semantic mode/activity helpers; its stop/pause guards preserve old IDLE semantics through `isPlaybackIdleCompat()`.
-- `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity; YouTube still delegates play/pause to iframe state because the former flat enum did not represent YouTube pause.
+- `src/player/media-session.ts` - OS media button command handlers and OS `playbackState` display use playback mode/activity. YouTube delegates the physical play/pause command to the iframe, whose transitions are mirrored into playback mode/activity.
 - `src/player/playlist.ts` - historical idle checks guard async decode races where compatibility `IDLE` is the intended signal, but read it through `isPlaybackIdleCompat()`.
-- `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode; pause/play still comes from iframe player state, not the former flat enum's paused value.
+- `src/youtube/sync.ts` - guest sync/rendezvous guards use playback mode. Physical pause/play state still comes from the iframe, while the semantic result is recorded in playback mode/activity.
 - `src/youtube/player.ts` - late-join/stop-mode YouTube-mode guards use playback mode; queue/indexing idle checks still use strict compatibility `IDLE` via `isPlaybackIdleCompat()`.
 - `src/youtube/iframe.ts` - iframe create/ready/state/UI guards use playback mode, with indexing exceptions and `IDLE` fallback writes kept unchanged.
 - `src/player/video.ts` - media-engine mode changes now gate from playback activity and write through semantic playback helpers; body-class rendering subscribes to `state:playback.mode`.
@@ -181,7 +185,7 @@ Order, lowest-risk first:
    - `src/ui/settings.ts` uses playback mode for system-audio channel/effects UI gates.
    - `src/ui/tabs.ts` and `src/ui/setup.ts` use playback mode helpers for YouTube display/cleanup gates.
    - `src/player/video.ts` uses playback activity for media-engine mode transition gating.
-   - `src/youtube/sync.ts` uses playback mode for guest sync, manual rendezvous, and stop-frame guards while leaving iframe pause/play semantics untouched.
+   - `src/youtube/sync.ts` uses playback mode for guest sync, manual rendezvous, and stop-frame guards. The iframe remains the physical pause/play source, and transitions are mirrored into playback mode/activity.
    - `src/youtube/player.ts` uses playback mode for late-join bootstrap and stop-mode guards; its queue/indexing idle checks still use the compatibility IDLE value through `isPlaybackIdleCompat()`.
    - `src/youtube/iframe.ts` uses playback mode for iframe create/ready/state/update guards; indexing exceptions and guest-ended IDLE fallback writes stay legacy by design.
    - `src/ui/playlist-view.ts` uses playback mode/activity as its playback-state refresh trigger instead of `state:appState`.
@@ -342,7 +346,7 @@ This document does not cover:
 Phase 5 is complete. Reasonable triggers for future follow-up work:
 
 - A new mode (podcast, etc.) is proposed and needs the two-axis model.
-- A bug report surfaces where "YouTube paused" semantic gap is the root cause.
+- A bug report surfaces where iframe physical state and playback mode/activity diverge.
 - A follow-up can remove the remaining narrow legacy-idle compatibility gate.
 
 Until then, keep new playback code on mode/activity helpers and avoid broadening the legacy idle predicate.

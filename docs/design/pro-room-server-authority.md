@@ -1,7 +1,8 @@
 # ADR: Coordinator-free server authority for PRO rooms
 
-- **Status:** Accepted; implementation checkpoint complete (local validation)
+- **Status:** Accepted and implemented as the current production contract
 - **Decision date:** 2026-07-20
+- **Last repository contract review:** 2026-08-17
 - **Applies to:** persistent PRO rooms in the reserved `0xxxxx` namespace
 - **Does not apply to:** ordinary temporary rooms
 - **Compatibility:** the PRO cutover does not support the former
@@ -96,8 +97,11 @@ search string and accept no alternate credential transport. Its socket
 attachment, rather than a client-supplied identity field, authenticates every
 later realtime frame.
 
-Playback commands and READY reports use HTTP because their typed response,
-idempotency receipt, and conflict snapshot are part of the mutation contract.
+Playback commands use HTTP because their typed response, idempotency receipt,
+and conflict snapshot are part of the mutation contract. READY reports also use
+HTTP, but are authenticated and fenced by transition, cohort, session, and
+revision state; they return a typed response without a separate
+`Idempotency-Key` receipt or command-style conflict snapshot.
 Canonical PREPARE/COMMIT/CANCEL events and presence invalidation originate in
 the PRO room Durable Object and are delivered by the signaling Durable Object.
 Chat fan-out and clock sampling terminate directly at the signaling object, but
@@ -130,9 +134,11 @@ The minimal frame families are:
 | room API               | ended / unavailable observation | submit an authorized, revision-fenced media observation          |
 | snapshot + local prep  | late-join catch-up              | project the current anchor without restarting the room           |
 
-Frames use an exact-key schema and a protocol version. Payload sizes, numeric
-ranges, target kinds, and string formats are validated before state access.
-Unknown or stale frames are rejected without mutating the room.
+WebSocket frames use a versioned exact-key schema. HTTP bodies use their
+route-specific exact-key and schema contract; not every HTTP body carries a
+protocol-version field. Payload sizes, numeric ranges, target kinds, and string
+formats are validated before state access. Unknown or stale inputs are rejected
+without mutating the room.
 
 ### 4. Canonical timeline and fences
 
@@ -162,15 +168,18 @@ Paused and sleeping states do not advance. The server rewrites the anchor only
 on a meaningful mutation, sleep boundary, or accepted recovery action. Browser
 observations may be telemetry, but they cannot overwrite the anchor.
 
-Every mutating request is authenticated to the current member and presence
-incarnation. It also carries a cryptographically random idempotency key and the
-base revision required by that endpoint: playback commands use
-`playback.revision`, queue snapshots use the room CAS revision, and effects or
-queue-mode writes use their own revision contract. The server serializes the
-mutation, stores a bounded idempotency receipt where the endpoint requires one,
-and returns either the accepted state or a typed revision conflict. Reusing the
-same key can therefore recover a lost response without repeating a seek, skip,
-or queue transition.
+Participant-originated canonical control mutations are authenticated to the
+current member and presence incarnation. Endpoint-specific requirements also
+include a cryptographically random idempotency key and the applicable base
+revision: playback commands use `playback.revision`, queue snapshots use the
+room CAS revision, and effects or queue-mode writes use their own revision
+contract. Presence heartbeats, Developer API operations, and alarm-driven state
+maintenance have separate authentication and fencing contracts; they do not all
+carry that participant tuple. The server serializes each mutation, stores a
+bounded idempotency receipt where the endpoint requires one, and returns either
+the accepted state or a typed revision conflict. Reusing a supported key can
+therefore recover a lost response without repeating a seek, skip, or queue
+transition.
 
 The following fences are independent and all must match where applicable:
 
@@ -430,16 +439,20 @@ coordinator.
 
 ### 12. Implementation boundary
 
-Introduce shared abstractions instead of adding more `room.kind === 'pro'`
-branches to the legacy host facade:
+The design's conceptual transport, authenticated-event-source, timeline, and
+local-executor responsibilities map to the current modules as follows; the
+capitalized concept names in the original plan were not shipped as source
+symbols:
 
-- `RoomRealtimeTransport`: connect, send intent/READY/report, receive events,
-  expose presence, disconnect;
-- `AuthenticatedEventSource`: server-authenticated actor/incarnation and
-  capabilities;
-- `AuthoritativeTimeline`: canonical anchor plus fences; and
-- a source-neutral local playback executor that applies PREPARE, COMMIT, CANCEL,
-  and catch-up.
+- `ProRoomApiClient` in `src/pro-room/api.ts` owns authenticated HTTP snapshot,
+  control, READY/report, presence, and lifecycle requests;
+- `ServerProRoomNetworkBridge implements ProRoomTransportBridge` in
+  `src/pro-room/network-bridge.ts` and `session-controller.ts` connects the
+  authenticated server-event transport to the shared room shell;
+- `src/pro-room/runtime.ts` consumes server-authenticated identity,
+  capabilities, snapshots, and revision fences; and
+- `ProRoomPlaybackController` in `src/pro-room/playback-controller.ts` applies
+  PREPARE, COMMIT, CANCEL, and snapshot catch-up to the local playback engines.
 
 The ordinary-room adapter remains the existing P2P host implementation. The
 PRO adapter is the authenticated server channel. The coordinator election,
@@ -465,10 +478,12 @@ then, new code must derive PRO permissions from `room.context.capabilities` and
 must never infer PRO authority from `appRole`, `hostConn`, or the legacy field
 name.
 
-## Deployment and cutover
+## Historical rollout plan and completed cutover boundary
 
-There is no mixed old/new PRO protocol. Use a short PRO-only maintenance window;
-ordinary rooms remain live.
+The coordinator-free cutover is complete. There is no supported mixed old/new
+PRO protocol. The following checklist preserves the rollout plan and required
+cutover boundary; it is not evidence that every proposed checkpoint or typed
+maintenance response was executed verbatim:
 
 1. Back up/export PRO Durable Object and registry state and record the current
    Worker version IDs.
@@ -487,15 +502,16 @@ ordinary rooms remain live.
 7. Run the control, sleep/wake, late-join, YouTube zero-start, R2 file,
    Developer API, BOT, ENDED, unavailable, and physical iOS/Android smoke
    matrix. Reopen PRO entry only after version IDs and live results are saved.
-8. After the observation window, rename transitional `coordinatorEpoch` and
-   local-host compatibility symbols in a versioned schema change. Signaling
-   tickets remain part of the server channel; former browser-coordinator
-   election, command-dispatch/ACK storage, and peer-star branches do not.
+   The proposed post-observation rename of `coordinatorEpoch` and the local-host
+   compatibility symbols was deliberately not part of that cutover. It remains a
+   future versioned snapshot/wire-schema decision; the compatibility names retain
+   the non-authoritative meanings defined above. Signaling tickets remain part of
+   the server channel, while the former browser-coordinator election,
+   command-dispatch/ACK storage, and peer-star branches remain removed.
 
-A rollback cannot re-enable an old browser coordinator against already-mutated
-server-authority state. During cutover, rollback means keeping PRO in
-maintenance and restoring the matched Worker/client/data checkpoint, or
-forward-fixing the new protocol.
+A rollback cannot re-enable an old browser coordinator against server-authority
+state. Recovery must restore a matched Worker/client/data checkpoint or
+forward-fix the current protocol.
 
 ## Rejected alternatives
 

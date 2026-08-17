@@ -158,11 +158,13 @@ describe('Developer API public documentation', () => {
     expect(html).toContain('/rooms/{roomCode}/effects');
     expect(html).toContain("type: 'set_effects'");
     expect(html).toContain('every supplied nested object must contain at least one field');
-    expect(html).toContain('persisted across PRO room sleep/wake cycles and coordinator handoffs');
-    expect(html).toMatch(/applied directly by the room server while the room is\s+active/);
-    expect(html).toContain('does not wait for a browser coordinator');
+    expect(html).toContain('persisted across PRO room sleep/wake cycles and client reconnects');
+    expect(html).toMatch(
+      /applied directly by the room server even while the\s+runtime is sleeping/,
+    );
+    expect(html).toContain('there is no browser coordinator');
     expect(spec).toContain(
-      'set_effects is applied directly by the room server while the room is active',
+      'Playback and effect commands are authorized and applied by the PRO room server',
     );
     expect(html).not.toMatch(/effect command still requires an awake room/i);
 

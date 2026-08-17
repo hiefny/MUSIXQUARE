@@ -3,7 +3,7 @@
 Originally opened on 2026-05-12 after the app-state decomposition and playback
 ownership refactor; later entries carry their own acceptance dates. Paths and
 the continued reachability of the listed tradeoffs were statically rechecked on
-2026-08-09. Static review does not replace the real-browser checks called out
+2026-08-17. Static review does not replace the real-browser checks called out
 below.
 
 This document prevents future audits from repeatedly reporting intentional tradeoffs. It is not a bug backlog. Anything here should still be revisited if MUSIXQUARE becomes a larger public multi-tenant service, adds discoverable public rooms, or introduces a new app bootstrap lifecycle.
@@ -39,11 +39,11 @@ This is accepted under the current contract: `app.ts` bootstraps once per page l
 
 This is accepted only while host/session/current-track guards remain in place. Do not "fix" this by adding operator checks; that would break late join and recovery flows.
 
-### 5. Partial Runtime Schema Validation
+### 5. Partial Standard-Room P2P Schema Validation
 
-P2P and transport messages are not all validated through a full schema library. The code instead treats session participants as untrusted at sensitive handlers and uses targeted connection/session/current-track checks plus numeric guards on high-risk fields.
+Standard-room P2P and browser transport messages are not all validated through a full schema library. The code instead treats session participants as untrusted at sensitive handlers and uses targeted connection/session/current-track checks plus numeric guards on high-risk fields.
 
-This is accepted for the current invite-code session-room threat model. Reopen before exposing discoverable public rooms or adding server-mediated persistence.
+This is accepted only for the current temporary, invite-code standard-room threat model. PRO persistence and Worker HTTP/WebSocket boundaries have separate runtime validators, bounds, and authority checks and are outside this standard-room P2P exception; this statement does not claim that every stored envelope uses exact-key validation. Reopen this item before exposing discoverable public standard rooms, feeding partially validated standard-room messages into persistence, or changing the standard-room trust boundary.
 
 ### 6. Browser-Only API Test Gaps
 
@@ -80,9 +80,9 @@ conditions in `docs/mobile-app-zoom-policy.md`.
 
 ### 9. System-Audio Entry Does Not Cancel A Debounce-Parked File Broadcast
 
-`startSystemAudioCapture` (`src/audio/system-capture.ts`) calls `stopAllMedia({silent, cancelInFlight})` but does not call `cancelPendingBroadcast()`, unlike the local→YouTube switch (`playlist.ts` playTrack YouTube branch). A broadcast parked in the 300ms send debounce when the user confirms the screen-share picker therefore fires during system-audio mode; guests drop every frame (`isExternalOwner` gates in `transfer-receive.ts`), so the cost is one wasted full-file send to local guests, repaired after restore by the normal `REQUEST_CURRENT_FILE` recovery.
+`startSystemAudioCapture` (`src/audio/system-capture.ts`) awaits `stopAllMediaAsync({silent, cancelInFlight})` but does not call `cancelPendingBroadcast()`, unlike the local→YouTube switch (`playlist.ts` playTrack YouTube branch). A broadcast parked in the 300ms send debounce when the user confirms the screen-share picker therefore fires during system-audio mode; guests drop every frame (`isExternalOwner` gates in `transfer-receive.ts`), so the cost is one wasted full-file send to local guests, repaired after restore by the normal `REQUEST_CURRENT_FILE` recovery.
 
-This is accepted (2026-06-13 deep-dive). The window is a sub-300ms sliver: most overlap is already closed by the load's own external-owner abort (`decode.ts` post-decode check), and the strictly larger in-flight variant — a broadcast already pumping when system-audio starts — is itself accepted by design (SA-08: "chunks we discard anyway"). Cancelling only the parked sliver would not change the switch's waste profile. If revisited (system-audio becoming a high-frequency flow, or rooms growing past the current warn thresholds), the verified fix is a single `cancelPendingBroadcast()` after the `stopAllMedia` call in `startSystemAudioCapture` — pending-only, NOT `cancelOutgoingFileTransfers` (which would also abort in-flight transfers that can still finalize on guests before SYSTEM_AUDIO_START processes), and NOT inside `stopAllMedia` (HET-6).
+This is accepted (2026-06-13 deep-dive; async call shape revalidated 2026-08-17). The window is a sub-300ms sliver: most overlap is already closed by the load's own external-owner abort (`decode.ts` post-decode check), and the strictly larger in-flight variant — a broadcast already pumping when system-audio starts — is itself accepted by design (SA-08: "chunks we discard anyway"). Cancelling only the parked sliver would not change the switch's waste profile. If revisited (system-audio becoming a high-frequency flow, or rooms growing past the current warn thresholds), the verified fix is a single `cancelPendingBroadcast()` after the awaited `stopAllMediaAsync` call in `startSystemAudioCapture` — pending-only, NOT `cancelOutgoingFileTransfers` (which would also abort in-flight transfers that can still finalize on guests before SYSTEM_AUDIO_START processes), and NOT inside `stopAllMediaAsync` (HET-6).
 
 ## Retired Risks
 

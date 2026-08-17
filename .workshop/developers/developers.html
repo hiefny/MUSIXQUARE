@@ -51,7 +51,7 @@
       <p class="policy-kicker">PUBLIC API</p>
       <h1>Developer API</h1>
       <p>Connect a server, bot, or integration to one MUSIXQUARE PRO room.</p>
-      <p class="policy-date">API version: v1 · Updated August 2, 2026</p>
+      <p class="policy-date">API version: v1 · Updated August 17, 2026</p>
     </section>
 
     <article class="policy-doc">
@@ -213,9 +213,10 @@ console.log(command.commandId, command.status);</code></pre>
           <code>queueItemId</code> instead of traversing from the current item's internal video.
         </p>
         <p>
-          Playback commands require an awake room with a compatible active coordinator. Selecting a large file can be
-          accepted before every device has finished downloading and decoding it; read playback state before issuing an
-          immediately dependent command.
+          Playback and effect commands are authorized and applied by the PRO room server. They remain available while
+          the room runtime is sleeping; its timeline stays frozen until participants return and consume the canonical
+          state. Selecting a large file can be committed before every connected or returning device has finished
+          downloading and decoding it, so read playback state before issuing an immediately dependent command.
         </p>
       </details>
 
@@ -298,9 +299,9 @@ console.log(command.commandId, command.status);</code></pre>
           </div>
         </dl>
         <p>
-          Effect state is persisted across PRO room sleep/wake cycles and coordinator handoffs, and joining devices
-          receive the current state. <code>set_effects</code> is applied directly by the room server while the room is
-          active, so it does not wait for a browser coordinator. Read <code>/effects</code> after the command becomes
+          Effect state is persisted across PRO room sleep/wake cycles and client reconnects, and joining devices
+          receive the current state. <code>set_effects</code> is applied directly by the room server even while the
+          runtime is sleeping; there is no browser coordinator. Read <code>/effects</code> after the command becomes
           <code>applied</code> to observe the canonical result.
         </p>
         <p>
@@ -699,7 +700,7 @@ await Promise.all(workers);</code></pre>
           </div>
           <div data-api-error-code="COORDINATOR_INCOMPATIBLE">
             <dt><code>COORDINATOR_INCOMPATIBLE</code> &middot; 409 &middot; retryable: false</dt>
-            <dd>The active room coordinator cannot execute this command version. Update or reload the active MUSIXQUARE client.</dd>
+            <dd>Legacy v1 compatibility value. Current PRO rooms are server-authoritative and do not use a browser coordinator. If an older or transitioning backend returns this code, read current state and update the integration before retrying.</dd>
           </div>
           <div data-api-error-code="FORBIDDEN">
             <dt><code>FORBIDDEN</code> &middot; 403 &middot; retryable: false</dt>
@@ -755,7 +756,7 @@ await Promise.all(workers);</code></pre>
           </div>
           <div data-api-error-code="ROOM_SLEEPING">
             <dt><code>ROOM_SLEEPING</code> &middot; 409 &middot; retryable: false</dt>
-            <dd>No active coordinator can execute playback or effect commands. Have a participant open the room first; state reads and queue-mode updates remain available.</dd>
+            <dd>Legacy v1 compatibility value. The current server-authoritative path accepts canonical playback and effect commands while the room runtime is sleeping. If this code is observed, read room state and treat the responding backend as incompatible or in transition.</dd>
           </div>
           <div data-api-error-code="ROOM_STATE_CAPACITY_EXCEEDED">
             <dt><code>ROOM_STATE_CAPACITY_EXCEEDED</code> &middot; 409 &middot; retryable: false</dt>
@@ -778,12 +779,13 @@ await Promise.all(workers);</code></pre>
         <p>
           A successful <code>POST /commands</code> returns <code>202</code> and a command ID. Poll that command until it
           is terminal. Before submitting another intent after any non-success result, read canonical playback and
-          queue state first.
+          queue state first. Result names containing <code>coordinator</code> are retained only for v1 wire
+          compatibility; current PRO rooms do not elect a browser coordinator.
         </p>
         <dl aria-label="Developer API asynchronous command result codes">
           <div data-command-result-code="applied">
             <dt><code>applied</code></dt>
-            <dd>The coordinator executed the requested intent successfully.</dd>
+            <dd>The room server committed the requested intent to canonical state. Connected or returning devices may still be loading the selected media.</dd>
           </div>
           <div data-command-result-code="already_applied">
             <dt><code>already_applied</code></dt>
@@ -791,11 +793,11 @@ await Promise.all(workers);</code></pre>
           </div>
           <div data-command-result-code="busy">
             <dt><code>busy</code></dt>
-            <dd>The coordinator was handling an incompatible transition. Read current state before deciding whether a new command is still needed.</dd>
+            <dd>The room server was handling an incompatible transition. Read current state before deciding whether a new command is still needed.</dd>
           </div>
           <div data-command-result-code="no_media">
             <dt><code>no_media</code></dt>
-            <dd>The selected media was no longer available when the coordinator executed the accepted command.</dd>
+            <dd>The selected media was no longer available when the room server applied the accepted command.</dd>
           </div>
           <div data-command-result-code="stale_queue">
             <dt><code>stale_queue</code></dt>
@@ -807,23 +809,23 @@ await Promise.all(workers);</code></pre>
           </div>
           <div data-command-result-code="expired">
             <dt><code>expired</code></dt>
-            <dd>The command did not reach a terminal coordinator acknowledgement before its deadline.</dd>
+            <dd>The accepted command did not reach a terminal server result before its deadline.</dd>
           </div>
           <div data-command-result-code="execution_failed">
             <dt><code>execution_failed</code></dt>
-            <dd>The coordinator received the command but could not complete the media operation.</dd>
+            <dd>The room server received the command but could not complete the media operation.</dd>
           </div>
           <div data-command-result-code="coordinator_changed">
             <dt><code>coordinator_changed</code></dt>
-            <dd>A coordinator handoff fenced the in-flight command. Read current state before creating a new intent.</dd>
+            <dd>Legacy v1 compatibility value for a superseded browser-coordinator command. Current server-authoritative rooms do not emit it for ordinary command handling.</dd>
           </div>
           <div data-command-result-code="coordinator_incompatible">
             <dt><code>coordinator_incompatible</code></dt>
-            <dd>The coordinator that received the command did not support its control version.</dd>
+            <dd>Legacy v1 compatibility value for an unsupported browser-coordinator control version. Current server-authoritative rooms do not require that browser role.</dd>
           </div>
           <div data-command-result-code="coordinator_unavailable">
             <dt><code>coordinator_unavailable</code></dt>
-            <dd>No coordinator remained available to execute the accepted command.</dd>
+            <dd>Legacy v1 compatibility value for loss of a browser coordinator. Current server-authoritative rooms continue without one.</dd>
           </div>
         </dl>
       </details>

@@ -1,6 +1,6 @@
 # Playback State Consumption Contract
 
-Last statically reviewed against the source tree on 2026-07-11. The executable
+Last statically reviewed against the source tree on 2026-08-17. The executable
 contract tests in `src/player/__tests__/playback-state-contract.test.ts` take
 precedence if this prose drifts.
 
@@ -109,7 +109,7 @@ Click handlers may still poll using Pattern 1 or 2. The rule is:
   - `mode`: `file | youtube | system-audio | null`
   - `activity`: `idle | paused | playing | pending`
 - `state.appState` has been removed, and the old full enum projection helpers are gone.
-- `owner` and `mode` are not guaranteed to match. Example: paused local-file playback has no active owner but still records `mode: file`; YouTube pause lives in the YouTube player state instead.
+- `owner` and `mode` are not guaranteed to match. Example: paused local-file playback has no active owner but still records `mode: file`. The YouTube iframe remains the physical player-state source, while pause transitions are also mirrored as `mode: youtube` and `activity: paused`.
 - `state.playback.mode/activity` are the primary contract. Prefer the new `isPlaybackMode*()`, `isPlaybackPlaying*()`, and `isPlaybackPaused/Pending()` helpers when the caller is asking a mode/activity question.
 - If a caller already has a scoped playback snapshot, pass that snapshot into the matching predicate instead of re-polling state.
 - The full decomposition record (5b through 5g) lives in [appstate-decomposition.md](appstate-decomposition.md). That document records the completed migration; this one remains the read/write contract reference.

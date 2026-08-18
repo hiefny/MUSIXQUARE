@@ -270,7 +270,7 @@ jobs:
       - name: Run critical browser paths
         # background-resume owns a 90-second diagnostic timeout. Leave enough
         # room for Playwright to emit its trace instead of killing the process
-        # first, while the whole browser gate remains capped at three minutes.
+        # first, while the whole browser gate remains capped at five minutes.
         timeout-minutes: 2
         run: npm run test:e2e:critical
 

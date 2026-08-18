@@ -9014,20 +9014,35 @@
     cursor: progress;
   }
 
+  #btn-sync[aria-disabled='true']:focus-visible,
+  #btn-media-source[aria-disabled='true']:focus-visible,
+  #btn-add-media[aria-disabled='true']:focus-visible,
+  #btn-repeat[aria-disabled='true']:focus-visible,
+  #btn-shuffle[aria-disabled='true']:focus-visible {
+    opacity: 1;
+  }
+
   #btn-sync[aria-disabled='true']:hover,
-  #btn-media-source[aria-disabled='true']:hover,
-  #btn-add-media[aria-disabled='true']:hover,
-  #btn-repeat[aria-disabled='true']:hover,
-  #btn-shuffle[aria-disabled='true']:hover {
+  #btn-media-source[aria-disabled='true']:hover {
     background: var(--surface-2);
   }
 
+  #btn-add-media[aria-disabled='true']:hover,
+  #btn-repeat[aria-disabled='true']:hover,
+  #btn-shuffle[aria-disabled='true']:hover {
+    background: transparent;
+  }
+
   #btn-sync[aria-disabled='true']:active,
-  #btn-media-source[aria-disabled='true']:active,
+  #btn-media-source[aria-disabled='true']:active {
+    background: var(--surface-2);
+    transform: none;
+  }
+
   #btn-add-media[aria-disabled='true']:active,
   #btn-repeat[aria-disabled='true']:active,
   #btn-shuffle[aria-disabled='true']:active {
-    background: var(--surface-2);
+    background: transparent;
     transform: none;
   }
 

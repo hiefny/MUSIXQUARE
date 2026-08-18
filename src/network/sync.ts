@@ -54,14 +54,14 @@ import {
 } from './room-control.ts';
 import { initHeartbeatMonitor, recordPeerHeartbeat } from './heartbeat-monitor.ts';
 
-let syncPingCounter = 0;
-let needsInitialSync = false;
-let wasPlaying = false;
-let softFileDriftDirection: -1 | 0 | 1 = 0;
-let softFileDriftSamples = 0;
-let lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
+let _syncPingCounter = 0;
+let _needsInitialSync = false;
+let _wasPlaying = false;
+let _softFileDriftDirection: -1 | 0 | 1 = 0;
+let _softFileDriftSamples = 0;
+let _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
 
-const YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS = 1_000;
+const YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS = 1000;
 const FILE_SYNC_END_FENCE_SEC = 0.1;
 const FILE_HARD_RESYNC_DRIFT_SEC = 2;
 const FILE_SOFT_RESYNC_DRIFT_SEC = 0.05;
@@ -74,27 +74,30 @@ interface SyncPongPlaybackState {
 }
 
 function resetSoftFileResyncState(): void {
-  softFileDriftDirection = 0;
-  softFileDriftSamples = 0;
+  _softFileDriftDirection = 0;
+  _softFileDriftSamples = 0;
 }
 
 function resetSyncClockRuntime(): void {
   setState('sync.lastLatencyMs', 0);
   setState('sync.latencyHistory', []);
   resetClockState();
-  syncPingCounter = 0;
-  needsInitialSync = false;
+  _syncPingCounter = 0;
+  _needsInitialSync = false;
   resetSoftFileResyncState();
-  lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
+  _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
   // Drop any lingering local lock-screen pause so a fresh/reconnected guest is
   // not stuck suppressing its own bootstrap resume.
   setLocalFilePaused(false);
   clearManagedTimer('sync-youtube-nudge-apply');
 }
 
-/** Get the current local manual-sync offset in milliseconds. */
+/**
+ * Get the total sync offset in milliseconds.
+ */
 export function getTotalSyncOffsetMs(): number {
-  return Math.round(getState('sync.localOffset') * 1_000);
+  const localOffset = getState('sync.localOffset');
+  return Math.round(localOffset * 1000);
 }
 
 function getActiveManualOffsetPath(): 'sync.localOffset' | 'sync.youtubeLocalOffset' {
@@ -114,14 +117,17 @@ function hasManualSyncEndpoint(): boolean {
 }
 
 function isProCoordinatorManualSyncEndpoint(): boolean {
-  return getRoomContext().kind === 'pro';
+  const room = getRoomContext();
+  return room.kind === 'pro';
 }
 
 function canApplyManualSyncAction(): boolean {
   if (!hasManualSyncEndpoint()) return false;
   if (isPlaybackModeYouTube()) {
     // A standard host owns the canonical YouTube timeline. Moving only its
-    // iframe changes the native end boundary, so keep local nudge fail-closed.
+    // iframe changes the native end boundary (including playlist transitions
+    // that do not emit ENDED), so keep the local nudge surface fail-closed.
+    // The main Sync button still performs the existing room-wide rendezvous.
     if (getRoomContext().kind === 'standard' && isActiveStandardRoomCoordinator()) return false;
     return !isYouTubeZeroStartProtocolActive();
   }
@@ -150,23 +156,22 @@ function scheduleYouTubeManualSyncApply(): void {
   );
 }
 
-function adjustYouTubeSync(value: number): void {
+function adjustYouTubeSync(val: number): void {
   const localOffset = getState('sync.youtubeLocalOffset') || 0;
-  const nextOffset = clampManualSyncOffset(localOffset + value);
+  const nextOffset = clampManualSyncOffset(localOffset + val);
   if (isProCoordinatorManualSyncEndpoint()) {
     clearManagedTimer('sync-youtube-nudge-apply');
     // The iframe handler stores the offset that was actually achievable at
-    // zero/duration boundaries. Do not pre-write the requested value here.
+    // 0/duration boundaries. Do not pre-write the requested value here.
     bus.emit('youtube:set-coordinator-manual-offset', nextOffset);
     return;
   }
-
   setState('sync.youtubeLocalOffset', nextOffset);
   bus.emit('sync:display-update');
   scheduleYouTubeManualSyncApply();
 }
 
-// ─── Manual reset ───────────────────────────────────────────────────
+// ─── Auto Sync ──────────────────────────────────────────────────────
 
 export function handleAutoSync(): void {
   const offsetPath = getActiveManualOffsetPath();
@@ -174,14 +179,12 @@ export function handleAutoSync(): void {
     offsetPath === 'sync.youtubeLocalOffset' &&
     isProCoordinatorManualSyncEndpoint() &&
     isPlaybackModeYouTube();
-
   if (isProCoordinatorYouTubeReset) {
     clearManagedTimer('sync-youtube-nudge-apply');
     bus.emit('youtube:set-coordinator-manual-offset', 0);
     showToast(t('toast.sync_reset'));
     return;
   }
-
   if (offsetPath === 'sync.localOffset') {
     setLocalManualSyncOffset(0);
   } else {
@@ -198,29 +201,43 @@ export function handleAutoSync(): void {
     return;
   }
 
+  // Cancel any pending nudge replay from a click burst — otherwise its
+  // deferred play() could fire AFTER our reset replay and re-introduce
+  // whatever (now-zero) offset it captured. Belt-and-suspenders: the
+  // zeroing above already means that deferred play() would compute the
+  // same position, but explicit cancel removes the extra round trip.
   clearManagedTimer('sync-nudge-replay');
 
-  // The current AudioBufferSourceNode baked the previous offset into startedAt.
-  // Restart at the current canonical position so zeroing the value changes the
-  // audible timeline, not only the displayed number.
-  if (isPlaybackPlayingFile()) play(getTrackPosition());
+  // Zeroing localOffset only flips the number. The audio buffer source was
+  // started with a startedAt that baked in the OLD offset, so it keeps
+  // playing from the offset position until a fresh play() recomputes
+  // startedAt from the new (zero) offset. Without this, "Reset" just
+  // changes the displayed value while the audio remains desynced, and
+  // the only recovery is a host seek or pause+play.
+  if (!isPlaybackPlayingFile()) return;
+  play(getTrackPosition());
 }
 
-// ─── Protocol payloads ──────────────────────────────────────────────
+// ─── Protocol Handlers ──────────────────────────────────────────────
 
 export function getSyncPongPlaybackState(): SyncPongPlaybackState {
   const lifecycle = getState('playback.lifecycle');
   const playback = getPlaybackModeActivity();
 
   // During host track switches, stopAllMedia({ silent: true }) intentionally
-  // leaves file/playing projected to avoid UI flicker. It is not yet audible,
-  // so advertise a paused file shadow.
+  // leaves playback.mode/activity at file/playing to avoid UI flicker while
+  // the new file decodes and waits for autoPlayTimer. That is not audible
+  // playback, so the wire view advertises the paused file shadow.
   if (isPlaybackPlayingFile(playback)) {
-    return lifecycle === PLAYBACK_STATE.PLAYING
-      ? { mode: 'file', activity: 'playing' }
-      : { mode: 'file', activity: 'paused' };
+    if (lifecycle === PLAYBACK_STATE.PLAYING) {
+      return { mode: 'file', activity: 'playing' };
+    }
+
+    return { mode: 'file', activity: 'paused' };
   }
 
+  // Do not let a stale file lifecycle create a new wire-visible "playing"
+  // state.
   if (isPlaybackPendingFile(playback)) {
     return { mode: 'file', activity: 'pending' };
   }
@@ -232,11 +249,11 @@ export function getSyncPongPlaybackState(): SyncPongPlaybackState {
 }
 
 export function isSyncPongPlayingFile(data: Record<string, unknown>): boolean {
-  return (
-    isPlaybackModeValue(data.mode) &&
-    isPlaybackActivityValue(data.activity) &&
-    isPlaybackPlayingFile({ mode: data.mode, activity: data.activity })
-  );
+  if (isPlaybackModeValue(data.mode) && isPlaybackActivityValue(data.activity)) {
+    return isPlaybackPlayingFile({ mode: data.mode, activity: data.activity });
+  }
+
+  return false;
 }
 
 function isSyncPongTrackIdentityCurrent(data: Record<string, unknown>): boolean {
@@ -261,7 +278,7 @@ function createSyncPongPayload({
   playbackState: SyncPongPlaybackState;
 }): Record<string, unknown> {
   const isDemo = getState('demo.active');
-  return {
+  const payload: Record<string, unknown> = {
     type: MSG.SYNC_PONG,
     pingId,
     hostTime,
@@ -271,6 +288,8 @@ function createSyncPongPayload({
     queueItemId: isDemo ? null : getState('playlist.currentQueueItemId'),
     ...(isDemo ? { demoTrackIndex: getState('demo.currentTrackIndex') } : {}),
   };
+
+  return payload;
 }
 
 function getSafeSyncPongPosition(isFilePlaying: boolean): number {
@@ -284,14 +303,14 @@ function getSafeSyncPongPosition(isFilePlaying: boolean): number {
   }
 }
 
-function getPlayableFileSyncPosition(estimatedHostPosition: number): number | null {
-  if (!Number.isFinite(estimatedHostPosition)) return null;
+function getPlayableFileSyncPosition(estimatedHostPos: number): number | null {
+  if (!Number.isFinite(estimatedHostPos)) return null;
 
   const buffer = getCurrentAudioBuffer();
   if (!buffer) return null;
 
   const duration = Number.isFinite(buffer.duration) ? buffer.duration : 0;
-  const syncPosition = Math.max(0, estimatedHostPosition);
+  const syncPosition = Math.max(0, estimatedHostPos);
   if (duration <= 0) return syncPosition;
 
   const endFence = Math.max(0, duration - FILE_SYNC_END_FENCE_SEC);
@@ -307,33 +326,33 @@ function getPlayableFileSyncPosition(estimatedHostPosition: number): number | nu
 
 function maybeSoftResyncFile(syncPosition: number, localPosition: number): boolean {
   const signedDrift = syncPosition - localPosition;
-  const absoluteDrift = Math.abs(signedDrift);
+  const absDrift = Math.abs(signedDrift);
 
-  if (absoluteDrift < FILE_SOFT_RESYNC_DRIFT_SEC) {
+  if (absDrift < FILE_SOFT_RESYNC_DRIFT_SEC) {
     resetSoftFileResyncState();
     return false;
   }
 
   const now = Date.now();
-  if (now - lastSoftFileResyncAt < FILE_SOFT_RESYNC_COOLDOWN_MS) {
+  if (now - _lastSoftFileResyncAt < FILE_SOFT_RESYNC_COOLDOWN_MS) {
     resetSoftFileResyncState();
     return false;
   }
 
   const direction: -1 | 1 = signedDrift > 0 ? 1 : -1;
-  if (direction === softFileDriftDirection) {
-    softFileDriftSamples += 1;
+  if (direction === _softFileDriftDirection) {
+    _softFileDriftSamples += 1;
   } else {
-    softFileDriftDirection = direction;
-    softFileDriftSamples = 1;
+    _softFileDriftDirection = direction;
+    _softFileDriftSamples = 1;
   }
 
-  if (softFileDriftSamples < FILE_SOFT_RESYNC_REQUIRED_SAMPLES) return false;
+  if (_softFileDriftSamples < FILE_SOFT_RESYNC_REQUIRED_SAMPLES) return false;
 
   log.info(
-    `[Sync] Soft file resync: drift=${Math.round(signedDrift * 1_000)}ms, samples=${softFileDriftSamples}`,
+    `[Sync] Soft file resync: drift=${Math.round(signedDrift * 1000)}ms, samples=${_softFileDriftSamples}`,
   );
-  lastSoftFileResyncAt = now;
+  _lastSoftFileResyncAt = now;
   resetSoftFileResyncState();
   play(syncPosition);
   return true;
@@ -341,44 +360,61 @@ function maybeSoftResyncFile(syncPosition: number, localPosition: number): boole
 
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
   recordPeerHeartbeat(conn);
-  if (!conn?.open) return;
 
-  const hostTime = Date.now();
+  // 2. Reply with SYNC_PONG including host time + playback state
+  if (!conn?.open) return;
+  const hostTime = Date.now(); // Capture BEFORE async import
   const playbackState = getSyncPongPlaybackState();
   const isFilePlaying = playbackState.mode === 'file' && playbackState.activity === 'playing';
   const position = getSafeSyncPongPosition(isFilePlaying);
 
-  try {
-    conn.send(
-      createSyncPongPayload({
-        pingId: data.pingId,
-        hostTime,
-        position,
-        playbackState,
-      }),
-    );
-  } catch {
-    /* connection closed after the open check */
+  if (isFilePlaying) {
+    if (conn.open) {
+      try {
+        conn.send(
+          createSyncPongPayload({
+            pingId: data.pingId,
+            hostTime,
+            position,
+            playbackState,
+          }),
+        );
+      } catch {
+        /* closed */
+      }
+    }
+  } else {
+    try {
+      conn.send(
+        createSyncPongPayload({
+          pingId: data.pingId,
+          hostTime,
+          position,
+          playbackState,
+        }),
+      );
+    } catch {
+      /* closed */
+    }
   }
 }
 
-function emitSkippedSyncDecision(reason: string, expectedPositionSeconds?: number): void {
-  bus.emit('sync:diagnostic-standard-decision', {
-    decision: 'skipped',
-    ...(expectedPositionSeconds === undefined ? {} : { expectedPositionSeconds }),
-    reason,
-  });
-}
-
 function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): void {
-  // A guest accepts SYNC_PONG only from its exact current host connection.
-  // Sequential ping ids alone are predictable and cannot authenticate a clock.
+  // SYNC_PONG is host's reply to a guest's SYNC_PING — host never receives
+  // it on the legitimate path, and a guest only receives it from hostConn.
+  // Without this guard, any non-host peer could inject a fake
+  // hostTime/position which feeds processSyncPong (clock-offset poisoning)
+  // and the file-mode play correction (position jump).
+  // pingId matching in processSyncPong gives partial protection, but pingIds
+  // are sequential and predictable, so per-handler source validation is required.
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
   const pingId = data.pingId as number;
   const hostTime = data.hostTime as number;
   const position = data.position as number;
+
+  // 1. Clock offset calculation (from shared-clock processSyncPong)
   const result = processSyncPong(pingId, hostTime);
   if (!result) return;
 
@@ -401,36 +437,70 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
     offsetMs: result.offset,
   });
 
-  const latencyHistory = [...getState('sync.latencyHistory'), result.rtt];
-  if (latencyHistory.length > 10) latencyHistory.shift();
-  setState('sync.latencyHistory', latencyHistory);
-  setState('sync.lastLatencyMs', Math.min(...latencyHistory));
-  bus.emit('sync:latency-update', result.rtt);
+  // 2. Latency history update
+  const ms = result.rtt;
+  const latencyHistory = getState('sync.latencyHistory');
+  const updated = [...latencyHistory, ms];
+  if (updated.length > 10) updated.shift();
+  setState('sync.latencyHistory', updated);
+  setState('sync.lastLatencyMs', Math.min(...updated));
+  bus.emit('sync:latency-update', ms);
 
+  // 3. File mode drift correction OR initial-bootstrap kickoff.
+  //
+  // Two scenarios reach this branch:
+  //   (a) Guest is already PLAYING_AUDIO — drift correction (existing).
+  //   (b) Guest just finished decoding a buffer (READY/PAUSED/IDLE) but
+  //       never received an applicable MSG.PLAY. This happens on the very
+  //       first remote-share download: the host had broadcast PLAY before
+  //       the guest joined (or before the remote whole object finished
+  //       downloading), so pendingPlayTime was either never set or was
+  //       cleared. Without bootstrap, the guest sits at 0:00 until the
+  //       host pauses/seeks/re-plays — exactly the "first remote download
+  //       won't auto-play" symptom.
   if (!pongPlayingFile) {
     resetSoftFileResyncState();
-    emitSkippedSyncDecision('host-not-playing-file');
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'host-not-playing-file',
+    });
     return;
   }
   if (!Number.isFinite(position)) {
     resetSoftFileResyncState();
-    emitSkippedSyncDecision('invalid-host-position');
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'invalid-host-position',
+    });
     return;
   }
   if (!pongTrackMatches) {
     resetSoftFileResyncState();
     log.debug('[Sync] Ignored pong for a different queue/demo item');
-    emitSkippedSyncDecision('track-mismatch');
-    return;
-  }
-  if (isLocalFilePaused()) {
-    resetSoftFileResyncState();
-    emitSkippedSyncDecision('local-pause');
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'track-mismatch',
+    });
     return;
   }
 
-  const hostElapsed = (getHostNow() - hostTime) / 1_000;
-  const estimatedHostPosition = position + hostElapsed;
+  // A non-OP guest who locally paused (lock screen / hardware media button —
+  // see media-session.ts) must not be auto-resumed by the host's SYNC_PONG
+  // bootstrap/drift. Clock-offset + latency above still update so the guest
+  // stays calibrated for when it resumes. Mirrors youtube/sync.ts's
+  // isLocalYouTubePaused guard; cleared by the authoritative host PLAY/PAUSE
+  // handlers (playback.ts) and on sync reset (resetSyncClockRuntime).
+  if (isLocalFilePaused()) {
+    resetSoftFileResyncState();
+    bus.emit('sync:diagnostic-standard-decision', {
+      decision: 'skipped',
+      reason: 'local-pause',
+    });
+    return;
+  }
+
+  const hostElapsed = (getHostNow() - hostTime) / 1000;
+  const estimatedHostPos = position + hostElapsed;
 
   if (!isPlaybackPlayingFile()) {
     resetSoftFileResyncState();
@@ -441,39 +511,54 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
       lifecycle === PLAYBACK_STATE.DECODING
     ) {
       log.debug(`[Sync] Bootstrap skipped while ${lifecycle}; waiting for the new buffer`);
-      emitSkippedSyncDecision(`pipeline-${lifecycle}`, estimatedHostPosition);
+      bus.emit('sync:diagnostic-standard-decision', {
+        decision: 'skipped',
+        expectedPositionSeconds: estimatedHostPos,
+        reason: `pipeline-${lifecycle}`,
+      });
       return;
     }
 
-    const syncPosition = getPlayableFileSyncPosition(estimatedHostPosition);
-    if (syncPosition === null) {
-      emitSkippedSyncDecision('no-playable-position', estimatedHostPosition);
-      return;
+    // Bootstrap: only if we have a decoded buffer. Otherwise the audio
+    // engine has nothing to start, and play() would no-op (or worse,
+    // race with an in-flight decode).
+    const syncPosition = getPlayableFileSyncPosition(estimatedHostPos);
+    if (syncPosition !== null) {
+      log.info(
+        `[Sync] Initial bootstrap: starting playback at host position ${syncPosition.toFixed(2)}s`,
+      );
+      play(syncPosition);
+      _needsInitialSync = false;
+      bus.emit('sync:arm-initial');
+      bus.emit('sync:diagnostic-standard-decision', {
+        decision: 'bootstrap',
+        expectedPositionSeconds: syncPosition,
+      });
+    } else {
+      bus.emit('sync:diagnostic-standard-decision', {
+        decision: 'skipped',
+        expectedPositionSeconds: estimatedHostPos,
+        reason: 'no-playable-position',
+      });
     }
+    return;
+  }
 
-    log.info(
-      `[Sync] Initial bootstrap: starting playback at host position ${syncPosition.toFixed(2)}s`,
-    );
-    play(syncPosition);
-    needsInitialSync = false;
-    bus.emit('sync:arm-initial');
+  const syncPosition = getPlayableFileSyncPosition(estimatedHostPos);
+  if (syncPosition === null) {
     bus.emit('sync:diagnostic-standard-decision', {
-      decision: 'bootstrap',
-      expectedPositionSeconds: syncPosition,
+      decision: 'skipped',
+      expectedPositionSeconds: estimatedHostPos,
+      reason: 'no-playable-position',
     });
     return;
   }
 
-  const syncPosition = getPlayableFileSyncPosition(estimatedHostPosition);
-  if (syncPosition === null) {
-    emitSkippedSyncDecision('no-playable-position', estimatedHostPosition);
-    return;
-  }
-
-  const localPosition = getTrackPosition();
-  if (needsInitialSync) {
-    needsInitialSync = false;
+  // First pong after play start: unconditionally lock to host
+  if (_needsInitialSync) {
+    _needsInitialSync = false;
     resetSoftFileResyncState();
+    const localPosition = getTrackPosition();
     play(syncPosition);
     bus.emit('sync:diagnostic-standard-decision', {
       decision: 'initial',
@@ -482,7 +567,10 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
     });
     return;
   }
-
+  // Ongoing: hard-correct large divergence immediately; soft-correct stable
+  // small drift only after repeated same-direction observations to avoid
+  // chasing packet jitter with audible buffer restarts.
+  const localPosition = getTrackPosition();
   const drift = Math.abs(syncPosition - localPosition);
   if (drift > FILE_HARD_RESYNC_DRIFT_SEC) {
     resetSoftFileResyncState();
@@ -494,7 +582,6 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
     });
     return;
   }
-
   const softResynced = maybeSoftResyncFile(syncPosition, localPosition);
   bus.emit('sync:diagnostic-standard-decision', {
     decision: softResynced ? 'soft' : 'observe',
@@ -503,23 +590,8 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   });
 }
 
-// ─── Initialization ─────────────────────────────────────────────────
-
-function sendImmediatePing(): void {
-  const hostConn = getState('network.hostConn');
-  if (!hostConn?.open) return;
-
-  const pingId = ++syncPingCounter;
-  registerPing(pingId);
-  try {
-    hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
-  } catch {
-    /* noop */
-  }
-}
-
 // Keep the legacy standard-room compatibility read at the established sync
-// facade while the actual room authority and peer-identity checks live in the
+// facade while canonical room authority and peer identity checks live in the
 // focused room-control module.
 function resolveRequestedKickTarget(
   data: Record<string, unknown>,
@@ -532,18 +604,19 @@ function resolveRequestedKickTarget(
 
 export function initSync(): void {
   // Preserve the existing single bootstrap boundary while delegating room
-  // administration and transport-liveness ownership to focused modules.
+  // administration and transport liveness to their focused owners.
   initRoomControl(resolveRequestedKickTarget);
   initHeartbeatMonitor();
 
   resetSoftFileResyncState();
-  lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
+  _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
 
   registerHandlers({
     [MSG.SYNC_PING]: handleSyncPing,
     [MSG.SYNC_PONG]: handleSyncPong,
   });
 
+  // SharedClock role management
   bus.on('state:network.appRole', () => {
     const role = getState('network.appRole');
     setIsHostClock(role === 'host');
@@ -553,54 +626,57 @@ export function initSync(): void {
   bus.on('state:network.hostConn', () => {
     if (getState('network.appRole') !== 'guest') return;
     resetSyncClockRuntime();
-    if (getState('network.hostConn')?.open) {
-      resetClockSamples();
-    } else {
-      resetClockState();
-    }
   });
 
-  const armInitialSync = (): void => {
+  // Guest: arm initial sync 1s after any play command (audio engine stable by then)
+  const armInitialSync = () => {
     setManagedTimer(
       'initial-sync-arm',
       () => {
-        needsInitialSync = true;
+        _needsInitialSync = true;
       },
-      1_000,
+      1000,
     );
   };
 
-  const syncInitialArmFromPlayback = (): void => {
+  // Playback state transitions: arm on IDLE/PAUSED → PLAYING, disarm on pause/stop
+  const syncInitialArmFromPlayback = () => {
     const isPlaying = isPlaybackPlayingFile();
-    if (isPlaying && !wasPlaying) armInitialSync();
+    if (isPlaying && !_wasPlaying) {
+      armInitialSync();
+    }
     if (!isPlaying) {
       clearManagedTimer('initial-sync-arm');
-      needsInitialSync = false;
+      _needsInitialSync = false;
     }
-    wasPlaying = isPlaying;
+    _wasPlaying = isPlaying;
   };
   bus.on('state:playback.mode', syncInitialArmFromPlayback);
   bus.on('state:playback.activity', syncInitialArmFromPlayback);
+
+  // Host seek/play while already playing (mode/activity may not change)
   bus.on('sync:arm-initial', armInitialSync);
 
+  // Clean up sync state when session ends
   bus.on('state:network.sessionCode', (code: unknown) => {
     if (!code) {
       resetSyncClockRuntime();
-      wasPlaying = false;
+      _wasPlaying = false;
     }
   });
 
-  bus.on('sync:nudge', (milliseconds) => {
-    if (!Number.isFinite(milliseconds)) return;
+  // Bus event handlers for UI-triggered sync actions
+  bus.on('sync:nudge', (ms) => {
+    if (!Number.isFinite(ms)) return;
     if (!canApplyManualSyncAction()) {
       rejectManualSyncAction();
       return;
     }
     if (isPlaybackModeYouTube()) {
-      adjustYouTubeSync(milliseconds / 1_000);
-    } else {
-      adjustSync(milliseconds / 1_000);
+      adjustYouTubeSync(ms / 1000);
+      return;
     }
+    adjustSync(ms / 1000);
   });
 
   bus.on('sync:auto-sync', () => {
@@ -611,23 +687,53 @@ export function initSync(): void {
     handleAutoSync();
   });
 
-  // Remote-share completion can request an out-of-band ping rather than wait
-  // for the next worker tick.
-  bus.on('sync:request-immediate-ping', sendImmediatePing);
+  // Fire an out-of-band SYNC_PING immediately. Used by remote-share's
+  // first-load bootstrap path so the SYNC_PONG response can kickstart
+  // playback at the host's current position before the next 1s worker
+  // tick. Without this, a fresh remote guest who finished decoding
+  // AFTER the host's MSG.PLAY had already fired would wait up to 1s
+  // before bootstrap fires.
+  bus.on('sync:request-immediate-ping', () => {
+    const hostConn = getState('network.hostConn');
+    if (!hostConn || !hostConn.open) return;
+    const pingId = ++_syncPingCounter;
+    registerPing(pingId);
+    try {
+      hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
+    } catch {
+      /* noop */
+    }
+  });
 
-  // Long background resume forces the next valid PONG to re-lock playback even
-  // when drift is below the ordinary hard-correction threshold.
+  // Long background resume recovery: force the next valid SYNC_PONG to
+  // re-lock local-file playback even when drift is under the normal 2s
+  // correction threshold.
   bus.on('sync:force-resync', () => {
     const hostConn = getState('network.hostConn');
     if (!hostConn?.open) return;
     resetClockSamples();
-    needsInitialSync = true;
-    sendImmediatePing();
+    _needsInitialSync = true;
+    bus.emit('sync:request-immediate-ping');
   });
 
+  // sync:display-update handler is in player-controls.ts (UI module) to maintain
+  // network → UI separation. This module only emits the event.
+
+  // Worker tick handler: Guest sends unified SYNC_PING to host
   bus.on('worker:timer-tick', (id) => {
     bus.emit('sync:diagnostic-worker-tick', id);
-    if (id === 'sync') sendImmediatePing();
+    const hostConn = getState('network.hostConn');
+    if (!hostConn || !hostConn.open) return;
+
+    if (id === 'sync') {
+      const pingId = ++_syncPingCounter;
+      registerPing(pingId);
+      try {
+        hostConn.send({ type: MSG.SYNC_PING, pingId, guestTime: Date.now() });
+      } catch {
+        /* noop */
+      }
+    }
   });
 
   log.info('[Sync] Handlers registered');

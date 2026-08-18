@@ -4,19 +4,11 @@ import { transformWithEsbuild } from 'vite';
 
 export const SERVICE_WORKER_SOURCE_PATH = 'browser/service-worker.ts';
 export const SERVICE_WORKER_OUTPUT_PATH = 'service-worker.js';
-export const SERVICE_WORKER_CACHE_VERSION = 'v450';
-export const CLASSIC_BOOTSTRAP_CACHE_VERSION = 'v449';
+export const SERVICE_WORKER_CACHE_VERSION = 'v451';
 export const SERVICE_WORKER_CACHE_VERSION_SENTINEL = '__MUSIXQUARE_CACHE_VERSION__';
 export const BUILD_ENTRY_ASSETS_MARKER = '/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */';
 export const OPTIONAL_PRIMARY_FONT_ASSETS_MARKER =
   '/* __MUSIXQUARE_OPTIONAL_PRIMARY_FONT_ASSETS__ */';
-
-const CLASSIC_BOOTSTRAP_PUBLIC_URL = `/bootstrap.js?cache=${CLASSIC_BOOTSTRAP_CACHE_VERSION}`;
-const CLASSIC_BOOTSTRAP_CACHE_KEY = `.${CLASSIC_BOOTSTRAP_PUBLIC_URL}`;
-const CLASSIC_BOOTSTRAP_SOURCE_DECLARATION =
-  `const BOOTSTRAP_CACHE_KEY = '${CLASSIC_BOOTSTRAP_CACHE_KEY}';`;
-const COMPILED_BOOTSTRAP_DECLARATION =
-  'const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;';
 
 export interface ServiceWorkerAssetManifest {
   readonly buildEntryAssets: readonly string[];
@@ -27,8 +19,6 @@ export interface CompiledServiceWorkerAsset extends ServiceWorkerAssetManifest {
   readonly sourcePath: typeof SERVICE_WORKER_SOURCE_PATH;
   readonly outputPath: typeof SERVICE_WORKER_OUTPUT_PATH;
   readonly cacheVersion: typeof SERVICE_WORKER_CACHE_VERSION;
-  readonly bootstrapCacheVersion: typeof CLASSIC_BOOTSTRAP_CACHE_VERSION;
-  readonly bootstrapCacheKey: typeof CLASSIC_BOOTSTRAP_CACHE_KEY;
   readonly code: string;
 }
 
@@ -67,19 +57,6 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-function assertClassicBootstrapBoundary(source: string, appHtml: string): void {
-  assertSingleMarker(
-    source,
-    CLASSIC_BOOTSTRAP_SOURCE_DECLARATION,
-    'classic-bootstrap cache declaration',
-  );
-  assertSingleMarker(
-    appHtml,
-    `<script src="${CLASSIC_BOOTSTRAP_PUBLIC_URL}"></script>`,
-    'classic-bootstrap HTML reference',
-  );
-}
-
 export async function assertServiceWorkerSourceCompleteness(repoRoot: string): Promise<void> {
   const sourcePath = path.resolve(repoRoot, SERVICE_WORKER_SOURCE_PATH);
   const sourceStat = await stat(sourcePath);
@@ -103,28 +80,10 @@ export async function assertServiceWorkerSourceCompleteness(repoRoot: string): P
     );
   }
 
-  const [source, appHtml] = await Promise.all([
-    readFile(sourcePath, 'utf8'),
-    readFile(path.resolve(repoRoot, 'index.html'), 'utf8'),
-  ]);
+  const source = await readFile(sourcePath, 'utf8');
   assertSingleMarker(source, SERVICE_WORKER_CACHE_VERSION_SENTINEL, 'cache-version sentinel');
   assertSingleMarker(source, BUILD_ENTRY_ASSETS_MARKER, 'build manifest marker');
   assertSingleMarker(source, OPTIONAL_PRIMARY_FONT_ASSETS_MARKER, 'optional font manifest marker');
-  assertClassicBootstrapBoundary(source, appHtml);
-}
-
-function projectIndependentCacheIdentifiers(source: string): string {
-  const appCacheSource = source.replace(/\bCACHE_VERSION\b/gu, 'SERVICE_WORKER_CACHE_VERSION');
-  assertSingleMarker(
-    appCacheSource,
-    CLASSIC_BOOTSTRAP_SOURCE_DECLARATION,
-    'classic-bootstrap cache declaration',
-  );
-
-  return appCacheSource.replace(
-    CLASSIC_BOOTSTRAP_SOURCE_DECLARATION,
-    `const CACHE_VERSION = '${CLASSIC_BOOTSTRAP_CACHE_VERSION}';\n${COMPILED_BOOTSTRAP_DECLARATION}`,
-  );
 }
 
 export function injectServiceWorkerSource(
@@ -143,7 +102,7 @@ export function injectServiceWorkerSource(
   const optionalManifest = manifest.optionalPrimaryFontAssets
     .map((asset) => JSON.stringify(asset))
     .join(',\n  ');
-  return projectIndependentCacheIdentifiers(source)
+  return source
     .replace(SERVICE_WORKER_CACHE_VERSION_SENTINEL, SERVICE_WORKER_CACHE_VERSION)
     .replace(BUILD_ENTRY_ASSETS_MARKER, buildManifest)
     .replace(OPTIONAL_PRIMARY_FONT_ASSETS_MARKER, optionalManifest);
@@ -163,30 +122,14 @@ export function assertServiceWorkerJavaScript(code: string): void {
   ]) {
     if (code.includes(marker)) throw new Error(`Service-worker output retains sentinel: ${marker}`);
   }
-
-  const appCacheVersionMatches = [
-    ...code.matchAll(
-      /\bconst\s+SERVICE_WORKER_CACHE_VERSION\s*=\s*['"](v\d+)['"]\s*;/gu,
-    ),
-  ];
-  if (
-    appCacheVersionMatches.length !== 1 ||
-    appCacheVersionMatches[0]?.[1] !== SERVICE_WORKER_CACHE_VERSION
-  ) {
-    throw new Error('Service-worker output does not contain the canonical app-shell cache version.');
-  }
-
-  const bootstrapVersionMatches = [
+  const cacheVersionMatches = [
     ...code.matchAll(/\bconst\s+CACHE_VERSION\s*=\s*['"](v\d+)['"]\s*;/gu),
   ];
   if (
-    bootstrapVersionMatches.length !== 1 ||
-    bootstrapVersionMatches[0]?.[1] !== CLASSIC_BOOTSTRAP_CACHE_VERSION ||
-    !code.includes(COMPILED_BOOTSTRAP_DECLARATION)
+    cacheVersionMatches.length !== 1 ||
+    cacheVersionMatches[0]?.[1] !== SERVICE_WORKER_CACHE_VERSION
   ) {
-    throw new Error(
-      'Service-worker output does not contain the canonical classic-bootstrap cache boundary.',
-    );
+    throw new Error('Service-worker output does not contain the canonical CACHE_VERSION.');
   }
   Function(code);
 }
@@ -215,8 +158,6 @@ export async function compileServiceWorkerAsset(
     sourcePath: SERVICE_WORKER_SOURCE_PATH,
     outputPath: SERVICE_WORKER_OUTPUT_PATH,
     cacheVersion: SERVICE_WORKER_CACHE_VERSION,
-    bootstrapCacheVersion: CLASSIC_BOOTSTRAP_CACHE_VERSION,
-    bootstrapCacheKey: CLASSIC_BOOTSTRAP_CACHE_KEY,
     buildEntryAssets: manifest.buildEntryAssets,
     optionalPrimaryFontAssets: manifest.optionalPrimaryFontAssets,
     code: transformed.code,

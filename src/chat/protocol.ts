@@ -690,7 +690,7 @@ function handleChatBotResult(data: Record<string, unknown>, conn: DataConnection
 
 function handleChatMute(data: Record<string, unknown>, conn?: DataConnection): void {
   // Host should never receive a raw chat-mute — legitimate path is the
-  // host's own REQUEST_CHAT_COMMAND 'mute' branch in network/sync.ts, which
+  // host's own REQUEST_CHAT_COMMAND 'mute' branch in network/room-control.ts, which
   // calls setState + broadcast directly. A raw frame at host with
   // targetId === hostId triggers a fake muted-state UI flip + spams
   // addSystemChatMessage. isFromHost on host returns true (no hostConn),
@@ -745,7 +745,7 @@ function handleChatUnfreeze(_data: Record<string, unknown>, conn?: DataConnectio
 
 function handleChatClear(_data: Record<string, unknown>, conn?: DataConnection): void {
   // Host should never receive a raw chat-clear — legitimate path is the
-  // host's own REQUEST_CHAT_COMMAND 'clear' branch in network/sync.ts, which
+  // host's own REQUEST_CHAT_COMMAND 'clear' branch in network/room-control.ts, which
   // calls bus.emit('chat:clear-all') directly. A single raw frame at
   // host wipes the host's entire chat UI. isFromHost on host returns
   // true (no hostConn), so the guest-side guard alone doesn't cover us.
@@ -823,7 +823,7 @@ function handleChatNotice(data: Record<string, unknown>, conn?: DataConnection):
   const hostConn = getState('network.hostConn');
 
   // Host should never receive a raw CHAT_NOTICE — the legitimate notice
-  // path is REQUEST_CHAT_COMMAND → sync.ts:handleRequestChatCommand →
+  // path is REQUEST_CHAT_COMMAND → room-control.ts:handleRequestChatCommand →
   // broadcast. A raw CHAT_NOTICE arriving at the host is a spoofing attempt.
   if (!hostConn) return;
 

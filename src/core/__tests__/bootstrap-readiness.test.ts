@@ -7,7 +7,7 @@ import {
 
 describe('BootstrapReadinessLedger', () => {
   it('reports ready only after every observed step succeeds', async () => {
-    const ledger = new BootstrapReadinessLedger([]);
+    const ledger = new BootstrapReadinessLedger();
 
     expect(ledger.runSync('Platform', () => 'platform')).toEqual({
       ok: true,
@@ -24,32 +24,12 @@ describe('BootstrapReadinessLedger', () => {
       succeeded: 2,
       failures: [],
       fallbacks: [],
-      missingRequired: [],
     });
     expect(formatBootstrapReadinessSummary(snapshot)).toBe('[App] Bootstrap wiring ready (2/2)');
   });
 
-  it('degrades when a required initializer was never observed', () => {
-    const ledger = new BootstrapReadinessLedger(['Platform', 'Dialog']);
-
-    ledger.runSync('Platform', () => undefined);
-
-    const snapshot = ledger.snapshot();
-    expect(snapshot).toMatchObject({
-      state: 'degraded',
-      total: 1,
-      succeeded: 1,
-      failures: [],
-      fallbacks: [],
-      missingRequired: ['Dialog'],
-    });
-    expect(formatBootstrapReadinessSummary(snapshot)).toBe(
-      '[App] Bootstrap wiring degraded (1/1; 0 failed, 0 fallback, 1 missing): missing: Dialog',
-    );
-  });
-
   it('records a sync failure without throwing or preventing the next step', () => {
-    const ledger = new BootstrapReadinessLedger([]);
+    const ledger = new BootstrapReadinessLedger();
     const error = new Error('dialog failed');
     const laterInit = vi.fn();
 
@@ -66,12 +46,11 @@ describe('BootstrapReadinessLedger', () => {
       succeeded: 1,
       failures: [{ name: 'Dialog', phase: 'sync', status: 'failure' }],
       fallbacks: [],
-      missingRequired: [],
     });
   });
 
   it('records an async rejection and preserves failure order across phases', async () => {
-    const ledger = new BootstrapReadinessLedger([]);
+    const ledger = new BootstrapReadinessLedger();
     const asyncError = new Error('i18n failed');
     const onFailure = vi.fn();
 
@@ -97,13 +76,13 @@ describe('BootstrapReadinessLedger', () => {
     expect(snapshot.total).toBe(3);
     expect(snapshot.succeeded).toBe(1);
     expect(formatBootstrapReadinessSummary(snapshot)).toBe(
-      '[App] Bootstrap wiring degraded (1/3; 2 failed, 0 fallback, 0 missing): ' +
+      '[App] Bootstrap wiring degraded (1/3; 2 failed, 0 fallback): ' +
         'failed: Platform[sync], I18n[async]',
     );
   });
 
   it('updates a successful worker to one deduplicated fallback outcome', () => {
-    const ledger = new BootstrapReadinessLedger([]);
+    const ledger = new BootstrapReadinessLedger();
 
     expect(ledger.recordSuccess('SyncWorker', 'worker')).toBe(true);
     expect(ledger.recordFallback('SyncWorker', 'worker')).toBe(true);
@@ -116,10 +95,9 @@ describe('BootstrapReadinessLedger', () => {
       succeeded: 0,
       failures: [],
       fallbacks: [{ name: 'SyncWorker', phase: 'worker', status: 'fallback' }],
-      missingRequired: [],
     });
     expect(formatBootstrapReadinessSummary(snapshot)).toBe(
-      '[App] Bootstrap wiring degraded (0/1; 0 failed, 1 fallback, 0 missing): ' +
+      '[App] Bootstrap wiring degraded (0/1; 0 failed, 1 fallback): ' +
         'fallback: SyncWorker[worker]',
     );
   });

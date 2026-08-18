@@ -1,5 +1,3 @@
-import { BOOTSTRAP_REQUIRED_STEPS } from './bootstrap-contract.ts';
-
 type BootstrapStepPhase = 'sync' | 'async' | 'worker' | 'orchestration';
 type BootstrapStepStatus = 'success' | 'failure' | 'fallback';
 type BootstrapWiringState = 'ready' | 'degraded';
@@ -16,7 +14,6 @@ export interface BootstrapReadinessSnapshot {
   succeeded: number;
   failures: BootstrapStepOutcome[];
   fallbacks: BootstrapStepOutcome[];
-  missingRequired: string[];
 }
 
 type BootstrapStepRunResult<T> = { ok: true; value: T } | { ok: false; error: unknown };
@@ -25,18 +22,9 @@ type BootstrapStepRunResult<T> = { ok: true; value: T } | { ok: false; error: un
  * Observe bootstrap wiring without deciding product behavior. Failed steps are
  * recorded and returned to the caller, which retains the existing log-and-
  * continue policy.
- *
- * A caller may provide the complete required-step contract. Missing required
- * steps then degrade readiness even when every observed initializer succeeded,
- * preventing an accidentally omitted initializer from looking healthy.
  */
 export class BootstrapReadinessLedger {
   private readonly outcomes = new Map<string, BootstrapStepOutcome>();
-  private readonly requiredSteps: readonly string[];
-
-  constructor(requiredSteps: readonly string[] = BOOTSTRAP_REQUIRED_STEPS) {
-    this.requiredSteps = [...requiredSteps];
-  }
 
   runSync<T>(
     name: string,
@@ -70,18 +58,13 @@ export class BootstrapReadinessLedger {
     const failures = outcomes.filter((outcome) => outcome.status === 'failure');
     const fallbacks = outcomes.filter((outcome) => outcome.status === 'fallback');
     const succeeded = outcomes.filter((outcome) => outcome.status === 'success').length;
-    const missingRequired = this.requiredSteps.filter((name) => !this.outcomes.has(name));
 
     return {
-      state:
-        failures.length > 0 || fallbacks.length > 0 || missingRequired.length > 0
-          ? 'degraded'
-          : 'ready',
+      state: failures.length > 0 || fallbacks.length > 0 ? 'degraded' : 'ready',
       total: outcomes.length,
       succeeded,
       failures,
       fallbacks,
-      missingRequired,
     };
   }
 
@@ -130,15 +113,11 @@ export function formatBootstrapReadinessSummary(snapshot: BootstrapReadinessSnap
   if (snapshot.fallbacks.length > 0) {
     details.push(`fallback: ${formatOutcomeNames(snapshot.fallbacks)}`);
   }
-  if (snapshot.missingRequired.length > 0) {
-    details.push(`missing: ${snapshot.missingRequired.join(', ')}`);
-  }
 
   return (
     `[App] Bootstrap wiring degraded ` +
     `(${snapshot.succeeded}/${snapshot.total}; ` +
-    `${snapshot.failures.length} failed, ${snapshot.fallbacks.length} fallback, ` +
-    `${snapshot.missingRequired.length} missing): ` +
+    `${snapshot.failures.length} failed, ${snapshot.fallbacks.length} fallback): ` +
     details.join('; ')
   );
 }

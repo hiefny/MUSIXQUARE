@@ -38,22 +38,6 @@ such as `v226` means "the 226th app-shell cache boundary," not
 requires existing clients to migrate. `guard:sw-cache-version` independently
 checks its history and monotonicity.
 
-## Classic bootstrap asset revision
-
-The query revision on `/bootstrap.js`, declared by the classic script URL in
-`index.html` and mirrored by `BOOTSTRAP_CACHE_KEY` in the service worker, is a
-separate immutable-asset identity. It changes only when the emitted bootstrap
-script changes. An app-shell module-graph refactor may therefore advance the
-service-worker cache epoch while retaining the existing bootstrap asset
-revision.
-
-The two values must agree only within their own boundary: `index.html` and the
-service worker must request the same bootstrap URL, while the app-shell cache
-name must use the current `SERVICE_WORKER_CACHE_VERSION`. Tests enforce both
-relationships without requiring the two independent revisions to be
-numerically equal. This keeps app-shell migration and classic-bootstrap cache
-invalidation independently auditable.
-
 ## API, protocol, and storage schemas
 
 OpenAPI `info.version`, URL majors such as `/v1`, frame versions, D1 schema

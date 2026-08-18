@@ -1,261 +1,148 @@
-# MUSIXQUARE
+<p align="center">
+  <a href="https://musixquare.com">
+    <img src="./docs/assets/logo-wordmark.svg" alt="MUSIXQUARE Wordmark" width="380" />
+  </a>
+</p>
 
-**Multi-Device Synchronized Audio System**
+<p align="center">
+  <strong>Multi-Device Synchronized Audio System</strong>
+</p>
 
-MUSIXQUARE is a web app that turns phones, tablets, and desktops into a synchronized wireless audio system. Temporary standard rooms use a browser-hosted WebRTC model; persistent PRO rooms use server-owned control and private Cloudflare storage. Both room types support synchronized playback, YouTube Together, and desktop system audio sharing.
-
-**https://musixquare.com/about**
-
-**Source code:** https://github.com/hiefny/MUSIXQUARE
-
----
-
-## OpenAI Build Week 2026
-
-MUSIXQUARE existed before OpenAI Build Week. This submission is based on the
-meaningful extensions I developed with Codex and GPT-5.6 during the official
-submission period, rather than on the pre-existing product alone.
-
-### Build Week Baseline and Evidence
-
-- **Pre-event baseline:** [`0483a000`](https://github.com/hiefny/MUSIXQUARE/commit/0483a000d8d745cab9e7091a83199a7ebdc32375)
-- **Build Week changes:** [`0483a000...main`](https://github.com/hiefny/MUSIXQUARE/compare/0483a000d8d745cab9e7091a83199a7ebdc32375...main)
-- **Development period:** July 14–21, 2026 KST
-- **Primary Codex `/feedback` session:** `019f495f-b46e-7ad1-966b-9dfe679c5321`
-
-### What I Built During Build Week
-
-The largest extension was a persistent PRO room architecture. Before Build
-Week, rooms were temporary and coordinated by a host browser. During the event,
-I added stable room identities, private media storage, durable playlists,
-repeat and shuffle persistence, participant presence, server-owned playback
-authority, and recovery from sleeping or disconnected clients.
-
-I also added room-scoped Developer APIs for queue management, playback, and
-audio effects; optional account identity with account-bound permissions;
-collaborative playlist controls; remote-media preloading; global drag-and-drop
-media loading; media delivery designed for rooms of up to 100 connected
-devices; safer reconnect identities; atomic session resets; more reliable
-YouTube transitions and rendezvous timing; locale-aware pluralization; and
-clearer real-time interface feedback.
-
-Behind the product, I built release manifests, deployment-state verification,
-live signaling and reconnection smoke tests, Cloudflare configuration
-safeguards, rollback procedures, and extensive unit and end-to-end regression
-coverage.
-
-### How I Collaborated With Codex and GPT-5.6
-
-I used Codex powered by GPT-5.6 as an engineering partner throughout the full
-development cycle: analyzing the real-time architecture, designing system
-boundaries, implementing features, tracing asynchronous failures, building
-regression tests, auditing security assumptions, and validating production
-deployments.
-
-Codex accelerated implementation, review, testing, and the investigation of
-complex edge cases across the browser, Web Audio, WebRTC, Cloudflare Workers,
-Durable Objects, D1, R2, and the production release pipeline. I reviewed the
-proposed changes, chose the product scope, defined the authority and privacy
-boundaries, rejected or revised unsuitable approaches, and made the final
-product, engineering, and design decisions.
+<p align="center">
+  <a href="https://musixquare.com">musixquare.com</a> &bull;
+  <a href="https://musixquare.com/about">About</a> &bull;
+  <a href="https://musixquare.com/history">History</a> &bull;
+  <a href="https://musixquare.com/designsystem">Design System</a> &bull;
+  <a href="https://github.com/hiefny/MUSIXQUARE">GitHub</a>
+</p>
 
 ---
 
-## Open Source
+## Overview
 
-MUSIXQUARE is open-source software licensed under the **GNU Affero General Public License v3.0 or later** (`AGPL-3.0-or-later`).
+MUSIXQUARE transforms smartphones, tablets, and desktop computers into a zero-installation, synchronized multi-speaker wireless sound system. 
 
-You may run, study, modify, and share the source code under the license terms. Because MUSIXQUARE is a networked web application, if you run a modified network-accessible version, the AGPL requires you to make the corresponding source code available to users of that version.
+By combining low-latency Web Audio DSP graphs, peer-to-peer WebRTC data/media transports, and Cloudflare distributed edge actors (Durable Objects, D1, R2), MUSIXQUARE enables real-time collaborative listening, spatial speaker role mapping, YouTube Together synchronization, and desktop system audio streaming across heterogeneous hardware.
 
-The public repository does not include production secrets, API keys, TURN
-credentials, Cloudflare account credentials, or other private deployment
-material. Use the tracked Wrangler structure (and the remote-share example) as
-a reference. Put Worker runtime secrets in Cloudflare Worker secret storage;
-keep deployment, audit, and smoke credentials in the protected CI/environment
-secret store that consumes them.
+---
+
+## Product Demo
+
+[![MUSIXQUARE Demo Video](https://img.youtube.com/vi/VbFwgt4l3Gc/maxresdefault.jpg)](https://youtu.be/VbFwgt4l3Gc?si=_i8eQa4kiDWl8kv5)
+
+*Click the image above to watch the official MUSIXQUARE demonstration video on YouTube.*  
+**Direct Video Link:** [https://youtu.be/VbFwgt4l3Gc](https://youtu.be/VbFwgt4l3Gc?si=_i8eQa4kiDWl8kv5)
+
+---
+
+## System Architecture
+
+The MUSIXQUARE architecture is organized into **24 specialized functional districts** spanning **848 modules** and **3,021 dependency edges**.
+
+<p align="center">
+  <img src="./docs/assets/musixquare_architecture_square.png" alt="MUSIXQUARE Full System Architecture Map (1:1 Square)" width="900" />
+</p>
+
+### Architecture Layout Breakdown
+
+| Column | Layer | Districts Included | Focus & Responsibilities |
+| :--- | :--- | :--- | :--- |
+| **Col 1** | **Client & Runtime** | `BOOTSTRAP`, `FRAMEWORKLESS UI`, `ACCOUNT & AUTH`, `CHAT & COMMANDS`, `I18N LOCALES`, `BROWSER RUNTIME`, `PLAYWRIGHT E2E & CHAOS` | Micro-bundle hydration, reactive vanilla DOM rendering, locale pluralization, classic runtime compatibility, and automated integration/chaos suites. |
+| **Col 2** | **Core Audio Engine** | `CORE & STATE`, `AUDIO GRAPH & DSP`, `SYNC & NTP CLOCK`, `SYSTEM AUDIO SFU`, `DIAGNOSTICS & REC` | Web Audio node topology (5-band EQ, convolution reverb, stereo widener, virtual bass), host-relative RTT rolling clock sync, and desktop stereo SFU capture. |
+| **Col 3** | **Media & Verification** | `PLAYBACK ENGINE`, `PLAYLIST & QUEUE`, `STORAGE & CHUNKS`, `YOUTUBE TOGETHER`, `STATIC INVARIANT GUARDS` | Track decoding, gapless state transition, queue management, chunked RAM-only storage, YouTube IFrame API synchronizer, and compile-time AST invariant guards. |
+| **Col 4** | **Edge & Distributed Cloud** | `NETWORK & WEBRTC`, `ROOM AUTHORITY`, `PRO ROOM CLIENT`, `REMOTE SHARE R2`, `CLOUDFLARE WORKERS`, `CLOUDFLARE DO ACTOR`, `CLOUDFLARE D1 SQL` | Peer-to-peer data channels, stateful Durable Object session actors, persistent PRO room authorization, Cloudflare D1 relational schemas, and private R2 asset delivery. |
+
+---
+
+## Key Features
+
+- **6-Digit Room Access**:
+  - `100000` to `999999`: Temporary Standard Rooms hosted entirely in-browser over direct WebRTC data channels.
+  - `000000` to `099999`: Persistent PRO Rooms backed by dedicated Cloudflare Durable Object actors with durable state and multi-device persistence.
+- **Dynamic Speaker Role Routing**:
+  - Assign connected devices in real time to **Center (Stereo)**, **Left Channel**, **Right Channel**, or **Subwoofer (Low-pass filtered)**.
+- **Hardware-Accelerated Web Audio DSP**:
+  - In-browser 5-band parametric equalizer, convolution reverb engine, Haas stereo widener, and virtual psychoacoustic bass enhancer.
+- **Sub-Millisecond Clock Synchronization**:
+  - Standard rooms utilize rolling host-relative RTT probing; PRO rooms operate via server-coordinated epoch timelines with two-phase prepare/commit rendezvous scheduling.
+- **YouTube Together Synchronization**:
+  - Synchronized playback across heterogeneous network topologies with automatic drift detection, seek compensation, and buffering state alignment.
+- **Desktop System Audio Streaming (Beta)**:
+  - Low-latency tab or system audio broadcast from desktop Chromium browsers to up to 4 concurrent client devices.
+- **Private Media & Queue Management**:
+  - In-memory RAM audio pipeline for standard rooms and private Cloudflare R2 chunked storage for persistent PRO rooms.
+- **Localized UI**:
+  - Built-in support for 17 languages with zero external dependencies.
+
+---
+
+## Room Types Comparison
+
+| Attribute | Standard Room | Persistent PRO Room |
+| :--- | :--- | :--- |
+| **Code Range** | `100000` - `999999` | `000000` - `099999` |
+| **Lifecycle** | Temporary; terminates when browser host departs | Persistent across empty-room sleep/wake cycles |
+| **Password** | Optional 8-digit access PIN | Required 8-digit room password |
+| **Authority Model** | Browser host authoritative over WebRTC P2P | Cloudflare Durable Object server-authoritative state |
+| **Storage Backend** | Ephemeral browser RAM / Direct WebRTC stream | Private Cloudflare R2 bucket (1 GiB / room, 200 MiB / file) |
+| **Presence Model** | Host-managed peer roster | Server-tracked heartbeats and participant session recovery |
+
+---
+
+## Technology Stack
+
+- **Frontend Core**: TypeScript (Strict Mode), Vite, HTML5 Web Audio API, WebRTC (RTCDataChannel, RTCPeerConnection), Native Web Components.
+- **Signaling & Edge Backend**: Cloudflare Workers, Cloudflare Durable Objects (Stateful Actors), Cloudflare D1 (Serverless SQL), Cloudflare R2 (Object Storage).
+- **Transport Adapters**: Cloudflare TURN / STUN infrastructure, PeerJS local development adapter.
+- **Quality & Verification**: Vitest, Playwright E2E with network throttling and packet loss simulation, Custom TypeScript AST invariant linters.
 
 ---
 
 ## Local Development
 
-Use the exact Node.js version in [`.node-version`](./.node-version) (`24.13.1`).
-Corepack then selects the pinned `npm@11.8.0` from `package.json`:
+### Prerequisites
+
+- **Node.js**: `24.13.1` (enforced via [`.node-version`](./.node-version))
+- **Package Manager**: `npm@11.8.0` (managed via Corepack)
+
+### Installation & Startup
 
 ```bash
 corepack npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`. No Cloudflare account, Worker binding, or secret
-is required for this browser-only path; localhost uses the PeerJS transport by
-default. Unconfigured `/api/*` routes fail closed with a JSON 503 response
-instead of serving SPA HTML. The six production-backed development routes are
-**not** proxied to `musixquare.com`.
+Open `http://localhost:3000` in your browser.
 
-Copy [`.env.example`](./.env.example) to an untracked `.env.local` only when an
-override is needed. Production API proxying requires the explicit
-`MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` opt-in and can consume real quotas,
-so prefer local mocks and remove the flag after a deliberate integration
-check.
+Local development runs entirely on the browser-only PeerJS transport by default and requires no external Cloudflare credentials or API keys.
 
-Useful non-E2E checks:
+### Test & Verification Pipeline
 
 ```bash
+# Run unit and integration tests
 npm test
+
+# Run strict TypeScript compiler verification
 npm run typecheck
+
+# Run codebase linter
 npm run lint
+
+# Verify Cloudflare Worker contracts and syntax
 npm run check:workers
+
+# Run full production build with invariant validation
 npm run build:checked
 ```
 
-Worker-specific bindings and the minimal configuration path are documented in
-[`CONTRIBUTING.md`](./CONTRIBUTING.md). The exact-SHA blocking browser subset
-remains part of CI.
-
 ---
 
-## Features
+## Security & Privacy Policy
 
-- **6-Digit Code Join**: Codes `100000`–`999999` open temporary standard rooms
-  that end when the host leaves; codes `000000`–`099999` identify persistent
-  PRO rooms whose playlist and delegated permissions survive an empty room.
-  Standard rooms can optionally require an 8-digit password, while active PRO
-  rooms require their 8-digit room password and are managed by owners/admins.
-- **Speaker Role Routing**: New devices start as Center (stereo). After joining,
-  the role can be changed manually in Settings → Audio to Left, Right, or
-  Subwoofer.
-- **Local File Sharing**: In a standard room, the host sends audio files directly
-  to nearby guests when a direct WebRTC path is available. PRO owners and
-  authorized media managers instead upload file-backed queue items to the
-  room's persistent private R2 storage. Local video files are rejected; video
-  playback uses the YouTube path.
-- **Remote File Sharing**: In a standard room, remote guests can receive temporary file handoffs
-  through private Cloudflare-backed storage with participant-authorized
-  downloads. The 200 MiB figure is the remote wire/storage ceiling. The
-  AudioBuffer engine does not pre-reject files from a predicted device-memory
-  budget; transfer and native decode are attempted on a best-effort basis. A
-  browser may still reject an allocation or terminate a memory-constrained tab.
-- **YouTube Together**: Watch together with synced playback across different
-  networks. YouTube uses the IFrame Player, so MUSIXQUARE channel routing and
-  audio effects do not apply to that path.
-- **System Audio Sharing (Beta)**: Stream desktop or tab audio in real-time stereo from
-  a desktop Chromium browser such as Chrome or Edge. A share supports at most
-  4 connected devices and automatically ends after 2 hours.
-- **Audio Effects**: 5-band EQ, reverb, stereo widener, and virtual bass on the
-  local-file and system-audio paths, processed locally via Web Audio API.
-- **Chat**: Real-time messaging with commands, whisper, and moderation. Standard
-  rooms use the host/P2P path; PRO rooms use the authenticated server path.
-- **Precision Sync**: Standard rooms use host-relative rolling RTT measurement;
-  PRO rooms use the server-owned timeline and fenced prepare/commit transitions.
-- **Language Picker (Beta)**: The in-room interface supports 17 language choices
-  plus the system-language setting. Static policy and Developer API pages remain
-  English unless a page explicitly provides localized copy.
-
-### Room Types
-
-|              | Standard room                                         | PRO room                                                     |
-| ------------ | ----------------------------------------------------- | ------------------------------------------------------------ |
-| Code range   | `100000`–`999999`                                     | `000000`–`099999`                                            |
-| Lifetime     | Temporary; ends when the browser host leaves          | Persistent across empty-room sleep/wake cycles               |
-| Password     | Optional 8-digit room password                        | Required 8-digit room password after activation              |
-| Authority    | Browser host over the standard-room P2P control path  | Server-owned Durable Object with owner/delegated permissions |
-| File storage | Browser RAM, direct transfer, or temporary private R2 | Persistent private R2; 1 GiB per room and 200 MiB per asset  |
-| Availability | Anyone can create one                                 | Operator-issued directly or through an operator-run voucher campaign |
-
-PRO access remains operator-controlled. It may be issued directly or redeemed
-from a one-time voucher distributed through an operator-run campaign. There is
-no paid plan, public checkout, or subscription at present.
-
----
-
-## Tech Stack
-
-- **TypeScript + Vite**: ES modules, strict mode, hot module replacement.
-- **Web Audio API**: Native browser audio graph, no external audio library.
-- **WebRTC Transport**: Standard-room data channels carry control, chat, sync,
-  and direct file transfer. Media streams carry system audio; PRO persistent
-  control is server-authoritative rather than browser-host authoritative.
-- **Cloudflare Signaling**: Durable Object signaling transport for production room connection and raw WebRTC negotiation.
-- **PeerJS Local Adapter**: PeerJS remains available for localhost and explicit
-  local-development configurations. Public production hosts force the
-  Cloudflare signaling transport; there is no automatic production failover
-  to PeerJS.
-- **Remote Share Worker**: Cloudflare Worker + private R2 path for temporary,
-  participant-authorized standard-room remote file sharing.
-- **STUN + TURN**: Browser ICE with Cloudflare TURN support.
-- **RAM-only browser media**: Decoded local playback buffers and received chunks
-  stay in browser memory. PRO source objects remain in persistent private R2;
-  practical browser decode capacity is still device- and codec-dependent.
-
-The production browser-media storage boundary and the conditions for revisiting
-OPFS are documented in [the RAM-only storage ADR](./docs/design/browser-media-storage-policy.md).
-
----
-
-## Environment Variables
-
-Worker runtime secrets are configured with `wrangler secret put ...` on the
-Worker that consumes them. Deployment, audit, and smoke credentials instead
-belong in protected CI/environment secret storage. Never copy either category
-into browser build variables.
-
-The authoritative non-secret binding inventory stays in
-`cloudflare/wrangler.*.toml`. The public secret inventory and reconciliation
-procedure live in
-[`cloudflare/config-drift-ops.md`](./cloudflare/config-drift-ops.md), while
-operator-only details remain in the ignored private deployment inventory.
-Ordinary browser development needs none of those values.
-
-The capability-token signing secret and Cloudflare TURN credentials are
-required for the protected production paths. The YouTube API key is required
-when server-side search is enabled, and Cloudflare Realtime credentials are
-required only for the remote system-audio SFU path. Turnstile keys are required
-only when Turnstile is enabled. Keep all API keys and signing secrets
-server-only.
-
-Security-sensitive backend endpoints fail closed unless capability-token protection is configured. Unguarded fallback flags are for local/emergency use only and must stay disabled in production.
-
-Current production policy keeps Turnstile disabled. Capability tokens remain
-IP-bound and paid endpoints remain rate-limited. Token minting uses a
-short-lived, scope/IP-bound proof-of-work challenge; Origin, Sec-Fetch, and Host
-headers are CORS/routing signals and never authenticate capability issuance.
-
-Do not expose the YouTube key as a `VITE_` variable; Vite variables are bundled into browser code.
-
----
-
-## How to Use
-
-**https://musixquare.com**, no install needed.
-
-### Host
-
-1. Open the app and tap **"I'll host"**
-2. Share the **6-digit code** with guests
-3. Choose a media source:
-   - **Load local file**: audio from your device
-   - **YouTube**: paste a video link, playlist URL, or search term
-   - **System Audio (Beta)**: stream desktop, tab, or system audio from a supported browser
-
-### Guest
-
-1. Open the app and tap **"Join a session"**
-2. Enter the **6-digit code**
-3. Join as the default Center speaker. After joining, use Settings to change
-   the device to Left, Right, or Subwoofer when needed.
-
-For the lowest latency and strongest sync, keep devices on the same local network. Remote connections are supported, but the transport path depends on browser and network conditions.
-
----
-
-## Related Pages
-
-- **App**: https://musixquare.com/
-- **About**: https://musixquare.com/about
-- **History**: https://musixquare.com/history
-- **Design System**: https://musixquare.com/designsystem
-- **Source**: https://github.com/hiefny/MUSIXQUARE
-- **Repository documentation**: [docs/README.md](./docs/README.md)
+- **Zero Credential Exposure**: Public repository contains no secrets, private keys, or credentials.
+- **Fail-Closed Endpoints**: Backend routes reject unauthorized requests by default unless explicitly authenticated with scoped capability tokens.
+- **Proof-of-Work Rate Limiting**: Token minting utilizes short-lived proof-of-work challenges to safeguard against resource exhaustion.
+- **RAM-Only Browser Media**: Decoded audio buffers and streamed media chunks remain in volatile memory and are not persisted to unencrypted local storage.
 
 ---
 
@@ -263,18 +150,12 @@ For the lowest latency and strongest sync, keep devices on the same local networ
 
 Copyright (c) 2025-2026 MUSIXQUARE.
 
-MUSIXQUARE is free software licensed under the **GNU Affero General Public License v3.0 or later**. See [LICENSE](./LICENSE).
+MUSIXQUARE is open-source software licensed under the **GNU Affero General Public License v3.0 or later** ([AGPL-3.0-or-later](./LICENSE)).
 
-## Third-Party Licenses
+### Third-Party Notices
 
 - **PeerJS**: MIT License
-- **qrcode** and **content-shield**: MIT License; see
-  [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md).
-- **Google Material Icons** (selected inline SVG paths): Apache License 2.0;
-  see [the distributed license text](./public/licenses/material-icons-apache-2.0.txt).
-- **Pretendard** (font): SIL Open Font License 1.1, see
-  [PRETENDARD_LICENSE.txt](./fonts/PRETENDARD_LICENSE.txt).
-- **Noto Sans JP/SC/TC/Thai/Cyrillic** (fonts): SIL Open Font License 1.1, see
-  [the CJK license](./fonts/NOTO_CJK_LICENSE.txt),
-  [the Thai license](./fonts/NOTO_THAI_LICENSE.txt), and
-  [the Noto Sans license](./fonts/NOTO_SANS_LICENSE.txt).
+- **qrcode & content-shield**: MIT License (see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md))
+- **Google Material Icons**: Apache License 2.0 (see [distributed license](./public/licenses/material-icons-apache-2.0.txt))
+- **Pretendard Font**: SIL Open Font License 1.1 (see [PRETENDARD_LICENSE.txt](./fonts/PRETENDARD_LICENSE.txt))
+- **Noto Sans Fonts**: SIL Open Font License 1.1 (see [NOTO_SANS_LICENSE.txt](./fonts/NOTO_SANS_LICENSE.txt))

@@ -104,10 +104,8 @@ The MUSIXQUARE architecture is organized into **24 specialized functional distri
 
 ## Local Development
 
-### Prerequisites
-
-- **Node.js**: `24.13.1` (enforced via [`.node-version`](./.node-version))
-- **Package Manager**: `npm@11.8.0` (managed via Corepack)
+Use the exact Node.js version in [`.node-version`](./.node-version) (`24.13.1`).
+Corepack then selects the pinned `npm@11.8.0` from `package.json`:
 
 ### Installation & Startup
 

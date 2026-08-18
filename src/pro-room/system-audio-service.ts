@@ -1,7 +1,7 @@
 import { initAudio, getWidener } from '../audio/engine.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
-import { SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../core/constants.ts';
+import { MAX_SYSTEM_AUDIO_DEVICES, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../core/constants.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
@@ -16,6 +16,18 @@ import {
   updateProSystemAudioSfuPublisherExpiry,
   type ProSystemAudioSfuPublicationDescriptor,
 } from '../network/pro-system-audio-sfu.ts';
+import {
+  activateProSystemAudioDirectPublication,
+  attemptProSystemAudioDirectPublication,
+  configureProSystemAudioDirectTransport,
+  reconcileProSystemAudioDirectTargets,
+  resetProSystemAudioDirectTransport as resetProSystemAudioDirectTransportInternal,
+  type ProSystemAudioDirectFallbackEvent,
+  type ProSystemAudioDirectInboundOfferContext,
+  type ProSystemAudioDirectInboundSignalContext,
+  type ProSystemAudioDirectTarget,
+  type ProSystemAudioDirectTracksReadyEvent,
+} from '../network/pro-system-audio-direct.ts';
 import { cleanupSystemAudioSfuGuestRoute } from '../network/system-audio-sfu.ts';
 import {
   awaitTrustedSystemAudioReceptionBoundary,
@@ -33,7 +45,13 @@ import type { ProRoomApiClient } from './api.ts';
 import type {
   ProRoomSnapshot,
   ProRoomSystemAudioPublication,
+  ProRoomSystemAudioPublicationTrack,
+  ProRoomSystemAudioPublicationTracks,
   ProRoomSystemAudioState,
+} from './contracts.ts';
+import {
+  isProRoomSystemAudioDirectPublication,
+  isProRoomSystemAudioSfuPublication,
 } from './contracts.ts';
 import {
   ProRoomSystemAudioController,
@@ -50,14 +68,18 @@ const LEASE_HEARTBEAT_TIMER = 'pro-system-audio-lease-heartbeat';
 const LEASE_RELEASE_RETRY_TIMER = 'pro-system-audio-lease-release-retry';
 const SUBSCRIBER_RETRY_TIMER = 'pro-system-audio-subscriber-retry';
 const PUBLISHER_RETRY_TIMER = 'pro-system-audio-publisher-retry';
+const DIRECT_PROMOTION_RETRY_TIMER = 'pro-system-audio-direct-promotion-retry';
+const SUBSCRIBER_DISCONNECT_TIMER = 'pro-system-audio-subscriber-disconnect';
 const LEASE_HEARTBEAT_MS = 15_000;
 const RECOVERY_DELAY_MS = 2_500;
+const MAX_DIRECT_TARGETS = MAX_SYSTEM_AUDIO_DEVICES - 1;
 
 let controller: ProRoomSystemAudioController | null = null;
 let latestSnapshot: ProRoomSnapshot | null = null;
 let latestView: ProRoomSystemAudioViewState = idleView();
 let remoteOwnerDisplayName: string | null = null;
 let refreshFlight: Promise<ProRoomSystemAudioState> | null = null;
+let queuedForcedRefresh: Promise<ProRoomSystemAudioState> | null = null;
 let listenersRegistered = false;
 let serviceSessionEpoch = 0;
 const expectedLeaseTransitions = new Map<number, number>();
@@ -75,6 +97,11 @@ let boundSessionKey: string | null = null;
 let leaseHeartbeatFailureNotified = false;
 let subscriberFailureGeneration: number | null = null;
 let localLeaseAttemptOwner: LocalLeaseAttemptOwner | null = null;
+let directPromotionFlight: Promise<void> | null = null;
+let activeLocalDirectPublicationKey: string | null = null;
+let oversizedDirectRefreshFlight: Promise<ProRoomSystemAudioState | void> | null = null;
+let ambiguousDirectPromotionPublicationId: string | null = null;
+let failedSfuPublisherSessionId: string | null = null;
 
 let coordinatorSourceL: MediaStreamAudioSourceNode | null = null;
 let coordinatorSourceR: MediaStreamAudioSourceNode | null = null;
@@ -103,8 +130,21 @@ interface CoordinatorPublicationIdentity {
   ownerParticipantId: string;
   liveExpiresAt: number;
   publicationId: string;
-  sessionId: string;
-  tracks: ProRoomSystemAudioPublication['tracks'];
+  publication: ProRoomSystemAudioPublication;
+}
+
+function clonePublication(
+  publication: ProRoomSystemAudioPublication,
+): ProRoomSystemAudioPublication {
+  return isProRoomSystemAudioSfuPublication(publication)
+    ? {
+        publicationId: publication.publicationId,
+        sessionId: publication.sessionId,
+        tracks: publication.tracks.map((track) => ({
+          ...track,
+        })) as ProRoomSystemAudioPublicationTracks,
+      }
+    : { ...publication };
 }
 
 interface PublisherRecoveryFlight {
@@ -160,10 +200,7 @@ function captureCoordinatorPublicationIdentity(
     ownerParticipantId: state.ownerParticipantId,
     liveExpiresAt: state.liveExpiresAt,
     publicationId: state.publication.publicationId,
-    sessionId: state.publication.sessionId,
-    tracks: state.publication.tracks.map((track) => ({
-      ...track,
-    })) as ProRoomSystemAudioPublication['tracks'],
+    publication: clonePublication(state.publication),
   };
 }
 
@@ -181,31 +218,28 @@ function coordinatorPublicationMatches(
     state.ownerParticipantId !== identity.ownerParticipantId ||
     state.liveExpiresAt !== identity.liveExpiresAt ||
     state.publication.publicationId !== identity.publicationId ||
-    state.publication.sessionId !== identity.sessionId
+    JSON.stringify(state.publication) !== JSON.stringify(identity.publication)
   ) {
     return false;
   }
-  return identity.tracks.every((expected) => {
-    const current = state.publication.tracks.find((track) => track.channel === expected.channel);
-    return (
-      current?.trackName === expected.trackName && (current.mid ?? null) === (expected.mid ?? null)
-    );
-  });
+  return true;
 }
 
 function descriptorMatchesPublication(
   descriptor: ProSystemAudioSfuPublicationDescriptor,
   state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
 ): boolean {
+  const publication = state.publication;
+  if (!isProRoomSystemAudioSfuPublication(publication)) return false;
   if (
     descriptor.generation !== state.generation ||
-    descriptor.sessionId !== state.publication.sessionId ||
+    descriptor.sessionId !== publication.sessionId ||
     descriptor.expiresAt !== state.liveExpiresAt
   ) {
     return false;
   }
   return descriptor.tracks.every((expected) => {
-    const current = state.publication.tracks.find((track) => track.channel === expected.channel);
+    const current = publication.tracks.find((track) => track.channel === expected.channel);
     return (
       current?.trackName === expected.trackName && (current.mid ?? null) === (expected.mid ?? null)
     );
@@ -237,9 +271,113 @@ function localParticipantId(): string | null {
   return latestSnapshot?.viewer?.participantId ?? null;
 }
 
+function directPublicationKey(
+  ownerParticipantId: string,
+  generation: number,
+  publicationId: string,
+): string {
+  return `${ownerParticipantId}:${generation}:${publicationId}`;
+}
+
+function resetProSystemAudioDirectTransport(
+  options: {
+    notifyPeers?: boolean;
+    reason?: 'stopped' | 'fallback' | 'superseded';
+  } = {},
+): void {
+  activeLocalDirectPublicationKey = null;
+  resetProSystemAudioDirectTransportInternal(options);
+}
+
+function rejectOversizedDirectPresence(): void {
+  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
+  if (oversizedDirectRefreshFlight) return;
+  const flight = refreshProSystemAudioState(undefined, true)
+    .catch((error) => log.warn('[PRO SystemAudio] Oversized presence refresh failed', error))
+    .finally(() => {
+      if (oversizedDirectRefreshFlight === flight) oversizedDirectRefreshFlight = null;
+    });
+  oversizedDirectRefreshFlight = flight;
+}
+
 function canPublishProSystemAudioWithCurrentCoordinator(): boolean {
   return Boolean(
     isActiveProRoom() && latestSnapshot?.viewer?.capabilities.includes('playback.control'),
+  );
+}
+
+function currentDirectTargets(): ProSystemAudioDirectTarget[] {
+  const localId = localParticipantId();
+  if (!localId) return [];
+  return (
+    latestSnapshot?.presence.participants
+      .filter((participant) => participant.participantId !== localId)
+      .map((participant) => ({
+        participantId: participant.participantId,
+        routeToken: `joined-at:${participant.joinedAtMs}`,
+      })) ?? []
+  );
+}
+
+function isCurrentPresenceParticipant(participantId: string): boolean {
+  return Boolean(
+    latestSnapshot?.presence.participants.some(
+      (participant) => participant.participantId === participantId,
+    ),
+  );
+}
+
+function authorizeInboundDirectSignal(context: ProSystemAudioDirectInboundSignalContext): boolean {
+  const localId = localParticipantId();
+  if (
+    !isActiveProRoom() ||
+    !localId ||
+    context.targetParticipantId !== localId ||
+    context.senderParticipantId === localId ||
+    !isCurrentPresenceParticipant(context.senderParticipantId)
+  ) {
+    return false;
+  }
+
+  const state = controller?.getCurrentState() ?? null;
+  if (context.direction === 'subscriber') {
+    return Boolean(
+      state &&
+      state.status !== 'idle' &&
+      state.ownerParticipantId === localId &&
+      state.generation === context.generation &&
+      localPublicationId === context.publicationId &&
+      (state.status === 'preparing' ||
+        (isProRoomSystemAudioDirectPublication(state.publication) &&
+          state.publication.publicationId === context.publicationId)),
+    );
+  }
+
+  if (state && state.generation > context.generation) return false;
+  if (!state || state.status === 'idle' || state.generation < context.generation) {
+    // The signaling Worker has already checked the exact active lease owner.
+    // A local invalidation/GET can trail the targeted offer by one task.
+    void refreshProSystemAudioState().catch(() => undefined);
+    return !state || context.generation >= state.generation;
+  }
+  if (
+    state.generation !== context.generation ||
+    state.ownerParticipantId !== context.senderParticipantId
+  ) {
+    return false;
+  }
+  return (
+    state.status === 'preparing' ||
+    (isProRoomSystemAudioDirectPublication(state.publication) &&
+      state.publication.publicationId === context.publicationId)
+  );
+}
+
+function authorizeInboundDirectOffer(context: ProSystemAudioDirectInboundOfferContext): boolean {
+  return (
+    context.direction === 'publisher' &&
+    context.ownerParticipantId === context.senderParticipantId &&
+    authorizeInboundDirectSignal(context)
   );
 }
 
@@ -251,8 +389,7 @@ function coordinatorPublicationKey(identity: CoordinatorPublicationIdentity): st
     identity.ownerParticipantId,
     identity.liveExpiresAt,
     identity.publicationId,
-    identity.sessionId,
-    identity.tracks,
+    identity.publication,
   ]);
 }
 
@@ -290,6 +427,8 @@ function terminateOwnedPublisherRecovery(
       ? 'authoritative-revocation'
       : 'publisher-failed';
   stopProSystemAudioSfuPublisher();
+  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
+  directPromotionFlight = null;
   localPublishFlight = null;
   localTracks = null;
   localPublicationId = null;
@@ -320,8 +459,7 @@ function clearCoordinatorPrimers(): void {
   coordinatorPrimers.clear();
 }
 
-function cleanupCoordinatorGraph(): void {
-  clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
+function cleanupCoordinatorAudioNodes(): void {
   for (const node of [coordinatorSourceL, coordinatorSourceR, coordinatorMerger]) {
     try {
       node?.disconnect();
@@ -332,39 +470,61 @@ function cleanupCoordinatorGraph(): void {
   coordinatorSourceL = null;
   coordinatorSourceR = null;
   coordinatorMerger = null;
+  clearCoordinatorPrimers();
+}
+
+function cleanupCoordinatorGraph(): void {
+  clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
+  clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
+  cleanupCoordinatorAudioNodes();
   coordinatorSubscriptionKey = null;
   coordinatorSubscriptionFlight = null;
-  clearCoordinatorPrimers();
   stopProSystemAudioSfuSubscriber();
   if (getState('playback.mode') === 'system-audio' && !latestView.isLocalOwner) {
     cleanupGuestSystemAudio();
   }
 }
 
+function cleanupCoordinatorSubscriptionForRetry(): void {
+  clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
+  clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
+  cleanupCoordinatorAudioNodes();
+  coordinatorSubscriptionKey = null;
+  coordinatorSubscriptionFlight = null;
+  stopProSystemAudioSfuSubscriber();
+  cleanupSystemAudioSfuGuestRoute();
+}
+
 async function attachCoordinatorTrack(
   identity: CoordinatorPublicationIdentity,
-  descriptorTrack: ProRoomSystemAudioPublication['tracks'][number],
+  descriptorTrack: ProRoomSystemAudioPublicationTrack | null,
   channel: 'L' | 'R',
   track: MediaStreamTrack,
+  isCurrent: () => boolean = () => true,
 ): Promise<void> {
+  if (!isCurrent()) return;
   const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary(
     `pro-sfu-${channel}`,
   );
-  if (!trustedReceptionReady || !coordinatorPublicationMatches(identity)) {
+  if (!trustedReceptionReady || !isCurrent() || !coordinatorPublicationMatches(identity)) {
     return;
   }
   await initAudio();
+  if (!isCurrent()) return;
   const state = controller?.getCurrentState();
   if (
     !coordinatorPublicationMatches(identity, state) ||
-    descriptorTrack.channel !== channel ||
-    !identity.tracks.some(
-      (current) =>
-        current.channel === descriptorTrack.channel &&
-        current.trackName === descriptorTrack.trackName &&
-        (current.mid ?? null) === (descriptorTrack.mid ?? null),
-    ) ||
-    state.ownerParticipantId === localParticipantId()
+    (descriptorTrack !== null &&
+      (!isProRoomSystemAudioSfuPublication(identity.publication) ||
+        descriptorTrack.channel !== channel ||
+        !identity.publication.tracks.some(
+          (current) =>
+            current.channel === descriptorTrack.channel &&
+            current.trackName === descriptorTrack.trackName &&
+            (current.mid ?? null) === (descriptorTrack.mid ?? null),
+        ))) ||
+    state.ownerParticipantId === localParticipantId() ||
+    !isCurrent()
   ) {
     return;
   }
@@ -393,14 +553,40 @@ async function attachCoordinatorTrack(
   source.connect(coordinatorMerger, 0, channel === 'L' ? 0 : 1);
   if (channel === 'L') coordinatorSourceL = source;
   else coordinatorSourceR = source;
-  setSystemAudioReceiving(true);
-  claimPlaybackOwner('system-audio');
-  bus.emit('visualizer:start');
+  if (coordinatorSourceL && coordinatorSourceR) {
+    setSystemAudioReceiving(true);
+    claimPlaybackOwner('system-audio');
+    bus.emit('visualizer:start');
+  }
+}
+
+async function attachDirectCoordinatorTracks(
+  event: ProSystemAudioDirectTracksReadyEvent,
+): Promise<void> {
+  if (!event.isCurrent()) return;
+  const state = controller?.getCurrentState();
+  if (
+    state?.status !== 'live' ||
+    !isProRoomSystemAudioDirectPublication(state.publication) ||
+    state.generation !== event.generation ||
+    state.ownerParticipantId !== event.ownerParticipantId ||
+    state.publication.publicationId !== event.publicationId
+  ) {
+    return;
+  }
+  const identity = captureCoordinatorPublicationIdentity(state);
+  if (!identity || !event.isCurrent() || !coordinatorPublicationMatches(identity, state)) return;
+  await attachCoordinatorTrack(identity, null, 'L', event.leftTrack, event.isCurrent);
+  if (!event.isCurrent() || !coordinatorPublicationMatches(identity)) return;
+  await attachCoordinatorTrack(identity, null, 'R', event.rightTrack, event.isCurrent);
 }
 
 function sfuDescriptor(
   state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
 ): ProSystemAudioSfuPublicationDescriptor {
+  if (!isProRoomSystemAudioSfuPublication(state.publication)) {
+    throw new Error('PRO_SYSTEM_AUDIO_SFU_PUBLICATION_REQUIRED');
+  }
   return {
     version: 1,
     sessionId: state.publication.sessionId,
@@ -410,6 +596,174 @@ function sfuDescriptor(
   };
 }
 
+function stateMatchesSfuPublication(
+  state: ProRoomSystemAudioState,
+  publication: ProRoomSystemAudioPublication,
+): state is Extract<ProRoomSystemAudioState, { status: 'live' }> {
+  if (state.status !== 'live') return false;
+  const currentPublication = state.publication;
+  if (
+    !isProRoomSystemAudioSfuPublication(currentPublication) ||
+    !isProRoomSystemAudioSfuPublication(publication) ||
+    currentPublication.publicationId !== publication.publicationId ||
+    currentPublication.sessionId !== publication.sessionId ||
+    currentPublication.tracks.length !== publication.tracks.length
+  ) {
+    return false;
+  }
+  return publication.tracks.every((expected) =>
+    currentPublication.tracks.some(
+      (current) =>
+        current.channel === expected.channel &&
+        current.trackName === expected.trackName &&
+        (current.mid ?? null) === (expected.mid ?? null),
+    ),
+  );
+}
+
+function scheduleFailedSfuPublisherRecheck(sessionId: string): void {
+  clearManagedTimer(PUBLISHER_RETRY_TIMER);
+  setManagedTimer(
+    PUBLISHER_RETRY_TIMER,
+    () => {
+      const current = controller?.getCurrentState();
+      if (failedSfuPublisherSessionId !== sessionId) return;
+      if (localPublishFlight || directPromotionFlight || ambiguousDirectPromotionPublicationId) {
+        scheduleFailedSfuPublisherRecheck(sessionId);
+        return;
+      }
+      const failedSessionIsCanonical = Boolean(
+        current?.status === 'live' &&
+        current.ownerParticipantId === localParticipantId() &&
+        isProRoomSystemAudioSfuPublication(current.publication) &&
+        current.publication.sessionId === sessionId,
+      );
+      failedSfuPublisherSessionId = null;
+      if (failedSessionIsCanonical) void recoverLocalPublisher();
+    },
+    RECOVERY_DELAY_MS,
+  );
+}
+
+function settleCanonicalSfuPublisher(
+  state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
+): void {
+  if (!isProRoomSystemAudioSfuPublication(state.publication)) return;
+  const sessionId = state.publication.sessionId;
+  updateProSystemAudioSfuPublisherExpiry(state.liveExpiresAt);
+  clearManagedTimer(PUBLISHER_RETRY_TIMER);
+  if (failedSfuPublisherSessionId !== sessionId) {
+    failedSfuPublisherSessionId = null;
+    return;
+  }
+  scheduleFailedSfuPublisherRecheck(sessionId);
+}
+
+interface DirectPromotionReconciliation {
+  controller: ProRoomSystemAudioController;
+  identity: LocalLeaseIdentity;
+  localParticipantId: string;
+  publication: ProRoomSystemAudioPublication;
+  reason: string;
+}
+
+function isDirectPromotionSourceCurrent(context: DirectPromotionReconciliation): boolean {
+  const current = context.controller.getCurrentState();
+  return Boolean(
+    controller === context.controller &&
+    isLocalLeaseCurrent(context.identity) &&
+    current?.status === 'live' &&
+    current.generation === context.identity.generation &&
+    current.ownerParticipantId === context.localParticipantId &&
+    isProRoomSystemAudioDirectPublication(current.publication) &&
+    current.publication.publicationId === context.publication.publicationId,
+  );
+}
+
+function isCanonicalPromotedState(
+  context: DirectPromotionReconciliation,
+  state: ProRoomSystemAudioState | null,
+): state is Extract<ProRoomSystemAudioState, { status: 'live' }> {
+  return Boolean(
+    controller === context.controller &&
+    state &&
+    state.generation === context.identity.generation &&
+    state.ownerParticipantId === context.localParticipantId &&
+    stateMatchesSfuPublication(state, context.publication),
+  );
+}
+
+function acceptPromotedSfuPublication(
+  state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
+  reason: string,
+  reconciledAfterLostResponse = false,
+): void {
+  ambiguousDirectPromotionPublicationId = null;
+  settleCanonicalSfuPublisher(state);
+  resetProSystemAudioDirectTransport({ notifyPeers: false });
+  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
+  leaseHeartbeatFailureNotified = false;
+  notifyMutation(state);
+  log.info(
+    `[PRO SystemAudio] Promoted LAN-direct publication to SFU (${reason}${
+      reconciledAfterLostResponse ? ', reconciled' : ''
+    })`,
+  );
+}
+
+function scheduleDirectPromotionRetry(reason: string): void {
+  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
+  setManagedTimer(
+    DIRECT_PROMOTION_RETRY_TIMER,
+    () => void promoteLocalDirectPublicationToSfu(reason),
+    RECOVERY_DELAY_MS,
+  );
+}
+
+async function reconcileAmbiguousDirectPromotion(
+  context: DirectPromotionReconciliation,
+): Promise<void> {
+  const publicationId = context.publication.publicationId;
+  if (ambiguousDirectPromotionPublicationId !== publicationId) return;
+
+  let authoritative: ProRoomSystemAudioState;
+  try {
+    authoritative = await refreshProSystemAudioState(undefined, true);
+  } catch (error) {
+    if (ambiguousDirectPromotionPublicationId !== publicationId) return;
+    const current = context.controller.getCurrentState();
+    if (isCanonicalPromotedState(context, current)) {
+      acceptPromotedSfuPublication(current, context.reason, true);
+      return;
+    }
+    if (!isDirectPromotionSourceCurrent(context)) {
+      ambiguousDirectPromotionPublicationId = null;
+      stopProSystemAudioSfuPublisher();
+      return;
+    }
+    log.warn('[PRO SystemAudio] Failed to reconcile an ambiguous SFU promotion', error);
+    clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
+    setManagedTimer(
+      DIRECT_PROMOTION_RETRY_TIMER,
+      () => void reconcileAmbiguousDirectPromotion(context),
+      RECOVERY_DELAY_MS,
+    );
+    return;
+  }
+
+  if (ambiguousDirectPromotionPublicationId !== publicationId) return;
+  if (isCanonicalPromotedState(context, authoritative)) {
+    acceptPromotedSfuPublication(authoritative, context.reason, true);
+    return;
+  }
+
+  ambiguousDirectPromotionPublicationId = null;
+  stopProSystemAudioSfuPublisher();
+  if (isDirectPromotionSourceCurrent(context)) {
+    scheduleDirectPromotionRetry('promotion-retry');
+  }
+}
+
 async function ensureCoordinatorSubscription(
   state: Extract<ProRoomSystemAudioState, { status: 'live' }>,
   identity = captureCoordinatorPublicationIdentity(state),
@@ -417,13 +771,65 @@ async function ensureCoordinatorSubscription(
   if (!isActiveProRoom() || !identity || !coordinatorPublicationMatches(identity)) return;
   const key = coordinatorPublicationKey(identity);
   cleanupSystemAudioSfuGuestRoute();
+  if (
+    isProRoomSystemAudioDirectPublication(state.publication) &&
+    currentDirectTargets().length > MAX_DIRECT_TARGETS
+  ) {
+    rejectOversizedDirectPresence();
+    return;
+  }
   if (subscriberFailureGeneration !== null && subscriberFailureGeneration !== state.generation) {
     subscriberFailureGeneration = null;
   }
   if (state.ownerParticipantId === localParticipantId()) {
     cleanupCoordinatorGraph();
+    if (isProRoomSystemAudioDirectPublication(state.publication)) {
+      const targets = currentDirectTargets();
+      const publicationKey = directPublicationKey(
+        state.ownerParticipantId,
+        state.generation,
+        state.publication.publicationId,
+      );
+      if (activeLocalDirectPublicationKey === publicationKey) {
+        const reconciled = await reconcileProSystemAudioDirectTargets(targets);
+        if (!reconciled) void promoteLocalDirectPublicationToSfu('direct-target-fallback');
+        return;
+      }
+      const activationTargets = currentDirectTargets();
+      const activated = await activateProSystemAudioDirectPublication({
+        ownerParticipantId: state.ownerParticipantId,
+        generation: state.generation,
+        publicationId: state.publication.publicationId,
+        targets: activationTargets,
+      });
+      if (!activated) {
+        void promoteLocalDirectPublicationToSfu('direct-activation-failed');
+        return;
+      }
+      activeLocalDirectPublicationKey = publicationKey;
+      const reconciled = await reconcileProSystemAudioDirectTargets(currentDirectTargets());
+      if (!reconciled) void promoteLocalDirectPublicationToSfu('direct-target-fallback');
+    } else {
+      resetProSystemAudioDirectTransport({ notifyPeers: false });
+    }
     return;
   }
+  if (isProRoomSystemAudioDirectPublication(state.publication)) {
+    stopProSystemAudioSfuSubscriber();
+    if (coordinatorSubscriptionKey !== key) {
+      cleanupCoordinatorGraph();
+      coordinatorSubscriptionKey = key;
+      beginTrustedSystemAudioReception();
+    }
+    await activateProSystemAudioDirectPublication({
+      ownerParticipantId: state.ownerParticipantId,
+      generation: state.generation,
+      publicationId: state.publication.publicationId,
+    });
+    subscriberFailureGeneration = null;
+    return;
+  }
+  resetProSystemAudioDirectTransport({ notifyPeers: false });
   if (coordinatorSubscriptionKey !== key) {
     cleanupCoordinatorGraph();
     coordinatorSubscriptionKey = key;
@@ -453,6 +859,130 @@ function notifySubscriberFailure(
   bus.emit('ui:show-toast', t('system_audio.connection_unstable', { name }));
 }
 
+function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): void {
+  const state = controller?.getCurrentState();
+  if (
+    state?.status !== 'live' ||
+    !isProRoomSystemAudioDirectPublication(state.publication) ||
+    state.generation !== event.generation ||
+    state.publication.publicationId !== event.publicationId
+  ) {
+    return;
+  }
+  if (event.role === 'publisher' && state.ownerParticipantId === localParticipantId()) {
+    void promoteLocalDirectPublicationToSfu(event.reason);
+    return;
+  }
+  if (event.role === 'receiver' && state.ownerParticipantId !== localParticipantId()) {
+    cleanupCoordinatorAudioNodes();
+    setSystemAudioReceiving(false);
+    notifySubscriberFailure(state);
+  }
+}
+
+function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
+  if (directPromotionFlight) return directPromotionFlight;
+  if (ambiguousDirectPromotionPublicationId) return Promise.resolve();
+  const activeController = controller;
+  const state = activeController?.getCurrentState();
+  const lease = activeController?.getCurrentLease();
+  const tracks = localTracks;
+  const localId = localParticipantId();
+  if (
+    !activeController ||
+    state?.status !== 'live' ||
+    !isProRoomSystemAudioDirectPublication(state.publication) ||
+    !lease?.hasCredential ||
+    lease.status !== 'live' ||
+    lease.generation !== state.generation ||
+    state.ownerParticipantId !== localId ||
+    !tracks
+  ) {
+    return Promise.resolve();
+  }
+
+  const identity: LocalLeaseIdentity = {
+    epoch: serviceSessionEpoch,
+    roomCode: lease.roomCode,
+    generation: lease.generation,
+  };
+  const publicationId = state.publication.publicationId;
+  const liveExpiresAt = state.liveExpiresAt;
+  let attemptedPublication: ProRoomSystemAudioPublication | null = null;
+  const flight = Promise.resolve().then(async () => {
+    try {
+      const descriptor = await publishProSystemAudioSfu({
+        leftTrack: tracks.left,
+        rightTrack: tracks.right,
+        generation: identity.generation,
+        expiresAt: liveExpiresAt,
+        roomId: identity.roomCode,
+      });
+      const current = activeController.getCurrentState();
+      if (
+        directPromotionFlight !== flight ||
+        controller !== activeController ||
+        !isLocalLeaseCurrent(identity) ||
+        current?.status !== 'live' ||
+        current.ownerParticipantId !== localId ||
+        !isProRoomSystemAudioDirectPublication(current.publication) ||
+        current.publication.publicationId !== publicationId
+      ) {
+        throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
+      }
+
+      const publication: ProRoomSystemAudioPublication = {
+        publicationId,
+        sessionId: descriptor.sessionId,
+        tracks: descriptor.tracks.map((track) => ({
+          ...track,
+        })) as ProRoomSystemAudioPublicationTracks,
+      };
+      attemptedPublication = publication;
+      const promoted = await activeController.commitProSystemAudioPublication(publication);
+      if (
+        directPromotionFlight !== flight ||
+        !isLocalLeaseCurrent(identity) ||
+        promoted.status !== 'live' ||
+        !isProRoomSystemAudioSfuPublication(promoted.publication) ||
+        promoted.publication.publicationId !== publicationId
+      ) {
+        throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
+      }
+      acceptPromotedSfuPublication(promoted, reason);
+    } catch (error) {
+      if (directPromotionFlight !== flight) return;
+      log.warn(`[PRO SystemAudio] LAN-direct to SFU promotion failed (${reason})`, error);
+      if (attemptedPublication) {
+        ambiguousDirectPromotionPublicationId = publicationId;
+        await reconcileAmbiguousDirectPromotion({
+          controller: activeController,
+          identity,
+          localParticipantId: localId,
+          publication: attemptedPublication,
+          reason,
+        });
+      } else {
+        stopProSystemAudioSfuPublisher();
+        const current = activeController.getCurrentState();
+        if (
+          isLocalLeaseCurrent(identity) &&
+          current?.status === 'live' &&
+          current.ownerParticipantId === localId &&
+          isProRoomSystemAudioDirectPublication(current.publication) &&
+          current.publication.publicationId === publicationId
+        ) {
+          scheduleDirectPromotionRetry('promotion-retry');
+        }
+      }
+    } finally {
+      if (directPromotionFlight === flight) directPromotionFlight = null;
+    }
+  });
+  directPromotionFlight = flight;
+  return flight;
+}
+
 async function reconcileCoordinatorState(state: ProRoomSystemAudioState): Promise<void> {
   if (!isActiveProRoom()) return;
   if (state.status === 'live') {
@@ -479,6 +1009,7 @@ async function reconcileCoordinatorState(state: ProRoomSystemAudioState): Promis
     });
   } else {
     cleanupCoordinatorGraph();
+    resetProSystemAudioDirectTransport({ notifyPeers: false });
     subscriberFailureGeneration = null;
   }
 }
@@ -510,7 +1041,12 @@ function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
   clearManagedTimer(LEASE_HEARTBEAT_TIMER);
   clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
   clearManagedTimer(PUBLISHER_RETRY_TIMER);
+  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
   stopProSystemAudioSfuPublisher();
+  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'superseded' });
+  directPromotionFlight = null;
+  ambiguousDirectPromotionPublicationId = null;
+  failedSfuPublisherSessionId = null;
   localPublishFlight = null;
   localPublicationId = null;
   if ((expectedLeaseTransitions.get(serviceSessionEpoch) ?? 0) > 0) return;
@@ -534,6 +1070,16 @@ export function configureProSystemAudioService(api: ProRoomApiClient): void {
     isLocalOwner: isLocalProSystemAudioOwner,
     coordinatorSupportsPublishing: canPublishProSystemAudioWithCurrentCoordinator,
   });
+  configureProSystemAudioDirectTransport({
+    getLocalIdentity: () => {
+      const participantId = localParticipantId();
+      return isActiveProRoom() && participantId ? { participantId } : null;
+    },
+    authorizeInboundOffer: authorizeInboundDirectOffer,
+    authorizeInboundSignal: authorizeInboundDirectSignal,
+    onReceiverTracksReady: attachDirectCoordinatorTracks,
+    onLiveRouteFallback: handleDirectRouteFallback,
+  });
 }
 
 export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
@@ -547,6 +1093,8 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     const hadLocalActivity = Boolean(localTracks || localPublishFlight || publisherRecoveryFlight);
     const controllerWillNotifyLeaseLoss = Boolean(controller?.getCurrentLease());
     refreshFlight = null;
+    queuedForcedRefresh = null;
+    oversizedDirectRefreshFlight = null;
     serviceSessionEpoch += 1;
     localLeaseAttemptOwner = null;
     expectedLeaseTransitions.clear();
@@ -555,7 +1103,12 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     clearManagedTimer(LEASE_HEARTBEAT_TIMER);
     clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
     clearManagedTimer(PUBLISHER_RETRY_TIMER);
+    clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
     stopProSystemAudioSfuPublisher();
+    resetProSystemAudioDirectTransport({ notifyPeers: false });
+    directPromotionFlight = null;
+    ambiguousDirectPromotionPublicationId = null;
+    failedSfuPublisherSessionId = null;
     localTracks = null;
     localPublicationId = null;
     leaseHeartbeatFailureNotified = false;
@@ -584,8 +1137,13 @@ export function resetProSystemAudioService(): void {
   clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
   clearManagedTimer(SUBSCRIBER_RETRY_TIMER);
   clearManagedTimer(PUBLISHER_RETRY_TIMER);
+  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
   cleanupCoordinatorGraph();
   stopProSystemAudioSfuPublisher();
+  resetProSystemAudioDirectTransport({ notifyPeers: false });
+  directPromotionFlight = null;
+  ambiguousDirectPromotionPublicationId = null;
+  failedSfuPublisherSessionId = null;
   controller?.reset();
   if (hadLocalActivity && !controllerWillNotifyLeaseLoss) {
     bus.emit('pro-system-audio:lease-lost', 'reset');
@@ -594,6 +1152,8 @@ export function resetProSystemAudioService(): void {
   latestView = idleView();
   remoteOwnerDisplayName = null;
   refreshFlight = null;
+  queuedForcedRefresh = null;
+  oversizedDirectRefreshFlight = null;
   localTracks = null;
   localPublicationId = null;
   localPublishFlight = null;
@@ -605,14 +1165,7 @@ export function resetProSystemAudioService(): void {
 export function getProSystemAudioViewState(): ProRoomSystemAudioViewState {
   return {
     ...latestView,
-    publication: latestView.publication
-      ? {
-          ...latestView.publication,
-          tracks: latestView.publication.tracks.map((track) => ({
-            ...track,
-          })) as ProRoomSystemAudioPublication['tracks'],
-        }
-      : null,
+    publication: latestView.publication ? clonePublication(latestView.publication) : null,
   };
 }
 
@@ -624,7 +1177,7 @@ export function isLocalProSystemAudioOwner(): boolean {
   return latestView.isLocalOwner;
 }
 
-export function refreshProSystemAudioState(signal?: AbortSignal): Promise<ProRoomSystemAudioState> {
+function beginProSystemAudioRefresh(signal?: AbortSignal): Promise<ProRoomSystemAudioState> {
   if (!controller) return Promise.reject(new Error('PRO_SYSTEM_AUDIO_NOT_CONFIGURED'));
   if (refreshFlight) return refreshFlight;
   const flight = controller.refreshProSystemAudioState(signal).finally(() => {
@@ -632,6 +1185,28 @@ export function refreshProSystemAudioState(signal?: AbortSignal): Promise<ProRoo
   });
   refreshFlight = flight;
   return flight;
+}
+
+export function refreshProSystemAudioState(
+  signal?: AbortSignal,
+  forceAfterCurrent = false,
+): Promise<ProRoomSystemAudioState> {
+  if (!controller) return Promise.reject(new Error('PRO_SYSTEM_AUDIO_NOT_CONFIGURED'));
+  if (!refreshFlight || !forceAfterCurrent) return beginProSystemAudioRefresh(signal);
+  if (queuedForcedRefresh) return queuedForcedRefresh;
+  const epoch = serviceSessionEpoch;
+  const currentFlight = refreshFlight;
+  const queued = currentFlight
+    .catch(() => undefined)
+    .then(() => {
+      if (!isServiceSessionCurrent(epoch)) throw new Error('PRO_SYSTEM_AUDIO_REFRESH_SUPERSEDED');
+      return beginProSystemAudioRefresh(signal);
+    })
+    .finally(() => {
+      if (queuedForcedRefresh === queued) queuedForcedRefresh = null;
+    });
+  queuedForcedRefresh = queued;
+  return queued;
 }
 
 export async function acquireLocalProSystemAudioLease(
@@ -792,35 +1367,77 @@ export async function publishLocalProSystemAudio(
   localTracks = { left: leftTrack, right: rightTrack };
   localPublicationId = publicationId;
   try {
-    const descriptor = await publishProSystemAudioSfu({
-      leftTrack,
-      rightTrack,
-      generation: lease.generation,
-      expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
-      roomId: lease.roomCode,
-    });
+    const directTargets = currentDirectTargets();
+    activeLocalDirectPublicationKey = null;
+    let publication: ProRoomSystemAudioPublication | null = null;
+    try {
+      publication = await attemptProSystemAudioDirectPublication({
+        leftTrack,
+        rightTrack,
+        generation: lease.generation,
+        publicationId,
+        targets: directTargets,
+      });
+    } catch (error) {
+      // Local discovery is an optimization. Any unsupported or isolated LAN
+      // topology must fall back to the established SFU publication path.
+      log.debug('[PRO SystemAudio] LAN-direct probe unavailable; using SFU', error);
+    }
     if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
       throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
     }
-    const publication: ProRoomSystemAudioPublication = {
-      publicationId,
-      sessionId: descriptor.sessionId,
-      tracks: descriptor.tracks.map((track) => ({
-        ...track,
-      })) as ProRoomSystemAudioPublication['tracks'],
-    };
+    if (!publication) {
+      const descriptor = await publishProSystemAudioSfu({
+        leftTrack,
+        rightTrack,
+        generation: lease.generation,
+        expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+        roomId: lease.roomCode,
+      });
+      publication = {
+        publicationId,
+        sessionId: descriptor.sessionId,
+        tracks: descriptor.tracks.map((track) => ({
+          ...track,
+        })) as ProRoomSystemAudioPublicationTracks,
+      };
+    }
+    if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
+      throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
+    }
     const state = await activeController.commitProSystemAudioPublication(publication);
     if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
       throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
     }
-    if (state.status === 'live') {
-      updateProSystemAudioSfuPublisherExpiry(state.liveExpiresAt);
+    if (state.status === 'live' && isProRoomSystemAudioSfuPublication(state.publication)) {
+      settleCanonicalSfuPublisher(state);
+    } else if (state.status === 'live') {
+      const activationTargets = currentDirectTargets();
+      const activated = await activateProSystemAudioDirectPublication({
+        ownerParticipantId: state.ownerParticipantId,
+        generation: state.generation,
+        publicationId: state.publication.publicationId,
+        targets: activationTargets,
+      });
+      if (!activated) void promoteLocalDirectPublicationToSfu('post-commit-activation-failed');
+      else {
+        activeLocalDirectPublicationKey = directPublicationKey(
+          state.ownerParticipantId,
+          state.generation,
+          state.publication.publicationId,
+        );
+        const reconciled = await reconcileProSystemAudioDirectTargets(currentDirectTargets());
+        if (!reconciled) void promoteLocalDirectPublicationToSfu('post-commit-target-fallback');
+      }
     }
     notifyMutation(state);
     if (state.status === 'live') {
       broadcastSystemMessage('chat.system_audio_started_system_message');
     }
-    clearManagedTimer(PUBLISHER_RETRY_TIMER);
+    if (state.status !== 'live' || !isProRoomSystemAudioSfuPublication(state.publication)) {
+      clearManagedTimer(PUBLISHER_RETRY_TIMER);
+    }
+    clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
     leaseHeartbeatFailureNotified = false;
     scheduleLeaseHeartbeat();
     return state;
@@ -829,6 +1446,7 @@ export async function publishLocalProSystemAudio(
     // acquired and published. Only the flight that still owns the singleton
     // SFU publisher may tear it down or release its exact lease.
     if (ownsLocalPublishFlight(flight)) {
+      resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
       stopProSystemAudioSfuPublisher();
       localTracks = null;
       localPublicationId = null;
@@ -881,7 +1499,12 @@ async function releaseLocalProSystemAudioLeaseInternal(
   clearManagedTimer(LEASE_HEARTBEAT_TIMER);
   clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
   clearManagedTimer(PUBLISHER_RETRY_TIMER);
+  clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
   leaseHeartbeatFailureNotified = false;
+  directPromotionFlight = null;
+  ambiguousDirectPromotionPublicationId = null;
+  failedSfuPublisherSessionId = null;
+  resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'stopped' });
   stopProSystemAudioSfuPublisher();
   localTracks = null;
   localPublicationId = null;
@@ -1039,6 +1662,10 @@ export function registerProSystemAudioServiceListeners(): void {
     const currentContext = getState('room.context');
     if (currentContext.kind !== 'pro') {
       cleanupCoordinatorGraph();
+      resetProSystemAudioDirectTransport({ notifyPeers: false });
+      directPromotionFlight = null;
+      ambiguousDirectPromotionPublicationId = null;
+      failedSfuPublisherSessionId = null;
       subscriberFailureGeneration = null;
       return;
     }
@@ -1067,6 +1694,40 @@ export function registerProSystemAudioServiceListeners(): void {
       );
       return;
     }
+    if (
+      event.type === 'subscriber-state' &&
+      (event.state === 'disconnected' || event.state === 'subscribed')
+    ) {
+      const state = controller?.getCurrentState();
+      if (
+        state?.status !== 'live' ||
+        !event.descriptor ||
+        !descriptorMatchesPublication(event.descriptor, state) ||
+        state.ownerParticipantId === localParticipantId()
+      ) {
+        return;
+      }
+      const identity = captureCoordinatorPublicationIdentity(state);
+      if (!identity || !coordinatorPublicationMatches(identity, state)) return;
+      if (event.state === 'subscribed') {
+        clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
+        if (coordinatorSourceL && coordinatorSourceR) {
+          setSystemAudioReceiving(true);
+          claimPlaybackOwner('system-audio');
+          bus.emit('visualizer:start');
+        }
+        return;
+      }
+      setManagedTimer(
+        SUBSCRIBER_DISCONNECT_TIMER,
+        () => {
+          if (!coordinatorPublicationMatches(identity)) return;
+          setSystemAudioReceiving(false);
+        },
+        RECOVERY_DELAY_MS,
+      );
+      return;
+    }
     if (event.type === 'subscriber-state' && event.state === 'failed') {
       const state = controller?.getCurrentState();
       if (
@@ -1079,6 +1740,8 @@ export function registerProSystemAudioServiceListeners(): void {
       }
       const identity = captureCoordinatorPublicationIdentity(state);
       if (!identity || !coordinatorPublicationMatches(identity, state)) return;
+      cleanupCoordinatorSubscriptionForRetry();
+      setSystemAudioReceiving(false);
       notifySubscriberFailure(state);
       setManagedTimer(
         SUBSCRIBER_RETRY_TIMER,
@@ -1095,7 +1758,52 @@ export function registerProSystemAudioServiceListeners(): void {
       );
       return;
     }
+    if (event.type === 'publisher-state' && event.state === 'published') {
+      if (
+        event.descriptor &&
+        failedSfuPublisherSessionId !== null &&
+        failedSfuPublisherSessionId !== event.descriptor.sessionId
+      ) {
+        failedSfuPublisherSessionId = null;
+        clearManagedTimer(PUBLISHER_RETRY_TIMER);
+      }
+      return;
+    }
     if (event.type === 'publisher-state' && event.state === 'failed') {
+      const state = controller?.getCurrentState();
+      const descriptorMatchesCurrent = Boolean(
+        event.descriptor &&
+        state?.status === 'live' &&
+        isProRoomSystemAudioSfuPublication(state.publication) &&
+        descriptorMatchesPublication(event.descriptor, state),
+      );
+      const currentIsLocalSfuPublisher = Boolean(
+        state?.status === 'live' &&
+        state.ownerParticipantId === localParticipantId() &&
+        isProRoomSystemAudioSfuPublication(state.publication),
+      );
+      if (
+        !localPublishFlight &&
+        !directPromotionFlight &&
+        !(state?.status === 'live' && isProRoomSystemAudioDirectPublication(state.publication)) &&
+        !descriptorMatchesCurrent &&
+        !currentIsLocalSfuPublisher
+      ) {
+        return;
+      }
+      if (event.descriptor) {
+        failedSfuPublisherSessionId = event.descriptor.sessionId;
+        scheduleFailedSfuPublisherRecheck(event.descriptor.sessionId);
+        return;
+      }
+      if (
+        localPublishFlight ||
+        directPromotionFlight ||
+        (state?.status === 'live' && isProRoomSystemAudioDirectPublication(state.publication))
+      ) {
+        clearManagedTimer(PUBLISHER_RETRY_TIMER);
+        return;
+      }
       setManagedTimer(PUBLISHER_RETRY_TIMER, () => void recoverLocalPublisher(), RECOVERY_DELAY_MS);
     }
   });

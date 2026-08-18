@@ -512,6 +512,8 @@ const id: Record<I18nKey, string> = {
   'toast.copy_failed': 'Tidak dapat menyalin',
   'toast.email_copied': 'Alamat email disalin!',
   'toast.settings_sync_enabled': 'Sinkronisasi pengaturan aktif.',
+  'toast.settings_sync_admin_required':
+    'Sinkronisasi pengaturan aktif.\nHanya admin ruang yang dapat mengubahnya.',
   'toast.virtual_bass_on': 'Bass virtual aktif.',
   'toast.virtual_bass_off': 'Bass virtual nonaktif.',
   'toast.virtual_treble_on': 'Treble virtual aktif.',

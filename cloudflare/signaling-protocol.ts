@@ -220,6 +220,50 @@ export type ProChatPayload =
   | { kind: 'mute'; targetParticipantId: string; on: boolean }
   | { kind: 'whisper'; targetParticipantId: string; text: string };
 
+export type ProSystemAudioSignalDirection = 'publisher' | 'subscriber';
+
+interface ProSystemAudioSignalBase {
+  targetParticipantId: string;
+  direction: ProSystemAudioSignalDirection;
+  generation: number;
+  publicationId: string;
+  negotiationId: string;
+}
+
+export type ProSystemAudioSignalPayload =
+  | (ProSystemAudioSignalBase & {
+      kind: 'offer';
+      direction: 'publisher';
+      phase: 'probe';
+      description: { type: 'offer'; sdp: string };
+    })
+  | (ProSystemAudioSignalBase & {
+      kind: 'offer';
+      direction: 'publisher';
+      phase: 'media';
+      description: { type: 'offer'; sdp: string };
+      trackIds: { L: string; R: string };
+    })
+  | (ProSystemAudioSignalBase & {
+      kind: 'answer';
+      direction: 'subscriber';
+      phase: 'probe' | 'media';
+      description: { type: 'answer'; sdp: string };
+    })
+  | (ProSystemAudioSignalBase & {
+      kind: 'candidate';
+      candidate: {
+        candidate: string;
+        sdpMid?: string | null;
+        sdpMLineIndex?: number | null;
+        usernameFragment?: string | null;
+      };
+    })
+  | (ProSystemAudioSignalBase & {
+      kind: 'close';
+      reason: 'stopped' | 'fallback' | 'superseded';
+    });
+
 export type NormalizedProRealtimeFrame =
   | {
       type: 'pro-realtime';
@@ -248,6 +292,13 @@ export type NormalizedProRealtimeFrame =
       eventId: string;
       channel: 'clock';
       payload: { requestId: number; clientSentAtMs: number };
+    }
+  | {
+      type: 'pro-realtime';
+      version: 1;
+      eventId: string;
+      channel: 'system-audio-signal';
+      payload: ProSystemAudioSignalPayload;
     };
 
 function normalizeProBotResult(value: unknown): ProBotResult | null {
@@ -403,6 +454,217 @@ function normalizeProChatPayload(value: unknown): ProChatPayload | null {
   return null;
 }
 
+const PRO_SYSTEM_AUDIO_SIGNAL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
+const PRO_SYSTEM_AUDIO_TRACK_ID_MAX_LENGTH = 160;
+const PRO_SYSTEM_AUDIO_SIGNAL_COMMON_KEYS = [
+  'kind',
+  'targetParticipantId',
+  'direction',
+  'generation',
+  'publicationId',
+  'negotiationId',
+] as const;
+
+function normalizeProSystemAudioSignalBase(
+  value: Record<string, unknown>,
+): ProSystemAudioSignalBase | null {
+  if (
+    !isPeerId(value.targetParticipantId) ||
+    (value.direction !== 'publisher' && value.direction !== 'subscriber') ||
+    typeof value.generation !== 'number' ||
+    !Number.isSafeInteger(value.generation) ||
+    value.generation < 1 ||
+    typeof value.publicationId !== 'string' ||
+    !PRO_SYSTEM_AUDIO_SIGNAL_ID_RE.test(value.publicationId) ||
+    typeof value.negotiationId !== 'string' ||
+    !PRO_SYSTEM_AUDIO_SIGNAL_ID_RE.test(value.negotiationId)
+  ) {
+    return null;
+  }
+  return {
+    targetParticipantId: value.targetParticipantId,
+    direction: value.direction,
+    generation: value.generation,
+    publicationId: value.publicationId,
+    negotiationId: value.negotiationId,
+  };
+}
+
+function normalizeProSystemAudioTrackIds(value: unknown): { L: string; R: string } | null {
+  if (!hasExactObjectKeys(value, ['L', 'R'])) return null;
+  if (
+    typeof value.L !== 'string' ||
+    value.L.length < 1 ||
+    value.L.length > PRO_SYSTEM_AUDIO_TRACK_ID_MAX_LENGTH ||
+    typeof value.R !== 'string' ||
+    value.R.length < 1 ||
+    value.R.length > PRO_SYSTEM_AUDIO_TRACK_ID_MAX_LENGTH ||
+    value.L === value.R
+  ) {
+    return null;
+  }
+  return { L: value.L, R: value.R };
+}
+
+function normalizeProSystemAudioCandidate(
+  value: unknown,
+): Extract<ProSystemAudioSignalPayload, { kind: 'candidate' }>['candidate'] | null {
+  if (
+    !hasExactObjectKeys(value, ['candidate'], ['sdpMid', 'sdpMLineIndex', 'usernameFragment']) ||
+    !isValidIceCandidate(value)
+  ) {
+    return null;
+  }
+  const candidateFields = value.candidate.trim().split(/\s+/);
+  const remoteAddress = candidateFields[4] ?? '';
+  const remotePort = Number(candidateFields[5]);
+  if (
+    candidateFields.length < 8 ||
+    candidateFields[1] !== '1' ||
+    candidateFields[2]?.toLowerCase() !== 'udp' ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.local$/i.test(
+      remoteAddress,
+    ) ||
+    !Number.isSafeInteger(remotePort) ||
+    remotePort < 1 ||
+    remotePort > 65_535 ||
+    candidateFields[6]?.toLowerCase() !== 'typ' ||
+    candidateFields[7]?.toLowerCase() !== 'host'
+  ) {
+    return null;
+  }
+  return {
+    // Strip optional ICE extensions before relay. The bounded base candidate is
+    // sufficient for host connectivity and cannot smuggle caller-selected
+    // related addresses through extension fields.
+    candidate: candidateFields.slice(0, 8).join(' '),
+    ...(value.sdpMid === undefined ? {} : { sdpMid: value.sdpMid as string | null }),
+    ...(value.sdpMLineIndex === undefined
+      ? {}
+      : { sdpMLineIndex: value.sdpMLineIndex as number | null }),
+    ...(value.usernameFragment === undefined
+      ? {}
+      : { usernameFragment: value.usernameFragment as string | null }),
+  };
+}
+
+function isCandidateFreeProSystemAudioSdp(sdp: string): boolean {
+  return !sdp.split(/\r\n|\n|\r/).some((line) => {
+    const normalized = line.trim().toLowerCase();
+    if (
+      normalized.startsWith('a=candidate:') ||
+      normalized.startsWith('a=remote-candidates:') ||
+      normalized === 'a=end-of-candidates'
+    ) {
+      return true;
+    }
+    const connection = /^c=in\s+(ip4|ip6)\s+(\S+)(?:\s|$)/i.exec(normalized);
+    return Boolean(
+      connection &&
+      !(
+        (connection[1] === 'ip4' && connection[2] === '0.0.0.0') ||
+        (connection[1] === 'ip6' && connection[2] === '::')
+      ),
+    );
+  });
+}
+
+function normalizeProSystemAudioSignalPayload(value: unknown): ProSystemAudioSignalPayload | null {
+  if (!isUnknownRecord(value) || typeof value.kind !== 'string') return null;
+  const base = normalizeProSystemAudioSignalBase(value);
+  if (!base) return null;
+
+  if (value.kind === 'offer') {
+    if (
+      base.direction !== 'publisher' ||
+      (value.phase !== 'probe' && value.phase !== 'media') ||
+      !hasExactObjectKeys(value.description, ['type', 'sdp']) ||
+      !isValidSdp(value.description, 'offer') ||
+      !isCandidateFreeProSystemAudioSdp(value.description.sdp)
+    ) {
+      return null;
+    }
+    if (value.phase === 'probe') {
+      if (
+        !hasExactObjectKeys(value, [...PRO_SYSTEM_AUDIO_SIGNAL_COMMON_KEYS, 'phase', 'description'])
+      ) {
+        return null;
+      }
+      return {
+        ...base,
+        kind: 'offer',
+        direction: 'publisher',
+        phase: 'probe',
+        description: { type: 'offer', sdp: value.description.sdp },
+      };
+    }
+    if (
+      !hasExactObjectKeys(value, [
+        ...PRO_SYSTEM_AUDIO_SIGNAL_COMMON_KEYS,
+        'phase',
+        'description',
+        'trackIds',
+      ])
+    ) {
+      return null;
+    }
+    const trackIds = normalizeProSystemAudioTrackIds(value.trackIds);
+    if (!trackIds) return null;
+    return {
+      ...base,
+      kind: 'offer',
+      direction: 'publisher',
+      phase: 'media',
+      description: { type: 'offer', sdp: value.description.sdp },
+      trackIds,
+    };
+  }
+
+  if (value.kind === 'answer') {
+    if (
+      !hasExactObjectKeys(value, [
+        ...PRO_SYSTEM_AUDIO_SIGNAL_COMMON_KEYS,
+        'phase',
+        'description',
+      ]) ||
+      base.direction !== 'subscriber' ||
+      (value.phase !== 'probe' && value.phase !== 'media') ||
+      !hasExactObjectKeys(value.description, ['type', 'sdp']) ||
+      !isValidSdp(value.description, 'answer') ||
+      !isCandidateFreeProSystemAudioSdp(value.description.sdp)
+    ) {
+      return null;
+    }
+    return {
+      ...base,
+      kind: 'answer',
+      direction: 'subscriber',
+      phase: value.phase,
+      description: { type: 'answer', sdp: value.description.sdp },
+    };
+  }
+
+  if (value.kind === 'candidate') {
+    if (!hasExactObjectKeys(value, [...PRO_SYSTEM_AUDIO_SIGNAL_COMMON_KEYS, 'candidate'])) {
+      return null;
+    }
+    const candidate = normalizeProSystemAudioCandidate(value.candidate);
+    return candidate ? { ...base, kind: 'candidate', candidate } : null;
+  }
+
+  if (value.kind === 'close') {
+    if (
+      !hasExactObjectKeys(value, [...PRO_SYSTEM_AUDIO_SIGNAL_COMMON_KEYS, 'reason']) ||
+      (value.reason !== 'stopped' && value.reason !== 'fallback' && value.reason !== 'superseded')
+    ) {
+      return null;
+    }
+    return { ...base, kind: 'close', reason: value.reason };
+  }
+
+  return null;
+}
+
 export function normalizeProRealtimeFrame(value: unknown): NormalizedProRealtimeFrame | null {
   if (
     !hasExactObjectKeys(value, ['type', 'version', 'eventId', 'channel', 'payload']) ||
@@ -487,6 +749,17 @@ export function normalizeProRealtimeFrame(value: unknown): NormalizedProRealtime
         requestId: value.payload.requestId,
         clientSentAtMs: value.payload.clientSentAtMs,
       },
+    };
+  }
+  if (value.channel === 'system-audio-signal') {
+    const payload = normalizeProSystemAudioSignalPayload(value.payload);
+    if (!payload) return null;
+    return {
+      type: 'pro-realtime',
+      version: 1,
+      eventId: value.eventId,
+      channel: 'system-audio-signal',
+      payload,
     };
   }
   return null;

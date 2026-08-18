@@ -12,6 +12,7 @@ import {
   PRO_ROOM_QUOTA_BYTES,
   capabilitiesForProRoomRole,
   type ProRoomSnapshot,
+  type ProRoomSystemAudioState,
 } from '../contracts.ts';
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import {
@@ -424,7 +425,9 @@ describe.sequential('PRO runtime account identity lease', () => {
       version: 1,
       roomCode: ROOM_CODE,
       coordinatorEpoch: 1,
-      event: { type: 'system-audio-invalidated', generation: 1 },
+      // Rolling compatibility: pre-fix PRO Workers carried the generation on
+      // the generic room invalidation rather than the dedicated event.
+      event: { type: 'pro-room-invalidated', systemAudioGeneration: 1 },
     });
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
 
@@ -432,6 +435,42 @@ describe.sequential('PRO runtime account identity lease', () => {
     expect(refresh).toHaveBeenCalledTimes(2);
     await vi.advanceTimersByTimeAsync(1);
     await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(3));
+  });
+
+  it('queues a fresh authenticated read when invalidation races the initial system-audio read', async () => {
+    const staleRead = deferred<ProRoomSystemAudioState>();
+    const refresh = vi.mocked(ProRoomApiClient.prototype.getSystemAudioState);
+    refresh.mockReturnValueOnce(staleRead.promise).mockResolvedValueOnce({
+      generation: 1,
+      status: 'idle',
+      ownerParticipantId: null,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: null,
+    });
+
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledOnce());
+
+    acceptProRoomRealtimeFrameForTests({
+      type: 'pro-server-event',
+      version: 1,
+      roomCode: ROOM_CODE,
+      coordinatorEpoch: 1,
+      event: { type: 'system-audio-invalidated', generation: 1 },
+    });
+    await Promise.resolve();
+    expect(refresh).toHaveBeenCalledOnce();
+
+    staleRead.resolve({
+      generation: 0,
+      status: 'idle',
+      ownerParticipantId: null,
+      claimExpiresAt: null,
+      liveExpiresAt: null,
+      publication: null,
+    });
+    await vi.waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
   });
 
   it('rechecks system-audio promptly after a known preparing lease expires', async () => {

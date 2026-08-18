@@ -547,6 +547,8 @@ const pl: Record<I18nKey, string> = {
   'toast.copy_failed': 'Kopiowanie nie powiodło się',
   'toast.email_copied': 'Adres e-mail skopiowany do schowka!',
   'toast.settings_sync_enabled': 'Synchronizacja ustawień jest włączona.',
+  'toast.settings_sync_admin_required':
+    'Synchronizacja ustawień jest włączona.\nTylko administratorzy pokoju mogą je zmieniać.',
   'toast.virtual_bass_on': 'Wirtualny bas jest włączony.',
   'toast.virtual_bass_off': 'Wirtualny bas jest wyłączony.',
   'toast.virtual_treble_on': 'Wirtualne wysokie tony są włączone.',

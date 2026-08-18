@@ -448,6 +448,49 @@ describe('Translation key integrity', () => {
     expect(ko['toast.virtual_effects_off']).toBe('모든 가상 효과가 꺼졌어요');
   });
 
+  it('explains synchronized audio authority explicitly in every locale without toast truncation', () => {
+    const key = 'toast.settings_sync_admin_required' as const;
+    const expected: Record<keyof typeof locales, string> = {
+      ko: '설정 동기화가 켜져 있어요.\n방 관리자만 음향 설정을 변경할 수 있어요.',
+      en: 'Settings sync is on.\nOnly room admins can change audio settings.',
+      de: 'Die Einstellungssynchronisierung ist aktiviert.\nNur Raumadmins können Audioeinstellungen ändern.',
+      es: 'La sincronización de ajustes está activada.\nSolo admins de la sala pueden cambiarlos.',
+      fr: 'La synchronisation des réglages est activée.\nSeuls les admins du salon peuvent les modifier.',
+      id: 'Sinkronisasi pengaturan aktif.\nHanya admin ruang yang dapat mengubahnya.',
+      italian:
+        'La sincronizzazione delle impostazioni è attiva.\nSolo gli admin della stanza possono cambiarle.',
+      ja: '設定の同期がオンです。\n音響設定を変更できるのはルーム管理者だけです。',
+      nl: 'Instellingensynchronisatie staat aan.\nAlleen kamerbeheerders kunnen dit wijzigen.',
+      pl: 'Synchronizacja ustawień jest włączona.\nTylko administratorzy pokoju mogą je zmieniać.',
+      ptBr: 'A sincronização de configurações está ativada.\nSó administradores da sala podem alterar o áudio.',
+      ru: 'Синхронизация настроек включена.\nТолько администраторы комнаты могут менять звук.',
+      th: 'เปิดการซิงก์การตั้งค่าอยู่\nเฉพาะผู้ดูแลห้องเท่านั้นที่เปลี่ยนได้',
+      tr: 'Ayar senkronizasyonu açık.\nYalnızca oda yöneticileri değiştirebilir.',
+      vi: 'Đồng bộ cài đặt đang bật.\nChỉ quản trị viên phòng mới có thể thay đổi.',
+      zhHans: '设置同步已开启。\n只有房间管理员可以更改音频设置。',
+      zhHant: '設定同步已開啟。\n只有房間管理員可以變更音訊設定。',
+    };
+
+    for (const locale of Object.keys(locales) as Array<keyof typeof locales>) {
+      const value = locales[locale][key];
+      expect(value, `${locale}.${key}`).toBe(expected[locale]);
+      expect(value, `${locale}.${key} surrounding whitespace`).toBe(value.trim());
+      expect(value, `${locale}.${key} should not contain HTML`).not.toMatch(/<[^>]*>/);
+      expect(value, `${locale}.${key} interpolation`).not.toContain('{{');
+
+      const lines = value.split('\n');
+      expect(lines, `${locale}.${key} line count`).toHaveLength(2);
+      expect(
+        lines.every((line) => Array.from(line).length <= 50),
+        `${locale}.${key} must fit the toast formatter`,
+      ).toBe(true);
+
+      if (locale !== 'en') {
+        expect(value, `${locale}.${key} must not fall back to English`).not.toBe(en[key]);
+      }
+    }
+  });
+
   it('provides plain-text subwoofer placement guidance in every locale', () => {
     const key = 'role.subwoofer_placement' as const;
     for (const [locale, dict] of Object.entries(locales)) {

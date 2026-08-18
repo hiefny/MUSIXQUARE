@@ -227,6 +227,33 @@ describe('playback ownership view', () => {
     expectPlaybackModeActivitySlots('system-audio', 'pending');
   });
 
+  it('returns a sticky receiver placeholder to pending during a delivery handoff', () => {
+    claimPlaybackOwner('system-audio', {
+      pending: true,
+      currentTrackMeta: createSystemAudioTrackMeta('receiving'),
+    });
+
+    setSystemAudioReceiving(true);
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'system-audio',
+      mode: 'system-audio',
+      activity: 'playing',
+      isReceivingSystemAudio: true,
+      isSystemAudioPlaceholder: true,
+    });
+    expectPlaybackModeActivitySlots('system-audio', 'playing');
+
+    setSystemAudioReceiving(false);
+    expect(getPlaybackOwnership()).toMatchObject({
+      owner: 'system-audio',
+      mode: 'system-audio',
+      activity: 'pending',
+      isReceivingSystemAudio: false,
+      isSystemAudioPlaceholder: true,
+    });
+    expectPlaybackModeActivitySlots('system-audio', 'pending');
+  });
+
   it('releases only the requested owner unless forced', () => {
     setPlaybackYouTubePlaying();
     const before = getPlaybackOwnership();

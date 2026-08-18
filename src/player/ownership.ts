@@ -188,11 +188,17 @@ function deriveModeActivityFromSources(sources: {
   isSystemAudioPlaceholder: boolean;
   hasFilePipeline: boolean;
 }): PlaybackModeActivity {
-  if (
-    sources.mode === 'system-audio' ||
-    sources.isReceivingSystemAudio ||
-    sources.isSystemAudioPlaceholder
-  ) {
+  // A receiving placeholder intentionally survives transport handoffs. While
+  // it does, the live receiver signal decides whether a delivery is attached;
+  // a previously stored `playing` value must not hide a reconnect gap.
+  if (sources.isSystemAudioPlaceholder) {
+    return {
+      mode: 'system-audio',
+      activity: sources.isReceivingSystemAudio ? 'playing' : 'pending',
+    };
+  }
+
+  if (sources.mode === 'system-audio' || sources.isReceivingSystemAudio) {
     return {
       mode: 'system-audio',
       activity:

@@ -128,9 +128,11 @@ function syncPlayButtonLoadingClass(): void {
   const btn = document.getElementById('play-btn');
   const iframeOwnedLoading =
     _ytPlayButtonLoading || _proPlaybackControlLoading || _proPlaybackTransitionLoading;
-  const loading = iframeOwnedLoading || _filePlayButtonLoading;
+  const systemAudioPendingLoading =
+    isPlaybackModeSystemAudio() && getState('playback.activity') === 'pending';
+  const loading = iframeOwnedLoading || _filePlayButtonLoading || systemAudioPendingLoading;
   if (btn) {
-    btn.classList.toggle('yt-syncing', loading);
+    btn.classList.toggle('is-loading', loading);
     btn.setAttribute('aria-busy', String(loading));
   }
   bus.emit('ui:play-loading-state', loading);

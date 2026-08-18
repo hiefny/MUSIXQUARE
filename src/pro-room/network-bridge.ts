@@ -375,7 +375,10 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
     });
   }
 
-  send(channel: 'chat' | 'presence' | 'control-ready', payload: JsonRecord): boolean {
+  send(
+    channel: 'chat' | 'presence' | 'control-ready' | 'system-audio-signal',
+    payload: JsonRecord,
+  ): boolean {
     const socket = this.#socket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return false;
     try {
@@ -920,7 +923,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
 export const proRoomServerBridge = new ServerProRoomNetworkBridge();
 
 export function sendProRoomRealtime(
-  channel: 'chat' | 'presence' | 'control-ready',
+  channel: 'chat' | 'presence' | 'control-ready' | 'system-audio-signal',
   payload: JsonRecord,
 ): boolean {
   return proRoomServerBridge.send(channel, payload);

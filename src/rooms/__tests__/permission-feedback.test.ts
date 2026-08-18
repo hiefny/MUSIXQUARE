@@ -21,7 +21,7 @@ const CASES = [
   ['playback.control', 'toast.playback_control_required'],
   ['members.manage', 'toast.member_management_required'],
   ['chat.notice', 'toast.chat_notice_required'],
-  ['effects.control', 'toast.room_owner_required'],
+  ['effects.control', 'toast.settings_sync_admin_required'],
   ['room.configure', 'toast.room_owner_required'],
   ['system-audio.publish', 'toast.system_audio_owner_required'],
   ['coordinator.eligible', 'toast.room_owner_required'],
@@ -41,5 +41,19 @@ describe('room permission feedback', () => {
 
     expect(showToast).toHaveBeenCalledOnce();
     expect(showToast).toHaveBeenCalledWith(t('toast.playback_control_required'));
+  });
+
+  it('distinguishes synchronized audio authority from owner-only room configuration', () => {
+    expect(roomCapabilityRequiredMessage('effects.control')).toBe(
+      t('toast.settings_sync_admin_required'),
+    );
+    expect(roomCapabilityRequiredMessage('room.configure')).toBe(t('toast.room_owner_required'));
+    expect(roomCapabilityRequiredMessage('coordinator.eligible')).toBe(
+      t('toast.room_owner_required'),
+    );
+
+    showRoomCapabilityRequired('effects.control');
+    expect(showToast).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledWith(t('toast.settings_sync_admin_required'));
   });
 });

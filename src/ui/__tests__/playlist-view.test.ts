@@ -571,7 +571,7 @@ describe('playlist queue identity rendering and actions', () => {
   it('mirrors the main play spinner and keeps loading above play/pause state', async () => {
     document.body.insertAdjacentHTML(
       'beforeend',
-      '<button id="play-btn" class="yt-syncing" aria-busy="true"></button>',
+      '<button id="play-btn" class="is-loading" aria-busy="true"></button>',
     );
     setState('playlist.items', sampleItems());
     setState('playlist.currentQueueItemId', FILE_A);
@@ -666,6 +666,9 @@ describe('playlist queue identity rendering and actions', () => {
       /\.material-elastic-spinner\s*\{[^}]*animation:\s*material-elastic-spin/s,
     );
     expect(stylesheet).toMatch(/\.play-loading-spinner\s*\{[^}]*--material-elastic-size:\s*26px;/);
+    expect(stylesheet).toMatch(
+      /body\.mode-system-audio #play-btn\.is-loading\s*\{[^}]*opacity:\s*1\s*!important;/,
+    );
     expect(stylesheet).toMatch(
       /\.track-playback-loading-indicator\s*\{[^}]*--material-elastic-size:\s*16px;/,
     );

@@ -1474,6 +1474,10 @@
     pointer-events: none !important;
   }
 
+  body.mode-system-audio #play-btn.is-loading {
+    opacity: 1 !important;
+  }
+
   #seek-slider[aria-disabled='true'] {
     opacity: 0.38;
     cursor: not-allowed;
@@ -2133,12 +2137,12 @@
     fill: currentColor;
   }
 
-  /* Play button loading spinner (YouTube sync / local file decode) */
-  .play-fab.yt-syncing {
+  /* Play button loading spinner */
+  .play-fab.is-loading {
     pointer-events: none;
   }
 
-  .play-fab.yt-syncing > svg {
+  .play-fab.is-loading > svg {
     display: none;
   }
 
@@ -2149,7 +2153,7 @@
     display: none;
   }
 
-  .play-fab.yt-syncing .play-loading-spinner {
+  .play-fab.is-loading .play-loading-spinner {
     display: block;
   }
 

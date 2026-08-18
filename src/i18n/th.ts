@@ -533,6 +533,8 @@ const th: Record<I18nKey, string> = {
   'toast.copy_failed': 'คัดลอกไม่ได้',
   'toast.email_copied': 'คัดลอกที่อยู่อีเมลแล้ว!',
   'toast.settings_sync_enabled': 'เปิดการซิงก์การตั้งค่าอยู่',
+  'toast.settings_sync_admin_required':
+    'เปิดการซิงก์การตั้งค่าอยู่\nเฉพาะผู้ดูแลห้องเท่านั้นที่เปลี่ยนได้',
   'toast.virtual_bass_on': 'เปิดเบสเสมือนแล้ว',
   'toast.virtual_bass_off': 'ปิดเบสเสมือนแล้ว',
   'toast.virtual_treble_on': 'เปิดเสียงแหลมเสมือนแล้ว',

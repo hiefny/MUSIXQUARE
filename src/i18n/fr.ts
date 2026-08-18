@@ -515,6 +515,8 @@ const fr: Record<I18nKey, string> = {
   'toast.copy_failed': 'Impossible de copier',
   'toast.email_copied': 'Adresse e-mail copiée !',
   'toast.settings_sync_enabled': 'La synchronisation des réglages est activée.',
+  'toast.settings_sync_admin_required':
+    'La synchronisation des réglages est activée.\nSeuls les admins du salon peuvent les modifier.',
   'toast.virtual_bass_on': 'Les graves virtuels sont activés.',
   'toast.virtual_bass_off': 'Les graves virtuels sont désactivés.',
   'toast.virtual_treble_on': 'Les aigus virtuels sont activés.',

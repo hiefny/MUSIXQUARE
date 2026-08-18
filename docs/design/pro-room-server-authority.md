@@ -2,7 +2,7 @@
 
 - **Status:** Accepted and implemented as the current production contract
 - **Decision date:** 2026-07-20
-- **Last repository contract review:** 2026-08-17
+- **Last repository contract review:** 2026-08-19
 - **Applies to:** persistent PRO rooms in the reserved `0xxxxx` namespace
 - **Does not apply to:** ordinary temporary rooms
 - **Compatibility:** the PRO cutover does not support the former
@@ -119,6 +119,70 @@ media delivery. SDP/ICE or Cloudflare Realtime negotiation may use a separate
 transport, but those transports cannot originate playback authority events.
 No PRO playback event is trusted because it arrived through a peer connection.
 
+#### System-audio LAN-direct control/media split
+
+For a PRO system-audio publication, the server-authoritative control boundary
+continues even when media is local. System audio admits at most four active
+devices, so the owner allocates one `publicationId` and attempts at most three
+host-candidate-only `RTCPeerConnection` routes. Offer, answer, candidate, and
+close frames use the targeted `system-audio-signal` WebSocket channel; the
+signaling object never broadcasts them. Before a frame is relayed, it asks the
+PRO object to validate the exact sender and target presence incarnations,
+current system-audio generation, publication and negotiation fences, and
+direction. Publisher-direction frames must come from the exact lease owner;
+subscriber-direction frames must target that owner. Self, missing, replaced,
+stale, or unauthorized targets are dropped.
+
+A direct route is committed only after each target has exactly one unambiguous
+selected, succeeded `host`-to-`host` pair reached through a strict UUID-shaped
+remote `.local` mDNS candidate. The first negotiation is a data-channel-only locality probe;
+the publisher attaches the L/R audio tracks and performs the media negotiation
+only after that proof succeeds. Candidate-bearing SDP is rejected. The bounded
+trickle path accepts only component-1 UDP host candidates with that remote mDNS
+shape; numeric remote candidates are never relayed or added, even when they
+appear to share an RFC1918 or IPv6 private subnet. Browsers without usable mDNS,
+global or otherwise hidden addresses, malformed hostnames, missing candidate-pair
+data, and ambiguous pair selection do not prove locality. A privacy-redacted
+candidate address is accepted only when its selected remote foundation and port
+match a strict mDNS candidate successfully added for that exact route and
+negotiation. The resulting v1 descriptor contains only
+`{ publicationId, transport: "lan-direct", protocolVersion: 1 }`. Cloudflare
+still carries authority mutations and targeted SDP/ICE, but it carries no RTP
+media and no TURN relay for that publication. “Cloudflare media 0” therefore
+does not mean “Cloudflare traffic 0.”
+
+The route is room-wide. There are at most three receiver targets. Each is keyed
+by `(participantId, joinedAtMs)`, where the public `joinedAtMs` monotonically
+advances on explicit tab takeover. Reusing a participant ID therefore cannot
+reuse the old tab's direct proof; the old PC is superseded, while signaling also
+checks the private presence incarnation and current socket.
+
+If any initial target cannot prove direct connectivity, the owner publishes
+through Cloudflare Realtime SFU using the same `publicationId`. If a live direct
+publication later gains a participant that does not answer the v1 offer
+(including a late old client), or any live direct route fails, the owner
+promotes that exact publication to SFU. The PRO reducer
+permits only same-ID direct-to-SFU replacement; it never permits SFU-to-direct
+demotion, a second live ID, or a direct/SFU split. The authenticated client
+reducer likewise accepts an equal-rank direct-to-SFU replacement only for the
+same `publicationId`; peer fan-out and all other equal-generation replacements
+remain conflicts. Once canonical live state is SFU, the internal authority
+check rejects `system-audio.signal` in both directions even if a stale frame
+reuses that generation and publication ID. This one-way rule keeps every
+listener on one canonical media contract. A fifth active device revokes system
+audio rather than extending the route set, while the rest of the PRO room stays
+available.
+
+Host ICE candidates can disclose a browser-generated mDNS name to the
+authenticated peer and the Cloudflare signaling relay. Only a valid UUID-shaped
+remote `.local` name is admitted; numeric remote candidates are rejected rather
+than used to probe a caller-selected private destination. Other hidden or malformed
+names, guest-Wi-Fi client isolation, VPN policy, mDNS-incompatible browsers,
+non-UDP, non-host, or global candidate
+selection, unavailable or ambiguous candidate-pair statistics, and negotiation
+timeout all fail closed into the single SFU route. The client never adds TURN to
+make a route appear LAN-local.
+
 The minimal frame families are:
 
 | Transport              | Operation                       | Purpose                                                          |
@@ -133,6 +197,7 @@ The minimal frame families are:
 | WebSocket server event | playback CANCEL                 | cancel a superseded or invalid transition                        |
 | room API               | ended / unavailable observation | submit an authorized, revision-fenced media observation          |
 | snapshot + local prep  | late-join catch-up              | project the current anchor without restarting the room           |
+| targeted WebSocket     | system-audio offer/answer/ICE   | negotiate one authority-checked LAN route without relaying media |
 
 WebSocket frames use a versioned exact-key schema. HTTP bodies use their
 route-specific exact-key and schema contract; not every HTTP body carries a
@@ -436,6 +501,9 @@ coordinator.
 - **PRO control service unavailable:** ordinary rooms are unaffected. PRO
   clients may finish the current committed segment locally, but no new state
   mutation is accepted until server authority returns.
+- **PRO LAN-direct target unavailable or incompatible:** the owner closes the
+  direct fan-out and promotes the exact `publicationId` once to SFU. A receiver
+  cannot elect itself, select a private fallback, or keep a mixed direct route.
 
 ### 12. Implementation boundary
 
@@ -453,6 +521,10 @@ symbols:
   capabilities, snapshots, and revision fences; and
 - `ProRoomPlaybackController` in `src/pro-room/playback-controller.ts` applies
   PREPARE, COMMIT, CANCEL, and snapshot catch-up to the local playback engines.
+- `src/network/pro-system-audio-direct.ts` owns host-candidate-only peer
+  negotiation and strict mDNS-local candidate-pair proof;
+  `src/pro-room/system-audio-service.ts` owns the at-most-three-target decision,
+  `(participantId, joinedAtMs)` fence, and same-publication SFU promotion.
 
 The ordinary-room adapter remains the existing P2P host implementation. The
 PRO adapter is the authenticated server channel. The coordinator election,
@@ -513,6 +585,14 @@ A rollback cannot re-enable an old browser coordinator against server-authority
 state. Recovery must restore a matched Worker/client/data checkpoint or
 forward-fix the current protocol.
 
+The checked-in PRO system-audio contract marker is `lan-direct-v1`. Its first
+cutover requires one full PRO/signaling/app release. If any component of that
+marker-changing candidate became live, recovery treats v1 as a forward floor:
+it preserves all three components and repairs forward instead of restoring an
+older app that could ignore a direct descriptor or an older Worker that could
+mis-handle same-ID promotion. Only an immutable checkpoint proving that no
+cutover component landed may restore the pre-v1 set.
+
 ## Rejected alternatives
 
 ### Keep coordinator election and improve failover
@@ -564,5 +644,12 @@ the scope could otherwise be mistaken for PRO.
 - Empty-room sleep and first-participant wake work without electing a browser.
 - The PRO state object can remain inactive while playback is logically running,
   and the signaling object can hibernate with browser WebSockets attached.
+- An all-LAN PRO system-audio publication sends no media through Cloudflare,
+  while the PRO object and authenticated WebSocket remain authoritative.
+- One failed or incompatible direct target promotes the same publication once
+  to SFU; no active publication mixes direct and SFU listeners or demotes back.
+- System audio has one publisher and at most three receivers; a fifth active
+  device revokes the share, and direct signaling is denied after canonical SFU
+  promotion.
 - Ordinary rooms retain their host-P2P behavior and continue operating during
   a PRO control-plane outage.

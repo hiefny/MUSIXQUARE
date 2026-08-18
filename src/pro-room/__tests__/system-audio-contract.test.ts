@@ -57,7 +57,7 @@ describe('PRO system-audio wire contract', () => {
         { trackName: ' audio-R ', channel: 'R', mid: ' 1 ' },
       ],
     });
-    expect(parsed?.tracks).toEqual([
+    expect(parsed && 'tracks' in parsed ? parsed.tracks : null).toEqual([
       { trackName: 'audio-L', channel: 'L', mid: '0' },
       { trackName: 'audio-R', channel: 'R', mid: '1' },
     ]);
@@ -89,6 +89,25 @@ describe('PRO system-audio wire contract', () => {
         ],
       }),
     ).toBeNull();
+  });
+
+  it('accepts the exact LAN-direct v1 publication and rejects additive ambiguity', () => {
+    const direct: ProRoomSystemAudioPublication = {
+      publicationId: 'publication_direct_01',
+      transport: 'lan-direct',
+      protocolVersion: 1,
+    };
+    expect(parseProRoomSystemAudioPublication(direct)).toEqual(direct);
+    expect(
+      parseProRoomSystemAudioState({
+        ...liveState(),
+        publication: direct,
+      }),
+    ).toEqual({ ...liveState(), publication: direct });
+    expect(
+      parseProRoomSystemAudioPublication({ ...direct, sessionId: 'not-a-direct-field' }),
+    ).toBeNull();
+    expect(parseProRoomSystemAudioPublication({ ...direct, protocolVersion: 2 })).toBeNull();
   });
 
   it('rejects malformed lifecycle combinations and every private or unknown field', () => {

@@ -42,6 +42,7 @@ import { applyUserTextFontFallback } from './user-text-font.ts';
 import { hasLocaleFont, preloadLocaleFontGlyphs } from '../i18n/locale-fonts.ts';
 import { isSettingsSyncEnabled, setSettingsSyncEnabled } from '../audio/effects.ts';
 import { setPressedState, syncExclusivePressedState } from '../core/aria-state.ts';
+import { isSystemAudioCaptureActive } from '../audio/system-audio-policy.ts';
 
 // ─── Host-Ctrl Lock (Guest cannot change host-controlled settings) ──
 
@@ -255,6 +256,12 @@ function setChannel(mode: number): void {
 
   const preset = getStandardRolePreset(mode);
   showToast(t(preset.placementToastKey));
+}
+
+function blockLocalSystemAudioRoleChange(): boolean {
+  if (!isSystemAudioCaptureActive()) return false;
+  showToast(t('system_audio.host_channel_locked'));
+  return true;
 }
 
 // ─── Value Display Helpers ────────────────────────────────────────
@@ -966,11 +973,7 @@ export function initSettings(): void {
   // Channel grid (standard)
   document.querySelectorAll<HTMLElement>('#grid-standard .ch-opt[data-ch]').forEach((el) => {
     el.addEventListener('click', () => {
-      // Host: block channel change during system audio sharing
-      if (!getState('network.hostConn') && isPlaybackModeSystemAudio()) {
-        showToast(t('system_audio.host_channel_locked'));
-        return;
-      }
+      if (blockLocalSystemAudioRoleChange()) return;
       setChannel(parseInt(el.dataset.ch!, 10));
     });
   });
@@ -981,10 +984,7 @@ export function initSettings(): void {
     )
     .forEach((el) => {
       el.addEventListener('click', () => {
-        if (!getState('network.hostConn') && isPlaybackModeSystemAudio()) {
-          showToast(t('system_audio.host_channel_locked'));
-          return;
-        }
+        if (blockLocalSystemAudioRoleChange()) return;
         const mode = Number(el.dataset.roleMode);
         if (Number.isFinite(mode)) setChannel(mode);
       });

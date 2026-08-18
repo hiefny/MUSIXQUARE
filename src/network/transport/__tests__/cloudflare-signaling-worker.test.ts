@@ -903,6 +903,190 @@ describe('Cloudflare signaling protocol validation boundaries', () => {
     }
   });
 
+  it('normalizes the strict targeted PRO system-audio signaling union', () => {
+    const frame = (payload: Record<string, unknown>) => ({
+      type: 'pro-realtime',
+      version: 1,
+      eventId: 'system-audio-event-0001',
+      channel: 'system-audio-signal',
+      payload,
+    });
+    const common = {
+      targetParticipantId: 'system-audio-target-0001',
+      generation: 7,
+      publicationId: 'system-audio-publication-0001',
+      negotiationId: 'system-audio-negotiation-0001',
+    };
+    const probeOffer = {
+      ...common,
+      kind: 'offer',
+      direction: 'publisher',
+      phase: 'probe',
+      description: { type: 'offer', sdp: 'v=0\r\n' },
+    };
+    const offer = {
+      ...probeOffer,
+      phase: 'media',
+      trackIds: { L: 'captured-left-track', R: 'captured-right-track' },
+    };
+    const answer = {
+      ...common,
+      kind: 'answer',
+      direction: 'subscriber',
+      phase: 'media',
+      description: { type: 'answer', sdp: 'v=0\r\n' },
+    };
+    const candidate = {
+      ...common,
+      kind: 'candidate',
+      direction: 'publisher',
+      candidate: {
+        candidate: 'candidate:1 1 UDP 1 123e4567-e89b-42d3-a456-426614174000.local 9 typ host',
+        sdpMid: '0',
+        sdpMLineIndex: 0,
+        usernameFragment: null,
+      },
+    };
+    const close = {
+      ...common,
+      kind: 'close',
+      direction: 'subscriber',
+      reason: 'fallback',
+    };
+
+    expect(signalingProtocol.normalizeProRealtimeFrame(frame(probeOffer))).toMatchObject({
+      channel: 'system-audio-signal',
+      payload: probeOffer,
+    });
+    expect(signalingProtocol.normalizeProRealtimeFrame(frame(offer))).toMatchObject({
+      channel: 'system-audio-signal',
+      payload: offer,
+    });
+    expect(signalingProtocol.normalizeProRealtimeFrame(frame(answer))).toMatchObject({
+      channel: 'system-audio-signal',
+      payload: answer,
+    });
+    expect(signalingProtocol.normalizeProRealtimeFrame(frame(candidate))).toMatchObject({
+      channel: 'system-audio-signal',
+      payload: candidate,
+    });
+    expect(
+      signalingProtocol.normalizeProRealtimeFrame(
+        frame({
+          ...candidate,
+          candidate: {
+            ...candidate.candidate,
+            candidate: `${candidate.candidate.candidate} generation 0 raddr 192.168.1.20 rport 5000`,
+          },
+        }),
+      ),
+    ).toMatchObject({
+      channel: 'system-audio-signal',
+      payload: candidate,
+    });
+    expect(signalingProtocol.normalizeProRealtimeFrame(frame(close))).toMatchObject({
+      channel: 'system-audio-signal',
+      payload: close,
+    });
+
+    const invalidPayloads = [
+      { ...offer, direction: 'subscriber' },
+      { ...answer, direction: 'publisher' },
+      { ...probeOffer, trackIds: { L: 'left', R: 'right' } },
+      { ...offer, phase: 'probe' },
+      { ...probeOffer, phase: 'media' },
+      { ...offer, phase: 'unknown' },
+      { ...answer, phase: 'unknown' },
+      (({ phase: _phase, ...withoutPhase }) => withoutPhase)(offer),
+      (({ phase: _phase, ...withoutPhase }) => withoutPhase)(answer),
+      { ...offer, trackIds: { L: 'same-track', R: 'same-track' } },
+      { ...offer, trackIds: { L: 'left', R: 'right', extra: true } },
+      { ...offer, trackIds: { L: 'x'.repeat(161), R: 'right' } },
+      { ...answer, trackIds: { L: 'left', R: 'right' } },
+      {
+        ...probeOffer,
+        description: {
+          type: 'offer',
+          sdp: 'v=0\r\na=candidate:1 1 udp 1 192.168.1.20 5000 typ host\r\n',
+        },
+      },
+      {
+        ...answer,
+        description: {
+          type: 'answer',
+          sdp: 'v=0\r\na=remote-candidates:1 192.168.1.20 5000\r\n',
+        },
+      },
+      {
+        ...answer,
+        description: { type: 'answer', sdp: 'v=0\r\na=end-of-candidates\r\n' },
+      },
+      {
+        ...probeOffer,
+        description: { type: 'offer', sdp: 'v=0\r\nc=IN IP4 192.168.1.20\r\n' },
+      },
+      {
+        ...answer,
+        description: { type: 'answer', sdp: 'v=0\r\nc=IN IP6 fd00::20\r\n' },
+      },
+      { ...candidate, phase: 'probe' },
+      {
+        ...candidate,
+        candidate: {
+          ...candidate.candidate,
+          candidate: 'candidate:1 1 TCP 1 192.168.1.20 9 typ host tcptype active',
+        },
+      },
+      {
+        ...candidate,
+        candidate: {
+          ...candidate.candidate,
+          candidate: 'candidate:1 2 UDP 1 192.168.1.20 5000 typ host',
+        },
+      },
+      {
+        ...candidate,
+        candidate: {
+          ...candidate.candidate,
+          candidate: 'candidate:1 1 UDP 1 192.168.1.20 5000 typ srflx',
+        },
+      },
+      {
+        ...candidate,
+        candidate: {
+          ...candidate.candidate,
+          candidate: 'candidate:1 1 UDP 1 192.168.1.20 5000 typ host',
+        },
+      },
+      {
+        ...candidate,
+        candidate: {
+          ...candidate.candidate,
+          candidate: 'candidate:1 1 UDP 1 arbitrary.local 5000 typ host',
+        },
+      },
+      { ...close, phase: 'media' },
+      { ...candidate, candidate: { candidate: 'candidate:1', extra: true } },
+      { ...candidate, candidate: { candidate: 'x'.repeat(4 * 1024) } },
+      { ...close, reason: 'unknown' },
+      { ...close, generation: 0 },
+      { ...close, publicationId: 'short' },
+      { ...close, negotiationId: 'short' },
+      { ...close, extra: true },
+    ];
+    for (const payload of invalidPayloads) {
+      expect(signalingProtocol.normalizeProRealtimeFrame(frame(payload))).toBeNull();
+    }
+    expect(
+      signalingProtocol.normalizeProRealtimeFrame(
+        frame({
+          ...offer,
+          description: { type: 'offer', sdp: 'x'.repeat(48 * 1024 + 1) },
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it('rejects malformed ICE metadata and covers role-specific terminal messages', () => {
     const guestCandidate = (candidate: Record<string, unknown>) => ({
       type: 'signal-candidate',
@@ -2847,6 +3031,448 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(alice.sent).toHaveLength(counts[0]);
     expect(sent(bob).at(-1)).toEqual(relay);
     expect(sent(carol).at(-1)).toEqual(relay);
+  });
+
+  it('relays a large authorized PRO system-audio offer only to its exact target', async () => {
+    const authorityBodies: Record<string, unknown>[] = [];
+    const authority = proAuthorityNamespace(async (request) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      authorityBodies.push(body);
+      return new originalResponse(
+        JSON.stringify({
+          allowed: true,
+          roomCode: '000001',
+          roomGeneration: 0,
+          memberId: 'owner_systemaudiosender0001',
+          role: 'owner',
+          permission: 'system-audio.signal',
+          targetParticipantId: body.targetParticipantId,
+          targetPresenceIncarnationId: body.targetPresenceIncarnationId,
+          direction: body.direction,
+          generation: body.generation,
+          publicationId: body.publicationId,
+          negotiationId: body.negotiationId,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const publisher = await joinProMember(room, {
+      participantId: 'system-audio-publisher-0001',
+      memberId: 'owner_systemaudiosender0001',
+      displayName: 'Publisher',
+      presenceIncarnationId: 'system-audio-publisher-presence-0001',
+      jti: 'system-audio-publisher-ticket-0001',
+    });
+    const subscriber = await joinProMember(room, {
+      participantId: 'system-audio-subscriber-0001',
+      displayName: 'Subscriber',
+      presenceIncarnationId: 'system-audio-subscriber-presence-0001',
+      jti: 'system-audio-subscriber-ticket-0001',
+    });
+    const bystander = await joinProMember(room, {
+      participantId: 'system-audio-bystander-0001',
+      displayName: 'Bystander',
+      presenceIncarnationId: 'system-audio-bystander-presence-0001',
+      jti: 'system-audio-bystander-ticket-0001',
+    });
+    const counts = [publisher.sent.length, subscriber.sent.length, bystander.sent.length];
+    const signalFrame = {
+      type: 'pro-realtime',
+      version: 1,
+      eventId: 'system-audio-offer-event-0001',
+      channel: 'system-audio-signal',
+      payload: {
+        kind: 'offer',
+        targetParticipantId: 'system-audio-subscriber-0001',
+        direction: 'publisher',
+        phase: 'media',
+        generation: 9,
+        publicationId: 'system-audio-publication-0001',
+        negotiationId: 'system-audio-negotiation-0001',
+        description: { type: 'offer', sdp: `v=0\r\n${'a=x\r\n'.repeat(1_500)}` },
+        trackIds: { L: 'captured-left-track', R: 'captured-right-track' },
+      },
+    };
+    const raw = JSON.stringify(signalFrame);
+    expect(new TextEncoder().encode(raw).byteLength).toBeGreaterThan(8 * 1024);
+
+    await room.webSocketMessage(publisher, raw);
+
+    expect(authorityBodies).toEqual([
+      {
+        roomGeneration: 0,
+        participantId: 'system-audio-publisher-0001',
+        presenceIncarnationId: 'system-audio-publisher-presence-0001',
+        permission: 'system-audio.signal',
+        targetParticipantId: 'system-audio-subscriber-0001',
+        targetPresenceIncarnationId: 'system-audio-subscriber-presence-0001',
+        direction: 'publisher',
+        generation: 9,
+        publicationId: 'system-audio-publication-0001',
+        negotiationId: 'system-audio-negotiation-0001',
+      },
+    ]);
+    expect(publisher.sent).toHaveLength(counts[0]);
+    expect(subscriber.sent).toHaveLength(counts[1] + 1);
+    expect(bystander.sent).toHaveLength(counts[2]);
+    expect(sent(subscriber).at(-1)).toMatchObject({
+      ...signalFrame,
+      roomCode: '000001',
+      roomGeneration: 0,
+      coordinatorEpoch: 1,
+      sender: {
+        participantId: 'system-audio-publisher-0001',
+        presenceIncarnationId: 'system-audio-publisher-presence-0001',
+      },
+    });
+    expect(publisher.closed).toBe(false);
+  });
+
+  it('fails PRO system-audio signaling closed for self, missing, and replaced targets', async () => {
+    let releaseAuthority!: () => void;
+    const authorityGate = new Promise<void>((resolve) => {
+      releaseAuthority = resolve;
+    });
+    let authorityEnteredResolve: (() => void) | null = null;
+    const authorityEntered = new Promise<void>((resolve) => {
+      authorityEnteredResolve = resolve;
+    });
+    const authority = proAuthorityNamespace(async (request) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      authorityEnteredResolve?.();
+      await authorityGate;
+      return new originalResponse(
+        JSON.stringify({
+          allowed: true,
+          roomCode: '000001',
+          roomGeneration: 0,
+          memberId: 'owner_systemaudiorace000001',
+          role: 'owner',
+          permission: 'system-audio.signal',
+          targetParticipantId: body.targetParticipantId,
+          targetPresenceIncarnationId: body.targetPresenceIncarnationId,
+          direction: body.direction,
+          generation: body.generation,
+          publicationId: body.publicationId,
+          negotiationId: body.negotiationId,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const publisher = await joinProMember(room, {
+      participantId: 'system-audio-race-publisher',
+      memberId: 'owner_systemaudiorace000001',
+      presenceIncarnationId: 'system-audio-race-publisher-presence',
+      jti: 'system-audio-race-publisher-ticket',
+    });
+    const originalTarget = await joinProMember(room, {
+      participantId: 'system-audio-race-target-0001',
+      presenceIncarnationId: 'system-audio-race-target-presence-0001',
+      ticketSequence: 1,
+      jti: 'system-audio-race-target-ticket-0001',
+    });
+    const commonPayload = {
+      kind: 'candidate',
+      direction: 'publisher',
+      generation: 11,
+      publicationId: 'system-audio-race-publication-0001',
+      negotiationId: 'system-audio-race-negotiation-0001',
+      candidate: {
+        candidate: 'candidate:1 1 UDP 1 123e4567-e89b-42d3-a456-426614174000.local 5000 typ host',
+      },
+    };
+    const sendTo = (targetParticipantId: string, eventId: string) =>
+      room.webSocketMessage(
+        publisher,
+        JSON.stringify({
+          type: 'pro-realtime',
+          version: 1,
+          eventId,
+          channel: 'system-audio-signal',
+          payload: { ...commonPayload, targetParticipantId },
+        }),
+      );
+
+    await sendTo('system-audio-race-publisher', 'system-audio-self-event-0001');
+    await sendTo('system-audio-missing-target', 'system-audio-missing-event-0001');
+    expect(authority.roomFetch).not.toHaveBeenCalled();
+
+    const originalCount = originalTarget.sent.length;
+    const pendingRelay = sendTo('system-audio-race-target-0001', 'system-audio-race-event-0001');
+    await authorityEntered;
+    const replacementTarget = await joinProMember(room, {
+      participantId: 'system-audio-race-target-0001',
+      presenceIncarnationId: 'system-audio-race-target-presence-0002',
+      ticketSequence: 2,
+      jti: 'system-audio-race-target-ticket-0002',
+    });
+    const replacementCount = replacementTarget.sent.length;
+    releaseAuthority();
+    await pendingRelay;
+
+    expect(originalTarget.sent).toHaveLength(originalCount);
+    expect(replacementTarget.sent).toHaveLength(replacementCount);
+    expect(publisher.closed).toBe(false);
+  });
+
+  it('preserves per-sender PRO system-audio signal order across delayed authority checks', async () => {
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let firstEnteredResolve!: () => void;
+    const firstEntered = new Promise<void>((resolve) => {
+      firstEnteredResolve = resolve;
+    });
+    let authorityCalls = 0;
+    const authority = proAuthorityNamespace(async (request) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      authorityCalls += 1;
+      if (authorityCalls === 1) {
+        firstEnteredResolve();
+        await firstGate;
+      }
+      return new originalResponse(
+        JSON.stringify({
+          allowed: true,
+          roomCode: '000001',
+          roomGeneration: 0,
+          memberId: 'owner_systemaudioorder000001',
+          role: 'owner',
+          permission: 'system-audio.signal',
+          targetParticipantId: body.targetParticipantId,
+          targetPresenceIncarnationId: body.targetPresenceIncarnationId,
+          direction: body.direction,
+          generation: body.generation,
+          publicationId: body.publicationId,
+          negotiationId: body.negotiationId,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const room = new workerModule.MusixquareRoom(new FakeDurableObjectState(), {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const publisher = await joinProMember(room, {
+      participantId: 'system-audio-order-publisher',
+      memberId: 'owner_systemaudioorder000001',
+      presenceIncarnationId: 'system-audio-order-publisher-presence',
+      jti: 'system-audio-order-publisher-ticket',
+    });
+    const subscriber = await joinProMember(room, {
+      participantId: 'system-audio-order-subscriber',
+      presenceIncarnationId: 'system-audio-order-subscriber-presence',
+      jti: 'system-audio-order-subscriber-ticket',
+    });
+    const targetParticipantId = 'system-audio-order-subscriber';
+    const publicationId = 'system-audio-order-publication-0001';
+    const firstNegotiationId = 'system-audio-order-negotiation-0001';
+    const secondNegotiationId = 'system-audio-order-negotiation-0002';
+    const frame = (eventId: string, payload: Record<string, unknown>) =>
+      JSON.stringify({
+        type: 'pro-realtime',
+        version: 1,
+        eventId,
+        channel: 'system-audio-signal',
+        payload,
+      });
+    const common = {
+      targetParticipantId,
+      direction: 'publisher',
+      generation: 12,
+      publicationId,
+    };
+    const before = subscriber.sent.length;
+    const firstOffer = room.webSocketMessage(
+      publisher,
+      frame('system-audio-order-event-0001', {
+        ...common,
+        kind: 'offer',
+        phase: 'probe',
+        negotiationId: firstNegotiationId,
+        description: { type: 'offer', sdp: 'v=0\r\nc=IN IP4 0.0.0.0\r\n' },
+      }),
+    );
+    await firstEntered;
+    const close = room.webSocketMessage(
+      publisher,
+      frame('system-audio-order-event-0002', {
+        ...common,
+        kind: 'close',
+        negotiationId: firstNegotiationId,
+        reason: 'superseded',
+      }),
+    );
+    const secondOffer = room.webSocketMessage(
+      publisher,
+      frame('system-audio-order-event-0003', {
+        ...common,
+        kind: 'offer',
+        phase: 'probe',
+        negotiationId: secondNegotiationId,
+        description: { type: 'offer', sdp: 'v=0\r\nc=IN IP4 0.0.0.0\r\n' },
+      }),
+    );
+    await Promise.resolve();
+    expect(authority.roomFetch).toHaveBeenCalledTimes(1);
+
+    releaseFirst();
+    await Promise.all([firstOffer, close, secondOffer]);
+
+    const ordered = sent(subscriber)
+      .slice(before)
+      .filter((message) => message.channel === 'system-audio-signal')
+      .map((message) => {
+        const payload = message.payload as Record<string, unknown>;
+        return [payload.kind, payload.negotiationId];
+      });
+    expect(ordered).toEqual([
+      ['offer', firstNegotiationId],
+      ['close', firstNegotiationId],
+      ['offer', secondNegotiationId],
+    ]);
+  });
+
+  it('bounds a sender signal backlog while an authority check is delayed', async () => {
+    let releaseAuthority!: () => void;
+    const authorityGate = new Promise<void>((resolve) => {
+      releaseAuthority = resolve;
+    });
+    let authorityEnteredResolve!: () => void;
+    const authorityEntered = new Promise<void>((resolve) => {
+      authorityEnteredResolve = resolve;
+    });
+    const authority = proAuthorityNamespace(async (request) => {
+      const body = (await request.json()) as Record<string, unknown>;
+      authorityEnteredResolve();
+      await authorityGate;
+      return new originalResponse(
+        JSON.stringify({
+          allowed: true,
+          roomCode: '000001',
+          roomGeneration: 0,
+          memberId: 'owner_systemaudiobacklog0001',
+          role: 'owner',
+          permission: 'system-audio.signal',
+          targetParticipantId: body.targetParticipantId,
+          targetPresenceIncarnationId: body.targetPresenceIncarnationId,
+          direction: body.direction,
+          generation: body.generation,
+          publicationId: body.publicationId,
+          negotiationId: body.negotiationId,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      );
+    });
+    const room = new workerModule.MusixquareRoom(new FakeDurableObjectState(), {
+      PRO_SIGNALING_SECRET,
+      PRO_ROOM_AUTHORITY_ROOMS: authority.binding,
+    });
+    const publisher = await joinProMember(room, {
+      participantId: 'system-audio-backlog-publisher',
+      memberId: 'owner_systemaudiobacklog0001',
+      presenceIncarnationId: 'system-audio-backlog-publisher-presence',
+      jti: 'system-audio-backlog-publisher-ticket',
+    });
+    const subscriber = await joinProMember(room, {
+      participantId: 'system-audio-backlog-subscriber',
+      presenceIncarnationId: 'system-audio-backlog-subscriber-presence',
+      jti: 'system-audio-backlog-subscriber-ticket',
+    });
+    const signal = (index: number) =>
+      room.webSocketMessage(
+        publisher,
+        JSON.stringify({
+          type: 'pro-realtime',
+          version: 1,
+          eventId: `system-audio-backlog-event-${String(index).padStart(4, '0')}`,
+          channel: 'system-audio-signal',
+          payload: {
+            kind: 'offer',
+            targetParticipantId: 'system-audio-backlog-subscriber',
+            direction: 'publisher',
+            phase: 'probe',
+            generation: 13,
+            publicationId: 'system-audio-backlog-publication-0001',
+            negotiationId: `system-audio-backlog-negotiation-${String(index).padStart(4, '0')}`,
+            description: { type: 'offer', sdp: 'v=0\r\nc=IN IP4 0.0.0.0\r\n' },
+          },
+        }),
+      );
+
+    const first = signal(0);
+    await authorityEntered;
+    const queued = Array.from({ length: 15 }, (_, index) => signal(index + 1));
+    await vi.waitFor(() => {
+      const attachment = publisher.deserializeAttachment() as Record<string, unknown>;
+      expect(attachment.realtimeMessageTokens).toEqual(expect.any(Number));
+      expect(attachment.realtimeMessageTokens as number).toBeLessThan(105);
+    });
+
+    expect(authority.roomFetch).toHaveBeenCalledTimes(1);
+    expect(publisher.closed).toBe(false);
+    const overflow = signal(16);
+    await vi.waitFor(() => expect(publisher.closed).toBe(true));
+    releaseAuthority();
+    await Promise.all([first, ...queued, overflow]);
+    expect(sent(subscriber).filter((message) => message.channel === 'system-audio-signal')).toEqual(
+      [],
+    );
+  });
+
+  it('bounds all PRO ingress before a delayed maintenance read retains frame bodies', async () => {
+    const env: Record<string, unknown> = { PRO_SIGNALING_SECRET };
+    const room = new workerModule.MusixquareRoom(new FakeDurableObjectState(), env);
+    const publisher = await joinProMember(room, {
+      participantId: 'system-audio-maintenance-backlog-publisher',
+      memberId: 'owner_systemaudiomaintenance001',
+      presenceIncarnationId: 'system-audio-maintenance-backlog-presence',
+      jti: 'system-audio-maintenance-backlog-ticket',
+    });
+    const delayedMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = delayedMaintenance.binding;
+    const paddedSdp = `v=0\r\nc=IN IP4 0.0.0.0\r\n${'a=x\r\n'.repeat(6_000)}`;
+    const signal = (index: number) =>
+      room.webSocketMessage(
+        publisher,
+        JSON.stringify({
+          type: 'pro-realtime',
+          version: 1,
+          eventId: `system-audio-maintenance-event-${String(index).padStart(4, '0')}`,
+          channel: 'system-audio-signal',
+          payload: {
+            kind: 'offer',
+            targetParticipantId: 'system-audio-maintenance-target',
+            direction: 'publisher',
+            phase: 'probe',
+            generation: 14,
+            publicationId: 'system-audio-maintenance-publication-0001',
+            negotiationId: `system-audio-maintenance-negotiation-${String(index).padStart(4, '0')}`,
+            description: { type: 'offer', sdp: paddedSdp },
+          },
+        }),
+      );
+
+    const first = signal(0);
+    await delayedMaintenance.entered;
+    const admitted = Array.from({ length: 31 }, (_, index) => signal(index + 1));
+    expect(publisher.closed).toBe(false);
+    const overflow = signal(32);
+    expect(publisher.closed).toBe(true);
+
+    delayedMaintenance.release();
+    await Promise.all([first, ...admitted, overflow]);
   });
 
   it('authorizes PRO notices with the admitted participant and exact presence incarnation', async () => {

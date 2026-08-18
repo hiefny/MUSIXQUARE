@@ -833,7 +833,7 @@ function handleSetVirtualEffects(state: {
     return;
   }
   if (!canAdjustLocalRoomEffects()) {
-    rejectRoomEffectsControl();
+    rejectSynchronizedRoomEffectsControl();
     return;
   }
 
@@ -980,7 +980,8 @@ function isDeviceLocalEffectType(type: string): boolean {
   return type === 'cutoff';
 }
 
-function rejectRoomEffectsControl(): void {
+/** Explain the sync-specific authority rule without implying owner-only access. */
+function rejectSynchronizedRoomEffectsControl(): void {
   showRoomCapabilityRequired('effects.control');
 }
 
@@ -1003,7 +1004,7 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
   // Subwoofer cutoff belongs to the per-device output role. It never enters
   // the synchronized room DSP snapshot and must remain locally adjustable.
   if (!isDeviceLocalEffectType(type) && !canAdjustLocalRoomEffects()) {
-    if (!isPreview) rejectRoomEffectsControl();
+    if (!isPreview) rejectSynchronizedRoomEffectsControl();
     return;
   }
 
@@ -1055,7 +1056,7 @@ bus.on('audio:update-effect', (type, param, value, isPreview) => {
 bus.on('audio:set-eq', (band, value, isPreview) => {
   if (!Number.isFinite(band) || !Number.isFinite(value)) return;
   if (!canAdjustLocalRoomEffects()) {
-    if (!isPreview) rejectRoomEffectsControl();
+    if (!isPreview) rejectSynchronizedRoomEffectsControl();
     return;
   }
   setEQ(band, value);
@@ -1066,7 +1067,7 @@ bus.on('audio:set-eq', (band, value, isPreview) => {
 
 bus.on('audio:reverb-type-change', (type: string) => {
   if (!canAdjustLocalRoomEffects()) {
-    rejectRoomEffectsControl();
+    rejectSynchronizedRoomEffectsControl();
     return;
   }
   applyReverbType(type, false);
@@ -1075,7 +1076,7 @@ bus.on('audio:reverb-type-change', (type: string) => {
 
 bus.on('audio:reset-eq', () => {
   if (!canAdjustLocalRoomEffects()) {
-    rejectRoomEffectsControl();
+    rejectSynchronizedRoomEffectsControl();
     return;
   }
   resetEQ();
@@ -1469,6 +1470,7 @@ export function initEffectsHandlers(): void {
 /** @internal Focused audio/settings synchronization tests only. */
 export {
   applyRoomEffectsState as applyRoomEffectsStateForTests,
+  canAdjustLocalRoomEffects as canAdjustLocalRoomEffectsForTests,
   isDeviceLocalEffectType as isDeviceLocalEffectTypeForTests,
   publishLocalSettingsAuthority as publishLocalSettingsAuthorityForTests,
 };

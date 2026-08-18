@@ -106,6 +106,7 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  document.body.className = '';
   document.body.innerHTML = '';
 });
 
@@ -352,8 +353,95 @@ describe('Visualizer', () => {
       expect(ctx.arc).not.toHaveBeenCalled();
     });
 
-    it('redraws a spectrum resting frame when the saved mode is restored after init', async () => {
+    it('toggles and persists the mode from click and keyboard activation without duplicate bindings', async () => {
       vi.resetModules();
+
+      const restingCanvas = document.createElement('canvas');
+      restingCanvas.id = 'visualizerCanvas';
+      document.body.appendChild(restingCanvas);
+      const modeLabel = document.createElement('span');
+      modeLabel.id = 'visualizer-current-mode';
+      document.body.appendChild(modeLabel);
+
+      const ctx = {
+        setTransform: vi.fn(),
+        scale: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+      mod.initVisualizer();
+
+      restingCanvas.click();
+
+      expect(document.body.classList.contains('viz-spectrum')).toBe(true);
+      expect(restingCanvas.getAttribute('aria-pressed')).toBe('true');
+      expect(restingCanvas.dataset.visualizerMode).toBe('spectrum');
+      expect(modeLabel.getAttribute('data-i18n')).toBe('player.visualizer_spectrum');
+      expect(localStorage.getItem('musixquare-viz-mode')).toBe('spectrum');
+
+      const space = new KeyboardEvent('keydown', {
+        key: ' ',
+        bubbles: true,
+        cancelable: true,
+      });
+      restingCanvas.dispatchEvent(space);
+
+      expect(space.defaultPrevented).toBe(true);
+      expect(document.body.classList.contains('viz-circular')).toBe(true);
+      expect(restingCanvas.getAttribute('aria-pressed')).toBe('false');
+      expect(modeLabel.getAttribute('data-i18n')).toBe('player.visualizer_circular');
+      expect(localStorage.getItem('musixquare-viz-mode')).toBe('circular');
+
+      restingCanvas.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      );
+      expect(document.body.classList.contains('viz-spectrum')).toBe(true);
+      expect(localStorage.getItem('musixquare-viz-mode')).toBe('spectrum');
+    });
+
+    it('keeps a demo-mobile canvas toggle temporary', async () => {
+      vi.resetModules();
+      localStorage.setItem('musixquare-viz-mode', 'circular');
+      document.body.classList.add('demo-mobile');
+
+      const restingCanvas = document.createElement('canvas');
+      restingCanvas.id = 'visualizerCanvas';
+      document.body.appendChild(restingCanvas);
+      const ctx = {
+        setTransform: vi.fn(),
+        scale: vi.fn(),
+        clearRect: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        moveTo: vi.fn(),
+        lineTo: vi.fn(),
+        stroke: vi.fn(),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+      } as unknown as CanvasRenderingContext2D;
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx);
+
+      const mod = await import('../visualizer.ts');
+      mod.initVisualizer();
+      restingCanvas.click();
+
+      expect(document.body.classList.contains('viz-spectrum')).toBe(true);
+      expect(localStorage.getItem('musixquare-viz-mode')).toBe('circular');
+    });
+
+    it('redraws a temporary event-selected mode without overwriting the saved preference', async () => {
+      vi.resetModules();
+      localStorage.setItem('musixquare-viz-mode', 'circular');
 
       const restingCanvas = document.createElement('canvas');
       restingCanvas.id = 'visualizerCanvas';
@@ -387,6 +475,7 @@ describe('Visualizer', () => {
       expect(document.body.classList.contains('viz-circular')).toBe(false);
       expect(ctx.lineTo).toHaveBeenCalled();
       expect(ctx.arc).not.toHaveBeenCalled();
+      expect(localStorage.getItem('musixquare-viz-mode')).toBe('circular');
     });
 
     it('applies the initial paused playback activity through the visualizer subscription', async () => {

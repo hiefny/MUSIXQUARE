@@ -11,7 +11,6 @@ const GENERAL_SETTINGS: DescribedSetting[] = [
   { description: '#settings-language-description', control: '#grid-lang' },
   { description: '#settings-theme-description', control: '#grid-theme' },
   { description: '#settings-ui-sounds-description', control: '#grid-ui-sounds' },
-  { description: '#settings-visualizer-description', control: '#grid-visualizer' },
   { description: '#settings-sync-description', control: '#grid-settings-sync' },
 ];
 
@@ -366,15 +365,15 @@ test.describe('settings description layout', () => {
 
       await expectDesktopAlignment(page, GENERAL_SETTINGS);
       const generalOrder = await page.evaluate(() => {
-        const visualizer = document.querySelector('#grid-visualizer')?.closest('.section-group');
+        const uiSounds = document.querySelector('#grid-ui-sounds')?.closest('.section-group');
         const sync = document.querySelector('#settings-sync-section');
-        if (!visualizer || !sync) return null;
+        if (!uiSounds || !sync) return null;
 
-        const visualizerRect = visualizer.getBoundingClientRect();
+        const uiSoundsRect = uiSounds.getBoundingClientRect();
         const syncRect = sync.getBoundingClientRect();
         return {
-          dom: Boolean(visualizer.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING),
-          rendered: visualizerRect.bottom <= syncRect.top + 1,
+          dom: Boolean(uiSounds.compareDocumentPosition(sync) & Node.DOCUMENT_POSITION_FOLLOWING),
+          rendered: uiSoundsRect.bottom <= syncRect.top + 1,
         };
       });
       expect(generalOrder?.dom).toBe(true);

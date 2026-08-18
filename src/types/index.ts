@@ -1398,6 +1398,7 @@ interface BaseEventMap {
   'youtube:apply-manual-sync': [];
   'youtube:set-coordinator-manual-offset': [requestedOffsetSeconds: number];
   'youtube:preview': [url: string];
+  'youtube:search-from-input': [];
   'youtube:load-from-input': [];
   'youtube:load-from-chat': [url: string];
   // opts.silent: caller is mid-transition to another mode and will claim

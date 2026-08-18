@@ -279,7 +279,7 @@ describe('app maintenance administration', () => {
     expect(adminBody).toContain('data-admin-tab="operations">Analytics');
 
     const clearableAsset = await appWorker.fetch(
-      new Request('https://musixquare.com/clearable-editors.js?v=8.3.67'),
+      new Request('https://musixquare.com/clearable-editors.js?v=8.3.68'),
       env,
     );
     expect(clearableAsset.status).toBe(200);

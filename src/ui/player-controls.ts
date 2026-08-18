@@ -31,7 +31,11 @@ import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { exitYouTubeFullscreen } from '../player/video.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
-import { clearPreviewDebounce, clearYouTubeInputState } from '../youtube/search.ts';
+import {
+  clearPreviewDebounce,
+  clearYouTubeInputState,
+  getYouTubeInputIntent,
+} from '../youtube/search.ts';
 import { primeYouTubePlayer, waitForPendingYouTubePrimeBounce } from '../youtube/iframe.ts';
 import { YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS } from '../youtube/constants.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
@@ -702,6 +706,13 @@ function invalidateYouTubeGestureSubmit(): void {
   youtubeGestureSubmitGeneration++;
   youtubeGestureSubmitOwner = null;
   document.getElementById('youtube-play-btn')?.removeAttribute('aria-busy');
+}
+
+function submitYouTubeSearch(input: HTMLElement): void {
+  const searchButton = document.getElementById('youtube-search-btn') as HTMLButtonElement | null;
+  if (!searchButton || searchButton.disabled) return;
+  bus.emit('youtube:search-from-input');
+  if (IS_IOS || IS_ANDROID) input.blur();
 }
 
 function submitYouTubeFromGesture(input: HTMLElement): void {
@@ -1451,6 +1462,13 @@ export function initPlayerControls(): void {
         normalizeEmptyContentEditable(ytInput, e);
         const inputText = ytInput.textContent || '';
         applyUserTextFontFallback(ytInput, inputText);
+        const searchButton = document.getElementById(
+          'youtube-search-btn',
+        ) as HTMLButtonElement | null;
+        if (searchButton) {
+          searchButton.disabled = getYouTubeInputIntent(inputText).kind !== 'search-query';
+          searchButton.removeAttribute('aria-busy');
+        }
         bus.emit('youtube:preview', inputText);
       },
       { signal: domSignal },
@@ -1461,6 +1479,13 @@ export function initPlayerControls(): void {
         if (e.key === 'Enter') {
           if (e.isComposing || e.keyCode === 229) return;
           e.preventDefault();
+          const searchButton = document.getElementById(
+            'youtube-search-btn',
+          ) as HTMLButtonElement | null;
+          if (searchButton && !searchButton.disabled) {
+            submitYouTubeSearch(ytInput);
+            return;
+          }
           // URL preview deliberately keeps this button disabled while a
           // playlist manifest is being prefetched. A fast Enter press must
           // honor the same gate as a physical button click, otherwise iOS falls
@@ -1491,6 +1516,7 @@ export function initPlayerControls(): void {
   }
   $on('btn-yt-cancel', 'click', () => closeYouTubePopup());
   if (ytInput) {
+    $on('youtube-search-btn', 'click', () => submitYouTubeSearch(ytInput));
     $on('youtube-play-btn', 'click', () => submitYouTubeFromGesture(ytInput));
   }
 

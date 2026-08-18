@@ -3418,6 +3418,20 @@ export function initYouTube(): void {
   }
 
   // YouTube load from input field
+  bus.on('youtube:search-from-input', () => {
+    const roomContext = getRoomContext();
+    if (
+      (roomContext.kind === 'pro' || getState('network.hostConn')) &&
+      !hasRoomCapability('media.add')
+    ) {
+      showRoomCapabilityRequired('media.add');
+      return;
+    }
+    const input = document.getElementById('youtube-url-input');
+    if (!input) return;
+    void searchYouTubeFromInput(input.textContent || '');
+  });
+
   bus.on('youtube:load-from-input', () => {
     const roomContext = getRoomContext();
     if (

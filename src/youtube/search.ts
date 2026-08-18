@@ -452,13 +452,24 @@ function setStatus(key: I18nKey, color = 'var(--text-sub)'): void {
   status.style.color = color;
 }
 
-function setYouTubePrimaryButton(enabled: boolean, labelKey: I18nKey = 'player.play_start'): void {
+function setYouTubePrimaryButton(enabled: boolean): void {
   const playBtn = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
   if (!playBtn) return;
   playBtn.disabled = !enabled;
   playBtn.style.opacity = enabled ? '1' : '0.5';
-  playBtn.setAttribute('data-i18n', labelKey);
-  playBtn.textContent = t(labelKey);
+  playBtn.setAttribute('data-i18n', 'player.play_start');
+  playBtn.textContent = t('player.play_start');
+}
+
+function setYouTubeSearchButton(enabled: boolean, busy = false): void {
+  const searchBtn = document.getElementById('youtube-search-btn') as HTMLButtonElement | null;
+  if (!searchBtn) return;
+  searchBtn.disabled = !enabled;
+  if (busy) {
+    searchBtn.setAttribute('aria-busy', 'true');
+  } else {
+    searchBtn.removeAttribute('aria-busy');
+  }
 }
 
 let _searchScrollbarRelayoutPending = false;
@@ -566,7 +577,7 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
   } else {
     clearSearchResults();
     setStatus('youtube.search_no_results');
-    setYouTubePrimaryButton(true, 'youtube.search_button');
+    setYouTubePrimaryButton(false);
   }
 }
 
@@ -587,7 +598,8 @@ export async function searchYouTubeFromInput(inputValue: string): Promise<void> 
   clearSearchResults();
   _latestSearchQuery = intent.query;
   setStatus('youtube.searching');
-  setYouTubePrimaryButton(false, 'youtube.search_button');
+  setYouTubePrimaryButton(false);
+  setYouTubeSearchButton(false, true);
 
   const abort = new AbortController();
   _searchAbort = abort;
@@ -609,9 +621,12 @@ export async function searchYouTubeFromInput(inputValue: string): Promise<void> 
     log.warn('[YouTube Search] Fetch failed:', e);
     clearSearchResults();
     setStatus('youtube.search_failed', 'var(--danger, #ef4444)');
-    setYouTubePrimaryButton(true, 'youtube.search_button');
+    setYouTubePrimaryButton(false);
   } finally {
-    if (_searchAbort === abort) _searchAbort = null;
+    if (_searchAbort === abort) {
+      _searchAbort = null;
+      setYouTubeSearchButton(true);
+    }
   }
 }
 
@@ -623,6 +638,7 @@ export function clearYouTubeInputState(): void {
   hidePreviewCard();
   setStatus('youtube.enter_link_prompt');
   setYouTubePrimaryButton(false);
+  setYouTubeSearchButton(false);
 
   const thumb = document.getElementById('youtube-preview-thumb') as HTMLImageElement | null;
   const title = document.getElementById('youtube-preview-title');
@@ -721,6 +737,7 @@ export function fetchYouTubePreview(url: string): void {
     hidePreviewCard();
     setStatus('youtube.enter_link_placeholder');
     setYouTubePrimaryButton(false);
+    setYouTubeSearchButton(false);
     return;
   }
 
@@ -732,12 +749,14 @@ export function fetchYouTubePreview(url: string): void {
       _latestSearchQuery = '';
     }
     setStatus('youtube.search_prompt');
-    setYouTubePrimaryButton(true, 'youtube.search_button');
+    setYouTubePrimaryButton(false);
+    setYouTubeSearchButton(_searchAbort === null, _searchAbort !== null);
     return;
   }
 
   abortSearch();
   clearSearchResults();
+  setYouTubeSearchButton(false);
 
   const videoId = intent.videoId;
   // Match the submit path: YouTube Mix (RD...) parameters attached to a

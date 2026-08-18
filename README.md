@@ -1,6 +1,10 @@
 <p align="center">
   <a href="https://musixquare.com">
-    <img src="./docs/assets/logo-wordmark.svg" alt="MUSIXQUARE Wordmark" width="380" />
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="./docs/assets/logo-wordmark-white.svg">
+      <source media="(prefers-color-scheme: light)" srcset="./docs/assets/logo-wordmark-black.svg">
+      <img alt="MUSIXQUARE Wordmark" src="./docs/assets/logo-wordmark-white.svg" width="380">
+    </picture>
   </a>
 </p>
 

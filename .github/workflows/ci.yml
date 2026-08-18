@@ -244,7 +244,7 @@ jobs:
   browser-gate:
     name: Critical browser gate
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Checkout exact candidate
@@ -260,6 +260,10 @@ jobs:
         run: corepack npm ci
 
       - name: Install Chromium
+        # Azure's Ubuntu mirrors occasionally take several minutes to deliver
+        # Playwright's font dependencies. Bound setup independently so mirror
+        # slowness cannot consume the browser-test timeout or hang indefinitely.
+        timeout-minutes: 7
         run: npx playwright install --with-deps chromium
 
       # This deterministic gate covers PRO owner recovery, OAuth callback
@@ -270,7 +274,8 @@ jobs:
       - name: Run critical browser paths
         # background-resume owns a 90-second diagnostic timeout. Leave enough
         # room for Playwright to emit its trace instead of killing the process
-        # first, while the whole browser gate remains capped at five minutes.
+        # first. Setup remains bounded above, the tests keep this strict
+        # two-minute cap, and the whole browser gate remains capped at ten minutes.
         timeout-minutes: 2
         run: npm run test:e2e:critical
 

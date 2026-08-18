@@ -99,6 +99,9 @@ const es: Record<I18nKey, string> = {
   'nav.settings': 'Ajustes',
   'nav.help': 'Ayuda',
   'nav.connect': 'Conectar',
+  'nav.playlist_compact': 'Lista',
+  'nav.connect_compact': 'Conectar',
+  'nav.settings_compact': 'Ajustes',
   'nav.go_home': 'Ir al inicio',
 
   // Role
@@ -205,7 +208,10 @@ const es: Record<I18nKey, string> = {
   'player.next_track': 'Pista siguiente',
   'player.repeat_mode': 'Cambiar modo de repetición',
   'player.shuffle_mode': 'Cambiar modo aleatorio',
+  'player.sync_compact': 'Sinc.',
+  'player.syncing_compact': 'Sinc.…',
   'player.play_media': 'Reproducir contenido',
+  'player.play_media_compact': 'Medios',
   'player.play_media_action': 'Reproducir contenido',
   'player.add_media': 'Añadir contenido',
   'player.play_start': 'Añadir a la cola',
@@ -286,9 +292,9 @@ const es: Record<I18nKey, string> = {
   'connect.room_password_enabled': 'Los nuevos participantes necesitarán la contraseña de la sala',
   'connect.room_password_disabled': 'Los participantes ya no necesitan la contraseña de la sala',
   'connect.signaling_healthy': 'Servidor de la sala disponible',
-  'connect.signaling_recovering': 'Restableciendo la conexión del servidor',
+  'connect.signaling_recovering': 'Reconectando…',
   'connect.signaling_failed': 'Falló la conexión con el servidor',
-  'connect.signaling_recover_action': 'Restablecer',
+  'connect.signaling_recover_action': 'Reconectar',
   'connect.signaling_recovery_wait': 'Comprobando de nuevo el servidor de la sala.',
   'connect.signaling_reconnecting': 'Reconectando con el servidor de la sala · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Se restableció la conexión con el servidor de la sala.',
@@ -469,6 +475,7 @@ const es: Record<I18nKey, string> = {
   'system_audio.capture_denied': 'Se canceló el uso compartido de audio.',
   'system_audio.no_audio_track': 'No se activó "Compartir audio".\nInténtalo de nuevo.',
   'system_audio.stop': 'Dejar de compartir',
+  'system_audio.stop_compact': 'Detener',
   'system_audio.started':
     'El audio del sistema puede tener algo de latencia.\nBaja el volumen de origen si es posible.',
   'system_audio.stopped':

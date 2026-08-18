@@ -618,7 +618,29 @@ function syncSystemAudioSourceButton(): void {
   label.setAttribute('data-i18n', key);
 }
 
+function syncMainMediaSourceButtonLabel(): void {
+  const button = document.getElementById('btn-media-source');
+  const label = button?.querySelector<HTMLElement>('span');
+  if (!button || !label) return;
+  const isSystemAudio = isPlaybackModeSystemAudio();
+  const canStopSystemAudio =
+    isSystemAudio &&
+    (getRoomContext().kind === 'pro'
+      ? isLocalProSystemAudioOwner()
+      : !getState('network.hostConn'));
+  const visibleKey: I18nKey = canStopSystemAudio
+    ? 'system_audio.stop_compact'
+    : 'player.play_media_compact';
+  const accessibleKey: I18nKey = canStopSystemAudio ? 'system_audio.stop' : 'player.play_media';
+  label.textContent = t(visibleKey);
+  label.setAttribute('data-i18n', visibleKey);
+  button.setAttribute('aria-label', t(accessibleKey));
+  button.setAttribute('data-i18n-aria-label', accessibleKey);
+  button.classList.toggle('sys-audio-guest', isSystemAudio && !canStopSystemAudio);
+}
+
 function syncMediaSourceButtonAuthority(): void {
+  syncMainMediaSourceButtonLabel();
   const canSelectMedia = hasRoomCapability('media.add') || hasRoomCapability('asset.upload');
   for (const id of ['btn-media-source', 'btn-add-media']) {
     const mediaBtn = document.getElementById(id);
@@ -952,9 +974,12 @@ function syncMainSyncButtonState(): void {
 
   const label = button.querySelector<HTMLElement>('span');
   if (!label) return;
-  const key: I18nKey = _mainSyncPending ? 'toast.yt_sync_start' : 'common.sync';
-  label.textContent = t(key);
-  label.setAttribute('data-i18n', key);
+  const visibleKey: I18nKey = _mainSyncPending ? 'player.syncing_compact' : 'player.sync_compact';
+  const accessibleKey: I18nKey = _mainSyncPending ? 'toast.yt_sync_start' : 'common.sync';
+  label.textContent = t(visibleKey);
+  label.setAttribute('data-i18n', visibleKey);
+  button.setAttribute('aria-label', t(accessibleKey));
+  button.setAttribute('data-i18n-aria-label', accessibleKey);
 }
 
 function beginMainSyncRequest(): number {
@@ -1741,37 +1766,6 @@ export function initPlayerControls(): void {
       // PRO transition). Reconcile the iframe shield on every mode change so
       // it appears only while the active engine is YouTube.
       syncPlayButtonLoadingClass();
-
-      // System audio: host gets "공유 중지", guest keeps "미디어 재생" (dimmed)
-      const mediaBtn = document.getElementById('btn-media-source');
-      const mediaBtnLabel = mediaBtn?.querySelector('span');
-      const isGuest = !!getState('network.hostConn');
-      const canStopSystemAudio =
-        getRoomContext().kind === 'pro' ? isLocalProSystemAudioOwner() : !isGuest;
-      if (mediaBtnLabel) {
-        if (playback.mode === 'system-audio') {
-          if (!canStopSystemAudio) {
-            // Guest: keep original label + color (opacity already set by hostConn listener)
-            if (mediaBtn) mediaBtn.classList.add('sys-audio-guest');
-          } else {
-            // Host: show stop button. Keep data-i18n in sync so the
-            // language-switch retranslation picks the right key instead of
-            // treating this node as untranslated.
-            mediaBtnLabel.textContent = t('system_audio.stop');
-            mediaBtnLabel.setAttribute('data-i18n', 'system_audio.stop');
-          }
-        } else {
-          const currentKey = mediaBtnLabel.getAttribute('data-i18n');
-          if (!currentKey || currentKey === 'system_audio.stop') {
-            mediaBtnLabel.textContent = t('player.play_media');
-            mediaBtnLabel.setAttribute('data-i18n', 'player.play_media');
-          }
-          if (mediaBtn) {
-            syncMediaSourceButtonAuthority();
-            mediaBtn.classList.remove('sys-audio-guest');
-          }
-        }
-      }
     },
     { immediate: true },
   );

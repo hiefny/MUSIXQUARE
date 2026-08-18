@@ -69,6 +69,13 @@ describe('app UX markup contract', () => {
     const joinInput = appDocument.getElementById('setup-join-code');
     const localFile = appDocument.getElementById('btn-local-file');
     const systemAudio = appDocument.getElementById('btn-system-audio');
+    const mainSync = appDocument.getElementById('btn-sync');
+    const mainMedia = appDocument.getElementById('btn-media-source');
+    const compactNavLabels = [
+      ['nav-playlist', 'nav.playlist'],
+      ['nav-connect', 'nav.connect'],
+      ['nav-settings', 'nav.settings'],
+    ] as const;
 
     expect(joinInput?.getAttribute('aria-describedby')).toBe('setup-guest-error');
     expect(appDocument.getElementById('setup-room-type-info')).toBeNull();
@@ -77,11 +84,22 @@ describe('app UX markup contract', () => {
     expect(appDocument.getElementById('media-system-audio-limits')).toBeNull();
     expect(localFile?.hasAttribute('aria-describedby')).toBe(false);
     expect(systemAudio?.hasAttribute('aria-describedby')).toBe(false);
+    expect(mainSync?.querySelector('span')?.getAttribute('data-i18n')).toBe('player.sync_compact');
+    expect(mainSync?.getAttribute('data-i18n-aria-label')).toBe('common.sync');
+    expect(mainMedia?.querySelector('span')?.getAttribute('data-i18n')).toBe(
+      'player.play_media_compact',
+    );
+    expect(mainMedia?.getAttribute('data-i18n-aria-label')).toBe('player.play_media');
+    for (const [id, fullKey] of compactNavLabels) {
+      const navButton = appDocument.getElementById(id);
+      expect(navButton?.getAttribute('data-i18n-aria-label')).toBe(fullKey);
+      expect(navButton?.getAttribute('aria-label')).toBeTruthy();
+    }
     expect(appStylesheet).toMatch(
       /\.file-select-btn\s*\{[\s\S]*?height:\s*72px;[\s\S]*?padding:\s*0 20px;/u,
     );
     expect(appStylesheet).toMatch(
-      /#btn-sync,\s*\n\s*#btn-media-source\s*\{[\s\S]*?height:\s*56px;/u,
+      /#btn-sync,\s*\n\s*#btn-media-source\s*\{[\s\S]*?min-height:\s*56px;[\s\S]*?height:\s*auto;[\s\S]*?padding:\s*10px 14px;/u,
     );
   });
 

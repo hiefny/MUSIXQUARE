@@ -100,6 +100,9 @@ const de: Record<I18nKey, string> = {
   'nav.settings': 'Einstellungen',
   'nav.help': 'Hilfe',
   'nav.connect': 'Verbinden',
+  'nav.playlist_compact': 'Playlist',
+  'nav.connect_compact': 'Verbinden',
+  'nav.settings_compact': 'Optionen',
   'nav.go_home': 'Zur Startseite',
 
   // Role
@@ -205,7 +208,10 @@ const de: Record<I18nKey, string> = {
   'player.next_track': 'Nächster Titel',
   'player.repeat_mode': 'Wiederholmodus ändern',
   'player.shuffle_mode': 'Zufallsmodus ändern',
+  'player.sync_compact': 'Sync',
+  'player.syncing_compact': 'Sync…',
   'player.play_media': 'Medien abspielen',
+  'player.play_media_compact': 'Medien',
   'player.play_media_action': 'Medien abspielen',
   'player.add_media': 'Medien hinzufügen',
   'player.play_start': 'In die Warteschlange',
@@ -286,9 +292,9 @@ const de: Record<I18nKey, string> = {
   'connect.room_password_enabled': 'Neue Teilnehmer benötigen das Raumpasswort',
   'connect.room_password_disabled': 'Teilnehmer benötigen kein Raumpasswort mehr',
   'connect.signaling_healthy': 'Raumserver online',
-  'connect.signaling_recovering': 'Serververbindung wird wiederhergestellt',
+  'connect.signaling_recovering': 'Wird neu verbunden…',
   'connect.signaling_failed': 'Serververbindung fehlgeschlagen',
-  'connect.signaling_recover_action': 'Wiederherstellen',
+  'connect.signaling_recover_action': 'Neu verbinden',
   'connect.signaling_recovery_wait': 'Der Raumserver wird erneut geprüft.',
   'connect.signaling_reconnecting':
     'Verbindung zum Raumserver wird wiederhergestellt · {{attempt}}/{{max}}',
@@ -468,6 +474,7 @@ const de: Record<I18nKey, string> = {
   'system_audio.capture_denied': 'Audiofreigabe wurde abgebrochen.',
   'system_audio.no_audio_track': '„Audio teilen“ wurde nicht aktiviert.\nBitte erneut versuchen.',
   'system_audio.stop': 'Freigabe stoppen',
+  'system_audio.stop_compact': 'Stoppen',
   'system_audio.started':
     'Systemaudio kann eine leichte Verzögerung haben.\nSenke die Lautstärke der Quelle nach Möglichkeit.',
   'system_audio.stopped': 'Systemaudio-Freigabe beendet.\nPlaylist wird fortgesetzt.',

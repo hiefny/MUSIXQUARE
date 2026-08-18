@@ -95,6 +95,9 @@ const pl: Record<I18nKey, string> = {
   'nav.settings': 'Ustawienia',
   'nav.help': 'Pomoc',
   'nav.connect': 'Połączenie',
+  'nav.playlist_compact': 'Playlista',
+  'nav.connect_compact': 'Połączenie',
+  'nav.settings_compact': 'Ustawienia',
   'nav.go_home': 'Przejdź do strony głównej',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -110,7 +113,10 @@ const pl: Record<I18nKey, string> = {
   'player.next_track': 'Następny materiał',
   'player.repeat_mode': 'Zmień tryb powtarzania',
   'player.shuffle_mode': 'Zmień tryb losowy',
+  'player.sync_compact': 'Sync',
+  'player.syncing_compact': 'Sync…',
   'player.play_media': 'Odtwórz materiał',
+  'player.play_media_compact': 'Media',
   'player.play_media_action': 'Odtwórz materiał',
   'player.add_media': 'Dodaj materiał',
   'player.play_start': 'Dodaj do kolejki',
@@ -284,9 +290,9 @@ const pl: Record<I18nKey, string> = {
   'connect.room_password_enabled': 'Wejście do tego pokoju wymaga teraz hasła',
   'connect.room_password_disabled': 'Wejście do tego pokoju nie wymaga już hasła',
   'connect.signaling_healthy': 'Serwer pokoju jest dostępny',
-  'connect.signaling_recovering': 'Przywracanie połączenia z serwerem',
+  'connect.signaling_recovering': 'Ponowne łączenie…',
   'connect.signaling_failed': 'Połączenie z serwerem nie powiodło się',
-  'connect.signaling_recover_action': 'Przywróć',
+  'connect.signaling_recover_action': 'Połącz ponownie',
   'connect.signaling_recovery_wait': 'Ponowne sprawdzanie serwera pokoju.',
   'connect.signaling_reconnecting': 'Ponowne łączenie z serwerem pokoju · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Połączenie z serwerem pokoju zostało przywrócone.',
@@ -824,6 +830,7 @@ const pl: Record<I18nKey, string> = {
   'system_audio.no_audio_track':
     'Opcja „Udostępnij dźwięk” nie została włączona.\nSpróbuj ponownie.',
   'system_audio.stop': 'Zatrzymaj udostępnianie',
+  'system_audio.stop_compact': 'Zatrzymaj',
   'system_audio.started':
     'Dźwięk systemowy może mieć niewielkie opóźnienie.\nW miarę możliwości zmniejsz głośność urządzenia źródłowego.',
   'system_audio.stopped':

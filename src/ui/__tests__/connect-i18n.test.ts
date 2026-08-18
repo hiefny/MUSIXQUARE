@@ -216,8 +216,8 @@ describe('connect signaling health status', () => {
       expect(button.getAttribute('aria-busy')).toBe('true');
       expect(button.getAttribute('aria-live')).toBe('polite');
       expect(button.getAttribute('aria-atomic')).toBe('true');
-      expect(button.getAttribute('aria-label')).toBe('연결 서버 복구 중');
-      expect(button.textContent).toBe('연결 서버 복구 중');
+      expect(button.getAttribute('aria-label')).toBe('다시 연결 중…');
+      expect(button.textContent).toBe('다시 연결 중…');
     }
     firstButton.click();
     expect(mockedCopyTextToClipboard).not.toHaveBeenCalled();
@@ -259,7 +259,7 @@ describe('connect signaling health status', () => {
       expect(button.dataset.mode).toBe('recover');
       expect(button.disabled).toBe(false);
       expect(button.getAttribute('aria-disabled')).toBe('false');
-      expect(button.textContent).toBe('연결 복구하기');
+      expect(button.textContent).toBe('다시 연결');
     }
   });
 

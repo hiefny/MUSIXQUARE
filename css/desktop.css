@@ -279,7 +279,6 @@
     }
 
     .play-action-buttons .file-select-btn-large {
-      padding: 0 20px;
       font-size: 15px;
     }
 
@@ -898,10 +897,11 @@
     }
 
     .play-action-buttons .file-select-btn {
-      height: 56px;
+      min-height: 56px;
+      height: auto;
       width: 160px !important;
       min-width: 160px !important;
-      padding: 0 16px;
+      padding: 10px 16px;
       border-radius: 20px;
       flex: none !important;
       /* Override the shared flex utility used by mobile actions. */

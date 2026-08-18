@@ -47,6 +47,10 @@ const AUDITED_ACTION_KEYS = [
   'common.close',
   'common.retry',
   'common.later',
+  'common.refresh',
+  'common.reset',
+  'common.leave',
+  'common.stay',
   'common.next',
   'common.start',
   'common.done',
@@ -55,12 +59,20 @@ const AUDITED_ACTION_KEYS = [
   'connect.signaling_recover_action',
   'connect.signaling_retry',
   'connect.kick_yes',
+  'dialog.got_it',
   'dialog.continue',
   'dialog.continue_using',
+  'dialog.reconnect',
+  'dialog.go_back',
+  'dialog.session_lost_btn',
   'dialog.leave_session',
   'pro.use_this_tab',
   'pro.claim_login_button',
+  'pro.claim_choose_account_button',
   'account.google_continue',
+  'account.change_nickname',
+  'account.logout',
+  'account.delete_account',
 ] as const;
 
 const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
@@ -72,6 +84,24 @@ const LOCALIZED_ACTIONS = Object.entries(LOCALES).map(([code, dictionary]) => ({
     deleteAccount: (dictionary as Record<string, string>)['account.delete_account'],
     close: (dictionary as Record<string, string>)['common.close'],
   },
+  invite: {
+    copy: (dictionary as Record<string, string>)['connect.copy_invite_link'],
+    recover: (dictionary as Record<string, string>)['connect.signaling_recover_action'],
+    recovering: (dictionary as Record<string, string>)['connect.signaling_recovering'],
+  },
+  player: {
+    sync: (dictionary as Record<string, string>)['player.sync_compact'],
+    syncing: (dictionary as Record<string, string>)['player.syncing_compact'],
+    media: (dictionary as Record<string, string>)['player.play_media_compact'],
+    stop: (dictionary as Record<string, string>)['system_audio.stop_compact'],
+  },
+  nav: [
+    (dictionary as Record<string, string>)['nav.home'],
+    (dictionary as Record<string, string>)['nav.playlist_compact'],
+    (dictionary as Record<string, string>)['nav.connect_compact'],
+    (dictionary as Record<string, string>)['nav.settings_compact'],
+    (dictionary as Record<string, string>)['nav.help'],
+  ],
 }));
 
 type ActionMetrics = {
@@ -99,6 +129,29 @@ async function installLayoutProbe(page: Page, markup: string): Promise<void> {
 
       .layout-probe {
         width: 100%;
+      }
+
+      /* Mobile connection sections reserve 44px on each side. Exercise the
+         invite button at its real 320px-viewport width instead of giving the
+         probe the full page width. */
+      .locale-invite-action {
+        width: calc(100% - 88px);
+      }
+
+      .locale-bottom-nav {
+        position: relative;
+        inset: auto;
+        width: 320px;
+        transform: none;
+      }
+
+      .locale-player-actions {
+        width: calc(100% - 48px);
+        margin: 0 24px;
+      }
+
+      .text-200.locale-player-actions .file-select-btn span {
+        font-size: 30px;
       }
 
       .text-200 button,
@@ -319,6 +372,42 @@ test.describe('content-based adaptive action groups', () => {
         loginGroup.append(google, loginClose);
         section.appendChild(loginGroup);
 
+        for (const [mode, label] of Object.entries(locale.invite)) {
+          const inviteGroup = document.createElement('div');
+          inviteGroup.className = 'qr-container layout-probe text-200 locale-invite-action';
+
+          const button = document.createElement('button');
+          button.className = 'btn-copy-invite-link';
+          button.dataset.mode = mode;
+
+          const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          icon.setAttribute('viewBox', '0 0 24 24');
+          const spinner = document.createElement('span');
+          spinner.className = 'material-elastic-spinner signaling-recovery-spinner';
+          const spinnerIcon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          spinner.appendChild(spinnerIcon);
+          const text = document.createElement('span');
+          text.setAttribute('data-i18n', `connect.${mode}`);
+          text.textContent = label;
+          button.append(icon, spinner, text);
+          inviteGroup.appendChild(button);
+          section.appendChild(inviteGroup);
+        }
+
+        const bottomNav = document.createElement('nav');
+        bottomNav.className = 'bottom-nav locale-bottom-nav';
+        for (const label of locale.nav) {
+          const button = document.createElement('button');
+          button.className = 'nav-item';
+          const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          icon.setAttribute('viewBox', '0 0 24 24');
+          const text = document.createElement('span');
+          text.textContent = label;
+          button.append(icon, text);
+          bottomNav.appendChild(button);
+        }
+        section.appendChild(bottomNav);
+
         root.appendChild(section);
       }
     }, LOCALIZED_ACTIONS);
@@ -420,6 +509,183 @@ test.describe('content-based adaptive action groups', () => {
       expect(layout.closeWidth).toBe(layout.availableWidth);
       expect(layout.labelScrollWidth).toBeLessThanOrEqual(layout.labelClientWidth);
       expect(layout.labelScrollHeight).toBeLessThanOrEqual(layout.labelClientHeight);
+    }
+
+    const inviteActions = await page
+      .locator('.locale-invite-action > .btn-copy-invite-link')
+      .evaluateAll((actions) =>
+        actions.map((action, index) => ({
+          id: `${action.closest<HTMLElement>('.locale-probe')?.lang ?? 'unknown'}-invite-${index}`,
+          x: action.getBoundingClientRect().x,
+          y: action.getBoundingClientRect().y,
+          width: action.getBoundingClientRect().width,
+          height: action.getBoundingClientRect().height,
+          clientWidth: action.clientWidth,
+          clientHeight: action.clientHeight,
+          scrollWidth: action.scrollWidth,
+          scrollHeight: action.scrollHeight,
+        })),
+      );
+    expectNoActionOverflow(inviteActions);
+
+    const navLabels = await page
+      .locator('.locale-bottom-nav .nav-item > span')
+      .evaluateAll((labels) =>
+        labels.map((label, index) => {
+          const button = label.closest<HTMLElement>('.nav-item')!;
+          const buttonRect = button.getBoundingClientRect();
+          const labelRect = label.getBoundingClientRect();
+          return {
+            id: `${label.closest<HTMLElement>('.locale-probe')?.lang ?? 'unknown'}-nav-${index}`,
+            buttonLeft: buttonRect.left,
+            buttonRight: buttonRect.right,
+            labelLeft: labelRect.left,
+            labelRight: labelRect.right,
+            clientWidth: label.clientWidth,
+            clientHeight: label.clientHeight,
+            scrollWidth: label.scrollWidth,
+            scrollHeight: label.scrollHeight,
+          };
+        }),
+      );
+    for (const label of navLabels) {
+      expect(label.labelLeft, `${label.id} must stay inside its tab`).toBeGreaterThanOrEqual(
+        label.buttonLeft - 0.5,
+      );
+      expect(label.labelRight, `${label.id} must stay inside its tab`).toBeLessThanOrEqual(
+        label.buttonRight + 0.5,
+      );
+      expect(label.scrollWidth, `${label.id} must fit without ellipsis`).toBeLessThanOrEqual(
+        label.clientWidth,
+      );
+      expect(label.scrollHeight, `${label.id} must remain one line`).toBeLessThanOrEqual(
+        label.clientHeight,
+      );
+    }
+  });
+
+  test('keeps every compact player action contained at the real 320px width', async ({ page }) => {
+    await installLayoutProbe(page, '<main id="player-action-probes"></main>');
+    await page.evaluate((locales) => {
+      const root = document.getElementById('player-action-probes')!;
+
+      for (const locale of locales) {
+        const section = document.createElement('section');
+        section.className = 'locale-player-probe';
+        section.lang = locale.code;
+
+        for (const [scale, className] of [
+          ['normal', ''],
+          ['200', ' text-200'],
+        ] as const) {
+          for (const [pairIndex, labels] of [
+            [0, [locale.player.sync, locale.player.media]],
+            [1, [locale.player.syncing, locale.player.stop]],
+          ] as const) {
+            const row = document.createElement('div');
+            row.className = `play-action-buttons play-actions-row locale-player-actions${className}`;
+            row.dataset.scale = scale;
+
+            for (const [buttonIndex, label] of labels.entries()) {
+              const button = document.createElement('button');
+              button.className = 'file-select-btn file-select-btn-large flex-1';
+              button.id = buttonIndex === 0 ? 'btn-sync' : 'btn-media-source';
+              button.dataset.probe = `${locale.code}-${scale}-${pairIndex}-${buttonIndex}`;
+              const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+              icon.setAttribute('viewBox', '0 0 24 24');
+              const text = document.createElement('span');
+              text.textContent = label;
+              button.append(icon, text);
+              row.appendChild(button);
+            }
+            section.appendChild(row);
+          }
+        }
+        root.appendChild(section);
+      }
+    }, LOCALIZED_ACTIONS);
+    await page.evaluate(() => document.fonts.ready);
+
+    const playerActions = await page
+      .locator('.locale-player-actions > button')
+      .evaluateAll((buttons) =>
+        buttons.map((button) => {
+          const label = button.querySelector<HTMLElement>('span')!;
+          const buttonRect = button.getBoundingClientRect();
+          const labelRect = label.getBoundingClientRect();
+          const lineHeight = Number.parseFloat(getComputedStyle(label).lineHeight);
+          return {
+            id: button.dataset.probe ?? 'unknown',
+            scale: button.parentElement?.dataset.scale,
+            buttonWidth: buttonRect.width,
+            buttonHeight: buttonRect.height,
+            buttonClientWidth: button.clientWidth,
+            buttonClientHeight: button.clientHeight,
+            buttonScrollWidth: button.scrollWidth,
+            buttonScrollHeight: button.scrollHeight,
+            labelLeft: labelRect.left,
+            labelRight: labelRect.right,
+            labelTop: labelRect.top,
+            labelBottom: labelRect.bottom,
+            labelHeight: labelRect.height,
+            labelClientWidth: label.clientWidth,
+            labelClientHeight: label.clientHeight,
+            labelScrollWidth: label.scrollWidth,
+            labelScrollHeight: label.scrollHeight,
+            lineHeight,
+            buttonLeft: buttonRect.left,
+            buttonRight: buttonRect.right,
+            buttonTop: buttonRect.top,
+            buttonBottom: buttonRect.bottom,
+          };
+        }),
+      );
+
+    for (const action of playerActions) {
+      expect(action.buttonWidth, `${action.id} must use the real 130px slot`).toBe(130);
+      expect(
+        action.buttonScrollWidth,
+        `${action.id} button must not overflow horizontally`,
+      ).toBeLessThanOrEqual(action.buttonClientWidth);
+      expect(
+        action.buttonScrollHeight,
+        `${action.id} button must grow instead of clipping`,
+      ).toBeLessThanOrEqual(action.buttonClientHeight);
+      expect(
+        action.labelLeft,
+        `${action.id} label must stay inside the button`,
+      ).toBeGreaterThanOrEqual(action.buttonLeft - 0.5);
+      expect(
+        action.labelRight,
+        `${action.id} label must stay inside the button`,
+      ).toBeLessThanOrEqual(action.buttonRight + 0.5);
+      expect(
+        action.labelTop,
+        `${action.id} label must stay inside the button`,
+      ).toBeGreaterThanOrEqual(action.buttonTop - 0.5);
+      expect(
+        action.labelBottom,
+        `${action.id} label must stay inside the button`,
+      ).toBeLessThanOrEqual(action.buttonBottom + 0.5);
+      expect(
+        action.labelScrollWidth,
+        `${action.id} label must not overflow horizontally`,
+      ).toBeLessThanOrEqual(action.labelClientWidth);
+      expect(
+        action.labelScrollHeight,
+        `${action.id} label must not clip vertically`,
+      ).toBeLessThanOrEqual(action.labelClientHeight);
+      if (action.scale === 'normal') {
+        expect(
+          action.labelHeight,
+          `${action.id} compact label must remain one line`,
+        ).toBeLessThanOrEqual(action.lineHeight + 0.5);
+      } else {
+        expect(
+          action.labelHeight,
+          `${action.id} enlarged compact label must stay within two lines`,
+        ).toBeLessThanOrEqual(action.lineHeight * 2 + 0.5);
+      }
     }
   });
 });

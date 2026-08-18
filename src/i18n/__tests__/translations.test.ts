@@ -185,13 +185,35 @@ describe('Translation key integrity', () => {
 
   it('uses the approved Korean signaling health and recovery copy', () => {
     expect(ko['connect.signaling_healthy']).toBe('연결 서버 정상');
-    expect(ko['connect.signaling_recovering']).toBe('연결 서버 복구 중');
+    expect(ko['connect.signaling_recovering']).toBe('다시 연결 중…');
     expect(ko['connect.signaling_failed']).toBe('연결 복구 실패');
-    expect(ko['connect.signaling_recover_action']).toBe('연결 복구하기');
+    expect(ko['connect.signaling_recover_action']).toBe('다시 연결');
     expect(ko['connect.signaling_exhausted']).toBe(
       '연결 서버가 응답하지 않아요.\n새 참여자를 초대할 수 없어요.',
     );
     expect(ko['connect.signaling_retry']).toBe('재시도');
+  });
+
+  it('keeps compact player actions paired with full accessible labels', () => {
+    const compactActionPairs = [
+      ['player.sync_compact', 'common.sync'],
+      ['player.syncing_compact', 'toast.yt_sync_start'],
+      ['player.play_media_compact', 'player.play_media'],
+      ['system_audio.stop_compact', 'system_audio.stop'],
+    ] as const;
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      for (const [compactKey, fullKey] of compactActionPairs) {
+        const compactLabel = dict[compactKey];
+        expect(compactLabel, `${locale}.${compactKey} empty copy`).toBeTruthy();
+        expect(compactLabel, `${locale}.${compactKey} surrounding whitespace`).toBe(
+          compactLabel.trim(),
+        );
+        expect(compactLabel, `${locale}.${compactKey} multiline copy`).not.toMatch(/[\r\n]/);
+        expect(compactLabel, `${locale}.${compactKey} markup`).not.toMatch(/[<>]/);
+        expect(dict[fullKey], `${locale}.${fullKey}`).toBeTruthy();
+      }
+    }
   });
 
   it('keeps repeated modal actions concise except for approved Korean legacy labels', () => {
@@ -212,7 +234,7 @@ describe('Translation key integrity', () => {
 
     expect(en['common.grant']).toBe('Grant');
     expect(en['common.revoke']).toBe('Revoke');
-    expect(en['connect.signaling_recover_action']).toBe('Restore');
+    expect(en['connect.signaling_recover_action']).toBe('Reconnect');
     expect(en['pro.use_this_tab']).toBe('Use this tab');
     expect(ko['common.grant']).toBe('관리자 부여');
     expect(ko['common.revoke']).toBe('관리자 해제');

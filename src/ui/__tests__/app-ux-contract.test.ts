@@ -133,6 +133,11 @@ describe('app UX markup contract', () => {
     expect(appDocument.querySelector('#playlist-ui .list-empty-state button')).toBeNull();
   });
 
+  it('keeps the chat composer bottom-aligned with a small optical lift for send', () => {
+    expect(appStylesheet).toMatch(/\.chat-input-wrapper\s*\{[\s\S]*?align-items:\s*flex-end;/u);
+    expect(appStylesheet).toMatch(/\.chat-send-btn\s*\{[\s\S]*?margin-bottom:\s*2px;/u);
+  });
+
   it('keeps the intentional contenteditable URL field and fixed-scale app surface', () => {
     const youtubeField = appDocument.getElementById('youtube-url-input');
     const youtubeSearch = appDocument.getElementById('youtube-search-btn');

@@ -504,7 +504,9 @@ describe('PRO room media-source capabilities', () => {
 
     setState('network.appRole', 'host');
 
-    expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('false');
+    expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe(
+      'false',
+    );
   });
 
   it('updates the standard ADMIN media affordance immediately on grant and revoke', () => {
@@ -518,7 +520,9 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('true');
 
     setState('network.isOperator', true);
-    expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('false');
+    expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe(
+      'false',
+    );
 
     setState('network.isOperator', false);
     expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('true');
@@ -537,7 +541,9 @@ describe('PRO room media-source capabilities', () => {
     expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('true');
 
     setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);
-    expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('false');
+    expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe(
+      'false',
+    );
   });
 
   it('keeps playlist media addition available while the host shares system audio', () => {
@@ -618,7 +624,9 @@ describe('PRO room media-source capabilities', () => {
     bus.on('ui:scrollbar-reveal', reveal);
 
     initPlayerControls();
-    expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe('false');
+    expect(document.getElementById('btn-media-source')?.getAttribute('aria-disabled')).toBe(
+      'false',
+    );
     expect(document.getElementById('btn-add-media')?.getAttribute('aria-disabled')).toBe('false');
     document.getElementById('btn-add-media')?.click();
     expect(document.getElementById('media-source-overlay')?.classList.contains('active')).toBe(

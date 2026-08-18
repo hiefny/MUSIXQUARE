@@ -533,6 +533,7 @@ const id: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Hanya host yang dapat mengubah pengaturan ini',
   'toast.host_only_file': 'Hanya host yang dapat menambahkan file',
   'toast.no_tracks': 'Tidak ada media untuk diputar',
+  'toast.add_media_to_play': 'Silakan tambahkan media untuk diputar',
   'toast.no_invite_code': 'Belum ada kode undangan',
   'toast.invite_code_settings': 'Bagikan tautan undangan dari tab Hubungkan.',
   'toast.click_copy_invite': 'Klik untuk menyalin kode undangan',

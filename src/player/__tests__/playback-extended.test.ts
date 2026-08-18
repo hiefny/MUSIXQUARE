@@ -114,6 +114,14 @@ function expectCorrelatedRequest(
   expect(requestId as number).toBeGreaterThan(0);
 }
 
+import { t } from '../../i18n/index.ts';
+import { showToast } from '../../ui/toast.ts';
+
+vi.mock('../../ui/toast.ts', () => ({
+  showToast: vi.fn(),
+  showLoader: vi.fn(),
+}));
+
 vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
   sendToHost: vi.fn(),
@@ -130,6 +138,7 @@ beforeEach(() => {
   clearAllManagedTimers();
   setCurrentAudioBuffer(null);
   setPlayerNode(null);
+  vi.mocked(showToast).mockClear();
   vi.mocked(broadcast).mockClear();
   vi.mocked(sendToHost).mockClear();
   lazyPlaylistMocks.loadPlaylistModule.mockReset();
@@ -385,6 +394,19 @@ describe('pause', () => {
       time: 42,
       queueItemId: QID_OLD,
     });
+  });
+
+  it('shows an informative toast when play is toggled with an empty playlist', () => {
+    setState('network.appRole', 'host');
+    setState('playlist.items', []);
+    setState('playlist.currentQueueItemId', null);
+    setState('playback.activity', 'idle');
+
+    togglePlay();
+
+    expect(showToast).toHaveBeenCalledWith(t('toast.add_media_to_play'));
+    expect(broadcast).not.toHaveBeenCalled();
+    expect(sendToHost).not.toHaveBeenCalled();
   });
 });
 

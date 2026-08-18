@@ -571,6 +571,7 @@ const nl: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Alleen de host kan deze instelling wijzigen',
   'toast.host_only_file': 'Alleen de host kan bestanden toevoegen',
   'toast.no_tracks': 'Geen tracks om af te spelen',
+  'toast.add_media_to_play': 'Voeg media toe om af te spelen',
   'toast.no_invite_code': 'Nog geen uitnodigingscode',
   'toast.invite_code_settings': 'Deel de uitnodigingslink via de tab Verbinden.',
   'toast.click_copy_invite': 'Klik om de uitnodigingscode te kopiëren',

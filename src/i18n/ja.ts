@@ -528,6 +528,7 @@ const ja: Record<I18nKey, string> = {
   'toast.host_setting_required': 'この設定を変更できるのはホストだけです',
   'toast.host_only_file': 'ファイルを追加できるのはホストだけです',
   'toast.no_tracks': '再生するトラックがありません',
+  'toast.add_media_to_play': 'メディアを追加してください',
   'toast.no_invite_code': '招待コードはまだありません',
   'toast.invite_code_settings': '「接続」タブから招待リンクを共有できます。',
   'toast.click_copy_invite': 'クリックして招待コードをコピー',

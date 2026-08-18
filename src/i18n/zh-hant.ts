@@ -504,6 +504,7 @@ const zhHant: Record<I18nKey, string> = {
   'toast.host_setting_required': '只有房主可以變更此設定',
   'toast.host_only_file': '只有房主可以新增檔案',
   'toast.no_tracks': '沒有可播放的項目',
+  'toast.add_media_to_play': '請新增媒體',
   'toast.no_invite_code': '還沒有邀請碼',
   'toast.invite_code_settings': '可在「連線」分頁分享邀請連結。',
   'toast.click_copy_invite': '點按即可複製邀請碼',

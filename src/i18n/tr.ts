@@ -557,6 +557,7 @@ const tr: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Bu ayarı yalnızca oda sahibi değiştirebilir',
   'toast.host_only_file': 'Sadece oda sahibi dosya ekleyebilir',
   'toast.no_tracks': 'Oynatılacak medya bulunmuyor',
+  'toast.add_media_to_play': 'Lütfen oynatmak için medya ekleyin',
   'toast.no_invite_code': 'Davet kodu henüz oluşturulmadı',
   'toast.invite_code_settings': 'Davet bağlantısını Bağlan sekmesinden paylaşabilirsin.',
   'toast.click_copy_invite': 'Davet kodunu kopyalamak için dokun',

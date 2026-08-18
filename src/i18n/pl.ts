@@ -568,6 +568,7 @@ const pl: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Tylko host może zmienić to ustawienie',
   'toast.host_only_file': 'Tylko host może dodawać pliki.',
   'toast.no_tracks': 'Brak materiałów do odtworzenia',
+  'toast.add_media_to_play': 'Dodaj multimedia do odtworzenia',
   'toast.no_invite_code': 'Kod zaproszenia nie został jeszcze wygenerowany',
   'toast.invite_code_settings': 'Możesz udostępnić link zaproszenia z zakładki Połączenie.',
   'toast.click_copy_invite': 'Kliknij, aby skopiować kod zaproszenia',

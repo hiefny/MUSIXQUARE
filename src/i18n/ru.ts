@@ -565,6 +565,7 @@ const ru: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Изменять эту настройку может только хост комнаты',
   'toast.host_only_file': 'Только хост комнаты может добавлять файлы.',
   'toast.no_tracks': 'Нет материалов для воспроизведения',
+  'toast.add_media_to_play': 'Добавьте медиа для воспроизведения',
   'toast.no_invite_code': 'Код приглашения ещё не создан',
   'toast.invite_code_settings':
     'Вы можете поделиться ссылкой для приглашения на вкладке «Подключение».',

@@ -1020,6 +1020,19 @@ export function togglePlay(): void {
   if (isGuestBlocked()) return;
 
   const wasPlaying = getState('playback.activity') === 'playing';
+  const playlistItems = getState('playlist.items') || [];
+  const currentQueueItemId = getCurrentQueueItemId();
+
+  if (
+    !wasPlaying &&
+    playlistItems.length === 0 &&
+    !currentQueueItemId &&
+    !isSystemAudioOwner() &&
+    !isYouTubeOwner()
+  ) {
+    showToast(t('toast.add_media_to_play'));
+    return;
+  }
 
   if (
     !isSystemAudioOwner() &&
@@ -1065,8 +1078,6 @@ export function togglePlay(): void {
 
   const isActuallyPlaying = isFilePlaybackPlaying();
   const pausedAt = getState('player.pausedAt') || 0;
-  const currentQueueItemId = getCurrentQueueItemId();
-  const playlistItems = getState('playlist.items') || [];
 
   // Deselected state (e.g. after end-of-playlist reset): no track is selected
   // but the playlist is non-empty. Pressing play should restart from track 0

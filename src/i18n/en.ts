@@ -556,6 +556,7 @@ const en: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Only the host can change this setting',
   'toast.host_only_file': 'Only the host can add files',
   'toast.no_tracks': 'No tracks to play',
+  'toast.add_media_to_play': 'Please add media',
   'toast.no_invite_code': 'No invite code yet',
   'toast.invite_code_settings': 'Share the invite link from the Connect tab.',
   'toast.click_copy_invite': 'Click to copy invite code',

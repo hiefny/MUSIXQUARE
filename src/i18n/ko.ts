@@ -551,6 +551,7 @@ const ko = {
   'toast.host_setting_required': '방장만 이 설정을 변경할 수 있어요',
   'toast.host_only_file': '방장만 파일을 추가할 수 있어요',
   'toast.no_tracks': '재생할 트랙이 없어요',
+  'toast.add_media_to_play': '미디어를 추가해 주세요',
   'toast.no_invite_code': '초대 코드가 아직 없어요',
   'toast.invite_code_settings': '연결 탭에서 초대 링크를 공유할 수 있어요',
   'toast.click_copy_invite': '클릭하여 초대코드 복사',

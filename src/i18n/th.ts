@@ -553,6 +553,7 @@ const th: Record<I18nKey, string> = {
   'toast.host_setting_required': 'เฉพาะเจ้าของห้องเท่านั้นที่เปลี่ยนการตั้งค่านี้ได้',
   'toast.host_only_file': 'เฉพาะเจ้าของห้องเท่านั้นที่เพิ่มไฟล์ได้',
   'toast.no_tracks': 'ไม่มีรายการให้เล่น',
+  'toast.add_media_to_play': 'โปรดเพิ่มสื่อเพื่อเล่น',
   'toast.no_invite_code': 'ยังไม่มีรหัสเชิญ',
   'toast.invite_code_settings': 'แชร์ลิงก์เชิญได้จากแท็บ "เชื่อมต่อ"',
   'toast.click_copy_invite': 'คลิกเพื่อคัดลอกรหัสเชิญ',

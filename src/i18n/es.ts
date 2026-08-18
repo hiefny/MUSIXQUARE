@@ -541,6 +541,7 @@ const es: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Solo el anfitrión puede cambiar este ajuste',
   'toast.host_only_file': 'Solo el anfitrión puede añadir archivos',
   'toast.no_tracks': 'No hay pistas para reproducir',
+  'toast.add_media_to_play': 'Agrega contenido para reproducir',
   'toast.no_invite_code': 'Aún no hay código de invitación',
   'toast.invite_code_settings': 'Comparte el enlace de invitación desde la pestaña Conectar.',
   'toast.click_copy_invite': 'Haz clic para copiar el código de invitación',

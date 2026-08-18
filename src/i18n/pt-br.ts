@@ -538,6 +538,7 @@ const ptBr: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Só o anfitrião pode alterar esta configuração',
   'toast.host_only_file': 'Só o anfitrião pode adicionar arquivos',
   'toast.no_tracks': 'Não há faixas para reproduzir',
+  'toast.add_media_to_play': 'Adicione mídia para reproduzir',
   'toast.no_invite_code': 'Ainda não há código de convite',
   'toast.invite_code_settings': 'Compartilhe o link de convite pela aba Conectar.',
   'toast.click_copy_invite': 'Clique para copiar o código de convite',

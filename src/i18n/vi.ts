@@ -527,6 +527,7 @@ const vi: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Chỉ chủ phòng mới có thể đổi cài đặt này',
   'toast.host_only_file': 'Chỉ chủ phòng mới có thể thêm tệp',
   'toast.no_tracks': 'Không có mục nào để phát',
+  'toast.add_media_to_play': 'Vui lòng thêm nội dung để phát',
   'toast.no_invite_code': 'Chưa có mã mời',
   'toast.invite_code_settings': 'Chia sẻ liên kết mời từ tab Kết nối.',
   'toast.click_copy_invite': 'Nhấp để sao chép mã mời',

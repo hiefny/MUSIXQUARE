@@ -537,6 +537,7 @@ const de: Record<I18nKey, string> = {
   'toast.host_setting_required': 'Nur der Host kann diese Einstellung ändern',
   'toast.host_only_file': 'Nur der Host kann Dateien hinzufügen',
   'toast.no_tracks': 'Keine Titel zum Abspielen',
+  'toast.add_media_to_play': 'Bitte Medien hinzufügen',
   'toast.no_invite_code': 'Noch kein Einladungscode',
   'toast.invite_code_settings': 'Teile den Einladungslink im Tab „Verbinden“.',
   'toast.click_copy_invite': 'Klicken, um Einladungscode zu kopieren',

@@ -658,7 +658,6 @@ function syncMediaSourceButtonAuthority(): void {
           ? canStopSystemAudio
           : canSelectMedia;
     mediaBtn.setAttribute('aria-disabled', String(!enabled));
-    mediaBtn.style.opacity = enabled ? '' : '0.15';
     if (enabled) {
       mediaBtn.removeAttribute('title');
     } else {
@@ -679,7 +678,6 @@ function syncQueueModeButtonAuthority(): void {
     const button = document.getElementById(id);
     if (!button) continue;
     button.setAttribute('aria-disabled', String(!enabled));
-    button.style.opacity = enabled ? '' : '0.15';
   }
 }
 

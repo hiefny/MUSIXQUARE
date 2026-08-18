@@ -1485,10 +1485,10 @@
     color: inherit !important;
   }
   body.mode-system-audio #btn-media-source.sys-audio-guest svg {
-    fill: var(--text-sub) !important;
+    fill: currentColor !important;
   }
   body.mode-system-audio #btn-media-source.sys-audio-guest span {
-    color: var(--text-sub) !important;
+    color: currentColor !important;
   }
 
   /* Host: media source button → red "stop sharing" style */
@@ -9011,21 +9011,34 @@
   /* Keep explanatory clicks available while making readiness obvious before
      activation. aria-disabled is intentional here: native disabled controls
      cannot surface the localized recovery hint. */
-  #btn-sync[aria-disabled='true'] {
+  #btn-sync[aria-disabled='true'],
+  #btn-media-source[aria-disabled='true'],
+  #btn-add-media[aria-disabled='true'],
+  #btn-repeat[aria-disabled='true'],
+  #btn-shuffle[aria-disabled='true'] {
     opacity: 0.42;
     cursor: not-allowed;
   }
 
-  #btn-sync[aria-busy='true'] {
+  #btn-sync[aria-busy='true'],
+  #btn-media-source[aria-busy='true'] {
     opacity: 0.72;
     cursor: progress;
   }
 
-  #btn-sync[aria-disabled='true']:hover {
+  #btn-sync[aria-disabled='true']:hover,
+  #btn-media-source[aria-disabled='true']:hover,
+  #btn-add-media[aria-disabled='true']:hover,
+  #btn-repeat[aria-disabled='true']:hover,
+  #btn-shuffle[aria-disabled='true']:hover {
     background: var(--surface-2);
   }
 
-  #btn-sync[aria-disabled='true']:active {
+  #btn-sync[aria-disabled='true']:active,
+  #btn-media-source[aria-disabled='true']:active,
+  #btn-add-media[aria-disabled='true']:active,
+  #btn-repeat[aria-disabled='true']:active,
+  #btn-shuffle[aria-disabled='true']:active {
     background: var(--surface-2);
     transform: none;
   }

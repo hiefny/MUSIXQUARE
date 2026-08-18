@@ -14,8 +14,9 @@ drafts are not release instructions.
 Use this path for ordinary production bugs that do not require immediate client replacement.
 
 ```bash
-git checkout main
-git pull origin main
+git switch main
+git pull --ff-only origin main
+git switch -c hotfix/describe-the-fix
 
 # make the fix
 
@@ -36,18 +37,21 @@ git commit -m "fix(domain): describe the fix"
 # The cache-history guard reads committed HEAD, not uncommitted files.
 npm run build:checked
 
-git push origin main
+git push -u origin hotfix/describe-the-fix
+
+# Open a pull request into main, wait for CI, and merge the reviewed PR.
 ```
 
-Pushing `main` does not deploy production. CI runs static checks, tests, and the
-production build in parallel. A successful `main` CI run records one immutable
-production candidate for that exact commit. Run the `Production Release`
-workflow from the Actions tab and select only the Worker scope changed by the
-hotfix. Every target reuses that exact-SHA CI candidate without rebuilding the
-artifact or rerunning the full CI/test suite. The release still rechecks the
-manifest and hashes, time-sensitive production-security rules, and Worker
-bundles before running live smokes with an immutable recovery checkpoint and
-fail-closed forward-repair reporting.
+Merging the pull request into `main` does not deploy production. CI runs static
+checks, tests, and the production build in parallel. A successful `main` CI run
+records one immutable production candidate for that exact commit. Run the
+`Production Release` workflow from the Actions tab and select only the Worker
+scope changed by the hotfix. Every target reuses that exact-SHA CI candidate
+without rerunning the full CI/test suite. The immutable App artifact is reused
+without rebuilding; Worker sources are revalidated and bundled from the pinned
+checkout. The release still rechecks the manifest and hashes, time-sensitive
+production-security rules, and Worker bundles before running live smokes with
+an immutable recovery checkpoint and fail-closed forward-repair reporting.
 
 Documentation publication has two distinct paths:
 
@@ -293,10 +297,12 @@ the GitHub release workflow is authoritative. The source audit cannot prove
 that dashboard-only state, so verify it manually; keeping both paths enabled
 creates an unapproved duplicate deployment.
 
+### Local emergency deployment
+
 The ordinary local `deploy:*` scripts are deliberately non-deploying traps: they
 always stop and direct the operator back to the approved GitHub workflow. For a
-local emergency app-only deployment, first commit every change and leave the
-worktree clean, push it to `origin/main`, and keep `main` checked out. Then bind
+local emergency app-only deployment, first land the committed fix on
+`origin/main`, then check out that exact commit on a clean `main` worktree. Bind
 the exact target and current commit into the one-shot
 confirmation before using the cross-platform Node deployment orchestrator,
 which also verifies signaling and rebuilds `dist`:
@@ -480,21 +486,28 @@ retain full git history (`fetch-depth: 0`).
 Use this when stale clients are likely to keep hitting a severe bug.
 
 1. Make the minimal code fix.
-2. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
-3. Run the repository's non-E2E verification baseline:
+2. Advance the product patch version and every required mirror when shipped
+   behavior or public copy changes, as defined by
+   [release versioning](release-versioning.md).
+3. Bump `SERVICE_WORKER_CACHE_VERSION` in `scripts/service-worker-asset.ts`.
+4. Run the repository's non-E2E verification baseline:
 
-```bash
-npm run typecheck
-npm run lint
-npm run format:check
-npm test
-npm run check:workers
-npm run build:checked
-```
+   ```bash
+   npm run typecheck
+   npm run lint
+   npm run format:check
+   npm test
+   npm run check:workers
+   npm run build:checked
+   ```
 
-4. Commit and push to `main`.
-5. Run the `Production Release` workflow for the affected scope.
-6. After Cloudflare deploys, verify:
+5. Commit on a hotfix branch, merge a reviewed pull request into `main`, and
+   wait for its exact-SHA CI candidate. If the incident cannot wait for that
+   path, use the separately guarded
+   [local emergency deployment](#local-emergency-deployment) rather than
+   silently bypassing review.
+6. Run the `Production Release` workflow for the affected scope.
+7. After Cloudflare deploys, verify:
    - fresh production load
    - an already-open production tab
    - service-worker update dialog or cooldown behavior
@@ -513,35 +526,41 @@ If a deployment is bad:
    appeared before applying it.
 2. In git, prepare a revert without committing it immediately:
 
-```bash
-git revert --no-commit <bad-commit-sha>
+   ```bash
+   git switch main
+   git pull --ff-only origin main
+   git switch -c rollback/restore-known-good-behavior
+   git revert --no-commit <bad-commit-sha>
 
-# If the bad release advanced product SemVer, keep moving forward to a new
-# patch version and update every required mirror. If it advanced the PWA cache
-# epoch, choose an epoch greater than the bad release; never restore an older one.
+   # If the bad release advanced product SemVer, keep moving forward to a new
+   # patch version and update every required mirror. If it advanced the PWA cache
+   # epoch, choose an epoch greater than the bad release; never restore an older one.
 
-npm run typecheck
-npm run lint
-npm run format:check
-npm test
-npm run check:workers
-npm run build:checked
+   npm run typecheck
+   npm run lint
+   npm run format:check
+   npm test
+   npm run check:workers
+   npm run build:checked
 
-git add <revert-and-forward-version-files>
-git commit -m "revert: restore the last known-good behavior"
+   git add <revert-and-forward-version-files>
+   git commit -m "revert: restore the last known-good behavior"
 
-# Recheck committed first-parent history, including monotonic cache/version guards.
-npm run build:checked
-git push origin main
-```
+   # Recheck committed first-parent history, including monotonic cache/version guards.
+   npm run build:checked
+   git push -u origin rollback/restore-known-good-behavior
+
+   # Open a pull request into main, wait for CI, and merge the reviewed rollback.
+   ```
 
    When the reverted commit advanced product SemVer, set `package.json` to a new
    higher patch version and update `package-lock.json`, `ADMIN_ASSET_VERSION`,
    and `ADMIN_SCRIPT_VERSION` before the single rollback commit. When it touched
    PWA inputs or advanced `SERVICE_WORKER_CACHE_VERSION`, set a new cache epoch
    greater than the bad release in that same commit.
+
 3. Run the `Production Release` workflow for the reverted scope, then rerun its
-   live smoke; a revert push alone does not update Cloudflare.
+   live smoke; merging the revert into `main` alone does not update Cloudflare.
 
 Avoid `git reset --hard` plus force push on `main` unless there is no reasonable alternative.
 

@@ -24,9 +24,9 @@
 
 ## Overview
 
-MUSIXQUARE transforms smartphones, tablets, and desktop computers into a zero-installation, synchronized multi-speaker wireless sound system. 
+MUSIXQUARE transforms smartphones, tablets, and desktop computers into a zero-installation, synchronized multi-speaker wireless sound system.
 
-By combining low-latency Web Audio DSP graphs, peer-to-peer WebRTC data/media transports, and Cloudflare distributed edge actors (Durable Objects, D1, R2), MUSIXQUARE enables real-time collaborative listening, spatial speaker role mapping, YouTube Together synchronization, and desktop system audio streaming across heterogeneous hardware.
+By combining low-latency Web Audio DSP graphs, peer-to-peer WebRTC data/media transports, and Cloudflare distributed edge services (Durable Objects, D1, R2), MUSIXQUARE enables real-time collaborative listening, spatial speaker role mapping, YouTube Together synchronization, and desktop system audio streaming across heterogeneous hardware.
 
 ---
 
@@ -34,7 +34,8 @@ By combining low-latency Web Audio DSP graphs, peer-to-peer WebRTC data/media tr
 
 [![MUSIXQUARE Demo Video](https://img.youtube.com/vi/VbFwgt4l3Gc/maxresdefault.jpg)](https://youtu.be/VbFwgt4l3Gc?si=_i8eQa4kiDWl8kv5)
 
-*Click the image above to watch the official MUSIXQUARE demonstration video on YouTube.*  
+_Click the image above to watch the official MUSIXQUARE demonstration video on YouTube._
+
 **Direct Video Link:** [https://youtu.be/VbFwgt4l3Gc](https://youtu.be/VbFwgt4l3Gc?si=_i8eQa4kiDWl8kv5)
 
 ---
@@ -92,7 +93,9 @@ product, engineering, and design decisions.
 
 ## System Architecture
 
-The MUSIXQUARE architecture is organized into **24 specialized functional districts** spanning **848 modules** and **3,021 dependency edges**.
+The architecture map below is a point-in-time overview that groups MUSIXQUARE
+into **24 functional districts**. The source tree and tracked design documents
+remain authoritative as module and dependency counts evolve.
 
 <p align="center">
   <img src="./docs/assets/musixquare_architecture_square.png" alt="MUSIXQUARE Full System Architecture Map (1:1 Square)" width="900" />
@@ -100,11 +103,11 @@ The MUSIXQUARE architecture is organized into **24 specialized functional distri
 
 ### Architecture Layout Breakdown
 
-| Column | Layer | Districts Included | Focus & Responsibilities |
-| :--- | :--- | :--- | :--- |
-| **Col 1** | **Client & Runtime** | `BOOTSTRAP`, `FRAMEWORKLESS UI`, `ACCOUNT & AUTH`, `CHAT & COMMANDS`, `I18N LOCALES`, `BROWSER RUNTIME`, `PLAYWRIGHT E2E & CHAOS` | Micro-bundle hydration, reactive vanilla DOM rendering, locale pluralization, classic runtime compatibility, and automated integration/chaos suites. |
-| **Col 2** | **Core Audio Engine** | `CORE & STATE`, `AUDIO GRAPH & DSP`, `SYNC & NTP CLOCK`, `SYSTEM AUDIO SFU`, `DIAGNOSTICS & REC` | Web Audio node topology (5-band EQ, convolution reverb, stereo widener, virtual bass), host-relative RTT rolling clock sync, and desktop stereo SFU capture. |
-| **Col 3** | **Media & Verification** | `PLAYBACK ENGINE`, `PLAYLIST & QUEUE`, `STORAGE & CHUNKS`, `YOUTUBE TOGETHER`, `STATIC INVARIANT GUARDS` | Track decoding, gapless state transition, queue management, chunked RAM-only storage, YouTube IFrame API synchronizer, and compile-time AST invariant guards. |
+| Column    | Layer                        | Districts Included                                                                                                                           | Focus & Responsibilities                                                                                                                                                |
+| :-------- | :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Col 1** | **Client & Runtime**         | `BOOTSTRAP`, `FRAMEWORKLESS UI`, `ACCOUNT & AUTH`, `CHAT & COMMANDS`, `I18N LOCALES`, `BROWSER RUNTIME`, `PLAYWRIGHT E2E & CHAOS`            | Modular bootstrap, frameworkless DOM controllers, locale pluralization, classic runtime compatibility, and automated browser/failure-injection suites.                  |
+| **Col 2** | **Core Audio Engine**        | `CORE & STATE`, `AUDIO GRAPH & DSP`, `SYNC & NTP CLOCK`, `SYSTEM AUDIO SFU`, `DIAGNOSTICS & REC`                                             | Web Audio node topology (5-band EQ, convolution reverb, stereo widener, virtual bass), host-relative RTT rolling clock sync, and desktop stereo SFU capture.            |
+| **Col 3** | **Media & Verification**     | `PLAYBACK ENGINE`, `PLAYLIST & QUEUE`, `STORAGE & CHUNKS`, `YOUTUBE TOGETHER`, `STATIC INVARIANT GUARDS`                                     | Track decoding, preloaded and state-guarded transitions, queue management, RAM-only browser chunks, YouTube IFrame API synchronization, and compile-time AST guards.    |
 | **Col 4** | **Edge & Distributed Cloud** | `NETWORK & WEBRTC`, `ROOM AUTHORITY`, `PRO ROOM CLIENT`, `REMOTE SHARE R2`, `CLOUDFLARE WORKERS`, `CLOUDFLARE DO ACTOR`, `CLOUDFLARE D1 SQL` | Peer-to-peer data channels, stateful Durable Object session actors, persistent PRO room authorization, Cloudflare D1 relational schemas, and private R2 asset delivery. |
 
 ---
@@ -112,44 +115,47 @@ The MUSIXQUARE architecture is organized into **24 specialized functional distri
 ## Key Features
 
 - **6-Digit Room Access**:
-  - `100000` to `999999`: Temporary Standard Rooms hosted entirely in-browser over direct WebRTC data channels.
+  - `100000` to `999999`: Temporary Standard Rooms coordinated by a browser host over WebRTC, with Cloudflare signaling/TURN in production and temporary private R2 fallback when direct file delivery is unavailable.
   - `000000` to `099999`: Persistent PRO Rooms backed by dedicated Cloudflare Durable Object actors with durable state and multi-device persistence.
 - **Dynamic Speaker Role Routing**:
   - Assign connected devices in real time to **Center (Stereo)**, **Left Channel**, **Right Channel**, or **Subwoofer (Low-pass filtered)**.
-- **Hardware-Accelerated Web Audio DSP**:
+- **Browser-Native Web Audio DSP**:
   - In-browser 5-band parametric equalizer, convolution reverb engine, Haas stereo widener, and virtual psychoacoustic bass enhancer.
-- **Sub-Millisecond Clock Synchronization**:
+- **Latency-Aware Clock Synchronization**:
   - Standard rooms utilize rolling host-relative RTT probing; PRO rooms operate via server-coordinated epoch timelines with two-phase prepare/commit rendezvous scheduling.
 - **YouTube Together Synchronization**:
   - Synchronized playback across heterogeneous network topologies with automatic drift detection, seek compensation, and buffering state alignment.
 - **Desktop System Audio Streaming (Beta)**:
-  - Low-latency tab or system audio broadcast from desktop Chromium browsers to up to 4 concurrent client devices.
+  - Low-latency tab or system audio broadcast from desktop Chromium browsers in rooms of up to 4 connected devices, including the publisher.
 - **Private Media & Queue Management**:
-  - In-memory RAM audio pipeline for standard rooms and private Cloudflare R2 chunked storage for persistent PRO rooms.
+  - In-memory browser playback for Standard Rooms, temporary private R2 fallback for remote file delivery, and persistent private R2 object storage for PRO Rooms.
 - **Localized UI**:
-  - Built-in support for 17 languages with zero external dependencies.
+  - Built-in support for 17 languages without a runtime translation service.
 
 ---
 
 ## Room Types Comparison
 
-| Attribute | Standard Room | Persistent PRO Room |
-| :--- | :--- | :--- |
-| **Code Range** | `100000` - `999999` | `000000` - `099999` |
-| **Lifecycle** | Temporary; terminates when browser host departs | Persistent across empty-room sleep/wake cycles |
-| **Password** | Optional 8-digit access PIN | Required 8-digit room password |
-| **Authority Model** | Browser host authoritative over WebRTC P2P | Cloudflare Durable Object server-authoritative state |
-| **Storage Backend** | Ephemeral browser RAM / Direct WebRTC stream | Private Cloudflare R2 bucket (1 GiB / room, 200 MiB / file) |
-| **Presence Model** | Host-managed peer roster | Server-tracked heartbeats and participant session recovery |
+| Attribute           | Standard Room                                       | Persistent PRO Room                                                 |
+| :------------------ | :-------------------------------------------------- | :------------------------------------------------------------------ |
+| **Code Range**      | `100000` - `999999`                                 | `000000` - `099999`                                                 |
+| **Lifecycle**       | Temporary; terminates when browser host departs     | Persistent across empty-room sleep/wake cycles                      |
+| **Password**        | Optional 8-digit access PIN                         | Required 8-digit room password                                      |
+| **Authority Model** | Browser host authoritative over WebRTC P2P          | Cloudflare Durable Object server-authoritative state                |
+| **Storage Backend** | Browser RAM, direct WebRTC, or temporary private R2 | Private Cloudflare R2 object storage (1 GiB / room, 200 MiB / file) |
+| **Presence Model**  | Host-managed peer roster                            | Server-tracked heartbeats and participant session recovery          |
+
+PRO access remains operator-controlled. It may be issued directly or redeemed
+through a one-time operator voucher; there is no paid plan or public checkout.
 
 ---
 
 ## Technology Stack
 
-- **Frontend Core**: TypeScript (Strict Mode), Vite, HTML5 Web Audio API, WebRTC (RTCDataChannel, RTCPeerConnection), Native Web Components.
+- **Frontend Core**: TypeScript (Strict Mode), Vite, HTML5 Web Audio API, WebRTC (RTCDataChannel, RTCPeerConnection), frameworkless HTML/CSS/DOM controllers.
 - **Signaling & Edge Backend**: Cloudflare Workers, Cloudflare Durable Objects (Stateful Actors), Cloudflare D1 (Serverless SQL), Cloudflare R2 (Object Storage).
 - **Transport Adapters**: Cloudflare TURN / STUN infrastructure, PeerJS local development adapter.
-- **Quality & Verification**: Vitest, Playwright E2E with network throttling and packet loss simulation, Custom TypeScript AST invariant linters.
+- **Quality & Verification**: Vitest, Playwright E2E and recovery/chaos scenarios, custom TypeScript AST invariant guards.
 
 ---
 
@@ -167,7 +173,12 @@ npm run dev
 
 Open `http://localhost:3000` in your browser.
 
-Local development runs entirely on the browser-only PeerJS transport by default and requires no external Cloudflare credentials or API keys.
+Local development runs entirely on the browser-only PeerJS transport by default
+and requires no external Cloudflare credentials or API keys. Unconfigured
+`/api/*` routes fail closed instead of reaching production. Production API
+proxying requires the explicit
+`MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` opt-in and can consume real quotas;
+see [CONTRIBUTING.md](./CONTRIBUTING.md) before enabling it.
 
 ### Test & Verification Pipeline
 
@@ -207,8 +218,8 @@ MUSIXQUARE is open-source software licensed under the **GNU Affero General Publi
 
 ### Third-Party Notices
 
-- **PeerJS**: MIT License
+- **PeerJS**: MIT License (see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md))
 - **qrcode & content-shield**: MIT License (see [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md))
 - **Google Material Icons**: Apache License 2.0 (see [distributed license](./public/licenses/material-icons-apache-2.0.txt))
 - **Pretendard Font**: SIL Open Font License 1.1 (see [PRETENDARD_LICENSE.txt](./fonts/PRETENDARD_LICENSE.txt))
-- **Noto Sans Fonts**: SIL Open Font License 1.1 (see [NOTO_SANS_LICENSE.txt](./fonts/NOTO_SANS_LICENSE.txt))
+- **Noto Sans Fonts**: SIL Open Font License 1.1 (see the [Latin/Cyrillic license](./fonts/NOTO_SANS_LICENSE.txt), [CJK license](./fonts/NOTO_CJK_LICENSE.txt), and [Thai license](./fonts/NOTO_THAI_LICENSE.txt))

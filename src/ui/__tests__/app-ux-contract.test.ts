@@ -13,6 +13,21 @@ let settingsSource: string;
 let appRuntimeSource: string;
 let platformSource: string;
 
+function declarationsForSelector(selector: string): string[] {
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/gu;
+  const declarations: string[] = [];
+
+  for (const match of appStylesheet.matchAll(rulePattern)) {
+    const selectors = (match[1] ?? '')
+      .replace(/\/\*[\s\S]*?\*\//gu, '')
+      .split(',')
+      .map((candidate) => candidate.trim());
+    if (selectors.includes(selector)) declarations.push(match[2] ?? '');
+  }
+
+  return declarations;
+}
+
 beforeAll(() => {
   appSource = readFileSync(resolve('index.html'), 'utf8');
   appDocument = new DOMParser().parseFromString(appSource, 'text/html');
@@ -149,6 +164,44 @@ describe('app UX markup contract', () => {
   it('keeps one playlist add action without duplicating it in the empty state', () => {
     expect(appDocument.querySelectorAll('#btn-add-media')).toHaveLength(1);
     expect(appDocument.querySelector('#playlist-ui .list-empty-state button')).toBeNull();
+  });
+
+  it('keeps explanatory disabled actions focus-visible without expanding compact halos', () => {
+    const largeActions = ['#btn-sync', '#btn-media-source'];
+    const compactActions = ['#btn-add-media', '#btn-repeat', '#btn-shuffle'];
+
+    for (const selector of [...largeActions, ...compactActions]) {
+      const button = appDocument.querySelector<HTMLButtonElement>(selector);
+      expect(button?.tagName, selector).toBe('BUTTON');
+      expect(button?.hasAttribute('disabled'), selector).toBe(false);
+
+      const disabledRule = declarationsForSelector(`${selector}[aria-disabled='true']`);
+      expect(disabledRule, `${selector} disabled style`).toHaveLength(1);
+      expect(disabledRule[0]).toMatch(/opacity:\s*0\.42\s*;/u);
+
+      const focusRule = declarationsForSelector(`${selector}[aria-disabled='true']:focus-visible`);
+      expect(focusRule, `${selector} focus-visible style`).toHaveLength(1);
+      expect(focusRule[0]).toMatch(/opacity:\s*1\s*;/u);
+    }
+
+    for (const selector of largeActions) {
+      for (const state of ['hover', 'active']) {
+        const rules = declarationsForSelector(`${selector}[aria-disabled='true']:${state}`);
+        expect(rules, `${selector} ${state} style`).toHaveLength(1);
+        expect(rules[0]).toMatch(/background:\s*var\(--surface-2\)\s*;/u);
+        if (state === 'active') expect(rules[0]).toMatch(/transform:\s*none\s*;/u);
+      }
+    }
+
+    for (const selector of compactActions) {
+      for (const state of ['hover', 'active']) {
+        const rules = declarationsForSelector(`${selector}[aria-disabled='true']:${state}`);
+        expect(rules, `${selector} ${state} style`).toHaveLength(1);
+        expect(rules[0]).toMatch(/background:\s*transparent\s*;/u);
+        expect(rules[0]).not.toContain('var(--surface-2)');
+        if (state === 'active') expect(rules[0]).toMatch(/transform:\s*none\s*;/u);
+      }
+    }
   });
 
   it('keeps the chat composer bottom-aligned with a small optical lift for send', () => {

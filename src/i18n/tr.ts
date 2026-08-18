@@ -536,6 +536,8 @@ const tr: Record<I18nKey, string> = {
   'toast.copy_failed': 'Kopyalanamadı',
   'toast.email_copied': 'E-posta adresi panoya kopyalandı!',
   'toast.settings_sync_enabled': 'Ayar senkronizasyonu açık.',
+  'toast.settings_sync_admin_required':
+    'Ayar senkronizasyonu açık.\nYalnızca oda yöneticileri değiştirebilir.',
   'toast.virtual_bass_on': 'Sanal bas açık.',
   'toast.virtual_bass_off': 'Sanal bas kapalı.',
   'toast.virtual_treble_on': 'Sanal tiz açık.',

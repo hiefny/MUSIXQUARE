@@ -506,6 +506,8 @@ const vi: Record<I18nKey, string> = {
   'toast.copy_failed': 'Không thể sao chép',
   'toast.email_copied': 'Đã sao chép địa chỉ email!',
   'toast.settings_sync_enabled': 'Đồng bộ cài đặt đang bật.',
+  'toast.settings_sync_admin_required':
+    'Đồng bộ cài đặt đang bật.\nChỉ quản trị viên phòng mới có thể thay đổi.',
   'toast.virtual_bass_on': 'Âm trầm ảo đang bật.',
   'toast.virtual_bass_off': 'Âm trầm ảo đang tắt.',
   'toast.virtual_treble_on': 'Âm cao ảo đang bật.',

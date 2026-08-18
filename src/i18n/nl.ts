@@ -550,6 +550,8 @@ const nl: Record<I18nKey, string> = {
   'toast.copy_failed': 'Kopiëren mislukt',
   'toast.email_copied': 'E-mailadres gekopieerd!',
   'toast.settings_sync_enabled': 'Instellingensynchronisatie staat aan.',
+  'toast.settings_sync_admin_required':
+    'Instellingensynchronisatie staat aan.\nAlleen kamerbeheerders kunnen dit wijzigen.',
   'toast.virtual_bass_on': 'Virtuele bas staat aan.',
   'toast.virtual_bass_off': 'Virtuele bas staat uit.',
   'toast.virtual_treble_on': 'Virtuele hoge tonen staan aan.',

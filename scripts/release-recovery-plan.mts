@@ -106,6 +106,10 @@ export function releaseRecoverySkipTargets(
     environment.MXQR_REMOTE_SHARE_FORWARD_FLOOR,
     'MXQR_REMOTE_SHARE_FORWARD_FLOOR',
   );
+  const proSystemAudioForwardFloor = exactBoolean(
+    environment.MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR,
+    'MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR',
+  );
 
   const skip = new Set(
     r2Outcome === 'success'
@@ -134,6 +138,11 @@ export function releaseRecoverySkipTargets(
   }
   if (remoteShareForwardFloor) {
     skip.add('remote-share');
+    skip.add('app');
+  }
+  if (proSystemAudioForwardFloor) {
+    skip.add('pro-room');
+    skip.add('signaling');
     skip.add('app');
   }
   return [...skip];

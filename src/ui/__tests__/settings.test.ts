@@ -7,6 +7,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
 import type { DataConnection } from '../../types/index.ts';
+import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 
 const preloadLocaleFontGlyphsMock = vi.hoisted(() =>
   vi.fn<(code: string, text: string) => Promise<boolean>>(() => Promise.resolve(true)),
@@ -240,6 +241,9 @@ beforeEach(() => {
       <button class="ch-opt" data-ch="1">Right</button>
       <button class="ch-opt" data-ch="2">Sub</button>
     </div>
+    <div data-role-diagram="settings">
+      <button class="graphic-speaker" data-role-mode="1">Right diagram</button>
+    </div>
     <meta name="theme-color" content="">
     <meta name="color-scheme" content="">
   `;
@@ -345,17 +349,67 @@ describe('selectStandardChannelButton', () => {
 });
 
 describe('initSettings playback mode guards', () => {
-  it('blocks host channel changes while system audio owns playback', () => {
+  it.each([
+    ['channel grid', '#grid-standard .ch-opt[data-ch="-1"]', -1],
+    ['role diagram', '[data-role-diagram="settings"] [data-role-mode="1"]', 1],
+  ] as const)('allows a PRO receiver to change roles from the %s', (_surface, selector, mode) => {
+    const setChannel = vi.fn();
+    bus.on('audio:set-channel-mode', setChannel);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('network.hostConn', null);
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'playing');
+    setState('systemAudio.isReceiving', true);
+    const restoreProbe = configureSystemAudioCaptureActivityProbe(() => false);
+
+    try {
+      initSettings();
+      document.querySelector<HTMLElement>(selector)?.click();
+
+      expect(setChannel).toHaveBeenCalledWith(mode);
+      expect(showToast).not.toHaveBeenCalledWith(
+        'Cannot change roles during system audio sharing.',
+      );
+    } finally {
+      restoreProbe();
+    }
+  });
+
+  it('blocks role changes on both surfaces while this device is capturing system audio', () => {
     const setChannel = vi.fn();
     bus.on('audio:set-channel-mode', setChannel);
     setState('playback.mode', 'system-audio');
     setState('playback.activity', 'playing');
+    const restoreProbe = configureSystemAudioCaptureActivityProbe(() => true);
 
-    initSettings();
-    document.querySelector<HTMLElement>('#grid-standard .ch-opt[data-ch="-1"]')?.click();
+    try {
+      initSettings();
+      document.querySelector<HTMLElement>('#grid-standard .ch-opt[data-ch="-1"]')?.click();
+      document
+        .querySelector<HTMLElement>('[data-role-diagram="settings"] [data-role-mode="1"]')
+        ?.click();
 
-    expect(setChannel).not.toHaveBeenCalled();
-    expect(showToast).toHaveBeenCalledWith('Cannot change roles during system audio sharing.');
+      expect(setChannel).not.toHaveBeenCalled();
+      expect(showToast).toHaveBeenCalledTimes(2);
+      expect(showToast).toHaveBeenNthCalledWith(
+        1,
+        'Cannot change roles during system audio sharing.',
+      );
+      expect(showToast).toHaveBeenNthCalledWith(
+        2,
+        'Cannot change roles during system audio sharing.',
+      );
+    } finally {
+      restoreProbe();
+    }
   });
 });
 
@@ -786,7 +840,9 @@ describe('initSettings effect slider fill sync', () => {
 
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
-    expect(showToast).toHaveBeenCalledWith('Only the room owner can change this.');
+    expect(showToast).toHaveBeenCalledWith(
+      'Settings sync is on.\nOnly room admins can change audio settings.',
+    );
     expect(
       document
         .querySelector('#grid-reverb .ch-opt[data-rvb-type="arena"]')
@@ -799,7 +855,7 @@ describe('initSettings effect slider fill sync', () => {
     expect((document.getElementById('reverb-slider') as HTMLInputElement).disabled).toBe(true);
   });
 
-  it('keeps global effects owner-only for a delegated administrator', () => {
+  it('fails closed when a delegated administrator projection lacks effects control', () => {
     installEffectSettingsDom();
     setState('network.appRole', 'guest');
     setState('network.hostConn', { open: true } as DataConnection);
@@ -814,7 +870,9 @@ describe('initSettings effect slider fill sync', () => {
 
     document.querySelector<HTMLElement>('#grid-reverb .ch-opt[data-rvb-type="arena"]')?.click();
 
-    expect(showToast).toHaveBeenCalledWith('Only the room owner can change this.');
+    expect(showToast).toHaveBeenCalledWith(
+      'Settings sync is on.\nOnly room admins can change audio settings.',
+    );
     expect(document.getElementById('grid-reverb')?.classList.contains('host-ctrl-locked')).toBe(
       true,
     );

@@ -507,6 +507,8 @@ const ja: Record<I18nKey, string> = {
   'toast.copy_failed': 'コピーできませんでした',
   'toast.email_copied': 'メールアドレスをコピーしました！',
   'toast.settings_sync_enabled': '設定の同期がオンです',
+  'toast.settings_sync_admin_required':
+    '設定の同期がオンです。\n音響設定を変更できるのはルーム管理者だけです。',
   'toast.virtual_bass_on': 'バーチャルベースがオンになりました',
   'toast.virtual_bass_off': 'バーチャルベースがオフになりました',
   'toast.virtual_treble_on': 'バーチャルトレブルがオンになりました',

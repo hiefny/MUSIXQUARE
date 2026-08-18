@@ -8,7 +8,13 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { getResolvedLanguage, setLanguageMode, t } from '../../i18n/index.ts';
 import { setCurrentAudioBuffer } from '../../player/_state.ts';
-import { setPlaybackIdle, setPlaybackSystemAudioPlaying } from '../../player/ownership.ts';
+import {
+  claimPlaybackOwner,
+  createSystemAudioTrackMeta,
+  setPlaybackIdle,
+  setPlaybackSystemAudioPlaying,
+  setSystemAudioReceiving,
+} from '../../player/ownership.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
@@ -1059,7 +1065,7 @@ describe('initPlayerControls playback mode rendering', () => {
     setState('playback.lifecycle', PLAYBACK_STATE.DECODING);
     initPlayerControls();
 
-    expect(document.getElementById('play-btn')?.classList).toContain('yt-syncing');
+    expect(document.getElementById('play-btn')?.classList).toContain('is-loading');
     expectYouTubeSyncOverlay(false);
 
     bus.emit('youtube:sync-loading', true);
@@ -1075,7 +1081,7 @@ describe('initPlayerControls playback mode rendering', () => {
     expectYouTubeSyncOverlay(true);
 
     setState('playback.mode', 'file');
-    expect(document.getElementById('play-btn')?.classList).toContain('yt-syncing');
+    expect(document.getElementById('play-btn')?.classList).toContain('is-loading');
     expectYouTubeSyncOverlay(false);
   });
 
@@ -1087,7 +1093,7 @@ describe('initPlayerControls playback mode rendering', () => {
     expectYouTubeSyncOverlay(true);
 
     initPlayerControls();
-    expect(document.getElementById('play-btn')?.classList).not.toContain('yt-syncing');
+    expect(document.getElementById('play-btn')?.classList).not.toContain('is-loading');
     expectYouTubeSyncOverlay(false);
   });
 
@@ -1240,15 +1246,37 @@ describe('initPlayerControls playback mode rendering', () => {
       initPlayerControls();
 
       const playBtn = document.getElementById('play-btn');
-      expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+      expect(playBtn?.classList.contains('is-loading')).toBe(true);
       expect(playBtn?.getAttribute('aria-busy')).toBe('true');
 
       setState('playback.lifecycle', PLAYBACK_STATE.READY);
 
-      expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+      expect(playBtn?.classList.contains('is-loading')).toBe(false);
       expect(playBtn?.getAttribute('aria-busy')).toBe('false');
     },
   );
+
+  it('shows system-audio receiver loading through initial connect and reconnect gaps', () => {
+    renderPlaybackControls();
+    claimPlaybackOwner('system-audio', {
+      pending: true,
+      currentTrackMeta: createSystemAudioTrackMeta('receiving'),
+    });
+
+    initPlayerControls();
+
+    const playBtn = document.getElementById('play-btn');
+    expect(playBtn?.classList.contains('is-loading')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+
+    setSystemAudioReceiving(true);
+    expect(playBtn?.classList.contains('is-loading')).toBe(false);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('false');
+
+    setSystemAudioReceiving(false);
+    expect(playBtn?.classList.contains('is-loading')).toBe(true);
+    expect(playBtn?.getAttribute('aria-busy')).toBe('true');
+  });
 
   it('shows the loading play button while a PRO member awaits server selection', () => {
     renderPlaybackControls();
@@ -1257,12 +1285,12 @@ describe('initPlayerControls playback mode rendering', () => {
     initPlayerControls();
 
     const playBtn = document.getElementById('play-btn');
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.classList.contains('is-loading')).toBe(true);
     expect(playBtn?.getAttribute('aria-busy')).toBe('true');
 
     setState('network.pendingTrackChangeQueueItemId', null);
 
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.classList.contains('is-loading')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
   });
 
@@ -1276,13 +1304,13 @@ describe('initPlayerControls playback mode rendering', () => {
     expect(loadingStates.at(-1)).toBe(false);
     bus.emit('pro-playback:transition-loading', true);
 
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.classList.contains('is-loading')).toBe(true);
     expect(playBtn?.getAttribute('aria-busy')).toBe('true');
     expect(loadingStates.at(-1)).toBe(true);
 
     bus.emit('pro-playback:transition-loading', false);
 
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.classList.contains('is-loading')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
     expect(loadingStates.at(-1)).toBe(false);
   });
@@ -1296,12 +1324,12 @@ describe('initPlayerControls playback mode rendering', () => {
     bus.emit('pro-playback:transition-loading', true);
     setState('network.pendingTrackChangeQueueItemId', null);
 
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.classList.contains('is-loading')).toBe(true);
     expect(playBtn?.getAttribute('aria-busy')).toBe('true');
 
     bus.emit('pro-playback:transition-loading', false);
 
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.classList.contains('is-loading')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
   });
 
@@ -1317,7 +1345,7 @@ describe('initPlayerControls playback mode rendering', () => {
       targetSeconds: 12,
       wasPlaying: false,
     });
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.classList.contains('is-loading')).toBe(true);
     expect(playBtn?.getAttribute('aria-busy')).toBe('true');
 
     bus.emit('pro-playback:ui-control-settled', {
@@ -1326,7 +1354,7 @@ describe('initPlayerControls playback mode rendering', () => {
       queueItemId: PLAY_QUEUE_ITEM_ID,
       status: 'superseded',
     });
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.classList.contains('is-loading')).toBe(true);
 
     bus.emit('pro-playback:ui-control-settled', {
       token: 10,
@@ -1335,7 +1363,7 @@ describe('initPlayerControls playback mode rendering', () => {
       status: 'applied',
       positionSeconds: 12,
     });
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.classList.contains('is-loading')).toBe(false);
     expect(playBtn?.getAttribute('aria-busy')).toBe('false');
   });
 
@@ -1354,7 +1382,7 @@ describe('initPlayerControls playback mode rendering', () => {
       targetSeconds: 30,
       wasPlaying: true,
     });
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(true);
+    expect(playBtn?.classList.contains('is-loading')).toBe(true);
 
     bus.emit('pro-playback:ui-control-settled', {
       token: 20,
@@ -1375,7 +1403,7 @@ describe('initPlayerControls playback mode rendering', () => {
     setState('playback.activity', 'paused');
     setState('playback.activity', 'playing');
 
-    expect(playBtn?.classList.contains('yt-syncing')).toBe(false);
+    expect(playBtn?.classList.contains('is-loading')).toBe(false);
     expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
 
     bus.emit('pro-playback:ui-control-settled', {
@@ -1813,7 +1841,7 @@ describe('initPlayerControls sync button', () => {
     bus.emit('youtube:sync-loading', true, 'zero-start');
 
     expect(button.getAttribute('aria-disabled')).toBe('true');
-    expect(playButton.classList.contains('yt-syncing')).toBe(true);
+    expect(playButton.classList.contains('is-loading')).toBe(true);
     expect(playButton.getAttribute('aria-busy')).toBe('true');
     expect(seekSlider.getAttribute('aria-disabled')).toBe('true');
 
@@ -1821,7 +1849,7 @@ describe('initPlayerControls sync button', () => {
     bus.emit('youtube:sync-loading', false, 'zero-start');
 
     expect(zeroStartFacade.active).toBe(true);
-    expect(playButton.classList.contains('yt-syncing')).toBe(false);
+    expect(playButton.classList.contains('is-loading')).toBe(false);
     expect(playButton.getAttribute('aria-busy')).toBe('false');
     expect(seekSlider.getAttribute('aria-disabled')).toBe('false');
     expect(button.getAttribute('aria-disabled')).toBe('true');

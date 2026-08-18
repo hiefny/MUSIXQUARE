@@ -409,94 +409,145 @@ describe('release deployment rollback state', () => {
     );
   });
 
-  it('keeps a multi-commit first service-control cutover on the forward-repair floor', () => {
-    const repository = createDirectory();
-    const deploymentDirectory = resolve(repository, 'deployments');
-    mkdirSync(deploymentDirectory, { recursive: true });
-    const git = (args: string[], options: { capture?: boolean } = {}): string =>
-      execFileSync('git', ['-C', repository, ...args], {
-        encoding: 'utf8',
-        stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'pipe',
-      });
-    git(['init', '--quiet']);
-    git(['config', 'user.email', 'release-test@musixquare.invalid']);
-    git(['config', 'user.name', 'MUSIXQUARE Release Test']);
-    mkdirSync(resolve(repository, 'cloudflare'), { recursive: true });
-    writeFileSync(resolve(repository, 'README.md'), 'before cutover\n');
-    git(['add', '.']);
-    git(['commit', '--quiet', '-m', 'pre-cutover']);
-    const preCutoverSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+  it('requires a full release for the first PRO system-audio direct-delivery contract', () => {
+    const marker = 'cloudflare/pro-system-audio-contract-version.txt';
+    expect(readFileSync(resolve(marker), 'utf8')).toBe('lan-direct-v1\n');
+    expect(EMERGENCY_EXTERNAL_STATE_PATHS).toContain(marker);
+    for (const target of ['pro-room', 'signaling', 'app']) {
+      expect(runtimePathsForWorker(target)).toContain(marker);
+    }
 
-    writeFileSync(
-      resolve(repository, 'cloudflare/service-control-contract-version.txt'),
-      'admin-announcement-v1\n',
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const cutoverStep = workflowStepSource(
+      workflow,
+      'Require a full release for PRO system-audio contract cutovers',
     );
-    git(['add', '.']);
-    git(['commit', '--quiet', '-m', 'add service-control cutover']);
-    const cutoverSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
-    writeFileSync(resolve(repository, 'README.md'), 'after cutover docs\n');
-    git(['add', '.']);
-    git(['commit', '--quiet', '-m', 'document cutover']);
-    const releaseSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    expect(cutoverStep).toContain(`contract_marker='${marker}'`);
+    expect(cutoverStep).toContain("inputs.target }}\" != 'all'");
+    expect(cutoverStep).toContain('the PRO, signaling, and app Workers deploy together');
 
-    const statePath = resolve(deploymentDirectory, 'pro-room-state.json');
-    writeFileSync(
-      statePath,
-      JSON.stringify({
-        schemaVersion: 1,
-        target: 'pro-room',
-        config: 'cloudflare/wrangler.pro-room.toml',
-        attempted: true,
-        beforeVersionId: 'pro-room-before',
-        beforeMessage: `git:${preCutoverSha}`,
-        releaseMessage: `git:${releaseSha}`,
-      }),
-    );
-    const changed = (baseSha: string, headSha: string, paths: string[]) =>
-      changedRuntimePaths(baseSha, headSha, paths, { runner: git });
-    expect(
-      contractCutoverRequiresForwardRepair(
-        releaseSha,
-        'cloudflare/service-control-contract-version.txt',
-        ['pro-room', 'app'],
-        deploymentDirectory,
-        {
-          changedRuntimePaths: changed,
-          queryCurrent: () => ({
-            deploymentId: 'pro-room-candidate-deployment',
-            versionId: 'pro-room-candidate-version',
-            message: `git:${releaseSha}`,
-          }),
-        },
-      ),
-    ).toBe(true);
+    for (const recoveryWorkflowPath of [
+      '.github/workflows/release.yml',
+      '.github/workflows/release-recovery.yml',
+    ]) {
+      const recoveryWorkflow = readFileSync(resolve(recoveryWorkflowPath), 'utf8');
+      expect(recoveryWorkflow).toContain('pro-system-audio-forward-floor "$GITHUB_SHA"');
+      expect(recoveryWorkflow).toContain(
+        'MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR="$pro_system_audio_forward_floor"',
+      );
+    }
 
-    writeFileSync(
-      statePath,
-      JSON.stringify({
-        schemaVersion: 1,
-        target: 'pro-room',
-        config: 'cloudflare/wrangler.pro-room.toml',
-        attempted: true,
-        beforeVersionId: 'pro-room-before',
-        beforeMessage: `git:${cutoverSha}`,
-        releaseMessage: `git:${releaseSha}`,
-      }),
-    );
-    expect(
-      contractCutoverRequiresForwardRepair(
-        releaseSha,
-        'cloudflare/service-control-contract-version.txt',
-        ['pro-room', 'app'],
-        deploymentDirectory,
-        { changedRuntimePaths: changed },
-      ),
-    ).toBe(false);
+    const missingCheckpoint = createDirectory();
+    const failClosedCli = runScript([
+      'pro-system-audio-forward-floor',
+      'd'.repeat(40),
+      missingCheckpoint,
+    ]);
+    expect(failClosedCli.status, String(failClosedCli.stderr)).toBe(0);
+    expect(failClosedCli.stdout).toBe('true');
   });
 
   it.each([
     ['service-control', 'cloudflare/service-control-contract-version.txt', ['pro-room', 'app']],
+    [
+      'PRO system-audio',
+      'cloudflare/pro-system-audio-contract-version.txt',
+      ['pro-room', 'signaling', 'app'],
+    ],
+  ] as const)(
+    'keeps a multi-commit first %s cutover on the forward-repair floor',
+    (_label, markerPath, targets) => {
+      const repository = createDirectory();
+      const deploymentDirectory = resolve(repository, 'deployments');
+      mkdirSync(deploymentDirectory, { recursive: true });
+      const git = (args: string[], options: { capture?: boolean } = {}): string =>
+        execFileSync('git', ['-C', repository, ...args], {
+          encoding: 'utf8',
+          stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'pipe',
+        });
+      git(['init', '--quiet']);
+      git(['config', 'user.email', 'release-test@musixquare.invalid']);
+      git(['config', 'user.name', 'MUSIXQUARE Release Test']);
+      mkdirSync(resolve(repository, 'cloudflare'), { recursive: true });
+      writeFileSync(resolve(repository, 'README.md'), 'before cutover\n');
+      git(['add', '.']);
+      git(['commit', '--quiet', '-m', 'pre-cutover']);
+      const preCutoverSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+
+      writeFileSync(resolve(repository, markerPath), 'cutover-v1\n');
+      git(['add', '.']);
+      git(['commit', '--quiet', '-m', 'add contract cutover']);
+      const cutoverSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+      writeFileSync(resolve(repository, 'README.md'), 'after cutover docs\n');
+      git(['add', '.']);
+      git(['commit', '--quiet', '-m', 'document cutover']);
+      const releaseSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+
+      const firstTarget = targets[0];
+      const statePath = resolve(deploymentDirectory, `${firstTarget}-state.json`);
+      writeFileSync(
+        statePath,
+        JSON.stringify({
+          schemaVersion: 1,
+          target: firstTarget,
+          config: `cloudflare/wrangler.${firstTarget}.toml`,
+          attempted: true,
+          beforeVersionId: `${firstTarget}-before`,
+          beforeMessage: `git:${preCutoverSha}`,
+          releaseMessage: `git:${releaseSha}`,
+        }),
+      );
+      const changed = (baseSha: string, headSha: string, paths: string[]) =>
+        changedRuntimePaths(baseSha, headSha, paths, { runner: git });
+      expect(
+        contractCutoverRequiresForwardRepair(
+          releaseSha,
+          markerPath,
+          [...targets],
+          deploymentDirectory,
+          {
+            changedRuntimePaths: changed,
+            queryCurrent: () => ({
+              deploymentId: `${firstTarget}-candidate-deployment`,
+              versionId: `${firstTarget}-candidate-version`,
+              message: `git:${releaseSha}`,
+            }),
+          },
+        ),
+      ).toBe(true);
+
+      writeFileSync(
+        statePath,
+        JSON.stringify({
+          schemaVersion: 1,
+          target: firstTarget,
+          config: `cloudflare/wrangler.${firstTarget}.toml`,
+          attempted: true,
+          beforeVersionId: `${firstTarget}-before`,
+          beforeMessage: `git:${cutoverSha}`,
+          releaseMessage: `git:${releaseSha}`,
+        }),
+      );
+      expect(
+        contractCutoverRequiresForwardRepair(
+          releaseSha,
+          markerPath,
+          [...targets],
+          deploymentDirectory,
+          { changedRuntimePaths: changed },
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it.each([
+    ['service-control', 'cloudflare/service-control-contract-version.txt', ['pro-room', 'app']],
     ['remote-share', 'cloudflare/remote-share-contract-version.txt', ['remote-share', 'app']],
+    [
+      'PRO system-audio',
+      'cloudflare/pro-system-audio-contract-version.txt',
+      ['pro-room', 'signaling', 'app'],
+    ],
   ] as const)(
     'does not invent a %s candidate boundary before the first Worker deploy',
     (_label, markerPath, targets) => {
@@ -2473,11 +2524,15 @@ describe('release deployment rollback state', () => {
     expect(recovery).toContain('verify-paired-recovery');
     expect(recovery).toContain('service_control_forward_floor="$(');
     expect(recovery).toContain('remote_share_forward_floor="$(');
+    expect(recovery).toContain('pro_system_audio_forward_floor="$(');
     expect(recovery).not.toContain(
       'if [[ "$(node scripts/release-deployment-state.mts service-control-forward-floor',
     );
     expect(recovery).not.toContain(
       'if [[ "$(node scripts/release-deployment-state.mts remote-share-forward-floor',
+    );
+    expect(recovery).not.toContain(
+      'if [[ "$(node scripts/release-deployment-state.mts pro-system-audio-forward-floor',
     );
     expect(
       recovery.indexOf('Reconcile persisted R2 policy with recovered Workers'),

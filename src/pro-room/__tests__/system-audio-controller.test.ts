@@ -161,7 +161,10 @@ function publication(): ProRoomSystemAudioPublication {
   };
 }
 
-function live(ownerParticipantId = LOCAL_ID, generation = 1): ProRoomSystemAudioState {
+function live(
+  ownerParticipantId = LOCAL_ID,
+  generation = 1,
+): Extract<ProRoomSystemAudioState, { status: 'live' }> {
   return {
     generation,
     status: 'live',
@@ -263,6 +266,29 @@ describe('ProRoomSystemAudioController', () => {
     expect(controller.getCurrentLease()).toBeNull();
   });
 
+  it('accepts the authenticated one-way LAN-direct to SFU promotion at the same generation', async () => {
+    const { api, controller } = harness();
+    const directPublication = {
+      publicationId: 'publication_00001',
+      transport: 'lan-direct',
+      protocolVersion: 1,
+    } as const satisfies ProRoomSystemAudioPublication;
+    api.acquireSystemAudioLease.mockResolvedValue({ systemAudio: preparing(), leaseId: LEASE_ID });
+    api.commitSystemAudioPublication
+      .mockResolvedValueOnce({ ...live(), publication: directPublication })
+      .mockResolvedValueOnce(live());
+
+    await controller.acquireProSystemAudioLease();
+    await expect(controller.commitProSystemAudioPublication(directPublication)).resolves.toEqual({
+      ...live(),
+      publication: directPublication,
+    });
+    await expect(controller.commitProSystemAudioPublication(publication())).resolves.toEqual(
+      live(),
+    );
+    expect(controller.getCurrentState()).toEqual(live());
+  });
+
   it('reconciles an already-committed release when only the response was lost', async () => {
     const { api, controller } = harness();
     api.acquireSystemAudioLease.mockResolvedValue({ systemAudio: preparing(), leaseId: LEASE_ID });
@@ -311,12 +337,12 @@ describe('ProRoomSystemAudioController', () => {
     api.acquireSystemAudioLease.mockResolvedValue({ systemAudio: preparing(), leaseId: LEASE_ID });
     api.commitSystemAudioPublication.mockResolvedValue(live());
     api.heartbeatSystemAudioLease.mockRejectedValue(new Error('not owner'));
-    api.getSystemAudioState.mockResolvedValue(live(REMOTE_ID));
+    api.getSystemAudioState.mockResolvedValue(live(REMOTE_ID, 2));
 
     await controller.acquireProSystemAudioLease();
     await controller.commitProSystemAudioPublication(publication());
 
-    await expect(controller.heartbeatProSystemAudioLease()).resolves.toEqual(live(REMOTE_ID));
+    await expect(controller.heartbeatProSystemAudioLease()).resolves.toEqual(live(REMOTE_ID, 2));
     expect(lost).toEqual(['authoritative-revocation']);
     expect(controller.getCurrentLease()).toBeNull();
   });
@@ -418,5 +444,57 @@ describe('ProRoomSystemAudioController', () => {
       ownerParticipantId: REMOTE_ID,
       isLocalOwner: false,
     });
+  });
+
+  it('accepts a remote direct-to-SFU promotion only from the authenticated state resource', async () => {
+    const { api, controller } = harness();
+    const directState: ProRoomSystemAudioState = {
+      ...live(REMOTE_ID, 4),
+      publication: {
+        publicationId: 'publication_00001',
+        transport: 'lan-direct',
+        protocolVersion: 1,
+      },
+    };
+    const promotedState: ProRoomSystemAudioState = {
+      ...live(REMOTE_ID, 4),
+      publication: publication(),
+    };
+    controller.acceptProSystemAudioState(directState);
+
+    expect(() => controller.acceptProSystemAudioState(promotedState)).toThrow(
+      'PRO_ROOM_SYSTEM_AUDIO_STATE_CONFLICT',
+    );
+    api.getSystemAudioState.mockResolvedValue(promotedState);
+    await expect(controller.refreshProSystemAudioState()).resolves.toEqual(promotedState);
+    expect(controller.getCurrentState()).toEqual(promotedState);
+  });
+
+  it('never resurrects direct media from a delayed authenticated read after SFU promotion', async () => {
+    const { api, controller } = harness();
+    const directState: ProRoomSystemAudioState = {
+      ...live(REMOTE_ID, 4),
+      publication: {
+        publicationId: 'publication_00001',
+        transport: 'lan-direct',
+        protocolVersion: 1,
+      },
+    };
+    const promotedState: ProRoomSystemAudioState = {
+      ...live(REMOTE_ID, 4),
+      publication: publication(),
+    };
+    const staleDirectRead = deferred<ProRoomSystemAudioState>();
+    controller.acceptProSystemAudioState(directState);
+    api.getSystemAudioState
+      .mockReturnValueOnce(staleDirectRead.promise)
+      .mockResolvedValueOnce(promotedState);
+
+    const staleRefresh = controller.refreshProSystemAudioState();
+    await expect(controller.refreshProSystemAudioState()).resolves.toEqual(promotedState);
+    staleDirectRead.resolve(directState);
+
+    await expect(staleRefresh).resolves.toEqual(promotedState);
+    expect(controller.getCurrentState()).toEqual(promotedState);
   });
 });

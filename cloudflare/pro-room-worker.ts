@@ -335,7 +335,7 @@ interface PresenceState {
   participants: Record<string, PresenceParticipant>;
 }
 
-interface SystemAudioPublication {
+interface SystemAudioSfuPublication {
   publicationId: string;
   sessionId: string;
   tracks: Array<{
@@ -344,6 +344,14 @@ interface SystemAudioPublication {
     mid?: string;
   }>;
 }
+
+interface SystemAudioDirectPublication {
+  publicationId: string;
+  transport: 'lan-direct';
+  protocolVersion: 1;
+}
+
+type SystemAudioPublication = SystemAudioSfuPublication | SystemAudioDirectPublication;
 
 interface SystemAudioState {
   generation: number;
@@ -1776,6 +1784,18 @@ function publicSystemAudio(state: SystemAudioState) {
 }
 
 function parseSystemAudioPublication(value: unknown): SystemAudioPublication | null {
+  if (hasExactKeys(value, ['publicationId', 'transport', 'protocolVersion'])) {
+    return typeof value.publicationId === 'string' &&
+      OPAQUE_ID_RE.test(value.publicationId) &&
+      value.transport === 'lan-direct' &&
+      value.protocolVersion === 1
+      ? {
+          publicationId: value.publicationId,
+          transport: 'lan-direct',
+          protocolVersion: 1,
+        }
+      : null;
+  }
   if (!hasExactKeys(value, ['publicationId', 'sessionId', 'tracks'])) return null;
   if (
     typeof value.publicationId !== 'string' ||
@@ -1789,7 +1809,7 @@ function parseSystemAudioPublication(value: unknown): SystemAudioPublication | n
   const channels = new Set<'L' | 'R'>();
   const trackNames = new Set<string>();
   const mids = new Set<string>();
-  const tracks: SystemAudioPublication['tracks'] = [];
+  const tracks: SystemAudioSfuPublication['tracks'] = [];
   for (const rawTrack of value.tracks) {
     if (!hasExactKeys(rawTrack, ['trackName', 'channel'], ['mid'])) return null;
     const trackName = boundedString(rawTrack.trackName, SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH);
@@ -8445,11 +8465,23 @@ export class MusixquareProRoom {
     }
     const permission = parsed.value.permission;
     const expectedKeys =
-      permission === 'bot.result'
-        ? ['participantId', 'presenceIncarnationId', 'permission', 'requestId', 'result']
-        : permission === 'system.broadcast'
-          ? ['participantId', 'presenceIncarnationId', 'permission', 'i18nKey']
-          : ['participantId', 'presenceIncarnationId', 'permission'];
+      permission === 'system-audio.signal'
+        ? [
+            'participantId',
+            'presenceIncarnationId',
+            'permission',
+            'targetParticipantId',
+            'targetPresenceIncarnationId',
+            'direction',
+            'generation',
+            'publicationId',
+            'negotiationId',
+          ]
+        : permission === 'bot.result'
+          ? ['participantId', 'presenceIncarnationId', 'permission', 'requestId', 'result']
+          : permission === 'system.broadcast'
+            ? ['participantId', 'presenceIncarnationId', 'permission', 'i18nKey']
+            : ['participantId', 'presenceIncarnationId', 'permission'];
     if (
       !hasExactKeys(parsed.value, [...expectedKeys, 'roomGeneration']) ||
       exactInternalRoomGeneration(request, parsed.value) !== this.activeRoom.roomGeneration ||
@@ -8471,6 +8503,43 @@ export class MusixquareProRoom {
         allowed = session.role === 'owner';
       } else if (permission === 'chat.manage') {
         allowed = session.role === 'owner' || session.role === 'controller';
+      } else if (
+        permission === 'system-audio.signal' &&
+        matchesPattern(parsed.value.targetParticipantId, OPAQUE_ID_RE) &&
+        matchesPattern(parsed.value.targetPresenceIncarnationId, OPAQUE_ID_RE) &&
+        (parsed.value.direction === 'publisher' || parsed.value.direction === 'subscriber') &&
+        isSafeNonNegativeInteger(parsed.value.generation) &&
+        parsed.value.generation > 0 &&
+        matchesPattern(parsed.value.publicationId, OPAQUE_ID_RE) &&
+        matchesPattern(parsed.value.negotiationId, OPAQUE_ID_RE)
+      ) {
+        const targetParticipantId = parsed.value.targetParticipantId;
+        const targetPresenceIncarnationId = parsed.value.targetPresenceIncarnationId;
+        const targetParticipant = this.activeRoom.presence.participants[targetParticipantId];
+        const targetSession = targetParticipant
+          ? this.activeRoom.sessions[targetParticipant.sessionHash]
+          : null;
+        const systemAudio = this.activeRoom.systemAudio;
+        const currentPublicationMatches =
+          systemAudio.status !== 'live' ||
+          (systemAudio.publication?.publicationId === parsed.value.publicationId &&
+            'transport' in systemAudio.publication &&
+            systemAudio.publication.transport === 'lan-direct');
+        const commonSignalFence =
+          participantId !== targetParticipantId &&
+          !!targetParticipant &&
+          !!targetSession &&
+          targetParticipant.presenceIncarnationId === targetPresenceIncarnationId &&
+          systemAudio.status !== 'idle' &&
+          systemAudio.generation === parsed.value.generation &&
+          currentPublicationMatches;
+        allowed =
+          commonSignalFence &&
+          (parsed.value.direction === 'publisher'
+            ? systemAudio.ownerParticipantId === participantId &&
+              systemAudio.ownerPresenceIncarnationId === presenceIncarnationId
+            : systemAudio.ownerParticipantId === targetParticipantId &&
+              systemAudio.ownerPresenceIncarnationId === targetPresenceIncarnationId);
       } else if (permission === 'system.broadcast') {
         const requiredPermission =
           typeof parsed.value.i18nKey === 'string'
@@ -8524,6 +8593,16 @@ export class MusixquareProRoom {
           memberId: session.memberId,
           role: session.role,
           permission,
+          ...(permission === 'system-audio.signal'
+            ? {
+                targetParticipantId: parsed.value.targetParticipantId,
+                targetPresenceIncarnationId: parsed.value.targetPresenceIncarnationId,
+                direction: parsed.value.direction,
+                generation: parsed.value.generation,
+                publicationId: parsed.value.publicationId,
+                negotiationId: parsed.value.negotiationId,
+              }
+            : {}),
         })
       : errorResponse('PERMISSION_REQUIRED', 403);
   }
@@ -9590,7 +9669,9 @@ export class MusixquareProRoom {
       (state.status === 'live' &&
         (!isSafeInteger(state.liveExpiresAt) || state.liveExpiresAt <= nowMs));
     if (!ownerMissingOrSuperseded && !overDeviceLimit && !expired) return false;
-    return this.clearSystemAudioLease();
+    this.clearSystemAudioLease();
+    this.scheduleServerEvent(this.systemAudioInvalidationEvent());
+    return true;
   }
 
   validateSystemAudioLease(auth: AuthenticatedSession, generation: number, leaseId: string) {
@@ -9660,9 +9741,7 @@ export class MusixquareProRoom {
     };
     auth.participant.lastSeenAtMs = nowMs;
     await this.persist();
-    await this.broadcastServerEvent(
-      this.invalidationEvent({ systemAudioGeneration: this.activeRoom.systemAudio.generation }),
-    );
+    await this.broadcastServerEvent(this.systemAudioInvalidationEvent());
     return this.systemAudioResponse({ leaseId: this.activeRoom.systemAudio.leaseId });
   }
 
@@ -9691,8 +9770,24 @@ export class MusixquareProRoom {
     if (leaseError) return leaseError;
 
     if (this.activeRoom.systemAudio.status === 'live') {
-      if (JSON.stringify(this.activeRoom.systemAudio.publication) !== JSON.stringify(publication)) {
+      const currentPublication = this.activeRoom.systemAudio.publication;
+      const isDirectToSfuPromotion = Boolean(
+        currentPublication &&
+        'transport' in currentPublication &&
+        !('transport' in publication) &&
+        currentPublication.publicationId === publication.publicationId,
+      );
+      if (
+        !isDirectToSfuPromotion &&
+        JSON.stringify(currentPublication) !== JSON.stringify(publication)
+      ) {
         return errorResponse('SYSTEM_AUDIO_ALREADY_COMMITTED', 409);
+      }
+      if (isDirectToSfuPromotion) {
+        this.activeRoom.systemAudio.publication = publication;
+        auth.participant.lastSeenAtMs = Date.now();
+        await this.persist();
+        await this.broadcastServerEvent(this.systemAudioInvalidationEvent());
       }
       return this.systemAudioResponse();
     }
@@ -9707,9 +9802,7 @@ export class MusixquareProRoom {
     this.activeRoom.systemAudio.publication = publication;
     auth.participant.lastSeenAtMs = nowMs;
     await this.persist();
-    await this.broadcastServerEvent(
-      this.invalidationEvent({ systemAudioGeneration: this.activeRoom.systemAudio.generation }),
-    );
+    await this.broadcastServerEvent(this.systemAudioInvalidationEvent());
     return this.systemAudioResponse();
   }
 
@@ -9759,9 +9852,7 @@ export class MusixquareProRoom {
     if (leaseError) return leaseError;
     this.clearSystemAudioLease();
     await this.persist();
-    await this.broadcastServerEvent(
-      this.invalidationEvent({ systemAudioGeneration: this.activeRoom.systemAudio.generation }),
-    );
+    await this.broadcastServerEvent(this.systemAudioInvalidationEvent());
     return this.systemAudioResponse();
   }
 
@@ -9873,8 +9964,11 @@ export class MusixquareProRoom {
     session.presenceIncarnationId = presenceIncarnationId;
     existing.presenceIncarnationId = presenceIncarnationId;
     existing.developerControlVersion = 0;
-    existing.joinedAtMs = nowMs;
-    existing.lastSeenAtMs = nowMs;
+    // joinedAtMs is also the public incarnation surrogate used by direct
+    // system-audio routes. A takeover inside the same clock millisecond must
+    // still advance it so the publisher cannot retain the superseded tab's PC.
+    existing.joinedAtMs = Math.max(nowMs, existing.joinedAtMs + 1);
+    existing.lastSeenAtMs = existing.joinedAtMs;
     existing.devicePlatform = devicePlatform;
     const pending = this.activeRoom.pendingPlaybackTransition;
     if (pending?.cohort.includes(previousPresenceIncarnationId)) {
@@ -10358,6 +10452,13 @@ export class MusixquareProRoom {
       type: 'pro-room-invalidated',
       roomRevision: this.activeRoom.revision,
       ...extra,
+    };
+  }
+
+  systemAudioInvalidationEvent() {
+    return {
+      type: 'system-audio-invalidated',
+      generation: this.activeRoom.systemAudio.generation,
     };
   }
 

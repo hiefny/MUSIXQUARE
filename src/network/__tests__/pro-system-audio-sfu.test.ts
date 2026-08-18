@@ -403,4 +403,23 @@ describe('PRO system-audio SFU subscriber', () => {
     expect(events.at(-1)).toMatchObject({ type: 'subscriber-state', state: 'failed' });
     unsubscribe();
   });
+
+  it('reports a transient subscriber disconnect and its in-place recovery', async () => {
+    const events: proSfu.ProSystemAudioSfuEventForTests[] = [];
+    const unsubscribe = proSfu.onProSystemAudioSfuEvent((event) => events.push(event));
+    await proSfu.subscribeProSystemAudioSfu(publication());
+    events.length = 0;
+
+    peerConnections[0].emitConnectionState('disconnected');
+    peerConnections[0].emitConnectionState('disconnected');
+    expect(events).toEqual([
+      expect.objectContaining({ type: 'subscriber-state', state: 'disconnected' }),
+    ]);
+    expect(peerConnections[0].close).not.toHaveBeenCalled();
+
+    peerConnections[0].emitConnectionState('connected');
+    expect(events.at(-1)).toMatchObject({ type: 'subscriber-state', state: 'subscribed' });
+    expect(peerConnections[0].close).not.toHaveBeenCalled();
+    unsubscribe();
+  });
 });

@@ -179,10 +179,38 @@ export interface ProRoomViewerSnapshot {
 export type ProRoomSystemAudioStatus = 'idle' | 'preparing' | 'live';
 
 /** Public Cloudflare Realtime coordinates. Ownership credentials never enter this value. */
-export interface ProRoomSystemAudioPublication {
+interface ProRoomSystemAudioSfuPublication {
   publicationId: string;
   sessionId: string;
-  tracks: [ProRoomSystemAudioPublicationTrack, ProRoomSystemAudioPublicationTrack];
+  tracks: ProRoomSystemAudioPublicationTracks;
+}
+
+/**
+ * A room-authoritative LAN-only publication. The authenticated PRO WebSocket
+ * carries SDP/ICE, while audio packets stay on host ICE candidates between
+ * the participating browsers. A failed or incompatible route is promoted to
+ * the legacy SFU publication shape above.
+ */
+interface ProRoomSystemAudioDirectPublication {
+  publicationId: string;
+  transport: 'lan-direct';
+  protocolVersion: 1;
+}
+
+export type ProRoomSystemAudioPublication =
+  | ProRoomSystemAudioSfuPublication
+  | ProRoomSystemAudioDirectPublication;
+
+export function isProRoomSystemAudioSfuPublication(
+  publication: ProRoomSystemAudioPublication,
+): publication is ProRoomSystemAudioSfuPublication {
+  return 'sessionId' in publication;
+}
+
+export function isProRoomSystemAudioDirectPublication(
+  publication: ProRoomSystemAudioPublication,
+): publication is ProRoomSystemAudioDirectPublication {
+  return 'transport' in publication && publication.transport === 'lan-direct';
 }
 
 export interface ProRoomSystemAudioPublicationTrack {
@@ -190,6 +218,11 @@ export interface ProRoomSystemAudioPublicationTrack {
   channel: 'L' | 'R';
   mid?: string;
 }
+
+export type ProRoomSystemAudioPublicationTracks = [
+  ProRoomSystemAudioPublicationTrack,
+  ProRoomSystemAudioPublicationTrack,
+];
 
 interface ProRoomSystemAudioStateBase {
   /** Monotonic fencing generation advanced whenever ownership is revoked or replaced. */

@@ -2627,7 +2627,7 @@ async function refreshSystemAudioState(force = false): Promise<void> {
   clearManagedTimer(SYSTEM_AUDIO_SAFETY_REFRESH_TIMER);
   systemAudioSafetyRefreshAtMs = startedAtMs + SYSTEM_AUDIO_REFRESH_RETRY_MS;
   try {
-    const state = await refreshProSystemAudioState();
+    const state = await refreshProSystemAudioState(undefined, force);
     if (!active || !isPlaylistLeaseCurrent(lease)) return;
     scheduleSystemAudioSafetyRefresh(nextSystemAudioSafetyRefreshAtMs(state, Date.now()));
   } catch (error) {
@@ -3513,6 +3513,16 @@ function acceptProRoomRealtimeFrame(
 
   if (frame.event.type === 'pro-room-invalidated' || frame.event.type === 'pro-presence-snapshot') {
     void runHeartbeat(true);
+    if (
+      frame.event.type === 'pro-room-invalidated' &&
+      typeof frame.event.systemAudioGeneration === 'number' &&
+      Number.isSafeInteger(frame.event.systemAudioGeneration) &&
+      frame.event.systemAudioGeneration >= 0
+    ) {
+      void refreshSystemAudioState(true).catch((error) => {
+        log.warn('[PRO] Realtime system-audio compatibility refresh failed', error);
+      });
+    }
     return;
   }
   if (frame.event.type === 'system-audio-invalidated') {

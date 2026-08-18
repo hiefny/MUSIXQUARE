@@ -66,7 +66,7 @@ type ProSystemAudioSfuEvent =
     }
   | {
       type: 'subscriber-state';
-      state: 'subscribing' | 'subscribed' | 'stopped' | 'failed';
+      state: 'subscribing' | 'subscribed' | 'disconnected' | 'stopped' | 'failed';
       descriptor: ProSystemAudioSfuPublicationDescriptor | null;
       message?: string;
     }
@@ -756,8 +756,29 @@ async function performSubscribe(
   if (epoch !== subscriberEpoch) throw new ProSystemAudioSfuSupersededError();
   const pc = new RTCPeerConnection(rtcConfig);
   subscriberPc = pc;
+  let disconnected = false;
   pc.addEventListener('connectionstatechange', () => {
     if (subscriberPc !== pc || subscriberDescriptor === null) return;
+    if (pc.connectionState === 'disconnected') {
+      if (disconnected) return;
+      disconnected = true;
+      emitEvent({
+        type: 'subscriber-state',
+        state: 'disconnected',
+        descriptor: subscriberDescriptor,
+        message: 'PRO system-audio SFU subscriber connection interrupted',
+      });
+      return;
+    }
+    if (pc.connectionState === 'connected' && disconnected) {
+      disconnected = false;
+      emitEvent({
+        type: 'subscriber-state',
+        state: 'subscribed',
+        descriptor: subscriberDescriptor,
+      });
+      return;
+    }
     if (pc.connectionState !== 'failed') return;
     const active = subscriberDescriptor;
     emitEvent({

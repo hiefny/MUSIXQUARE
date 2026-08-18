@@ -1,13 +1,32 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getManagedTimer } from '../../core/timers.ts';
+import type {
+  ProSystemAudioDirectTarget,
+  ProSystemAudioDirectTracksReadyEvent,
+  activateProSystemAudioDirectPublication,
+  attemptProSystemAudioDirectPublication,
+  configureProSystemAudioDirectTransport,
+} from '../../network/pro-system-audio-direct.ts';
 import type { ProRoomApiClient } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_QUOTA_BYTES,
   type ProRoomSnapshot,
+  type ProRoomSystemAudioPublication,
   type ProRoomSystemAudioState,
 } from '../contracts.ts';
+
+type ProSystemAudioDirectActivation = Parameters<typeof activateProSystemAudioDirectPublication>[0];
+type ProSystemAudioDirectAttemptOptions = Parameters<
+  typeof attemptProSystemAudioDirectPublication
+>[0];
+type ProSystemAudioDirectPublicationDescriptor = NonNullable<
+  Awaited<ReturnType<typeof attemptProSystemAudioDirectPublication>>
+>;
+type ProSystemAudioDirectTransportCallbacks = Parameters<
+  typeof configureProSystemAudioDirectTransport
+>[0];
 
 const mocks = vi.hoisted(() => ({
   broadcast: vi.fn(),
@@ -22,18 +41,42 @@ const mocks = vi.hoisted(() => ({
   stopSubscriber: vi.fn(),
   updatePublisherExpiry: vi.fn(),
   cleanupLegacySubscriber: vi.fn(),
+  directCallbacks: null as ProSystemAudioDirectTransportCallbacks | null,
+  configureDirect: vi.fn<(callbacks: ProSystemAudioDirectTransportCallbacks) => void>(),
+  attemptDirect: vi.fn<
+    (
+      options: ProSystemAudioDirectAttemptOptions,
+    ) => Promise<ProSystemAudioDirectPublicationDescriptor | null>
+  >(() => {
+    throw new Error('DIRECT_UNAVAILABLE');
+  }),
+  activateDirect: vi.fn<(publication: ProSystemAudioDirectActivation) => Promise<boolean>>(
+    async () => true,
+  ),
+  reconcileDirect: vi
+    .fn<(targets: readonly ProSystemAudioDirectTarget[], timeoutMs?: number) => Promise<boolean>>()
+    .mockResolvedValue(true),
+  resetDirect:
+    vi.fn<
+      (options?: { notifyPeers?: boolean; reason?: 'stopped' | 'fallback' | 'superseded' }) => void
+    >(),
   publish: vi.fn(),
   subscribe: vi.fn().mockResolvedValue(undefined),
   initAudio: vi.fn().mockResolvedValue(undefined),
   getAudioContext: vi.fn(),
+  getWidener: vi.fn(),
   setSystemAudioReceiving: vi.fn(),
   claimPlaybackOwner: vi.fn(),
   roomContextKind: 'pro' as 'pro' | 'standard',
+  playbackMode: 'none' as 'none' | 'system-audio',
   sfuListener: null as ((event: Record<string, unknown>) => void) | null,
 }));
 
 vi.mock('../../audio/context.ts', () => ({ getAudioContext: mocks.getAudioContext }));
-vi.mock('../../audio/engine.ts', () => ({ initAudio: mocks.initAudio, getWidener: vi.fn() }));
+vi.mock('../../audio/engine.ts', () => ({
+  initAudio: mocks.initAudio,
+  getWidener: mocks.getWidener,
+}));
 vi.mock('../../chat/protocol.ts', () => ({
   broadcastSystemMessage: mocks.broadcastSystemMessage,
 }));
@@ -52,6 +95,18 @@ vi.mock('../../network/pro-system-audio-sfu.ts', () => ({
   stopProSystemAudioSfuSubscriber: mocks.stopSubscriber,
   updateProSystemAudioSfuPublisherExpiry: mocks.updatePublisherExpiry,
   subscribeProSystemAudioSfu: mocks.subscribe,
+}));
+vi.mock('../../network/pro-system-audio-direct.ts', () => ({
+  configureProSystemAudioDirectTransport: vi.fn(
+    (callbacks: ProSystemAudioDirectTransportCallbacks) => {
+      mocks.directCallbacks = callbacks;
+      mocks.configureDirect(callbacks);
+    },
+  ),
+  attemptProSystemAudioDirectPublication: mocks.attemptDirect,
+  activateProSystemAudioDirectPublication: mocks.activateDirect,
+  reconcileProSystemAudioDirectTargets: mocks.reconcileDirect,
+  resetProSystemAudioDirectTransport: mocks.resetDirect,
 }));
 vi.mock('../../network/system-audio-sfu.ts', () => ({
   cleanupSystemAudioSfuGuestRoute: mocks.cleanupLegacySubscriber,
@@ -82,7 +137,7 @@ vi.mock('../../core/state.ts', () => ({
           }
         : { kind: 'standard' };
     }
-    if (path === 'playback.mode') return 'none';
+    if (path === 'playback.mode') return mocks.playbackMode;
     if (path === 'network.hostConn') return null;
     return null;
   },
@@ -265,6 +320,140 @@ function localLive(generation = 1): ProRoomSystemAudioState {
   };
 }
 
+function directLive(
+  ownerParticipantId = REMOTE_ID,
+  generation = 1,
+  publicationId = 'publication_00001',
+): Extract<ProRoomSystemAudioState, { status: 'live' }> {
+  return {
+    generation,
+    status: 'live',
+    ownerParticipantId,
+    claimExpiresAt: null,
+    liveExpiresAt: 1_900_007_200_000,
+    publication: {
+      publicationId,
+      transport: 'lan-direct',
+      protocolVersion: 1,
+    },
+  };
+}
+
+function localLiveWithPublication(
+  publication: ProRoomSystemAudioPublication,
+  generation = 1,
+): Extract<ProRoomSystemAudioState, { status: 'live' }> {
+  return {
+    generation,
+    status: 'live',
+    ownerParticipantId: LOCAL_ID,
+    claimExpiresAt: null,
+    liveExpiresAt: 1_900_007_200_000,
+    publication,
+  };
+}
+
+function directDescriptor(
+  options: ProSystemAudioDirectAttemptOptions,
+): ProSystemAudioDirectPublicationDescriptor {
+  return {
+    publicationId: options.publicationId,
+    transport: 'lan-direct',
+    protocolVersion: 1,
+  };
+}
+
+function sfuEventDescriptor(sessionId = 'realtime_session_01', generation = 1) {
+  return {
+    version: 1,
+    sessionId,
+    tracks: [
+      { trackName: 'audio-L', channel: 'L', mid: '0' },
+      { trackName: 'audio-R', channel: 'R', mid: '1' },
+    ],
+    generation,
+    expiresAt: 1_900_007_200_000,
+  };
+}
+
+function snapshotWithLateParticipant(): ProRoomSnapshot {
+  const next = snapshot();
+  next.presence.participants.push({
+    participantId: 'participant_late_0001',
+    memberId: 'member_late_0001',
+    memberDisplayNumber: 3,
+    isAuthenticated: false,
+    displayName: 'Late member',
+    devicePlatform: 'other',
+    role: 'member',
+    capabilities: [],
+    joinedAtMs: 3,
+  });
+  return next;
+}
+
+function snapshotWithoutRemoteParticipant(): ProRoomSnapshot {
+  const next = snapshot();
+  next.presence.participants = next.presence.participants.filter(
+    (participant) => participant.participantId === LOCAL_ID,
+  );
+  return next;
+}
+
+function snapshotWithRemoteTakeover(joinedAtMs: number): ProRoomSnapshot {
+  const next = snapshot();
+  const remote = next.presence.participants.find(
+    (participant) => participant.participantId === REMOTE_ID,
+  );
+  if (remote) remote.joinedAtMs = joinedAtMs;
+  return next;
+}
+
+function snapshotWithOversizedPresence(): ProRoomSnapshot {
+  const next = snapshot();
+  for (let index = 3; index <= 5; index += 1) {
+    next.presence.participants.push({
+      participantId: `participant_extra_000${index}`,
+      memberId: `member_extra_000${index}`,
+      memberDisplayNumber: index,
+      isAuthenticated: false,
+      displayName: `Extra member ${index}`,
+      devicePlatform: 'other',
+      role: 'member',
+      capabilities: [],
+      joinedAtMs: index,
+    });
+  }
+  return next;
+}
+
+function installAudioGraphHarness() {
+  const sources: Array<{
+    connect: ReturnType<typeof vi.fn>;
+    disconnect: ReturnType<typeof vi.fn>;
+  }> = [];
+  const merger = {
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  };
+  mocks.getAudioContext.mockReturnValue({
+    createChannelMerger: vi.fn(() => merger),
+    createMediaStreamSource: vi.fn(() => {
+      const source = { connect: vi.fn(), disconnect: vi.fn() };
+      sources.push(source);
+      return source;
+    }),
+  });
+  mocks.getWidener.mockReturnValue({ input: {} });
+  vi.stubGlobal(
+    'MediaStream',
+    class MockMediaStream {
+      constructor(readonly tracks: MediaStreamTrack[]) {}
+    },
+  );
+  return { sources, merger };
+}
+
 function deferred<T>(): {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -287,8 +476,11 @@ beforeAll(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.roomContextKind = 'pro';
+  mocks.playbackMode = 'none';
   mocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
   mocks.initAudio.mockResolvedValue(undefined);
+  mocks.getAudioContext.mockReset();
+  mocks.getWidener.mockReset();
   mocks.publish.mockResolvedValue({
     sessionId: 'realtime_session_01',
     tracks: [
@@ -296,6 +488,12 @@ beforeEach(() => {
       { trackName: 'audio-R', channel: 'R', mid: '1' },
     ],
   });
+  mocks.attemptDirect.mockReset().mockImplementation(() => {
+    throw new Error('DIRECT_UNAVAILABLE');
+  });
+  mocks.activateDirect.mockReset().mockResolvedValue(true);
+  mocks.reconcileDirect.mockReset().mockResolvedValue(true);
+  mocks.resetDirect.mockClear();
   resetProSystemAudioService();
   bindProSystemAudioSession(snapshot());
 });
@@ -304,6 +502,7 @@ afterEach(() => {
   vi.useRealTimers();
   resetProSystemAudioService();
   bus.clear();
+  vi.unstubAllGlobals();
 });
 
 describe('PRO system-audio service orchestration', () => {
@@ -500,6 +699,833 @@ describe('PRO system-audio service orchestration', () => {
     expect(mocks.subscribe).not.toHaveBeenCalled();
   });
 
+  it('commits and activates an all-local direct publication without starting the SFU', async () => {
+    const leftTrack = { id: 'capture-left' } as MediaStreamTrack;
+    const rightTrack = { id: 'capture-right' } as MediaStreamTrack;
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    const state = await publishLocalProSystemAudio(leftTrack, rightTrack);
+
+    expect(mocks.attemptDirect).toHaveBeenCalledWith({
+      leftTrack,
+      rightTrack,
+      generation: 1,
+      publicationId: expect.any(String),
+      targets: [{ participantId: REMOTE_ID, routeToken: 'joined-at:2' }],
+    });
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(api.commitSystemAudioPublication).toHaveBeenCalledWith(
+      expect.objectContaining({
+        generation: 1,
+        publication: {
+          publicationId: state.publication?.publicationId,
+          transport: 'lan-direct',
+          protocolVersion: 1,
+        },
+      }),
+      undefined,
+    );
+    expect(mocks.activateDirect).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerParticipantId: LOCAL_ID,
+        generation: 1,
+        publicationId: state.publication?.publicationId,
+        targets: [{ participantId: REMOTE_ID, routeToken: 'joined-at:2' }],
+      }),
+    );
+  });
+
+  it('fences an authoritative local-direct activation to the latest known presence snapshot', async () => {
+    const authority = deferred<ProRoomSystemAudioState>();
+    api.getSystemAudioState.mockReturnValueOnce(authority.promise);
+
+    const refresh = refreshProSystemAudioState();
+    bindProSystemAudioSession(snapshotWithLateParticipant());
+    authority.resolve(directLive(LOCAL_ID));
+    await refresh;
+
+    await vi.waitFor(() => expect(mocks.activateDirect).toHaveBeenCalled());
+    expect(mocks.activateDirect).toHaveBeenCalledWith({
+      ownerParticipantId: LOCAL_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+      targets: [
+        { participantId: REMOTE_ID, routeToken: 'joined-at:2' },
+        { participantId: 'participant_late_0001', routeToken: 'joined-at:3' },
+      ],
+    });
+  });
+
+  it('falls back when presence changes between direct probing and post-commit activation', async () => {
+    const commit = deferred<ProRoomSystemAudioState>();
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    mocks.activateDirect.mockImplementation(async (activation) => activation.targets?.length === 1);
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication
+      .mockReturnValueOnce(commit.promise)
+      .mockImplementationOnce(async (request) => localLiveWithPublication(request.publication));
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+
+    const publish = publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1));
+    const probedPublication = api.commitSystemAudioPublication.mock.calls[0]?.[0].publication;
+    bindProSystemAudioSession(snapshotWithLateParticipant());
+    commit.resolve(localLiveWithPublication(probedPublication!));
+    await publish;
+
+    const latestTargets = [
+      { participantId: REMOTE_ID, routeToken: 'joined-at:2' },
+      { participantId: 'participant_late_0001', routeToken: 'joined-at:3' },
+    ];
+    await vi.waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1));
+    expect(mocks.activateDirect.mock.calls.length).toBeGreaterThan(0);
+    expect(
+      mocks.activateDirect.mock.calls.every(
+        ([activation]) => JSON.stringify(activation.targets) === JSON.stringify(latestTargets),
+      ),
+    ).toBe(true);
+    expect(mocks.reconcileDirect).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the established SFU publisher when the direct probe returns null', async () => {
+    mocks.attemptDirect.mockResolvedValueOnce(null);
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+
+    expect(mocks.attemptDirect).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(api.commitSystemAudioPublication.mock.calls[0]?.[0]).toMatchObject({
+      publication: {
+        sessionId: 'realtime_session_01',
+        tracks: [{ channel: 'L' }, { channel: 'R' }],
+      },
+    });
+    expect(mocks.activateDirect).not.toHaveBeenCalled();
+  });
+
+  it('also falls back to the SFU when the direct probe rejects', async () => {
+    mocks.attemptDirect.mockRejectedValueOnce(new Error('direct negotiation failed'));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+
+    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(api.commitSystemAudioPublication.mock.calls[0]?.[0].publication).toMatchObject({
+      sessionId: 'realtime_session_01',
+      tracks: [{ channel: 'L' }, { channel: 'R' }],
+    });
+  });
+
+  it('preserves publisher recovery when the initial SFU fails while commit is pending', async () => {
+    const commit = deferred<ProRoomSystemAudioState>();
+    const release = deferred<ProRoomSystemAudioState>();
+    mocks.attemptDirect.mockResolvedValueOnce(null);
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockReturnValueOnce(commit.promise);
+    api.releaseSystemAudioLease.mockReturnValueOnce(release.promise);
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+
+    const publish = publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers();
+    mocks.sfuListener?.({
+      type: 'publisher-state',
+      state: 'failed',
+      descriptor: sfuEventDescriptor(),
+    });
+    expect(getManagedTimer('pro-system-audio-publisher-retry')).not.toBeNull();
+    const committedPublication = api.commitSystemAudioPublication.mock.calls[0]?.[0].publication;
+    commit.resolve(localLiveWithPublication(committedPublication!));
+    await expect(publish).resolves.toMatchObject({
+      status: 'live',
+      publication: { sessionId: 'realtime_session_01' },
+    });
+
+    expect(getManagedTimer('pro-system-audio-publisher-retry')).not.toBeNull();
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(api.releaseSystemAudioLease).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains the health fence when the initial publisher fails after canonical settle', async () => {
+    mocks.attemptDirect.mockResolvedValueOnce(null);
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    vi.useFakeTimers();
+    mocks.broadcastSystemMessage.mockImplementationOnce(() => {
+      mocks.sfuListener?.({
+        type: 'publisher-state',
+        state: 'failed',
+        descriptor: sfuEventDescriptor(),
+      });
+    });
+
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+
+    expect(getManagedTimer('pro-system-audio-publisher-retry')).not.toBeNull();
+  });
+
+  it('keeps a zero-target direct publication entirely off the SFU APIs', async () => {
+    bindProSystemAudioSession(snapshotWithoutRemoteParticipant());
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+
+    expect(mocks.attemptDirect.mock.calls[0]?.[0].targets).toEqual([]);
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.subscribe).not.toHaveBeenCalled();
+    expect(api.commitSystemAudioPublication.mock.calls[0]?.[0].publication).toMatchObject({
+      transport: 'lan-direct',
+      protocolVersion: 1,
+    });
+  });
+
+  it('promotes one live direct publication to the SFU when a late join cannot reconcile', async () => {
+    let publicationId = '';
+    mocks.attemptDirect.mockImplementation(async (options) => {
+      publicationId = options.publicationId;
+      return directDescriptor(options);
+    });
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementation(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+    await vi.waitFor(() => expect(mocks.reconcileDirect).toHaveBeenCalled());
+    await Promise.resolve();
+    await Promise.resolve();
+
+    mocks.publish.mockClear();
+    mocks.resetDirect.mockClear();
+    api.commitSystemAudioPublication.mockClear();
+    mocks.reconcileDirect.mockReset().mockResolvedValueOnce(false).mockResolvedValue(true);
+    bindProSystemAudioSession(snapshotWithLateParticipant());
+
+    await vi.waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1));
+    expect(mocks.reconcileDirect).toHaveBeenCalledWith([
+      { participantId: REMOTE_ID, routeToken: 'joined-at:2' },
+      { participantId: 'participant_late_0001', routeToken: 'joined-at:3' },
+    ]);
+    expect(api.commitSystemAudioPublication.mock.calls[0]?.[0]).toMatchObject({
+      generation: 1,
+      publication: {
+        publicationId,
+        sessionId: 'realtime_session_01',
+        tracks: [{ channel: 'L' }, { channel: 'R' }],
+      },
+    });
+    expect(mocks.resetDirect).toHaveBeenCalledWith({ notifyPeers: false });
+    expect(mocks.updatePublisherExpiry).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the canonical SFU publisher when the direct promotion response is lost', async () => {
+    let publicationId = '';
+    mocks.attemptDirect.mockImplementation(async (options) => {
+      publicationId = options.publicationId;
+      return directDescriptor(options);
+    });
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication
+      .mockImplementationOnce(async (request) => localLiveWithPublication(request.publication))
+      .mockRejectedValueOnce(new Error('promotion response lost'));
+
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+    const canonicalPublication: ProRoomSystemAudioPublication = {
+      publicationId,
+      sessionId: 'realtime_session_01',
+      tracks: [
+        { trackName: 'audio-L', channel: 'L', mid: '0' },
+        { trackName: 'audio-R', channel: 'R', mid: '1' },
+      ],
+    };
+    api.getSystemAudioState.mockResolvedValueOnce(localLiveWithPublication(canonicalPublication));
+    api.getSystemAudioState.mockClear();
+    api.commitSystemAudioPublication.mockClear();
+    mocks.stopPublisher.mockClear();
+    mocks.resetDirect.mockClear();
+    mocks.updatePublisherExpiry.mockClear();
+
+    mocks.directCallbacks?.onLiveRouteFallback({
+      role: 'publisher',
+      reason: 'route-disconnected',
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId,
+    });
+
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(api.getSystemAudioState).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(getProSystemAudioViewState().publication).toEqual(canonicalPublication),
+    );
+
+    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.stopPublisher).not.toHaveBeenCalled();
+    expect(mocks.updatePublisherExpiry).toHaveBeenCalledWith(1_900_007_200_000);
+    expect(mocks.resetDirect).toHaveBeenCalledWith({ notifyPeers: false });
+    expect(getManagedTimer('pro-system-audio-direct-promotion-retry')).toBeNull();
+  });
+
+  it('hands a failed in-flight direct promotion to canonical SFU publisher recovery', async () => {
+    let publicationId = '';
+    const promotionCommit = deferred<ProRoomSystemAudioState>();
+    mocks.attemptDirect.mockImplementation(async (options) => {
+      publicationId = options.publicationId;
+      return directDescriptor(options);
+    });
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+    api.commitSystemAudioPublication.mockReturnValueOnce(promotionCommit.promise);
+    api.commitSystemAudioPublication.mockClear();
+    mocks.publish.mockClear();
+
+    mocks.directCallbacks?.onLiveRouteFallback({
+      role: 'publisher',
+      reason: 'route-disconnected',
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId,
+    });
+    await vi.waitFor(() => expect(api.commitSystemAudioPublication).toHaveBeenCalledTimes(1));
+    vi.useFakeTimers();
+    mocks.sfuListener?.({
+      type: 'publisher-state',
+      state: 'failed',
+      descriptor: sfuEventDescriptor(),
+    });
+    expect(getManagedTimer('pro-system-audio-publisher-retry')).not.toBeNull();
+    const promotedPublication = api.commitSystemAudioPublication.mock.calls[0]?.[0].publication;
+    promotionCommit.resolve(localLiveWithPublication(promotedPublication!));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(getProSystemAudioViewState().publication).toEqual(promotedPublication);
+    expect(getManagedTimer('pro-system-audio-publisher-retry')).not.toBeNull();
+    expect(getManagedTimer('pro-system-audio-direct-promotion-retry')).toBeNull();
+  });
+
+  it('retains the health fence when a promoted publisher fails just after settle', async () => {
+    let publicationId = '';
+    mocks.attemptDirect.mockImplementation(async (options) => {
+      publicationId = options.publicationId;
+      return directDescriptor(options);
+    });
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementation(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+    mocks.resetDirect
+      .mockReset()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        mocks.sfuListener?.({
+          type: 'publisher-state',
+          state: 'failed',
+          descriptor: sfuEventDescriptor(),
+        });
+      });
+    vi.useFakeTimers();
+
+    mocks.directCallbacks?.onLiveRouteFallback({
+      role: 'publisher',
+      reason: 'route-disconnected',
+      participantId: REMOTE_ID,
+      generation: 1,
+      publicationId,
+    });
+    await vi.waitFor(() =>
+      expect(getProSystemAudioViewState().publication).toMatchObject({
+        publicationId,
+        sessionId: 'realtime_session_01',
+      }),
+    );
+
+    expect(mocks.resetDirect.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(getManagedTimer('pro-system-audio-publisher-retry')).not.toBeNull();
+  });
+
+  it('keeps direct media through successful late join, leave, and same-ID tab takeover', async () => {
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementation(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+
+    mocks.publish.mockClear();
+    mocks.activateDirect.mockClear();
+    mocks.reconcileDirect.mockClear();
+    bindProSystemAudioSession(snapshotWithLateParticipant());
+    await vi.waitFor(() =>
+      expect(mocks.reconcileDirect).toHaveBeenCalledWith([
+        { participantId: REMOTE_ID, routeToken: 'joined-at:2' },
+        { participantId: 'participant_late_0001', routeToken: 'joined-at:3' },
+      ]),
+    );
+    expect(mocks.activateDirect).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    mocks.reconcileDirect.mockClear();
+    bindProSystemAudioSession(snapshotWithoutRemoteParticipant());
+    await vi.waitFor(() => expect(mocks.reconcileDirect).toHaveBeenCalledWith([]));
+    expect(mocks.publish).not.toHaveBeenCalled();
+
+    mocks.reconcileDirect.mockClear();
+    bindProSystemAudioSession(snapshotWithRemoteTakeover(99));
+    await vi.waitFor(() =>
+      expect(mocks.reconcileDirect).toHaveBeenCalledWith([
+        { participantId: REMOTE_ID, routeToken: 'joined-at:99' },
+      ]),
+    );
+    expect(mocks.activateDirect).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('resets direct and forces authority refresh before a fifth presence can open more routes', async () => {
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+    api.getSystemAudioState.mockResolvedValueOnce(idle(1));
+    mocks.resetDirect.mockClear();
+    mocks.reconcileDirect.mockClear();
+    mocks.publish.mockClear();
+    api.getSystemAudioState.mockClear();
+
+    bindProSystemAudioSession(snapshotWithOversizedPresence());
+    await vi.waitFor(() => expect(api.getSystemAudioState).toHaveBeenCalledTimes(1));
+
+    expect(mocks.resetDirect).toHaveBeenCalledWith({ notifyPeers: true, reason: 'fallback' });
+    expect(mocks.reconcileDirect).not.toHaveBeenCalled();
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('activates a remote direct route as pending and starts receiving only after both tracks attach', async () => {
+    const graph = installAudioGraphHarness();
+    const rightTrackBoundary = deferred<boolean>();
+    mocks.awaitTrustedReceptionBoundary
+      .mockResolvedValueOnce(true)
+      .mockReturnValueOnce(rightTrackBoundary.promise);
+    api.getSystemAudioState.mockResolvedValueOnce(directLive());
+    mocks.beginReception.mockClear();
+    mocks.subscribe.mockClear();
+    mocks.setSystemAudioReceiving.mockClear();
+    mocks.claimPlaybackOwner.mockClear();
+
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.beginReception).toHaveBeenCalledTimes(1));
+
+    expect(mocks.subscribe).not.toHaveBeenCalled();
+    expect(mocks.activateDirect).toHaveBeenCalledWith({
+      ownerParticipantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+    });
+    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
+
+    const event: ProSystemAudioDirectTracksReadyEvent = {
+      ownerParticipantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+      negotiationId: 'negotiation_000000000001',
+      leftTrack: { id: 'direct-left' } as MediaStreamTrack,
+      rightTrack: { id: 'direct-right' } as MediaStreamTrack,
+      isCurrent: () => true,
+    };
+    const trackHandoff = Promise.resolve(mocks.directCallbacks?.onReceiverTracksReady(event));
+
+    await vi.waitFor(() => expect(graph.sources).toHaveLength(1));
+    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
+    rightTrackBoundary.resolve(true);
+    await trackHandoff;
+
+    expect(mocks.awaitTrustedReceptionBoundary.mock.calls).toEqual([['pro-sfu-L'], ['pro-sfu-R']]);
+    expect(graph.sources).toHaveLength(2);
+    expect(graph.sources[0]?.connect).toHaveBeenCalledWith(graph.merger, 0, 0);
+    expect(graph.sources[1]?.connect).toHaveBeenCalledWith(graph.merger, 0, 1);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(true);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledTimes(1);
+    expect(mocks.claimPlaybackOwner).toHaveBeenCalledWith('system-audio');
+  });
+
+  it('does not attach stale direct tracks after the trusted boundary resolves', async () => {
+    const graph = installAudioGraphHarness();
+    const trustedBoundary = deferred<boolean>();
+    mocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(trustedBoundary.promise);
+    api.getSystemAudioState.mockResolvedValueOnce(directLive());
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.beginReception).toHaveBeenCalled());
+    mocks.setSystemAudioReceiving.mockClear();
+    let current = true;
+    const event: ProSystemAudioDirectTracksReadyEvent = {
+      ownerParticipantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+      negotiationId: 'negotiation_000000000099',
+      leftTrack: { id: 'stale-left' } as MediaStreamTrack,
+      rightTrack: { id: 'stale-right' } as MediaStreamTrack,
+      isCurrent: () => current,
+    };
+    const handoff = Promise.resolve(mocks.directCallbacks?.onReceiverTracksReady(event));
+    await vi.waitFor(() => expect(mocks.awaitTrustedReceptionBoundary).toHaveBeenCalledTimes(1));
+    current = false;
+    trustedBoundary.resolve(true);
+    await handoff;
+
+    expect(graph.sources).toHaveLength(0);
+    expect(mocks.initAudio).not.toHaveBeenCalled();
+    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalledWith(true);
+  });
+
+  it('cleans a remote direct graph when an authenticated refresh returns idle', async () => {
+    const graph = installAudioGraphHarness();
+    api.getSystemAudioState.mockResolvedValueOnce(directLive()).mockResolvedValueOnce(idle(1));
+    await refreshProSystemAudioState();
+    const event: ProSystemAudioDirectTracksReadyEvent = {
+      ownerParticipantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+      negotiationId: 'negotiation_000000000077',
+      leftTrack: { id: 'direct-left' } as MediaStreamTrack,
+      rightTrack: { id: 'direct-right' } as MediaStreamTrack,
+      isCurrent: () => true,
+    };
+    await mocks.directCallbacks?.onReceiverTracksReady(event);
+    expect(graph.sources).toHaveLength(2);
+    mocks.playbackMode = 'system-audio';
+    mocks.resetDirect.mockClear();
+    mocks.cleanupReception.mockClear();
+
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.resetDirect).toHaveBeenCalledWith({ notifyPeers: false }));
+
+    expect(graph.sources[0]?.disconnect).toHaveBeenCalledTimes(1);
+    expect(graph.sources[1]?.disconnect).toHaveBeenCalledTimes(1);
+    expect(graph.merger.disconnect).toHaveBeenCalledTimes(1);
+    expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
+  });
+
+  it('notifies direct peers when an authenticated idle response revokes the local owner', async () => {
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle()).mockResolvedValueOnce(idle(1));
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio(
+      { id: 'capture-left' } as MediaStreamTrack,
+      { id: 'capture-right' } as MediaStreamTrack,
+    );
+    mocks.resetDirect.mockClear();
+
+    await refreshProSystemAudioState();
+    await vi.waitFor(() =>
+      expect(mocks.resetDirect).toHaveBeenCalledWith({
+        notifyPeers: true,
+        reason: 'superseded',
+      }),
+    );
+  });
+
+  it('tears down direct audio before subscribing when authority promotes it to the SFU', async () => {
+    const graph = installAudioGraphHarness();
+    api.getSystemAudioState.mockResolvedValueOnce(directLive()).mockResolvedValueOnce(live());
+
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.beginReception).toHaveBeenCalled());
+    const event: ProSystemAudioDirectTracksReadyEvent = {
+      ownerParticipantId: REMOTE_ID,
+      generation: 1,
+      publicationId: 'publication_00001',
+      negotiationId: 'negotiation_000000000001',
+      leftTrack: { id: 'direct-left' } as MediaStreamTrack,
+      rightTrack: { id: 'direct-right' } as MediaStreamTrack,
+      isCurrent: () => true,
+    };
+    await mocks.directCallbacks?.onReceiverTracksReady(event);
+    expect(graph.sources).toHaveLength(2);
+
+    mocks.playbackMode = 'system-audio';
+    mocks.resetDirect.mockClear();
+    mocks.subscribe.mockClear();
+    mocks.cleanupReception.mockClear();
+    mocks.claimPlaybackOwner.mockClear();
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+
+    expect(mocks.resetDirect).toHaveBeenCalledWith({ notifyPeers: false });
+    expect(graph.sources[0]?.disconnect).toHaveBeenCalledTimes(1);
+    expect(graph.sources[1]?.disconnect).toHaveBeenCalledTimes(1);
+    expect(graph.merger.disconnect).toHaveBeenCalledTimes(1);
+    expect(mocks.cleanupReception).toHaveBeenCalledTimes(1);
+    expect(mocks.claimPlaybackOwner).not.toHaveBeenCalled();
+    expect(mocks.subscribe).toHaveBeenCalledWith({
+      version: 1,
+      sessionId: 'realtime_session_01',
+      generation: 1,
+      expiresAt: 1_900_007_200_000,
+      tracks: [
+        { trackName: 'audio-L', channel: 'L', mid: '0' },
+        { trackName: 'audio-R', channel: 'R', mid: '1' },
+      ],
+    });
+  });
+
+  it('returns a failed playing SFU subscription to pending until both retry tracks attach', async () => {
+    const graph = installAudioGraphHarness();
+    const descriptor = {
+      version: 1,
+      sessionId: 'realtime_session_01',
+      generation: 1,
+      expiresAt: 1_900_007_200_000,
+      tracks: [
+        { trackName: 'audio-L', channel: 'L', mid: '0' },
+        { trackName: 'audio-R', channel: 'R', mid: '1' },
+      ],
+    } as const;
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+    await refreshProSystemAudioState();
+    await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      channel: 'L',
+      track: { id: 'first-left' } as MediaStreamTrack,
+    });
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      channel: 'R',
+      track: { id: 'first-right' } as MediaStreamTrack,
+    });
+    await vi.waitFor(() => expect(graph.sources).toHaveLength(2));
+    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(true);
+
+    mocks.playbackMode = 'system-audio';
+    vi.useFakeTimers();
+    mocks.setSystemAudioReceiving.mockClear();
+    mocks.stopSubscriber.mockClear();
+    mocks.cleanupLegacySubscriber.mockClear();
+    mocks.cleanupReception.mockClear();
+    mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+
+    expect(graph.sources[0]?.disconnect).toHaveBeenCalledTimes(1);
+    expect(graph.sources[1]?.disconnect).toHaveBeenCalledTimes(1);
+    expect(mocks.stopSubscriber).toHaveBeenCalledTimes(1);
+    expect(mocks.cleanupLegacySubscriber).toHaveBeenCalledTimes(1);
+    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(false);
+
+    await vi.advanceTimersByTimeAsync(2_500);
+    vi.useRealTimers();
+    await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(2));
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      channel: 'L',
+      track: { id: 'retry-left' } as MediaStreamTrack,
+    });
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      channel: 'R',
+      track: { id: 'retry-right' } as MediaStreamTrack,
+    });
+    await vi.waitFor(() => expect(graph.sources).toHaveLength(4));
+    expect(mocks.setSystemAudioReceiving.mock.calls).toEqual([[false], [true]]);
+  });
+
+  it('debounces SFU disconnects and restores playing without removing the pending placeholder', async () => {
+    const graph = installAudioGraphHarness();
+    const descriptor = {
+      version: 1,
+      sessionId: 'realtime_session_01',
+      generation: 1,
+      expiresAt: 1_900_007_200_000,
+      tracks: [
+        { trackName: 'audio-L', channel: 'L', mid: '0' },
+        { trackName: 'audio-R', channel: 'R', mid: '1' },
+      ],
+    } as const;
+    api.getSystemAudioState.mockResolvedValueOnce(live());
+    await refreshProSystemAudioState();
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      channel: 'L',
+      track: { id: 'left' } as MediaStreamTrack,
+    });
+    mocks.sfuListener?.({
+      type: 'subscriber-track',
+      descriptor,
+      channel: 'R',
+      track: { id: 'right' } as MediaStreamTrack,
+    });
+    await vi.waitFor(() => expect(graph.sources).toHaveLength(2));
+
+    mocks.playbackMode = 'system-audio';
+    vi.useFakeTimers();
+    mocks.setSystemAudioReceiving.mockClear();
+    mocks.cleanupReception.mockClear();
+    mocks.sfuListener?.({ type: 'subscriber-state', state: 'disconnected', descriptor });
+    await vi.advanceTimersByTimeAsync(2_499);
+    expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalled();
+    mocks.sfuListener?.({ type: 'subscriber-state', state: 'subscribed', descriptor });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledTimes(1);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenLastCalledWith(true);
+
+    mocks.setSystemAudioReceiving.mockClear();
+    mocks.sfuListener?.({ type: 'subscriber-state', state: 'disconnected', descriptor });
+    await vi.advanceTimersByTimeAsync(2_500);
+    expect(mocks.setSystemAudioReceiving).toHaveBeenCalledWith(false);
+    expect(graph.sources[0]?.disconnect).not.toHaveBeenCalled();
+    expect(graph.sources[1]?.disconnect).not.toHaveBeenCalled();
+    expect(mocks.cleanupReception).not.toHaveBeenCalled();
+    mocks.sfuListener?.({ type: 'subscriber-state', state: 'subscribed', descriptor });
+    expect(mocks.setSystemAudioReceiving.mock.calls).toEqual([[false], [true]]);
+  });
+
   it('acquires through the room server without peer fanout', async () => {
     api.getSystemAudioState.mockResolvedValueOnce(idle());
     api.acquireSystemAudioLease.mockResolvedValueOnce({
@@ -528,9 +1554,17 @@ describe('PRO system-audio service orchestration', () => {
     await refreshProSystemAudioState();
 
     const first = getProSystemAudioViewState();
-    first.publication!.tracks[0].trackName = 'tampered-track';
+    if (!first.publication || !('tracks' in first.publication)) {
+      throw new Error('Expected an SFU publication');
+    }
+    first.publication.tracks[0].trackName = 'tampered-track';
 
-    expect(getProSystemAudioViewState().publication!.tracks[0].trackName).toBe('audio-L');
+    const second = getProSystemAudioViewState();
+    expect(
+      second.publication && 'tracks' in second.publication
+        ? second.publication.tracks[0].trackName
+        : null,
+    ).toBe('audio-L');
   });
 
   it('does not let an old incarnation refresh suppress the new session refresh', async () => {
@@ -544,6 +1578,27 @@ describe('PRO system-audio service orchestration', () => {
 
     oldRequest.resolve(idle());
     await expect(oldRefresh).rejects.toMatchObject({ code: 'OPERATION_SUPERSEDED' });
+  });
+
+  it('queues one authenticated refresh after an in-flight GET for duplicate invalidations', async () => {
+    const staleRequest = deferred<ProRoomSystemAudioState>();
+    api.getSystemAudioState
+      .mockReturnValueOnce(staleRequest.promise)
+      .mockResolvedValueOnce(idle(1));
+    const staleRefresh = refreshProSystemAudioState();
+    const forcedRefresh = refreshProSystemAudioState(undefined, true);
+    const duplicateForcedRefresh = refreshProSystemAudioState(undefined, true);
+    expect(duplicateForcedRefresh).toBe(forcedRefresh);
+    expect(api.getSystemAudioState).toHaveBeenCalledTimes(1);
+    mocks.resetDirect.mockClear();
+
+    staleRequest.resolve(directLive());
+    await expect(staleRefresh).resolves.toEqual(directLive());
+    await expect(forcedRefresh).resolves.toEqual(idle(1));
+
+    expect(api.getSystemAudioState).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(mocks.resetDirect).toHaveBeenCalledWith({ notifyPeers: false }));
+    expect(getProSystemAudioViewState().phase).toBe('idle');
   });
 
   it('retries a failed authoritative release instead of stranding the lease', async () => {

@@ -14,7 +14,7 @@ const CAPABILITY_REQUIRED_TOAST = {
   'playback.control': 'toast.playback_control_required',
   'members.manage': 'toast.member_management_required',
   'chat.notice': 'toast.chat_notice_required',
-  'effects.control': 'toast.room_owner_required',
+  'effects.control': 'toast.settings_sync_admin_required',
   'room.configure': 'toast.room_owner_required',
   'system-audio.publish': 'toast.system_audio_owner_required',
   'coordinator.eligible': 'toast.room_owner_required',

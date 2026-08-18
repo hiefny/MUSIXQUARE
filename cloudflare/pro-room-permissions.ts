@@ -48,6 +48,7 @@ const PRO_INTERNAL_AUTHORITY_PERMISSIONS: ReadonlySet<string> = new Set([
   'chat.manage',
   'bot.result',
   'system.broadcast',
+  'system-audio.signal',
 ]);
 
 const PRO_SYSTEM_MESSAGE_PERMISSION: ReadonlyMap<string, string> = new Map([

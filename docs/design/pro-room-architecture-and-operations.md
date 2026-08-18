@@ -3,7 +3,7 @@
 - **Status:** Accepted operations baseline, amended by
   `pro-room-server-authority.md`
 - **Decision date:** 2026-07-16
-- **Last repository contract review:** 2026-08-17
+- **Last repository contract review:** 2026-08-19
 - **Applies to:** the reserved `0xxxxx` namespace, the built-in `000000` launch
   canary, the PRO control plane, dedicated PRO signaling, and persistent PRO
   media
@@ -36,17 +36,17 @@ registration resolves that address to an immutable non-negative
 `roomGeneration`. Existing rooms are generation `0`; a manually re-registered
 code advances to a fresh generation and never revives the deleted incarnation.
 
-| Component                                | Responsibility                                                                |
-| ---------------------------------------- | ----------------------------------------------------------------------------- |
-| App route                                | Detect a leading-zero PRO code, collect PIN/activation input, render playback |
-| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2   |
-| One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state    |
-| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock replies, chat, and event fan-out |
-| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                        |
-| Browser                                  | RAM-only transfer, decode, preload, and playback working set                  |
-| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state      |
-| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint    |
-| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router       |
+| Component                                | Responsibility                                                                                           |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| App route                                | Detect a leading-zero PRO code, collect PIN/activation input, render playback                            |
+| PRO Worker                               | Activation, auth, queue, canonical timeline, presence, quota, and signed R2                              |
+| One Durable Object per room incarnation  | Sole serialized manager for one `(roomCode, roomGeneration)` and its state                               |
+| Signaling Worker PRO path                | Own hibernatable role-neutral sockets, clock/chat/event fan-out, and targeted system-audio SDP/ICE relay |
+| Private `musixquare-pro-media` R2 bucket | Persistent encoded source files; never a public bucket                                                   |
+| Browser                                  | RAM-only transfer, decode, preload, and playback working set                                             |
+| Admin D1 registry                        | Bounded operator index of registered codes, labels, and activation state                                 |
+| App-to-PRO cross-script DO binding       | Provision a room and issue a claim without a public admin service endpoint                               |
+| App-to-PRO service binding               | Same-origin `/api/pro-room/*` browser facade over the public PRO router                                  |
 
 The regular signaling path reserves the complete `0xxxxx` namespace before
 Durable Object lookup. `000000` is seeded in the admin registry; an operator may
@@ -333,24 +333,81 @@ terminate at signaling because neither can replace canonical playback state.
 
 ### Live system-audio ownership
 
-PRO system audio has one temporary **publisher**: the authenticated participant
+PRO system audio has one temporary **publisher**: the authenticated room owner
 that currently holds the room's short-lived media lease and browser capture.
-That source lease never grants playback authority or a manager role.
+That source lease never grants playback authority or a manager role. The
+Durable Object serializes acquisition so only one owner incarnation can prepare
+or publish at a time. The private lease credential remains in the acquiring
+browser and the Durable Object. Public room state contains only the exact owner,
+generation, and one fenced publication descriptor. A 45-second preparing claim
+bounds abandoned native-picker attempts. Once committed, the live lease has a
+fixed two-hour deadline and cannot be extended by heartbeat.
 
-Every active PRO participant may request that lease, but one Durable Object
-serializes acquisition so only one owner can prepare or publish at a time. The
-private lease credential remains in the acquiring browser and the Durable
-Object; peer messages and public room state contain only a fenced generation
-and the Cloudflare Realtime publication descriptor. A 45-second preparing
-claim bounds abandoned native-picker attempts. Once committed, the live lease
-has a fixed two-hour deadline and cannot be extended by heartbeat.
+The preferred PRO media path is `lan-direct-v1`. System audio is limited to four
+active devices total, so the publisher opens at most three
+`RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" })` routes and sends only targeted
+offer/answer/ICE frames over the authenticated PRO WebSocket. A route passes
+within five seconds only when browser statistics identify exactly one
+unambiguous selected, succeeded `host`-to-`host` pair reached through a valid
+UUID-shaped remote `.local` mDNS candidate. Candidate-bearing SDP is rejected;
+the bounded trickle channel accepts only component-1 UDP host candidates with
+that remote mDNS shape. Numeric remote candidates are never relayed or added,
+even if they appear to share an RFC1918 `/24` or IPv6 private `/64`. Browsers
+without usable mDNS host candidates therefore select SFU. Chromium may redact
+the selected candidate address from statistics; that case passes only when the
+selected remote foundation and port exactly match a strict mDNS candidate that
+`addIceCandidate()` already accepted for the same live route and negotiation.
+If every target passes,
+the canonical descriptor is
+`{ publicationId, transport: "lan-direct", protocolVersion: 1 }`:
+the L/R audio packets then remain browser-to-browser and Cloudflare carries
+**zero media packets** for that publication. Cloudflare is still the authority
+and signaling plane; its PRO Durable Object owns the
+lease/generation/publication state and its signaling Durable Object relays
+fenced SDP/ICE to exactly one authenticated target socket.
 
-PRO live audio always uses the role-independent Cloudflare Realtime path. The
-publisher sends the two mono L/R tracks once and every other participant
-subscribes from the public descriptor. A participant entering or leaving does
-not stop or republish the capture. Publisher exit, tab-incarnation replacement,
-lease expiry, or a fifth active device atomically fences the old generation and
-ends the share.
+Direct delivery is an all-participants invariant, not a per-listener
+optimization. Each target is locally fenced by the pair
+`(participantId, joinedAtMs)`. The server makes `joinedAtMs` increase
+monotonically on explicit same-participant tab takeover, including two
+takeovers in one clock millisecond; a changed value supersedes the old peer
+connection, so proof from the replaced tab cannot satisfy the new target. The
+signaling server independently fences the private presence incarnation and
+current target socket.
+
+If any initial target fails, the publisher starts the Cloudflare Realtime SFU
+with the already allocated `publicationId`. If a participant arrives after
+direct commit while the room remains within the four-device system-audio limit,
+the publisher must prove another mDNS-local route to that exact target
+incarnation. A timeout, an incompatible or late old client, a non-host or
+non-UDP candidate pair, numeric/global/hidden/malformed or asymmetric address
+evidence, missing or ambiguous ICE statistics, a replaced target incarnation,
+or a live direct-route failure promotes the entire publication to SFU under
+that same `publicationId`. Joining a fifth active device revokes the share
+instead of attempting another route.
+
+The Durable Object accepts only the exact same-publication `lan-direct` to SFU
+mutation; SFU to direct, a different live publication ID, and mixed direct/SFU
+delivery fail closed. The authenticated client reducer accepts that equal-rank
+replacement only for the same `publicationId`; peer fan-out and every other
+same-generation mutation remain state conflicts. As soon as canonical live
+state is SFU, `system-audio.signal` authority is denied in both directions, so
+stale direct offer/answer/candidate/close frames cannot continue under the
+shared ID. Promotion is therefore one-way for the publication lifetime.
+
+Host candidates have a deliberate privacy boundary. The authenticated signaling
+relay carries only a small bounded set of component-1 UDP host candidates, and
+the receiving browser adds only a valid UUID-shaped remote `.local` name. It
+never adds a caller-selected numeric remote destination, so even a numerically
+private address or apparently matching subnet cannot be used as locality proof.
+Candidate-bearing SDP, a global or numeric peer, address hiding without the
+strict UUID shape and ledger match, or a malformed hostname selects SFU. Guest-Wi-Fi client
+isolation, VPN policy, an mDNS-incompatible browser, or an
+enterprise firewall may
+likewise prevent direct reachability. The product does not request TURN
+credentials to force that path and instead promotes the whole publication to
+SFU. Publisher exit, tab-incarnation replacement, lease expiry, or a fifth
+active device atomically fences the old generation and ends the share.
 
 The cost boundary is four active devices total. Acquisition is refused above
 that count, and joining a fifth device ends an already-running share while the
@@ -637,6 +694,15 @@ Also verify:
 - signaling reserves all `0xxxxx` codes from ordinary rooms and accepts the PRO
   path only with a valid PRO Worker-issued signed ticket offered after the
   stable `mxqr.pro-signaling.v1` WebSocket subprotocol marker;
+- `cloudflare/pro-system-audio-contract-version.txt` contains exactly
+  `lan-direct-v1`, and the PRO, signaling, and app runtime inventories all
+  include that marker;
+- the `system-audio-signal` channel relays only exact, generation/publication/
+  negotiation-fenced offer, answer, candidate, or close payloads to one current
+  non-self target socket; stale or missing incarnations fail closed;
+- live `system-audio-signal` authority exists only while the canonical
+  publication is `lan-direct`; after same-ID SFU promotion, both signal
+  directions fail closed;
 - the R2 bucket name is `musixquare-pro-media` in Wrangler, CORS, and the
   presigner configuration;
 - production CORS includes `https://musixquare.com` and
@@ -698,6 +764,16 @@ dedicated object is authoritative. Any marker change requires target `all`, and
 the PRO owner must deploy before its consumers. Remote-share's old KV allocation
 counter is retired and must not be restored as a fallback for a missing
 service-control binding.
+
+The current PRO system-audio contract marker is `lan-direct-v1`. Its first
+cutover is a matched `all` release because the PRO authority, signaling relay,
+and app/client must understand the descriptor and one-way promotion together.
+Release recovery compares the marker between the immutable candidate and the
+captured production checkpoint. Once any marker-changing candidate component
+is live, an older or unverifiable baseline cannot be restored piecemeal: the
+workflow withholds rollback of PRO, signaling, and app and requires forward
+repair. A baseline that is proven still live before any cutover component
+landed remains rollback-compatible.
 
 The local `deploy:*` scripts are non-deploying guards that always stop. The
 separate `emergency:deploy:*` scripts are emergency/operator primitives only;
@@ -869,6 +945,14 @@ restore App or PRO below that marker: pre-v2 code can address the legacy
 co-located announcement store instead of the dedicated instance. Use target
 `all` to repair forward when the release workflow reports that compatibility
 floor; do not improvise a partial rollback for that pair.
+
+`lan-direct-v1` adds a separate PRO system-audio rollback floor across the App,
+PRO, and signaling Workers. After any component of the marker-changing release
+has become live, do not restore one of those three below v1 or rely on an old
+client silently ignoring direct offers: that can strand a direct descriptor or
+split the media contract. Let the recovery workflow preserve all three and
+repair forward. Only an exact checkpoint proving that no cutover component
+became live may roll back below the marker.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.

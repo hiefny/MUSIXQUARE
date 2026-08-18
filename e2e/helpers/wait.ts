@@ -300,7 +300,7 @@ async function waitForPlayButtonReady(page: Page, timeout = 15_000): Promise<voi
         !btn.disabled &&
         btn.getAttribute('aria-disabled') !== 'true' &&
         btn.getAttribute('aria-busy') !== 'true' &&
-        !btn.classList.contains('yt-syncing')
+        !btn.classList.contains('is-loading')
       );
     },
     undefined,

@@ -11,6 +11,7 @@ const BASE_ENV = {
   MXQR_APPLY_DEVELOPER_API_D1: 'false',
   MXQR_SERVICE_CONTROL_FORWARD_FLOOR: 'false',
   MXQR_REMOTE_SHARE_FORWARD_FLOOR: 'false',
+  MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'false',
 };
 
 function plan(overrides: Record<string, string> = {}) {
@@ -55,6 +56,7 @@ describe('release recovery target plan', () => {
       MXQR_APPLY_DEVELOPER_API_D1: 'true',
       MXQR_SERVICE_CONTROL_FORWARD_FLOOR: 'true',
       MXQR_REMOTE_SHARE_FORWARD_FLOOR: 'true',
+      MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'true',
     });
     expect(result.status, result.stderr).toBe(0);
     const targets = result.stdout.split(',');
@@ -62,9 +64,20 @@ describe('release recovery target plan', () => {
     expect(targets).toHaveLength(new Set(targets).size);
   });
 
+  it.each([
+    ['service-control', 'MXQR_SERVICE_CONTROL_FORWARD_FLOOR', ['pro-room', 'app']],
+    ['remote-share', 'MXQR_REMOTE_SHARE_FORWARD_FLOOR', ['remote-share', 'app']],
+    ['PRO system-audio', 'MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR', ['pro-room', 'signaling', 'app']],
+  ] as const)('retains the exact %s candidate boundary', (_label, floorVariable, expected) => {
+    const result = plan({ RELEASE_TARGET: 'all', [floorVariable]: 'true' });
+    expect(result.status, result.stderr).toBe(0);
+    expect(new Set(result.stdout.split(','))).toEqual(new Set(expected));
+  });
+
   it('rejects malformed outcomes, booleans, and Worker names', () => {
     expect(plan({ MXQR_R2_POLICY_OUTCOME: 'unknown' }).status).toBe(1);
     expect(plan({ MXQR_APPLY_DEVELOPER_API_D1: 'yes' }).status).toBe(1);
+    expect(plan({ MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_R2_FORWARD_TARGETS: 'not-a-worker' }).status).toBe(1);
   });
 });

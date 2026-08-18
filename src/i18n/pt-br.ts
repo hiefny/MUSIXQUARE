@@ -517,6 +517,8 @@ const ptBr: Record<I18nKey, string> = {
   'toast.copy_failed': 'Não foi possível copiar',
   'toast.email_copied': 'Endereço de e-mail copiado!',
   'toast.settings_sync_enabled': 'A sincronização de configurações está ativada.',
+  'toast.settings_sync_admin_required':
+    'A sincronização de configurações está ativada.\nSó administradores da sala podem alterar o áudio.',
   'toast.virtual_bass_on': 'Os graves virtuais estão ativados.',
   'toast.virtual_bass_off': 'Os graves virtuais estão desativados.',
   'toast.virtual_treble_on': 'Os agudos virtuais estão ativados.',

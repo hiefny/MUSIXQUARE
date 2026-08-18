@@ -429,6 +429,8 @@ const MAX_PENDING_HOST_SOCKETS = 4;
 const MAX_PENDING_GUEST_SOCKETS = MAX_ROOM_GUESTS;
 const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
+const PRO_REALTIME_INGRESS_PENDING_LIMIT = 32;
+const PRO_SYSTEM_AUDIO_SIGNAL_PENDING_LIMIT = 16;
 // A legitimate room may allocate up to 120 Remote Share uploads per hour, so
 // retain that full burst while bounding the HMAC work an authenticated (or
 // compromised) host socket can trigger. Tokens refill at two requests/second;
@@ -1892,6 +1894,9 @@ export class MusixquareRoom {
   private standardIdentityIngressSync: Promise<unknown>;
   private proAdmissionSync: Promise<unknown>;
   private proChatMutationSync: Promise<unknown>;
+  private readonly proRealtimeIngressDepth: WeakMap<SocketPort, number>;
+  private readonly proSystemAudioSignalIngressSync: WeakMap<SocketPort, Promise<unknown>>;
+  private readonly proSystemAudioSignalIngressDepth: WeakMap<SocketPort, number>;
   private alarmSync: Promise<unknown>;
   private alarmMaintenanceRetryAttempt: number;
   private proSocketsValidated: boolean;
@@ -1931,6 +1936,9 @@ export class MusixquareRoom {
     this.standardIdentityIngressSync = Promise.resolve();
     this.proAdmissionSync = Promise.resolve();
     this.proChatMutationSync = Promise.resolve();
+    this.proRealtimeIngressDepth = new WeakMap();
+    this.proSystemAudioSignalIngressSync = new WeakMap();
+    this.proSystemAudioSignalIngressDepth = new WeakMap();
     this.alarmSync = Promise.resolve();
     this.alarmMaintenanceRetryAttempt = 0;
     this.proSocketsValidated = false;
@@ -2129,7 +2137,14 @@ export class MusixquareRoom {
         responseRoomGenerationMatches(payload, attachment.roomGeneration) &&
         payload.permission === permission &&
         typeof payload.memberId === 'string' &&
-        typeof payload.role === 'string';
+        typeof payload.role === 'string' &&
+        (permission !== 'system-audio.signal' ||
+          (payload.targetParticipantId === details.targetParticipantId &&
+            payload.targetPresenceIncarnationId === details.targetPresenceIncarnationId &&
+            payload.direction === details.direction &&
+            payload.generation === details.generation &&
+            payload.publicationId === details.publicationId &&
+            payload.negotiationId === details.negotiationId));
       if (!allowed) this.recordMetric('pro_realtime_authority_invalid_response');
       return allowed;
     } catch {
@@ -4591,6 +4606,31 @@ export class MusixquareRoom {
   }
 
   webSocketMessage(ws: SocketPort, raw: unknown): Promise<void> {
+    const attachment = readAttachment(ws);
+    const rawBytes = rawMessageByteLength(raw);
+    if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
+      closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
+      void this.webSocketClose(ws);
+      this.recordMetric(
+        attachment?.roomKind === 'pro' ? 'pro_realtime_oversized' : 'ws_message_oversized',
+      );
+      return Promise.resolve();
+    }
+    if (attachment?.roomKind === 'pro') {
+      const pendingIngress = this.proRealtimeIngressDepth.get(ws) ?? 0;
+      if (pendingIngress >= PRO_REALTIME_INGRESS_PENDING_LIMIT) {
+        closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
+        void this.webSocketClose(ws);
+        this.recordMetric('pro_realtime_rate_limited');
+        return Promise.resolve();
+      }
+      this.proRealtimeIngressDepth.set(ws, pendingIngress + 1);
+      return this.processWebSocketMessage(ws, raw).finally(() => {
+        const remaining = Math.max(0, (this.proRealtimeIngressDepth.get(ws) ?? 1) - 1);
+        if (remaining === 0) this.proRealtimeIngressDepth.delete(ws);
+        else this.proRealtimeIngressDepth.set(ws, remaining);
+      });
+    }
     const ingress = this.classifyStandardIdentityIngress(ws, raw);
     if (ingress) {
       if (ingress.preclaimedAuth) {
@@ -4747,10 +4787,64 @@ export class MusixquareRoom {
     this.handleGuestMessage(attachment.peerId, message, attachment);
   }
 
-  private async handleProRealtimeMessage(
+  private handleProRealtimeMessage(
     ws: SocketPort,
     raw: unknown,
     attachment: ProSocketAttachment,
+  ): Promise<void> {
+    const rawBytes = rawMessageByteLength(raw);
+    if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
+      closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
+      void this.webSocketClose(ws);
+      this.recordMetric('pro_realtime_oversized');
+      return Promise.resolve();
+    }
+    const normalized = normalizeProRealtimeFrame(this.parse(raw));
+    if (normalized?.channel !== 'system-audio-signal') {
+      return this.handleProRealtimeMessageNow(ws, raw, attachment);
+    }
+    const pendingSignals = this.proSystemAudioSignalIngressDepth.get(ws) ?? 0;
+    if (pendingSignals >= PRO_SYSTEM_AUDIO_SIGNAL_PENDING_LIMIT) {
+      closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
+      void this.webSocketClose(ws);
+      this.recordMetric('pro_realtime_rate_limited');
+      return Promise.resolve();
+    }
+    // Charge before enqueueing so a slow authority dependency cannot let one
+    // sender accumulate an unbounded in-memory signal backlog.
+    if (!this.consumeProRealtimeMessageToken(ws)) {
+      closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
+      void this.webSocketClose(ws);
+      this.recordMetric('pro_realtime_rate_limited');
+      return Promise.resolve();
+    }
+
+    // Cross-DO authority checks yield to other WebSocket events. Preserve the
+    // sender's exact signal order so a delayed offer cannot overtake its close
+    // or a replacement negotiation and revive a superseded peer connection.
+    const previous = this.proSystemAudioSignalIngressSync.get(ws) ?? Promise.resolve();
+    this.proSystemAudioSignalIngressDepth.set(ws, pendingSignals + 1);
+    const run = previous.then(
+      () => this.handleProRealtimeMessageNow(ws, raw, attachment, true),
+      () => this.handleProRealtimeMessageNow(ws, raw, attachment, true),
+    );
+    const settled = run.finally(() => {
+      const remaining = Math.max(0, (this.proSystemAudioSignalIngressDepth.get(ws) ?? 1) - 1);
+      if (remaining === 0) this.proSystemAudioSignalIngressDepth.delete(ws);
+      else this.proSystemAudioSignalIngressDepth.set(ws, remaining);
+    });
+    this.proSystemAudioSignalIngressSync.set(
+      ws,
+      settled.catch(() => {}),
+    );
+    return settled;
+  }
+
+  private async handleProRealtimeMessageNow(
+    ws: SocketPort,
+    raw: unknown,
+    attachment: ProSocketAttachment,
+    messageTokenPreconsumed = false,
   ): Promise<void> {
     let ownerAccountDeletionFence;
     try {
@@ -4794,13 +4888,13 @@ export class MusixquareRoom {
     }
 
     const rawBytes = rawMessageByteLength(raw);
-    if (rawBytes !== null && rawBytes > PRO_REALTIME_BODY_MAX_BYTES) {
+    if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {
       closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
       await this.webSocketClose(ws);
       this.recordMetric('pro_realtime_oversized');
       return;
     }
-    if (!this.consumeProRealtimeMessageToken(ws)) {
+    if (!messageTokenPreconsumed && !this.consumeProRealtimeMessageToken(ws)) {
       closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
       await this.webSocketClose(ws);
       this.recordMetric('pro_realtime_rate_limited');
@@ -4809,6 +4903,16 @@ export class MusixquareRoom {
 
     const message = this.parse(raw);
     const normalized = normalizeProRealtimeFrame(message);
+    const rawLimit =
+      normalized?.channel === 'system-audio-signal'
+        ? WS_MESSAGE_MAX_BYTES
+        : PRO_REALTIME_BODY_MAX_BYTES;
+    if (rawBytes !== null && rawBytes > rawLimit) {
+      closeWithError(ws, 'message-too-large', 'SIGNALING_MESSAGE_TOO_LARGE', 1009);
+      await this.webSocketClose(ws);
+      this.recordMetric('pro_realtime_oversized');
+      return;
+    }
     if (!normalized) return;
     if (normalized.channel === 'clock') {
       sendChecked(ws, {
@@ -4823,6 +4927,59 @@ export class MusixquareRoom {
 
     const liveAttachment = this.currentProRealtimeAttachment(ws, attachment);
     if (!liveAttachment) return;
+
+    if (normalized.channel === 'system-audio-signal') {
+      const payload = normalized.payload;
+      const targetSocket = this.proMembers.get(payload.targetParticipantId) || null;
+      const targetAttachment = readAttachment(targetSocket);
+      if (
+        !targetSocket ||
+        targetSocket === ws ||
+        targetAttachment?.roomKind !== 'pro' ||
+        targetAttachment.role !== 'member' ||
+        targetAttachment.auth !== 'ok' ||
+        targetAttachment.roomId !== liveAttachment.roomId ||
+        targetAttachment.roomGeneration !== liveAttachment.roomGeneration ||
+        targetAttachment.coordinatorEpoch !== liveAttachment.coordinatorEpoch ||
+        targetAttachment.participantId !== payload.targetParticipantId ||
+        this.proMembers.get(payload.targetParticipantId) !== targetSocket
+      ) {
+        return;
+      }
+      const targetPresenceIncarnationId = targetAttachment.presenceIncarnationId;
+      if (
+        !(await this.hasProRealtimePermission(liveAttachment, 'system-audio.signal', {
+          targetParticipantId: payload.targetParticipantId,
+          targetPresenceIncarnationId,
+          direction: payload.direction,
+          generation: payload.generation,
+          publicationId: payload.publicationId,
+          negotiationId: payload.negotiationId,
+        }))
+      ) {
+        return;
+      }
+
+      const actor = this.currentProRealtimeAttachment(ws, liveAttachment);
+      const currentTargetSocket = this.proMembers.get(payload.targetParticipantId) || null;
+      const currentTargetAttachment = readAttachment(currentTargetSocket);
+      if (
+        !actor ||
+        currentTargetSocket !== targetSocket ||
+        currentTargetAttachment?.roomKind !== 'pro' ||
+        currentTargetAttachment.role !== 'member' ||
+        currentTargetAttachment.auth !== 'ok' ||
+        currentTargetAttachment.roomId !== actor.roomId ||
+        currentTargetAttachment.roomGeneration !== actor.roomGeneration ||
+        currentTargetAttachment.coordinatorEpoch !== actor.coordinatorEpoch ||
+        currentTargetAttachment.participantId !== payload.targetParticipantId ||
+        currentTargetAttachment.presenceIncarnationId !== targetPresenceIncarnationId
+      ) {
+        return;
+      }
+      sendChecked(targetSocket, this.proRealtimeRelay(normalized, actor));
+      return;
+    }
 
     if (normalized.channel !== 'chat') {
       this.broadcastProRealtimeRelay(ws, liveAttachment, normalized);

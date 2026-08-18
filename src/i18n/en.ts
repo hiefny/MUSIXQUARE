@@ -536,6 +536,8 @@ const en: Record<I18nKey, string> = {
   'toast.copy_failed': "Couldn't copy",
   'toast.email_copied': 'Email address copied!',
   'toast.settings_sync_enabled': 'Settings sync is on',
+  'toast.settings_sync_admin_required':
+    'Settings sync is on.\nOnly room admins can change audio settings.',
   'toast.virtual_bass_on': 'Virtual bass is on',
   'toast.virtual_bass_off': 'Virtual bass is off',
   'toast.virtual_treble_on': 'Virtual treble is on',

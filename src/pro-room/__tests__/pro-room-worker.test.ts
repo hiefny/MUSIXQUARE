@@ -15469,9 +15469,19 @@ describe('persistent PRO room authentication, presence, and state', () => {
       before.snapshot.presence.coordinatorEpoch,
     );
 
-    const enteredResponse = await worker.fetch(
-      jsonRequest('/presence/enter', 'POST', { takeover: true }, ownerCookie),
-    );
+    const previousJoinedAtMs = before.snapshot.presence.participants.find(
+      (participant: { participantId: string; joinedAtMs: number }) =>
+        participant.participantId === before.snapshot.viewer.participantId,
+    )?.joinedAtMs as number;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(previousJoinedAtMs);
+    let enteredResponse: Response;
+    try {
+      enteredResponse = await worker.fetch(
+        jsonRequest('/presence/enter', 'POST', { takeover: true }, ownerCookie),
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
     expect(enteredResponse.status).toBe(200);
     const entered = await responseJson(enteredResponse);
     bindCookiePresence(ownerCookie, entered);
@@ -15482,6 +15492,12 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(entered.snapshot.presence.coordinatorEpoch).toBe(
       before.snapshot.presence.coordinatorEpoch,
     );
+    expect(
+      entered.snapshot.presence.participants.find(
+        (participant: { participantId: string }) =>
+          participant.participantId === entered.snapshot.viewer.participantId,
+      )?.joinedAtMs,
+    ).toBe(previousJoinedAtMs + 1);
 
     const refreshed = await responseJson(await worker.fetch(request('/snapshot', {}, ownerCookie)));
     expect(refreshed.snapshot.viewer.presenceIncarnationId).toBe(
@@ -17758,6 +17774,196 @@ describe('PRO room system-audio ownership lease', () => {
     });
   });
 
+  it('commits an exact LAN-direct publication and permits only its one-way SFU promotion', async () => {
+    const context = await activatedRoom();
+    const { worker, ownerCookie } = context;
+    const acquired = await acquireSystemAudio(worker, ownerCookie);
+    const generation = acquired.systemAudio.generation as number;
+    const directPublication = {
+      publicationId: publication.publicationId,
+      transport: 'lan-direct',
+      protocolVersion: 1,
+    } as const;
+    const commit = (nextPublication: unknown) =>
+      worker.fetch(
+        jsonRequest(
+          '/system-audio/commit',
+          'POST',
+          { generation, leaseId: acquired.leaseId, publication: nextPublication },
+          ownerCookie,
+        ),
+      );
+
+    const direct = await commit(directPublication);
+    expect(direct.status).toBe(200);
+    await expect(responseJson(direct)).resolves.toMatchObject({
+      systemAudio: { status: 'live', generation, publication: directPublication },
+    });
+    expect((await commit(directPublication)).status).toBe(200);
+    expect(
+      (
+        await commit({
+          ...directPublication,
+          publicationId: 'publication_different_01',
+        })
+      ).status,
+    ).toBe(409);
+
+    const restarted = new MusixquareProRoom(
+      context.state as never,
+      environment(context.bucket) as never,
+    );
+    const restored = await restarted.fetch(request('/system-audio', {}, ownerCookie));
+    expect(restored.status).toBe(200);
+    await expect(responseJson(restored)).resolves.toMatchObject({
+      systemAudio: { status: 'live', generation, publication: directPublication },
+    });
+    const commitAfterRestart = (nextPublication: unknown) =>
+      restarted.fetch(
+        jsonRequest(
+          '/system-audio/commit',
+          'POST',
+          { generation, leaseId: acquired.leaseId, publication: nextPublication },
+          ownerCookie,
+        ),
+      );
+
+    const promoted = await commitAfterRestart(publication);
+    expect(promoted.status).toBe(200);
+    await expect(responseJson(promoted)).resolves.toMatchObject({
+      systemAudio: { status: 'live', generation, publication },
+    });
+    expect((await commitAfterRestart(publication)).status).toBe(200);
+    expect((await commitAfterRestart(directPublication)).status).toBe(409);
+    expect(
+      (await commitAfterRestart({ ...publication, sessionId: 'different_realtime_session_01' }))
+        .status,
+    ).toBe(409);
+  });
+
+  it('fences internal system-audio signaling by active incarnations, generation, direction, and publication', async () => {
+    const context = await activatedRoom();
+    const friendResponse = await context.worker.fetch(
+      jsonRequest('/sessions', 'POST', { pin: '12345678' }),
+    );
+    expect(friendResponse.status).toBe(200);
+    const friendCookie = cookieFrom(friendResponse);
+    const friendEnvelope = await responseJson(friendResponse);
+    bindCookiePresence(friendCookie, friendEnvelope);
+    const owner = context.activationEnvelope.snapshot.viewer;
+    const subscriber = friendEnvelope.snapshot.viewer;
+    const acquired = await acquireSystemAudio(context.worker, context.ownerCookie);
+    const generation = acquired.systemAudio.generation as number;
+    const negotiationId = 'system_audio_negotiation_0001';
+    const authority = (
+      sender: Record<string, any>,
+      target: Record<string, any>,
+      direction: 'publisher' | 'subscriber',
+      overrides: Record<string, unknown> = {},
+    ) =>
+      context.worker.fetch(
+        new Request('https://pro-room.internal/internal/authority/check', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({
+            roomGeneration: 0,
+            participantId: sender.participantId,
+            presenceIncarnationId: sender.presenceIncarnationId,
+            permission: 'system-audio.signal',
+            targetParticipantId: target.participantId,
+            targetPresenceIncarnationId: target.presenceIncarnationId,
+            direction,
+            generation,
+            publicationId: publication.publicationId,
+            negotiationId,
+            ...overrides,
+          }),
+        }),
+      );
+
+    const publisherOffer = await authority(owner, subscriber, 'publisher');
+    expect(publisherOffer.status).toBe(200);
+    await expect(publisherOffer.json()).resolves.toMatchObject({
+      allowed: true,
+      permission: 'system-audio.signal',
+      targetParticipantId: subscriber.participantId,
+      targetPresenceIncarnationId: subscriber.presenceIncarnationId,
+      direction: 'publisher',
+      generation,
+      publicationId: publication.publicationId,
+      negotiationId,
+    });
+    expect((await authority(subscriber, owner, 'subscriber')).status).toBe(200);
+
+    expect((await authority(subscriber, owner, 'publisher')).status).toBe(403);
+    expect((await authority(owner, subscriber, 'subscriber')).status).toBe(403);
+    expect(
+      (await authority(owner, subscriber, 'publisher', { generation: generation + 1 })).status,
+    ).toBe(403);
+    expect(
+      (
+        await authority(owner, subscriber, 'publisher', {
+          targetPresenceIncarnationId: 'stale_target_presence_0001',
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await authority(
+          { ...owner, presenceIncarnationId: 'stale_sender_presence_0001' },
+          subscriber,
+          'publisher',
+        )
+      ).status,
+    ).toBe(403);
+    expect((await authority(owner, owner, 'publisher')).status).toBe(403);
+
+    const malformed = await authority(owner, subscriber, 'publisher', {
+      negotiationId: undefined,
+    });
+    expect(malformed.status).toBe(400);
+    await expect(malformed.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+
+    const directPublication = {
+      publicationId: publication.publicationId,
+      transport: 'lan-direct',
+      protocolVersion: 1,
+    } as const;
+    const committed = await context.worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        { generation, leaseId: acquired.leaseId, publication: directPublication },
+        context.ownerCookie,
+      ),
+    );
+    expect(committed.status).toBe(200);
+    expect((await authority(owner, subscriber, 'publisher')).status).toBe(200);
+    expect(
+      (
+        await authority(owner, subscriber, 'publisher', {
+          publicationId: 'different_publication_0001',
+        })
+      ).status,
+    ).toBe(403);
+
+    const promoted = await context.worker.fetch(
+      jsonRequest(
+        '/system-audio/commit',
+        'POST',
+        { generation, leaseId: acquired.leaseId, publication },
+        context.ownerCookie,
+      ),
+    );
+    expect(promoted.status).toBe(200);
+    expect((await authority(owner, subscriber, 'publisher')).status).toBe(403);
+    expect((await authority(subscriber, owner, 'subscriber')).status).toBe(403);
+  });
+
   it('requires an authenticated active presence and fences mutations by owner, generation, and lease', async () => {
     const { worker, ownerCookie } = await activatedRoom();
     expect((await worker.fetch(jsonRequest('/system-audio/acquire', 'POST', {}))).status).toBe(401);
@@ -18041,6 +18247,9 @@ describe('PRO room system-audio ownership lease', () => {
 
   it('rejects acquisition above four devices and revokes a live share when the fifth joins', async () => {
     const { worker, ownerCookie } = await activatedRoom();
+    const internal = worker as unknown as {
+      env: Record<string, any>;
+    };
     for (let index = 1; index < MAX_SYSTEM_AUDIO_DEVICES; index += 1) {
       const response = await worker.fetch(
         jsonRequest('/sessions', 'POST', {
@@ -18065,6 +18274,17 @@ describe('PRO room system-audio ownership lease', () => {
     );
     expect(committed.status).toBe(200);
 
+    const dispatchedBodies: Array<Record<string, any>> = [];
+    internal.env.PRO_SIGNALING_ROOMS = {
+      idFromName: vi.fn((value: string) => value),
+      get: vi.fn(() => ({
+        fetch: vi.fn(async (request: Request) => {
+          dispatchedBodies.push((await request.json()) as Record<string, any>);
+          return Response.json({ dispatched: true });
+        }),
+      })),
+    };
+
     const fifth = await worker.fetch(
       jsonRequest('/sessions', 'POST', {
         pin: '12345678',
@@ -18073,6 +18293,16 @@ describe('PRO room system-audio ownership lease', () => {
     expect(fifth.status).toBe(200);
     const fifthCookie = cookieFrom(fifth);
     bindCookiePresence(fifthCookie, await responseJson(fifth));
+
+    await vi.waitFor(() =>
+      expect(
+        dispatchedBodies.some(
+          (body) =>
+            body.event?.type === 'system-audio-invalidated' &&
+            body.event.generation === acquired.systemAudio.generation + 1,
+        ),
+      ).toBe(true),
+    );
 
     const afterJoin = await responseJson(
       await worker.fetch(request('/system-audio', {}, ownerCookie)),

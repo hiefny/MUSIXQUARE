@@ -1016,7 +1016,7 @@ export function initPlaylistView(): void {
   _pendingPlaylistUpdate = false;
   _deferredPlaylistUpdate = false;
   _playButtonLoading =
-    document.getElementById('play-btn')?.classList.contains('yt-syncing') ?? false;
+    document.getElementById('play-btn')?.classList.contains('is-loading') ?? false;
 
   const list = document.getElementById('playlist-ui');
   if (list) {

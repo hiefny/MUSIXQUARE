@@ -50,6 +50,7 @@ describe('PRO room permission projection', () => {
   it('pins internal authority and system-message permission lookups', () => {
     expect(isProInternalAuthorityPermission('room.configure')).toBe(true);
     expect(isProInternalAuthorityPermission('system.broadcast')).toBe(true);
+    expect(isProInternalAuthorityPermission('system-audio.signal')).toBe(true);
     expect(isProInternalAuthorityPermission('unknown.permission')).toBe(false);
     expect(requiredProSystemMessagePermission('chat.decode_skip_system_message')).toBe(
       'playback.control',

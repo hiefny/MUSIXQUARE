@@ -544,6 +544,8 @@ const ru: Record<I18nKey, string> = {
   'toast.copy_failed': 'Копирование не удалось',
   'toast.email_copied': 'Адрес электронной почты скопирован в буфер обмена!',
   'toast.settings_sync_enabled': 'Синхронизация настроек включена.',
+  'toast.settings_sync_admin_required':
+    'Синхронизация настроек включена.\nТолько администраторы комнаты могут менять звук.',
   'toast.virtual_bass_on': 'Виртуальный бас включён.',
   'toast.virtual_bass_off': 'Виртуальный бас выключен.',
   'toast.virtual_treble_on': 'Виртуальные высокие частоты включены.',

@@ -484,6 +484,7 @@ const zhHans: Record<I18nKey, string> = {
   'toast.copy_failed': '无法复制',
   'toast.email_copied': '邮箱地址已复制！',
   'toast.settings_sync_enabled': '设置同步已开启',
+  'toast.settings_sync_admin_required': '设置同步已开启。\n只有房间管理员可以更改音频设置。',
   'toast.virtual_bass_on': '虚拟低音已开启',
   'toast.virtual_bass_off': '虚拟低音已关闭',
   'toast.virtual_treble_on': '虚拟高音已开启',

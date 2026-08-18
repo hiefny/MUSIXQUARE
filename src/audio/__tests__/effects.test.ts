@@ -14,6 +14,7 @@ import {
   setVirtualBass,
   resetVirtualBass,
   applyRoomEffectsStateForTests as applyRoomEffectsState,
+  canAdjustLocalRoomEffectsForTests as canAdjustLocalRoomEffects,
   captureRoomEffectsState,
   captureRoomSettingsSyncState,
   initEffectsHandlers,
@@ -213,6 +214,58 @@ describe('atomic settings synchronization', () => {
 
     resetState();
     expect(getState('audio.settingsSyncEnabled')).toBe(false);
+  });
+
+  it('rejects synchronized room-effect changes from standard and PRO members', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', {
+      peer: 'standard-host',
+      open: true,
+      send: vi.fn(),
+    } as unknown as DataConnection);
+    expect(canAdjustLocalRoomEffects()).toBe(false);
+
+    setState('room.context', {
+      ...getState('room.context'),
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      capabilities: [],
+    });
+    expect(canAdjustLocalRoomEffects()).toBe(false);
+  });
+
+  it('allows synchronized room-effect changes from standard and PRO administrators', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', {
+      peer: 'standard-host',
+      open: true,
+      send: vi.fn(),
+    } as unknown as DataConnection);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    expect(canAdjustLocalRoomEffects()).toBe(true);
+
+    setState('room.context', {
+      ...getState('room.context'),
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      capabilities: ['effects.control'],
+    });
+    expect(canAdjustLocalRoomEffects()).toBe(true);
+  });
+
+  it('allows member-local room effects when settings sync is off', () => {
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', {
+      peer: 'standard-host',
+      open: true,
+      send: vi.fn(),
+    } as unknown as DataConnection);
+    setSettingsSyncEnabled(false);
+
+    expect(canAdjustLocalRoomEffects()).toBe(true);
   });
 
   it('atomically disables all virtual effects and publishes one canonical snapshot', () => {

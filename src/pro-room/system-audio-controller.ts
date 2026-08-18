@@ -6,8 +6,13 @@ import type {
 import type {
   ProRoomSnapshot,
   ProRoomSystemAudioPublication,
+  ProRoomSystemAudioPublicationTracks,
   ProRoomSystemAudioState,
   ProRoomSystemAudioStatus,
+} from './contracts.ts';
+import {
+  isProRoomSystemAudioDirectPublication,
+  isProRoomSystemAudioSfuPublication,
 } from './contracts.ts';
 import { parseProRoomSystemAudioState } from './snapshot.ts';
 
@@ -91,13 +96,13 @@ function clonePublication(
   publication: ProRoomSystemAudioPublication | null,
 ): ProRoomSystemAudioPublication | null {
   if (!publication) return null;
+  if (!isProRoomSystemAudioSfuPublication(publication)) return { ...publication };
   return {
     publicationId: publication.publicationId,
     sessionId: publication.sessionId,
-    tracks: publication.tracks.map((track) => ({ ...track })) as [
-      ProRoomSystemAudioPublication['tracks'][0],
-      ProRoomSystemAudioPublication['tracks'][1],
-    ],
+    tracks: publication.tracks.map((track) => ({
+      ...track,
+    })) as ProRoomSystemAudioPublicationTracks,
   };
 }
 
@@ -211,7 +216,11 @@ export class ProRoomSystemAudioController {
     const { roomCode, epoch } = this.#captureOperation();
     const incoming = await this.api.getSystemAudioState(roomCode, signal);
     this.#assertOperationCurrent(roomCode, epoch);
-    return this.acceptProSystemAudioState(incoming);
+    // This dedicated authenticated resource is the source of truth for the
+    // one-way LAN-direct -> SFU promotion, which intentionally changes the
+    // publication at the same generation/live rank. Peer fanout still goes
+    // through acceptProSystemAudioState() and cannot rewrite equal-rank state.
+    return this.#acceptAuthenticatedProSystemAudioState(incoming);
   }
 
   acceptProSystemAudioState(value: unknown): ProRoomSystemAudioState {
@@ -230,7 +239,7 @@ export class ProRoomSystemAudioController {
 
   #acceptParsedState(
     incoming: ProRoomSystemAudioState,
-    allowEqualRankConflict: boolean,
+    authenticated: boolean,
   ): ProRoomSystemAudioState {
     const current = this.#state;
     if (current) {
@@ -241,11 +250,28 @@ export class ProRoomSystemAudioController {
         if (incomingRank < currentRank) return cloneState(current);
         if (incomingRank === currentRank) {
           if (!statesEqual(current, incoming)) {
-            // Peer fanout is only a hint and must not be able to rewrite an
-            // equal-generation state. A dedicated authenticated GET is the
-            // server source of truth, however, so heartbeat reconciliation
-            // may accept an owner/terminal change at the same rank.
-            if (!allowEqualRankConflict) {
+            const samePublicationId =
+              current.status === 'live' &&
+              incoming.status === 'live' &&
+              current.publication.publicationId === incoming.publication.publicationId;
+            const directToSfu =
+              samePublicationId &&
+              current.status === 'live' &&
+              incoming.status === 'live' &&
+              isProRoomSystemAudioDirectPublication(current.publication) &&
+              isProRoomSystemAudioSfuPublication(incoming.publication);
+            const staleSfuToDirect =
+              samePublicationId &&
+              current.status === 'live' &&
+              incoming.status === 'live' &&
+              isProRoomSystemAudioSfuPublication(current.publication) &&
+              isProRoomSystemAudioDirectPublication(incoming.publication);
+            // The only canonical equal-rank mutation is the authenticated,
+            // same-publication LAN-direct -> SFU promotion. A delayed older
+            // GET may still return the direct descriptor after that commit;
+            // retain the terminal SFU route instead of resurrecting P2P.
+            if (staleSfuToDirect) return cloneState(current);
+            if (!authenticated || !directToSfu) {
               throw new ProRoomSystemAudioControllerError('STATE_CONFLICT');
             }
           } else {
@@ -304,7 +330,7 @@ export class ProRoomSystemAudioController {
           throw new ProRoomSystemAudioControllerError('LEASE_SUPERSEDED');
         }
         this.#lease = { generation: parsed.generation, leaseId: grant.leaseId };
-        const accepted = this.acceptProSystemAudioState(parsed);
+        const accepted = this.#acceptAuthenticatedProSystemAudioState(parsed);
         if (
           accepted.status === 'idle' ||
           accepted.generation !== parsed.generation ||
@@ -335,7 +361,10 @@ export class ProRoomSystemAudioController {
       signal,
     );
     this.#assertOperationCurrent(roomCode, epoch);
-    const accepted = this.acceptProSystemAudioState(incoming);
+    // The authenticated commit endpoint is also the one-way LAN-direct -> SFU
+    // promotion path. That promotion intentionally changes publication
+    // coordinates at the same generation/live rank.
+    const accepted = this.#acceptAuthenticatedProSystemAudioState(incoming);
     if (accepted.status !== 'live' || !this.#isLocalOwner(accepted)) {
       throw new ProRoomSystemAudioControllerError('COMMIT_NOT_LIVE');
     }
@@ -381,7 +410,7 @@ export class ProRoomSystemAudioController {
       return accepted;
     }
     this.#assertOperationCurrent(roomCode, epoch);
-    return this.acceptProSystemAudioState(incoming);
+    return this.#acceptAuthenticatedProSystemAudioState(incoming);
   }
 
   async releaseProSystemAudioLease(signal?: AbortSignal): Promise<ProRoomSystemAudioState> {
@@ -400,7 +429,7 @@ export class ProRoomSystemAudioController {
       try {
         const observed = await this.api.getSystemAudioState(roomCode, signal);
         this.#assertOperationCurrent(roomCode, epoch);
-        const accepted = this.acceptProSystemAudioState(observed);
+        const accepted = this.#acceptAuthenticatedProSystemAudioState(observed);
         const releaseConfirmed =
           (accepted.status === 'idle' && accepted.generation >= generation) ||
           (accepted.generation > generation && !this.#isLocalOwner(accepted));
@@ -416,7 +445,7 @@ export class ProRoomSystemAudioController {
       throw releaseError;
     }
     this.#assertOperationCurrent(roomCode, epoch);
-    const accepted = this.acceptProSystemAudioState(incoming);
+    const accepted = this.#acceptAuthenticatedProSystemAudioState(incoming);
     if (accepted.status !== 'idle') {
       throw new ProRoomSystemAudioControllerError('RELEASE_NOT_IDLE');
     }

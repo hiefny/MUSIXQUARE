@@ -224,16 +224,18 @@ media.add           (stable wire key; user-facing "media management")
 playback.control
 members.kick
 chat.notice
-room.configure       (owner-only room lifecycle and effect policy)
+effects.control      (all room administrators; no separate permission toggle)
+room.configure       (owner-only room lifecycle)
 ```
 
 The canonical `media.add` key backs the user-facing `미디어 관리` toggle and
 grants local/YouTube addition, file upload,
 deleting or clearing items, reordering, and repeat/shuffle queue policy. Live
-system-audio publishing and changing room-wide effects remain
-owner/ordinary-host operations. BOT commands inherit the caller and must pass
-the same media-management permission for generated queue mutations and
-repeat/shuffle changes.
+system-audio publishing remains an owner/physical ordinary-host operation.
+Changing room-wide effects requires `effects.control`, which every delegated
+room administrator/controller receives without a separate toggle. BOT commands
+inherit the caller and must pass the same media-management permission for
+generated queue mutations and repeat/shuffle changes.
 
 Ordinary guests retain their current no-control baseline. A second verified
 device of the physical ordinary-room host's account shares the owner's

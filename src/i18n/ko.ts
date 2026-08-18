@@ -531,6 +531,8 @@ const ko = {
   'toast.copy_failed': '복사하지 못했어요',
   'toast.email_copied': '이메일 주소가 복사됐어요!',
   'toast.settings_sync_enabled': '설정 동기화가 켜져 있어요',
+  'toast.settings_sync_admin_required':
+    '설정 동기화가 켜져 있어요.\n방 관리자만 음향 설정을 변경할 수 있어요.',
   'toast.virtual_bass_on': '가상 베이스가 켜졌어요',
   'toast.virtual_bass_off': '가상 베이스가 꺼졌어요',
   'toast.virtual_treble_on': '가상 트레블이 켜졌어요',

@@ -215,6 +215,18 @@ export function parseProRoomSystemAudioPublication(
   value: unknown,
 ): ProRoomSystemAudioPublication | null {
   if (!isRecord(value)) return null;
+  if (hasExactKeys(value, ['publicationId', 'transport', 'protocolVersion'])) {
+    return typeof value.publicationId === 'string' &&
+      SYSTEM_AUDIO_PUBLIC_ID_RE.test(value.publicationId) &&
+      value.transport === 'lan-direct' &&
+      value.protocolVersion === 1
+      ? {
+          publicationId: value.publicationId,
+          transport: 'lan-direct',
+          protocolVersion: 1,
+        }
+      : null;
+  }
   if (!hasExactKeys(value, ['publicationId', 'sessionId', 'tracks'])) return null;
   if (
     typeof value.publicationId !== 'string' ||

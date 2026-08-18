@@ -95,6 +95,9 @@ const ru: Record<I18nKey, string> = {
   'nav.settings': 'Настройки',
   'nav.help': 'Помощь',
   'nav.connect': 'Подключение',
+  'nav.playlist_compact': 'Плейлист',
+  'nav.connect_compact': 'Связь',
+  'nav.settings_compact': 'Настройки',
   'nav.go_home': 'Перейти на главную страницу',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -110,7 +113,10 @@ const ru: Record<I18nKey, string> = {
   'player.next_track': 'Следующий трек',
   'player.repeat_mode': 'Изменить режим повтора',
   'player.shuffle_mode': 'Изменить режим перемешивания',
+  'player.sync_compact': 'Синхр.',
+  'player.syncing_compact': 'Синхр.…',
   'player.play_media': 'Воспроизвести материал',
+  'player.play_media_compact': 'Медиа',
   'player.play_media_action': 'Воспроизвести материал',
   'player.add_media': 'Добавить материал',
   'player.play_start': 'Добавить в очередь',
@@ -269,7 +275,7 @@ const ru: Record<I18nKey, string> = {
   'connect.kick_no': 'Нет',
   'connect.kicked_title': 'Вы исключены',
   'connect.kicked_message': 'Хост исключил вас из комнаты.',
-  'connect.copy_invite_link': 'Скопировать ссылку-приглашение',
+  'connect.copy_invite_link': 'Скопировать ссылку',
   'connect.link_copied': 'Ссылка для приглашения скопирована',
   'connect.room_password_title': 'Требовать пароль для входа в комнату',
   'connect.room_password_set': 'Установить',
@@ -283,9 +289,9 @@ const ru: Record<I18nKey, string> = {
   'connect.room_password_enabled': 'Для входа в эту комнату теперь требуется пароль',
   'connect.room_password_disabled': 'Для входа в эту комнату больше не требуется пароль',
   'connect.signaling_healthy': 'Сервер комнаты доступен',
-  'connect.signaling_recovering': 'Восстановление подключения к серверу',
+  'connect.signaling_recovering': 'Переподключение…',
   'connect.signaling_failed': 'Не удалось подключиться к серверу',
-  'connect.signaling_recover_action': 'Восстановить',
+  'connect.signaling_recover_action': 'Переподключиться',
   'connect.signaling_recovery_wait': 'Повторная проверка сервера комнаты.',
   'connect.signaling_reconnecting': 'Повторное подключение к серверу комнаты · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Подключение к серверу комнаты восстановлено.',
@@ -820,6 +826,7 @@ const ru: Record<I18nKey, string> = {
   'system_audio.no_audio_track':
     'Опция «Поделиться звуком» не была активирована.\nПопробуйте ещё раз.',
   'system_audio.stop': 'Остановить трансляцию',
+  'system_audio.stop_compact': 'Стоп',
   'system_audio.started':
     'Системный звук может воспроизводиться с небольшой задержкой.\nРекомендуем хосту снизить громкость исходного устройства до минимума.',
   'system_audio.stopped':

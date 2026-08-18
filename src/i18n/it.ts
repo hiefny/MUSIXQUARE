@@ -96,6 +96,9 @@ const it: Record<I18nKey, string> = {
   'nav.settings': 'Impostazioni',
   'nav.help': 'Aiuto',
   'nav.connect': 'Connetti',
+  'nav.playlist_compact': 'Playlist',
+  'nav.connect_compact': 'Connetti',
+  'nav.settings_compact': 'Opzioni',
   'nav.go_home': 'Vai alla schermata principale',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -111,7 +114,10 @@ const it: Record<I18nKey, string> = {
   'player.next_track': 'Traccia successiva',
   'player.repeat_mode': 'Cambia modalità di ripetizione',
   'player.shuffle_mode': 'Cambia modalità casuale',
+  'player.sync_compact': 'Sync',
+  'player.syncing_compact': 'Sync…',
   'player.play_media': 'Riproduci contenuto',
+  'player.play_media_compact': 'Media',
   'player.play_media_action': 'Riproduci contenuto',
   'player.add_media': 'Aggiungi contenuto',
   'player.play_start': 'Aggiungi alla coda',
@@ -284,9 +290,9 @@ const it: Record<I18nKey, string> = {
   'connect.room_password_disabled':
     'Ora non è più richiesta la password per accedere a questa stanza',
   'connect.signaling_healthy': 'Server della stanza online',
-  'connect.signaling_recovering': 'Ripristino della connessione al server',
+  'connect.signaling_recovering': 'Riconnessione…',
   'connect.signaling_failed': 'Connessione al server non riuscita',
-  'connect.signaling_recover_action': 'Ripristina',
+  'connect.signaling_recover_action': 'Riconnetti',
   'connect.signaling_recovery_wait': 'Nuovo controllo del server della stanza.',
   'connect.signaling_reconnecting': 'Riconnessione al server della stanza · {{attempt}}/{{max}}',
   'connect.signaling_recovered': 'Connessione al server della stanza ripristinata.',
@@ -830,6 +836,7 @@ const it: Record<I18nKey, string> = {
   'system_audio.capture_denied': "La condivisione dell'audio è stata annullata.",
   'system_audio.no_audio_track': '"Condividi audio" non abilitato.\nRiprova.',
   'system_audio.stop': 'Interrompi condivisione',
+  'system_audio.stop_compact': 'Ferma',
   'system_audio.started':
     'L’audio di sistema potrebbe presentare una leggera latenza.\nAbbassa il volume della sorgente, se possibile.',
   'system_audio.stopped':

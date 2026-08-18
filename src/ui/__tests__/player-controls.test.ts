@@ -496,7 +496,7 @@ describe('local file picker hint', () => {
 describe('PRO room media-source capabilities', () => {
   it('restores the ordinary host affordance when setup changes idle to host', () => {
     document.body.innerHTML = `
-      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
     `;
 
     initPlayerControls();
@@ -509,7 +509,7 @@ describe('PRO room media-source capabilities', () => {
 
   it('updates the standard ADMIN media affordance immediately on grant and revoke', () => {
     document.body.innerHTML = `
-      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
     `;
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection('host-1'));
@@ -526,7 +526,7 @@ describe('PRO room media-source capabilities', () => {
 
   it('uses the explicit media.add capability instead of the legacy operator role', () => {
     document.body.innerHTML = `
-      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
     `;
     setState('network.appRole', 'guest');
     setState('network.hostConn', makeConnection('host-1'));
@@ -592,7 +592,7 @@ describe('PRO room media-source capabilities', () => {
   it('lets a PRO administrator add files and YouTube entries but keeps live capture owner-only', () => {
     document.body.innerHTML = `
       <button id="btn-add-media"></button>
-      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
       <div id="media-source-overlay"></div>
       <button id="btn-local-file"></button>
       <input id="file-input" type="file" />
@@ -917,7 +917,11 @@ describe('initPlayerControls playback mode rendering', () => {
       <button id="btn-prev"></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
       <button id="btn-next"></button>
-      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <button
+        id="btn-media-source"
+        aria-label="Play media"
+        data-i18n-aria-label="player.play_media"
+      ><span data-i18n="player.play_media_compact">Media</span></button>
       <div class="vinyl-wrapper" aria-busy="false"><canvas id="visualizerCanvas"></canvas></div>
       <div class="video-wrapper" aria-busy="false">
         <div id="youtube-player-container"></div>
@@ -954,13 +958,48 @@ describe('initPlayerControls playback mode rendering', () => {
     const mediaLabel = mediaBtn?.querySelector('span');
 
     expect(icon?.getAttribute('d')).toBe('M6 19h4V5H6v14zm8-14v14h4V5h-4z');
-    expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop');
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop_compact');
+    expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('system_audio.stop');
+    expect(mediaBtn?.getAttribute('aria-label')).toBe(t('system_audio.stop'));
 
     setPlaybackIdle();
 
     expect(icon?.getAttribute('d')).toBe('M8 5v14l11-7z');
-    expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media');
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media_compact');
+    expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('player.play_media');
+    expect(mediaBtn?.getAttribute('aria-label')).toBe(t('player.play_media'));
     expect(mediaBtn?.classList.contains('sys-audio-guest')).toBe(false);
+  });
+
+  it('removes the stop-sharing label when PRO system-audio ownership moves away', () => {
+    renderPlaybackControls();
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['media.add', 'system-audio.publish'],
+    });
+    setPlaybackSystemAudioPlaying();
+    proSystemAudio.view.phase = 'live';
+    proSystemAudio.view.isLocalOwner = true;
+
+    initPlayerControls();
+    const mediaBtn = document.getElementById('btn-media-source');
+    const mediaLabel = mediaBtn?.querySelector('span');
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('system_audio.stop_compact');
+    expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('system_audio.stop');
+    expect(mediaBtn?.getAttribute('aria-label')).toBe(t('system_audio.stop'));
+
+    proSystemAudio.view.isLocalOwner = false;
+    bus.emit('pro-system-audio:state-changed', { ...proSystemAudio.view }, null);
+
+    expect(mediaLabel?.getAttribute('data-i18n')).toBe('player.play_media_compact');
+    expect(mediaBtn?.getAttribute('data-i18n-aria-label')).toBe('player.play_media');
+    expect(mediaBtn?.getAttribute('aria-label')).toBe(t('player.play_media'));
+    expect(mediaBtn?.classList.contains('sys-audio-guest')).toBe(true);
   });
 
   it('uses playback mode for YouTube play-state events', () => {
@@ -1578,9 +1617,9 @@ describe('initPlayerControls volume icon', () => {
 describe('initPlayerControls sync button', () => {
   function renderSyncControls(): void {
     document.body.innerHTML = `
-      <button id="btn-sync"><span data-i18n="common.sync">Sync</span></button>
+      <button id="btn-sync"><span data-i18n="player.sync_compact">Sync</span></button>
       <button id="play-btn"><svg><path d=""></path></svg></button>
-      <button id="btn-media-source"><span data-i18n="player.play_media">Play media</span></button>
+      <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
       <div id="manual-sync-overlay" aria-hidden="true">
         <div role="dialog" aria-modal="true" aria-label="Sync">
           <button id="btn-nudge-minus10">-10</button>
@@ -1843,13 +1882,19 @@ describe('initPlayerControls sync button', () => {
 
     expect(button.getAttribute('aria-busy')).toBe('true');
     expect(button.getAttribute('aria-disabled')).toBe('true');
-    expect(button.textContent).toBe('Syncing...');
+    expect(button.textContent).toBe('Syncing…');
+    expect(button.querySelector('span')?.getAttribute('data-i18n')).toBe('player.syncing_compact');
+    expect(button.getAttribute('aria-label')).toBe('Syncing...');
+    expect(button.getAttribute('data-i18n-aria-label')).toBe('toast.yt_sync_start');
 
     resolveReconciliation(true);
     await vi.waitFor(() => expect(button.getAttribute('aria-busy')).toBe('false'));
 
     expect(button.getAttribute('aria-disabled')).toBe('false');
     expect(button.textContent).toBe('Sync');
+    expect(button.querySelector('span')?.getAttribute('data-i18n')).toBe('player.sync_compact');
+    expect(button.getAttribute('aria-label')).toBe('Sync');
+    expect(button.getAttribute('data-i18n-aria-label')).toBe('common.sync');
   });
 
   it('keeps the PRO nudge panel closed when server reconciliation cannot realign media', async () => {

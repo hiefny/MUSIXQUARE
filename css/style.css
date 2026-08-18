@@ -1479,29 +1479,17 @@
     cursor: not-allowed;
   }
 
-  /* Guest: keep default button color during system audio */
-  body.mode-system-audio #btn-media-source.sys-audio-guest {
-    background: inherit !important;
-    color: inherit !important;
-  }
-  body.mode-system-audio #btn-media-source.sys-audio-guest svg {
-    fill: currentColor !important;
-  }
-  body.mode-system-audio #btn-media-source.sys-audio-guest span {
-    color: currentColor !important;
-  }
-
   /* Host: media source button → red "stop sharing" style */
   body.mode-system-audio #btn-media-source:not(.sys-audio-guest) {
     background: rgba(255, 59, 48, 0.08) !important;
     color: #ff3b30 !important;
   }
 
-  body.mode-system-audio #btn-media-source svg {
+  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) svg {
     fill: #ff3b30 !important;
   }
 
-  body.mode-system-audio #btn-media-source span {
+  body.mode-system-audio #btn-media-source:not(.sys-audio-guest) span {
     color: #ff3b30 !important;
   }
 

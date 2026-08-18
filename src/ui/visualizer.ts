@@ -11,6 +11,7 @@ import { getAnalyser as getEngineAnalyser } from '../audio/engine.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
 import { isPlaybackModeYouTube, isPlaybackPaused, isPlaybackPlaying } from '../player/ownership.ts';
 import { buildSpectrumDitherStrip, SPECTRUM_DITHER_TILE_SIZE } from './spectrum-dither.ts';
+import { t, type I18nKey } from '../i18n/index.ts';
 
 // ─── State ───────────────────────────────────────────────────────
 
@@ -19,7 +20,9 @@ let _visualizerRetryCount = 0;
 const MAX_VISUALIZER_RETRIES = 20;
 let _resizeListenerAdded = false;
 let _visualizerResizeObserver: ResizeObserver | null = null;
-let _vizMode: 'circular' | 'spectrum' = 'circular';
+type VisualizerMode = 'circular' | 'spectrum';
+let _vizMode: VisualizerMode = 'circular';
+let _visualizerControlCanvas: HTMLCanvasElement | null = null;
 let _isVisualizerStartCoalescing = false;
 let _visualizerLoopState: 'idle' | 'active' | 'settling' = 'idle';
 let _canvasPixelRatio = 1;
@@ -35,7 +38,7 @@ interface SpectrumDitherPatternCache {
 
 let _spectrumDitherPatternCache: SpectrumDitherPatternCache | null = null;
 
-function readPersistedVisualizerMode(): 'circular' | 'spectrum' {
+function readPersistedVisualizerMode(): VisualizerMode {
   try {
     return localStorage.getItem('musixquare-viz-mode') === 'spectrum' ? 'spectrum' : 'circular';
   } catch {
@@ -43,10 +46,69 @@ function readPersistedVisualizerMode(): 'circular' | 'spectrum' {
   }
 }
 
-function applyVisualizerMode(mode: 'circular' | 'spectrum'): void {
+function syncVisualizerControlAccessibility(mode: VisualizerMode): void {
+  const canvas = document.getElementById('visualizerCanvas');
+  canvas?.setAttribute('aria-pressed', String(mode === 'spectrum'));
+  canvas?.setAttribute('data-visualizer-mode', mode);
+
+  const modeLabel = document.getElementById('visualizer-current-mode');
+  if (!modeLabel) return;
+  const modeKey: I18nKey =
+    mode === 'spectrum' ? 'player.visualizer_spectrum' : 'player.visualizer_circular';
+  modeLabel.setAttribute('data-i18n', modeKey);
+  modeLabel.textContent = t(modeKey);
+}
+
+function applyVisualizerMode(mode: VisualizerMode): void {
   _vizMode = mode;
   document.body.classList.toggle('viz-spectrum', mode === 'spectrum');
   document.body.classList.toggle('viz-circular', mode === 'circular');
+  syncVisualizerControlAccessibility(mode);
+}
+
+function persistVisualizerMode(mode: VisualizerMode): void {
+  try {
+    localStorage.setItem('musixquare-viz-mode', mode);
+  } catch {
+    /* Safari private mode */
+  }
+}
+
+function setVisualizerMode(mode: VisualizerMode, persist: boolean): void {
+  applyVisualizerMode(mode);
+  if (persist) persistVisualizerMode(mode);
+
+  cancelVisualizerAnimation();
+
+  const analyser = getAnalyser();
+  if (analyser) {
+    analyser.smoothingTimeConstant = mode === 'spectrum' ? 0.8 : 0.3;
+  }
+
+  drawRestingVisualizerFrame();
+  startVisualizer();
+}
+
+function toggleVisualizerMode(): void {
+  const shouldPersist = !document.body.classList.contains('demo-mobile');
+  setVisualizerMode(_vizMode === 'circular' ? 'spectrum' : 'circular', shouldPersist);
+}
+
+function handleVisualizerControlKeydown(event: KeyboardEvent): void {
+  if (event.repeat || (event.key !== 'Enter' && event.key !== ' ')) return;
+  event.preventDefault();
+  toggleVisualizerMode();
+}
+
+function bindVisualizerModeControl(): void {
+  const canvas = document.getElementById('visualizerCanvas') as HTMLCanvasElement | null;
+  if (_visualizerControlCanvas === canvas) return;
+
+  _visualizerControlCanvas?.removeEventListener('click', toggleVisualizerMode);
+  _visualizerControlCanvas?.removeEventListener('keydown', handleVisualizerControlKeydown);
+  _visualizerControlCanvas = canvas;
+  canvas?.addEventListener('click', toggleVisualizerMode);
+  canvas?.addEventListener('keydown', handleVisualizerControlKeydown);
 }
 
 // ─── Spectrum constants ─────────────────────────────────────────
@@ -935,6 +997,7 @@ export function initVisualizer(): void {
   refreshThemeCache();
   _initThemeListeners();
   applyVisualizerMode(readPersistedVisualizerMode());
+  bindVisualizerModeControl();
 
   // Always use startVisualizer — it retries if analyser isn't ready yet,
   // and renders silence naturally as idle circles when no audio plays.
@@ -1046,18 +1109,10 @@ export function initVisualizer(): void {
   });
 
   // Visualizer mode switch
-  _busScope.on('visualizer:set-type', (mode: 'circular' | 'spectrum') => {
-    applyVisualizerMode(mode);
-
-    cancelVisualizerAnimation();
-
-    const analyser = getAnalyser();
-    if (analyser) {
-      analyser.smoothingTimeConstant = mode === 'spectrum' ? 0.8 : 0.3;
-    }
-
-    drawRestingVisualizerFrame();
-    startVisualizer();
+  _busScope.on('visualizer:set-type', (mode: VisualizerMode) => {
+    // Demo mode temporarily selects a presentation without replacing the
+    // user's saved preference. Only a direct canvas interaction persists.
+    setVisualizerMode(mode, false);
   });
 
   log.info('[Visualizer] Initialized');

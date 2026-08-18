@@ -623,19 +623,6 @@ function disableAllVirtualEffects(): void {
   showToast(t('toast.virtual_effects_off'));
 }
 
-function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
-  syncExclusivePressedState(
-    document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]'),
-    (element) => element.dataset.viz === mode,
-  );
-  try {
-    localStorage.setItem('musixquare-viz-mode', mode);
-  } catch {
-    /* Safari private mode */
-  }
-  bus.emit('visualizer:set-type', mode);
-}
-
 // ─── Device List ─────────────────────────────────────────────────
 
 interface DeviceListRow {
@@ -1117,13 +1104,6 @@ export function initSettings(): void {
     });
   syncVirtualEffectsControls();
 
-  // Visualizer mode grid
-  document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]').forEach((opt) => {
-    opt.addEventListener('click', () =>
-      setVisualizerMode(opt.dataset.viz as 'circular' | 'spectrum'),
-    );
-  });
-
   // Manual sync popup
   $on('btn-nudge-minus10', 'click', () => bus.emit('sync:nudge', -10));
   $on('btn-nudge-minus1', 'click', () => bus.emit('sync:nudge', -1));
@@ -1218,14 +1198,6 @@ export function initSettings(): void {
     setTheme(savedTheme || 'system', false);
   } catch {
     setTheme('system', false);
-  }
-
-  // Restore visualizer mode
-  try {
-    const savedViz = localStorage.getItem('musixquare-viz-mode');
-    if (savedViz === 'spectrum') setVisualizerMode('spectrum');
-  } catch {
-    /* ignore */
   }
 
   // ─── Desktop Settings Sub-Tab Navigation ──────────────────────

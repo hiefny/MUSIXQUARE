@@ -594,34 +594,22 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     await flush(50);
   });
 
-  it('keeps visualizer button styling and pressed state aligned on entry and recovery', async () => {
+  it('requests a temporary spectrum mode and restores the captured visualizer mode', async () => {
     document.body.className = 'viz-circular';
-    document.body.innerHTML = `
-      <div id="grid-visualizer">
-        <button class="ch-opt active" data-viz="circular" aria-pressed="true"></button>
-        <button class="ch-opt" data-viz="spectrum" aria-pressed="false"></button>
-      </div>
-    `;
+    const visualizerModes: Array<'circular' | 'spectrum'> = [];
+    bus.on('visualizer:set-type', (mode) => visualizerModes.push(mode));
     setState('network.appRole', 'host');
     setState('setup.sessionStarted', true);
 
     bus.emit('demo:enter');
 
-    const circular = document.querySelector<HTMLElement>('[data-viz="circular"]');
-    const spectrum = document.querySelector<HTMLElement>('[data-viz="spectrum"]');
-    expect(circular?.classList.contains('active')).toBe(false);
-    expect(circular?.getAttribute('aria-pressed')).toBe('false');
-    expect(spectrum?.classList.contains('active')).toBe(true);
-    expect(spectrum?.getAttribute('aria-pressed')).toBe('true');
+    expect(visualizerModes.at(-1)).toBe('spectrum');
 
     await flush();
     FakeXHR.pending[0]?.failNetwork();
     await flush(50);
 
-    expect(circular?.classList.contains('active')).toBe(true);
-    expect(circular?.getAttribute('aria-pressed')).toBe('true');
-    expect(spectrum?.classList.contains('active')).toBe(false);
-    expect(spectrum?.getAttribute('aria-pressed')).toBe('false');
+    expect(visualizerModes.at(-1)).toBe('circular');
   });
 
   it('maps combined bass and treble boosts to the advanced V-shaped EQ', async () => {

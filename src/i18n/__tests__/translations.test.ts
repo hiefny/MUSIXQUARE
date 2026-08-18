@@ -305,7 +305,6 @@ describe('Translation key integrity', () => {
     const generalDescriptionKeys = [
       'settings.language_desc',
       'settings.theme_desc',
-      'settings.visualizer_desc',
       'settings.ui_sounds_desc',
       'settings.sync_settings_desc',
       'settings.virtual_effects_desc',

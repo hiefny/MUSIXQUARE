@@ -16,7 +16,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v451"></script>
+    <script src="/bootstrap.js?cache=v452"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -235,9 +235,21 @@
         <div class="vinyl-wrapper">
           <canvas
             id="visualizerCanvas"
-            aria-label=""
-            data-i18n-aria-label="player.visualizer"
+            role="button"
+            tabindex="0"
+            aria-pressed="false"
+            aria-labelledby="visualizer-accessible-label visualizer-current-mode"
+            aria-describedby="visualizer-mode-hint"
           ></canvas>
+          <span id="visualizer-accessible-label" class="sr-only" data-i18n="player.visualizer"
+            >오디오 비주얼라이저</span
+          >
+          <span id="visualizer-current-mode" class="sr-only" data-i18n="player.visualizer_circular"
+            >원형</span
+          >
+          <span id="visualizer-mode-hint" class="sr-only" data-i18n="player.visualizer_mode_hint"
+            >음향 시각화 방식을 선택할 수 있어요.</span
+          >
         </div>
 
         <!-- Runtime insertion point; its id and class are part of the YouTube wiring contract. -->
@@ -933,57 +945,6 @@
                   />
                 </svg>
                 <span data-i18n="common.off"></span>
-              </button>
-            </div>
-          </div>
-
-          <div class="section-group">
-            <div class="section-header-row">
-              <span
-                class="section-title"
-                id="settings-visualizer-title"
-                data-i18n="settings.visualizer"
-                >비주얼라이저</span
-              >
-            </div>
-            <p
-              class="settings-option-description"
-              id="settings-visualizer-description"
-              data-i18n="settings.visualizer_desc"
-            ></p>
-            <div
-              class="channel-grid"
-              id="grid-visualizer"
-              role="group"
-              aria-labelledby="settings-visualizer-title"
-              aria-describedby="settings-visualizer-description"
-            >
-              <button type="button" class="ch-opt active" data-viz="circular" aria-pressed="true">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <circle
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                  />
-                  <circle cx="12" cy="12" r="4" fill="currentColor" />
-                </svg>
-                <span data-i18n="settings.viz_circular">원형</span>
-              </button>
-              <button type="button" class="ch-opt" data-viz="spectrum" aria-pressed="false">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <polyline
-                    points="2,20 5,16 8,18 11,10 14,14 17,6 20,12 22,8"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
-                <span data-i18n="settings.viz_spectrum">스펙트럼</span>
               </button>
             </div>
           </div>
@@ -3628,16 +3589,34 @@
         </div>
 
         <div class="setup-join-area setup-mt-0" data-custom-scroll data-custom-scroll-contained>
-          <div
-            contenteditable="true"
-            id="youtube-url-input"
-            class="setup-join-input yt-intro-text"
-            role="textbox"
-            aria-label=""
-            data-i18n-aria-label="youtube.enter_source"
-            data-placeholder="검색어 또는 https://youtube.com/"
-            data-i18n-data-placeholder="youtube.enter_source_placeholder"
-          ></div>
+          <div class="yt-search-input-wrapper">
+            <div
+              contenteditable="true"
+              id="youtube-url-input"
+              class="setup-join-input yt-intro-text"
+              role="textbox"
+              aria-label=""
+              aria-describedby="youtube-preview-status"
+              data-i18n-aria-label="youtube.enter_source"
+              data-placeholder="검색어 또는 https://youtube.com/"
+              data-i18n-data-placeholder="youtube.enter_source_placeholder"
+            ></div>
+            <button
+              type="button"
+              id="youtube-search-btn"
+              class="yt-search-submit-btn"
+              aria-label=""
+              aria-controls="youtube-search-results"
+              data-i18n-aria-label="youtube.search_button"
+              disabled
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M9.5 3a6.5 6.5 0 1 0 4.1 11.55L19.05 20l1.45-1.45-5.45-5.45A6.5 6.5 0 0 0 9.5 3Zm0 2a4.5 4.5 0 1 1 0 9 4.5 4.5 0 0 1 0-9Z"
+                />
+              </svg>
+            </button>
+          </div>
 
           <div id="youtube-preview" class="yt-preview-card" hidden>
             <img

@@ -1595,12 +1595,33 @@ describe('YouTube Player', () => {
       initYouTube();
 
       bus.emit('youtube:load-from-chat', 'https://www.youtube.com/watch?v=VIDEO_ID_01');
+      bus.emit('youtube:search-from-input');
       bus.emit('youtube:load-from-input');
 
-      expect(showToast).toHaveBeenCalledTimes(2);
+      expect(showToast).toHaveBeenCalledTimes(3);
       expect(showToast).toHaveBeenNthCalledWith(1, 'toast.media_management_required');
       expect(showToast).toHaveBeenNthCalledWith(2, 'toast.media_management_required');
+      expect(showToast).toHaveBeenNthCalledWith(3, 'toast.media_management_required');
+      const search = await import('../search.ts');
+      expect(search.searchYouTubeFromInput).not.toHaveBeenCalled();
       expect(addYouTube).not.toHaveBeenCalled();
+      expect(getState('playlist.items')).toEqual([]);
+    });
+
+    it('keeps the dedicated search action separate from adding a selected result', async () => {
+      const input = document.createElement('div');
+      input.id = 'youtube-url-input';
+      input.textContent = 'city pop live';
+      document.body.appendChild(input);
+      const search = await import('../search.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+
+      bus.emit('youtube:search-from-input');
+
+      expect(search.searchYouTubeFromInput).toHaveBeenCalledOnce();
+      expect(search.searchYouTubeFromInput).toHaveBeenCalledWith('city pop live');
+      expect(search.getSelectedYouTubeSearchResult).not.toHaveBeenCalled();
       expect(getState('playlist.items')).toEqual([]);
     });
 

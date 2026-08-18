@@ -164,15 +164,7 @@ function getCurrentVisualizerMode(): 'circular' | 'spectrum' {
   return document.body.classList.contains('viz-spectrum') ? 'spectrum' : 'circular';
 }
 
-function syncVisualizerModeButtons(mode: 'circular' | 'spectrum'): void {
-  syncExclusivePressedState(
-    document.querySelectorAll<HTMLElement>('#grid-visualizer .ch-opt[data-viz]'),
-    (element) => element.dataset.viz === mode,
-  );
-}
-
 function setVisualizerMode(mode: 'circular' | 'spectrum'): void {
-  syncVisualizerModeButtons(mode);
   bus.emit('visualizer:set-type', mode);
 }
 

@@ -214,6 +214,60 @@ describe('YouTube input i18n state', () => {
   });
 });
 
+describe('YouTube search action state', () => {
+  it('gates play until a result exists and keeps the dedicated search action retryable', async () => {
+    document.body.innerHTML = `
+      <div id="youtube-preview" hidden></div>
+      <div id="youtube-preview-status"></div>
+      <div id="youtube-search-results" role="group"></div>
+      <button id="youtube-search-btn" disabled></button>
+      <button id="youtube-play-btn" disabled></button>
+    `;
+    const searchButton = document.getElementById('youtube-search-btn') as HTMLButtonElement;
+    const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    let resolveSearch!: (response: Response) => void;
+    const pendingSearch = new Promise<Response>((resolve) => {
+      resolveSearch = resolve;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/api/security-config')) {
+          return Response.json({ capabilityRequired: false });
+        }
+        if (url.includes('/api/youtube-search')) return pendingSearch;
+        throw new Error(`Unexpected request: ${url}`);
+      }),
+    );
+
+    fetchYouTubePreview('no result state probe 20260818');
+    expect(searchButton.disabled).toBe(false);
+    expect(playButton.disabled).toBe(true);
+
+    const search = searchYouTubeFromInput('no result state probe 20260818');
+    expect(searchButton.disabled).toBe(true);
+    expect(searchButton.getAttribute('aria-busy')).toBe('true');
+    expect(playButton.disabled).toBe(true);
+
+    resolveSearch(Response.json({ results: [] }));
+    await search;
+
+    expect(searchButton.disabled).toBe(false);
+    expect(searchButton.hasAttribute('aria-busy')).toBe(false);
+    expect(playButton.disabled).toBe(true);
+    expect(document.getElementById('youtube-preview-status')?.getAttribute('data-i18n')).toBe(
+      'youtube.search_no_results',
+    );
+
+    fetchYouTubePreview('https://www.youtube.com/watch?v=AAAAAAAAAAA');
+    expect(searchButton.disabled).toBe(true);
+
+    clearYouTubeInputState();
+    document.body.innerHTML = '';
+  });
+});
+
 describe('YouTube search result normalization', () => {
   // Exercise the response-hardening layer of normalizeSearchResults: the
   // proxy is trusted-ish, but defense-in-depth drops malformed rows, rejects

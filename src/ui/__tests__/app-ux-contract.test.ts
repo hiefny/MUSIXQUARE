@@ -24,6 +24,29 @@ beforeAll(() => {
 });
 
 describe('app UX markup contract', () => {
+  it('makes the visualizer itself the accessible mode control and removes the settings row', () => {
+    const visualizer = appDocument.getElementById('visualizerCanvas');
+
+    expect(visualizer?.getAttribute('role')).toBe('button');
+    expect(visualizer?.getAttribute('tabindex')).toBe('0');
+    expect(visualizer?.getAttribute('aria-pressed')).toBe('false');
+    expect(visualizer?.getAttribute('aria-labelledby')).toBe(
+      'visualizer-accessible-label visualizer-current-mode',
+    );
+    expect(visualizer?.getAttribute('aria-describedby')).toBe('visualizer-mode-hint');
+    expect(appDocument.getElementById('visualizer-current-mode')?.getAttribute('data-i18n')).toBe(
+      'player.visualizer_circular',
+    );
+    expect(appDocument.getElementById('grid-visualizer')).toBeNull();
+    expect(settingsSource).not.toContain('musixquare-viz-mode');
+    expect(appStylesheet).toMatch(
+      /#visualizerCanvas\s*\{[\s\S]*?cursor:\s*pointer;[\s\S]*?touch-action:\s*manipulation;/u,
+    );
+    expect(appStylesheet).toMatch(
+      /#visualizerCanvas:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--primary\);[\s\S]*?outline-offset:\s*-[1-9]\d*px;/u,
+    );
+  });
+
   it('uses native buttons for every invite-code copy action', () => {
     const inviteActions = [...appDocument.querySelectorAll('.invite-code-container')];
 
@@ -112,8 +135,29 @@ describe('app UX markup contract', () => {
 
   it('keeps the intentional contenteditable URL field and fixed-scale app surface', () => {
     const youtubeField = appDocument.getElementById('youtube-url-input');
+    const youtubeSearch = appDocument.getElementById('youtube-search-btn');
+    const youtubeInputWrapper = youtubeField?.closest('.yt-search-input-wrapper');
     expect(youtubeField?.tagName).toBe('DIV');
     expect(youtubeField?.getAttribute('contenteditable')).toBe('true');
+    expect(youtubeField?.getAttribute('aria-describedby')).toBe('youtube-preview-status');
+    expect(youtubeInputWrapper?.contains(youtubeSearch ?? null)).toBe(true);
+    expect(youtubeSearch?.tagName).toBe('BUTTON');
+    expect((youtubeSearch as HTMLButtonElement | null)?.type).toBe('button');
+    expect((youtubeSearch as HTMLButtonElement | null)?.disabled).toBe(true);
+    expect(youtubeSearch?.getAttribute('aria-controls')).toBe('youtube-search-results');
+    expect(youtubeSearch?.getAttribute('data-i18n-aria-label')).toBe('youtube.search_button');
+    expect(appStylesheet).toMatch(
+      /\.yt-search-input-wrapper\s*\{[\s\S]*?display:\s*flex;[\s\S]*?border-bottom:\s*2px solid var\(--surface-3\);/u,
+    );
+    expect(appStylesheet).toMatch(
+      /\.yt-search-input-wrapper \.yt-intro-text\s*\{[\s\S]*?text-align:\s*left;[\s\S]*?border-bottom:\s*0;/u,
+    );
+    expect(appStylesheet).toMatch(
+      /\.yt-search-submit-btn:not\(:disabled\)\s*\{[\s\S]*?color:\s*var\(--primary\);/u,
+    );
+    expect(appStylesheet).toMatch(
+      /#youtube-url-overlay \.setup-join-area\s*\{[\s\S]*?text-align:\s*left;/u,
+    );
 
     const viewport = appDocument.querySelector<HTMLMetaElement>('meta[name="viewport"]');
     expect(viewport?.content).toContain('width=device-width');
@@ -286,12 +330,6 @@ describe('app UX markup contract', () => {
         'settings-ui-sounds-title',
         'settings-ui-sounds-description',
         'settings.ui_sounds_desc',
-      ],
-      [
-        '#grid-visualizer',
-        'settings-visualizer-title',
-        'settings-visualizer-description',
-        'settings.visualizer_desc',
       ],
       [
         '#grid-settings-sync',

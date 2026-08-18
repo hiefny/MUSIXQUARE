@@ -701,6 +701,40 @@ describe('PRO room media-source capabilities', () => {
     expect(input.classList).toContain('user-text-font-th');
   });
 
+  it('uses the inline magnifier for queries while preserving direct URL submission on Enter', () => {
+    document.body.innerHTML = `
+      <div id="youtube-url-input" contenteditable="true"></div>
+      <button id="youtube-search-btn" disabled></button>
+      <button id="youtube-play-btn" disabled></button>
+    `;
+    const input = document.getElementById('youtube-url-input') as HTMLDivElement;
+    const searchButton = document.getElementById('youtube-search-btn') as HTMLButtonElement;
+    const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement;
+    const search = vi.fn();
+    const load = vi.fn();
+    bus.on('youtube:search-from-input', search);
+    bus.on('youtube:load-from-input', load);
+
+    initPlayerControls();
+    input.textContent = 'city pop live';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+
+    expect(searchButton.disabled).toBe(false);
+    expect(playButton.disabled).toBe(true);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    searchButton.click();
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(load).not.toHaveBeenCalled();
+
+    input.textContent = 'https://www.youtube.com/watch?v=AAAAAAAAAAA';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+    expect(searchButton.disabled).toBe(true);
+
+    playButton.disabled = false;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(load).toHaveBeenCalledOnce();
+  });
+
   it('does not let Enter bypass a disabled YouTube preview submit gate', () => {
     document.body.innerHTML = `
       <div id="youtube-url-input" contenteditable="true"></div>

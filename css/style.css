@@ -1695,6 +1695,14 @@
     height: 100%;
     border-radius: 50%;
     background: transparent;
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #visualizerCanvas:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: -3px;
   }
 
   /* Spectrum visualizer mode */
@@ -10303,6 +10311,10 @@ html:not(.ios-standalone) body {
   margin-top: 0;
 }
 
+#youtube-url-overlay .setup-join-area {
+  text-align: left;
+}
+
 /* YouTube preview text rows */
 .yt-preview-title {
   font-size: 13px;
@@ -10319,7 +10331,7 @@ html:not(.ios-standalone) body {
 .yt-preview-meta {
   font-size: 11px;
   color: var(--text-sub);
-  text-align: center;
+  text-align: left;
   margin: 4px 0 0 0;
   font-weight: 600;
 }
@@ -10349,12 +10361,79 @@ html:not(.ios-standalone) body {
   color: var(--text-main);
 }
 
-/* Onboarding intro text inside the YT URL card */
-.yt-intro-text {
+/* YouTube query/link editor follows the chat composer interaction pattern. */
+.yt-search-input-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 2px solid var(--surface-3);
+  transition: border-bottom-color 0.2s ease;
+}
+
+.yt-search-input-wrapper:focus-within {
+  border-bottom-color: var(--primary);
+}
+
+.yt-search-input-wrapper .yt-intro-text {
+  flex: 1;
+  width: auto;
+  min-width: 0;
   font-size: 15px;
   font-weight: 500;
   letter-spacing: normal;
-  padding: 12px 0;
+  line-height: 20px;
+  text-align: left;
+  padding: 12px 4px 10px;
+  border-bottom: 0;
+  align-self: stretch;
+}
+
+.yt-search-input-wrapper .yt-intro-text:focus {
+  border-bottom-color: transparent;
+}
+
+.yt-search-submit-btn {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--surface-3);
+  cursor: default;
+  opacity: 1;
+  box-shadow: none;
+  transition:
+    color 0.2s ease,
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+.yt-search-submit-btn:not(:disabled) {
+  color: var(--primary);
+  cursor: pointer;
+}
+
+.yt-search-submit-btn:not(:disabled):active {
+  transform: scale(0.92);
+  opacity: 0.8;
+}
+
+.yt-search-submit-btn svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
+  pointer-events: none;
+}
+
+.yt-search-submit-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 50%;
 }
 
 /* Hidden preview card container that JS toggles to flex */

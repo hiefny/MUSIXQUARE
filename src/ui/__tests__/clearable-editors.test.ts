@@ -335,6 +335,38 @@ describe('clear button accessibility and layout', () => {
     expect(input.style.getPropertyValue('--clearable-editor-reserved-space')).toBe('28px');
     expect(clearButtonFor(input.id)?.style.left).toBe('116px');
   });
+
+  it('keeps the YouTube clear action inside the editor and outside the search hit area', () => {
+    document.body.innerHTML = `
+      <div class="yt-search-input-wrapper">
+        <div id="youtube-url-input" contenteditable="true">city pop</div>
+        <button id="youtube-search-btn" type="button"></button>
+      </div>
+    `;
+    const editor = document.getElementById('youtube-url-input') as HTMLDivElement;
+    const search = document.getElementById('youtube-search-btn') as HTMLButtonElement;
+    const editorRect = { ...RECT, width: 196, right: 216 } as DOMRect;
+    const searchRect = {
+      ...RECT,
+      x: 216,
+      left: 216,
+      width: 44,
+      right: 260,
+    } as DOMRect;
+    renderRect(editor, editorRect);
+    renderRect(search, searchRect);
+
+    controller = initClearableEditors();
+
+    const clear = clearButtonFor(editor.id);
+    expect(editor.nextElementSibling).toBe(clear);
+    expect(clear?.nextElementSibling).toBe(search);
+    expect(
+      Number.parseFloat(clear?.style.left || 'NaN') +
+        Number.parseFloat(clear?.style.width || 'NaN'),
+    ).toBeLessThanOrEqual(searchRect.left);
+    expect(editor.style.getPropertyValue('--clearable-editor-reserved-space')).toBe('48px');
+  });
 });
 
 describe('clear affordance styling', () => {

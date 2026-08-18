@@ -1675,9 +1675,14 @@
   }
 
   .vinyl-wrapper {
-    /* Flex-based sizing: vinyl shrinks first, scrollbar only at minimum */
+    /* Both visualizer modes reserve the same vertical stage. The circular
+       mode derives its width from this block size, while spectrum may widen
+       independently without moving the track metadata below it. */
+    --visualizer-stage-block-size: min(55vw, 320px);
+
+    /* Flex-based sizing: the stage shrinks first, scrollbar only at minimum. */
     flex-shrink: 1;
-    flex-basis: min(55vw, 320px);
+    flex-basis: var(--visualizer-stage-block-size);
     min-height: 160px;
     aspect-ratio: 1;
     margin: auto auto 0;
@@ -1708,8 +1713,8 @@
   /* Spectrum visualizer mode */
   body.viz-spectrum .vinyl-wrapper {
     width: 100%;
-    flex-basis: auto;
-    aspect-ratio: 5 / 3;
+    flex-basis: var(--visualizer-stage-block-size);
+    aspect-ratio: auto;
     border-radius: 0;
     padding: 0 24px;
     box-sizing: border-box;
@@ -7004,8 +7009,8 @@
     cursor: pointer;
     flex-shrink: 0;
     box-shadow: none;
-    margin-bottom: 0;
-    /* Remove manual compensation, handle natively via flex-center */
+    margin-bottom: 2px;
+    /* Optical correction: keep bottom alignment while centering the arrow with the text. */
     transition:
       color 0.2s ease,
       transform 0.2s,

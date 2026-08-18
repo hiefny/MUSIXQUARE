@@ -1,7 +1,9 @@
 /**
  * MUSIXQUARE — Sync & Latency Management
  *
- * Manages: Heartbeat, ping/pong latency, manual sync (nudge).
+ * Owns host-relative clock measurement, manual sync, file drift correction,
+ * and sync protocol frames. Participant administration and transport-liveness
+ * cleanup live in room-control.ts and heartbeat-monitor.ts respectively.
  */
 
 import { log } from '../core/log.ts';
@@ -11,15 +13,12 @@ import { getState, setState } from '../core/state.ts';
 import {
   MSG,
   MANUAL_SYNC_OFFSET_LIMIT_SEC,
-  MAX_MSG_LENGTH,
-  MAX_SENDER_LABEL_LENGTH,
   PLAYBACK_STATE,
   type PlaybackActivityValue,
   type PlaybackModeValue,
 } from '../core/constants.ts';
-import type { ConnectedPeer, DataConnection } from '../types/index.ts';
+import type { DataConnection } from '../types/index.ts';
 import { registerHandlers } from './protocol.ts';
-import { broadcast, broadcastDeviceList } from './peer.ts';
 import {
   play,
   getTrackPosition,
@@ -27,7 +26,6 @@ import {
   setLocalManualSyncOffset,
 } from '../player/transport.ts';
 import { getCurrentAudioBuffer, isLocalFilePaused, setLocalFilePaused } from '../player/_state.ts';
-import { detachHostPeerConnection } from './host-peer-departure.ts';
 import {
   getHostNow,
   registerPing,
@@ -38,8 +36,6 @@ import {
 } from './shared-clock.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { showToast } from '../ui/toast.ts';
-import { rememberPinnedNotice } from '../chat/protocol.ts';
-import { playAnnouncementSound } from '../audio/ui-sounds.ts';
 import {
   getPlaybackModeActivity,
   isPlaybackActivityValue,
@@ -49,12 +45,14 @@ import {
   isPlaybackPendingFile,
   isPlaybackPlayingFile,
 } from '../player/ownership.ts';
-import {
-  getRoomContext,
-  isActiveStandardRoomCoordinator,
-  verifyPeerCapability,
-} from '../rooms/authority.ts';
+import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
+import {
+  initRoomControl,
+  resolveRoomControlKickTarget,
+  type RequestedKickScope,
+} from './room-control.ts';
+import { initHeartbeatMonitor, recordPeerHeartbeat } from './heartbeat-monitor.ts';
 
 let _syncPingCounter = 0;
 let _needsInitialSync = false;
@@ -62,13 +60,6 @@ let _wasPlaying = false;
 let _softFileDriftDirection: -1 | 0 | 1 = 0;
 let _softFileDriftSamples = 0;
 let _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
-// Heartbeats are transport liveness, not user-visible peer state. Keep the hot
-// one-ping-per-peer path off the global immutable state tree: at the 100-peer
-// room limit, cloning connectedPeers for every ping turns a linear heartbeat
-// stream into quadratic allocation and wakes unrelated state subscribers.
-// Keying by the live connection also prevents a reconnect that reuses a peer id
-// from inheriting the previous connection's lease.
-const _lastHeartbeatByConnection = new WeakMap<DataConnection, number>();
 
 const YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS = 1000;
 const FILE_SYNC_END_FENCE_SEC = 0.1;
@@ -368,16 +359,7 @@ function maybeSoftResyncFile(syncPosition: number, localPosition: number): boole
 }
 
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
-  // 1. Liveness update
-  try {
-    if (conn?.peer) {
-      const connectedPeers = getState('network.connectedPeers');
-      const p = connectedPeers.find((x) => x.id === conn.peer);
-      if (p) _lastHeartbeatByConnection.set(conn, Date.now());
-    }
-  } catch (e) {
-    log.debug('[Sync] Liveness update error:', e);
-  }
+  recordPeerHeartbeat(conn);
 
   // 2. Reply with SYNC_PONG including host time + playback state
   if (!conn?.open) return;
@@ -608,247 +590,30 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   });
 }
 
-// ─── Register Handlers ──────────────────────────────────────────────
-
-// ─── Member Removal Handler (host-only) ─────────────────────────────────────
-// Registered here instead of host.ts to avoid circular dependency
-// (host.ts → protocol.ts → peer.ts → host.ts).
-
-type RequestedKickScope = 'member' | 'physical';
-
+// Keep the legacy standard-room compatibility read at the established sync
+// facade while canonical room authority and peer identity checks live in the
+// focused room-control module.
 function resolveRequestedKickTarget(
   data: Record<string, unknown>,
   conn: DataConnection,
   scope: RequestedKickScope,
 ): string | null {
-  const room = getRoomContext();
   if (getState('network.hostConn') || getState('network.appRole') !== 'host') return null;
-  if (room.kind === 'pro') {
-    if (
-      room.role !== 'coordinator' ||
-      !room.coordinatorId ||
-      room.epoch < 1 ||
-      !room.capabilities.includes('members.manage') ||
-      room.roomId !== getState('network.sessionCode')
-    ) {
-      return null;
-    }
-  }
-
-  const senderId = conn?.peer;
-  if (!senderId || !conn.open || !verifyPeerCapability(conn, 'members.manage')) return null;
-
-  const peers = getState('network.connectedPeers');
-  const activeConnections = getState('network.activeHostConnByPeerId');
-  const sender = peers.find(
-    (peer) =>
-      peer.id === senderId &&
-      peer.conn === conn &&
-      peer.status === 'connected' &&
-      activeConnections.get(senderId) === conn,
-  );
-  if (!sender) return null;
-
-  const targetPeerId = data.targetPeerId as string;
-  const coordinatorTransportId = getState('network.myId');
-  if (
-    targetPeerId === senderId ||
-    targetPeerId === coordinatorTransportId ||
-    targetPeerId === room.coordinatorId
-  ) {
-    return null;
-  }
-
-  const target = peers.find((peer) => peer.id === targetPeerId);
-  const targetConnection = target?.conn as DataConnection | null | undefined;
-  if (
-    !target ||
-    target.status !== 'connected' ||
-    !targetConnection?.open ||
-    activeConnections.get(targetPeerId) !== targetConnection
-  ) {
-    return null;
-  }
-
-  if (room.kind === 'standard') {
-    const sameClaimedMember =
-      typeof sender.memberId === 'string' &&
-      sender.memberId.length > 0 &&
-      sender.memberId === target.memberId;
-    const sameAuthenticatedMember =
-      sameClaimedMember && sender.isAuthenticated === true && target.isAuthenticated === true;
-
-    if (scope === 'member') {
-      // Member-wide removal also revokes account authority, so it must never
-      // target the caller's own account or another administrator.
-      if (target.isOp || sameClaimedMember) return null;
-    } else {
-      // Exact removal may disconnect a verified sibling connection while
-      // preserving the shared account grant. Unverified identity collisions
-      // fail closed, and administrators from other accounts remain protected.
-      if (
-        (sameClaimedMember && !sameAuthenticatedMember) ||
-        (target.isOp && !sameAuthenticatedMember)
-      ) {
-        return null;
-      }
-    }
-  }
-
-  return targetPeerId;
-}
-
-function handleRequestKickDevice(data: Record<string, unknown>, conn: DataConnection): void {
-  const targetPeerId = resolveRequestedKickTarget(data, conn, 'member');
-  if (!targetPeerId) return;
-
-  // The established member-level path expands authenticated targets to every
-  // sibling connection and revokes account-level administrator authority.
-  bus.emit('network:kick-device', targetPeerId);
-}
-
-function handleRequestKickPhysicalDevice(
-  data: Record<string, unknown>,
-  conn: DataConnection,
-): void {
-  // PRO removals are server-authoritative (`/presence/kick`). Never let a
-  // peer frame bypass the Worker’s owner/administrator protections and turn
-  // the coordinator transport into an alternate exact-kick endpoint.
-  if (getRoomContext().kind !== 'standard') return;
-  const targetPeerId = resolveRequestedKickTarget(data, conn, 'physical');
-  if (!targetPeerId) return;
-  // Exact connection removal deliberately preserves sibling devices and the
-  // member's account-level administrator grant.
-  bus.emit('network:kick-physical-device', targetPeerId);
-}
-
-// ─── Chat Command Request (OP guest → Host) ─────────────────────
-
-function handleRequestChatCommand(data: Record<string, unknown>, conn: DataConnection): void {
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only host processes this
-
-  const peerId = conn?.peer;
-  if (!peerId) return;
-
-  const peers = getState('network.connectedPeers');
-  const peer = peers.find((candidate) => candidate.id === peerId && candidate.conn === conn);
-  if (!peer) return;
-
-  const command = data.command as string;
-  const args = (data.args as string[]) || [];
-  if (getRoomContext().kind === 'standard') {
-    const capability = command === 'notice' ? 'chat.notice' : 'room.configure';
-    if (!verifyPeerCapability(conn, capability)) return;
-  } else if (!peer.isOp) {
-    return;
-  }
-
-  switch (command) {
-    case 'freeze': {
-      const flag = args[0]?.toLowerCase();
-      if (flag !== 'on' && flag !== 'off') return;
-      const on = flag === 'on';
-      setState('network.chatFrozen', on);
-      broadcast({ type: on ? MSG.CHAT_FREEZE : MSG.CHAT_UNFREEZE });
-      bus.emit('chat:system-message', on ? t('chat.cmd_frozen') : t('chat.cmd_unfrozen'));
-      break;
-    }
-    case 'mute': {
-      const targetArg = args[0];
-      if (!targetArg) return;
-      const target = _resolveTargetForHost(targetArg);
-      if (!target) return;
-      const current = getState('network.mutedPeers');
-      setState('network.mutedPeers', new Set([...current, target.peerId]));
-      broadcast({ type: MSG.CHAT_MUTE, targetId: target.peerId, targetLabel: target.label });
-      bus.emit('chat:system-message', t('chat.cmd_muted', { name: target.label }));
-      break;
-    }
-    case 'unmute': {
-      const targetArg = args[0];
-      if (!targetArg) return;
-      const target = _resolveTargetForHost(targetArg);
-      if (!target) return;
-      const current = getState('network.mutedPeers');
-      const next = new Set([...current]);
-      next.delete(target.peerId);
-      setState('network.mutedPeers', next);
-      broadcast({ type: MSG.CHAT_UNMUTE, targetId: target.peerId, targetLabel: target.label });
-      bus.emit('chat:system-message', t('chat.cmd_unmuted', { name: target.label }));
-      break;
-    }
-    case 'clear':
-      broadcast({ type: MSG.CHAT_CLEAR });
-      bus.emit('chat:clear-all');
-      break;
-    case 'slowmode': {
-      const sec = parseInt(args[0] || '0', 10);
-      if (isNaN(sec) || sec < 0 || sec > 60) return;
-      setState('network.slowmodeSeconds', sec);
-      broadcast({ type: MSG.CHAT_SLOWMODE, seconds: sec });
-      bus.emit(
-        'chat:system-message',
-        sec > 0 ? t('chat.cmd_slowmode_on', { sec }) : t('chat.cmd_slowmode_off'),
-      );
-      break;
-    }
-    case 'filter': {
-      const on = args[0]?.toLowerCase() === 'on';
-      setState('network.filterEnabled', on);
-      broadcast({ type: MSG.CHAT_FILTER, on });
-      bus.emit('chat:system-message', on ? t('chat.cmd_filter_on') : t('chat.cmd_filter_off'));
-      break;
-    }
-    case 'notice': {
-      // Cap length before broadcast so an OP can't amplify a 10MB arg to N peers.
-      const text = args.join(' ').trim().slice(0, MAX_MSG_LENGTH);
-      if (!text) return;
-      const peerLabel = (peer.label || 'OP').substring(0, MAX_SENDER_LABEL_LENGTH);
-      const noticePayload = {
-        type: MSG.CHAT_NOTICE,
-        senderLabel: peerLabel,
-        text,
-        ts: Date.now(),
-        attention: true,
-      };
-      rememberPinnedNotice(noticePayload);
-      broadcast(noticePayload);
-      bus.emit('chat:notice-message', peerLabel, text, noticePayload.ts);
-      playAnnouncementSound();
-      break;
-    }
-    default:
-      log.warn(`[Sync] Unknown chat command from OP: ${command}`);
-  }
-}
-
-function _resolveTargetForHost(arg: string): { peerId: string; label: string } | null {
-  const peers = getState('network.connectedPeers');
-  if (arg.startsWith('#')) {
-    const order = parseInt(arg.slice(1), 10);
-    if (!isNaN(order)) {
-      const p = peers.find((peer) => peer.joinOrder === order);
-      if (p) return { peerId: p.id, label: p.label };
-    }
-    return null;
-  }
-  const lower = arg.toLowerCase();
-  const p = peers.find((peer) => peer.label.toLowerCase() === lower);
-  if (p) return { peerId: p.id, label: p.label };
-  return null;
+  return resolveRoomControlKickTarget(data, conn, scope);
 }
 
 export function initSync(): void {
+  // Preserve the existing single bootstrap boundary while delegating room
+  // administration and transport liveness to their focused owners.
+  initRoomControl(resolveRequestedKickTarget);
+  initHeartbeatMonitor();
+
   resetSoftFileResyncState();
   _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
 
   registerHandlers({
     [MSG.SYNC_PING]: handleSyncPing,
     [MSG.SYNC_PONG]: handleSyncPong,
-    [MSG.REQUEST_KICK_DEVICE]: handleRequestKickDevice,
-    [MSG.REQUEST_KICK_PHYSICAL_DEVICE]: handleRequestKickPhysicalDevice,
-    [MSG.REQUEST_CHAT_COMMAND]: handleRequestChatCommand,
   });
 
   // SharedClock role management
@@ -971,124 +736,5 @@ export function initSync(): void {
     }
   });
 
-  // ── Host: Start heartbeat monitor when session starts ──
-  bus.on('state:setup.sessionStarted', (started) => {
-    if (started) startHeartbeatMonitor();
-    else stopHeartbeatMonitor();
-  });
-
   log.info('[Sync] Handlers registered');
-}
-
-// ─── Host: Heartbeat Monitor ──────────────────────────────────────
-// Checks every 5s for peers whose lastHeartbeat is older than threshold.
-// Marks them as disconnected and cleans up.
-
-const HEARTBEAT_STALE_THRESHOLD = 8000; // 8s without heartbeat = stale
-const HEARTBEAT_CHECK_INTERVAL = 5000; // check every 5s
-// Browser/worker timers may be suspended while a mobile guest is backgrounded.
-// A still-open RTC transport is stronger liveness evidence than the absence of
-// an application heartbeat, so retain it through a bounded background grace.
-// Truly dead/unknown transports keep the short stale threshold so abandoned
-// slots cannot consume room capacity indefinitely.
-const HEARTBEAT_LIVE_TRANSPORT_GRACE = 90_000;
-const HEARTBEAT_RECOVERING_TRANSPORT_GRACE = 30_000;
-
-function heartbeatTransportGrace(conn: DataConnection | undefined): number {
-  if (!conn?.open) return HEARTBEAT_STALE_THRESHOLD;
-
-  const pcState = conn.peerConnection?.connectionState;
-  const dataState = conn.dataChannel?.readyState;
-  const controlState = conn.controlChannel?.readyState;
-  if (
-    pcState === 'closed' ||
-    pcState === 'failed' ||
-    dataState === 'closed' ||
-    controlState === 'closed'
-  ) {
-    return HEARTBEAT_STALE_THRESHOLD;
-  }
-
-  if (
-    pcState === 'connected' &&
-    (dataState === undefined || dataState === 'open') &&
-    (controlState === undefined || controlState === 'open')
-  ) {
-    return HEARTBEAT_LIVE_TRANSPORT_GRACE;
-  }
-
-  if (pcState === 'disconnected' || pcState === 'connecting' || pcState === 'new') {
-    return HEARTBEAT_RECOVERING_TRANSPORT_GRACE;
-  }
-
-  return HEARTBEAT_STALE_THRESHOLD;
-}
-
-function startHeartbeatMonitor(): void {
-  stopHeartbeatMonitor();
-  const hostConn = getState('network.hostConn');
-  if (hostConn) return; // Only host monitors
-
-  setManagedTimer(
-    'heartbeat-monitor',
-    () => {
-      const hc = getState('network.hostConn');
-      if (hc) {
-        stopHeartbeatMonitor();
-        return;
-      } // No longer host
-
-      const now = Date.now();
-      const connectedPeers = getState('network.connectedPeers');
-      const stalePeers: ConnectedPeer[] = [];
-
-      for (const p of connectedPeers) {
-        if (p.status !== 'connected') continue;
-        const conn = p.conn as DataConnection | undefined;
-        const lastHeartbeat =
-          (conn ? _lastHeartbeatByConnection.get(conn) : undefined) ??
-          ((p.lastHeartbeat as number) || 0);
-        const elapsed = now - lastHeartbeat;
-        const staleThreshold = heartbeatTransportGrace(conn);
-        if (elapsed > staleThreshold) {
-          log.warn(
-            `[Heartbeat] Peer ${p.label || p.id} stale (${(elapsed / 1000).toFixed(1)}s; transport=${conn?.peerConnection?.connectionState ?? 'unknown'}) — marking disconnected`,
-          );
-          stalePeers.push(p);
-        }
-      }
-
-      if (stalePeers.length > 0) {
-        const departures = stalePeers
-          .map((peer) =>
-            detachHostPeerConnection(peer.id, peer.conn as DataConnection | null | undefined),
-          )
-          .filter((departure) => departure !== null);
-
-        // Fence stale connections out of host state before physically closing
-        // them. Some Chromium builds emit a synchronous RTCDataChannel error
-        // from close(); host.ts must see that connection as stale and ignore it.
-        for (const departure of departures) {
-          try {
-            departure.connection?.close();
-          } catch {
-            /* noop */
-          }
-        }
-
-        for (const departure of departures) {
-          bus.emit('network:peer-disconnected', departure.peer.id);
-        }
-        if (departures.length > 0) broadcastDeviceList();
-      }
-    },
-    HEARTBEAT_CHECK_INTERVAL,
-    { interval: true },
-  );
-
-  log.info('[Heartbeat] Monitor started');
-}
-
-function stopHeartbeatMonitor(): void {
-  clearManagedTimer('heartbeat-monitor');
 }

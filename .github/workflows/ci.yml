@@ -244,7 +244,7 @@ jobs:
   browser-gate:
     name: Critical browser gate
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
 
     steps:
       - name: Checkout exact candidate

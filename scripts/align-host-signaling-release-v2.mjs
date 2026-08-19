@@ -62,9 +62,9 @@ let appWorkerCorsTests = read(appWorkerCorsTestPath);
 const adminAssetVersionExpectation = '8.3.72';
 const adminAssetVersionExpectationCount =
   appWorkerCorsTests.split(adminAssetVersionExpectation).length - 1;
-if (adminAssetVersionExpectationCount !== 4) {
+if (adminAssetVersionExpectationCount !== 7) {
   throw new Error(
-    `${appWorkerCorsTestPath}: expected four admin asset version expectations, found ${adminAssetVersionExpectationCount}`,
+    `${appWorkerCorsTestPath}: expected seven admin asset version expectations, found ${adminAssetVersionExpectationCount}`,
   );
 }
 appWorkerCorsTests = appWorkerCorsTests.replaceAll(adminAssetVersionExpectation, '8.3.73');

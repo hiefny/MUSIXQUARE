@@ -1,12 +1,11 @@
-name: One-shot Signaling Liveness Production Repair
+name: One-shot Signaling Liveness Production Repair v5
 
 on:
   push:
     branches: [main]
     paths:
-      - '.github/workflows/one-shot-signaling-production.yml'
-      - 'scripts/one-shot-signaling-liveness-patch.mjs'
-      - 'scripts/one-shot-signaling-liveness-patch-base.mjs'
+      - '.github/workflows/agent-signaling-finalize-v4.yml'
+  workflow_dispatch:
 
 permissions:
   actions: write
@@ -15,7 +14,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: musixquare-one-shot-signaling-production
+  group: musixquare-one-shot-signaling-production-v5
   cancel-in-progress: true
 
 jobs:
@@ -39,7 +38,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr comment 82 --body "Signaling liveness production repair started: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh pr comment 82 --body "Signaling production repair v5 started: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true
 
       - name: Require unchanged main ownership
         run: |
@@ -49,92 +48,190 @@ jobs:
       - name: Install dependencies with pinned npm
         run: corepack npm ci
 
-      - name: Apply exact WebSocket liveness repair and remove transient files
+      - name: Apply exact WebSocket liveness repair
         run: node scripts/one-shot-signaling-liveness-patch.mjs
 
-      - name: Advance release identity and write design record
+      - name: Align release, export, and CI contracts
         shell: bash
         run: |
           python3 - <<'PY'
           import json
+          import re
           from pathlib import Path
+
+          TARGET_VERSION = '8.3.73'
+          PREVIOUS_VERSION = '8.3.72'
+
+          def replace_once(source: str, before: str, after: str, label: str) -> str:
+              count = source.count(before)
+              if count != 1:
+                  raise SystemExit(f'{label}: expected one anchor, found {count}: {before[:100]!r}')
+              return source.replace(before, after, 1)
 
           for name in ('package.json', 'package-lock.json'):
               path = Path(name)
               document = json.loads(path.read_text(encoding='utf-8'))
-              if document.get('version') != '8.3.72':
+              if document.get('version') != PREVIOUS_VERSION:
                   raise SystemExit(f'{name}: unexpected version {document.get("version")!r}')
-              document['version'] = '8.3.73'
+              document['version'] = TARGET_VERSION
               if name == 'package-lock.json':
                   root = document.get('packages', {}).get('')
-                  if not isinstance(root, dict) or root.get('version') != '8.3.72':
+                  if not isinstance(root, dict) or root.get('version') != PREVIOUS_VERSION:
                       raise SystemExit('package-lock.json: unexpected root package version')
-                  root['version'] = '8.3.73'
+                  root['version'] = TARGET_VERSION
               path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          version_targets = (
+              ('cloudflare/app-worker.ts', 'ADMIN_ASSET_VERSION'),
+              ('browser/classic-runtime/admin.ts', 'ADMIN_SCRIPT_VERSION'),
+          )
+          for filename, constant in version_targets:
+              path = Path(filename)
+              source = path.read_text(encoding='utf-8')
+              pattern = re.compile(rf"const {constant} = '([^']+)';")
+              matches = pattern.findall(source)
+              if matches != [PREVIOUS_VERSION]:
+                  raise SystemExit(f'{filename}: unexpected {constant} declarations: {matches!r}')
+              source = pattern.sub(f"const {constant} = '{TARGET_VERSION}';", source, count=1)
+              path.write_text(source, encoding='utf-8')
+
+          liveness_path = Path('src/network/transport/signaling-liveness.ts')
+          liveness = liveness_path.read_text(encoding='utf-8')
+          for constant in (
+              'SIGNALING_LIVENESS_PING',
+              'SIGNALING_LIVENESS_PONG',
+              'SIGNALING_LIVENESS_INTERVAL_MS',
+              'SIGNALING_LIVENESS_TIMEOUT_MS',
+          ):
+              liveness = replace_once(
+                  liveness,
+                  f'export const {constant}',
+                  f'const {constant}',
+                  f'{liveness_path}:{constant}',
+              )
+          liveness_path.write_text(liveness, encoding='utf-8')
+
+          test_path = Path('src/network/transport/__tests__/signaling-liveness.test.ts')
+          tests = test_path.read_text(encoding='utf-8')
+          imported_constants = """import {
+            SIGNALING_LIVENESS_INTERVAL_MS,
+            SIGNALING_LIVENESS_PING,
+            SIGNALING_LIVENESS_PONG,
+            SIGNALING_LIVENESS_TIMEOUT_MS,
+          } from '../signaling-liveness.ts';
+          """
+          local_constants = """const SIGNALING_LIVENESS_PING =
+            '{\"type\":\"signaling-liveness-ping\",\"version\":1}';
+          const SIGNALING_LIVENESS_PONG =
+            '{\"type\":\"signaling-liveness-pong\",\"version\":1}';
+          const SIGNALING_LIVENESS_INTERVAL_MS = 5_000;
+          const SIGNALING_LIVENESS_TIMEOUT_MS = 10_000;
+          """
+          tests = replace_once(
+              tests,
+              imported_constants,
+              local_constants,
+              f'{test_path}:liveness constants import',
+          )
+          test_path.write_text(tests, encoding='utf-8')
+
+          evidence_path = Path('scripts/release-evidence.mts')
+          evidence = evidence_path.read_text(encoding='utf-8')
+          evidence = replace_once(
+              evidence,
+              '  events: readonly string[];\n',
+              '  event: string;\n  fallbackEvents?: readonly string[];\n',
+              f'{evidence_path}:options',
+          )
+          evidence = replace_once(
+              evidence,
+              '  workflow,\n  events,\n  prefix,\n',
+              '  workflow,\n  event,\n  fallbackEvents = [],\n  prefix,\n',
+              f'{evidence_path}:destructure',
+          )
+          old_run_sets = """    const runSets = await Promise.all(
+              events.map(async (event) => ({
+                event,
+                runs: await githubApi(workflowRunsPath(repository, workflow, sha, event), token),
+              })),
+            );
+          """
+          new_run_sets = """    const candidateEvents = [event, ...fallbackEvents];
+            const runSets = await Promise.all(
+              candidateEvents.map(async (candidateEvent) => ({
+                event: candidateEvent,
+                runs: await githubApi(
+                  workflowRunsPath(repository, workflow, sha, candidateEvent),
+                  token,
+                ),
+              })),
+            );
+          """
+          evidence = replace_once(
+              evidence,
+              old_run_sets,
+              new_run_sets,
+              f'{evidence_path}:run sets',
+          )
+          evidence = replace_once(
+              evidence,
+              "      events: ['push', 'workflow_dispatch'],\n",
+              "      event: 'push',\n      fallbackEvents: ['workflow_dispatch'],\n",
+              f'{evidence_path}:candidate events',
+          )
+          evidence_path.write_text(evidence, encoding='utf-8')
+
+          Path('docs/design/signaling-liveness.md').write_text(
+              '''# Signaling WebSocket Liveness and Invite Recovery
+
+- **Status:** Accepted
+- **Decision date:** 2026-08-19
+- **Applies to:** Cloudflare standard-room and PRO signaling transports
+
+## Decision
+
+The signaling Worker advertises protocol version 1 after authenticated admission. Upgraded
+clients send a fixed application-level ping on the exact admitted WebSocket every five
+seconds. Cloudflare Durable Objects use a WebSocket auto-response when available, retaining
+an explicit fallback for local and compatibility runtimes.
+
+A socket that produces neither a pong nor another server message within the bounded timeout
+is identity-fenced out of transport state before close. Existing WebRTC media/data channels
+remain intact while only the signaling generation is rebuilt through the existing recovery
+backoff. Legacy Workers remain compatible because monitoring begins only after capability
+advertisement. Background timer gaps re-arm the probe instead of declaring a false outage.
+
+The media-loading policy is unchanged: loading remains best-effort until the device itself
+fails, and the 200 MiB value remains a transfer/private-storage protocol ceiling rather than
+a RAM admission limit.
+''',
+              encoding='utf-8',
+          )
           PY
 
-          cat > docs/design/signaling-liveness.md <<'EOF'
-          # Signaling WebSocket Liveness and Invite Recovery
-
-          - **Status:** Accepted
-          - **Decision date:** 2026-08-19
-          - **Applies to:** Cloudflare standard-room and PRO signaling transports
-
-          ## Problem
-
-          Windows Chromium can retain a signaling WebSocket in the `OPEN` state after the
-          network route disappears. Existing WebRTC data channels may continue to work,
-          but the room can no longer admit a new device. Waiting only for WebSocket
-          `close` or `error` therefore leaves the QR invite action showing **Copy invite
-          link** while the signaling path is unusable.
-
-          ## Decision
-
-          The signaling Worker advertises protocol version 1 in the authenticated
-          `peer-open` frame. Upgraded clients then send one fixed application-level ping
-          on the exact admitted WebSocket every five seconds. Cloudflare Durable Objects
-          answer the fixed frame with `setWebSocketAutoResponse()` so the room object does
-          not need to wake for normal probes; local and compatibility runtimes retain an
-          explicit fallback response.
-
-          A socket that does not produce a pong or any other server message within the
-          bounded timeout is identity-fenced out of transport state before it is closed.
-          The existing `disconnected` lifecycle then drives the 1/2/4/8/15-second retry
-          budget and `network.signalingHealth`, so the current QR action changes to
-          **Recovering** without a second UI state machine. Browser `offline` starts the
-          same recovery immediately, and `online` requests an immediate retry.
-
-          ## Compatibility and lifecycle
-
-          - Monitoring starts only after the Worker advertises support, so either side of
-            a rolling deployment remains compatible.
-          - A late pong or close from a superseded socket cannot mutate its replacement.
-          - Existing WebRTC data channels and system-audio media are preserved while only
-            the signaling socket generation is rebuilt.
-          - Long background timer gaps re-arm monitoring instead of declaring a false
-            outage.
-          - UI layout, copy, and room flows are unchanged.
-          - Media loading remains best-effort and RAM-only. The 200 MiB value remains a
-            transfer/private-storage protocol ceiling, not a device-memory admission
-            limit.
-
-          ## Verification
-
-          Focused transport and Worker tests cover unresponsive sockets, healthy pong
-          traffic, legacy Workers, browser offline/online transitions, superseded socket
-          generations, and the Durable Object fallback. Full type, lint, unit, browser,
-          Worker, production-build, and release-candidate checks remain deployment gates.
-          EOF
+      - name: Remove transient repair files
+        run: |
+          rm -f .github/workflows/agent-signaling-finalize.yml
+          rm -f .github/workflows/agent-signaling-finalize-v3.yml
+          rm -f .github/workflows/agent-signaling-finalize-v4.yml
+          rm -f .github/workflows/one-shot-signaling-production.yml
+          rm -f scripts/one-shot-signaling-liveness-patch.py
+          rm -f scripts/one-shot-signaling-liveness-patch.mjs
+          rm -f scripts/one-shot-signaling-liveness-patch-base.mjs
+          rm -f scripts/.generated-one-shot-signaling-liveness-patch.mjs
 
       - name: Format touched sources
         run: >-
           npx prettier --write
           src/network/transport/signaling-liveness.ts
           src/network/transport/__tests__/signaling-liveness.test.ts
+          src/network/transport/__tests__/cloudflare-signaling-worker.test.ts
           src/network/transport/cloudflare-signaling.ts
           src/network/transport/types.ts
           src/network/peer.ts
           cloudflare/signaling-worker.ts
+          cloudflare/app-worker.ts
+          browser/classic-runtime/admin.ts
           .github/workflows/ci.yml
           scripts/release-evidence.mts
           scripts/service-worker-asset.ts
@@ -143,11 +240,24 @@ jobs:
           package-lock.json
           index.html
 
-      - name: Verify clean patch shape
+      - name: Verify clean patch shape and release identity
         run: |
           test ! -e .github/workflows/one-shot-signaling-production.yml
+          test ! -e .github/workflows/agent-signaling-finalize-v4.yml
+          test ! -e scripts/one-shot-signaling-liveness-patch.py
           test ! -e scripts/one-shot-signaling-liveness-patch.mjs
           test ! -e scripts/one-shot-signaling-liveness-patch-base.mjs
+          grep -q "v460" scripts/service-worker-asset.ts
+          grep -q "const ADMIN_ASSET_VERSION = '8.3.73';" cloudflare/app-worker.ts
+          grep -q "const ADMIN_SCRIPT_VERSION = '8.3.73';" browser/classic-runtime/admin.ts
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          if (pkg.version !== '8.3.73' || lock.version !== '8.3.73' || lock.packages?.['']?.version !== '8.3.73') {
+            throw new Error('RELEASE_VERSION_NOT_ALIGNED');
+          }
+          NODE
           git diff --check
 
       - name: Focused signaling tests
@@ -190,7 +300,7 @@ jobs:
           git push origin HEAD:main
           final_sha="$(git rev-parse HEAD)"
           echo "final_sha=${final_sha}" >> "$GITHUB_OUTPUT"
-          gh pr comment 82 --body "Clean signaling repair committed to main at ${final_sha}; exact-SHA CI is starting."
+          gh pr comment 82 --body "Clean signaling repair committed to main at ${final_sha}; exact-SHA CI is starting." || true
 
       - name: Dispatch and wait for exact-SHA CI
         id: ci
@@ -207,7 +317,7 @@ jobs:
           done
           test -n "$run_id"
           echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
-          gh pr comment 82 --body "Exact-SHA CI: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          gh pr comment 82 --body "Exact-SHA CI: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" || true
           gh run watch "$run_id" --exit-status --interval 10
 
       - name: Dispatch and wait for full production release
@@ -225,11 +335,10 @@ jobs:
           done
           test -n "$run_id"
           echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
-          gh pr comment 82 --body "Full app+signaling production release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          gh pr comment 82 --body "Full app+signaling production release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" || true
           gh run watch "$run_id" --exit-status --interval 15
 
       - name: Verify live SW and signaling capability
-        id: live
         env:
           FINAL_SHA: ${{ steps.publish.outputs.final_sha }}
         run: |
@@ -259,7 +368,6 @@ jobs:
           const result = await new Promise((resolve, reject) => {
             const socket = new WebSocket(url, { origin: 'https://musixquare.com' });
             let workerVersionId = '';
-            let capability = 0;
             const timer = setTimeout(() => {
               socket.terminate();
               reject(new Error('LIVE_SIGNALING_LIVENESS_TIMEOUT'));
@@ -269,60 +377,42 @@ jobs:
               try { socket.close(1000, 'verification complete'); } catch {}
               resolve(value);
             };
-            socket.once('open', () => {
-              socket.send(JSON.stringify({ type: 'host-auth', secret }));
-            });
+            socket.once('open', () => socket.send(JSON.stringify({ type: 'host-auth', secret })));
             socket.on('message', (data) => {
               const raw = data.toString();
               if (raw === pong) {
-                finish({ workerVersionId, signalingLivenessVersion: capability, pong: true });
+                finish({ workerVersionId, signalingLivenessVersion: 1, pong: true });
                 return;
               }
               let message;
               try { message = JSON.parse(raw); } catch { return; }
               if (message?.type !== 'peer-open') return;
               workerVersionId = typeof message.workerVersionId === 'string' ? message.workerVersionId : '';
-              capability = message.signalingLivenessVersion;
-              if (capability !== 1) {
+              if (message.signalingLivenessVersion !== 1) {
                 clearTimeout(timer);
                 socket.terminate();
-                reject(new Error(`LIVE_SIGNALING_CAPABILITY_${String(capability)}`));
+                reject(new Error(`LIVE_SIGNALING_CAPABILITY_${String(message.signalingLivenessVersion)}`));
                 return;
               }
               socket.send(ping);
             });
             socket.once('error', reject);
           });
-
           console.log(JSON.stringify(result));
           NODE
-
           cat live-signaling-verification.json
 
-      - name: Close superseded PR and cancel branch runs
+      - name: Close superseded PR and publish success
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           FINAL_SHA: ${{ steps.publish.outputs.final_sha }}
         run: |
-          for status in queued in_progress waiting requested; do
-            gh run list --branch agent/signaling-liveness-recovery --status "$status" --limit 50 --json databaseId --jq '.[].databaseId' | while read -r run_id; do
-              [ -z "$run_id" ] || gh run cancel "$run_id" || true
-            done
-          done
-          gh pr close 82 --comment "Superseded by deployed main commit ${FINAL_SHA}. SW v460 and signaling liveness capability v1 were verified live." --delete-branch
-
-      - name: Publish completion status
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-          FINAL_SHA: ${{ steps.publish.outputs.final_sha }}
-        run: |
-          gh pr comment 82 --body "Production verification complete for ${FINAL_SHA}: SW v460 is live and the signaling Worker advertises capability v1 with a successful pong."
+          gh pr close 82 --comment "Superseded by deployed main commit ${FINAL_SHA}. SW v460 and signaling liveness capability v1 were verified live." --delete-branch || true
 
       - name: Publish failure status
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr comment 82 --body "Production repair failed closed. No later gate was advanced after the failing step: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true
+          gh pr comment 82 --body "Production repair v5 failed closed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true

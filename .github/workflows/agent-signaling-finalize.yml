@@ -1,11 +1,9 @@
 name: Dispatch Main Signaling Liveness Repair
 
 on:
-  push:
-    branches:
-      - agent/signaling-liveness-recovery
-    paths:
-      - '.github/workflows/agent-signaling-finalize.yml'
+  pull_request:
+    branches: [main]
+    types: [opened, reopened]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +17,7 @@ concurrency:
 
 jobs:
   dispatch:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'agent/signaling-liveness-recovery'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -27,4 +26,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh workflow run agent-signaling-finalize-v4.yml --repo "$GITHUB_REPOSITORY" --ref main
-          gh pr comment 82 --repo "$GITHUB_REPOSITORY" --body "Dispatched the main signaling repair workflow from ${GITHUB_SHA}. The main workflow will report its exact run URL and final result here." || true
+          gh pr comment 82 --repo "$GITHUB_REPOSITORY" --body "Dispatched the main signaling repair workflow from PR event ${GITHUB_RUN_ID}. The main workflow will report its exact run URL and final result here." || true

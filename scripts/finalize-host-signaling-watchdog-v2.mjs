@@ -1,19 +1,14 @@
-import { execFileSync } from 'node:child_process';
-import { rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 writeFileSync(
   'src/network/transport/signaling-liveness.ts',
   `import { clearManagedTimer, setManagedTimer } from '../../core/timers.ts';
 
 export const SIGNALING_LIVENESS_VERSION = 1 as const;
-export const SIGNALING_LIVENESS_PING =
-  '{"type":"signaling-liveness-ping","version":1}';
-export const SIGNALING_LIVENESS_PONG =
-  '{"type":"signaling-liveness-pong","version":1}';
-export const SIGNALING_LIVENESS_INTERVAL_MS = 10_000;
-export const SIGNALING_LIVENESS_TIMEOUT_MS = 8_000;
+const SIGNALING_LIVENESS_PING = '{"type":"signaling-liveness-ping","version":1}';
+const SIGNALING_LIVENESS_PONG = '{"type":"signaling-liveness-pong","version":1}';
+const SIGNALING_LIVENESS_INTERVAL_MS = 10_000;
+const SIGNALING_LIVENESS_TIMEOUT_MS = 8_000;
 const SIGNALING_LIVENESS_SUSPENSION_GAP_MS = 30_000;
 
 interface SignalingProbe {
@@ -152,44 +147,24 @@ export class SignalingSocketLivenessMonitor {
   'utf8',
 );
 
-const baselineRoot = join(tmpdir(), `musixquare-main-dead-exports-${process.pid}`);
-rmSync(baselineRoot, { recursive: true, force: true });
-execFileSync('git', ['worktree', 'add', '--detach', baselineRoot, 'origin/main'], {
-  stdio: 'inherit',
-});
-
-let newSelfOnly = [];
-try {
-  const candidate = JSON.parse(
-    execFileSync(process.execPath, ['scripts/check-dead-exports.mts', '--analyze-json'], {
-      encoding: 'utf8',
-    }),
-  );
-  const baseline = JSON.parse(
-    execFileSync(
-      process.execPath,
-      ['scripts/check-dead-exports.mts', '--analyze-json', baselineRoot],
-      { encoding: 'utf8' },
-    ),
-  );
-  const baselineKeys = new Set(baseline.selfOnly.map((entry) => entry.key));
-  newSelfOnly = candidate.selfOnly.filter((entry) => !baselineKeys.has(entry.key));
-} finally {
-  execFileSync('git', ['worktree', 'remove', '--force', baselineRoot], { stdio: 'inherit' });
-  rmSync(baselineRoot, { recursive: true, force: true });
+const testPath = 'src/network/transport/__tests__/signaling-liveness.test.ts';
+const tests = readFileSync(testPath, 'utf8');
+const exportedConstantImport = `import {
+  SIGNALING_LIVENESS_INTERVAL_MS,
+  SIGNALING_LIVENESS_PING,
+  SIGNALING_LIVENESS_PONG,
+  SIGNALING_LIVENESS_TIMEOUT_MS,
+} from '../signaling-liveness.ts';
+`;
+const localTestConstants = `const SIGNALING_LIVENESS_INTERVAL_MS = 10_000;
+const SIGNALING_LIVENESS_TIMEOUT_MS = 8_000;
+const SIGNALING_LIVENESS_PING = '{"type":"signaling-liveness-ping","version":1}';
+const SIGNALING_LIVENESS_PONG = '{"type":"signaling-liveness-pong","version":1}';
+`;
+const importCount = tests.split(exportedConstantImport).length - 1;
+if (importCount !== 1) {
+  throw new Error(`${testPath}: expected one exported liveness constant import, found ${importCount}`);
 }
-
-console.log('=== NEW SELF-ONLY BINDINGS VS MAIN ===');
-for (const entry of newSelfOnly) {
-  const sites = entry.sites.map((site) => `${site.name} @ ${site.file}`).join(', ');
-  console.log(
-    `[${entry.kind}] ${sites} ` +
-      `(refs prod=${entry.refs.prod}, test=${entry.refs.test}, self=${entry.refs.self})`,
-  );
-}
-console.log('=== END NEW SELF-ONLY BINDINGS ===');
-if (newSelfOnly.length > 0) {
-  throw new Error(`Diagnostic stop: ${newSelfOnly.length} new self-only bindings`);
-}
+writeFileSync(testPath, tests.replace(exportedConstantImport, localTestConstants), 'utf8');
 
 console.log('Finalized 10-second idle / 8-second timeout host signaling monitor.');

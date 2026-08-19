@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - agent/host-watchdog-builder-v2
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write

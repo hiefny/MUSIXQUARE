@@ -37,7 +37,7 @@ jobs:
           Automation status: **running source repair and focused verification**.
 
           - Automation run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          - Trigger commit: `${{ github.sha }}`
+          - Trigger commit: ${{ github.sha }}
           - Product policy: no UI/UX or RAM admission change
           EOF
           )
@@ -227,7 +227,7 @@ jobs:
           - Final commit: ${{ github.server_url }}/${{ github.repository }}/commit/${FINAL_SHA}
           - CI run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.ci.outputs.run_id }}
           - Release run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.release.outputs.run_id }}
-          - Cleanup: one-shot files removed; repository branch remains `main`
+          - Cleanup: one-shot files removed; repository branch remains main
           EOF
           )
           gh api --method PATCH \
@@ -245,7 +245,7 @@ jobs:
           Automation status: **failed closed; production was not advanced past the failed gate**.
 
           - Failed automation run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          - Trigger commit: `${{ github.sha }}`
+          - Trigger commit: ${{ github.sha }}
           - The exact failing step and logs are available in the run above.
           EOF
           )

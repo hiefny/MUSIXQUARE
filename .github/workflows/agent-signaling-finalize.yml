@@ -1,4 +1,4 @@
-name: Agent Signaling Liveness Finalizer
+name: Dispatch Main Signaling Liveness Repair
 
 on:
   push:
@@ -6,177 +6,25 @@ on:
       - agent/signaling-liveness-recovery
     paths:
       - '.github/workflows/agent-signaling-finalize.yml'
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  actions: write
+  issues: write
+  pull-requests: write
 
 concurrency:
-  group: agent-signaling-liveness-finalizer
+  group: dispatch-main-signaling-liveness-repair
   cancel-in-progress: true
 
 jobs:
-  finalize-validate-publish:
+  dispatch:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
-
+    timeout-minutes: 10
     steps:
-      - name: Checkout repair branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: .node-version
-          cache: npm
-
-      - name: Install dependencies with pinned npm
-        run: corepack npm ci
-
-      - name: Apply exact WebSocket liveness repair
-        run: node scripts/one-shot-signaling-liveness-patch.mjs
-
-      - name: Advance release identity and write design record
-        shell: bash
+      - name: Dispatch the main repair workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          for name in ('package.json', 'package-lock.json'):
-              path = Path(name)
-              document = json.loads(path.read_text(encoding='utf-8'))
-              if document.get('version') != '8.3.72':
-                  raise SystemExit(f'{name}: unexpected version {document.get("version")!r}')
-              document['version'] = '8.3.73'
-              if name == 'package-lock.json':
-                  root = document.get('packages', {}).get('')
-                  if not isinstance(root, dict) or root.get('version') != '8.3.72':
-                      raise SystemExit('package-lock.json: unexpected root package version')
-                  root['version'] = '8.3.73'
-              path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-          PY
-
-          cat > docs/design/signaling-liveness.md <<'EOF'
-          # Signaling WebSocket Liveness and Invite Recovery
-
-          - **Status:** Accepted
-          - **Decision date:** 2026-08-19
-          - **Applies to:** Cloudflare standard-room and PRO signaling transports
-
-          ## Problem
-
-          Windows Chromium can retain a signaling WebSocket in the `OPEN` state after the
-          network route disappears. Existing WebRTC data channels may continue to work,
-          but the room can no longer admit a new device. Waiting only for WebSocket
-          `close` or `error` therefore leaves the QR invite action showing **Copy invite
-          link** while the signaling path is unusable.
-
-          ## Decision
-
-          The signaling Worker advertises protocol version 1 in the authenticated
-          `peer-open` frame. Upgraded clients then send one fixed application-level ping
-          on the exact admitted WebSocket every five seconds. Cloudflare Durable Objects
-          answer the fixed frame with `setWebSocketAutoResponse()` so the room object does
-          not need to wake for normal probes; local and compatibility runtimes retain an
-          explicit fallback response.
-
-          A socket that does not produce a pong or any other server message within the
-          bounded timeout is identity-fenced out of transport state before it is closed.
-          The existing `disconnected` lifecycle then drives the 1/2/4/8/15-second retry
-          budget and `network.signalingHealth`, so the current QR action changes to
-          **Recovering** without a second UI state machine. Browser `offline` starts the
-          same recovery immediately, and `online` requests an immediate retry.
-
-          ## Compatibility and lifecycle
-
-          - Monitoring starts only after the Worker advertises support, so either side of
-            a rolling deployment remains compatible.
-          - A late pong or close from a superseded socket cannot mutate its replacement.
-          - Existing WebRTC data channels and system-audio media are preserved while only
-            the signaling socket generation is rebuilt.
-          - Long background timer gaps re-arm monitoring instead of declaring a false
-            outage.
-          - UI layout, copy, and room flows are unchanged.
-          - Media loading remains best-effort and RAM-only. The 200 MiB value remains a
-            transfer/private-storage protocol ceiling, not a device-memory admission
-            limit.
-
-          ## Verification
-
-          Focused transport and Worker tests cover unresponsive sockets, healthy pong
-          traffic, legacy Workers, browser offline/online transitions, superseded socket
-          generations, and the Durable Object fallback. Full type, lint, unit, browser,
-          Worker, production-build, and release-candidate checks remain deployment gates.
-          EOF
-
-      - name: Remove transient automation before repository guards
-        run: |
-          rm -f .github/workflows/agent-signaling-finalize.yml
-          rm -f .github/workflows/agent-signaling-liveness.yml
-          rm -f scripts/one-shot-signaling-liveness-patch.mjs
-          rm -f scripts/one-shot-signaling-liveness-patch-base.mjs
-          rm -f scripts/agent-signaling-liveness-patch.py
-
-      - name: Format touched sources
-        run: >-
-          npx prettier --write
-          src/network/transport/signaling-liveness.ts
-          src/network/transport/__tests__/signaling-liveness.test.ts
-          src/network/transport/cloudflare-signaling.ts
-          src/network/transport/types.ts
-          src/network/peer.ts
-          cloudflare/signaling-worker.ts
-          .github/workflows/ci.yml
-          scripts/release-evidence.mts
-          scripts/service-worker-asset.ts
-          docs/design/signaling-liveness.md
-          package.json
-          package-lock.json
-          index.html
-
-      - name: Verify clean patch shape
-        run: |
-          test ! -e .github/workflows/agent-signaling-finalize.yml
-          test ! -e scripts/one-shot-signaling-liveness-patch.mjs
-          test ! -e scripts/one-shot-signaling-liveness-patch-base.mjs
-          git diff --check
-
-      - name: Focused signaling tests
-        run: >-
-          npx vitest run
-          src/network/transport/__tests__/signaling-liveness.test.ts
-          src/network/transport/__tests__/cloudflare-signaling.test.ts
-          src/network/transport/__tests__/cloudflare-signaling-worker.test.ts
-          src/network/__tests__/signaling-health.test.ts
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Lint and formatting contracts
-        run: |
-          npm run lint
-          npm run format:check
-
-      - name: Full unit suite
-        run: npm test
-
-      - name: Checked production build
-        run: npm run build:checked
-
-      - name: Bundle every production Worker
-        run: npm run check:worker-bundles
-
-      - name: Commit and push validated repair
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
-          git diff --cached --check
-          if git diff --cached --quiet; then
-            echo 'No validated repair diff was produced.' >&2
-            exit 1
-          fi
-          git commit -m 'fix: detect half-open signaling outages'
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          gh workflow run agent-signaling-finalize-v4.yml --repo "$GITHUB_REPOSITORY" --ref main
+          gh pr comment 82 --repo "$GITHUB_REPOSITORY" --body "Dispatched the main signaling repair workflow from ${GITHUB_SHA}. The main workflow will report its exact run URL and final result here." || true

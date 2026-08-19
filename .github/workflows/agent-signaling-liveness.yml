@@ -1,29 +1,41 @@
-name: Agent Signaling Liveness Repair
+name: Build Host Signaling Watchdog Candidate v2
 
 on:
   push:
     branches:
-      - agent/signaling-liveness-recovery
+      - agent/host-watchdog-builder-v2
 
 permissions:
-  actions: write
   contents: write
-  pull-requests: read
 
 concurrency:
-  group: agent-signaling-liveness-recovery
+  group: host-signaling-watchdog-builder-v2
   cancel-in-progress: true
 
 jobs:
-  patch-validate-publish:
+  build-candidate:
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
     steps:
-      - name: Checkout repair branch
+      - name: Checkout temporary builder branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      - name: Rebase patch inputs onto clean main
+        run: |
+          mkdir -p /tmp/musixquare-host-watchdog-patches
+          cp scripts/one-shot-signaling-liveness-patch-base.mjs /tmp/musixquare-host-watchdog-patches/
+          cp scripts/one-shot-signaling-liveness-patch.mjs /tmp/musixquare-host-watchdog-patches/
+          cp scripts/patch-host-signaling-runtime-v2.mjs /tmp/musixquare-host-watchdog-patches/
+          cp scripts/finalize-host-signaling-watchdog-v2.mjs /tmp/musixquare-host-watchdog-patches/
+          cp scripts/align-host-signaling-release-v2.mjs /tmp/musixquare-host-watchdog-patches/
+          git fetch origin main
+          git reset --hard origin/main
+          mkdir -p scripts .github/workflows
+          cp /tmp/musixquare-host-watchdog-patches/*.mjs scripts/
+          : > .github/workflows/agent-signaling-liveness.yml
 
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -34,109 +46,58 @@ jobs:
       - name: Install dependencies with pinned npm
         run: corepack npm ci
 
-      - name: Apply exact WebSocket liveness repair
+      - name: Apply host-only signaling repair
         run: |
           node scripts/one-shot-signaling-liveness-patch.mjs
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
+          node scripts/patch-host-signaling-runtime-v2.mjs
+          node scripts/finalize-host-signaling-watchdog-v2.mjs
+          node scripts/align-host-signaling-release-v2.mjs
+          git checkout origin/main -- .github/workflows/ci.yml scripts/release-evidence.mts
+          rm -f scripts/patch-host-signaling-runtime-v2.mjs
+          rm -f scripts/finalize-host-signaling-watchdog-v2.mjs
+          rm -f scripts/align-host-signaling-release-v2.mjs
 
-          for name in ('package.json', 'package-lock.json'):
-              path = Path(name)
-              document = json.loads(path.read_text(encoding='utf-8'))
-              if document.get('version') != '8.3.72':
-                  raise SystemExit(f'{name}: unexpected version {document.get("version")!r}')
-              document['version'] = '8.3.73'
-              if name == 'package-lock.json':
-                  root = document.get('packages', {}).get('')
-                  if not isinstance(root, dict) or root.get('version') != '8.3.72':
-                      raise SystemExit('package-lock.json: unexpected root package version')
-                  root['version'] = '8.3.73'
-              path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
-
-          Path('docs/design/signaling-liveness.md').write_text(
-              '''# Signaling WebSocket Liveness and Invite Recovery
-
-- **Status:** Accepted
-- **Decision date:** 2026-08-19
-- **Applies to:** Cloudflare standard-room and PRO signaling transports
-
-## Problem
-
-Windows Chromium can retain a signaling WebSocket in the `OPEN` state after the
-network route disappears. Existing WebRTC data channels may continue to work,
-but the room can no longer admit a new device. Waiting only for WebSocket
-`close` or `error` therefore leaves the QR invite action showing **Copy invite
-link** while the signaling path is unusable.
-
-## Decision
-
-The signaling Worker advertises protocol version 1 in the authenticated
-`peer-open` frame. Upgraded clients then send one fixed application-level ping
-on the exact admitted WebSocket every five seconds. Cloudflare Durable Objects
-answer the fixed frame with `setWebSocketAutoResponse()` so the room object does
-not need to wake for normal probes; local and compatibility runtimes retain an
-explicit fallback response.
-
-A socket that does not produce a pong or any other server message within the
-bounded timeout is identity-fenced out of transport state before it is closed.
-The existing `disconnected` lifecycle then drives the 1/2/4/8/15-second retry
-budget and `network.signalingHealth`, so the current QR action changes to
-**Recovering** without a second UI state machine. Browser `offline` starts the
-same recovery immediately, and `online` requests an immediate retry.
-
-## Compatibility and lifecycle
-
-- Monitoring starts only after the Worker advertises support, so either side of
-  a rolling deployment remains compatible.
-- A late pong or close from a superseded socket cannot mutate its replacement.
-- Existing WebRTC data channels and system-audio media are preserved while only
-  the signaling socket generation is rebuilt.
-- Long background timer gaps re-arm monitoring instead of declaring a false
-  outage.
-- UI layout, copy, and room flows are unchanged.
-- Media loading remains best-effort and RAM-only. The 200 MiB value remains a
-  transfer/private-storage protocol ceiling, not a device-memory admission
-  limit.
-
-## Verification
-
-Focused transport and Worker tests cover unresponsive sockets, healthy pong
-traffic, legacy Workers, browser offline/online transitions, superseded socket
-generations, and the Durable Object fallback. Full type, lint, unit, browser,
-Worker, production-build, and release-candidate checks remain deployment gates.
-''',
-              encoding='utf-8',
+      - name: Format changed product files
+        shell: bash
+        run: |
+          mapfile -t changed_files < <(
+            git diff --name-only --diff-filter=ACM origin/main -- |
+              grep -E '\.(ts|mts|js|mjs|json|md|html|yml|yaml)$' || true
           )
-          PY
+          if [ "${#changed_files[@]}" -gt 0 ]; then
+            npx prettier --write "${changed_files[@]}"
+          fi
 
-      - name: Format touched sources
-        run: >-
-          npx prettier --write
-          src/network/transport/signaling-liveness.ts
-          src/network/transport/__tests__/signaling-liveness.test.ts
-          src/network/transport/cloudflare-signaling.ts
-          src/network/transport/types.ts
-          src/network/peer.ts
-          cloudflare/signaling-worker.ts
-          .github/workflows/ci.yml
-          scripts/release-evidence.mts
-          scripts/service-worker-asset.ts
-          docs/design/signaling-liveness.md
-          package.json
-          package-lock.json
-          index.html
+      - name: Verify product-only change shape
+        run: |
+          git diff --check
+          if git diff --name-only origin/main -- .github/workflows | grep -q .; then
+            echo '::error::Existing CI or release workflows changed.'
+            exit 1
+          fi
+          if ! git diff --quiet origin/main -- scripts/release-evidence.mts; then
+            echo '::error::Release evidence logic changed.'
+            exit 1
+          fi
+          if git diff --name-only origin/main -- | grep -E '^(css/|src/storage/|src/audio/decode-admission\.ts$)'; then
+            echo '::error::UI or media admission policy changed.'
+            exit 1
+          fi
+          if git diff --name-only origin/main -- | grep -E '^scripts/(one-shot|patch-host|finalize-host|align-host)'; then
+            echo '::error::Transient builder scripts remain in the product candidate.'
+            exit 1
+          fi
+          git diff --stat origin/main --
 
-      - name: Verify patch shape
-        run: git diff --check
-
-      - name: Focused signaling tests
+      - name: Focused signaling and boundary tests
         run: >-
           npx vitest run
           src/network/transport/__tests__/signaling-liveness.test.ts
           src/network/transport/__tests__/cloudflare-signaling.test.ts
           src/network/transport/__tests__/cloudflare-signaling-worker.test.ts
           src/network/__tests__/signaling-health.test.ts
+          src/core/__tests__/room-authority-boundaries.test.ts
+          src/core/__tests__/app-worker-cors.test.ts
 
       - name: Typecheck
         run: npm run typecheck
@@ -155,137 +116,16 @@ Worker, production-build, and release-candidate checks remain deployment gates.
       - name: Bundle every production Worker
         run: npm run check:worker-bundles
 
-      - name: Commit and push validated repair
-        id: publish
+      - name: Publish clean product candidate branch
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          rm -f .github/workflows/agent-signaling-liveness.yml
-          rm -f scripts/one-shot-signaling-liveness-patch.mjs
-          rm -f scripts/agent-signaling-liveness-patch.py
+          git switch -C agent/host-signaling-watchdog-candidate-v3
           git add -A
           git diff --cached --check
           if git diff --cached --quiet; then
-            echo 'No validated repair diff was produced.' >&2
+            echo '::error::No product change was produced.'
             exit 1
           fi
-          git commit -m 'fix: detect half-open signaling outages'
-          git push origin "HEAD:${GITHUB_REF_NAME}"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-      - name: Wait for merged repair PR
-        id: merged
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import time
-          import urllib.parse
-          import urllib.request
-
-          repository = os.environ['GITHUB_REPOSITORY']
-          token = os.environ['GH_TOKEN']
-          owner = repository.split('/', 1)[0]
-          head = f'{owner}:agent/signaling-liveness-recovery'
-          url = (
-              f'https://api.github.com/repos/{repository}/pulls'
-              f'?state=closed&head={urllib.parse.quote(head)}&per_page=10'
-          )
-          headers = {
-              'Authorization': f'Bearer {token}',
-              'Accept': 'application/vnd.github+json',
-              'X-GitHub-Api-Version': '2022-11-28',
-              'User-Agent': 'musixquare-signaling-repair',
-          }
-
-          for attempt in range(240):
-              request = urllib.request.Request(url, headers=headers)
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  pulls = json.load(response)
-              merged = next((item for item in pulls if item.get('merged_at')), None)
-              if merged:
-                  with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
-                      output.write(f"pr_number={merged['number']}\n")
-                      output.write(f"merge_sha={merged['merge_commit_sha']}\n")
-                  print(f"Repair PR #{merged['number']} merged at {merged['merge_commit_sha']}")
-                  break
-              if attempt % 4 == 0:
-                  print('Waiting for the validated repair PR to merge...')
-              time.sleep(15)
-          else:
-              raise SystemExit('Timed out waiting for the repair PR to merge')
-          PY
-
-      - name: Dispatch validated production release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          import urllib.request
-
-          repository = os.environ['GITHUB_REPOSITORY']
-          token = os.environ['GH_TOKEN']
-          url = f'https://api.github.com/repos/{repository}/actions/workflows/release.yml/dispatches'
-          body = json.dumps({
-              'ref': 'main',
-              'inputs': {
-                  'target': 'all',
-                  'apply_developer_api_d1': 'false',
-              },
-          }).encode('utf-8')
-          request = urllib.request.Request(
-              url,
-              data=body,
-              method='POST',
-              headers={
-                  'Authorization': f'Bearer {token}',
-                  'Accept': 'application/vnd.github+json',
-                  'Content-Type': 'application/json',
-                  'X-GitHub-Api-Version': '2022-11-28',
-                  'User-Agent': 'musixquare-signaling-repair',
-              },
-          )
-          with urllib.request.urlopen(request, timeout=30) as response:
-              if response.status != 204:
-                  raise SystemExit(f'Unexpected release dispatch status: {response.status}')
-          print('Production release dispatched from main.')
-          PY
-
-      - name: Delete merged repair branch
-        if: ${{ always() && steps.merged.outputs.merge_sha != '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PY'
-          import os
-          import urllib.error
-          import urllib.parse
-          import urllib.request
-
-          repository = os.environ['GITHUB_REPOSITORY']
-          token = os.environ['GH_TOKEN']
-          branch = urllib.parse.quote('agent/signaling-liveness-recovery', safe='')
-          url = f'https://api.github.com/repos/{repository}/git/refs/heads/{branch}'
-          request = urllib.request.Request(
-              url,
-              method='DELETE',
-              headers={
-                  'Authorization': f'Bearer {token}',
-                  'Accept': 'application/vnd.github+json',
-                  'X-GitHub-Api-Version': '2022-11-28',
-                  'User-Agent': 'musixquare-signaling-repair',
-              },
-          )
-          try:
-              with urllib.request.urlopen(request, timeout=30) as response:
-                  if response.status != 204:
-                      raise SystemExit(f'Unexpected branch deletion status: {response.status}')
-          except urllib.error.HTTPError as error:
-              if error.code != 404:
-                  raise
-          print('Merged repair branch removed; remote branch set returns to main-only.')
-          PY
+          git commit -m 'fix: recover half-open host signaling sessions'
+          git push origin HEAD:refs/heads/agent/host-signaling-watchdog-candidate-v3

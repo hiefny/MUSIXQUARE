@@ -16,6 +16,13 @@ if (count !== 1) {
   throw new Error(`src/network/peer.ts: expected one browser recovery binding anchor, found ${count}`);
 }
 writeFileSync(path, source.replace(before, after), 'utf8');
-unlinkSync('scripts/one-shot-signaling-liveness-patch-base.mjs');
 
-console.log('Bound browser offline/online recovery to the network initialization lifecycle.');
+for (const transientPath of [
+  'scripts/one-shot-signaling-liveness-patch-base.mjs',
+  '.github/workflows/agent-signaling-liveness.yml',
+  'scripts/one-shot-signaling-liveness-patch.mjs',
+]) {
+  unlinkSync(transientPath);
+}
+
+console.log('Applied exact WebSocket liveness and removed all temporary automation sources.');

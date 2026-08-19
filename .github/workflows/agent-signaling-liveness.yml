@@ -1,9 +1,6 @@
 name: Build Host Signaling Watchdog Candidate v2
 
 on:
-  push:
-    branches:
-      - agent/host-watchdog-builder-v2
   pull_request:
     branches:
       - main

@@ -1,4 +1,7 @@
-import { writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 writeFileSync(
   'src/network/transport/signaling-liveness.ts',
@@ -132,7 +135,10 @@ export class SignalingSocketLivenessMonitor {
 
     // A background-throttled callback can arrive long after its deadline. That
     // delay is not evidence that the server was unreachable at the deadline.
-    if (this.isHidden() || elapsed > SIGNALING_LIVENESS_TIMEOUT_MS + SIGNALING_LIVENESS_SUSPENSION_GAP_MS) {
+    if (
+      this.isHidden() ||
+      elapsed > SIGNALING_LIVENESS_TIMEOUT_MS + SIGNALING_LIVENESS_SUSPENSION_GAP_MS
+    ) {
       probe.awaitingSince = null;
       probe.lastServerActivityAt = now;
       this.armIdleProbe(socket, probe, SIGNALING_LIVENESS_INTERVAL_MS);
@@ -145,5 +151,45 @@ export class SignalingSocketLivenessMonitor {
 `,
   'utf8',
 );
+
+const baselineRoot = join(tmpdir(), `musixquare-main-dead-exports-${process.pid}`);
+rmSync(baselineRoot, { recursive: true, force: true });
+execFileSync('git', ['worktree', 'add', '--detach', baselineRoot, 'origin/main'], {
+  stdio: 'inherit',
+});
+
+let newSelfOnly = [];
+try {
+  const candidate = JSON.parse(
+    execFileSync(process.execPath, ['scripts/check-dead-exports.mts', '--analyze-json'], {
+      encoding: 'utf8',
+    }),
+  );
+  const baseline = JSON.parse(
+    execFileSync(
+      process.execPath,
+      ['scripts/check-dead-exports.mts', '--analyze-json', baselineRoot],
+      { encoding: 'utf8' },
+    ),
+  );
+  const baselineKeys = new Set(baseline.selfOnly.map((entry) => entry.key));
+  newSelfOnly = candidate.selfOnly.filter((entry) => !baselineKeys.has(entry.key));
+} finally {
+  execFileSync('git', ['worktree', 'remove', '--force', baselineRoot], { stdio: 'inherit' });
+  rmSync(baselineRoot, { recursive: true, force: true });
+}
+
+console.log('=== NEW SELF-ONLY BINDINGS VS MAIN ===');
+for (const entry of newSelfOnly) {
+  const sites = entry.sites.map((site) => `${site.name} @ ${site.file}`).join(', ');
+  console.log(
+    `[${entry.kind}] ${sites} ` +
+      `(refs prod=${entry.refs.prod}, test=${entry.refs.test}, self=${entry.refs.self})`,
+  );
+}
+console.log('=== END NEW SELF-ONLY BINDINGS ===');
+if (newSelfOnly.length > 0) {
+  throw new Error(`Diagnostic stop: ${newSelfOnly.length} new self-only bindings`);
+}
 
 console.log('Finalized 10-second idle / 8-second timeout host signaling monitor.');

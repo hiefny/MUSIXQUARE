@@ -1,0 +1,243 @@
+name: Agent Signaling Liveness Repair
+
+on:
+  push:
+    branches:
+      - agent/signaling-liveness-recovery
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: agent-signaling-liveness-recovery
+  cancel-in-progress: false
+
+jobs:
+  patch-validate-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Apply signaling liveness repair
+        run: |
+          python3 scripts/agent-signaling-liveness-patch.py
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('src/network/transport/signaling-reachability.ts')
+          source = path.read_text(encoding='utf-8')
+          old = """function buildProbeUrl(signalingUrl: string): string {
+            const url = new URL(signalingUrl, window.location.href);
+            url.searchParams.set('__mxqr_reachability', Date.now().toString(36));
+            return url.toString();
+          }
+          """
+          new = """function buildProbeUrl(signalingUrl: string): string {
+            const url = new URL(signalingUrl, window.location.href);
+            if (url.protocol === 'ws:') url.protocol = 'http:';
+            else if (url.protocol === 'wss:') url.protocol = 'https:';
+            url.searchParams.set('__mxqr_reachability', Date.now().toString(36));
+            return url.toString();
+          }
+          """
+          if source.count(old) != 1:
+              raise SystemExit('unexpected signaling probe URL marker')
+          source = source.replace(old, new, 1)
+          old = """  const retireSignaling = (reason: string, error?: unknown): void => {
+            if (disposed || peer.destroyed || peer.disconnected) return;
+          """
+          new = """  const retireSignaling = (reason: string, error?: unknown): void => {
+            if (disposed || peer.destroyed || !peer.open || peer.disconnected) return;
+          """
+          if source.count(old) != 1:
+              raise SystemExit('unexpected signaling retirement marker')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Format changed sources
+        run: |
+          npx prettier --write \
+            src/network/transport/types.ts \
+            src/network/transport/cloudflare-signaling.ts \
+            src/network/transport/signaling-reachability.ts \
+            src/network/transport/index.ts \
+            src/network/transport/__tests__/signaling-reachability.test.ts \
+            src/network/transport/__tests__/cloudflare-signaling-force-reconnect.test.ts \
+            docs/design/signaling-reachability.md \
+            scripts/service-worker-asset.ts \
+            package.json \
+            package-lock.json
+
+      - name: Verify temporary automation was removed
+        run: |
+          test ! -e scripts/agent-signaling-liveness-patch.py
+          test ! -e .github/workflows/agent-signaling-liveness.yml
+          git diff --check
+
+      - name: Focused signaling tests
+        run: >-
+          npx vitest run
+          src/network/transport/__tests__/signaling-reachability.test.ts
+          src/network/transport/__tests__/cloudflare-signaling-force-reconnect.test.ts
+          src/network/transport/__tests__/cloudflare-signaling.test.ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint and formatting contracts
+        run: |
+          npm run lint
+          npm run format:check
+
+      - name: Full unit suite
+        run: npm test
+
+      - name: Checked production build
+        run: npm run build:checked
+
+      - name: Commit and push validated repair
+        id: publish
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No validated repair diff was produced.' >&2
+            exit 1
+          fi
+          git commit -m 'fix: detect silent signaling outages'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for merged repair PR
+        id: merged
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import time
+          import urllib.parse
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          owner = repository.split('/', 1)[0]
+          head = f'{owner}:agent/signaling-liveness-recovery'
+          url = (
+              f'https://api.github.com/repos/{repository}/pulls'
+              f'?state=closed&head={urllib.parse.quote(head)}&per_page=10'
+          )
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'musixquare-signaling-repair',
+          }
+
+          for attempt in range(240):
+              request = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  pulls = json.load(response)
+              merged = next((item for item in pulls if item.get('merged_at')), None)
+              if merged:
+                  with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+                      output.write(f"pr_number={merged['number']}\n")
+                      output.write(f"merge_sha={merged['merge_commit_sha']}\n")
+                  print(f"Repair PR #{merged['number']} merged at {merged['merge_commit_sha']}")
+                  break
+              if attempt % 4 == 0:
+                  print('Waiting for the validated repair PR to merge...')
+              time.sleep(15)
+          else:
+              raise SystemExit('Timed out waiting for the repair PR to merge')
+          PY
+
+      - name: Dispatch validated app release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          url = f'https://api.github.com/repos/{repository}/actions/workflows/release.yml/dispatches'
+          body = json.dumps({
+              'ref': 'main',
+              'inputs': {
+                  'target': 'app',
+                  'apply_developer_api_d1': 'false',
+              },
+          }).encode('utf-8')
+          request = urllib.request.Request(
+              url,
+              data=body,
+              method='POST',
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'Content-Type': 'application/json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'musixquare-signaling-repair',
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              if response.status != 204:
+                  raise SystemExit(f'Unexpected release dispatch status: {response.status}')
+          print('Production app release dispatched from main.')
+          PY
+
+      - name: Delete merged repair branch
+        if: ${{ always() && steps.merged.outputs.merge_sha != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          branch = urllib.parse.quote('agent/signaling-liveness-recovery', safe='')
+          url = f'https://api.github.com/repos/{repository}/git/refs/heads/{branch}'
+          request = urllib.request.Request(
+              url,
+              method='DELETE',
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Accept': 'application/vnd.github+json',
+                  'X-GitHub-Api-Version': '2022-11-28',
+                  'User-Agent': 'musixquare-signaling-repair',
+              },
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  if response.status != 204:
+                      raise SystemExit(f'Unexpected branch deletion status: {response.status}')
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+          print('Merged repair branch removed; remote branch set returns to main-only.')
+          PY

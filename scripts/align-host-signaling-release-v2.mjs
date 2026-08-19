@@ -19,7 +19,10 @@ function replaceOnce(path, before, after, label = before.slice(0, 100)) {
 
 function replaceRegexOnce(path, pattern, replacement, label) {
   const source = read(path);
-  const matches = [...source.matchAll(pattern)];
+  const matchPattern = pattern.global
+    ? pattern
+    : new RegExp(pattern.source, `${pattern.flags}g`);
+  const matches = [...source.matchAll(matchPattern)];
   if (matches.length !== 1) {
     throw new Error(`${path}: expected one ${label} match, found ${matches.length}`);
   }

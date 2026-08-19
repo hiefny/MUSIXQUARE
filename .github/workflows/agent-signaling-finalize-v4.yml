@@ -1,0 +1,361 @@
+name: One-shot Signaling Liveness Production Repair v4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/agent-signaling-finalize-v4.yml'
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: musixquare-one-shot-signaling-production-v4
+  cancel-in-progress: true
+
+jobs:
+  repair-validate-deploy-clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+
+    steps:
+      - name: Checkout full main history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Publish starting status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment 82 --body "Signaling production repair v4 started: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+      - name: Require unchanged main ownership
+        run: |
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Repair patcher helpers and generated-file prefixes
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/one-shot-signaling-liveness-patch.py')
+          source = path.read_text(encoding='utf-8')
+
+          old = '''def replace_once(path: str, before: str, after: str) -> None:
+              source = read(path)
+              count = source.count(before)
+              if count != 1:
+                  raise SystemExit(
+                      f"{path}: expected exactly one patch anchor, found {count}: {before[:120]!r}"
+                  )
+              write(path, source.replace(before, after, 1))
+          '''
+          new = '''def replace_once(path: str, before: str, after: str) -> None:
+              source = read(path)
+              if source.count(before) == 1:
+                  write(path, source.replace(before, after, 1))
+                  return
+
+              normalized_before = textwrap.dedent(before)
+              normalized_after = textwrap.dedent(after)
+              matches: list[tuple[str, str]] = []
+              seen: set[str] = set()
+              for width in range(17):
+                  candidate_before = textwrap.indent(normalized_before, " " * width)
+                  if candidate_before in seen:
+                      continue
+                  seen.add(candidate_before)
+                  if source.count(candidate_before) == 1:
+                      matches.append(
+                          (
+                              candidate_before,
+                              textwrap.indent(normalized_after, " " * width),
+                          )
+                      )
+              if len(matches) != 1:
+                  raise SystemExit(
+                      f"{path}: expected one indentation-aware patch anchor, found {len(matches)}: {before[:120]!r}"
+                  )
+              candidate_before, candidate_after = matches[0]
+              write(path, source.replace(candidate_before, candidate_after, 1))
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('unexpected Python patch helper')
+          source = source.replace(old, new, 1)
+
+          marker = "r'''\\\n"
+          replacement = "r'''\n"
+          if source.count(marker) != 2:
+              raise SystemExit(f'unexpected generated-prefix marker count: {source.count(marker)}')
+          source = source.replace(marker, replacement)
+          path.write_text(source, encoding='utf-8')
+          PY
+
+      - name: Apply cost-aware exact WebSocket liveness repair
+        run: python3 scripts/one-shot-signaling-liveness-patch.py
+
+      - name: Align production capability advertisement and tests
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          worker_path = Path('cloudflare/signaling-worker.ts')
+          worker = worker_path.read_text(encoding='utf-8')
+          old = '''function workerVersionFields(env: SignalingEnvPort): {
+            workerVersionId?: string;
+            signalingLivenessVersion: typeof SIGNALING_LIVENESS_VERSION;
+          } {
+            const metadata = env.CF_VERSION_METADATA;
+            const workerVersionId = isRecord(metadata) ? metadata.id : undefined;
+            return {
+              signalingLivenessVersion: SIGNALING_LIVENESS_VERSION,
+              ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
+            };
+          }
+          '''
+          new = '''function workerVersionFields(env: SignalingEnvPort): {
+            workerVersionId?: string;
+            signalingLivenessVersion?: typeof SIGNALING_LIVENESS_VERSION;
+          } {
+            const metadata = env.CF_VERSION_METADATA;
+            const workerVersionId = isRecord(metadata) ? metadata.id : undefined;
+            return typeof workerVersionId === 'string' && workerVersionId
+              ? { workerVersionId, signalingLivenessVersion: SIGNALING_LIVENESS_VERSION }
+              : {};
+          }
+          '''
+          if worker.count(old) != 1:
+              raise SystemExit('unexpected workerVersionFields block')
+          worker_path.write_text(worker.replace(old, new, 1), encoding='utf-8')
+
+          test_path = Path('src/network/transport/__tests__/cloudflare-signaling-worker.test.ts')
+          tests = test_path.read_text(encoding='utf-8')
+          marker = "      workerVersionId: 'worker-version-123',\n"
+          if tests.count(marker) != 2:
+              raise SystemExit(f'unexpected worker metadata expectation count: {tests.count(marker)}')
+          tests = tests.replace(
+              marker,
+              marker + '      signalingLivenessVersion: 1,\n',
+          )
+          compatibility = '''    expect(sent(host)[0]).not.toHaveProperty('workerVersionId');
+              expect(sent(guest)[0]).not.toHaveProperty('workerVersionId');
+          '''
+          compatibility_next = '''    expect(sent(host)[0]).not.toHaveProperty('workerVersionId');
+              expect(sent(guest)[0]).not.toHaveProperty('workerVersionId');
+              expect(sent(host)[0]).not.toHaveProperty('signalingLivenessVersion');
+              expect(sent(guest)[0]).not.toHaveProperty('signalingLivenessVersion');
+          '''
+          if tests.count(compatibility) != 1:
+              raise SystemExit('unexpected compatibility expectation block')
+          test_path.write_text(tests.replace(compatibility, compatibility_next, 1), encoding='utf-8')
+          PY
+
+      - name: Remove transient workflows
+        run: |
+          rm -f .github/workflows/agent-signaling-finalize-v3.yml
+          rm -f .github/workflows/agent-signaling-finalize-v4.yml
+
+      - name: Format touched sources
+        run: >-
+          npx prettier --write
+          src/network/transport/signaling-liveness.ts
+          src/network/transport/__tests__/signaling-liveness.test.ts
+          src/network/transport/__tests__/cloudflare-signaling-worker.test.ts
+          src/network/transport/cloudflare-signaling.ts
+          src/network/transport/types.ts
+          src/network/peer.ts
+          cloudflare/signaling-worker.ts
+          .github/workflows/ci.yml
+          scripts/release-evidence.mts
+          scripts/service-worker-asset.ts
+          docs/design/signaling-liveness.md
+          package.json
+          package-lock.json
+          index.html
+
+      - name: Verify clean patch shape
+        run: |
+          test ! -e .github/workflows/one-shot-signaling-production.yml
+          test ! -e .github/workflows/agent-signaling-finalize.yml
+          test ! -e .github/workflows/agent-signaling-finalize-v3.yml
+          test ! -e .github/workflows/agent-signaling-finalize-v4.yml
+          test ! -e scripts/one-shot-signaling-liveness-patch.py
+          test ! -e scripts/one-shot-signaling-liveness-patch.mjs
+          test ! -e scripts/one-shot-signaling-liveness-patch-base.mjs
+          git diff --check
+
+      - name: Focused signaling tests
+        run: >-
+          npx vitest run
+          src/network/transport/__tests__/signaling-liveness.test.ts
+          src/network/transport/__tests__/cloudflare-signaling.test.ts
+          src/network/transport/__tests__/cloudflare-signaling-worker.test.ts
+          src/network/__tests__/signaling-health.test.ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint and formatting contracts
+        run: |
+          npm run lint
+          npm run format:check
+
+      - name: Full unit suite
+        run: npm test
+
+      - name: Checked production build
+        run: npm run build:checked
+
+      - name: Bundle every production Worker
+        run: npm run check:worker-bundles
+
+      - name: Commit validated clean source to main
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git fetch --no-tags origin main
+          test "$(git rev-parse origin/main)" = "$GITHUB_SHA"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: detect half-open signaling outages'
+          git push origin HEAD:main
+          final_sha="$(git rev-parse HEAD)"
+          echo "final_sha=${final_sha}" >> "$GITHUB_OUTPUT"
+          gh pr comment 82 --body "Clean signaling repair committed to main at ${final_sha}; exact-SHA CI is starting."
+
+      - name: Dispatch and wait for exact-SHA CI
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.publish.outputs.final_sha }}
+        run: |
+          gh workflow run ci.yml --ref main
+          run_id=''
+          for _ in $(seq 1 90); do
+            run_id="$(gh run list --workflow ci.yml --branch main --event workflow_dispatch --commit "$FINAL_SHA" --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
+            if [ -n "$run_id" ]; then break; fi
+            sleep 5
+          done
+          test -n "$run_id"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          gh pr comment 82 --body "Exact-SHA CI: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          gh run watch "$run_id" --exit-status --interval 10
+
+      - name: Dispatch and wait for full production release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.publish.outputs.final_sha }}
+        run: |
+          gh workflow run release.yml --ref main -f target=all -f apply_developer_api_d1=false
+          run_id=''
+          for _ in $(seq 1 90); do
+            run_id="$(gh run list --workflow release.yml --branch main --event workflow_dispatch --commit "$FINAL_SHA" --limit 20 --json databaseId --jq '.[0].databaseId // empty')"
+            if [ -n "$run_id" ]; then break; fi
+            sleep 5
+          done
+          test -n "$run_id"
+          echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
+          gh pr comment 82 --body "Full app+signaling production release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          gh run watch "$run_id" --exit-status --interval 15
+
+      - name: Verify live SW and signaling capability
+        env:
+          FINAL_SHA: ${{ steps.publish.outputs.final_sha }}
+        run: |
+          sw_ok='false'
+          for _ in $(seq 1 60); do
+            if curl -fsS --max-time 15 -H 'Cache-Control: no-cache' "https://musixquare.com/service-worker.js?verify=${FINAL_SHA}" | grep -q 'v460'; then
+              sw_ok='true'
+              break
+            fi
+            sleep 5
+          done
+          test "$sw_ok" = 'true'
+
+          node --input-type=module <<'NODE' > live-signaling-verification.json
+          import { randomBytes, randomInt, randomUUID } from 'node:crypto';
+          import WebSocket from 'ws';
+
+          const roomId = String(randomInt(100000, 1000000));
+          const peerId = `verify-${randomUUID().replaceAll('-', '').slice(0, 20)}`;
+          const secret = randomBytes(24).toString('base64url');
+          const url = new URL(`wss://signal.musixquare.com/api/rooms/${roomId}/ws`);
+          url.searchParams.set('role', 'host');
+          url.searchParams.set('peerId', peerId);
+          const ping = '{"type":"signaling-liveness-ping","version":1}';
+          const pong = '{"type":"signaling-liveness-pong","version":1}';
+
+          const result = await new Promise((resolve, reject) => {
+            const socket = new WebSocket(url, { origin: 'https://musixquare.com' });
+            let workerVersionId = '';
+            const timer = setTimeout(() => {
+              socket.terminate();
+              reject(new Error('LIVE_SIGNALING_LIVENESS_TIMEOUT'));
+            }, 15000);
+            const finish = (value) => {
+              clearTimeout(timer);
+              try { socket.close(1000, 'verification complete'); } catch {}
+              resolve(value);
+            };
+            socket.once('open', () => socket.send(JSON.stringify({ type: 'host-auth', secret })));
+            socket.on('message', (data) => {
+              const raw = data.toString();
+              if (raw === pong) {
+                finish({ workerVersionId, signalingLivenessVersion: 1, pong: true });
+                return;
+              }
+              let message;
+              try { message = JSON.parse(raw); } catch { return; }
+              if (message?.type !== 'peer-open') return;
+              workerVersionId = typeof message.workerVersionId === 'string' ? message.workerVersionId : '';
+              if (message.signalingLivenessVersion !== 1) {
+                clearTimeout(timer);
+                socket.terminate();
+                reject(new Error(`LIVE_SIGNALING_CAPABILITY_${String(message.signalingLivenessVersion)}`));
+                return;
+              }
+              socket.send(ping);
+            });
+            socket.once('error', reject);
+          });
+          console.log(JSON.stringify(result));
+          NODE
+          cat live-signaling-verification.json
+
+      - name: Close superseded PR and clean branch runs
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.publish.outputs.final_sha }}
+        run: |
+          for status in queued in_progress waiting requested; do
+            gh run list --branch agent/signaling-liveness-recovery --status "$status" --limit 50 --json databaseId --jq '.[].databaseId' | while read -r run_id; do
+              [ -z "$run_id" ] || gh run cancel "$run_id" || true
+            done
+          done
+          gh pr close 82 --comment "Superseded by deployed main commit ${FINAL_SHA}. SW v460 and signaling liveness capability v1 were verified live." --delete-branch
+
+      - name: Publish failure status
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment 82 --body "Production repair v4 failed closed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true

@@ -1,0 +1,156 @@
+name: One-shot signaling liveness repair
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/one-shot-signaling-liveness.yml'
+      - 'scripts/one-shot-signaling-liveness-patch.mjs'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: musixquare-one-shot-signaling-liveness
+  cancel-in-progress: false
+
+jobs:
+  repair-verify-deploy:
+    name: Repair, verify, deploy, and clean
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout full main history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+
+      - name: Install dependencies with pinned npm
+        run: corepack npm ci
+
+      - name: Apply signaling liveness repair
+        run: node scripts/one-shot-signaling-liveness-patch.mjs
+
+      - name: Format touched source files
+        run: >-
+          npx prettier --write
+          src/network/transport/signaling-liveness.ts
+          src/network/transport/__tests__/signaling-liveness.test.ts
+          src/network/transport/cloudflare-signaling.ts
+          src/network/transport/types.ts
+          src/network/peer.ts
+          cloudflare/signaling-worker.ts
+          .github/workflows/ci.yml
+          scripts/release-evidence.mts
+          scripts/service-worker-asset.ts
+
+      - name: Verify patch shape
+        run: git diff --check
+
+      - name: Focused signaling tests
+        run: >-
+          npx vitest run
+          src/network/transport/__tests__/signaling-liveness.test.ts
+          src/network/transport/__tests__/cloudflare-signaling.test.ts
+          src/network/transport/__tests__/cloudflare-signaling-worker.test.ts
+          src/network/__tests__/signaling-health.test.ts
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Formatting guard
+        run: npm run format:check
+
+      - name: Full unit suite
+        run: npm test
+
+      - name: Build verified production candidate
+        run: npm run build:checked
+
+      - name: Bundle every production Worker without deploying
+        run: npm run check:worker-bundles
+
+      - name: Commit repaired runtime and remove one-shot tooling
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/one-shot-signaling-liveness.yml
+          git rm scripts/one-shot-signaling-liveness-patch.mjs
+          git add -A
+          git diff --cached --check
+          git commit -m 'fix: detect half-open signaling outages'
+          git push origin HEAD:main
+          final_sha="$(git rev-parse HEAD)"
+          echo "final_sha=${final_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch exact-SHA main CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.commit.outputs.final_sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run ci.yml --ref main
+          run_id=''
+          for _ in $(seq 1 60); do
+            run_id="$(gh run list \
+              --workflow ci.yml \
+              --branch main \
+              --event workflow_dispatch \
+              --commit "$FINAL_SHA" \
+              --limit 10 \
+              --json databaseId,headSha \
+              --jq '.[0].databaseId // empty')"
+            if [ -n "$run_id" ]; then break; fi
+            sleep 5
+          done
+          if [ -z "$run_id" ]; then
+            echo 'Exact-SHA CI run did not appear.' >&2
+            exit 1
+          fi
+          echo "Watching CI run ${run_id} for ${FINAL_SHA}"
+          gh run watch "$run_id" --exit-status --interval 10
+
+      - name: Dispatch production release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FINAL_SHA: ${{ steps.commit.outputs.final_sha }}
+        run: |
+          set -euo pipefail
+          gh workflow run release.yml \
+            --ref main \
+            -f target=all \
+            -f apply_developer_api_d1=false
+          run_id=''
+          for _ in $(seq 1 60); do
+            run_id="$(gh run list \
+              --workflow release.yml \
+              --branch main \
+              --event workflow_dispatch \
+              --commit "$FINAL_SHA" \
+              --limit 10 \
+              --json databaseId,headSha \
+              --jq '.[0].databaseId // empty')"
+            if [ -n "$run_id" ]; then break; fi
+            sleep 5
+          done
+          if [ -z "$run_id" ]; then
+            echo 'Exact-SHA production release run did not appear.' >&2
+            exit 1
+          fi
+          echo "Watching production release ${run_id} for ${FINAL_SHA}"
+          gh run watch "$run_id" --exit-status --interval 15

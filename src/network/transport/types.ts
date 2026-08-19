@@ -405,6 +405,8 @@ export interface TransportPeer {
     options?: TransportCallOptions,
   ): TransportMediaConnection;
   reconnect?(): void;
+  /** Retire a signaling path that the browser/OS has proven unavailable. */
+  markSignalingUnavailable?(): boolean;
   /**
    * Reconcile transport state after a hidden-to-visible transition. This is an
    * explicit lifecycle hook so providers never need to observe document

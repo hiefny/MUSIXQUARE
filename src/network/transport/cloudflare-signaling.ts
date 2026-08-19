@@ -3,6 +3,10 @@ import { CHUNK_SIZE, MSG } from '../../core/constants.ts';
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
 import { TinyEmitter } from './emitter.ts';
+import {
+  SIGNALING_LIVENESS_VERSION,
+  SignalingSocketLivenessMonitor,
+} from './signaling-liveness.ts';
 import type {
   DeveloperCommandFrame,
   DeveloperInvalidationFrame,
@@ -32,6 +36,7 @@ type SignalingMessage =
       peerId: string;
       roomId: string;
       workerVersionId?: string;
+      signalingLivenessVersion?: 1;
       memberIdentity?: StandardRoomMemberIdentity;
       remoteShareUploadAssertionVersion?: 1;
       remoteShareUploadAssertionKeyringVersion?: 1;
@@ -1064,6 +1069,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
   >();
 
+  private readonly signalingLiveness = new SignalingSocketLivenessMonitor((socket) => {
+    this.retireHostSignalingSocket(socket, true);
+  });
+
   private nextHostMessageSequence(): number {
     this.hostMessageSequence += 1;
     return this.hostMessageSequence;
@@ -1399,6 +1408,38 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return mediaConn;
   }
 
+  private retireHostSignalingSocket(socket: WebSocket, closePhysical: boolean): boolean {
+    this.signalingLiveness.stop(socket);
+    this.rejectPendingRemoteShareUploadAssertions(
+      socket,
+      'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_CLOSED',
+    );
+    if (this.hostSocket !== socket) return false;
+
+    this.hostSocket = null;
+    this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
+      ? 'unavailable'
+      : 'unknown';
+    this.open = false;
+    const wasDisconnected = this.disconnected;
+    this.disconnected = true;
+    if (closePhysical) {
+      try {
+        socket.close();
+      } catch {
+        /* noop */
+      }
+    }
+    if (!wasDisconnected) this.emit('disconnected');
+    return true;
+  }
+
+  markSignalingUnavailable(): boolean {
+    if (this.destroyed || this.proSignalingAccess || !this.hostRoomId) return false;
+    const socket = this.hostSocket;
+    return socket ? this.retireHostSignalingSocket(socket, true) : false;
+  }
+
   reconnect(): void {
     if (this.destroyed) return;
     if (this.hostRoomId) {
@@ -1568,6 +1609,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   destroy(): void {
     this.destroyed = true;
+    this.signalingLiveness.stopAll();
     this.standardRoomIdentityRefreshGeneration += 1;
     const resolveRtcConfiguration = this.resolveRtcConfigurationReady;
     this.resolveRtcConfigurationReady = null;
@@ -1730,31 +1772,32 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       }
     });
     socket.addEventListener('message', (event) => {
+      if (this.signalingLiveness.noteMessage(socket, event.data)) return;
       const sequence = this.nextHostMessageSequence();
       this.handleHostMessage(event.data, sequence, socket).catch((error) =>
         this.emit('error', error),
       );
     });
     socket.addEventListener('close', (event) => {
-      this.rejectPendingRemoteShareUploadAssertions(
-        socket,
-        'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_CLOSED',
-      );
-      if (this.destroyed) return;
+      if (this.destroyed) {
+        this.signalingLiveness.stop(socket);
+        this.rejectPendingRemoteShareUploadAssertions(
+          socket,
+          'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_CLOSED',
+        );
+        return;
+      }
       if ((event as CloseEvent).reason === 'PRO_COORDINATOR_EPOCH_ADVANCED') {
+        this.signalingLiveness.stop(socket);
+        this.rejectPendingRemoteShareUploadAssertions(
+          socket,
+          'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_CLOSED',
+        );
         if (this.hostSocket === socket) this.hostSocket = null;
         this.handleProEpochAdvanced();
         return;
       }
-      if (this.hostSocket === socket) {
-        this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
-          ? 'unavailable'
-          : 'unknown';
-        this.open = false;
-        const wasDisconnected = this.disconnected;
-        this.disconnected = true;
-        if (!wasDisconnected) this.emit('disconnected');
-      }
+      this.retireHostSignalingSocket(socket, false);
     });
     socket.addEventListener('error', (event) =>
       this.handleSignalingSocketError(
@@ -1977,6 +2020,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-open') {
+      if (
+        !this.proSignalingAccess &&
+        sourceSocket &&
+        message.signalingLivenessVersion === SIGNALING_LIVENESS_VERSION
+      ) {
+        this.signalingLiveness.start(sourceSocket);
+      }
       if (message.remoteShareUploadAssertionVersion === 1) {
         this.remoteShareUploadAssertionObserved = true;
         this.remoteShareUploadAssertionStatus = 'supported';

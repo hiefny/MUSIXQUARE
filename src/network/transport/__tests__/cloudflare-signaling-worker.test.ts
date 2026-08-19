@@ -1447,7 +1447,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(released).toMatchObject({
       roomSecret: 'secret-maintenance',
       hostPeerId: null,
-      hostReleaseAt: Date.now() + 60_000,
+      hostReleaseAt: Date.now() + 120_000,
     });
     expect(state.storage.alarmTime).toBe(released.hostReleaseAt);
 
@@ -1455,7 +1455,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('roomMeta')).toEqual(released);
     expect(state.storage.alarmTime).toBe(released.hostReleaseAt);
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(120_000);
     await room.alarm();
 
     expect(guest.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'ROOM_EXPIRED' });
@@ -1485,7 +1485,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.webSocketClose(host);
     expect(hanging.fetch).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(120_000);
     const alarm = room.alarm();
     await Promise.resolve();
     expect(hanging.fetch).toHaveBeenCalledTimes(1);
@@ -1523,9 +1523,9 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await expect(room.webSocketClose(host)).resolves.toBeUndefined();
     expect(await state.storage.get('roomMeta')).toMatchObject({
       hostPeerId: null,
-      hostReleaseAt: Date.now() + 60_000,
+      hostReleaseAt: Date.now() + 120_000,
     });
-    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+    expect(state.storage.alarmTime).toBe(Date.now() + 120_000);
   });
 
   it('rejects non-WebSocket room requests before Durable Object lookup', async () => {
@@ -6988,7 +6988,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
 
     await room.webSocketClose(firstHost);
-    vi.advanceTimersByTime(61_001);
+    vi.advanceTimersByTime(121_001);
     await room.alarm();
     expect(await state.storage.get('roomMeta')).toEqual({
       v: 1,
@@ -7084,12 +7084,14 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       peerId: '123456',
       roomId: '123456',
       workerVersionId: 'worker-version-123',
+      signalingLivenessVersion: 1,
     });
     expect(sent(guest)[0]).toEqual({
       type: 'peer-open',
       peerId: 'guest-1',
       roomId: '123456',
       workerVersionId: 'worker-version-123',
+      signalingLivenessVersion: 1,
     });
   });
 
@@ -7099,6 +7101,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     expect(sent(host)[0]).not.toHaveProperty('workerVersionId');
     expect(sent(guest)[0]).not.toHaveProperty('workerVersionId');
+    expect(sent(host)[0]).not.toHaveProperty('signalingLivenessVersion');
+    expect(sent(guest)[0]).not.toHaveProperty('signalingLivenessVersion');
   });
 
   it('records aggregate room and guest metrics when a D1 binding exists', async () => {
@@ -7588,12 +7592,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('roomMeta')).toMatchObject({
       roomSecret: 'secret-a',
       hostPeerId: null,
-      hostReleaseAt: Date.now() + 60_000,
+      hostReleaseAt: Date.now() + 120_000,
     });
     expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
       entries: [{ peerId: 'guest-1' }],
     });
-    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+    expect(state.storage.alarmTime).toBe(Date.now() + 120_000);
 
     const rejectedHost = await authenticateHost(room, 'host-2', 'secret-b');
     expect(rejectedHost.closeEvents.at(-1)?.reason).toBe('ROOM_ALREADY_ACTIVE');
@@ -8330,7 +8334,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(releasedMeta).toMatchObject({
       roomSecret: 'secret-a',
       hostPeerId: null,
-      hostReleaseAt: Date.now() + 60_000,
+      hostReleaseAt: Date.now() + 120_000,
     });
 
     const rejected = await authenticateHost(room, 'host-2', 'secret-b');
@@ -8340,7 +8344,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       message: 'ROOM_ALREADY_ACTIVE',
     });
 
-    vi.setSystemTime(new Date('2026-05-16T00:01:01.000Z'));
+    vi.setSystemTime(new Date('2026-05-16T00:02:01.000Z'));
     const reclaimed = await authenticateHost(room, 'host-3', 'secret-b');
     expect(sent(reclaimed).at(-1)).toEqual({
       type: 'peer-open',
@@ -8360,7 +8364,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const { room, state, host } = await createHostRoom();
 
     await room.webSocketClose(host);
-    vi.setSystemTime(new Date('2026-05-16T00:01:01.000Z'));
+    vi.setSystemTime(new Date('2026-05-16T00:02:01.000Z'));
     await room.fetch(wsRequest('123456', 'host', 'host-frame-after-grace'));
     const reclaimed = lastServer();
 
@@ -8384,9 +8388,9 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const { room, state, host } = await createPasswordRoom();
 
     await room.webSocketClose(host);
-    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+    expect(state.storage.alarmTime).toBe(Date.now() + 120_000);
 
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(120_000);
     await room.alarm();
 
     expect(await state.storage.get('roomMeta')).toEqual({
@@ -8409,7 +8413,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
       entries: [{ peerId: 'guest-1' }],
     });
-    vi.advanceTimersByTime(60_000);
+    vi.advanceTimersByTime(120_000);
     await room.alarm();
 
     expect(guest.closed).toBe(true);
@@ -8445,9 +8449,9 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     vi.setSystemTime(startedAt + 12_000);
     await room.alarm();
     expect(guest.closed).toBe(true);
-    expect(state.storage.alarmTime).toBe(startedAt + 60_000);
+    expect(state.storage.alarmTime).toBe(startedAt + 120_000);
 
-    vi.setSystemTime(startedAt + 60_000);
+    vi.setSystemTime(startedAt + 120_000);
     await room.alarm();
     expect(await state.storage.get('roomMeta')).toMatchObject({
       roomSecret: null,

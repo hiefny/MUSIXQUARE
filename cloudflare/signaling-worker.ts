@@ -93,6 +93,7 @@ interface DurableObjectStatePort {
   waitUntil?(promise: Promise<unknown>): void;
   blockConcurrencyWhile?<T>(callback: () => Promise<T>): Promise<T>;
   getWebSockets?(): SocketPort[];
+  setWebSocketAutoResponse?(pair: unknown): void;
   acceptWebSocket(socket: SocketPort, tags?: string[]): void;
 }
 
@@ -401,12 +402,15 @@ function isFetcher(value: unknown): value is FetcherPort {
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_CODE_PATTERN = /^0\d{5}$/;
-const HOST_RECLAIM_GRACE_MS = 60_000;
+const HOST_RECLAIM_GRACE_MS = 120_000;
 const HOST_AUTH_TIMEOUT_MS = 10_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
 const ROOM_META_KEY = 'roomMeta';
 const ATTACHMENT_VERSION = 1;
 const WS_RATE_LIMIT_PER_MINUTE = 120;
+const SIGNALING_LIVENESS_VERSION = 1 as const;
+const SIGNALING_LIVENESS_PING = '{"type":"signaling-liveness-ping","version":1}';
+const SIGNALING_LIVENESS_PONG = '{"type":"signaling-liveness-pong","version":1}';
 const STANDARD_WS_RATE_WINDOW_MS = 60_000;
 const STANDARD_WS_RATE_STATE_KEY = 'standard-ws-open-rate-state-v1';
 const STANDARD_WS_RATE_OBJECT_PREFIX = 'musixquare-standard-ws-open-rate-v1:';
@@ -769,10 +773,15 @@ function constantTimeStringEqual(left: unknown, right: unknown): boolean {
   return mismatch === 0;
 }
 
-function workerVersionFields(env: SignalingEnvPort): { workerVersionId?: string } {
+function workerVersionFields(env: SignalingEnvPort): {
+  workerVersionId?: string;
+  signalingLivenessVersion?: typeof SIGNALING_LIVENESS_VERSION;
+} {
   const metadata = env.CF_VERSION_METADATA;
   const workerVersionId = isRecord(metadata) ? metadata.id : undefined;
-  return typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {};
+  return typeof workerVersionId === 'string' && workerVersionId
+    ? { workerVersionId, signalingLivenessVersion: SIGNALING_LIVENESS_VERSION }
+    : {};
 }
 
 function remoteShareUploadAssertionSecret(env: SignalingEnvPort): string {
@@ -1904,6 +1913,20 @@ export class MusixquareRoom {
   constructor(state: DurableObjectStatePort, env: SignalingEnvPort = {}) {
     this.state = state;
     this.env = env;
+    const requestResponsePair = (
+      globalThis as typeof globalThis & {
+        WebSocketRequestResponsePair?: new (request: string, response: string) => unknown;
+      }
+    ).WebSocketRequestResponsePair;
+    if (typeof state.setWebSocketAutoResponse === 'function' && requestResponsePair) {
+      try {
+        state.setWebSocketAutoResponse(
+          new requestResponsePair(SIGNALING_LIVENESS_PING, SIGNALING_LIVENESS_PONG),
+        );
+      } catch {
+        // Local/test runtimes use the explicit webSocketMessage fallback below.
+      }
+    }
     this.standardRateOnly = STANDARD_WS_RATE_OBJECT_NAME_RE.test(String(state.id?.name || ''));
     this.standardRateState = null;
     this.standardRateStateInvalid = false;
@@ -4606,6 +4629,16 @@ export class MusixquareRoom {
   }
 
   webSocketMessage(ws: SocketPort, raw: unknown): Promise<void> {
+    // Production Durable Objects answer this exact frame without waking the
+    // object. Keep a fallback for local tests and runtimes without auto-response.
+    if (raw === SIGNALING_LIVENESS_PING) {
+      try {
+        ws.send(SIGNALING_LIVENESS_PONG);
+      } catch {
+        /* noop */
+      }
+      return Promise.resolve();
+    }
     const attachment = readAttachment(ws);
     const rawBytes = rawMessageByteLength(raw);
     if (rawBytes !== null && rawBytes > WS_MESSAGE_MAX_BYTES) {

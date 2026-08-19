@@ -16,9 +16,6 @@ concurrency:
   group: musixquare-one-shot-signaling-liveness
   cancel-in-progress: true
 
-env:
-  STATUS_COMMENT_ID: '5337728609'
-
 jobs:
   repair-verify-deploy:
     name: Repair, verify, deploy, and clean
@@ -27,6 +24,7 @@ jobs:
 
     steps:
       - name: Publish automation run identity
+        id: status
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -41,9 +39,11 @@ jobs:
           - Product policy: no UI/UX or RAM admission change
           EOF
           )
-          gh api --method PATCH \
-            "repos/${GITHUB_REPOSITORY}/issues/comments/${STATUS_COMMENT_ID}" \
-            -f body="$body" >/dev/null
+          comment_id="$(gh api --method POST \
+            "repos/${GITHUB_REPOSITORY}/issues/76/comments" \
+            -f body="$body" \
+            --jq '.id')"
+          echo "comment_id=${comment_id}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout full main history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,6 +102,7 @@ jobs:
         id: commit
         env:
           GH_TOKEN: ${{ github.token }}
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
@@ -133,6 +134,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FINAL_SHA: ${{ steps.commit.outputs.final_sha }}
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
         run: |
           set -euo pipefail
           gh workflow run ci.yml --ref main
@@ -174,6 +176,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FINAL_SHA: ${{ steps.commit.outputs.final_sha }}
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
         run: |
           set -euo pipefail
           gh workflow run release.yml \
@@ -217,6 +220,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FINAL_SHA: ${{ steps.commit.outputs.final_sha }}
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
         run: |
           set -euo pipefail
           body=$(cat <<EOF
@@ -235,9 +239,10 @@ jobs:
             -f body="$body" >/dev/null
 
       - name: Publish failed status
-        if: failure()
+        if: failure() && steps.status.outputs.comment_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          STATUS_COMMENT_ID: ${{ steps.status.outputs.comment_id }}
         run: |
           body=$(cat <<EOF
           ### Signaling liveness production repair

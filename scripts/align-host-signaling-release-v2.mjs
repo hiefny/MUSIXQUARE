@@ -72,6 +72,15 @@ write(appWorkerCorsTestPath, appWorkerCorsTests);
 
 const workerTestPath = 'src/network/transport/__tests__/cloudflare-signaling-worker.test.ts';
 let workerTests = read(workerTestPath);
+
+function replaceWorkerTestOnce(before, after, label) {
+  const count = workerTests.split(before).length - 1;
+  if (count !== 1) {
+    throw new Error(`${workerTestPath}: expected one ${label} anchor, found ${count}`);
+  }
+  workerTests = workerTests.replace(before, after);
+}
+
 const workerVersionExpectation = `      workerVersionId: 'worker-version-123',
 `;
 const workerVersionWithLiveness = `      workerVersionId: 'worker-version-123',
@@ -94,26 +103,174 @@ if (!workerTests.includes(compatibilityExpectations)) {
   throw new Error(`${workerTestPath}: compatibility expectation block not found`);
 }
 workerTests = workerTests.replace(compatibilityExpectations, compatibilityWithLiveness);
+
 const hostReleaseExpectation = 'hostReleaseAt: Date.now() + 60_000';
 const hostReleaseExpectationCount = workerTests.split(hostReleaseExpectation).length - 1;
 if (hostReleaseExpectationCount < 1) {
   throw new Error(`${workerTestPath}: host reclaim expectations not found`);
 }
 workerTests = workerTests.replaceAll(hostReleaseExpectation, 'hostReleaseAt: Date.now() + 120_000');
-const releasedAlarmAdvance = `    expect(state.storage.alarmTime).toBe(released.hostReleaseAt);
+
+replaceWorkerTestOnce(
+  `    expect(state.storage.alarmTime).toBe(released.hostReleaseAt);
 
     vi.advanceTimersByTime(60_000);
     await room.alarm();
-`;
-const releasedAlarmAdvance120 = `    expect(state.storage.alarmTime).toBe(released.hostReleaseAt);
+`,
+  `    expect(state.storage.alarmTime).toBe(released.hostReleaseAt);
 
     vi.advanceTimersByTime(120_000);
     await room.alarm();
-`;
-if (!workerTests.includes(releasedAlarmAdvance)) {
-  throw new Error(`${workerTestPath}: host reclaim alarm advance not found`);
-}
-workerTests = workerTests.replace(releasedAlarmAdvance, releasedAlarmAdvance120);
+`,
+  'maintenance host reclaim alarm advance',
+);
+
+replaceWorkerTestOnce(
+  `    host.close();
+    await room.webSocketClose(host);
+    expect(hanging.fetch).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(60_000);
+    const alarm = room.alarm();
+`,
+  `    host.close();
+    await room.webSocketClose(host);
+    expect(hanging.fetch).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(120_000);
+    const alarm = room.alarm();
+`,
+  'bounded maintenance read reclaim deadline',
+);
+
+replaceWorkerTestOnce(
+  `    expect(await state.storage.get('roomMeta')).toMatchObject({
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 120_000,
+    });
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+`,
+  `    expect(await state.storage.get('roomMeta')).toMatchObject({
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 120_000,
+    });
+    expect(state.storage.alarmTime).toBe(Date.now() + 120_000);
+`,
+  'interrupted close persistence alarm deadline',
+);
+
+replaceWorkerTestOnce(
+  `    await room.webSocketClose(firstHost);
+    vi.advanceTimersByTime(61_001);
+    await room.alarm();
+`,
+  `    await room.webSocketClose(firstHost);
+    vi.advanceTimersByTime(121_001);
+    await room.alarm();
+`,
+  'room generation rotation after reclaim grace',
+);
+
+replaceWorkerTestOnce(
+  `    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: 'secret-a',
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 120_000,
+    });
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: 'guest-1' }],
+    });
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+`,
+  `    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: 'secret-a',
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 120_000,
+    });
+    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: 'guest-1' }],
+    });
+    expect(state.storage.alarmTime).toBe(Date.now() + 120_000);
+`,
+  'last guest host-grace alarm deadline',
+);
+
+replaceWorkerTestOnce(
+  `    vi.setSystemTime(new Date('2026-05-16T00:01:01.000Z'));
+    const reclaimed = await authenticateHost(room, 'host-3', 'secret-b');
+`,
+  `    vi.setSystemTime(new Date('2026-05-16T00:02:01.000Z'));
+    const reclaimed = await authenticateHost(room, 'host-3', 'secret-b');
+`,
+  'lazy different-secret reclaim time',
+);
+
+replaceWorkerTestOnce(
+  `    await room.webSocketClose(host);
+    vi.setSystemTime(new Date('2026-05-16T00:01:01.000Z'));
+    await room.fetch(wsRequest('123456', 'host', 'host-frame-after-grace'));
+`,
+  `    await room.webSocketClose(host);
+    vi.setSystemTime(new Date('2026-05-16T00:02:01.000Z'));
+    await room.fetch(wsRequest('123456', 'host', 'host-frame-after-grace'));
+`,
+  'first-frame reclaim time',
+);
+
+replaceWorkerTestOnce(
+  `    await room.webSocketClose(host);
+    expect(state.storage.alarmTime).toBe(Date.now() + 60_000);
+
+    vi.advanceTimersByTime(60_000);
+    await room.alarm();
+
+    expect(await state.storage.get('roomMeta')).toEqual({
+`,
+  `    await room.webSocketClose(host);
+    expect(state.storage.alarmTime).toBe(Date.now() + 120_000);
+
+    vi.advanceTimersByTime(120_000);
+    await room.alarm();
+
+    expect(await state.storage.get('roomMeta')).toEqual({
+`,
+  'host-only secret cleanup deadline',
+);
+
+replaceWorkerTestOnce(
+  `    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: 'guest-1' }],
+    });
+    vi.advanceTimersByTime(60_000);
+    await room.alarm();
+
+    expect(guest.closed).toBe(true);
+`,
+  `    expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
+      entries: [{ peerId: 'guest-1' }],
+    });
+    vi.advanceTimersByTime(120_000);
+    await room.alarm();
+
+    expect(guest.closed).toBe(true);
+`,
+  'prior-epoch guest expiry deadline',
+);
+
+replaceWorkerTestOnce(
+  `    expect(guest.closed).toBe(true);
+    expect(state.storage.alarmTime).toBe(startedAt + 60_000);
+
+    vi.setSystemTime(startedAt + 60_000);
+`,
+  `    expect(guest.closed).toBe(true);
+    expect(state.storage.alarmTime).toBe(startedAt + 120_000);
+
+    vi.setSystemTime(startedAt + 120_000);
+`,
+  'shared pending-auth and host-cleanup alarm deadline',
+);
+
 write(workerTestPath, workerTests);
 
 // The base generator performs the cache-epoch cutover. Verify it rather than

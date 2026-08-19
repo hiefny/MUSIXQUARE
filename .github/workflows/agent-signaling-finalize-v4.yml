@@ -1,10 +1,11 @@
-name: One-shot Signaling Liveness Production Repair v4
+name: One-shot Signaling Liveness Production Repair v5
 
 on:
   push:
     branches: [main]
     paths:
       - '.github/workflows/agent-signaling-finalize-v4.yml'
+  workflow_dispatch:
 
 permissions:
   actions: write
@@ -13,7 +14,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: musixquare-one-shot-signaling-production-v4
+  group: musixquare-one-shot-signaling-production-v5
   cancel-in-progress: true
 
 jobs:
@@ -37,7 +38,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr comment 82 --body "Signaling production repair v4 started: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          gh pr comment 82 --body "Signaling production repair v5 started: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true
 
       - name: Require unchanged main ownership
         run: |
@@ -47,127 +48,177 @@ jobs:
       - name: Install dependencies with pinned npm
         run: corepack npm ci
 
-      - name: Repair patcher helpers and generated-file prefixes
+      - name: Apply exact WebSocket liveness repair
+        run: node scripts/one-shot-signaling-liveness-patch.mjs
+
+      - name: Align release, export, and CI contracts
+        shell: bash
         run: |
           python3 - <<'PY'
+          import json
+          import re
           from pathlib import Path
 
-          path = Path('scripts/one-shot-signaling-liveness-patch.py')
-          source = path.read_text(encoding='utf-8')
+          TARGET_VERSION = '8.3.73'
+          PREVIOUS_VERSION = '8.3.72'
 
-          old = '''def replace_once(path: str, before: str, after: str) -> None:
-              source = read(path)
+          def replace_once(source: str, before: str, after: str, label: str) -> str:
               count = source.count(before)
               if count != 1:
-                  raise SystemExit(
-                      f"{path}: expected exactly one patch anchor, found {count}: {before[:120]!r}"
-                  )
-              write(path, source.replace(before, after, 1))
-          '''
-          new = '''def replace_once(path: str, before: str, after: str) -> None:
-              source = read(path)
-              if source.count(before) == 1:
-                  write(path, source.replace(before, after, 1))
-                  return
+                  raise SystemExit(f'{label}: expected one anchor, found {count}: {before[:100]!r}')
+              return source.replace(before, after, 1)
 
-              normalized_before = textwrap.dedent(before)
-              normalized_after = textwrap.dedent(after)
-              matches: list[tuple[str, str]] = []
-              seen: set[str] = set()
-              for width in range(17):
-                  candidate_before = textwrap.indent(normalized_before, " " * width)
-                  if candidate_before in seen:
-                      continue
-                  seen.add(candidate_before)
-                  if source.count(candidate_before) == 1:
-                      matches.append(
-                          (
-                              candidate_before,
-                              textwrap.indent(normalized_after, " " * width),
-                          )
-                      )
-              if len(matches) != 1:
-                  raise SystemExit(
-                      f"{path}: expected one indentation-aware patch anchor, found {len(matches)}: {before[:120]!r}"
-                  )
-              candidate_before, candidate_after = matches[0]
-              write(path, source.replace(candidate_before, candidate_after, 1))
-          '''
-          if source.count(old) != 1:
-              raise SystemExit('unexpected Python patch helper')
-          source = source.replace(old, new, 1)
+          for name in ('package.json', 'package-lock.json'):
+              path = Path(name)
+              document = json.loads(path.read_text(encoding='utf-8'))
+              if document.get('version') != PREVIOUS_VERSION:
+                  raise SystemExit(f'{name}: unexpected version {document.get("version")!r}')
+              document['version'] = TARGET_VERSION
+              if name == 'package-lock.json':
+                  root = document.get('packages', {}).get('')
+                  if not isinstance(root, dict) or root.get('version') != PREVIOUS_VERSION:
+                      raise SystemExit('package-lock.json: unexpected root package version')
+                  root['version'] = TARGET_VERSION
+              path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
-          marker = "r'''\\\n"
-          replacement = "r'''\n"
-          if source.count(marker) != 2:
-              raise SystemExit(f'unexpected generated-prefix marker count: {source.count(marker)}')
-          source = source.replace(marker, replacement)
-          path.write_text(source, encoding='utf-8')
-          PY
-
-      - name: Apply cost-aware exact WebSocket liveness repair
-        run: python3 scripts/one-shot-signaling-liveness-patch.py
-
-      - name: Align production capability advertisement and tests
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          worker_path = Path('cloudflare/signaling-worker.ts')
-          worker = worker_path.read_text(encoding='utf-8')
-          old = '''function workerVersionFields(env: SignalingEnvPort): {
-            workerVersionId?: string;
-            signalingLivenessVersion: typeof SIGNALING_LIVENESS_VERSION;
-          } {
-            const metadata = env.CF_VERSION_METADATA;
-            const workerVersionId = isRecord(metadata) ? metadata.id : undefined;
-            return {
-              signalingLivenessVersion: SIGNALING_LIVENESS_VERSION,
-              ...(typeof workerVersionId === 'string' && workerVersionId ? { workerVersionId } : {}),
-            };
-          }
-          '''
-          new = '''function workerVersionFields(env: SignalingEnvPort): {
-            workerVersionId?: string;
-            signalingLivenessVersion?: typeof SIGNALING_LIVENESS_VERSION;
-          } {
-            const metadata = env.CF_VERSION_METADATA;
-            const workerVersionId = isRecord(metadata) ? metadata.id : undefined;
-            return typeof workerVersionId === 'string' && workerVersionId
-              ? { workerVersionId, signalingLivenessVersion: SIGNALING_LIVENESS_VERSION }
-              : {};
-          }
-          '''
-          if worker.count(old) != 1:
-              raise SystemExit('unexpected workerVersionFields block')
-          worker_path.write_text(worker.replace(old, new, 1), encoding='utf-8')
-
-          test_path = Path('src/network/transport/__tests__/cloudflare-signaling-worker.test.ts')
-          tests = test_path.read_text(encoding='utf-8')
-          marker = "      workerVersionId: 'worker-version-123',\n"
-          if tests.count(marker) != 2:
-              raise SystemExit(f'unexpected worker metadata expectation count: {tests.count(marker)}')
-          tests = tests.replace(
-              marker,
-              marker + '      signalingLivenessVersion: 1,\n',
+          version_targets = (
+              ('cloudflare/app-worker.ts', 'ADMIN_ASSET_VERSION'),
+              ('browser/classic-runtime/admin.ts', 'ADMIN_SCRIPT_VERSION'),
           )
-          compatibility = '''    expect(sent(host)[0]).not.toHaveProperty('workerVersionId');
-              expect(sent(guest)[0]).not.toHaveProperty('workerVersionId');
-          '''
-          compatibility_next = '''    expect(sent(host)[0]).not.toHaveProperty('workerVersionId');
-              expect(sent(guest)[0]).not.toHaveProperty('workerVersionId');
-              expect(sent(host)[0]).not.toHaveProperty('signalingLivenessVersion');
-              expect(sent(guest)[0]).not.toHaveProperty('signalingLivenessVersion');
-          '''
-          if tests.count(compatibility) != 1:
-              raise SystemExit('unexpected compatibility expectation block')
-          test_path.write_text(tests.replace(compatibility, compatibility_next, 1), encoding='utf-8')
+          for filename, constant in version_targets:
+              path = Path(filename)
+              source = path.read_text(encoding='utf-8')
+              pattern = re.compile(rf"const {constant} = '([^']+)';")
+              matches = pattern.findall(source)
+              if matches != [PREVIOUS_VERSION]:
+                  raise SystemExit(f'{filename}: unexpected {constant} declarations: {matches!r}')
+              source = pattern.sub(f"const {constant} = '{TARGET_VERSION}';", source, count=1)
+              path.write_text(source, encoding='utf-8')
+
+          liveness_path = Path('src/network/transport/signaling-liveness.ts')
+          liveness = liveness_path.read_text(encoding='utf-8')
+          for constant in (
+              'SIGNALING_LIVENESS_PING',
+              'SIGNALING_LIVENESS_PONG',
+              'SIGNALING_LIVENESS_INTERVAL_MS',
+              'SIGNALING_LIVENESS_TIMEOUT_MS',
+          ):
+              liveness = replace_once(
+                  liveness,
+                  f'export const {constant}',
+                  f'const {constant}',
+                  f'{liveness_path}:{constant}',
+              )
+          liveness_path.write_text(liveness, encoding='utf-8')
+
+          test_path = Path('src/network/transport/__tests__/signaling-liveness.test.ts')
+          tests = test_path.read_text(encoding='utf-8')
+          imported_constants = """import {
+            SIGNALING_LIVENESS_INTERVAL_MS,
+            SIGNALING_LIVENESS_PING,
+            SIGNALING_LIVENESS_PONG,
+            SIGNALING_LIVENESS_TIMEOUT_MS,
+          } from '../signaling-liveness.ts';
+          """
+          local_constants = """const SIGNALING_LIVENESS_PING =
+            '{\"type\":\"signaling-liveness-ping\",\"version\":1}';
+          const SIGNALING_LIVENESS_PONG =
+            '{\"type\":\"signaling-liveness-pong\",\"version\":1}';
+          const SIGNALING_LIVENESS_INTERVAL_MS = 5_000;
+          const SIGNALING_LIVENESS_TIMEOUT_MS = 10_000;
+          """
+          tests = replace_once(
+              tests,
+              imported_constants,
+              local_constants,
+              f'{test_path}:liveness constants import',
+          )
+          test_path.write_text(tests, encoding='utf-8')
+
+          evidence_path = Path('scripts/release-evidence.mts')
+          evidence = evidence_path.read_text(encoding='utf-8')
+          evidence = replace_once(
+              evidence,
+              '  events: readonly string[];\n',
+              '  event: string;\n  fallbackEvents?: readonly string[];\n',
+              f'{evidence_path}:options',
+          )
+          evidence = replace_once(
+              evidence,
+              '  workflow,\n  events,\n  prefix,\n',
+              '  workflow,\n  event,\n  fallbackEvents = [],\n  prefix,\n',
+              f'{evidence_path}:destructure',
+          )
+          old_run_sets = """    const runSets = await Promise.all(
+              events.map(async (event) => ({
+                event,
+                runs: await githubApi(workflowRunsPath(repository, workflow, sha, event), token),
+              })),
+            );
+          """
+          new_run_sets = """    const candidateEvents = [event, ...fallbackEvents];
+            const runSets = await Promise.all(
+              candidateEvents.map(async (candidateEvent) => ({
+                event: candidateEvent,
+                runs: await githubApi(
+                  workflowRunsPath(repository, workflow, sha, candidateEvent),
+                  token,
+                ),
+              })),
+            );
+          """
+          evidence = replace_once(
+              evidence,
+              old_run_sets,
+              new_run_sets,
+              f'{evidence_path}:run sets',
+          )
+          evidence = replace_once(
+              evidence,
+              "      events: ['push', 'workflow_dispatch'],\n",
+              "      event: 'push',\n      fallbackEvents: ['workflow_dispatch'],\n",
+              f'{evidence_path}:candidate events',
+          )
+          evidence_path.write_text(evidence, encoding='utf-8')
+
+          Path('docs/design/signaling-liveness.md').write_text(
+              '''# Signaling WebSocket Liveness and Invite Recovery
+
+- **Status:** Accepted
+- **Decision date:** 2026-08-19
+- **Applies to:** Cloudflare standard-room and PRO signaling transports
+
+## Decision
+
+The signaling Worker advertises protocol version 1 after authenticated admission. Upgraded
+clients send a fixed application-level ping on the exact admitted WebSocket every five
+seconds. Cloudflare Durable Objects use a WebSocket auto-response when available, retaining
+an explicit fallback for local and compatibility runtimes.
+
+A socket that produces neither a pong nor another server message within the bounded timeout
+is identity-fenced out of transport state before close. Existing WebRTC media/data channels
+remain intact while only the signaling generation is rebuilt through the existing recovery
+backoff. Legacy Workers remain compatible because monitoring begins only after capability
+advertisement. Background timer gaps re-arm the probe instead of declaring a false outage.
+
+The media-loading policy is unchanged: loading remains best-effort until the device itself
+fails, and the 200 MiB value remains a transfer/private-storage protocol ceiling rather than
+a RAM admission limit.
+''',
+              encoding='utf-8',
+          )
           PY
 
-      - name: Remove transient workflows
+      - name: Remove transient repair files
         run: |
+          rm -f .github/workflows/agent-signaling-finalize.yml
           rm -f .github/workflows/agent-signaling-finalize-v3.yml
           rm -f .github/workflows/agent-signaling-finalize-v4.yml
+          rm -f .github/workflows/one-shot-signaling-production.yml
+          rm -f scripts/one-shot-signaling-liveness-patch.py
+          rm -f scripts/one-shot-signaling-liveness-patch.mjs
+          rm -f scripts/one-shot-signaling-liveness-patch-base.mjs
+          rm -f scripts/.generated-one-shot-signaling-liveness-patch.mjs
 
       - name: Format touched sources
         run: >-
@@ -179,6 +230,8 @@ jobs:
           src/network/transport/types.ts
           src/network/peer.ts
           cloudflare/signaling-worker.ts
+          cloudflare/app-worker.ts
+          browser/classic-runtime/admin.ts
           .github/workflows/ci.yml
           scripts/release-evidence.mts
           scripts/service-worker-asset.ts
@@ -187,15 +240,24 @@ jobs:
           package-lock.json
           index.html
 
-      - name: Verify clean patch shape
+      - name: Verify clean patch shape and release identity
         run: |
           test ! -e .github/workflows/one-shot-signaling-production.yml
-          test ! -e .github/workflows/agent-signaling-finalize.yml
-          test ! -e .github/workflows/agent-signaling-finalize-v3.yml
           test ! -e .github/workflows/agent-signaling-finalize-v4.yml
           test ! -e scripts/one-shot-signaling-liveness-patch.py
           test ! -e scripts/one-shot-signaling-liveness-patch.mjs
           test ! -e scripts/one-shot-signaling-liveness-patch-base.mjs
+          grep -q "v460" scripts/service-worker-asset.ts
+          grep -q "const ADMIN_ASSET_VERSION = '8.3.73';" cloudflare/app-worker.ts
+          grep -q "const ADMIN_SCRIPT_VERSION = '8.3.73';" browser/classic-runtime/admin.ts
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
+          if (pkg.version !== '8.3.73' || lock.version !== '8.3.73' || lock.packages?.['']?.version !== '8.3.73') {
+            throw new Error('RELEASE_VERSION_NOT_ALIGNED');
+          }
+          NODE
           git diff --check
 
       - name: Focused signaling tests
@@ -238,7 +300,7 @@ jobs:
           git push origin HEAD:main
           final_sha="$(git rev-parse HEAD)"
           echo "final_sha=${final_sha}" >> "$GITHUB_OUTPUT"
-          gh pr comment 82 --body "Clean signaling repair committed to main at ${final_sha}; exact-SHA CI is starting."
+          gh pr comment 82 --body "Clean signaling repair committed to main at ${final_sha}; exact-SHA CI is starting." || true
 
       - name: Dispatch and wait for exact-SHA CI
         id: ci
@@ -255,7 +317,7 @@ jobs:
           done
           test -n "$run_id"
           echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
-          gh pr comment 82 --body "Exact-SHA CI: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          gh pr comment 82 --body "Exact-SHA CI: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" || true
           gh run watch "$run_id" --exit-status --interval 10
 
       - name: Dispatch and wait for full production release
@@ -273,7 +335,7 @@ jobs:
           done
           test -n "$run_id"
           echo "run_id=${run_id}" >> "$GITHUB_OUTPUT"
-          gh pr comment 82 --body "Full app+signaling production release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+          gh pr comment 82 --body "Full app+signaling production release: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${run_id}" || true
           gh run watch "$run_id" --exit-status --interval 15
 
       - name: Verify live SW and signaling capability
@@ -340,22 +402,17 @@ jobs:
           NODE
           cat live-signaling-verification.json
 
-      - name: Close superseded PR and clean branch runs
+      - name: Close superseded PR and publish success
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
           FINAL_SHA: ${{ steps.publish.outputs.final_sha }}
         run: |
-          for status in queued in_progress waiting requested; do
-            gh run list --branch agent/signaling-liveness-recovery --status "$status" --limit 50 --json databaseId --jq '.[].databaseId' | while read -r run_id; do
-              [ -z "$run_id" ] || gh run cancel "$run_id" || true
-            done
-          done
-          gh pr close 82 --comment "Superseded by deployed main commit ${FINAL_SHA}. SW v460 and signaling liveness capability v1 were verified live." --delete-branch
+          gh pr close 82 --comment "Superseded by deployed main commit ${FINAL_SHA}. SW v460 and signaling liveness capability v1 were verified live." --delete-branch || true
 
       - name: Publish failure status
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr comment 82 --body "Production repair v4 failed closed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true
+          gh pr comment 82 --body "Production repair v5 failed closed: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" || true

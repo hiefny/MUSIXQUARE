@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: agent-signaling-liveness-recovery
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   patch-validate-publish:
@@ -31,71 +31,112 @@ jobs:
           node-version-file: .node-version
           cache: npm
 
-      - name: Apply signaling liveness repair
-        run: |
-          python3 scripts/agent-signaling-liveness-patch.py
-          python3 - <<'PY'
-          from pathlib import Path
-
-          path = Path('src/network/transport/signaling-reachability.ts')
-          source = path.read_text(encoding='utf-8')
-          old = """function buildProbeUrl(signalingUrl: string): string {
-            const url = new URL(signalingUrl, window.location.href);
-            url.searchParams.set('__mxqr_reachability', Date.now().toString(36));
-            return url.toString();
-          }
-          """
-          new = """function buildProbeUrl(signalingUrl: string): string {
-            const url = new URL(signalingUrl, window.location.href);
-            if (url.protocol === 'ws:') url.protocol = 'http:';
-            else if (url.protocol === 'wss:') url.protocol = 'https:';
-            url.searchParams.set('__mxqr_reachability', Date.now().toString(36));
-            return url.toString();
-          }
-          """
-          if source.count(old) != 1:
-              raise SystemExit('unexpected signaling probe URL marker')
-          source = source.replace(old, new, 1)
-          old = """  const retireSignaling = (reason: string, error?: unknown): void => {
-            if (disposed || peer.destroyed || peer.disconnected) return;
-          """
-          new = """  const retireSignaling = (reason: string, error?: unknown): void => {
-            if (disposed || peer.destroyed || !peer.open || peer.disconnected) return;
-          """
-          if source.count(old) != 1:
-              raise SystemExit('unexpected signaling retirement marker')
-          path.write_text(source.replace(old, new, 1), encoding='utf-8')
-          PY
-
       - name: Install dependencies with pinned npm
         run: corepack npm ci
 
-      - name: Format changed sources
+      - name: Apply exact WebSocket liveness repair
         run: |
-          npx prettier --write \
-            src/network/transport/types.ts \
-            src/network/transport/cloudflare-signaling.ts \
-            src/network/transport/signaling-reachability.ts \
-            src/network/transport/index.ts \
-            src/network/transport/__tests__/signaling-reachability.test.ts \
-            src/network/transport/__tests__/cloudflare-signaling-force-reconnect.test.ts \
-            docs/design/signaling-reachability.md \
-            scripts/service-worker-asset.ts \
-            package.json \
-            package-lock.json
+          node scripts/one-shot-signaling-liveness-patch.mjs
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
 
-      - name: Verify temporary automation was removed
-        run: |
-          test ! -e scripts/agent-signaling-liveness-patch.py
-          test ! -e .github/workflows/agent-signaling-liveness.yml
-          git diff --check
+          for name in ('package.json', 'package-lock.json'):
+              path = Path(name)
+              document = json.loads(path.read_text(encoding='utf-8'))
+              if document.get('version') != '8.3.72':
+                  raise SystemExit(f'{name}: unexpected version {document.get("version")!r}')
+              document['version'] = '8.3.73'
+              if name == 'package-lock.json':
+                  root = document.get('packages', {}).get('')
+                  if not isinstance(root, dict) or root.get('version') != '8.3.72':
+                      raise SystemExit('package-lock.json: unexpected root package version')
+                  root['version'] = '8.3.73'
+              path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          Path('docs/design/signaling-liveness.md').write_text(
+              '''# Signaling WebSocket Liveness and Invite Recovery
+
+- **Status:** Accepted
+- **Decision date:** 2026-08-19
+- **Applies to:** Cloudflare standard-room and PRO signaling transports
+
+## Problem
+
+Windows Chromium can retain a signaling WebSocket in the `OPEN` state after the
+network route disappears. Existing WebRTC data channels may continue to work,
+but the room can no longer admit a new device. Waiting only for WebSocket
+`close` or `error` therefore leaves the QR invite action showing **Copy invite
+link** while the signaling path is unusable.
+
+## Decision
+
+The signaling Worker advertises protocol version 1 in the authenticated
+`peer-open` frame. Upgraded clients then send one fixed application-level ping
+on the exact admitted WebSocket every five seconds. Cloudflare Durable Objects
+answer the fixed frame with `setWebSocketAutoResponse()` so the room object does
+not need to wake for normal probes; local and compatibility runtimes retain an
+explicit fallback response.
+
+A socket that does not produce a pong or any other server message within the
+bounded timeout is identity-fenced out of transport state before it is closed.
+The existing `disconnected` lifecycle then drives the 1/2/4/8/15-second retry
+budget and `network.signalingHealth`, so the current QR action changes to
+**Recovering** without a second UI state machine. Browser `offline` starts the
+same recovery immediately, and `online` requests an immediate retry.
+
+## Compatibility and lifecycle
+
+- Monitoring starts only after the Worker advertises support, so either side of
+  a rolling deployment remains compatible.
+- A late pong or close from a superseded socket cannot mutate its replacement.
+- Existing WebRTC data channels and system-audio media are preserved while only
+  the signaling socket generation is rebuilt.
+- Long background timer gaps re-arm monitoring instead of declaring a false
+  outage.
+- UI layout, copy, and room flows are unchanged.
+- Media loading remains best-effort and RAM-only. The 200 MiB value remains a
+  transfer/private-storage protocol ceiling, not a device-memory admission
+  limit.
+
+## Verification
+
+Focused transport and Worker tests cover unresponsive sockets, healthy pong
+traffic, legacy Workers, browser offline/online transitions, superseded socket
+generations, and the Durable Object fallback. Full type, lint, unit, browser,
+Worker, production-build, and release-candidate checks remain deployment gates.
+''',
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Format touched sources
+        run: >-
+          npx prettier --write
+          src/network/transport/signaling-liveness.ts
+          src/network/transport/__tests__/signaling-liveness.test.ts
+          src/network/transport/cloudflare-signaling.ts
+          src/network/transport/types.ts
+          src/network/peer.ts
+          cloudflare/signaling-worker.ts
+          .github/workflows/ci.yml
+          scripts/release-evidence.mts
+          scripts/service-worker-asset.ts
+          docs/design/signaling-liveness.md
+          package.json
+          package-lock.json
+          index.html
+
+      - name: Verify patch shape
+        run: git diff --check
 
       - name: Focused signaling tests
         run: >-
           npx vitest run
-          src/network/transport/__tests__/signaling-reachability.test.ts
-          src/network/transport/__tests__/cloudflare-signaling-force-reconnect.test.ts
+          src/network/transport/__tests__/signaling-liveness.test.ts
           src/network/transport/__tests__/cloudflare-signaling.test.ts
+          src/network/transport/__tests__/cloudflare-signaling-worker.test.ts
+          src/network/__tests__/signaling-health.test.ts
 
       - name: Typecheck
         run: npm run typecheck
@@ -111,17 +152,24 @@ jobs:
       - name: Checked production build
         run: npm run build:checked
 
+      - name: Bundle every production Worker
+        run: npm run check:worker-bundles
+
       - name: Commit and push validated repair
         id: publish
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          rm -f .github/workflows/agent-signaling-liveness.yml
+          rm -f scripts/one-shot-signaling-liveness-patch.mjs
+          rm -f scripts/agent-signaling-liveness-patch.py
           git add -A
+          git diff --cached --check
           if git diff --cached --quiet; then
             echo 'No validated repair diff was produced.' >&2
             exit 1
           fi
-          git commit -m 'fix: detect silent signaling outages'
+          git commit -m 'fix: detect half-open signaling outages'
           git push origin "HEAD:${GITHUB_REF_NAME}"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
@@ -170,7 +218,7 @@ jobs:
               raise SystemExit('Timed out waiting for the repair PR to merge')
           PY
 
-      - name: Dispatch validated app release
+      - name: Dispatch validated production release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -185,7 +233,7 @@ jobs:
           body = json.dumps({
               'ref': 'main',
               'inputs': {
-                  'target': 'app',
+                  'target': 'all',
                   'apply_developer_api_d1': 'false',
               },
           }).encode('utf-8')
@@ -204,7 +252,7 @@ jobs:
           with urllib.request.urlopen(request, timeout=30) as response:
               if response.status != 204:
                   raise SystemExit(f'Unexpected release dispatch status: {response.status}')
-          print('Production app release dispatched from main.')
+          print('Production release dispatched from main.')
           PY
 
       - name: Delete merged repair branch

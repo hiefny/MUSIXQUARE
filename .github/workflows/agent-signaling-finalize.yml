@@ -1,9 +1,10 @@
-name: Dispatch Main Signaling Liveness Repair
+name: Bootstrap Main Signaling Repair v5
 
 on:
-  pull_request:
-    branches: [main]
-    types: [reopened]
+  workflow_run:
+    workflows:
+      - One-shot Signaling Liveness Production Repair v4
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -12,12 +13,12 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: dispatch-main-signaling-liveness-repair
+  group: bootstrap-main-signaling-repair-v5
   cancel-in-progress: true
 
 jobs:
   dispatch:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.ref == 'agent/signaling-liveness-recovery'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.id == 32243986923
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,4 +27,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh workflow run agent-signaling-finalize-v4.yml --repo "$GITHUB_REPOSITORY" --ref main
-          gh pr comment 82 --repo "$GITHUB_REPOSITORY" --body "Main signaling repair v5 was dispatched by PR reopen run ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}." || true
+          gh pr comment 82 --repo "$GITHUB_REPOSITORY" --body "Main signaling repair v5 was dispatched after workflow-run bootstrap ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}." || true

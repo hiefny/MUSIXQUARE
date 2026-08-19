@@ -34,7 +34,7 @@ import {
 } from './system-audio-delivery.ts';
 import { requestStandardRoomAccountAssertion } from '../account/room-identity.ts';
 import { clearCurrentAccountLoginReturn } from '../account/login-return.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 import {
   canRecoverSignalingInPlace,
@@ -364,6 +364,7 @@ function waitForPeerOpen(peer: PeerInstance, owner: NetworkInitOwner): Promise<s
  * Returns the assigned peer ID.
  */
 async function initNetwork(requestedId: string | null = null): Promise<string> {
+  bindBrowserConnectivityRecovery();
   // Client feature advertisements are authenticated by the exact live data
   // connection. A newly-created transport must negotiate them again even if
   // the room code or peer IDs happen to be reused.
@@ -581,6 +582,36 @@ export async function createHostSessionWithShortCode(maxAttempts = 12): Promise<
 let _reconnectAttempts = 0;
 const MAX_RECONNECT_ATTEMPTS = SIGNALING_RECOVERY_MAX_ATTEMPTS;
 const RECONNECT_BACKOFF_MS = [1000, 2000, 4000, 8000, 15000];
+let _browserConnectivityRecoveryBound = false;
+
+function isRecoverableStandardHost(): boolean {
+  return isActiveStandardRoomCoordinator();
+}
+
+function bindBrowserConnectivityRecovery(): void {
+  if (_browserConnectivityRecoveryBound || typeof window === 'undefined') return;
+  _browserConnectivityRecoveryBound = true;
+
+  window.addEventListener('offline', () => {
+    if (!isRecoverableStandardHost()) return;
+    const peer = getPeer();
+    if (!peer || peer.destroyed) return;
+    if (peer.markSignalingUnavailable?.()) {
+      log.warn('[Transport] Browser reported offline; host signaling recovery started');
+    }
+  });
+
+  window.addEventListener('online', () => {
+    if (!isRecoverableStandardHost()) return;
+    const peer = getPeer();
+    if (!peer || peer.destroyed) return;
+    const health = getState('network.signalingHealth').status;
+    if (!peer.disconnected && health !== 'exhausted') return;
+
+    clearManagedTimer('peer-signaling-reconnect');
+    retryPeerSignalingConnection();
+  });
+}
 
 async function performScheduledPeerReconnect(expectedPeer: PeerInstance): Promise<void> {
   let peer = getPeer();
@@ -786,6 +817,8 @@ export function recoverPeerAfterBackground(hiddenMs: number): TransportBackgroun
 }
 
 function setupPeerEvents(peer: PeerInstance): void {
+  bindBrowserConnectivityRecovery();
+
   peer.on('open', () => {
     if (getPeer() !== peer || getState('network.signalingHealth').status === 'healthy') return;
     clearManagedTimer('peer-signaling-reconnect');

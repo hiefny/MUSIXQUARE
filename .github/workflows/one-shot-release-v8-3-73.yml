@@ -1,0 +1,81 @@
+name: One-shot Production Release v8.3.73
+
+on:
+  push:
+    branches:
+      - agent/release-dispatch-v8-3-73
+
+permissions:
+  actions: write
+  contents: read
+  issues: write
+
+jobs:
+  dispatch:
+    if: github.repository == 'hiefny/MUSIXQUARE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Dispatch exact main release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_MAIN_SHA: df9e895082219581a5f0c9e8e39e22df4f4d8320
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          repo="$GITHUB_REPOSITORY"
+          actual_main_sha="$(gh api "/repos/${repo}/commits/main" --jq '.sha')"
+          if [[ "$actual_main_sha" != "$EXPECTED_MAIN_SHA" ]]; then
+            echo "::error::main is ${actual_main_sha}, expected ${EXPECTED_MAIN_SHA}; release withheld."
+            exit 1
+          fi
+
+          runs_endpoint="/repos/${repo}/actions/workflows/release.yml/runs?event=workflow_dispatch&branch=main&per_page=100"
+          existing_run_ids="$(gh api "$runs_endpoint" --jq '[.workflow_runs[].id]')"
+
+          jq -n \
+            --arg ref main \
+            '{ref: $ref, inputs: {target: "all", apply_developer_api_d1: "false"}}' |
+            gh api \
+              --method POST \
+              "/repos/${repo}/actions/workflows/release.yml/dispatches" \
+              --input -
+
+          release_run_id=''
+          release_run_url=''
+          for _ in $(seq 1 60); do
+            runs_json="$(gh api "$runs_endpoint")"
+            release_run_id="$(
+              jq -r \
+                --arg sha "$EXPECTED_MAIN_SHA" \
+                --argjson existing "$existing_run_ids" \
+                '[.workflow_runs[] | select(.head_sha == $sha) | select((.id as $id | $existing | index($id)) == null)] | sort_by(.created_at) | last | .id // empty' \
+                <<<"$runs_json"
+            )"
+            if [[ -n "$release_run_id" ]]; then
+              release_run_url="$(jq -r --argjson id "$release_run_id" '.workflow_runs[] | select(.id == $id) | .html_url' <<<"$runs_json")"
+              break
+            fi
+            sleep 2
+          done
+
+          if [[ -z "$release_run_id" || -z "$release_run_url" ]]; then
+            echo '::error::Release dispatch was accepted, but its workflow run could not be identified.'
+            exit 1
+          fi
+
+          comment_body="$(printf '%s\n' \
+            '<!-- musixquare-release-v8-3-73 -->' \
+            'Production Release was dispatched for the exact main commit.' \
+            '' \
+            "- commit: \`${EXPECTED_MAIN_SHA}\`" \
+            '- target: `all`' \
+            '- apply_developer_api_d1: `false`' \
+            "- run_id: \`${release_run_id}\`" \
+            "- run: ${release_run_url}")"
+          gh pr comment 86 --repo "$repo" --body "$comment_body"
+
+          echo "release_run_id=${release_run_id}"
+          echo "release_run_url=${release_run_url}"

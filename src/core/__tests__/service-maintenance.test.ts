@@ -6,9 +6,17 @@ import {
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   ABUSE_RATE_PAIR_CONSUME_PATH,
+  ABUSE_RATE_RESPONSE_PROTOCOL,
+  ABUSE_RATE_RESPONSE_PROTOCOL_HEADER,
+  ABUSE_RATE_RESPONSE_RESULT_HEADER,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
   SERVICE_CONTROL_STATE_PATH,
+  SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_ENABLED_HEADER,
   SERVICE_CONTROL_STATUS_PATH,
+  SERVICE_CONTROL_STATUS_REVISION_HEADER,
+  SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_VERSION_HEADER,
   clearServiceMaintenanceCacheForTests,
   consumeAbuseRateLimit,
   consumeAbuseRateLimitPair,
@@ -16,6 +24,7 @@ import {
   inactiveServiceMaintenanceState,
   normalizeServiceMaintenanceState,
   readAdminAnnouncementControl,
+  readCachedServiceMaintenance,
   readServiceMaintenance,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
@@ -99,10 +108,15 @@ function serviceControlEnv(
       };
     }
     return {
-      fetch: (request: Request) =>
-        new URL(request.url).pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH
+      fetch: (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (request.method === 'HEAD' && pathname === SERVICE_CONTROL_STATUS_PATH) {
+          return new Response(null, { status: 404 });
+        }
+        return pathname === ADMIN_ANNOUNCEMENT_STATUS_PATH
           ? legacyAnnouncementFetch(request)
-          : fetch(request),
+          : fetch(request);
+      },
     };
   };
   const namespace = options.legacyNamespace
@@ -154,7 +168,7 @@ describe('shared service-maintenance control', () => {
   });
 
   it('accepts base64url rate identities that begin with URL-safe punctuation', async () => {
-    const fetch = vi.fn(() =>
+    const fetch = vi.fn((_request: Request) =>
       Response.json({
         allowed: true,
         limit: 4,
@@ -174,6 +188,166 @@ describe('shared service-maintenance control', () => {
     expect(getByName).toHaveBeenCalledWith(
       'musixquare-abuse-rate-v1:app-turn-capability:_base64url',
     );
+    const request = fetch.mock.calls[0]?.[0] as Request;
+    expect(request.headers.get(ABUSE_RATE_RESPONSE_PROTOCOL_HEADER)).toBe(
+      ABUSE_RATE_RESPONSE_PROTOCOL,
+    );
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('consumes a negotiated single-counter result from headers without touching its body', async () => {
+    const getReader = vi.fn();
+    const cancel = vi.fn();
+    const fetch = vi.fn(() => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        [ABUSE_RATE_RESPONSE_PROTOCOL_HEADER]: ABUSE_RATE_RESPONSE_PROTOCOL,
+        [ABUSE_RATE_RESPONSE_RESULT_HEADER]: JSON.stringify({
+          allowed: true,
+          limit: 4,
+          remaining: 3,
+          resetAtMs: 1_800_000_060_000,
+          retryAfterSeconds: 0,
+        }),
+      }),
+      body: { getReader, cancel },
+    }));
+    const env = { MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) } };
+
+    await expect(
+      consumeAbuseRateLimit(env, {
+        scope: 'app-turn-capability',
+        identity: 'header-result',
+        limit: 4,
+        windowMs: 60_000,
+      }),
+    ).resolves.toMatchObject({ status: 'ok', allowed: true, remaining: 3 });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('falls back to one legacy response body without replaying the rate mutation', async () => {
+    const encoded = new TextEncoder().encode(
+      JSON.stringify({
+        allowed: true,
+        limit: 4,
+        remaining: 3,
+        resetAtMs: 1_800_000_060_000,
+        retryAfterSeconds: 0,
+      }),
+    );
+    const reader = {
+      read: vi
+        .fn()
+        .mockResolvedValueOnce({ done: false, value: encoded })
+        .mockResolvedValueOnce({ done: true }),
+      cancel: vi.fn(),
+      releaseLock: vi.fn(),
+    };
+    const getReader = vi.fn(() => reader);
+    const fetch = vi.fn(() => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-length': String(encoded.byteLength) }),
+      body: { getReader, cancel: vi.fn() },
+    }));
+    const env = { MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) } };
+
+    await expect(
+      consumeAbuseRateLimit(env, {
+        scope: 'app-turn-capability',
+        identity: 'legacy-body-result',
+        limit: 4,
+        windowMs: 60_000,
+      }),
+    ).resolves.toMatchObject({ status: 'ok', allowed: true, remaining: 3 });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getReader).toHaveBeenCalledOnce();
+    expect(reader.read).toHaveBeenCalledTimes(2);
+    expect(reader.cancel).not.toHaveBeenCalled();
+    expect(reader.releaseLock).toHaveBeenCalledOnce();
+  });
+
+  it('fails a malformed negotiated rate result closed without falling back to its body', async () => {
+    const getReader = vi.fn();
+    const cancel = vi.fn();
+    const fetch = vi.fn(() => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        [ABUSE_RATE_RESPONSE_PROTOCOL_HEADER]: ABUSE_RATE_RESPONSE_PROTOCOL,
+        [ABUSE_RATE_RESPONSE_RESULT_HEADER]: '{invalid',
+      }),
+      body: { getReader, cancel },
+    }));
+    const env = { MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) } };
+
+    await expect(
+      consumeAbuseRateLimit(env, {
+        scope: 'app-turn-capability',
+        identity: 'malformed-header-result',
+        limit: 4,
+        windowMs: 60_000,
+      }),
+    ).resolves.toEqual({ status: 'unavailable' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('fails an unknown negotiated rate protocol closed without opening its body', async () => {
+    const getReader = vi.fn();
+    const cancel = vi.fn();
+    const fetch = vi.fn(() => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        [ABUSE_RATE_RESPONSE_PROTOCOL_HEADER]: 'headers-v999',
+        [ABUSE_RATE_RESPONSE_RESULT_HEADER]: '{}',
+      }),
+      body: { getReader, cancel },
+    }));
+    const env = { MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) } };
+
+    await expect(
+      consumeAbuseRateLimit(env, {
+        scope: 'app-turn-capability',
+        identity: 'unknown-header-protocol',
+        limit: 4,
+        windowMs: 60_000,
+      }),
+    ).resolves.toEqual({ status: 'unavailable' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('does not touch a negotiated non-success rate body', async () => {
+    const getReader = vi.fn();
+    const cancel = vi.fn();
+    const fetch = vi.fn(() => ({
+      ok: false,
+      status: 503,
+      headers: new Headers({
+        [ABUSE_RATE_RESPONSE_PROTOCOL_HEADER]: ABUSE_RATE_RESPONSE_PROTOCOL,
+      }),
+      body: { getReader, cancel },
+    }));
+    const env = { MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) } };
+
+    await expect(
+      consumeAbuseRateLimit(env, {
+        scope: 'app-turn-capability',
+        identity: 'status-only-error',
+        limit: 4,
+        windowMs: 60_000,
+      }),
+    ).resolves.toEqual({ status: 'unavailable' });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   it('routes an opaque operation id through the idempotent v2 consume contract', async () => {
@@ -265,6 +439,57 @@ describe('shared service-maintenance control', () => {
       retryAfterSeconds: 30,
       secondary: null,
     });
+  });
+
+  it('consumes a negotiated pair result from headers without touching its body', async () => {
+    const getReader = vi.fn();
+    const cancel = vi.fn();
+    const resetAtMs = 1_800_000_060_000;
+    const fetch = vi.fn(() => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({
+        [ABUSE_RATE_RESPONSE_PROTOCOL_HEADER]: ABUSE_RATE_RESPONSE_PROTOCOL,
+        [ABUSE_RATE_RESPONSE_RESULT_HEADER]: JSON.stringify({
+          allowed: false,
+          deniedBy: 'secondary',
+          primary: {
+            allowed: true,
+            limit: 150,
+            remaining: 149,
+            resetAtMs,
+            retryAfterSeconds: 0,
+          },
+          secondary: {
+            allowed: false,
+            limit: 4,
+            remaining: 0,
+            resetAtMs,
+            retryAfterSeconds: 30,
+          },
+        }),
+      }),
+      body: { getReader, cancel },
+    }));
+    const env = { MUSIXQUARE_SERVICE_CONTROL: { getByName: vi.fn(() => ({ fetch })) } };
+
+    await expect(
+      consumeAbuseRateLimitPair(env, {
+        scope: 'app-turn-config',
+        identity: 'header-pair-result',
+        limit: 150,
+        windowMs: 60_000,
+        secondary: { identity: 'opaque-token', limit: 4 },
+      }),
+    ).resolves.toMatchObject({
+      status: 'ok',
+      allowed: false,
+      deniedBy: 'secondary',
+      retryAfterSeconds: 30,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
   });
 
   it('fails pair consumption closed on a contradictory internal response', async () => {
@@ -433,6 +658,132 @@ describe('shared service-maintenance control', () => {
     expect(normalizeServiceMaintenanceState({ enabled: true, revision: 1 })).toBeNull();
     expect(normalizeServiceMaintenanceState({ enabled: false, revision: -1 })).toBeNull();
     expect(normalizeServiceMaintenanceState(null)).toBeNull();
+  });
+
+  it('reads versioned status headers without opening or cancelling the response body', async () => {
+    const getReader = vi.fn(() => {
+      throw new Error('status body must remain untouched');
+    });
+    const cancel = vi.fn(() => {
+      throw new Error('status body must not be cancelled');
+    });
+    const fetch = vi.fn((_request: Request) =>
+      Promise.resolve({
+        body: { getReader, cancel },
+        headers: new Headers({
+          [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+          [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: '1',
+          [SERVICE_CONTROL_STATUS_REVISION_HEADER]: '8',
+          [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]: '1800000000000',
+          [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]: '1799999999000',
+        }),
+        ok: true,
+        status: 200,
+      }),
+    );
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn(() => ({ fetch })),
+      },
+    };
+
+    await expect(readServiceMaintenance(env)).resolves.toEqual({
+      enabled: true,
+      revision: 8,
+      updatedAt: 1_800_000_000_000,
+      activatedAt: 1_799_999_999_000,
+      settlesAt: 1_800_000_002_000,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ method: 'HEAD' }));
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('fails closed on malformed versioned status headers without falling back to the body', async () => {
+    const getReader = vi.fn();
+    const cancel = vi.fn();
+    const fetch = vi.fn(() =>
+      Promise.resolve({
+        body: { getReader, cancel },
+        headers: new Headers({
+          [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+          [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: '1',
+          [SERVICE_CONTROL_STATUS_REVISION_HEADER]: 'not-a-revision',
+          [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]: '1800000000000',
+          [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]: '1799999999000',
+        }),
+        ok: true,
+        status: 200,
+      }),
+    );
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn(() => ({ fetch })),
+      },
+    };
+
+    await expect(readServiceMaintenance(env)).resolves.toMatchObject({
+      enabled: true,
+      controlUnavailable: true,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(getReader).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it('falls back to legacy JSON only when the status HEAD route is explicitly unavailable', async () => {
+    const methods: string[] = [];
+    const fetch = vi.fn((request: Request) => {
+      methods.push(request.method);
+      if (request.method === 'HEAD') return Promise.resolve(new Response(null, { status: 404 }));
+      return Promise.resolve(Response.json({ serviceStatus: activeState() }));
+    });
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn(() => ({ fetch })),
+      },
+    };
+
+    await expect(readServiceMaintenance(env)).resolves.toMatchObject({
+      enabled: true,
+      revision: 4,
+    });
+    expect(methods).toEqual(['HEAD', 'GET']);
+  });
+
+  it('does not reopen the legacy body path for a headerless successful HEAD response', async () => {
+    const fetch = vi.fn((_request: Request) =>
+      Promise.resolve(Response.json({ serviceStatus: activeState() })),
+    );
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn(() => ({ fetch })),
+      },
+    };
+
+    await expect(readServiceMaintenance(env)).resolves.toMatchObject({
+      enabled: true,
+      controlUnavailable: true,
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ method: 'HEAD' }));
+  });
+
+  it('bounds a stalled status HEAD without attempting a legacy GET', async () => {
+    vi.useFakeTimers();
+    const fetch = vi.fn((_request: Request) => new Promise<Response>(() => {}));
+    const env = {
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn(() => ({ fetch })),
+      },
+    };
+    const read = readServiceMaintenance(env);
+
+    await vi.advanceTimersByTimeAsync(SERVICE_CONTROL_READ_TIMEOUT_MS);
+    await expect(read).resolves.toMatchObject({ enabled: true, controlUnavailable: true });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(fetch.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ method: 'HEAD' }));
   });
 
   it('deduplicates and caches ordinary reads while fresh reads bypass the cache', async () => {
@@ -660,6 +1011,149 @@ describe('shared service-maintenance control', () => {
     expect(control.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('keeps public cached reads closed when a status read overtakes an ambiguous mutation', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
+    const disabledState = activeState({
+      enabled: false,
+      revision: 3,
+      updatedAt: 1_800_000_002_000,
+      activatedAt: null,
+      settlesAt: 1_800_000_004_000,
+    });
+    const enabledState = activeState({
+      enabled: true,
+      revision: 4,
+      updatedAt: 1_800_000_003_000,
+      activatedAt: 1_800_000_003_000,
+      settlesAt: 1_800_000_005_000,
+    });
+    let statusReadCount = 0;
+    const control = serviceControlEnv((request) => {
+      const path = new URL(request.url).pathname;
+      if (path === SERVICE_CONTROL_STATUS_PATH) {
+        statusReadCount += 1;
+        return Response.json({
+          serviceStatus: statusReadCount < 3 ? disabledState : enabledState,
+        });
+      }
+      expect(path).toBe(SERVICE_CONTROL_STATE_PATH);
+      return Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 });
+    });
+
+    await expect(readServiceMaintenance(control.env, { fresh: true })).resolves.toEqual(
+      disabledState,
+    );
+    await expect(
+      updateServiceMaintenance(control.env, {
+        enabled: true,
+        expectedRevision: disabledState.revision,
+        requestId: 'maintenance-ambiguous-enable',
+      }),
+    ).resolves.toMatchObject({ status: 'unavailable', state: { controlUnavailable: true } });
+
+    expect(readCachedServiceMaintenance(control.env)).toMatchObject({
+      state: { enabled: true, controlUnavailable: true },
+      refreshNeeded: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(1_001);
+    expect(readCachedServiceMaintenance(control.env)).toMatchObject({
+      state: { enabled: true, controlUnavailable: true },
+      refreshNeeded: true,
+    });
+
+    await expect(readServiceMaintenance(control.env, { fresh: true })).resolves.toMatchObject({
+      enabled: true,
+      controlUnavailable: true,
+    });
+    expect(readCachedServiceMaintenance(control.env)).toMatchObject({
+      state: { enabled: true, controlUnavailable: true },
+      refreshNeeded: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(1_001);
+    await expect(readServiceMaintenance(control.env, { fresh: true })).resolves.toEqual(
+      enabledState,
+    );
+    expect(readCachedServiceMaintenance(control.env)).toEqual({
+      state: enabledState,
+      refreshNeeded: false,
+    });
+  });
+
+  it('keeps every ambiguous mutation fenced when a newer no-op mutation completes', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
+    const disabledState = activeState({
+      enabled: false,
+      revision: 3,
+      updatedAt: 1_800_000_002_000,
+      activatedAt: null,
+      settlesAt: 1_800_000_004_000,
+    });
+    const enabledState = activeState({
+      enabled: true,
+      revision: 4,
+      updatedAt: 1_800_000_003_000,
+      activatedAt: 1_800_000_003_000,
+      settlesAt: 1_800_000_005_000,
+    });
+    let statusReadCount = 0;
+    const control = serviceControlEnv(async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === SERVICE_CONTROL_STATUS_PATH) {
+        statusReadCount += 1;
+        return Response.json({
+          serviceStatus: statusReadCount < 3 ? disabledState : enabledState,
+        });
+      }
+      expect(path).toBe(SERVICE_CONTROL_STATE_PATH);
+      const body = (await request.json()) as { requestId?: string };
+      return body.requestId === 'maintenance-stalled-enable'
+        ? Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 })
+        : Response.json({ serviceStatus: disabledState });
+    });
+
+    await expect(readServiceMaintenance(control.env, { fresh: true })).resolves.toEqual(
+      disabledState,
+    );
+    await expect(
+      updateServiceMaintenance(control.env, {
+        enabled: true,
+        expectedRevision: disabledState.revision,
+        requestId: 'maintenance-stalled-enable',
+      }),
+    ).resolves.toMatchObject({ status: 'unavailable' });
+    await expect(
+      updateServiceMaintenance(control.env, {
+        enabled: false,
+        expectedRevision: disabledState.revision,
+        requestId: 'maintenance-definitive-noop-disable',
+      }),
+    ).resolves.toEqual({ status: 'ok', state: disabledState });
+
+    expect(readCachedServiceMaintenance(control.env)).toMatchObject({
+      state: { enabled: true, controlUnavailable: true },
+      refreshNeeded: false,
+    });
+
+    await vi.advanceTimersByTimeAsync(1_001);
+    await expect(readServiceMaintenance(control.env, { fresh: true })).resolves.toMatchObject({
+      enabled: true,
+      controlUnavailable: true,
+    });
+
+    await vi.advanceTimersByTimeAsync(1_001);
+    await expect(readServiceMaintenance(control.env, { fresh: true })).resolves.toEqual(
+      enabledState,
+    );
+    expect(readCachedServiceMaintenance(control.env)).toEqual({
+      state: enabledState,
+      refreshNeeded: false,
+    });
+  });
+
   it('supports the idFromName namespace shape and fails closed on bound RPC failure', async () => {
     const healthy = serviceControlEnv(() => Response.json({ serviceStatus: activeState() }), {
       legacyNamespace: true,
@@ -691,6 +1185,7 @@ describe('shared service-maintenance control', () => {
     const maintenanceFetch = vi.fn((request: Request) => {
       const path = new URL(request.url).pathname;
       if (path === SERVICE_CONTROL_STATUS_PATH) {
+        if (request.method === 'HEAD') return new Response(null, { status: 404 });
         return Response.json({ serviceStatus: activeState({ enabled: false }) });
       }
       if (path === SERVICE_CONTROL_STATE_PATH) {

@@ -178,6 +178,100 @@ describe('initPlayerControls storage errors', () => {
   });
 });
 
+describe('initPlayerControls empty-play media guidance', () => {
+  it.each([390, 844])(
+    'scrolls to, focuses, and restarts the three-pulse media hint at %ipx',
+    (viewportWidth) => {
+      const innerWidth = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(viewportWidth);
+      try {
+        document.body.innerHTML = '<button id="btn-media-source">Media</button>';
+        const button = document.getElementById('btn-media-source') as HTMLButtonElement;
+        const scrollIntoView = vi.fn();
+        const forcedReflow = vi.fn(() => 56);
+        button.scrollIntoView = scrollIntoView;
+        Object.defineProperty(button, 'offsetWidth', { configurable: true, get: forcedReflow });
+        button.classList.add('attention-hint');
+
+        initPlayerControls();
+        const removeClass = vi.spyOn(button.classList, 'remove');
+        const addClass = vi.spyOn(button.classList, 'add');
+        bus.emit('ui:reveal-media-source');
+
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          behavior: 'smooth',
+          block: 'nearest',
+          inline: 'nearest',
+        });
+        expect(document.activeElement).toBe(button);
+        expect(button.classList.contains('attention-hint')).toBe(true);
+        expect(forcedReflow).toHaveBeenCalledTimes(1);
+        expect(removeClass).toHaveBeenCalledWith('attention-hint');
+        expect(addClass).toHaveBeenCalledWith('attention-hint');
+
+        bus.emit('ui:reveal-media-source');
+        expect(scrollIntoView).toHaveBeenCalledTimes(2);
+        expect(forcedReflow).toHaveBeenCalledTimes(2);
+        expect(button.classList.contains('attention-hint')).toBe(true);
+
+        const animationEnd = new Event('animationend');
+        Object.defineProperty(animationEnd, 'animationName', { value: 'attention-hint-fill' });
+        button.dispatchEvent(animationEnd);
+        expect(button.classList.contains('attention-hint')).toBe(false);
+      } finally {
+        innerWidth.mockRestore();
+      }
+    },
+  );
+
+  it('uses instant scrolling when reduced motion is requested', () => {
+    const innerWidth = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true }) as MediaQueryList),
+    });
+    try {
+      document.body.innerHTML = '<button id="btn-media-source">Media</button>';
+      const button = document.getElementById('btn-media-source') as HTMLButtonElement;
+      const scrollIntoView = vi.fn();
+      button.scrollIntoView = scrollIntoView;
+
+      initPlayerControls();
+      bus.emit('ui:reveal-media-source');
+
+      expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'auto',
+        block: 'nearest',
+        inline: 'nearest',
+      });
+      expect(document.activeElement).toBe(button);
+    } finally {
+      innerWidth.mockRestore();
+      if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+      else Reflect.deleteProperty(window, 'matchMedia');
+    }
+  });
+
+  it('keeps the existing toast-only behavior on desktop', () => {
+    const innerWidth = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
+    try {
+      document.body.innerHTML = '<button id="btn-media-source">Media</button>';
+      const button = document.getElementById('btn-media-source') as HTMLButtonElement;
+      const scrollIntoView = vi.fn();
+      button.scrollIntoView = scrollIntoView;
+
+      initPlayerControls();
+      bus.emit('ui:reveal-media-source');
+
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      expect(document.activeElement).not.toBe(button);
+      expect(button.classList.contains('attention-hint')).toBe(false);
+    } finally {
+      innerWidth.mockRestore();
+    }
+  });
+});
+
 describe('getRoleLabelByChannelMode', () => {
   it('returns Original for mode 0', () => {
     expect(getRoleLabelByChannelMode(0)).toBe('Original');

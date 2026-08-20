@@ -5,7 +5,12 @@ import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   SERVICE_CONTROL_STATE_PATH,
+  SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_ENABLED_HEADER,
   SERVICE_CONTROL_STATUS_PATH,
+  SERVICE_CONTROL_STATUS_REVISION_HEADER,
+  SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_VERSION_HEADER,
   clearServiceMaintenanceCacheForTests,
 } from '../../../cloudflare/service-maintenance.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
@@ -122,6 +127,84 @@ afterEach(() => {
 });
 
 describe('app maintenance administration', () => {
+  it('never waits for a cold maintenance refresh before serving public traffic', async () => {
+    vi.useFakeTimers();
+    const statusFetch = vi.fn((_request: Request) => new Promise<Response>(() => {}));
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const waitUntil = vi.fn((promise: Promise<unknown>) => {
+      waitUntilPromises.push(promise);
+    });
+    const env = {
+      ASSETS: { fetch: vi.fn(() => Promise.resolve(new Response('icon'))) },
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn(() => ({ fetch: statusFetch })),
+      },
+    };
+
+    const response = await appWorker.fetch(new Request('https://musixquare.com/favicon.ico'), env, {
+      waitUntil,
+    });
+
+    expect(response.status).toBe(200);
+    expect(statusFetch).not.toHaveBeenCalled();
+    expect(waitUntil).toHaveBeenCalledOnce();
+    expect(waitUntilPromises).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(statusFetch).toHaveBeenCalledOnce();
+    expect(statusFetch.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ method: 'HEAD' }));
+
+    const second = await appWorker.fetch(new Request('https://musixquare.com/favicon.ico'), env, {
+      waitUntil,
+    });
+    expect(second.status).toBe(200);
+    expect(waitUntil).toHaveBeenCalledOnce();
+  });
+
+  it('applies a completed background maintenance refresh to the next public request', async () => {
+    vi.useFakeTimers();
+    const statusFetch = vi.fn(() =>
+      Promise.resolve(
+        new Response(null, {
+          headers: {
+            [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+            [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: '1',
+            [SERVICE_CONTROL_STATUS_REVISION_HEADER]: '7',
+            [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]: '1800000000000',
+            [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]: '1799999999000',
+          },
+        }),
+      ),
+    );
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const waitUntil = vi.fn((promise: Promise<unknown>) => {
+      waitUntilPromises.push(promise);
+    });
+    const assetFetch = vi.fn(() => Promise.resolve(new Response('icon')));
+    const env = {
+      ASSETS: { fetch: assetFetch },
+      MUSIXQUARE_SERVICE_CONTROL: {
+        getByName: vi.fn(() => ({ fetch: statusFetch })),
+      },
+    };
+
+    const first = await appWorker.fetch(new Request('https://musixquare.com/favicon.ico'), env, {
+      waitUntil,
+    });
+    expect(first.status).toBe(200);
+    expect(assetFetch).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(waitUntilPromises[0]).resolves.toBeUndefined();
+
+    const second = await appWorker.fetch(new Request('https://musixquare.com/favicon.ico'), env, {
+      waitUntil,
+    });
+    expect(second.status).toBe(503);
+    expect(second.headers.get('Cache-Control')).toContain('no-store');
+    expect(assetFetch).toHaveBeenCalledOnce();
+  });
+
   it('keeps admin control available while pausing public documents and APIs', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-02T12:00:00.000Z'));

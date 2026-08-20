@@ -31,7 +31,11 @@ const ACTIVE_STATUS = Object.freeze({
 });
 
 function activeMaintenanceEnv(extra: Record<string, unknown> = {}) {
-  const fetch = vi.fn(async () => Response.json({ serviceStatus: ACTIVE_STATUS }));
+  const fetch = vi.fn(async (request: Request) =>
+    request.method === 'HEAD'
+      ? new Response(null, { status: 404 })
+      : Response.json({ serviceStatus: ACTIVE_STATUS }),
+  );
   return {
     ...extra,
     MUSIXQUARE_SERVICE_CONTROL: {

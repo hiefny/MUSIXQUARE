@@ -269,7 +269,7 @@ when that provenance exists. A legacy or manual deployment without Git
 provenance remains deliberately unverifiable; use target `all` for the next
 approved forward-repair release to establish a fresh common baseline.
 
-The combined `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`
+The combined `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1+maintenance-status-headers-v1+abuse-rate-response-headers-v1`
 service-control marker requires an `all` rollout in this order: PRO,
 remote-share, signaling, Developer API facade/API, then App. Announcement v2
 adds a dedicated named announcement Durable Object owned by the PRO Worker, so
@@ -277,6 +277,18 @@ that owner must be deployed before any consumer can address the new instance.
 While the dedicated object is empty, the App preserves the legacy announcement;
 the first accepted mutation carries its revision and history into the new object.
 After that object has a canonical revision, it is the sole announcement source.
+
+Maintenance status uses a null-body `HEAD` response with versioned headers, and
+abuse-rate consumers opt into a null-body result-header response on the same
+single mutating `POST`. Legacy producers remain readable from that same
+response; consumers must never replay a consume request as protocol fallback.
+The App never synchronously waits for maintenance control on a public request:
+it serves from its last canonical isolate snapshot and refreshes in the
+background. A cold App isolate can therefore admit traffic before its first
+snapshot. Treat the dashboard switch as an availability-oriented suppression
+control, not a strict global traffic or storage freeze; use a pre-Worker edge or
+deployment control plus the documented storage protections when a hard freeze
+is required.
 
 This cutover is a permanent forward-only data floor once the v2 App/PRO pair has
 deployed or the dedicated announcement object has recorded revision 1 or later.

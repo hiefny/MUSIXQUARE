@@ -397,6 +397,8 @@ describe('pause', () => {
   });
 
   it('shows an informative toast when play is toggled with an empty playlist', () => {
+    const revealMediaSource = vi.fn();
+    bus.on('ui:reveal-media-source', revealMediaSource);
     setState('network.appRole', 'host');
     setState('playlist.items', []);
     setState('playlist.currentQueueItemId', null);
@@ -405,6 +407,7 @@ describe('pause', () => {
     togglePlay();
 
     expect(showToast).toHaveBeenCalledWith(t('toast.add_media_to_play'));
+    expect(revealMediaSource).toHaveBeenCalledTimes(1);
     expect(broadcast).not.toHaveBeenCalled();
     expect(sendToHost).not.toHaveBeenCalled();
   });

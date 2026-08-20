@@ -12,7 +12,12 @@ import {
 import {
   ABUSE_RATE_CONSUME_PATH,
   SERVICE_CONTROL_READ_TIMEOUT_MS,
+  SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_ENABLED_HEADER,
   SERVICE_CONTROL_STATUS_PATH,
+  SERVICE_CONTROL_STATUS_REVISION_HEADER,
+  SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_VERSION_HEADER,
 } from '../../../../cloudflare/service-maintenance.ts';
 
 type WorkerModule = {
@@ -462,7 +467,11 @@ function maintenanceBinding(enabled = true): Record<string, unknown> {
   };
   return {
     getByName: vi.fn(() => ({
-      fetch: vi.fn(async () => originalResponse.json({ serviceStatus })),
+      fetch: vi.fn(async (request: Request) =>
+        request.method === 'HEAD'
+          ? new originalResponse(null, { status: 404 })
+          : originalResponse.json({ serviceStatus }),
+      ),
     })),
   };
 }
@@ -487,6 +496,7 @@ function atomicRateBinding(
         fetch: async (request: Request): Promise<Response> => {
           const path = new URL(request.url).pathname;
           if (path === SERVICE_CONTROL_STATUS_PATH) {
+            if (request.method === 'HEAD') return new originalResponse(null, { status: 404 });
             return originalResponse.json({
               serviceStatus: {
                 enabled: false,
@@ -562,7 +572,8 @@ function gatedInactiveMaintenanceBinding(): {
   return {
     binding: {
       getByName: vi.fn(() => ({
-        fetch: vi.fn(async () => {
+        fetch: vi.fn(async (request: Request) => {
+          if (request.method === 'HEAD') return new originalResponse(null, { status: 404 });
           markEntered();
           await gate;
           return originalResponse.json({
@@ -1748,6 +1759,17 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
           const path = new URL(request.url).pathname;
           paths.push(path);
           if (path !== SERVICE_CONTROL_STATUS_PATH) throw new Error('unexpected abuse consume');
+          if (request.method === 'HEAD') {
+            return new originalResponse(null, {
+              headers: {
+                [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+                [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: '0',
+                [SERVICE_CONTROL_STATUS_REVISION_HEADER]: '0',
+                [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]: 'null',
+                [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]: 'null',
+              },
+            });
+          }
           return originalResponse.json({
             serviceStatus: {
               enabled: false,

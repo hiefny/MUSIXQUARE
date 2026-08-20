@@ -2,12 +2,21 @@ export const SERVICE_CONTROL_OBJECT_NAME = 'musixquare-global-service-control-v1
 export const ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME = 'musixquare-global-admin-announcement-v1';
 export const SERVICE_CONTROL_STATUS_PATH = '/internal/service-maintenance/v1/status';
 export const SERVICE_CONTROL_STATE_PATH = '/internal/service-maintenance/v1/state';
+export const SERVICE_CONTROL_STATUS_VERSION_HEADER = 'X-Musixquare-Service-Control-Version';
+export const SERVICE_CONTROL_STATUS_ENABLED_HEADER = 'X-Musixquare-Service-Control-Enabled';
+export const SERVICE_CONTROL_STATUS_REVISION_HEADER = 'X-Musixquare-Service-Control-Revision';
+export const SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER = 'X-Musixquare-Service-Control-Updated-At';
+export const SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER =
+  'X-Musixquare-Service-Control-Activated-At';
 export const ADMIN_ANNOUNCEMENT_STATUS_PATH = '/internal/admin-announcement/v1/status';
 export const ADMIN_ANNOUNCEMENT_STATE_PATH = '/internal/admin-announcement/v1/state';
 export const ADMIN_ANNOUNCEMENT_MIGRATION_HEADER = 'X-Musixquare-Admin-Announcement-Migration';
 export const ABUSE_RATE_CONSUME_PATH = '/internal/abuse-rate/v1/consume';
 export const ABUSE_RATE_IDEMPOTENT_CONSUME_PATH = '/internal/abuse-rate/v2/consume';
 export const ABUSE_RATE_PAIR_CONSUME_PATH = '/internal/abuse-rate/v3/consume-pair';
+export const ABUSE_RATE_RESPONSE_PROTOCOL_HEADER = 'X-Musixquare-Abuse-Rate-Response';
+export const ABUSE_RATE_RESPONSE_RESULT_HEADER = 'X-Musixquare-Abuse-Rate-Result';
+export const ABUSE_RATE_RESPONSE_PROTOCOL = 'headers-v1';
 
 const SERVICE_CONTROL_CACHE_TTL_MS = 1_000;
 const ADMIN_ANNOUNCEMENT_CACHE_TTL_MS = 30_000;
@@ -22,9 +31,10 @@ const ADMIN_ANNOUNCEMENT_SOURCE_POSITIVE_SEPARATED = 2;
 // bounding a corrupted internal response.
 const SERVICE_CONTROL_RESPONSE_MAX_BYTES = 256 * 1024;
 export const SERVICE_CONTROL_READ_TIMEOUT_MS = 2_000;
-// This is only the worst-case edge/isolate cache propagation window. It is
-// deliberately not presented as a storage-write drain: an R2 PUT authorized
-// before maintenance begins bypasses Workers and may still finish afterward.
+// This is an operator-UI grace window, not a hard propagation bound. The App
+// refreshes maintenance state off the public request path, so a cold isolate
+// can admit traffic before its first snapshot arrives. An R2 PUT authorized
+// before maintenance begins also bypasses Workers and may finish afterward.
 const SERVICE_CONTROL_EDGE_PROPAGATION_MS = 2_000;
 const SERVICE_CONTROL_ORIGIN = 'https://service-control.internal';
 const ABUSE_RATE_OBJECT_PREFIX = 'musixquare-abuse-rate-v1';
@@ -32,6 +42,7 @@ const ABUSE_RATE_PAIR_OBJECT_PREFIX = 'musixquare-abuse-rate-pair-v1';
 const ABUSE_RATE_OPERATION_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
 const ABUSE_RATE_OPERATION_HISTORY_LIMIT = 1024;
 const ABUSE_RATE_PAIR_PRIMARY_LIMIT = 1024;
+const ABUSE_RATE_RESPONSE_RESULT_MAX_LENGTH = 2_048;
 const SERVICE_MAINTENANCE_RETRY_AFTER_SECONDS = 60;
 
 type UnknownRecord = Record<string, unknown>;
@@ -76,13 +87,14 @@ interface ServiceControlUnavailable {
 }
 
 type ServiceControlOutcome = ServiceControlResponse | ServiceControlUnavailable;
+const SERVICE_CONTROL_STATUS_HEADERS_ABSENT = Symbol('service-control-status-headers-absent');
 
 export interface ServiceMaintenanceState {
   enabled: boolean;
   revision: number;
   updatedAt: number | null;
   activatedAt: number | null;
-  /** Edge traffic-gate propagation deadline; not a direct-storage write drain. */
+  /** Operator-UI grace deadline; not a hard traffic or direct-storage drain bound. */
   settlesAt: number | null;
   controlUnavailable?: boolean;
 }
@@ -167,6 +179,11 @@ interface ServiceMaintenanceReadOptions {
   fresh?: boolean;
 }
 
+export interface CachedServiceMaintenanceRead {
+  state: ServiceMaintenanceState | null;
+  refreshNeeded: boolean;
+}
+
 interface ServiceMaintenanceResponseOptions {
   format?: 'auto' | 'html' | 'json';
 }
@@ -182,8 +199,15 @@ interface ServiceStatusCache {
   version: number;
   mutationGeneration: number;
   activeMutationGeneration: number | null;
+  uncertainMutations: Map<number, ServiceStatusMutationFence>;
   canonicalRevision: number;
   canonicalValue: ServiceMaintenanceState | null;
+}
+
+interface ServiceStatusMutationFence {
+  expectedRevision: number;
+  enabled: boolean;
+  requestId: string;
 }
 
 type AdminAnnouncementSourcePriority = 0 | 1 | 2;
@@ -393,6 +417,7 @@ function serviceStatusCache(binding: ServiceControlBinding): ServiceStatusCache 
       version: 0,
       mutationGeneration: 0,
       activeMutationGeneration: null,
+      uncertainMutations: new Map(),
       canonicalRevision: -1,
       canonicalValue: null,
     };
@@ -419,15 +444,32 @@ function rememberCanonicalServiceStatus(
   return true;
 }
 
-function beginServiceStatusMutation(binding: ServiceControlBinding): number {
+function beginServiceStatusMutation(
+  binding: ServiceControlBinding,
+  input: ServiceMaintenanceUpdateInput,
+): number {
   const cache = serviceStatusCache(binding);
   const generation = cache.mutationGeneration + 1;
   cache.mutationGeneration = generation;
   cache.activeMutationGeneration = generation;
+  cache.uncertainMutations.set(generation, {
+    expectedRevision: input.expectedRevision,
+    enabled: input.enabled,
+    requestId: input.requestId,
+  });
   cache.version += 1;
   cache.value = unavailableServiceMaintenanceState();
   cache.expiresAt = Date.now() + SERVICE_CONTROL_CACHE_TTL_MS;
   return generation;
+}
+
+function serviceStatusReconcilesMutation(
+  state: ServiceMaintenanceState,
+  mutation: ServiceStatusMutationFence,
+): boolean {
+  if (state.controlUnavailable === true) return false;
+  if (state.revision > mutation.expectedRevision) return true;
+  return state.revision === mutation.expectedRevision && state.enabled === mutation.enabled;
 }
 
 function cancelServiceControlBody(reader: CancelableServiceControlBody): void {
@@ -435,6 +477,94 @@ function cancelServiceControlBody(reader: CancelableServiceControlBody): void {
     Promise.resolve(reader?.cancel()).catch(() => {});
   } catch {
     // Cancellation is best-effort and must never delay the fail-closed result.
+  }
+}
+
+function deferServiceControlBodyCancellation(reader: CancelableServiceControlBody): void {
+  if (!reader) return;
+  setTimeout(() => cancelServiceControlBody(reader), 0);
+}
+
+type ServiceControlStatusHeaderResult =
+  | { kind: 'absent' }
+  | { kind: 'invalid' }
+  | { kind: 'state'; state: ServiceMaintenanceState };
+
+type AbuseRateResponseHeaderResult =
+  | { kind: 'absent' }
+  | { kind: 'invalid' }
+  | { kind: 'payload'; payload: unknown };
+
+function parseServiceControlNullableTimestamp(value: unknown): number | null | undefined {
+  if (value === 'null') return null;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) return undefined;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function serviceControlStatusFromHeaders(
+  response: ServiceControlHttpResponse,
+): ServiceControlStatusHeaderResult {
+  let version: unknown;
+  try {
+    version = response.headers.get(SERVICE_CONTROL_STATUS_VERSION_HEADER);
+  } catch {
+    return { kind: 'invalid' };
+  }
+  if (version === null) return { kind: 'absent' };
+  if (version !== '1') return { kind: 'invalid' };
+
+  try {
+    const enabledValue = response.headers.get(SERVICE_CONTROL_STATUS_ENABLED_HEADER);
+    const revisionValue = response.headers.get(SERVICE_CONTROL_STATUS_REVISION_HEADER);
+    const updatedAt = parseServiceControlNullableTimestamp(
+      response.headers.get(SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER),
+    );
+    const activatedAt = parseServiceControlNullableTimestamp(
+      response.headers.get(SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER),
+    );
+    if (
+      (enabledValue !== '0' && enabledValue !== '1') ||
+      typeof revisionValue !== 'string' ||
+      !/^\d+$/.test(revisionValue) ||
+      updatedAt === undefined ||
+      activatedAt === undefined
+    ) {
+      return { kind: 'invalid' };
+    }
+    const revision = Number(revisionValue);
+    if (!Number.isSafeInteger(revision)) return { kind: 'invalid' };
+    const state = normalizeServiceMaintenanceState({
+      enabled: enabledValue === '1',
+      revision,
+      updatedAt,
+      activatedAt,
+    });
+    return state ? { kind: 'state', state } : { kind: 'invalid' };
+  } catch {
+    return { kind: 'invalid' };
+  }
+}
+
+function abuseRateResultFromHeaders(
+  response: ServiceControlHttpResponse,
+): AbuseRateResponseHeaderResult {
+  try {
+    const protocol = response.headers.get(ABUSE_RATE_RESPONSE_PROTOCOL_HEADER);
+    if (protocol === null) return { kind: 'absent' };
+    if (protocol !== ABUSE_RATE_RESPONSE_PROTOCOL) return { kind: 'invalid' };
+    const encoded = response.headers.get(ABUSE_RATE_RESPONSE_RESULT_HEADER);
+    if (
+      typeof encoded !== 'string' ||
+      encoded.length < 2 ||
+      encoded.length > ABUSE_RATE_RESPONSE_RESULT_MAX_LENGTH ||
+      !/^[\x20-\x7e]+$/.test(encoded)
+    ) {
+      return { kind: 'invalid' };
+    }
+    return { kind: 'payload', payload: JSON.parse(encoded) as unknown };
+  } catch {
+    return { kind: 'invalid' };
   }
 }
 
@@ -509,9 +639,15 @@ async function readServiceControlJson(
 async function fetchServiceControlResponse(
   stub: ServiceControlStub,
   request: Request,
+  options: {
+    readStatusHeaders?: boolean;
+    returnWhenStatusHeadersAbsent?: boolean;
+    readAbuseRateHeaders?: boolean;
+  } = {},
 ): Promise<ServiceControlOutcome> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let activeReader: ServiceControlReader | null = null;
+  let abuseLegacyBodyReadStarted = false;
   let timedOut = false;
   const responseOutcome: Promise<ServiceControlOutcome> = Promise.resolve()
     .then(() => stub.fetch(request))
@@ -522,8 +658,43 @@ async function fetchServiceControlResponse(
       async (response): Promise<ServiceControlOutcome> => {
         if (!isServiceControlHttpResponse(response)) return { kind: 'unavailable' };
         if (timedOut) {
-          cancelServiceControlBody(response.body);
+          if (!options.readStatusHeaders && !options.readAbuseRateHeaders) {
+            cancelServiceControlBody(response.body);
+          } else if (options.readAbuseRateHeaders) {
+            const lateHeaderResult = abuseRateResultFromHeaders(response);
+            if (lateHeaderResult.kind === 'absent') {
+              deferServiceControlBodyCancellation(response.body);
+            }
+          }
           return { kind: 'unavailable' };
+        }
+        if (options.readStatusHeaders) {
+          const headerResult = serviceControlStatusFromHeaders(response);
+          if (headerResult.kind === 'invalid') return { kind: 'unavailable' };
+          if (headerResult.kind === 'state') {
+            return { kind: 'response', response, payload: headerResult.state };
+          }
+          if (options.returnWhenStatusHeadersAbsent) {
+            return {
+              kind: 'response',
+              response,
+              payload: SERVICE_CONTROL_STATUS_HEADERS_ABSENT,
+            };
+          }
+        }
+        if (options.readAbuseRateHeaders) {
+          // Negotiated errors are status-only. Opening their body would
+          // reintroduce the cross-Worker stream dependency this protocol
+          // exists to remove.
+          if (!response.ok) return { kind: 'response', response, payload: null };
+          const headerResult = abuseRateResultFromHeaders(response);
+          if (headerResult.kind === 'invalid') return { kind: 'unavailable' };
+          if (headerResult.kind === 'payload') {
+            return { kind: 'response', response, payload: headerResult.payload };
+          }
+          // A missing protocol header means an older producer. Parse this same
+          // response body once; never replay the mutating POST.
+          abuseLegacyBodyReadStarted = true;
         }
         const payload = await readServiceControlJson(response, (reader) => {
           activeReader = reader;
@@ -535,8 +706,14 @@ async function fetchServiceControlResponse(
   const timeoutOutcome = new Promise<ServiceControlUnavailable>((resolve) => {
     timeoutId = setTimeout(() => {
       timedOut = true;
-      cancelServiceControlBody(activeReader);
       resolve({ kind: 'unavailable' });
+      if (!options.readStatusHeaders && !options.readAbuseRateHeaders) {
+        cancelServiceControlBody(activeReader);
+      } else if (options.readAbuseRateHeaders && abuseLegacyBodyReadStarted) {
+        // Resolve the caller first. A legacy stream cancel that wedges inside
+        // the runtime must not hold the protected user request open.
+        deferServiceControlBodyCancellation(activeReader);
+      }
     }, SERVICE_CONTROL_READ_TIMEOUT_MS);
   });
 
@@ -591,7 +768,10 @@ export async function consumeAbuseRateLimit(
         }`,
         {
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: {
+            'content-type': 'application/json',
+            [ABUSE_RATE_RESPONSE_PROTOCOL_HEADER]: ABUSE_RATE_RESPONSE_PROTOCOL,
+          },
           body: JSON.stringify({
             limit,
             windowMs,
@@ -600,6 +780,7 @@ export async function consumeAbuseRateLimit(
           }),
         },
       ),
+      { readAbuseRateHeaders: true },
     );
     if (outcome.kind !== 'response' || !outcome.response.ok) return { status: 'unavailable' };
     const value = outcome.payload;
@@ -718,7 +899,10 @@ export async function consumeAbuseRateLimitPair(
       stub,
       new Request(`${SERVICE_CONTROL_ORIGIN}${ABUSE_RATE_PAIR_CONSUME_PATH}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          [ABUSE_RATE_RESPONSE_PROTOCOL_HEADER]: ABUSE_RATE_RESPONSE_PROTOCOL,
+        },
         body: JSON.stringify({
           limit,
           windowMs,
@@ -728,6 +912,7 @@ export async function consumeAbuseRateLimitPair(
           secondaryCost: secondary ? (secondary.cost ?? 1) : null,
         }),
       }),
+      { readAbuseRateHeaders: true },
     );
     if (outcome.kind !== 'response' || !outcome.response.ok) return { status: 'unavailable' };
     const value = outcome.payload;
@@ -784,9 +969,22 @@ export async function consumeAbuseRateLimitPair(
 }
 
 async function fetchServiceControlStatus(stub: ServiceControlStub): Promise<ServiceControlOutcome> {
+  const headerOutcome = await fetchServiceControlResponse(
+    stub,
+    new Request(`${SERVICE_CONTROL_ORIGIN}${SERVICE_CONTROL_STATUS_PATH}`, { method: 'HEAD' }),
+    { readStatusHeaders: true, returnWhenStatusHeadersAbsent: true },
+  );
+  if (
+    headerOutcome.kind !== 'response' ||
+    headerOutcome.payload !== SERVICE_CONTROL_STATUS_HEADERS_ABSENT
+  ) {
+    return headerOutcome;
+  }
+  if (![404, 405].includes(headerOutcome.response.status)) return { kind: 'unavailable' };
   return fetchServiceControlResponse(
     stub,
     new Request(`${SERVICE_CONTROL_ORIGIN}${SERVICE_CONTROL_STATUS_PATH}`, { method: 'GET' }),
+    { readStatusHeaders: true },
   );
 }
 
@@ -846,7 +1044,20 @@ export async function readServiceMaintenance(
           }
           return cache.value || unavailableServiceMaintenanceState();
         }
-        cache.value = value.controlUnavailable === true ? value : cache.canonicalValue || value;
+        const canonical = value.controlUnavailable === true ? null : cache.canonicalValue || value;
+        if (canonical) {
+          for (const [generation, mutation] of cache.uncertainMutations) {
+            if (serviceStatusReconcilesMutation(canonical, mutation)) {
+              cache.uncertainMutations.delete(generation);
+            }
+          }
+        }
+        cache.value =
+          value.controlUnavailable === true
+            ? value
+            : cache.uncertainMutations.size > 0
+              ? unavailableServiceMaintenanceState()
+              : canonical || value;
         cache.expiresAt = Date.now() + SERVICE_CONTROL_CACHE_TTL_MS;
         return cache.value;
       })
@@ -862,21 +1073,57 @@ export async function readServiceMaintenance(
   return cache.refresh || unavailableServiceMaintenanceState();
 }
 
+/**
+ * Returns only an already-observed canonical maintenance state. Public request
+ * paths use this snapshot so a stalled cross-Worker control read can never
+ * stall the user response that triggered its refresh.
+ */
+export function readCachedServiceMaintenance(
+  env: ServiceMaintenanceEnvironment,
+): CachedServiceMaintenanceRead {
+  const binding = serviceControlBinding(env);
+  if (!binding) {
+    return { state: inactiveServiceMaintenanceState(), refreshNeeded: false };
+  }
+
+  const cache = serviceStatusCache(binding);
+  if (cache.activeMutationGeneration !== null) {
+    return {
+      state: cache.value || unavailableServiceMaintenanceState(),
+      refreshNeeded: false,
+    };
+  }
+  const refreshNeeded =
+    cache.expiresAt <= Date.now() &&
+    (cache.refresh === null || cache.refreshVersion !== cache.version);
+  if (cache.uncertainMutations.size > 0) {
+    return {
+      state: cache.value || unavailableServiceMaintenanceState(),
+      refreshNeeded,
+    };
+  }
+  const state = cache.canonicalValue;
+  return { state, refreshNeeded };
+}
+
 function updateCachedServiceStatus(
   binding: ServiceControlBinding,
   state: ServiceMaintenanceState,
   mutationGeneration: number,
 ): void {
   const cache = serviceStatusCache(binding);
-  const advanced = rememberCanonicalServiceStatus(cache, state);
+  rememberCanonicalServiceStatus(cache, state);
+  if (state.controlUnavailable !== true) {
+    cache.uncertainMutations.delete(mutationGeneration);
+  }
   // Responses can complete out of order even though the DO committed them in
   // order. A superseded local call cannot replace a newer local outcome, but
   // it can carry a still-newer canonical revision committed elsewhere.
   if (cache.activeMutationGeneration !== mutationGeneration) {
     if (
-      advanced &&
       cache.activeMutationGeneration === null &&
-      cache.value?.controlUnavailable !== true
+      cache.uncertainMutations.size === 0 &&
+      cache.canonicalValue
     ) {
       cache.version += 1;
       cache.value = cache.canonicalValue;
@@ -886,7 +1133,10 @@ function updateCachedServiceStatus(
   }
   cache.activeMutationGeneration = null;
   cache.version += 1;
-  cache.value = state.controlUnavailable === true ? state : cache.canonicalValue || state;
+  cache.value =
+    state.controlUnavailable === true || cache.uncertainMutations.size > 0
+      ? unavailableServiceMaintenanceState()
+      : cache.canonicalValue || state;
   cache.expiresAt = Date.now() + SERVICE_CONTROL_CACHE_TTL_MS;
 }
 
@@ -898,7 +1148,7 @@ export async function updateServiceMaintenance(
   if (!binding) {
     return { status: 'unavailable', state: inactiveServiceMaintenanceState() };
   }
-  const mutationGeneration = beginServiceStatusMutation(binding);
+  const mutationGeneration = beginServiceStatusMutation(binding, input);
 
   try {
     const stub = serviceControlStub(binding);

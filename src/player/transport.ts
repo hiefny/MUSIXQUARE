@@ -1031,6 +1031,7 @@ export function togglePlay(): void {
     !isYouTubeOwner()
   ) {
     showToast(t('toast.add_media_to_play'));
+    bus.emit('ui:reveal-media-source');
     return;
   }
 

@@ -5,11 +5,19 @@ import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   ABUSE_RATE_PAIR_CONSUME_PATH,
+  ABUSE_RATE_RESPONSE_PROTOCOL,
+  ABUSE_RATE_RESPONSE_PROTOCOL_HEADER,
+  ABUSE_RATE_RESPONSE_RESULT_HEADER,
   ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
   ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
+  SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_ENABLED_HEADER,
   SERVICE_CONTROL_STATUS_PATH,
+  SERVICE_CONTROL_STATUS_REVISION_HEADER,
+  SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_VERSION_HEADER,
 } from '../../../cloudflare/service-maintenance.ts';
 
 class ServiceControlStorage {
@@ -102,6 +110,12 @@ function rateRequest(path: string, operationId?: string, limit = 1): Request {
       ...(operationId === undefined ? {} : { operationId }),
     }),
   });
+}
+
+function requestHeaderResponse(request: Request): Request {
+  const headers = new Headers(request.headers);
+  headers.set(ABUSE_RATE_RESPONSE_PROTOCOL_HEADER, ABUSE_RATE_RESPONSE_PROTOCOL);
+  return new Request(request, { headers });
 }
 
 function pairRateRequest(
@@ -402,6 +416,30 @@ describe('MusixquareServiceControl', () => {
     expect(storage.getKeys).toEqual(['abuse-rate-state-v1']);
   });
 
+  it('returns a negotiated single-counter result in headers with no body', async () => {
+    const { control } = setup(
+      new ServiceControlStorage(),
+      'musixquare-abuse-rate-v1:app-turn:header-rate-identity',
+    );
+
+    const response = await control.fetch(
+      requestHeaderResponse(rateRequest(ABUSE_RATE_CONSUME_PATH)),
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toBeNull();
+    expect(response.headers.get(ABUSE_RATE_RESPONSE_PROTOCOL_HEADER)).toBe(
+      ABUSE_RATE_RESPONSE_PROTOCOL,
+    );
+    expect(JSON.parse(response.headers.get(ABUSE_RATE_RESPONSE_RESULT_HEADER) || '')).toMatchObject(
+      {
+        allowed: true,
+        limit: 1,
+        remaining: 0,
+      },
+    );
+  });
+
   it('keeps a similar but non-canonical object-name prefix on the full-load path', async () => {
     const storage = new ServiceControlStorage();
     const { control } = setup(storage, 'musixquare-abuse-rate-v10:app-turn:opaque-rate-identity');
@@ -438,6 +476,34 @@ describe('MusixquareServiceControl', () => {
     expect(response.status).toBe(503);
     await expect(payload(response)).resolves.toEqual({ error: 'ABUSE_RATE_STATE_INVALID' });
     expect(storage.getKeys).toEqual(['abuse-rate-state-v1']);
+  });
+
+  it('returns negotiated abuse-rate failures without a response body', async () => {
+    const storage = new ServiceControlStorage();
+    storage.data.set('abuse-rate-state-v1', {
+      v: 2,
+      limit: 1,
+      windowMs: 60_000,
+      windowStartMs: 0,
+      resetAtMs: 60_000,
+      count: 2,
+      operationIds: [],
+    });
+    const { control } = setup(
+      storage,
+      'musixquare-abuse-rate-v1:app-turn:negotiated-corrupt-rate-identity',
+    );
+
+    const response = await control.fetch(
+      requestHeaderResponse(rateRequest(ABUSE_RATE_CONSUME_PATH)),
+    );
+
+    expect(response.status).toBe(503);
+    expect(response.body).toBeNull();
+    expect(response.headers.get(ABUSE_RATE_RESPONSE_PROTOCOL_HEADER)).toBe(
+      ABUSE_RATE_RESPONSE_PROTOCOL,
+    );
+    expect(response.headers.get(ABUSE_RATE_RESPONSE_RESULT_HEADER)).toBeNull();
   });
 
   it('atomically enforces the shared IP limit before independent capability limits', async () => {
@@ -480,6 +546,29 @@ describe('MusixquareServiceControl', () => {
       ],
     });
     expect(storage.setAlarmCalls).toEqual([Date.parse('2026-08-11T08:01:00.000Z')]);
+  });
+
+  it('returns a negotiated pair result in headers with no body', async () => {
+    const { control } = setup(
+      new ServiceControlStorage(),
+      'musixquare-abuse-rate-pair-v1:app-turn-config:header-pair-identity',
+    );
+
+    const response = await control.fetch(requestHeaderResponse(pairRateRequest('token-a')));
+
+    expect(response.status).toBe(200);
+    expect(response.body).toBeNull();
+    expect(response.headers.get(ABUSE_RATE_RESPONSE_PROTOCOL_HEADER)).toBe(
+      ABUSE_RATE_RESPONSE_PROTOCOL,
+    );
+    expect(JSON.parse(response.headers.get(ABUSE_RATE_RESPONSE_RESULT_HEADER) || '')).toMatchObject(
+      {
+        allowed: true,
+        deniedBy: null,
+        primary: { allowed: true, remaining: 2 },
+        secondary: { allowed: true, remaining: 1 },
+      },
+    );
   });
 
   it('counts primary-only authentication failures in the same pair IP bucket', async () => {
@@ -899,6 +988,21 @@ describe('MusixquareServiceControl', () => {
         settlesAt: null,
       },
     });
+    expect(initial.headers.get(SERVICE_CONTROL_STATUS_VERSION_HEADER)).toBe('1');
+    expect(initial.headers.get(SERVICE_CONTROL_STATUS_ENABLED_HEADER)).toBe('0');
+    expect(initial.headers.get(SERVICE_CONTROL_STATUS_REVISION_HEADER)).toBe('0');
+    expect(initial.headers.get(SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER)).toBe('null');
+    expect(initial.headers.get(SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER)).toBe('null');
+
+    const initialHead = await control.fetch(
+      new Request('https://service-control.internal/internal/service-maintenance/v1/status', {
+        method: 'HEAD',
+      }),
+    );
+    expect(initialHead.status).toBe(200);
+    expect(initialHead.body).toBeNull();
+    expect(initialHead.headers.get(SERVICE_CONTROL_STATUS_VERSION_HEADER)).toBe('1');
+    expect(initialHead.headers.get(SERVICE_CONTROL_STATUS_ENABLED_HEADER)).toBe('0');
 
     const enabled = await control.fetch(
       stateRequest(true, 0, '123e4567-e89b-42d3-a456-426614174000'),

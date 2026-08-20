@@ -4,12 +4,20 @@ import {
   ABUSE_RATE_CONSUME_PATH,
   ABUSE_RATE_IDEMPOTENT_CONSUME_PATH,
   ABUSE_RATE_PAIR_CONSUME_PATH,
+  ABUSE_RATE_RESPONSE_PROTOCOL,
+  ABUSE_RATE_RESPONSE_PROTOCOL_HEADER,
+  ABUSE_RATE_RESPONSE_RESULT_HEADER,
   ADMIN_ANNOUNCEMENT_CONTROL_OBJECT_NAME,
   ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
   SERVICE_CONTROL_STATE_PATH,
+  SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_ENABLED_HEADER,
   SERVICE_CONTROL_STATUS_PATH,
+  SERVICE_CONTROL_STATUS_REVISION_HEADER,
+  SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
+  SERVICE_CONTROL_STATUS_VERSION_HEADER,
   normalizeServiceMaintenanceState,
 } from './service-maintenance.ts';
 
@@ -33,6 +41,7 @@ const ABUSE_RATE_PAIR_OBJECT_NAME_PREFIX = 'musixquare-abuse-rate-pair-v1:';
 const ABUSE_RATE_STATE_KEY = 'abuse-rate-state-v1';
 const ABUSE_RATE_PAIR_STATE_KEY = 'abuse-rate-pair-state-v1';
 const ABUSE_RATE_REQUEST_MAX_BYTES = 1024;
+const ABUSE_RATE_RESPONSE_RESULT_MAX_LENGTH = 2_048;
 const ABUSE_RATE_OPERATION_ID_RE = /^[A-Za-z0-9._:-]{8,64}$/;
 const ABUSE_RATE_OPERATION_HISTORY_LIMIT = 1024;
 const ABUSE_RATE_PAIR_PRIMARY_LIMIT = 1024;
@@ -298,6 +307,37 @@ function serviceControlJson(body: unknown, status: number = 200): Response {
       'X-Content-Type-Options': 'nosniff',
     },
   });
+}
+
+function abuseRateResponse(request: Request, body: unknown, status: number = 200): Response {
+  if (request.headers.get(ABUSE_RATE_RESPONSE_PROTOCOL_HEADER) !== ABUSE_RATE_RESPONSE_PROTOCOL) {
+    return serviceControlJson(body, status);
+  }
+  const headers = new Headers({
+    'Cache-Control': 'no-store, max-age=0',
+    'X-Content-Type-Options': 'nosniff',
+    [ABUSE_RATE_RESPONSE_PROTOCOL_HEADER]: ABUSE_RATE_RESPONSE_PROTOCOL,
+  });
+  if (status >= 200 && status < 300) {
+    const encoded = JSON.stringify(body);
+    if (encoded.length > ABUSE_RATE_RESPONSE_RESULT_MAX_LENGTH) {
+      return new Response(null, { status: 503, headers });
+    }
+    headers.set(ABUSE_RATE_RESPONSE_RESULT_HEADER, encoded);
+  }
+  return new Response(null, { status, headers });
+}
+
+function serviceControlStatusHeaders(state: StoredServiceControlState): Record<string, string> {
+  return {
+    [SERVICE_CONTROL_STATUS_VERSION_HEADER]: '1',
+    [SERVICE_CONTROL_STATUS_ENABLED_HEADER]: state.enabled ? '1' : '0',
+    [SERVICE_CONTROL_STATUS_REVISION_HEADER]: String(state.revision),
+    [SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER]:
+      state.updatedAt === null ? 'null' : String(state.updatedAt),
+    [SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER]:
+      state.activatedAt === null ? 'null' : String(state.activatedAt),
+  };
 }
 
 function emptyAdminAnnouncement(): AdminAnnouncement {
@@ -941,34 +981,39 @@ export class MusixquareServiceControl {
     status: number = 200,
     extra: Record<string, unknown> = {},
   ): Response {
-    return serviceControlJson(
+    const response = serviceControlJson(
       {
         ...extra,
         serviceStatus: publicServiceControlState(state),
       },
       status,
     );
+    for (const [name, value] of Object.entries(serviceControlStatusHeaders(state))) {
+      response.headers.set(name, value);
+    }
+    return response;
   }
 
   private async handleAbuseRateConsume(request: Request, idempotent: boolean): Promise<Response> {
     if (this.abuseRateStateInvalid) {
-      return serviceControlJson({ error: 'ABUSE_RATE_STATE_INVALID' }, 503);
+      return abuseRateResponse(request, { error: 'ABUSE_RATE_STATE_INVALID' }, 503);
     }
     if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
-      return serviceControlJson({ error: 'JSON_REQUIRED' }, 415);
+      return abuseRateResponse(request, { error: 'JSON_REQUIRED' }, 415);
     }
     const declared = request.headers.get('content-length');
     if (
       declared !== null &&
       (!/^\d+$/.test(declared.trim()) || Number(declared) > ABUSE_RATE_REQUEST_MAX_BYTES)
     ) {
-      return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+      return abuseRateResponse(request, { error: 'REQUEST_TOO_LARGE' }, 413);
     }
     const parsed = await readPrivateJsonBody(request, ABUSE_RATE_REQUEST_MAX_BYTES);
-    if ('error' in parsed) return serviceControlJson({ error: parsed.error }, parsed.status);
+    if ('error' in parsed)
+      return abuseRateResponse(request, { error: parsed.error }, parsed.status);
     const body = parseAbuseRateConsumeBody(parsed.value, idempotent);
     if (!body) {
-      return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
+      return abuseRateResponse(request, { error: 'INVALID_REQUEST' }, 400);
     }
 
     return this.withMutation(async () => {
@@ -1009,7 +1054,7 @@ export class MusixquareServiceControl {
         await setAlarm(resetAtMs);
         this.abuseRateAlarmAt = resetAtMs;
       }
-      return serviceControlJson({
+      return abuseRateResponse(request, {
         allowed,
         limit: body.limit,
         remaining: Math.max(0, body.limit - nextCount),
@@ -1021,23 +1066,24 @@ export class MusixquareServiceControl {
 
   private async handleAbuseRatePairConsume(request: Request): Promise<Response> {
     if (this.abuseRatePairStateInvalid) {
-      return serviceControlJson({ error: 'ABUSE_RATE_PAIR_STATE_INVALID' }, 503);
+      return abuseRateResponse(request, { error: 'ABUSE_RATE_PAIR_STATE_INVALID' }, 503);
     }
     if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get('content-type') || '')) {
-      return serviceControlJson({ error: 'JSON_REQUIRED' }, 415);
+      return abuseRateResponse(request, { error: 'JSON_REQUIRED' }, 415);
     }
     const declared = request.headers.get('content-length');
     if (
       declared !== null &&
       (!/^\d+$/.test(declared.trim()) || Number(declared) > ABUSE_RATE_REQUEST_MAX_BYTES)
     ) {
-      return serviceControlJson({ error: 'REQUEST_TOO_LARGE' }, 413);
+      return abuseRateResponse(request, { error: 'REQUEST_TOO_LARGE' }, 413);
     }
     const parsed = await readPrivateJsonBody(request, ABUSE_RATE_REQUEST_MAX_BYTES);
-    if ('error' in parsed) return serviceControlJson({ error: parsed.error }, parsed.status);
+    if ('error' in parsed)
+      return abuseRateResponse(request, { error: parsed.error }, parsed.status);
     const body = parseAbuseRatePairConsumeBody(parsed.value);
     if (!body) {
-      return serviceControlJson({ error: 'INVALID_REQUEST' }, 400);
+      return abuseRateResponse(request, { error: 'INVALID_REQUEST' }, 400);
     }
     const secondaryAbsent = body.secondaryIdentity === null;
 
@@ -1114,7 +1160,7 @@ export class MusixquareServiceControl {
         this.abuseRateAlarmAt = resetAtMs;
       }
       const allowed = primaryAllowed && secondaryAllowed;
-      return serviceControlJson({
+      return abuseRateResponse(request, {
         allowed,
         deniedBy: !primaryAllowed ? 'primary' : !secondaryAllowed ? 'secondary' : null,
         primary,
@@ -1281,8 +1327,14 @@ export class MusixquareServiceControl {
     if (request.method === 'POST' && url.pathname === ADMIN_ANNOUNCEMENT_STATE_PATH) {
       return this.handleAnnouncementMutation(request);
     }
-    if (request.method === 'GET' && url.pathname === SERVICE_CONTROL_STATUS_PATH) {
-      return this.response();
+    if (
+      (request.method === 'GET' || request.method === 'HEAD') &&
+      url.pathname === SERVICE_CONTROL_STATUS_PATH
+    ) {
+      const response = this.response();
+      return request.method === 'HEAD'
+        ? new Response(null, { status: response.status, headers: response.headers })
+        : response;
     }
     if (request.method !== 'POST' || url.pathname !== SERVICE_CONTROL_STATE_PATH) {
       return serviceControlJson({ error: 'NOT_FOUND' }, 404);

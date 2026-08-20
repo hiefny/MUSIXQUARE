@@ -26,10 +26,11 @@ import { issueProRoomOwnerTransferRevocationReceipt } from './pro-room-claims.ts
 import {
   consumeAbuseRateLimit,
   consumeAbuseRateLimitPair,
-  gateServiceMaintenance,
   readAdminAnnouncementControl,
+  readCachedServiceMaintenance,
   readServiceMaintenance,
   serviceMaintenancePreviewResponse,
+  serviceMaintenanceResponse,
   ServiceMaintenanceState,
   updateAdminAnnouncementControl,
   updateServiceMaintenance,
@@ -309,7 +310,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.3.77';
+const ADMIN_ASSET_VERSION = '8.3.78';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11189,7 +11190,7 @@ function renderAdminPage(request: Request, env: AppEnv) {
             <p>Visitors receive this page in English with a second line in their system language.</p>
           </div>
           <p class="service-status-warning">
-            Maintenance mode blocks new public app, API, realtime, and scheduled work. Direct R2 uploads authorized before activation can still finish, so use a separate storage drain or credential rotation for a strict write freeze. This dashboard remains available so you can safely end maintenance.
+            Maintenance mode asks public App, API, realtime, and scheduled work to stop. The App refreshes this state in the background so a broken control binding cannot stall users; a cold edge isolate can briefly admit traffic before its first refresh. Direct R2 uploads authorized before activation can also finish. Use a pre-Worker edge/deployment control plus a storage drain or credential rotation for a strict traffic or write freeze. This dashboard remains available so you can safely end maintenance.
           </p>
           <p class="service-status-error" role="alert" data-service-status-error></p>
           <div class="service-status-dialog-actions">
@@ -14565,10 +14566,24 @@ export default {
     }
 
     if (!isServiceMaintenanceAdminBypass(request, url)) {
-      const maintenanceResponse = await gateServiceMaintenance(request, env, {
-        format: url.pathname.startsWith('/api/') ? 'json' : 'html',
-      });
-      if (maintenanceResponse) return withSecurityHeaders(maintenanceResponse);
+      const maintenance = readCachedServiceMaintenance(env);
+      if (maintenance.refreshNeeded) {
+        // Deliberately detach the control-plane refresh from the public fetch
+        // promise. A wedged cross-Worker binding must never hold user traffic
+        // open while the last canonical state remains usable.
+        const refresh = new Promise<void>((resolve) => setTimeout(resolve, 0))
+          .then(() => readServiceMaintenance(env))
+          .then(() => undefined)
+          .catch(() => undefined);
+        if (ctx) ctx.waitUntil(refresh);
+      }
+      if (maintenance.state?.enabled) {
+        return withSecurityHeaders(
+          serviceMaintenanceResponse(request, maintenance.state, {
+            format: url.pathname.startsWith('/api/') ? 'json' : 'html',
+          }),
+        );
+      }
     }
 
     if (url.pathname.startsWith('/api/auth/')) {

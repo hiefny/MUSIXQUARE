@@ -86,6 +86,10 @@ jobs:
           release_status="$(jq -r '.status' <<<"$run_json")"
           release_conclusion="$(jq -r '.conclusion // "pending"' <<<"$run_json")"
 
+          echo "RELEASE_RUN_ID=${release_run_id}"
+          echo "RELEASE_RUN_URL=${release_run_url}"
+          echo "RELEASE_STATE=${release_status}/${release_conclusion}"
+
           comment_body="$(printf '%s\n' \
             '<!-- musixquare-release-v8-3-73 -->' \
             'Production Release was located or dispatched for the exact main commit.' \
@@ -96,7 +100,4 @@ jobs:
             "- run_id: \`${release_run_id}\`" \
             "- current state: \`${release_status} / ${release_conclusion}\`" \
             "- run: ${release_run_url}")"
-          gh pr comment 86 --repo "$repo" --body "$comment_body"
-
-          echo "release_run_id=${release_run_id}"
-          echo "release_run_url=${release_run_url}"
+          gh pr comment 86 --repo "$repo" --body "$comment_body" || true

@@ -60,7 +60,7 @@ class_name = "RemoteShareQuota"
 
 # Required atomic allocation limiter; Cloudflare production fails closed when
 # this cross-script binding is missing. The
-# admin-announcement-v2+abuse-rate-v2+session-idempotency-v1 marker rolls out
+# admin-announcement-v2+abuse-rate-v2+session-idempotency-v1+maintenance-status-headers-v1+abuse-rate-response-headers-v1 marker rolls out
 # with target all and deploys the PRO owner first.
 [[durable_objects.bindings]]
 name = "MUSIXQUARE_SERVICE_CONTROL"

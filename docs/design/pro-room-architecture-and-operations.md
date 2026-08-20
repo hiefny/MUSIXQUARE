@@ -756,7 +756,7 @@ security rules, and Worker bundles. It owns the dependency order above,
 immutable app artifact, live smokes, and conflict-aware rollback.
 
 The current service-control marker is
-`admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`. Announcement v2
+`admin-announcement-v2+abuse-rate-v2+session-idempotency-v1+maintenance-status-headers-v1+abuse-rate-response-headers-v1`. Announcement v2
 separates notices into a dedicated named Durable Object owned by PRO. An empty
 dedicated object temporarily reads the legacy announcement, and its first
 accepted mutation inherits the legacy revision and history; after that, the
@@ -764,6 +764,12 @@ dedicated object is authoritative. Any marker change requires target `all`, and
 the PRO owner must deploy before its consumers. Remote-share's old KV allocation
 counter is retired and must not be restored as a fallback for a missing
 service-control binding.
+
+Maintenance reads use versioned null-body status headers, and negotiated abuse
+rate responses return their bounded result in headers without replaying the
+mutating request. The App keeps maintenance refreshes off the public request
+path: a cold isolate may admit traffic before its first canonical snapshot, so
+the dashboard switch is not a strict global freeze.
 
 The current PRO system-audio contract marker is `lan-direct-v1`. Its first
 cutover is a matched `all` release because the PRO authority, signaling relay,
@@ -938,7 +944,7 @@ without deleting data. Do not rotate the subject pepper or reintroduce projectio
 flags as a routine rollback; use PRO maintenance and forward repair when the
 least-privilege contract cannot be preserved.
 
-The `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1`
+The `admin-announcement-v2+abuse-rate-v2+session-idempotency-v1+maintenance-status-headers-v1+abuse-rate-response-headers-v1`
 service-control marker is an additional forward-only floor once its App/PRO pair
 has deployed or the dedicated announcement object has canonical state. Never
 restore App or PRO below that marker: pre-v2 code can address the legacy

@@ -293,7 +293,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.3.77';
+const ADMIN_SCRIPT_VERSION = '8.3.78';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 const root = document.querySelector<HTMLElement>('.admin-shell');
@@ -1633,17 +1633,17 @@ function renderServiceStatus(status: ServiceStatusState): void {
   if (serviceStatusDescriptionEl) {
     serviceStatusDescriptionEl.textContent =
       state === 'activating'
-        ? 'The new-traffic gate is propagating across App, API, Signaling, and PRO services.'
+        ? 'The maintenance state is refreshing across services. Cold App isolates may briefly admit traffic while their local snapshot warms.'
         : state === 'resuming'
-          ? 'Public traffic is resuming. Some edge requests may remain unavailable for a moment.'
+          ? 'The operational state is refreshing across services. Some edge requests may remain unavailable for a moment.'
           : status.enabled
-            ? 'New public app, API, Signaling, and PRO traffic is blocked. Direct uploads authorized earlier may still finish.'
-            : 'MUSIXQUARE is available. Enter maintenance mode to block new public traffic.';
+            ? 'Services that observed maintenance block new public traffic. Cold App isolates may briefly admit traffic, and direct uploads authorized earlier may still finish.'
+            : 'MUSIXQUARE is available. Maintenance mode suppresses new public traffic but is not a strict global freeze.';
   }
   const statusTime = status.enabled ? status.activatedAt || status.updatedAt : status.updatedAt;
   if (serviceStatusUpdatedAtEl) {
     serviceStatusUpdatedAtEl.textContent = settling
-      ? `${status.enabled ? 'Traffic gate propagates by' : 'Public traffic resumes by'} ${formatAdminDateTime(status.settlesAt)}`
+      ? `${status.enabled ? 'Maintenance refresh' : 'Service resume'} in progress`
       : statusTime
         ? `${status.enabled ? 'Active since' : 'Last changed'} ${formatAdminDateTime(statusTime)}`
         : '';
@@ -1736,9 +1736,9 @@ async function loadServiceStatus(
       const state = serviceStatusStateName(status);
       updatedAtEl.textContent =
         state === 'activating'
-          ? `Activating maintenance - traffic gate propagates by ${formatAdminDateTime(status.settlesAt)}`
+          ? 'Activating maintenance - background refresh in progress'
           : state === 'resuming'
-            ? `Resuming service - public traffic resumes by ${formatAdminDateTime(status.settlesAt)}`
+            ? 'Resuming service - background refresh in progress'
             : status.enabled
               ? `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`
               : `Updated ${formatAdminDateTime(payload.generatedAt || Date.now())}`;
@@ -1827,9 +1827,9 @@ async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
       const statusTime = next.activatedAt || next.updatedAt;
       updatedAtEl.textContent =
         state === 'activating'
-          ? `Activating maintenance - traffic gate propagates by ${formatAdminDateTime(next.settlesAt)}`
+          ? 'Activating maintenance - background refresh in progress'
           : state === 'resuming'
-            ? `Resuming service - public traffic resumes by ${formatAdminDateTime(next.settlesAt)}`
+            ? 'Resuming service - background refresh in progress'
             : next.enabled
               ? `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`
               : `Updated ${formatAdminDateTime(next.updatedAt || Date.now())}`;
@@ -5504,9 +5504,9 @@ async function loadAuthenticatedDashboard({
     if (updatedAtEl) {
       updatedAtEl.textContent =
         state === 'activating'
-          ? `Activating maintenance - traffic gate propagates by ${formatAdminDateTime(status.settlesAt)}`
+          ? 'Activating maintenance - background refresh in progress'
           : state === 'resuming'
-            ? `Resuming service - public traffic resumes by ${formatAdminDateTime(status.settlesAt)}`
+            ? 'Resuming service - background refresh in progress'
             : `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`;
     }
     return status;
@@ -5551,9 +5551,9 @@ async function refreshAllDashboardData(): Promise<void> {
       if (updatedAtEl) {
         updatedAtEl.textContent =
           state === 'activating'
-            ? `Activating maintenance - traffic gate propagates by ${formatAdminDateTime(status.settlesAt)}`
+            ? 'Activating maintenance - background refresh in progress'
             : state === 'resuming'
-              ? `Resuming service - public traffic resumes by ${formatAdminDateTime(status.settlesAt)}`
+              ? 'Resuming service - background refresh in progress'
               : `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`;
       }
       setActiveTab(activeTab);

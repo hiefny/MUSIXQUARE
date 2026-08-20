@@ -111,11 +111,14 @@ test.describe('Edge Cases', () => {
     expect(index).toBe(-1);
   });
 
-  test('play button on empty playlist is disabled', async () => {
+  test('empty mobile play keeps playback idle and guides the user to Media', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await pair.hostPage.setViewportSize({ width: 390, height: 500 });
+    await navigateToTab(pair.hostPage, 'play');
 
     // Play button is accessibility-disabled when no track is loaded.
-    const isDisabled = await pair.hostPage.locator('#play-btn').evaluate((el) => {
+    const playButton = pair.hostPage.locator('#play-btn');
+    const isDisabled = await playButton.evaluate((el) => {
       return (
         el.hasAttribute('disabled') ||
         el.getAttribute('aria-disabled') === 'true' ||
@@ -123,6 +126,21 @@ test.describe('Edge Cases', () => {
       );
     });
     expect(isDisabled).toBe(true);
+
+    const mediaButton = pair.hostPage.locator('#btn-media-source');
+    await playButton.evaluate((button) => button.scrollIntoView({ block: 'end' }));
+    await expect(playButton).toBeInViewport();
+    await expect(mediaButton).not.toBeInViewport();
+
+    // aria-disabled intentionally keeps the real button event reachable so
+    // the empty-state guidance can explain the recovery action.
+    await playButton.evaluate((button) => (button as HTMLButtonElement).click());
+
+    await expect(mediaButton).toBeFocused();
+    await expect(mediaButton).toHaveClass(/attention-hint/u);
+    await expect(mediaButton).toBeInViewport();
+    await expect(pair.hostPage.locator('#toast')).toHaveClass(/show/u);
+    await expect(pair.hostPage.locator('#toast-msg')).toContainText('Please add media');
 
     const state = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(state).toBe('IDLE');

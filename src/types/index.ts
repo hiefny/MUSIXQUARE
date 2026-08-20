@@ -1291,6 +1291,8 @@ interface BaseEventMap {
   'ui:sync-vbass': [on: boolean];
   'ui:sync-exciter': [on: boolean];
   'ui:show-toast': [message: string];
+  /** Reveal and emphasize the main player media-source action. */
+  'ui:reveal-media-source': [];
   'ui:play-btn-state': [enabled: boolean];
   'ui:play-loading-state': [loading: boolean];
   'ui:update-play-state': [playing: boolean];

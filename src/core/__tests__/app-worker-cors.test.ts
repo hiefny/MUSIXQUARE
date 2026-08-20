@@ -5785,14 +5785,15 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.3.77');
-    expect(html).toContain('/clearable-editors.js?v=8.3.77');
-    expect(html).toContain('/admin.js?v=8.3.77');
+    expect(html).toContain('/admin.css?v=8.3.78');
+    expect(html).toContain('/clearable-editors.js?v=8.3.78');
+    expect(html).toContain('/admin.js?v=8.3.78');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.3.77"');
+    expect(html).toContain('data-admin-asset-version="8.3.78"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
-    expect(html).toContain('Direct R2 uploads authorized before activation can still finish');
+    expect(html).toContain('a cold edge isolate can briefly admit traffic');
+    expect(html).toContain('Use a pre-Worker edge/deployment control');
     expect(html).toContain('data-admin-tab="pro-rooms"');
     expect(html).toContain('data-pro-room-form');
     expect(html).toContain('Reusing a deleted number creates a new, isolated room.');
@@ -5809,9 +5810,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.3.77',
-      '/admin.css?v=8.3.77',
-      '/clearable-editors.js?v=8.3.77',
+      '/admin.js?v=8.3.78',
+      '/admin.css?v=8.3.78',
+      '/clearable-editors.js?v=8.3.78',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);

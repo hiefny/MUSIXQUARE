@@ -117,6 +117,47 @@ let _youtubePopupPreviousFocus: HTMLElement | null = null;
 let _playButtonMediaEnabled = false;
 let _mainSyncPending = false;
 let _mainSyncRequestToken = 0;
+let _mediaSourceAttentionButton: HTMLElement | null = null;
+let _mediaSourceAttentionEnd: ((event: AnimationEvent) => void) | null = null;
+
+function clearMediaSourceAttentionHint(): void {
+  if (_mediaSourceAttentionButton && _mediaSourceAttentionEnd) {
+    _mediaSourceAttentionButton.removeEventListener('animationend', _mediaSourceAttentionEnd);
+  }
+  _mediaSourceAttentionButton?.classList.remove('attention-hint');
+  _mediaSourceAttentionButton = null;
+  _mediaSourceAttentionEnd = null;
+}
+
+function revealMobileMediaSourceButton(): void {
+  if (window.innerWidth >= 1280) return;
+  const button = document.getElementById('btn-media-source') as HTMLButtonElement | null;
+  if (!button) return;
+
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+  button.scrollIntoView?.({
+    behavior: reducedMotion ? 'auto' : 'smooth',
+    block: 'nearest',
+    inline: 'nearest',
+  });
+  button.focus({ preventScroll: true });
+
+  clearMediaSourceAttentionHint();
+  // Bootstrap may already be animating this button without going through
+  // this helper. Always remove the target class itself before forcing reflow.
+  button.classList.remove('attention-hint');
+  // Restart the same three-pulse hint used after host bootstrap, even when
+  // Play is tapped repeatedly before the previous animation finishes.
+  void button.offsetWidth;
+  button.classList.add('attention-hint');
+  const onAnimationEnd = (event: AnimationEvent) => {
+    if (event.target !== button || event.animationName !== 'attention-hint-fill') return;
+    clearMediaSourceAttentionHint();
+  };
+  _mediaSourceAttentionButton = button;
+  _mediaSourceAttentionEnd = onAnimationEnd;
+  button.addEventListener('animationend', onAnimationEnd);
+}
 
 function isFilePlayButtonLoading(): boolean {
   const lifecycle = getState('playback.lifecycle');
@@ -1273,6 +1314,7 @@ export function initPlayerControls(): void {
   // in connect.ts and playlist-view.ts.
   _busScope.dispose();
   _domAbort?.abort();
+  clearMediaSourceAttentionHint();
   _domAbort = new AbortController();
   const { signal: domSignal } = _domAbort;
   _ytSyncLoadingOwners.clear();
@@ -1751,6 +1793,7 @@ export function initPlayerControls(): void {
   _busScope.on('ui:show-toast', (message) => {
     showToast(message);
   });
+  _busScope.on('ui:reveal-media-source', revealMobileMediaSourceButton);
 
   // Play button state (enabled/disabled)
   // aria-disabled instead of HTML `disabled` so the click handler still

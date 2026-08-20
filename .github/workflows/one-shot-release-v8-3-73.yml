@@ -4,11 +4,22 @@ on:
   push:
     branches:
       - agent/release-dispatch-v8-3-73
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
 
 permissions:
   actions: write
   contents: read
   issues: write
+
+concurrency:
+  group: one-shot-production-release-v8-3-73
+  cancel-in-progress: false
 
 jobs:
   dispatch:
@@ -17,7 +28,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Dispatch exact main release
+      - name: Locate or dispatch exact main release
         env:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_MAIN_SHA: df9e895082219581a5f0c9e8e39e22df4f4d8320
@@ -33,47 +44,57 @@ jobs:
           fi
 
           runs_endpoint="/repos/${repo}/actions/workflows/release.yml/runs?event=workflow_dispatch&branch=main&per_page=100"
-          existing_run_ids="$(gh api "$runs_endpoint" --jq '[.workflow_runs[].id]')"
+          runs_json="$(gh api "$runs_endpoint")"
+          release_run_id="$(
+            jq -r \
+              --arg sha "$EXPECTED_MAIN_SHA" \
+              '[.workflow_runs[] | select(.head_sha == $sha) | select(.status == "queued" or .status == "in_progress" or (.status == "completed" and .conclusion == "success"))] | sort_by(.created_at) | last | .id // empty' \
+              <<<"$runs_json"
+          )"
 
-          jq -n \
-            --arg ref main \
-            '{ref: $ref, inputs: {target: "all", apply_developer_api_d1: "false"}}' |
-            gh api \
-              --method POST \
-              "/repos/${repo}/actions/workflows/release.yml/dispatches" \
-              --input -
+          if [[ -z "$release_run_id" ]]; then
+            existing_run_ids="$(jq '[.workflow_runs[].id]' <<<"$runs_json")"
+            jq -n \
+              --arg ref main \
+              '{ref: $ref, inputs: {target: "all", apply_developer_api_d1: "false"}}' |
+              gh api \
+                --method POST \
+                "/repos/${repo}/actions/workflows/release.yml/dispatches" \
+                --input -
 
-          release_run_id=''
-          release_run_url=''
-          for _ in $(seq 1 60); do
-            runs_json="$(gh api "$runs_endpoint")"
-            release_run_id="$(
-              jq -r \
-                --arg sha "$EXPECTED_MAIN_SHA" \
-                --argjson existing "$existing_run_ids" \
-                '[.workflow_runs[] | select(.head_sha == $sha) | select((.id as $id | $existing | index($id)) == null)] | sort_by(.created_at) | last | .id // empty' \
-                <<<"$runs_json"
-            )"
-            if [[ -n "$release_run_id" ]]; then
-              release_run_url="$(jq -r --argjson id "$release_run_id" '.workflow_runs[] | select(.id == $id) | .html_url' <<<"$runs_json")"
-              break
-            fi
-            sleep 2
-          done
+            for _ in $(seq 1 60); do
+              runs_json="$(gh api "$runs_endpoint")"
+              release_run_id="$(
+                jq -r \
+                  --arg sha "$EXPECTED_MAIN_SHA" \
+                  --argjson existing "$existing_run_ids" \
+                  '[.workflow_runs[] | select(.head_sha == $sha) | select((.id as $id | $existing | index($id)) == null)] | sort_by(.created_at) | last | .id // empty' \
+                  <<<"$runs_json"
+              )"
+              if [[ -n "$release_run_id" ]]; then break; fi
+              sleep 2
+            done
+          fi
 
-          if [[ -z "$release_run_id" || -z "$release_run_url" ]]; then
-            echo '::error::Release dispatch was accepted, but its workflow run could not be identified.'
+          if [[ -z "$release_run_id" ]]; then
+            echo '::error::The exact release run could not be located after dispatch.'
             exit 1
           fi
 
+          run_json="$(gh api "/repos/${repo}/actions/runs/${release_run_id}")"
+          release_run_url="$(jq -r '.html_url' <<<"$run_json")"
+          release_status="$(jq -r '.status' <<<"$run_json")"
+          release_conclusion="$(jq -r '.conclusion // "pending"' <<<"$run_json")"
+
           comment_body="$(printf '%s\n' \
             '<!-- musixquare-release-v8-3-73 -->' \
-            'Production Release was dispatched for the exact main commit.' \
+            'Production Release was located or dispatched for the exact main commit.' \
             '' \
             "- commit: \`${EXPECTED_MAIN_SHA}\`" \
             '- target: `all`' \
             '- apply_developer_api_d1: `false`' \
             "- run_id: \`${release_run_id}\`" \
+            "- current state: \`${release_status} / ${release_conclusion}\`" \
             "- run: ${release_run_url}")"
           gh pr comment 86 --repo "$repo" --body "$comment_body"
 

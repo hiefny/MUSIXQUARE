@@ -1607,7 +1607,7 @@ describe('initPlayerControls track metadata subtitle', () => {
     expect(subtitle.title).toBe(expectedHint);
   });
 
-  it('shows local artist, extension, and estimated average bitrate', () => {
+  it('shows estimated bitrate before the local extension and omits artist', () => {
     const subtitle = renderTrackMetadata();
     const file = new File([new Uint8Array(400_000)], 'night-drive.flac', {
       type: 'audio/flac',
@@ -1624,7 +1624,7 @@ describe('initPlayerControls track metadata subtitle', () => {
       file,
     });
 
-    expect(subtitle.textContent).toBe('Archive Signal · FLAC');
+    expect(subtitle.textContent).toBe('FLAC');
 
     setState('files.current', {
       queueItemId: PLAY_QUEUE_ITEM_ID,
@@ -1636,7 +1636,7 @@ describe('initPlayerControls track metadata subtitle', () => {
       size: file.size,
     });
 
-    expect(subtitle.textContent).toBe('Archive Signal · FLAC · ≈320 kbps');
+    expect(subtitle.textContent).toBe('≈320 kbps · FLAC');
     expect(subtitle.title).toBe(subtitle.textContent);
   });
 

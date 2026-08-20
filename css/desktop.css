@@ -156,6 +156,7 @@
     }
 
     #tab-play .tab-body {
+      padding-top: 0;
       padding-bottom: 0;
     }
 
@@ -165,8 +166,15 @@
       bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
     }
 
-    /* Stage, metadata, and secondary actions split the remaining play-column
-       height. The transport group keeps only its fixed top inset. */
+    /* Five auto margins divide desktop free height into 2:1:2 shares:
+       two above the stage, one before metadata, and two before secondary
+       actions. The configured fixed content insets remain intact. */
+    #tab-play .tab-body::before {
+      content: '';
+      flex: 0 0 0;
+      margin-top: auto;
+    }
+
     #tab-play .track-box,
     #tab-play .play-secondary-area {
       margin-top: auto;
@@ -175,7 +183,7 @@
 
     #tab-play .controls-area {
       margin-top: 0;
-      margin-bottom: 0;
+      margin-bottom: auto;
     }
 
     /* Panel headers stay outside their scrolling bodies. */
@@ -217,13 +225,17 @@
        4. Specific Panel: Play (Main)
        --------------------------------------------------- */
     #tab-play {
+      --playback-rail-width: min(
+        100%,
+        max(360px, calc((var(--desktop-viewport-height) - 400px) * 16 / 9))
+      );
+
       grid-area: tab-play;
       flex-direction: column;
       justify-content: flex-start;
       align-items: center;
-      /* The wide column uses twice the inset of the narrow 420px columns so
-           panel spacing remains proportional. */
-      padding: 0 8px;
+      /* One panel inset owns the shared stage-and-controls rail. */
+      padding: 0 44px;
       border-right: 1px solid var(--divider);
       min-width: 0;
       min-height: 0;
@@ -288,16 +300,13 @@
     }
 
     .playback-stage {
-      /* Match the exact footprint previously owned by the YouTube iframe.
-         Both playback engines now consume this one stable flex item. */
+      /* Prefer a 360px stage rail when the play column permits it. Controls
+         stay centered on a deliberate 4px optical inset per side. */
       --visualizer-content-block-size: max(
         160px,
         min(calc(22vw * var(--desktop-layout-ratio)), calc(30vh * var(--desktop-layout-ratio)))
       );
-      width: min(
-        90%,
-        max(calc(160px * 16 / 9), calc((var(--desktop-viewport-height) - 400px) * 16 / 9))
-      );
+      width: var(--playback-rail-width);
       max-width: none;
       flex-shrink: 0;
       margin: auto auto 0;
@@ -337,16 +346,16 @@
       height: 100%;
       max-width: none;
       margin: 0;
-      border-radius: 20px;
+      border-radius: 16px;
       box-shadow: none;
     }
 
-    /* Content gaps keep their 20px minimum while the stage and outer content
-       groups each own one equal share of free height. */
+    /* Content groups follow the adaptive stage rail with a centered 4px
+       optical inset per side. */
     .track-box,
     .controls-area,
     .play-secondary-area {
-      width: calc(100% - 64px);
+      width: calc(var(--playback-rail-width) - 8px);
       max-width: none;
       box-sizing: border-box;
       padding: 20px 0 0;
@@ -359,6 +368,10 @@
     .track-box,
     .play-secondary-area {
       margin-top: auto;
+    }
+
+    .controls-area {
+      padding-top: 12px;
     }
 
     .play-secondary-area {

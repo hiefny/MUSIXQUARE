@@ -242,14 +242,9 @@ function getAverageBitrateLabel(item: TrackMeta): string {
 function getTrackSubtitle(item: TrackMeta): string {
   if (item.systemAudioMode || item.systemAudioPlaceholder) return '';
 
-  const artist = item.artist?.trim();
-  if (item.type === 'youtube') return artist || t('common.youtube_video');
+  if (item.type === 'youtube') return item.artist?.trim() || t('common.youtube_video');
 
-  return [
-    artist || t('common.unknown'),
-    getFileExtensionLabel(item.name || item.file?.name || ''),
-    getAverageBitrateLabel(item),
-  ]
+  return [getAverageBitrateLabel(item), getFileExtensionLabel(item.name || item.file?.name || '')]
     .filter(Boolean)
     .join(' · ');
 }

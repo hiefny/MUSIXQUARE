@@ -19,6 +19,7 @@ interface StageGeometry {
   bodyScrollWidth: number;
   paneScrollWidth: number;
   paneClientWidth: number;
+  wrapperRadius: number;
 }
 
 async function openYouTubeStageFixture(page: Page): Promise<void> {
@@ -103,6 +104,10 @@ async function readStageGeometry(page: Page): Promise<StageGeometry> {
       bodyScrollWidth: document.body.scrollWidth,
       paneScrollWidth: pane.scrollWidth,
       paneClientWidth: pane.clientWidth,
+      wrapperRadius: Number.parseFloat(
+        getComputedStyle(document.querySelector<HTMLElement>('.video-wrapper')!)
+          .borderTopLeftRadius,
+      ),
     };
   });
 }
@@ -141,6 +146,7 @@ test.describe('mobile YouTube stage geometry', () => {
       expectClose(geometry.wrapper.left, safe.left + 24);
       expectClose(geometry.wrapper.right, paneRight - 24);
       expectClose(geometry.wrapper.width, paneRight - safe.left - 48);
+      expect(geometry.wrapperRadius).toBe(16);
       expectStageMatchesWrapper(geometry);
 
       // The stage, metadata, and controls all keep the pane's safe inset. This
@@ -165,6 +171,7 @@ test.describe('mobile YouTube stage geometry', () => {
     expectClose(portraitBefore.pane.right, 390);
     expectClose(portraitBefore.wrapper.left, 0);
     expectClose(portraitBefore.wrapper.right, 390);
+    expect(portraitBefore.wrapperRadius).toBe(0);
     expectStageMatchesWrapper(portraitBefore);
     expectNoHorizontalOverflow(portraitBefore);
 
@@ -174,6 +181,7 @@ test.describe('mobile YouTube stage geometry', () => {
     expectClose(landscape.wrapper.left, 71);
     expectClose(landscape.wrapper.right, 620);
     expectClose(landscape.wrapper.width, 549);
+    expect(landscape.wrapperRadius).toBe(16);
     expectStageMatchesWrapper(landscape);
     expectNoHorizontalOverflow(landscape);
 
@@ -187,6 +195,7 @@ test.describe('mobile YouTube stage geometry', () => {
       expectClose(media.right, 844);
       expectClose(media.width, 844);
     }
+    expect(fullscreen.wrapperRadius).toBe(0);
     expectNoHorizontalOverflow(fullscreen);
 
     await page.evaluate(() => {
@@ -197,23 +206,26 @@ test.describe('mobile YouTube stage geometry', () => {
     const portraitAfter = await readStageGeometry(page);
     expectClose(portraitAfter.wrapper.left, 0);
     expectClose(portraitAfter.wrapper.right, 390);
+    expect(portraitAfter.wrapperRadius).toBe(0);
     expectStageMatchesWrapper(portraitAfter);
     expectClose(portraitAfter.wrapper.width, portraitBefore.wrapper.width);
     expectNoHorizontalOverflow(portraitAfter);
   });
 
-  test('leaves narrow phone landscape outside the compact sidebar contract', async ({ page }) => {
+  test('keeps narrow phone landscape in the full-width narrow UI contract', async ({ page }) => {
     await openYouTubeStageFixture(page);
     await setViewportAndSafeInsets(page, { width: 667, height: 375 }, { left: 47, right: 0 });
 
     const geometry = await readStageGeometry(page);
     expectClose(geometry.pane.left, 0);
     expectClose(geometry.pane.right, 667);
-    // Base mobile landscape protects the 47px notch, then centers the 600px
-    // maximum media frame in the remaining 620px content box.
-    expectClose(geometry.wrapper.left, 57);
-    expectClose(geometry.wrapper.right, 657);
-    expectClose(geometry.wrapper.width, 600);
+    // Width, rather than physical orientation, selects the UI tier. This
+    // viewport still uses Level 1's bottom navigation, so the media stage
+    // fills the safe content width and keeps square corners.
+    expectClose(geometry.wrapper.left, 47);
+    expectClose(geometry.wrapper.right, 667);
+    expectClose(geometry.wrapper.width, 620);
+    expect(geometry.wrapperRadius).toBe(0);
     expectClose(geometry.container.left, geometry.wrapper.left);
     expectClose(geometry.container.right, geometry.wrapper.right);
     expectClose(geometry.iframe.left, geometry.wrapper.left);

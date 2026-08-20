@@ -22,6 +22,8 @@ interface VariableGapGeometry {
   mediaToMetadata: number;
   metadataToTransport: number;
   transportToSecondary: number;
+  secondaryToBottom: number;
+  artistVisible: boolean;
 }
 
 async function readVisualizerGeometry(page: Page): Promise<VisualizerGeometry> {
@@ -75,6 +77,7 @@ async function readVariableGaps(page: Page): Promise<VariableGapGeometry> {
     const artist = document.querySelector<HTMLElement>('.track-artist');
     const seek = document.querySelector<HTMLElement>('#seek-slider');
     const transport = document.querySelector<HTMLElement>('.play-controls-left');
+    const secondaryArea = document.querySelector<HTMLElement>('.play-secondary-area');
     const chatPreview = document.querySelector<HTMLElement>('#chat-preview-btn');
     const actions = document.querySelector<HTMLElement>('.play-action-buttons');
 
@@ -85,6 +88,7 @@ async function readVariableGaps(page: Page): Promise<VariableGapGeometry> {
       !artist ||
       !seek ||
       !transport ||
+      !secondaryArea ||
       !chatPreview ||
       !actions
     ) {
@@ -96,27 +100,65 @@ async function readVariableGaps(page: Page): Promise<VariableGapGeometry> {
     const stageRect = stage.getBoundingClientRect();
     const titleRect = title.getBoundingClientRect();
     const artistRect = artist.getBoundingClientRect();
+    const artistVisible = getComputedStyle(artist).display !== 'none';
+    const metadataBottom = artistVisible ? artistRect.bottom : titleRect.bottom;
     const seekRect = seek.getBoundingClientRect();
     const transportRect = transport.getBoundingClientRect();
+    const secondaryAreaRect = secondaryArea.getBoundingClientRect();
     const secondaryTarget =
       getComputedStyle(chatPreview).display === 'none' ? actions : chatPreview;
     const secondaryRect = secondaryTarget.getBoundingClientRect();
 
+    const borderTop = Number.parseFloat(tabBodyStyle.borderTopWidth);
+    const paddingTop = Number.parseFloat(tabBodyStyle.paddingTop);
+    const paddingBottom = Number.parseFloat(tabBodyStyle.paddingBottom);
+    const secondaryLogicalBottom =
+      secondaryAreaRect.bottom - tabBodyRect.top - borderTop + tabBody.scrollTop;
+
     return {
-      aboveMedia:
-        stageRect.top -
-        tabBodyRect.top -
-        Number.parseFloat(tabBodyStyle.borderTopWidth) -
-        Number.parseFloat(tabBodyStyle.paddingTop) +
-        tabBody.scrollTop,
+      aboveMedia: stageRect.top - tabBodyRect.top - borderTop + tabBody.scrollTop - paddingTop,
       mediaToMetadata: titleRect.top - stageRect.bottom,
-      metadataToTransport: seekRect.top - artistRect.bottom,
+      metadataToTransport: seekRect.top - metadataBottom,
       transportToSecondary: secondaryRect.top - transportRect.bottom,
+      secondaryToBottom: tabBody.scrollHeight - paddingBottom - secondaryLogicalBottom,
+      artistVisible,
     };
   });
 }
 
 test.describe('mobile visualizer layout', () => {
+  test('ties the YouTube frame treatment to the active mobile UI tier', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupHostAndStart(page);
+
+    for (const viewport of [
+      { width: 700, height: 400, narrowUi: true },
+      { width: 1024, height: 1366, narrowUi: false },
+    ]) {
+      await page.setViewportSize(viewport);
+      await settleLayout(page);
+
+      const treatment = await page.evaluate(() => {
+        const stage = document.querySelector<HTMLElement>('.playback-stage');
+        const video = document.querySelector<HTMLElement>('.video-wrapper');
+        if (!stage || !video) throw new Error('Playback surfaces are missing');
+
+        return {
+          stageMaxWidth: getComputedStyle(stage).maxWidth,
+          videoRadius: Number.parseFloat(getComputedStyle(video).borderTopLeftRadius),
+        };
+      });
+
+      if (viewport.narrowUi) {
+        expect(treatment.stageMaxWidth).toBe('none');
+        expect(treatment.videoRadius).toBe(0);
+      } else {
+        expect(treatment.stageMaxWidth).toBe('600px');
+        expect(treatment.videoRadius).toBe(16);
+      }
+    }
+  });
+
   test('keeps the no-media subtitle when crossing into the desktop layout', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     await setupHostAndStart(page);
@@ -132,6 +174,35 @@ test.describe('mobile visualizer layout', () => {
 
     await expect(subtitle).toBeVisible();
     await expect(subtitle).toHaveText(initialHint!);
+  });
+
+  test('hides the track subtitle only on short mobile UI tiers', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupHostAndStart(page);
+
+    const artist = page.locator('#track-artist');
+    await artist.evaluate((element) => {
+      element.textContent = 'Responsive subtitle fixture';
+      (element as HTMLElement).style.removeProperty('display');
+    });
+
+    for (const viewport of [
+      { width: 390, height: 721, hidden: false },
+      { width: 390, height: 720, hidden: true },
+      { width: 844, height: 390, hidden: true },
+      { width: 1279, height: 720, hidden: true },
+      { width: 1280, height: 720, hidden: false },
+      { width: 1280, height: 600, hidden: false },
+    ]) {
+      await page.setViewportSize(viewport);
+      await page.evaluate(({ height }) => {
+        document.documentElement.style.setProperty('--app-height', `${height}px`);
+      }, viewport);
+      await settleLayout(page);
+
+      const display = await artist.evaluate((element) => getComputedStyle(element).display);
+      expect(display === 'none', `${viewport.width}x${viewport.height}`).toBe(viewport.hidden);
+    }
   });
 
   test('keeps the stage height and track title stable while modes change', async ({ page }) => {
@@ -188,8 +259,8 @@ test.describe('mobile visualizer layout', () => {
     await setupHostAndStart(page);
     await expect(page.locator('.track-box')).not.toHaveClass(/app-entrance/, { timeout: 5_000 });
     await page.locator('#track-artist').evaluate((artist) => {
-      // Player metadata may settle just after setup. Reserve the row explicitly
-      // so this test isolates playback-engine geometry from that independent update.
+      // Keep a stable fixture wherever the active height tier permits the row;
+      // short mobile layouts intentionally hide it through the CSS contract.
       (artist as HTMLElement).style.display = 'block';
       artist.textContent = 'Layout fixture metadata';
     });
@@ -220,18 +291,18 @@ test.describe('mobile visualizer layout', () => {
     }
   });
 
-  test('fixes the middle gap and divides free height across three variable gaps', async ({
+  test('keeps fixed visual insets and divides free height across the active variable gaps', async ({
     page,
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupHostAndStart(page);
     await expect(page.locator('.track-box')).not.toHaveClass(/app-entrance/, { timeout: 5_000 });
     await page.locator('#track-artist').evaluate((artist) => {
-      (artist as HTMLElement).style.display = 'block';
       artist.textContent = 'Layout fixture metadata';
     });
 
     let sawExpandedVariableGap = false;
+    let sawExpandedDesktopGap = false;
     for (const viewport of [
       { width: 390, height: 844 },
       { width: 844, height: 390 },
@@ -245,21 +316,42 @@ test.describe('mobile visualizer layout', () => {
 
       const gaps = await readVariableGaps(page);
       expect(
-        Math.abs(gaps.metadataToTransport - 20),
+        Math.abs(gaps.metadataToTransport - 12),
         `${viewport.width}x${viewport.height}: ${JSON.stringify(gaps)}`,
       ).toBeLessThanOrEqual(MAX_LAYOUT_DRIFT_PX);
-      const variableShares = [
-        gaps.aboveMedia,
-        gaps.mediaToMetadata - 20,
-        gaps.transportToSecondary - 20,
-      ];
+      const secondaryInset = viewport.width < 1280 ? 32 : 20;
+      const aboveMedia = gaps.aboveMedia;
+      const mediaToMetadata = gaps.mediaToMetadata - 20;
+      const transportToSecondary = gaps.transportToSecondary - secondaryInset;
+      const variableShares = [aboveMedia, mediaToMetadata, transportToSecondary];
+      if (viewport.width < 720) {
+        variableShares.push(gaps.secondaryToBottom);
+      } else {
+        expect(
+          Math.abs(gaps.secondaryToBottom),
+          `${viewport.width}x${viewport.height}: ${JSON.stringify(gaps)}`,
+        ).toBeLessThanOrEqual(MAX_LAYOUT_DRIFT_PX);
+      }
       expect(Math.min(...variableShares)).toBeGreaterThanOrEqual(-MAX_LAYOUT_DRIFT_PX);
-      expect(
-        Math.max(...variableShares) - Math.min(...variableShares),
-        `${viewport.width}x${viewport.height}: ${JSON.stringify(gaps)}`,
-      ).toBeLessThanOrEqual(MAX_LAYOUT_DRIFT_PX);
-      sawExpandedVariableGap ||= gaps.aboveMedia > 1;
+      if (viewport.width >= 1280) {
+        expect(
+          Math.abs(aboveMedia - mediaToMetadata * 2),
+          `${viewport.width}x${viewport.height}: ${JSON.stringify(gaps)}`,
+        ).toBeLessThanOrEqual(MAX_LAYOUT_DRIFT_PX);
+        expect(
+          Math.abs(transportToSecondary - mediaToMetadata * 2),
+          `${viewport.width}x${viewport.height}: ${JSON.stringify(gaps)}`,
+        ).toBeLessThanOrEqual(MAX_LAYOUT_DRIFT_PX);
+        sawExpandedDesktopGap ||= mediaToMetadata > 1;
+      } else {
+        expect(
+          Math.max(...variableShares) - Math.min(...variableShares),
+          `${viewport.width}x${viewport.height}: ${JSON.stringify(gaps)}`,
+        ).toBeLessThanOrEqual(MAX_LAYOUT_DRIFT_PX);
+      }
+      sawExpandedVariableGap ||= variableShares[0] > 1;
     }
     expect(sawExpandedVariableGap).toBe(true);
+    expect(sawExpandedDesktopGap).toBe(true);
   });
 });

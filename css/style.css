@@ -1727,7 +1727,7 @@
     aspect-ratio: auto;
     margin: 0;
     background: #000;
-    border-radius: var(--radius-m);
+    border-radius: 16px;
     overflow: hidden;
 
     display: none;
@@ -1793,9 +1793,22 @@
     --material-elastic-size: 28px;
   }
 
-  /* Mobile portrait: let the 16:9 YouTube frame span the viewport width.
-       Landscape and desktop keep the rounded, constrained presentation. */
-  @media (orientation: portrait) and (max-width: 1279px) {
+  /* Level 1's narrow, bottom-navigation UI uses a full-bleed square-cornered
+     YouTube frame. Level 2's sidebar UI and desktop keep the rounded,
+     constrained presentation regardless of the viewport's orientation. */
+  @media (max-width: 719px) {
+    #tab-play {
+      padding-top: var(--header-height);
+    }
+
+    #tab-play .tab-body {
+      padding-top: 0;
+    }
+
+    #tab-play .play-secondary-area {
+      margin-bottom: auto;
+    }
+
     .playback-stage {
       max-width: none;
     }
@@ -1875,9 +1888,14 @@
     display: block;
   }
 
-  /* Keep metadata → transport at a fixed 20px. The stage, metadata, and
-     secondary groups each own one auto margin, so all remaining height is
-     split evenly above media, before metadata, and before secondary actions. */
+  @media (max-width: 1279px) and (max-height: 720px) {
+    .track-artist {
+      display: none !important;
+    }
+  }
+
+  /* The stage, metadata, and secondary groups share remaining height through
+     auto margins. Narrow mobile adds a fourth share below secondary actions. */
   .track-box,
   .controls-area,
   .play-secondary-area {
@@ -1900,7 +1918,14 @@
     gap: 12px;
   }
 
+  .controls-area {
+    padding-top: 12px;
+  }
+
   .play-secondary-area {
+    /* Match the painted transport-to-chat separation to the seek rail's
+       32px touch-target footprint on mobile layouts. */
+    padding-top: 32px;
     padding-bottom: 24px;
   }
 
@@ -9477,6 +9502,7 @@
          any remaining landscape height. Taller content still expands and
          scrolls through the parent. */
       min-height: 100% !important;
+      padding-top: 0 !important;
       padding-bottom: 44px !important;
     }
 
@@ -10125,6 +10151,11 @@
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
+  }
+
+  .video-wrapper:fullscreen,
+  .video-wrapper:-webkit-full-screen {
+    border-radius: 0 !important;
   }
 
   .video-wrapper.fake-fullscreen .fullscreen-btn {

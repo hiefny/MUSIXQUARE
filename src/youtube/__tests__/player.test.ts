@@ -1743,6 +1743,11 @@ describe('YouTube Player', () => {
 
       const { initYouTube } = await import('../player.ts');
       initYouTube();
+      // Mirror the production stop chain so the first non-YouTube -> YouTube
+      // load cancels work that started on the wrong side of that boundary.
+      bus.on('player:stop-all-media', () => {
+        bus.emit('youtube:stop-mode', { silent: false });
+      });
       bus.emit('youtube:load-from-input');
 
       expect(search.resolveYouTubePlaylistManifest).not.toHaveBeenCalled();
@@ -1757,7 +1762,16 @@ describe('YouTube Player', () => {
         videoId: 'AAAAAAAAAAA',
         playlistId: 'PL_GESTURE_READY',
         name: 'Gesture-ready playlist',
+        isExpanded: true,
       });
+      expect(search.fetchPlaylistSubTitles).toHaveBeenCalledWith(
+        'PL_GESTURE_READY',
+        ['AAAAAAAAAAA', 'BBBBBBBBBBB'],
+        { fullFetch: true },
+      );
+      expect(vi.mocked(search.cancelSubTitleFetch).mock.invocationCallOrder.at(-1)!).toBeLessThan(
+        vi.mocked(search.fetchPlaylistSubTitles).mock.invocationCallOrder.at(-1)!,
+      );
     });
 
     it('uses the requested video from a prefetched playlist without changing manifest order', async () => {

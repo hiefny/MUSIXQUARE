@@ -135,6 +135,14 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
     autoplay ?? false,
     subIndex ?? 0,
   );
+  // The host sends PLAYLIST_INFO before YOUTUBE_PLAY. A fresh iframe load
+  // tears down the prior mode and cancels that just-started title fetch, so
+  // restart population after the destructive boundary using the queue item's
+  // durable playlist identity (the physical command may have normalized it
+  // to null for single-video mode).
+  if (playlistItem.playlistId) {
+    bus.emit('youtube:populate-sub-items', playlistItem.playlistId, queueItemId);
+  }
 }
 
 /**

@@ -244,10 +244,7 @@ function getChatDrawerStageBottom(): number | null {
   const playTab = document.getElementById('tab-play');
   if (playTab && !playTab.classList.contains('active')) return null;
 
-  const selector = document.body.classList.contains('mode-youtube')
-    ? '.video-wrapper'
-    : '.vinyl-wrapper';
-  const stage = document.querySelector<HTMLElement>(selector);
+  const stage = document.querySelector<HTMLElement>('.playback-stage');
   if (!stage) return null;
 
   const style = window.getComputedStyle(stage);

@@ -29,7 +29,7 @@ import { isFilePipelineBusyForPlay, togglePlay } from '../player/transport.ts';
 import { toggleRepeat, toggleShuffle } from '../player/playlist.ts';
 import { getCurrentAudioBuffer } from '../player/_state.ts';
 import { exitYouTubeFullscreen } from '../player/video.ts';
-import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
+import { getCurrentQueueItemId } from '../player/queue-model.ts';
 import { AUDIO_FILE_ACCEPT } from '../media/audio-file.ts';
 import {
   clearPreviewDebounce,
@@ -45,7 +45,11 @@ import { initSeekBar } from './seekbar.ts';
 import { installRangeDragGuard, syncRangeProgress } from './range-drag.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from './tab-title-marquee.ts';
 import { getTrackDisplayTitle } from '../player/track-display.ts';
-import type { ProPlaybackUiControlKind, YouTubeSyncLoadingOwner } from '../types/index.ts';
+import type {
+  ProPlaybackUiControlKind,
+  TrackMeta,
+  YouTubeSyncLoadingOwner,
+} from '../types/index.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { scopePlaybackModeActivity } from './_state-hooks.ts';
@@ -207,13 +211,69 @@ function updateVolumeIcon(): void {
   icon.setAttribute('aria-pressed', String(muted));
 }
 
-/** Refresh the track title in the UI, considering network restrictions for remote guests. */
+function getFileExtensionLabel(name: string): string {
+  const match = /\.([a-z0-9]{1,8})$/i.exec(name.trim());
+  return match?.[1]?.toUpperCase() || '';
+}
+
+function getCurrentFileSize(item: TrackMeta): number | null {
+  const resident = getState('files.current');
+  if (!resident) return null;
+  const currentQueueItemId = item.queueItemId ?? getCurrentQueueItemId();
+  const matchesCurrentTrack =
+    !!currentQueueItemId &&
+    resident.queueItemId === currentQueueItemId &&
+    (!item.name || resident.name === item.name);
+  if (!matchesCurrentTrack || !Number.isFinite(resident.size) || resident.size <= 0) return null;
+  return resident.size;
+}
+
+function getAverageBitrateLabel(item: TrackMeta): string {
+  const duration = getCurrentAudioBuffer()?.duration;
+  const size = getCurrentFileSize(item);
+  if (!size || !Number.isFinite(duration) || !duration || duration <= 0) return '';
+
+  // File size / decoded duration is a container-average estimate. It remains
+  // useful for VBR and lossless files without pretending we parsed codec tags.
+  const kbps = Math.round((size * 8) / duration / 1000);
+  return Number.isFinite(kbps) && kbps > 0 && kbps < 100_000 ? `≈${kbps} kbps` : '';
+}
+
+function getTrackSubtitle(item: TrackMeta): string {
+  if (item.systemAudioMode || item.systemAudioPlaceholder) return '';
+
+  const artist = item.artist?.trim();
+  if (item.type === 'youtube') return artist || t('common.youtube_video');
+
+  return [
+    artist || t('common.unknown'),
+    getFileExtensionLabel(item.name || item.file?.name || ''),
+    getAverageBitrateLabel(item),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+function updateTrackSubtitle(item: TrackMeta | null): void {
+  const artistEl = document.getElementById('track-artist');
+  if (!artistEl) return;
+
+  const subtitle = item ? getTrackSubtitle(item) : t('player.select_file_hint');
+  artistEl.textContent = subtitle;
+  if (subtitle) {
+    artistEl.title = subtitle;
+    applyUserTextFontFallback(artistEl, subtitle);
+  } else {
+    artistEl.removeAttribute('title');
+  }
+}
+
+/** Refresh the track title and its source metadata row. */
 function refreshTrackTitle(): void {
   const item = getState('player.currentTrackMeta');
   if (!item) {
     updateTitleWithMarquee(t('player.no_media'));
-    const artistEl = document.getElementById('track-artist');
-    if (artistEl) artistEl.innerText = '';
+    updateTrackSubtitle(null);
     return;
   }
 
@@ -226,20 +286,7 @@ function refreshTrackTitle(): void {
         : getTrackDisplayTitle(item, t('common.unknown'));
 
   updateTitleWithMarquee(title);
-
-  // Also update Artist
-  const artistEl = document.getElementById('track-artist');
-  if (artistEl) {
-    if (item.artist) {
-      artistEl.innerText = item.artist;
-    } else {
-      const idx = getCurrentQueueItemIndex();
-      artistEl.innerText =
-        item.type === 'youtube'
-          ? t('common.youtube_video')
-          : t('playlist.track_fallback', { idx: idx >= 0 ? idx + 1 : 1 });
-    }
-  }
+  updateTrackSubtitle(item);
 }
 
 function getTabTitleTrack(): string {
@@ -1902,6 +1949,7 @@ export function initPlayerControls(): void {
   _busScope.on('state:player.currentTrackMeta', () => {
     refreshTrackTitle();
   });
+  _busScope.on('state:files.current', refreshTrackTitle);
 
   // Sync display update (dual: auto + manual)
   // Unit ("ms") is shown in the column label, not appended to the value,
@@ -1940,6 +1988,7 @@ export function initPlayerControls(): void {
   _busScope.on('state:setup.sessionStarted', reconcileStandardRoomSyncAvailability);
   _busScope.on('state:network.sessionCode', reconcileStandardRoomSyncAvailability);
   _busScope.on('player:buffer-changed', () => {
+    refreshTrackTitle();
     closeManualSyncIfInvalid();
     syncMainSyncButtonState();
   });

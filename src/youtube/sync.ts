@@ -15,8 +15,9 @@ import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/tim
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { fmtTime } from '../player/transport.ts';
 import {
+  getPlaybackSelectionTrackMeta,
   isPlaybackModeYouTube,
-  updatePlaybackTrackMeta,
+  updatePlaybackTrackDetails,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
 import { getCurrentQueueItemId, getQueueItemById } from '../player/queue-model.ts';
@@ -34,6 +35,7 @@ import {
 } from './_state.ts';
 import type { YouTubePlayerInstance } from './_state.ts';
 import {
+  expectYouTubeMetadataVideoIdFromSync,
   hideYouTubeTapToPlayGateFromSync,
   invalidateYtDurationCacheFromSync,
 } from './iframe-runtime-bridge.ts';
@@ -672,6 +674,8 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
           `[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`,
         );
         if (player.loadVideoById) {
+          updatePlaybackTrackDetails({ artist: null });
+          expectYouTubeMetadataVideoIdFromSync(hostVideoId);
           player.loadVideoById(hostVideoId);
           // The new video's duration isn't reported until the iframe buffers
           // it. Invalidate the cache now so the seekbar doesn't keep showing
@@ -1231,7 +1235,10 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
           `[YouTube State] Video mismatch — guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`,
         );
         if (player.loadVideoById) {
+          updatePlaybackTrackDetails({ artist: null });
+          expectYouTubeMetadataVideoIdFromSync(hostVideoId);
           player.loadVideoById(hostVideoId);
+          invalidateYtDurationCacheFromSync();
           if (subIndex !== undefined && subIndex !== -1) {
             setYouTubeSubIndex(subIndex);
           }
@@ -1486,7 +1493,7 @@ function handleSubTitleUpdate(data: Record<string, unknown>, conn?: DataConnecti
   const currentItem = getQueueItemById(getCurrentQueueItemId());
   const currentSubIndex = getState('youtube.currentSubIndex') ?? -1;
   if (currentItem?.playlistId === playlistId && currentSubIndex === subIdx) {
-    updatePlaybackTrackMeta(() => ({ ...currentItem, title: title }));
+    updatePlaybackTrackTitle(title, getPlaybackSelectionTrackMeta(currentItem));
   }
 }
 

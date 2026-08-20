@@ -165,12 +165,17 @@
       bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
     }
 
-    /* Push controls to the bottom, matching the overlay's .ob-actions structure:
-       margin-top: auto + padding-bottom on the DIRECT container */
-    #tab-play .controls-area {
+    /* Stage, metadata, and secondary actions split the remaining play-column
+       height. The transport group keeps only its fixed top inset. */
+    #tab-play .track-box,
+    #tab-play .play-secondary-area {
       margin-top: auto;
       margin-bottom: 0;
-      padding-bottom: 40px;
+    }
+
+    #tab-play .controls-area {
+      margin-top: 0;
+      margin-bottom: 0;
     }
 
     /* Panel headers stay outside their scrolling bodies. */
@@ -282,51 +287,45 @@
       font-size: 15px;
     }
 
-    .vinyl-wrapper {
-      width: max(
+    .playback-stage {
+      /* Match the exact footprint previously owned by the YouTube iframe.
+         Both playback engines now consume this one stable flex item. */
+      --visualizer-content-block-size: max(
         160px,
         min(calc(22vw * var(--desktop-layout-ratio)), calc(30vh * var(--desktop-layout-ratio)))
       );
-      height: max(
-        160px,
-        min(calc(22vw * var(--desktop-layout-ratio)), calc(30vh * var(--desktop-layout-ratio)))
+      width: min(
+        90%,
+        max(calc(160px * 16 / 9), calc((var(--desktop-viewport-height) - 400px) * 16 / 9))
       );
+      max-width: none;
       flex-shrink: 0;
-      flex-basis: auto;
-      aspect-ratio: auto;
-      min-height: auto;
-      margin-top: auto;
-      margin-bottom: 0;
+      margin: auto auto 0;
+    }
+
+    .vinyl-wrapper {
+      width: auto;
+      max-width: 100%;
+      height: min(100%, var(--visualizer-content-block-size));
+      flex: none;
+      aspect-ratio: 1;
+      min-height: 0;
+      margin: 0;
     }
 
     body.viz-spectrum .vinyl-wrapper {
-      width: calc(100% - 64px);
-      height: max(
-        160px,
-        min(calc(22vw * var(--desktop-layout-ratio)), calc(30vh * var(--desktop-layout-ratio)))
-      );
-      aspect-ratio: auto;
+      width: 100%;
       max-width: none;
+      height: min(100%, var(--visualizer-content-block-size));
+      aspect-ratio: auto;
       padding: 0;
     }
 
-    /* On QHD/4K-class canvases, let visualizers approach the visual weight of
-       the height-constrained video without changing familiar FHD proportions. */
+    /* Preserve the larger visualizer treatment on QHD/4K while the outer
+       playback footprint remains identical to YouTube. */
     @media (min-width: 2560px) and (min-height: 1280px) {
-      .vinyl-wrapper {
-        width: max(
-          160px,
-          min(calc(28vw * var(--desktop-layout-ratio)), calc(42vh * var(--desktop-layout-ratio)))
-        );
-        height: max(
-          160px,
-          min(calc(28vw * var(--desktop-layout-ratio)), calc(42vh * var(--desktop-layout-ratio)))
-        );
-      }
-
-      body.viz-spectrum .vinyl-wrapper {
-        width: calc(100% - 64px);
-        height: max(
+      .playback-stage {
+        --visualizer-content-block-size: max(
           160px,
           min(calc(28vw * var(--desktop-layout-ratio)), calc(42vh * var(--desktop-layout-ratio)))
         );
@@ -334,42 +333,36 @@
     }
 
     .video-wrapper {
-      /* The iframe itself is fluid. Keep its parent proportional to the play
-         column and available height. The vertical budget is the effective
-         upper bound on large dashboards. */
-      /* Reserve the header, title rail, transport/volume controls and action
-         buttons. 320px omitted the header plus part of the control stack and
-         made a height-bound iframe overflow on canvases such as 5120x1300. */
-      width: min(90%, calc((var(--desktop-viewport-height) - 400px) * 16 / 9));
+      width: 100%;
+      height: 100%;
       max-width: none;
-      /* Center in the space above the controls. */
-      margin: auto auto 0 auto;
+      margin: 0;
       border-radius: 20px;
       box-shadow: none;
     }
 
-    /* Play Controller adjustments */
-    .track-box {
-      width: calc(100% - 64px);
-      padding: 0;
-      margin-left: auto;
-      margin-right: auto;
-    }
-
-    .controls-area {
+    /* Content gaps keep their 20px minimum while the stage and outer content
+       groups each own one equal share of free height. */
+    .track-box,
+    .controls-area,
+    .play-secondary-area {
       width: calc(100% - 64px);
       max-width: none;
       box-sizing: border-box;
-      padding: 0;
-      margin-top: auto;
+      padding: 20px 0 0;
+      margin-top: 0;
       margin-left: auto;
       margin-right: auto;
       flex-grow: 0;
-      padding-bottom: 32px;
     }
 
-    .play-controls-left {
-      margin-bottom: 24px;
+    .track-box,
+    .play-secondary-area {
+      margin-top: auto;
+    }
+
+    .play-secondary-area {
+      padding-bottom: 32px;
     }
 
     /* ---------------------------------------------------

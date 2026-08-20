@@ -514,12 +514,23 @@ export function isExternalOwner(): boolean {
 
 // Write: track metadata
 
+export function getPlaybackSelectionTrackMeta(trackMeta: TrackMeta): TrackMeta {
+  if (trackMeta.type !== 'youtube' || !trackMeta.playlistId || !trackMeta.artist) return trackMeta;
+
+  // A playlist can cross channels. Queue metadata describes the playlist's
+  // source, not necessarily the selected sub-video, so let the iframe publish
+  // the exact author once that concrete video becomes available.
+  const selectionTrackMeta = { ...trackMeta };
+  delete selectionTrackMeta.artist;
+  return selectionTrackMeta;
+}
+
 export function setPlaybackTrackMeta(currentTrackMeta: TrackMeta | null): PlaybackOwnership {
   setState('player.currentTrackMeta', currentTrackMeta);
   return syncPlaybackModeActivityFromOwnership();
 }
 
-export function updatePlaybackTrackMeta(
+function updatePlaybackTrackMeta(
   updater: (currentTrackMeta: TrackMeta | null) => TrackMeta | null,
 ): PlaybackOwnership {
   const currentTrackMeta = getState('player.currentTrackMeta') as TrackMeta | null;
@@ -532,10 +543,22 @@ export function updatePlaybackTrackTitle(
   title: string,
   fallbackTrackMeta: TrackMeta | null = null,
 ): PlaybackOwnership {
+  return updatePlaybackTrackDetails({ title }, fallbackTrackMeta);
+}
+
+export function updatePlaybackTrackDetails(
+  details: { title?: string; artist?: string | null },
+  fallbackTrackMeta: TrackMeta | null = null,
+): PlaybackOwnership {
   return updatePlaybackTrackMeta((currentTrackMeta) => {
     const trackMeta = currentTrackMeta ?? fallbackTrackMeta;
-    if (!trackMeta || trackMeta.title === title) return trackMeta;
-    return { ...trackMeta, title };
+    if (!trackMeta) return trackMeta;
+
+    const nextTitle = details.title?.trim() || trackMeta.title;
+    const nextArtist =
+      details.artist === undefined ? trackMeta.artist : details.artist?.trim() || undefined;
+    if (trackMeta.title === nextTitle && trackMeta.artist === nextArtist) return trackMeta;
+    return { ...trackMeta, title: nextTitle, artist: nextArtist };
   });
 }
 

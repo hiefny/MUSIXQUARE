@@ -2,7 +2,7 @@
  * MUSIXQUARE — YouTube oEmbed Fetcher (leaf module)
  *
  * Pure fetch utilities kept separate from youtube/search.ts:
- * fetchWithTimeout, the oEmbed title fetch with its LRU+TTL cache, and
+ * fetchWithTimeout, the oEmbed metadata fetch with its LRU+TTL cache, and
  * external-title normalization. ui/chat-render.ts depends on THIS module —
  * not on search.ts, which pulls in the network/peer facade (broadcast) and
  * would re-create the dissolved ui/network/chat/youtube import cycle.
@@ -170,64 +170,83 @@ export function normalizeExternalTitle(value: unknown): string {
   return decodeHtmlEntities(typeof value === 'string' ? value : '').trim();
 }
 
-// ─── oEmbed Title Cache (LRU + TTL) ───────────────────────────────
+// ─── oEmbed Metadata Cache (LRU + TTL) ────────────────────────────
 
-const _oEmbedTitleCache = new Map<string, { title: string; ts: number }>();
-const _oEmbedInFlight = new Map<string, Promise<string | null>>();
+interface YouTubeOEmbedMetadata {
+  readonly title: string;
+  readonly authorName: string;
+}
 
-function _oEmbedCacheGet(key: string): string | null {
-  const entry = _oEmbedTitleCache.get(key);
+const _oEmbedMetadataCache = new Map<string, { metadata: YouTubeOEmbedMetadata; ts: number }>();
+const _oEmbedInFlight = new Map<string, Promise<YouTubeOEmbedMetadata | null>>();
+
+function _oEmbedCacheGet(key: string): YouTubeOEmbedMetadata | null {
+  const entry = _oEmbedMetadataCache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.ts > OEMBED_CACHE_TTL_MS) {
-    _oEmbedTitleCache.delete(key);
+    _oEmbedMetadataCache.delete(key);
     return null;
   }
   // LRU: move to end
-  _oEmbedTitleCache.delete(key);
-  _oEmbedTitleCache.set(key, entry);
-  return entry.title;
+  _oEmbedMetadataCache.delete(key);
+  _oEmbedMetadataCache.set(key, entry);
+  return entry.metadata;
 }
 
-function _oEmbedCacheSet(key: string, title: string): void {
+function _oEmbedCacheSet(key: string, metadata: YouTubeOEmbedMetadata): void {
   // Evict oldest if at capacity
-  if (_oEmbedTitleCache.size >= OEMBED_CACHE_MAX) {
-    const oldest = _oEmbedTitleCache.keys().next().value;
-    if (oldest !== undefined) _oEmbedTitleCache.delete(oldest);
+  if (_oEmbedMetadataCache.size >= OEMBED_CACHE_MAX) {
+    const oldest = _oEmbedMetadataCache.keys().next().value;
+    if (oldest !== undefined) _oEmbedMetadataCache.delete(oldest);
   }
-  _oEmbedTitleCache.set(key, { title, ts: Date.now() });
+  _oEmbedMetadataCache.set(key, { metadata, ts: Date.now() });
 }
 
-export async function fetchOEmbedTitle(url: string): Promise<string | null> {
+export async function fetchOEmbedTitle(
+  url: string,
+  onMetadata?: (metadata: YouTubeOEmbedMetadata) => void,
+): Promise<string | null> {
   const key = String(url || '');
   if (!key) return null;
 
   const cached = _oEmbedCacheGet(key);
-  if (cached) return cached;
-  if (_oEmbedInFlight.has(key)) return _oEmbedInFlight.get(key)!;
+  let metadata = cached;
 
-  const p = (async (): Promise<string | null> => {
-    try {
-      const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(key)}&format=json`;
-      const response = await fetchWithTimeout(oEmbedUrl);
-      if (!response.ok) {
-        await cancelResponseBody(response);
-        return null;
-      }
-      const data = (await readBoundedJsonResponse(response, OEMBED_RESPONSE_MAX_BYTES)) as {
-        title?: unknown;
-      };
-      const title = normalizeExternalTitle(data?.title);
-      return title || null;
-    } catch (e) {
-      log.warn('[YouTube oEmbed] Fetch failed:', e);
-      return null;
-    } finally {
-      _oEmbedInFlight.delete(key);
+  if (!metadata) {
+    let pending = _oEmbedInFlight.get(key);
+    if (!pending) {
+      pending = (async (): Promise<YouTubeOEmbedMetadata | null> => {
+        try {
+          const oEmbedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(key)}&format=json`;
+          const response = await fetchWithTimeout(oEmbedUrl);
+          if (!response.ok) {
+            await cancelResponseBody(response);
+            return null;
+          }
+          const data = (await readBoundedJsonResponse(response, OEMBED_RESPONSE_MAX_BYTES)) as {
+            title?: unknown;
+            author_name?: unknown;
+          };
+          const title = normalizeExternalTitle(data?.title);
+          if (!title) return null;
+          return {
+            title,
+            authorName: normalizeExternalTitle(data?.author_name),
+          };
+        } catch (e) {
+          log.warn('[YouTube oEmbed] Fetch failed:', e);
+          return null;
+        } finally {
+          _oEmbedInFlight.delete(key);
+        }
+      })();
+      _oEmbedInFlight.set(key, pending);
     }
-  })();
+    metadata = await pending;
+    if (metadata) _oEmbedCacheSet(key, metadata);
+  }
 
-  _oEmbedInFlight.set(key, p);
-  const result = await p;
-  if (result) _oEmbedCacheSet(key, result);
-  return result;
+  if (!metadata) return null;
+  onMetadata?.(metadata);
+  return metadata.title;
 }

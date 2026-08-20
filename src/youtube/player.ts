@@ -18,6 +18,7 @@ import { MSG } from '../core/constants.ts';
 import { clearManagedTimer, delay, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import {
+  getPlaybackSelectionTrackMeta,
   isPlaybackIdleCompat,
   isPlaybackModeYouTube,
   isPlaybackPlayingYouTube,
@@ -1660,10 +1661,43 @@ export function initYouTube(): void {
       setYtAutoplayIntent(true);
       bus.emit('ui:seek-reset');
 
+      const residentPlayer = getZeroStartPlayer();
+      let residentVideoData: ReturnType<NonNullable<YouTubePlayerInstance['getVideoData']>> | null =
+        null;
+      let isSameResidentVideo = false;
+      try {
+        residentVideoData = getYouTubePlayer()?.getVideoData?.() ?? null;
+        isSameResidentVideo = Boolean(
+          residentPlayer && (residentVideoData?.video_id ?? '') === videoId,
+        );
+      } catch {
+        /* a not-yet-ready iframe is handled by the replacement path below */
+      }
+
       const item = getQueueItemById(queueItemId as QueueItemId);
       if (item?.type === 'youtube') {
         selectQueueItemById(item.queueItemId);
-        setPlaybackTrackMeta(item);
+        const currentTrackMeta = getState('player.currentTrackMeta');
+        const selectionTrackMeta = getPlaybackSelectionTrackMeta(item);
+        const nextTrackMeta = isSameResidentVideo
+          ? {
+              ...selectionTrackMeta,
+              title:
+                residentVideoData?.title?.trim() ||
+                currentTrackMeta?.title ||
+                selectionTrackMeta.title,
+              ...(residentVideoData?.author?.trim() || currentTrackMeta?.artist
+                ? { artist: residentVideoData?.author?.trim() || currentTrackMeta?.artist }
+                : {}),
+            }
+          : selectionTrackMeta;
+        if (
+          currentTrackMeta?.queueItemId !== nextTrackMeta.queueItemId ||
+          currentTrackMeta?.title !== nextTrackMeta.title ||
+          currentTrackMeta?.artist !== nextTrackMeta.artist
+        ) {
+          setPlaybackTrackMeta(nextTrackMeta);
+        }
         if (subIndex !== null) {
           setYouTubeSubIndex(subIndex);
           const title = item.playlistId
@@ -1679,12 +1713,11 @@ export function initYouTube(): void {
       // participant decides independently because a late/cold guest may still
       // need the established load path while the host reuses its buffer.
       try {
-        const player = getZeroStartPlayer();
         if (
-          player &&
+          residentPlayer &&
           isYtPlayerReady() &&
           !isYtLoadInProgress() &&
-          (player.getVideoData().video_id ?? '') === videoId
+          (residentPlayer.getVideoData().video_id ?? '') === videoId
         ) {
           return 'resident-reposition' as const;
         }
@@ -2404,7 +2437,7 @@ export function initYouTube(): void {
     const playlistItem = getQueueItemById(queueItemId);
     if (!playlistItem || playlistItem.type !== 'youtube') return;
     if (!selectQueueItemById(queueItemId)) return;
-    setPlaybackTrackMeta(playlistItem);
+    setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(playlistItem));
 
     const autoplay = payload.autoplay ?? true;
     const positionSeconds =
@@ -3025,7 +3058,10 @@ export function initYouTube(): void {
     expectedPlaylistId: string | null,
     proMediaHookSession?: ProRoomMediaHookSession,
   ): void {
-    fetchOEmbedTitle(url)
+    let fetchedAuthor = '';
+    fetchOEmbedTitle(url, (metadata) => {
+      fetchedAuthor = metadata.authorName;
+    })
       .then((fetchedTitle) => {
         if (!fetchedTitle) return;
 
@@ -3043,6 +3079,7 @@ export function initYouTube(): void {
           const metadata = {
             name: fetchedTitle,
             title: fetchedTitle,
+            ...(fetchedAuthor ? { artist: fetchedAuthor } : {}),
           };
           const handled = handleProRoomTrackMetadataForSession(
             proMediaHookSession,
@@ -3068,10 +3105,18 @@ export function initYouTube(): void {
         const item = currentIndex >= 0 ? currentPlaylist[currentIndex] : undefined;
         if (item && item.videoId === expectedVideoId && item.playlistId === expectedPlaylistId) {
           const updated = [...currentPlaylist];
-          updated[currentIndex] = { ...item, name: fetchedTitle, title: fetchedTitle };
+          updated[currentIndex] = {
+            ...item,
+            name: fetchedTitle,
+            title: fetchedTitle,
+            ...(fetchedAuthor ? { artist: fetchedAuthor } : {}),
+          };
           const titleSnapshot = commitPlaylistItems(updated);
           if (getCurrentQueueItemId() === queueItemId) {
-            setPlaybackTrackMeta(updated[currentIndex]);
+            const currentTrackMeta = getState('player.currentTrackMeta');
+            if (!item.playlistId || currentTrackMeta?.queueItemId !== queueItemId) {
+              setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(updated[currentIndex]));
+            }
           }
 
           // Broadcast updated title to peers (Host only)
@@ -3196,7 +3241,7 @@ export function initYouTube(): void {
     // isYtIndexing keeps its original behavior (mid-index re-add path).
     if (isIdle) {
       setState('player.isFirstTrackLoad', false);
-      setPlaybackTrackMeta(newTrack);
+      setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(newTrack));
       setYouTubeSubIndex(initialSubIndex); // Initialize only a newly active track.
 
       // Load YouTube with autoplay=FALSE for sync coordination.

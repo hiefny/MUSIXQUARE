@@ -16,7 +16,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v462"></script>
+    <script src="/bootstrap.js?cache=v463"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -232,56 +232,64 @@
         <span class="tab-title" data-i18n="nav.home">메인</span>
       </div>
       <div class="tab-body" data-custom-scroll>
-        <div class="vinyl-wrapper">
-          <canvas
-            id="visualizerCanvas"
-            role="button"
-            tabindex="0"
-            aria-pressed="false"
-            aria-labelledby="visualizer-accessible-label visualizer-current-mode"
-            aria-describedby="visualizer-mode-hint"
-          ></canvas>
-          <span id="visualizer-accessible-label" class="sr-only" data-i18n="player.visualizer"
-            >오디오 비주얼라이저</span
-          >
-          <span id="visualizer-current-mode" class="sr-only" data-i18n="player.visualizer_circular"
-            >원형</span
-          >
-          <span id="visualizer-mode-hint" class="sr-only" data-i18n="player.visualizer_mode_hint"
-            >음향 시각화 방식을 선택할 수 있어요.</span
-          >
-        </div>
-
-        <!-- Runtime insertion point; its id and class are part of the YouTube wiring contract. -->
-        <div class="video-wrapper" aria-busy="false">
-          <div
-            id="youtube-sync-loading-overlay"
-            class="youtube-sync-loading-overlay"
-            role="status"
-            aria-live="polite"
-            aria-atomic="true"
-            aria-hidden="true"
-            hidden
-          >
-            <span class="material-elastic-spinner youtube-sync-loading-spinner" aria-hidden="true">
-              <svg viewBox="0 0 44 44">
-                <circle cx="22" cy="22" r="18" pathLength="100"></circle>
-              </svg>
-            </span>
-            <span data-i18n="toast.yt_sync_start">동기화 중...</span>
+        <div class="playback-stage">
+          <div class="vinyl-wrapper">
+            <canvas
+              id="visualizerCanvas"
+              role="button"
+              tabindex="0"
+              aria-pressed="false"
+              aria-labelledby="visualizer-accessible-label visualizer-current-mode"
+              aria-describedby="visualizer-mode-hint"
+            ></canvas>
+            <span id="visualizer-accessible-label" class="sr-only" data-i18n="player.visualizer"
+              >오디오 비주얼라이저</span
+            >
+            <span
+              id="visualizer-current-mode"
+              class="sr-only"
+              data-i18n="player.visualizer_circular"
+              >원형</span
+            >
+            <span id="visualizer-mode-hint" class="sr-only" data-i18n="player.visualizer_mode_hint"
+              >음향 시각화 방식을 선택할 수 있어요.</span
+            >
           </div>
-          <button
-            class="fullscreen-btn"
-            id="btn-fullscreen"
-            aria-label=""
-            data-i18n-aria-label="player.fullscreen"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path
-                d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"
-              />
-            </svg>
-          </button>
+
+          <!-- Runtime insertion point; its id and class are part of the YouTube wiring contract. -->
+          <div class="video-wrapper" aria-busy="false">
+            <div
+              id="youtube-sync-loading-overlay"
+              class="youtube-sync-loading-overlay"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              aria-hidden="true"
+              hidden
+            >
+              <span
+                class="material-elastic-spinner youtube-sync-loading-spinner"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 44 44">
+                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                </svg>
+              </span>
+              <span data-i18n="toast.yt_sync_start">동기화 중...</span>
+            </div>
+            <button
+              class="fullscreen-btn"
+              id="btn-fullscreen"
+              aria-label=""
+              data-i18n-aria-label="player.fullscreen"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div class="track-box">
@@ -390,7 +398,9 @@
               />
             </div>
           </div>
+        </div>
 
+        <div class="play-secondary-area">
           <button
             type="button"
             class="chat-preview-btn"

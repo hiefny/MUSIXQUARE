@@ -1651,18 +1651,34 @@
     padding-bottom: calc(var(--nav-height) + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
   }
 
-  .vinyl-wrapper {
-    /* Both visualizer modes reserve the same vertical stage. The circular
-       mode derives its width from this block size, while spectrum may widen
-       independently without moving the track metadata below it. */
-    --visualizer-stage-block-size: min(55vw, 320px);
+  /* The visualizer and YouTube iframe share one 16:9 footprint. Switching
+     engines only swaps the stage content, so track metadata and controls do
+     not move. Short viewports scroll instead of giving the two modes
+     different shrink behavior. */
+  .playback-stage {
+    --visualizer-content-block-size: min(55vw, 320px);
 
-    /* Flex-based sizing: the stage shrinks first, scrollbar only at minimum. */
-    flex-shrink: 1;
-    flex-basis: var(--visualizer-stage-block-size);
-    min-height: 160px;
-    aspect-ratio: 1;
+    width: 100%;
+    max-width: 600px;
+    min-height: 0;
+    aspect-ratio: 16 / 9;
+    contain: size;
+    flex-shrink: 0;
     margin: auto auto 0;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .vinyl-wrapper {
+    width: auto;
+    max-width: 100%;
+    height: min(100%, var(--visualizer-content-block-size));
+    min-height: 0;
+    flex: none;
+    aspect-ratio: 1;
+    margin: 0;
     position: relative;
     display: flex;
     justify-content: center;
@@ -1690,7 +1706,8 @@
   /* Spectrum visualizer mode */
   body.viz-spectrum .vinyl-wrapper {
     width: 100%;
-    flex-basis: var(--visualizer-stage-block-size);
+    max-width: none;
+    height: min(100%, var(--visualizer-content-block-size));
     aspect-ratio: auto;
     border-radius: 0;
     padding: 0 24px;
@@ -1705,9 +1722,10 @@
 
   .video-wrapper {
     width: 100%;
-    max-width: 600px;
-    aspect-ratio: 16/9;
-    margin: 0 auto;
+    max-width: none;
+    height: 100%;
+    aspect-ratio: auto;
+    margin: 0;
     background: #000;
     border-radius: var(--radius-m);
     overflow: hidden;
@@ -1719,7 +1737,9 @@
     pointer-events: none;
 
     box-shadow: none;
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
     transition: opacity 0.3s;
     /* Prevent flex-shrink from crushing the video in short viewports (landscape) */
     flex-shrink: 0;
@@ -1732,7 +1752,7 @@
 
   body.mode-youtube .video-wrapper {
     display: flex;
-    height: auto;
+    height: 100%;
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
@@ -1776,20 +1796,18 @@
   /* Mobile portrait: let the 16:9 YouTube frame span the viewport width.
        Landscape and desktop keep the rounded, constrained presentation. */
   @media (orientation: portrait) and (max-width: 1279px) {
-    .video-wrapper {
+    .playback-stage {
       max-width: none;
+    }
+
+    .video-wrapper {
       border-radius: 0;
     }
   }
 
   .track-box {
     --track-title-bleed: 20px;
-    flex-shrink: 0;
-    text-align: center;
-    width: 100%;
-    padding: 0 24px;
-    box-sizing: border-box;
-    margin: 24px 0 6px;
+    text-align: left;
   }
 
   /* Marquee: Ping-Pong Style (Wait -> Scroll -> Wait -> Return) */
@@ -1798,7 +1816,7 @@
     position: relative;
     width: calc(100% + (var(--track-title-bleed) * 2));
     height: 32px;
-    margin: 0 calc(var(--track-title-bleed) * -1) 6px;
+    margin: 0 calc(var(--track-title-bleed) * -1);
     overflow: hidden;
     -webkit-mask-image: linear-gradient(
       to right,
@@ -1826,8 +1844,8 @@
     white-space: nowrap;
     width: auto;
     min-width: 100%;
-    text-align: center;
-    padding: 0 24px;
+    text-align: left;
+    padding: 0 24px 0 var(--track-title-bleed);
     box-sizing: border-box;
   }
 
@@ -1837,23 +1855,52 @@
     will-change: transform;
   }
 
-  /* Artist metadata is populated by JS but intentionally hidden until the
-     player design exposes a dedicated artist row. */
+  /* One bounded metadata row keeps the title/transport group stable on short
+     screens while still exposing source details when they are available. */
   .track-artist {
     display: none;
+    width: 100%;
+    min-width: 0;
+    margin-top: 8px;
     font-size: 15px;
+    line-height: 20px;
     color: var(--text-sub);
     font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .controls-area {
+  .track-artist:not(:empty) {
+    display: block;
+  }
+
+  /* Keep metadata → transport at a fixed 20px. The stage, metadata, and
+     secondary groups each own one auto margin, so all remaining height is
+     split evenly above media, before metadata, and before secondary actions. */
+  .track-box,
+  .controls-area,
+  .play-secondary-area {
     flex-shrink: 0;
     width: 100%;
-    padding: 0 24px;
+    padding: 20px 24px 0;
+    box-sizing: border-box;
+    margin-top: 0;
+  }
+
+  .track-box,
+  .play-secondary-area {
+    margin-top: auto;
+  }
+
+  .controls-area,
+  .play-secondary-area {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    margin-top: auto;
+  }
+
+  .play-secondary-area {
     padding-bottom: 24px;
   }
 
@@ -1995,7 +2042,7 @@
     justify-content: flex-start;
     align-items: center;
     gap: 16px;
-    margin: 6px 0;
+    margin: 6px 0 0;
     width: 100%;
   }
 
@@ -7082,7 +7129,8 @@
     align-items: center;
     height: 56px;
     padding: 0 20px;
-    margin-top: 20px;
+    /* The secondary area's auto margin owns spacing from the transport group. */
+    margin-top: 0;
     background: var(--surface-2);
     border-radius: 20px;
     cursor: pointer;
@@ -9408,17 +9456,13 @@
       bottom: calc(16px + var(--safe-bottom) + var(--safe-nav-bottom, 0px));
     }
 
-    .video-wrapper,
-    .vinyl-wrapper {
-      margin-top: 0 !important;
-      margin-bottom: 12px !important;
+    .playback-stage {
+      /* Stage, metadata, and secondary actions own the three free-height shares. */
+      --visualizer-content-block-size: max(160px, min(55vw, 40vh, 320px));
+      margin: auto auto 0 !important;
     }
 
-    .vinyl-wrapper {
-      max-height: 40vh !important;
-    }
-
-    .controls-area {
+    .play-secondary-area {
       padding-bottom: 8px !important;
     }
 
@@ -9428,6 +9472,11 @@
     }
 
     #tab-play .tab-body {
+      /* The fixed tab pane remains the scroll owner, but its flex-column body
+         must fill at least the pane's content box so auto margins can divide
+         any remaining landscape height. Taller content still expands and
+         scrolls through the parent. */
+      min-height: 100% !important;
       padding-bottom: 44px !important;
     }
 

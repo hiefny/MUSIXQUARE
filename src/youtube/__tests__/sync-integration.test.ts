@@ -2493,6 +2493,7 @@ describe('YouTube Sync — Regression Integration', () => {
       const bridge = await import('../iframe-runtime-bridge.ts');
       const hideTapToPlayGate = vi.fn();
       bridge.configureYouTubeIframeRuntimeHooks({
+        expectMetadataVideoId: vi.fn(),
         hideTapToPlayGate,
         invalidateDurationCache: vi.fn(),
       });
@@ -2509,6 +2510,7 @@ describe('YouTube Sync — Regression Integration', () => {
       expect(hideTapToPlayGate).toHaveBeenCalledOnce();
 
       bridge.configureYouTubeIframeRuntimeHooks({
+        expectMetadataVideoId: () => undefined,
         hideTapToPlayGate: () => undefined,
         invalidateDurationCache: () => undefined,
       });

@@ -1302,6 +1302,11 @@ describe('playTrack YouTube auto-rendezvous', () => {
     const secondOccurrence = youtubeItem('Second occurrence', 'SAME_VIDEO_1');
     setState('playlist.items', [firstOccurrence, secondOccurrence]);
     selectIndex(0);
+    setPlaybackTrackMeta({
+      ...firstOccurrence,
+      title: 'Resolved resident title',
+      artist: 'Resolved resident channel',
+    });
 
     bus.on('youtube:load', () => {});
     const prepareRestart = vi
@@ -1318,6 +1323,11 @@ describe('playTrack YouTube auto-rendezvous', () => {
     expect(handoff).toHaveBeenCalledOnce();
     expect(handoff).toHaveBeenCalledWith(secondOccurrence.queueItemId, 'SAME_VIDEO_1');
     expect(getState('playlist.currentQueueItemId')).toBe(secondOccurrence.queueItemId);
+    expect(getState('player.currentTrackMeta')).toMatchObject({
+      queueItemId: secondOccurrence.queueItemId,
+      title: 'Resolved resident title',
+      artist: 'Resolved resident channel',
+    });
     expect(consumePendingAutoSyncOnReady()).toMatchObject({
       isTrackTransition: true,
       zeroStart: true,

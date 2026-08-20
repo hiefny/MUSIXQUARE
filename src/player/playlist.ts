@@ -73,7 +73,12 @@ import { isYtLoadInProgress, isYtPlayerReady } from '../youtube/_state.ts';
 import { isGuestBlocked } from '../network/guards.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
-import { isPlaybackIdleCompat, isYouTubeOwner, setPlaybackTrackMeta } from './ownership.ts';
+import {
+  getPlaybackSelectionTrackMeta,
+  isPlaybackIdleCompat,
+  isYouTubeOwner,
+  setPlaybackTrackMeta,
+} from './ownership.ts';
 import type { AnyProtocolMsg, DataConnection, PlaylistItem, QueueItemId } from '../types/index.ts';
 import { showToast } from '../ui/toast.ts';
 import { showDialog } from '../ui/dialog.ts';
@@ -646,6 +651,7 @@ export async function playTrack(
 
   const hostConn = getState('network.hostConn');
   const previousQueueItemId = getCurrentQueueItemId();
+  const playbackMetaBeforeSelection = getState('player.currentTrackMeta');
 
   // ─── Fast Path: Host re-clicks currently-playing local file ─────────
   // Skip full reload/rebroadcast/preload-reset. Just reset position to 0
@@ -1000,7 +1006,7 @@ export async function playTrack(
     stopAllMedia({ silent: true });
   }
   selectQueueItemById(queueItemId);
-  setPlaybackTrackMeta(item);
+  setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(item));
 
   // YouTube
   if (item.type === 'youtube') {
@@ -1105,6 +1111,16 @@ export async function playTrack(
         isNewYouTubeOccurrence && broadcastVideoId
           ? prepareSameVideoOccurrenceRestart(queueItemId, broadcastVideoId)
           : false;
+      if (sameVideoOccurrenceRestartPrepared && playbackMetaBeforeSelection?.type === 'youtube') {
+        const selectionTrackMeta = getPlaybackSelectionTrackMeta(item);
+        setPlaybackTrackMeta({
+          ...selectionTrackMeta,
+          title: playbackMetaBeforeSelection.title || selectionTrackMeta.title,
+          ...(playbackMetaBeforeSelection.artist
+            ? { artist: playbackMetaBeforeSelection.artist }
+            : {}),
+        });
+      }
 
       broadcast({
         type: MSG.YOUTUBE_PLAY,

@@ -714,5 +714,8 @@ test.describe('Linelight demo mode', () => {
     await expect(page.locator('#demo-overlay')).toHaveClass(/exiting/);
     await waitForToast(page, 'You can try it anytime from the Help tab.');
     await expect(page.locator('body')).not.toHaveClass(/mode-demo/);
+    await expect.poll(() => readState(page, 'player.currentTrackMeta')).toBeNull();
+    await expect(page.locator('#track-title')).toHaveText('No media playing');
+    await expect(page.locator('#track-artist')).toHaveText('Select a file or check the playlist');
   });
 });

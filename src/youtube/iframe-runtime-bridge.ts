@@ -1,4 +1,5 @@
 type YouTubeIframeRuntimeHooks = {
+  expectMetadataVideoId(videoId: string | null): void;
   hideTapToPlayGate(): void;
   invalidateDurationCache(): void;
 };
@@ -15,6 +16,10 @@ export function configureYouTubeIframeRuntimeHooks(next: YouTubeIframeRuntimeHoo
 
 export function hideYouTubeTapToPlayGateFromSync(): void {
   runtimeHooks?.hideTapToPlayGate();
+}
+
+export function expectYouTubeMetadataVideoIdFromSync(videoId: string | null): void {
+  runtimeHooks?.expectMetadataVideoId(videoId);
 }
 
 export function invalidateYtDurationCacheFromSync(): void {

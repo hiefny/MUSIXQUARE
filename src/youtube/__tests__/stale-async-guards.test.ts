@@ -25,7 +25,11 @@ import { setManagedTimer } from '../../core/timers.ts';
 import { showToast } from '../../ui/toast.ts';
 import { broadcast } from '../../network/peer.ts';
 import { broadcastSystemMessage } from '../../chat/protocol.ts';
-import { setPlaybackFilePlaying, setPlaybackYouTubePlaying } from '../../player/ownership.ts';
+import {
+  setPlaybackFilePlaying,
+  setPlaybackTrackMeta,
+  setPlaybackYouTubePlaying,
+} from '../../player/ownership.ts';
 import type { DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 import type { YouTubePlayerInstance } from '../_state.ts';
 
@@ -1125,6 +1129,60 @@ describe('retained iOS player teardown', () => {
     expect(zeroStartFacade.handlePlayerState).toHaveBeenCalledTimes(2);
     bus.emit('youtube:set-volume', 80);
     expect(player.unMute).toHaveBeenCalledOnce();
+  });
+
+  it('fences parked PRIME metadata while a retained target load is deferred', async () => {
+    let residentVideoId = 'lastVideo01';
+    const player = {
+      ...createMockYtPlayer(),
+      cueVideoById: vi.fn((videoId: string) => {
+        residentVideoId = videoId;
+      }),
+      getVideoData: vi.fn(() =>
+        residentVideoId === YOUTUBE_PRIME_VIDEO_ID
+          ? {
+              video_id: residentVideoId,
+              title: 'Silent prime title',
+              author: 'Silent prime channel',
+            }
+          : { video_id: residentVideoId, title: 'Previous title', author: 'Previous channel' },
+      ),
+      getPlayerState: vi.fn(() => 5),
+    } satisfies YouTubePlayerInstance;
+    await startActivePlayer(player);
+    const stateMod = await import('../_state.ts');
+    const { stopYouTubeMode } = await import('../player.ts');
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    stateMod.setYtPrimed(true);
+
+    stopYouTubeMode({ silent: true });
+    expect(residentVideoId).toBe(YOUTUBE_PRIME_VIDEO_ID);
+
+    setState('playlist.items', [
+      {
+        queueItemId: SECOND_QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Requested target',
+        videoId: 'nextVideo02',
+      } as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', SECOND_QUEUE_ITEM_ID);
+    setPlaybackTrackMeta({
+      queueItemId: SECOND_QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Requested target',
+      title: 'Requested target',
+      videoId: 'nextVideo02',
+    });
+
+    // Do not complete the two-sample PRIME parking proof. The controller must
+    // defer the physical target cue while the metadata fence is already live.
+    loadYouTubeVideo('nextVideo02', null, false, 0);
+    lastTimerCallback('youtubeUILoop')?.();
+
+    expect(residentVideoId).toBe(YOUTUBE_PRIME_VIDEO_ID);
+    expect(getState('player.currentTrackMeta')).toMatchObject({ title: 'Requested target' });
+    expect(getState('player.currentTrackMeta')?.artist).toBeUndefined();
   });
 
   it('publishes prime readiness only after live PRIME and delayed hard-mute convergence', async () => {
@@ -3497,6 +3555,205 @@ describe('zero-start iframe projection barrier', () => {
     expect(
       broadcastMock.mock.calls.filter(([message]) => message.type === MSG.YOUTUBE_STATE),
     ).toHaveLength(0);
+  });
+
+  it('rejects stale outgoing metadata while an explicit playlist target is loading', async () => {
+    const player = createMockYtPlayer(['oldVideo01', 'newVideo02']);
+    vi.mocked(player.getPlaylistIndex!).mockReturnValue(0);
+    const handle = await startPlainYouTubeVideo(player);
+    handle.fireReady();
+    vi.mocked(player.getVideoData!).mockReturnValue({
+      video_id: 'oldVideo01',
+      title: 'Outgoing title',
+      author: 'Outgoing channel',
+    });
+
+    const stateMod = await import('../_state.ts');
+    stateMod.setCachedYtPlaylistIdx(0);
+    const { expectYouTubeMetadataVideoIdFromSync } = await import('../iframe-runtime-bridge.ts');
+    // This fixture morphs the initial plain-video player into native-playlist
+    // state without calling loadYouTubeVideo(null, playlistId), so mirror that
+    // load's metadata-target reset explicitly.
+    expectYouTubeMetadataVideoIdFromSync(null);
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Playlist',
+        title: 'Playlist',
+        videoId: 'oldVideo01',
+        playlistId: 'PL_METADATA',
+      } as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('youtube.currentSubIndex', 1);
+    setState('youtube.subItemsMap', {
+      PL_METADATA: {
+        ids: ['oldVideo01', 'newVideo02'],
+        titles: ['Outgoing title', 'Expected next title'],
+      },
+    });
+    setPlaybackTrackMeta({
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Expected next title',
+      title: 'Expected next title',
+      videoId: 'oldVideo01',
+      playlistId: 'PL_METADATA',
+    });
+
+    lastTimerCallback('youtubeUILoop')?.();
+
+    expect(getState('player.currentTrackMeta')).toMatchObject({ title: 'Expected next title' });
+    expect(getState('player.currentTrackMeta')?.artist).toBeUndefined();
+  });
+
+  it('keeps the explicit video identity fence closed before a playlist manifest arrives', async () => {
+    const player = createMockYtPlayer(['oldVideo01', 'newVideo02']);
+    vi.mocked(player.getPlaylistIndex!).mockReturnValue(0);
+    const handle = await startPlainYouTubeVideo(player);
+    handle.fireReady();
+    vi.mocked(player.getVideoData!).mockReturnValue({
+      video_id: 'oldVideo01',
+      title: 'Outgoing title',
+      author: 'Outgoing channel',
+    });
+
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Playlist',
+        title: 'Playlist',
+        videoId: 'oldVideo01',
+        playlistId: 'PL_METADATA',
+      } as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('youtube.currentSubIndex', 1);
+    setState('youtube.subItemsMap', {});
+    setPlaybackTrackMeta({
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Expected next title',
+      title: 'Expected next title',
+      videoId: 'oldVideo01',
+      playlistId: 'PL_METADATA',
+    });
+
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    loadYouTubeVideo('newVideo02', null, false, 1);
+    lastTimerCallback('youtubeUILoop')?.();
+
+    expect(getState('player.currentTrackMeta')).toMatchObject({ title: 'Expected next title' });
+    expect(getState('player.currentTrackMeta')?.artist).toBeUndefined();
+  });
+
+  it('accepts exact metadata from a native playlist index transition', async () => {
+    const player = createMockYtPlayer(['oldVideo01', 'newVideo02']);
+    vi.mocked(player.getPlaylistIndex!).mockReturnValue(1);
+    const handle = await startPlainYouTubeVideo(player);
+    handle.fireReady();
+    vi.mocked(player.getVideoData!).mockReturnValue({
+      video_id: 'newVideo02',
+      title: 'New exact title',
+      author: 'New exact channel',
+    });
+
+    const stateMod = await import('../_state.ts');
+    stateMod.setCachedYtPlaylistIdx(0);
+    const { expectYouTubeMetadataVideoIdFromSync } = await import('../iframe-runtime-bridge.ts');
+    expectYouTubeMetadataVideoIdFromSync(null);
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Playlist',
+        title: 'Playlist',
+        videoId: 'oldVideo01',
+        playlistId: 'PL_METADATA',
+      } as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('youtube.currentSubIndex', 0);
+    setState('youtube.subItemsMap', {
+      PL_METADATA: {
+        ids: ['oldVideo01', 'newVideo02'],
+        titles: ['Outgoing title', 'New exact title'],
+      },
+    });
+    setPlaybackTrackMeta({
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Outgoing title',
+      title: 'Outgoing title',
+      artist: 'Outgoing channel',
+      videoId: 'oldVideo01',
+      playlistId: 'PL_METADATA',
+    });
+    const metadataEvents: Array<TrackMeta | null> = [];
+    bus.on('state:player.currentTrackMeta', (metadata) =>
+      metadataEvents.push(metadata as TrackMeta | null),
+    );
+
+    lastTimerCallback('youtubeUILoop')?.();
+
+    expect(getState('youtube.currentSubIndex')).toBe(1);
+    expect(metadataEvents).toContainEqual(
+      expect.objectContaining({ title: 'New exact title', artist: 'New exact channel' }),
+    );
+    expect(getState('player.currentTrackMeta')).toMatchObject({
+      title: 'New exact title',
+      artist: 'New exact channel',
+    });
+  });
+
+  it('clears the outgoing channel when exact native metadata has no author yet', async () => {
+    const player = createMockYtPlayer(['oldVideo01', 'newVideo02']);
+    vi.mocked(player.getPlaylistIndex!).mockReturnValue(1);
+    const handle = await startPlainYouTubeVideo(player);
+    handle.fireReady();
+    vi.mocked(player.getVideoData!).mockReturnValue({
+      video_id: 'newVideo02',
+      title: 'New exact title',
+    });
+
+    const stateMod = await import('../_state.ts');
+    stateMod.setCachedYtPlaylistIdx(0);
+    const { expectYouTubeMetadataVideoIdFromSync } = await import('../iframe-runtime-bridge.ts');
+    expectYouTubeMetadataVideoIdFromSync(null);
+    setState('playlist.items', [
+      {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Playlist',
+        title: 'Playlist',
+        videoId: 'oldVideo01',
+        playlistId: 'PL_METADATA',
+      } as PlaylistItem,
+    ]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setState('youtube.currentSubIndex', 0);
+    setState('youtube.subItemsMap', {
+      PL_METADATA: {
+        ids: ['oldVideo01', 'newVideo02'],
+        titles: ['Outgoing title', 'New exact title'],
+      },
+    });
+    setPlaybackTrackMeta({
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Outgoing title',
+      title: 'Outgoing title',
+      artist: 'Outgoing channel',
+      videoId: 'oldVideo01',
+      playlistId: 'PL_METADATA',
+    });
+
+    lastTimerCallback('youtubeUILoop')?.();
+
+    expect(getState('player.currentTrackMeta')).toMatchObject({ title: 'New exact title' });
+    expect(getState('player.currentTrackMeta')?.artist).toBeUndefined();
   });
 
   it('keeps the legacy UI heartbeat and auto-advance loop inert while in-flight', async () => {

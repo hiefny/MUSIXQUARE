@@ -9,6 +9,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
+import { bus } from '../../core/events.ts';
 
 const QUEUE_ITEM_ID = '22222222-2222-4222-8222-222222222222';
 const VIDEO_ID = 'M7lc1UVf-VE';
@@ -22,6 +23,7 @@ const playerFacade = vi.hoisted(() => ({
 }));
 
 const zeroStartFacade = vi.hoisted(() => ({ accepted: false }));
+const queueItemFacade = vi.hoisted(() => ({ playlistId: null as string | null }));
 const scheduleYtAutoSync = vi.hoisted(() => vi.fn());
 const tryBeginYouTubeZeroStart = vi.hoisted(() => vi.fn(() => zeroStartFacade.accepted));
 
@@ -59,17 +61,19 @@ vi.mock('../../player/queue-model.ts', () => ({
     type: 'youtube',
     name: 'Test video',
     videoId: VIDEO_ID,
-    playlistId: null,
+    playlistId: queueItemFacade.playlistId,
   })),
   selectQueueItemById: vi.fn(() => true),
 }));
 
 import {
   configureYouTubeHandlerRuntimeHooks,
+  handleYouTubePlay,
   handleRequestYouTubePause,
   handleRequestYouTubePlay,
   handleRequestYouTubeToggle,
 } from '../handlers.ts';
+import { loadYouTubeVideo } from '../iframe.ts';
 
 const operatorConnection = { peer: 'operator-peer', open: true } as never;
 const request = { queueItemId: QUEUE_ITEM_ID };
@@ -83,9 +87,36 @@ describe('YouTube operator handler zero-start dispatch', () => {
     playerFacade.state = 2;
     playerFacade.videoId = VIDEO_ID;
     zeroStartFacade.accepted = false;
+    queueItemFacade.playlistId = null;
+    bus.clear();
     configureYouTubeHandlerRuntimeHooks({ scheduleYtAutoSync, tryBeginYouTubeZeroStart });
     setState('youtube.currentSubIndex', 0);
     vi.stubGlobal('YT', { PlayerState: { PLAYING: 1 } });
+  });
+
+  it('restarts guest playlist titles after the physical iframe load', () => {
+    queueItemFacade.playlistId = 'PL_GUEST';
+    const hostConnection = { peer: 'host-peer', open: true } as never;
+    setState('network.hostConn', hostConnection);
+    const populate = vi.fn();
+    bus.on('youtube:populate-sub-items', populate);
+
+    handleYouTubePlay(
+      {
+        videoId: VIDEO_ID,
+        playlistId: null,
+        queueItemId: QUEUE_ITEM_ID,
+        autoplay: false,
+        subIndex: 0,
+      },
+      hostConnection,
+    );
+
+    expect(loadYouTubeVideo).toHaveBeenCalledWith(VIDEO_ID, null, false, 0);
+    expect(populate).toHaveBeenCalledWith('PL_GUEST', QUEUE_ITEM_ID);
+    expect(vi.mocked(loadYouTubeVideo).mock.invocationCallOrder.at(-1)!).toBeLessThan(
+      populate.mock.invocationCallOrder.at(-1)!,
+    );
   });
 
   it('lets a zero-second operator resume use zero-start when the cohort accepts it', () => {

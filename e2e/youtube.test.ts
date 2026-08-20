@@ -205,6 +205,15 @@ test.describe('YouTube Integration', () => {
       return Array.isArray(items) ? items.at(-1) : null;
     });
     expect(item).toMatchObject({ type: 'youtube', playlistId: YT_PLAYLIST_ID });
+
+    // The prefetched manifest auto-expands immediately. Its first title fetch
+    // must survive the fresh iframe's stop-mode teardown without requiring a
+    // collapse/re-expand gesture to restart it.
+    const subNames = pair.hostPage.locator(
+      '#playlist-ui .playlist-entry .sub-track-item[data-sub-index] .sub-name',
+    );
+    await expect(subNames).toHaveCount(YT_PLAYLIST_VIDEO_IDS.length);
+    await expect(subNames.first()).toHaveText('MUSIXQUARE E2E Video', { timeout: 10_000 });
   });
 
   test('selecting an uploaded local audio track leaves YouTube ownership', async () => {

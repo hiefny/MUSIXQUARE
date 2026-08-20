@@ -534,9 +534,10 @@ describe('YouTube indexing session lifecycle', () => {
     expect(stateMod.isYtIndexing()).toBe(false);
   });
 
-  it('loads a fully cached manifest as one concrete video without native playlist indexing', async () => {
+  it('loads a prepared manifest as one concrete video and restarts titles after teardown', async () => {
     const stateMod = await import('../_state.ts');
     const { initYouTube } = await import('../player.ts');
+    const { cancelSubTitleFetch, fetchPlaylistSubTitles } = await import('../search.ts');
     const player = createMockYtPlayer();
     installYtNamespace(player);
 
@@ -554,13 +555,15 @@ describe('YouTube indexing session lifecycle', () => {
     setState('youtube.subItemsMap', {
       PL_CACHED: {
         ids: ['cachedFirst', 'cachedSecond', 'cachedThird'],
-        titles: ['First', 'Second', 'Third'],
+        titles: [],
       },
     });
 
     initYouTube();
     wireStopAllMediaChain();
-    bus.emit('youtube:load', 'cachedFirst', 'PL_CACHED', YOUTUBE_QUEUE_ITEM_ID, false, 1);
+    // playlist.ts resolves the concrete video and deliberately removes the
+    // playlist ID at the physical iframe boundary.
+    bus.emit('youtube:load', 'cachedSecond', null, YOUTUBE_QUEUE_ITEM_ID, false, 1);
 
     expect(stateMod.isYtIndexing()).toBe(false);
     expect(window.YT?.Player).toHaveBeenCalledOnce();
@@ -584,6 +587,14 @@ describe('YouTube indexing session lifecycle', () => {
     );
     expect(player.cuePlaylist).not.toHaveBeenCalled();
     expect(player.loadPlaylist).not.toHaveBeenCalled();
+    expect(fetchPlaylistSubTitles).toHaveBeenCalledWith(
+      'PL_CACHED',
+      ['cachedFirst', 'cachedSecond', 'cachedThird'],
+      { fullFetch: true },
+    );
+    expect(vi.mocked(cancelSubTitleFetch).mock.invocationCallOrder.at(-1)!).toBeLessThan(
+      vi.mocked(fetchPlaylistSubTitles).mock.invocationCallOrder.at(-1)!,
+    );
     expect(getState('playlist.items')[0]).toMatchObject({
       playlistId: 'PL_CACHED',
       videoId: 'cachedFirst',

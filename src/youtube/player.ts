@@ -1277,6 +1277,23 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
 
 // ─── Init ──────────────────────────────────────────────────────────
 
+/**
+ * Restart sub-item population from the queue item's durable playlist identity.
+ * Complete manifests are intentionally loaded into the iframe as one concrete
+ * video (`playlistId=null`), so a physical load command is not a reliable
+ * source of the playlist ID.
+ */
+function populateSubItemsForQueueItem(queueItemId: QueueItemId): void {
+  const playlistId = getQueueItemById(queueItemId)?.playlistId;
+  if (!playlistId) return;
+  // This helper repairs a cancelled title fetch; it must not ask the current
+  // iframe to invent an ID snapshot for a stale or not-yet-indexed row.
+  const entry = getState('youtube.subItemsMap')?.[playlistId];
+  if (entry?.ids.some((_, index) => !entry.titles?.[index])) {
+    bus.emit('youtube:populate-sub-items', playlistId, queueItemId);
+  }
+}
+
 export function initYouTube(): void {
   configureYouTubeHandlerRuntimeHooks({ scheduleYtAutoSync, tryBeginYouTubeZeroStart });
 
@@ -2477,6 +2494,7 @@ export function initYouTube(): void {
           // stays in the queue but its sub-items list will remain empty
           // until a subsequent successful index attempt.
           loadYouTubeVideo(videoId as string, null, autoplay as boolean, 0);
+          populateSubItemsForQueueItem(queueItemId);
           return;
         }
         log.info(`[YouTube] Deferred indexing complete: ${ids.length} items for ${playlistIdStr}`);
@@ -2504,18 +2522,14 @@ export function initYouTube(): void {
         }
 
         // Expand the row (the deferred-add path left it collapsed because the
-        // pre-populated single-item placeholder wasn't a real index) and kick
-        // the title fetcher + sub-list UI populate. updateSubItemIds alone
-        // gives us the IDs but every row in the expansion UI shows "loading…"
-        // until oEmbed titles land — the IDLE indexing callback expands and
-        // populates the same way after its 250ms delay.
+        // pre-populated single-item placeholder wasn't a real index).
+        // Title population resumes after the physical iframe handoff below.
         const currentPlaylist = getState('playlist.items') || [];
         const actualIdx = findQueueItemIndex(queueItemId, currentPlaylist);
         if (actualIdx !== -1) {
           const updatedPlaylist = [...currentPlaylist];
           updatedPlaylist[actualIdx] = { ...updatedPlaylist[actualIdx], isExpanded: true };
           setState('playlist.items', updatedPlaylist);
-          bus.emit('youtube:populate-sub-items', playlistIdStr!, queueItemId);
         }
 
         const targetSubIdx = (subIndex as number) ?? 0;
@@ -2524,6 +2538,9 @@ export function initYouTube(): void {
         // is replaced with a single-video load. Sub-item navigation works
         // from here on because subItemsMap is populated.
         loadYouTubeVideo(targetVideoId, null, autoplay as boolean, targetSubIdx);
+        // Populate only after loadYouTubeVideo has crossed any destructive
+        // stop-mode boundary; otherwise that boundary can cancel this fetch.
+        populateSubItemsForQueueItem(queueItemId);
       };
       // Trigger the iframe to cue the playlist. loadYouTubeVideo arms the
       // indexing session (and shows its loader) itself, AFTER the transient
@@ -2544,10 +2561,12 @@ export function initYouTube(): void {
       // loaded as one concrete video so the host follows the same fast path as
       // guests and never re-resolves the native playlist asynchronously.
       loadYouTubeVideo(targetVideoId, null, autoplay as boolean, targetSubIndex);
+      populateSubItemsForQueueItem(queueItemId);
       return;
     }
 
     loadYouTubeVideo(videoId as string, playlistIdStr, autoplay as boolean, subIndex ?? 0);
+    populateSubItemsForQueueItem(queueItemId);
   });
 
   bus.on('youtube:toggle-play', () => {
@@ -3169,12 +3188,6 @@ export function initYouTube(): void {
     });
     bus.emit('playlist:items-added', [queueItemId]);
 
-    // Reveal the track list. Initialize sub-index only in the idle block so
-    // already-playing media keeps its managed sub-index.
-    if (playlistId) {
-      bus.emit('youtube:populate-sub-items', playlistId, queueItemId);
-    }
-
     // Auto-play only when this YouTube entry really IS the first track —
     // i.e. the playlist was empty before this add. The previous idle-only
     // condition misfired when the user had already loaded local tracks but
@@ -3204,6 +3217,13 @@ export function initYouTube(): void {
     } else {
       showToast(t('youtube.added_to_playlist'));
     }
+
+    // Start title population only after the media transition above. A fresh
+    // YouTube load synchronously runs stopYouTubeMode, which cancels any
+    // in-flight sub-title request. Starting this before loadYouTubeVideo left
+    // an auto-expanded manifest at "loading..." until it was toggled closed
+    // and open again.
+    populateSubItemsForQueueItem(queueItemId);
 
     // Broadcast playlist update + YouTube command to peers (Host only)
     const hostConn = getState('network.hostConn');
@@ -3534,28 +3554,10 @@ export function initYouTube(): void {
         );
         updateSubItemIds(playlistId!, ids);
 
-        const addedQueueItemId = _addYouTubeToPlaylist(ids[0], playlistId, titleText, sourceUrl);
-
-        // Force highlight and expansion of the first track with a small delay
-        // to ensure the UI has finished adding the item to the DOM.
-        setManagedTimer(
-          'yt-playlist-indexed-highlight',
-          () => {
-            const currentPlaylist = getState('playlist.items');
-            const actualIdx = findQueueItemIndex(addedQueueItemId, currentPlaylist);
-            if (actualIdx !== -1) {
-              const updated = [...currentPlaylist];
-              updated[actualIdx] = { ...updated[actualIdx], isExpanded: true };
-              // Expansion is local UI state and is intentionally excluded
-              // from wire snapshots, so it must not consume an authoritative
-              // playlist revision.
-              setState('playlist.items', updated);
-              setYouTubeSubIndex(0);
-              bus.emit('youtube:populate-sub-items', playlistId!, addedQueueItemId);
-            }
-          },
-          250,
-        );
+        // _addYouTubeToPlaylist already selects, expands, and starts title
+        // population after the iframe handoff. A delayed second populate used
+        // to abort and restart that fresh request 250 ms later.
+        _addYouTubeToPlaylist(ids[0], playlistId, titleText, sourceUrl);
       };
 
       // Trigger the player to index (via cuePlaylist in iframe.ts).

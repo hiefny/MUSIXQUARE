@@ -201,6 +201,8 @@ const de: Record<I18nKey, string> = {
   'player.play_pause': 'Wiedergabe/Pause',
   'player.visualizer': 'Audio-Visualisierung',
   'player.seek': 'Wiedergabeposition anpassen',
+  'player.seek_unavailable_system_audio':
+    'Während der Systemaudio-Freigabe ist Spulen nicht möglich',
   'player.volume': 'Lautstärke anpassen',
   'player.toggle_mute': 'Stummschaltung umschalten',
   'player.fullscreen': 'Vollbild umschalten',

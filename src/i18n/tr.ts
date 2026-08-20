@@ -107,6 +107,7 @@ const tr: Record<I18nKey, string> = {
   'player.play_pause': 'Oynat/Duraklat',
   'player.visualizer': 'Ses görselleştiricisi',
   'player.seek': 'Oynatma konumunu ayarla',
+  'player.seek_unavailable_system_audio': 'Sistem sesi paylaşılırken oynatma konumu değiştirilemez',
   'player.volume': 'Ses düzeyini ayarla',
   'player.toggle_mute': 'Sesi Aç/Kapat',
   'player.fullscreen': 'Tam ekranı aç/kapat',

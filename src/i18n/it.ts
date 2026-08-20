@@ -107,6 +107,8 @@ const it: Record<I18nKey, string> = {
   'player.play_pause': 'Riproduci/Pausa',
   'player.visualizer': 'Visualizzatore audio',
   'player.seek': 'Regola posizione di riproduzione',
+  'player.seek_unavailable_system_audio':
+    'Non puoi cambiare la posizione di riproduzione durante la condivisione dell’audio di sistema',
   'player.volume': 'Regola il volume',
   'player.toggle_mute': 'Attiva/disattiva audio',
   'player.fullscreen': 'Schermo intero',

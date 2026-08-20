@@ -199,6 +199,7 @@ const vi: Record<I18nKey, string> = {
   'player.play_pause': 'Phát/Tạm dừng',
   'player.visualizer': 'Hiển thị âm thanh',
   'player.seek': 'Tua',
+  'player.seek_unavailable_system_audio': 'Không thể tua khi đang chia sẻ âm thanh hệ thống',
   'player.volume': 'Điều chỉnh âm lượng',
   'player.toggle_mute': 'Bật/tắt tiếng',
   'player.fullscreen': 'Bật/tắt toàn màn hình',

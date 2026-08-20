@@ -953,13 +953,104 @@ describe('YouTube Player', () => {
         snapshotRevision: 0,
         capabilities: [],
       });
+      const selectTrack = vi.fn();
+      bus.on('playlist:play-track', selectTrack);
       initYouTube();
       const callback = vi.fn();
 
       bus.emit('youtube:try-next-internal', callback);
 
       expect(callback).toHaveBeenCalledWith(true);
-      expect(player.loadVideoById).toHaveBeenCalledWith('video-2');
+      expect(selectTrack).toHaveBeenCalledWith(QUEUE_ITEM_ID, 1, {
+        navigateToPlay: false,
+      });
+      expect(player.loadVideoById).not.toHaveBeenCalled();
+    });
+
+    it('hands a playlist sub-row to the canonical loader while a local file owns playback', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const localQueueItemId = '66666666-6666-4666-8666-666666666666';
+      setState('playlist.items', [
+        {
+          queueItemId: localQueueItemId,
+          type: 'file',
+          name: 'local.mp3',
+          title: 'Local',
+          videoId: null,
+          playlistId: null,
+        },
+        {
+          queueItemId: SECOND_QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'video-1',
+          playlistId: 'playlist-1',
+          name: 'Playlist',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', localQueueItemId);
+      setState('youtube.subItemsMap', {
+        'playlist-1': { ids: ['video-1', 'video-2'], titles: ['First', 'Second'] },
+      });
+      const selectTrack = vi.fn();
+      bus.on('playlist:play-track', selectTrack);
+      initYouTube();
+
+      bus.emit('youtube:sub-seek', SECOND_QUEUE_ITEM_ID, 1, false);
+
+      expect(selectTrack).toHaveBeenCalledWith(SECOND_QUEUE_ITEM_ID, 1, {
+        navigateToPlay: true,
+      });
+    });
+
+    it('hands a current-playlist sub-row to the canonical loader without a raw iframe load', async () => {
+      const { initYouTube } = await import('../player.ts');
+      const { setYouTubePlayer, setYouTubeSubIndex } = await import('../_state.ts');
+      const player = {
+        getCurrentTime: vi.fn(() => 12),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 1),
+        getVideoData: vi.fn(() => ({ video_id: 'video-1', title: 'First' })),
+        loadVideoById: vi.fn(),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+        seekTo: vi.fn(),
+      } as unknown as YouTubePlayerInstance;
+      setYouTubePlayer(player);
+      setYouTubeSubIndex(0);
+      setPlaybackYouTubePlaying();
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'video-1',
+          playlistId: 'playlist-1',
+          name: 'Playlist',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setState('youtube.subItemsMap', {
+        'playlist-1': { ids: ['video-1', 'video-2'], titles: ['First', 'Second'] },
+      });
+      setState('room.context', {
+        kind: 'standard',
+        roomId: '123456',
+        role: 'coordinator',
+        coordinatorId: null,
+        epoch: 0,
+        snapshotRevision: 0,
+        capabilities: [],
+      });
+      const selectTrack = vi.fn();
+      bus.on('playlist:play-track', selectTrack);
+      initYouTube();
+
+      bus.emit('youtube:sub-seek', QUEUE_ITEM_ID, 1, true);
+
+      expect(selectTrack).toHaveBeenCalledWith(QUEUE_ITEM_ID, 1, {
+        navigateToPlay: false,
+      });
+      expect(player.loadVideoById).not.toHaveBeenCalled();
+      expect(getState('youtube.currentSubIndex')).toBe(0);
     });
   });
 

@@ -106,6 +106,8 @@ const ru: Record<I18nKey, string> = {
   'player.play_pause': 'Воспроизведение/Пауза',
   'player.visualizer': 'Аудиовизуализатор',
   'player.seek': 'Перемотка',
+  'player.seek_unavailable_system_audio':
+    'Нельзя перематывать во время трансляции системного звука',
   'player.volume': 'Регулировка громкости',
   'player.toggle_mute': 'Вкл/Выкл звук',
   'player.fullscreen': 'Переключить полноэкранный режим',

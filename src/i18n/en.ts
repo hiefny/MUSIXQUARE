@@ -109,6 +109,7 @@ const en: Record<I18nKey, string> = {
   'player.play_pause': 'Play/Pause',
   'player.visualizer': 'Audio visualizer',
   'player.seek': 'Seek',
+  'player.seek_unavailable_system_audio': "You can't seek while system audio is being shared",
   'player.volume': 'Adjust volume',
   'player.toggle_mute': 'Toggle mute',
   'player.fullscreen': 'Toggle fullscreen',

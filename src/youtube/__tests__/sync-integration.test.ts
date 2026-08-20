@@ -2754,11 +2754,10 @@ describe('YouTube Sync — Regression Integration', () => {
     });
   });
 
-  // 16. Host-side sub-video navigation (single-video mode). A navigation
-  // broadcast missing the new subIndex/videoId
-  // leaves guests on the old video. Both broadcast stages must carry the
-  // post-navigation pair, and out-of-range navigation must hand control back
-  // to the queue-level playlist logic via callback(false).
+  // 16. Host-side sub-video navigation (single-video mode). In-range manual
+  // traversal must return to the canonical queue occurrence loader; that path
+  // owns retained-player fencing and both synchronized broadcast stages.
+  // Out-of-range navigation hands control back via callback(false).
   describe('sub-video navigation — subIndex/videoId broadcast parity', () => {
     function seedPlaylistTrack(ids: string[]): void {
       setState('playlist.items', [
@@ -2774,7 +2773,7 @@ describe('YouTube Sync — Regression Integration', () => {
       setState('youtube.subItemsMap', { PL_NAV: { ids, titles: [] } });
     }
 
-    it('next sub-video loads by id and both sync stages broadcast the new subIndex + videoId', async () => {
+    it('hands next sub-video selection to the canonical playlist occurrence loader', async () => {
       // __playlistIdx -1 mirrors single-video mode: after loadVideoById the
       // iframe loses playlist context, so OUR managed index is authoritative.
       const player = installPlayer({
@@ -2785,8 +2784,8 @@ describe('YouTube Sync — Regression Integration', () => {
         __playlistIdx: -1,
       });
       const { initYouTube } = await importPlayer();
-      const { broadcast } = await import('../../network/peer.ts');
-      const broadcastMock = vi.mocked(broadcast);
+      const selectTrack = vi.fn();
+      bus.on('playlist:play-track', selectTrack);
       initYouTube();
       seedPlaylistTrack(['vidA', 'vidB', 'vidC']);
       setState('youtube.currentSubIndex', 0);
@@ -2795,21 +2794,11 @@ describe('YouTube Sync — Regression Integration', () => {
       bus.emit('youtube:try-next-internal', callback);
 
       expect(callback).toHaveBeenCalledWith(true);
-      expect(player.__log.find((c) => c.op === 'loadVideoById')?.args).toEqual(['vidB']);
-      expect(getState('youtube.currentSubIndex')).toBe(1);
-
-      // Stage 1 (YOUTUBE_STATE): guests must learn the new pair immediately.
-      const stage1 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_STATE)?.[0];
-      expect(stage1).toMatchObject({ state: 1, time: 0, subIndex: 1, videoId: 'vidB' });
-
-      // Stage 2 (YOUTUBE_SYNC manual): the precision rendezvous fires after the
-      // track-transition delay (4s), longer than the 2s STAGE2 default
-      // because a sub-video Next loads a DIFFERENT video — and must carry the
-      // SAME pair, read back from the live player + managed index.
-      const { TRACK_TRANSITION_RENDEZVOUS_MS } = await import('../constants.ts');
-      vi.advanceTimersByTime(TRACK_TRANSITION_RENDEZVOUS_MS);
-      const stage2 = broadcastMock.mock.calls.find((c) => c[0]?.type === MSG.YOUTUBE_SYNC)?.[0];
-      expect(stage2).toMatchObject({ isManual: true, subIndex: 1, videoId: 'vidB' });
+      expect(selectTrack).toHaveBeenCalledWith(QUEUE_ITEM_ID, 1, {
+        navigateToPlay: false,
+      });
+      expect(player.__log.filter((c) => c.op === 'loadVideoById')).toHaveLength(0);
+      expect(getState('youtube.currentSubIndex')).toBe(0);
     });
 
     it('prev past the 3s threshold restarts the current video through the synced auto-sync path', async () => {

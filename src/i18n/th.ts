@@ -106,6 +106,7 @@ const th: Record<I18nKey, string> = {
   'player.play_pause': 'เล่น/หยุดชั่วคราว',
   'player.visualizer': 'ภาพแสดงเสียง',
   'player.seek': 'ปรับตำแหน่งการเล่น',
+  'player.seek_unavailable_system_audio': 'เลื่อนตำแหน่งการเล่นไม่ได้ขณะแชร์เสียงระบบ',
   'player.volume': 'ปรับระดับเสียง',
   'player.toggle_mute': 'เปิด/ปิดเสียง',
   'player.fullscreen': 'เปิด/ปิดเต็มหน้าจอ',

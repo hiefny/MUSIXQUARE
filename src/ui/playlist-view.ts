@@ -341,11 +341,14 @@ function createSubTrackItem(
   subItem.dataset.subIndex = String(subIndex);
   subItem.dataset.videoId = videoId;
   subItem.setAttribute('role', 'button');
+  if (isActiveSub) subItem.setAttribute('aria-current', 'true');
   subItem.tabIndex = 0;
 
   const subIdx = document.createElement('span');
-  subIdx.className = 'sub-idx';
-  subIdx.textContent = String(subIndex + 1);
+  subIdx.className = `sub-idx ${isActiveSub ? 'playlist-current-leading' : ''}`;
+  subIdx.innerHTML = `<span class="sub-idx-number">${subIndex + 1}</span>${
+    isActiveSub ? renderPlaybackIndicatorIcons() : ''
+  }`;
   const subName = document.createElement('span');
   subName.className = 'sub-name';
   const marqueeContent = document.createElement('span');

@@ -203,6 +203,8 @@ const id: Record<I18nKey, string> = {
   'player.play_pause': 'Putar/Jeda',
   'player.visualizer': 'Visualisasi audio',
   'player.seek': 'Atur posisi pemutaran',
+  'player.seek_unavailable_system_audio':
+    'Posisi pemutaran tidak dapat diubah saat audio sistem dibagikan',
   'player.volume': 'Atur volume',
   'player.toggle_mute': 'Bisukan atau nyalakan suara',
   'player.fullscreen': 'Aktifkan/nonaktifkan layar penuh',

@@ -375,9 +375,10 @@ describe('clear affordance styling', () => {
     expect(stylesheet).toContain('var(--clearable-editor-reserved-space, 48px)');
     expect(stylesheet).toContain('.clearable-editor-active.clearable-editor-centered');
     expect(stylesheet).toContain('var(--clearable-editor-base-padding-inline-start, 0px)');
-    expect(stylesheet).toMatch(/\.clearable-editor-button::before\s*{[^}]*inset: 10px;/s);
+    expect(stylesheet).not.toContain('.clearable-editor-button::before');
+    expect(stylesheet).not.toMatch(/\.clearable-editor-button\s*\{[^}]*box-shadow:/s);
     expect(stylesheet).toMatch(
-      /\.clearable-editor-button svg\s*{[^}]*width: 14px;[^}]*height: 14px;/s,
+      /\.clearable-editor-button svg\s*{[^}]*width: 16px;[^}]*height: 16px;/s,
     );
     expect(stylesheet).toMatch(/\.clearable-editor-button\[hidden\]\s*{[^}]*display: none;/s);
     expect(stylesheet).toContain('.clearable-editor-button:focus-visible');

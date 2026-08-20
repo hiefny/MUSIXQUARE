@@ -9,6 +9,7 @@ import { initSeekBar } from '../seekbar.ts';
 import { getTrackPosition, isFilePipelineBusyForPlay, seekTo } from '../../player/transport.ts';
 import { isProPlaybackTrackSelectionPending } from '../../pro-room/playback-authority-hooks.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
+import { t } from '../../i18n/index.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
 
@@ -61,6 +62,10 @@ describe('initSeekBar playback mode gates', () => {
     slider.value = '45';
     slider.dispatchEvent(new Event('change'));
     expect(slider.value).toBe('0');
+    expect(slider.max).toBe('0');
+    expect(slider.getAttribute('aria-valuetext')).toBe(t('player.seek_unavailable_system_audio'));
+    expect(document.getElementById('time-curr')?.innerText).toBe('-:--');
+    expect(document.getElementById('time-dur')?.innerText).toBe('-:--');
     expect(seekTo).not.toHaveBeenCalled();
   });
 
@@ -372,6 +377,29 @@ describe('initSeekBar playback mode gates', () => {
     slider.dispatchEvent(new Event('change'));
 
     expect(slider.value).toBe('0');
+    expect(slider.max).toBe('0');
+    expect(slider.getAttribute('aria-valuetext')).toBe(t('player.no_media'));
+    expect(document.getElementById('time-curr')?.innerText).toBe('-:--');
+    expect(document.getElementById('time-dur')?.innerText).toBe('-:--');
     expect(seekTo).not.toHaveBeenCalled();
+  });
+
+  it('atomically replaces a stale media timeline when system audio takes ownership', () => {
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initSeekBar();
+    bus.emit('ui:time-update', '1:23', '4:56', 83, 296);
+
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    expect(slider.getAttribute('aria-valuetext')).toBe('1:23');
+
+    setState('playback.mode', 'system-audio');
+
+    expect(slider.value).toBe('0');
+    expect(slider.max).toBe('0');
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+    expect(slider.getAttribute('aria-valuetext')).toBe(t('player.seek_unavailable_system_audio'));
+    expect(document.getElementById('time-curr')?.innerText).toBe('-:--');
+    expect(document.getElementById('time-dur')?.innerText).toBe('-:--');
   });
 });

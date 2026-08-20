@@ -233,7 +233,7 @@ describe('signaling WebSocket liveness', () => {
     peer.destroy();
   });
 
-  it('answers the exact liveness frame in the Worker fallback path', async () => {
+  it('mirrors the exact DO-wide transport echo in the Worker fallback path', async () => {
     const workerModulePath = '../../../../cloudflare/signaling-worker.ts';
     const workerModule = (await import(workerModulePath)) as unknown as {
       MusixquareRoom: new (state: WorkerState) => {

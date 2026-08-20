@@ -219,6 +219,68 @@ describe('retained YouTube player controller', () => {
     expect(controller.shouldIgnoreCallback(harness.player, 5)).toBe(false);
   });
 
+  it('keeps A active while a late B callback cannot consume a same-occurrence C handoff', () => {
+    const harness = createPlayer();
+    const { controller, ports, releaseObservations } = createController();
+    setYouTubePlayer(harness.player);
+    expect(controller.park(harness.player)).toBe(true);
+    confirmPrimeParking(controller, harness);
+
+    setState('playback.mode', 'youtube');
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+
+    const armTarget = (videoId: string, subIndex: number): void => {
+      const sessionId = incrementSessionId();
+      expect(
+        controller.armHandoff(harness.player, {
+          videoId,
+          playlistId: null,
+          commandPlaylistId: null,
+          autoplay: false,
+          subIndex,
+          sessionId,
+          sameVideoReuse: false,
+        }),
+      ).toBe('ready');
+      expect(controller.markLoadCommand(harness.player, videoId, null, subIndex, true)).toBe(true);
+    };
+
+    // Establish A as the controller's accepted active target.
+    armTarget(TARGET_VIDEO_ID, 0);
+    harness.setIdentity(TARGET_VIDEO_ID, 5);
+    latestTimer('yt-retained-player-target-confirm')?.();
+    latestTimer('yt-retained-player-target-confirm')?.();
+    expect(controller.isTargetHandoffPending(harness.player)).toBe(false);
+    expect(controller.shouldIgnoreCallback(harness.player, 5)).toBe(false);
+    vi.mocked(ports.dispatchStableState).mockClear();
+    releaseObservations.length = 0;
+
+    // B starts loading, then C supersedes it in the same queue occurrence.
+    armTarget(SECOND_TARGET_VIDEO_ID, 1);
+    const staleBPoll = latestTimer('yt-retained-player-target-confirm');
+    const thirdTargetVideoId = 'targetVid03';
+    armTarget(thirdTargetVideoId, 2);
+
+    // Neither B's queued callback nor its escaped poll may release C's fence.
+    harness.setIdentity(SECOND_TARGET_VIDEO_ID, 5);
+    expect(controller.shouldIgnoreCallback(harness.player, 5)).toBe(true);
+    staleBPoll?.();
+    expect(ports.dispatchStableState).not.toHaveBeenCalled();
+    expect(controller.isTargetHandoffPending(harness.player)).toBe(true);
+
+    harness.setIdentity(thirdTargetVideoId, 5);
+    latestTimer('yt-retained-player-target-confirm')?.();
+    latestTimer('yt-retained-player-target-confirm')?.();
+
+    expect(ports.dispatchStableState).toHaveBeenCalledOnce();
+    expect(releaseObservations).toEqual([{ pending: true, ignored: false }]);
+    expect(controller.isTargetHandoffPending(harness.player)).toBe(false);
+    expect(controller.shouldIgnoreCallback(harness.player, 5)).toBe(false);
+
+    harness.setIdentity(SECOND_TARGET_VIDEO_ID, 5);
+    expect(controller.shouldIgnoreCallback(harness.player, 5)).toBe(true);
+  });
+
   it('re-proves a post-bounce PRIME without issuing a second cue', () => {
     const harness = createPlayer();
     const { controller } = createController();

@@ -53,7 +53,11 @@ vi.mock('../local-offset.ts', () => ({
 }));
 vi.mock('../../storage/transfer-receive.ts', () => ({ cancelIncomingFileTransfer: vi.fn() }));
 vi.mock('../../share/remote-share.ts', () => ({ cancelRemoteShareWait: vi.fn() }));
-vi.mock('../../player/ownership.ts', () => ({ setPlaybackTrackMeta: vi.fn() }));
+vi.mock('../../player/ownership.ts', () => ({
+  getPlaybackSelectionTrackMeta: vi.fn((meta) => meta),
+  setPlaybackTrackMeta: vi.fn(),
+  updatePlaybackTrackDetails: vi.fn(),
+}));
 vi.mock('../../player/queue-model.ts', () => ({
   getCurrentQueueItemId: vi.fn(() => QUEUE_ITEM_ID),
   getQueueItemById: vi.fn(() => ({
@@ -71,9 +75,11 @@ import {
   handleYouTubePlay,
   handleRequestYouTubePause,
   handleRequestYouTubePlay,
+  handleRequestYouTubeSubSeek,
   handleRequestYouTubeToggle,
 } from '../handlers.ts';
 import { loadYouTubeVideo } from '../iframe.ts';
+import { updatePlaybackTrackDetails } from '../../player/ownership.ts';
 
 const operatorConnection = { peer: 'operator-peer', open: true } as never;
 const request = { queueItemId: QUEUE_ITEM_ID };
@@ -117,6 +123,35 @@ describe('YouTube operator handler zero-start dispatch', () => {
     expect(vi.mocked(loadYouTubeVideo).mock.invocationCallOrder.at(-1)!).toBeLessThan(
       populate.mock.invocationCallOrder.at(-1)!,
     );
+  });
+
+  it('clears the prior channel before an operator loads another playlist video', () => {
+    queueItemFacade.playlistId = 'PL_OPERATOR';
+    setState('youtube.subItemsMap', {
+      PL_OPERATOR: {
+        ids: [VIDEO_ID, 'next-video-id'],
+        titles: ['First', 'Next'],
+      },
+    });
+
+    handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx: 1 }, operatorConnection);
+
+    expect(updatePlaybackTrackDetails).toHaveBeenCalledWith({ artist: null });
+    expect(playerFacade.loadVideoById).toHaveBeenCalledWith('next-video-id');
+  });
+
+  it('preserves the channel when an operator restarts the resident playlist video', () => {
+    queueItemFacade.playlistId = 'PL_OPERATOR';
+    setState('youtube.subItemsMap', {
+      PL_OPERATOR: {
+        ids: [VIDEO_ID],
+        titles: ['First'],
+      },
+    });
+
+    handleRequestYouTubeSubSeek({ queueItemId: QUEUE_ITEM_ID, subIdx: 0 }, operatorConnection);
+
+    expect(updatePlaybackTrackDetails).not.toHaveBeenCalled();
   });
 
   it('lets a zero-second operator resume use zero-start when the cohort accepts it', () => {

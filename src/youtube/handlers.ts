@@ -18,7 +18,11 @@ import { toCanonicalYouTubeTime } from './local-offset.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
-import { setPlaybackTrackMeta } from '../player/ownership.ts';
+import {
+  getPlaybackSelectionTrackMeta,
+  setPlaybackTrackMeta,
+  updatePlaybackTrackDetails,
+} from '../player/ownership.ts';
 import {
   getCurrentQueueItemId,
   getQueueItemById,
@@ -109,7 +113,7 @@ export function handleYouTubePlay(data: Record<string, unknown>, conn?: DataConn
     return;
   }
   if (!selectQueueItemById(queueItemId)) return;
-  setPlaybackTrackMeta(playlistItem);
+  setPlaybackTrackMeta(getPlaybackSelectionTrackMeta(playlistItem));
 
   let finalVideoId = videoId;
   let finalPlaylistId = playlistId;
@@ -276,6 +280,9 @@ export function handleRequestYouTubeSubSeek(
       return;
     }
     setYouTubeSubIndex(subIdx);
+    if ((player.getVideoData?.()?.video_id || '') !== targetVideoId) {
+      updatePlaybackTrackDetails({ artist: null });
+    }
 
     if (tryBeginYouTubeZeroStart(targetVideoId, subIdx)) return;
     player.loadVideoById(targetVideoId);

@@ -1585,6 +1585,86 @@ describe('initPlayerControls tab title marquee wiring', () => {
   });
 });
 
+describe('initPlayerControls track metadata subtitle', () => {
+  function renderTrackMetadata(): HTMLElement {
+    document.body.innerHTML = `
+      <div id="track-title"></div>
+      <div id="track-artist" data-i18n="player.select_file_hint">${t('player.select_file_hint')}</div>
+    `;
+    initPlayerControls();
+    return document.getElementById('track-artist')!;
+  }
+
+  it('keeps the localized no-media hint across player panel refreshes', () => {
+    const subtitle = renderTrackMetadata();
+    const expectedHint = t('player.select_file_hint');
+
+    expect(subtitle.textContent).toBe(expectedHint);
+
+    bus.emit('ui:player-panel-visible');
+
+    expect(subtitle.textContent).toBe(expectedHint);
+    expect(subtitle.title).toBe(expectedHint);
+  });
+
+  it('shows local artist, extension, and estimated average bitrate', () => {
+    const subtitle = renderTrackMetadata();
+    const file = new File([new Uint8Array(400_000)], 'night-drive.flac', {
+      type: 'audio/flac',
+    });
+    setCurrentAudioBuffer({ duration: 10 } as AudioBuffer);
+    setState('playlist.currentQueueItemId', PLAY_QUEUE_ITEM_ID);
+
+    setState('player.currentTrackMeta', {
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      type: 'file',
+      name: file.name,
+      title: 'Night Drive',
+      artist: 'Archive Signal',
+      file,
+    });
+
+    expect(subtitle.textContent).toBe('Archive Signal · FLAC');
+
+    setState('files.current', {
+      queueItemId: PLAY_QUEUE_ITEM_ID,
+      indexHint: 0,
+      sessionId: 1,
+      name: file.name,
+      blob: file,
+      mime: file.type,
+      size: file.size,
+    });
+
+    expect(subtitle.textContent).toBe('Archive Signal · FLAC · ≈320 kbps');
+    expect(subtitle.title).toBe(subtitle.textContent);
+  });
+
+  it('shows only the YouTube channel when it is available', () => {
+    const subtitle = renderTrackMetadata();
+
+    setState('player.currentTrackMeta', {
+      type: 'youtube',
+      name: 'Live Session',
+      title: 'Live Session',
+      artist: 'MUSIXQUARE Live',
+      videoId: 'video-1',
+      playlistId: null,
+    });
+
+    expect(subtitle.textContent).toBe('MUSIXQUARE Live');
+  });
+
+  it('keeps the row empty for system audio placeholders', () => {
+    const subtitle = renderTrackMetadata();
+
+    setState('player.currentTrackMeta', createSystemAudioTrackMeta('sharing'));
+
+    expect(subtitle.textContent).toBe('');
+    expect(subtitle.hasAttribute('title')).toBe(false);
+  });
+});
+
 describe('initPlayerControls volume icon', () => {
   function renderVolumeControls(): HTMLElement {
     document.body.innerHTML = `

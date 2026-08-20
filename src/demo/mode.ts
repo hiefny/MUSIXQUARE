@@ -129,6 +129,7 @@ type DemoAsyncResult = Readonly<{
 
 let _demoLoadGeneration = 0;
 let _activeDemoLoadOwner: DemoLoadOwner | null = null;
+let _activeDemoTrackMeta: TrackMeta | null = null;
 let _pendingDemoPlay: PendingDemoPlay | null = null;
 // Hold DEMO_ENTER/PLAY received during a demo track load. Dropping them would
 // leave guests on the prior track while SYNC_PONG follows the host's timeline.
@@ -609,6 +610,13 @@ function supersedeDemoLoad(): void {
   _activeDemoLoadOwner = null;
 }
 
+function publishDemoTrackMeta(track: DemoTrack): TrackMeta {
+  const meta = createDemoTrackMeta(track);
+  _activeDemoTrackMeta = meta;
+  setPlaybackTrackMeta(meta);
+  return meta;
+}
+
 async function loadDemoTrack(
   index: number,
   options: { autoplay: boolean },
@@ -619,7 +627,7 @@ async function loadDemoTrack(
   _demoTrackIndex = index;
   setState('demo.currentTrackIndex', index);
   setCurrentAudioBuffer(null);
-  setPlaybackTrackMeta(createDemoTrackMeta(track));
+  const trackMeta = publishDemoTrackMeta(track);
   syncDemoTrackText();
 
   showLoader(true, t('transfer.demo_loading_short'));
@@ -629,7 +637,7 @@ async function loadDemoTrack(
     if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
 
     const file = new File([blob], track.fileName, { type: track.mime });
-    await loadDemoFile(file, createDemoTrackMeta(track), newLoadEpoch());
+    await loadDemoFile(file, trackMeta, newLoadEpoch());
     if (!isCurrentDemoLoadOwner(owner)) return getDemoLoadResult(owner, 'superseded');
 
     preloadDemoTrack(getNextDemoTrackIndex(index));
@@ -1274,7 +1282,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
   setState('demo.loading', true);
   applyDemoEffectState(initialEffectState);
   setState('demo.currentTrackIndex', _demoTrackIndex);
-  setPlaybackTrackMeta(createDemoTrackMeta(getCurrentDemoTrack()));
+  publishDemoTrackMeta(getCurrentDemoTrack());
   hideSetupOverlay();
   bus.emit('ui:switch-tab', 'play');
   setDemoDomActive(true);
@@ -1310,12 +1318,22 @@ function exitDemoMode(options: ExitDemoOptions = {}): void {
   supersedeDemoLoad();
   const exitGeneration = _demoLoadGeneration;
   const snapshot = _snapshot;
+  const activeDemoTrackMeta = _activeDemoTrackMeta;
+  _activeDemoTrackMeta = null;
   _pendingDemoPlay = null;
   _queuedDemoEnterIndex = null;
   _lastDemoStateBroadcastKey = '';
   stopAllMedia({
     cancelInFlight: true,
   });
+  // stopAllMedia deliberately preserves track metadata for ordinary transport
+  // transitions. Demo metadata is synthetic, however, and must not survive an
+  // exit that has no real media snapshot to restore. Clear only the exact
+  // synthetic object still owned by this demo incarnation: a successor may
+  // already have published real metadata while the exit curtain is opening.
+  if (getState('player.currentTrackMeta') === activeDemoTrackMeta) {
+    setPlaybackTrackMeta(null);
+  }
   setCurrentAudioBuffer(null);
   setState('demo.active', false);
   setState('demo.loading', false);

@@ -26,6 +26,7 @@ import {
   setPlaybackIdle,
   setPlaybackYouTubePaused,
   setPlaybackYouTubePlaying,
+  updatePlaybackTrackDetails,
   updatePlaybackTrackTitle,
 } from '../player/ownership.ts';
 import {
@@ -739,6 +740,9 @@ interface IframeRuntime {
   /** Rolling counter 0..VIDEO_DATA_POLL_EVERY_NTH_TICK-1; getVideoData()
    *  only fires when this wraps to 0. */
   videoDataPollCount: number;
+  /** Exact single-video command target. This closes the metadata fence while
+   *  playlist manifests and the iframe's own indices are still catching up. */
+  expectedMetadataVideoId: string | null;
   /** Cooldown timestamp: prevents duplicate broadcasts from UI + onStateChange. */
   lastStateBroadcast: number;
   /** Last broadcast player state (for state-aware dedup). */
@@ -778,6 +782,7 @@ const _ifr: IframeRuntime = {
   lastVideoTitle: '',
   lastDurationVideoId: '',
   videoDataPollCount: 0,
+  expectedMetadataVideoId: null,
   lastStateBroadcast: 0,
   lastBroadcastState: -1,
   crashFailCount: 0,
@@ -844,7 +849,38 @@ export function markYtStateBroadcast(): void {
 function invalidateYtDurationCache(): void {
   setCachedYtDuration(0);
   _ifr.lastDurationVideoId = '';
+  _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
   resetLiveStreamDetection();
+}
+
+function expectYouTubeMetadataVideoId(videoId: string | null): void {
+  _ifr.expectedMetadataVideoId = videoId;
+  _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
+}
+
+function getExpectedPlaybackVideoId(playlistIndex: number): string | null {
+  if (_ifr.expectedMetadataVideoId) return _ifr.expectedMetadataVideoId;
+
+  const item = getQueueItemById(getCurrentQueueItemId());
+  if (!item || item.type !== 'youtube') return null;
+  if (!item.playlistId) return item.videoId || null;
+
+  const managedIndex = getState('youtube.currentSubIndex') ?? 0;
+  const isNativeIndexTransition = playlistIndex >= 0 && playlistIndex !== getCachedYtPlaylistIdx();
+  const expectedIndex = isNativeIndexTransition ? playlistIndex : managedIndex;
+  const mappedVideoId = (getState('youtube.subItemsMap') || {})[item.playlistId]?.ids?.[
+    expectedIndex
+  ];
+  if (mappedVideoId) return mappedVideoId;
+  return expectedIndex === 0 ? item.videoId || null : null;
+}
+
+function isVideoDataForCurrentSelection(
+  videoId: string | undefined,
+  playlistIndex: number,
+): boolean {
+  const expectedVideoId = getExpectedPlaybackVideoId(playlistIndex);
+  return !expectedVideoId || videoId === expectedVideoId;
 }
 
 // ─── Load YouTube Video ────────────────────────────────────────────
@@ -1187,6 +1223,9 @@ export function loadYouTubeVideo(
     playlistId,
     Boolean(opts.indexingCallback),
   );
+  // Fence metadata before a retained PRIME handoff can defer the physical
+  // load. The outgoing iframe remains readable during that window.
+  expectYouTubeMetadataVideoId(videoId && !commandPlaylistId ? videoId : null);
   // The non-YT -> YT branch synchronously runs stop-all-media, whose parking
   // step replaces the outgoing record. Arm only after that teardown has
   // settled, and re-read the exact player because a parking failure may have
@@ -1205,6 +1244,7 @@ export function loadYouTubeVideo(
 
   setCachedYtDuration(0); // Reset duration cache for new video
   _ifr.lastDurationVideoId = ''; // Force duration re-read on next updateYouTubeUI tick
+  _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
   resetLiveStreamDetection();
   _ifr.lastRecoverableTime = 0;
   _ifr.guestRendezvousAfterReady = false;
@@ -1600,6 +1640,7 @@ function createYouTubePlayer(
   if (videoId && playlistId && !needsScrape && !indexing) {
     playlistId = null;
   }
+  expectYouTubeMetadataVideoId(videoId && !playlistId ? videoId : null);
 
   if (needsScrape) {
     _ifr.isScrapingPlaylist = true;
@@ -2755,12 +2796,21 @@ function updateYouTubeUI(): void {
     // Pull it from getVideoData(), which is the same source used in the
     // outgoing broadcast just below in broadcastYouTubeSync. The setState
     // call is a no-op when nothing changed (same-ref check inside).
+    let hostVideoDataHasExactAuthor = false;
     if (!getState('network.hostConn')) {
       const videoData = player.getVideoData?.();
       const vTitle = videoData?.title;
-      if (vTitle) {
-        updatePlaybackTrackTitle(vTitle);
+      if (vTitle && isVideoDataForCurrentSelection(videoData?.video_id, playlistIdx)) {
+        hostVideoDataHasExactAuthor = typeof videoData.author === 'string';
+        updatePlaybackTrackDetails({
+          title: vTitle,
+          ...(typeof videoData.author === 'string' ? { artist: videoData.author } : {}),
+        });
         persistResolvedProYouTubeTitle(getCurrentQueueItemId(), videoData?.video_id || '', vTitle);
+      } else if (vTitle) {
+        // loadVideoById can briefly report the outgoing video's metadata.
+        // Retry on the next UI tick instead of publishing a stale channel.
+        _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
       }
     }
 
@@ -2845,10 +2895,10 @@ function updateYouTubeUI(): void {
       _ifr.lastVideoTitle = '';
       _ifr.lastDurationVideoId = ''; // Force videoId re-read on next getVideoData poll
 
-      // Arm the counter so (N+1) % N === 0 on the NEXT tick → getVideoData
-      // fires immediately after a sub-index change instead of waiting for
-      // the usual ~5s cadence. `- 1` keeps this correct if N ever changes.
-      _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
+      // This tick deliberately skips getVideoData while subItemsMap supplies
+      // the immediate title. Arm the counter so the next tick polls the exact
+      // video's author instead of waiting for the usual cadence.
+      _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 2;
 
       const hostConn = getState('network.hostConn');
 
@@ -2878,12 +2928,21 @@ function updateYouTubeUI(): void {
         // returning early would freeze the UI on the previous track's metadata.
       }
 
+      const currentTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
+      // A playlist can cross channels. Clear the previous video's author
+      // before starting any transition barrier; the exact resident video data
+      // can then repopulate it without being erased after the barrier begins.
+      if (!hostVideoDataHasExactAuthor) {
+        updatePlaybackTrackDetails({ artist: null }, currentTrack ?? null);
+      }
+
       // ── Host-side: sub-video auto-advance detection ────────────────
       // YouTube IFrame auto-advances between sub-videos in a playlist
       // WITHOUT firing an ENDED event, so our ENDED → playlist:next-track
       // path never runs and guests diverge until drift correction catches up.
       // Detect the transition here and start the track-transition rendezvous.
       if (!hostConn && prevIdx !== -1 && playlistIdx >= 0 && !getManagedTimer('yt-auto-sync')) {
+        setYouTubeSubIndex(playlistIdx);
         log.debug(
           `[YouTube] Sub-video auto-advance detected: ${prevIdx} → ${playlistIdx} (state=${state}), applying 1-sec sync`,
         );
@@ -2891,7 +2950,6 @@ function updateYouTubeUI(): void {
       }
 
       // Pre-emptive title update from subItemsMap (if available) for instant feedback
-      const currentTrack = getQueueItemById(getState('playlist.currentQueueItemId'));
       if (currentTrack?.playlistId && playlistIdx >= 0) {
         const subMap = getState('youtube.subItemsMap') || {};
         const cachedTitle = subMap[currentTrack.playlistId]?.titles?.[playlistIdx];
@@ -2915,12 +2973,30 @@ function updateYouTubeUI(): void {
     let currentVideoId = _ifr.lastDurationVideoId; // reuse cached value by default
     if (shouldPollVideoData && player.getVideoData) {
       const vData = player.getVideoData();
-      if (vData?.title && vData.title !== _ifr.lastVideoTitle) {
+      const videoDataMatchesSelection = isVideoDataForCurrentSelection(
+        vData?.video_id,
+        playlistIdx,
+      );
+      if (vData?.title && videoDataMatchesSelection) {
+        const titleChanged = vData.title !== _ifr.lastVideoTitle;
         _ifr.lastVideoTitle = vData.title;
-        updatePlaybackTrackTitle(vData.title);
-        persistResolvedProYouTubeTitle(getCurrentQueueItemId(), vData.video_id || '', vData.title);
+        updatePlaybackTrackDetails({
+          title: vData.title,
+          ...(typeof vData.author === 'string' ? { artist: vData.author } : {}),
+        });
+        if (titleChanged) {
+          persistResolvedProYouTubeTitle(
+            getCurrentQueueItemId(),
+            vData.video_id || '',
+            vData.title,
+          );
+        }
+      } else if (vData?.title) {
+        // The iframe API can lag one tick behind loadVideoById. Keep the
+        // current selection metadata intact and poll again immediately.
+        _ifr.videoDataPollCount = VIDEO_DATA_POLL_EVERY_NTH_TICK - 1;
       }
-      currentVideoId = vData?.video_id || '';
+      currentVideoId = videoDataMatchesSelection ? vData?.video_id || '' : currentVideoId;
 
       // Invalidate duration cache when videoId changes
       if (currentVideoId && currentVideoId !== _ifr.lastDurationVideoId) {
@@ -3103,6 +3179,7 @@ export function hideYouTubeTapToPlayGate(): void {
 }
 
 configureYouTubeIframeRuntimeHooks({
+  expectMetadataVideoId: expectYouTubeMetadataVideoId,
   hideTapToPlayGate: hideYouTubeTapToPlayGate,
   invalidateDurationCache: invalidateYtDurationCache,
 });

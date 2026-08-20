@@ -423,6 +423,59 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     });
   });
 
+  it('clears synthetic demo track metadata when no prior media can be restored', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+
+    expect(getState('player.currentTrackMeta')).toBeNull();
+    expect(getState('playback.mode')).toBeNull();
+
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(50);
+
+    expect(getState('player.currentTrackMeta')).toMatchObject({
+      title: DEMO_TRACKS[0]?.title,
+      artist: DEMO_TRACKS[0]?.artist,
+    });
+
+    bus.emit('demo:request-exit');
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(false);
+    expect(getState('player.currentTrackMeta')).toBeNull();
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
+  it('preserves successor metadata published over an idle demo snapshot', async () => {
+    const successor = {
+      queueItemId: '21111111-1111-4111-8111-111111111118',
+      type: 'file' as const,
+      name: 'successor.mp3',
+      title: 'Successor',
+      artist: 'Next artist',
+      videoId: null,
+      playlistId: null,
+    };
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+
+    bus.emit('demo:enter');
+    await flush();
+    FakeXHR.pending[0]?.resolveOk();
+    await flush(50);
+
+    setPlaybackTrackMeta(successor);
+    bus.emit('demo:request-exit');
+    await flush(50);
+
+    expect(getState('demo.active')).toBe(false);
+    expect(getState('player.currentTrackMeta')).toBe(successor);
+    expect(getState('playback.activity')).toBe('idle');
+  });
+
   it('does not restore or publish a resident file over a selected successor', async () => {
     const predecessorId = '11111111-1111-4111-8111-111111111119';
     const successorId = '21111111-1111-4111-8111-111111111119';
@@ -798,6 +851,7 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('files.current')).toBeNull();
     expect(getState('transfer.meta')).toBeNull();
     expect(getCurrentAudioBuffer()).toBeNull();
+    expect(getState('player.currentTrackMeta')).toBeNull();
   });
 
   it('keeps DEMO_TRACKS non-trivial so the advance scenario stays meaningful', () => {

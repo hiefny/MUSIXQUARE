@@ -6,6 +6,7 @@ import {
   createFileTrackMeta,
   createSystemAudioTrackMeta,
   createYouTubeTrackMetaForTests,
+  getPlaybackSelectionTrackMeta,
   getPlaybackModeActivity,
   getPlaybackModeActivitySnapshot,
   getPlaybackOwnership,
@@ -40,7 +41,7 @@ import {
   setPlaybackYouTubePlaying,
   setSystemAudioReceiving,
   setPlaybackTrackMeta,
-  updatePlaybackTrackMeta,
+  updatePlaybackTrackDetails,
   updatePlaybackTrackTitle,
 } from '../ownership.ts';
 
@@ -361,7 +362,7 @@ describe('playback ownership view', () => {
   it('updates track metadata through the ownership write helper', () => {
     setPlaybackTrackMeta(createFileTrackMeta('track.mp3'));
 
-    updatePlaybackTrackMeta((meta) => (meta ? { ...meta, artist: 'Artist' } : meta));
+    updatePlaybackTrackDetails({ artist: 'Artist' });
 
     expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
       name: 'track.mp3',
@@ -377,6 +378,49 @@ describe('playback ownership view', () => {
       name: 'Loading',
       title: 'Fetched Title',
     });
+  });
+
+  it('updates and clears the current track artist without losing its title', () => {
+    setPlaybackTrackMeta(
+      createYouTubeTrackMetaForTests({ name: 'Video', videoId: 'abc', playlistId: null }),
+    );
+
+    updatePlaybackTrackDetails({ artist: 'Channel One' });
+    expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({
+      title: 'Video',
+      artist: 'Channel One',
+    });
+
+    updatePlaybackTrackDetails({ artist: null });
+    expect(getPlaybackOwnership().currentTrackMeta).toMatchObject({ title: 'Video' });
+    expect(getPlaybackOwnership().currentTrackMeta?.artist).toBeUndefined();
+  });
+
+  it('drops a playlist-level artist from concrete YouTube playback metadata', () => {
+    const playlistTrack = {
+      ...createYouTubeTrackMetaForTests({
+        name: 'Playlist entry',
+        videoId: 'abc',
+        playlistId: 'PL_CROSS_CHANNEL',
+      }),
+      artist: 'Playlist owner',
+    };
+
+    const selectionTrack = getPlaybackSelectionTrackMeta(playlistTrack);
+
+    expect(selectionTrack).not.toBe(playlistTrack);
+    expect(selectionTrack.artist).toBeUndefined();
+    expect(playlistTrack.artist).toBe('Playlist owner');
+
+    const singleVideo = {
+      ...createYouTubeTrackMetaForTests({
+        name: 'Single video',
+        videoId: 'def',
+        playlistId: null,
+      }),
+      artist: 'Exact channel',
+    };
+    expect(getPlaybackSelectionTrackMeta(singleVideo)).toBe(singleVideo);
   });
 
   it('creates canonical synthetic file track metadata', () => {

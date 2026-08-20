@@ -216,6 +216,40 @@ describe('Translation key integrity', () => {
     }
   });
 
+  it('keeps system-audio seek feedback explicit and distinct from sync feedback', () => {
+    const expected: Record<keyof typeof locales, string> = {
+      ko: '시스템 오디오 공유 중에는 재생 위치를 이동할 수 없어요',
+      en: "You can't seek while system audio is being shared",
+      de: 'Während der Systemaudio-Freigabe ist Spulen nicht möglich',
+      es: 'No puedes cambiar la posición de reproducción mientras se comparte el audio del sistema',
+      fr: 'Impossible de modifier la position de lecture pendant le partage de l’audio système',
+      id: 'Posisi pemutaran tidak dapat diubah saat audio sistem dibagikan',
+      italian:
+        'Non puoi cambiare la posizione di riproduzione durante la condivisione dell’audio di sistema',
+      ja: 'システムオーディオの共有中は再生位置を移動できません',
+      nl: 'Je kunt niet spoelen terwijl systeemaudio wordt gedeeld',
+      pl: 'Podczas udostępniania dźwięku systemowego nie można przewijać',
+      ptBr: 'Não é possível mudar a posição de reprodução durante o compartilhamento do áudio do sistema',
+      ru: 'Нельзя перематывать во время трансляции системного звука',
+      th: 'เลื่อนตำแหน่งการเล่นไม่ได้ขณะแชร์เสียงระบบ',
+      tr: 'Sistem sesi paylaşılırken oynatma konumu değiştirilemez',
+      vi: 'Không thể tua khi đang chia sẻ âm thanh hệ thống',
+      zhHans: '共享系统音频时无法调整播放位置',
+      zhHant: '分享系統音訊時無法調整播放位置',
+    };
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      const key = 'player.seek_unavailable_system_audio';
+      const value = dict[key];
+      expect(value, `${locale}.${key}`).toBe(expected[locale as keyof typeof locales]);
+      expect(value, `${locale}.${key} should not reuse sync feedback`).not.toBe(
+        dict['toast.sync_not_in_system_audio'],
+      );
+      expect(value, `${locale}.${key} should stay single-line plain text`).not.toMatch(/[\r\n<>]/);
+      expect(value.length, `${locale}.${key} should stay concise`).toBeLessThanOrEqual(100);
+    }
+  });
+
   it('keeps repeated modal actions concise except for approved Korean legacy labels', () => {
     const roleActionKeys = ['common.grant', 'common.revoke'] as const;
 

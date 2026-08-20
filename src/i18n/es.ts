@@ -201,6 +201,8 @@ const es: Record<I18nKey, string> = {
   'player.play_pause': 'Reproducir/Pausar',
   'player.visualizer': 'Visualizador de audio',
   'player.seek': 'Ajustar posición de reproducción',
+  'player.seek_unavailable_system_audio':
+    'No puedes cambiar la posición de reproducción mientras se comparte el audio del sistema',
   'player.volume': 'Ajustar volumen',
   'player.toggle_mute': 'Activar o desactivar silencio',
   'player.fullscreen': 'Alternar pantalla completa',

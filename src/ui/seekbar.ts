@@ -52,9 +52,34 @@ function getSeekUnavailableReason(): SeekUnavailableReason | null {
 
 function getSeekUnavailableMessage(reason: SeekUnavailableReason): string {
   if (reason === 'permission') return roomCapabilityRequiredMessage('playback.control');
-  if (reason === 'system-audio') return t('toast.sync_not_in_system_audio');
+  if (reason === 'system-audio') return t('player.seek_unavailable_system_audio');
   if (reason === 'not-ready') return t('toast.sync_not_ready');
   return t('player.no_media');
+}
+
+const UNAVAILABLE_TIME_TEXT = '-:--';
+
+function getTimelineUnavailableReason(): 'no-media' | 'system-audio' | null {
+  const mode = getPlaybackModeActivitySnapshot().mode;
+  if (mode === 'system-audio') return 'system-audio';
+  if (mode === null) return 'no-media';
+  return null;
+}
+
+function renderUnavailableTimeline(
+  reason: 'no-media' | 'system-audio' = getTimelineUnavailableReason() ?? 'no-media',
+): void {
+  const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
+  const current = document.getElementById('time-curr');
+  const total = document.getElementById('time-dur');
+  if (slider) {
+    setSeekSliderValue(slider, '0');
+    setSeekSliderMax(slider, '0');
+    slider.setAttribute('aria-disabled', 'true');
+    slider.setAttribute('aria-valuetext', getSeekUnavailableMessage(reason).replace(/\n/g, ' '));
+  }
+  if (current) current.innerText = UNAVAILABLE_TIME_TEXT;
+  if (total) total.innerText = UNAVAILABLE_TIME_TEXT;
 }
 
 function isSystemAudioMode(): boolean {
@@ -126,7 +151,9 @@ function rejectSeekInteraction(slider: HTMLInputElement, announce = true): boole
   const reason = getSeekUnavailableReason();
   if (!reason) return false;
   finishSeekDraft();
-  renderCanonicalSeekPosition(slider);
+  const timelineReason = getTimelineUnavailableReason();
+  if (timelineReason) renderUnavailableTimeline(timelineReason);
+  else renderCanonicalSeekPosition(slider);
   syncSeekAvailability(slider);
   if (announce) showSeekUnavailableFeedback(reason);
   return true;
@@ -325,22 +352,15 @@ function renderSeekPosition(positionSeconds: number): void {
 }
 
 function _seekRafLoop(now: number): void {
-  // System audio: no seek position — write zeros ONCE then poll at 1Hz.
+  // System audio has no seekable timeline — render the unavailable state once
+  // and then poll at 1Hz so leaving the mode resumes ordinary interpolation.
   // Previously this branch wrote the same zeros every frame at 60fps, which
   // was wasted DOM work (and battery on mobile) for a static display.
   // We still need to poll so the loop can resume normal interpolation when
   // the user exits system-audio mode.
   if (isSystemAudioMode()) {
     if (!_systemAudioZerosApplied) {
-      const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
-      const tc = document.getElementById('time-curr');
-      const tt = document.getElementById('time-dur');
-      if (slider) {
-        setSeekSliderValue(slider, '0');
-        setSeekSliderMax(slider, '0');
-      }
-      if (tc) tc.innerText = '0:00';
-      if (tt) tt.innerText = '0:00';
+      renderUnavailableTimeline('system-audio');
       _systemAudioZerosApplied = true;
     }
     _rafId = window.setTimeout(() => {
@@ -409,7 +429,11 @@ function initSeekBarBusHandlers(): void {
   clearPendingSeekProjections();
   _proPlaybackTransitionLoading = false;
 
-  const refreshAvailability = () => syncSeekAvailability();
+  const refreshAvailability = () => {
+    syncSeekAvailability();
+    const timelineReason = getTimelineUnavailableReason();
+    if (timelineReason) renderUnavailableTimeline(timelineReason);
+  };
   _busScope.on('state:playback.mode', refreshAvailability);
   _busScope.on('state:playback.activity', refreshAvailability);
   _busScope.on('state:network.appRole', refreshAvailability);
@@ -432,6 +456,11 @@ function initSeekBarBusHandlers(): void {
   });
 
   _busScope.on('ui:duration-update', (duration) => {
+    const timelineReason = getTimelineUnavailableReason();
+    if (timelineReason) {
+      renderUnavailableTimeline(timelineReason);
+      return;
+    }
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tTotal = document.getElementById('time-dur');
     if (slider) {
@@ -450,6 +479,11 @@ function initSeekBarBusHandlers(): void {
     const projection = keepOnlyCurrentQueueProjections();
     if (projection) {
       renderSeekPosition(projection.targetSeconds);
+      return;
+    }
+    const timelineReason = getTimelineUnavailableReason();
+    if (timelineReason) {
+      renderUnavailableTimeline(timelineReason);
       return;
     }
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
@@ -579,36 +613,41 @@ function initSeekBarBusHandlers(): void {
     }
   });
 
-  // Mode-driven time display sync. The rAF system-audio zeroing branch is
+  // Mode-driven time display sync. The rAF system-audio unavailable branch is
   // unreachable on canonical entries (stopAllMedia kills the loop via
   // ui:seek-reset BEFORE mode flips), so entry zeroing must be deterministic
   // here. The 'file' repaint is its required pair: after an explicit
   // stop-sharing restore (or a guest resume from an existing buffer) no
-  // ui:duration-update re-fires, so without it the display would stay 0:00.
+  // ui:duration-update re-fires, so without it the unavailable display would persist.
   // ui:seek-reset deliberately stays duration-preserving (silent track-change
   // path depends on it) — do not move this logic there.
   _busScope.on('state:playback.mode', (mode) => {
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tDur = document.getElementById('time-dur');
-    if (mode === 'system-audio') {
-      const tc = document.getElementById('time-curr');
-      if (slider) {
-        setSeekSliderValue(slider, '0');
-        setSeekSliderMax(slider, '0');
-      }
-      if (tc) tc.innerText = '0:00';
-      if (tDur) tDur.innerText = '0:00';
+    if (mode === 'system-audio' || mode === null) {
+      renderUnavailableTimeline(mode === 'system-audio' ? 'system-audio' : 'no-media');
     } else if (mode === 'file') {
       const buf = getCurrentAudioBuffer();
       if (buf && Number.isFinite(buf.duration) && buf.duration > 0) {
         if (slider) setSeekSliderMax(slider, String(buf.duration));
         if (tDur) tDur.innerText = fmtTime(buf.duration);
       }
+      const exactPosition = getTrackPosition();
+      const pausedAt = getState('player.pausedAt');
+      const positionSeconds = exactPosition > 0 || pausedAt <= 0 ? exactPosition : pausedAt;
+      if (Number.isFinite(positionSeconds) && positionSeconds >= 0) {
+        renderSeekPosition(positionSeconds);
+      }
     }
   });
 
   // YouTube time update (seek bar + time display)
   _busScope.on('ui:time-update', (currentFormatted, totalFormatted, currentTime, duration) => {
+    const timelineReason = getTimelineUnavailableReason();
+    if (timelineReason) {
+      renderUnavailableTimeline(timelineReason);
+      return;
+    }
     const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
     const tc = document.getElementById('time-curr');
     const tt = document.getElementById('time-dur');
@@ -635,4 +674,6 @@ function initSeekBarBusHandlers(): void {
 export function initSeekBar(signal?: AbortSignal): void {
   initSeekBarInput(signal);
   initSeekBarBusHandlers();
+  const timelineReason = getTimelineUnavailableReason();
+  if (timelineReason) renderUnavailableTimeline(timelineReason);
 }

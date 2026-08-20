@@ -1276,7 +1276,11 @@ interface BaseEventMap {
   'playlist:toggle-repeat': [];
   'playlist:toggle-shuffle': [];
   'playlist:shuffle-order-changed': [];
-  'playlist:play-track': [queueItemId: QueueItemId, subIndex?: number];
+  'playlist:play-track': [
+    queueItemId: QueueItemId,
+    subIndex?: number,
+    options?: { navigateToPlay?: boolean },
+  ];
 
   // ── UI ────────────────────────────────────────────────────────────
   'ui:sync-reverb-preset': [type: string];

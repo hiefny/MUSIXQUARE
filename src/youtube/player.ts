@@ -1201,8 +1201,10 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
 
 /**
  * Single-video navigation using the host-snapshotted subItemsMap.
- * Never calls `playVideoAt` — we drive the iframe one video at a time via
- * loadVideoById so the native playlist engine never runs.
+ * The resolved occurrence is handed back to playlist.ts so manual navigation
+ * uses the same retained-player handoff as row selection and natural advance.
+ * Calling loadVideoById here bypasses that handoff and lets stale iframe
+ * callbacks alternate between a playable video and a black frame.
  *
  * If the subItemsMap is empty, tries emergency population from
  * `player.getPlaylist()` so that fast Next/Prev clicks work before the
@@ -1210,22 +1212,18 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
  */
 function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => void): void {
   const player = getYouTubePlayer();
-  if (!player?.loadVideoById) {
-    callback(false);
-    return;
-  }
 
   try {
     const currentTrack = getQueueItemById(getCurrentQueueItemId());
     const pid = currentTrack?.playlistId as string;
-    if (!pid) {
+    if (!currentTrack || !pid) {
       callback(false);
       return;
     }
 
     let subData = (getState('youtube.subItemsMap') || {})[pid];
 
-    if ((!subData || !subData.ids.length) && player.getPlaylist) {
+    if ((!subData || !subData.ids.length) && player?.getPlaylist) {
       const ids = player.getPlaylist() || [];
       if (ids.length > 0) {
         updateSubItemIds(pid, ids);
@@ -1243,7 +1241,7 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
     // Fallback: about to fall off the end forward, but the iframe may have
     // lazily populated more items since the initial indexing snapshot.
     // Re-read getPlaylist() and retry if the cached list was truncated.
-    if (!inBounds && direction === 1 && player.getPlaylist) {
+    if (!inBounds && direction === 1 && player?.getPlaylist) {
       try {
         const freshIds = player.getPlaylist() || [];
         if (freshIds.length > (subData?.ids?.length ?? 0)) {
@@ -1261,21 +1259,12 @@ function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => voi
 
     if (inBounds && subData?.ids) {
       const targetVideoId = subData.ids[targetIdx];
-      setYouTubeSubIndex(targetIdx);
-      if (tryBeginYouTubeZeroStart(targetVideoId, targetIdx)) {
-        callback(true);
+      if (!targetVideoId) {
+        callback(false);
         return;
       }
-      player.loadVideoById(targetVideoId);
-      scheduleYtAutoSync(0, {
-        subIndex: targetIdx,
-        videoId: targetVideoId,
-        skipSeek: true,
-        // A sub-video Next/Prev loads a different video, so guests need
-        // the longer track-transition rendezvous to loadVideoById before the
-        // synced play fires, matching the other loadVideoById paths rather than
-        // the 2s STAGE2 default used for same-video restarts.
-        rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
+      bus.emit('playlist:play-track', currentTrack.queueItemId, targetIdx, {
+        navigateToPlay: false,
       });
       callback(true);
       return;
@@ -3680,48 +3669,13 @@ export function initYouTube(): void {
     ) {
       return;
     }
-    const player = getYouTubePlayer();
-    if (!player?.loadVideoById) return;
-
     const isCurrentNow = queueItemId === getCurrentQueueItemId();
-    if (isCurrentNow) {
-      // Same playlist — single-video mode: resolve the videoId from our
-      // host-snapshotted subItemsMap and loadVideoById directly. We don't
-      // call playVideoAt because that hands control to the iframe's native
-      // playlist engine, which we deliberately keep dormant.
-      const currentTrack = getQueueItemById(queueItemId);
-      if (!currentTrack) return;
-      const subMap = getState('youtube.subItemsMap') || {};
-      const ids = subMap[currentTrack.playlistId as string]?.ids || [];
-      const targetVideoId = ids[subIdx];
-      if (!targetVideoId) {
-        log.warn(`[YouTube] sub-seek: no videoId at subIdx=${subIdx} in subItemsMap`);
-        return;
-      }
-      setYouTubeSubIndex(subIdx);
-
-      // Pre-emptive title update for instant UI feedback
-      const cachedTitle = subMap[currentTrack.playlistId as string]?.titles?.[subIdx];
-      if (cachedTitle) {
-        updatePlaybackTrackTitle(cachedTitle);
-      }
-
-      // Prioritize fetching title for the newly selected index (if missing)
-      if (currentTrack.playlistId && ids.length > 0) {
-        fetchPlaylistSubTitles(currentTrack.playlistId as string, ids);
-      }
-      if (tryBeginYouTubeZeroStart(targetVideoId, subIdx)) return;
-      player.loadVideoById(targetVideoId);
-      scheduleYtAutoSync(0, {
-        subIndex: subIdx,
-        videoId: targetVideoId,
-        skipSeek: true,
-        rendezvousDelayMs: TRACK_TRANSITION_RENDEZVOUS_MS,
-      });
-    } else {
-      // Different playlist item — load it with the target sub-index
-      bus.emit('playlist:play-track', queueItemId, subIdx);
-    }
+    // Route both same-playlist and cross-media selections through playTrack.
+    // The old player guard made a YouTube sub-row a no-op while a local file
+    // owned playback; its raw load path also bypassed retained iframe fencing.
+    bus.emit('playlist:play-track', queueItemId, subIdx, {
+      navigateToPlay: !isCurrentNow,
+    });
   });
 
   // Populate sub-items when expanding a YouTube playlist entry

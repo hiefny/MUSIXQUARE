@@ -711,6 +711,41 @@ describe('playlist queue identity rendering and actions', () => {
     expect(currentLeading.classList).not.toContain('is-current-paused');
   });
 
+  it('replaces the active YouTube sub-index with the shared playback state icons', () => {
+    setState('playlist.items', sampleItems());
+    setState('youtube.subItemsMap', {
+      PL_TEST: { ids: ['video-a', 'video-b'], titles: ['First', 'Loading title'] },
+    });
+    setState('playlist.currentQueueItemId', YT_B);
+    setState('youtube.currentSubIndex', 1);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    initPlaylistView();
+
+    const inactive = document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="0"]')!;
+    const active = document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="1"]')!;
+    const leading = active.querySelector<HTMLElement>('.sub-idx.playlist-current-leading')!;
+
+    expect(inactive.hasAttribute('aria-current')).toBe(false);
+    expect(active.getAttribute('aria-current')).toBe('true');
+    expect(active.hasAttribute('aria-label')).toBe(false);
+    expect(leading.querySelector('.sub-idx-number')?.textContent).toBe('2');
+    expect(leading.querySelector('.track-playing-indicator')).not.toBeNull();
+    expect(leading.classList).toContain('is-current-playing');
+
+    bus.emit('ui:update-play-state', false);
+    expect(leading.classList).toContain('is-current-paused');
+    expect(leading.classList).not.toContain('is-current-playing');
+
+    bus.emit('ui:play-loading-state', true);
+    expect(leading.classList).toContain('is-current-loading');
+    expect(leading.classList).not.toContain('is-current-paused');
+
+    updateSubItemTitle('PL_TEST', 1, 'Resolved title');
+    expect(active.textContent).toContain('Resolved title');
+    expect(active.textContent).toContain('2');
+  });
+
   it('renders each YouTube parent and sub-list inside one atomic queue entry', () => {
     setState('playlist.items', sampleItems());
     setState('youtube.subItemsMap', {
@@ -725,6 +760,22 @@ describe('playlist queue identity rendering and actions', () => {
     expect(youtubeEntry?.matches('.playlist-entry')).toBe(true);
     expect(youtubeEntry?.querySelectorAll(':scope > .sub-playlist')).toHaveLength(1);
     expect(youtubeEntry?.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(2);
+  });
+
+  it('uses a blue glyph-only hover for playlist disclosure while preserving its state', async () => {
+    setState('playlist.items', sampleItems());
+    initPlaylistView();
+
+    const expanded = document.querySelector<HTMLButtonElement>(
+      `.expand-toggle[data-queue-item-id="${YT_B}"]`,
+    )!;
+    expect(expanded.getAttribute('aria-expanded')).toBe('true');
+
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const hoverRules = stylesheet.match(/\.expand-toggle:hover\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(hoverRules).toContain('background: transparent');
+    expect(hoverRules).toContain('color: var(--primary)');
+    expect(stylesheet).not.toMatch(/\.expand-toggle:hover\s*,\s*\.device-expand-toggle:hover/);
   });
 
   it('exposes each main track action as a native keyboard button', () => {

@@ -193,6 +193,7 @@ const zhHans: Record<I18nKey, string> = {
   'player.play_pause': '播放/暂停',
   'player.visualizer': '音频可视化',
   'player.seek': '拖动进度',
+  'player.seek_unavailable_system_audio': '共享系统音频时无法调整播放位置',
   'player.volume': '调整音量',
   'player.toggle_mute': '切换静音',
   'player.fullscreen': '切换全屏',

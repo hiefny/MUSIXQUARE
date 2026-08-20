@@ -123,9 +123,10 @@ describe('standalone clearable text editors', () => {
     ['event', eventStyles],
   ])('keeps a small glyph inside a 44px touch target in %s styles', (_surface, styles) => {
     expect(styles).toMatch(/\.clearable-editor-button\s*\{[^}]*position: absolute;/su);
-    expect(styles).toMatch(/\.clearable-editor-button::before\s*\{[^}]*inset: 10px;/su);
+    expect(styles).not.toContain('.clearable-editor-button::before');
+    expect(styles).not.toMatch(/\.clearable-editor-button\s*\{[^}]*box-shadow:/su);
     expect(styles).toMatch(
-      /\.clearable-editor-button svg\s*\{[^}]*width: 14px;[^}]*height: 14px;/su,
+      /\.clearable-editor-button svg\s*\{[^}]*width: 16px;[^}]*height: 16px;/su,
     );
     expect(styles).toContain('var(--clearable-editor-reserved-space, 48px)');
     expect(styles).toContain('.clearable-editor-button:focus-visible');

@@ -106,6 +106,8 @@ const pl: Record<I18nKey, string> = {
   'player.play_pause': 'Odtwórz/Wstrzymaj',
   'player.visualizer': 'Wizualizator dźwięku',
   'player.seek': 'Regulacja pozycji odtwarzania',
+  'player.seek_unavailable_system_audio':
+    'Podczas udostępniania dźwięku systemowego nie można przewijać',
   'player.volume': 'Regulacja głośności',
   'player.toggle_mute': 'Wycisz / Wyłącz wyciszenie',
   'player.fullscreen': 'Przełącz tryb pełnoekranowy',

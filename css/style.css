@@ -303,8 +303,7 @@
     background: transparent;
     color: var(--text-muted);
     cursor: pointer;
-    opacity: 0.9;
-    isolation: isolate;
+    opacity: 1;
     -webkit-tap-highlight-color: transparent;
     transition:
       color 0.15s ease,
@@ -315,26 +314,12 @@
     display: none;
   }
 
-  .clearable-editor-button::before {
-    content: '';
-    position: absolute;
-    inset: 10px;
-    z-index: -1;
-    border-radius: inherit;
-    background: var(--surface-2);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.16);
-    opacity: 0.88;
-    transform: scale(0.92);
-    transition:
-      background-color 0.15s ease,
-      transform 0.15s ease;
-  }
-
   .clearable-editor-button svg {
-    width: 14px;
-    height: 14px;
+    width: 16px;
+    height: 16px;
     fill: currentColor;
     pointer-events: none;
+    transition: transform 0.15s ease;
   }
 
   .clearable-editor-button:focus-visible {
@@ -343,8 +328,8 @@
     outline-offset: 1px;
   }
 
-  .clearable-editor-button:active::before {
-    transform: scale(0.82);
+  .clearable-editor-button:active svg {
+    transform: scale(0.9);
   }
 
   @media (hover: hover) {
@@ -356,7 +341,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .clearable-editor-button,
-    .clearable-editor-button::before {
+    .clearable-editor-button svg {
       transition: none;
     }
   }
@@ -2293,7 +2278,7 @@
   }
 
   .playlist-current-leading:is(.is-current-loading, .is-current-playing, .is-current-paused)
-    .track-idx {
+    :is(.track-idx, .sub-idx-number) {
     opacity: 0;
     transform: scale(0.82);
   }
@@ -2609,7 +2594,25 @@
     font-size: 11px;
     font-weight: var(--font-weight-display);
     width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    display: grid;
+    place-items: center;
     opacity: 0.5;
+  }
+
+  .sub-idx-number {
+    grid-area: 1 / 1;
+    opacity: 1;
+    transform: scale(1);
+    transition:
+      opacity 0.14s ease,
+      transform 0.14s ease;
+  }
+
+  .sub-track-item.active .sub-idx {
+    --playlist-indicator-color: var(--primary);
+    opacity: 1;
   }
 
   .sub-name {
@@ -2636,7 +2639,9 @@
     justify-content: center;
     border-radius: 50%;
     cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transition:
+      color 0.2s ease,
+      background-color 0.2s ease;
     color: var(--text-muted);
     background: transparent;
     border: none;
@@ -2654,7 +2659,11 @@
   }
 
   @media (hover: hover) {
-    .expand-toggle:hover,
+    .expand-toggle:hover {
+      background: transparent;
+      color: var(--primary);
+    }
+
     .device-expand-toggle:hover {
       background: var(--surface-3);
       color: var(--text-main);
@@ -2767,7 +2776,9 @@
     .playlist-ul,
     .btn-playlist-remove,
     .btn-playlist-remove svg,
-    .btn-playlist-remove::before {
+    .btn-playlist-remove::before,
+    .expand-toggle,
+    .expand-toggle svg {
       transition: none !important;
       animation: none !important;
     }

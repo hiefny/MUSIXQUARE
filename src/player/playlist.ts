@@ -2680,8 +2680,8 @@ export function initPlaylist(): void {
   });
 
   // Play specific track from playlist view click
-  bus.on('playlist:play-track', (queueItemId, subIndex) => {
-    if (getQueueItemById(queueItemId)) playTrack(queueItemId, subIndex);
+  bus.on('playlist:play-track', (queueItemId, subIndex, options) => {
+    if (getQueueItemById(queueItemId)) playTrack(queueItemId, subIndex, options);
   });
 
   // Host: Remove track from playlist

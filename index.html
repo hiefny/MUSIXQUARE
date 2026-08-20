@@ -16,7 +16,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v460"></script>
+    <script src="/bootstrap.js?cache=v461"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -301,15 +301,17 @@
               type="range"
               id="seek-slider"
               min="0"
-              max="100"
+              max="0"
               value="0"
               step="0.1"
+              aria-disabled="true"
+              aria-valuetext="재생 중인 미디어 없음"
               aria-label="재생 위치 조절"
               data-i18n-aria-label="player.seek"
             />
             <div class="time-info">
-              <span id="time-curr">0:00</span>
-              <span id="time-dur">0:00</span>
+              <span id="time-curr">-:--</span>
+              <span id="time-dur">-:--</span>
             </div>
           </div>
 

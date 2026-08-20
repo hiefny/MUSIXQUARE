@@ -193,6 +193,7 @@ const zhHant: Record<I18nKey, string> = {
   'player.play_pause': '播放/暫停',
   'player.visualizer': '音訊視覺化',
   'player.seek': '調整播放位置',
+  'player.seek_unavailable_system_audio': '分享系統音訊時無法調整播放位置',
   'player.volume': '調整音量',
   'player.toggle_mute': '切換靜音',
   'player.fullscreen': '切換全螢幕',

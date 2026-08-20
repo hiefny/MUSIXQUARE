@@ -201,6 +201,7 @@ const ja: Record<I18nKey, string> = {
   'player.play_pause': '再生/一時停止',
   'player.visualizer': 'オーディオビジュアライザー',
   'player.seek': '再生位置を調整',
+  'player.seek_unavailable_system_audio': 'システムオーディオの共有中は再生位置を移動できません',
   'player.volume': '音量を調整',
   'player.toggle_mute': 'ミュートを切り替える',
   'player.fullscreen': '全画面表示を切り替える',

@@ -110,6 +110,7 @@ const nl: Record<I18nKey, string> = {
   'player.play_pause': 'Afspelen/pauzeren',
   'player.visualizer': 'Audiovisualisatie',
   'player.seek': 'Spoelen',
+  'player.seek_unavailable_system_audio': 'Je kunt niet spoelen terwijl systeemaudio wordt gedeeld',
   'player.volume': 'Volume aanpassen',
   'player.toggle_mute': 'Dempen aan/uit',
   'player.fullscreen': 'Volledig scherm in-/uitschakelen',

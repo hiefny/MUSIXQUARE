@@ -200,6 +200,8 @@ const fr: Record<I18nKey, string> = {
   'player.play_pause': 'Lecture/Pause',
   'player.visualizer': 'Visualiseur audio',
   'player.seek': 'Régler la position de lecture',
+  'player.seek_unavailable_system_audio':
+    'Impossible de modifier la position de lecture pendant le partage de l’audio système',
   'player.volume': 'Régler le volume',
   'player.toggle_mute': 'Activer/désactiver le son',
   'player.fullscreen': 'Activer/désactiver le plein écran',

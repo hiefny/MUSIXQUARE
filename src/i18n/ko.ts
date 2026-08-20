@@ -107,6 +107,7 @@ const ko = {
   'player.play_pause': '재생/일시정지',
   'player.visualizer': '오디오 비주얼라이저',
   'player.seek': '재생 위치 조절',
+  'player.seek_unavailable_system_audio': '시스템 오디오 공유 중에는 재생 위치를 이동할 수 없어요',
   'player.volume': '볼륨 조절',
   'player.toggle_mute': '음소거 전환',
   'player.fullscreen': '전체화면 전환',

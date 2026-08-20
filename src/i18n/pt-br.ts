@@ -201,6 +201,8 @@ const ptBr: Record<I18nKey, string> = {
   'player.play_pause': 'Reproduzir/Pausar',
   'player.visualizer': 'Visualizador de áudio',
   'player.seek': 'Ajustar posição de reprodução',
+  'player.seek_unavailable_system_audio':
+    'Não é possível mudar a posição de reprodução durante o compartilhamento do áudio do sistema',
   'player.volume': 'Ajustar volume',
   'player.toggle_mute': 'Ativar/desativar som',
   'player.fullscreen': 'Ativar/desativar tela cheia',

@@ -1,3 +1,4 @@
+// MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
 /**
  * MUSIXQUARE — Application Bootstrap
  *

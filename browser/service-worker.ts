@@ -1,3 +1,4 @@
+// MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md.
 /* service-worker.js
  * MUSIXQUARE PWA Service Worker (App Shell Cache)
  * - Caches core static assets for faster loads + basic offline support

@@ -4,9 +4,9 @@ const SCAN_BUTTON_ID = 'btn-setup-qr-scan';
 const CAMERA_ID = 'setup-qr-camera';
 const VIDEO_ID = 'setup-qr-video';
 const CLOSE_BUTTON_ID = 'btn-setup-qr-close';
-const INVITE_QR_RE = /^(?:https?:\/\/)?(?:www\.)?musixquare\.com\/(\d{6})(?:[/?#]|$)/i;
+const INVITE_QR_RE = /^(?:https?:\/\/)?(?:www\.)?musixquare\.com\/(\d{6})\/?$/i;
 
-export type GuestQrScannerError = 'permission-denied' | 'camera-not-found' | 'camera-unavailable';
+type GuestQrScannerError = 'permission-denied' | 'camera-not-found' | 'camera-unavailable';
 
 interface GuestQrScannerCallbacks {
   isCurrent: () => boolean;
@@ -20,6 +20,7 @@ let scannerStream: MediaStream | null = null;
 let scannerFrame = 0;
 let scannerSuccessTimer = 0;
 let controlsBound = false;
+let lifecycleBound = false;
 
 function scannerElements(): {
   button: HTMLButtonElement;
@@ -77,6 +78,17 @@ export function stopGuestQrScanner(): void {
   elements.button.removeAttribute('aria-busy');
 }
 
+function stopScannerWhenDocumentIsHidden(): void {
+  if (document.visibilityState === 'hidden') stopGuestQrScanner();
+}
+
+function bindScannerLifecycle(): void {
+  if (lifecycleBound) return;
+  lifecycleBound = true;
+  document.addEventListener('visibilitychange', stopScannerWhenDocumentIsHidden);
+  window.addEventListener('pagehide', stopGuestQrScanner);
+}
+
 async function startGuestQrScanner(): Promise<void> {
   const elements = scannerElements();
   const currentCallbacks = callbacks;
@@ -125,30 +137,41 @@ async function startGuestQrScanner(): Promise<void> {
         return;
       }
 
-      if (now - lastScanAt >= 100 && elements.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        lastScanAt = now;
-        const sourceWidth = elements.video.videoWidth;
-        const sourceHeight = elements.video.videoHeight;
-        if (sourceWidth > 0 && sourceHeight > 0) {
-          const scale = Math.min(1, 720 / sourceWidth);
-          canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-          canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-          context.drawImage(elements.video, 0, 0, canvas.width, canvas.height);
-          const image = context.getImageData(0, 0, canvas.width, canvas.height);
-          const result = decodeQr(image.data, image.width, image.height, {
-            inversionAttempts: 'attemptBoth',
-          });
-          const code = result ? extractInviteCode(result.data) : null;
-          if (code) {
-            elements.camera.classList.add('is-qr-recognized');
-            scannerSuccessTimer = window.setTimeout(() => {
-              scannerSuccessTimer = 0;
-              if (generation === scannerGeneration) stopGuestQrScanner();
-            }, 420);
-            currentCallbacks.onCode(code);
-            return;
+      try {
+        if (
+          now - lastScanAt >= 100 &&
+          elements.video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+        ) {
+          lastScanAt = now;
+          const sourceWidth = elements.video.videoWidth;
+          const sourceHeight = elements.video.videoHeight;
+          if (sourceWidth > 0 && sourceHeight > 0) {
+            const scale = Math.min(1, 720 / sourceWidth);
+            canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+            canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+            context.drawImage(elements.video, 0, 0, canvas.width, canvas.height);
+            const image = context.getImageData(0, 0, canvas.width, canvas.height);
+            const result = decodeQr(image.data, image.width, image.height, {
+              inversionAttempts: 'attemptBoth',
+            });
+            const code = result ? extractInviteCode(result.data) : null;
+            if (code) {
+              elements.camera.classList.add('is-qr-recognized');
+              scannerSuccessTimer = window.setTimeout(() => {
+                scannerSuccessTimer = 0;
+                if (generation === scannerGeneration) stopGuestQrScanner();
+              }, 420);
+              currentCallbacks.onCode(code);
+              return;
+            }
           }
         }
+      } catch (error) {
+        if (generation !== scannerGeneration) return;
+        const shouldReport = currentCallbacks.isCurrent();
+        stopGuestQrScanner();
+        if (shouldReport) currentCallbacks.onError(classifyCameraError(error));
+        return;
       }
 
       scannerFrame = requestAnimationFrame(scan);
@@ -165,6 +188,7 @@ async function startGuestQrScanner(): Promise<void> {
 
 export function initGuestQrScanner(nextCallbacks: GuestQrScannerCallbacks): void {
   callbacks = nextCallbacks;
+  bindScannerLifecycle();
   if (controlsBound) return;
 
   const elements = scannerElements();

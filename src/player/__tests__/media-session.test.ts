@@ -50,6 +50,11 @@ Object.defineProperty(navigator, 'mediaSession', {
   configurable: true,
   writable: true,
 });
+Object.defineProperty(navigator, 'audioSession', {
+  value: { type: 'auto' },
+  configurable: true,
+  writable: true,
+});
 
 // Polyfill MediaMetadata
 globalThis.MediaMetadata = class MediaMetadata {
@@ -118,6 +123,7 @@ beforeEach(() => {
   setLocalYouTubePaused(false);
   navigator.mediaSession.metadata = null;
   navigator.mediaSession.playbackState = 'none';
+  (navigator as Navigator & { audioSession: { type: string } }).audioSession.type = 'auto';
 });
 
 describe('updateMediaSessionMetadata', () => {
@@ -233,6 +239,39 @@ describe('updateMediaSessionMetadata', () => {
 });
 
 describe('initMediaSession with partial browser support', () => {
+  it('requests the playback audio-session category when Safari exposes it', () => {
+    initMediaSession();
+
+    expect((navigator as Navigator & { audioSession: { type: string } }).audioSession.type).toBe(
+      'playback',
+    );
+  });
+
+  it('keeps Media Session initialization alive when the audio-session hint rejects writes', () => {
+    const original = (navigator as Navigator & { audioSession: { type: string } }).audioSession;
+    Object.defineProperty(navigator, 'audioSession', {
+      configurable: true,
+      value: Object.defineProperty({}, 'type', {
+        configurable: true,
+        get: () => 'auto',
+        set: () => {
+          throw new DOMException('unsupported', 'NotSupportedError');
+        },
+      }),
+    });
+
+    try {
+      expect(() => initMediaSession()).not.toThrow();
+      expect(navigator.mediaSession.setActionHandler).toHaveBeenCalledTimes(7);
+    } finally {
+      Object.defineProperty(navigator, 'audioSession', {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+    }
+  });
+
   it('seeds metadata and playback state that committed before deferred initialization', () => {
     setState('player.currentTrackMeta', {
       type: 'file',

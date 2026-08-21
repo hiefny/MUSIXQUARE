@@ -12,6 +12,7 @@ let desktopStylesheet: string;
 let settingsSource: string;
 let appRuntimeSource: string;
 let platformSource: string;
+let youtubeIframeSource: string;
 
 function declarationsForSelector(selector: string): string[] {
   const rulePattern = /([^{}]+)\{([^{}]*)\}/gu;
@@ -36,6 +37,7 @@ beforeAll(() => {
   settingsSource = readFileSync(resolve('src/ui/settings.ts'), 'utf8');
   appRuntimeSource = readFileSync(resolve('src/app.ts'), 'utf8');
   platformSource = readFileSync(resolve('src/core/platform.ts'), 'utf8');
+  youtubeIframeSource = readFileSync(resolve('src/youtube/iframe.ts'), 'utf8');
 });
 
 describe('app UX markup contract', () => {
@@ -513,13 +515,20 @@ describe('app UX markup contract', () => {
     );
   });
 
-  it('keeps the iOS YouTube tap gate rectangular under the global pill policy', () => {
+  it('keeps the QR scanner and iOS YouTube tap gate rectangular under the global pill policy', () => {
     const globalButtonShapeRule = appStylesheet.match(
       /button:not\(\.ch-opt\)[\s\S]*?\{\s*border-radius:\s*999px\s*!important;\s*\}/,
     )?.[0];
+    const normalizedGlobalButtonShapeRule = globalButtonShapeRule?.replace(/\s+/gu, '');
+    const scannerShapeRules = declarationsForSelector('.setup-qr-scan-button');
 
     expect(globalButtonShapeRule).toBeDefined();
-    expect(globalButtonShapeRule).toContain(':not(#youtube-ios-sync-overlay)');
+    expect(normalizedGlobalButtonShapeRule).toContain(':not(.setup-qr-scan-button)');
+    expect(normalizedGlobalButtonShapeRule).toContain(':not(#youtube-ios-sync-overlay)');
+    expect(scannerShapeRules.some((rule) => /border-radius:\s*0\s*;/u.test(rule))).toBe(true);
+    expect(youtubeIframeSource).toMatch(
+      /overlay\.style\.cssText\s*=\s*`[\s\S]*?border:0;border-radius:0;padding:0;/u,
+    );
   });
 
   it('preserves the row-hover transition from track number to reorder grip on hybrid input', () => {

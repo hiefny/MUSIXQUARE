@@ -40,8 +40,13 @@ import {
   type ProPlaybackCommitRequest,
 } from '../pro-room/playback-authority-hooks.ts';
 import { isProRoomTrackChangeIntentPending } from './track-change-intent.ts';
-import { hasRoomCapability, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import {
+  getRoomContext,
+  hasRoomCapability,
+  isActiveStandardRoomCoordinator,
+} from '../rooms/authority.ts';
 import { loadPlaylistModule } from './playlist-loader.ts';
+import type { ResidentFile } from '../types/index.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
@@ -57,8 +62,162 @@ const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
  */
 const STANDARD_FILE_CANONICAL_END_TIMER = 'standard-file-canonical-end';
 const CANONICAL_END_EPSILON_SEC = 0.005;
+const STANDARD_HOST_PHYSICAL_REBASE_TOLERANCE_SEC = 0.25;
+const WALL_CLOCK_STEP_TOLERANCE_MS = 2_000;
 const PLAY_LOCK_WATCHDOG_MS = 15_000;
 const PLAY_LOCK_STALE_MS = 5_000;
+
+/**
+ * The standard-room timeline must outlive this device's physical Web Audio
+ * clock. Mobile WebKit can freeze AudioContext.currentTime in the background
+ * while the room remains semantically playing, so the coordinator keeps one
+ * wall-clock anchor for the exact queue occurrence and decoded buffer.
+ *
+ * Guests and PRO rooms deliberately never read this anchor: their timeline is
+ * owned by the standard host or PRO server respectively.
+ */
+interface StandardHostCanonicalTimelineAnchor {
+  readonly sessionCode: string;
+  readonly roomId: string | null;
+  readonly roomEpoch: number;
+  readonly queueItemId: string;
+  readonly residentFile: ResidentFile | null;
+  readonly buffer: AudioBuffer;
+  positionSeconds: number;
+  startsAtWallMs: number;
+  readonly startsAtMonotonicMs: number;
+  lastPositionSeconds: number;
+  lastReadWallMs: number;
+  lastReadMonotonicMs: number;
+  sawHidden: boolean;
+  startPending: boolean;
+}
+
+let standardHostCanonicalTimeline: StandardHostCanonicalTimelineAnchor | null = null;
+
+function getMonotonicNowMs(): number {
+  if (typeof performance === 'undefined') return Date.now();
+  const now = performance.now();
+  return Number.isFinite(now) ? now : Date.now();
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden' && standardHostCanonicalTimeline) {
+      standardHostCanonicalTimeline.sawHidden = true;
+    }
+  });
+}
+
+function clearStandardHostCanonicalTimeline(): void {
+  standardHostCanonicalTimeline = null;
+}
+
+function armStandardHostCanonicalTimeline(
+  buffer: AudioBuffer,
+  queueItemId: string | null,
+  positionSeconds: number,
+  scheduleDelaySeconds: number,
+): void {
+  if (!isActiveStandardRoomCoordinator() || !queueItemId) {
+    clearStandardHostCanonicalTimeline();
+    return;
+  }
+  const room = getRoomContext();
+  const wallNowMs = Date.now();
+  const monotonicNowMs = getMonotonicNowMs();
+  const scheduleDelayMs = Math.max(0, scheduleDelaySeconds) * 1_000;
+  standardHostCanonicalTimeline = {
+    sessionCode: getState('network.sessionCode'),
+    roomId: room.roomId,
+    roomEpoch: room.epoch,
+    queueItemId,
+    residentFile: getState('files.current'),
+    buffer,
+    positionSeconds,
+    startsAtWallMs: wallNowMs + scheduleDelayMs,
+    startsAtMonotonicMs: monotonicNowMs + scheduleDelayMs,
+    lastPositionSeconds: positionSeconds,
+    lastReadWallMs: wallNowMs,
+    lastReadMonotonicMs: monotonicNowMs,
+    sawHidden: typeof document !== 'undefined' && document.visibilityState === 'hidden',
+    startPending: scheduleDelaySeconds > 0,
+  };
+}
+
+function readStandardHostCanonicalPosition(
+  buffer: AudioBuffer,
+  physicalPosition: number,
+): number | null {
+  const anchor = standardHostCanonicalTimeline;
+  const room = getRoomContext();
+  if (
+    !anchor ||
+    !isActiveStandardRoomCoordinator() ||
+    !isPlaybackPlayingFile() ||
+    anchor.sessionCode !== getState('network.sessionCode') ||
+    anchor.roomId !== room.roomId ||
+    anchor.roomEpoch !== room.epoch ||
+    anchor.queueItemId !== getCurrentQueueItemId() ||
+    anchor.residentFile !== getState('files.current') ||
+    anchor.buffer !== buffer
+  ) {
+    if (anchor) clearStandardHostCanonicalTimeline();
+    return null;
+  }
+
+  const wallNowMs = Date.now();
+  const monotonicNowMs = getMonotonicNowMs();
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+    anchor.sawHidden = true;
+  }
+  const elapsedSeconds = Math.max(0, (wallNowMs - anchor.startsAtWallMs) / 1_000);
+  let position = anchor.positionSeconds + elapsedSeconds;
+  const duration = Number.isFinite(buffer.duration) ? buffer.duration : 0;
+  if (duration > 0) position = Math.min(duration, position);
+  // Date.now() is the room clock and advances across iOS page suspension, but
+  // a user/NTP wall-clock correction must never rewind an active room.
+  position = Math.max(anchor.lastPositionSeconds, position);
+
+  const wallDeltaMs = wallNowMs - anchor.lastReadWallMs;
+  const monotonicDeltaMs = monotonicNowMs - anchor.lastReadMonotonicMs;
+  const visible = typeof document === 'undefined' || document.visibilityState === 'visible';
+  const scheduledStartReached =
+    !anchor.startPending ||
+    wallNowMs >= anchor.startsAtWallMs ||
+    monotonicNowMs >= anchor.startsAtMonotonicMs;
+  if (scheduledStartReached) anchor.startPending = false;
+  const wallClockStepped =
+    !anchor.sawHidden &&
+    visible &&
+    Math.abs(wallDeltaMs - monotonicDeltaMs) > WALL_CLOCK_STEP_TOLERANCE_MS;
+  const physicalCloseToCanonical =
+    Number.isFinite(physicalPosition) &&
+    Math.abs(physicalPosition - position) <= STANDARD_HOST_PHYSICAL_REBASE_TOLERANCE_SEC;
+
+  // During ordinary foreground playback, preserve the AudioContext sample
+  // clock as the high-resolution authority and continuously rebase the wall
+  // fallback to it. A hidden incident deliberately breaks that bond when the
+  // physical clock falls behind; the room timeline then keeps advancing until
+  // output is rebuilt at the canonical position. A visible Date/NTP step is
+  // likewise rejected in favour of the physical clock.
+  if (
+    visible &&
+    scheduledStartReached &&
+    Number.isFinite(physicalPosition) &&
+    (physicalCloseToCanonical || wallClockStepped)
+  ) {
+    position = Math.max(anchor.lastPositionSeconds, physicalPosition);
+    anchor.positionSeconds = position;
+    anchor.startsAtWallMs = wallNowMs;
+    anchor.sawHidden = false;
+  }
+
+  anchor.lastReadWallMs = wallNowMs;
+  anchor.lastReadMonotonicMs = monotonicNowMs;
+  anchor.lastPositionSeconds = Math.max(anchor.lastPositionSeconds, position);
+  return Math.max(0, anchor.lastPositionSeconds);
+}
 
 // The play lock is page-global, so every timer/finally that releases it must
 // prove it still belongs to the invocation that claimed it. A load epoch
@@ -357,7 +516,8 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
 
   const startedAtValid =
     typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
-  if (startedAtValid && getCurrentTime() > 0) {
+  const audioNow = getCurrentTime();
+  if (startedAtValid && audioNow > 0) {
     // Recover an out-of-range manual offset asynchronously so this getter does
     // not write state during a read.
     // _offsetResetQueued prevents duplicate microtasks when getTrackPosition()
@@ -374,9 +534,9 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
         const sa = getState('player.startedAt');
         if (sa) setState('player.startedAt', sa - lo);
       });
-      pos = getCurrentTime() - startedAt;
+      pos = audioNow - startedAt;
     } else {
-      pos = getCurrentTime() - startedAt + localOffset;
+      pos = audioNow - startedAt + localOffset;
     }
   }
 
@@ -384,6 +544,11 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   // If audio is scheduled but hasn't started yet, return the target offset
   if (pos < 0) pos = getState('player.pausedAt') || 0;
   if (duration > 0 && pos > duration) pos = duration;
+
+  const standardHostCanonicalPosition = _currentAudioBuffer
+    ? readStandardHostCanonicalPosition(_currentAudioBuffer, pos)
+    : null;
+  if (standardHostCanonicalPosition !== null) return standardHostCanonicalPosition;
 
   return pos;
 }
@@ -497,6 +662,7 @@ function armStandardFileCanonicalEnd(
 // ─── Stop All Media ────────────────────────────────────────────────
 
 function stopAllMediaLegacy(opts: StopMediaOptions = {}): void {
+  clearStandardHostCanonicalTimeline();
   const queueItemId = getCurrentQueueItemId();
   const wasInYouTube = isYouTubeOwner();
   const wasPreparingFile = isFilePipelineBusyForPlay();
@@ -1155,6 +1321,15 @@ async function _internalPlay(
 
   setPlaybackFilePlaying();
 
+  if (standardHostOwnsCanonicalEnd && startedSourceNode && _currentAudioBuffer) {
+    armStandardHostCanonicalTimeline(
+      _currentAudioBuffer,
+      getCurrentQueueItemId(),
+      safeOffset,
+      effectiveScheduleDelay,
+    );
+  }
+
   if (startedSourceNode && _currentAudioBuffer) {
     armStandardFileCanonicalEnd(
       startedSourceNode,
@@ -1199,6 +1374,7 @@ export function pause(
   }
 
   stopPlayerNode();
+  clearStandardHostCanonicalTimeline();
 
   if (opts?.holdVisualizer ?? forcedTime === undefined) {
     bus.emit('visualizer:hold-frame');
@@ -1501,13 +1677,53 @@ export function togglePlay(): void {
   } else {
     if (!hostConn) {
       if (!currentQueueItemId) return;
-      play(pausedAt);
-      broadcast({
-        type: MSG.PLAY,
-        time: pausedAt,
-        queueItemId: currentQueueItemId,
-        hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
-      });
+      if (isActiveStandardRoomCoordinator()) {
+        const room = getRoomContext();
+        const sessionCode = getState('network.sessionCode');
+        const residentFile = getState('files.current');
+        const buffer = getCurrentAudioBuffer();
+        const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
+        const localPlayAt = performance.now() + SCHEDULE_AHEAD_MS;
+        let published = false;
+        const occurrenceStillCurrent = (): boolean => {
+          const currentRoom = getRoomContext();
+          return (
+            isActiveStandardRoomCoordinator() &&
+            getState('network.sessionCode') === sessionCode &&
+            currentRoom.roomId === room.roomId &&
+            currentRoom.epoch === room.epoch &&
+            getCurrentQueueItemId() === currentQueueItemId &&
+            getState('files.current') === residentFile &&
+            getCurrentAudioBuffer() === buffer
+          );
+        };
+        const publishStartedPlay = (): void => {
+          if (published || !occurrenceStillCurrent() || !isFilePlaybackPlaying()) return;
+          published = true;
+          broadcast({
+            type: MSG.PLAY,
+            time: pausedAt,
+            queueItemId: currentQueueItemId,
+            hostPlayAt,
+          });
+        };
+
+        void play(pausedAt, SCHEDULE_AHEAD_MS / 1_000, localPlayAt, occurrenceStillCurrent, {
+          onRecoveredStarted: publishStartedPlay,
+        })
+          .then((started) => {
+            if (started) publishStartedPlay();
+          })
+          .catch((error) => log.warn('[Play] Failed to start host toggle:', error));
+      } else {
+        void play(pausedAt);
+        broadcast({
+          type: MSG.PLAY,
+          time: pausedAt,
+          queueItemId: currentQueueItemId,
+          hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+        });
+      }
     } else if (canControlPlayback) {
       if (currentQueueItemId) {
         sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt, queueItemId: currentQueueItemId });

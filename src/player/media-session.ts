@@ -39,6 +39,24 @@ import {
 } from '../youtube/native-control-authority.ts';
 import { t } from '../i18n/index.ts';
 
+type PlaybackAudioSession = {
+  type: 'auto' | 'playback' | 'transient' | 'transient-solo' | 'ambient';
+};
+
+function requestPlaybackAudioSession(): void {
+  const audioSession = (navigator as Navigator & { audioSession?: PlaybackAudioSession })
+    .audioSession;
+  if (!audioSession) return;
+  try {
+    // Safari exposes this independently from Media Session. Selecting the
+    // playback category is the strongest progressive-enhancement hint that a
+    // local music session should remain audible while the PWA is backgrounded.
+    audioSession.type = 'playback';
+  } catch (error) {
+    log.debug('[MediaSession] Playback audio session is unavailable:', error);
+  }
+}
+
 function mediaSessionStateFromActivity(activity: PlaybackActivityValue): MediaSessionPlaybackState {
   if (activity === 'playing') return 'playing';
   if (activity === 'paused') return 'paused';
@@ -121,6 +139,7 @@ export function updateMediaSessionMetadata(item: Partial<TrackMeta> | null): voi
 
 export function initMediaSession(): void {
   initYouTubeNativeControlAuthority();
+  requestPlaybackAudioSession();
   if (!('mediaSession' in navigator)) return;
   log.debug('[MediaSession] Initializing action handlers...');
 

@@ -44,6 +44,7 @@ import { prepareSetupStartFromGesture } from './setup-start.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
 import { enterProRoomFromSetup } from '../pro-room/setup-flow.ts';
 import { initGuestQrScanner, stopGuestQrScanner } from './setup-qr-scanner.ts';
+import { isStandardRoomRole } from '../rooms/authority.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -295,7 +296,7 @@ function proceedToGuestCode(mode: number): void {
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
   initGuestQrScanner({
     isCurrent: () =>
-      getState('network.appRole') === 'guest' &&
+      isStandardRoomRole('guest') &&
       !getState('setup.sessionStarted') &&
       !getState('network.isConnecting') &&
       !input?.disabled &&

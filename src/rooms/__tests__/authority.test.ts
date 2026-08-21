@@ -8,6 +8,7 @@ import {
   isAuthoritativeConnection,
   isCoordinator,
   isStandardRoomMember,
+  isStandardRoomRole,
   setRoomContext,
   verifyPeerCapability,
 } from '../authority.ts';
@@ -52,6 +53,23 @@ function proContext(overrides: Partial<RoomContext> = {}): RoomContext {
 beforeEach(() => resetState());
 
 describe('room authority compatibility layer', () => {
+  it('projects setup-side roles only for standard rooms', () => {
+    expect(isStandardRoomRole('host')).toBe(false);
+    expect(isStandardRoomRole('guest')).toBe(false);
+
+    setState('network.appRole', 'host');
+    expect(isStandardRoomRole('host')).toBe(true);
+    expect(isStandardRoomRole('guest')).toBe(false);
+
+    setState('network.appRole', 'guest');
+    expect(isStandardRoomRole('host')).toBe(false);
+    expect(isStandardRoomRole('guest')).toBe(true);
+
+    setRoomContext(proContext());
+    expect(isStandardRoomRole('host')).toBe(false);
+    expect(isStandardRoomRole('guest')).toBe(false);
+  });
+
   it('identifies only the participant side of a standard room', () => {
     expect(isStandardRoomMember()).toBe(false);
 

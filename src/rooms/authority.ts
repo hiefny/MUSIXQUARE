@@ -70,9 +70,19 @@ export function isActiveStandardRoomCoordinator(): boolean {
   );
 }
 
+/**
+ * Whether the standard-room transport currently projects the requested setup
+ * side. This is a lifecycle query, not a grant of room authority.
+ */
+export function isStandardRoomRole(role: 'host' | 'guest'): boolean {
+  const context = getRoomContext();
+  if (context.kind !== 'standard') return false;
+  return getState('network.appRole') === role;
+}
+
 /** Whether this tab is the participant side of a standard room. */
 export function isStandardRoomMember(): boolean {
-  return getRoomContext().kind === 'standard' && getState('network.appRole') === 'guest';
+  return isStandardRoomRole('guest');
 }
 
 function getAuthorityConnection(): DataConnection | null {

@@ -20,7 +20,13 @@ the licensing and copyright information distributed with those components.
 - **License**: MIT License
 - **Copyright**: Copyright (c) 2025 ZachHandley
 
-## 4. Google Material Icons (Selected Inline SVG Paths)
+## 4. jsQR (QR Code Scanning)
+
+- **License**: Apache License 2.0
+- **Source**: https://github.com/cozmo/jsQR
+- **License text**: See “Apache License 2.0” under License Summaries below.
+
+## 5. Google Material Icons (Selected Inline SVG Paths)
 
 - **License**: Apache License 2.0
 - **Source**: https://github.com/google/material-design-icons

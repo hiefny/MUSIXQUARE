@@ -8,6 +8,7 @@
  */
 
 import { bus } from '../core/events.ts';
+import { PLAYBACK_STATE } from '../core/constants.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { delay } from '../core/timers.ts';
@@ -462,6 +463,7 @@ function emitUnhealthyRecovery(
  */
 function scheduleAutomaticClockVerification(recovery: PendingContextRecovery): void {
   if (
+    document.visibilityState !== 'visible' ||
     recovery.automaticHealthProbe ||
     !recoveryStillOwnsAttempt(recovery) ||
     recovery.phase !== 'awaiting-clock-verification'
@@ -889,6 +891,26 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
   if (pendingRecovery) retireRecovery(pendingRecovery);
   activeRecoveryAttempt = null;
 
+  const continueRecoveryInForeground = (recovery: PendingContextRecovery): void => {
+    if (
+      disposed ||
+      activeBindingToken !== bindingToken ||
+      document.visibilityState !== 'visible' ||
+      !recoveryStillOwnsAttempt(recovery) ||
+      !identityStillCurrent(recovery.identity) ||
+      recovery.cause !== 'state-interruption'
+    ) {
+      return;
+    }
+    if (recovery.phase === 'awaiting-resume' && isPreparedState(context)) {
+      void resumeContext(recovery, 'automatic');
+      return;
+    }
+    if (recovery.phase === 'awaiting-clock-verification' && String(context.state) === 'running') {
+      scheduleAutomaticClockVerification(recovery);
+    }
+  };
+
   const handleVisibilityChange = (): void => {
     if (disposed || activeBindingToken !== bindingToken) return;
     if (document.visibilityState === 'hidden') {
@@ -912,13 +934,18 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
         if (foregroundHealthToken === foregroundCheck.token) foregroundHealthToken = null;
       }
       if (recovery.cause === 'state-interruption') {
-        if (recovery.phase === 'awaiting-resume' && isPreparedState(context)) {
-          void resumeContext(recovery, 'automatic');
-        } else if (
-          recovery.phase === 'awaiting-clock-verification' &&
-          String(context.state) === 'running'
-        ) {
-          scheduleAutomaticClockVerification(recovery);
+        if (recovery.phase === 'automatic-resuming') {
+          // A hidden iOS resume may leave its native Promise unresolved until
+          // after the page is visible again. Follow the bounded flight rather
+          // than abandoning foreground recovery in `automatic-resuming`.
+          // Once its deadline settles the phase, retry a still-prepared
+          // context or begin the foreground-only clock proof.
+          const hiddenResume = recovery.automaticResume;
+          if (hiddenResume) {
+            void hiddenResume.then(() => continueRecoveryInForeground(recovery));
+          }
+        } else {
+          continueRecoveryInForeground(recovery);
         }
       }
       return;
@@ -929,6 +956,10 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
   const handleStateChange = (): void => {
     if (disposed || activeBindingToken !== bindingToken) return;
     const state = String(context.state);
+    // WebKit does not guarantee visibilitychange is delivered before the
+    // native AudioContext interruption. Remember the hidden interval from
+    // either signal so the matching visible event cannot be discarded.
+    if (document.visibilityState === 'hidden') observedHidden = true;
     if (
       (state === 'suspended' || state === 'interrupted') &&
       isForegroundAudioContextRestartSuspendOwned(context)
@@ -967,7 +998,21 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
 
       log.info(`[Audio] AudioContext ${state} — auto-resuming`);
       if (recovery) {
-        if (document.visibilityState === 'visible' && !recovery.gestureResume) {
+        // An active local-file output is allowed to keep its native audio
+        // session alive while iOS moves the page to the background. Calling
+        // resume() here is deliberately best-effort and synchronous with the
+        // native statechange; health proof, UI, and room rejoin remain gated
+        // by scheduleAutomaticClockVerification() until foreground. YouTube
+        // and idle contexts have no Web Audio output to preserve and must not
+        // manufacture a hidden resume.
+        const canAttemptHiddenFileResume =
+          document.visibilityState === 'hidden' &&
+          identity?.mode === 'file' &&
+          getState('playback.lifecycle') === PLAYBACK_STATE.PLAYING;
+        if (
+          (document.visibilityState === 'visible' || canAttemptHiddenFileResume) &&
+          !recovery.gestureResume
+        ) {
           void resumeContext(recovery, 'automatic');
         }
       } else if (document.visibilityState === 'visible' && !resumeWithoutPlayback) {

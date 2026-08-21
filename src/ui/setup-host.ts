@@ -41,6 +41,7 @@ import { animateTransition } from './dom.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
 import { resetHostInviteVisual, revealHostInviteQr } from './setup-host-invite.ts';
+import { isStandardRoomRole } from '../rooms/authority.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
   const flowId = incrementHostCodeFlowId();
   const inviteFlowIsCurrent = (): boolean =>
     flowId === getHostCodeFlowId() &&
-    getState('network.appRole') === 'host' &&
+    isStandardRoomRole('host') &&
     !getState('setup.sessionStarted');
   setupSetHostError(null);
   resetHostInviteVisual();

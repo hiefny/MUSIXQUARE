@@ -16,7 +16,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v466"></script>
+    <script src="/bootstrap.js?cache=v467"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -2603,7 +2603,7 @@
                 </svg>
               </button>
               <div id="setup-qr-camera" class="setup-qr-camera" hidden>
-                <video id="setup-qr-video" autoplay muted playsinline></video>
+                <video id="setup-qr-video" preload="none" muted playsinline></video>
                 <div class="setup-qr-camera-blur" aria-hidden="true"></div>
                 <svg class="setup-qr-camera-frame" viewBox="0 0 100 100" aria-hidden="true">
                   <path

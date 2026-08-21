@@ -129,8 +129,7 @@ function clearMediaSourceAttentionHint(): void {
   _mediaSourceAttentionEnd = null;
 }
 
-function revealMobileMediaSourceButton(): void {
-  if (window.innerWidth >= 1280) return;
+function revealMediaSourceButton(): void {
   const button = document.getElementById('btn-media-source') as HTMLButtonElement | null;
   if (!button) return;
 
@@ -1793,7 +1792,7 @@ export function initPlayerControls(): void {
   _busScope.on('ui:show-toast', (message) => {
     showToast(message);
   });
-  _busScope.on('ui:reveal-media-source', revealMobileMediaSourceButton);
+  _busScope.on('ui:reveal-media-source', revealMediaSourceButton);
 
   // Play button state (enabled/disabled)
   // aria-disabled instead of HTML `disabled` so the click handler still

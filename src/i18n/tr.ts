@@ -357,6 +357,7 @@ const tr: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'Kamera izni yok',
   'setup.camera_not_found': 'Kullanılabilir kamera bulunamadı',
   'setup.camera_unavailable': 'Kamera başlatılamadı',
+  'setup.camera_stream_stalled': 'Kamera önizlemesi başlamadı.\nTarayıcıda açın veya kodu girin.',
   'setup.connect_devices': 'Şimdi diğer cihazları bağla.',
   'setup.enter_code_connect': 'Davet kodu',
   'setup.last_step': 'Başlayalım mı?',

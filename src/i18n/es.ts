@@ -366,6 +366,8 @@ const es: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'No tienes permiso para usar la cámara',
   'setup.camera_not_found': 'No se encontró una cámara disponible',
   'setup.camera_unavailable': 'No se pudo iniciar la cámara',
+  'setup.camera_stream_stalled':
+    'La vista de la cámara no se inició.\nÁbrela en el navegador o introduce el código.',
   'setup.connect_devices': 'Conecta tus otros dispositivos para comenzar.',
   'setup.enter_code_connect': 'Código de invitación',
   'setup.last_step': '¡Empecemos!',

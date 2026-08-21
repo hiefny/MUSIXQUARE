@@ -366,6 +366,8 @@ const id: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'Izin kamera tidak diberikan',
   'setup.camera_not_found': 'Tidak ada kamera yang dapat digunakan',
   'setup.camera_unavailable': 'Kamera tidak dapat dimulai',
+  'setup.camera_stream_stalled':
+    'Pratinjau kamera tidak dimulai.\nBuka di browser atau masukkan kode.',
   'setup.connect_devices': 'Sekarang hubungkan perangkat lain.',
   'setup.enter_code_connect': 'Kode undangan',
   'setup.last_step': 'Mari mulai!',

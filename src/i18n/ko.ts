@@ -354,6 +354,8 @@ const ko = {
   'setup.camera_permission_denied': '카메라 권한이 없어요',
   'setup.camera_not_found': '사용 가능한 카메라가 없어요',
   'setup.camera_unavailable': '카메라를 시작할 수 없어요',
+  'setup.camera_stream_stalled':
+    '카메라 화면을 불러오지 못했어요.\n브라우저에서 열거나 코드를 입력해 주세요.',
   'setup.connect_devices': '이제 다른 기기들과 연결해주세요.',
   'setup.enter_code_connect': '초대 코드',
   'setup.last_step': '시작해볼까요?',

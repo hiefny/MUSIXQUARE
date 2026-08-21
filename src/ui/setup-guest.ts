@@ -315,8 +315,10 @@ function proceedToGuestCode(mode: number): void {
           ? 'setup.camera_permission_denied'
           : reason === 'camera-not-found'
             ? 'setup.camera_not_found'
-            : 'setup.camera_unavailable';
-      showToast(t(messageKey));
+            : reason === 'camera-start-stalled'
+              ? 'setup.camera_stream_stalled'
+              : 'setup.camera_unavailable';
+      showToast(t(messageKey), reason === 'camera-start-stalled' ? { durationMs: 6000 } : {});
     },
   });
 

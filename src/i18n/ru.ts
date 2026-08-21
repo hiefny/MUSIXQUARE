@@ -361,6 +361,8 @@ const ru: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'Нет разрешения на доступ к камере',
   'setup.camera_not_found': 'Подходящая камера не найдена',
   'setup.camera_unavailable': 'Не удалось запустить камеру',
+  'setup.camera_stream_stalled':
+    'Предпросмотр камеры не запустился.\nОткройте в браузере или введите код.',
   'setup.connect_devices': 'Теперь подключите другие устройства.',
   'setup.enter_code_connect': 'Код приглашения',
   'setup.last_step': 'Начнём?',

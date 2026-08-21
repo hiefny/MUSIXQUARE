@@ -358,6 +358,8 @@ const en: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'Camera permission is denied',
   'setup.camera_not_found': 'No usable camera found',
   'setup.camera_unavailable': 'Could not start the camera',
+  'setup.camera_stream_stalled':
+    'Camera preview did not start.\nOpen in the browser or enter the code.',
   'setup.connect_devices': 'Connect your other devices to begin.',
   'setup.enter_code_connect': 'Invitation code',
   'setup.last_step': "Let's get started!",

@@ -363,6 +363,8 @@ const nl: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'Geen toestemming voor de camera',
   'setup.camera_not_found': 'Geen bruikbare camera gevonden',
   'setup.camera_unavailable': 'Kan de camera niet starten',
+  'setup.camera_stream_stalled':
+    'Het camerabeeld is niet gestart.\nOpen de pagina in de browser of voer de code in.',
   'setup.connect_devices': 'Verbind je andere apparaten om te beginnen.',
   'setup.enter_code_connect': 'Uitnodigingscode',
   'setup.last_step': 'Laten we beginnen!',

@@ -6,7 +6,9 @@ import { resetState, setState } from '../../core/state.ts';
 const mocks = vi.hoisted(() => ({
   isPlayingFile: vi.fn(() => true),
   isPipelineBusy: vi.fn(() => false),
+  isSourceUsable: vi.fn(() => true),
   getBuffer: vi.fn(() => ({ duration: 120 }) as AudioBuffer | null),
+  getPlayerNode: vi.fn(() => ({ buffer: null }) as unknown as AudioBufferSourceNode | null),
 }));
 
 vi.mock('../../player/ownership.ts', () => ({
@@ -14,9 +16,11 @@ vi.mock('../../player/ownership.ts', () => ({
 }));
 vi.mock('../../player/transport.ts', () => ({
   isFilePipelineBusyForPlay: mocks.isPipelineBusy,
+  isFileSourceNodeUsable: mocks.isSourceUsable,
 }));
 vi.mock('../../player/_state.ts', () => ({
   getCurrentAudioBuffer: mocks.getBuffer,
+  getPlayerNode: mocks.getPlayerNode,
 }));
 
 class FakeAudioContext {
@@ -61,6 +65,9 @@ describe('foreground restart and background output inspection ownership', () => 
   beforeEach(() => {
     resetState();
     vi.clearAllMocks();
+    const buffer = { duration: 120 } as AudioBuffer;
+    mocks.getBuffer.mockReturnValue(buffer);
+    mocks.getPlayerNode.mockReturnValue({ buffer } as AudioBufferSourceNode);
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'visible',
@@ -94,6 +101,10 @@ describe('foreground restart and background output inspection ownership', () => 
     await expect(inspectBackgroundFileOutput()).resolves.toEqual({
       status: 'stale',
       reason: 'superseded',
+      rejoinRequired: false,
+      rejoinEmitted: false,
+      isCurrent: null,
+      isPlaybackCurrent: null,
     });
     expect(context.resume).not.toHaveBeenCalled();
     expect(preparation?.isCurrent()).toBe(true);

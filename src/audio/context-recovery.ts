@@ -18,6 +18,7 @@ import {
   bindRetiredAudioContextSuspendRecovery,
   consumeForegroundAudioContextClockHealthCheck,
   getPendingForegroundAudioContextClockHealthCheck,
+  isForegroundAudioContextRestartOwned,
   isForegroundAudioContextRestartSuspendOwned,
   probeAudioContextHealth,
   requestRetiredAudioContextSuspendCleanup,
@@ -882,6 +883,7 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
   let resumeWithoutPlayback: Promise<void> | null = null;
   let observedHidden = document.visibilityState === 'hidden';
   let foregroundHealthToken: object | null = null;
+  let hiddenContinuityCaptured = false;
   const bindingToken = {};
   activeBindingToken = bindingToken;
   const disposeRetiredSuspendRecovery = bindRetiredAudioContextSuspendRecovery(
@@ -911,14 +913,38 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
     }
   };
 
+  const captureHiddenContinuityIncident = (): void => {
+    if (hiddenContinuityCaptured) return;
+    const existingForegroundCheck = getPendingForegroundAudioContextClockHealthCheck();
+    if (
+      existingForegroundCheck?.context === context &&
+      isForegroundAudioContextRestartOwned(context)
+    ) {
+      // A prepared/gesture-verifying restart owns this token. Replacing it at
+      // a second hidden boundary would cancel the trusted recovery attempt.
+      foregroundHealthToken = existingForegroundCheck.token;
+      hiddenContinuityCaptured = true;
+      return;
+    }
+    foregroundHealthToken = armForegroundAudioContextClockHealthCheck(context, {
+      captureHiddenContinuity: true,
+    });
+    hiddenContinuityCaptured = foregroundHealthToken !== null;
+  };
+
   const handleVisibilityChange = (): void => {
     if (disposed || activeBindingToken !== bindingToken) return;
     if (document.visibilityState === 'hidden') {
+      // Capture the physical Web Audio clock at the actual hidden boundary.
+      // The earlier app-level resume listener can then inspect this exact
+      // incident on `visible`, independent of listener registration order.
+      captureHiddenContinuityIncident();
       observedHidden = true;
       return;
     }
     if (!observedHidden || document.visibilityState !== 'visible') return;
     observedHidden = false;
+    hiddenContinuityCaptured = false;
     let recovery = pendingRecovery?.context === context ? pendingRecovery : null;
     if (
       recovery &&
@@ -950,7 +976,17 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
       }
       return;
     }
-    foregroundHealthToken = armForegroundAudioContextClockHealthCheck(context);
+    const existingForegroundCheck = getPendingForegroundAudioContextClockHealthCheck();
+    if (existingForegroundCheck?.context === context) {
+      // A token captured on `hidden` owns this same visibility incident. Do
+      // not replace it with a visible-only token and discard its continuity
+      // evidence merely because this listener runs after the app guard.
+      foregroundHealthToken = existingForegroundCheck.token;
+    } else {
+      // Binding can be installed while already hidden, so retain a visible
+      // fallback for that bootstrap edge even though it has no hidden sample.
+      foregroundHealthToken = armForegroundAudioContextClockHealthCheck(context);
+    }
   };
 
   const handleStateChange = (): void => {
@@ -959,7 +995,10 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
     // WebKit does not guarantee visibilitychange is delivered before the
     // native AudioContext interruption. Remember the hidden interval from
     // either signal so the matching visible event cannot be discarded.
-    if (document.visibilityState === 'hidden') observedHidden = true;
+    if (document.visibilityState === 'hidden') {
+      captureHiddenContinuityIncident();
+      observedHidden = true;
+    }
     if (
       (state === 'suspended' || state === 'interrupted') &&
       isForegroundAudioContextRestartSuspendOwned(context)

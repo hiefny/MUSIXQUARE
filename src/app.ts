@@ -67,6 +67,7 @@ import {
   confirmPendingAudioContextRecoveryHealth,
   escalatePendingAudioContextRecoveryToClockStalled,
   getPendingAudioContextClockHealthRequirement,
+  getPendingAudioContextRecoveryAttemptForHealth,
   getPendingAudioContextInterruptionAttempt,
   hasPendingAudioContextInterruption,
   isAudioContextInterruptionAttemptCurrent,
@@ -714,8 +715,22 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
 async function resumeAudioForBackgroundRecovery(): Promise<void> {
   if (!isPlaybackPlayingFile()) return;
 
+  // The app guard is registered before the lazily-created AudioContext
+  // binding. Yield one task so every visibility listener can publish its
+  // exact incident before the inspector captures one-shot recovery tokens.
+  await delay(0);
+  if (!isPlaybackPlayingFile()) return;
+
   const output = await inspectBackgroundFileOutput();
-  if (output.status === 'stale') return;
+  if (output.status === 'stale') {
+    // A native state-interruption attempt is the sole owner of its async
+    // proof and any recovery prompt. Suppress the generic long-background
+    // dialog while that owner is pending so the two dialogs cannot race.
+    if (getPendingAudioContextRecoveryAttemptForHealth()) {
+      suppressLongBackgroundWarningForIncident = true;
+    }
+    return;
+  }
   if (output.status === 'needs-gesture') {
     const reason = output.reason === 'clock-stalled' ? 'clock-stalled' : 'context-not-running';
     suppressLongBackgroundWarningForIncident = true;
@@ -730,17 +745,26 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
   }
   if (output.status === 'not-applicable') return;
 
-  if (isAudioReady()) await applySettingsAsync();
+  // applySettingsAsync is intentionally synchronous; do not insert a
+  // microtask gap between the inspector's exact source claim and rejoin.
+  if (isAudioReady()) applySettingsAsync();
+  if (output.isCurrent?.() !== true) return;
   const lockRecovery = recoverStalePlayLock('background-resume', Date.now(), {
     preservePlaybackState: true,
   });
   if (lockRecovery.recovered) {
     log.warn('[Audio] Foreground recovery discarded a stalled play owner', lockRecovery.snapshot);
   }
+  if (output.rejoinEmitted || (!output.rejoinRequired && !lockRecovery.recovered)) return;
+  const rejoinIdentityCurrent = lockRecovery.recovered
+    ? output.isPlaybackCurrent?.() === true
+    : output.isCurrent?.() === true;
+  if (!rejoinIdentityCurrent) return;
   bus.emit('playback:local-output-rejoin', {
     reason: 'background-resume',
     mode: 'file',
-    isCurrent: () => isPlaybackPlayingFile() && !isLocalFilePaused(),
+    isCurrent: () =>
+      output.isPlaybackCurrent?.() === true && isPlaybackPlayingFile() && !isLocalFilePaused(),
   });
 }
 

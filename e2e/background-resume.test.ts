@@ -17,7 +17,9 @@ import {
 
 interface ResumeSignals {
   rejoinReasons: string[];
+  refreshCurrentPosition: number;
   forceResync: number;
+  sourceCreations: number;
 }
 
 async function createMobileResumePage(browser: Browser): Promise<{
@@ -46,24 +48,37 @@ async function installResumeSignalProbe(page: Page): Promise<void> {
       | undefined;
     if (!bus) throw new Error('E2E bus hook unavailable');
 
-    const signals: ResumeSignals = { rejoinReasons: [], forceResync: 0 };
+    const signals: ResumeSignals = {
+      rejoinReasons: [],
+      refreshCurrentPosition: 0,
+      forceResync: 0,
+      sourceCreations: 0,
+    };
     w.__backgroundResumeSignals = signals;
     bus.on('playback:local-output-rejoin', (payload) => {
       const reason = (payload as { reason?: unknown } | undefined)?.reason;
       if (typeof reason === 'string') signals.rejoinReasons.push(reason);
     });
+    bus.on('playback:refresh-current-position', () => {
+      signals.refreshCurrentPosition += 1;
+    });
     bus.on('sync:force-resync', () => {
       signals.forceResync += 1;
     });
+
+    // Install after initial playback is established. Any subsequent source
+    // creation therefore proves that foreground recovery rebuilt the audible
+    // source instead of preserving continuity.
+    const originalCreateBufferSource = AudioContext.prototype.createBufferSource;
+    AudioContext.prototype.createBufferSource = function (this: AudioContext) {
+      signals.sourceCreations += 1;
+      return originalCreateBufferSource.call(this);
+    };
   });
 }
 
 async function simulateBackgroundBounce(page: Page, hiddenMs: number): Promise<void> {
-  await page.evaluate((elapsed) => {
-    const realNow = Date.now;
-    const start = realNow();
-    let now = start;
-
+  await page.evaluate(async (elapsed) => {
     const setVisibility = (value: DocumentVisibilityState): void => {
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,
@@ -75,13 +90,11 @@ async function simulateBackgroundBounce(page: Page, hiddenMs: number): Promise<v
       });
     };
 
-    Date.now = () => now;
     setVisibility('hidden');
     document.dispatchEvent(new Event('visibilitychange'));
-    now = start + elapsed;
+    await new Promise<void>((resolve) => window.setTimeout(resolve, elapsed));
     setVisibility('visible');
     document.dispatchEvent(new Event('visibilitychange'));
-    Date.now = realNow;
   }, hiddenMs);
 }
 
@@ -139,16 +152,16 @@ test.describe('Mobile Background Resume', () => {
 
       await installResumeSignalProbe(page);
       await simulateBackgroundBounce(page, 2_000);
+      await page.waitForTimeout(1_000);
 
-      await page.waitForFunction(
-        () => {
-          const signals = (window as unknown as Record<string, unknown>)
-            .__backgroundResumeSignals as ResumeSignals | undefined;
-          return signals?.rejoinReasons.includes('background-resume') === true;
-        },
-        undefined,
-        { timeout: 10_000 },
-      );
+      const healthySignals = await page.evaluate(() => {
+        return (window as unknown as Record<string, unknown>)
+          .__backgroundResumeSignals as ResumeSignals;
+      });
+      expect(healthySignals.rejoinReasons).toEqual([]);
+      expect(healthySignals.refreshCurrentPosition).toBe(0);
+      expect(healthySignals.forceResync).toBe(0);
+      expect(healthySignals.sourceCreations).toBe(0);
       await expect(page.locator('#dialog-overlay.show')).toHaveCount(0);
 
       await emitDetectedClockStall(page);
@@ -166,18 +179,29 @@ test.describe('Mobile Background Resume', () => {
         undefined,
         { timeout: 10_000 },
       );
+      await page.waitForFunction(
+        () => {
+          const signals = (window as unknown as Record<string, unknown>)
+            .__backgroundResumeSignals as ResumeSignals | undefined;
+          return signals?.refreshCurrentPosition === 1 && signals.sourceCreations === 1;
+        },
+        undefined,
+        { timeout: 10_000 },
+      );
 
       const signals = await page.evaluate(() => {
         return (window as unknown as Record<string, unknown>)
           .__backgroundResumeSignals as ResumeSignals;
       });
       expect(signals.rejoinReasons.filter((reason) => reason === 'background-resume')).toHaveLength(
-        1,
+        0,
       );
       expect(
         signals.rejoinReasons.filter((reason) => reason === 'audio-recovery-gesture'),
       ).toHaveLength(1);
+      expect(signals.refreshCurrentPosition).toBe(1);
       expect(signals.forceResync).toBe(0);
+      expect(signals.sourceCreations).toBe(1);
 
       await expect(page.locator('#dialog-overlay.show')).toHaveCount(0);
       await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);

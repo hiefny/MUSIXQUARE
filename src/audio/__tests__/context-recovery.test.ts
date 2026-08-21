@@ -149,6 +149,13 @@ describe('AudioContext interruption recovery', () => {
         reason: 'audio-context-recovered',
         mode: 'file',
       });
+
+      // Duplicate foreground notifications belong to the same visibility
+      // occurrence and must not resume or rebuild output a second time.
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(360);
+      expect(context.resume).toHaveBeenCalledOnce();
+      expect(rejoin).toHaveBeenCalledOnce();
     } finally {
       vi.useRealTimers();
     }
@@ -355,14 +362,25 @@ describe('AudioContext interruption recovery', () => {
     expect(hasPendingAudioContextInterruption('file')).toBe(true);
   });
 
-  it('arms one clock check on hidden-to-visible even while playback is ready', () => {
+  it('lets an earlier visible listener observe the hidden token and reuses it exactly once', () => {
     const context = new FakeAudioContext();
+    let tokenSeenByEarlierListener: object | null = null;
+    const earlierVisibilityListener = (): void => {
+      if (document.visibilityState !== 'visible') return;
+      tokenSeenByEarlierListener =
+        getPendingForegroundAudioContextClockHealthCheck()?.token ?? null;
+    };
+    document.addEventListener('visibilitychange', earlierVisibilityListener);
     const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden',
     });
     document.dispatchEvent(new Event('visibilitychange'));
+    const hiddenRequirement = getPendingForegroundAudioContextClockHealthCheck();
+    expect(hiddenRequirement?.context).toBe(context);
+    expect(hiddenRequirement?.isCurrent()).toBe(true);
+
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'visible',
@@ -370,9 +388,16 @@ describe('AudioContext interruption recovery', () => {
     document.dispatchEvent(new Event('visibilitychange'));
 
     const requirement = getPendingForegroundAudioContextClockHealthCheck();
+    expect(tokenSeenByEarlierListener).toBe(hiddenRequirement?.token);
+    expect(requirement?.token).toBe(hiddenRequirement?.token);
     expect(requirement?.context).toBe(context);
     expect(requirement?.isCurrent()).toBe(true);
+    expect(consumeForegroundAudioContextClockHealthCheck(requirement!.token)).toBe(true);
+    expect(consumeForegroundAudioContextClockHealthCheck(requirement!.token)).toBe(false);
+    document.dispatchEvent(new Event('visibilitychange'));
+    expect(getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
     dispose();
+    document.removeEventListener('visibilitychange', earlierVisibilityListener);
     expect(getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
   });
 
@@ -391,6 +416,32 @@ describe('AudioContext interruption recovery', () => {
     expect(preparation?.status).toBe('prepared');
     expect(context.resume).not.toHaveBeenCalled();
     expect(context.state).toBe('suspended');
+    consumeForegroundAudioContextClockHealthCheck(checkToken!);
+    dispose();
+  });
+
+  it('keeps a prepared foreground restart token across a second hidden transition', async () => {
+    const context = new FakeAudioContext();
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    const checkToken = armForegroundAudioContextClockHealthCheck(
+      context as unknown as AudioContext,
+    );
+    const preparation = await prepareForegroundAudioContextRestart(checkToken!);
+
+    expect(preparation?.status).toBe('prepared');
+    expect(preparation?.isCurrent()).toBe(true);
+    expect(context.suspend).toHaveBeenCalledOnce();
+
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(getPendingForegroundAudioContextClockHealthCheck()?.token).toBe(checkToken);
+    expect(preparation?.isCurrent()).toBe(true);
+    expect(context.suspend).toHaveBeenCalledOnce();
+
     consumeForegroundAudioContextClockHealthCheck(checkToken!);
     dispose();
   });

@@ -13,6 +13,9 @@ interface ForegroundClockHealthIncident {
   readonly context: AudioContext;
   readonly token: object;
   readonly generation: number;
+  /** Exact hidden-boundary samples for proving that the native clock continued. */
+  readonly hiddenAtWallMs: number | null;
+  readonly hiddenAtContextSeconds: number | null;
 }
 
 type ForegroundRestartPhase =
@@ -100,6 +103,12 @@ interface ForegroundAudioContextClockHealthCheck {
   readonly context: AudioContext;
   readonly token: object;
   readonly isCurrent: () => boolean;
+  /**
+   * Wall time which was not matched by AudioContext.currentTime while hidden.
+   * `null` means this token was armed as a visible fallback without a hidden
+   * boundary, so callers must not infer an output discontinuity from it.
+   */
+  readonly getHiddenContinuityGapSeconds: () => number | null;
 }
 
 interface ForegroundAudioContextRestartPreparation {
@@ -520,6 +529,7 @@ export function isForegroundAudioContextRestartSuspendOwned(context: AudioContex
  */
 export function armForegroundAudioContextClockHealthCheck(
   context: AudioContext | null = _ctx,
+  options: { captureHiddenContinuity?: boolean } = {},
 ): object | null {
   if (!context || String(context.state) === 'closed') return null;
   if (pendingForegroundRestartAttempt) {
@@ -529,6 +539,11 @@ export function armForegroundAudioContextClockHealthCheck(
     context,
     token: {},
     generation: ++foregroundClockHealthGeneration,
+    hiddenAtWallMs: options.captureHiddenContinuity === true ? Date.now() : null,
+    hiddenAtContextSeconds:
+      options.captureHiddenContinuity === true && Number.isFinite(context.currentTime)
+        ? context.currentTime
+        : null,
   };
   pendingForegroundClockHealthIncident = incident;
   return incident.token;
@@ -545,6 +560,22 @@ export function getPendingForegroundAudioContextClockHealthCheck(): ForegroundAu
       pendingForegroundClockHealthIncident === incident &&
       foregroundClockHealthGeneration === incident.generation &&
       String(incident.context.state) !== 'closed',
+    getHiddenContinuityGapSeconds: () => {
+      if (
+        pendingForegroundClockHealthIncident !== incident ||
+        foregroundClockHealthGeneration !== incident.generation ||
+        incident.hiddenAtWallMs === null ||
+        incident.hiddenAtContextSeconds === null
+      ) {
+        return null;
+      }
+      const wallElapsedSeconds = Math.max(0, Date.now() - incident.hiddenAtWallMs) / 1_000;
+      const contextElapsedSeconds = Math.max(
+        0,
+        incident.context.currentTime - incident.hiddenAtContextSeconds,
+      );
+      return Math.max(0, wallElapsedSeconds - contextElapsedSeconds);
+    },
   };
 }
 

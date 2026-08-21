@@ -353,6 +353,7 @@ const th: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'ไม่ได้รับอนุญาตให้ใช้กล้อง',
   'setup.camera_not_found': 'ไม่พบกล้องที่ใช้งานได้',
   'setup.camera_unavailable': 'ไม่สามารถเปิดกล้องได้',
+  'setup.camera_stream_stalled': 'ไม่สามารถเริ่มภาพจากกล้องได้\nโปรดเปิดในเบราว์เซอร์หรือกรอกรหัส',
   'setup.connect_devices': 'ตอนนี้มาเชื่อมต่ออุปกรณ์อื่นกัน',
   'setup.enter_code_connect': 'รหัสเชิญ',
   'setup.last_step': 'พร้อมจะเริ่มแล้วหรือยัง?',

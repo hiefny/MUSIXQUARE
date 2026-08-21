@@ -365,6 +365,8 @@ const de: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'Keine Kameraberechtigung',
   'setup.camera_not_found': 'Keine verwendbare Kamera gefunden',
   'setup.camera_unavailable': 'Kamera konnte nicht gestartet werden',
+  'setup.camera_stream_stalled':
+    'Die Kameravorschau wurde nicht gestartet.\nÖffne sie im Browser oder gib den Code ein.',
   'setup.connect_devices': 'Verbinde jetzt weitere Geräte.',
   'setup.enter_code_connect': 'Einladungscode',
   'setup.last_step': 'Los geht’s!',

@@ -362,6 +362,8 @@ const ja: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'カメラの使用が許可されていません',
   'setup.camera_not_found': '使用できるカメラが見つかりません',
   'setup.camera_unavailable': 'カメラを起動できません',
+  'setup.camera_stream_stalled':
+    'カメラ映像を開始できませんでした。\nブラウザで開くか、コードを入力してください。',
   'setup.connect_devices': '他のデバイスを接続しましょう。',
   'setup.enter_code_connect': '招待コード',
   'setup.last_step': 'さあ、始めましょう！',

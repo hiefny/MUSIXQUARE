@@ -364,6 +364,8 @@ const ptBr: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'Sem permissão para usar a câmera',
   'setup.camera_not_found': 'Nenhuma câmera disponível encontrada',
   'setup.camera_unavailable': 'Não foi possível iniciar a câmera',
+  'setup.camera_stream_stalled':
+    'A prévia da câmera não iniciou.\nAbra no navegador ou digite o código.',
   'setup.connect_devices': 'Agora conecte outros dispositivos.',
   'setup.enter_code_connect': 'Código de convite',
   'setup.last_step': 'Vamos começar!',

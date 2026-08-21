@@ -349,6 +349,7 @@ const zhHans: Record<I18nKey, string> = {
   'setup.camera_permission_denied': '没有相机权限',
   'setup.camera_not_found': '未找到可用的相机',
   'setup.camera_unavailable': '无法启动相机',
+  'setup.camera_stream_stalled': '相机画面未能启动。\n请在浏览器中打开或输入代码。',
   'setup.connect_devices': '立即连接你的其他设备以开始。',
   'setup.enter_code_connect': '邀请码',
   'setup.last_step': '让我们开始吧！',

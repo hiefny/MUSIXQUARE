@@ -360,6 +360,8 @@ const vi: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'Chưa cấp quyền truy cập camera',
   'setup.camera_not_found': 'Không tìm thấy camera có thể sử dụng',
   'setup.camera_unavailable': 'Không thể khởi động camera',
+  'setup.camera_stream_stalled':
+    'Không thể mở hình ảnh camera.\nHãy mở trong trình duyệt hoặc nhập mã.',
   'setup.connect_devices': 'Giờ hãy kết nối các thiết bị khác.',
   'setup.enter_code_connect': 'Mã mời',
   'setup.last_step': 'Hãy bắt đầu!',

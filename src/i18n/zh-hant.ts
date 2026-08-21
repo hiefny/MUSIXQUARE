@@ -349,6 +349,7 @@ const zhHant: Record<I18nKey, string> = {
   'setup.camera_permission_denied': '沒有相機權限',
   'setup.camera_not_found': '找不到可用的相機',
   'setup.camera_unavailable': '無法啟動相機',
+  'setup.camera_stream_stalled': '相機畫面未能啟動。\n請在瀏覽器中開啟或輸入代碼。',
   'setup.connect_devices': '連接其他裝置即可開始。',
   'setup.enter_code_connect': '邀請碼',
   'setup.last_step': '讓我們開始吧！',

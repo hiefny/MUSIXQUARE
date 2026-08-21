@@ -363,6 +363,8 @@ const it: Record<I18nKey, string> = {
   'setup.camera_permission_denied': 'L’accesso alla fotocamera non è consentito',
   'setup.camera_not_found': 'Non è stata trovata una fotocamera utilizzabile',
   'setup.camera_unavailable': 'Impossibile avviare la fotocamera',
+  'setup.camera_stream_stalled':
+    'La fotocamera non si è avviata.\nApri nel browser o inserisci il codice.',
   'setup.connect_devices': 'Ora connetti altri dispositivi.',
   'setup.enter_code_connect': "Codice d'invito",
   'setup.last_step': 'Iniziamo!',

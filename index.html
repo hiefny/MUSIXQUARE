@@ -2523,83 +2523,31 @@
               <h2 data-i18n="setup.last_step"></h2>
               <p data-i18n="setup.connect_devices"></p>
             </div>
-            <div class="setup-guide-unified">
-              <div class="setup-unified-item">
-                <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
+            <div id="setup-host-invite-stage" class="setup-host-invite-stage">
+              <div
+                id="setup-host-qr-placeholder"
+                class="setup-host-qr setup-host-qr-placeholder"
+                aria-hidden="true"
+              >
+                <svg
+                  class="qr-svg"
+                  viewBox="0 0 25 25"
+                  shape-rendering="crispEdges"
+                  aria-hidden="true"
+                  focusable="false"
+                >
                   <path
-                    transform="translate(88, 10) scale(1)"
-                    fill="var(--primary)"
-                    d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"
+                    d="M2 2.5h7m1 0h1m3 0h1m1 0h7M2 3.5h1m5 0h1m1 0h2m1 0h1m2 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h4m1 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h7M2 10.5h2m2 0h3m5 0h1m2 0h1m1 0h4M3 11.5h2m1 0h1m2 0h2m3 0h1m3 0h1m2 0h2M4 12.5h3m1 0h3m3 0h2m5 0h2M4 13.5h1m1 0h1m2 0h1m3 0h4m1 0h1m1 0h3M3 14.5h1m2 0h1m1 0h1m3 0h2m2 0h4M10 15.5h2m1 0h4m2 0h1M2 16.5h7m2 0h1m1 0h1m1 0h1M2 17.5h1m5 0h1m1 0h1m1 0h1m4 0h2m2 0h2M2 18.5h1m1 0h3m1 0h1m1 0h1m3 0h1m2 0h1m1 0h1m2 0h1M2 19.5h1m1 0h3m1 0h1m2 0h2m1 0h2m5 0h2M2 20.5h1m1 0h3m1 0h1m2 0h2m1 0h1m2 0h1M2 21.5h1m5 0h1m1 0h1m1 0h3m2 0h1m2 0h1m1 0h1M2 22.5h7m1 0h1m1 0h2m1 0h2m1 0h1m2 0h2"
                   />
-                  <line
-                    x1="100"
-                    y1="36"
-                    x2="40"
-                    y2="55"
-                    class="graphic-line-active"
-                    stroke-opacity="0.5"
-                  />
-                  <line
-                    x1="100"
-                    y1="36"
-                    x2="80"
-                    y2="55"
-                    class="graphic-line-active"
-                    stroke-opacity="0.5"
-                  />
-                  <line
-                    x1="100"
-                    y1="36"
-                    x2="120"
-                    y2="55"
-                    class="graphic-line-active"
-                    stroke-opacity="0.5"
-                  />
-                  <line
-                    x1="100"
-                    y1="36"
-                    x2="160"
-                    y2="55"
-                    class="graphic-line-active"
-                    stroke-opacity="0.5"
-                  />
-                  <rect
-                    x="32"
-                    y="50"
-                    width="16"
-                    height="20"
-                    rx="3"
-                    class="graphic-device svg-stroke-primary"
-                  />
-                  <rect x="72" y="50" width="16" height="20" rx="3" class="graphic-device" />
-                  <rect x="112" y="50" width="16" height="20" rx="3" class="graphic-device" />
-                  <rect x="152" y="50" width="16" height="20" rx="3" class="graphic-device" />
                 </svg>
-                <div class="setup-inner-desc" data-i18n="help.connect_all_wifi"></div>
               </div>
-
-              <div class="setup-unified-item">
-                <svg class="setup-graphic-svg h-70" viewBox="0 0 200 90">
-                  <g transform="translate(0, 5)">
-                    <rect
-                      x="30"
-                      y="25"
-                      width="22"
-                      height="38"
-                      rx="4"
-                      class="graphic-device svg-stroke-primary"
-                    />
-                    <circle cx="41" cy="44" r="5" fill="var(--primary)" opacity="0.2" />
-                    <line x1="55" y1="44" x2="115" y2="15" class="graphic-line-active" />
-                    <line x1="55" y1="44" x2="135" y2="44" class="graphic-line-active" />
-                    <line x1="55" y1="44" x2="115" y2="73" class="graphic-line-active" />
-                    <rect x="120" y="5" width="16" height="26" rx="3" class="graphic-device" />
-                    <rect x="140" y="31" width="16" height="26" rx="3" class="graphic-device" />
-                    <rect x="120" y="57" width="16" height="26" rx="3" class="graphic-device" />
-                  </g>
-                </svg>
-                <div class="setup-inner-desc" data-i18n="help.wifi_hotspot"></div>
-              </div>
+              <div
+                id="setup-host-qr"
+                class="setup-host-qr setup-host-qr-room"
+                role="img"
+                aria-hidden="true"
+                data-i18n-aria-label="connect.qr_title"
+              ></div>
             </div>
 
             <div class="setup-code-area-bottom">
@@ -2637,66 +2585,40 @@
               <h2 data-i18n="setup.last_step"></h2>
               <p data-i18n="setup.enter_host_code_alt"></p>
             </div>
-            <div class="setup-guide-unified">
-              <div class="setup-unified-item">
-                <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
+            <div id="setup-guest-qr-stage" class="setup-guest-qr-stage">
+              <button
+                id="btn-setup-qr-scan"
+                class="setup-qr-scan-button"
+                type="button"
+                data-i18n-aria-label="setup.scan_qr"
+              >
+                <svg
+                  class="setup-qr-scan-symbol"
+                  viewBox="0 -960 960 960"
+                  aria-hidden="true"
+                >
                   <path
-                    transform="translate(88, 10) scale(1)"
-                    fill="var(--primary)"
-                    d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"
-                  />
-                  <line
-                    x1="100"
-                    y1="36"
-                    x2="65"
-                    y2="55"
-                    class="graphic-line-active"
-                    stroke-opacity="0.5"
-                  />
-                  <line
-                    x1="100"
-                    y1="36"
-                    x2="135"
-                    y2="55"
-                    class="graphic-line-active"
-                    stroke-opacity="0.5"
-                  />
-                  <rect x="57" y="50" width="16" height="20" rx="3" class="graphic-device" />
-                  <rect
-                    x="127"
-                    y="50"
-                    width="16"
-                    height="20"
-                    rx="3"
-                    class="graphic-device svg-stroke-primary"
+                    d="M480-260q75 0 127.5-52.5T660-440q0-75-52.5-127.5T480-620q-75 0-127.5 52.5T300-440q0 75 52.5 127.5T480-260Zm0-80q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM160-120q-33 0-56.5-23.5T80-200v-480q0-33 23.5-56.5T160-760h126l74-80h240l74 80h126q33 0 56.5 23.5T880-680v480q0 33-23.5 56.5T800-120H160Z"
                   />
                 </svg>
-                <div class="setup-inner-desc" data-i18n="help.connect_all_wifi"></div>
-              </div>
-
-              <div class="setup-unified-item">
-                <svg class="setup-graphic-svg h-70" viewBox="0 0 200 85">
-                  <g transform="translate(0, 5)">
-                    <rect x="50" y="25" width="18" height="30" rx="3" class="graphic-device" />
-                    <path d="M75 40 h50" class="graphic-line-active" />
-                    <rect
-                      x="132"
-                      y="25"
-                      width="18"
-                      height="30"
-                      rx="3"
-                      class="graphic-device svg-stroke-primary"
-                    />
-                    <text x="45" y="70" class="graphic-text text-10">HOST</text>
-                    <text x="125" y="70" class="graphic-text text-10" fill="var(--primary)">
-                      GUEST
-                    </text>
-                  </g>
+              </button>
+              <div id="setup-qr-camera" class="setup-qr-camera" hidden>
+                <video id="setup-qr-video" autoplay muted playsinline></video>
+                <div class="setup-qr-camera-blur" aria-hidden="true"></div>
+                <svg class="setup-qr-camera-frame" viewBox="0 0 100 100" aria-hidden="true">
+                  <path
+                    class="setup-qr-camera-corners"
+                    d="M30 12H12V30M70 12H88V30M88 70V88H70M30 88H12V70"
+                  />
                 </svg>
-                <div class="setup-inner-desc" data-i18n="help.wifi_hotspot"></div>
+                <button
+                  id="btn-setup-qr-close"
+                  class="setup-qr-close"
+                  type="button"
+                  data-i18n-aria-label="common.close"
+                ></button>
               </div>
             </div>
-
             <div class="setup-code-area-bottom">
               <div class="setup-code-label" data-i18n="setup.enter_host_code"></div>
               <input

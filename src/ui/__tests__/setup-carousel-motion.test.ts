@@ -463,6 +463,33 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toContain('animation: none !important;');
   });
 
+  it('reuses the welcome crossfade timing when the host guide becomes an invitation QR', async () => {
+    const markup = await readFile('index.html', 'utf8');
+    const stylesheet = await readFile('css/style.css', 'utf8');
+    const setupShared = await readFile('src/ui/setup-shared.ts', 'utf8');
+
+    expect(markup).toContain('id="setup-host-invite-stage"');
+    expect(markup).toContain('id="setup-host-qr-placeholder"');
+    expect(markup).toContain('id="setup-host-qr"');
+    expect(stylesheet).toContain(
+      '.setup-host-invite-stage.is-room-qr-visible > .setup-host-qr-placeholder',
+    );
+    expect(stylesheet).toContain(
+      '.setup-host-invite-stage.is-room-qr-visible > .setup-host-qr-room',
+    );
+    expect(stylesheet).toContain('opacity 0.36s ease-in');
+    expect(stylesheet).toContain('opacity 0.48s ease-out');
+    expect(stylesheet).toContain('.setup-host-qr {');
+    expect(stylesheet).toContain('transition: none !important;');
+    expect(stylesheet).toContain('@media (max-width: 719px) and (orientation: portrait)');
+    expect(
+      stylesheet.indexOf('@media (max-width: 719px) and (orientation: portrait)'),
+    ).toBeGreaterThan(stylesheet.indexOf('.setup-code-area-bottom {\n    margin-top: 40px;'));
+    expect(stylesheet).toContain('margin-top: 14px;');
+    expect(stylesheet).toContain('padding-top: 6px;');
+    expect(setupShared).toContain("el.querySelector('.setup-host-invite-stage')");
+  });
+
   it('welds animated wordmark joins without changing the reveal sequence', async () => {
     const markup = await readFile('index.html', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');

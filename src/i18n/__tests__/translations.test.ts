@@ -179,6 +179,9 @@ describe('Translation key integrity', () => {
       }
     }
 
+    expect(ko['setup.enter_code_connect']).toBe('초대 코드');
+    expect(en['setup.enter_code_connect']).toBe('Invitation code');
+
     expect(ko['setup.enter_host_code']).toBe('6자리 숫자를 입력해 주세요');
     expect(en['setup.enter_host_code']).toBe('Enter the 6-digit number');
   });

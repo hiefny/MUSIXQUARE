@@ -179,7 +179,7 @@ describe('initPlayerControls storage errors', () => {
 });
 
 describe('initPlayerControls empty-play media guidance', () => {
-  it.each([390, 844])(
+  it.each([390, 844, 1280, 1440])(
     'scrolls to, focuses, and restarts the three-pulse media hint at %ipx',
     (viewportWidth) => {
       const innerWidth = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(viewportWidth);
@@ -249,25 +249,6 @@ describe('initPlayerControls empty-play media guidance', () => {
       innerWidth.mockRestore();
       if (originalMatchMedia) Object.defineProperty(window, 'matchMedia', originalMatchMedia);
       else Reflect.deleteProperty(window, 'matchMedia');
-    }
-  });
-
-  it('keeps the existing toast-only behavior on desktop', () => {
-    const innerWidth = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
-    try {
-      document.body.innerHTML = '<button id="btn-media-source">Media</button>';
-      const button = document.getElementById('btn-media-source') as HTMLButtonElement;
-      const scrollIntoView = vi.fn();
-      button.scrollIntoView = scrollIntoView;
-
-      initPlayerControls();
-      bus.emit('ui:reveal-media-source');
-
-      expect(scrollIntoView).not.toHaveBeenCalled();
-      expect(document.activeElement).not.toBe(button);
-      expect(button.classList.contains('attention-hint')).toBe(false);
-    } finally {
-      innerWidth.mockRestore();
     }
   });
 });

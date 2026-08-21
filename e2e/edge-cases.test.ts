@@ -146,6 +146,26 @@ test.describe('Edge Cases', () => {
     expect(state).toBe('IDLE');
   });
 
+  test('empty desktop play keeps playback idle and highlights Media', async () => {
+    await connectHostAndGuest(pair.hostPage, pair.guestPage);
+    await pair.hostPage.setViewportSize({ width: 1440, height: 900 });
+    await navigateToTab(pair.hostPage, 'play');
+
+    const playButton = pair.hostPage.locator('#play-btn');
+    const mediaButton = pair.hostPage.locator('#btn-media-source');
+
+    // aria-disabled deliberately preserves the click event so empty-state
+    // guidance remains available on desktop as well as compact layouts.
+    await playButton.evaluate((button) => (button as HTMLButtonElement).click());
+
+    await expect(mediaButton).toBeFocused();
+    await expect(mediaButton).toHaveClass(/attention-hint/u);
+    await expect(pair.hostPage.locator('#toast-msg')).toContainText('Please add media');
+
+    const state = (await readPlaybackProjection(pair.hostPage)) as string;
+    expect(state).toBe('IDLE');
+  });
+
   // ── Upload While Playing ──────────────────────────────────
 
   test('uploading new file while playing does not interrupt current track', async () => {

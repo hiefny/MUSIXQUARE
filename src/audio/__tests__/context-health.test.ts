@@ -197,6 +197,36 @@ describe('AudioContext foreground health', () => {
     expect(module.getPendingForegroundAudioContextClockHealthCheck()).toBeNull();
   });
 
+  it('reports no hidden continuity gap when wall and AudioContext clocks advance together', async () => {
+    vi.setSystemTime(new Date('2026-08-22T00:00:00.000Z'));
+    const { instance, module } = await loadContext({ clock: 'running' });
+    const token = module.armForegroundAudioContextClockHealthCheck(
+      instance as unknown as AudioContext,
+      { captureHiddenContinuity: true },
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const requirement = module.getPendingForegroundAudioContextClockHealthCheck();
+    expect(requirement?.token).toBe(token);
+    expect(requirement?.getHiddenContinuityGapSeconds()).toBeCloseTo(0, 6);
+  });
+
+  it('reports the hidden continuity gap when wall time advances but AudioContext freezes', async () => {
+    vi.setSystemTime(new Date('2026-08-22T00:00:00.000Z'));
+    const { instance, module } = await loadContext({ clock: 'stalled' });
+    const token = module.armForegroundAudioContextClockHealthCheck(
+      instance as unknown as AudioContext,
+      { captureHiddenContinuity: true },
+    );
+
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    const requirement = module.getPendingForegroundAudioContextClockHealthCheck();
+    expect(requirement?.token).toBe(token);
+    expect(requirement?.getHiddenContinuityGapSeconds()).toBeCloseTo(2, 6);
+  });
+
   it('prepares and confirms an identity-less foreground restart only after clock health', async () => {
     const { instance, module } = await loadContext({ clock: 'running' });
     const checkToken = module.armForegroundAudioContextClockHealthCheck(

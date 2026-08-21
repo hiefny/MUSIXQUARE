@@ -186,6 +186,7 @@ import {
   applyProPlaybackFileCommit,
   getTrackPosition,
   getPlayLockSnapshot,
+  isFileSourceNodeUsable,
   pause,
   play,
   seekTo,
@@ -479,6 +480,21 @@ describe('standard host canonical file end boundary', () => {
     expect(ended).toHaveBeenCalledTimes(1);
   });
 
+  it('marks a naturally ended standard-host source unusable before canonical advancement', async () => {
+    activateStandardHost(0);
+    const buffer = { duration: 60 } as AudioBuffer;
+    setCurrentAudioBuffer(buffer);
+
+    await play(5);
+    const source = getPlayerNode() as (AudioBufferSourceNode & { onended: () => void }) | null;
+    expect(source).not.toBeNull();
+    expect(isFileSourceNodeUsable(source, buffer)).toBe(true);
+
+    source?.onended();
+
+    expect(isFileSourceNodeUsable(source, buffer)).toBe(false);
+  });
+
   it('advances the authoritative position while the host AudioContext clock is frozen', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
@@ -511,6 +527,32 @@ describe('standard host canonical file end boundary', () => {
     const rebuiltSource = getPlayerNode() as unknown as FakeSourceNode;
     expect(rebuiltSource.start).toHaveBeenCalledWith(0, expect.closeTo(13, 6));
     expect(getTrackPosition()).toBeCloseTo(13, 6);
+  });
+
+  it('catches up elapsed setup time when a necessary foreground refresh rebuilds the source', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
+    activateStandardHost(0);
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    initPlayback();
+
+    await play(5);
+    const originalSource = getPlayerNode();
+    const delayedResume = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(delayedResume.promise);
+
+    bus.emit('playback:refresh-current-position');
+    await vi.advanceTimersByTimeAsync(180);
+    expect(getPlayerNode()).toBe(originalSource);
+
+    delayedResume.resolve();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mocks.createBufferSource).toHaveBeenCalledTimes(2);
+    const rebuiltSource = getPlayerNode() as unknown as FakeSourceNode;
+    expect(rebuiltSource).not.toBe(originalSource);
+    expect(rebuiltSource.start).toHaveBeenCalledWith(0, expect.closeTo(5.18, 6));
   });
 
   it('keeps the sample clock authoritative in foreground and rejects wall-clock steps', async () => {

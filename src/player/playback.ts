@@ -798,6 +798,10 @@ export function initPlayback(): void {
     // A background resume may occur during a track change, while the resident
     // buffer still belongs to the previous track. Decode completion owns restart.
     if (isFilePipelineBusyForPlay()) return;
+    // Preserve the instant represented by `position` across any asynchronous
+    // AudioContext health/setup work inside play(). The absolute deadline
+    // makes a necessary rebuild catch up instead of restarting at stale time.
+    const capturedAt = performance.now();
     const position = getTrackPosition();
     // A standard host can return after its canonical wall timeline already
     // crossed the track boundary while Web Audio was frozen. Replaying exactly
@@ -812,7 +816,7 @@ export function initPlayback(): void {
       handleEnded();
       return;
     }
-    void play(position);
+    void play(position, 0, capturedAt);
   });
 
   // Safety polling: periodically check if track ended (called from UI loop)

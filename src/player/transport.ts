@@ -66,6 +66,15 @@ const STANDARD_HOST_PHYSICAL_REBASE_TOLERANCE_SEC = 0.25;
 const WALL_CLOCK_STEP_TOLERANCE_MS = 2_000;
 const PLAY_LOCK_WATCHDOG_MS = 15_000;
 const PLAY_LOCK_STALE_MS = 5_000;
+const naturallyEndedFileSources = new WeakSet<AudioBufferSourceNode>();
+
+/** Distinguish a retained but naturally-ended one-shot source from live output. */
+export function isFileSourceNodeUsable(
+  node: AudioBufferSourceNode | null,
+  buffer: AudioBuffer,
+): boolean {
+  return Boolean(node && node.buffer === buffer && !naturallyEndedFileSources.has(node));
+}
 
 /**
  * The standard-room timeline must outlive this device's physical Web Audio
@@ -1287,6 +1296,7 @@ async function _internalPlay(
     // addEventListener + `onended = null` would leave the closure (and its
     // captured load epoch) attached to retired WebKit source nodes.
     newNode.onended = () => {
+      naturallyEndedFileSources.add(newNode);
       if (!isCurrentLoadEpoch(myLoadEpoch)) return;
       // For an active standard host the local source may end on either side
       // of the room boundary. Even a tiny positive offset (including the

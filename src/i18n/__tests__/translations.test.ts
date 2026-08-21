@@ -162,16 +162,21 @@ describe('Translation key integrity', () => {
     };
     const invitationKeys = [
       'setup.enter_code',
-      'setup.enter_host_code_alt',
+      'setup.enter_host_code',
       'setup.enter_code_connect',
       'setup.invite_share_desc_html',
     ] as const;
-    const numericKeys = ['setup.enter_host_code', 'setup.six_digit_enter'] as const;
+    const compactCodeKeys = ['setup.enter_host_code_alt'] as const;
+    const numericKeys = ['setup.six_digit_enter'] as const;
 
     for (const [locale, dict] of Object.entries(locales)) {
       const invitationTerm = invitationTerms[locale as keyof typeof locales];
       for (const key of invitationKeys) {
         expect(dict[key], `${locale}.${key}`).toMatch(invitationTerm);
+      }
+      for (const key of compactCodeKeys) {
+        expect(dict[key], `${locale}.${key}`).not.toMatch(invitationTerm);
+        expect(dict[key], `${locale}.${key}`).not.toContain('6');
       }
       for (const key of numericKeys) {
         expect(dict[key], `${locale}.${key}`).toContain('6');
@@ -179,8 +184,11 @@ describe('Translation key integrity', () => {
       }
     }
 
-    expect(ko['setup.enter_host_code']).toBe('6자리 숫자를 입력해 주세요');
-    expect(en['setup.enter_host_code']).toBe('Enter the 6-digit number');
+    expect(ko['setup.enter_code_connect']).toBe('초대 코드');
+    expect(en['setup.enter_code_connect']).toBe('Invitation code');
+
+    expect(ko['setup.enter_host_code']).toBe('초대 코드 입력');
+    expect(en['setup.enter_host_code']).toBe('Enter invitation code');
   });
 
   it('uses the approved Korean signaling health and recovery copy', () => {

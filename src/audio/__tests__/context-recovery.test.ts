@@ -3,6 +3,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
+import { PLAYBACK_STATE } from '../../core/constants.ts';
 import { resetState, setState } from '../../core/state.ts';
 import {
   armForegroundAudioContextClockHealthCheck,
@@ -68,6 +69,7 @@ function markActiveFileRoom(): void {
   setState('setup.sessionStarted', true);
   setState('playback.mode', 'file');
   setState('playback.activity', 'playing');
+  setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
 }
 
 describe('AudioContext interruption recovery', () => {
@@ -109,39 +111,90 @@ describe('AudioContext interruption recovery', () => {
     });
   });
 
-  it('does not auto-resume while hidden and retains the exact gesture recovery', async () => {
-    markActiveFileRoom();
-    const context = new FakeAudioContext();
-    context.resume.mockImplementation(async () => {
-      context.state = 'running';
-    });
-    const rejoin = vi.fn();
-    bus.on('playback:local-output-rejoin', rejoin);
-    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      value: 'hidden',
-    });
+  it('best-effort resumes an active file while hidden but defers proof and rejoin', async () => {
+    vi.useFakeTimers();
+    try {
+      markActiveFileRoom();
+      const context = new FakeAudioContext();
+      context.resume.mockImplementation(async () => {
+        context.state = 'running';
+      });
+      const rejoin = vi.fn();
+      bus.on('playback:local-output-rejoin', rejoin);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        value: 'hidden',
+      });
 
-    context.dispatchState('suspended');
-    expect(context.resume).not.toHaveBeenCalled();
-    expect(hasPendingAudioContextInterruption('file')).toBe(true);
+      context.dispatchState('suspended');
+      expect(context.resume).toHaveBeenCalledOnce();
+      await Promise.resolve();
+      expect(hasPendingAudioContextInterruption('file')).toBe(true);
+      expect(rejoin).not.toHaveBeenCalled();
 
-    Object.defineProperty(document, 'visibilityState', {
-      configurable: true,
-      value: 'visible',
-    });
-    await expect(resumePendingAudioContextInterruptionFromGesture()).resolves.toMatchObject({
-      running: true,
-      rejoinEmitted: false,
-    });
-    const requirement = getPendingAudioContextClockHealthRequirement();
-    expect(requirement?.isCurrent()).toBe(true);
-    expect(confirmPendingAudioContextRecoveryHealth(requirement!.attemptToken)).toMatchObject({
-      running: true,
-      rejoinEmitted: true,
-    });
-    expect(rejoin).toHaveBeenCalledOnce();
+      // The native resume is the only hidden operation. Clock sampling and
+      // semantic local-output rejoin begin after the foreground transition.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(rejoin).not.toHaveBeenCalled();
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        value: 'visible',
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+      await vi.advanceTimersByTimeAsync(180);
+
+      expect(rejoin).toHaveBeenCalledOnce();
+      expect(rejoin).toHaveBeenCalledWith({
+        reason: 'audio-context-recovered',
+        mode: 'file',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries in foreground when the hidden native resume flight never settles', async () => {
+    vi.useFakeTimers();
+    try {
+      markActiveFileRoom();
+      const context = new FakeAudioContext();
+      context.resume
+        .mockImplementationOnce(() => new Promise<undefined>(() => undefined))
+        .mockImplementationOnce(async () => {
+          context.state = 'running';
+        });
+      const rejoin = vi.fn();
+      bus.on('playback:local-output-rejoin', rejoin);
+      bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        value: 'hidden',
+      });
+
+      context.dispatchState('suspended');
+      expect(context.resume).toHaveBeenCalledOnce();
+
+      // Foreground arrives while the hidden resume Promise still owns the
+      // automatic-resuming phase. Its bounded deadline must hand recovery
+      // back to the visible path instead of leaving PLAY permanently queued.
+      Object.defineProperty(document, 'visibilityState', {
+        configurable: true,
+        value: 'visible',
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+      expect(context.resume).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(750);
+      expect(context.resume).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(180);
+
+      expect(context.state).toBe('running');
+      expect(rejoin).toHaveBeenCalledOnce();
+      expect(hasPendingAudioContextInterruption()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps an automatic state recovery provisional until its clock is confirmed', async () => {
@@ -269,6 +322,39 @@ describe('AudioContext interruption recovery', () => {
     expect(getPendingAudioContextRecoveryAttemptForHealth()).toBeNull();
   });
 
+  it('never calls native resume while hidden for non-file playback', () => {
+    setState('setup.sessionStarted', true);
+    setState('playback.mode', 'youtube');
+    setState('playback.activity', 'playing');
+    const context = new FakeAudioContext();
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+
+    context.dispatchState('interrupted');
+
+    expect(context.resume).not.toHaveBeenCalled();
+    expect(hasPendingAudioContextInterruption('youtube')).toBe(true);
+  });
+
+  it('never calls native resume for a hidden file shadow that is not audibly playing', () => {
+    markActiveFileRoom();
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+    const context = new FakeAudioContext();
+    bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+    Object.defineProperty(document, 'visibilityState', {
+      configurable: true,
+      value: 'hidden',
+    });
+
+    context.dispatchState('suspended');
+
+    expect(context.resume).not.toHaveBeenCalled();
+    expect(hasPendingAudioContextInterruption('file')).toBe(true);
+  });
+
   it('arms one clock check on hidden-to-visible even while playback is ready', () => {
     const context = new FakeAudioContext();
     const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
@@ -328,7 +414,7 @@ describe('AudioContext interruption recovery', () => {
       document.dispatchEvent(new Event('visibilitychange'));
       context.dispatchState('suspended');
       await vi.advanceTimersByTimeAsync(999);
-      expect(context.resume).not.toHaveBeenCalled();
+      expect(context.resume).toHaveBeenCalledOnce();
 
       Object.defineProperty(document, 'visibilityState', {
         configurable: true,

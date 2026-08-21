@@ -375,7 +375,7 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
       "read:appRole @ function:hasRoomCapability :: if (getState('network.appRole') === 'guest' && hostConn?.open === true && getState('network.isOperator'))",
       "read:appRole @ function:hasRoomCapability :: if (getState('network.appRole') === 'host' && !getState('network.hostConn'))",
       "read:appRole @ function:isCoordinator :: return getState('network.appRole') === 'host' && !getState('network.hostConn')",
-      "read:appRole @ function:isStandardRoomMember :: return getRoomContext().kind === 'standard' && getState('network.appRole') === 'guest'",
+      "read:appRole @ function:isStandardRoomRole :: return getState('network.appRole') === role",
       "read:isOperator @ function:hasRoomCapability :: if (getState('network.appRole') === 'guest' && hostConn?.open === true && getState('network.isOperator'))",
     ],
   ],

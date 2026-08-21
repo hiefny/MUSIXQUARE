@@ -156,12 +156,12 @@ export function syncDesktopLeftPanel(): void {
     },
     {
       id: 'setup-join-area',
-      diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null,
+      diagram: (el) => el.querySelector('.setup-guest-qr-stage') as HTMLElement | null,
     },
     { id: 'setup-auto-join-area', diagram: () => null },
     {
       id: 'setup-code-area',
-      diagram: (el) => el.querySelector('.setup-guide-unified') as HTMLElement | null,
+      diagram: (el) => el.querySelector('.setup-host-invite-stage') as HTMLElement | null,
     },
   ];
 
@@ -314,6 +314,9 @@ export function setupShowWelcome(show: boolean): void {
 export function setupSetGuestJoinBusy(busy: boolean): void {
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
   if (input) input.disabled = !!busy;
+
+  const scanButton = setupEl('btn-setup-qr-scan') as HTMLButtonElement | null;
+  if (scanButton) scanButton.disabled = !!busy;
 
   const grid = setupEl('setup-role-grid') as HTMLElement | null;
   if (grid) {

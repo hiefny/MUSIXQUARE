@@ -40,6 +40,8 @@ import {
 import { animateTransition } from './dom.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
+import { resetHostInviteVisual, revealHostInviteQr } from './setup-host-invite.ts';
+import { isStandardRoomRole } from '../rooms/authority.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
 
@@ -93,7 +95,12 @@ async function proceedToHostCode(mode: number): Promise<void> {
   if (appRole !== 'host') return;
 
   const flowId = incrementHostCodeFlowId();
+  const inviteFlowIsCurrent = (): boolean =>
+    flowId === getHostCodeFlowId() &&
+    isStandardRoomRole('host') &&
+    !getState('setup.sessionStarted');
   setupSetHostError(null);
+  resetHostInviteVisual();
 
   try {
     selectStandardChannelButton(mode);
@@ -140,6 +147,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
     updateInviteCodeUI();
     setState('network.myDeviceLabel', 'HOST');
     updateRoleBadge();
+    void revealHostInviteQr(code, inviteFlowIsCurrent);
 
     setupRenderActions(
       [

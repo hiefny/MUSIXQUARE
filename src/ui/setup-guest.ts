@@ -43,6 +43,8 @@ import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
 import { enterProRoomFromSetup } from '../pro-room/setup-flow.ts';
+import { initGuestQrScanner, stopGuestQrScanner } from './setup-qr-scanner.ts';
+import { isStandardRoomRole } from '../rooms/authority.ts';
 
 // ─── Guest Flow ──────────────────────────────────────────────────
 
@@ -60,6 +62,7 @@ export function setGuestGoBack(fn: () => void): void {
 setOnInviteLinkRoleSelected(() => _renderInviteLinkActions());
 
 export function startGuestFlow(): void {
+  stopGuestQrScanner();
   _pendingPasswordJoin = null;
   _roomPasswordPromptOpen = false;
   setupSetGuestJoinError(null);
@@ -291,6 +294,32 @@ function proceedToGuestCode(mode: number): void {
   );
 
   const input = setupEl('setup-join-code') as HTMLInputElement | null;
+  initGuestQrScanner({
+    isCurrent: () =>
+      isStandardRoomRole('guest') &&
+      !getState('setup.sessionStarted') &&
+      !getState('network.isConnecting') &&
+      !input?.disabled &&
+      setupEl('setup-join-area')?.style.display !== 'none',
+    onCode: (code) => {
+      if (!input) return;
+      setupSetGuestJoinError(null);
+      input.value = code;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      void handleSetupJoinWithRole(getPendingGuestRoleMode(), true);
+    },
+    onError: (reason) => {
+      setupSetGuestJoinError(null);
+      const messageKey =
+        reason === 'permission-denied'
+          ? 'setup.camera_permission_denied'
+          : reason === 'camera-not-found'
+            ? 'setup.camera_not_found'
+            : 'setup.camera_unavailable';
+      showToast(t(messageKey));
+    },
+  });
+
   if (input) {
     // Restore auto-join code from QR scan (if any), otherwise clear
     const autoCode = getPendingAutoJoinCode();
@@ -303,7 +332,10 @@ function proceedToGuestCode(mode: number): void {
   }
 }
 
-export async function handleSetupJoinWithRole(mode: number | null): Promise<void> {
+export async function handleSetupJoinWithRole(
+  mode: number | null,
+  preserveQrScannerSuccess = false,
+): Promise<void> {
   setupSetGuestJoinError(null);
   if (mode === null || mode === undefined) {
     showToast(t('setup.select_role_alt'));
@@ -323,6 +355,7 @@ export async function handleSetupJoinWithRole(mode: number | null): Promise<void
     return;
   }
 
+  if (!preserveQrScannerSuccess) stopGuestQrScanner();
   prepareSetupStartFromGesture();
 
   setState('network.lastJoinCode', code);

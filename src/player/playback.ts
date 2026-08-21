@@ -83,6 +83,7 @@ import {
 import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { loadPlaylistModule } from './playlist-loader.ts';
+import { isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
@@ -790,17 +791,28 @@ export function initPlayback(): void {
   bus.on('playback:refresh-current-position', () => {
     if (!isPlaybackPlayingFile()) return;
     const queueItemId = getCurrentQueueItemId();
-    if (
-      !queueItemId ||
-      !getCurrentAudioBuffer() ||
-      getState('files.current')?.queueItemId !== queueItemId
-    ) {
+    const buffer = getCurrentAudioBuffer();
+    if (!queueItemId || !buffer || getState('files.current')?.queueItemId !== queueItemId) {
       return;
     }
     // A background resume may occur during a track change, while the resident
     // buffer still belongs to the previous track. Decode completion owns restart.
     if (isFilePipelineBusyForPlay()) return;
-    play(getTrackPosition());
+    const position = getTrackPosition();
+    // A standard host can return after its canonical wall timeline already
+    // crossed the track boundary while Web Audio was frozen. Replaying exactly
+    // at duration would be sanitized to duration - 100ms and briefly resurrect
+    // the ended occurrence. Let the canonical end owner advance it instead.
+    if (
+      isActiveStandardRoomCoordinator() &&
+      Number.isFinite(buffer.duration) &&
+      buffer.duration > 0.1 &&
+      position >= buffer.duration - 0.005
+    ) {
+      handleEnded();
+      return;
+    }
+    void play(position);
   });
 
   // Safety polling: periodically check if track ended (called from UI loop)

@@ -43,7 +43,14 @@ function startSession(): void {
 }
 
 function setStandardGuest(): void {
+  setState('network.appRole', 'guest');
   setState('network.hostConn', { open: true } as never);
+}
+
+function setStandardHost(): void {
+  setState('network.appRole', 'host');
+  setState('network.sessionCode', '123456');
+  setState('network.hostConn', null);
 }
 
 function setProRoom(): void {
@@ -120,6 +127,95 @@ describe('participant-local output rejoin', () => {
     expect(forceResync).not.toHaveBeenCalled();
     expect(mocks.reconcilePro).not.toHaveBeenCalled();
     expect(mocks.rendezvous).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds only the active standard host file after an explicit audio recovery gesture', async () => {
+    startSession();
+    setStandardHost();
+    setPlaybackFilePlaying();
+    const refreshPosition = vi.fn();
+    const forceResync = vi.fn();
+    bus.on('playback:refresh-current-position', refreshPosition);
+    bus.on('sync:force-resync', forceResync);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'audio-recovery-gesture',
+      mode: 'file',
+    });
+
+    await vi.waitFor(() => expect(refreshPosition).toHaveBeenCalledOnce());
+    expect(forceResync).not.toHaveBeenCalled();
+    expect(mocks.reconcilePro).not.toHaveBeenCalled();
+  });
+
+  it('does not let a stale audio recovery gesture restart a paused standard host', async () => {
+    startSession();
+    setStandardHost();
+    setPlaybackFilePaused();
+    setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');
+    const refreshPosition = vi.fn();
+    bus.on('playback:refresh-current-position', refreshPosition);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'audio-recovery-gesture',
+      mode: 'file',
+    });
+    await Promise.resolve();
+
+    expect(refreshPosition).not.toHaveBeenCalled();
+  });
+
+  it('does not mistake a disconnected standard guest for the host authority', async () => {
+    startSession();
+    setState('network.appRole', 'guest');
+    setState('network.sessionCode', '123456');
+    setState('network.hostConn', null);
+    setPlaybackFilePlaying();
+    const refreshPosition = vi.fn();
+    bus.on('playback:refresh-current-position', refreshPosition);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'audio-recovery-gesture',
+      mode: 'file',
+    });
+    await Promise.resolve();
+
+    expect(refreshPosition).not.toHaveBeenCalled();
+  });
+
+  it('uses participant-local authoritative sync for a healthy standard guest resume', async () => {
+    startSession();
+    setStandardGuest();
+    setPlaybackFilePlaying();
+    const forceResync = vi.fn();
+    bus.on('sync:force-resync', forceResync);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'background-resume',
+      mode: 'file',
+    });
+
+    await vi.waitFor(() => expect(forceResync).toHaveBeenCalledOnce());
+    expect(mocks.reconcilePro).not.toHaveBeenCalled();
+  });
+
+  it('reconciles a healthy PRO file resume without publishing a legacy room command', async () => {
+    startSession();
+    setProRoom();
+    setPlaybackFilePlaying();
+    const forceResync = vi.fn();
+    const refreshPosition = vi.fn();
+    bus.on('sync:force-resync', forceResync);
+    bus.on('playback:refresh-current-position', refreshPosition);
+
+    bus.emit('playback:local-output-rejoin', {
+      reason: 'background-resume',
+      mode: 'file',
+    });
+
+    await vi.waitFor(() => expect(mocks.reconcilePro).toHaveBeenCalledOnce());
+    expect(forceResync).not.toHaveBeenCalled();
+    expect(refreshPosition).not.toHaveBeenCalled();
   });
 
   it('uses the local YouTube rendezvous for a standard guest', async () => {
@@ -510,7 +606,7 @@ describe('participant-local output rejoin', () => {
     startSession();
     setProRoom();
     setPlaybackYouTubePlaying();
-    setLocalYouTubePaused(true);
+    setLocalYouTubePaused(false);
 
     bus.emit('playback:local-output-rejoin', {
       reason: 'audio-context-recovered',
@@ -552,5 +648,30 @@ describe('participant-local output rejoin', () => {
     bus.emit('playback:local-output-rejoin', request);
     bus.emit('playback:local-output-rejoin', request);
     await vi.waitFor(() => expect(forceResync).toHaveBeenCalledOnce());
+  });
+
+  it('applies the success cooldown only to the same room playback identity', async () => {
+    startSession();
+    setStandardHost();
+    setPlaybackFilePlaying();
+    const firstQueueItemId = '00000000-0000-4000-8000-000000000001';
+    const secondQueueItemId = '00000000-0000-4000-8000-000000000002';
+    setState('playlist.currentQueueItemId', firstQueueItemId);
+    const refreshPosition = vi.fn();
+    bus.on('playback:refresh-current-position', refreshPosition);
+    const request = {
+      reason: 'background-resume' as const,
+      mode: 'file' as const,
+    };
+
+    bus.emit('playback:local-output-rejoin', request);
+    await vi.waitFor(() => expect(refreshPosition).toHaveBeenCalledTimes(1));
+    bus.emit('playback:local-output-rejoin', request);
+    await Promise.resolve();
+    expect(refreshPosition).toHaveBeenCalledTimes(1);
+
+    setState('playlist.currentQueueItemId', secondQueueItemId);
+    bus.emit('playback:local-output-rejoin', request);
+    await vi.waitFor(() => expect(refreshPosition).toHaveBeenCalledTimes(2));
   });
 });

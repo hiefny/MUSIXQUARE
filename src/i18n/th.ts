@@ -677,6 +677,10 @@ const th: Record<I18nKey, string> = {
   'dialog.leaving_session': 'กำลังออก...',
   'dialog.refreshing_session': 'กำลังรีเฟรชห้อง...',
   'dialog.background_resume_title': 'แอปเพิ่งไปอยู่เบื้องหลังชั่วครู่',
+  'dialog.audio_recovery_title': 'เสียงหยุดชั่วคราว',
+  'dialog.audio_recovery_message':
+    'หลังจากกลับมาจากเบื้องหลัง ระบบยังไม่สามารถกู้คืนเสียงบนอุปกรณ์นี้ได้ ห้องจะยังคงเชื่อมต่ออยู่ระหว่างที่เราปรับเสียงของอุปกรณ์นี้ให้ตรงกันอีกครั้ง',
+  'dialog.audio_recovery_action': 'กู้คืนเสียง',
   'dialog.background_resume_message': 'ถ้าซิงก์ไม่ตรงหรือเสียงไม่เล่น ให้ปิดแอปให้สนิทแล้วเปิดใหม่',
   'dialog.background_resume_sync_fallback_message':
     'ถ้าซิงก์ไม่ตรงหรือเสียงไม่เล่น ให้ปิดแอปให้สนิทแล้วเปิดใหม่',

@@ -293,7 +293,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.3.78';
+const ADMIN_SCRIPT_VERSION = '8.3.79';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 const root = document.querySelector<HTMLElement>('.admin-shell');

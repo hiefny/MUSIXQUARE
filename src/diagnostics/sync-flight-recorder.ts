@@ -11,7 +11,7 @@ import { isAudioReady, getAudioContext } from '../audio/engine.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { peekTrackPosition } from '../player/transport.ts';
+import { getPlayLockSnapshot, peekTrackPosition } from '../player/transport.ts';
 import { getCurrentAudioBuffer, getPlayerNode } from '../player/_state.ts';
 import {
   getProRoomServerClockDiagnostics,
@@ -69,6 +69,7 @@ interface SyncFlightRecorderSample {
   localOffsetSeconds: number;
   youtubeOffsetSeconds: number;
   hasSourceNode: boolean;
+  playLock: ReturnType<typeof getPlayLockSnapshot>;
   bufferDurationSeconds: number | null;
   localPositionSeconds: number | null;
   canonicalPositionSeconds: number | null;
@@ -294,6 +295,7 @@ export function captureSyncFlightRecorderSampleForTests(): void {
     localOffsetSeconds: rounded(getState('sync.localOffset')),
     youtubeOffsetSeconds: rounded(getState('sync.youtubeLocalOffset')),
     hasSourceNode: !!getPlayerNode(),
+    playLock: getPlayLockSnapshot(nowMs),
     bufferDurationSeconds,
     localPositionSeconds,
     canonicalPositionSeconds,
@@ -341,6 +343,16 @@ export function initSyncFlightRecorder(): void {
     bus.on('sync:diagnostic-standard-pong', noteStandardSyncPong),
     bus.on('sync:diagnostic-standard-decision', noteStandardSyncDecision),
     bus.on('sync:diagnostic-pro-checkpoint', noteProPlaybackCheckpoint),
+    bus.on('audio:output-recovery-needed', (event) => {
+      const lock = getPlayLockSnapshot();
+      appendEvent('audio-output-recovery-needed', {
+        reason: event.reason,
+        source: event.source,
+        lockAgeMs: lock.ageMs,
+        lockPhase: lock.phase,
+        watchdogArmed: lock.watchdogArmed,
+      });
+    }),
   );
   if (typeof document !== 'undefined') {
     const onVisibility = () => appendEvent('visibility', { state: document.visibilityState });

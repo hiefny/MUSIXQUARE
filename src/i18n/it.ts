@@ -708,6 +708,10 @@ const it: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Uscita in corso...',
   'dialog.refreshing_session': 'Aggiornamento della stanza...',
   'dialog.background_resume_title': 'L’applicazione è passata brevemente in background',
+  'dialog.audio_recovery_title': 'L’audio si è interrotto per un momento',
+  'dialog.audio_recovery_message':
+    'Dopo il ritorno dal background, l’audio di questo dispositivo non è stato ripristinato. La stanza resterà connessa mentre riallineiamo solo il suono di questo dispositivo.',
+  'dialog.audio_recovery_action': 'Ripristina audio',
   'dialog.background_resume_message':
     "Se noti problemi di sincronizzazione o audio silenzioso, riavvia completamente l'app.",
   'dialog.background_resume_sync_fallback_message':

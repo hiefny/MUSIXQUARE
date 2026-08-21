@@ -425,9 +425,20 @@ describe('guest file finalization sync', () => {
 
     const { finalizeGuestFile } = await import('../decode.ts');
     const { play } = await import('../transport.ts');
+    vi.mocked(play).mockImplementationOnce(async () => {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      return true;
+    });
     await finalizeGuestFile(file, item.queueItemId, 7);
 
-    expect(play).toHaveBeenCalledWith(123);
+    expect(play).toHaveBeenCalledWith(
+      123,
+      0,
+      undefined,
+      undefined,
+      expect.objectContaining({ onRecoveredStarted: expect.any(Function) }),
+    );
     expect(getPendingPlayTime()).toBeUndefined();
     expect(syncRequest).not.toHaveBeenCalled();
 

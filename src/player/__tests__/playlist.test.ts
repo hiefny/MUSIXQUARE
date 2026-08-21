@@ -2529,13 +2529,21 @@ describe('preloaded activation post-play ownership', () => {
     });
 
     let releasePlay!: () => void;
-    const playGate = new Promise<void>((resolve) => {
-      releasePlay = resolve;
+    const playGate = new Promise<boolean>((resolve) => {
+      releasePlay = () => resolve(true);
     });
     const playSpy = vi.spyOn(transport, 'play').mockReturnValueOnce(playGate);
 
     const activation = playTrack(a.queueItemId);
-    await vi.waitFor(() => expect(playSpy).toHaveBeenCalledWith(0));
+    await vi.waitFor(() =>
+      expect(playSpy).toHaveBeenCalledWith(
+        0,
+        0,
+        undefined,
+        undefined,
+        expect.objectContaining({ onRecoveredStarted: expect.any(Function) }),
+      ),
+    );
 
     // Model a newer playTrack invocation taking ownership while the old
     // transport is suspended inside AudioContext/engine initialization.

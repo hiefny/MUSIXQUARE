@@ -633,6 +633,10 @@ const fr: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Sortie du salon…',
   'dialog.refreshing_session': 'Actualisation du salon…',
   'dialog.background_resume_title': 'L’application est brièvement passée en arrière-plan',
+  'dialog.audio_recovery_title': 'Le son s’est interrompu de façon inattendue',
+  'dialog.audio_recovery_message':
+    'Le son de cet appareil n’a pas repris après le retour depuis l’arrière-plan. La connexion à la salle restera active pendant que MUSIXQUARE resynchronise le son de cet appareil.',
+  'dialog.audio_recovery_action': 'Rétablir le son',
   'dialog.background_resume_message':
     'Si la synchronisation est décalée ou si aucun son n’est diffusé, fermez complètement l’application puis rouvrez-la.',
   'dialog.background_resume_sync_fallback_message':

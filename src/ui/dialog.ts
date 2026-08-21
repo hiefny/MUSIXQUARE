@@ -23,6 +23,8 @@ interface DialogOptions {
   defaultFocus?: 'primary' | 'secondary';
   /** Runs synchronously inside the validated primary click/Enter gesture. */
   onPrimaryActivation?: () => void;
+  /** Cancels a queued or active dialog without disturbing another dialog. */
+  signal?: AbortSignal;
   inputField?: {
     placeholder?: string;
     defaultValue?: string;
@@ -139,6 +141,11 @@ export function closeDialog(action = 'close'): void {
 }
 
 function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResult) => void): void {
+  if (typeof opts === 'object' && opts?.signal?.aborted) {
+    resolve({ action: 'superseded' });
+    setManagedTimer('dialog-drain', drainDialogQueue, 0);
+    return;
+  }
   const overlay = document.getElementById('dialog-overlay');
   const titleEl = document.getElementById('dialog-title');
   const msgEl = document.getElementById('dialog-message');
@@ -360,6 +367,11 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   };
 
   _dialogActive = { resolve, prevFocus, cleanup };
+  if (o.signal) {
+    on(o.signal, 'abort', () => {
+      if (_dialogActive?.resolve === resolve) closeDialog('superseded');
+    });
+  }
 
   const tryValidateAndClose = () => {
     if (_dialogValidator && _dialogInput) {

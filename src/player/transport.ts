@@ -57,6 +57,8 @@ const WINDOWS_LOCAL_FILE_OUTPUT_ADVANCE_SEC = 0.02;
  */
 const STANDARD_FILE_CANONICAL_END_TIMER = 'standard-file-canonical-end';
 const CANONICAL_END_EPSILON_SEC = 0.005;
+const PLAY_LOCK_WATCHDOG_MS = 15_000;
+const PLAY_LOCK_STALE_MS = 5_000;
 
 // The play lock is page-global, so every timer/finally that releases it must
 // prove it still belongs to the invocation that claimed it. A load epoch
@@ -64,11 +66,37 @@ const CANONICAL_END_EPSILON_SEC = 0.005;
 // advance that epoch, while it still tears down the play-lock tuple.
 let playInvocationGeneration = 0;
 
+type PlayLockPhase = 'ensure-running' | 'init-audio' | 'start-source';
+
+interface PlayLockOwner {
+  readonly generation: number;
+  readonly acquiredAtMs: number;
+  phase: PlayLockPhase;
+  phaseAtMs: number;
+}
+
+interface PlayLockSnapshot {
+  readonly locked: boolean;
+  readonly consistent: boolean;
+  readonly generation: number | null;
+  readonly ageMs: number | null;
+  readonly phase: PlayLockPhase | null;
+  readonly phaseAgeMs: number | null;
+  readonly pending: boolean;
+  readonly watchdogArmed: boolean;
+}
+
+let playLockOwner: PlayLockOwner | null = null;
+
 // A play invocation owns the page-global lock until its async setup settles,
 // but PAUSE must be able to revoke the pending node start without stealing
 // that lock ownership (otherwise the invocation's finally cannot unlock it).
 // Keep this semantic fence separate from playInvocationGeneration.
 let playStartFence = 0;
+// A failed-PLAY recovery prompt may outlive the invocation that discovered it.
+// Every newer ordinary PLAY invalidates that prompt; only its exact retry is
+// allowed to reuse the captured generation.
+let failedPlayRecoveryGeneration = 0;
 
 /**
  * Latest deferred node-start intent.
@@ -83,6 +111,14 @@ interface PendingPlayIntent {
   readonly scheduleDelay: number;
   readonly scheduleDeadlineMs?: number;
   readonly shouldApply?: () => boolean;
+  readonly recoveryOptions?: PlayRecoveryOptions;
+  readonly recoveryGeneration: number;
+}
+
+interface PlayRecoveryOptions {
+  readonly suppressPrompt?: boolean;
+  readonly onRecoveredStarted?: () => void | Promise<void>;
+  readonly recoveryGeneration?: number;
 }
 
 let pendingPlayIntent: PendingPlayIntent | null = null;
@@ -120,8 +156,80 @@ function isCurrentPlayInvocation(invocation: number): boolean {
   return invocation === playInvocationGeneration;
 }
 
+function markPlayLockPhase(invocation: number, phase: PlayLockPhase): void {
+  if (!isCurrentPlayInvocation(invocation) || playLockOwner?.generation !== invocation) return;
+  playLockOwner.phase = phase;
+  playLockOwner.phaseAtMs = Date.now();
+}
+
+export function getPlayLockSnapshot(nowMs = Date.now()): PlayLockSnapshot {
+  const locked = isPlayLocked();
+  const owner = playLockOwner;
+  return {
+    locked,
+    consistent: locked === Boolean(owner),
+    generation: owner?.generation ?? null,
+    ageMs: owner ? Math.max(0, nowMs - owner.acquiredAtMs) : null,
+    phase: owner?.phase ?? null,
+    phaseAgeMs: owner ? Math.max(0, nowMs - owner.phaseAtMs) : null,
+    pending: pendingPlayIntent !== null,
+    watchdogArmed: getManagedTimer('navigator-lock-watchdog') !== null,
+  };
+}
+
+function abortPlayLockOwner(
+  expectedGeneration: number | null,
+  reason: string,
+  options: { preservePlaybackState?: boolean } = {},
+): boolean {
+  if (expectedGeneration !== null && playLockOwner?.generation !== expectedGeneration) return false;
+  if (!isPlayLocked() && !playLockOwner) return false;
+
+  // Invalidate both the async owner and its deferred node-start authority
+  // before releasing any observable part of the tuple. A WebKit promise may
+  // settle long after this recovery and must remain inert.
+  invalidatePlayInvocation();
+  failedPlayRecoveryGeneration += 1;
+  revokeInFlightPlayStart();
+  clearManagedTimer('navigator-lock-watchdog');
+  clearManagedTimer('playback-unlock-delay');
+  playLockOwner = null;
+  setPlayLocked(false);
+  clearPendingPlayIntent();
+  stopPlayerNode();
+  newLoadEpoch();
+  if (!options.preservePlaybackState && !isCompatIdle()) setPlaybackIdle();
+  log.warn(`[Play] Recovered stale lock (${reason})`);
+  return true;
+}
+
+export function recoverStalePlayLock(
+  reason: 'blocked-play' | 'background-resume',
+  nowMs = Date.now(),
+  options: { preservePlaybackState?: boolean } = {},
+): { recovered: boolean; snapshot: PlayLockSnapshot } {
+  const snapshot = getPlayLockSnapshot(nowMs);
+  const stale = Boolean(
+    !snapshot.consistent ||
+    (snapshot.locked &&
+      ((!snapshot.watchdogArmed && snapshot.phase !== null) ||
+        (snapshot.ageMs ?? 0) >= PLAY_LOCK_STALE_MS)),
+  );
+  if (!stale) return { recovered: false, snapshot };
+  return {
+    recovered: abortPlayLockOwner(snapshot.generation, reason, options),
+    snapshot,
+  };
+}
+
 function revokeInFlightPlayStart(): void {
   playStartFence += 1;
+}
+
+function invalidatePendingFilePlayIntent(): void {
+  clearPendingPlayIntent();
+  failedPlayRecoveryGeneration += 1;
+  revokeInFlightPlayStart();
 }
 
 function getPlatformLocalFileOutputOffset(): number {
@@ -156,7 +264,16 @@ import {
   setCurrentAudioBuffer,
 } from './_state.ts';
 
-import { getAudioContext, getCurrentTime, ensureRunning } from '../audio/context.ts';
+import {
+  confirmForegroundAudioContextRestartHealth,
+  consumeForegroundAudioContextClockHealthCheck,
+  ensureRunning,
+  getAudioContext,
+  getCurrentTime,
+  getPendingForegroundAudioContextClockHealthCheck,
+  prepareForegroundAudioContextRestart,
+  probeAudioContextHealth,
+} from '../audio/context.ts';
 import { showToast } from '../ui/toast.ts';
 import { transition } from './lifecycle.ts';
 
@@ -410,8 +527,10 @@ function stopAllMediaLegacy(opts: StopMediaOptions = {}): void {
   // as one teardown unit. _internalPlay and preload activation finishers are
   // idempotent if they later observe this reset.
   invalidatePlayInvocation();
+  failedPlayRecoveryGeneration += 1;
   clearManagedTimer('navigator-lock-watchdog');
   clearManagedTimer('playback-unlock-delay');
+  playLockOwner = null;
   setPlayLocked(false);
   clearPendingPlayIntent();
   setPlayPreloadedInProgress(false);
@@ -545,6 +664,7 @@ export function seekTo(time: number): void {
     });
   } else {
     // Paused: update position + broadcast
+    invalidatePendingFilePlayIntent();
     setState('player.pausedAt', time);
     broadcast({ type: MSG.PAUSE, time, queueItemId, reason: 'seek' });
   }
@@ -557,12 +677,31 @@ export async function play(
   scheduleDelay = 0,
   scheduleDeadlineMs?: number,
   shouldApply?: () => boolean,
-): Promise<void> {
-  if (shouldApply?.() === false) return;
+  recoveryOptions?: PlayRecoveryOptions,
+): Promise<boolean> {
+  if (shouldApply?.() === false) return false;
+  const recoveryGeneration = recoveryOptions?.recoveryGeneration;
+  if (recoveryGeneration === undefined) {
+    failedPlayRecoveryGeneration += 1;
+  } else if (recoveryGeneration !== failedPlayRecoveryGeneration) {
+    return false;
+  }
+  const ownedRecoveryGeneration = failedPlayRecoveryGeneration;
   if (isPlayLocked()) {
-    log.warn('[Play] Blocked: queuing play request');
-    queuePendingPlayIntent({ offset, scheduleDelay, scheduleDeadlineMs, shouldApply });
-    return;
+    const recovery = recoverStalePlayLock('blocked-play');
+    if (!recovery.recovered) {
+      log.warn('[Play] Blocked: queuing play request', recovery.snapshot);
+      queuePendingPlayIntent({
+        offset,
+        scheduleDelay,
+        scheduleDeadlineMs,
+        shouldApply,
+        recoveryOptions,
+        recoveryGeneration: ownedRecoveryGeneration,
+      });
+      return false;
+    }
+    log.warn('[Play] Stale owner discarded; retrying current request', recovery.snapshot);
   }
   // Source-level guard for callers that reach play during a file load. The
   // resident buffer belongs to the previous track, so queue the requested time
@@ -575,7 +714,7 @@ export async function play(
     // whether it is still current.
     pendingPlayIntent = null;
     setPendingPlayTime(offset);
-    return;
+    return false;
   }
   // A stale unlock callback should already be owner-gated, but clearing it at
   // claim time also keeps the named timer registry aligned with the lock.
@@ -585,6 +724,12 @@ export async function play(
   setPlayLocked(true);
 
   const lockStartTime = Date.now();
+  playLockOwner = {
+    generation: myPlayInvocation,
+    acquiredAtMs: lockStartTime,
+    phase: 'ensure-running',
+    phaseAtMs: lockStartTime,
+  };
   setManagedTimer(
     'navigator-lock-watchdog',
     () => {
@@ -592,60 +737,68 @@ export async function play(
         log.warn(
           `[Play] Lock Timeout: Forcing unlock after 15s (locked at ${new Date(lockStartTime).toISOString()})`,
         );
-        // Invalidate before releasing the tuple. The wedged invocation can
-        // still resume later, but its finally must not touch a newer owner.
-        invalidatePlayInvocation();
-        // Reset the lock, deferred play, source node, load epoch, and semantic
-        // playback state together. Clear pendingPlayTime before unlocking so
-        // the queued-request consumer observes a consistent empty mailbox.
-        setPlayLocked(false);
-        clearPendingPlayIntent();
-        stopPlayerNode();
-        // Allocate a new load epoch so any in-flight _internalPlay aborts at
-        // its next await checkpoint instead of overwriting the post-watchdog
-        // IDLE state with PLAYING_AUDIO and starting a phantom
-        // AudioBufferSourceNode.
-        // Guest finalization intentionally ignores this epoch and checks its
-        // own load/transfer session ownership instead.
-        newLoadEpoch();
-        // Reset playback to IDLE to prevent stuck "playing" UI.
-        if (!isCompatIdle()) {
-          setPlaybackIdle();
-        }
+        abortPlayLockOwner(myPlayInvocation, 'watchdog');
       }
     },
-    15000,
+    PLAY_LOCK_WATCHDOG_MS,
   );
 
   try {
-    await _internalPlay(offset, scheduleDelay, scheduleDeadlineMs, shouldApply, myPlayStartFence);
+    return await _internalPlay(
+      offset,
+      scheduleDelay,
+      scheduleDeadlineMs,
+      shouldApply,
+      myPlayStartFence,
+      myPlayInvocation,
+      recoveryOptions,
+      ownedRecoveryGeneration,
+    );
   } finally {
     if (isCurrentPlayInvocation(myPlayInvocation)) {
       clearManagedTimer('navigator-lock-watchdog');
-      setManagedTimer(
-        'playback-unlock-delay',
-        () => {
-          if (!isCurrentPlayInvocation(myPlayInvocation)) return;
-          invalidatePlayInvocation();
-          setPlayLocked(false);
-          // Consume queued play request (e.g. sync correction that arrived during lock)
-          const pendingIntent = takePendingPlayIntent();
-          if (pendingIntent) {
-            if (pendingIntent.shouldApply?.() === false) {
-              log.debug('[Play] Dropping superseded queued play request');
-              return;
-            }
-            log.debug(`[Play] Consuming queued play request: ${pendingIntent.offset.toFixed(2)}s`);
-            void play(
-              pendingIntent.offset,
-              pendingIntent.scheduleDelay,
-              pendingIntent.scheduleDeadlineMs,
-              pendingIntent.shouldApply,
-            );
+      const hasPendingIntent = pendingPlayIntent !== null;
+      invalidatePlayInvocation();
+      playLockOwner = null;
+      setPlayLocked(false);
+
+      if (hasPendingIntent) {
+        const releaseGeneration = playInvocationGeneration;
+        const releaseStartFence = playStartFence;
+        queueMicrotask(() => {
+          if (
+            playInvocationGeneration !== releaseGeneration ||
+            playStartFence !== releaseStartFence ||
+            isPlayLocked()
+          ) {
+            return;
           }
-        },
-        10,
-      );
+          const pendingIntent = takePendingPlayIntent();
+          if (!pendingIntent) return;
+          if (pendingIntent.shouldApply?.() === false) {
+            log.debug('[Play] Dropping superseded queued play request');
+            return;
+          }
+          log.debug(`[Play] Consuming queued play request: ${pendingIntent.offset.toFixed(2)}s`);
+          void play(
+            pendingIntent.offset,
+            pendingIntent.scheduleDelay,
+            pendingIntent.scheduleDeadlineMs,
+            pendingIntent.shouldApply,
+            {
+              ...pendingIntent.recoveryOptions,
+              recoveryGeneration: pendingIntent.recoveryGeneration,
+            },
+          ).then(async (started) => {
+            if (!started) return;
+            try {
+              await pendingIntent.recoveryOptions?.onRecoveredStarted?.();
+            } catch (error) {
+              log.warn('[Audio] Deferred PLAY continuation failed', error);
+            }
+          });
+        });
+      }
     }
   }
 }
@@ -656,7 +809,10 @@ async function _internalPlay(
   scheduleDeadlineMs?: number,
   shouldApply?: () => boolean,
   expectedPlayStartFence = playStartFence,
-): Promise<void> {
+  expectedPlayInvocation = playInvocationGeneration,
+  recoveryOptions?: PlayRecoveryOptions,
+  expectedRecoveryGeneration = failedPlayRecoveryGeneration,
+): Promise<boolean> {
   clearPendingPlayIntent();
   // Snapshot the load epoch at entry. If the play()-level watchdog fires
   // (or another path allocates a new epoch, e.g. track switch), every await
@@ -665,9 +821,109 @@ async function _internalPlay(
   const myLoadEpoch = getCurrentLoadEpoch();
   log.debug(`[Play] Stage 1: Validating state (offset: ${offset})`);
 
+  const recoveryQueueItemId = getCurrentQueueItemId();
+  const recoveryBuffer = getCurrentAudioBuffer();
+  const requestedStartAtMs = Number.isFinite(scheduleDeadlineMs)
+    ? Number(scheduleDeadlineMs)
+    : performance.now() + Math.max(0, scheduleDelay) * 1_000;
+  let recoveryClaimed = false;
+  let foregroundRestartConfirmed = false;
+
+  const recoveryIntentIsCurrent = (): boolean =>
+    shouldApply?.() !== false &&
+    expectedPlayStartFence === playStartFence &&
+    expectedRecoveryGeneration === failedPlayRecoveryGeneration &&
+    isCurrentLoadEpoch(myLoadEpoch) &&
+    !isExternalOwner();
+
+  const emitFailedPlayRecovery = (
+    reason: 'context-not-running' | 'clock-stalled',
+    foregroundRestartAttemptToken?: object,
+    restartIsCurrent?: () => boolean,
+  ): void => {
+    const restartRecoveryIsCurrent = (): boolean =>
+      foregroundRestartConfirmed || restartIsCurrent?.() !== false;
+    if (
+      recoveryOptions?.suppressPrompt ||
+      !recoveryQueueItemId ||
+      !recoveryBuffer ||
+      !recoveryIntentIsCurrent() ||
+      !restartRecoveryIsCurrent()
+    ) {
+      return;
+    }
+    bus.emit('audio:output-recovery-needed', {
+      reason,
+      source: 'play',
+      queueItemId: recoveryQueueItemId,
+      foregroundRestartAttemptToken,
+      isCurrent: () =>
+        recoveryIntentIsCurrent() &&
+        restartRecoveryIsCurrent() &&
+        getCurrentQueueItemId() === recoveryQueueItemId &&
+        getCurrentAudioBuffer() === recoveryBuffer,
+      confirmForegroundRestart: foregroundRestartAttemptToken
+        ? (attemptToken: object): boolean => {
+            if (
+              attemptToken !== foregroundRestartAttemptToken ||
+              foregroundRestartConfirmed ||
+              !recoveryIntentIsCurrent() ||
+              restartIsCurrent?.() === false ||
+              !confirmForegroundAudioContextRestartHealth(attemptToken)
+            ) {
+              return false;
+            }
+            foregroundRestartConfirmed = true;
+            return true;
+          }
+        : undefined,
+      retry: async () => {
+        if (
+          recoveryClaimed ||
+          !recoveryIntentIsCurrent() ||
+          !restartRecoveryIsCurrent() ||
+          getCurrentQueueItemId() !== recoveryQueueItemId ||
+          getCurrentAudioBuffer() !== recoveryBuffer
+        ) {
+          return false;
+        }
+        recoveryClaimed = true;
+        const retryNowMs = performance.now();
+        const publishesAfterRecovery = Boolean(recoveryOptions?.onRecoveredStarted);
+        const hasAbsoluteDeadline = Number.isFinite(scheduleDeadlineMs);
+        const retryOffset =
+          publishesAfterRecovery || hasAbsoluteDeadline
+            ? offset
+            : offset + Math.max(0, retryNowMs - requestedStartAtMs) / 1_000;
+        const retryDelay =
+          publishesAfterRecovery || hasAbsoluteDeadline
+            ? scheduleDelay
+            : Math.max(0, requestedStartAtMs - retryNowMs) / 1_000;
+        const retryStarted = await play(
+          retryOffset,
+          retryDelay,
+          hasAbsoluteDeadline ? scheduleDeadlineMs : undefined,
+          shouldApply,
+          {
+            suppressPrompt: true,
+            recoveryGeneration: expectedRecoveryGeneration,
+          },
+        );
+        if (!retryStarted || !recoveryIntentIsCurrent()) return false;
+        try {
+          await recoveryOptions?.onRecoveredStarted?.();
+        } catch (callbackError) {
+          log.warn('[Audio] Recovered PLAY continuation failed', callbackError);
+          return false;
+        }
+        return true;
+      },
+    });
+  };
+
   if (isExternalOwner()) {
     log.warn('[Audio] Blocked play() call while an external playback mode is active');
-    return;
+    return false;
   }
 
   log.debug('[Play] Stage 2: Resuming AudioContext');
@@ -675,13 +931,23 @@ async function _internalPlay(
     await ensureRunning();
   } catch (e) {
     log.warn('Resume failed:', e);
+    if (isCurrentPlayInvocation(expectedPlayInvocation)) {
+      emitFailedPlayRecovery('context-not-running');
+    }
+    return false;
   }
 
-  if (shouldApply?.() === false || expectedPlayStartFence !== playStartFence) return;
+  if (
+    shouldApply?.() === false ||
+    expectedPlayStartFence !== playStartFence ||
+    !isCurrentPlayInvocation(expectedPlayInvocation)
+  ) {
+    return false;
+  }
 
   if (!isCurrentLoadEpoch(myLoadEpoch)) {
     log.warn('[Play] Aborted — load epoch superseded during ensureRunning');
-    return;
+    return false;
   }
 
   // ── Post-await mode re-check ──────────────────────────────────────
@@ -689,7 +955,7 @@ async function _internalPlay(
   // setup, so validate again before creating a file source node.
   if (isExternalOwner()) {
     log.warn('[Audio] Aborted play() - app switched to an external mode during async init');
-    return;
+    return false;
   }
 
   const _currentAudioBuffer = getCurrentAudioBuffer();
@@ -699,29 +965,89 @@ async function _internalPlay(
     log.warn('[Play] No media source available');
     // Surface an empty playlist instead of silently ignoring Play.
     showToast(t('playlist.empty_hint'));
-    return;
+    return false;
+  }
+
+  // iOS may report `running` after foreground while its native audio clock is
+  // frozen. Probe only the one foreground incident armed by visibility change;
+  // ordinary PLAY calls stay latency-free. A confirmed stall is suspended
+  // before showing recovery UI so the button's trusted gesture can perform the
+  // native resume synchronously.
+  const foregroundHealthCheck = getPendingForegroundAudioContextClockHealthCheck();
+  if (foregroundHealthCheck) {
+    const health = await probeAudioContextHealth({
+      attemptResume: false,
+      context: foregroundHealthCheck.context,
+      isCurrent: () =>
+        foregroundHealthCheck.isCurrent() &&
+        recoveryIntentIsCurrent() &&
+        isCurrentPlayInvocation(expectedPlayInvocation) &&
+        getCurrentQueueItemId() === recoveryQueueItemId &&
+        getCurrentAudioBuffer() === recoveryBuffer,
+    });
+    if (
+      !foregroundHealthCheck.isCurrent() ||
+      !recoveryIntentIsCurrent() ||
+      !isCurrentPlayInvocation(expectedPlayInvocation) ||
+      getCurrentQueueItemId() !== recoveryQueueItemId ||
+      getCurrentAudioBuffer() !== recoveryBuffer
+    ) {
+      return false;
+    }
+    if (health.healthy) {
+      consumeForegroundAudioContextClockHealthCheck(foregroundHealthCheck.token);
+    } else if (health.reason === 'clock-stalled') {
+      const preparation = await prepareForegroundAudioContextRestart(foregroundHealthCheck.token);
+      if (!preparation || !recoveryIntentIsCurrent()) return false;
+      const announcePreparedRecovery = (): void => {
+        if (!preparation.isCurrent() || !recoveryIntentIsCurrent()) return;
+        emitFailedPlayRecovery('clock-stalled', preparation.attemptToken, preparation.isCurrent);
+      };
+      if (preparation.status === 'prepared') {
+        announcePreparedRecovery();
+      } else {
+        void preparation.whenPrepared.then((prepared) => {
+          if (prepared) announcePreparedRecovery();
+        });
+      }
+      return false;
+    } else if (health.reason === 'not-running') {
+      emitFailedPlayRecovery('context-not-running');
+      return false;
+    } else if (health.reason === 'hidden' || health.reason === 'superseded') {
+      return false;
+    }
+    // `inconclusive` is not evidence of a fault. Continue this trusted PLAY
+    // but retain the one-shot token so a later PLAY can sample it again.
   }
 
   log.debug('[Play] Stage 3: Initializing audio engine');
+  markPlayLockPhase(expectedPlayInvocation, 'init-audio');
   try {
     await initAudio();
   } catch (e) {
     log.error('[Audio] initAudio failed:', e);
     showToast(t('error.audio_engine_prepare'));
-    return;
+    return false;
   }
 
-  if (shouldApply?.() === false || expectedPlayStartFence !== playStartFence) return;
+  if (
+    shouldApply?.() === false ||
+    expectedPlayStartFence !== playStartFence ||
+    !isCurrentPlayInvocation(expectedPlayInvocation)
+  ) {
+    return false;
+  }
 
   if (!isCurrentLoadEpoch(myLoadEpoch)) {
     log.warn('[Play] Aborted — load epoch superseded during initAudio');
-    return;
+    return false;
   }
 
   // Re-check after second async gap (initAudio)
   if (isExternalOwner()) {
     log.warn('[Audio] Aborted play() - app switched to an external mode during initAudio');
-    return;
+    return false;
   }
 
   const ctx = getAudioContext();
@@ -753,7 +1079,15 @@ async function _internalPlay(
     if (duration > 0) safeOffset = Math.max(0, Math.min(duration - 0.001, safeOffset));
   }
 
-  if (shouldApply?.() === false || expectedPlayStartFence !== playStartFence) return;
+  if (
+    shouldApply?.() === false ||
+    expectedPlayStartFence !== playStartFence ||
+    !isCurrentPlayInvocation(expectedPlayInvocation)
+  ) {
+    return false;
+  }
+
+  markPlayLockPhase(expectedPlayInvocation, 'start-source');
 
   // Buffer Mode playback
   let startedSourceNode: AudioBufferSourceNode | null = null;
@@ -842,6 +1176,7 @@ async function _internalPlay(
 
   bus.emit('visualizer:start');
   bus.emit('ui:loop-start');
+  return true;
 }
 
 // ─── Pause ─────────────────────────────────────────────────────────
@@ -853,8 +1188,7 @@ export function pause(
   // PAUSE is newer than any node start waiting behind the play lock. Revoke
   // the complete intent before checking concrete media ownership so a late
   // unlock cannot resurrect audio after an authoritative pause.
-  clearPendingPlayIntent();
-  revokeInFlightPlayStart();
+  invalidatePendingFilePlayIntent();
   if (isFileTransportInactive()) return;
 
   let pausePos: number;
@@ -921,8 +1255,14 @@ export async function applyProPlaybackFileCommit(
 
   if (request.state === 'playing') {
     const scheduleDeadlineMs = performance.now() + delayMs;
-    await play(positionSeconds, delayMs / 1000, scheduleDeadlineMs, isCurrentAuthority);
+    const started = await play(
+      positionSeconds,
+      delayMs / 1000,
+      scheduleDeadlineMs,
+      isCurrentAuthority,
+    );
     return (
+      started &&
       isCurrentAuthority() &&
       getCurrentQueueItemId() === request.queueItemId &&
       getState('playback.activity') === 'playing'
@@ -931,7 +1271,7 @@ export async function applyProPlaybackFileCommit(
 
   // The scheduled pause may intentionally wait for its rendezvous instant,
   // but an older queued play must not become audible during that wait.
-  clearPendingPlayIntent();
+  invalidatePendingFilePlayIntent();
 
   if (delayMs > 0) await delay(delayMs);
   if (

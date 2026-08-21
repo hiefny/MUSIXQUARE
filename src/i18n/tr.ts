@@ -687,6 +687,10 @@ const tr: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Çıkış yapılıyor...',
   'dialog.refreshing_session': 'Oda yenileniyor...',
   'dialog.background_resume_title': 'Uygulama kısa süreliğine arka plana geçti',
+  'dialog.audio_recovery_title': 'Ses kısa süreliğine durdu',
+  'dialog.audio_recovery_message':
+    'Arka plandan döndükten sonra bu cihazın sesi geri yüklenemedi. Yalnızca bu cihazın sesini yeniden hizalarken oda bağlantısı açık kalacak.',
+  'dialog.audio_recovery_action': 'Sesi geri yükle',
   'dialog.background_resume_message':
     'Senkronizasyon bozulursa veya ses gelmezse uygulamayı tamamen kapatıp yeniden aç.',
   'dialog.background_resume_sync_fallback_message':

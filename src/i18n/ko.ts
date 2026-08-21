@@ -677,6 +677,10 @@ const ko = {
   'dialog.leaving_session': '세션에서 나가고 있어요...',
   'dialog.refreshing_session': '세션을 새로고침하고 있어요...',
   'dialog.background_resume_title': '앱이 잠시 백그라운드로 넘어갔어요',
+  'dialog.audio_recovery_title': '오디오가 잠시 멈췄어요',
+  'dialog.audio_recovery_message':
+    '백그라운드에서 돌아온 뒤 이 기기의 오디오를 복구하지 못했어요. 방 연결은 유지한 채 이 기기의 소리만 다시 맞출게요.',
+  'dialog.audio_recovery_action': '오디오 다시 켜기',
   'dialog.background_resume_message':
     '싱크가 맞지 않거나 소리가 나지 않으면 앱을 완전히 종료한 뒤 다시 열어주세요.',
   'dialog.background_resume_sync_fallback_message':

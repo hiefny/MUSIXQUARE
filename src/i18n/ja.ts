@@ -622,6 +622,10 @@ const ja: Record<I18nKey, string> = {
   'dialog.leaving_session': 'ルームを退出中...',
   'dialog.refreshing_session': 'セッションを再読み込みしています...',
   'dialog.background_resume_title': 'アプリが一時的にバックグラウンドへ移動しました',
+  'dialog.audio_recovery_title': 'オーディオが一時停止しました',
+  'dialog.audio_recovery_message':
+    'バックグラウンドから戻った後、このデバイスのオーディオを復旧できませんでした。ルームへの接続を維持したまま、MUSIXQUARE がこのデバイスの音を合わせ直します。',
+  'dialog.audio_recovery_action': 'オーディオを復旧',
   'dialog.background_resume_message':
     '同期がずれたり音が出ない場合は、アプリを完全に閉じて開き直してください。',
   'dialog.background_resume_sync_fallback_message':

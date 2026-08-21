@@ -636,6 +636,10 @@ const ptBr: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Saindo da sala...',
   'dialog.refreshing_session': 'Atualizando a sala...',
   'dialog.background_resume_title': 'O app foi brevemente para segundo plano',
+  'dialog.audio_recovery_title': 'O áudio foi pausado inesperadamente',
+  'dialog.audio_recovery_message':
+    'O áudio deste dispositivo não se recuperou após voltar do segundo plano. A sala continuará conectada enquanto o MUSIXQUARE realinha o som deste dispositivo.',
+  'dialog.audio_recovery_action': 'Restaurar áudio',
   'dialog.background_resume_message':
     'Se a sincronização falhar ou o áudio não tocar, feche o app completamente e abra de novo.',
   'dialog.background_resume_sync_fallback_message':

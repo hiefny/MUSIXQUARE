@@ -637,6 +637,10 @@ const es: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Saliendo de la sala...',
   'dialog.refreshing_session': 'Actualizando la sala...',
   'dialog.background_resume_title': 'La app pasó brevemente a segundo plano',
+  'dialog.audio_recovery_title': 'El audio se pausó inesperadamente',
+  'dialog.audio_recovery_message':
+    'El audio de este dispositivo no se recuperó al volver del segundo plano. La sala seguirá conectada mientras MUSIXQUARE vuelve a sincronizar el sonido de este dispositivo.',
+  'dialog.audio_recovery_action': 'Restaurar audio',
   'dialog.background_resume_message':
     'Si la sincronización falla o no hay audio, cierra la app por completo y ábrela de nuevo.',
   'dialog.background_resume_sync_fallback_message':

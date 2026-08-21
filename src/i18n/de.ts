@@ -635,6 +635,10 @@ const de: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Raum wird verlassen...',
   'dialog.refreshing_session': 'Raum wird aktualisiert...',
   'dialog.background_resume_title': 'Die App war kurz im Hintergrund',
+  'dialog.audio_recovery_title': 'Die Audiowiedergabe wurde unerwartet angehalten',
+  'dialog.audio_recovery_message':
+    'Die Audiowiedergabe dieses Geräts konnte nach der Rückkehr aus dem Hintergrund nicht wiederhergestellt werden. Die Raumverbindung bleibt bestehen, während MUSIXQUARE den Ton dieses Geräts neu ausrichtet.',
+  'dialog.audio_recovery_action': 'Audio wiederherstellen',
   'dialog.background_resume_message':
     'Wenn Sync nicht stimmt oder kein Audio spielt, schließe die App vollständig und öffne sie erneut.',
   'dialog.background_resume_sync_fallback_message':

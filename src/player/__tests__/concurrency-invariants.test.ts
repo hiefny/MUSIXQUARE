@@ -61,6 +61,13 @@ const mocks = vi.hoisted(() => ({
   decodeAudioData: vi.fn(),
   createBufferSource: vi.fn(),
   ensureRunning: vi.fn(),
+  getPendingForegroundHealthCheck: vi.fn<
+    () => { context: unknown; token: object; isCurrent: () => boolean } | null
+  >(() => null),
+  probeAudioContextHealth: vi.fn(),
+  consumeForegroundHealthCheck: vi.fn(),
+  confirmForegroundRestartHealth: vi.fn(),
+  prepareForegroundRestart: vi.fn(),
   getCurrentTime: vi.fn(() => 100),
   initAudio: vi.fn(),
   sendRecoveryRequest: vi.fn(),
@@ -76,6 +83,11 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../audio/context.ts', () => ({
   ensureRunning: mocks.ensureRunning,
   getCurrentTime: mocks.getCurrentTime,
+  getPendingForegroundAudioContextClockHealthCheck: mocks.getPendingForegroundHealthCheck,
+  probeAudioContextHealth: mocks.probeAudioContextHealth,
+  consumeForegroundAudioContextClockHealthCheck: mocks.consumeForegroundHealthCheck,
+  confirmForegroundAudioContextRestartHealth: mocks.confirmForegroundRestartHealth,
+  prepareForegroundAudioContextRestart: mocks.prepareForegroundRestart,
   getAudioContext: vi.fn(() => ({
     state: 'running',
     currentTime: 0,
@@ -164,11 +176,23 @@ import {
   setPlayLocked,
   setPlayPreloadedInProgress,
 } from '../_state.ts';
-import { pause, play, stopAllMedia } from '../transport.ts';
+import {
+  applyProPlaybackFileCommit,
+  getPlayLockSnapshot,
+  pause,
+  play,
+  seekTo,
+  stopAllMedia,
+} from '../transport.ts';
 import { finalizeGuestFile, loadPreloadedTrack } from '../decode.ts';
 import { initPlayback } from '../playback.ts';
 import { transition } from '../lifecycle.ts';
-import { setPlaybackTransferState, setPlaybackYouTubePlaying } from '../ownership.ts';
+import {
+  setPlaybackFilePlaying,
+  setPlaybackTransferState,
+  setPlaybackYouTubePlaying,
+} from '../ownership.ts';
+import { createProPlaybackAuthorityToken } from '../../pro-room/playback-authority-hooks.ts';
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -343,11 +367,24 @@ beforeEach(() => {
   // Default mock behaviour (clearAllMocks wipes calls only, but the per-test
   // mockImplementationOnce queues must start empty and defaults re-primed).
   mocks.ensureRunning.mockReset();
+  mocks.getPendingForegroundHealthCheck.mockReset();
+  mocks.probeAudioContextHealth.mockReset();
+  mocks.consumeForegroundHealthCheck.mockReset();
+  mocks.confirmForegroundRestartHealth.mockReset();
+  mocks.prepareForegroundRestart.mockReset();
   mocks.initAudio.mockReset();
   mocks.decodeAudioData.mockReset();
   mocks.readStoredFile.mockReset();
   mocks.cleanupStoredFile.mockReset();
   mocks.ensureRunning.mockResolvedValue(undefined);
+  mocks.getPendingForegroundHealthCheck.mockReturnValue(null);
+  mocks.probeAudioContextHealth.mockResolvedValue({
+    healthy: true,
+    reason: 'healthy',
+    state: 'running',
+    clockAdvanceSeconds: 0.5,
+  });
+  mocks.confirmForegroundRestartHealth.mockReturnValue(true);
   mocks.initAudio.mockResolvedValue(undefined);
   mocks.decodeAudioData.mockResolvedValue({ duration: 120 } as AudioBuffer);
   mocks.readStoredFile.mockResolvedValue(null);
@@ -980,7 +1017,7 @@ describe('pin (b) — 15s navigator-lock-watchdog resets the full tuple', () => 
     await vi.advanceTimersByTimeAsync(15_000);
 
     // Full reset tuple — all five together (contract C3). pendingPlayTime is
-    // cleared (NOT consumed/replayed) so the unlock-delay consumer (C6) sees
+    // cleared (NOT consumed/replayed) so the post-unlock consumer (C6) sees
     // a consistent no-pending state.
     expect(isPlayLocked()).toBe(false);
     expect(getPendingPlayTime()).toBeUndefined();
@@ -993,7 +1030,7 @@ describe('pin (b) — 15s navigator-lock-watchdog resets the full tuple', () => 
     // creating a node or writing PLAYING over the post-watchdog IDLE.
     hang.resolve();
     await playPromise;
-    await vi.advanceTimersByTimeAsync(20); // unlock-delay window
+    await Promise.resolve(); // post-unlock mailbox microtask
     expect(mocks.createBufferSource).not.toHaveBeenCalled();
     expect(getState('playback.activity')).toBe('idle');
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.IDLE);
@@ -1035,6 +1072,40 @@ describe('pin (c) — stopAllMedia during the in-flight play window', () => {
 });
 
 describe('play invocation owner — stale unlock/watchdog isolation', () => {
+  it('self-heals a stale lock even when WebKit never runs its watchdog timer', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    const hungOwner = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(hungOwner.promise).mockResolvedValue(undefined);
+
+    const first = play(1);
+    expect(getPlayLockSnapshot()).toMatchObject({
+      locked: true,
+      consistent: true,
+      phase: 'ensure-running',
+      watchdogArmed: true,
+    });
+
+    // Simulate iOS dropping the timer queue while wall time continues.
+    clearAllManagedTimers();
+    vi.setSystemTime(new Date('2026-08-21T00:00:06.000Z'));
+    const tokenBeforeRecovery = getCurrentLoadEpoch();
+    await play(2);
+
+    expect(getPlayLockSnapshot()).toMatchObject({ locked: false, consistent: true });
+    expect(getCurrentLoadEpoch()).toBe(tokenBeforeRecovery + 1);
+    expect(mocks.createBufferSource).toHaveBeenCalledTimes(1);
+
+    // The old native promise may wake much later, but its invocation and load
+    // epoch were both revoked by the recovery tuple.
+    hungOwner.resolve();
+    await first;
+    expect(mocks.createBufferSource).toHaveBeenCalledTimes(1);
+    expect(isPlayLocked()).toBe(false);
+  });
+
   it('does not revive a queued PLAY after its authority revision is superseded', async () => {
     vi.useFakeTimers();
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
@@ -1105,13 +1176,242 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
     await playB;
   });
 
-  it('cancels an already-armed stale unlock before a replacement play claims the lock', async () => {
+  it('does not surface recovery UI from a superseded resume failure', async () => {
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const resume = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(resume.promise);
+    const recoveryNeeded = vi.fn();
+    bus.on('audio:output-recovery-needed', recoveryNeeded);
+
+    const oldPlay = play(3);
+    await vi.waitFor(() => expect(mocks.ensureRunning).toHaveBeenCalledOnce());
+    stopAllMedia({ cancelInFlight: true });
+    resume.reject(new Error('old context resume failed'));
+    await oldPlay;
+
+    expect(recoveryNeeded).not.toHaveBeenCalled();
+  });
+
+  it('retries the exact failed PLAY once and runs its recovered continuation after source start', async () => {
+    const queueItemId = selectIndex(0);
+    const buffer = { duration: 120 } as AudioBuffer;
+    setCurrentAudioBuffer(buffer);
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('WebKit context did not resume'));
+    const onRecoveredStarted = vi.fn();
+    let recoveryEvent:
+      | {
+          queueItemId: QueueItemId | null;
+          isCurrent?: () => boolean;
+          retry?: () => Promise<boolean>;
+        }
+      | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+
+    await play(3, 0, undefined, undefined, { onRecoveredStarted });
+
+    expect(recoveryEvent?.queueItemId).toBe(queueItemId);
+    expect(recoveryEvent?.isCurrent?.()).toBe(true);
+    expect(getPlayerNode()).toBeNull();
+
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
+    expect(getPlayerNode()?.buffer).toBe(buffer);
+    expect(onRecoveredStarted).toHaveBeenCalledOnce();
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(false);
+    expect(onRecoveredStarted).toHaveBeenCalledOnce();
+  });
+
+  it('checks and consumes the one foreground clock incident before starting a file source', async () => {
+    selectIndex(0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const checkToken = {};
+    const isCurrent = vi.fn(() => true);
+    mocks.getPendingForegroundHealthCheck.mockReturnValueOnce({
+      context: { state: 'running' },
+      token: checkToken,
+      isCurrent,
+    });
+
+    await expect(play(4)).resolves.toBe(true);
+
+    expect(mocks.probeAudioContextHealth).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptResume: false }),
+    );
+    expect(mocks.consumeForegroundHealthCheck).toHaveBeenCalledWith(checkToken);
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+  });
+
+  it('prepares a frozen foreground clock and retries only after its exact gesture token', async () => {
+    const queueItemId = selectIndex(0);
+    const buffer = { duration: 120 } as AudioBuffer;
+    setCurrentAudioBuffer(buffer);
+    const checkToken = {};
+    const restartAttemptToken = {};
+    const restartIsCurrent = vi.fn(() => true);
+    mocks.getPendingForegroundHealthCheck
+      .mockReturnValueOnce({
+        context: { state: 'running' },
+        token: checkToken,
+        isCurrent: vi.fn(() => true),
+      })
+      .mockReturnValue(null);
+    mocks.probeAudioContextHealth.mockResolvedValueOnce({
+      healthy: false,
+      reason: 'clock-stalled',
+      state: 'running',
+      clockAdvanceSeconds: 0,
+    });
+    mocks.prepareForegroundRestart.mockResolvedValueOnce({
+      status: 'prepared',
+      attemptToken: restartAttemptToken,
+      whenPrepared: Promise.resolve(true),
+      isCurrent: restartIsCurrent,
+    });
+    let recoveryEvent:
+      | {
+          queueItemId: QueueItemId | null;
+          foregroundRestartAttemptToken?: object;
+          confirmForegroundRestart?: (attemptToken: object) => boolean;
+          isCurrent?: () => boolean;
+          retry?: () => Promise<boolean>;
+        }
+      | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+
+    await expect(play(5)).resolves.toBe(false);
+    expect(getPlayerNode()).toBeNull();
+    expect(recoveryEvent?.queueItemId).toBe(queueItemId);
+    expect(recoveryEvent?.foregroundRestartAttemptToken).toBe(restartAttemptToken);
+    expect(recoveryEvent?.isCurrent?.()).toBe(true);
+
+    expect(recoveryEvent?.confirmForegroundRestart?.({})).toBe(false);
+    expect(mocks.confirmForegroundRestartHealth).not.toHaveBeenCalled();
+    expect(recoveryEvent?.confirmForegroundRestart?.(restartAttemptToken)).toBe(true);
+    expect(mocks.confirmForegroundRestartHealth).toHaveBeenCalledWith(restartAttemptToken);
+    restartIsCurrent.mockReturnValue(false);
+    expect(recoveryEvent?.isCurrent?.()).toBe(true);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
+    expect(getPlayerNode()?.buffer).toBe(buffer);
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+  });
+
+  it('does not block PLAY on an inconclusive foreground clock sample', async () => {
+    selectIndex(0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const checkToken = {};
+    mocks.getPendingForegroundHealthCheck.mockReturnValueOnce({
+      context: { state: 'running' },
+      token: checkToken,
+      isCurrent: vi.fn(() => true),
+    });
+    mocks.probeAudioContextHealth.mockResolvedValueOnce({
+      healthy: false,
+      reason: 'inconclusive',
+      state: 'running',
+      clockAdvanceSeconds: 0,
+    });
+
+    await expect(play(6)).resolves.toBe(true);
+
+    expect(mocks.consumeForegroundHealthCheck).not.toHaveBeenCalled();
+    expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+  });
+
+  it('invalidates a failed PLAY recovery token on a newer PAUSE intent', async () => {
+    selectIndex(0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('WebKit context did not resume'));
+    let recoveryEvent: { isCurrent?: () => boolean; retry?: () => Promise<boolean> } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+
+    await play(3);
+    expect(recoveryEvent?.isCurrent?.()).toBe(true);
+    pause(3, { showToast: false });
+    expect(recoveryEvent?.isCurrent?.()).toBe(false);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(false);
+    expect(mocks.createBufferSource).not.toHaveBeenCalled();
+  });
+
+  it('invalidates a failed PLAY recovery token on a paused seek intent', async () => {
+    setState('network.appRole', 'host');
+    setState('network.hostConn', null);
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    selectIndex(0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('WebKit context did not resume'));
+    let recoveryEvent: { isCurrent?: () => boolean; retry?: () => Promise<boolean> } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+
+    await play(3);
+    expect(recoveryEvent?.isCurrent?.()).toBe(true);
+    seekTo(17);
+    expect(recoveryEvent?.isCurrent?.()).toBe(false);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(false);
+    expect(mocks.createBufferSource).not.toHaveBeenCalled();
+  });
+
+  it('does not let an old same-track prompt retry after a newer PLAY succeeds', async () => {
+    selectIndex(0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('first resume failed'));
+    const continuation = vi.fn();
+    let oldRecovery: { isCurrent?: () => boolean; retry?: () => Promise<boolean> } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      oldRecovery = event;
+    });
+
+    await play(1, 0, undefined, undefined, { onRecoveredStarted: continuation });
+    expect(oldRecovery?.isCurrent?.()).toBe(true);
+    await expect(play(4)).resolves.toBe(true);
+
+    expect(oldRecovery?.isCurrent?.()).toBe(false);
+    await expect(oldRecovery?.retry?.()).resolves.toBe(false);
+    expect(mocks.createBufferSource).toHaveBeenCalledTimes(1);
+    expect(continuation).not.toHaveBeenCalled();
+  });
+
+  it('preserves a queued PLAY continuation through resume failure and exact gesture retry', async () => {
+    selectIndex(0);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    const firstOwner = deferred<void>();
+    mocks.ensureRunning
+      .mockReturnValueOnce(firstOwner.promise)
+      .mockRejectedValueOnce(new Error('queued resume failed'))
+      .mockResolvedValue(undefined);
+    const continuation = vi.fn();
+    let queuedRecovery: { retry?: () => Promise<boolean> } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      queuedRecovery = event;
+    });
+
+    const first = play(1);
+    await expect(
+      play(2, 0, undefined, undefined, { onRecoveredStarted: continuation }),
+    ).resolves.toBe(false);
+    firstOwner.resolve();
+    await first;
+    await vi.waitFor(() => expect(queuedRecovery?.retry).toEqual(expect.any(Function)));
+
+    await expect(queuedRecovery?.retry?.()).resolves.toBe(true);
+    expect(continuation).toHaveBeenCalledOnce();
+  });
+
+  it('releases the lock synchronously and never arms the retired 10ms unlock timer', async () => {
     vi.useFakeTimers();
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
 
     await play(1);
-    expect(isPlayLocked()).toBe(true);
-    expect(getManagedTimer('playback-unlock-delay')).not.toBeNull();
+    expect(isPlayLocked()).toBe(false);
+    expect(getManagedTimer('navigator-lock-watchdog')).toBeNull();
+    expect(getManagedTimer('playback-unlock-delay')).toBeNull();
 
     stopAllMedia({ cancelInFlight: true });
     expect(getManagedTimer('playback-unlock-delay')).toBeNull();
@@ -1127,6 +1427,25 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
     stopAllMedia({ cancelInFlight: true });
     hangB.resolve();
     await playB;
+  });
+
+  it('fences a late owner even when silent teardown intentionally preserves the load epoch', async () => {
+    vi.useFakeTimers();
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    const hungOwner = deferred<void>();
+    mocks.ensureRunning.mockReturnValueOnce(hungOwner.promise);
+    const playPromise = play(3);
+    const loadEpoch = getCurrentLoadEpoch();
+
+    stopAllMedia({ silent: true, cancelInFlight: false });
+    expect(getCurrentLoadEpoch()).toBe(loadEpoch);
+    expect(isPlayLocked()).toBe(false);
+
+    hungOwner.resolve();
+    await playPromise;
+    expect(mocks.createBufferSource).not.toHaveBeenCalled();
+    expect(isPlayLocked()).toBe(false);
   });
 });
 
@@ -1594,5 +1913,53 @@ describe('PRO scheduled-file commit deadline compensation', () => {
 
     expect(getState('player.pausedAt')).toBeCloseTo(5.25, 5);
     now.mockRestore();
+  });
+
+  it('does not report an already-semantic-playing commit as applied when local output fails', async () => {
+    const queueItemId = selectIndex(0)!;
+    const file = makeFile('t0.mp3');
+    setState('files.current', {
+      queueItemId,
+      indexHint: 0,
+      name: file.name,
+      mime: file.type,
+      size: file.size,
+      sessionId: 1,
+      blob: file,
+    });
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 4,
+      capabilities: [],
+    });
+    setState('setup.sessionStarted', true);
+    setPlaybackFilePlaying();
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('iOS context stayed interrupted'));
+    const recoveryNeeded = vi.fn();
+    bus.on('audio:output-recovery-needed', recoveryNeeded);
+
+    const applied = await applyProPlaybackFileCommit({
+      authority: createProPlaybackAuthorityToken({
+        roomId: '000001',
+        roomEpoch: 1,
+        basePlaybackRevision: 4,
+        transitionId: 'resume-after-background',
+      }),
+      committedPlaybackRevision: 5,
+      queueItemId,
+      state: 'playing',
+      positionSeconds: 8,
+      scheduleDelayMs: 0,
+      timingMode: 'scheduled-control',
+      isCurrent: () => true,
+    });
+
+    expect(applied).toBe(false);
+    expect(recoveryNeeded).toHaveBeenCalledOnce();
   });
 });

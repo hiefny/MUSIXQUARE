@@ -1017,8 +1017,16 @@ export async function loadPreloadedTrack(
       const age = getPendingPlayTimeAge();
       const target = pendingTime + age;
       log.info(`[Preload] Activating playback at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
-      await play(target);
-      if (ownsPublishedTarget()) {
+      let recoveredStartFinalized = false;
+      const finalizeRecoveredStart = (): void => {
+        if (
+          recoveredStartFinalized ||
+          !ownsPublishedTarget() ||
+          getState('playback.activity') !== 'playing'
+        ) {
+          return;
+        }
+        recoveredStartFinalized = true;
         setPendingPlayTime(undefined);
         bus.emit('sync:arm-initial');
         setManagedTimer(
@@ -1030,7 +1038,11 @@ export async function loadPreloadedTrack(
           },
           250,
         );
-      }
+      };
+      const started = await play(target, 0, undefined, undefined, {
+        onRecoveredStarted: finalizeRecoveredStart,
+      });
+      if (started) finalizeRecoveredStart();
     } else if (ownsPublishedTarget()) {
       bus.emit('sync:request-immediate-ping');
     }
@@ -1326,8 +1338,16 @@ export async function finalizeGuestFile(
       const age = getPendingPlayTimeAge();
       const target = pendingTime + age;
       log.debug(`[Guest] Pending play at ${target.toFixed(1)}s (age=${age.toFixed(1)}s)`);
-      await play(target);
-      if (ownsTarget()) {
+      let recoveredStartFinalized = false;
+      const finalizeRecoveredStart = (): void => {
+        if (
+          recoveredStartFinalized ||
+          !ownsTarget() ||
+          getState('playback.activity') !== 'playing'
+        ) {
+          return;
+        }
+        recoveredStartFinalized = true;
         setPendingPlayTime(undefined);
         bus.emit('sync:arm-initial');
         setManagedTimer(
@@ -1339,7 +1359,11 @@ export async function finalizeGuestFile(
           },
           250,
         );
-      }
+      };
+      const started = await play(target, 0, undefined, undefined, {
+        onRecoveredStarted: finalizeRecoveredStart,
+      });
+      if (started) finalizeRecoveredStart();
     }
 
     if (ownsTarget()) {

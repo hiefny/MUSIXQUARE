@@ -10,7 +10,7 @@ import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import type { PlaybackActivityValue } from '../core/constants.ts';
 import { togglePlay, stopPlayback, skipTime, pause } from './transport.ts';
-import { setLocalFilePaused } from './_state.ts';
+import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
 import {
   isPlaybackActivityValue,
   isPlaybackIdle,
@@ -21,14 +21,18 @@ import {
 import { getCurrentQueueItemId } from './queue-model.ts';
 import type { TrackMeta } from '../types/index.ts';
 import { getTrackDisplayTitle } from './track-display.ts';
-import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
+import { getRoomContext, hasRoomCapability, isStandardRoomMember } from '../rooms/authority.ts';
 import { isLocalYouTubePaused } from '../youtube/_state.ts';
 import {
+  confirmPendingAudioContextRecoveryHealth,
+  escalatePendingAudioContextRecoveryToClockStalled,
+  getPendingAudioContextClockHealthRequirement,
   getPendingAudioContextInterruptionAttempt,
   hasPendingAudioContextInterruption,
   isAudioContextInterruptionAttemptCurrent,
   resumePendingAudioContextInterruptionFromGesture,
 } from '../audio/context-recovery.ts';
+import { probeAudioContextHealth } from '../audio/context.ts';
 import {
   initYouTubeNativeControlAuthority,
   shouldIgnoreRecentNativeYouTubeMediaAction,
@@ -126,13 +130,19 @@ export function initMediaSession(): void {
     if (getRoomContext().kind === 'pro') {
       return !hasRoomCapability('playback.control');
     }
+    if (!isStandardRoomMember()) return false;
     const hostConn = getState('network.hostConn');
-    return !!(hostConn && !hasRoomCapability('playback.control'));
+    // A disconnected standard member does not become the room coordinator.
+    // Keep hardware controls participant-local until its authoritative host
+    // connection is open again, regardless of the member's former grants.
+    if (hostConn?.open !== true) return true;
+    return !hasRoomCapability('playback.control');
   };
   const isNonOperatorGuest = isPlaybackBlocked;
   let pendingLocalPlayRecovery: { attemptToken: object } | null = null;
 
   const requestLocalPlay = (mode: 'file' | 'youtube'): void => {
+    const explicitLocalPause = mode === 'file' ? isLocalFilePaused() : isLocalYouTubePaused();
     const emitRejoin = (requestedMode: 'file' | 'youtube'): void => {
       if (requestedMode === 'youtube') {
         bus.emit('youtube:set-local-paused', false, 'media-session-play');
@@ -144,29 +154,59 @@ export function initMediaSession(): void {
       });
     };
 
+    const hasPendingRecovery = hasPendingAudioContextInterruption(mode);
     const attemptToken = getPendingAudioContextInterruptionAttempt();
     if (pendingLocalPlayRecovery) {
       // A running statechange can consume the pending slot just before the
       // gesture resume Promise settles. Keep coalescing that exact attempt so
       // a duplicate hardware PLAY cannot emit a second fallback. Conversely,
       // a disposed/superseded attempt must never block a new context binding.
-      if (isAudioContextInterruptionAttemptCurrent(pendingLocalPlayRecovery.attemptToken)) return;
+      if (
+        hasPendingRecovery &&
+        isAudioContextInterruptionAttemptCurrent(pendingLocalPlayRecovery.attemptToken)
+      ) {
+        return;
+      }
       pendingLocalPlayRecovery = null;
     }
-    if (!attemptToken) {
+    if (!hasPendingRecovery) {
       emitRejoin(mode);
       return;
     }
+    // A running-clock stall can still be preparing its native suspension.
+    // Do not bypass that lease with a stale local rejoin; the prepared event or
+    // the next trusted PLAY will resume this exact attempt.
+    if (!attemptToken) return;
     const flight = { attemptToken };
     void resumePendingAudioContextInterruptionFromGesture()
-      .then((result) => {
-        // A successful context recovery emits its own identity-fenced rejoin.
-        // If playback changed while the output was suspended, only the exact
-        // still-bound recovery can transfer this trusted PLAY to the current
-        // mode. Repeated PLAY actions share this one fallback continuation.
-        if (!result.running || result.rejoinEmitted || !result.fallbackEligible) return;
+      .then(async (result) => {
+        if (!result.running || !isAudioContextInterruptionAttemptCurrent(attemptToken)) return;
+        const requirement = getPendingAudioContextClockHealthRequirement();
+        if (!requirement || requirement.attemptToken !== attemptToken || !requirement.isCurrent()) {
+          return;
+        }
+        const health = await probeAudioContextHealth({
+          attemptResume: false,
+          context: requirement.context,
+          isCurrent: requirement.isCurrent,
+        });
+        if (!requirement.isCurrent()) return;
+        if (!health.healthy) {
+          if (health.reason === 'clock-stalled') {
+            await escalatePendingAudioContextRecoveryToClockStalled(attemptToken);
+          }
+          return;
+        }
+        const confirmed = confirmPendingAudioContextRecoveryHealth(attemptToken);
+        if (!confirmed.running) return;
         const currentMode = getState('playback.mode');
-        if (currentMode === 'file' || currentMode === 'youtube') emitRejoin(currentMode);
+        // A successful semantic recovery already publishes one local rejoin.
+        // Only add the explicit Media Session PLAY when that recovery did not
+        // emit, or when the user is deliberately clearing a local-only pause
+        // that automatic recovery must preserve.
+        if (currentMode === mode && (explicitLocalPause || !confirmed.rejoinEmitted)) {
+          emitRejoin(mode);
+        }
       })
       .catch((error) => log.debug('[MediaSession] AudioContext PLAY recovery failed:', error))
       .finally(() => {

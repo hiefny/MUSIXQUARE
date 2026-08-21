@@ -70,6 +70,11 @@ export function isActiveStandardRoomCoordinator(): boolean {
   );
 }
 
+/** Whether this tab is the participant side of a standard room. */
+export function isStandardRoomMember(): boolean {
+  return getRoomContext().kind === 'standard' && getState('network.appRole') === 'guest';
+}
+
 function getAuthorityConnection(): DataConnection | null {
   if (isCoordinator()) return null;
   return getState('network.hostConn');

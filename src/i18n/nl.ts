@@ -701,6 +701,10 @@ const nl: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Kamer verlaten...',
   'dialog.refreshing_session': 'Kamer wordt vernieuwd...',
   'dialog.background_resume_title': 'De app ging kort naar de achtergrond',
+  'dialog.audio_recovery_title': 'De audio is onverwacht gepauzeerd',
+  'dialog.audio_recovery_message':
+    'De audio van dit apparaat is niet hersteld na terugkeer uit de achtergrond. De kamer blijft verbonden terwijl MUSIXQUARE het geluid van dit apparaat opnieuw uitlijnt.',
+  'dialog.audio_recovery_action': 'Audio herstellen',
   'dialog.background_resume_message':
     'Als de synchronisatie niet klopt of er geen audio wordt afgespeeld, sluit je de app volledig en open je hem opnieuw.',
   'dialog.background_resume_sync_fallback_message':

@@ -682,6 +682,10 @@ const en: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Leaving session...',
   'dialog.refreshing_session': 'Refreshing session...',
   'dialog.background_resume_title': 'The app briefly moved to the background',
+  'dialog.audio_recovery_title': 'Audio paused unexpectedly',
+  'dialog.audio_recovery_message':
+    "This device's audio did not recover after returning from the background. Your room will stay connected while MUSIXQUARE realigns this device's sound.",
+  'dialog.audio_recovery_action': 'Restore audio',
   'dialog.background_resume_message':
     'If sync is off or audio does not play, fully close the app and open it again.',
   'dialog.background_resume_sync_fallback_message':

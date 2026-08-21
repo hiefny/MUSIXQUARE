@@ -10,6 +10,16 @@ const mocks = vi.hoisted(() => ({
   audioReady: false,
   getAudioContext: vi.fn(),
   peekTrackPosition: vi.fn(() => 0),
+  getPlayLockSnapshot: vi.fn(() => ({
+    locked: false,
+    consistent: true,
+    generation: null,
+    ageMs: null,
+    phase: null,
+    phaseAgeMs: null,
+    pending: false,
+    watchdogArmed: false,
+  })),
   getCurrentAudioBuffer: vi.fn(() => null),
   getPlayerNode: vi.fn(() => null),
   hostNow: 0,
@@ -22,6 +32,7 @@ vi.mock('../../audio/engine.ts', () => ({
 }));
 vi.mock('../../player/transport.ts', () => ({
   peekTrackPosition: mocks.peekTrackPosition,
+  getPlayLockSnapshot: mocks.getPlayLockSnapshot,
 }));
 vi.mock('../../player/_state.ts', () => ({
   getCurrentAudioBuffer: mocks.getCurrentAudioBuffer,

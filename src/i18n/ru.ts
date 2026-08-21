@@ -700,6 +700,10 @@ const ru: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Выход из комнаты...',
   'dialog.refreshing_session': 'Обновление комнаты...',
   'dialog.background_resume_title': 'Приложение перешло в фоновый режим',
+  'dialog.audio_recovery_title': 'Воспроизведение звука приостановилось',
+  'dialog.audio_recovery_message':
+    'После возврата из фонового режима звук на этом устройстве не восстановился. Подключение к комнате останется активным, пока мы повторно синхронизируем звук только на этом устройстве.',
+  'dialog.audio_recovery_action': 'Восстановить звук',
   'dialog.background_resume_message':
     'Если синхронизация сбилась или звук не воспроизводится, полностью закройте приложение и откройте его снова.',
   'dialog.background_resume_sync_fallback_message':

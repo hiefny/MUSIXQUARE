@@ -7,6 +7,7 @@ import {
   isActiveStandardRoomCoordinator,
   isAuthoritativeConnection,
   isCoordinator,
+  isStandardRoomMember,
   setRoomContext,
   verifyPeerCapability,
 } from '../authority.ts';
@@ -51,6 +52,19 @@ function proContext(overrides: Partial<RoomContext> = {}): RoomContext {
 beforeEach(() => resetState());
 
 describe('room authority compatibility layer', () => {
+  it('identifies only the participant side of a standard room', () => {
+    expect(isStandardRoomMember()).toBe(false);
+
+    setState('network.appRole', 'host');
+    expect(isStandardRoomMember()).toBe(false);
+
+    setState('network.appRole', 'guest');
+    expect(isStandardRoomMember()).toBe(true);
+
+    setRoomContext(proContext());
+    expect(isStandardRoomMember()).toBe(false);
+  });
+
   it('opens standard timeline authority only after the room is actually active', () => {
     setState('network.appRole', 'host');
     setState('network.sessionCode', '100000');

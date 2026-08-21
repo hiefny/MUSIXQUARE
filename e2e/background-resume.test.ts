@@ -1,56 +1,65 @@
 /**
  * E2E: Mobile background resume behavior.
  *
- * Exercises the browser-level visibilitychange path in a mobile guest context.
- * A long hidden interval requests playback recovery and then surfaces the
- * user-facing resume warning.
+ * Uses a real decoded file and AudioContext. Unit tests deterministically pin
+ * WebKit's frozen-clock detector; this browser test owns the surrounding app
+ * wiring: healthy automatic rejoin and the trusted-gesture recovery dialog.
  */
 import { test, expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
+import { setupHostAndStart } from './helpers/setup-flow.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
+import { uploadFixture } from './helpers/file-upload.ts';
+import {
+  clickPlayButton,
+  waitForFilePlaybackReady,
+  waitForPlaybackProjection,
+} from './helpers/wait.ts';
 
-async function createMobileResumePages(browser: Browser): Promise<{
-  hostContext: BrowserContext;
-  guestContext: BrowserContext;
-  hostPage: Page;
-  guestPage: Page;
+interface ResumeSignals {
+  rejoinReasons: string[];
+  forceResync: number;
+}
+
+async function createMobileResumePage(browser: Browser): Promise<{
+  context: BrowserContext;
+  page: Page;
 }> {
-  const hostContext = await browser.newContext();
-  const guestContext = await browser.newContext({
+  const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     isMobile: true,
     hasTouch: true,
     userAgent:
       'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
   });
-  const hostPage = await hostContext.newPage();
-  const guestPage = await guestContext.newPage();
-  await injectPeerServer(hostPage);
-  await injectPeerServer(guestPage);
-  return { hostContext, guestContext, hostPage, guestPage };
+  const page = await context.newPage();
+  await injectPeerServer(page);
+  return { context, page };
 }
 
 async function installResumeSignalProbe(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = window as unknown as Record<string, unknown>;
     const bus = w.__MUSIXQUARE_BUS__ as
-      | { on: (type: string, callback: () => void) => void }
+      | {
+          on: (type: string, callback: (payload?: unknown) => void) => void;
+        }
       | undefined;
     if (!bus) throw new Error('E2E bus hook unavailable');
 
-    const signals = { forceResync: 0, refreshPosition: 0 };
+    const signals: ResumeSignals = { rejoinReasons: [], forceResync: 0 };
     w.__backgroundResumeSignals = signals;
+    bus.on('playback:local-output-rejoin', (payload) => {
+      const reason = (payload as { reason?: unknown } | undefined)?.reason;
+      if (typeof reason === 'string') signals.rejoinReasons.push(reason);
+    });
     bus.on('sync:force-resync', () => {
       signals.forceResync += 1;
-    });
-    bus.on('playback:refresh-current-position', () => {
-      signals.refreshPosition += 1;
     });
   });
 }
 
-async function simulateLongBackgroundBounce(page: Page): Promise<void> {
-  await page.evaluate(() => {
+async function simulateBackgroundBounce(page: Page, hiddenMs: number): Promise<void> {
+  await page.evaluate((elapsed) => {
     const realNow = Date.now;
     const start = realNow();
     let now = start;
@@ -69,81 +78,112 @@ async function simulateLongBackgroundBounce(page: Page): Promise<void> {
     Date.now = () => now;
     setVisibility('hidden');
     document.dispatchEvent(new Event('visibilitychange'));
-    now = start + 61_000;
+    now = start + elapsed;
     setVisibility('visible');
     document.dispatchEvent(new Event('visibilitychange'));
     Date.now = realNow;
+  }, hiddenMs);
+}
+
+async function readFileIdentity(page: Page): Promise<{
+  queueItemId: string | null;
+  residentQueueItemId: string | null;
+}> {
+  return page.evaluate(() => {
+    const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
+      | ((path: string) => unknown)
+      | undefined;
+    if (!get) throw new Error('E2E state hook unavailable');
+    const resident = get('files.current') as { queueItemId?: unknown } | null;
+    const queueItemId = get('playlist.currentQueueItemId');
+    return {
+      queueItemId: typeof queueItemId === 'string' ? queueItemId : null,
+      residentQueueItemId: typeof resident?.queueItemId === 'string' ? resident.queueItemId : null,
+    };
   });
 }
 
-async function forceGuestIntoPlayingFileState(page: Page): Promise<void> {
+async function emitDetectedClockStall(page: Page): Promise<void> {
   await page.evaluate(() => {
-    const set = (window as unknown as Record<string, unknown>).__MUSIXQUARE_SET_STATE__ as
-      | ((path: string, value: unknown) => void)
+    const w = window as unknown as Record<string, unknown>;
+    const get = w.__MUSIXQUARE_GET_STATE__ as ((path: string) => unknown) | undefined;
+    const bus = w.__MUSIXQUARE_BUS__ as
+      | { emit: (type: string, payload: unknown) => void }
       | undefined;
-    if (!set) throw new Error('E2E state hook unavailable');
-
-    set('player.currentTrackMeta', {
-      type: 'file',
-      name: 'background-resume.mp3',
-      title: 'Background Resume',
+    if (!get || !bus) throw new Error('E2E app hooks unavailable');
+    bus.emit('audio:output-recovery-needed', {
+      reason: 'clock-stalled',
+      source: 'background-resume',
+      queueItemId: get('playlist.currentQueueItemId'),
     });
-    set('playback.mode', 'file');
-    set('playback.activity', 'playing');
-    set('playback.lifecycle', 'PLAYING');
   });
 }
 
 test.describe('Mobile Background Resume', () => {
-  test('mobile guest requests resync and shows warning after long background resume', async ({
+  test('keeps the room connected while healthy and gesture-assisted file output recover', async ({
     browser,
   }) => {
     test.setTimeout(90_000);
-    const { hostContext, guestContext, hostPage, guestPage } =
-      await createMobileResumePages(browser);
+    const { context, page } = await createMobileResumePage(browser);
 
     try {
-      const code = await setupHostAndStart(hostPage);
-      await setupGuest(guestPage, code);
-      await forceGuestIntoPlayingFileState(guestPage);
+      await setupHostAndStart(page);
+      await uploadFixture(page, 'test01');
+      await waitForFilePlaybackReady(page, 20_000);
+      await clickPlayButton(page);
+      await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 15_000);
 
-      await installResumeSignalProbe(guestPage);
-      await simulateLongBackgroundBounce(guestPage);
+      const identityBefore = await readFileIdentity(page);
+      expect(identityBefore.queueItemId).not.toBeNull();
+      expect(identityBefore.residentQueueItemId).toBe(identityBefore.queueItemId);
 
-      await guestPage.waitForFunction(
+      await installResumeSignalProbe(page);
+      await simulateBackgroundBounce(page, 2_000);
+
+      await page.waitForFunction(
         () => {
           const signals = (window as unknown as Record<string, unknown>)
-            .__backgroundResumeSignals as
-            | { forceResync?: number; refreshPosition?: number }
-            | undefined;
-          return (signals?.forceResync ?? 0) + (signals?.refreshPosition ?? 0) > 0;
+            .__backgroundResumeSignals as ResumeSignals | undefined;
+          return signals?.rejoinReasons.includes('background-resume') === true;
         },
         undefined,
         { timeout: 10_000 },
       );
+      await expect(page.locator('#dialog-overlay.show')).toHaveCount(0);
 
-      await guestPage.waitForFunction(
+      await emitDetectedClockStall(page);
+      await expect(page.locator('#dialog-overlay.show')).toBeVisible();
+      await expect(page.locator('#dialog-title')).toHaveText('Audio paused unexpectedly');
+      await expect(page.locator('#btn-dialog-ok')).toHaveText('Restore audio');
+      await page.locator('#btn-dialog-ok').click();
+
+      await page.waitForFunction(
         () => {
-          const overlay = document.getElementById('dialog-overlay');
-          const title = document.getElementById('dialog-title')?.textContent || '';
-          return (
-            overlay?.classList.contains('show') === true &&
-            (title.length > 0 || document.getElementById('dialog-message')?.textContent)
-          );
+          const signals = (window as unknown as Record<string, unknown>)
+            .__backgroundResumeSignals as ResumeSignals | undefined;
+          return signals?.rejoinReasons.includes('audio-recovery-gesture') === true;
         },
         undefined,
         { timeout: 10_000 },
       );
 
-      const signals = await guestPage.evaluate(() => {
-        return (window as unknown as Record<string, unknown>).__backgroundResumeSignals;
+      const signals = await page.evaluate(() => {
+        return (window as unknown as Record<string, unknown>)
+          .__backgroundResumeSignals as ResumeSignals;
       });
-      expect(signals).toMatchObject({ forceResync: 1 });
+      expect(signals.rejoinReasons.filter((reason) => reason === 'background-resume')).toHaveLength(
+        1,
+      );
+      expect(
+        signals.rejoinReasons.filter((reason) => reason === 'audio-recovery-gesture'),
+      ).toHaveLength(1);
+      expect(signals.forceResync).toBe(0);
 
-      await guestPage.locator('#btn-dialog-ok').click();
+      await expect(page.locator('#dialog-overlay.show')).toHaveCount(0);
+      await waitForPlaybackProjection(page, 'PLAYING_AUDIO', 10_000);
+      expect(await readFileIdentity(page)).toEqual(identityBefore);
     } finally {
-      await guestContext.close().catch(() => {});
-      await hostContext.close().catch(() => {});
+      await context.close().catch(() => {});
     }
   });
 });

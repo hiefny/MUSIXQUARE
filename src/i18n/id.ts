@@ -628,6 +628,10 @@ const id: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Sedang keluar dari ruang...',
   'dialog.refreshing_session': 'Memuat ulang sesi...',
   'dialog.background_resume_title': 'Aplikasi sempat masuk ke latar belakang',
+  'dialog.audio_recovery_title': 'Audio berhenti secara tak terduga',
+  'dialog.audio_recovery_message':
+    'Audio perangkat ini tidak pulih setelah kembali dari latar belakang. Koneksi ruang akan tetap aktif sementara MUSIXQUARE menyelaraskan kembali suara perangkat ini.',
+  'dialog.audio_recovery_action': 'Pulihkan audio',
   'dialog.background_resume_message':
     'Jika sinkronisasi meleset atau audio tidak berbunyi, tutup aplikasi sepenuhnya lalu buka lagi.',
   'dialog.background_resume_sync_fallback_message':

@@ -45,10 +45,32 @@ import {
 } from './core/session-reset.ts';
 
 // ── Audio ──
-import { initAudio, isAudioReady, getAudioContext } from './audio/engine.ts';
+import { initAudio, isAudioReady } from './audio/engine.ts';
 import { applySettings, applySettingsAsync, initEffectsHandlers } from './audio/effects.ts';
 import { setChannelMode } from './audio/channel.ts';
 import { isPlaybackModeYouTube, isPlaybackPlayingFile } from './player/ownership.ts';
+import { inspectBackgroundFileOutput } from './audio/output-health.ts';
+import {
+  armForegroundAudioContextClockHealthCheck,
+  confirmForegroundAudioContextRestartHealth,
+  getExistingAudioContext,
+  getPendingForegroundAudioContextRestartClockHealthRequirement,
+  probeAudioContextHealth,
+  prepareForegroundAudioContextRestartAfterClockStall,
+  resumePreparedForegroundAudioContextRestartFromGesture,
+  retireForegroundAudioContextRestart,
+  restartAudioContextFromGesture,
+} from './audio/context.ts';
+import {
+  cancelPendingAudioContextRecovery,
+  confirmPendingAudioContextRecoveryHealth,
+  escalatePendingAudioContextRecoveryToClockStalled,
+  getPendingAudioContextClockHealthRequirement,
+  getPendingAudioContextInterruptionAttempt,
+  hasPendingAudioContextInterruption,
+  isAudioContextInterruptionAttemptCurrent,
+  resumePendingAudioContextInterruptionFromGesture,
+} from './audio/context-recovery.ts';
 
 // ── Network ──
 import { initProtocol } from './network/protocol.ts';
@@ -75,6 +97,8 @@ import {
 import { initPlayback } from './player/playback.ts';
 import { initPlaylist } from './player/playlist.ts';
 import { initDecodeHandlers } from './player/decode.ts';
+import { isFilePipelineBusyForPlay, recoverStalePlayLock } from './player/transport.ts';
+import { getCurrentAudioBuffer, isLocalFilePaused } from './player/_state.ts';
 
 // ── YouTube ──
 import { initYouTube } from './youtube/player.ts';
@@ -186,46 +210,543 @@ function initWakeLock(): void {
 
     // Re-acquire keep-awake primitives after a visibility bounce.
     reacquireWakeLockIfActive();
-
-    // iOS audio interruption recovery: resume suspended AudioContext
-    if (isAudioReady()) {
-      const ctx = getAudioContext();
-      if (ctx && (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted')) {
-        log.info(`[App] AudioContext ${ctx.state} — attempting resume`);
-        ctx
-          .resume()
-          .then(() => {
-            log.info('[App] AudioContext resumed successfully');
-            if (isPlaybackPlayingFile()) {
-              applySettingsAsync();
-            }
-          })
-          .catch((err) => {
-            log.warn('[App] AudioContext resume failed:', err);
-          });
-      }
-    }
   });
 
   log.info('[App] Wake Lock initialized (native API)');
 }
 
+interface AudioRecoveryIdentity {
+  readonly intent: 'restore-playing-output' | 'retry-failed-play';
+  readonly roomKind: 'standard' | 'pro';
+  readonly roomId: string | null;
+  readonly roomEpoch: number;
+  readonly queueItemId: string | null;
+  readonly buffer: AudioBuffer;
+  readonly sourceIntentIsCurrent?: () => boolean;
+  readonly foregroundRestartAttemptToken?: object;
+  readonly confirmForegroundRestart?: (attemptToken: object) => boolean;
+  readonly retry?: () => Promise<boolean>;
+}
+
+interface AudioRecoveryRequest {
+  readonly reason: 'context-not-running' | 'clock-stalled' | 'stale-play-lock';
+  readonly source: 'play' | 'background-resume';
+  readonly identity: AudioRecoveryIdentity;
+}
+
+interface GestureRecoveryFlightResult {
+  readonly running: boolean;
+  readonly rejoinEmitted: boolean;
+  readonly fallbackEligible: boolean;
+  readonly semanticAttemptToken: object | null;
+  readonly foregroundAttemptToken: object | null;
+}
+
+let audioRecoveryPrompt: Promise<boolean> | null = null;
+let activeAudioRecoveryIdentity: AudioRecoveryIdentity | null = null;
+let activeAudioRecoveryAbortController: AbortController | null = null;
+let activeAudioRecoveryGestureActivated = false;
+let pendingAudioRecoveryRequest: AudioRecoveryRequest | null = null;
+let suppressLongBackgroundWarningForIncident = false;
+
+function captureAudioRecoveryIdentity(
+  intent: AudioRecoveryIdentity['intent'],
+  expectedQueueItemId: string | null,
+  sourceIntentIsCurrent?: () => boolean,
+  foregroundRestartAttemptToken?: object,
+  confirmForegroundRestart?: (attemptToken: object) => boolean,
+  retry?: () => Promise<boolean>,
+): AudioRecoveryIdentity | null {
+  const room = getRoomContext();
+  const queueItemId = getState('playlist.currentQueueItemId');
+  const buffer = getCurrentAudioBuffer();
+  if (
+    !getState('setup.sessionStarted') ||
+    getState('playback.mode') !== 'file' ||
+    !queueItemId ||
+    queueItemId !== expectedQueueItemId ||
+    !buffer ||
+    getState('files.current')?.queueItemId !== queueItemId ||
+    isFilePipelineBusyForPlay() ||
+    isLocalFilePaused() ||
+    sourceIntentIsCurrent?.() === false ||
+    (intent === 'retry-failed-play' && !retry) ||
+    (intent === 'restore-playing-output' && !isPlaybackPlayingFile())
+  ) {
+    return null;
+  }
+  return {
+    intent,
+    roomKind: room.kind,
+    roomId: room.roomId,
+    roomEpoch: room.epoch,
+    queueItemId,
+    buffer,
+    sourceIntentIsCurrent,
+    foregroundRestartAttemptToken,
+    confirmForegroundRestart,
+    retry,
+  };
+}
+
+function audioRecoveryPlaybackIdentityStillCurrent(identity: AudioRecoveryIdentity): boolean {
+  const room = getRoomContext();
+  return Boolean(
+    document.visibilityState === 'visible' &&
+    getState('setup.sessionStarted') &&
+    getState('playback.mode') === 'file' &&
+    (identity.intent === 'retry-failed-play' || isPlaybackPlayingFile()) &&
+    !isLocalFilePaused() &&
+    !isFilePipelineBusyForPlay() &&
+    room.kind === identity.roomKind &&
+    room.roomId === identity.roomId &&
+    room.epoch === identity.roomEpoch &&
+    getState('playlist.currentQueueItemId') === identity.queueItemId &&
+    getState('files.current')?.queueItemId === identity.queueItemId &&
+    getCurrentAudioBuffer() === identity.buffer,
+  );
+}
+
+function audioRecoveryIdentityStillCurrent(identity: AudioRecoveryIdentity): boolean {
+  return (
+    identity.sourceIntentIsCurrent?.() !== false &&
+    audioRecoveryPlaybackIdentityStillCurrent(identity)
+  );
+}
+
+function primeIosAudioFromGesture(): void {
+  const primer = document.getElementById('silent-trigger') as HTMLAudioElement | null;
+  if (!primer) return;
+  try {
+    primer.currentTime = 0;
+    void primer.play().catch((error) => log.debug('[Audio] Recovery primer failed', error));
+  } catch (error) {
+    log.debug('[Audio] Recovery primer unavailable', error);
+  }
+}
+
+async function waitForForegroundRestartClockRequirement(
+  attemptToken: object,
+  isCurrent: () => boolean,
+  timeoutMs = 5_000,
+): Promise<NonNullable<
+  ReturnType<typeof getPendingForegroundAudioContextRestartClockHealthRequirement>
+> | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (isCurrent()) {
+    const requirement = getPendingForegroundAudioContextRestartClockHealthRequirement();
+    if (requirement?.attemptToken === attemptToken && requirement.isCurrent()) {
+      return requirement;
+    }
+    if (Date.now() >= deadline) return null;
+    await delay(50);
+  }
+  return null;
+}
+
+function isSameAudioRecoveryIdentity(
+  left: AudioRecoveryIdentity,
+  right: AudioRecoveryIdentity,
+): boolean {
+  return (
+    left.intent === right.intent &&
+    left.roomKind === right.roomKind &&
+    left.roomId === right.roomId &&
+    left.roomEpoch === right.roomEpoch &&
+    left.queueItemId === right.queueItemId &&
+    left.buffer === right.buffer &&
+    left.sourceIntentIsCurrent === right.sourceIntentIsCurrent &&
+    left.foregroundRestartAttemptToken === right.foregroundRestartAttemptToken &&
+    left.confirmForegroundRestart === right.confirmForegroundRestart &&
+    left.retry === right.retry
+  );
+}
+
+function requestAudioOutputRecovery(
+  reason: 'context-not-running' | 'clock-stalled' | 'stale-play-lock',
+  source: 'play' | 'background-resume',
+  expectedQueueItemId: string | null,
+  sourceIntentIsCurrent?: () => boolean,
+  foregroundRestartAttemptToken?: object,
+  confirmForegroundRestart?: (attemptToken: object) => boolean,
+  retry?: () => Promise<boolean>,
+): Promise<boolean> {
+  const identity = captureAudioRecoveryIdentity(
+    source === 'play' ? 'retry-failed-play' : 'restore-playing-output',
+    expectedQueueItemId,
+    sourceIntentIsCurrent,
+    foregroundRestartAttemptToken,
+    confirmForegroundRestart,
+    retry,
+  );
+  if (!identity) return Promise.resolve(false);
+  return runAudioRecoveryRequest({ reason, source, identity });
+}
+
+function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean> {
+  const { reason, source, identity } = request;
+  if (!audioRecoveryIdentityStillCurrent(identity)) return Promise.resolve(false);
+  if (audioRecoveryPrompt) {
+    if (
+      activeAudioRecoveryIdentity &&
+      isSameAudioRecoveryIdentity(activeAudioRecoveryIdentity, identity)
+    ) {
+      if (activeAudioRecoveryGestureActivated) pendingAudioRecoveryRequest = request;
+      return audioRecoveryPrompt;
+    }
+    pendingAudioRecoveryRequest = request;
+    activeAudioRecoveryAbortController?.abort();
+    return audioRecoveryPrompt;
+  }
+
+  const abortController = new AbortController();
+  activeAudioRecoveryIdentity = identity;
+  activeAudioRecoveryAbortController = abortController;
+
+  let operationCommitted = false;
+  let operationHealthClaimed = false;
+  const operationStillCurrent = (): boolean =>
+    !abortController.signal.aborted &&
+    (activeAudioRecoveryIdentity === identity || operationCommitted) &&
+    (operationHealthClaimed && identity.intent === 'restore-playing-output'
+      ? audioRecoveryPlaybackIdentityStillCurrent(identity)
+      : audioRecoveryIdentityStillCurrent(identity));
+  const enqueuePreparedForegroundRestart = (
+    preparation: NonNullable<
+      Awaited<ReturnType<typeof prepareForegroundAudioContextRestartAfterClockStall>>
+    >,
+  ): void => {
+    const enqueue = (): void => {
+      if (
+        abortController.signal.aborted ||
+        !preparation.isCurrent() ||
+        !audioRecoveryIdentityStillCurrent(identity)
+      ) {
+        return;
+      }
+      const next: AudioRecoveryRequest = {
+        reason: 'clock-stalled',
+        source,
+        identity: {
+          ...identity,
+          foregroundRestartAttemptToken: preparation.attemptToken,
+        },
+      };
+      if (audioRecoveryPrompt) {
+        pendingAudioRecoveryRequest = next;
+        if (activeAudioRecoveryIdentity !== identity) {
+          activeAudioRecoveryAbortController?.abort();
+        }
+        return;
+      }
+      void runAudioRecoveryRequest(next);
+    };
+
+    if (preparation.status === 'prepared') {
+      enqueue();
+      return;
+    }
+    void preparation.whenPrepared.then((prepared) => {
+      if (prepared) enqueue();
+    });
+  };
+  let gestureFlight: Promise<GestureRecoveryFlightResult> | null = null;
+  let gestureSemanticAttemptToken: object | null = null;
+  let gestureForegroundAttemptToken: object | null = null;
+  const operation = showDialog({
+    title: t('dialog.audio_recovery_title'),
+    message: t('dialog.audio_recovery_message'),
+    buttonText: t('dialog.audio_recovery_action'),
+    dismissible: false,
+    defaultFocus: 'primary',
+    signal: abortController.signal,
+    onPrimaryActivation: () => {
+      if (!operationStillCurrent()) return;
+      activeAudioRecoveryGestureActivated = true;
+      primeIosAudioFromGesture();
+      if (identity.foregroundRestartAttemptToken) {
+        gestureForegroundAttemptToken = identity.foregroundRestartAttemptToken;
+        gestureFlight = resumePreparedForegroundAudioContextRestartFromGesture(
+          gestureForegroundAttemptToken,
+        ).then((result) => ({
+          running: result.running,
+          rejoinEmitted: false,
+          fallbackEligible: false,
+          semanticAttemptToken: null,
+          foregroundAttemptToken: gestureForegroundAttemptToken,
+        }));
+      } else if (
+        identity.intent === 'restore-playing-output' &&
+        hasPendingAudioContextInterruption('file')
+      ) {
+        gestureSemanticAttemptToken = getPendingAudioContextInterruptionAttempt();
+        if (!gestureSemanticAttemptToken) return;
+        gestureFlight = resumePendingAudioContextInterruptionFromGesture().then((result) => ({
+          ...result,
+          semanticAttemptToken: gestureSemanticAttemptToken,
+          foregroundAttemptToken: null,
+        }));
+      } else {
+        // A failed PLAY owns its exact continuation, so do not let an older
+        // semantic recovery emit a competing automatic rejoin. Claim that
+        // token before resume; the exact failed-PLAY identity owns the gesture,
+        // clock proof, and continuation from this point onward.
+        gestureSemanticAttemptToken = getPendingAudioContextInterruptionAttempt();
+        if (
+          identity.intent === 'retry-failed-play' &&
+          gestureSemanticAttemptToken &&
+          cancelPendingAudioContextRecovery(gestureSemanticAttemptToken)
+        ) {
+          gestureSemanticAttemptToken = null;
+        }
+        gestureFlight = restartAudioContextFromGesture()
+          .then(() => ({
+            running: true,
+            rejoinEmitted: false,
+            fallbackEligible: true,
+            semanticAttemptToken: gestureSemanticAttemptToken,
+            foregroundAttemptToken: null,
+          }))
+          .catch((error) => {
+            log.warn('[Audio] Gesture recovery failed', error);
+            return {
+              running: false,
+              rejoinEmitted: false,
+              fallbackEligible: false,
+              semanticAttemptToken: gestureSemanticAttemptToken,
+              foregroundAttemptToken: null,
+            };
+          });
+      }
+    },
+  })
+    .then(async (result) => {
+      if (result.action !== 'ok' || !gestureFlight || !operationStillCurrent()) {
+        return false;
+      }
+      const gestureResult = await Promise.race([
+        gestureFlight,
+        delay(1_000).then(() => ({
+          running: String(getExistingAudioContext()?.state) === 'running',
+          rejoinEmitted: false,
+          fallbackEligible: false,
+          semanticAttemptToken: gestureSemanticAttemptToken,
+          foregroundAttemptToken: gestureForegroundAttemptToken,
+        })),
+      ]);
+      if (!operationStillCurrent()) return false;
+
+      let healthContext = getExistingAudioContext();
+      let healthIsCurrent = operationStillCurrent;
+      if (gestureResult.foregroundAttemptToken) {
+        const requirement = await waitForForegroundRestartClockRequirement(
+          gestureResult.foregroundAttemptToken,
+          operationStillCurrent,
+        );
+        if (!requirement) {
+          const context = getExistingAudioContext();
+          const retired = retireForegroundAudioContextRestart(gestureResult.foregroundAttemptToken);
+          if (retired && context && document.visibilityState === 'visible') {
+            armForegroundAudioContextClockHealthCheck(context);
+          }
+          return false;
+        }
+        healthContext = requirement.context;
+        healthIsCurrent = () => operationStillCurrent() && requirement.isCurrent();
+      } else if (gestureResult.semanticAttemptToken) {
+        if (!isAudioContextInterruptionAttemptCurrent(gestureResult.semanticAttemptToken)) {
+          return false;
+        }
+        const requirement = getPendingAudioContextClockHealthRequirement();
+        if (
+          !requirement ||
+          requirement.attemptToken !== gestureResult.semanticAttemptToken ||
+          !requirement.isCurrent()
+        ) {
+          return false;
+        }
+        healthContext = requirement.context;
+        healthIsCurrent = () => operationStillCurrent() && requirement.isCurrent();
+      }
+
+      const health = await probeAudioContextHealth({
+        attemptResume: false,
+        context: healthContext ?? undefined,
+        isCurrent: healthIsCurrent,
+      });
+      const gestureReachedRunning = gestureResult.foregroundAttemptToken
+        ? String(healthContext?.state) === 'running'
+        : gestureResult.running;
+      if (!health.healthy || !gestureReachedRunning) {
+        log.warn('[Audio] Output remains unhealthy after gesture recovery', {
+          reason,
+          health: health.reason,
+          state: health.state,
+        });
+        if (gestureResult.foregroundAttemptToken) {
+          const retired = retireForegroundAudioContextRestart(gestureResult.foregroundAttemptToken);
+          if (retired && healthContext && document.visibilityState === 'visible') {
+            armForegroundAudioContextClockHealthCheck(healthContext);
+          }
+        } else if (gestureResult.semanticAttemptToken && health.reason === 'clock-stalled') {
+          const escalation = await escalatePendingAudioContextRecoveryToClockStalled(
+            gestureResult.semanticAttemptToken,
+          );
+          if (escalation === 'prepared' && operationStillCurrent()) {
+            // A synchronous preparation event races with this still-open
+            // dialog and is intentionally deduplicated. Preserve the exact
+            // incident for the next actionable activation.
+            pendingAudioRecoveryRequest = {
+              reason: 'clock-stalled',
+              source,
+              identity,
+            };
+          }
+        } else if (
+          !gestureResult.foregroundAttemptToken &&
+          !gestureResult.semanticAttemptToken &&
+          health.reason === 'clock-stalled' &&
+          healthContext &&
+          operationStillCurrent()
+        ) {
+          const preparation =
+            await prepareForegroundAudioContextRestartAfterClockStall(healthContext);
+          if (preparation && operationStillCurrent()) {
+            enqueuePreparedForegroundRestart(preparation);
+          }
+        }
+        return false;
+      }
+
+      if (
+        gestureResult.foregroundAttemptToken &&
+        !(identity.confirmForegroundRestart
+          ? identity.confirmForegroundRestart(gestureResult.foregroundAttemptToken)
+          : confirmForegroundAudioContextRestartHealth(gestureResult.foregroundAttemptToken))
+      ) {
+        return false;
+      }
+      if (gestureResult.foregroundAttemptToken) operationHealthClaimed = true;
+
+      let confirmedRecovery = {
+        running: false,
+        rejoinEmitted: false,
+        fallbackEligible: false,
+      };
+      if (gestureResult.semanticAttemptToken) {
+        if (identity.intent === 'retry-failed-play') {
+          if (!cancelPendingAudioContextRecovery(gestureResult.semanticAttemptToken)) {
+            return false;
+          }
+        } else {
+          confirmedRecovery = confirmPendingAudioContextRecoveryHealth(
+            gestureResult.semanticAttemptToken,
+          );
+          if (!confirmedRecovery.running) return false;
+        }
+        operationHealthClaimed = true;
+      }
+      if (!gestureResult.foregroundAttemptToken && !gestureResult.semanticAttemptToken) {
+        operationHealthClaimed = true;
+      }
+      if (identity.intent === 'retry-failed-play') {
+        const started = await identity.retry?.();
+        if (
+          !started ||
+          !operationStillCurrent() ||
+          !audioRecoveryPlaybackIdentityStillCurrent(identity)
+        ) {
+          log.warn('[Audio] Exact failed PLAY retry was superseded or did not start');
+          if (gestureResult.foregroundAttemptToken) {
+            const retired = retireForegroundAudioContextRestart(
+              gestureResult.foregroundAttemptToken,
+            );
+            if (retired && healthContext && document.visibilityState === 'visible') {
+              armForegroundAudioContextClockHealthCheck(healthContext);
+            }
+          }
+          return false;
+        }
+      }
+      await applySettingsAsync();
+      if (!operationStillCurrent()) return false;
+      operationCommitted = true;
+      if (
+        identity.intent === 'restore-playing-output' &&
+        !gestureResult.rejoinEmitted &&
+        !confirmedRecovery.rejoinEmitted
+      ) {
+        bus.emit('playback:local-output-rejoin', {
+          reason: 'audio-recovery-gesture',
+          mode: 'file',
+          isCurrent: operationStillCurrent,
+        });
+      }
+      log.info('[Audio] Local output recovered from foreground interruption', { reason });
+      return true;
+    })
+    .catch((error) => {
+      log.warn('[Audio] Recovery dialog failed', error);
+      return false;
+    })
+    .finally(() => {
+      if (audioRecoveryPrompt !== operation) return;
+      if (identity.foregroundRestartAttemptToken) {
+        retireForegroundAudioContextRestart(identity.foregroundRestartAttemptToken);
+      }
+      audioRecoveryPrompt = null;
+      activeAudioRecoveryIdentity = null;
+      activeAudioRecoveryAbortController = null;
+      activeAudioRecoveryGestureActivated = false;
+      const next = pendingAudioRecoveryRequest;
+      pendingAudioRecoveryRequest = null;
+      if (next) {
+        queueMicrotask(() => {
+          void runAudioRecoveryRequest(next);
+        });
+      }
+    });
+  audioRecoveryPrompt = operation;
+  return operation;
+}
+
 async function resumeAudioForBackgroundRecovery(): Promise<void> {
-  if (!isAudioReady()) return;
+  if (!isPlaybackPlayingFile()) return;
 
-  const ctx = getAudioContext();
-  if (ctx.state === 'suspended' || (ctx.state as string) === 'interrupted') {
-    await Promise.race([ctx.resume(), delay(500)]);
+  const output = await inspectBackgroundFileOutput();
+  if (output.status === 'stale') return;
+  if (output.status === 'needs-gesture') {
+    const reason = output.reason === 'clock-stalled' ? 'clock-stalled' : 'context-not-running';
+    suppressLongBackgroundWarningForIncident = true;
+    const queueItemId = getState('playlist.currentQueueItemId');
+    bus.emit('audio:output-recovery-needed', {
+      reason,
+      source: 'background-resume',
+      queueItemId,
+    });
+    await requestAudioOutputRecovery(reason, 'background-resume', queueItemId);
+    return;
   }
+  if (output.status === 'not-applicable') return;
 
-  if (isPlaybackPlayingFile()) {
-    await applySettingsAsync();
+  if (isAudioReady()) await applySettingsAsync();
+  const lockRecovery = recoverStalePlayLock('background-resume', Date.now(), {
+    preservePlaybackState: true,
+  });
+  if (lockRecovery.recovered) {
+    log.warn('[Audio] Foreground recovery discarded a stalled play owner', lockRecovery.snapshot);
   }
+  bus.emit('playback:local-output-rejoin', {
+    reason: 'background-resume',
+    mode: 'file',
+    isCurrent: () => isPlaybackPlayingFile() && !isLocalFilePaused(),
+  });
 }
 
 async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
   log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
 
+  suppressLongBackgroundWarningForIncident = false;
   await runBackgroundResumeRecovery(hiddenMs, {
     // Reconcile suspended RTC state before awaiting audio recovery. Mobile
     // WebKit can dispatch the queued connection-state event immediately after
@@ -234,13 +755,16 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
     reacquireWakeLock: reacquireWakeLockIfActive,
     recoverAudio: resumeAudioForBackgroundRecovery,
     onAudioRecoveryError: (error) => {
-      log.warn('[App] Background audio recovery failed; continuing room recovery', error);
+      log.warn('[App] Background audio recovery failed', error);
     },
     shouldRecoverRoom: (peerRecovery) => {
       // PRO reconciliation belongs exclusively to the server-authority
       // runtime. Its endpoints intentionally have no hostConn, so falling
       // through would broadcast a stale legacy-host snapshot.
       if (getRoomContext().kind === 'pro') return false;
+      // File recovery is participant-local and room-aware. It already chose
+      // host rebuild, guest authoritative sync, or PRO reconciliation above.
+      if (isPlaybackPlayingFile()) return false;
 
       // A foreground probe owns a possibly stale guest connection. A confirmed
       // survivor resumes on its heartbeat; a stale connection follows the
@@ -260,19 +784,44 @@ async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
         }
         return;
       }
-
-      if (isPlaybackPlayingFile()) {
-        if (hostConn?.open) {
-          bus.emit('sync:force-resync');
-        } else {
-          bus.emit('playback:refresh-current-position');
-        }
-      }
     },
   });
 }
 
+function initAudioOutputRecovery(): void {
+  const abortSupersededRecovery = (): void => {
+    if (
+      activeAudioRecoveryIdentity &&
+      !audioRecoveryIdentityStillCurrent(activeAudioRecoveryIdentity)
+    ) {
+      activeAudioRecoveryAbortController?.abort();
+    }
+  };
+  bus.on('state:playback.activity', abortSupersededRecovery);
+  bus.on('state:playback.mode', abortSupersededRecovery);
+  bus.on('state:playlist.currentQueueItemId', abortSupersededRecovery);
+  bus.on('state:files.current', abortSupersededRecovery);
+  bus.on('player:buffer-changed', abortSupersededRecovery);
+  bus.on('state:room.context', abortSupersededRecovery);
+  bus.on('state:setup.sessionStarted', abortSupersededRecovery);
+  bus.on('audio:output-recovery-needed', (event) => {
+    if (event.source === 'background-resume') {
+      suppressLongBackgroundWarningForIncident = true;
+    }
+    void requestAudioOutputRecovery(
+      event.reason,
+      event.source,
+      event.queueItemId,
+      event.isCurrent,
+      event.foregroundRestartAttemptToken,
+      event.confirmForegroundRestart,
+      event.retry,
+    );
+  });
+}
+
 async function warnLongBackgroundResume(): Promise<void> {
+  if (suppressLongBackgroundWarningForIncident) return;
   await showDialog({
     title: t('dialog.background_resume_title'),
     message: t('dialog.background_resume_message'),
@@ -611,6 +1160,7 @@ async function bootstrap(): Promise<void> {
   // 10. Keyboard shortcuts, Wake Lock & Cleanup
   safeInit('KeyboardShortcuts', initKeyboardShortcuts);
   safeInit('WakeLock', initWakeLock);
+  safeInit('AudioOutputRecovery', initAudioOutputRecovery);
   safeInit('BackgroundResumeGuard', () =>
     initBackgroundResumeGuard({
       recover: ({ hiddenMs }) => recoverLongBackgroundResume(hiddenMs),

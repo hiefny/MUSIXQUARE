@@ -327,6 +327,37 @@ describe('Dialog System', () => {
       await Promise.all([p1, p2]);
       expect(results).toEqual(['ok', 'secondary']);
     });
+
+    it('cancels only the active dialog bound to an aborted signal', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const controller = new AbortController();
+      const first = showDialog({ title: 'Recovery A', signal: controller.signal });
+      const second = showDialog({ title: 'Recovery B' });
+
+      controller.abort();
+      vi.advanceTimersByTime(10);
+
+      await expect(first).resolves.toEqual({ action: 'superseded' });
+      expect(document.getElementById('dialog-title')?.textContent).toBe('Recovery B');
+      closeDialog('ok');
+      vi.advanceTimersByTime(10);
+      await expect(second).resolves.toEqual({ action: 'ok' });
+    });
+
+    it('skips an aborted queued dialog without opening it', async () => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const controller = new AbortController();
+      const first = showDialog({ title: 'Blocking dialog' });
+      const stale = showDialog({ title: 'Stale recovery', signal: controller.signal });
+      controller.abort();
+
+      closeDialog('ok');
+      vi.advanceTimersByTime(10);
+
+      await expect(first).resolves.toEqual({ action: 'ok' });
+      await expect(stale).resolves.toEqual({ action: 'superseded' });
+      expect(document.getElementById('dialog-title')?.textContent).not.toBe('Stale recovery');
+    });
   });
 
   describe('DOM Fallback', () => {

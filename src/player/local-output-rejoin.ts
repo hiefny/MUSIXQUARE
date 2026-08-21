@@ -10,7 +10,7 @@ import { bus, createBusScope, type BusScope } from '../core/events.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 import { guestRendezvousSync } from '../youtube/sync.ts';
 import { isLocalYouTubePaused, setLocalYouTubePaused } from '../youtube/_state.ts';
 import { isLocalFilePaused, setLocalFilePaused } from './_state.ts';
@@ -20,8 +20,13 @@ const RETRY_TIMER = 'local-output-rejoin-retry';
 const REJOIN_RETRY_MS = [250, 750, 1_500, 3_000, 5_000] as const;
 
 interface RejoinRequestPayload {
-  reason: 'media-session-play' | 'audio-context-recovered';
+  reason:
+    | 'media-session-play'
+    | 'audio-context-recovered'
+    | 'audio-recovery-gesture'
+    | 'background-resume';
   mode: 'file' | 'youtube';
+  isCurrent?: () => boolean;
 }
 
 interface RejoinIdentity {
@@ -48,7 +53,21 @@ let pendingRejoinRequest: RejoinRequest | null = null;
 let scheduledRetryRequest: RejoinRequest | null = null;
 let awaitingAuthoritativeResumeMode: 'file' | 'youtube' | null = null;
 let lastSuccessfulRejoinAt = 0;
+let lastSuccessfulRejoinIdentity: (RejoinIdentity & { mode: 'file' | 'youtube' }) | null = null;
 let rejoinGeneration = 0;
+
+function matchesLastSuccessfulRejoin(request: RejoinRequest): boolean {
+  const previous = lastSuccessfulRejoinIdentity;
+  return Boolean(
+    previous &&
+    previous.mode === request.mode &&
+    previous.generation === request.identity.generation &&
+    previous.roomKind === request.identity.roomKind &&
+    previous.roomId === request.identity.roomId &&
+    previous.roomEpoch === request.identity.roomEpoch &&
+    previous.queueItemId === request.identity.queueItemId,
+  );
+}
 
 function captureRequest(payload: RejoinRequestPayload): RejoinRequest {
   const room = getRoomContext();
@@ -66,6 +85,7 @@ function captureRequest(payload: RejoinRequestPayload): RejoinRequest {
 }
 
 function requestStillCurrent(request: RejoinRequest): boolean {
+  if (request.isCurrent?.() === false) return false;
   if (!getState('setup.sessionStarted') || request.identity.generation !== rejoinGeneration) {
     return false;
   }
@@ -91,6 +111,15 @@ function hasLocalRejoinIntent(request: RejoinRequest): boolean {
   // pause bit. It may query authority while the semantic room state is paused;
   // the local-only reconciliation path cannot manufacture a room PLAY.
   if (request.reason === 'media-session-play') return true;
+  if (request.reason === 'audio-recovery-gesture' || request.reason === 'background-resume') {
+    return getState('playback.activity') === 'playing' && !isLocalFilePaused();
+  }
+  if (request.reason === 'audio-context-recovered') {
+    return (
+      getState('playback.activity') === 'playing' &&
+      (mode === 'file' ? !isLocalFilePaused() : !isLocalYouTubePaused())
+    );
+  }
   if (getState('playback.activity') === 'playing') return true;
   if (awaitingAuthoritativeResumeMode === mode) return true;
   return mode === 'file' ? isLocalFilePaused() : isLocalYouTubePaused();
@@ -148,7 +177,14 @@ async function performLocalOutputRejoin(request: RejoinRequest): Promise<RejoinR
 
   const hostConnection = getState('network.hostConn');
   if (!hostConnection?.open) {
-    // Stable standard-room hosts have no participant-local authority endpoint.
+    if (mode === 'file' && isActiveStandardRoomCoordinator()) {
+      // A standard host is already the canonical authority. Rebuild only its
+      // local AudioBufferSourceNode at the logical position; this event never
+      // manufactures a room-wide PLAY or SEEK command.
+      setLocalPause(mode, false);
+      bus.emit('playback:refresh-current-position');
+      return { rejoined: true };
+    }
     return { rejoined: false };
   }
 
@@ -236,6 +272,7 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
   }
   if (
     request.reason !== 'media-session-play' &&
+    matchesLastSuccessfulRejoin(request) &&
     Date.now() - lastSuccessfulRejoinAt < SUCCESS_COOLDOWN_MS
   ) {
     return Promise.resolve(false);
@@ -244,8 +281,10 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
   const operation = performLocalOutputRejoin(request)
     .then((result) => {
       if (!requestStillCurrent(request)) return false;
-      if (result.rejoined) lastSuccessfulRejoinAt = Date.now();
-      else if (result.retryAfterMs !== undefined) scheduleRetry(request, result.retryAfterMs);
+      if (result.rejoined) {
+        lastSuccessfulRejoinAt = Date.now();
+        lastSuccessfulRejoinIdentity = { ...request.identity, mode: request.mode };
+      } else if (result.retryAfterMs !== undefined) scheduleRetry(request, result.retryAfterMs);
       return result.rejoined;
     })
     .catch((error) => {
@@ -285,6 +324,7 @@ export function initLocalOutputRejoin(): void {
   clearManagedTimer(RETRY_TIMER);
   awaitingAuthoritativeResumeMode = null;
   lastSuccessfulRejoinAt = 0;
+  lastSuccessfulRejoinIdentity = null;
 
   scope.on('playback:local-output-rejoin', (request) => {
     void requestLocalOutputRejoin(captureRequest(request));
@@ -298,6 +338,7 @@ export function initLocalOutputRejoin(): void {
       clearManagedTimer(RETRY_TIMER);
       awaitingAuthoritativeResumeMode = null;
       lastSuccessfulRejoinAt = 0;
+      lastSuccessfulRejoinIdentity = null;
     }
   });
   scope.on('state:playback.activity', (activity) => {

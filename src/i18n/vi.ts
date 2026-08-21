@@ -619,6 +619,10 @@ const vi: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Đang rời phòng...',
   'dialog.refreshing_session': 'Đang làm mới phòng...',
   'dialog.background_resume_title': 'Ứng dụng vừa chuyển sang nền',
+  'dialog.audio_recovery_title': 'Âm thanh đã dừng ngoài ý muốn',
+  'dialog.audio_recovery_message':
+    'Âm thanh của thiết bị này không khôi phục sau khi quay lại từ nền. Phòng vẫn được kết nối trong khi MUSIXQUARE đồng bộ lại âm thanh của thiết bị này.',
+  'dialog.audio_recovery_action': 'Khôi phục âm thanh',
   'dialog.background_resume_message':
     'Nếu đồng bộ bị lệch hoặc âm thanh không phát, hãy đóng hẳn ứng dụng rồi mở lại.',
   'dialog.background_resume_sync_fallback_message':

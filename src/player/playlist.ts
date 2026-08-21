@@ -971,12 +971,35 @@ export async function playTrack(
       const remoteShareSessionId = getState('transfer.currentSessionId') || null;
       void shareRemoteFileIfNeeded(preloadFile, remoteShareSessionId, undefined, { queueItemId });
     }
-    await play(0);
+    let recoveredStartPublished = false;
+    const publishRecoveredPreloadedStart = (): void => {
+      if (
+        recoveredStartPublished ||
+        !isCurrentLoadEpoch(myLoadEpoch) ||
+        getCurrentQueueItemId() !== queueItemId ||
+        getState('playback.activity') !== 'playing'
+      ) {
+        return;
+      }
+      recoveredStartPublished = true;
+      broadcast({
+        type: MSG.PLAY,
+        time: 0,
+        queueItemId,
+        name: fileName,
+        hostPlayAt: getLocalFileHostPlayAt(),
+      });
+      schedulePreload();
+    };
+    const started = await play(0, 0, undefined, undefined, {
+      onRecoveredStarted: publishRecoveredPreloadedStart,
+    });
     // play() crosses AudioContext resume/engine-init awaits. A newer
     // playTrack() can take ownership during that window; the transport then
     // aborts the stale local start, so this caller must likewise suppress its
     // old network PLAY and preload side effects.
     if (
+      !started ||
       !isCurrentLoadEpoch(myLoadEpoch) ||
       getCurrentQueueItemId() !== queueItemId ||
       getState('playback.activity') !== 'playing'
@@ -984,15 +1007,7 @@ export async function playTrack(
       log.debug('[Host] Preloaded play superseded before broadcast');
       return;
     }
-    broadcast({
-      type: MSG.PLAY,
-      time: 0,
-      queueItemId,
-      name: fileName,
-      hostPlayAt: getLocalFileHostPlayAt(),
-    });
-    // SharedClock handles sync
-    schedulePreload();
+    publishRecoveredPreloadedStart();
     return;
   }
 
@@ -1323,21 +1338,37 @@ export async function playTrack(
         return;
       }
 
-      await play(restorePosition);
+      let recoveredStartPublished = false;
+      const publishRecoveredRestoredStart = (): void => {
+        if (
+          recoveredStartPublished ||
+          !isCurrentLoadEpoch(myLoadEpoch) ||
+          getCurrentQueueItemId() !== queueItemId ||
+          getState('playback.activity') !== 'playing'
+        ) {
+          return;
+        }
+        recoveredStartPublished = true;
+        broadcast({
+          type: MSG.PLAY,
+          time: restorePosition,
+          queueItemId,
+          name: file.name,
+          hostPlayAt: getLocalFileHostPlayAt(),
+        });
+      };
+      const started = await play(restorePosition, 0, undefined, undefined, {
+        onRecoveredStarted: publishRecoveredRestoredStart,
+      });
       if (
+        !started ||
         !isCurrentLoadEpoch(myLoadEpoch) ||
         getCurrentQueueItemId() !== queueItemId ||
         getState('playback.activity') !== 'playing'
       ) {
         return;
       }
-      broadcast({
-        type: MSG.PLAY,
-        time: restorePosition,
-        queueItemId,
-        name: file.name,
-        hostPlayAt: getLocalFileHostPlayAt(),
-      });
+      publishRecoveredRestoredStart();
       return;
     }
 

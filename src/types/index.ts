@@ -1224,6 +1224,21 @@ interface BaseEventMap {
   'audio:reverb-type-change': [type: string];
   'audio:reset-eq': [];
   'audio:surround-toggled': [];
+  /** Local Web Audio output needs a trusted foreground recovery gesture. */
+  'audio:output-recovery-needed': [
+    event: Readonly<{
+      reason: 'context-not-running' | 'clock-stalled' | 'stale-play-lock';
+      source: 'play' | 'background-resume';
+      queueItemId: QueueItemId | null;
+      isCurrent?: () => boolean;
+      /** Exact prepared restart for a running-but-frozen foreground context. */
+      foregroundRestartAttemptToken?: object;
+      /** Atomically hand a clock-verified restart to its exact failed PLAY. */
+      confirmForegroundRestart?: (attemptToken: object) => boolean;
+      /** Retry the exact failed local PLAY after a trusted audio gesture. */
+      retry?: () => Promise<boolean>;
+    }>,
+  ];
   'settings-sync:publish-local': [];
   'settings-sync:changed': [enabled: boolean];
   'settings-sync:authority-revoked': [];
@@ -1257,8 +1272,13 @@ interface BaseEventMap {
    */
   'playback:local-output-rejoin': [
     request: Readonly<{
-      reason: 'media-session-play' | 'audio-context-recovered';
+      reason:
+        | 'media-session-play'
+        | 'audio-context-recovered'
+        | 'audio-recovery-gesture'
+        | 'background-resume';
       mode: 'file' | 'youtube';
+      isCurrent?: () => boolean;
     }>,
   ];
   'player:check-ended': [];

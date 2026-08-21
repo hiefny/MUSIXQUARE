@@ -101,7 +101,7 @@ const READ_ALLOWLIST = new Map<string, ReadAllowance>([
     { appRole: 11, isOperator: 0, reason: 'compatibility-consumer' },
   ],
   ['src/player/playlist.ts', { appRole: 1, isOperator: 0, reason: 'standard-fenced' }],
-  ['src/rooms/authority.ts', { appRole: 3, isOperator: 1, reason: 'canonical-authority-adapter' }],
+  ['src/rooms/authority.ts', { appRole: 4, isOperator: 1, reason: 'canonical-authority-adapter' }],
   ['src/share/remote-share.ts', { appRole: 4, isOperator: 0, reason: 'compatibility-consumer' }],
   ['src/storage/preload.ts', { appRole: 1, isOperator: 0, reason: 'compatibility-consumer' }],
   [
@@ -375,6 +375,7 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
       "read:appRole @ function:hasRoomCapability :: if (getState('network.appRole') === 'guest' && hostConn?.open === true && getState('network.isOperator'))",
       "read:appRole @ function:hasRoomCapability :: if (getState('network.appRole') === 'host' && !getState('network.hostConn'))",
       "read:appRole @ function:isCoordinator :: return getState('network.appRole') === 'host' && !getState('network.hostConn')",
+      "read:appRole @ function:isStandardRoomMember :: return getRoomContext().kind === 'standard' && getState('network.appRole') === 'guest'",
       "read:isOperator @ function:hasRoomCapability :: if (getState('network.appRole') === 'guest' && hostConn?.open === true && getState('network.isOperator'))",
     ],
   ],

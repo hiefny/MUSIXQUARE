@@ -589,6 +589,10 @@ const zhHans: Record<I18nKey, string> = {
   'dialog.leaving_session': '正在离开房间...',
   'dialog.refreshing_session': '正在重新加载房间...',
   'dialog.background_resume_title': '应用短暂进入了后台',
+  'dialog.audio_recovery_title': '音频意外暂停了',
+  'dialog.audio_recovery_message':
+    '从后台返回后，此设备的音频未能恢复。房间连接会保持不变，MUSIXQUARE 将重新校准此设备的声音。',
+  'dialog.audio_recovery_action': '恢复音频',
   'dialog.background_resume_message': '如果同步不准或没有声音，请完全关闭应用后重新打开。',
   'dialog.background_resume_sync_fallback_message':
     '如果同步不准或没有声音，请完全关闭应用后重新打开。',

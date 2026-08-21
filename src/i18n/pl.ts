@@ -703,6 +703,10 @@ const pl: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Opuszczanie pokoju…',
   'dialog.refreshing_session': 'Odświeżanie pokoju…',
   'dialog.background_resume_title': 'Aplikacja na chwilę przeszła w tło',
+  'dialog.audio_recovery_title': 'Dźwięk na chwilę się zatrzymał',
+  'dialog.audio_recovery_message':
+    'Po powrocie z tła nie udało się przywrócić dźwięku na tym urządzeniu. Połączenie z pokojem pozostanie aktywne, a my ponownie zsynchronizujemy tylko dźwięk tego urządzenia.',
+  'dialog.audio_recovery_action': 'Przywróć dźwięk',
   'dialog.background_resume_message':
     'Jeśli synchronizacja jest nieprawidłowa lub nie słychać dźwięku, całkowicie zamknij aplikację i otwórz ją ponownie.',
   'dialog.background_resume_sync_fallback_message':

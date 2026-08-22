@@ -1,5 +1,8 @@
 # MUSIXQUARE Brand and Fork Identification Guide
 
+- **Effective date:** 2026-08-22
+- **Rights holder and guide administrator:** CHOI HYEONSEUNG
+
 This guide explains how to present an independent distribution, fork, or
 hosted service based on MUSIXQUARE without making it appear official.
 

@@ -257,7 +257,7 @@ function setupApp(): void {
     'setup.enter_host_code': '방장이 알려준 6자리 코드를 입력해주세요',
     'setup.what_sound': '어떤 소리를 맡을까요?',
     'setup.change_later': '나중에 설정에서 변경할 수 있어요',
-    'setup.demo_button': '앱 체험하기 (데모)',
+    'setup.demo_button': '앱 체험하기',
     'role.left': '왼쪽',
     'role.right': '오른쪽',
     'role.subwoofer': '서브우퍼',

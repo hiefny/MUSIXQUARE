@@ -310,7 +310,7 @@ const ja: Record<I18nKey, string> = {
   // Setup and demo
   'setup.host_button': 'ルームを作成',
   'setup.guest_button': 'ルームに参加',
-  'setup.demo_button': '試してみる（デモ）',
+  'setup.demo_button': 'アプリを体験する',
   'demo.prompt_title': 'MUSIXQUAREを試す',
   'demo.prompt_message': 'ようこそ！主な機能を簡単に体験してみませんか？',
   'demo.prompt_cta': '体験を始める',

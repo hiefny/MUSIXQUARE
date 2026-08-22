@@ -310,7 +310,7 @@ const nl: Record<I18nKey, string> = {
   // Setup and demo
   'setup.host_button': 'Kamer maken',
   'setup.guest_button': 'Deelnemen aan een kamer',
-  'setup.demo_button': 'Demo proberen',
+  'setup.demo_button': 'Ontdek de app',
   'demo.prompt_title': 'Ervaar MUSIXQUARE',
   'demo.prompt_message': 'Welkom! Klaar voor een korte rondleiding?',
   'demo.prompt_cta': 'Rondleiding starten',

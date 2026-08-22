@@ -307,7 +307,7 @@ const vi: Record<I18nKey, string> = {
   // Setup and demo
   'setup.host_button': 'Tạo phòng',
   'setup.guest_button': 'Tham gia phòng',
-  'setup.demo_button': 'Dùng thử (bản demo)',
+  'setup.demo_button': 'Trải nghiệm ứng dụng',
   'demo.prompt_title': 'Trải nghiệm MUSIXQUARE',
   'demo.prompt_message': 'Chào mừng bạn! Bạn đã sẵn sàng xem nhanh các tính năng chưa?',
   'demo.prompt_cta': 'Bắt đầu hướng dẫn',

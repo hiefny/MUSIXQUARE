@@ -310,7 +310,7 @@ const ptBr: Record<I18nKey, string> = {
   // Setup and demo
   'setup.host_button': 'Criar sala',
   'setup.guest_button': 'Entrar em uma sala',
-  'setup.demo_button': 'Experimentar (demo)',
+  'setup.demo_button': 'Conheça o app',
   'demo.prompt_title': 'Conheça o MUSIXQUARE',
   'demo.prompt_message': 'Boas-vindas! Vamos fazer um tour rápido pelos recursos?',
   'demo.prompt_cta': 'Iniciar tour',

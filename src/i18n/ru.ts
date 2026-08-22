@@ -308,7 +308,7 @@ const ru: Record<I18nKey, string> = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'Создать комнату',
   'setup.guest_button': 'Войти в комнату',
-  'setup.demo_button': 'Попробовать демо',
+  'setup.demo_button': 'Пройти тур',
   'demo.prompt_title': 'Познакомьтесь с MUSIXQUARE',
   'demo.prompt_message': 'Добро пожаловать! Хотите пройти быстрый тур по нашим функциям?',
   'demo.prompt_cta': 'Начать тур',

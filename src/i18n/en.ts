@@ -306,7 +306,7 @@ const en: Record<I18nKey, string> = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'Create a Room',
   'setup.guest_button': 'Join a Room',
-  'setup.demo_button': 'Try it (Demo)',
+  'setup.demo_button': 'Take a Tour',
   'demo.prompt_title': 'Experience MUSIXQUARE',
   'demo.prompt_message': 'Welcome! Ready for a quick tour of our features?',
   'demo.prompt_cta': 'Start Tour',

@@ -299,7 +299,7 @@ const zhHant: Record<I18nKey, string> = {
   // Setup and demo
   'setup.host_button': '建立房間',
   'setup.guest_button': '加入房間',
-  'setup.demo_button': '試用（體驗模式）',
+  'setup.demo_button': '體驗應用程式',
   'demo.prompt_title': '體驗 MUSIXQUARE',
   'demo.prompt_message': '歡迎！準備好快速體驗我們的核心功能了嗎？',
   'demo.prompt_cta': '立即開始',

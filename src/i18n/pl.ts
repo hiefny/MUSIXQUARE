@@ -309,7 +309,7 @@ const pl: Record<I18nKey, string> = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'Utwórz pokój',
   'setup.guest_button': 'Dołącz do pokoju',
-  'setup.demo_button': 'Wypróbuj aplikację (Demo)',
+  'setup.demo_button': 'Poznaj aplikację',
   'demo.prompt_title': 'Odkryj MUSIXQUARE',
   'demo.prompt_message': 'Witaj! Chcesz szybko poznać najważniejsze funkcje?',
   'demo.prompt_cta': 'Rozpocznij przewodnik',

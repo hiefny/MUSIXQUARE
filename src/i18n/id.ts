@@ -312,7 +312,7 @@ const id: Record<I18nKey, string> = {
   // Setup and demo
   'setup.host_button': 'Buat ruang',
   'setup.guest_button': 'Gabung ke ruang',
-  'setup.demo_button': 'Coba (Demo)',
+  'setup.demo_button': 'Jelajahi aplikasi',
   'demo.prompt_title': 'Jelajahi MUSIXQUARE',
   'demo.prompt_message': 'Selamat datang! Siap mengikuti tur singkat fitur kami?',
   'demo.prompt_cta': 'Mulai tur',

@@ -304,7 +304,7 @@ const tr: Record<I18nKey, string> = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'Oda Oluştur',
   'setup.guest_button': 'Odaya Katıl',
-  'setup.demo_button': 'Uygulamayı Dene (Demo)',
+  'setup.demo_button': 'Tura başla',
   'demo.prompt_title': 'MUSIXQUARE’i keşfet',
   'demo.prompt_message': 'Hoş geldin! Özellikleri tanıtan kısa bir tura hazır mısın?',
   'demo.prompt_cta': 'Tura Başla',

@@ -25,7 +25,7 @@ function Start({ onHost, onGuest, onDemo }: StartProps): JSX.Element {
           Join a session
         </button>
         <button className="demo" onClick={onDemo}>
-          Try it (Demo)
+          Take a Tour
         </button>
       </div>
     </div>

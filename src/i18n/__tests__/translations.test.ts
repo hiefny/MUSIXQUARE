@@ -66,6 +66,34 @@ describe('Translation key integrity', () => {
     }
   });
 
+  it('uses a concise, self-contained app tour action in every locale', () => {
+    const tourActions: Record<keyof typeof locales, string> = {
+      ko: '앱 체험하기',
+      en: 'Take a Tour',
+      de: 'App entdecken',
+      es: 'Explorar la app',
+      fr: 'Découvrir l’app',
+      id: 'Jelajahi aplikasi',
+      italian: 'Scopri l’app',
+      ja: 'アプリを体験する',
+      nl: 'Ontdek de app',
+      pl: 'Poznaj aplikację',
+      ptBr: 'Conheça o app',
+      ru: 'Пройти тур',
+      th: 'ลองใช้แอป',
+      tr: 'Tura başla',
+      vi: 'Trải nghiệm ứng dụng',
+      zhHans: '体验应用',
+      zhHant: '體驗應用程式',
+    };
+
+    for (const [locale, dict] of Object.entries(locales)) {
+      expect(dict['setup.demo_button'], `${locale}.setup.demo_button`).toBe(
+        tourActions[locale as keyof typeof locales],
+      );
+    }
+  });
+
   it('keeps the returning-account welcome concise, personal, and two-line', () => {
     expect(ko['account.welcome_back']).toBe('다시 만나 반가워요\n{{name}} 님');
     expect(en['account.welcome_back']).toBe('Welcome back\n{{name}}');

@@ -301,7 +301,7 @@ const th: Record<I18nKey, string> = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': 'สร้างห้อง',
   'setup.guest_button': 'เข้าร่วมห้อง',
-  'setup.demo_button': 'ทดลองใช้งาน (เดโม)',
+  'setup.demo_button': 'ลองใช้แอป',
   'demo.prompt_title': 'ทำความรู้จักกับ MUSIXQUARE',
   'demo.prompt_message': 'ยินดีต้อนรับ! ต้องการเริ่มทัวร์แนะนำฟีเจอร์ต่าง ๆ ของเราอย่างรวดเร็วไหม?',
   'demo.prompt_cta': 'เริ่มทัวร์แนะนำ',

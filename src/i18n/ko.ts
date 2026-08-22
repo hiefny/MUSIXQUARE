@@ -302,7 +302,7 @@ const ko = {
   // ─── Setup ───────────────────────────────────────────────────────
   'setup.host_button': '방 만들기',
   'setup.guest_button': '방 참여하기',
-  'setup.demo_button': '앱 체험하기 (데모)',
+  'setup.demo_button': '앱 체험하기',
   'demo.prompt_title': 'MUSIXQUARE 체험하기',
   'demo.prompt_message': '새로 오신 것 같네요. 간단하게 기능들을 체험해보시겠어요?',
   'demo.prompt_cta': '체험하기',

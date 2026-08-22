@@ -311,7 +311,7 @@ const es: Record<I18nKey, string> = {
   // Setup and demo
   'setup.host_button': 'Crear sala',
   'setup.guest_button': 'Unirse a una sala',
-  'setup.demo_button': 'Probarlo (demo)',
+  'setup.demo_button': 'Explorar la app',
   'demo.prompt_title': 'Descubre MUSIXQUARE',
   'demo.prompt_message':
     '¡Te damos la bienvenida! ¿Quieres hacer un recorrido rápido por nuestras funciones?',

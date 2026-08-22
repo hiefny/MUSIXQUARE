@@ -44,6 +44,19 @@ modified and independent from the official MUSIXQUARE service. It must not
 describe itself as an official MUSIXQUARE release unless separately
 authorized.
 
+For a publicly operated network service, that modified-and-independent
+identification must remain reasonably discoverable through the normal user
+interface. Where the service substantially retains the official MUSIXQUARE
+interface such that its origin could otherwise be misunderstood, the
+identification must appear on the landing, onboarding, or another comparably
+prominent ordinary entry surface. A notice available only in source code,
+hidden metadata, or an undisclosed route is insufficient.
+
+Changing only a product name, logo, or icon does not cure a misrepresentation
+of origin if the remaining public presentation or metadata still states or
+implies that the service is official, affiliated, sponsored, endorsed, or
+operated by MUSIXQUARE or its Rights Holder.
+
 This requirement does not prohibit truthful statements that the version is
 based on, forked from, or compatible with MUSIXQUARE.
 

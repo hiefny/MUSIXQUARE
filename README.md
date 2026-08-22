@@ -220,9 +220,14 @@ Copyright (c) 2025-2026 MUSIXQUARE.
 
 MUSIXQUARE is open-source software licensed under the **GNU Affero General Public License v3.0 or later** ([AGPL-3.0-or-later](./LICENSE)).
 
-The AGPL governs copyright permissions for the software; it does not grant
-permission to present an independent product or service as official
-MUSIXQUARE. See the [Trademark Policy](./TRADEMARKS.md), practical
+The AGPL governs copyright permissions for the software, including covered
+interface code and assets. It does not grant permission to use the MUSIXQUARE
+Marks or any protected, distinctive, non-functional, source-identifying
+overall visual presentation in a manner likely to make an independent product
+or service appear official, affiliated, sponsored, endorsed, or operated by
+MUSIXQUARE. Replacing the name, logo, or icon alone may not be sufficient where
+the remaining public presentation is still likely to cause confusion. See the
+[Trademark Policy](./TRADEMARKS.md), practical
 [Brand and Fork Identification Guide](./BRAND_POLICY.md), and
 [AGPLv3 Section 7 Additional Terms](./ADDITIONAL_TERMS.md).
 

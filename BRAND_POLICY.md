@@ -21,7 +21,40 @@ A platform-generated fork name or historical repository path may remain where
 it clearly identifies the repository as a fork rather than an official
 distribution.
 
-## 2. Identify the Project as Independent
+## 2. Build a Distinct User-Facing Experience
+
+A logo-only reskin is not, by itself, a distinct brand presentation. Replacing
+the MUSIXQUARE name, logo, or icon while retaining substantially the same
+source-identifying overall visual presentation may still make an independent
+product or service appear official, affiliated, endorsed, or operated by
+MUSIXQUARE.
+
+The preferred approach is to reuse MUSIXQUARE's functional synchronization,
+media, and networking technology as permitted by the AGPL while building a
+user-facing experience suited to the independent project's own identity and
+audience. A public fork is strongly encouraged to create its own combination
+of:
+
+- palette, typography, spacing scale, component geometry, and visual
+  hierarchy;
+- custom artwork, icons, illustrations, motion, and transitions;
+- navigation and screen composition; and
+- onboarding, room creation, joining, invitation, and playback presentation.
+
+If the remaining overall presentation, considered as a whole, reproduces or
+imitates a protected, distinctive, non-functional MUSIXQUARE presentation in a
+manner likely to cause confusion, take sufficient steps to eliminate the
+likely confusion—which may require redesign—or obtain written permission.
+
+This guidance does not claim exclusive rights in any individual color, font,
+design token, spacing value, standard icon, common interface component,
+functional workflow, navigation convention, or third-party asset. It does not
+require a fork to change functional behavior or interoperable flows merely
+because they perform the same function. Copyright permissions for interface
+code and assets remain governed by the AGPL; the separate concern here is a
+confusing, source-identifying overall presentation.
+
+## 3. Identify the Project as Independent
 
 To avoid confusion, a public service that identifies itself to users as based
 on MUSIXQUARE should place a readily discoverable notice in its normal user
@@ -42,7 +75,7 @@ Korean wording:
 > 프로젝트 또는 권리자 CHOI HYEONSEUNG과 제휴·후원·승인·운영 관계가
 > 없습니다.
 
-## 3. Replace Official Identity Surfaces
+## 4. Replace Official Identity Surfaces
 
 An independent public service should use its own accurate operator identity
 and replace official MUSIXQUARE branding in user-facing surfaces, including as
@@ -59,7 +92,7 @@ Do not present `contact@musixquare.com`, `musixquare.com`, or official
 MUSIXQUARE policies as the operator, contact, canonical identity, or policies
 of an independent service.
 
-## 4. Preserve License and Attribution
+## 5. Preserve License and Attribution
 
 Rebranding does not permit removal of copyright, AGPL, modification,
 additional-term, or third-party notices required by the applicable licenses.
@@ -77,7 +110,7 @@ must receive a prominent opportunity to obtain the exact source corresponding
 to the running version, including the material needed to build and install it.
 That link must not point only to an older or unmodified upstream version.
 
-## 5. Search and Promotional Presentation
+## 6. Search and Promotional Presentation
 
 A third-party project's own name should lead its page title, search result,
 social preview, and advertisement. Any MUSIXQUARE reference should be factual
@@ -96,11 +129,14 @@ Not acceptable without permission:
 > MUSIXQUARE — where the page actually operates an independently modified
 > service
 
-## 6. Public-Fork Checklist
+## 7. Public-Fork Checklist
 
 Before publishing or operating a fork, verify that:
 
 - [ ] the project has a distinct name, logo, icon, favicon, and domain;
+- [ ] the overall public-facing presentation is sufficiently distinguishable
+      to avoid likely source confusion; a logo-only reskin is not presumed
+      sufficient;
 - [ ] the PWA manifest and installed-app identity use that distinct brand;
 - [ ] titles, canonical URLs, structured data, social cards, sitemaps, and
       search metadata accurately identify the independent service;

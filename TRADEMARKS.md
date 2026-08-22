@@ -27,11 +27,22 @@ The “MUSIXQUARE Marks” include, to the extent controlled by the Rights Holde
 - the names `MUSIXQUARE` and `뮤직스퀘어`;
 - the custom MUSIXQUARE wordmark and logo lockups;
 - the official MUSIXQUARE app icon; and
-- official source-identifying combinations of those names, logos, or icons.
+- official source-identifying combinations of those names, logos, or icons;
+  and
+- the distinctive, non-functional overall visual presentation of the official
+  MUSIXQUARE product, including its particular selection, combination, and
+  arrangement of custom interface artwork, visual hierarchy, component
+  geometry, typography, color treatment, motion, transitions, and recurring
+  screen compositions, where and to the extent that presentation functions as
+  a source identifier and is protected by applicable law.
 
 This definition does not claim exclusive rights in generic music symbols,
-colors, layouts, interface patterns, functional designs, fonts, or third-party
-assets by themselves.
+individual colors, fonts, design tokens, spacing values, standard icons,
+common interface components or patterns, functional designs, workflows,
+navigation conventions, or third-party assets by themselves. The absence of
+exclusive rights in an individual element does not prevent a distinctive
+combination of elements, considered as a whole, from being protected to the
+extent recognized by applicable law.
 
 ## Uses That Do Not Require Separate Permission
 
@@ -59,9 +70,19 @@ allowed without permission under applicable law.
 You do not need trademark permission merely to use, modify, distribute, host,
 support, or charge for AGPL-licensed software under a distinct identity.
 
+Replacing only the MUSIXQUARE name, logo, icon, or colors is not necessarily
+sufficient to create a distinct identity, and a logo-only reskin is not a safe
+harbor. If the remaining public-facing presentation reproduces or imitates a
+protected MUSIXQUARE source-identifying overall visual presentation in a
+manner likely to cause confusion, the operator must take sufficient steps to
+eliminate the likely confusion—which may require redesign—or obtain written
+permission, subject to applicable law.
+
 An independent public fork or hosted service should:
 
 - use its own product name, logo, app icon, favicon, domain, and account names;
+- use its own distinguishable visual system and overall user-facing
+  presentation rather than a logo-only reskin of the official interface;
 - identify itself clearly as independent and unofficial;
 - replace MUSIXQUARE operator, support, legal-policy, canonical, social-preview,
   search, manifest, invite, and service metadata with its own accurate details;
@@ -89,6 +110,9 @@ Written permission is required to use a MUSIXQUARE Mark:
   advertisement, store listing, or social/search preview;
 - in a confusingly similar name, source-identifying logo, domain, or branding,
   to the extent protected by applicable law;
+- to reproduce or imitate a protected, distinctive, non-functional overall
+  MUSIXQUARE visual presentation in a manner likely to cause confusion as to
+  source, affiliation, sponsorship, endorsement, or operation;
 - to describe a modified or third-party build as an official MUSIXQUARE
   release; or
 - in a manner suggesting that the Rights Holder or MUSIXQUARE project operates,
@@ -105,6 +129,12 @@ AGPL-covered source release may be copied, modified, and distributed under the
 applicable copyright permissions of the AGPL. Those copyright permissions do
 not grant the separate right to use a MUSIXQUARE Mark as a trademark or to
 identify a third-party product or service.
+
+Likewise, permission to copy or modify interface code, styles, layouts, or
+assets under the AGPL is not permission to deploy them as a confusingly
+similar, source-identifying public presentation. This distinction concerns
+trademark and related source-confusion rights, not the copyright permissions
+granted by the AGPL.
 
 Forks may preserve these materials in source history and required legal
 notices, but must replace their public-facing use as product branding unless

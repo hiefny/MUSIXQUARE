@@ -127,9 +127,8 @@ remain authoritative as module and dependency counts evolve.
 - **YouTube Together Synchronization**:
   - Synchronized playback across heterogeneous network topologies with automatic drift detection, seek compensation, and buffering state alignment.
 - **Desktop System Audio Streaming (Beta)**:
-  - Low-latency tab or system audio broadcast from desktop Chromium browsers is limited to 4 active devices: one publisher and at most 3 receivers. A fifth device ends an existing share, and acquisition above the limit is rejected without affecting the rest of the room.
-  - A PRO room uses LAN-direct only after every receiver proves one unambiguous selected and succeeded host-candidate pair through a strict UUID-shaped `.local` mDNS remote candidate. Numeric remote candidates are never relayed or added, even when they appear to share an RFC1918 or IPv6 private subnet; browsers without usable mDNS host candidates fail closed to SFU. Candidate-bearing SDP, global or malformed hostnames, missing statistics, and ambiguous pair selection also select SFU. On success, audio travels browser-to-browser with no Cloudflare Realtime SFU or TURN media path; the authenticated PRO Durable Object/WebSocket authority and bounded targeted SDP/ICE signaling remain on Cloudflare.
-  - If any of the at most 3 receivers cannot prove that route, a required live route fails, or a new receiver within the four-device cap is incompatible, the whole live publication is promoted once to the Cloudflare Realtime SFU under the same `publicationId`. A room never splits one publication across direct and SFU listeners or accepts direct signaling after canonical state has become SFU.
+  - Broadcast low-latency tab or system audio from a desktop Chromium browser, with one publisher and up to three receivers.
+  - PRO rooms use verified LAN-direct WebRTC when available; if any route is unavailable or fails, all listeners are routed together through Cloudflare Realtime SFU. See the [PRO room architecture](./docs/design/pro-room-architecture-and-operations.md#live-system-audio-ownership) for route and privacy details.
 - **Private Media & Queue Management**:
   - In-memory browser playback for Standard Rooms, temporary private R2 fallback for remote file delivery, and persistent private R2 object storage for PRO Rooms.
 - **Localized UI**:
@@ -150,6 +149,10 @@ remain authoritative as module and dependency counts evolve.
 
 PRO access remains operator-controlled. It may be issued directly or redeemed
 through a one-time operator voucher; there is no paid plan or public checkout.
+
+To inquire about PRO access, email
+[contact@musixquare.com](mailto:contact@musixquare.com) or contact us on the
+[official MUSIXQUARE Discord server](https://discord.gg/PmmFhGTBsX).
 
 ---
 

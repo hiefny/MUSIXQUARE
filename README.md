@@ -49,8 +49,9 @@ submission period, rather than on the pre-existing product alone.
 ### Build Week Baseline and Evidence
 
 - **Pre-event baseline:** [`0483a000`](https://github.com/hiefny/MUSIXQUARE/commit/0483a000d8d745cab9e7091a83199a7ebdc32375)
-- **Build Week changes:** [`0483a000...main`](https://github.com/hiefny/MUSIXQUARE/compare/0483a000d8d745cab9e7091a83199a7ebdc32375...main)
-- **Development period:** July 14–21, 2026 KST
+- **Build Week endpoint:** [`8c48d9ec`](https://github.com/hiefny/MUSIXQUARE/commit/8c48d9ecec131d37afdb2a70b103d9b1059f77f1)
+- **Build Week changes:** [`0483a000...8c48d9ec`](https://github.com/hiefny/MUSIXQUARE/compare/0483a000d8d745cab9e7091a83199a7ebdc32375...8c48d9ecec131d37afdb2a70b103d9b1059f77f1)
+- **Official Build Week window:** July 14, 1:00 AM–July 22, 10:00 AM, 2026 KST
 - **Primary Codex `/feedback` session:** `019f495f-b46e-7ad1-966b-9dfe679c5321`
 
 ### What I Built During Build Week

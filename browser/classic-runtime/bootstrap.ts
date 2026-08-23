@@ -12,6 +12,9 @@
  *   3. Theme preflight: resolve dark/light from localStorage + system
  *      preference, apply data-theme + theme-color so first paint matches
  *      the resolved theme. Avoids a flash of light → dark on PWA boot.
+ *   4. Contrast preflight: restore the local authored-contrast override.
+ *      Automatic mode intentionally leaves no attribute so CSS can follow
+ *      the live OS `prefers-contrast` query from the first paint.
  *
  * Loaded as the first script in <head>, before stylesheet links. The FOUC
  * guard lives in style.css and fouc-cleanup.js reveals the body after that
@@ -508,5 +511,32 @@
     });
   } catch {
     /* localStorage / matchMedia denied — fall back to whatever default the HTML/CSS picks */
+  }
+})();
+
+(function () {
+  // 4. Per-device contrast preflight. Keep this contract aligned with
+  // src/core/contrast.ts: more=forced on, normal=forced off, and an absent
+  // attribute=automatic OS preference. Genuine forced-colors mode is owned
+  // exclusively by the browser and is never disabled here.
+  const storageKey = 'musixquare-contrast';
+  let preference: 'auto' | 'on' | 'off' = 'auto';
+  try {
+    const stored = localStorage.getItem(storageKey);
+    if (stored === 'on' || stored === 'off') preference = stored;
+  } catch {
+    /* Storage-blocked contexts retain the safe automatic default. */
+  }
+
+  try {
+    if (preference === 'on') {
+      document.documentElement.setAttribute('data-contrast', 'more');
+    } else if (preference === 'off') {
+      document.documentElement.setAttribute('data-contrast', 'normal');
+    } else {
+      document.documentElement.removeAttribute('data-contrast');
+    }
+  } catch {
+    /* Keep the HTML/CSS automatic default when the DOM is unavailable. */
   }
 })();

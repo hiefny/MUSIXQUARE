@@ -28,6 +28,12 @@ import {
 } from '../diagnostics/sync-flight-recorder.ts';
 import type { ConnectedPeer } from '../types/index.ts';
 import { parseDebugBrowser } from './debug-user-agent.ts';
+import {
+  getContrastStatus,
+  setContrastPreference,
+  type ContrastPreference,
+  type ContrastStatus,
+} from '../core/contrast.ts';
 
 type NavigatorDebugInfo = Navigator & {
   standalone?: boolean;
@@ -48,6 +54,29 @@ type PerformanceWithMemory = Performance & {
 
 const debugNavigator = navigator as NavigatorDebugInfo;
 const debugPerformance = performance as PerformanceWithMemory;
+
+function formatContrastStatus(status: ContrastStatus): string {
+  const authored = status.authoredContrastActive ? 'more' : 'normal';
+  const system = status.systemPrefersMore ? 'more' : 'normal';
+  const forcedColors = status.forcedColorsActive ? 'active' : 'inactive';
+  return `Contrast: ${status.preference} | authored:${authored} | OS:${system} | forced-colors:${forcedColors}`;
+}
+
+function cmdDebugContrast(args: string[]): void {
+  if (args.length === 1) {
+    addSystemChatMessage(formatContrastStatus(getContrastStatus()));
+    return;
+  }
+
+  const requested = (args[1] || '').toLowerCase();
+  if (args.length !== 2 || !['on', 'off', 'auto'].includes(requested)) {
+    addSystemChatMessage('Usage: /debug contrast [on | off | auto]');
+    return;
+  }
+
+  const status = setContrastPreference(requested as ContrastPreference);
+  addSystemChatMessage(formatContrastStatus(status));
+}
 
 function _parseOS(ua: string): string {
   if (/iPhone OS ([\d_]+)/.test(ua)) return `iOS ${RegExp.$1.replace(/_/g, '.')}`;
@@ -86,6 +115,10 @@ export function cmdDebug(args: string[]): void {
   }
   if (sub === 'sync' || sub === 'clock' || sub === 'drift') {
     cmdDebugSync();
+    return;
+  }
+  if (sub === 'contrast') {
+    cmdDebugContrast(args);
     return;
   }
 

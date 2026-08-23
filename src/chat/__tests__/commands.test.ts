@@ -127,6 +127,19 @@ describe('executeCommand permission gating', () => {
     });
   });
 
+  it('keeps hidden /debug contrast local while routing it to the lazy entry point', async () => {
+    setState('network.hostConn', hostConnection());
+    const command = parseCommand('/debug contrast on')!;
+
+    expect(shouldBroadcastCommand(command)).toBe(false);
+    executeCommand(command);
+
+    await vi.waitFor(() => {
+      expect(mocks.cmdDebug).toHaveBeenCalledWith(['contrast', 'on']);
+    });
+    expect(mocks.sendToHost).not.toHaveBeenCalled();
+  });
+
   it('reports an unknown command', () => {
     executeCommand({ name: 'nonsense', args: [], rawArgs: '' });
     expect(mocks.addSystemChatMessage).toHaveBeenCalledTimes(1);

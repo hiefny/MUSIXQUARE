@@ -130,6 +130,7 @@ import { initDemoMode } from './demo/mode.ts';
 import { initAnnouncementPolling } from './ui/announcement.ts';
 import { initProRoomBranding } from './pro-room/branding.ts';
 import { initUiSounds } from './audio/ui-sounds.ts';
+import { initContrastPreference } from './core/contrast.ts';
 
 // ── Service Worker ──
 import { NAVIGATION_SOURCE_EVENT, registerServiceWorker } from './sw-register.ts';
@@ -1071,6 +1072,7 @@ async function bootstrap(): Promise<void> {
 
   // 1. Platform detection & viewport height
   safeInit('Platform', initPlatform);
+  safeInit('ContrastPreference', initContrastPreference);
 
   // 2. Core UI init (must run before other UI modules)
   safeInit('OverlayObservers', initOverlayObservers);

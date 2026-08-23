@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
+import { transformWithEsbuild } from 'vite';
 
 import {
   CLASSIC_RUNTIME_ASSETS,
@@ -28,6 +29,19 @@ function executeClassicScript(code: string, globals: Record<string, unknown>): v
   const names = Object.keys(globals);
   const values = names.map((name) => globals[name]);
   Function(...names, code)(...values);
+}
+
+async function compiledContrastPreflight(): Promise<string> {
+  const source = await readFile(join(REPO_ROOT, 'browser/classic-runtime/bootstrap.ts'), 'utf8');
+  const marker = '(function () {\n  // 4. Per-device contrast preflight';
+  const start = source.indexOf(marker);
+  if (start < 0) throw new Error('Missing classic contrast preflight marker');
+  const result = await transformWithEsbuild(source.slice(start), 'contrast-preflight.ts', {
+    format: 'iife',
+    loader: 'ts',
+    target: 'es2018',
+  });
+  return result.code;
 }
 
 type DevMiddleware = (
@@ -254,6 +268,62 @@ describe('strict TypeScript classic browser runtimes', () => {
       expect(asset.code).not.toContain('sourceMappingURL');
       expect(() => Function(asset.code)).not.toThrow();
     }
+  });
+
+  it.each([
+    ['on', 'more'],
+    ['off', 'normal'],
+    ['invalid', null],
+    [null, null],
+  ] as const)(
+    'applies the first-paint contrast preflight for stored %s',
+    async (stored, expected) => {
+      const code = await compiledContrastPreflight();
+      const rootAttributes = new Map<string, string>([['data-contrast', 'stale']]);
+      const document = {
+        documentElement: {
+          setAttribute(name: string, value: string) {
+            rootAttributes.set(name, value);
+          },
+          removeAttribute(name: string) {
+            rootAttributes.delete(name);
+          },
+        },
+      };
+
+      executeClassicScript(code, {
+        document,
+        localStorage: { getItem: () => stored },
+      });
+
+      expect(rootAttributes.get('data-contrast') ?? null).toBe(expected);
+    },
+  );
+
+  it('keeps first-paint contrast in auto when storage access is denied', async () => {
+    const code = await compiledContrastPreflight();
+    const rootAttributes = new Map<string, string>([['data-contrast', 'stale']]);
+    const document = {
+      documentElement: {
+        setAttribute(name: string, value: string) {
+          rootAttributes.set(name, value);
+        },
+        removeAttribute(name: string) {
+          rootAttributes.delete(name);
+        },
+      },
+    };
+
+    executeClassicScript(code, {
+      document,
+      localStorage: {
+        getItem() {
+          throw new DOMException('blocked');
+        },
+      },
+    });
+
+    expect(rootAttributes.has('data-contrast')).toBe(false);
   });
 
   it('applies the event theme synchronously with the original global side effects', async () => {

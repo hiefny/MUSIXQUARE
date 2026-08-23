@@ -90,6 +90,11 @@ test('keeps the Design System rail and examples coherent at every layout size', 
               Math.abs(spectrumRect.right - boardRect.right) < 1,
           };
         }),
+        boardBandOrders: boards.map((board) =>
+          [...board.querySelectorAll<HTMLElement>('.palette-band')].map(
+            (band) => band.dataset.token,
+          ),
+        ),
         boardRects: boards.map((board) => {
           const rect = board.getBoundingClientRect();
           return {
@@ -148,6 +153,15 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       { level: 'H3', palette: 'contrast-dark', text: 'High contrast dark' },
       { level: 'H3', palette: 'contrast-light', text: 'High contrast light' },
     ]);
+    expect(foundations.boardBandOrders).toEqual(
+      Array.from({ length: 4 }, () => [
+        '--primary',
+        '--surface-1',
+        '--surface-2',
+        '--surface-3',
+        '--divider',
+      ]),
+    );
     expect(foundations.directChildCount).toBe(4);
     expect(foundations.legacyVisualCount).toBe(0);
     expect(foundations.stack.backgroundColor).toBe('rgb(26, 26, 26)');
@@ -222,6 +236,9 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     const components = await page.evaluate(() => {
       const playback = document.querySelector<HTMLElement>('.playback-comp')!;
       const selection = document.querySelector<HTMLElement>('.selection-comp')!;
+      const ranges = document.querySelector<HTMLElement>('.ranges-comp')!;
+      const playlist = document.querySelector<HTMLElement>('.playlist-comp')!;
+      const devices = document.querySelector<HTMLElement>('.device-comp')!;
       const messaging = document.querySelector<HTMLElement>('.messaging-comp')!;
       const interfaceSample = document.querySelector<HTMLElement>('.interface-comp')!;
       const feedback = document.querySelector<HTMLElement>('.feedback-comp')!;
@@ -229,7 +246,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       const toast = feedback.querySelector<HTMLElement>('.toast')!;
       const dialog = feedback.querySelector<HTMLElement>('.dialog')!;
       const expand = document.querySelector<HTMLButtonElement>(
-        '#components .playlist-item:nth-child(3) .expand-toggle',
+        '#components .playlist-entry-sample:nth-child(3) .expand-toggle',
       )!;
       const expandRect = expand.getBoundingClientRect();
       const expandSvg = expand.querySelector('svg')!;
@@ -241,6 +258,9 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       const tokenReference = document.querySelector<HTMLElement>('.token-reference')!;
       const playbackRect = playback.getBoundingClientRect();
       const selectionRect = selection.getBoundingClientRect();
+      const rangesRect = ranges.getBoundingClientRect();
+      const playlistRect = playlist.getBoundingClientRect();
+      const devicesRect = devices.getBoundingClientRect();
       const messagingRect = messaging.getBoundingClientRect();
       const interfaceRect = interfaceSample.getBoundingClientRect();
       const feedbackRect = feedback.getBoundingClientRect();
@@ -272,6 +292,20 @@ test('keeps the Design System rail and examples coherent at every layout size', 
               return rect.width > 0 && rect.height > 0;
             },
           ),
+          effectWidth: document
+            .querySelector<HTMLElement>('.range-effect-demo')!
+            .getBoundingClientRect().width,
+          volumeProgress: getComputedStyle(
+            document.querySelector<HTMLElement>('.design-range-volume')!,
+          )
+            .getPropertyValue('--range-progress')
+            .trim(),
+          volumeSliderWidth: document
+            .querySelector<HTMLElement>('.design-range-volume')!
+            .getBoundingClientRect().width,
+          volumeSpecimenWidth: document
+            .querySelector<HTMLElement>('.range-volume-demo')!
+            .getBoundingClientRect().width,
         },
         interfacePatterns: {
           tabCount: document.querySelectorAll('.settings-subtab-sample .subtab-pill').length,
@@ -298,6 +332,16 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           count: document.querySelector('.playlist-selection-count')?.textContent?.trim(),
           selectedHalo: !!document.querySelector('.btn-playlist-remove.is-selected'),
         },
+        expandedLists: {
+          deviceCount: document.querySelectorAll('.device-subrow-sample').length,
+          deviceVisible: [...document.querySelectorAll<HTMLElement>('.device-subrow-sample')].every(
+            (row) => row.getBoundingClientRect().height > 0,
+          ),
+          playlistCount: document.querySelectorAll('.sub-track-item').length,
+          playlistVisible: [...document.querySelectorAll<HTMLElement>('.sub-track-item')].every(
+            (row) => row.getBoundingClientRect().height > 0,
+          ),
+        },
         playlistHeaderActions: [
           ...document.querySelectorAll<HTMLButtonElement>('.tab-action-btn-sample'),
         ].map((button) => button.getAttribute('aria-label')),
@@ -318,6 +362,23 @@ test('keeps the Design System rail and examples coherent at every layout size', 
             return { height: rect.height, width: rect.width };
           },
         ),
+        physicalDeviceActions: [
+          ...document.querySelectorAll<HTMLButtonElement>('.btn-kick-physical-device'),
+        ].map((button) => {
+          const rect = button.getBoundingClientRect();
+          return {
+            height: rect.height,
+            label: button.getAttribute('aria-label'),
+            width: rect.width,
+          };
+        }),
+        motionRecipes: {
+          borderless: [...document.querySelectorAll<HTMLElement>('.motion-card')].every(
+            (card) => getComputedStyle(card).borderWidth === '0px',
+          ),
+          noteMaxWidth: getComputedStyle(document.querySelector<HTMLElement>('.motion-note')!)
+            .maxWidth,
+        },
         chatContained: [...document.querySelectorAll<HTMLElement>('.chat-demo-stage .chat-bubble')]
           .map((bubble) => bubble.getBoundingClientRect())
           .every(
@@ -351,7 +412,18 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           width: interfaceRect.width,
         },
         playback: { bottom: playbackRect.bottom, top: playbackRect.top, width: playbackRect.width },
-        selection: { top: selectionRect.top, width: selectionRect.width },
+        selection: {
+          bottom: selectionRect.bottom,
+          top: selectionRect.top,
+          width: selectionRect.width,
+        },
+        ranges: { top: rangesRect.top, width: rangesRect.width },
+        playlist: {
+          bottom: playlistRect.bottom,
+          top: playlistRect.top,
+          width: playlistRect.width,
+        },
+        devices: { top: devicesRect.top, width: devicesRect.width },
         toastBeforeDialog: toastRect.bottom < dialogRect.top,
         tokenOverflow: tokenReference.scrollWidth - tokenReference.clientWidth,
         wrappersTransparent: wrappers.every((wrapper) => {
@@ -366,12 +438,22 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.wrappersTransparent).toBe(true);
     expect(components.iconSamplesTransparent).toBe(true);
     expect(components.iconTilesTransparent).toBe(true);
-    expect(components.rangeControls).toEqual({
-      allVisible: true,
-      count: 8,
-      eqCount: 5,
-      eqHeight: 160,
-    });
+    expect(components.rangeControls).toEqual(
+      expect.objectContaining({
+        allVisible: true,
+        count: 8,
+        eqCount: 5,
+        eqHeight: 160,
+        volumeProgress: '0%',
+      }),
+    );
+    expect(components.rangeControls.volumeSpecimenWidth).toBeLessThanOrEqual(141);
+    expect(components.rangeControls.volumeSliderWidth).toBeLessThan(
+      components.rangeControls.volumeSpecimenWidth,
+    );
+    expect(components.rangeControls.effectWidth).toBeGreaterThan(
+      components.rangeControls.volumeSpecimenWidth,
+    );
     expect(components.interfacePatterns.tabCount).toBe(4);
     expect(components.interfacePatterns.composerWidth).toBeGreaterThan(0);
     expect(components.interfacePatterns.searchWidth).toBeGreaterThan(0);
@@ -392,15 +474,29 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       count: '1',
       selectedHalo: true,
     });
+    expect(components.expandedLists).toEqual({
+      deviceCount: 4,
+      deviceVisible: true,
+      playlistCount: 4,
+      playlistVisible: true,
+    });
     expect(components.deviceActions).toEqual([
+      { height: 28, width: 28 },
       { height: 32, width: 32 },
       { height: 28, width: 28 },
     ]);
+    expect(components.physicalDeviceActions).toEqual([
+      { height: 28, label: 'Remove macOS device (A1B2)', width: 28 },
+      { height: 28, label: 'Remove Windows device (C3D4)', width: 28 },
+      { height: 28, label: 'Remove iOS device (E5F6)', width: 28 },
+      { height: 28, label: 'Remove Android device (G7H8)', width: 28 },
+    ]);
+    expect(components.motionRecipes).toEqual({ borderless: true, noteMaxWidth: 'none' });
     expect(components.chatContained).toBe(true);
     expect(components.groupedOutgoingRows).toBe(2);
     expect(components.playlistExpand).toEqual({
       action: 'expand',
-      ariaExpanded: 'false',
+      ariaExpanded: 'true',
       ariaLabel: 'Expand/collapse playlist',
       beforeRemove: true,
       height: 44,
@@ -411,14 +507,19 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.dialogRadii).toEqual(['999px', '999px']);
     expect(components.toastBeforeDialog).toBe(true);
     if (viewport.width >= 900) {
-      expect(Math.abs(components.playback.top - components.selection.top)).toBeLessThan(1);
-      expect(components.playback.width).toBeGreaterThan(components.selection.width);
+      expect(Math.abs(components.playback.top - components.ranges.top)).toBeLessThan(1);
+      expect(components.selection.top).toBeGreaterThanOrEqual(components.playback.bottom);
+      expect(components.ranges.width).toBeGreaterThan(components.playback.width);
+      expect(Math.abs(components.playlist.top - components.devices.top)).toBeLessThan(1);
+      expect(Math.abs(components.playlist.width - components.devices.width)).toBeLessThan(1);
       expect(Math.abs(components.messaging.top - components.interfaceSample.top)).toBeLessThan(1);
       expect(components.messaging.width).toBeGreaterThan(components.interfaceSample.width);
       expect(Math.abs(components.feedback.top - components.navigation.top)).toBeLessThan(1);
       expect(components.navigation.width).toBeGreaterThan(components.feedback.width);
     } else {
       expect(components.selection.top).toBeGreaterThanOrEqual(components.playback.bottom);
+      expect(components.ranges.top).toBeGreaterThanOrEqual(components.selection.bottom);
+      expect(components.devices.top).toBeGreaterThanOrEqual(components.playlist.bottom);
       expect(components.interfaceSample.top).toBeGreaterThanOrEqual(components.messaging.bottom);
       expect(components.navigation.top).toBeGreaterThanOrEqual(components.feedback.bottom);
     }

@@ -429,6 +429,7 @@
 
 .motion-card {
   padding: 20px 22px;
+  border: 0;
 }
 
 .motion-card .nm {
@@ -504,6 +505,7 @@
 
 .motion-note {
   margin: 18px 0 0;
+  max-width: none;
 }
 
 .section-intro {
@@ -541,19 +543,41 @@
   align-items: start;
 }
 
-.playback-comp {
-  grid-column: span 7;
+.component-control-layout,
+.component-list-layout,
+.loading-comp {
+  grid-column: 1 / -1;
 }
 
-.selection-comp {
-  grid-column: span 5;
+.component-control-layout,
+.component-list-layout {
+  min-width: 0;
+  display: grid;
+  gap: 40px;
+  align-items: start;
 }
 
+.component-control-layout {
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+}
+
+.component-list-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.component-control-stack {
+  min-width: 0;
+  display: grid;
+  gap: 64px;
+}
+
+.playback-comp,
+.selection-comp,
 .ranges-comp,
 .playlist-comp,
-.loading-comp,
 .device-comp {
-  grid-column: 1 / -1;
+  min-width: 0;
+  grid-column: auto;
 }
 
 .messaging-comp {
@@ -914,10 +938,19 @@
 }
 
 .pl {
+  margin: 0;
+  padding: 0;
+  list-style: none;
   display: flex;
   flex-direction: column;
   gap: 8px;
   background: transparent;
+}
+
+.playlist-entry-sample {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .playlist-item {
@@ -1023,6 +1056,63 @@
   stroke-width: 1.8;
   stroke-linecap: butt;
   stroke-linejoin: miter;
+  transition: transform 0.2s ease;
+}
+
+.expand-toggle.active svg {
+  transform: rotate(180deg);
+}
+
+.sub-playlist {
+  margin: 0 0 8px;
+  padding: 0 0 8px 48px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sub-track-item {
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sub-track-item:hover,
+.sub-track-item:focus-visible {
+  background: var(--surface-2);
+  color: var(--text-main);
+}
+
+.sub-track-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.sub-idx {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sub-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .playlist-remove {
@@ -1170,11 +1260,12 @@
 }
 
 .range-volume-demo {
-  grid-column: span 5;
+  max-width: 140px;
+  grid-column: span 3;
 }
 
 .range-effect-demo {
-  grid-column: span 7;
+  grid-column: span 9;
 }
 
 .range-specimen-title,
@@ -1197,6 +1288,12 @@
   font-size: 12px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+
+@property --range-progress {
+  syntax: '<percentage>';
+  inherits: false;
+  initial-value: 0%;
 }
 
 .design-range {
@@ -1303,6 +1400,26 @@
   gap: 10px;
 }
 
+.design-range-volume {
+  animation: design-volume-level-cycle 4.8s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+}
+
+.design-range-volume::-webkit-slider-runnable-track {
+  height: 4px;
+}
+
+.design-range-volume::-moz-range-track {
+  height: 4px;
+}
+
+.design-range-volume:active::-webkit-slider-runnable-track {
+  height: 6px;
+}
+
+.design-range-volume:active::-moz-range-track {
+  height: 6px;
+}
+
 .range-icon-button {
   width: 32px;
   height: 32px;
@@ -1399,6 +1516,20 @@
   67% {
     opacity: 1;
     transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes design-volume-level-cycle {
+  0%,
+  34%,
+  76%,
+  100% {
+    --range-progress: 72%;
+  }
+
+  43%,
+  67% {
+    --range-progress: 0%;
   }
 }
 
@@ -2057,6 +2188,12 @@
   gap: 8px;
 }
 
+.device-entry-sample {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .device-row-sample {
   min-height: var(--list-row-height);
   padding: 12px 16px;
@@ -2108,7 +2245,8 @@
 }
 
 .device-expand-toggle,
-.btn-kick-device {
+.btn-kick-device,
+.btn-kick-physical-device {
   padding: 0;
   display: grid;
   place-items: center;
@@ -2133,22 +2271,30 @@
   stroke-width: 1.8;
   stroke-linecap: butt;
   stroke-linejoin: miter;
+  transition: transform 0.2s ease;
 }
 
-.btn-kick-device {
+.device-expand-toggle.active svg {
+  transform: rotate(180deg);
+}
+
+.btn-kick-device,
+.btn-kick-physical-device {
   width: 28px;
   height: 28px;
   flex: 0 0 28px;
 }
 
-.btn-kick-device svg {
+.btn-kick-device svg,
+.btn-kick-physical-device svg {
   width: 16px;
   height: 16px;
   fill: currentColor;
 }
 
 .device-expand-toggle:focus-visible,
-.btn-kick-device:focus-visible {
+.btn-kick-device:focus-visible,
+.btn-kick-physical-device:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: -2px;
 }
@@ -2158,8 +2304,53 @@
   color: var(--text-main);
 }
 
-.btn-kick-device:hover {
+.btn-kick-device:hover,
+.btn-kick-physical-device:hover {
   color: #ff4d4f;
+}
+
+.device-sublist-sample {
+  margin: 0 0 8px;
+  padding: 0 16px 8px 56px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.device-subrow-sample {
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 13px;
+}
+
+.device-subrow-sample:hover {
+  background: var(--surface-2);
+  color: var(--text-main);
+}
+
+.device-sub-index {
+  width: 20px;
+  flex: 0 0 20px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.device-sub-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-stage {
@@ -2538,17 +2729,20 @@
     gap: 64px;
   }
 
-  .playback-comp,
-  .selection-comp,
-  .ranges-comp,
-  .playlist-comp,
+  .component-control-layout,
+  .component-list-layout,
   .messaging-comp,
   .interface-comp,
   .loading-comp,
-  .device-comp,
   .feedback-comp,
   .nav-comp {
     grid-column: 1;
+  }
+
+  .component-control-layout,
+  .component-list-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 64px;
   }
 
   .range-demo-grid {
@@ -2666,10 +2860,15 @@
   .app-loading-header-logo,
   .app-loading-header-status,
   .app-loading-header-badge,
+  .design-range-volume,
   .volume-cycle-demo .volume-wave,
   .volume-cycle-demo .volume-muted-backdrop,
   .volume-cycle-demo .volume-muted-mark {
     animation: none;
+  }
+
+  .design-range-volume {
+    --range-progress: 0% !important;
   }
 
   .material-elastic-spinner circle {

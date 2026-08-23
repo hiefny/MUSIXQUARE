@@ -168,6 +168,13 @@
             <div class="palette-spectrum">
               <div
                 class="palette-band"
+                data-token="--primary"
+                style="--sample: #3b82f6; --sample-ink: #000000"
+              >
+                <strong>--primary</strong><code>#3B82F6</code>
+              </div>
+              <div
+                class="palette-band"
                 data-token="--surface-1"
                 style="--sample: #1a1a1a; --sample-ink: #ffffff"
               >
@@ -193,13 +200,6 @@
                 style="--sample: #262626; --sample-ink: #ffffff"
               >
                 <strong>--divider</strong><code>#262626</code>
-              </div>
-              <div
-                class="palette-band"
-                data-token="--primary"
-                style="--sample: #3b82f6; --sample-ink: #000000"
-              >
-                <strong>--primary</strong><code>#3B82F6</code>
               </div>
             </div>
           </article>
@@ -237,6 +237,13 @@
             <div class="palette-spectrum">
               <div
                 class="palette-band"
+                data-token="--primary"
+                style="--sample: #3b82f6; --sample-ink: #000000"
+              >
+                <strong>--primary</strong><code>#3B82F6</code>
+              </div>
+              <div
+                class="palette-band"
                 data-token="--surface-1"
                 style="--sample: #ffffff; --sample-ink: #000000"
               >
@@ -262,13 +269,6 @@
                 style="--sample: #d4d6d8; --sample-ink: #000000"
               >
                 <strong>--divider</strong><code>#D4D6D8</code>
-              </div>
-              <div
-                class="palette-band"
-                data-token="--primary"
-                style="--sample: #3b82f6; --sample-ink: #000000"
-              >
-                <strong>--primary</strong><code>#3B82F6</code>
               </div>
             </div>
           </article>
@@ -310,6 +310,13 @@
             <div class="palette-spectrum">
               <div
                 class="palette-band"
+                data-token="--primary"
+                style="--sample: #8ab4ff; --sample-ink: #000000"
+              >
+                <strong>--primary</strong><code>#8AB4FF</code>
+              </div>
+              <div
+                class="palette-band"
                 data-token="--surface-1"
                 style="--sample: #0a0a0a; --sample-ink: #ffffff"
               >
@@ -335,13 +342,6 @@
                 style="--sample: #262626; --sample-ink: #ffffff"
               >
                 <strong>--divider</strong><code>#262626</code>
-              </div>
-              <div
-                class="palette-band"
-                data-token="--primary"
-                style="--sample: #8ab4ff; --sample-ink: #000000"
-              >
-                <strong>--primary</strong><code>#8AB4FF</code>
               </div>
             </div>
           </article>
@@ -383,6 +383,13 @@
             <div class="palette-spectrum">
               <div
                 class="palette-band"
+                data-token="--primary"
+                style="--sample: #0047a8; --sample-ink: #ffffff"
+              >
+                <strong>--primary</strong><code>#0047A8</code>
+              </div>
+              <div
+                class="palette-band"
                 data-token="--surface-1"
                 style="--sample: #ffffff; --sample-ink: #000000"
               >
@@ -408,13 +415,6 @@
                 style="--sample: #d4d6d8; --sample-ink: #000000"
               >
                 <strong>--divider</strong><code>#D4D6D8</code>
-              </div>
-              <div
-                class="palette-band"
-                data-token="--primary"
-                style="--sample: #0047a8; --sample-ink: #ffffff"
-              >
-                <strong>--primary</strong><code>#0047A8</code>
               </div>
             </div>
           </article>
@@ -560,8 +560,8 @@
             </div>
           </div>
           <p class="motion-note">
-            Entrance targets may stagger up to 400ms, ending at 1200ms. Reduced-motion mode removes
-            both movement and stagger.
+            Entrance targets stagger by up to 400ms and finish within 1200ms. Reduced-motion mode
+            removes movement and delay.
           </p>
         </div>
       </section>
@@ -571,363 +571,559 @@
         <div class="section-head"><h2>Components</h2></div>
 
         <div class="grid-2 component-grid">
-          <div class="comp playback-comp">
-            <div class="lbl">Playback actions</div>
-            <div class="row action-row">
-              <button type="button" class="btn primary">
-                <svg viewBox="0 -960 960 960" aria-hidden="true">
-                  <path
-                    d="m431-341 184-122q9-6 9-17t-9-17L431-619q-10-7-20.5-1.5T400-603v246q0 12 10.5 17.5T431-341Zm49 261q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-32 5-64t15-63q5-16 20.5-21.5T150-626q15 8 21.5 23.5T173-570q-6 22-9.5 44.5T160-480q0 134 93 227t227 93q134 0 227-93t93-227q0-134-93-227t-227-93q-24 0-47.5 3.5T386-786q-17 5-32-1t-22-21q-7-15-.5-30.5T354-859q30-11 62-16t64-5q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80ZM177.5-697.5Q160-715 160-740t17.5-42.5Q195-800 220-800t42.5 17.5Q280-765 280-740t-17.5 42.5Q245-680 220-680t-42.5-17.5ZM480-480Z"
-                  />
-                </svg>
-                Play media
-              </button>
-              <button type="button" class="btn ghost">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
-                  />
-                </svg>
-                Sync
-              </button>
-              <button type="button" class="fab" aria-label="Play">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
-              </button>
-            </div>
-            <div class="identity-row" aria-label="Current identity and status surfaces">
-              <span class="role-sample"><i></i>LOGIN</span>
-              <span class="role-sample connected"><i></i>HOST</span>
-              <span class="role-sample connected"><i></i>PRO</span>
-              <span class="feature-sample">BETA</span>
-            </div>
-          </div>
-
-          <div class="comp selection-comp">
-            <div class="lbl">Choice cards</div>
-            <div class="choice-grid" role="group" aria-label="UI sound selection">
-              <button type="button" class="choice-card" aria-pressed="false">
-                <svg viewBox="0 -960 960 960" aria-hidden="true">
-                  <path
-                    d="m882-292-56-56q26-26 40-60.5t14-71.5q0-37-14-71.5T826-612l56-56q38 38 58 86t20 102q0 54-20 102t-58 86Zm-107-80-57-56q11-11 16.5-24t5.5-28q0-15-5.5-28T718-532l57-56q22 22 33.5 49.5T820-480q0 31-11.5 58.5T775-372ZM338.5-138.5Q280-197 280-280v-400q0-83 58.5-141.5T480-880q83 0 141.5 58.5T680-680v400q0 83-58.5 141.5T480-80q-83 0-141.5-58.5ZM565-195q35-35 35-85v-400q0-50-35-85t-85-35q-50 0-85 35t-35 85v400q0 50 35 85t85 35q50 0 85-35Zm-28.5-68.5Q560-287 560-320t-23.5-56.5Q513-400 480-400t-56.5 23.5Q400-353 400-320t23.5 56.5Q447-240 480-240t56.5-23.5Zm-85-28Q440-303 440-320t11.5-28.5Q463-360 480-360t28.5 11.5Q520-337 520-320t-11.5 28.5Q497-280 480-280t-28.5-11.5Zm85-292Q560-607 560-640t-23.5-56.5Q513-720 480-720t-56.5 23.5Q400-673 400-640t23.5 56.5Q447-560 480-560t56.5-23.5ZM480-480Z"
-                  />
-                </svg>
-                <span>On</span>
-              </button>
-              <button type="button" class="choice-card selected" aria-pressed="true">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
-                  />
-                </svg>
-                <span>Off</span>
-              </button>
-            </div>
-            <div class="component-subsection">
-              <div class="component-subtitle">Room password switch</div>
-              <div class="toggle-sample-row">
-                <div><strong>Room password</strong><span>Require a password to join.</span></div>
-                <button
-                  type="button"
-                  class="toggle-sample active"
-                  aria-pressed="true"
-                  aria-label="Room password enabled"
-                >
-                  <i></i>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="comp ranges-comp">
-            <div class="lbl">Range controls</div>
-            <div class="range-demo-grid">
-              <div class="range-specimen range-seek-demo">
-                <div class="range-specimen-title">Seek</div>
-                <input
-                  class="design-range"
-                  type="range"
-                  min="0"
-                  max="100"
-                  value="38"
-                  aria-label="Playback position"
-                  style="--range-progress: 38%"
-                />
-                <div class="range-time-info"><span>1:04</span><span>2:46</span></div>
-              </div>
-
-              <div class="range-specimen range-volume-demo">
-                <div class="range-specimen-title">Volume</div>
-                <div class="range-volume-control">
-                  <button
-                    type="button"
-                    class="range-icon-button volume-cycle-demo"
-                    aria-label="Volume cycles between audible and muted"
-                  >
-                    <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
-                      <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z" />
-                      <path class="volume-wave volume-wave-inner" d="M15.2 8.5a4.9 4.9 0 0 1 0 7" />
+          <div class="component-control-layout">
+            <div class="component-control-stack">
+              <div class="comp playback-comp">
+                <div class="lbl">Playback actions</div>
+                <div class="row action-row">
+                  <button type="button" class="btn primary">
+                    <svg viewBox="0 -960 960 960" aria-hidden="true">
                       <path
-                        class="volume-wave volume-wave-outer"
-                        d="M18 5.7a8.9 8.9 0 0 1 0 12.6"
+                        d="m431-341 184-122q9-6 9-17t-9-17L431-619q-10-7-20.5-1.5T400-603v246q0 12 10.5 17.5T431-341Zm49 261q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-32 5-64t15-63q5-16 20.5-21.5T150-626q15 8 21.5 23.5T173-570q-6 22-9.5 44.5T160-480q0 134 93 227t227 93q134 0 227-93t93-227q0-134-93-227t-227-93q-24 0-47.5 3.5T386-786q-17 5-32-1t-22-21q-7-15-.5-30.5T354-859q30-11 62-16t64-5q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80ZM177.5-697.5Q160-715 160-740t17.5-42.5Q195-800 220-800t42.5 17.5Q280-765 280-740t-17.5 42.5Q245-680 220-680t-42.5-17.5ZM480-480Z"
                       />
-                      <g class="volume-muted-backdrop">
-                        <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
-                        <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
-                      </g>
-                      <g class="volume-muted-mark">
-                        <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
-                        <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
-                      </g>
                     </svg>
+                    Play media
                   </button>
+                  <button type="button" class="btn ghost">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+                      />
+                    </svg>
+                    Sync
+                  </button>
+                  <button type="button" class="fab" aria-label="Play">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+                  </button>
+                </div>
+                <div class="identity-row" aria-label="Current identity and status surfaces">
+                  <span class="role-sample"><i></i>LOGIN</span>
+                  <span class="role-sample connected"><i></i>HOST</span>
+                  <span class="role-sample connected"><i></i>PRO</span>
+                  <span class="feature-sample">BETA</span>
+                </div>
+              </div>
+
+              <div class="comp selection-comp">
+                <div class="lbl">Choice cards</div>
+                <div class="choice-grid" role="group" aria-label="UI sound selection">
+                  <button type="button" class="choice-card" aria-pressed="false">
+                    <svg viewBox="0 -960 960 960" aria-hidden="true">
+                      <path
+                        d="m882-292-56-56q26-26 40-60.5t14-71.5q0-37-14-71.5T826-612l56-56q38 38 58 86t20 102q0 54-20 102t-58 86Zm-107-80-57-56q11-11 16.5-24t5.5-28q0-15-5.5-28T718-532l57-56q22 22 33.5 49.5T820-480q0 31-11.5 58.5T775-372ZM338.5-138.5Q280-197 280-280v-400q0-83 58.5-141.5T480-880q83 0 141.5 58.5T680-680v400q0 83-58.5 141.5T480-80q-83 0-141.5-58.5ZM565-195q35-35 35-85v-400q0-50-35-85t-85-35q-50 0-85 35t-35 85v400q0 50 35 85t85 35q50 0 85-35Zm-28.5-68.5Q560-287 560-320t-23.5-56.5Q513-400 480-400t-56.5 23.5Q400-353 400-320t23.5 56.5Q447-240 480-240t56.5-23.5Zm-85-28Q440-303 440-320t11.5-28.5Q463-360 480-360t28.5 11.5Q520-337 520-320t-11.5 28.5Q497-280 480-280t-28.5-11.5Zm85-292Q560-607 560-640t-23.5-56.5Q513-720 480-720t-56.5 23.5Q400-673 400-640t23.5 56.5Q447-560 480-560t56.5-23.5ZM480-480Z"
+                      />
+                    </svg>
+                    <span>On</span>
+                  </button>
+                  <button type="button" class="choice-card selected" aria-pressed="true">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+                      />
+                    </svg>
+                    <span>Off</span>
+                  </button>
+                </div>
+                <div class="component-subsection">
+                  <div class="component-subtitle">Room password switch</div>
+                  <div class="toggle-sample-row">
+                    <div>
+                      <strong>Room password</strong><span>Require a password to join.</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="toggle-sample active"
+                      aria-pressed="true"
+                      aria-label="Room password enabled"
+                    >
+                      <i></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="comp ranges-comp">
+              <div class="lbl">Range controls</div>
+              <div class="range-demo-grid">
+                <div class="range-specimen range-seek-demo">
+                  <div class="range-specimen-title">Seek</div>
                   <input
-                    class="design-range design-range-volume"
+                    class="design-range"
                     type="range"
                     min="0"
                     max="100"
-                    value="72"
-                    aria-label="Volume"
-                    style="--range-progress: 72%"
+                    value="38"
+                    aria-label="Playback position"
+                    style="--range-progress: 38%"
+                  />
+                  <div class="range-time-info"><span>1:04</span><span>2:46</span></div>
+                </div>
+
+                <div class="range-specimen range-volume-demo">
+                  <div class="range-specimen-title">Volume</div>
+                  <div class="range-volume-control">
+                    <button
+                      type="button"
+                      class="range-icon-button volume-cycle-demo"
+                      aria-label="Volume cycles between audible and muted"
+                    >
+                      <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path class="volume-speaker" d="M3 9v6h4l5 5V4L7 9H3z" />
+                        <path
+                          class="volume-wave volume-wave-inner"
+                          d="M15.2 8.5a4.9 4.9 0 0 1 0 7"
+                        />
+                        <path
+                          class="volume-wave volume-wave-outer"
+                          d="M18 5.7a8.9 8.9 0 0 1 0 12.6"
+                        />
+                        <g class="volume-muted-backdrop">
+                          <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                          <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                        </g>
+                        <g class="volume-muted-mark">
+                          <circle class="volume-muted-ring" cx="17" cy="12" r="4.8" />
+                          <path class="volume-muted-slash" d="M13.6 8.6l6.8 6.8" />
+                        </g>
+                      </svg>
+                    </button>
+                    <input
+                      class="design-range design-range-volume"
+                      type="range"
+                      min="0"
+                      max="100"
+                      value="72"
+                      aria-label="Volume"
+                      style="--range-progress: 72%"
+                    />
+                  </div>
+                </div>
+
+                <div class="range-specimen range-effect-demo">
+                  <div class="range-slider-header">
+                    <span>Reverb mix</span>
+                    <strong>42%</strong>
+                  </div>
+                  <input
+                    class="design-range"
+                    type="range"
+                    min="0"
+                    max="100"
+                    value="42"
+                    aria-label="Reverb mix"
+                    style="--range-progress: 42%"
                   />
                 </div>
-              </div>
 
-              <div class="range-specimen range-effect-demo">
-                <div class="range-slider-header">
-                  <span>Reverb mix</span>
-                  <strong>42%</strong>
-                </div>
-                <input
-                  class="design-range"
-                  type="range"
-                  min="0"
-                  max="100"
-                  value="42"
-                  aria-label="Reverb mix"
-                  style="--range-progress: 42%"
-                />
-              </div>
-
-              <div class="range-specimen range-eq-demo">
-                <div class="range-specimen-title">Five-band equalizer</div>
-                <div class="range-eq-container" role="group" aria-label="Equalizer bands">
-                  <label class="range-eq-band">
-                    <span class="range-eq-value">+2</span>
-                    <input
-                      class="design-range design-range-eq"
-                      type="range"
-                      min="0"
-                      max="100"
-                      value="58"
-                      aria-label="60 hertz"
-                      style="--range-progress: 58%"
-                    />
-                    <span class="range-eq-label">60</span>
-                  </label>
-                  <label class="range-eq-band">
-                    <span class="range-eq-value">-1</span>
-                    <input
-                      class="design-range design-range-eq"
-                      type="range"
-                      min="0"
-                      max="100"
-                      value="44"
-                      aria-label="230 hertz"
-                      style="--range-progress: 44%"
-                    />
-                    <span class="range-eq-label">230</span>
-                  </label>
-                  <label class="range-eq-band">
-                    <span class="range-eq-value">0</span>
-                    <input
-                      class="design-range design-range-eq"
-                      type="range"
-                      min="0"
-                      max="100"
-                      value="50"
-                      aria-label="910 hertz"
-                      style="--range-progress: 50%"
-                    />
-                    <span class="range-eq-label">910</span>
-                  </label>
-                  <label class="range-eq-band">
-                    <span class="range-eq-value">-3</span>
-                    <input
-                      class="design-range design-range-eq"
-                      type="range"
-                      min="0"
-                      max="100"
-                      value="36"
-                      aria-label="3.6 kilohertz"
-                      style="--range-progress: 36%"
-                    />
-                    <span class="range-eq-label">3.6k</span>
-                  </label>
-                  <label class="range-eq-band">
-                    <span class="range-eq-value">+1</span>
-                    <input
-                      class="design-range design-range-eq"
-                      type="range"
-                      min="0"
-                      max="100"
-                      value="54"
-                      aria-label="14 kilohertz"
-                      style="--range-progress: 54%"
-                    />
-                    <span class="range-eq-label">14k</span>
-                  </label>
+                <div class="range-specimen range-eq-demo">
+                  <div class="range-specimen-title">Five-band equalizer</div>
+                  <div class="range-eq-container" role="group" aria-label="Equalizer bands">
+                    <label class="range-eq-band">
+                      <span class="range-eq-value">+2</span>
+                      <input
+                        class="design-range design-range-eq"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="58"
+                        aria-label="60 hertz"
+                        style="--range-progress: 58%"
+                      />
+                      <span class="range-eq-label">60</span>
+                    </label>
+                    <label class="range-eq-band">
+                      <span class="range-eq-value">-1</span>
+                      <input
+                        class="design-range design-range-eq"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="44"
+                        aria-label="230 hertz"
+                        style="--range-progress: 44%"
+                      />
+                      <span class="range-eq-label">230</span>
+                    </label>
+                    <label class="range-eq-band">
+                      <span class="range-eq-value">0</span>
+                      <input
+                        class="design-range design-range-eq"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="50"
+                        aria-label="910 hertz"
+                        style="--range-progress: 50%"
+                      />
+                      <span class="range-eq-label">910</span>
+                    </label>
+                    <label class="range-eq-band">
+                      <span class="range-eq-value">-3</span>
+                      <input
+                        class="design-range design-range-eq"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="36"
+                        aria-label="3.6 kilohertz"
+                        style="--range-progress: 36%"
+                      />
+                      <span class="range-eq-label">3.6k</span>
+                    </label>
+                    <label class="range-eq-band">
+                      <span class="range-eq-value">+1</span>
+                      <input
+                        class="design-range design-range-eq"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value="54"
+                        aria-label="14 kilohertz"
+                        style="--range-progress: 54%"
+                      />
+                      <span class="range-eq-label">14k</span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div class="comp playlist-comp">
-            <div class="playlist-area-header">
-              <div class="lbl">Playlist area</div>
-              <div class="playlist-title-area-sample" aria-label="Playlist header actions">
+          <div class="component-list-layout">
+            <div class="comp playlist-comp">
+              <div class="playlist-area-header">
+                <div class="lbl">Playlist area</div>
+                <div class="playlist-title-area-sample" aria-label="Playlist header actions">
+                  <button
+                    type="button"
+                    class="tab-action-btn-sample active-one"
+                    aria-label="Repeat one"
+                    aria-pressed="true"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="tab-action-btn-sample"
+                    aria-label="Shuffle"
+                    aria-pressed="false"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path
+                        d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41ZM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5Zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13Z"
+                      />
+                    </svg>
+                  </button>
+                  <button type="button" class="tab-action-btn-sample" aria-label="Add media">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+              <ul class="pl" role="list" aria-label="Playlist component examples">
+                <li class="playlist-entry playlist-entry-sample" role="listitem">
+                  <div class="playlist-item">
+                    <span class="playlist-leading">1</span>
+                    <span class="playlist-name">
+                      <svg class="playlist-source local" viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"
+                        />
+                      </svg>
+                      <span>Coastal Drift.wav</span>
+                    </span>
+                    <button
+                      type="button"
+                      class="playlist-remove"
+                      aria-label="Remove Coastal Drift.wav"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </li>
+                <li class="playlist-entry playlist-entry-sample" role="listitem">
+                  <div class="playlist-item active" aria-current="true">
+                    <span class="playlist-leading playing" aria-label="Playing">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M8 5v14l11-7z" transform="translate(-1.5 0)" />
+                      </svg>
+                    </span>
+                    <span class="playlist-name">
+                      <svg class="playlist-source youtube" viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"
+                        />
+                      </svg>
+                      <span>Midnight Protocol</span>
+                    </span>
+                    <button
+                      type="button"
+                      class="playlist-remove btn-playlist-remove is-selected"
+                      aria-label="Deselect Midnight Protocol for deletion"
+                      aria-pressed="true"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </li>
+                <li class="playlist-entry playlist-entry-sample" role="listitem">
+                  <div class="playlist-item">
+                    <span class="playlist-leading">3</span>
+                    <span class="playlist-name">
+                      <svg class="playlist-source youtube" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 10h12v2H4Zm0-4h12v2H4Zm0 8h8v2H4Zm10 0v6l5-3Z" />
+                      </svg>
+                      <span>Late Night Drive · Tokyo Mix</span>
+                    </span>
+                    <button
+                      type="button"
+                      class="expand-toggle active"
+                      data-action="expand"
+                      data-queue-item-id="design-playlist-3"
+                      aria-label="Expand/collapse playlist"
+                      aria-expanded="true"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="m6.5 9 5.5 5.5L17.5 9" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="playlist-remove"
+                      aria-label="Remove Late Night Drive playlist"
+                    >
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path
+                          d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                  <ul class="sub-playlist" data-playlist-id="design-playlist-3">
+                    <li
+                      class="sub-track-item"
+                      data-queue-item-id="design-playlist-3"
+                      data-sub-index="0"
+                      data-video-id="design-video-1"
+                      role="button"
+                      tabindex="0"
+                    >
+                      <span class="sub-idx"><span class="sub-idx-number">1</span></span>
+                      <span class="sub-name"
+                        ><span class="playlist-title-marquee-content">Neon Expressway</span></span
+                      >
+                    </li>
+                    <li
+                      class="sub-track-item"
+                      data-queue-item-id="design-playlist-3"
+                      data-sub-index="1"
+                      data-video-id="design-video-2"
+                      role="button"
+                      tabindex="0"
+                    >
+                      <span class="sub-idx"><span class="sub-idx-number">2</span></span>
+                      <span class="sub-name"
+                        ><span class="playlist-title-marquee-content">Tokyo After Rain</span></span
+                      >
+                    </li>
+                    <li
+                      class="sub-track-item"
+                      data-queue-item-id="design-playlist-3"
+                      data-sub-index="2"
+                      data-video-id="design-video-3"
+                      role="button"
+                      tabindex="0"
+                    >
+                      <span class="sub-idx"><span class="sub-idx-number">3</span></span>
+                      <span class="sub-name"
+                        ><span class="playlist-title-marquee-content"
+                          >2AM Convenience Store</span
+                        ></span
+                      >
+                    </li>
+                    <li
+                      class="sub-track-item"
+                      data-queue-item-id="design-playlist-3"
+                      data-sub-index="3"
+                      data-video-id="design-video-4"
+                      role="button"
+                      tabindex="0"
+                    >
+                      <span class="sub-idx"><span class="sub-idx-number">4</span></span>
+                      <span class="sub-name"
+                        ><span class="playlist-title-marquee-content">Last Train Home</span></span
+                      >
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+              <div
+                class="playlist-selection-pill is-visible"
+                role="group"
+                aria-label="Remove playlist items"
+              >
                 <button
                   type="button"
-                  class="tab-action-btn-sample active-one"
-                  aria-label="Repeat one"
-                  aria-pressed="true"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="tab-action-btn-sample"
-                  aria-label="Shuffle"
+                  class="playlist-selection-action"
+                  aria-label="Select all"
                   aria-pressed="false"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
-                      d="M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41ZM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5Zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13Z"
+                      d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"
                     />
+                    <path d="m8.5 12 2.2 2.2 4.8-5" />
                   </svg>
                 </button>
-                <button type="button" class="tab-action-btn-sample" aria-label="Add media">
+                <button
+                  type="button"
+                  class="playlist-selection-action playlist-selection-delete"
+                  aria-label="Delete 1 selected track"
+                >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z" />
+                    <path
+                      d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12Zm2-10h8v10H8V9Zm7.5-5-1-1h-5l-1 1H5v2h14V4h-3.5Z"
+                    />
+                  </svg>
+                  <span class="playlist-selection-count" aria-hidden="true">1</span>
+                </button>
+                <button type="button" class="playlist-selection-action" aria-label="Cancel">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="m7 7 10 10M17 7 7 17" />
                   </svg>
                 </button>
               </div>
             </div>
-            <div class="pl" role="list" aria-label="Playlist component examples">
-              <div class="playlist-item" role="listitem">
-                <span class="playlist-leading">1</span>
-                <span class="playlist-name">
-                  <svg class="playlist-source local" viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"
-                    />
-                  </svg>
-                  <span>Coastal Drift.wav</span>
-                </span>
-                <button type="button" class="playlist-remove" aria-label="Remove Coastal Drift.wav">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
-                    />
-                  </svg>
-                </button>
+
+            <div class="comp device-comp">
+              <div class="lbl">Connected device rows</div>
+              <div class="device-list-sample" role="list" aria-label="Connected accounts">
+                <div class="device-entry device-entry-sample" role="listitem">
+                  <div class="device-row device-row-sample is-current-member" aria-current="true">
+                    <span class="d-order">#1</span>
+                    <span class="d-name"><span class="d-name-label">Mina Park</span></span>
+                  </div>
+                </div>
+                <div class="device-entry device-entry-sample" role="listitem">
+                  <div class="device-row device-row-sample">
+                    <span class="d-order">#2</span>
+                    <span class="d-name"><span class="d-name-label">Jules Kim</span></span>
+                    <span class="d-actions">
+                      <button type="button" class="btn-kick-device" aria-label="Remove Jules Kim">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                    </span>
+                  </div>
+                </div>
+                <div class="device-entry device-entry-sample" role="listitem">
+                  <div class="device-row device-row-sample">
+                    <span class="d-order">#3</span>
+                    <span class="d-name"><span class="d-name-label">Noah Lee</span></span>
+                    <span class="d-actions">
+                      <button
+                        type="button"
+                        class="device-expand-toggle active"
+                        aria-label="Collapse Noah Lee devices"
+                        aria-expanded="true"
+                        aria-controls="design-device-sublist-3"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="m6.5 9 5.5 5.5L17.5 9" />
+                        </svg>
+                      </button>
+                      <button type="button" class="btn-kick-device" aria-label="Remove Noah Lee">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                    </span>
+                  </div>
+                  <ul
+                    id="design-device-sublist-3"
+                    class="device-sublist device-sublist-sample"
+                    aria-label="Noah Lee devices"
+                  >
+                    <li class="device-subrow device-subrow-sample" data-device-id="design-macos">
+                      <span class="device-sub-index">1</span>
+                      <span class="device-sub-name">macOS device (A1B2)</span>
+                      <button
+                        type="button"
+                        class="btn-kick-physical-device"
+                        aria-label="Remove macOS device (A1B2)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                    </li>
+                    <li class="device-subrow device-subrow-sample" data-device-id="design-windows">
+                      <span class="device-sub-index">2</span>
+                      <span class="device-sub-name">Windows device (C3D4)</span>
+                      <button
+                        type="button"
+                        class="btn-kick-physical-device"
+                        aria-label="Remove Windows device (C3D4)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                    </li>
+                    <li class="device-subrow device-subrow-sample" data-device-id="design-ios">
+                      <span class="device-sub-index">3</span>
+                      <span class="device-sub-name">iOS device (E5F6)</span>
+                      <button
+                        type="button"
+                        class="btn-kick-physical-device"
+                        aria-label="Remove iOS device (E5F6)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                    </li>
+                    <li class="device-subrow device-subrow-sample" data-device-id="design-android">
+                      <span class="device-sub-index">4</span>
+                      <span class="device-sub-name">Android device (G7H8)</span>
+                      <button
+                        type="button"
+                        class="btn-kick-physical-device"
+                        aria-label="Remove Android device (G7H8)"
+                      >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path
+                            d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                          />
+                        </svg>
+                      </button>
+                    </li>
+                  </ul>
+                </div>
               </div>
-              <div class="playlist-item active" role="listitem" aria-current="true">
-                <span class="playlist-leading playing" aria-label="Playing">
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M8 5v14l11-7z" transform="translate(-1.5 0)" />
-                  </svg>
-                </span>
-                <span class="playlist-name">
-                  <svg class="playlist-source youtube" viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"
-                    />
-                  </svg>
-                  <span>Midnight Protocol</span>
-                </span>
-                <button
-                  type="button"
-                  class="playlist-remove btn-playlist-remove is-selected"
-                  aria-label="Deselect Midnight Protocol for deletion"
-                  aria-pressed="true"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
-                    />
-                  </svg>
-                </button>
-              </div>
-              <div class="playlist-item" role="listitem">
-                <span class="playlist-leading">3</span>
-                <span class="playlist-name">
-                  <svg class="playlist-source youtube" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M4 10h12v2H4Zm0-4h12v2H4Zm0 8h8v2H4Zm10 0v6l5-3Z" />
-                  </svg>
-                  <span>Late Night Drive · Tokyo Mix</span>
-                </span>
-                <button
-                  type="button"
-                  class="expand-toggle"
-                  data-action="expand"
-                  data-queue-item-id="design-playlist-3"
-                  aria-label="Expand/collapse playlist"
-                  aria-expanded="false"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="m6.5 9 5.5 5.5L17.5 9" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  class="playlist-remove"
-                  aria-label="Remove Late Night Drive playlist"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true">
-                    <path
-                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-            <div
-              class="playlist-selection-pill is-visible"
-              role="group"
-              aria-label="Remove playlist items"
-            >
-              <button
-                type="button"
-                class="playlist-selection-action"
-                aria-label="Select all"
-                aria-pressed="false"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M8 4H5a1 1 0 0 0-1 1v3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"
-                  />
-                  <path d="m8.5 12 2.2 2.2 4.8-5" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                class="playlist-selection-action playlist-selection-delete"
-                aria-label="Delete 1 selected track"
-              >
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path
-                    d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12Zm2-10h8v10H8V9Zm7.5-5-1-1h-5l-1 1H5v2h14V4h-3.5Z"
-                  />
-                </svg>
-                <span class="playlist-selection-count" aria-hidden="true">1</span>
-              </button>
-              <button type="button" class="playlist-selection-action" aria-label="Cancel">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="m7 7 10 10M17 7 7 17" />
-                </svg>
-              </button>
             </div>
           </div>
 
@@ -1077,39 +1273,6 @@
                 <span class="app-loading-header-badge" aria-hidden="true">
                   <i></i>
                   HOST
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div class="comp device-comp">
-            <div class="lbl">Connected device rows</div>
-            <div class="device-list-sample" role="list" aria-label="Connected devices">
-              <div class="device-row-sample is-current-member" role="listitem" aria-current="true">
-                <span class="d-order">#1</span>
-                <span class="d-name"><span class="d-name-label">Studio laptop</span></span>
-              </div>
-              <div class="device-row-sample" role="listitem">
-                <span class="d-order">#2</span>
-                <span class="d-name"><span class="d-name-label">Living room</span></span>
-                <span class="d-actions">
-                  <button
-                    type="button"
-                    class="device-expand-toggle"
-                    aria-label="Expand Living room devices"
-                    aria-expanded="false"
-                  >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="m6.5 9 5.5 5.5L17.5 9" />
-                    </svg>
-                  </button>
-                  <button type="button" class="btn-kick-device" aria-label="Remove Living room">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <path
-                        d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
-                      />
-                    </svg>
-                  </button>
                 </span>
               </div>
             </div>

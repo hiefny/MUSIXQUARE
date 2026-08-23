@@ -185,11 +185,11 @@ describe('public design-system page contract', () => {
       '--text-main',
       '--text-sub',
       '--text-muted',
+      '--primary',
       '--surface-1',
       '--surface-2',
       '--surface-3',
       '--divider',
-      '--primary',
     ] as const;
     const boards = [...designDocument.querySelectorAll<HTMLElement>('.theme-palette')];
 
@@ -263,6 +263,7 @@ describe('public design-system page contract', () => {
     const playlist = sectionWithHeading('Components').querySelector<HTMLElement>('.pl');
     expect(playlist).toBeTruthy();
 
+    const entries = [...(playlist?.querySelectorAll<HTMLElement>('.playlist-entry-sample') ?? [])];
     const items = [...(playlist?.querySelectorAll<HTMLElement>('.playlist-item') ?? [])];
     const current = items.find((item) =>
       item.matches('.active, .is-current, [aria-current="true"]'),
@@ -278,10 +279,13 @@ describe('public design-system page contract', () => {
       ...(playlist?.querySelectorAll<HTMLButtonElement>('.expand-toggle') ?? []),
     ];
     const thirdItem = items[2];
+    const thirdEntry = entries[2];
     const thirdExpand = thirdItem?.querySelector<HTMLButtonElement>('.expand-toggle');
     const thirdRemove = thirdItem?.querySelector<HTMLButtonElement>('.playlist-remove');
+    const subTracks = [...(thirdEntry?.querySelectorAll<HTMLElement>('.sub-track-item') ?? [])];
 
-    expect(items.length).toBeGreaterThanOrEqual(3);
+    expect(entries).toHaveLength(3);
+    expect(items).toHaveLength(3);
     expect(playlist?.querySelector('.dur, .duration, .playlist-duration')).toBeNull();
     expect(playlist?.textContent).not.toMatch(/\b\d+:\d{2}\b/u);
     expect(currentLeading?.textContent?.trim()).toBe('');
@@ -299,8 +303,8 @@ describe('public design-system page contract', () => {
     expect(thirdExpand?.dataset.action).toBe('expand');
     expect(thirdExpand?.dataset.queueItemId).toBe('design-playlist-3');
     expect(thirdExpand?.getAttribute('aria-label')).toBe('Expand/collapse playlist');
-    expect(thirdExpand?.getAttribute('aria-expanded')).toBe('false');
-    expect(thirdExpand?.classList.contains('active')).toBe(false);
+    expect(thirdExpand?.getAttribute('aria-expanded')).toBe('true');
+    expect(thirdExpand?.classList.contains('active')).toBe(true);
     expect(thirdExpand?.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 24 24');
     expect(thirdExpand?.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
     expect(normalizedPath(thirdExpand?.querySelector('path')?.getAttribute('d') ?? null)).toBe(
@@ -310,6 +314,20 @@ describe('public design-system page contract', () => {
     expect(removePaths).toEqual(items.map(() => normalizedPath(CLOSE_PATH)));
     expect(
       items.every((item) => item.lastElementChild?.classList.contains('playlist-remove')),
+    ).toBe(true);
+    expect(subTracks).toHaveLength(4);
+    expect(subTracks.map((track) => track.dataset.subIndex)).toEqual(['0', '1', '2', '3']);
+    expect(
+      subTracks.map((track) => track.querySelector('.sub-idx-number')?.textContent?.trim()),
+    ).toEqual(['1', '2', '3', '4']);
+    expect(subTracks.map((track) => track.querySelector('.sub-name')?.textContent?.trim())).toEqual(
+      ['Neon Expressway', 'Tokyo After Rain', '2AM Convenience Store', 'Last Train Home'],
+    );
+    expect(
+      subTracks.every(
+        (track) =>
+          track.getAttribute('role') === 'button' && track.getAttribute('tabindex') === '0',
+      ),
     ).toBe(true);
   });
 
@@ -348,6 +366,9 @@ describe('public design-system page contract', () => {
       ...components.querySelectorAll<HTMLButtonElement>('.tab-action-btn-sample'),
     ];
     const selectionPanel = components.querySelector<HTMLElement>('.playlist-selection-pill');
+    const controlLayout = components.querySelector<HTMLElement>('.component-control-layout');
+    const controlStack = controlLayout?.querySelector<HTMLElement>('.component-control-stack');
+    const listLayout = components.querySelector<HTMLElement>('.component-list-layout');
 
     expect(mediaIcon?.getAttribute('viewBox')).toBe('0 -960 960 960');
     expect(normalizedPath(mediaIcon?.querySelector('path')?.getAttribute('d') ?? null)).toBe(
@@ -381,6 +402,17 @@ describe('public design-system page contract', () => {
     expect(selectionPanel?.querySelector('.playlist-selection-count')?.textContent?.trim()).toBe(
       '1',
     );
+    expect(
+      [...(controlLayout?.children ?? [])].map((child) => (child as HTMLElement).className),
+    ).toEqual(['component-control-stack', 'comp ranges-comp']);
+    expect(
+      [...(controlStack?.children ?? [])].map((child) => (child as HTMLElement).className),
+    ).toEqual(['comp playback-comp', 'comp selection-comp']);
+    expect(
+      [...((listLayout?.children ?? []) as HTMLCollectionOf<HTMLElement>)].map(
+        (child) => child.className,
+      ),
+    ).toEqual(['comp playlist-comp', 'comp device-comp']);
     expect(choices.map((choice) => choice.textContent?.trim())).toEqual(['On', 'Off']);
     expect(choices.filter((choice) => choice.getAttribute('aria-pressed') === 'true')).toHaveLength(
       1,
@@ -435,6 +467,11 @@ describe('public design-system page contract', () => {
     expect(components.querySelectorAll('.volume-cycle-demo .volume-muted-mark')).toHaveLength(1);
     expect(designStylesheet).toContain('@keyframes design-volume-wave-cycle');
     expect(designStylesheet).toContain('@keyframes design-volume-muted-cycle');
+    expect(designStylesheet).toContain('@keyframes design-volume-level-cycle');
+    expect(designStylesheet).toMatch(
+      /\.range-volume-demo\s*\{[^}]*max-width:\s*140px;[^}]*grid-column:\s*span 3;/su,
+    );
+    expect(designStylesheet).toMatch(/\.range-effect-demo\s*\{[^}]*grid-column:\s*span 9;/su);
 
     expect(components.querySelector('.chat-pinned-notice-text')?.textContent?.trim()).toBe(
       'Drop your playlist recs',
@@ -483,12 +520,66 @@ describe('public design-system page contract', () => {
       /100%\s*\{[^}]*stroke-dasharray:\s*2 98;[^}]*stroke-dashoffset:\s*-100;/su,
     );
 
-    expect(devices).toHaveLength(2);
-    expect(devices[0]?.getAttribute('aria-current')).toBe('true');
-    expect(devices[1]?.querySelector('.device-expand-toggle')?.getAttribute('aria-expanded')).toBe(
-      'false',
+    const deviceEntries = [...components.querySelectorAll<HTMLElement>('.device-entry-sample')];
+    const deviceNames = devices.map((row) =>
+      row.querySelector('.d-name-label')?.textContent?.trim(),
     );
+    const expandedAccount = deviceEntries[2];
+    const deviceExpand = expandedAccount?.querySelector<HTMLButtonElement>('.device-expand-toggle');
+    const deviceSubrows = [
+      ...(expandedAccount?.querySelectorAll<HTMLElement>('.device-subrow-sample') ?? []),
+    ];
+
+    expect(deviceEntries).toHaveLength(3);
+    expect(devices).toHaveLength(3);
+    expect(deviceNames).toEqual(['Mina Park', 'Jules Kim', 'Noah Lee']);
+    expect(devices[0]?.getAttribute('aria-current')).toBe('true');
     expect(devices[1]?.querySelector('.btn-kick-device')).toBeTruthy();
+    expect(deviceExpand?.getAttribute('aria-expanded')).toBe('true');
+    expect(deviceExpand?.getAttribute('aria-controls')).toBe('design-device-sublist-3');
+    expect(deviceExpand?.classList.contains('active')).toBe(true);
+    expect(devices[2]?.querySelector('.btn-kick-device')).toBeTruthy();
+    expect(deviceSubrows).toHaveLength(4);
+    expect(
+      deviceSubrows.map((row) => row.querySelector('.device-sub-index')?.textContent?.trim()),
+    ).toEqual(['1', '2', '3', '4']);
+    expect(
+      deviceSubrows.map((row) => row.querySelector('.device-sub-name')?.textContent?.trim()),
+    ).toEqual([
+      'macOS device (A1B2)',
+      'Windows device (C3D4)',
+      'iOS device (E5F6)',
+      'Android device (G7H8)',
+    ]);
+    const physicalKickButtons = deviceSubrows.map((row) =>
+      row.querySelector<HTMLButtonElement>('.btn-kick-physical-device'),
+    );
+    expect(physicalKickButtons.map((button) => button?.getAttribute('aria-label'))).toEqual([
+      'Remove macOS device (A1B2)',
+      'Remove Windows device (C3D4)',
+      'Remove iOS device (E5F6)',
+      'Remove Android device (G7H8)',
+    ]);
+    expect(
+      physicalKickButtons.every(
+        (button, index) =>
+          button === deviceSubrows[index]?.lastElementChild &&
+          normalizedPath(button?.querySelector('path')?.getAttribute('d') ?? null) ===
+            normalizedPath(CLOSE_PATH),
+      ),
+    ).toBe(true);
+  });
+
+  it('keeps motion recipes borderless and lets their timing note use the section width', () => {
+    const motion = sectionWithHeading('Shape & motion');
+    const note = motion.querySelector<HTMLElement>('.motion-note');
+
+    expect(motion.querySelectorAll('.motion-card')).toHaveLength(3);
+    expect(note?.textContent?.replace(/\s+/gu, ' ').trim()).toBe(
+      'Entrance targets stagger by up to 400ms and finish within 1200ms. Reduced-motion mode removes movement and delay.',
+    );
+    expect(designStylesheet).toMatch(/\.motion-card\s*\{[^}]*border:\s*0;/su);
+    expect(designStylesheet).toMatch(/\.motion-note\s*\{[^}]*max-width:\s*none;/su);
   });
 
   it('mirrors manual, OS-preference, and forced-color palette ownership', () => {

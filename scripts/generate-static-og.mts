@@ -129,7 +129,7 @@ const CARDS = [
     outFile: 'public/og-designsystem.png',
     props: {
       headline: 'Design System',
-      tagline: 'Geometric · Dark · Minimal',
+      tagline: 'Production UI · Components · Tokens',
     },
   },
   {

@@ -1,17 +1,99 @@
-<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
-html,body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(--font-sans);}
-.card{padding:22px 24px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;}
-.ctrl{width:44px;height:44px;border-radius:50%;background:transparent;background-image:radial-gradient(circle,var(--surface-2) 18px,transparent 18px);display:flex;align-items:center;justify-content:center;border:none;color:var(--text-main);cursor:pointer;}
-.ctrl svg{width:22px;height:22px;fill:currentColor;}
-.ctrl.active{background-image:radial-gradient(circle,var(--primary) 18px,transparent 18px);color:#fff;}
-.role{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:100px;background:rgba(128,128,128,0.15);backdrop-filter:blur(4px);font-size:11px;font-weight:700;color:var(--text-sub);}
-.role .dot{width:6px;height:6px;border-radius:50%;background:var(--text-muted);}
-.role.on{background:var(--primary);color:#fff;}
-.role.on .dot{background:#fff;}
-</style></head><body><div class="card">
-<button class="ctrl" aria-label="prev"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>
-<button class="ctrl" aria-label="next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>
-<button class="ctrl active" aria-label="repeat"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg></button>
-<span class="role"><span class="dot"></span>OFFLINE</span>
-<span class="role on"><span class="dot"></span>CENTER</span>
-</div></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../colors_and_type.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text-main);
+        font-family: var(--font-sans);
+      }
+      .frame {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 14px;
+        padding: 22px 24px;
+      }
+      .action {
+        position: relative;
+        display: grid;
+        width: 44px;
+        height: 44px;
+        place-items: center;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--text-sub);
+      }
+      .action::before {
+        position: absolute;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--surface-2);
+        content: '';
+      }
+      .action svg {
+        position: relative;
+        width: 20px;
+        height: 20px;
+        fill: currentColor;
+      }
+      .action.active {
+        color: #fff;
+      }
+      .action.active::before {
+        background: var(--primary);
+      }
+      .role {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        color: var(--text-sub);
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .role i {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.5;
+      }
+      .role.connected {
+        background: var(--primary);
+        color: #fff;
+      }
+      .role.connected i {
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <button class="action" aria-label="Previous">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" /></svg>
+      </button>
+      <button class="action" aria-label="Next">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+        </svg>
+      </button>
+      <button class="action active" aria-label="Repeat">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
+        </svg>
+      </button>
+      <span class="role"><i></i>OFFLINE</span>
+      <span class="role connected"><i></i>HOST</span>
+    </div>
+  </body>
+</html>

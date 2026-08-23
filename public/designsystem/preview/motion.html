@@ -1,12 +1,95 @@
-<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
-html,body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(--font-sans);}
-.card{padding:18px 24px;display:grid;grid-template-columns:130px 1fr 1fr;gap:8px 16px;align-items:center;}
-.tag{font-size:10px;font-weight:800;letter-spacing:0.08em;color:var(--text-sub);text-transform:uppercase;}
-code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:10.5px;color:var(--text-main);background:var(--surface-2);padding:3px 6px;border-radius:6px;}
-.use{font-size:11px;color:var(--text-sub);}
-</style></head><body><div class="card">
-<div class="tag">ease-out</div><code>cubic-bezier(0.2, 0.8, 0.2, 1)</code><div class="use">default interactions</div>
-<div class="tag">emphasized</div><code>cubic-bezier(0.22, 1, 0.36, 1)</code><div class="use">entrances, view transitions</div>
-<div class="tag">spring</div><code>cubic-bezier(0.08, 0.82, 0.17, 1)</code><div class="use">toasts, logo flip</div>
-<div class="tag">durations</div><code>200 · 300 · 600–900ms</code><div class="use">press · state · entrance</div>
-</div></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../colors_and_type.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text-main);
+        font-family: var(--font-sans);
+      }
+      .frame {
+        display: grid;
+        grid-template-columns: 132px minmax(180px, 1fr) minmax(160px, 1fr);
+        gap: 10px 16px;
+        align-items: center;
+        padding: 20px 24px;
+      }
+      .label {
+        color: var(--text-sub);
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      code {
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--surface-2);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 10.5px;
+      }
+      .use {
+        color: var(--text-sub);
+        font-size: 11px;
+      }
+      .cascade {
+        display: flex;
+        grid-column: 1 / -1;
+        gap: 8px;
+        padding-top: 8px;
+      }
+      .cascade i {
+        width: 48px;
+        height: 8px;
+        border-radius: 999px;
+        animation: enter 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+        background: var(--primary);
+      }
+      .cascade i:nth-child(2) {
+        animation-delay: 80ms;
+      }
+      .cascade i:nth-child(3) {
+        animation-delay: 160ms;
+      }
+      .cascade i:nth-child(4) {
+        animation-delay: 250ms;
+      }
+      @keyframes enter {
+        from {
+          opacity: 0;
+          transform: translateX(30px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .cascade i {
+          animation: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="label">Micro interaction</div>
+      <code>200–300ms · cubic-bezier(.2,.8,.2,1)</code>
+      <div class="use">press, state, and chrome transitions</div>
+      <div class="label">App entrance</div>
+      <code>opacity 600ms · transform 800ms</code>
+      <div class="use">cubic-bezier(.22,1,.36,1)</div>
+      <div class="label">Entrance stagger</div>
+      <code>100–400ms delays · visible end 1200ms</code>
+      <div class="use">cleanup follows at 1250ms</div>
+      <div class="label">Reduced motion</div>
+      <code>prefers-reduced-motion: reduce</code>
+      <div class="use">entrances and chat animation become immediate</div>
+      <div class="cascade" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    </div>
+  </body>
+</html>

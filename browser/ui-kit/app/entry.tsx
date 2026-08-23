@@ -1,11 +1,16 @@
 type UiKitStage = 'app' | 'role' | 'start';
 
 const TRACKS = [
-  { title: 'Aurora Hymn', artist: 'Kaia Voss', dur: '3:42' },
-  { title: 'Midnight Protocol', artist: 'Noctis', dur: '4:08' },
-  { title: 'Coastal Drift', artist: 'Seon-u & Rafael', dur: '5:21' },
-  { title: 'Paper Lanterns', artist: 'Hyejin Park', dur: '2:58' },
-  { title: 'Slow Weather', artist: 'Archive Signal', dur: '4:33' },
+  { title: 'Aurora Hymn', artist: 'Kaia Voss', dur: '3:42', source: 'file' },
+  { title: 'Midnight Protocol', artist: 'Noctis', dur: '4:08', source: 'youtube' },
+  {
+    title: 'Coastal Drift · Night Mix',
+    artist: 'Seon-u & Rafael',
+    dur: '5:21',
+    source: 'youtube-playlist',
+  },
+  { title: 'Paper Lanterns', artist: 'Hyejin Park', dur: '2:58', source: 'file' },
+  { title: 'Slow Weather', artist: 'Archive Signal', dur: '4:33', source: 'youtube' },
 ] as const satisfies readonly UiKitTrack[];
 
 const DEVICES = [
@@ -49,8 +54,9 @@ function App(): JSX.Element {
   const [playing, setPlaying] = useState(true);
   const [trackIdx, setTrackIdx] = useState(1);
   const [theme, setTheme] = useState<UiKitTheme>('dark');
-  const [reverb, setReverb] = useState<UiKitReverb>('Studio');
-  const [volume, setVolume] = useState(65);
+  const [languageMode, setLanguageMode] = useState<UiKitLanguageMode>('system');
+  const [uiSounds, setUiSounds] = useState(false);
+  const [settingsSync, setSettingsSync] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<number | null>(null);
 
@@ -71,6 +77,7 @@ function App(): JSX.Element {
     cur: '1:24',
     dur: current.dur,
     progress: 34,
+    source: current.source,
   };
 
   if (stage === 'start') {
@@ -129,6 +136,7 @@ function App(): JSX.Element {
       <Playlist
         tracks={TRACKS}
         activeIdx={trackIdx}
+        playing={playing}
         onPick={(index) => {
           const selectedTrack = TRACKS[index];
           if (!selectedTrack) return;
@@ -137,32 +145,55 @@ function App(): JSX.Element {
           showToast(`Playing: ${selectedTrack.title}`);
         }}
         onAdd={() => showToast('No media yet')}
+        onRemove={(index) => {
+          const selectedTrack = TRACKS[index];
+          if (selectedTrack) showToast(`Remove: ${selectedTrack.title}`);
+        }}
       />
     );
   } else if (tab === 'connect') {
     body = (
       <Connect code="492815" devices={DEVICES} onCopy={() => showToast('Invite link copied')} />
     );
-  } else {
+  } else if (tab === 'settings') {
     body = (
       <Settings
+        languageMode={languageMode}
+        onLanguageMode={setLanguageMode}
+        onLeave={() => setStage('start')}
+        onSettingsSync={setSettingsSync}
         theme={theme}
         onTheme={setTheme}
-        reverb={reverb}
-        onReverb={(nextReverb) => {
-          setReverb(nextReverb);
-          showToast(`Reverb: ${nextReverb}`);
-        }}
-        volume={volume}
-        onVolume={setVolume}
+        onUiSounds={setUiSounds}
+        settingsSync={settingsSync}
+        uiSounds={uiSounds}
       />
+    );
+  } else {
+    body = (
+      <>
+        <div className="mq-title">Help</div>
+        <div className="mq-setting-section">
+          <div className="mq-setting-header">
+            <h3>Using MUSIXQUARE</h3>
+          </div>
+          <div className="mq-setting-description">
+            The production Help tab contains localized guides, policies, and project links. This
+            sample keeps only the tab and its navigation contract.
+          </div>
+        </div>
+      </>
     );
   }
 
   return (
     <div className="mq-app">
       <Toast message={toast} />
-      <AppShell tab={tab} onTab={setTab} onLeave={() => setStage('start')}>
+      <AppShell
+        tab={tab}
+        onTab={setTab}
+        onAccount={() => showToast('Account dialog is not included in this sample')}
+      >
         {body}
       </AppShell>
     </div>

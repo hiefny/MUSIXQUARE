@@ -1,27 +1,125 @@
-<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
-html,body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(--font-sans);}
-.card{padding:22px 24px;display:flex;gap:24px;flex-wrap:wrap;align-items:center;}
-.section{background:var(--surface-1);border-radius:20px;padding:18px 20px;min-width:260px;}
-.hdr{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
-.title{font-size:15px;font-weight:700;}
-.badge{font-size:9px;font-weight:800;letter-spacing:0.1em;padding:3px 8px;border-radius:6px;background:var(--surface-3);color:var(--text-sub);text-transform:uppercase;}
-.row{display:flex;justify-content:space-between;font-size:12px;color:var(--text-sub);font-weight:600;margin-bottom:6px;}
-input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:32px;background:transparent;border-radius:100px;outline:none;cursor:pointer;--range-progress:0%;}
-input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:100px;background:linear-gradient(to right,var(--range-fill-idle) 0%,var(--range-fill-idle) var(--range-progress),var(--surface-2) var(--range-progress),var(--surface-2) 100%);}
-input[type=range]:active::-webkit-slider-runnable-track{height:8px;background:linear-gradient(to right,var(--range-fill-active) 0%,var(--range-fill-active) var(--range-progress),var(--surface-2) var(--range-progress),var(--surface-2) 100%);}
-input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:0;height:0;border:0;opacity:0;}
-input[type=range]::-moz-range-track{height:6px;border-radius:100px;background:linear-gradient(to right,var(--range-fill-idle) 0%,var(--range-fill-idle) var(--range-progress),var(--surface-2) var(--range-progress),var(--surface-2) 100%);}
-input[type=range]:active::-moz-range-track{height:8px;background:linear-gradient(to right,var(--range-fill-active) 0%,var(--range-fill-active) var(--range-progress),var(--surface-2) var(--range-progress),var(--surface-2) 100%);}
-input[type=range]::-moz-range-thumb{width:0;height:0;border:0;opacity:0;}
-</style></head><body><div class="card">
-<div class="section">
-  <div class="hdr"><span class="title">Reverb</span><span class="badge">HOST-CTRL</span></div>
-  <div class="row"><span>Mix</span><span>35%</span></div>
-  <input type="range" value="35" style="--range-progress:35%">
-</div>
-<div class="section">
-  <div class="hdr"><span class="title">Equalizer</span><span class="badge">SELF-CTRL</span></div>
-  <div class="row"><span>Low-pass</span><span>12.5 kHz</span></div>
-  <input type="range" value="60" style="--range-progress:60%">
-</div>
-</div></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../colors_and_type.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text-main);
+        font-family: var(--font-sans);
+      }
+      .frame {
+        max-width: 520px;
+        padding: 0 24px;
+      }
+      .section {
+        padding: 0 0 36px;
+        border-bottom: 1px solid var(--divider);
+      }
+      .section:last-child {
+        border-bottom: 0;
+      }
+      .header {
+        padding: 36px 0 16px;
+      }
+      .title {
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+      }
+      .description {
+        margin: -8px 0 16px;
+        color: var(--text-sub);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        padding: 12px 0;
+      }
+      .option {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 18px 12px;
+        border: 2px solid transparent;
+        border-radius: 20px;
+        background: var(--surface-2);
+        color: var(--text-sub);
+        font: inherit;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .option.active {
+        background: rgba(var(--primary-rgb), 0.13);
+        color: var(--primary);
+      }
+      .option svg {
+        width: 32px;
+        height: 32px;
+        fill: currentColor;
+      }
+      .option svg.stroke {
+        fill: none;
+        stroke: currentColor;
+        stroke-linecap: round;
+        stroke-width: 1.8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <div class="section">
+        <div class="header"><span class="title">Language</span></div>
+        <p class="description">Choose a language or follow your system language.</p>
+        <div class="grid">
+          <button class="option">
+            <svg class="stroke" viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+              <path
+                d="M3.5 12h17M12 3c2.4 2.4 3.6 5.4 3.6 9S14.4 18.6 12 21M12 3c-2.4 2.4-3.6 5.4-3.6 9s1.2 6.6 3.6 9"
+              />
+            </svg>
+            Select
+          </button>
+          <button class="option active" aria-pressed="true">
+            <svg class="stroke" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="5" width="16" height="12" rx="2.5" />
+              <path d="M9 20h6M12 17v3" />
+            </svg>
+            System
+          </button>
+        </div>
+      </div>
+      <div class="section">
+        <div class="header"><span class="title">Settings Sync</span></div>
+        <p class="description">Keep supported audio settings synchronized across the room.</p>
+        <div class="grid">
+          <button class="option active" aria-pressed="true">
+            <svg viewBox="0 -960 960 960" aria-hidden="true">
+              <path
+                d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
+              />
+            </svg>
+            On
+          </button>
+          <button class="option">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
+              />
+            </svg>
+            Off
+          </button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

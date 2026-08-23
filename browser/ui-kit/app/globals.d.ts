@@ -51,11 +51,14 @@ interface UiKitDomProps {
   readonly className?: string;
   readonly key?: string | number;
   readonly onClick?: (event: MouseEvent) => void;
+  readonly role?: string;
   readonly style?: UiKitStyle;
 }
 
 interface UiKitButtonProps extends UiKitDomProps {
   readonly 'aria-label'?: string;
+  readonly 'aria-pressed'?: boolean;
+  readonly 'aria-selected'?: boolean;
 }
 
 interface UiKitInputChangeEvent {
@@ -73,10 +76,18 @@ interface UiKitInputProps extends UiKitDomProps {
 }
 
 interface UiKitSvgProps extends UiKitDomProps {
+  readonly cx?: string | number;
+  readonly cy?: string | number;
   readonly d?: string;
   readonly fill?: string;
   readonly height?: string | number;
   readonly points?: string;
+  readonly r?: string | number;
+  readonly rx?: string | number;
+  readonly stroke?: string;
+  readonly strokeLinecap?: string;
+  readonly strokeLinejoin?: string;
+  readonly strokeWidth?: string | number;
   readonly viewBox?: string;
   readonly width?: string | number;
   readonly x?: string | number;
@@ -87,10 +98,16 @@ type UiKitIcon = UiKitComponent<UiKitSvgProps>;
 
 interface UiKitIcons {
   readonly add: UiKitIcon;
+  readonly block: UiKitIcon;
   readonly center: UiKitIcon;
   readonly chat: UiKitIcon;
   readonly close: UiKitIcon;
+  readonly connect: UiKitIcon;
   readonly copy: UiKitIcon;
+  readonly device: UiKitIcon;
+  readonly file: UiKitIcon;
+  readonly globe: UiKitIcon;
+  readonly grip: UiKitIcon;
   readonly help: UiKitIcon;
   readonly home: UiKitIcon;
   readonly left: UiKitIcon;
@@ -102,22 +119,28 @@ interface UiKitIcons {
   readonly repeat: UiKitIcon;
   readonly right: UiKitIcon;
   readonly settings: UiKitIcon;
+  readonly settingsSync: UiKitIcon;
   readonly shuffle: UiKitIcon;
+  readonly moon: UiKitIcon;
   readonly sub: UiKitIcon;
+  readonly sun: UiKitIcon;
   readonly sync: UiKitIcon;
   readonly theme: UiKitIcon;
-  readonly users: UiKitIcon;
+  readonly uiSound: UiKitIcon;
   readonly volume: UiKitIcon;
+  readonly youtube: UiKitIcon;
 }
 
 type UiKitRole = 'center' | 'left' | 'right' | 'sub';
-type UiKitTab = 'connect' | 'home' | 'playlist' | 'settings';
+type UiKitTab = 'connect' | 'guide' | 'home' | 'playlist' | 'settings';
 type UiKitTheme = 'dark' | 'light';
-type UiKitReverb = 'Advanced' | 'Arena' | 'Off' | 'Studio';
+type UiKitLanguageMode = 'select' | 'system';
+type UiKitTrackSource = 'file' | 'youtube' | 'youtube-playlist';
 
 interface UiKitTrack {
   readonly artist: string;
   readonly dur: string;
+  readonly source: UiKitTrackSource;
   readonly title: string;
 }
 
@@ -149,6 +172,7 @@ declare namespace JSX {
   interface IntrinsicElements {
     br: UiKitDomProps;
     button: UiKitButtonProps;
+    circle: UiKitSvgProps;
     div: UiKitDomProps;
     h2: UiKitDomProps;
     h3: UiKitDomProps;

@@ -12,17 +12,17 @@ application shell.
 
 Use production files as the authority for implementation details:
 
-| Area                                      | Authoritative source                                          |
-| ----------------------------------------- | ------------------------------------------------------------- |
-| App layout and components                 | `index.html`, `css/style.css`, `css/desktop.css`              |
-| Color, spacing, radius, and motion tokens | `css/style.css`                                               |
-| Fonts and locale fallbacks                | `css/pretendard.css`, `css/fonts/`, `fonts/README.md`         |
-| In-room app copy                          | `src/i18n/`                                                                        |
-| About, policy, and Developer page copy    | `.workshop/`; About locales in `browser/classic-runtime/landing-i18n.ts`           |
+| Area                                      | Authoritative source                                                                                          |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| App layout and components                 | `index.html`, `css/style.css`, `css/desktop.css`                                                              |
+| Color, spacing, radius, and motion tokens | `css/style.css`                                                                                               |
+| Fonts and locale fallbacks                | `css/pretendard.css`, `css/fonts/`, `fonts/README.md`                                                         |
+| In-room app copy                          | `src/i18n/`                                                                                                   |
+| About, policy, and Developer page copy    | `.workshop/`; About locales in `browser/classic-runtime/landing-i18n.ts`                                      |
 | Other static public page copy             | The corresponding source under `public/events/`, `public/blog/`, `public/history/`, or `public/designsystem/` |
-| Interaction behavior                      | `src/ui/`, `src/player/`, `src/network/`                                           |
-| Public editorial shell                    | `public/editorial-*.css`, `.workshop/landing/`                                     |
-| Brand assets                              | `public/designsystem/assets/`, `public/favicon.svg`, `public/icons/`              |
+| Interaction behavior                      | `src/ui/`, `src/player/`, `src/network/`                                                                      |
+| Public editorial shell                    | `public/editorial-*.css`, `.workshop/landing/`                                                                |
+| Brand assets                              | `public/designsystem/assets/`, `public/favicon.svg`, `public/icons/`                                          |
 
 Files under `src_ref/` are extraction snapshots for design archaeology, not
 production source. They are not synchronized automatically. The exception is
@@ -128,8 +128,9 @@ Playlist/Chat, and Settings occupy a three-column dashboard.
 
 ## Components and interaction
 
-- Buttons use pill or capsule hit surfaces unless they are list rows or
-  card-like choices.
+- Most buttons and interactive list rows use pill or capsule hit surfaces.
+  Card-like choices, navigation tabs, and underlined subtabs keep their own
+  geometry.
 - Press feedback is compact and immediate; avoid long decorative motion.
 - Use `:focus-visible` and retain semantic buttons, labels, and ARIA state.
 - `aria-disabled` is intentional on controls that must remain clickable to
@@ -142,11 +143,14 @@ Playlist/Chat, and Settings occupy a three-column dashboard.
 
 ## Iconography and brand assets
 
-The app uses filled Material-style inline SVG icons. Prefer an existing path
-from `index.html` before introducing a new icon.
+The app uses inline SVG icons, with filled Material-style paths as the default.
+Prefer an existing path from `index.html` before introducing a new icon.
 
 - Inherit color through `currentColor`.
 - Keep the established viewBox and optical weight of neighboring icons.
+- Preserve intentional stroke or mixed-construction exceptions such as the
+  reorder grip, disclosure controls, language/device diagrams, and volume
+  waves; do not force them into a filled silhouette.
 - Do not add an icon font or runtime icon dependency for a single glyph.
 - Use `assets/logo-wordmark.svg` for the full custom wordmark and
   `assets/favicon.svg` for compact brand placement.

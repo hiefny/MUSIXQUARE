@@ -1,13 +1,14 @@
-/* MUSIXQUARE Design System — colors + type tokens
-   Source: css/style.css :root and html[data-theme="light"]
-   Font: Pretendard (self-hosted via @font-face)
+/* MUSIXQUARE public design-system mirror.
+   Production palette authority: css/style.css :root and html[data-theme="light"].
+   Scale aliases below exist only for public examples and are labeled as such.
 */
 
 /* ── Font ──────────────────────────────────────── */
 @font-face {
-  font-family: "Pretendard";
-  src: url("fonts/PretendardVariable.woff2") format("woff2-variations"),
-       url("../fonts/PretendardVariable.woff2") format("woff2-variations");
+  font-family: 'Pretendard';
+  src:
+    url('fonts/PretendardVariable.woff2') format('woff2-variations'),
+    url('../fonts/PretendardVariable.woff2') format('woff2-variations');
   font-weight: 45 920;
   font-style: normal;
   font-display: swap;
@@ -15,34 +16,43 @@
 
 :root {
   /* ── Palette (Dark default) ───────────────────── */
-  --bg:         #121212;
-  --surface-1:  #1A1A1A;   /* headers, nav, cards */
-  --surface-2:  #202020;   /* inputs, buttons */
-  --surface-3:  #404040;   /* hover, active */
-  --divider:    #262626;
+  --bg: #121212;
+  --surface-1: #1a1a1a; /* headers, nav, cards */
+  --surface-2: #202020; /* inputs, buttons */
+  --surface-3: #404040; /* hover, active */
+  --play-action-surface: var(--surface-2);
+  --divider: #262626;
 
-  --primary:    #3b82f6;   /* signature blue */
+  --primary: #3b82f6; /* signature blue */
   --primary-rgb: 59, 130, 246;
-  --accent:     var(--primary);
+  --primary-filled: #3b82f6;
+  --success-filled: #20a45a;
+  --danger-filled: #ef4444;
+  --warning-filled: #f59e0b;
+  --youtube-filled: #ff0033;
+  --accent: var(--primary);
+  --accent-rgb: var(--primary-rgb);
 
-  --text-main:  #eeeeee;
-  --text-sub:   #a1a1aa;
+  --text-main: #eeeeee;
+  --text-sub: #a1a1aa;
   --text-muted: #71717a;
   --range-fill-idle: rgba(238, 238, 238, 0.75);
   --range-fill-active: var(--text-main);
   --play-fab-bg-idle: rgba(238, 238, 238, 0.9);
   --play-fab-bg-active: var(--text-main);
   --play-fab-bg-disabled: rgba(238, 238, 238, 0.2);
+  --control-active: rgba(var(--primary-rgb), 0.13);
+  --control-danger: rgba(255, 59, 48, 0.09);
+  --control-danger-hover: rgba(255, 59, 48, 0.13);
 
   /* Neutral navigation scale */
-  --grey-600: #6B7684;
-  --grey-500: #8B95A1;
+  --grey-600: #6b7684;
+  --grey-500: #8b95a1;
 
   /* ── Radii ────────────────────────────────────── */
   --radius-s: 14px;
   --radius-m: 20px;
   --radius-l: 32px;
-  --radius-pill: 100px;
 
   /* ── Solid-chrome compatibility aliases ───────── */
   --glass-bg: var(--surface-1);
@@ -50,10 +60,12 @@
   --glass-blur: 0px;
 
   /* ── Scrollbar ────────────────────────────────── */
-  --scrollbar-thumb: rgba(255,255,255,0.2);
-  --scrollbar-thumb-hover: rgba(255,255,255,0.4);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.4);
+  --scrollbar-thumb-active: rgba(255, 255, 255, 0.6);
 
-  /* ── Public spacing scale ─────────────────────── */
+  /* ── Documentation-only scale aliases ───────────
+     These are helpers for public examples, not production :root tokens. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -66,6 +78,7 @@
   /* ── Chrome sizes ─────────────────────────────── */
   --header-height: 60px;
   --nav-height: 72px;
+  --list-row-height: 56px;
 
   /* ── Motion ───────────────────────────────────── */
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -76,11 +89,27 @@
   --dur-slow: 0.6s;
 
   /* ── Type ─────────────────────────────────────── */
-  --font-sans: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI",
-               Roboto, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --font-primary: 'Pretendard';
+  --font-sans-ui:
+    var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans-ko:
+    var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+  --font-sans-ja:
+    var(--font-primary), 'Noto Sans JP', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', sans-serif;
+  --font-sans-cjk-sc:
+    var(--font-primary), 'Noto Sans SC', 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  --font-sans-cjk-tc:
+    var(--font-primary), 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', sans-serif;
+  --font-sans-th: var(--font-primary), 'Noto Sans Thai', 'Leelawadee UI', Tahoma, sans-serif;
+  --font-sans-cyrillic:
+    var(--font-primary), 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    sans-serif;
+  --font-sans: var(--font-sans-ko);
+  --font-weight-display: 800;
 
   /* Size scale */
-  --fs-9:  9px;
+  --fs-9: 9px;
   --fs-10: 10px;
   --fs-11: 11px;
   --fs-12: 12px;
@@ -100,30 +129,187 @@
   --fw-extrabold: 800;
 
   /* Letter spacing */
-  --ls-tight: -0.03em;   /* tab-title */
+  --ls-tight: -0.03em; /* tab-title */
   --ls-tight-sm: -0.5px; /* track-title */
-  --ls-wide: 0.10em;     /* invite-code */
+  --ls-wide: 0.1em; /* invite-code */
 }
 
-html[data-theme="light"] {
+html[data-theme='light'] {
   color-scheme: light;
-  --bg:         #f8f9fa;
-  --surface-1:  #ffffff;
-  --surface-2:  #eff1f3;
-  --surface-3:  #B7B9BB;
-  --divider:    #d4d6d8;
-  --text-main:  #303540;
-  --text-sub:   #495057;
+  --bg: #f8f9fa;
+  --surface-1: #ffffff;
+  --surface-2: #eff1f3;
+  --surface-3: #b7b9bb;
+  --play-action-surface: var(--surface-1);
+  --divider: #d4d6d8;
+  --text-main: #303540;
+  --text-sub: #495057;
   --text-muted: #868e96;
   --range-fill-idle: rgba(48, 53, 64, 0.75);
   --range-fill-active: var(--text-main);
   --play-fab-bg-idle: rgba(48, 53, 64, 0.9);
   --play-fab-bg-active: var(--text-main);
   --play-fab-bg-disabled: rgba(48, 53, 64, 0.2);
-  --glass-bg:   var(--surface-1);
-  --glass-border: rgba(0,0,0,0.06);
-  --scrollbar-thumb: rgba(0,0,0,0.2);
-  --scrollbar-thumb-hover: rgba(0,0,0,0.4);
+  --control-active: rgba(var(--primary-rgb), 0.11);
+  --control-danger: rgba(255, 59, 48, 0.075);
+  --control-danger-hover: rgba(255, 59, 48, 0.11);
+  --glass-bg: var(--surface-1);
+  --glass-border: rgba(0, 0, 0, 0.06);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.4);
+  --scrollbar-thumb-active: rgba(0, 0, 0, 0.6);
+}
+
+/* ── Contrast palette parity ─────────────────────
+   Matches the color-only manual and OS preference layers in css/style.css.
+   `normal` opts out of prefers-contrast; forced colors always remain authoritative. */
+html[data-contrast='more'] {
+  --bg: #000000;
+  --surface-1: #0a0a0a;
+  --surface-2: #1f1f1f;
+  --surface-3: #4d4d4d;
+  --divider: #262626;
+  --primary: #8ab4ff;
+  --primary-rgb: 138, 180, 255;
+  --primary-filled: #174ea6;
+  --success-filled: #006d3d;
+  --danger-filled: #b00020;
+  --warning-filled: #714500;
+  --youtube-filled: #b00020;
+  --text-main: #ffffff;
+  --text-sub: #f2f2f2;
+  --text-muted: #d0d0d0;
+  --range-fill-idle: rgba(255, 255, 255, 0.9);
+  --range-fill-active: #ffffff;
+  --play-fab-bg-idle: rgba(255, 255, 255, 0.96);
+  --play-fab-bg-active: #ffffff;
+  --play-fab-bg-disabled: rgba(255, 255, 255, 0.45);
+  --control-active: rgba(var(--primary-rgb), 0.28);
+  --control-danger: rgba(176, 0, 32, 0.24);
+  --control-danger-hover: rgba(176, 0, 32, 0.34);
+  --glass-bg: var(--surface-1);
+  --glass-border: #262626;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.65);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.85);
+  --scrollbar-thumb-active: #ffffff;
+}
+
+html[data-theme='light'][data-contrast='more'] {
+  --bg: #f2f2f2;
+  --surface-1: #ffffff;
+  --surface-2: #d4d4d4;
+  --surface-3: #a8a8a8;
+  --divider: #d4d6d8;
+  --primary: #0047a8;
+  --primary-rgb: 0, 71, 168;
+  --primary-filled: #0047a8;
+  --success-filled: #006b3c;
+  --danger-filled: #a4001d;
+  --warning-filled: #6b4100;
+  --youtube-filled: #a4001d;
+  --text-main: #000000;
+  --text-sub: #111111;
+  --text-muted: #333333;
+  --range-fill-idle: rgba(0, 0, 0, 0.88);
+  --range-fill-active: #000000;
+  --play-fab-bg-idle: rgba(0, 0, 0, 0.94);
+  --play-fab-bg-active: #000000;
+  --play-fab-bg-disabled: rgba(0, 0, 0, 0.42);
+  --glass-bg: var(--surface-1);
+  --glass-border: #d4d6d8;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.65);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.85);
+  --scrollbar-thumb-active: #000000;
+}
+
+@media (prefers-contrast: more) {
+  html:not([data-contrast='normal']) {
+    --bg: #000000;
+    --surface-1: #0a0a0a;
+    --surface-2: #1f1f1f;
+    --surface-3: #4d4d4d;
+    --divider: #262626;
+    --primary: #8ab4ff;
+    --primary-rgb: 138, 180, 255;
+    --primary-filled: #174ea6;
+    --success-filled: #006d3d;
+    --danger-filled: #b00020;
+    --warning-filled: #714500;
+    --youtube-filled: #b00020;
+    --text-main: #ffffff;
+    --text-sub: #f2f2f2;
+    --text-muted: #d0d0d0;
+    --range-fill-idle: rgba(255, 255, 255, 0.9);
+    --range-fill-active: #ffffff;
+    --play-fab-bg-idle: rgba(255, 255, 255, 0.96);
+    --play-fab-bg-active: #ffffff;
+    --play-fab-bg-disabled: rgba(255, 255, 255, 0.45);
+    --control-active: rgba(var(--primary-rgb), 0.28);
+    --control-danger: rgba(176, 0, 32, 0.24);
+    --control-danger-hover: rgba(176, 0, 32, 0.34);
+    --glass-bg: var(--surface-1);
+    --glass-border: #262626;
+    --scrollbar-thumb: rgba(255, 255, 255, 0.65);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.85);
+    --scrollbar-thumb-active: #ffffff;
+  }
+
+  html[data-theme='light']:not([data-contrast='normal']) {
+    --bg: #f2f2f2;
+    --surface-1: #ffffff;
+    --surface-2: #d4d4d4;
+    --surface-3: #a8a8a8;
+    --divider: #d4d6d8;
+    --primary: #0047a8;
+    --primary-rgb: 0, 71, 168;
+    --primary-filled: #0047a8;
+    --success-filled: #006b3c;
+    --danger-filled: #a4001d;
+    --warning-filled: #6b4100;
+    --youtube-filled: #a4001d;
+    --text-main: #000000;
+    --text-sub: #111111;
+    --text-muted: #333333;
+    --range-fill-idle: rgba(0, 0, 0, 0.88);
+    --range-fill-active: #000000;
+    --play-fab-bg-idle: rgba(0, 0, 0, 0.94);
+    --play-fab-bg-active: #000000;
+    --play-fab-bg-disabled: rgba(0, 0, 0, 0.42);
+    --glass-bg: var(--surface-1);
+    --glass-border: #d4d6d8;
+    --scrollbar-thumb: rgba(0, 0, 0, 0.65);
+    --scrollbar-thumb-hover: rgba(0, 0, 0, 0.85);
+    --scrollbar-thumb-active: #000000;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --bg: Canvas !important;
+    --surface-1: Canvas !important;
+    --surface-2: ButtonFace !important;
+    --surface-3: ButtonFace !important;
+    --divider: CanvasText !important;
+    --primary: LinkText !important;
+    --primary-filled: Highlight !important;
+    --success-filled: Highlight !important;
+    --danger-filled: Highlight !important;
+    --warning-filled: Highlight !important;
+    --youtube-filled: Highlight !important;
+    --text-main: CanvasText !important;
+    --text-sub: CanvasText !important;
+    --text-muted: CanvasText !important;
+    --range-fill-idle: CanvasText !important;
+    --range-fill-active: Highlight !important;
+    --play-fab-bg-idle: ButtonFace !important;
+    --play-fab-bg-active: Highlight !important;
+    --play-fab-bg-disabled: ButtonFace !important;
+    --glass-bg: Canvas !important;
+    --glass-border: CanvasText !important;
+    --scrollbar-thumb: CanvasText !important;
+    --scrollbar-thumb-hover: Highlight !important;
+    --scrollbar-thumb-active: Highlight !important;
+  }
 }
 
 /* ── Semantic type classes ─────────────────────── */

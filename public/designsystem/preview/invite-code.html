@@ -1,16 +1,65 @@
-<!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../colors_and_type.css"><style>
-html,body{margin:0;background:var(--bg);color:var(--text-main);font-family:var(--font-sans);}
-.card{padding:24px;display:flex;gap:22px;flex-wrap:wrap;align-items:center;}
-.code{font-size:48px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:0.1em;}
-.code .c{color:var(--text-main);}
-.code .c.copied{color:var(--primary);text-shadow:0 0 6px rgba(59,130,246,0.4);}
-.meta{display:flex;flex-direction:column;gap:4px;}
-.lbl{font-size:9px;font-weight:800;letter-spacing:0.12em;color:var(--text-sub);text-transform:uppercase;}
-.sm{font-size:12px;color:var(--text-sub);font-weight:500;}
-</style></head><body><div class="card">
-<div class="meta">
-  <span class="lbl">Invite code</span>
-  <span class="code"><span class="c">4</span><span class="c">9</span><span class="c copied">2</span><span class="c">8</span><span class="c">1</span><span class="c">5</span></span>
-  <span class="sm">Tabular nums · letter-spacing 0.1em · 800 weight</span>
-</div>
-</div></body></html>
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../colors_and_type.css" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text-main);
+        font-family: var(--font-sans);
+      }
+      .frame {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding: 24px;
+      }
+      .cluster {
+        display: flex;
+        height: 36px;
+        min-width: 0;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: 999px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        line-height: 1.2;
+        text-align: right;
+      }
+      .label {
+        margin-bottom: 2px;
+        color: var(--text-sub);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+      }
+      .value {
+        padding: 2px 0;
+        border-radius: 14px;
+        font-size: 16px;
+        font-variant-numeric: tabular-nums;
+        font-weight: 800;
+        letter-spacing: 0.1em;
+      }
+      .cluster:focus-visible {
+        outline: 2px solid var(--primary);
+        outline-offset: 3px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="frame">
+      <button class="cluster" aria-label="Copy invite code 492815">
+        <span class="label">INVITE CODE</span>
+        <span class="value">492815</span>
+      </button>
+    </div>
+  </body>
+</html>

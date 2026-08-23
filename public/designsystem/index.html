@@ -1,392 +1,799 @@
 <!doctype html>
 <!-- MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md. -->
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#1a1a1a">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>Design System · MUSIXQUARE</title>
-  <link rel="canonical" href="https://musixquare.com/designsystem">
-  <meta name="description" content="MUSIXQUARE's design system — colors, type, components, and motion. Geometric, dark, minimal.">
-  <meta property="og:title" content="Design System · MUSIXQUARE">
-  <meta property="og:description" content="Geometric · Dark · Minimal — the MUSIXQUARE visual language.">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="MUSIXQUARE">
-  <meta property="og:locale" content="en_US">
-  <meta property="og:url" content="https://musixquare.com/designsystem">
-  <meta property="og:image" content="https://musixquare.com/og-designsystem.png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="MUSIXQUARE Design System — Geometric, Dark, Minimal">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Design System · MUSIXQUARE">
-  <meta name="twitter:description" content="Geometric · Dark · Minimal — the MUSIXQUARE visual language.">
-  <meta name="twitter:image" content="https://musixquare.com/og-designsystem.png">
-  <link rel="icon" href="/designsystem/assets/favicon.svg">
-  <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css">
-  <link rel="stylesheet" href="/designsystem/colors_and_type.css">
-  <link rel="stylesheet" href="/editorial-base.css">
-  <link rel="stylesheet" href="/editorial-design.css">
-  <!-- Cloudflare Web Analytics -->
-  <script defer src="/analytics-bootstrap.js"></script>
-  <!-- End Cloudflare Web Analytics -->
-</head>
-<body id="top" class="editorial-page editorial-designsystem">
-
-<header class="lp-header is-loading">
-  <div class="lp-header-progress" aria-hidden="true"></div>
-  <a class="lp-logo" href="#top" aria-label="Back to top">
-    <span class="editorial-wordmark" aria-hidden="true"></span>
-  </a>
-  <a class="lp-try" href="https://musixquare.com" aria-label="Try MUSIXQUARE now">
-    <span class="lp-try__dot" aria-hidden="true"></span>
-    <span>Try it now</span>
-  </a>
-</header>
-
-<nav class="editorial-site-tabs" aria-label="MUSIXQUARE editorial pages">
-  <div class="editorial-site-tabs__inner">
-    <a class="editorial-site-tab" href="/about">About</a>
-    <a class="editorial-site-tab" href="/blog">Blog</a>
-    <a class="editorial-site-tab" href="/history">History</a>
-    <a class="editorial-site-tab is-active" href="/designsystem" aria-current="page">Design</a>
-  </div>
-</nav>
-
-<!-- ── HERO ───────────────────────────────────── -->
-<section class="hero" data-animate>
-  <div class="editorial-hero__copy">
-    <p class="editorial-kicker">Design System</p>
-    <h1 class="lp-h1">Design<br>language.</h1>
-    <p class="lp-lead">
-      Tokens, type, components, and motion for the MUSIXQUARE interface:
-      geometric, dark, minimal, and tuned for real-time audio control.
-    </p>
-    <div class="lp-btn-row">
-      <a class="lp-btn lp-btn--solid" href="#components">
-        <span>See components</span>
-        <span class="lp-btn__arrow lp-btn__arrow--down" aria-hidden="true">↓</span>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#1a1a1a" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>Design System · MUSIXQUARE</title>
+    <link rel="canonical" href="https://musixquare.com/designsystem" />
+    <meta
+      name="description"
+      content="MUSIXQUARE's production-aligned design system — color, type, components, accessibility, iconography, and motion."
+    />
+    <meta property="og:title" content="Design System · MUSIXQUARE" />
+    <meta
+      property="og:description"
+      content="The production-aligned visual language of MUSIXQUARE."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="MUSIXQUARE" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://musixquare.com/designsystem" />
+    <meta property="og:image" content="https://musixquare.com/og-designsystem.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MUSIXQUARE Design System" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Design System · MUSIXQUARE" />
+    <meta
+      name="twitter:description"
+      content="The production-aligned visual language of MUSIXQUARE."
+    />
+    <meta name="twitter:image" content="https://musixquare.com/og-designsystem.png" />
+    <link rel="icon" href="/designsystem/assets/favicon.svg" />
+    <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css" />
+    <link rel="stylesheet" href="/designsystem/colors_and_type.css" />
+    <link rel="stylesheet" href="/editorial-base.css" />
+    <link rel="stylesheet" href="/editorial-design.css" />
+    <!-- Cloudflare Web Analytics -->
+    <script defer src="/analytics-bootstrap.js"></script>
+    <!-- End Cloudflare Web Analytics -->
+  </head>
+  <body id="top" class="editorial-page editorial-designsystem">
+    <header class="lp-header is-loading">
+      <div class="lp-header-progress" aria-hidden="true"></div>
+      <a class="lp-logo" href="#top" aria-label="Back to top">
+        <span class="editorial-wordmark" aria-hidden="true"></span>
       </a>
-    </div>
-  </div>
-  <div class="logo">
-    <svg viewBox="43 12 214 26" fill="currentColor">
-      <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"/>
-      <polygon points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"/>
-      <polygon points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"/>
-      <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5"/>
-      <polygon points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"/>
-      <path d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"/>
-      <polygon points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"/>
-      <path d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"/>
-      <path d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"/>
-      <rect x="237.2284599" y="12.7587935" width="18" height="4.5"/>
-      <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5"/>
-      <rect x="237.2337931" y="30.7587928" width="18" height="4.5"/>
-    </svg>
-  </div>
-  <div class="meta">
-    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a><br>
-    <a href="../about/">About</a><br>
-    <span class="cur">Design System</span><br>
-    <a href="../history/">History</a>
-  </div>
-  <p class="tag">
-    Multi-device audio on the web — one web app, many speakers. <strong>Geometric dark minimal</strong> — built Korean-first with Material-filled iconography.
-  </p>
-</section>
+      <a class="lp-try" href="https://musixquare.com" aria-label="Try MUSIXQUARE now">
+        <span class="lp-try__dot" aria-hidden="true"></span>
+        <span>Try it now</span>
+      </a>
+    </header>
 
-<div class="page">
-
-<!-- ── 01 FOUNDATIONS ─────────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Foundations</h2><span class="num">01</span></div>
-
-  <!-- Color palette -->
-  <div class="block">
-    <h3 class="block-title">Palette · dark (default)</h3>
-    <div class="row">
-      <div class="swatch" style="background:#121212"><span class="nm">bg</span><span class="hx">#121212</span></div>
-      <div class="swatch" style="background:#1A1A1A"><span class="nm">surface-1</span><span class="hx">#1A1A1A</span></div>
-      <div class="swatch" style="background:#202020"><span class="nm">surface-2</span><span class="hx">#202020</span></div>
-      <div class="swatch" style="background:#262626"><span class="nm">divider</span><span class="hx">#262626</span></div>
-      <div class="swatch" style="background:#404040"><span class="nm">surface-3</span><span class="hx">#404040</span></div>
-      <div class="swatch primary" style="background:#3b82f6"><span class="nm">primary</span><span class="hx">#3B82F6</span></div>
-    </div>
-  </div>
-
-  <div class="block">
-    <h3 class="block-title">Palette · light</h3>
-    <div class="row">
-      <div class="swatch" style="background:#f8f9fa;outline-color:rgba(0,0,0,0.06)"><span class="nm">bg</span><span class="hx">#F8F9FA</span></div>
-      <div class="swatch" style="background:#ffffff;outline-color:rgba(0,0,0,0.1)"><span class="nm">surface-1</span><span class="hx">#FFFFFF</span></div>
-      <div class="swatch" style="background:#eff1f3;outline-color:rgba(0,0,0,0.06)"><span class="nm">surface-2</span><span class="hx">#EFF1F3</span></div>
-      <div class="swatch" style="background:#d4d6d8"><span class="nm">divider</span><span class="hx">#D4D6D8</span></div>
-      <div class="swatch" style="background:#B7B9BB"><span class="nm">surface-3</span><span class="hx">#B7B9BB</span></div>
-      <div class="swatch primary" style="background:#3b82f6"><span class="nm">primary</span><span class="hx">#3B82F6</span></div>
-    </div>
-  </div>
-
-  <div class="block">
-    <h3 class="block-title">Text colors</h3>
-    <div class="row" style="gap: 28px;">
-      <div class="dot-swatch"><div class="dot" style="background:#eeeeee;outline:1px solid rgba(255,255,255,0.1);outline-offset:-1px"></div><div class="meta"><div class="nm">text-main</div><div class="hx">#EEEEEE</div></div></div>
-      <div class="dot-swatch"><div class="dot" style="background:#a1a1aa"></div><div class="meta"><div class="nm">text-sub</div><div class="hx">#A1A1AA</div></div></div>
-      <div class="dot-swatch"><div class="dot" style="background:#71717a"></div><div class="meta"><div class="nm">text-muted</div><div class="hx">#71717A</div></div></div>
-      <div class="dot-swatch"><div class="dot" style="background:#303540"></div><div class="meta"><div class="nm">light text-main</div><div class="hx">#303540</div></div></div>
-    </div>
-  </div>
-
-  <div class="block">
-    <h3 class="block-title">Control state colors</h3>
-    <div class="tokens">
-      <span class="head">Token</span><span class="head">Value</span><span class="head">Use</span>
-      <span class="tok">--range-fill-idle</span><span class="val">text-main / 75%</span><span class="use">Slider filled track at rest</span>
-      <span class="tok">--range-fill-active</span><span class="val">var(--text-main)</span><span class="use">Slider while dragging or pressing</span>
-      <span class="tok">--play-fab-bg-idle</span><span class="val">text-main / 90%</span><span class="use">Main play/pause button at rest</span>
-      <span class="tok">--play-fab-bg-active</span><span class="val">var(--text-main)</span><span class="use">Main play/pause button while pressed</span>
-      <span class="tok">--play-fab-bg-disabled</span><span class="val">text-main / 20%</span><span class="use">Soft-disabled play/pause button</span>
-    </div>
-  </div>
-</section>
-
-<!-- ── 02 TYPOGRAPHY ──────────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Typography</h2><span class="num">02</span></div>
-
-  <div class="grid-2">
-    <div>
-      <h3 class="block-title">Pretendard variable · 45–920</h3>
-      <div class="display-glyph">Aa 가</div>
-      <p style="color: var(--text-sub); font-size: 13px; margin-top: 16px; line-height: 1.6;">
-        Korean-first sans with tight metrics and tabular figures. SIL OFL 1.1. Self-hosted here for Latin and Korean; the main app loads locale-specific Noto fallbacks for other supported scripts.
-      </p>
-    </div>
-    <div>
-      <h3 class="block-title">Scale</h3>
-      <div class="spec">
-        <span class="tag">28 / 800</span><span class="s28">메인 · Home</span>
-        <span class="tag">24 / 800</span><span class="s24">Set this device's role</span>
-        <span class="tag">20 / 700</span><span class="s20">Midnight Protocol</span>
-        <span class="tag">16 / 500</span><span class="s16">Enter 6-digit code</span>
-        <span class="tag">14 / 600</span><span class="s14">Load local file</span>
-        <span class="tag">12 / 600</span><span class="s12">00:42 / 03:18</span>
+    <nav class="editorial-site-tabs" aria-label="MUSIXQUARE editorial pages">
+      <div class="editorial-site-tabs__inner">
+        <a class="editorial-site-tab" href="/about">About</a>
+        <a class="editorial-site-tab" href="/blog">Blog</a>
+        <a class="editorial-site-tab" href="/history">History</a>
+        <a class="editorial-site-tab is-active" href="/designsystem" aria-current="page">Design</a>
       </div>
-    </div>
-  </div>
+    </nav>
 
-  <div class="block" style="margin-top: 40px;">
-    <h3 class="block-title">Weights</h3>
-    <div class="weight-row">
-      <div class="w"><span class="gl" style="font-weight:400">Aa</span><span class="lab">400 Regular</span></div>
-      <div class="w"><span class="gl" style="font-weight:500">Aa</span><span class="lab">500 Medium</span></div>
-      <div class="w"><span class="gl" style="font-weight:600">Aa</span><span class="lab">600 Semibold</span></div>
-      <div class="w"><span class="gl" style="font-weight:700">Aa</span><span class="lab">700 Bold</span></div>
-      <div class="w"><span class="gl" style="font-weight:800">Aa</span><span class="lab">800 Extrabold</span></div>
-    </div>
-  </div>
-</section>
-
-<!-- ── 03 SPACING & SHAPE ─────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Spacing &amp; shape</h2><span class="num">03</span></div>
-
-  <div class="grid-2">
-    <div>
-      <h3 class="block-title">Spacing scale</h3>
-      <div class="spacing-row">
-        <div class="spacing-unit"><div class="bar" style="width:4px;height:4px"></div><span class="lab">4</span></div>
-        <div class="spacing-unit"><div class="bar" style="width:8px;height:8px"></div><span class="lab">8</span></div>
-        <div class="spacing-unit"><div class="bar" style="width:12px;height:12px"></div><span class="lab">12</span></div>
-        <div class="spacing-unit"><div class="bar" style="width:16px;height:16px"></div><span class="lab">16</span></div>
-        <div class="spacing-unit"><div class="bar" style="width:24px;height:24px"></div><span class="lab">24</span></div>
-        <div class="spacing-unit"><div class="bar" style="width:32px;height:32px"></div><span class="lab">32</span></div>
-        <div class="spacing-unit"><div class="bar" style="width:40px;height:40px"></div><span class="lab">40</span></div>
-        <div class="spacing-unit"><div class="bar" style="width:56px;height:56px"></div><span class="lab">56</span></div>
-      </div>
-    </div>
-    <div>
-      <h3 class="block-title">Corner radii</h3>
-      <div class="radii-row">
-        <div class="radii-unit"><div class="chip" style="width:80px;height:80px;border-radius:14px"></div><span class="lab">14 · radius-s</span></div>
-        <div class="radii-unit"><div class="chip" style="width:80px;height:80px;border-radius:20px"></div><span class="lab">20 · radius-m</span></div>
-        <div class="radii-unit"><div class="chip" style="width:80px;height:80px;border-radius:32px"></div><span class="lab">32 · radius-l</span></div>
-        <div class="radii-unit"><div class="chip" style="width:120px;height:48px;border-radius:100px"></div><span class="lab">100 · pill</span></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="block" style="margin-top: 48px;">
-    <h3 class="block-title">Motion</h3>
-    <div class="grid-3">
-      <div class="motion-card m1">
-        <div class="nm">ease-out</div>
-        <div class="fn">cubic-bezier(0.2, 0.8, 0.2, 1)</div>
-        <div class="track"><div class="bead"></div></div>
-        <div class="use">Default interactions · 200–300ms</div>
-      </div>
-      <div class="motion-card m2">
-        <div class="nm">emphasized</div>
-        <div class="fn">cubic-bezier(0.22, 1, 0.36, 1)</div>
-        <div class="track"><div class="bead"></div></div>
-        <div class="use">Entrances, view transitions · 600–900ms</div>
-      </div>
-      <div class="motion-card m3">
-        <div class="nm">spring</div>
-        <div class="fn">cubic-bezier(0.08, 0.82, 0.17, 1)</div>
-        <div class="track"><div class="bead"></div></div>
-        <div class="use">Toasts, logo flip</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ── 04 COMPONENTS ──────────────────────────── -->
-<section class="section" id="components" data-animate>
-  <div class="section-head"><h2>Components</h2><span class="num">04</span></div>
-
-  <div class="grid-2">
-    <!-- Buttons -->
-    <div class="comp">
-      <div class="lbl">Buttons</div>
-      <div class="row" style="align-items: center;">
-        <button class="btn primary">
-          <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-          Play media
-        </button>
-        <button class="btn ghost">
-          <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
-          Sync
-        </button>
-        <button class="fab"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></button>
-      </div>
-      <div class="row" style="margin-top: 14px; align-items: center;">
-        <span class="pill on">LIVE</span>
-        <span class="pill off">idle</span>
-        <span class="pill badge">HOST-CTRL</span>
-        <span class="pill badge">SELF-CTRL</span>
-      </div>
-    </div>
-
-    <!-- Invite -->
-    <div class="comp">
-      <div class="lbl">Invite code</div>
-      <div class="invite">
-        <span class="lbl" style="margin:0">Enter this code on other devices</span>
-        <span class="code">4 9 <span class="copied">2</span> 8 1 5</span>
-      </div>
-    </div>
-
-    <!-- Playlist -->
-    <div class="comp" style="padding: 0; overflow: hidden;">
-      <div style="padding: 20px 24px 8px;" class="lbl">Playlist item</div>
-      <div class="pl">
-        <div class="item"><span class="idx">1</span><span class="nm">Aurora Hymn</span><span class="dur">3:42</span></div>
-        <div class="item active"><span class="idx">2</span><span class="nm"><span class="wave"><i></i><i></i><i></i></span>Midnight Protocol</span><span class="dur">4:08</span></div>
-        <div class="item"><span class="idx">3</span><span class="nm">Coastal Drift — Night Mix</span><span class="dur">5:21</span></div>
-      </div>
-    </div>
-
-    <!-- Toast + dialog -->
-    <div class="comp">
-      <div class="lbl">Toast &amp; dialog</div>
-      <div class="chrome-row">
-        <span class="toast">Invite code: 492815</span>
-        <span></span>
-      </div>
-      <div class="dialog" style="margin-top: 16px;">
-        <div class="dt">Leave Session</div>
-        <div class="dm">Return to the start screen? You'll be disconnected.</div>
-        <div class="drow"><button class="db g">Stay</button><button class="db p">Leave</button></div>
-      </div>
-    </div>
-
-    <!-- Solid nav -->
-    <div class="comp" style="grid-column: span 2;">
-      <div class="lbl">Solid chrome · fixed bottom nav</div>
-      <div class="glass-stage">
-        <div class="glass-nav">
-          <div class="tab active"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>Home</div>
-          <div class="tab"><svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>Playlist</div>
-          <div class="tab"><svg viewBox="0 0 24 24"><path d="M12 4a4 4 0 110 8 4 4 0 010-8zm0 10c4.42 0 8 1.79 8 4v2H4v-2c0-2.21 3.58-4 8-4z"/></svg>Connect</div>
-          <div class="tab"><svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96a7.03 7.03 0 00-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.56-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.4-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 018.4 12 3.6 3.6 0 0112 8.4a3.6 3.6 0 013.6 3.6 3.6 3.6 0 01-3.6 3.6z"/></svg>Settings</div>
+    <!-- ── HERO ───────────────────────────────────── -->
+    <section class="hero" data-animate>
+      <div class="editorial-hero__copy">
+        <p class="editorial-kicker">Design System</p>
+        <h1 class="lp-h1">Design<br />language.</h1>
+        <p class="lp-lead">
+          The production interface, documented as it ships: color, type, components, accessibility,
+          iconography, and motion for real-time audio control.
+        </p>
+        <div class="lp-btn-row">
+          <a class="lp-btn lp-btn--solid" href="#components">
+            <span>See components</span>
+            <span class="lp-btn__arrow lp-btn__arrow--down" aria-hidden="true">↓</span>
+          </a>
         </div>
       </div>
+      <div class="logo">
+        <svg viewBox="43 12 214 26" fill="currentColor">
+          <polygon
+            points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"
+          />
+          <polygon
+            points="85.971903 30.806277 76.9719034 30.8089436 76.9665702 12.8089444 72.4665704 12.8102778 72.4719036 30.810277 72.4732369 35.3102768 90.4732361 35.3049435 90.4719028 30.8049437 90.4665696 12.8049445 85.9665698 12.8062778 85.971903 30.806277"
+          />
+          <polygon
+            points="94.9679027 17.303611 94.969236 21.8036108 94.9705693 26.3036106 108.4705687 26.2996106 108.471902 30.7996104 94.9719026 30.8036104 94.9732359 35.3036102 112.9732352 35.2982769 112.9719018 30.7982771 112.9705685 26.2982773 112.9692352 21.7982775 99.4692358 21.8022775 99.4679025 17.3022777 112.9679019 17.2982777 112.9665686 12.7982779 94.9665694 12.8036112 94.9679027 17.303611"
+          />
+          <rect x="117.4699016" y="12.7962774" width="4.5" height="22.5" />
+          <polygon
+            points="139.316543 12.7904706 134.5936888 19.9509279 129.8665923 12.7932706 124.4665681 12.7948706 131.8948278 24.0426701 124.4732347 35.2948696 129.8732588 35.2932696 134.596113 28.1328123 139.3232096 35.2904696 144.7232338 35.2888696 137.294974 24.0410701 144.7165672 12.7888706 139.316543 12.7904706"
+          />
+          <path
+            d="M147.2179004,17.2881297l.0039999,13.4999994.0013333,4.4999998,6.7499997-.002.0008,2.7000121,4.4999998-.0013333-.0008-2.7000121,6.7499997-.002-.0013333-4.4999998-.0039999-13.4999994-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM160.7178998,17.2841298l.0039999,13.4999994-2.2499999.0006667-.0006667-2.2499999-4.4999998.0013333.0006667,2.2499999-2.2499999.0006667-.0039999-13.4999994,8.9999996-.0026666Z"
+          />
+          <polygon
+            points="183.2218988 30.7774626 174.2218992 30.7801292 174.2165659 12.78013 169.7165661 12.7814633 169.7218994 30.7814625 169.7232327 35.2814623 187.7232319 35.2761291 187.7218986 30.7761293 187.7165653 12.7761301 183.2165655 12.7774634 183.2218988 30.7774626"
+          />
+          <path
+            d="M192.2178984,17.2747966l.0053333,17.9999992,4.4999998-.0013333-.0026666-8.9999996,8.9999996-.0026666.0026666,8.9999996,4.4999998-.0013333-.0053333-17.9999992-.0013333-4.4999998-17.9999992.0053333.0013333,4.4999998ZM205.7178978,17.2707966l.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998,8.9999996-.0026666Z"
+          />
+          <path
+            d="M232.7205633,26.2627963l-.0039999-13.4999994-17.9999992.0053333.0039999,13.4999994.0026666,8.9999996,4.4999998-.0013333-.0026666-8.9999996,4.6248777-.0013703,5.8306272,10.0920839,3.89655-2.2511546-4.5310104-7.8424689,3.6789549-.00109ZM219.2178972,17.2667967l8.9999996-.0026666.0013333,4.4999998-8.9999996.0026666-.0013333-4.4999998Z"
+          />
+          <rect x="237.2284599" y="12.7587935" width="18" height="4.5" />
+          <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
+          <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
+        </svg>
+      </div>
+      <div class="meta">
+        <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a><br />
+        <a href="../about/">About</a><br />
+        <span class="cur">Design System</span><br />
+        <a href="../history/">History</a>
+      </div>
+      <p class="tag">
+        Multi-device audio on the web — one web app, many speakers.
+        <strong>Dark-first, flat, and surface-driven</strong> — built Korean-first with inline SVG
+        iconography.
+      </p>
+    </section>
+
+    <div class="page">
+      <!-- ── FOUNDATIONS ────────────────────────────── -->
+      <section class="section" id="foundations" data-animate>
+        <div class="section-head"><h2>Foundations</h2></div>
+
+        <div class="block">
+          <h3 class="block-title">Core palette · dark (default)</h3>
+          <div class="row palette-row">
+            <div class="swatch" style="background: #121212">
+              <span class="nm">bg</span><span class="hx">#121212</span>
+            </div>
+            <div class="swatch" style="background: #1a1a1a">
+              <span class="nm">surface-1</span><span class="hx">#1A1A1A</span>
+            </div>
+            <div class="swatch" style="background: #202020">
+              <span class="nm">surface-2</span><span class="hx">#202020</span>
+            </div>
+            <div class="swatch" style="background: #262626">
+              <span class="nm">divider</span><span class="hx">#262626</span>
+            </div>
+            <div class="swatch" style="background: #404040">
+              <span class="nm">surface-3</span><span class="hx">#404040</span>
+            </div>
+            <div class="swatch primary" style="background: #3b82f6">
+              <span class="nm">primary</span><span class="hx">#3B82F6</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h3 class="block-title">Core palette · light</h3>
+          <div class="row palette-row">
+            <div class="swatch is-light" style="background: #f8f9fa">
+              <span class="nm">bg</span><span class="hx">#F8F9FA</span>
+            </div>
+            <div class="swatch is-light" style="background: #ffffff">
+              <span class="nm">surface-1</span><span class="hx">#FFFFFF</span>
+            </div>
+            <div class="swatch is-light" style="background: #eff1f3">
+              <span class="nm">surface-2</span><span class="hx">#EFF1F3</span>
+            </div>
+            <div class="swatch is-light" style="background: #d4d6d8">
+              <span class="nm">divider</span><span class="hx">#D4D6D8</span>
+            </div>
+            <div class="swatch is-light" style="background: #b7b9bb">
+              <span class="nm">surface-3</span><span class="hx">#B7B9BB</span>
+            </div>
+            <div class="swatch primary" style="background: #3b82f6">
+              <span class="nm">primary</span><span class="hx">#3B82F6</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h3 class="block-title">Text hierarchy</h3>
+          <div class="text-theme-grid">
+            <article class="text-theme text-theme-dark">
+              <div class="text-theme-head"><strong>Dark</strong><span>#121212</span></div>
+              <div class="text-tone" style="color: #eeeeee">
+                <strong>Primary text</strong><code>--text-main · #EEEEEE</code>
+              </div>
+              <div class="text-tone" style="color: #a1a1aa">
+                <strong>Secondary text</strong><code>--text-sub · #A1A1AA</code>
+              </div>
+              <div class="text-tone" style="color: #71717a">
+                <strong>Muted text</strong><code>--text-muted · #71717A</code>
+              </div>
+            </article>
+            <article class="text-theme text-theme-light">
+              <div class="text-theme-head"><strong>Light</strong><span>#F8F9FA</span></div>
+              <div class="text-tone" style="color: #303540">
+                <strong>Primary text</strong><code>--text-main · #303540</code>
+              </div>
+              <div class="text-tone" style="color: #495057">
+                <strong>Secondary text</strong><code>--text-sub · #495057</code>
+              </div>
+              <div class="text-tone" style="color: #868e96">
+                <strong>Muted text</strong><code>--text-muted · #868E96</code>
+              </div>
+            </article>
+          </div>
+        </div>
+
+        <div class="block">
+          <h3 class="block-title">Reserved semantic fills</h3>
+          <div class="row semantic-row">
+            <div class="semantic-swatch" style="--semantic: #3b82f6">
+              <span>Primary</span><code>#3B82F6</code>
+            </div>
+            <div class="semantic-swatch" style="--semantic: #20a45a">
+              <span>Success</span><code>#20A45A</code>
+            </div>
+            <div class="semantic-swatch" style="--semantic: #ef4444">
+              <span>Danger</span><code>#EF4444</code>
+            </div>
+            <div class="semantic-swatch" style="--semantic: #f59e0b">
+              <span>Warning</span><code>#F59E0B</code>
+            </div>
+            <div class="semantic-swatch" style="--semantic: #ff0033">
+              <span>YouTube</span><code>#FF0033</code>
+            </div>
+          </div>
+        </div>
+
+        <div class="block">
+          <h3 class="block-title">Contrast modes</h3>
+          <div class="contrast-grid">
+            <article>
+              <strong>Dark · more contrast</strong>
+              <span>Black canvas, white text, brighter blue.</span>
+              <code>#000000 · #FFFFFF · #8AB4FF</code>
+            </article>
+            <article class="is-light">
+              <strong>Light · more contrast</strong>
+              <span>Grey canvas, black text, deeper blue.</span>
+              <code>#F2F2F2 · #000000 · #0047A8</code>
+            </article>
+            <article class="is-system">
+              <strong>Forced colors</strong>
+              <span>The browser owns the palette; structure uses system colors.</span>
+              <code>Canvas · CanvasText · Highlight</code>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── TYPOGRAPHY ─────────────────────────────── -->
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Typography</h2></div>
+
+        <div class="grid-2">
+          <div>
+            <h3 class="block-title">Pretendard Variable · 45–920</h3>
+            <div class="display-glyph">Aa 가</div>
+            <p style="color: var(--text-sub); font-size: 13px; margin-top: 16px; line-height: 1.6">
+              Self-hosted for Latin and Korean, with locale-specific Noto fallbacks for Japanese,
+              Chinese, Thai, and Cyrillic scripts. Use tabular figures for time, codes, and latency.
+            </p>
+          </div>
+          <div>
+            <h3 class="block-title">Scale</h3>
+            <div class="spec">
+              <span class="tag">28 / 800</span><span class="s28">재생 · Play</span>
+              <span class="tag">24 / 800</span><span class="s24">이 기기의 역할</span>
+              <span class="tag">20 / 700</span><span class="s20">Midnight Protocol</span>
+              <span class="tag">16 / 500</span><span class="s16">6자리 코드를 입력하세요</span>
+              <span class="tag">14 / 600</span><span class="s14">로컬 파일 불러오기</span>
+              <span class="tag">12 / 600</span><span class="s12">00:42 / 03:18</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="block" style="margin-top: 40px">
+          <h3 class="block-title">Weights</h3>
+          <div class="weight-row">
+            <div class="w">
+              <span class="gl" style="font-weight: 400">Aa</span
+              ><span class="lab">400 Regular</span>
+            </div>
+            <div class="w">
+              <span class="gl" style="font-weight: 500">Aa</span><span class="lab">500 Medium</span>
+            </div>
+            <div class="w">
+              <span class="gl" style="font-weight: 600">Aa</span
+              ><span class="lab">600 Semibold</span>
+            </div>
+            <div class="w">
+              <span class="gl" style="font-weight: 700">Aa</span><span class="lab">700 Bold</span>
+            </div>
+            <div class="w">
+              <span class="gl" style="font-weight: 800">Aa</span
+              ><span class="lab">800 Extrabold</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── SHAPE & MOTION ─────────────────────────── -->
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Shape &amp; motion</h2></div>
+
+        <div class="grid-2">
+          <div>
+            <h3 class="block-title">Layout rhythm · recipes</h3>
+            <div class="spacing-row">
+              <div class="spacing-unit">
+                <div class="bar" style="width: 4px; height: 4px"></div>
+                <span class="lab">4</span>
+              </div>
+              <div class="spacing-unit">
+                <div class="bar" style="width: 8px; height: 8px"></div>
+                <span class="lab">8</span>
+              </div>
+              <div class="spacing-unit">
+                <div class="bar" style="width: 12px; height: 12px"></div>
+                <span class="lab">12</span>
+              </div>
+              <div class="spacing-unit">
+                <div class="bar" style="width: 16px; height: 16px"></div>
+                <span class="lab">16</span>
+              </div>
+              <div class="spacing-unit">
+                <div class="bar" style="width: 24px; height: 24px"></div>
+                <span class="lab">24</span>
+              </div>
+              <div class="spacing-unit">
+                <div class="bar" style="width: 32px; height: 32px"></div>
+                <span class="lab">32</span>
+              </div>
+              <div class="spacing-unit">
+                <div class="bar" style="width: 40px; height: 40px"></div>
+                <span class="lab">40</span>
+              </div>
+              <div class="spacing-unit">
+                <div class="bar" style="width: 56px; height: 56px"></div>
+                <span class="lab">56</span>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3 class="block-title">Production radii</h3>
+            <div class="radii-row">
+              <div class="radii-unit">
+                <div class="chip" style="width: 80px; height: 80px; border-radius: 14px"></div>
+                <span class="lab">14 · radius-s</span>
+              </div>
+              <div class="radii-unit">
+                <div class="chip" style="width: 80px; height: 80px; border-radius: 20px"></div>
+                <span class="lab">20 · radius-m</span>
+              </div>
+              <div class="radii-unit">
+                <div class="chip" style="width: 80px; height: 80px; border-radius: 32px"></div>
+                <span class="lab">32 · radius-l</span>
+              </div>
+              <div class="radii-unit">
+                <div class="chip" style="width: 120px; height: 48px; border-radius: 999px"></div>
+                <span class="lab">999 · capsule recipe</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="block" style="margin-top: 48px">
+          <h3 class="block-title">Motion recipes</h3>
+          <div class="grid-3">
+            <div class="motion-card m1">
+              <div class="nm">ease-out</div>
+              <div class="fn">cubic-bezier(0.2, 0.8, 0.2, 1)</div>
+              <div class="track"><div class="bead"></div></div>
+              <div class="use">Press and state feedback · 150–300ms</div>
+            </div>
+            <div class="motion-card m2">
+              <div class="nm">emphasized</div>
+              <div class="fn">cubic-bezier(0.22, 1, 0.36, 1)</div>
+              <div class="track"><div class="bead"></div></div>
+              <div class="use">App entrance · 600ms fade / 800ms movement</div>
+            </div>
+            <div class="motion-card m3">
+              <div class="nm">spring</div>
+              <div class="fn">cubic-bezier(0.08, 0.82, 0.17, 1)</div>
+              <div class="track"><div class="bead"></div></div>
+              <div class="use">Toasts and branded transitions</div>
+            </div>
+          </div>
+          <p class="motion-note">
+            Entrance targets may stagger up to 400ms, ending at 1200ms. Reduced-motion mode removes
+            both movement and stagger.
+          </p>
+        </div>
+      </section>
+
+      <!-- ── COMPONENTS ─────────────────────────────── -->
+      <section class="section" id="components" data-animate>
+        <div class="section-head"><h2>Components</h2></div>
+
+        <div class="grid-2 component-grid">
+          <div class="comp">
+            <div class="lbl">Playback actions</div>
+            <div class="row action-row">
+              <button type="button" class="btn primary">
+                <svg viewBox="0 -960 960 960" aria-hidden="true">
+                  <path
+                    d="m431-341 184-122q9-6 9-17t-9-17L431-619q-10-7-20.5-1.5T400-603v246q0 12 10.5 17.5T431-341Zm49 261q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-32 5-64t15-63q5-16 20.5-21.5T150-626q15 8 21.5 23.5T173-570q-6 22-9.5 44.5T160-480q0 134 93 227t227 93q134 0 227-93t93-227q0-134-93-227t-227-93q-24 0-47.5 3.5T386-786q-17 5-32-1t-22-21q-7-15-.5-30.5T354-859q30-11 62-16t64-5q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80Z"
+                  />
+                </svg>
+                Play media
+              </button>
+              <button type="button" class="btn ghost">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
+                  />
+                </svg>
+                Sync
+              </button>
+              <button type="button" class="fab" aria-label="Play">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+              </button>
+            </div>
+            <div class="identity-row" aria-label="Current identity and status surfaces">
+              <span class="role-sample"><i></i>LOGIN</span>
+              <span class="role-sample connected"><i></i>HOST</span>
+              <span class="role-sample connected"><i></i>PRO</span>
+              <span class="feature-sample">BETA</span>
+            </div>
+          </div>
+
+          <div class="comp">
+            <div class="lbl">Choice cards</div>
+            <div class="choice-grid">
+              <button type="button" class="choice-card selected" aria-pressed="true">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Zm6.92 8h-3.03a15.7 15.7 0 0 0-1.38-5.03A7.03 7.03 0 0 1 18.92 11ZM12 5c.84 1.08 1.51 3.14 1.83 6h-3.66C10.49 8.14 11.16 6.08 12 5Zm-2.51.97A15.7 15.7 0 0 0 8.11 11H5.08a7.03 7.03 0 0 1 4.41-5.03ZM5.08 13h3.03a15.7 15.7 0 0 0 1.38 5.03A7.03 7.03 0 0 1 5.08 13ZM12 19c-.84-1.08-1.51-3.14-1.83-6h3.66c-.32 2.86-.99 4.92-1.83 6Zm2.51-.97A15.7 15.7 0 0 0 15.89 13h3.03a7.03 7.03 0 0 1-4.41 5.03Z"
+                  />
+                </svg>
+                <span>한국어</span>
+              </button>
+              <button type="button" class="choice-card" aria-pressed="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36A7 7 0 0 1 12 3Z" />
+                </svg>
+                <span>Dark</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="comp">
+            <div class="lbl">Invite cluster</div>
+            <div class="invite">
+              <span class="invite-label">Invite code</span>
+              <span class="code">492815</span>
+              <button type="button" class="copy-button" aria-label="Copy invite code">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1Zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2Zm0 16H8V7h11v14Z"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="comp">
+            <div class="lbl">Toggle</div>
+            <div class="toggle-sample-row">
+              <div><strong>UI sound</strong><span>Play entry and control sounds.</span></div>
+              <button
+                type="button"
+                class="toggle-sample active"
+                aria-pressed="true"
+                aria-label="UI sound on"
+              >
+                <i></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="comp playlist-comp">
+            <div class="lbl">Playlist rows</div>
+            <div class="pl" role="list" aria-label="Playlist component examples">
+              <div class="playlist-item" role="listitem">
+                <span class="playlist-leading">1</span>
+                <span class="playlist-name">
+                  <svg class="playlist-source local" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"
+                    />
+                  </svg>
+                  <span>Coastal Drift.wav</span>
+                </span>
+                <button type="button" class="playlist-remove" aria-label="Remove Coastal Drift.wav">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                    />
+                  </svg>
+                </button>
+              </div>
+              <div class="playlist-item active" role="listitem" aria-current="true">
+                <span class="playlist-leading playing" aria-label="Playing">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 5v14l11-7z" transform="translate(-1.5 0)" />
+                  </svg>
+                </span>
+                <span class="playlist-name">
+                  <svg class="playlist-source youtube" viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"
+                    />
+                  </svg>
+                  <span>Midnight Protocol</span>
+                </span>
+                <button type="button" class="playlist-remove" aria-label="Remove Midnight Protocol">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                    />
+                  </svg>
+                </button>
+              </div>
+              <div class="playlist-item" role="listitem">
+                <span class="playlist-leading">3</span>
+                <span class="playlist-name">
+                  <svg class="playlist-source youtube" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 10h12v2H4Zm0-4h12v2H4Zm0 8h8v2H4Zm10 0v6l5-3Z" />
+                  </svg>
+                  <span>Late Night Drive · Tokyo Mix</span>
+                </span>
+                <button
+                  type="button"
+                  class="playlist-remove"
+                  aria-label="Remove Late Night Drive playlist"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                    />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="comp">
+            <div class="lbl">Toast &amp; dialog</div>
+            <span class="toast">Invite code copied</span>
+            <div class="dialog" style="margin-top: 16px">
+              <div class="dt">Leave room?</div>
+              <div class="dm">Return to the start screen? You will be disconnected.</div>
+              <div class="drow">
+                <button type="button" class="db g">Stay</button
+                ><button type="button" class="db p">Leave</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="comp nav-comp">
+            <div class="lbl">Compact-layout bottom navigation</div>
+            <div class="nav-stage">
+              <div class="app-bottom-nav" role="tablist" aria-label="App navigation example">
+                <button type="button" class="tab active" role="tab" aria-selected="true">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"
+                    /></svg
+                  ><span>Home</span>
+                </button>
+                <button type="button" class="tab" role="tab" aria-selected="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"
+                    /></svg
+                  ><span>Playlist</span>
+                </button>
+                <button type="button" class="tab" role="tab" aria-selected="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1ZM8 13h8v-2H8v2Zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5Z"
+                    /></svg
+                  ><span>Connect</span>
+                </button>
+                <button type="button" class="tab" role="tab" aria-selected="false">
+                  <svg viewBox="0 -960 960 960" aria-hidden="true">
+                    <path
+                      d="M433-80q-27 0-46.5-18T363-142l-9-66q-13-5-24.5-12T307-235l-62 26q-25 11-50 2t-39-32l-47-82q-14-23-8-49t27-43l53-40q-1-7-1-13.5v-27q0-6.5 1-13.5l-53-40q-21-17-27-43t8-49l47-82q14-23 39-32t50 2l62 26q11-8 23-15t24-12l9-66q4-26 23.5-44t46.5-18h94q27 0 46.5 18t23.5 44l9 66q13 5 24.5 12t22.5 15l62-26q25-11 50-2t39 32l47 82q14 23 8 49t-27 43l-53 40q1 7 1 13.5v27q0 6.5-2 13.5l53 40q21 17 27 43t-8 49l-48 82q-14 23-39 32t-50-2l-60-26q-11 8-23 15t-24 12l-9 66q-4 26-23.5 44T527-80h-94Zm7-80h79l14-106q31-8 57.5-23.5T639-327l99 41 39-68-86-65q5-14 7-29.5t2-31.5q0-16-2-31.5t-7-29.5l86-65-39-68-99 42q-22-23-48.5-38.5T533-694l-13-106h-79l-14 106q-31 8-57.5 23.5T321-633l-99-41-39 68 86 64q-5 15-7 30t-2 32q0 16 2 31t7 30l-86 65 39 68 99-42q22 23 48.5 38.5T427-266l13 106Zm42-180q58 0 99-41t41-99q0-58-41-99t-99-41q-59 0-99.5 41T342-480q0 58 40.5 99t99.5 41Zm-2-140Z"
+                    />
+                  </svg>
+                  <span>Settings</span>
+                </button>
+                <button type="button" class="tab" role="tab" aria-selected="false">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path
+                      d="M11 18h2v-2h-2v2Zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2Zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8Zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4Z"
+                    /></svg
+                  ><span>Help</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── ICONOGRAPHY ────────────────────────────── -->
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Iconography</h2></div>
+        <p class="section-intro">
+          Inline SVG keeps icons dependency-free and lets them inherit <code>currentColor</code>.
+          Filled Material-style paths are the default; stroke or mixed construction is reserved for
+          affordances whose shape depends on lines, such as reordering and volume waves. There is no
+          icon font, sprite, or decorative emoji. Material paths retain their
+          <a href="/licenses/material-icons-apache-2.0.txt">Apache License 2.0</a> notice.
+        </p>
+        <div class="icon-grid">
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" /></svg>
+            </div>
+            <span>Play</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 19h4V5H6v14Zm8-14v14h4V5h-4Z" />
+              </svg>
+            </div>
+            <span>Pause</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 6h2v12H6Zm3.5 6 8.5 6V6Z" />
+              </svg>
+            </div>
+            <span>Previous</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m6 18 8.5-6L6 6v12Zm10-12v12h2V6Z" />
+              </svg>
+            </div>
+            <span>Next</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8Zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8l-1.46-1.46A7.96 7.96 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3Z"
+                />
+              </svg>
+            </div>
+            <span>Sync</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2Zm0 14H6l-2 2V4h16v12Z"
+                />
+              </svg>
+            </div>
+            <span>Chat</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2Z" />
+              </svg>
+            </div>
+            <span>Add</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z"
+                />
+              </svg>
+            </div>
+            <span>Remove</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic youtube-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M21.582 6.186a2.5 2.5 0 0 0-1.768-1.768C18.254 4 12 4 12 4s-6.254 0-7.814.418a2.5 2.5 0 0 0-1.768 1.768C2 7.746 2 12 2 12s0 4.254.418 5.814a2.5 2.5 0 0 0 1.768 1.768C5.746 20 12 20 12 20s6.254 0 7.814-.418a2.5 2.5 0 0 0 1.768-1.768C22 16.254 22 12 22 12s0-4.254-.418-5.814ZM10 15.464V8.536L16 12l-6 3.464Z"
+                />
+              </svg>
+            </div>
+            <span>YouTube</span>
+          </div>
+          <div class="icon-sample" data-icon-style="filled">
+            <div class="ic">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7Z"
+                />
+              </svg>
+            </div>
+            <span>Local file</span>
+          </div>
+          <div class="icon-sample" data-icon-style="stroke">
+            <div class="ic stroke-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14M5 12h14M5 16h14" /></svg>
+            </div>
+            <span>Reorder grip</span>
+          </div>
+          <div class="icon-sample" data-icon-style="stroke">
+            <div class="ic mixed-icon">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path class="speaker" d="M3 9v6h4l5 5V4L7 9H3Z" />
+                <path class="waves" d="M15.2 8.5a4.9 4.9 0 0 1 0 7M18 5.7a8.9 8.9 0 0 1 0 12.6" />
+              </svg>
+            </div>
+            <span>Volume · mixed</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── PRODUCTION TOKENS ─────────────────────── -->
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Production tokens</h2></div>
+        <p class="section-intro">
+          This is the public subset used by the application. The implementation source of truth is
+          <a href="https://github.com/hiefny/MUSIXQUARE/blob/main/css/style.css">css/style.css</a>;
+          spacing and motion values above are recipes, not exported root tokens.
+        </p>
+        <div class="tokens token-reference">
+          <span class="head">Token</span><span class="head">Dark / light</span
+          ><span class="head">Use</span> <span class="tok">--bg</span
+          ><span class="val">#121212 / #F8F9FA</span><span class="use">Application canvas</span>
+          <span class="tok">--surface-1</span><span class="val">#1A1A1A / #FFFFFF</span
+          ><span class="use">Header, compact navigation, elevated sections</span>
+          <span class="tok">--surface-2</span><span class="val">#202020 / #EFF1F3</span
+          ><span class="use">Inputs, inactive controls, choice cards</span>
+          <span class="tok">--surface-3</span><span class="val">#404040 / #B7B9BB</span
+          ><span class="use">Hover and stronger neutral state</span>
+          <span class="tok">--play-action-surface</span
+          ><span class="val">surface-2 / surface-1</span
+          ><span class="use">Sync and media actions on the Play tab</span>
+          <span class="tok">--divider</span><span class="val">#262626 / #D4D6D8</span
+          ><span class="use">Section separation</span> <span class="tok">--text-main</span
+          ><span class="val">#EEEEEE / #303540</span><span class="use">Primary text</span>
+          <span class="tok">--text-sub</span><span class="val">#A1A1AA / #495057</span
+          ><span class="use">Supporting text</span> <span class="tok">--text-muted</span
+          ><span class="val">#71717A / #868E96</span
+          ><span class="use">Quiet metadata and inactive icons</span>
+          <span class="tok">--primary-filled</span><span class="val">#3B82F6</span
+          ><span class="use">Filled primary controls and connected state</span>
+          <span class="tok">--success-filled</span><span class="val">#20A45A</span
+          ><span class="use">Confirmed success state</span> <span class="tok">--danger-filled</span
+          ><span class="val">#EF4444</span><span class="use">Destructive action</span>
+          <span class="tok">--warning-filled</span><span class="val">#F59E0B</span
+          ><span class="use">Remote or warning state</span> <span class="tok">--youtube-filled</span
+          ><span class="val">#FF0033</span><span class="use">YouTube source identity</span>
+          <span class="tok">--control-active</span><span class="val">primary 13% / 11%</span
+          ><span class="use">Selected flat choice surface</span>
+          <span class="tok">--control-danger</span><span class="val">red 9% / 7.5%</span
+          ><span class="use">Resting destructive surface</span>
+          <span class="tok">--control-danger-hover</span><span class="val">red 13% / 11%</span
+          ><span class="use">Hovered destructive surface</span>
+          <span class="tok">--range-fill-idle</span><span class="val">text-main 75%</span
+          ><span class="use">Slider filled track at rest</span>
+          <span class="tok">--play-fab-bg-idle</span><span class="val">text-main 90%</span
+          ><span class="use">Main 64px play button</span> <span class="tok">--radius-s / m / l</span
+          ><span class="val">14 / 20 / 32px</span
+          ><span class="use">Small controls, cards, overlays</span>
+          <span class="tok">--list-row-height</span><span class="val">56px</span
+          ><span class="use">Playlist and device row minimum</span>
+        </div>
+      </section>
     </div>
-  </div>
-</section>
 
-<!-- ── 05 ICONOGRAPHY ─────────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Iconography</h2><span class="num">05</span></div>
-  <p style="color: var(--text-sub); font-size: 14px; line-height: 1.6; max-width: 640px; margin: -12px 0 24px;">
-    Material Icons (Filled), distributed under <a href="/licenses/material-icons-apache-2.0.txt">Apache License 2.0</a>. 24×24 viewBox, single path, <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:var(--font-sans);font-weight:600">fill="currentColor"</code>.
-    No icon font, no sprite — every icon is inline SVG. No emoji.
-  </p>
-  <div class="icon-grid">
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg></div>
-    <div class="ic"><svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg></div>
-  </div>
-</section>
+    <footer>
+      <span>
+        © 2026 MUSIXQUARE
+        <span aria-hidden="true">·</span>
+        <a href="mailto:contact@musixquare.com">contact@musixquare.com</a>
+      </span>
+      <span>
+        <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
+        <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer"
+          >GitHub</a
+        >
+        <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer"
+          >Discord</a
+        >
+      </span>
+    </footer>
 
-<!-- ── 06 TOKENS ──────────────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Tokens</h2><span class="num">06</span></div>
-  <p style="color: var(--text-sub); font-size: 14px; margin: -12px 0 24px;">
-    Full list in <code style="background:var(--surface-2);padding:2px 6px;border-radius:4px;font-size:12px;font-family:var(--font-sans);font-weight:600">colors_and_type.css</code>.
-  </p>
-  <div class="tokens">
-    <span class="head">Token</span><span class="head">Value</span><span class="head">Use</span>
-    <span class="tok">--bg</span><span class="val">#121212</span><span class="use">App background</span>
-    <span class="tok">--surface-1</span><span class="val">#1A1A1A</span><span class="use">Cards, header, nav resting</span>
-    <span class="tok">--surface-2</span><span class="val">#202020</span><span class="use">Inputs, buttons</span>
-    <span class="tok">--divider</span><span class="val">#262626</span><span class="use">Dividers</span>
-    <span class="tok">--surface-3</span><span class="val">#404040</span><span class="use">Hover, active</span>
-    <span class="tok">--primary</span><span class="val">#3B82F6</span><span class="use">The only accent — blue</span>
-    <span class="tok">--text-main</span><span class="val">#EEEEEE</span><span class="use">Primary text</span>
-    <span class="tok">--text-sub</span><span class="val">#A1A1AA</span><span class="use">Secondary text</span>
-    <span class="tok">--text-muted</span><span class="val">#71717A</span><span class="use">Tertiary / disabled</span>
-    <span class="tok">--range-fill-idle</span><span class="val">rgba(238,238,238,.75)</span><span class="use">Slider fill at rest</span>
-    <span class="tok">--range-fill-active</span><span class="val">var(--text-main)</span><span class="use">Slider fill while pressed</span>
-    <span class="tok">--play-fab-bg-idle</span><span class="val">rgba(238,238,238,.9)</span><span class="use">Play/pause button at rest</span>
-    <span class="tok">--play-fab-bg-active</span><span class="val">var(--text-main)</span><span class="use">Play/pause button while pressed</span>
-    <span class="tok">--play-fab-bg-disabled</span><span class="val">rgba(238,238,238,.2)</span><span class="use">Soft-disabled play/pause button</span>
-    <span class="tok">--radius-s / m / l</span><span class="val">14 / 20 / 32</span><span class="use">Corner radii + 100px pill + dialog squircle</span>
-    <span class="tok">--glass-bg</span><span class="val">var(--surface-1)</span><span class="use">Compatibility alias for solid chrome</span>
-    <span class="tok">--font-sans</span><span class="val">Pretendard</span><span class="use">Variable 45–920</span>
-    <span class="tok">--ease-out</span><span class="val">cubic-bezier(0.2, 0.8, 0.2, 1)</span><span class="use">Default interactions</span>
-  </div>
-</section>
-
-</div>
-
-<footer>
-  <span>
-    © 2026 MUSIXQUARE
-    <span aria-hidden="true">·</span>
-    <a href="mailto:contact@musixquare.com">contact@musixquare.com</a>
-  </span>
-  <span>
-    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
-    <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">GitHub</a>
-    <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer">Discord</a>
-  </span>
-</footer>
-
-<script src="/editorial-pages.js"></script>
-</body>
+    <script src="/editorial-pages.js"></script>
+  </body>
 </html>

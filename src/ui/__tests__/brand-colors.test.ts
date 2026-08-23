@@ -13,7 +13,9 @@ describe('filled UI brand colors', () => {
       '/designsystem/colors_and_type.css',
     );
     await expect(readFile(`public${stylesheetHref}`, 'utf8')).resolves.toContain(':root');
-    expect(html).toContain('<link rel="icon" href="/designsystem/assets/favicon.svg">');
+    expect(html).toMatch(
+      /<link\s+rel="icon"\s+href="\/designsystem\/assets\/favicon\.svg"\s*\/?>/u,
+    );
     await expect(readFile('public/designsystem/assets/favicon.svg', 'utf8')).resolves.toContain(
       '<svg',
     );

@@ -23,7 +23,7 @@ beforeAll(() => {
 describe('About page current UI contract', () => {
   it('uses the current portrait app capture in the hero phone', () => {
     expect(aboutDocument.querySelector('.lp-phone-3d__frame img')?.getAttribute('src')).toBe(
-      '/landing/hero.png',
+      '/landing/hero.png?cache=v480',
     );
     expect(heroPng.subarray(1, 4).toString('ascii')).toBe('PNG');
     expect(heroPng.readUInt32BE(16)).toBe(1179);

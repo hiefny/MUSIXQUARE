@@ -208,7 +208,9 @@ test.describe('mobile visualizer layout', () => {
   test('keeps the stage height and track title stable while modes change', async ({ page }) => {
     await page.setViewportSize({ width: MOBILE_WIDTHS[0], height: 844 });
     await setupHostAndStart(page);
-    await expect(page.locator('.track-box')).not.toHaveClass(/app-entrance/, { timeout: 5_000 });
+    await expect(page.locator('.track-title-wrapper')).not.toHaveClass(/app-entrance/, {
+      timeout: 5_000,
+    });
 
     for (const width of MOBILE_WIDTHS) {
       await page.setViewportSize({ width, height: 844 });
@@ -257,7 +259,9 @@ test.describe('mobile visualizer layout', () => {
   test('keeps the shared playback footprint stable when the engine changes', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupHostAndStart(page);
-    await expect(page.locator('.track-box')).not.toHaveClass(/app-entrance/, { timeout: 5_000 });
+    await expect(page.locator('.track-title-wrapper')).not.toHaveClass(/app-entrance/, {
+      timeout: 5_000,
+    });
     await page.locator('#track-artist').evaluate((artist) => {
       // Keep a stable fixture wherever the active height tier permits the row;
       // short mobile layouts intentionally hide it through the CSS contract.
@@ -296,7 +300,9 @@ test.describe('mobile visualizer layout', () => {
   }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupHostAndStart(page);
-    await expect(page.locator('.track-box')).not.toHaveClass(/app-entrance/, { timeout: 5_000 });
+    await expect(page.locator('.track-title-wrapper')).not.toHaveClass(/app-entrance/, {
+      timeout: 5_000,
+    });
     await page.locator('#track-artist').evaluate((artist) => {
       artist.textContent = 'Layout fixture metadata';
     });

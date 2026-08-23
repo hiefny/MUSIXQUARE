@@ -91,6 +91,12 @@ describe('OS contrast accessibility styles', () => {
     expect(prefersCss).toContain('--surface-2: #d4d4d4;');
     expect(prefersCss).toContain('--surface-3: #a8a8a8;');
     expect(prefersCss).toContain('--text-main: #000000;');
+    expect(manualCss).toMatch(
+      /html\[data-contrast='more'\] :is\(header, \.bottom-nav\)\s*\{\s*background:\s*var\(--surface-1\);/u,
+    );
+    expect(prefersCss).toMatch(
+      /html:not\(\[data-contrast='normal'\]\) :is\(header, \.bottom-nav\)\s*\{\s*background:\s*var\(--surface-1\);/u,
+    );
   });
 
   it('keeps authored palette contrasts above their required ratios', () => {

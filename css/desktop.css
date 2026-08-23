@@ -155,6 +155,12 @@
       scroll-padding-bottom: 0;
     }
 
+    /* Entrance-staggered settings sections begin just outside the panel.
+       Keep that horizontal travel clipped without changing vertical scroll. */
+    #tab-settings > .tab-body {
+      overflow-x: hidden;
+    }
+
     #tab-play .tab-body {
       padding-top: 0;
       padding-bottom: 0;
@@ -400,7 +406,7 @@
     }
 
     .chat-drawer.app-chat-entrance {
-      animation: chatEntranceUp 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
+      animation: chatEntranceUp 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.2s both;
     }
 
     /* Desktop: no backdrop, no drag handle */

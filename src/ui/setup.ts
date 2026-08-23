@@ -92,25 +92,51 @@ function showHostGuestSelection(): void {
 
 // ─── App Entrance Animation ─────────────────────────────────────
 
-/** Entrance config: [selector, direction, delay_ms] */
-const ENTRANCE_TARGETS: [string, string, number][] = [
+type EntranceDirection = 'down' | 'up' | 'right' | 'left';
+
+/** Entrance config: [selector, direction, delay_ms, desktop_only] */
+const ENTRANCE_TARGETS: [string, EntranceDirection, number, boolean?][] = [
   ['#main-header', 'down', 0],
   ['#visualizerCanvas', 'up', 50],
-  ['.track-box', 'up', 100],
-  ['.progress-bar', 'up', 150],
-  ['.play-controls-left', 'up', 200],
+  ['.track-title-wrapper', 'up', 100],
+  ['#track-artist', 'up', 150],
+  ['.progress-bar', 'up', 200],
+  ['.play-controls-left', 'up', 250],
   ['#chat-preview-btn', 'up', 300],
   ['.play-action-buttons', 'up', 350],
   ['.bottom-nav', 'up', 400],
-  // Desktop panels (mobile ones are display:none, harmless)
-  ['#tab-playlist', 'down', 100],
-  ['#tab-settings', 'left', 150],
+  // Desktop panels and settings cascade. Keeping the settings shell stationary
+  // avoids compounding parent/child transforms while its contents sweep in.
+  ['#tab-playlist', 'down', 100, true],
+  ['#tab-settings > .tab-header', 'left', 100, true],
+  ['#tab-settings > .settings-subtab-nav', 'left', 125, true],
+  ['#settings-language-section', 'left', 150, true],
+  ['#theme-section', 'left', 230, true],
+  ['#ui-sounds-section', 'left', 310, true],
+  ['#settings-sync-section', 'left', 400, true],
 ];
 
+function clearEntranceClasses(el: HTMLElement): void {
+  el.classList.remove(
+    'app-entrance',
+    'app-entrance-down',
+    'app-entrance-up',
+    'app-entrance-left',
+    'app-entrance-right',
+    'app-entered',
+  );
+  el.style.removeProperty('--entrance-delay');
+}
+
 function _applyEntranceClasses(): void {
-  for (const [sel, dir, delay] of ENTRANCE_TARGETS) {
+  const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
+  for (const [sel, dir, delay, desktopOnly] of ENTRANCE_TARGETS) {
     const el = document.querySelector(sel) as HTMLElement | null;
     if (!el) continue;
+    if (desktopOnly && !isDesktop) {
+      clearEntranceClasses(el);
+      continue;
+    }
     el.classList.add('app-entrance', `app-entrance-${dir}`);
     el.classList.remove('app-entered');
     el.style.setProperty('--entrance-delay', `${delay}ms`);
@@ -119,39 +145,36 @@ function _applyEntranceClasses(): void {
 
 function triggerAppEntrance(): void {
   requestAnimationFrame(() => {
-    for (const [sel] of ENTRANCE_TARGETS) {
+    const isDesktop = window.matchMedia('(min-width: 1280px)').matches;
+    for (const [sel, , , desktopOnly] of ENTRANCE_TARGETS) {
       const el = document.querySelector(sel) as HTMLElement | null;
-      if (el) el.classList.add('app-entered');
+      if (el && desktopOnly && !isDesktop) {
+        clearEntranceClasses(el);
+        continue;
+      }
+      if (el?.classList.contains('app-entrance')) el.classList.add('app-entered');
     }
     // Desktop chat: separate animation (mobile drawer conflicts with app-entrance)
     const chatDrawer = document.querySelector('.chat-drawer') as HTMLElement | null;
     if (chatDrawer && window.matchMedia('(min-width: 1280px)').matches) {
       chatDrawer.classList.add('app-chat-entrance');
     }
-    // Cleanup after all transitions complete
+    // Cleanup just after the 1200ms visual timeline completes. Reduced-motion
+    // users skip both the motion and its stagger, so release the classes early.
+    const cleanupDelay = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 50 : 1250;
     setManagedTimer(
       'app-entrance-cleanup',
       () => {
         for (const [sel] of ENTRANCE_TARGETS) {
           const el = document.querySelector(sel) as HTMLElement | null;
-          if (el) {
-            el.classList.remove(
-              'app-entrance',
-              'app-entrance-down',
-              'app-entrance-up',
-              'app-entrance-left',
-              'app-entrance-right',
-              'app-entered',
-            );
-            el.style.removeProperty('--entrance-delay');
-          }
+          if (el) clearEntranceClasses(el);
         }
         if (chatDrawer) chatDrawer.classList.remove('app-chat-entrance');
         // Wake visualizer after layout settles (iOS: canvas may have been 0-sized during setup)
         bus.emit('visualizer:start');
       },
-      1200,
-    ); // max delay(400) + duration(900) + buffer
+      cleanupDelay,
+    ); // max delay(400) + duration(800) + a small frame buffer
   });
 }
 
@@ -329,7 +352,12 @@ export function initSetup(): void {
   // Desktop / compact landscape layout listener
   try {
     const mqlDesktop = window.matchMedia('(min-width: 1280px)');
-    mqlDesktop.addEventListener('change', () => syncDesktopLeftPanel());
+    mqlDesktop.addEventListener('change', () => {
+      syncDesktopLeftPanel();
+      if (setupEl('setup-overlay')?.classList.contains('active')) {
+        _applyEntranceClasses();
+      }
+    });
     onCompactLandscapeChange(() => syncDesktopLeftPanel());
   } catch {
     /* ignore */
@@ -649,7 +677,11 @@ export function initSetup(): void {
       log.info(`[Setup] Auto-join code detected: ${joinCode}`);
       setPendingAutoJoinCode(joinCode);
 
-      // Show the overlay first, then open the URL-code guest flow.
+      // Direct invite URLs bypass initSetupOverlay(), so hide the app surface
+      // immediately instead of letting the 200ms auto-join delay flash it.
+      _applyEntranceClasses();
+
+      // Show the overlay, then open the URL-code guest flow.
       setManagedTimer(
         'auto-join-start',
         () => {

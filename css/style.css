@@ -641,7 +641,17 @@
     opacity: 0 !important;
     transition:
       opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
-      transform 0.9s cubic-bezier(0.22, 1, 0.36, 1) !important;
+      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) !important;
+    transition-delay: var(--entrance-delay, 0ms) !important;
+  }
+
+  /* The boot guard suppresses incidental startup transitions on Android.
+     Entrance targets are hidden behind setup, so preserve their deliberate
+     reveal without increasing the specificity of the opacity state. */
+  html.is-booting .app-entrance {
+    transition:
+      opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) !important;
     transition-delay: var(--entrance-delay, 0ms) !important;
   }
 
@@ -9599,6 +9609,10 @@
     /* Override entrance animations: slide from right, keep Y centering */
     .bottom-nav.app-entrance.app-entrance-up {
       transform: translateY(-50%) translateX(30px) !important;
+      transition:
+        opacity 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+        transform 0.8s cubic-bezier(0.22, 1, 0.36, 1) !important;
+      transition-delay: var(--entrance-delay, 0ms) !important;
     }
 
     .bottom-nav.app-entrance.app-entered {
@@ -11133,6 +11147,21 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
   border-radius: 999px !important;
 }
 
+/* The setup entrance is intentionally exempt from Android's boot transition
+   suppression, but reduced-motion must still disable every entrance path. */
+@media (prefers-reduced-motion: reduce) {
+  .app-entrance,
+  html.is-booting .app-entrance,
+  .bottom-nav.app-entrance.app-entrance-up {
+    transition: none !important;
+    transition-delay: 0ms !important;
+  }
+
+  .chat-drawer.app-chat-entrance {
+    animation: none !important;
+  }
+}
+
 /* --------------------------------------------------------------------------
    OS contrast preferences
 
@@ -11209,6 +11238,12 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
   color: var(--primary-filled);
 }
 
+/* Authored high contrast keeps app chrome on one deliberate surface in both
+   themes. Normal dark-mode chrome remains governed by its existing rules. */
+html[data-contrast='more'] :is(header, .bottom-nav) {
+  background: var(--surface-1);
+}
+
 @media (prefers-contrast: more) {
   html:not([data-contrast='normal']),
   html:not([data-contrast='normal']) body {
@@ -11275,6 +11310,10 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
 
   html:not([data-contrast='normal']) .tab-action-btn.active-one::after {
     color: var(--primary-filled);
+  }
+
+  html:not([data-contrast='normal']) :is(header, .bottom-nav) {
+    background: var(--surface-1);
   }
 }
 

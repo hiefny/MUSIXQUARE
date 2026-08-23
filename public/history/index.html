@@ -1,361 +1,405 @@
 <!doctype html>
 <!-- MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md. -->
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="dark">
-  <meta name="theme-color" content="#1a1a1a">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <title>History · MUSIXQUARE</title>
-  <link rel="canonical" href="https://musixquare.com/history">
-  <meta name="description" content="The full story of MUSIXQUARE — nine months from a Web Audio prototype to a shipped real-time sync platform. Every milestone, every architectural decision, what comes next, and what's a platform wall.">
-  <meta property="og:title" content="History · MUSIXQUARE">
-  <meta property="og:description" content="Nine months. One developer. A new way to listen together.">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="MUSIXQUARE">
-  <meta property="og:locale" content="en_US">
-  <meta property="og:url" content="https://musixquare.com/history">
-  <meta property="og:image" content="https://musixquare.com/og-history.png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="MUSIXQUARE History — From prototype to platform">
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="History · MUSIXQUARE">
-  <meta name="twitter:description" content="Nine months. One developer. A new way to listen together.">
-  <meta name="twitter:image" content="https://musixquare.com/og-history.png">
-  <link rel="icon" href="../designsystem/assets/favicon.svg">
-  <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css">
-  <link rel="stylesheet" href="../designsystem/colors_and_type.css">
-  <link rel="stylesheet" href="/editorial-base.css">
-  <link rel="stylesheet" href="/editorial-history.css">
-  <!-- Cloudflare Web Analytics -->
-  <script defer src="/analytics-bootstrap.js"></script>
-  <!-- End Cloudflare Web Analytics -->
-</head>
-<body id="top" class="editorial-page editorial-history">
-
-<header class="lp-header is-loading">
-  <div class="lp-header-progress" aria-hidden="true"></div>
-  <a class="lp-logo" href="#top" aria-label="Back to top">
-    <span class="editorial-wordmark" aria-hidden="true"></span>
-  </a>
-  <a class="lp-try" href="https://musixquare.com" aria-label="Try MUSIXQUARE now">
-    <span class="lp-try__dot" aria-hidden="true"></span>
-    <span>Try it now</span>
-  </a>
-</header>
-
-<nav class="editorial-site-tabs" aria-label="MUSIXQUARE editorial pages">
-  <div class="editorial-site-tabs__inner">
-    <a class="editorial-site-tab" href="/about">About</a>
-    <a class="editorial-site-tab" href="/blog">Blog</a>
-    <a class="editorial-site-tab is-active" href="/history" aria-current="page">History</a>
-    <a class="editorial-site-tab" href="/designsystem">Design</a>
-  </div>
-</nav>
-
-<!-- ── HERO ───────────────────────────────────── -->
-<section class="hero" data-animate>
-  <div class="editorial-hero__copy">
-    <p class="editorial-kicker">History</p>
-    <h1 class="lp-h1">Nine months.<br>One system.</h1>
-    <p class="lp-lead">
-      Every prototype, rewrite, and shipped feature in the path from one <strong>AnalyserNode</strong>
-      to a real-time sync platform.
-    </p>
-    <div class="lp-btn-row">
-      <a class="lp-btn lp-btn--solid" href="#ship">
-        <span>Jump to ship</span>
-        <span class="lp-btn__arrow lp-btn__arrow--down" aria-hidden="true">↓</span>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#1a1a1a" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>History | MUSIXQUARE</title>
+    <link rel="canonical" href="https://musixquare.com/history" />
+    <meta
+      name="description"
+      content="MUSIXQUARE development history from the first Web Audio prototype in August 2025 to its May 2026 launch and current architecture."
+    />
+    <meta property="og:title" content="History | MUSIXQUARE" />
+    <meta
+      property="og:description"
+      content="From the first Web Audio prototype to the current MUSIXQUARE app."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="MUSIXQUARE" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://musixquare.com/history" />
+    <meta property="og:image" content="https://musixquare.com/og-history.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MUSIXQUARE development history" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="History | MUSIXQUARE" />
+    <meta
+      name="twitter:description"
+      content="From the first Web Audio prototype to the current MUSIXQUARE app."
+    />
+    <meta name="twitter:image" content="https://musixquare.com/og-history.png" />
+    <link rel="icon" href="../designsystem/assets/favicon.svg" />
+    <link rel="stylesheet" href="/designsystem/src_ref/pretendard.css" />
+    <link rel="stylesheet" href="../designsystem/colors_and_type.css" />
+    <link rel="stylesheet" href="/editorial-base.css" />
+    <link rel="stylesheet" href="/editorial-history.css" />
+    <!-- Cloudflare Web Analytics -->
+    <script defer src="/analytics-bootstrap.js"></script>
+    <!-- End Cloudflare Web Analytics -->
+  </head>
+  <body id="top" class="editorial-page editorial-history">
+    <header class="lp-header is-loading">
+      <div class="lp-header-progress" aria-hidden="true"></div>
+      <a class="lp-logo" href="#top" aria-label="Back to top">
+        <span class="editorial-wordmark" aria-hidden="true"></span>
       </a>
-    </div>
-  </div>
-  <div class="logo history-hero-stats" aria-label="MUSIXQUARE history summary">
-    <div class="history-stat-card">
-      <span class="history-stat-value">270</span>
-      <span class="history-stat-label">Days for shipping</span>
-    </div>
-    <div class="history-stat-card">
-      <span class="history-stat-value">12,018</span>
-      <span class="history-stat-label">Lines rewritten to TypeScript</span>
-    </div>
-    <div class="history-stat-card">
-      <span class="history-stat-value">1,126</span>
-      <span class="history-stat-label">Unit + E2E test cases</span>
-    </div>
-    <div class="history-stat-card">
-      <span class="history-stat-value">1</span>
-      <span class="history-stat-label">Primary infra vendor</span>
-    </div>
-  </div>
-  <div class="meta">
-    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a><br>
-    <a href="../about/">About</a><br>
-    <a href="../designsystem/">Design System</a><br>
-    <span class="cur">History</span>
-  </div>
-  <p class="tag">
-    Nine months. One developer. <em>A new way to listen together.</em><br>
-    Every prototype, every rewrite, every shipped feature — from a single <strong>AnalyserNode</strong>
-    to a full real-time sync platform running on WebRTC, Cloudflare, and temporary remote file transfer.
-  </p>
-</section>
+      <a class="lp-try" href="https://musixquare.com" aria-label="Open MUSIXQUARE">
+        <span class="lp-try__dot" aria-hidden="true"></span>
+        <span>Open app</span>
+      </a>
+    </header>
 
-<div class="page">
-
-<!-- ── 01 PROTOTYPE ───────────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Prototype · Aug–Dec 2025</h2><span class="phase">Phase 01</span></div>
-  <div class="phase-meta">
-    <span class="phase-tag prototype"><span class="dot"></span>Prototype</span>
-    <p class="phase-sub">Three independent threads — frequency analysis, P2P sync, channel routing — built separately, merged in January.</p>
-  </div>
-  <div class="prose" style="margin-bottom: 20px;">
-    <p>
-      MUSIXQUARE starts as a solo-device audio visualizer in August 2025. No sync, no network — just
-      a single <code>AnalyserNode</code>, frequency bands, and a Canvas loop. But the audio-graph
-      plumbing laid down here — configurable cutoffs, per-band smoothing — survives into the final product.
-    </p>
-    <p>
-      October brings the first real P2P attempt: two phones, PeerJS over WebRTC, a dual-strategy sync
-      algorithm with hard-jump and <code>playbackRate</code> nudge. November strips it down to a
-      countdown-based start — simpler, more reliable. December shifts to <em>channel routing</em>:
-      <code>ChannelSplitter</code>, per-band <code>GainNode</code>s, a subwoofer LPF. The name,
-      the wordmark, the signature <strong>#3b82f6</strong> blue — all settle into final form in late December.
-    </p>
-  </div>
-  <ul class="log">
-    <li>
-      <div class="lead">Aug · Web Audio foundation</div>
-      <div class="body"><code>AnalyserNode</code> pipeline, frequency-band smoothing, and a Canvas visualizer. The audio-graph pattern that ships in v1.3 traces directly back here.</div>
-    </li>
-    <li>
-      <div class="lead">Oct · First P2P sync</div>
-      <div class="body">PeerJS over WebRTC. Hard-jump correction (drift &gt; 0.5s) + <code>playbackRate</code> nudge (0.05s–0.5s). A 1-second heartbeat sends <code>{ time, paused, playbackRate, timestamp }</code> — the ancestor of today's SharedClock.</div>
-    </li>
-    <li>
-      <div class="lead">Nov · Countdown-based start + file transfer</div>
-      <div class="body">Replaced the rate-scaling algorithm with a 3-second countdown: both sides <code>setTimeout</code> to the same local deadline. Host MP3 transfers to guest as a <code>Blob</code>. Per-device offset nudge — the direct ancestor of today's Nudge Sync.</div>
-    </li>
-    <li>
-      <div class="lead">Dec · Channel routing + identity</div>
-      <div class="body">v1.0 → v1.2: stereo oscillator lab, Canvas spectrum visualizer, subwoofer channel with 120 Hz LPF, L / Stereo / R tab controls. Then in late December: <strong>MUSIXQUARE</strong> the name, the wordmark, the five-tab nav, Light / Dark / System theme — all finalize into the form that ships.</div>
-    </li>
-  </ul>
-</section>
-
-<!-- ── 02 BUILD ───────────────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Build · Jan–Apr 2026</h2><span class="phase">Phase 02</span></div>
-  <div class="phase-meta">
-    <span class="phase-tag build"><span class="dot"></span>Build</span>
-    <p class="phase-sub">The three prototype threads merge into a single app. Git history begins. The 12,000-line monolith gets rewritten into TypeScript ES modules.</p>
-  </div>
-  <div class="prose" style="margin-bottom: 20px;">
-    <p>
-      Between December's channel lab and the first git commit on <strong>January 25</strong>,
-      everything converges: frequency analysis, P2P sync, and channel routing become one app.
-      That month of intense iteration was only ever saved as the final file. By the time
-      git history starts, MUSIXQUARE already ships Host / Guest + QR invite, a full audio-effect
-      chain (reverb, 5-band EQ, virtual surround), Nudge Sync, and a 7.1-channel role picker.
-    </p>
-    <p>
-      February unlocks remote connections via Metered TURN and starts the TypeScript rewrite —
-      12,018 lines of <code>app.js</code> broken into strict-mode ES modules under <code>src/</code>.
-      March and April pile on: chat with slash commands, beat detection with Phase Sync,
-      the SharedClock architecture that makes sync genuinely reliable across flaky networks,
-      and YouTube 2-stage sync with rendezvous handshake.
-    </p>
-  </div>
-  <ul class="log">
-    <li>
-      <div class="lead">Jan 25 · First commit — product already exists</div>
-      <div class="body">Five-tab nav, Host/Guest/QR, full audio-effect chain (Tone.js reverb, 5-band EQ, Virtual Surround, Virtual Bass), Nudge Sync, 8-channel 7.1 role picker. Everything merged from four months of file-based iteration.</div>
-    </li>
-    <li>
-      <div class="lead">Feb · Remote connections via TURN</div>
-      <div class="body">Metered.ca TURN server; WebRTC reaches across networks for the first time. 3-sample RTT replaces naive timestamps for drift-aware sync.</div>
-    </li>
-    <li>
-      <div class="lead">Feb · TypeScript rewrite begins</div>
-      <div class="body">12,018-line <code>app.js</code> → strict-mode TypeScript ES modules. 71 P2P protocol messages, EventBus handlers, and state paths get real types. Build fails before runtime fails. i18n key system introduced.</div>
-    </li>
-    <li>
-      <div class="lead">Mar · Chat, beat detection, Playwright suite</div>
-      <div class="body">Chat with slash commands (<code>/debug</code>, <code>/nick</code>), profanity filter, grouped bubbles. High-precision BPM analyzer with Phase Sync. 174 Playwright E2E scenarios covering late-join, chaos, and multi-device cases.</div>
-    </li>
-    <li>
-      <div class="lead">Apr · SharedClock + YouTube 2-stage sync</div>
-      <div class="body">Host clock becomes the single source of truth — every device plays <em>at time X</em>, not <em>now</em>. Drift becomes correctable instead of inevitable. YouTube sync gets a mandatory rendezvous handshake; unavailable videos auto-skip.</div>
-    </li>
-    <li>
-      <div class="lead">Apr · Multiple security audit rounds</div>
-      <div class="body">Iterative audit passes across the full codebase (eight launch-bar rounds, more post-launch) — bus event mismatches, sink-level XSS validation, CSPRNG for room codes, TURN endpoint hardening. Zero critical or high findings at every close.</div>
-    </li>
-  </ul>
-</section>
-
-<!-- ── 03 SHIP ────────────────────────────────── -->
-<section class="section" id="ship" data-animate>
-  <div class="section-head"><h2>Ship · May 2026</h2><span class="phase">Phase 03</span></div>
-  <div class="phase-meta">
-    <span class="phase-tag ship"><span class="dot"></span>Ship</span>
-    <p class="phase-sub">RAM-only storage, private remote file sharing, Cloudflare TURN and Realtime SFU, and a full WebRTC transport migration — all in one month.</p>
-  </div>
-  <ul class="log">
-    <li>
-      <div class="lead">RAM-only audio architecture</div>
-      <div class="body">Removed the File System Access API (OPFS) entirely in favor of a RAM-only slot pool. Faster preloads, zero disk-leak bugs, a dramatically simpler storage lifecycle. Six-pass sweep to remove every OPFS residue from the codebase.</div>
-    </li>
-    <li>
-      <div class="lead">Private remote file sharing</div>
-      <div class="body">Local audio now reaches guests outside the host's network through a temporary private Cloudflare R2 relay. The feature originally launched with browser-side AES encryption; that application-layer E2EE was later removed under an updated storage policy. Current transfers use HTTPS, store the original file temporarily in private R2, and send short-lived download authorization to room participants, with origin checks and automatic expiry.</div>
-    </li>
-    <li>
-      <div class="lead">Cloudflare TURN as primary relay</div>
-      <div class="body">TURN credentials moved from Metered.ca to Cloudflare, with Metered kept as a fallback. Remote joins connect faster; long-lived rooms keep a safety path.</div>
-    </li>
-    <li>
-      <div class="lead">Cloudflare Realtime SFU for remote system audio</div>
-      <div class="body">System-audio sharing now splits by connection type. Local guests stay on the direct P2P audio path. Remote guests subscribe through Cloudflare Realtime SFU — the host publishes once, remote listeners receive synchronized audio without forcing the host to maintain every stream directly. Measured at roughly 100 MB/hr per remote listener.</div>
-    </li>
-    <li>
-      <div class="lead">Cloudflare WebRTC signaling transport</div>
-      <div class="body">Replaced PeerJS's public signaling servers with a dedicated Cloudflare Durable Objects worker. Cleaner ICE candidate handling, predictable latency, no third-party signaling dependency in production. PeerJS retained as an offline-development fallback when the Cloudflare URL is not configured.</div>
-    </li>
-  </ul>
-  <div class="milestone" style="margin-top: 20px;">
-    <div class="m-label">Milestone · May 1, 2026</div>
-    <div class="m-title">Product Hunt — Featured · #13 of the day · 88 upvotes</div>
-    <div class="m-body">
-      First public launch. Listed on Product Hunt the same week remote file sharing and the Cloudflare SFU path shipped.
-      <strong>Featured</strong> within hours, finished <strong>13th</strong> for the day with 88 upvotes — enough to validate
-      the core idea and surface the next set of real user needs.
-    </div>
-  </div>
-</section>
-
-<!-- ── 04 INFRASTRUCTURE ──────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Infrastructure · Today</h2><span class="phase">Current</span></div>
-  <div class="phase-meta">
-    <span class="phase-tag now"><span class="dot"></span>Live</span>
-    <p class="phase-sub">Cloudflare is the primary managed infrastructure vendor, concentrated where its edge platform fits the product.</p>
-  </div>
-  <div class="infra-grid">
-    <div class="infra-card">
-      <div class="i-vendor">Cloudflare</div>
-      <div class="i-role">Hosting · Signaling · TURN · SFU · Remote storage</div>
-      <div class="i-detail">
-        A single <strong>app Worker</strong> serves the static SPA, handles invite-code OG meta rewrites, and exposes the backend API for TURN credentials, YouTube search, and Realtime session setup — SPA fallback, security headers, and immutable asset caching all live in code.
-        <strong>Durable Objects</strong> handle WebRTC signaling — ICE candidates, offers, and answers route through a hibernation-aware Worker per room.
-        <strong>Cloudflare TURN</strong> relays traffic when direct P2P fails; unavailable credentials now fail closed instead of switching providers.
-        <strong>Realtime SFU</strong> carries remote system audio — host publishes once, remote guests subscribe.
-        <strong>R2</strong> holds temporary remote-share objects with application expiry and bucket lifecycle cleanup.
+    <nav class="editorial-site-tabs" aria-label="MUSIXQUARE editorial pages">
+      <div class="editorial-site-tabs__inner">
+        <a class="editorial-site-tab" href="/about">About</a>
+        <a class="editorial-site-tab" href="/blog">Blog</a>
+        <a class="editorial-site-tab is-active" href="/history" aria-current="page">History</a>
+        <a class="editorial-site-tab" href="/designsystem">Design</a>
       </div>
-    </div>
-    <div class="infra-card">
-      <div class="i-vendor">WebRTC · In-browser</div>
-      <div class="i-role">P2P sync · Chat · Local system audio</div>
-      <div class="i-detail">
-        Data channels carry playback control, playlist sync, chat, and nudge-sync payloads between the host and guests.
-        <strong>Local system audio</strong> uses a direct media call; ICE can still select TURN when the network requires a relay.
-        <strong>Remote system audio</strong> routes through the Cloudflare SFU path above.
-        ICE candidates received before the remote description are queued per peer and flushed after SDP setup.
-      </div>
-    </div>
-    <div class="infra-card">
-      <div class="i-vendor">Browser · Client</div>
-      <div class="i-role">Audio engine · Storage · Build</div>
-      <div class="i-detail">
-        Native <strong>Web Audio API</strong> — no Tone.js. <code>source → stereo width → preamp → role routing → EQ/reverb</code>, with parallel bass/exciter paths before the master output and analyser.
-        <strong>RAM-only</strong> slot pool for audio tracks — no disk writes, no OPFS.
-        <strong>Vite + TypeScript ES2022</strong> strict-mode build. Service Worker for offline shell caching.
-      </div>
-    </div>
-  </div>
-</section>
+    </nav>
 
-<!-- ── 05 AHEAD ───────────────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Ahead</h2><span class="phase">Upcoming</span></div>
-  <div class="phase-meta">
-    <span class="phase-tag build"><span class="dot"></span>Planned</span>
-    <p class="phase-sub">No commitments, no dates. These are the next honest priorities once the Cloudflare infrastructure proves stable.</p>
-  </div>
-  <div class="ahead-list">
-    <div class="ahead-item">
-      <div>
-        <div class="a-title">Pro tier — large rooms and license flow</div>
-        <div class="a-body">Free rooms stay conservative. A license path unlocks larger participant counts for the host. The SFU removes the worst remote system-audio pressure, but host CPU and support burden still need clear caps.</div>
+    <section class="hero" data-animate>
+      <div class="editorial-hero__copy">
+        <p class="editorial-kicker">History</p>
+        <h1 class="lp-h1">From prototype<br />to launch</h1>
+        <p class="lp-lead">
+          A timeline of the work that turned an August 2025 Web Audio experiment into MUSIXQUARE.
+        </p>
+        <div class="lp-btn-row">
+          <a class="lp-btn lp-btn--solid" href="#ship">
+            <span>Go to public launch</span>
+            <span class="lp-btn__arrow lp-btn__arrow--down" aria-hidden="true">↓</span>
+          </a>
+        </div>
       </div>
-      <span class="a-tag">Next</span>
-    </div>
-    <div class="ahead-item">
-      <div>
-        <div class="a-title">Full 7.1 channel routing UI</div>
-        <div class="a-body">The app ships four roles today: Center, Left, Right, and Subwoofer. Eight-channel routing primitives exist, but the full FL / FR / Center / LFE / Side L·R / Rear L·R picker was parked for UX complexity. It can return when demand is clear.</div>
+      <div class="logo history-hero-stats" aria-label="MUSIXQUARE history summary">
+        <div class="history-stat-card">
+          <span class="history-stat-value">Aug 2025</span>
+          <span class="history-stat-label">First Web Audio prototype</span>
+        </div>
+        <div class="history-stat-card">
+          <span class="history-stat-value">Jan 2026</span>
+          <span class="history-stat-label">First repository commit</span>
+        </div>
+        <div class="history-stat-card">
+          <span class="history-stat-value">May 2026</span>
+          <span class="history-stat-label">Public launch</span>
+        </div>
+        <div class="history-stat-card">
+          <span class="history-stat-value">Today</span>
+          <span class="history-stat-label">Production service</span>
+        </div>
       </div>
-      <span class="a-tag">Gated</span>
-    </div>
-    <div class="ahead-item">
-      <div>
-        <div class="a-title">Native mobile app for system audio</div>
-        <div class="a-body">iOS and Android don't implement <code>getDisplayMedia({audio})</code>. A native app would route system audio through screen-capture APIs, at the cost of install friction.</div>
-      </div>
-      <span class="a-tag">Later</span>
-    </div>
-  </div>
-</section>
+    </section>
 
-<!-- ── 06 PLATFORM WALLS ──────────────────────── -->
-<section class="section" data-animate>
-  <div class="section-head"><h2>Platform Walls</h2><span class="phase">Won't fix</span></div>
-  <div class="phase-meta">
-    <span class="phase-tag wall"><span class="dot"></span>Not ours</span>
-    <p class="phase-sub">Documented to stop re-litigating them. These are external constraints, not product decisions.</p>
-  </div>
-  <div class="wall-list">
-    <div class="wall-item">
-      <div>
-        <div class="w-title">YouTube effects and channel routing</div>
-        <div class="w-body">The YouTube IFrame API does not expose raw audio to Web Audio. EQ, reverb, surround, and channel routing cannot apply to YouTube playback — this is a Google DRM / CORS wall, not a missing feature.</div>
-      </div>
-      <span class="w-tag">Google</span>
-    </div>
-    <div class="wall-item">
-      <div>
-        <div class="w-title">Capturing system audio on iOS and Android</div>
-        <div class="w-body"><code>getDisplayMedia({audio: true})</code> is not implemented by mobile browsers, so a mobile device cannot <em>host</em> system audio. Mobile guests can still <em>receive</em> a computer host's stream through the SFU path. Hosting from a phone remains unavailable until mobile OS APIs allow it.</div>
-      </div>
-      <span class="w-tag">OS Limit</span>
-    </div>
-    <div class="wall-item">
-      <div>
-        <div class="w-title">Spotify · Apple Music · Tidal and DRM streaming</div>
-        <div class="w-body">DRM-protected streams cannot be captured or routed through Web Audio. Integration would require per-platform licensing agreements — not viable for a free solo project.</div>
-      </div>
-      <span class="w-tag">DRM</span>
-    </div>
-  </div>
-</section>
+    <main class="page">
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Prototype</h2></div>
+        <div class="section-copy">
+          <p>
+            From August to December 2025, frequency analysis, peer-to-peer synchronization and
+            channel routing were developed as separate experiments. MUSIXQUARE began as an audio
+            visualizer for one device, using an <code>AnalyserNode</code>, configurable frequency
+            bands, per-band smoothing and a Canvas render loop. That audio graph became the basis of
+            the released app.
+          </p>
+          <p>
+            In October, the first PeerJS and WebRTC prototype synchronized two phones with hard seek
+            corrections and small <code>playbackRate</code> changes. A three-second scheduled start
+            replaced that approach in November. December focused on channel routing with
+            <code>ChannelSplitter</code>, per-band <code>GainNode</code>s and a 120 Hz low-pass
+            filter for the subwoofer channel. The MUSIXQUARE name, wordmark and
+            <strong>#3b82f6</strong> blue were adopted late that month.
+          </p>
+        </div>
+        <ul class="log">
+          <li>
+            <div class="lead">August: Web Audio foundation</div>
+            <div class="body">
+              Built the <code>AnalyserNode</code> pipeline, frequency-band smoothing and Canvas
+              visualizer that became the basis of the v1.3 audio graph.
+            </div>
+          </li>
+          <li>
+            <div class="lead">October: First peer-to-peer sync</div>
+            <div class="body">
+              The first WebRTC prototype used PeerJS, a hard seek above 0.5 seconds of drift and
+              small <code>playbackRate</code> changes between 0.05 and 0.5 seconds. Every second,
+              the host sent <code>{ time, paused, playbackRate, timestamp }</code>. This later
+              informed SharedClock.
+            </div>
+          </li>
+          <li>
+            <div class="lead">November: Scheduled start and file transfer</div>
+            <div class="body">
+              Both devices scheduled playback against the same three-second countdown. Host MP3
+              files were transferred to guests as Blob data. Per-device offsets later became Nudge
+              Sync.
+            </div>
+          </li>
+          <li>
+            <div class="lead">December: Channel routing and identity</div>
+            <div class="body">
+              Versions 1.0 through 1.2 added the stereo oscillator lab, Canvas spectrum visualizer,
+              a subwoofer channel with a 120 Hz low-pass filter and L, Stereo and R controls. In
+              late December, the project adopted the MUSIXQUARE name, wordmark, five-tab navigation
+              and Light, Dark and System themes.
+            </div>
+          </li>
+        </ul>
+      </section>
 
-</div>
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Build</h2></div>
+        <div class="section-copy">
+          <p>
+            From January to April 2026, the channel lab, synchronization prototype and frequency
+            analyzer were combined into one app. Git history began on January 25, when the app
+            already included host and guest roles, QR invitations, reverb, five-band EQ, virtual
+            surround, Nudge Sync and an eight-channel role picker.
+          </p>
+          <p>
+            In February, Metered TURN enabled connections across different networks, and the
+            TypeScript rewrite began. The 12,018-line <code>app.js</code> was split into strict ES
+            modules under <code>src/</code>. March added chat, beat detection, Phase Sync and
+            Playwright tests. April introduced SharedClock and a two-stage YouTube synchronization
+            handshake.
+          </p>
+        </div>
+        <ul class="log">
+          <li>
+            <div class="lead">January 25: First Git commit</div>
+            <div class="body">
+              The app already included five-tab navigation, host and guest roles, QR invitations,
+              the audio-effect chain, Nudge Sync and an eight-channel role picker.
+            </div>
+          </li>
+          <li>
+            <div class="lead">February: Remote connections through TURN</div>
+            <div class="body">
+              Metered.ca TURN allowed WebRTC connections across separate networks. Sync latency was
+              estimated from three RTT samples instead of raw timestamps.
+            </div>
+          </li>
+          <li>
+            <div class="lead">February: TypeScript rewrite</div>
+            <div class="body">
+              The 12,018-line <code>app.js</code> was split into strict TypeScript ES modules.
+              Protocol messages, EventBus handlers and state paths gained explicit types. The i18n
+              key system was added.
+            </div>
+          </li>
+          <li>
+            <div class="lead">March: Chat, beat detection and browser tests</div>
+            <div class="body">
+              Chat commands, grouped messages, BPM analysis and Phase Sync were added. The
+              Playwright suite covered late joins, network disruption and multi-device behavior.
+            </div>
+          </li>
+          <li>
+            <div class="lead">April: SharedClock and YouTube synchronization</div>
+            <div class="body">
+              The host clock became the timing reference for every device. Clients scheduled
+              playback for the same target time and corrected measured drift. YouTube playback added
+              a required rendezvous handshake and automatic skipping for unavailable videos.
+            </div>
+          </li>
+          <li>
+            <div class="lead">April: Security audits</div>
+            <div class="body">
+              Eight pre-launch audit rounds and further post-launch audits covered event mismatches,
+              XSS validation, room-code randomness and the TURN endpoint. Each round closed with no
+              critical or high-severity findings.
+            </div>
+          </li>
+        </ul>
+      </section>
 
-<footer>
-  <span>
-    © 2026 MUSIXQUARE
-    <span aria-hidden="true">·</span>
-    <a href="mailto:contact@musixquare.com">contact@musixquare.com</a>
-  </span>
-  <span>
-    <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
-    <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer">GitHub</a>
-    <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer">Discord</a>
-  </span>
-</footer>
+      <section class="section" id="ship" data-animate>
+        <div class="section-head"><h2>Ship</h2></div>
+        <div class="section-copy">
+          <p>
+            May 2026. The app moved to RAM-only audio storage, temporary private file sharing,
+            Cloudflare TURN, Realtime SFU and Cloudflare-based WebRTC signaling.
+          </p>
+        </div>
+        <ul class="log">
+          <li>
+            <div class="lead">RAM-only audio architecture</div>
+            <div class="body">
+              The app replaced OPFS with a RAM-only slot pool. This reduced preload overhead and
+              removed disk persistence from the local audio lifecycle. A six-pass cleanup removed
+              the remaining OPFS code.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Private remote file sharing</div>
+            <div class="body">
+              Remote guests received local audio through temporary objects in a private Cloudflare
+              R2 bucket. The first release encrypted files in the browser with AES; that application
+              layer was later removed after the storage policy changed. Transfers now use HTTPS,
+              short-lived download authorization, origin checks, automatic expiry and bucket
+              lifecycle cleanup.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Cloudflare TURN</div>
+            <div class="body">
+              Cloudflare became the primary TURN provider in May. Metered.ca remained available as a
+              fallback at that time and was later removed.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Cloudflare Realtime SFU</div>
+            <div class="body">
+              Local guests continued to use direct peer-to-peer audio. Remote guests subscribed
+              through Cloudflare Realtime SFU, allowing the host to publish one stream.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Cloudflare WebRTC signaling</div>
+            <div class="body">
+              A Durable Objects worker replaced the public PeerJS signaling service. Offers, answers
+              and ICE candidates now travel through the project's Cloudflare worker. PeerJS remains
+              the localhost development adapter; production hosts do not fall back to it.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Product Hunt launch</div>
+            <div class="body">
+              On May 1, MUSIXQUARE was featured on Product Hunt and finished at number 13 for the
+              day with 88 upvotes.
+            </div>
+          </li>
+        </ul>
+      </section>
 
-<script src="/editorial-pages.js"></script>
-</body>
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Current infrastructure</h2></div>
+        <div class="section-copy">
+          <p>
+            MUSIXQUARE currently uses Cloudflare Workers, Durable Objects, D1, TURN, Realtime SFU
+            and R2.
+          </p>
+        </div>
+        <ul class="log">
+          <li>
+            <div class="lead">
+              Cloudflare: hosting, signaling, room state, TURN, SFU and storage
+            </div>
+            <div class="body">
+              The app Worker serves the SPA, writes invite metadata and provides API endpoints for
+              TURN credentials, YouTube search and Realtime sessions. It also applies SPA fallback,
+              security headers and immutable asset caching. Signaling Durable Objects carry WebRTC
+              offers, answers and ICE candidates, while PRO Room Durable Objects own persistent room
+              state. D1 stores account, PRO registry, grant, metrics and Developer API records.
+              Cloudflare TURN supplies relay credentials. If those credentials are unavailable,
+              Standard Rooms use a STUN-only direct path rather than another TURN provider. Realtime
+              SFU carries system audio when the selected route requires it. R2 stores temporary
+              Standard Room shares and persistent private PRO media under separate lifecycle rules.
+            </div>
+          </li>
+          <li>
+            <div class="lead">WebRTC: playback sync, chat and system audio</div>
+            <div class="body">
+              Data channels carry playback control, playlist updates, chat and Nudge Sync data.
+              System audio uses direct WebRTC or Cloudflare Realtime SFU according to room type,
+              network classification, audience size and route health. ICE may select TURN for a
+              direct media path. ICE candidates received before remote SDP are queued and applied
+              after setup.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Browser client: audio engine, local storage and build</div>
+            <div class="body">
+              The audio engine uses the native Web Audio API. Its main path is source to stereo
+              width, preamp, role routing, EQ and reverb. Parallel bass and exciter paths join
+              before master output and analysis. Audio tracks remain in a RAM-only slot pool and are
+              not written to OPFS. The app is built with Vite and strict TypeScript targeting
+              ES2022. The Service Worker caches the offline shell.
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Possible future work</h2></div>
+        <div class="section-copy">
+          <p>These items have no scheduled dates.</p>
+        </div>
+        <ul class="log">
+          <li>
+            <div class="lead">Eight-channel routing interface</div>
+            <div class="body">
+              The audio engine includes eight-channel routing primitives. The current interface
+              exposes Center, Left, Right and Subwoofer. The full FL, FR, Center, LFE, side and rear
+              picker has not been scheduled.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Native system-audio hosting on mobile</div>
+            <div class="body">
+              Mobile browsers do not implement <code>getDisplayMedia({ audio: true })</code>.
+              Hosting system audio from a phone would require a native app and platform
+              screen-capture APIs.
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <section class="section" data-animate>
+        <div class="section-head"><h2>Browser and platform limits</h2></div>
+        <div class="section-copy">
+          <p>These restrictions come from browser APIs, operating systems and DRM services.</p>
+        </div>
+        <ul class="log">
+          <li>
+            <div class="lead">YouTube effects and channel routing</div>
+            <div class="body">
+              The YouTube IFrame API does not provide raw audio samples to Web Audio, so YouTube
+              playback cannot use MUSIXQUARE's EQ, reverb, surround or channel routing.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Capturing system audio on iOS and Android</div>
+            <div class="body">
+              Mobile browsers do not implement <code>getDisplayMedia({ audio: true })</code>. A
+              phone can receive a computer host's stream through the SFU, but it cannot host a
+              system-audio stream from the browser.
+            </div>
+          </li>
+          <li>
+            <div class="lead">Spotify, Apple Music, Tidal and other DRM services</div>
+            <div class="body">
+              DRM-protected audio cannot be captured or passed to Web Audio. Supporting these
+              services would require separate platform integrations and licensing agreements.
+            </div>
+          </li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <span>
+        © 2026 MUSIXQUARE
+        <a href="mailto:contact@musixquare.com">contact@musixquare.com</a>
+      </span>
+      <span>
+        <a href="https://musixquare.com" target="_blank" rel="noopener noreferrer">App</a>
+        <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer"
+          >GitHub</a
+        >
+        <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer"
+          >Discord</a
+        >
+      </span>
+    </footer>
+
+    <script src="/editorial-pages.js"></script>
+  </body>
 </html>

@@ -63,7 +63,7 @@ const completedLanguageContracts = {
     '브라우저 방장',
     '방 서버',
     '컴퓨터',
-    '공유 기기',
+    '송신 중인 기기',
     '볼륨',
     /프레임|정확/,
   ],

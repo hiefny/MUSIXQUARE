@@ -185,7 +185,7 @@
       'standin.platform_label': '플랫폼',
       'standin.platform_value': '컴퓨터의 Chromium 기반 브라우저',
       'standin.caveat':
-        'Beta: 컴퓨터용 Chromium 브라우저에서만 지원하며, 공유 기기를 포함해 최대 4대, 공유당 2시간까지 사용할 수 있어요. 실시간 오디오는 지연이 불가피하므로 공유 기기의 볼륨을 낮춰 주세요.',
+        'Beta: 컴퓨터용 Chromium 브라우저에서만 지원하며, 송신 중인 기기를 포함해 최대 4대, 공유당 2시간까지 사용할 수 있어요. 실시간 오디오는 지연이 불가피하므로 송신 중인 기기의 볼륨을 낮춰 주세요.',
 
       'cta.h2': '지금 시작해봐요!',
       'cta.btn': 'MUSIXQUARE 시작하기',

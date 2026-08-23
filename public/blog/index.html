@@ -30,7 +30,7 @@
   <link rel="stylesheet" href="/editorial-base.css">
   <style>
     .editorial-blog {
-      --blog-max: 960px;
+      --blog-max: 1240px;
     }
 
     .editorial-blog .hero {
@@ -38,18 +38,19 @@
     }
 
     .blog-hero-index {
-      position: relative;
       width: min(560px, 42vw);
+      min-height: auto;
       align-self: center;
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 1px;
+      place-items: stretch;
+      gap: 12px;
       padding: 0;
-      border: 1px solid rgba(255, 255, 255, 0.055);
+      border: 0;
       border-radius: 0;
-      background: rgba(255, 255, 255, 0.055);
-      box-shadow: 0 30px 90px rgba(0, 0, 0, 0.32);
-      overflow: hidden;
+      background: transparent;
+      box-shadow: none;
+      transform: none;
     }
 
     .editorial-blog .hero[data-animate] > .blog-hero-index {
@@ -65,32 +66,35 @@
     }
 
     .blog-hero-line {
-      position: relative;
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      align-items: center;
-      min-height: clamp(112px, 10vw, 144px);
-      padding: clamp(26px, 3vw, 36px) clamp(34px, 4.2vw, 58px);
-      background: rgba(18, 18, 18, 0.86);
+      min-height: clamp(104px, 9vw, 124px);
+      padding: clamp(18px, 1.8vw, 24px);
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border: 0;
+      border-radius: var(--radius-m);
+      background: var(--surface-1);
+      box-shadow: none;
     }
 
     .blog-hero-line strong {
       display: block;
       color: var(--text-main);
-      font-size: clamp(20px, 2.2vw, 28px);
+      font-size: clamp(24px, 3vw, 40px);
       font-weight: 800;
-      line-height: 1.08;
+      letter-spacing: -0.04em;
+      line-height: 1;
     }
 
     .blog-hero-line em {
       display: block;
-      margin-top: 9px;
+      max-width: 22em;
+      margin-top: 10px;
       color: var(--text-sub);
-      font-size: 11px;
-      font-weight: 800;
+      font-size: 12px;
+      font-weight: 600;
       font-style: normal;
-      line-height: 1.35;
-      text-transform: uppercase;
+      line-height: 1.45;
     }
 
     .blog-page {
@@ -116,6 +120,8 @@
     }
 
     #soro-blog .soro-blog-content {
+      width: 100% !important;
+      max-width: none !important;
       color: var(--text-main) !important;
     }
 
@@ -220,6 +226,8 @@
     }
 
     #soro-blog .soro-blog-article {
+      width: 100% !important;
+      max-width: none !important;
       color: var(--text-main) !important;
     }
 
@@ -394,11 +402,16 @@
     @media (max-width: 720px) {
       .blog-hero-index {
         width: 100%;
+        gap: 10px;
       }
 
       .blog-hero-line {
-        min-height: 112px;
-        padding: 24px 30px;
+        min-height: 96px;
+        padding: 16px 18px;
+      }
+
+      .blog-hero-line strong {
+        font-size: clamp(20px, 6vw, 26px);
       }
 
       #soro-blog .soro-blog-card {

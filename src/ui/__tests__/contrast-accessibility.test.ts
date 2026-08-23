@@ -22,13 +22,13 @@ describe('OS contrast accessibility styles', () => {
     const css = await readFile('css/style.css', 'utf8');
 
     expect(css).toMatch(
-      /html\[data-contrast='more'\]\s*\{[\s\S]*?--bg:\s*#000000;[\s\S]*?--primary:\s*#8ab4ff;[\s\S]*?--primary-filled:\s*#174ea6;[\s\S]*?--text-muted:\s*#d0d0d0;/u,
+      /html\[data-contrast='more'\]\s*\{[\s\S]*?--bg:\s*#000000;[\s\S]*?--primary:\s*#8ab4ff;[\s\S]*?--primary-filled:\s*#0047a8;[\s\S]*?--success-filled:\s*#006b3c;[\s\S]*?--danger-filled:\s*#a4001d;[\s\S]*?--warning-filled:\s*#6b4100;[\s\S]*?--youtube-filled:\s*#a4001d;[\s\S]*?--text-muted:\s*#d0d0d0;/u,
     );
     expect(css).toMatch(
       /html\[data-contrast='more'\]\s*\{[\s\S]*?--divider:\s*#262626;[\s\S]*?--glass-border:\s*#262626;/u,
     );
     expect(css).toMatch(
-      /html\[data-theme='light'\]\[data-contrast='more'\]\s*\{[\s\S]*?--bg:\s*#f2f2f2;[\s\S]*?--surface-1:\s*#ffffff;[\s\S]*?--surface-2:\s*#d4d4d4;[\s\S]*?--surface-3:\s*#a8a8a8;[\s\S]*?--divider:\s*#d4d6d8;[\s\S]*?--primary:\s*#0047a8;[\s\S]*?--primary-filled:\s*#0047a8;[\s\S]*?--text-main:\s*#000000;[\s\S]*?--text-muted:\s*#333333;/u,
+      /html\[data-theme='light'\]\[data-contrast='more'\]\s*\{[\s\S]*?--bg:\s*#f2f2f2;[\s\S]*?--surface-1:\s*#ffffff;[\s\S]*?--surface-2:\s*#d4d4d4;[\s\S]*?--surface-3:\s*#a8a8a8;[\s\S]*?--divider:\s*#d4d6d8;[\s\S]*?--primary:\s*#0047a8;[\s\S]*?--text-main:\s*#000000;[\s\S]*?--text-muted:\s*#333333;/u,
     );
 
     const baseRoot = css.match(/@layer base\s*\{\s*:root\s*\{([\s\S]*?)\n\s*\}/u)?.[1] ?? '';
@@ -37,7 +37,7 @@ describe('OS contrast accessibility styles', () => {
     expect(baseRoot).toContain('--text-main: #eeeeee;');
 
     const paletteDeclaration =
-      /--(?:bg|surface-[123]|divider|primary(?:-rgb|-filled)?|success-filled|danger-filled|warning-filled|youtube-filled|accent(?:-rgb)?|text-(?:main|sub|muted)|range-fill-(?:idle|active)|play-fab-bg-(?:idle|active|disabled)|glass-(?:bg|border)|scrollbar-thumb(?:-hover|-active)?)\s*:/u;
+      /--(?:bg|surface-[123]|divider|primary(?:-rgb|-filled)?|success-filled|danger-filled|warning-(?:filled|foreground)|youtube-filled|accent(?:-rgb)?|text-(?:main|sub|muted)|range-fill-(?:idle|active)|play-fab-bg-(?:idle|active|disabled)|glass-(?:bg|border)|scrollbar-thumb(?:-hover|-active)?)\s*:/u;
     const cssWithoutComments = css.replace(/\/\*[\s\S]*?\*\//gu, '');
     const paletteOwners = [...cssWithoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
       .filter((match) => paletteDeclaration.test(match[2] ?? ''))
@@ -46,6 +46,18 @@ describe('OS contrast accessibility styles', () => {
     expect(paletteOwners.length).toBeGreaterThan(0);
     for (const selector of paletteOwners) {
       expect(selector).not.toMatch(/\bbody\b/u);
+    }
+
+    for (const token of [
+      '--primary-filled',
+      '--success-filled',
+      '--danger-filled',
+      '--warning-filled',
+      '--youtube-filled',
+    ]) {
+      expect(css.match(new RegExp(`${token}:`, 'gu')), `${token} declaration owners`).toHaveLength(
+        4,
+      );
     }
   });
 
@@ -81,12 +93,16 @@ describe('OS contrast accessibility styles', () => {
       expect(colorOnlyCss).not.toMatch(structuralDeclaration);
     }
 
-    expect(css).toMatch(
-      /html\[data-contrast='more'\][\s\S]*?\.tab-action-btn\.active[\s\S]*?::before[\s\S]*?background:\s*var\(--primary-filled\);/u,
+    expect(manualCss).toMatch(
+      /html\[data-contrast='more'\]\s+:is\(\.tab-action-btn\.active, \.tab-action-btn\.active-one\)::before\s*\{\s*background:\s*var\(--primary\);/u,
+    );
+    expect(manualCss).toMatch(
+      /html\[data-theme='light'\]\[data-contrast='more'\][\s\S]*?:is\(\.tab-action-btn\.active, \.tab-action-btn\.active-one\)::before\s*\{\s*background:\s*var\(--primary-filled\);/u,
     );
     expect(css).toMatch(
       /html\[data-contrast='more'\][\s\S]*?\.tab-action-btn\.active-one::after[\s\S]*?color:\s*var\(--primary-filled\);/u,
     );
+    expect(prefersCss).toContain('background: var(--primary);');
     expect(prefersCss).toContain('background: var(--primary-filled);');
     expect(prefersCss).toContain('color: var(--primary-filled);');
     expect(prefersCss).toContain('--divider: #262626;');
@@ -97,20 +113,14 @@ describe('OS contrast accessibility styles', () => {
   });
 
   it('keeps authored palette contrasts above their required ratios', () => {
-    expect(contrastRatio('#8ab4ff', '#000000')).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio('#8ab4ff', '#1f1f1f')).toBeGreaterThanOrEqual(4.5);
+    expect('#8ab4ff').not.toBe('#0047a8');
     expect(contrastRatio('#000000', '#f2f2f2')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#0047a8', '#ffffff')).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio('#f59e0b', '#1f1f1f')).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#6b4100', '#ffffff')).toBeGreaterThanOrEqual(4.5);
 
-    for (const filledSurface of [
-      '#174ea6',
-      '#006d3d',
-      '#b00020',
-      '#714500',
-      '#0047a8',
-      '#006b3c',
-      '#a4001d',
-      '#6b4100',
-    ]) {
+    for (const filledSurface of ['#0047a8', '#006b3c', '#a4001d', '#6b4100']) {
       expect(contrastRatio('#ffffff', filledSurface)).toBeGreaterThanOrEqual(4.5);
     }
   });
@@ -126,6 +136,7 @@ describe('OS contrast accessibility styles', () => {
       '--divider: CanvasText !important;',
       '--primary: LinkText !important;',
       '--primary-filled: Highlight !important;',
+      '--warning-foreground: LinkText !important;',
       '--text-main: CanvasText !important;',
     ]) {
       expect(css).toContain(declaration);

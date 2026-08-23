@@ -291,7 +291,7 @@ describe('connect signaling health status', () => {
     expect(inviteButtonRules).toContain('border: none');
     expect(recoveryButtonRules).toContain('border: none');
     expect(recoveryButtonRules).toContain('background: rgba(245, 158, 11, 0.08)');
-    expect(recoveryButtonRules).toContain('color: var(--warning-filled)');
+    expect(recoveryButtonRules).toContain('color: var(--warning-foreground)');
     expect(recoveryButtonRules).toContain('box-shadow: none');
     expect(stylesheet).not.toContain('.signaling-health-status');
     expect(stylesheet).not.toContain('.signaling-health-indicator');

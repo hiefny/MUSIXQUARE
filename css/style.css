@@ -22,6 +22,7 @@
     --success-filled: #20a45a;
     --danger-filled: #ef4444;
     --warning-filled: #f59e0b;
+    --warning-foreground: #f59e0b;
     --youtube-filled: #ff0033;
     --accent: var(--primary);
     --accent-rgb: var(--primary-rgb);
@@ -128,6 +129,7 @@
     --control-active: rgba(var(--primary-rgb), 0.11);
     --control-danger: rgba(255, 59, 48, 0.075);
     --control-danger-hover: rgba(255, 59, 48, 0.11);
+    --warning-foreground: #6b4100;
 
     --glass-bg: var(--surface-1);
     --glass-border: rgba(0, 0, 0, 0.06);
@@ -4306,7 +4308,7 @@
   .btn-copy-invite-link[data-mode='recovering'] {
     border: none;
     background: rgba(245, 158, 11, 0.08);
-    color: var(--warning-filled);
+    color: var(--warning-foreground);
     box-shadow: none;
   }
 
@@ -9414,7 +9416,7 @@
     .btn-copy-invite-link[data-mode='recover']:hover:not(:active),
     .btn-copy-invite-link[data-mode='recovering']:hover:not(:active) {
       background: rgba(245, 158, 11, 0.08);
-      color: var(--warning-filled);
+      color: var(--warning-foreground);
       box-shadow: none;
     }
 
@@ -11210,11 +11212,11 @@ html[data-contrast='more'] {
   --divider: #262626;
   --primary: #8ab4ff;
   --primary-rgb: 138, 180, 255;
-  --primary-filled: #174ea6;
-  --success-filled: #006d3d;
-  --danger-filled: #b00020;
-  --warning-filled: #714500;
-  --youtube-filled: #b00020;
+  --primary-filled: #0047a8;
+  --success-filled: #006b3c;
+  --danger-filled: #a4001d;
+  --warning-filled: #6b4100;
+  --youtube-filled: #a4001d;
   --text-main: #ffffff;
   --text-sub: #f2f2f2;
   --text-muted: #d0d0d0;
@@ -11241,11 +11243,6 @@ html[data-theme='light'][data-contrast='more'] {
   --divider: #d4d6d8;
   --primary: #0047a8;
   --primary-rgb: 0, 71, 168;
-  --primary-filled: #0047a8;
-  --success-filled: #006b3c;
-  --danger-filled: #a4001d;
-  --warning-filled: #6b4100;
-  --youtube-filled: #a4001d;
   --text-main: #000000;
   --text-sub: #111111;
   --text-muted: #333333;
@@ -11261,7 +11258,21 @@ html[data-theme='light'][data-contrast='more'] {
   --scrollbar-thumb-active: #000000;
 }
 
+html[data-contrast='more'] :is(.tab-action-btn.active, .tab-action-btn.active-one) {
+  color: #000000;
+}
+
 html[data-contrast='more'] :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
+  background: var(--primary);
+}
+
+html[data-theme='light'][data-contrast='more']
+  :is(.tab-action-btn.active, .tab-action-btn.active-one) {
+  color: #ffffff;
+}
+
+html[data-theme='light'][data-contrast='more']
+  :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
   background: var(--primary-filled);
 }
 
@@ -11278,11 +11289,11 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     --divider: #262626;
     --primary: #8ab4ff;
     --primary-rgb: 138, 180, 255;
-    --primary-filled: #174ea6;
-    --success-filled: #006d3d;
-    --danger-filled: #b00020;
-    --warning-filled: #714500;
-    --youtube-filled: #b00020;
+    --primary-filled: #0047a8;
+    --success-filled: #006b3c;
+    --danger-filled: #a4001d;
+    --warning-filled: #6b4100;
+    --youtube-filled: #a4001d;
     --text-main: #ffffff;
     --text-sub: #f2f2f2;
     --text-muted: #d0d0d0;
@@ -11309,11 +11320,6 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     --divider: #d4d6d8;
     --primary: #0047a8;
     --primary-rgb: 0, 71, 168;
-    --primary-filled: #0047a8;
-    --success-filled: #006b3c;
-    --danger-filled: #a4001d;
-    --warning-filled: #6b4100;
-    --youtube-filled: #a4001d;
     --text-main: #000000;
     --text-sub: #111111;
     --text-muted: #333333;
@@ -11329,7 +11335,21 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     --scrollbar-thumb-active: #000000;
   }
 
+  html:not([data-contrast='normal']) :is(.tab-action-btn.active, .tab-action-btn.active-one) {
+    color: #000000;
+  }
+
   html:not([data-contrast='normal'])
+    :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
+    background: var(--primary);
+  }
+
+  html[data-theme='light']:not([data-contrast='normal'])
+    :is(.tab-action-btn.active, .tab-action-btn.active-one) {
+    color: #ffffff;
+  }
+
+  html[data-theme='light']:not([data-contrast='normal'])
     :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
     background: var(--primary-filled);
   }
@@ -11353,6 +11373,7 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     --success-filled: Highlight !important;
     --danger-filled: Highlight !important;
     --warning-filled: Highlight !important;
+    --warning-foreground: LinkText !important;
     --youtube-filled: Highlight !important;
     --text-main: CanvasText !important;
     --text-sub: CanvasText !important;

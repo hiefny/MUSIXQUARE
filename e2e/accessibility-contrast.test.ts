@@ -19,6 +19,14 @@ interface ContrastTokens {
   textMuted: string;
 }
 
+interface SemanticFillTokens {
+  danger: string;
+  primary: string;
+  success: string;
+  warning: string;
+  youtube: string;
+}
+
 interface LightContrastHierarchy {
   bg: string;
   divider: string;
@@ -125,6 +133,27 @@ async function contrastTokens(page: Page): Promise<ContrastTokens> {
   return tokens.body;
 }
 
+async function semanticFillTokens(page: Page): Promise<SemanticFillTokens> {
+  const tokens = await page.evaluate<{ root: SemanticFillTokens; body: SemanticFillTokens }>(() => {
+    const readTokens = (element: Element): SemanticFillTokens => {
+      const style = getComputedStyle(element);
+      return {
+        danger: style.getPropertyValue('--danger-filled').trim(),
+        primary: style.getPropertyValue('--primary-filled').trim(),
+        success: style.getPropertyValue('--success-filled').trim(),
+        warning: style.getPropertyValue('--warning-filled').trim(),
+        youtube: style.getPropertyValue('--youtube-filled').trim(),
+      };
+    };
+    return {
+      root: readTokens(document.documentElement),
+      body: readTokens(document.body),
+    };
+  });
+  expect(tokens.body).toEqual(tokens.root);
+  return tokens.body;
+}
+
 async function lightContrastHierarchy(page: Page): Promise<LightContrastHierarchy> {
   const hierarchy = await page.evaluate<{
     root: LightContrastHierarchy;
@@ -215,6 +244,13 @@ test.describe('OS contrast CSS integration', () => {
     await expect
       .poll(() => contrastTokens(page))
       .toEqual({ bg: '#000000', primary: '#8ab4ff', textMuted: '#d0d0d0' });
+    expect(await semanticFillTokens(page)).toEqual({
+      danger: '#a4001d',
+      primary: '#0047a8',
+      success: '#006b3c',
+      warning: '#6b4100',
+      youtube: '#a4001d',
+    });
     await expect(page.locator('html')).not.toHaveAttribute('data-contrast');
     expect(controlStructure(await controlStyles(page, '#ob-next'))).toEqual(buttonStructure);
     expect(
@@ -296,6 +332,13 @@ test.describe('OS contrast CSS integration', () => {
       primary: '#8ab4ff',
       textMuted: '#d0d0d0',
     });
+    expect(await semanticFillTokens(page)).toEqual({
+      danger: '#a4001d',
+      primary: '#0047a8',
+      success: '#006b3c',
+      warning: '#6b4100',
+      youtube: '#a4001d',
+    });
     expect(await firstContrastMutation(page)).toEqual({
       operation: 'set',
       value: 'more',
@@ -337,6 +380,13 @@ test.describe('OS contrast CSS integration', () => {
       surface2: '#d4d4d4',
       surface3: '#a8a8a8',
       textMain: '#000000',
+    });
+    expect(await semanticFillTokens(page)).toEqual({
+      danger: '#a4001d',
+      primary: '#0047a8',
+      success: '#006b3c',
+      warning: '#6b4100',
+      youtube: '#a4001d',
     });
     expect(await page.locator('body').evaluate((body) => getComputedStyle(body).color)).toBe(
       'rgb(0, 0, 0)',

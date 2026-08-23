@@ -122,7 +122,7 @@ const CARDS = [
     outFile: 'public/og-history.png',
     props: {
       headline: 'History',
-      tagline: 'Changelog · Roadmap · Limitations',
+      tagline: 'From August 2025 to today',
     },
   },
   {

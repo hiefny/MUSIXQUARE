@@ -251,6 +251,7 @@ describe('landing-page translation integrity', () => {
       'code.toast_fail',
       'footer.history',
       'footer.designsystem',
+      'sync.meta',
     ]);
     expect(Object.keys(fallback).sort()).toEqual(
       Object.keys(dictionaries.en)

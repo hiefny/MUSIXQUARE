@@ -620,6 +620,9 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(landingHtml).toContain('<script src="/landing-bootstrap.js"></script>');
     expect(landingHtml).toContain('<script src="/landing-i18n.js"></script>');
     expect(landingHtml).toContain('<script defer src="/analytics-bootstrap.js"></script>');
+    expect(landingHtml).toContain(
+      '<link rel="stylesheet" href="/designsystem/colors_and_type.css" />',
+    );
     expect(faqHtml).toContain('<script defer src="/policy-accordion.js"></script>');
     expect(faqHtml).toContain('<script defer src="/analytics-bootstrap.js"></script>');
     expect(accountHtml).toContain('<script src="/account-complete.js" defer></script>');

@@ -469,6 +469,9 @@ describe('public design-system page contract', () => {
     expect(designStylesheet).toContain('@keyframes design-volume-muted-cycle');
     expect(designStylesheet).toContain('@keyframes design-volume-level-cycle');
     expect(designStylesheet).toMatch(
+      /@property\s+--range-progress\s*\{[^}]*syntax:\s*'<percentage>';[^}]*inherits:\s*true;[^}]*initial-value:\s*0%;[^}]*\}/su,
+    );
+    expect(designStylesheet).toMatch(
       /\.range-volume-demo\s*\{[^}]*max-width:\s*140px;[^}]*grid-column:\s*span 3;/su,
     );
     expect(designStylesheet).toMatch(/\.range-effect-demo\s*\{[^}]*grid-column:\s*span 9;/su);

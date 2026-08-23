@@ -267,6 +267,24 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       const navigationRect = navigation.getBoundingClientRect();
       const toastRect = toast.getBoundingClientRect();
       const dialogRect = dialog.getBoundingClientRect();
+      const rangeProgressPropertyRule = [...document.styleSheets]
+        .flatMap((stylesheet) => {
+          try {
+            return [...stylesheet.cssRules];
+          } catch {
+            return [];
+          }
+        })
+        .find((rule) => rule.cssText.startsWith('@property --range-progress'));
+      const rangeProgressProbe = document.createElement('div');
+      const rangeProgressProbeChild = document.createElement('span');
+      rangeProgressProbe.style.setProperty('--range-progress', '38%');
+      rangeProgressProbe.append(rangeProgressProbeChild);
+      document.body.append(rangeProgressProbe);
+      const inheritedRangeProgress = getComputedStyle(rangeProgressProbeChild)
+        .getPropertyValue('--range-progress')
+        .trim();
+      rangeProgressProbe.remove();
 
       return {
         dialogRadii: [...document.querySelectorAll<HTMLElement>('.dialog-actions > button')].map(
@@ -306,6 +324,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           volumeSpecimenWidth: document
             .querySelector<HTMLElement>('.range-volume-demo')!
             .getBoundingClientRect().width,
+          inheritedProgress: inheritedRangeProgress,
+          propertyRule: rangeProgressPropertyRule?.cssText ?? '',
         },
         interfacePatterns: {
           tabCount: document.querySelectorAll('.settings-subtab-sample .subtab-pill').length,
@@ -444,6 +464,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
         count: 8,
         eqCount: 5,
         eqHeight: 160,
+        inheritedProgress: '38%',
+        propertyRule: expect.stringMatching(/inherits:\s*true/iu),
         volumeProgress: '0%',
       }),
     );

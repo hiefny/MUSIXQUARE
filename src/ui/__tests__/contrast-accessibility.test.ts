@@ -22,19 +22,31 @@ describe('OS contrast accessibility styles', () => {
     const css = await readFile('css/style.css', 'utf8');
 
     expect(css).toMatch(
-      /html\[data-contrast='more'\],\s*html\[data-contrast='more'\] body\s*\{[\s\S]*?--bg:\s*#000000;[\s\S]*?--primary:\s*#8ab4ff;[\s\S]*?--primary-filled:\s*#174ea6;[\s\S]*?--text-muted:\s*#d0d0d0;/u,
+      /html\[data-contrast='more'\]\s*\{[\s\S]*?--bg:\s*#000000;[\s\S]*?--primary:\s*#8ab4ff;[\s\S]*?--primary-filled:\s*#174ea6;[\s\S]*?--text-muted:\s*#d0d0d0;/u,
     );
     expect(css).toMatch(
-      /html\[data-contrast='more'\],\s*html\[data-contrast='more'\] body\s*\{[\s\S]*?--divider:\s*#262626;[\s\S]*?--glass-border:\s*#262626;/u,
+      /html\[data-contrast='more'\]\s*\{[\s\S]*?--divider:\s*#262626;[\s\S]*?--glass-border:\s*#262626;/u,
     );
     expect(css).toMatch(
-      /html\[data-theme='light'\]\[data-contrast='more'\],\s*html\[data-theme='light'\]\[data-contrast='more'\] body\s*\{[\s\S]*?--bg:\s*#f2f2f2;[\s\S]*?--surface-1:\s*#ffffff;[\s\S]*?--surface-2:\s*#d4d4d4;[\s\S]*?--surface-3:\s*#a8a8a8;[\s\S]*?--divider:\s*#d4d6d8;[\s\S]*?--primary:\s*#0047a8;[\s\S]*?--primary-filled:\s*#0047a8;[\s\S]*?--text-main:\s*#000000;[\s\S]*?--text-muted:\s*#333333;/u,
+      /html\[data-theme='light'\]\[data-contrast='more'\]\s*\{[\s\S]*?--bg:\s*#f2f2f2;[\s\S]*?--surface-1:\s*#ffffff;[\s\S]*?--surface-2:\s*#d4d4d4;[\s\S]*?--surface-3:\s*#a8a8a8;[\s\S]*?--divider:\s*#d4d6d8;[\s\S]*?--primary:\s*#0047a8;[\s\S]*?--primary-filled:\s*#0047a8;[\s\S]*?--text-main:\s*#000000;[\s\S]*?--text-muted:\s*#333333;/u,
     );
 
     const baseRoot = css.match(/@layer base\s*\{\s*:root\s*\{([\s\S]*?)\n\s*\}/u)?.[1] ?? '';
     expect(baseRoot).toContain('--bg: #121212;');
     expect(baseRoot).toContain('--primary: #3b82f6;');
     expect(baseRoot).toContain('--text-main: #eeeeee;');
+
+    const paletteDeclaration =
+      /--(?:bg|surface-[123]|divider|primary(?:-rgb|-filled)?|success-filled|danger-filled|warning-filled|youtube-filled|accent(?:-rgb)?|text-(?:main|sub|muted)|range-fill-(?:idle|active)|play-fab-bg-(?:idle|active|disabled)|glass-(?:bg|border)|scrollbar-thumb(?:-hover|-active)?)\s*:/u;
+    const cssWithoutComments = css.replace(/\/\*[\s\S]*?\*\//gu, '');
+    const paletteOwners = [...cssWithoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/gu)]
+      .filter((match) => paletteDeclaration.test(match[2] ?? ''))
+      .map((match) => (match[1] ?? '').trim());
+
+    expect(paletteOwners.length).toBeGreaterThan(0);
+    for (const selector of paletteOwners) {
+      expect(selector).not.toMatch(/\bbody\b/u);
+    }
   });
 
   it('keeps prefers-contrast and its debug override color-only', async () => {
@@ -65,7 +77,7 @@ describe('OS contrast accessibility styles', () => {
     }
 
     expect(css).toContain("html[data-theme='light']:not([data-contrast='normal'])");
-    expect(css).toContain("html[data-theme='light']:not([data-contrast='normal']) body");
+    expect(css).not.toContain("html[data-theme='light']:not([data-contrast='normal']) body");
     expect(flatControls).toContain("html[data-contrast='more']");
     expect(flatControls).toMatch(
       /html\[data-contrast='more'\][\s\S]*?\.demo-step-next:not\(\.is-final\)[\s\S]*?background:\s*var\(--primary-filled\);[\s\S]*?color:\s*#fff;/u,
@@ -122,7 +134,7 @@ describe('OS contrast accessibility styles', () => {
     const css = await readFile('css/style.css', 'utf8');
 
     expect(css).toContain('@media (forced-colors: active)');
-    expect(css).toMatch(/:root,\s*:root body\s*\{/u);
+    expect(css).toMatch(/@media \(forced-colors: active\)\s*\{\s*:root\s*\{/u);
     for (const declaration of [
       '--bg: Canvas !important;',
       '--surface-2: ButtonFace !important;',

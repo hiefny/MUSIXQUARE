@@ -88,7 +88,11 @@
   html[data-theme='light'],
   html[data-theme='light'] body {
     color-scheme: light;
+  }
 
+  /* Palette tokens are owned by the document root. Descendants, including
+     body, consume the inherited values instead of shadowing them. */
+  html[data-theme='light'] {
     /* Palette - Light & Sleek */
     --bg: #f8f9fa;
     /* Soft dynamic background */
@@ -11172,8 +11176,7 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
    palette.
    -------------------------------------------------------------------------- */
 
-html[data-contrast='more'],
-html[data-contrast='more'] body {
+html[data-contrast='more'] {
   --bg: #000000;
   --surface-1: #0a0a0a;
   --surface-2: #1f1f1f;
@@ -11201,8 +11204,7 @@ html[data-contrast='more'] body {
   --scrollbar-thumb-active: #ffffff;
 }
 
-html[data-theme='light'][data-contrast='more'],
-html[data-theme='light'][data-contrast='more'] body {
+html[data-theme='light'][data-contrast='more'] {
   --bg: #f2f2f2;
   --surface-1: #ffffff;
   --surface-2: #d4d4d4;
@@ -11245,8 +11247,7 @@ html[data-contrast='more'] :is(header, .bottom-nav) {
 }
 
 @media (prefers-contrast: more) {
-  html:not([data-contrast='normal']),
-  html:not([data-contrast='normal']) body {
+  html:not([data-contrast='normal']) {
     --bg: #000000;
     --surface-1: #0a0a0a;
     --surface-2: #1f1f1f;
@@ -11274,8 +11275,7 @@ html[data-contrast='more'] :is(header, .bottom-nav) {
     --scrollbar-thumb-active: #ffffff;
   }
 
-  html[data-theme='light']:not([data-contrast='normal']),
-  html[data-theme='light']:not([data-contrast='normal']) body {
+  html[data-theme='light']:not([data-contrast='normal']) {
     --bg: #f2f2f2;
     --surface-1: #ffffff;
     --surface-2: #d4d4d4;
@@ -11318,8 +11318,7 @@ html[data-contrast='more'] :is(header, .bottom-nav) {
 }
 
 @media (forced-colors: active) {
-  :root,
-  :root body {
+  :root {
     /* System colors must outrank the authored manual/OS contrast palettes
        when both media features are active. */
     --bg: Canvas !important;

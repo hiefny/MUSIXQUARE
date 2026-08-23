@@ -113,28 +113,47 @@ async function openApp(page: Page): Promise<void> {
 }
 
 async function contrastTokens(page: Page): Promise<ContrastTokens> {
-  return page.locator('body').evaluate<ContrastTokens>((body) => {
-    const style = getComputedStyle(body);
+  const tokens = await page.evaluate<{ root: ContrastTokens; body: ContrastTokens }>(() => {
+    const readTokens = (element: Element): ContrastTokens => {
+      const style = getComputedStyle(element);
+      return {
+        bg: style.getPropertyValue('--bg').trim(),
+        primary: style.getPropertyValue('--primary').trim(),
+        textMuted: style.getPropertyValue('--text-muted').trim(),
+      };
+    };
     return {
-      bg: style.getPropertyValue('--bg').trim(),
-      primary: style.getPropertyValue('--primary').trim(),
-      textMuted: style.getPropertyValue('--text-muted').trim(),
+      root: readTokens(document.documentElement),
+      body: readTokens(document.body),
     };
   });
+  expect(tokens.body).toEqual(tokens.root);
+  return tokens.body;
 }
 
 async function lightContrastHierarchy(page: Page): Promise<LightContrastHierarchy> {
-  return page.locator('body').evaluate<LightContrastHierarchy>((body) => {
-    const style = getComputedStyle(body);
+  const hierarchy = await page.evaluate<{
+    root: LightContrastHierarchy;
+    body: LightContrastHierarchy;
+  }>(() => {
+    const readHierarchy = (element: Element): LightContrastHierarchy => {
+      const style = getComputedStyle(element);
+      return {
+        bg: style.getPropertyValue('--bg').trim(),
+        divider: style.getPropertyValue('--divider').trim(),
+        surface1: style.getPropertyValue('--surface-1').trim(),
+        surface2: style.getPropertyValue('--surface-2').trim(),
+        surface3: style.getPropertyValue('--surface-3').trim(),
+        textMain: style.getPropertyValue('--text-main').trim(),
+      };
+    };
     return {
-      bg: style.getPropertyValue('--bg').trim(),
-      divider: style.getPropertyValue('--divider').trim(),
-      surface1: style.getPropertyValue('--surface-1').trim(),
-      surface2: style.getPropertyValue('--surface-2').trim(),
-      surface3: style.getPropertyValue('--surface-3').trim(),
-      textMain: style.getPropertyValue('--text-main').trim(),
+      root: readHierarchy(document.documentElement),
+      body: readHierarchy(document.body),
     };
   });
+  expect(hierarchy.body).toEqual(hierarchy.root);
+  return hierarchy.body;
 }
 
 async function chromeSurfaceColors(page: Page): Promise<ChromeSurfaceColors> {
@@ -227,6 +246,33 @@ test.describe('OS contrast CSS integration', () => {
     await expect
       .poll(() => contrastTokens(page))
       .toEqual({ bg: '#121212', primary: '#3b82f6', textMuted: '#71717a' });
+  });
+
+  test('inherits the ordinary light palette from the document root', async ({ page }) => {
+    await page.emulateMedia({
+      colorScheme: 'light',
+      contrast: 'no-preference',
+      forcedColors: 'none',
+    });
+    await installPreferenceAndFirstPaintProbe(page, 'auto', 'light');
+    await openApp(page);
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(page.locator('html')).not.toHaveAttribute('data-contrast');
+    expect(await lightContrastHierarchy(page)).toEqual({
+      bg: '#f8f9fa',
+      divider: '#d4d6d8',
+      surface1: '#ffffff',
+      surface2: '#eff1f3',
+      surface3: '#b7b9bb',
+      textMain: '#303540',
+    });
+    expect(
+      await page.locator('body').evaluate((body) => ({
+        backgroundColor: getComputedStyle(body).backgroundColor,
+        color: getComputedStyle(body).color,
+      })),
+    ).toEqual({ backgroundColor: 'rgb(248, 249, 250)', color: 'rgb(48, 53, 64)' });
   });
 
   test('persisted off suppresses authored contrast even when the OS requests more', async ({

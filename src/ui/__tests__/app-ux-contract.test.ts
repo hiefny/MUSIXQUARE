@@ -41,6 +41,41 @@ beforeAll(() => {
 });
 
 describe('app UX markup contract', () => {
+  it('expresses the intentional theme-specific play-action elevation through a semantic token', () => {
+    expect(appStylesheet).toMatch(/:root\s*\{[^}]*--play-action-surface:\s*var\(--surface-2\);/u);
+    expect(appStylesheet).toMatch(
+      /html\[data-theme='light'\]\s*\{[^}]*--play-action-surface:\s*var\(--surface-1\);/u,
+    );
+    expect(declarationsForSelector('.chat-preview-btn').join('\n')).toContain(
+      'background: var(--play-action-surface);',
+    );
+    expect(declarationsForSelector('.file-select-btn').join('\n')).toContain(
+      'background: var(--play-action-surface);',
+    );
+
+    const lightChatRules = declarationsForSelector("[data-theme='light'] .chat-preview-btn");
+    const lightMediaRules = declarationsForSelector("[data-theme='light'] .file-select-btn");
+    const lightChatStickyHoverRules = declarationsForSelector(
+      "[data-theme='light'] .chat-preview-btn:hover:not(:active)",
+    );
+    const lightMediaStickyHoverRules = declarationsForSelector(
+      "[data-theme='light'] .file-select-btn:hover:not(:active)",
+    );
+    const lightPlayActionRules = [
+      ...lightChatRules,
+      ...lightMediaRules,
+      ...lightChatStickyHoverRules,
+      ...lightMediaStickyHoverRules,
+    ].join('\n');
+    expect(lightPlayActionRules).not.toMatch(/background:\s*#fff(?:fff)?/iu);
+    expect(lightChatStickyHoverRules.join('\n')).toContain(
+      'background: var(--play-action-surface);',
+    );
+    expect(lightMediaStickyHoverRules.join('\n')).toContain(
+      'background: var(--play-action-surface);',
+    );
+  });
+
   it('makes the visualizer itself the accessible mode control and removes the settings row', () => {
     const visualizer = appDocument.getElementById('visualizerCanvas');
 

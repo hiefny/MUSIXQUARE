@@ -28,12 +28,6 @@ interface LightContrastHierarchy {
   textMain: string;
 }
 
-interface ChromeSurfaceColors {
-  header: string;
-  navigation: string;
-  surface1: string;
-}
-
 interface ControlStyles {
   backgroundColor: string;
   borderRadius: string;
@@ -154,14 +148,6 @@ async function lightContrastHierarchy(page: Page): Promise<LightContrastHierarch
   });
   expect(hierarchy.body).toEqual(hierarchy.root);
   return hierarchy.body;
-}
-
-async function chromeSurfaceColors(page: Page): Promise<ChromeSurfaceColors> {
-  return page.evaluate<ChromeSurfaceColors>(() => ({
-    header: getComputedStyle(document.querySelector('header')!).backgroundColor,
-    navigation: getComputedStyle(document.querySelector('.bottom-nav')!).backgroundColor,
-    surface1: getComputedStyle(document.body).getPropertyValue('--surface-1').trim(),
-  }));
 }
 
 async function firstContrastMutation(page: Page): Promise<ContrastFirstMutation | null> {
@@ -315,11 +301,6 @@ test.describe('OS contrast CSS integration', () => {
       value: 'more',
       readyState: 'loading',
     });
-    expect(await chromeSurfaceColors(page)).toEqual({
-      header: 'rgb(10, 10, 10)',
-      navigation: 'rgb(10, 10, 10)',
-      surface1: '#0a0a0a',
-    });
 
     const buttonWithOverride = controlStructure(await controlStyles(page, '#ob-next'));
     const flatControlWithOverride = controlStructure(
@@ -363,11 +344,6 @@ test.describe('OS contrast CSS integration', () => {
     expect(
       await page.locator('body').evaluate((body) => getComputedStyle(body).backgroundColor),
     ).toBe('rgb(242, 242, 242)');
-    expect(await chromeSurfaceColors(page)).toEqual({
-      header: 'rgb(255, 255, 255)',
-      navigation: 'rgb(255, 255, 255)',
-      surface1: '#ffffff',
-    });
   });
 
   test('OS auto contrast applies the same light palette to the rendered body', async ({ page }) => {
@@ -395,11 +371,6 @@ test.describe('OS contrast CSS integration', () => {
         color: getComputedStyle(body).color,
       })),
     ).toEqual({ backgroundColor: 'rgb(242, 242, 242)', color: 'rgb(0, 0, 0)' });
-    expect(await chromeSurfaceColors(page)).toEqual({
-      header: 'rgb(255, 255, 255)',
-      navigation: 'rgb(255, 255, 255)',
-      surface1: '#ffffff',
-    });
   });
 
   test('forced colors outranks authored contrast and preserves control structure', async ({

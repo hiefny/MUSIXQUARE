@@ -91,19 +91,13 @@ describe('filled UI brand colors', () => {
   });
 
   it('keeps the final demo step on the established translucent active surface', async () => {
-    const [css, flatControls] = await Promise.all([
-      readFile('css/style.css', 'utf8'),
-      readFile('css/flat-controls.css', 'utf8'),
-    ]);
+    const css = await readFile('css/style.css', 'utf8');
 
-    expect(flatControls).toMatch(
-      /#demo-overlay \.demo-step-nav button\.active\s*\{[^}]*background:\s*var\(--flat-control-active\)[^}]*color:\s*var\(--primary\)/s,
+    expect(css).toMatch(
+      /\.demo-step-nav button\.active\s*\{[^}]*background:\s*var\(--control-active\)[^}]*color:\s*var\(--primary\)/s,
     );
     expect(css).not.toMatch(
       /\.demo-step-nav [^{]*\.demo-step-next\.is-final\s*\{[^}]*background(?:-color)?:/s,
-    );
-    expect(flatControls).not.toMatch(
-      /#demo-overlay \.demo-step-nav [^{]*\.demo-step-next\.is-final\s*\{[^}]*background(?:-color)?:/s,
     );
   });
 });

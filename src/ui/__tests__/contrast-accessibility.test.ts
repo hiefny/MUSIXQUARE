@@ -50,43 +50,34 @@ describe('OS contrast accessibility styles', () => {
   });
 
   it('keeps prefers-contrast and its debug override color-only', async () => {
-    const [css, flatControls] = await Promise.all([
-      readFile('css/style.css', 'utf8'),
-      readFile('css/flat-controls.css', 'utf8'),
-    ]);
+    const css = await readFile('css/style.css', 'utf8');
     const prefersStart = css.indexOf('@media (prefers-contrast: more)');
     const forcedStart = css.indexOf('@media (forced-colors: active)', prefersStart);
+    const coreCss = css.slice(0, css.indexOf("html[data-contrast='more']"));
     const manualCss = css.slice(css.indexOf("html[data-contrast='more']"), prefersStart);
     const prefersCss = css.slice(prefersStart, forcedStart);
-    const flatPrefersStart = flatControls.indexOf('@media (prefers-contrast: more)');
-    const flatForcedStart = flatControls.indexOf(
-      '@media (forced-colors: active)',
-      flatPrefersStart,
-    );
-    const flatManualCss = flatControls.slice(
-      flatControls.indexOf("html[data-contrast='more']"),
-      flatPrefersStart,
-    );
-    const flatPrefersCss = flatControls.slice(flatPrefersStart, flatForcedStart);
+    const forcedCss = css.slice(forcedStart);
     const structuralDeclaration =
       /^\s*(?:border(?:-[\w-]+)?|box-shadow|filter|opacity|outline(?:-[\w-]+)?|text-decoration(?:-[\w-]+)?|transform):/mu;
 
-    for (const source of [css, flatControls]) {
-      expect(source).toContain('@media (prefers-contrast: more)');
-      expect(source).toContain("html:not([data-contrast='normal'])");
-    }
-
+    expect(css).toContain('@media (prefers-contrast: more)');
+    expect(css).toContain("html:not([data-contrast='normal'])");
     expect(css).toContain("html[data-theme='light']:not([data-contrast='normal'])");
     expect(css).not.toContain("html[data-theme='light']:not([data-contrast='normal']) body");
-    expect(flatControls).toContain("html[data-contrast='more']");
-    expect(flatControls).toMatch(
-      /html\[data-contrast='more'\][\s\S]*?\.demo-step-next:not\(\.is-final\)[\s\S]*?background:\s*var\(--primary-filled\);[\s\S]*?color:\s*#fff;/u,
+    expect(manualCss).toMatch(
+      /html\[data-contrast='more'\]\s*\{[^}]*--control-active:\s*rgba\(var\(--primary-rgb\), 0\.28\);[^}]*--control-danger:\s*rgba\(176, 0, 32, 0\.24\);[^}]*--control-danger-hover:\s*rgba\(176, 0, 32, 0\.34\);/u,
     );
-    expect(flatControls).toMatch(
-      /@media \(forced-colors: active\)[\s\S]*?\.demo-step-next:not\(\.is-final\)[\s\S]*?background:\s*Highlight !important;[\s\S]*?color:\s*HighlightText !important;/u,
+    expect(prefersCss).toMatch(
+      /html:not\(\[data-contrast='normal'\]\)\s*\{[^}]*--control-active:\s*rgba\(var\(--primary-rgb\), 0\.28\);[^}]*--control-danger:\s*rgba\(176, 0, 32, 0\.24\);[^}]*--control-danger-hover:\s*rgba\(176, 0, 32, 0\.34\);/u,
+    );
+    expect(coreCss).toMatch(
+      /\.demo-step-nav \.demo-step-next:not\(\.is-final\)\s*\{(?=[^}]*background:\s*var\(--primary-filled\);)(?=[^}]*border-color:\s*transparent;)(?=[^}]*color:\s*#fff;)[^}]*\}/u,
+    );
+    expect(forcedCss).toMatch(
+      /\.demo-step-nav \.demo-step-next:not\(\.is-final\)\s*\{[^}]*border-color:\s*Highlight !important;[^}]*background:\s*Highlight !important;[^}]*color:\s*HighlightText !important;/u,
     );
 
-    for (const colorOnlyCss of [manualCss, prefersCss, flatManualCss, flatPrefersCss]) {
+    for (const colorOnlyCss of [manualCss, prefersCss]) {
       expect(colorOnlyCss).not.toMatch(structuralDeclaration);
     }
 
@@ -103,12 +94,6 @@ describe('OS contrast accessibility styles', () => {
     expect(prefersCss).toContain('--surface-2: #d4d4d4;');
     expect(prefersCss).toContain('--surface-3: #a8a8a8;');
     expect(prefersCss).toContain('--text-main: #000000;');
-    expect(manualCss).toMatch(
-      /html\[data-contrast='more'\] :is\(header, \.bottom-nav\)\s*\{\s*background:\s*var\(--surface-1\);/u,
-    );
-    expect(prefersCss).toMatch(
-      /html:not\(\[data-contrast='normal'\]\) :is\(header, \.bottom-nav\)\s*\{\s*background:\s*var\(--surface-1\);/u,
-    );
   });
 
   it('keeps authored palette contrasts above their required ratios', () => {

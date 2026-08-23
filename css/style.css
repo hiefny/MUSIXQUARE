@@ -10,6 +10,8 @@
     /* Inputs, Buttons */
     --surface-3: #404040;
     /* Hover, Active */
+    --play-action-surface: var(--surface-2);
+    /* Play-tab actions remain visibly elevated from the dark canvas. */
     --divider: #262626;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
@@ -31,6 +33,9 @@
     --play-fab-bg-idle: rgba(238, 238, 238, 0.9);
     --play-fab-bg-active: var(--text-main);
     --play-fab-bg-disabled: rgba(238, 238, 238, 0.2);
+    --control-active: rgba(var(--primary-rgb), 0.13);
+    --control-danger: rgba(255, 59, 48, 0.09);
+    --control-danger-hover: rgba(255, 59, 48, 0.13);
 
     --radius-l: 32px;
     --radius-m: 20px;
@@ -102,6 +107,8 @@
     /* Header/Nav/Cards */
     --surface-3: #b7b9bb;
     /* Interactions */
+    --play-action-surface: var(--surface-1);
+    /* White keeps available play actions from reading like disabled controls. */
     --divider: #d4d6d8;
     --primary: #3b82f6;
     --primary-rgb: 59, 130, 246;
@@ -118,6 +125,9 @@
     --play-fab-bg-idle: rgba(48, 53, 64, 0.9);
     --play-fab-bg-active: var(--text-main);
     --play-fab-bg-disabled: rgba(48, 53, 64, 0.2);
+    --control-active: rgba(var(--primary-rgb), 0.11);
+    --control-danger: rgba(255, 59, 48, 0.075);
+    --control-danger-hover: rgba(255, 59, 48, 0.11);
 
     --glass-bg: var(--surface-1);
     --glass-border: rgba(0, 0, 0, 0.06);
@@ -3629,7 +3639,7 @@
   }
 
   .ch-opt {
-    background: var(--surface-1);
+    background: var(--surface-2);
     color: var(--text-sub);
     padding: 18px 12px;
     border-radius: var(--radius-m);
@@ -3643,7 +3653,7 @@
     justify-content: center;
     gap: 8px;
     transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-    border: 2px solid var(--surface-2);
+    border: 2px solid transparent;
     /* Native-button resets — .ch-opt is <button> for Tab-focus a11y.
            Keep browser default :focus-visible outline so keyboard users
            get the OS-consistent focus ring. */
@@ -3662,12 +3672,20 @@
   }
 
   .ch-opt.active,
-  .ch-opt.selected {
-    background: rgba(var(--primary-rgb), 0.08);
-    border-color: rgba(var(--primary-rgb), 0.75);
+  .ch-opt.selected,
+  #demo-overlay .ch-opt.demo-choice[aria-pressed='true'] {
+    background: var(--control-active);
+    border-color: transparent;
     border-width: 2px;
     color: var(--primary);
-    box-shadow: 0 4px 14px rgba(var(--primary-rgb), 0.22);
+    box-shadow: none;
+  }
+
+  @media (hover: hover) {
+    #tab-settings .ch-opt:not(.active):not(.selected):hover,
+    #demo-overlay .ch-opt.demo-choice:not(.active):not(.selected):not([aria-pressed='true']):hover {
+      background: var(--surface-3);
+    }
   }
 
   .ch-opt.active svg,
@@ -6638,11 +6656,6 @@
     width: 100%;
   }
 
-  #setup-role-grid .ch-opt {
-    background: var(--surface-2);
-    border: 2px solid transparent;
-  }
-
   #setup-role-grid .ch-opt:active {
     transform: scale(0.97);
     background: var(--surface-3);
@@ -7372,7 +7385,7 @@
     padding: 0 20px;
     /* The secondary area's auto margin owns spacing from the transport group. */
     margin-top: 0;
-    background: var(--surface-2);
+    background: var(--play-action-surface);
     border-radius: 20px;
     cursor: pointer;
     transition:
@@ -8017,10 +8030,10 @@
     opacity: 0.7;
   }
 
-  /* Light Mode Play Tab Buttons (White Background) */
+  /* Light play actions stay flat; their intentional white surface is owned by
+     --play-action-surface alongside the rest of the theme palette. */
   [data-theme='light'] .chat-preview-btn,
   [data-theme='light'] .file-select-btn {
-    background: #ffffff;
     box-shadow: none;
     border: none;
   }
@@ -8549,14 +8562,15 @@
     grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
     min-height: 52px;
+    gap: 8px;
     background: transparent;
   }
 
   .demo-role-segmented button {
     min-width: 0;
     border: none;
-    border-left: 1px solid rgba(128, 128, 128, 0.14);
-    background: transparent;
+    border-radius: var(--radius-s);
+    background: var(--surface-2);
     color: var(--text-sub);
     display: flex;
     align-items: center;
@@ -8573,13 +8587,15 @@
       background 0.2s;
   }
 
-  .demo-role-segmented button:first-child {
-    border-left: none;
-  }
-
   .demo-role-segmented button[aria-pressed='true'] {
     color: var(--primary);
-    background: transparent;
+    background: var(--control-active);
+  }
+
+  @media (hover: hover) {
+    .demo-role-segmented button:not([aria-pressed='true']):hover {
+      background: var(--surface-3);
+    }
   }
 
   .demo-role-segmented svg {
@@ -8621,6 +8637,20 @@
     flex-direction: row;
     justify-content: center;
     gap: 10px;
+  }
+
+  .demo-large-actions .accent-action-btn {
+    background: var(--control-active);
+  }
+
+  .demo-large-actions .leave-session-btn {
+    background: var(--control-danger);
+  }
+
+  @media (hover: hover) {
+    .demo-large-actions .leave-session-btn:hover {
+      background: var(--control-danger-hover);
+    }
   }
 
   .demo-effects-content .demo-large-actions {
@@ -8716,7 +8746,7 @@
     min-width: 0;
     height: var(--demo-step-dot-size);
     min-height: var(--demo-step-dot-size);
-    border: 1px solid rgba(128, 128, 128, 0.14);
+    border: 1px solid transparent;
     border-radius: 999px;
     background: var(--surface-2);
     color: var(--text-sub);
@@ -8765,14 +8795,14 @@
   .demo-step-nav button.active {
     flex-basis: var(--demo-step-pill-size);
     padding: 0 clamp(8px, 2.6vw, 14px);
-    background: rgba(var(--primary-rgb), 0.18);
-    border-color: rgba(var(--primary-rgb), 0.75);
+    background: var(--control-active);
+    border-color: transparent;
     color: var(--primary);
   }
 
   .demo-step-nav .demo-step-next:not(.is-final) {
     background: var(--primary-filled);
-    border-color: rgba(var(--primary-rgb), 0.75);
+    border-color: transparent;
     color: #fff;
   }
 
@@ -9092,7 +9122,7 @@
     height: 72px;
     margin-top: auto;
     gap: 10px;
-    background: var(--surface-2);
+    background: var(--play-action-surface);
     border-radius: 20px;
     padding: 0 20px;
     border: 2px solid transparent;
@@ -9403,7 +9433,7 @@
 
     [data-theme='light'] .chat-preview-btn:hover:not(:active),
     [data-theme='light'] .file-select-btn:hover:not(:active) {
-      background: #ffffff;
+      background: var(--play-action-surface);
     }
 
     [data-theme='light'] .btn-copy-invite-link[data-mode='copy']:hover:not(:active) {
@@ -11130,10 +11160,6 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
   border-radius: 0 !important;
 }
 
-.demo-role-segmented.demo-role-segmented > button[data-demo-role][data-demo-role] {
-  border-radius: 0 !important;
-}
-
 @media (min-width: 720px) and (max-width: 1279px) {
   .bottom-nav button.nav-item {
     border-radius: 10px !important;
@@ -11197,6 +11223,9 @@ html[data-contrast='more'] {
   --play-fab-bg-idle: rgba(255, 255, 255, 0.96);
   --play-fab-bg-active: #ffffff;
   --play-fab-bg-disabled: rgba(255, 255, 255, 0.45);
+  --control-active: rgba(var(--primary-rgb), 0.28);
+  --control-danger: rgba(176, 0, 32, 0.24);
+  --control-danger-hover: rgba(176, 0, 32, 0.34);
   --glass-bg: var(--surface-1);
   --glass-border: #262626;
   --scrollbar-thumb: rgba(255, 255, 255, 0.65);
@@ -11240,12 +11269,6 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
   color: var(--primary-filled);
 }
 
-/* Authored high contrast keeps app chrome on one deliberate surface in both
-   themes. Normal dark-mode chrome remains governed by its existing rules. */
-html[data-contrast='more'] :is(header, .bottom-nav) {
-  background: var(--surface-1);
-}
-
 @media (prefers-contrast: more) {
   html:not([data-contrast='normal']) {
     --bg: #000000;
@@ -11268,6 +11291,9 @@ html[data-contrast='more'] :is(header, .bottom-nav) {
     --play-fab-bg-idle: rgba(255, 255, 255, 0.96);
     --play-fab-bg-active: #ffffff;
     --play-fab-bg-disabled: rgba(255, 255, 255, 0.45);
+    --control-active: rgba(var(--primary-rgb), 0.28);
+    --control-danger: rgba(176, 0, 32, 0.24);
+    --control-danger-hover: rgba(176, 0, 32, 0.34);
     --glass-bg: var(--surface-1);
     --glass-border: #262626;
     --scrollbar-thumb: rgba(255, 255, 255, 0.65);
@@ -11310,10 +11336,6 @@ html[data-contrast='more'] :is(header, .bottom-nav) {
 
   html:not([data-contrast='normal']) .tab-action-btn.active-one::after {
     color: var(--primary-filled);
-  }
-
-  html:not([data-contrast='normal']) :is(header, .bottom-nav) {
-    background: var(--surface-1);
   }
 }
 
@@ -11385,6 +11407,12 @@ html[data-contrast='more'] :is(header, .bottom-nav) {
   ) {
     border-color: Highlight !important;
     outline-color: Highlight;
+    background: Highlight !important;
+    color: HighlightText !important;
+  }
+
+  .demo-step-nav .demo-step-next:not(.is-final) {
+    border-color: Highlight !important;
     background: Highlight !important;
     color: HighlightText !important;
   }

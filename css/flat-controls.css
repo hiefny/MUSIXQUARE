@@ -122,9 +122,8 @@ html[data-theme='light'] {
   }
 }
 
-/* The default visual language remains borderless. Increased-contrast users
-   get a non-layout-affecting inner outline so adjacent flat controls do not
-   merge into one surface. */
+/* Increased contrast changes color tokens only. Structural overrides are
+   reserved for forced-colors, where the OS replaces authored surfaces. */
 html[data-contrast='more'] {
   --flat-control-active: rgba(var(--primary-rgb), 0.28);
   --flat-control-danger: rgba(176, 0, 32, 0.24);
@@ -134,33 +133,6 @@ html[data-contrast='more'] {
 html[data-contrast='more'] #demo-overlay .demo-step-nav .demo-step-next:not(.is-final) {
   background: var(--primary-filled);
   color: #fff;
-}
-
-html[data-contrast='more']
-  :is(
-    #tab-settings .ch-opt,
-    #demo-overlay .ch-opt.demo-choice,
-    #demo-overlay .demo-role-segmented button[data-demo-role],
-    #demo-overlay .demo-step-nav button,
-    #demo-overlay .demo-large-actions .accent-action-btn,
-    #demo-overlay .demo-large-actions .leave-session-btn
-  ) {
-  outline: 1px solid var(--divider);
-  outline-offset: -1px;
-}
-
-html[data-contrast='more']
-  :is(
-    #tab-settings .ch-opt.active,
-    #tab-settings .ch-opt.selected,
-    #demo-overlay .ch-opt.demo-choice.active,
-    #demo-overlay .ch-opt.demo-choice.selected,
-    #demo-overlay .ch-opt.demo-choice[aria-pressed='true'],
-    #demo-overlay .demo-role-segmented button[data-demo-role][aria-pressed='true'],
-    #demo-overlay .demo-step-nav button.active
-  ) {
-  outline-color: var(--primary);
-  outline-width: 2px;
 }
 
 @media (prefers-contrast: more) {
@@ -174,39 +146,12 @@ html[data-contrast='more']
     background: var(--primary-filled);
     color: #fff;
   }
-
-  html:not([data-contrast='normal'])
-    :is(
-      #tab-settings .ch-opt,
-      #demo-overlay .ch-opt.demo-choice,
-      #demo-overlay .demo-role-segmented button[data-demo-role],
-      #demo-overlay .demo-step-nav button,
-      #demo-overlay .demo-large-actions .accent-action-btn,
-      #demo-overlay .demo-large-actions .leave-session-btn
-    ) {
-    outline: 1px solid var(--divider);
-    outline-offset: -1px;
-  }
-
-  html:not([data-contrast='normal'])
-    :is(
-      #tab-settings .ch-opt.active,
-      #tab-settings .ch-opt.selected,
-      #demo-overlay .ch-opt.demo-choice.active,
-      #demo-overlay .ch-opt.demo-choice.selected,
-      #demo-overlay .ch-opt.demo-choice[aria-pressed='true'],
-      #demo-overlay .demo-role-segmented button[data-demo-role][aria-pressed='true'],
-      #demo-overlay .demo-step-nav button.active
-    ) {
-    outline-color: var(--primary);
-    outline-width: 2px;
-  }
 }
 
 @media (forced-colors: active) {
   #demo-overlay .demo-step-nav .demo-step-next:not(.is-final) {
-    border-color: Highlight;
-    background: Highlight;
-    color: HighlightText;
+    border-color: Highlight !important;
+    background: Highlight !important;
+    color: HighlightText !important;
   }
 }

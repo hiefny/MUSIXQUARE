@@ -11136,18 +11136,20 @@ button:not(.ch-opt):not(.nav-item):not(.subtab-pill):not([data-demo-role]):not(
 /* --------------------------------------------------------------------------
    OS contrast preferences
 
-   `data-contrast='more'` is the local/debug override. `normal` is an explicit
-   opt-out from the authored high-contrast palette; an absent attribute follows
-   the live OS preference. Windows forced-colors is intentionally independent:
-   its user-selected system palette must win over every MUSIXQUARE palette.
+   `data-contrast='more'` is the local/debug override for the same color-only
+   palette selected by the live OS preference. `normal` explicitly opts out.
+   Windows forced-colors is intentionally independent: its user-selected system
+   palette and structural control affordances must win over every MUSIXQUARE
+   palette.
    -------------------------------------------------------------------------- */
 
-html[data-contrast='more'] {
+html[data-contrast='more'],
+html[data-contrast='more'] body {
   --bg: #000000;
   --surface-1: #0a0a0a;
   --surface-2: #1f1f1f;
   --surface-3: #4d4d4d;
-  --divider: #8c8c8c;
+  --divider: #262626;
   --primary: #8ab4ff;
   --primary-rgb: 138, 180, 255;
   --primary-filled: #174ea6;
@@ -11164,18 +11166,19 @@ html[data-contrast='more'] {
   --play-fab-bg-active: #ffffff;
   --play-fab-bg-disabled: rgba(255, 255, 255, 0.45);
   --glass-bg: var(--surface-1);
-  --glass-border: #8c8c8c;
+  --glass-border: #262626;
   --scrollbar-thumb: rgba(255, 255, 255, 0.65);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.85);
   --scrollbar-thumb-active: #ffffff;
 }
 
-html[data-theme='light'][data-contrast='more'] {
-  --bg: #ffffff;
+html[data-theme='light'][data-contrast='more'],
+html[data-theme='light'][data-contrast='more'] body {
+  --bg: #f2f2f2;
   --surface-1: #ffffff;
-  --surface-2: #ededed;
-  --surface-3: #c7c7c7;
-  --divider: #1f2937;
+  --surface-2: #d4d4d4;
+  --surface-3: #a8a8a8;
+  --divider: #d4d6d8;
   --primary: #0047a8;
   --primary-rgb: 0, 71, 168;
   --primary-filled: #0047a8;
@@ -11192,93 +11195,10 @@ html[data-theme='light'][data-contrast='more'] {
   --play-fab-bg-active: #000000;
   --play-fab-bg-disabled: rgba(0, 0, 0, 0.42);
   --glass-bg: var(--surface-1);
-  --glass-border: #1f2937;
+  --glass-border: #d4d6d8;
   --scrollbar-thumb: rgba(0, 0, 0, 0.65);
   --scrollbar-thumb-hover: rgba(0, 0, 0, 0.85);
   --scrollbar-thumb-active: #000000;
-}
-
-html[data-contrast='more'] ::placeholder {
-  opacity: 1;
-}
-
-html[data-contrast='more']
-  :is(.chat-cmd-ghost-hint, .chat-join-order, .chat-pinned-notice-time, .chat-pinned-notice-close) {
-  opacity: 0.85;
-}
-
-/* Authored high contrast needs structural affordances as well as stronger
-   colors. Outlines preserve the existing geometry while making borderless
-   hit surfaces, state, and focus visible at non-text contrast levels. */
-html[data-contrast='more'] :is(button, [role='button'], [role='switch'], [role='tab']) {
-  outline: 1px solid var(--divider);
-  outline-offset: -1px;
-}
-
-html[data-contrast='more']
-  :is(button, [role='button'], [role='switch'], [role='tab']):is(
-    [aria-pressed='true'],
-    [aria-selected='true'],
-    [aria-checked='true']
-  ),
-html[data-contrast='more']
-  :is(
-    .track-item.active,
-    .sub-track-item.active,
-    .yt-search-result.selected,
-    .chat-cmd-item.active,
-    .language-option.active
-  ) {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-}
-
-html[data-contrast='more']
-  :is(
-    a,
-    button,
-    input,
-    textarea,
-    select,
-    [contenteditable='true'],
-    [contenteditable='plaintext-only'],
-    [role='button'],
-    [role='switch'],
-    [role='tab'],
-    [role='textbox'],
-    [role='combobox']
-  ):focus-visible {
-  outline: 3px solid var(--primary) !important;
-  outline-offset: 2px !important;
-}
-
-html[data-contrast='more']
-  :is(
-    input:not([type='range']):not([type='hidden']),
-    textarea,
-    select,
-    [contenteditable='true'],
-    [contenteditable='plaintext-only'],
-    [role='textbox'],
-    [role='combobox']
-  ) {
-  border-color: var(--divider);
-  outline: 1px solid var(--divider);
-  outline-offset: -1px;
-}
-
-html[data-contrast='more']
-  :is(button, [role='button'], [role='switch'], [role='tab']):is(:disabled, [aria-disabled='true']),
-html[data-contrast='more'] :is(input, textarea, select):disabled {
-  outline-color: var(--text-muted);
-  outline-style: dashed;
-  color: var(--text-muted) !important;
-  opacity: 1 !important;
-}
-
-html[data-contrast='more'] a {
-  text-decoration-thickness: max(1px, 0.08em);
-  text-underline-offset: 0.16em;
 }
 
 html[data-contrast='more'] :is(.tab-action-btn.active, .tab-action-btn.active-one)::before {
@@ -11289,23 +11209,14 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
   color: var(--primary-filled);
 }
 
-/* Keep vendor pseudo-elements separate: an unknown pseudo-element can
-   invalidate the complete selector list in another engine. */
-html[data-contrast='more'] input[type='range']::-webkit-slider-runnable-track {
-  border: 1px solid var(--divider);
-}
-
-html[data-contrast='more'] input[type='range']::-moz-range-track {
-  border: 1px solid var(--divider);
-}
-
 @media (prefers-contrast: more) {
-  html:not([data-contrast='normal']) {
+  html:not([data-contrast='normal']),
+  html:not([data-contrast='normal']) body {
     --bg: #000000;
     --surface-1: #0a0a0a;
     --surface-2: #1f1f1f;
     --surface-3: #4d4d4d;
-    --divider: #8c8c8c;
+    --divider: #262626;
     --primary: #8ab4ff;
     --primary-rgb: 138, 180, 255;
     --primary-filled: #174ea6;
@@ -11322,18 +11233,19 @@ html[data-contrast='more'] input[type='range']::-moz-range-track {
     --play-fab-bg-active: #ffffff;
     --play-fab-bg-disabled: rgba(255, 255, 255, 0.45);
     --glass-bg: var(--surface-1);
-    --glass-border: #8c8c8c;
+    --glass-border: #262626;
     --scrollbar-thumb: rgba(255, 255, 255, 0.65);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.85);
     --scrollbar-thumb-active: #ffffff;
   }
 
-  html[data-theme='light']:not([data-contrast='normal']) {
-    --bg: #ffffff;
+  html[data-theme='light']:not([data-contrast='normal']),
+  html[data-theme='light']:not([data-contrast='normal']) body {
+    --bg: #f2f2f2;
     --surface-1: #ffffff;
-    --surface-2: #ededed;
-    --surface-3: #c7c7c7;
-    --divider: #1f2937;
+    --surface-2: #d4d4d4;
+    --surface-3: #a8a8a8;
+    --divider: #d4d6d8;
     --primary: #0047a8;
     --primary-rgb: 0, 71, 168;
     --primary-filled: #0047a8;
@@ -11350,98 +11262,10 @@ html[data-contrast='more'] input[type='range']::-moz-range-track {
     --play-fab-bg-active: #000000;
     --play-fab-bg-disabled: rgba(0, 0, 0, 0.42);
     --glass-bg: var(--surface-1);
-    --glass-border: #1f2937;
+    --glass-border: #d4d6d8;
     --scrollbar-thumb: rgba(0, 0, 0, 0.65);
     --scrollbar-thumb-hover: rgba(0, 0, 0, 0.85);
     --scrollbar-thumb-active: #000000;
-  }
-
-  html:not([data-contrast='normal']) ::placeholder {
-    opacity: 1;
-  }
-
-  html:not([data-contrast='normal'])
-    :is(
-      .chat-cmd-ghost-hint,
-      .chat-join-order,
-      .chat-pinned-notice-time,
-      .chat-pinned-notice-close
-    ) {
-    opacity: 0.85;
-  }
-
-  html:not([data-contrast='normal']) :is(button, [role='button'], [role='switch'], [role='tab']) {
-    outline: 1px solid var(--divider);
-    outline-offset: -1px;
-  }
-
-  html:not([data-contrast='normal'])
-    :is(button, [role='button'], [role='switch'], [role='tab']):is(
-      [aria-pressed='true'],
-      [aria-selected='true'],
-      [aria-checked='true']
-    ),
-  html:not([data-contrast='normal'])
-    :is(
-      .track-item.active,
-      .sub-track-item.active,
-      .yt-search-result.selected,
-      .chat-cmd-item.active,
-      .language-option.active
-    ) {
-    outline: 2px solid var(--primary);
-    outline-offset: -2px;
-  }
-
-  html:not([data-contrast='normal'])
-    :is(
-      a,
-      button,
-      input,
-      textarea,
-      select,
-      [contenteditable='true'],
-      [contenteditable='plaintext-only'],
-      [role='button'],
-      [role='switch'],
-      [role='tab'],
-      [role='textbox'],
-      [role='combobox']
-    ):focus-visible {
-    outline: 3px solid var(--primary) !important;
-    outline-offset: 2px !important;
-  }
-
-  html:not([data-contrast='normal'])
-    :is(
-      input:not([type='range']):not([type='hidden']),
-      textarea,
-      select,
-      [contenteditable='true'],
-      [contenteditable='plaintext-only'],
-      [role='textbox'],
-      [role='combobox']
-    ) {
-    border-color: var(--divider);
-    outline: 1px solid var(--divider);
-    outline-offset: -1px;
-  }
-
-  html:not([data-contrast='normal'])
-    :is(button, [role='button'], [role='switch'], [role='tab']):is(
-      :disabled,
-      [aria-disabled='true']
-    ),
-  html:not([data-contrast='normal']) :is(input, textarea, select):disabled {
-    outline-color: var(--text-muted);
-    outline-style: dashed;
-    color: var(--text-muted) !important;
-    opacity: 1 !important;
-  }
-
-  html:not([data-contrast='normal']) a {
-    text-decoration-thickness: max(1px, 0.08em);
-    text-underline-offset: 0.16em;
   }
 
   html:not([data-contrast='normal'])
@@ -11452,42 +11276,37 @@ html[data-contrast='more'] input[type='range']::-moz-range-track {
   html:not([data-contrast='normal']) .tab-action-btn.active-one::after {
     color: var(--primary-filled);
   }
-
-  html:not([data-contrast='normal']) input[type='range']::-webkit-slider-runnable-track {
-    border: 1px solid var(--divider);
-  }
-
-  html:not([data-contrast='normal']) input[type='range']::-moz-range-track {
-    border: 1px solid var(--divider);
-  }
 }
 
 @media (forced-colors: active) {
-  :root {
-    --bg: Canvas;
-    --surface-1: Canvas;
-    --surface-2: ButtonFace;
-    --surface-3: ButtonFace;
-    --divider: CanvasText;
-    --primary: LinkText;
-    --primary-filled: Highlight;
-    --success-filled: Highlight;
-    --danger-filled: Highlight;
-    --warning-filled: Highlight;
-    --youtube-filled: Highlight;
-    --text-main: CanvasText;
-    --text-sub: CanvasText;
-    --text-muted: CanvasText;
-    --range-fill-idle: CanvasText;
-    --range-fill-active: Highlight;
-    --play-fab-bg-idle: ButtonFace;
-    --play-fab-bg-active: Highlight;
-    --play-fab-bg-disabled: ButtonFace;
-    --glass-bg: Canvas;
-    --glass-border: CanvasText;
-    --scrollbar-thumb: CanvasText;
-    --scrollbar-thumb-hover: Highlight;
-    --scrollbar-thumb-active: Highlight;
+  :root,
+  :root body {
+    /* System colors must outrank the authored manual/OS contrast palettes
+       when both media features are active. */
+    --bg: Canvas !important;
+    --surface-1: Canvas !important;
+    --surface-2: ButtonFace !important;
+    --surface-3: ButtonFace !important;
+    --divider: CanvasText !important;
+    --primary: LinkText !important;
+    --primary-filled: Highlight !important;
+    --success-filled: Highlight !important;
+    --danger-filled: Highlight !important;
+    --warning-filled: Highlight !important;
+    --youtube-filled: Highlight !important;
+    --text-main: CanvasText !important;
+    --text-sub: CanvasText !important;
+    --text-muted: CanvasText !important;
+    --range-fill-idle: CanvasText !important;
+    --range-fill-active: Highlight !important;
+    --play-fab-bg-idle: ButtonFace !important;
+    --play-fab-bg-active: Highlight !important;
+    --play-fab-bg-disabled: ButtonFace !important;
+    --glass-bg: Canvas !important;
+    --glass-border: CanvasText !important;
+    --scrollbar-thumb: CanvasText !important;
+    --scrollbar-thumb-hover: Highlight !important;
+    --scrollbar-thumb-active: Highlight !important;
   }
 
   :is(button, [role='button'], [role='switch'], [role='tab']) {

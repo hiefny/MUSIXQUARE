@@ -22,10 +22,13 @@ describe('OS contrast accessibility styles', () => {
     const css = await readFile('css/style.css', 'utf8');
 
     expect(css).toMatch(
-      /html\[data-contrast='more'\]\s*\{[\s\S]*?--bg:\s*#000000;[\s\S]*?--primary:\s*#8ab4ff;[\s\S]*?--primary-filled:\s*#174ea6;[\s\S]*?--text-muted:\s*#d0d0d0;/u,
+      /html\[data-contrast='more'\],\s*html\[data-contrast='more'\] body\s*\{[\s\S]*?--bg:\s*#000000;[\s\S]*?--primary:\s*#8ab4ff;[\s\S]*?--primary-filled:\s*#174ea6;[\s\S]*?--text-muted:\s*#d0d0d0;/u,
     );
     expect(css).toMatch(
-      /html\[data-theme='light'\]\[data-contrast='more'\]\s*\{[\s\S]*?--bg:\s*#ffffff;[\s\S]*?--primary:\s*#0047a8;[\s\S]*?--primary-filled:\s*#0047a8;[\s\S]*?--text-muted:\s*#333333;/u,
+      /html\[data-contrast='more'\],\s*html\[data-contrast='more'\] body\s*\{[\s\S]*?--divider:\s*#262626;[\s\S]*?--glass-border:\s*#262626;/u,
+    );
+    expect(css).toMatch(
+      /html\[data-theme='light'\]\[data-contrast='more'\],\s*html\[data-theme='light'\]\[data-contrast='more'\] body\s*\{[\s\S]*?--bg:\s*#f2f2f2;[\s\S]*?--surface-1:\s*#ffffff;[\s\S]*?--surface-2:\s*#d4d4d4;[\s\S]*?--surface-3:\s*#a8a8a8;[\s\S]*?--divider:\s*#d4d6d8;[\s\S]*?--primary:\s*#0047a8;[\s\S]*?--primary-filled:\s*#0047a8;[\s\S]*?--text-main:\s*#000000;[\s\S]*?--text-muted:\s*#333333;/u,
     );
 
     const baseRoot = css.match(/@layer base\s*\{\s*:root\s*\{([\s\S]*?)\n\s*\}/u)?.[1] ?? '';
@@ -34,12 +37,27 @@ describe('OS contrast accessibility styles', () => {
     expect(baseRoot).toContain('--text-main: #eeeeee;');
   });
 
-  it('follows prefers-contrast live unless the explicit normal override is present', async () => {
+  it('keeps prefers-contrast and its debug override color-only', async () => {
     const [css, flatControls] = await Promise.all([
       readFile('css/style.css', 'utf8'),
       readFile('css/flat-controls.css', 'utf8'),
     ]);
-    const contrastCss = css.slice(css.indexOf('OS contrast preferences'));
+    const prefersStart = css.indexOf('@media (prefers-contrast: more)');
+    const forcedStart = css.indexOf('@media (forced-colors: active)', prefersStart);
+    const manualCss = css.slice(css.indexOf("html[data-contrast='more']"), prefersStart);
+    const prefersCss = css.slice(prefersStart, forcedStart);
+    const flatPrefersStart = flatControls.indexOf('@media (prefers-contrast: more)');
+    const flatForcedStart = flatControls.indexOf(
+      '@media (forced-colors: active)',
+      flatPrefersStart,
+    );
+    const flatManualCss = flatControls.slice(
+      flatControls.indexOf("html[data-contrast='more']"),
+      flatPrefersStart,
+    );
+    const flatPrefersCss = flatControls.slice(flatPrefersStart, flatForcedStart);
+    const structuralDeclaration =
+      /^\s*(?:border(?:-[\w-]+)?|box-shadow|filter|opacity|outline(?:-[\w-]+)?|text-decoration(?:-[\w-]+)?|transform):/mu;
 
     for (const source of [css, flatControls]) {
       expect(source).toContain('@media (prefers-contrast: more)');
@@ -47,39 +65,37 @@ describe('OS contrast accessibility styles', () => {
     }
 
     expect(css).toContain("html[data-theme='light']:not([data-contrast='normal'])");
+    expect(css).toContain("html[data-theme='light']:not([data-contrast='normal']) body");
     expect(flatControls).toContain("html[data-contrast='more']");
-    expect(flatControls).toMatch(
-      /html\[data-contrast='more'\]\s+:is\([\s\S]*?#tab-settings \.ch-opt[\s\S]*?outline:\s*1px solid var\(--divider\);/u,
-    );
     expect(flatControls).toMatch(
       /html\[data-contrast='more'\][\s\S]*?\.demo-step-next:not\(\.is-final\)[\s\S]*?background:\s*var\(--primary-filled\);[\s\S]*?color:\s*#fff;/u,
     );
     expect(flatControls).toMatch(
-      /@media \(forced-colors: active\)[\s\S]*?\.demo-step-next:not\(\.is-final\)[\s\S]*?background:\s*Highlight;[\s\S]*?color:\s*HighlightText;/u,
+      /@media \(forced-colors: active\)[\s\S]*?\.demo-step-next:not\(\.is-final\)[\s\S]*?background:\s*Highlight !important;[\s\S]*?color:\s*HighlightText !important;/u,
     );
 
-    expect(css).toMatch(
-      /html\[data-contrast='more'\]\s+:is\(button, \[role='button'\], \[role='switch'\], \[role='tab'\]\)[\s\S]*?outline:\s*1px solid var\(--divider\);/u,
-    );
-    expect(contrastCss.match(/outline:\s*3px solid var\(--primary\) !important;/gu)).toHaveLength(
-      2,
-    );
-    expect(contrastCss.match(/outline:\s*2px solid var\(--primary\);/gu)).toHaveLength(2);
+    for (const colorOnlyCss of [manualCss, prefersCss, flatManualCss, flatPrefersCss]) {
+      expect(colorOnlyCss).not.toMatch(structuralDeclaration);
+    }
+
     expect(css).toMatch(
       /html\[data-contrast='more'\][\s\S]*?\.tab-action-btn\.active[\s\S]*?::before[\s\S]*?background:\s*var\(--primary-filled\);/u,
     );
     expect(css).toMatch(
       /html\[data-contrast='more'\][\s\S]*?\.tab-action-btn\.active-one::after[\s\S]*?color:\s*var\(--primary-filled\);/u,
     );
-    expect(css).toMatch(
-      /html:not\(\[data-contrast='normal'\]\)[\s\S]*?input\[type='range'\]::-webkit-slider-runnable-track[\s\S]*?border:\s*1px solid var\(--divider\);/u,
-    );
+    expect(prefersCss).toContain('background: var(--primary-filled);');
+    expect(prefersCss).toContain('color: var(--primary-filled);');
+    expect(prefersCss).toContain('--divider: #262626;');
+    expect(prefersCss).toContain('--bg: #f2f2f2;');
+    expect(prefersCss).toContain('--surface-2: #d4d4d4;');
+    expect(prefersCss).toContain('--surface-3: #a8a8a8;');
+    expect(prefersCss).toContain('--text-main: #000000;');
   });
 
-  it('keeps authored control boundaries and focus indicators above 3:1', () => {
-    expect(contrastRatio('#8c8c8c', '#000000')).toBeGreaterThanOrEqual(3);
+  it('keeps authored palette contrasts above their required ratios', () => {
     expect(contrastRatio('#8ab4ff', '#000000')).toBeGreaterThanOrEqual(3);
-    expect(contrastRatio('#1f2937', '#ffffff')).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio('#000000', '#f2f2f2')).toBeGreaterThanOrEqual(4.5);
     expect(contrastRatio('#0047a8', '#ffffff')).toBeGreaterThanOrEqual(3);
 
     for (const filledSurface of [
@@ -100,13 +116,14 @@ describe('OS contrast accessibility styles', () => {
     const css = await readFile('css/style.css', 'utf8');
 
     expect(css).toContain('@media (forced-colors: active)');
+    expect(css).toMatch(/:root,\s*:root body\s*\{/u);
     for (const declaration of [
-      '--bg: Canvas;',
-      '--surface-2: ButtonFace;',
-      '--divider: CanvasText;',
-      '--primary: LinkText;',
-      '--primary-filled: Highlight;',
-      '--text-main: CanvasText;',
+      '--bg: Canvas !important;',
+      '--surface-2: ButtonFace !important;',
+      '--divider: CanvasText !important;',
+      '--primary: LinkText !important;',
+      '--primary-filled: Highlight !important;',
+      '--text-main: CanvasText !important;',
     ]) {
       expect(css).toContain(declaration);
     }

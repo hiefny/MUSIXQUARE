@@ -19,50 +19,82 @@ interface ContrastTokens {
   textMuted: string;
 }
 
+interface LightContrastHierarchy {
+  bg: string;
+  divider: string;
+  surface1: string;
+  surface2: string;
+  surface3: string;
+  textMain: string;
+}
+
 interface ControlStyles {
   backgroundColor: string;
+  borderRadius: string;
+  borderStyle: string;
+  borderWidth: string;
+  boxShadow: string;
   caretColor: string;
+  filter: string;
   forcedColorAdjust: string;
+  opacity: string;
   outlineOffset: string;
   outlineStyle: string;
   outlineWidth: string;
 }
 
+type ControlStructure = Pick<
+  ControlStyles,
+  | 'borderRadius'
+  | 'borderStyle'
+  | 'borderWidth'
+  | 'boxShadow'
+  | 'filter'
+  | 'opacity'
+  | 'outlineOffset'
+  | 'outlineStyle'
+  | 'outlineWidth'
+>;
+
 async function installPreferenceAndFirstPaintProbe(
   page: Page,
   preference: ContrastPreference,
+  theme: 'dark' | 'light' = 'dark',
 ): Promise<void> {
-  await page.addInitScript((storedPreference: ContrastPreference) => {
-    const probeWindow = window as ContrastProbeWindow;
-    const nativeSetAttribute = Element.prototype.setAttribute;
-    const nativeRemoveAttribute = Element.prototype.removeAttribute;
+  await page.addInitScript(
+    ({ storedPreference, storedTheme }) => {
+      const probeWindow = window as ContrastProbeWindow;
+      const nativeSetAttribute = Element.prototype.setAttribute;
+      const nativeRemoveAttribute = Element.prototype.removeAttribute;
 
-    const record = (operation: 'set' | 'remove', value: string | null): void => {
-      if (probeWindow.__mxqrContrastFirstMutation) return;
-      probeWindow.__mxqrContrastFirstMutation = {
-        operation,
-        value,
-        readyState: document.readyState,
+      const record = (operation: 'set' | 'remove', value: string | null): void => {
+        if (probeWindow.__mxqrContrastFirstMutation) return;
+        probeWindow.__mxqrContrastFirstMutation = {
+          operation,
+          value,
+          readyState: document.readyState,
+        };
       };
-    };
 
-    Element.prototype.setAttribute = function (this: Element, name: string, value: string): void {
-      if (this === document.documentElement && name === 'data-contrast') record('set', value);
-      nativeSetAttribute.call(this, name, value);
-    };
-    Element.prototype.removeAttribute = function (this: Element, name: string): void {
-      if (this === document.documentElement && name === 'data-contrast') record('remove', null);
-      nativeRemoveAttribute.call(this, name);
-    };
+      Element.prototype.setAttribute = function (this: Element, name: string, value: string): void {
+        if (this === document.documentElement && name === 'data-contrast') record('set', value);
+        nativeSetAttribute.call(this, name, value);
+      };
+      Element.prototype.removeAttribute = function (this: Element, name: string): void {
+        if (this === document.documentElement && name === 'data-contrast') record('remove', null);
+        nativeRemoveAttribute.call(this, name);
+      };
 
-    try {
-      localStorage.setItem('musixquare-theme', 'dark');
-      if (storedPreference === 'auto') localStorage.removeItem('musixquare-contrast');
-      else localStorage.setItem('musixquare-contrast', storedPreference);
-    } catch {
-      /* The preview origin provides storage; retain a safe fallback for harness startup. */
-    }
-  }, preference);
+      try {
+        localStorage.setItem('musixquare-theme', storedTheme);
+        if (storedPreference === 'auto') localStorage.removeItem('musixquare-contrast');
+        else localStorage.setItem('musixquare-contrast', storedPreference);
+      } catch {
+        /* The preview origin provides storage; retain a safe fallback for harness startup. */
+      }
+    },
+    { storedPreference: preference, storedTheme: theme },
+  );
 }
 
 async function openApp(page: Page): Promise<void> {
@@ -75,12 +107,26 @@ async function openApp(page: Page): Promise<void> {
 }
 
 async function contrastTokens(page: Page): Promise<ContrastTokens> {
-  return page.locator('html').evaluate<ContrastTokens>((root) => {
-    const style = getComputedStyle(root);
+  return page.locator('body').evaluate<ContrastTokens>((body) => {
+    const style = getComputedStyle(body);
     return {
       bg: style.getPropertyValue('--bg').trim(),
       primary: style.getPropertyValue('--primary').trim(),
       textMuted: style.getPropertyValue('--text-muted').trim(),
+    };
+  });
+}
+
+async function lightContrastHierarchy(page: Page): Promise<LightContrastHierarchy> {
+  return page.locator('body').evaluate<LightContrastHierarchy>((body) => {
+    const style = getComputedStyle(body);
+    return {
+      bg: style.getPropertyValue('--bg').trim(),
+      divider: style.getPropertyValue('--divider').trim(),
+      surface1: style.getPropertyValue('--surface-1').trim(),
+      surface2: style.getPropertyValue('--surface-2').trim(),
+      surface3: style.getPropertyValue('--surface-3').trim(),
+      textMain: style.getPropertyValue('--text-main').trim(),
     };
   });
 }
@@ -94,13 +140,33 @@ async function controlStyles(page: Page, selector: string): Promise<ControlStyle
     const style = getComputedStyle(element);
     return {
       backgroundColor: style.backgroundColor,
+      borderRadius: style.borderRadius,
+      borderStyle: style.borderStyle,
+      borderWidth: style.borderWidth,
+      boxShadow: style.boxShadow,
       caretColor: style.caretColor,
+      filter: style.filter,
       forcedColorAdjust: style.forcedColorAdjust,
+      opacity: style.opacity,
       outlineOffset: style.outlineOffset,
       outlineStyle: style.outlineStyle,
       outlineWidth: style.outlineWidth,
     };
   });
+}
+
+function controlStructure(styles: ControlStyles): ControlStructure {
+  return {
+    borderRadius: styles.borderRadius,
+    borderStyle: styles.borderStyle,
+    borderWidth: styles.borderWidth,
+    boxShadow: styles.boxShadow,
+    filter: styles.filter,
+    opacity: styles.opacity,
+    outlineOffset: styles.outlineOffset,
+    outlineStyle: styles.outlineStyle,
+    outlineWidth: styles.outlineWidth,
+  };
 }
 
 test.describe('OS contrast CSS integration', () => {
@@ -121,12 +187,27 @@ test.describe('OS contrast CSS integration', () => {
       primary: '#3b82f6',
       textMuted: '#71717a',
     });
+    const buttonStructure = controlStructure(await controlStyles(page, '#ob-next'));
+    const flatControlStructure = controlStructure(
+      await controlStyles(page, '#setup-role-grid .ch-opt:first-child'),
+    );
 
     await page.emulateMedia({ contrast: 'more' });
     await expect
       .poll(() => contrastTokens(page))
       .toEqual({ bg: '#000000', primary: '#8ab4ff', textMuted: '#d0d0d0' });
     await expect(page.locator('html')).not.toHaveAttribute('data-contrast');
+    expect(controlStructure(await controlStyles(page, '#ob-next'))).toEqual(buttonStructure);
+    expect(
+      controlStructure(await controlStyles(page, '#setup-role-grid .ch-opt:first-child')),
+    ).toEqual(flatControlStructure);
+
+    const setupButton = page.locator('#ob-next');
+    await setupButton.focus();
+    const focused = await controlStyles(page, '#ob-next');
+    expect(focused.outlineStyle).toBe('solid');
+    expect(parseFloat(focused.outlineWidth)).toBeGreaterThanOrEqual(2);
+    expect(parseFloat(focused.outlineWidth)).toBeLessThan(3);
 
     await page.emulateMedia({ contrast: 'no-preference' });
     await expect
@@ -154,7 +235,7 @@ test.describe('OS contrast CSS integration', () => {
     });
   });
 
-  test('persisted on applies authored contrast before paint on a normal OS', async ({ page }) => {
+  test('persisted on applies the same color-only contrast before paint', async ({ page }) => {
     await page.emulateMedia({
       colorScheme: 'dark',
       contrast: 'no-preference',
@@ -174,21 +255,96 @@ test.describe('OS contrast CSS integration', () => {
       value: 'more',
       readyState: 'loading',
     });
+
+    const buttonWithOverride = controlStructure(await controlStyles(page, '#ob-next'));
+    const flatControlWithOverride = controlStructure(
+      await controlStyles(page, '#setup-role-grid .ch-opt:first-child'),
+    );
+    await page.locator('html').evaluate((root) => root.setAttribute('data-contrast', 'normal'));
+    expect(controlStructure(await controlStyles(page, '#ob-next'))).toEqual(buttonWithOverride);
+    expect(
+      controlStructure(await controlStyles(page, '#setup-role-grid .ch-opt:first-child')),
+    ).toEqual(flatControlWithOverride);
+
+    const setupButton = page.locator('#ob-next');
+    await setupButton.focus();
+    const focusedWithoutOverride = controlStructure(await controlStyles(page, '#ob-next'));
+    await page.locator('html').evaluate((root) => root.setAttribute('data-contrast', 'more'));
+    expect(controlStructure(await controlStyles(page, '#ob-next'))).toEqual(focusedWithoutOverride);
   });
 
-  test('forced colors preserves setup control structure, focus, and selection', async ({
+  test('persisted on preserves the light palette surface hierarchy', async ({ page }) => {
+    await page.emulateMedia({
+      colorScheme: 'light',
+      contrast: 'no-preference',
+      forcedColors: 'none',
+    });
+    await installPreferenceAndFirstPaintProbe(page, 'on', 'light');
+    await openApp(page);
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(page.locator('html')).toHaveAttribute('data-contrast', 'more');
+    expect(await lightContrastHierarchy(page)).toEqual({
+      bg: '#f2f2f2',
+      divider: '#d4d6d8',
+      surface1: '#ffffff',
+      surface2: '#d4d4d4',
+      surface3: '#a8a8a8',
+      textMain: '#000000',
+    });
+    expect(await page.locator('body').evaluate((body) => getComputedStyle(body).color)).toBe(
+      'rgb(0, 0, 0)',
+    );
+    expect(
+      await page.locator('body').evaluate((body) => getComputedStyle(body).backgroundColor),
+    ).toBe('rgb(242, 242, 242)');
+  });
+
+  test('OS auto contrast applies the same light palette to the rendered body', async ({ page }) => {
+    await page.emulateMedia({
+      colorScheme: 'light',
+      contrast: 'more',
+      forcedColors: 'none',
+    });
+    await installPreferenceAndFirstPaintProbe(page, 'auto', 'light');
+    await openApp(page);
+
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+    await expect(page.locator('html')).not.toHaveAttribute('data-contrast');
+    expect(await lightContrastHierarchy(page)).toEqual({
+      bg: '#f2f2f2',
+      divider: '#d4d6d8',
+      surface1: '#ffffff',
+      surface2: '#d4d4d4',
+      surface3: '#a8a8a8',
+      textMain: '#000000',
+    });
+    expect(
+      await page.locator('body').evaluate((body) => ({
+        backgroundColor: getComputedStyle(body).backgroundColor,
+        color: getComputedStyle(body).color,
+      })),
+    ).toEqual({ backgroundColor: 'rgb(242, 242, 242)', color: 'rgb(0, 0, 0)' });
+  });
+
+  test('forced colors outranks authored contrast and preserves control structure', async ({
     page,
   }) => {
     await page.emulateMedia({
       colorScheme: 'dark',
-      contrast: 'no-preference',
+      contrast: 'more',
       forcedColors: 'active',
     });
-    await installPreferenceAndFirstPaintProbe(page, 'auto');
+    await installPreferenceAndFirstPaintProbe(page, 'on', 'light');
     await openApp(page);
 
     expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
-    await expect(page.locator('html')).not.toHaveAttribute('data-contrast');
+    await expect(page.locator('html')).toHaveAttribute('data-contrast', 'more');
+    expect(await contrastTokens(page)).toEqual({
+      bg: 'Canvas',
+      primary: 'LinkText',
+      textMuted: 'CanvasText',
+    });
 
     const setupButton = page.locator('#ob-next');
     await expect(setupButton).toBeVisible();
@@ -199,8 +355,10 @@ test.describe('OS contrast CSS integration', () => {
 
     await setupButton.evaluate((button) => button.setAttribute('aria-pressed', 'true'));
     await expect(setupButton).toHaveAttribute('aria-pressed', 'true');
+    await expect
+      .poll(async () => (await controlStyles(page, '#ob-next')).backgroundColor)
+      .not.toBe(buttonBase.backgroundColor);
     const buttonSelected = await controlStyles(page, '#ob-next');
-    expect(buttonSelected.backgroundColor).not.toBe(buttonBase.backgroundColor);
     expect(buttonSelected.outlineStyle).toBe('solid');
     expect(parseFloat(buttonSelected.outlineWidth)).toBeGreaterThanOrEqual(1);
 

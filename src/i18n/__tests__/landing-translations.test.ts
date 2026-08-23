@@ -163,13 +163,33 @@ describe('landing-page translation integrity', () => {
     }
   });
 
+  it('keeps the Korean showcase chat casual and conversational', async () => {
+    const dictionary = (await loadLandingDictionary()).ko;
+
+    expect({
+      pin: dictionary['remote.pin_text'],
+      hostQuestion: dictionary['remote.host_msg1'],
+      peerReply: dictionary['remote.peer_msg1'],
+      timestampReply: dictionary['remote.peer_ts_msg'],
+      hostReply: dictionary['remote.host_msg2'],
+      whisper: dictionary['remote.whisper_msg'],
+    }).toEqual({
+      pin: '플리 추천받습니다',
+      hostQuestion: '어디야?',
+      peerReply: '카페에서 작업중ㅋㅋ',
+      timestampReply: '이 곡 좋은 듯',
+      hostReply: '이따 틀어줄게',
+      whisper: '공지로 플리 추천 좀 받아봐',
+    });
+  });
+
   it('keeps the Indonesian About copy within the supported-browser and sync contracts', async () => {
     const dictionary = (await loadLandingDictionary()).id;
 
     expect(dictionary['code.lead']).toContain('browser yang didukung');
     expect(dictionary['remote.reach_value']).toBe('Browser yang didukung, lintas jaringan');
-    expect(dictionary['remote.pin_text']).toContain('malam ini');
-    expect(dictionary['remote.whisper_msg']).toContain('sematkan');
+    expect(dictionary['remote.pin_text']).toBe('Minta rekomendasi playlist dong');
+    expect(dictionary['remote.whisper_msg']).toContain('pengumuman');
     expect(dictionary['remote.peer_name']).toBe('Peserta 1');
     expect(dictionary['sync.h2']).not.toMatch(/frame/i);
     expect(dictionary['sync.video_value']).toBe('Pemutaran media tersinkronisasi');

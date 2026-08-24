@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, {
@@ -426,12 +427,14 @@ async function signedAdminSessionFixture(
   return `${payloadPart}.${Buffer.from(signature).toString('base64url')}`;
 }
 
-async function solveProofOfWork(challenge: string, difficulty: number): Promise<string> {
-  const encoder = new TextEncoder();
+function solveProofOfWork(challenge: string, difficulty: number): string {
+  // Keep proof generation independent from the Worker's WebCrypto verifier.
+  // Awaiting one subtle.digest per candidate shares Node's async crypto executor
+  // with every parallel Vitest worker and has produced a full-suite-only timeout.
+  // Synchronous hashing keeps this bounded test helper local to its worker while
+  // the mint request below still verifies the resulting proof through WebCrypto.
   for (let solution = 0; solution < 10_000_000; solution += 1) {
-    const digest = new Uint8Array(
-      await crypto.subtle.digest('SHA-256', encoder.encode(`mxqr-pow-v1:${challenge}:${solution}`)),
-    );
+    const digest = createHash('sha256').update(`mxqr-pow-v1:${challenge}:${solution}`).digest();
     let remaining = difficulty;
     let valid = true;
     for (const byte of digest) {

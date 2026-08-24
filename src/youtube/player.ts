@@ -42,6 +42,7 @@ import {
 } from '../chat/queue-events.ts';
 import {
   acceptStandardQueueMutationRequest,
+  recordStandardQueueMutationSettlement,
   sendStandardQueueMutationRequest,
   settleStandardQueueMutationRequest,
   type StandardQueueMutationResultCode,
@@ -2217,17 +2218,31 @@ export function initYouTube(): void {
     | {
         ok: false;
         code: 'invalid-source' | 'resolution-failed';
+      }
+    | {
+        ok: false;
+        code: 'cancelled';
       };
+
+  type StandardOperatorYouTubeConnectionScope = {
+    conn: DataConnection;
+    scope: SessionScope;
+  };
 
   let standardOperatorYouTubeMutationScope: SessionScope | null = null;
   let standardOperatorYouTubeMutationLane: OrderedCommitLane | null = null;
   let standardOperatorYouTubeMutationRoomCode: string | null = null;
+  const standardOperatorYouTubeConnectionScopes = new Map<
+    string,
+    StandardOperatorYouTubeConnectionScope
+  >();
 
   function disposeStandardOperatorYouTubeMutationLane(): void {
     standardOperatorYouTubeMutationScope?.dispose();
     standardOperatorYouTubeMutationScope = null;
     standardOperatorYouTubeMutationLane = null;
     standardOperatorYouTubeMutationRoomCode = null;
+    standardOperatorYouTubeConnectionScopes.clear();
   }
 
   function getStandardOperatorYouTubeMutationLane(roomCode: string): OrderedCommitLane {
@@ -2244,12 +2259,31 @@ export function initYouTube(): void {
         standardOperatorYouTubeMutationScope,
       );
       standardOperatorYouTubeMutationRoomCode = roomCode;
+      standardOperatorYouTubeConnectionScopes.clear();
     }
     return standardOperatorYouTubeMutationLane;
   }
 
+  function getStandardOperatorYouTubeConnectionScope(conn: DataConnection): SessionScope {
+    const current = standardOperatorYouTubeConnectionScopes.get(conn.peer);
+    if (current?.conn === conn && !current.scope.aborted) return current.scope;
+
+    current?.scope.dispose();
+    const scope = standardOperatorYouTubeMutationScope!.child();
+    standardOperatorYouTubeConnectionScopes.set(conn.peer, { conn, scope });
+    return scope;
+  }
+
+  function disposeStandardOperatorYouTubeConnectionScope(peerId: string): void {
+    const current = standardOperatorYouTubeConnectionScopes.get(peerId);
+    if (!current) return;
+    current.scope.dispose();
+    standardOperatorYouTubeConnectionScopes.delete(peerId);
+  }
+
   function prepareStandardOperatorYouTubeAdd(
     data: StandardOperatorYouTubeRequest,
+    signal: AbortSignal,
   ): Promise<PreparedStandardOperatorYouTubeAdd> {
     const videoId = extractYouTubeVideoId(data.sourceUrl);
     let playlistId = extractYouTubePlaylistId(data.sourceUrl);
@@ -2260,7 +2294,7 @@ export function initYouTube(): void {
     }
 
     if (!videoId && playlistId) {
-      return resolveYouTubePlaylistEntry(playlistId)
+      return resolveYouTubePlaylistEntry(playlistId, signal)
         .then((entry) => ({
           ok: true as const,
           videoId: entry.videoId,
@@ -2268,6 +2302,7 @@ export function initYouTube(): void {
           title: data.title === data.sourceUrl ? entry.title : data.title,
         }))
         .catch((error): PreparedStandardOperatorYouTubeAdd => {
+          if (signal.aborted) return { ok: false, code: 'cancelled' };
           log.warn('[YouTube] Standard operator playlist resolution failed:', error);
           return { ok: false, code: 'resolution-failed' };
         });
@@ -2289,6 +2324,7 @@ export function initYouTube(): void {
   ): void {
     if (!isLiveStandardOperatorConnection(conn, roomCode)) return;
     if (!resolved.ok) {
+      if (resolved.code === 'cancelled') return;
       sendStandardQueueRequestFailure(conn, roomCode, data.requestId, resolved.code);
       return;
     }
@@ -2324,18 +2360,42 @@ export function initYouTube(): void {
   ): void {
     // Resolve playlist metadata immediately and concurrently. Only the commit
     // is serialized, preserving request arrival order without multiplying the
-    // resolver's bounded timeout by the number of queued requests. Replacing
-    // the room scope releases queued commits immediately; an old resolver can
-    // finish later, but it no longer owns a mutation slot or side effect.
+    // resolver's bounded timeout by the number of queued requests. Cancelling
+    // the room or exact-connection scope aborts cooperative resolution. A
+    // non-cooperative resolver may finish later, but can no longer commit.
     const lane = getStandardOperatorYouTubeMutationLane(roomCode);
+    const connectionScope = getStandardOperatorYouTubeConnectionScope(conn);
+    const signal = connectionScope.signal;
+    const recordOwnershipLoss = (): void => {
+      recordStandardQueueMutationSettlement(conn, data.requestId, {
+        outcome: 'rejected',
+        code: 'unauthorized',
+      });
+    };
+    if (signal.aborted) recordOwnershipLoss();
+    else signal.addEventListener('abort', recordOwnershipLoss, { once: true });
+
     void lane
       .enqueue({
-        prepare: () => prepareStandardOperatorYouTubeAdd(data),
-        commit: (resolved) => applyStandardOperatorYouTubeAdd(data, conn, roomCode, resolved),
+        prepare: () => prepareStandardOperatorYouTubeAdd(data, signal),
+        commit: (resolved) => {
+          if (connectionScope.aborted) return;
+          applyStandardOperatorYouTubeAdd(data, conn, roomCode, resolved);
+        },
       })
       .catch((error) => {
         log.warn('[YouTube] Standard operator mutation failed:', error);
         sendStandardQueueRequestFailure(conn, roomCode, data.requestId, 'internal-error');
+      })
+      .finally(() => {
+        signal.removeEventListener('abort', recordOwnershipLoss);
+        recordStandardQueueMutationSettlement(conn, data.requestId, {
+          outcome: 'rejected',
+          code:
+            signal.aborted || !isLiveStandardOperatorConnection(conn, roomCode)
+              ? 'unauthorized'
+              : 'internal-error',
+        });
       });
   }
 
@@ -2419,6 +2479,7 @@ export function initYouTube(): void {
   bus.on('youtube:zero-start-readiness-changed', advertiseZeroStartRuntimeReadiness);
   bus.on('sync:latency-update', advertiseZeroStartRuntimeReadiness);
   bus.on('network:peer-connection-replaced', (peerId) => {
+    disposeStandardOperatorYouTubeConnectionScope(peerId);
     const snapshot = getYouTubeZeroStartSnapshot();
     const target =
       getYouTubeZeroStartRole() === 'host' &&
@@ -2443,7 +2504,17 @@ export function initYouTube(): void {
       );
     }
   });
+  bus.on('state:network.connectedPeers', () => {
+    const roomCode = standardOperatorYouTubeMutationRoomCode;
+    if (roomCode === null) return;
+    for (const [peerId, current] of standardOperatorYouTubeConnectionScopes) {
+      if (!isLiveStandardOperatorConnection(current.conn, roomCode)) {
+        disposeStandardOperatorYouTubeConnectionScope(peerId);
+      }
+    }
+  });
   bus.on('network:peer-disconnected', (peerId) => {
+    disposeStandardOperatorYouTubeConnectionScope(peerId);
     handleYouTubeZeroStartPeerDisconnected(peerId);
     const hostConn = getState('network.hostConn');
     if (getYouTubeZeroStartRole() === 'guest' && hostConn?.peer === peerId) {

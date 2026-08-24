@@ -6,6 +6,7 @@ import type { ConnectedPeer, DataConnection, ProtocolMsg } from '../../types/ind
 import {
   acceptStandardQueueMutationRequest,
   initStandardQueueMutationAuthority,
+  recordStandardQueueMutationSettlement,
   sendStandardQueueMutationRequest,
   settleStandardQueueMutationRequest,
   standardQueueMutationTimingForTests,
@@ -225,6 +226,70 @@ describe('standard queue mutation result fence', () => {
       expect.objectContaining({ phase: 'accepted', revision: 0 }),
       expect.objectContaining({ phase: 'settled', outcome: 'applied', revision: 1 }),
     ]);
+  });
+
+  it('replays a silently recorded terminal rejection for an identical duplicate', () => {
+    const conn = connection('revoked-operator');
+    configureHost(conn);
+    const input = {
+      conn,
+      requestId: REQUEST_ID,
+      requestName: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+      fingerprint: 'add-youtube:a1B2c3D4e5F',
+    };
+
+    expect(acceptStandardQueueMutationRequest(input)).toBe('accepted');
+    expect(
+      recordStandardQueueMutationSettlement(conn, REQUEST_ID, {
+        outcome: 'rejected',
+        code: 'unauthorized',
+      }),
+    ).toBe(true);
+    expect(conn.send).toHaveBeenCalledTimes(1);
+    conn.send.mockClear();
+
+    expect(acceptStandardQueueMutationRequest(input)).toBe('duplicate');
+    expect(conn.send.mock.calls.map(([message]) => message)).toEqual([
+      expect.objectContaining({ phase: 'accepted', revision: 0 }),
+      expect.objectContaining({
+        phase: 'settled',
+        outcome: 'rejected',
+        code: 'unauthorized',
+      }),
+    ]);
+  });
+
+  it('evicts a silently settled record when the connection ledger reaches capacity', () => {
+    const conn = connection('capacity-operator');
+    configureHost(conn);
+    const requestId = (index: number) =>
+      `00000000-0000-4000-8000-${index.toString().padStart(12, '0')}`;
+
+    for (let index = 0; index < 256; index += 1) {
+      expect(
+        acceptStandardQueueMutationRequest({
+          conn,
+          requestId: requestId(index),
+          requestName: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+          fingerprint: `add-youtube:${index}`,
+        }),
+      ).toBe('accepted');
+    }
+    expect(
+      recordStandardQueueMutationSettlement(conn, requestId(0), {
+        outcome: 'rejected',
+        code: 'unauthorized',
+      }),
+    ).toBe(true);
+
+    expect(
+      acceptStandardQueueMutationRequest({
+        conn,
+        requestId: requestId(256),
+        requestName: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+        fingerprint: 'add-youtube:256',
+      }),
+    ).toBe('accepted');
   });
 
   it('fails closed for a legacy administrator without explicit queue authority', () => {

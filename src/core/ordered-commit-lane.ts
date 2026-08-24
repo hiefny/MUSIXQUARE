@@ -1,6 +1,7 @@
 /** Concurrent preparation with arrival-ordered, lifecycle-bound commits. */
 
 import { SessionScope } from './session-scope.ts';
+import { raceWithAbortSignal } from './request-lifetime.ts';
 
 interface OrderedCommitTask<T> {
   /** Starts immediately and may run concurrently with other preparations. */
@@ -22,14 +23,10 @@ const LANE_ABORTED = Symbol('ordered-commit-lane-aborted');
  */
 export class OrderedCommitLane {
   readonly #scope: SessionScope;
-  readonly #aborted: Promise<typeof LANE_ABORTED>;
   #tail: Promise<void> = Promise.resolve();
 
   constructor(parentScope: SessionScope) {
     this.#scope = parentScope.child();
-    this.#aborted = new Promise((resolve) => {
-      this.#scope.own(() => resolve(LANE_ABORTED));
-    });
   }
 
   get signal(): AbortSignal {
@@ -45,12 +42,41 @@ export class OrderedCommitLane {
     this.#scope.dispose();
   }
 
+  async #waitWhileOwned<T>(operation: PromiseLike<T>): Promise<T | typeof LANE_ABORTED> {
+    try {
+      return await raceWithAbortSignal(operation, this.signal);
+    } catch (error) {
+      if (this.disposed) return LANE_ABORTED;
+      throw error;
+    }
+  }
+
   enqueue<T>(task: OrderedCommitTask<T>): Promise<void> {
     if (this.disposed) return Promise.resolve();
 
-    // Invoke preparation before touching the tail: all preparations start in
-    // arrival order without waiting for an earlier network or metadata read.
-    let prepared: Promise<Prepared<T>>;
+    // Reserve this task's commit position before preparation starts. A
+    // synchronous preparation may re-enter enqueue(), but the nested task must
+    // still commit after the task whose preparation triggered it.
+    let prepared!: Promise<Prepared<T>>;
+    const operation = this.#tail.then(async () => {
+      if (this.disposed) return;
+      const result = await this.#waitWhileOwned(prepared);
+      if (result === LANE_ABORTED || this.disposed) return;
+      if (!result.ok) throw result.error;
+      // A commit must still use the signal to suppress its own post-await side
+      // effects. Racing it here is a liveness guarantee for lane callers: a
+      // non-cooperative commit cannot keep teardown or queued task promises
+      // pending forever after this lane has lost ownership.
+      await this.#waitWhileOwned(Promise.resolve(task.commit(result.value, this.signal)));
+    });
+
+    // Keep the internal queue live after a rejected task. The original
+    // operation remains rejectable to its caller while this handled branch
+    // also prevents an ignored result from becoming an unhandled rejection.
+    this.#tail = operation.catch(() => undefined);
+
+    // Preparations still start immediately and concurrently after their commit
+    // positions have been reserved.
     try {
       prepared = Promise.resolve(task.prepare(this.signal)).then(
         (value): Prepared<T> => ({ ok: true, value }),
@@ -59,23 +85,6 @@ export class OrderedCommitLane {
     } catch (error) {
       prepared = Promise.resolve({ ok: false, error });
     }
-
-    const operation = this.#tail.then(async () => {
-      if (this.disposed) return;
-      const result = await Promise.race([prepared, this.#aborted]);
-      if (result === LANE_ABORTED || this.disposed) return;
-      if (!result.ok) throw result.error;
-      // A commit must still use the signal to suppress its own post-await side
-      // effects. Racing it here is a liveness guarantee for lane callers: a
-      // non-cooperative commit cannot keep teardown or queued task promises
-      // pending forever after this lane has lost ownership.
-      await Promise.race([Promise.resolve(task.commit(result.value, this.signal)), this.#aborted]);
-    });
-
-    // Keep the internal queue live after a rejected task. The original
-    // operation remains rejectable to its caller while this handled branch
-    // also prevents an ignored result from becoming an unhandled rejection.
-    this.#tail = operation.catch(() => undefined);
     return operation;
   }
 }

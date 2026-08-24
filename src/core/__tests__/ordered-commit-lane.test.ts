@@ -55,6 +55,68 @@ describe('OrderedCommitLane', () => {
     expect(commitOrder).toEqual(['first', 'second']);
   });
 
+  it('preserves arrival order when preparation re-enters the same lane', async () => {
+    const scope = new SessionScope();
+    const lane = new OrderedCommitLane(scope);
+    const commitOrder: string[] = [];
+    let nestedTask!: Promise<void>;
+
+    const firstTask = lane.enqueue({
+      prepare: () => {
+        nestedTask = lane.enqueue({
+          prepare: () => 'second',
+          commit: (value) => {
+            commitOrder.push(value);
+          },
+        });
+        return 'first';
+      },
+      commit: (value) => {
+        commitOrder.push(value);
+      },
+    });
+
+    await Promise.all([firstTask, nestedTask]);
+
+    expect(commitOrder).toEqual(['first', 'second']);
+  });
+
+  it('releases each task abort listener after normal completion', async () => {
+    const scope = new SessionScope();
+    const lane = new OrderedCommitLane(scope);
+    const addListener = vi.spyOn(lane.signal, 'addEventListener');
+    const removeListener = vi.spyOn(lane.signal, 'removeEventListener');
+    const activeAbortListenerCount = (): number => {
+      const active = new Set<unknown>();
+      for (const [type, listener] of addListener.mock.calls) {
+        if (type === 'abort') active.add(listener);
+      }
+      for (const [type, listener] of removeListener.mock.calls) {
+        if (type === 'abort') active.delete(listener);
+      }
+      return active.size;
+    };
+
+    try {
+      await lane.enqueue({ prepare: () => 'first', commit: () => undefined });
+      const firstTaskAbortListenerCount = addListener.mock.calls.filter(
+        ([type]) => type === 'abort',
+      ).length;
+      expect(firstTaskAbortListenerCount).toBeGreaterThan(0);
+      expect(activeAbortListenerCount()).toBe(0);
+
+      await lane.enqueue({ prepare: () => 'second', commit: () => undefined });
+      expect(addListener.mock.calls.filter(([type]) => type === 'abort').length).toBeGreaterThan(
+        firstTaskAbortListenerCount,
+      );
+      expect(activeAbortListenerCount()).toBe(0);
+    } finally {
+      addListener.mockRestore();
+      removeListener.mockRestore();
+      scope.dispose();
+    }
+  });
+
   it('continues after preparation and commit failures', async () => {
     const scope = new SessionScope();
     const lane = new OrderedCommitLane(scope);

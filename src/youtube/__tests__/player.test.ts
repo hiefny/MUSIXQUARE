@@ -84,7 +84,7 @@ vi.mock('../search.ts', () => ({
   getPrefetchedYouTubePlaylistManifest: vi.fn(() => null),
   getSelectedYouTubeSearchResult: vi.fn(() => null),
   searchYouTubeFromInput: vi.fn(),
-  resolveYouTubePlaylistEntry: vi.fn(async (playlistId: string) => ({
+  resolveYouTubePlaylistEntry: vi.fn(async (playlistId: string, _signal?: AbortSignal) => ({
     playlistId,
     videoId: 'RESOLVED001',
     title: 'Resolved first video',
@@ -2541,11 +2541,13 @@ describe('YouTube Player', () => {
       vi.mocked(search.extractYouTubePlaylistId).mockImplementation((url: string) =>
         url.includes('list=PL_OLD_ROOM') ? 'PL_OLD_ROOM' : null,
       );
-      let resolveOldRoom!: (entry: { playlistId: string; videoId: string; title: string }) => void;
-      vi.mocked(search.resolveYouTubePlaylistEntry).mockReturnValue(
-        new Promise((resolve) => {
-          resolveOldRoom = resolve;
-        }),
+      let oldRoomSignal: AbortSignal | undefined;
+      vi.mocked(search.resolveYouTubePlaylistEntry).mockImplementation(
+        (_playlistId, signal) =>
+          new Promise((_resolve, reject) => {
+            oldRoomSignal = signal;
+            signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+          }),
       );
       const protocol = await import('../../network/protocol.ts');
       const { initYouTube } = await import('../player.ts');
@@ -2567,6 +2569,7 @@ describe('YouTube Player', () => {
         conn,
       );
       setState('network.sessionCode', '222222');
+      expect(oldRoomSignal?.aborted).toBe(true);
       handler(
         {
           type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
@@ -2581,21 +2584,219 @@ describe('YouTube Player', () => {
       await vi.waitFor(() => {
         expect(getState('playlist.items').map((item) => item.videoId)).toEqual(['VIDEO_ID_03']);
       });
+    });
 
-      resolveOldRoom({
-        playlistId: 'PL_OLD_ROOM',
-        videoId: 'RESOLVED001',
-        title: 'Resolved old room video',
+    it('cancels a replaced operator prepare so its same-room successor can commit', async () => {
+      const conn = {
+        peer: 'operator-stale',
+        open: true,
+        send: vi.fn(),
+      } as unknown as DataConnection;
+      setState('network.appRole', 'host');
+      setState('network.sessionCode', '123456');
+      setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+      setState('network.connectedPeers', [
+        {
+          id: conn.peer,
+          slot: 1,
+          label: 'Operator',
+          conn,
+          isOp: true,
+          preloadedQueueItemIds: new Set(),
+          status: 'connected',
+          isDataTarget: true,
+          joinOrder: 1,
+          connectionType: 'local',
+          lastHeartbeat: Date.now(),
+        },
+      ]);
+      const search = await import('../search.ts');
+      vi.mocked(search.extractYouTubePlaylistId).mockImplementation((url: string) =>
+        url.includes('list=PL_STALE') ? 'PL_STALE' : null,
+      );
+      let staleSignal: AbortSignal | undefined;
+      vi.mocked(search.resolveYouTubePlaylistEntry).mockImplementation(
+        (_playlistId, signal) =>
+          new Promise((_resolve, reject) => {
+            staleSignal = signal;
+            signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+          }),
+      );
+      const peer = await import('../../network/peer.ts');
+      const protocol = await import('../../network/protocol.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      const handlers = vi.mocked(protocol.registerHandlers).mock.calls.at(-1)?.[0] as Record<
+        string,
+        ((data: Record<string, unknown>, conn: DataConnection) => void) | undefined
+      >;
+
+      handlers[MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]?.(
+        {
+          type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+          requestId: '99999999-9999-4999-8999-999999999999',
+          baseRevision: 0,
+          sourceUrl: 'https://www.youtube.com/playlist?list=PL_STALE',
+          title: 'Stale',
+        },
+        conn,
+      );
+      await Promise.resolve();
+      const replacement = { ...conn, send: vi.fn() } as unknown as DataConnection;
+      setState('network.activeHostConnByPeerId', new Map([[conn.peer, replacement]]));
+      setState('network.connectedPeers', [
+        {
+          id: replacement.peer,
+          slot: 1,
+          label: 'Operator',
+          conn: replacement,
+          isOp: true,
+          preloadedQueueItemIds: new Set(),
+          status: 'connected',
+          isDataTarget: true,
+          joinOrder: 1,
+          connectionType: 'local',
+          lastHeartbeat: Date.now(),
+        },
+      ]);
+      vi.mocked(peer.safeSend).mockClear();
+      bus.emit('network:peer-connection-replaced', conn.peer);
+      expect(staleSignal?.aborted).toBe(true);
+
+      handlers[MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]?.(
+        {
+          type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+          requestId: '99999999-9999-4999-8999-999999999998',
+          baseRevision: 0,
+          sourceUrl: 'https://www.youtube.com/watch?v=VIDEO_ID_04',
+          title: 'Replacement',
+        },
+        replacement,
+      );
+
+      await vi.waitFor(() => {
+        expect(getState('playlist.items').map((item) => item.videoId)).toEqual(['VIDEO_ID_04']);
       });
-      await Promise.resolve();
+
+      expect(peer.safeSend).not.toHaveBeenCalled();
+    });
+
+    it('cancels a revoked operator prepare so another operator can commit', async () => {
+      const revokedSend = vi.fn();
+      const revoked = {
+        peer: 'operator-revoked',
+        open: true,
+        send: revokedSend,
+      } as unknown as DataConnection;
+      const successor = {
+        peer: 'operator-successor',
+        open: true,
+        send: vi.fn(),
+      } as unknown as DataConnection;
+      const peerState = (conn: DataConnection, isOp: boolean) => ({
+        id: conn.peer,
+        slot: conn === revoked ? 1 : 2,
+        label: conn === revoked ? 'Revoked operator' : 'Successor operator',
+        conn,
+        isOp,
+        preloadedQueueItemIds: new Set<string>(),
+        status: 'connected' as const,
+        isDataTarget: true,
+        joinOrder: conn === revoked ? 1 : 2,
+        connectionType: 'local' as const,
+        lastHeartbeat: Date.now(),
+      });
+      setState('network.appRole', 'host');
+      setState('network.sessionCode', '123456');
+      setState(
+        'network.activeHostConnByPeerId',
+        new Map([
+          [revoked.peer, revoked],
+          [successor.peer, successor],
+        ]),
+      );
+      setState('network.connectedPeers', [peerState(revoked, true), peerState(successor, true)]);
+      const search = await import('../search.ts');
+      vi.mocked(search.extractYouTubePlaylistId).mockImplementation((url: string) =>
+        url.includes('list=PL_REVOKED') ? 'PL_REVOKED' : null,
+      );
+      let revokedSignal: AbortSignal | undefined;
+      vi.mocked(search.resolveYouTubePlaylistEntry).mockImplementation(
+        (_playlistId, signal) =>
+          new Promise((_resolve, reject) => {
+            revokedSignal = signal;
+            signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+          }),
+      );
+      const protocol = await import('../../network/protocol.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      const handlers = vi.mocked(protocol.registerHandlers).mock.calls.at(-1)?.[0] as Record<
+        string,
+        ((data: Record<string, unknown>, conn: DataConnection) => void) | undefined
+      >;
+      const handler = handlers[MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]!;
+      const revokedRequest = {
+        type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+        requestId: '99999999-9999-4999-8999-999999999996',
+        baseRevision: 0,
+        sourceUrl: 'https://www.youtube.com/playlist?list=PL_REVOKED',
+        title: 'Revoked',
+      };
+
+      handler(revokedRequest, revoked);
+      handler(
+        {
+          type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+          requestId: '99999999-9999-4999-8999-999999999994',
+          baseRevision: 0,
+          sourceUrl: 'https://www.youtube.com/watch?v=VIDEO_ID_06',
+          title: 'Queued before revocation',
+        },
+        revoked,
+      );
       await Promise.resolve();
 
-      expect(getState('playlist.items').map((item) => item.videoId)).toEqual(['VIDEO_ID_03']);
+      setState('network.connectedPeers', [peerState(revoked, false), peerState(successor, true)]);
+      expect(revokedSignal?.aborted).toBe(true);
+      // Regranting the same exact connection must not revive work that lost
+      // ownership when the capability was revoked.
+      setState('network.connectedPeers', [peerState(revoked, true), peerState(successor, true)]);
+
+      handler(
+        {
+          type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+          requestId: '99999999-9999-4999-8999-999999999995',
+          baseRevision: 0,
+          sourceUrl: 'https://www.youtube.com/watch?v=VIDEO_ID_05',
+          title: 'Successor',
+        },
+        successor,
+      );
+
+      await vi.waitFor(() => {
+        expect(getState('playlist.items').map((item) => item.videoId)).toEqual(['VIDEO_ID_05']);
+      });
+
+      revokedSend.mockClear();
+      handler(revokedRequest, revoked);
+      expect(revokedSend.mock.calls.map(([message]) => message)).toEqual([
+        expect.objectContaining({
+          requestId: revokedRequest.requestId,
+          phase: 'accepted',
+        }),
+        expect.objectContaining({
+          requestId: revokedRequest.requestId,
+          phase: 'settled',
+          outcome: 'rejected',
+          code: 'unauthorized',
+        }),
+      ]);
     });
 
     it('does not send async failure data to a replaced operator connection', async () => {
       const conn = {
-        peer: 'operator-stale',
+        peer: 'operator-non-cooperative-stale',
         open: true,
         send: vi.fn(),
       } as unknown as DataConnection;
@@ -2637,7 +2838,7 @@ describe('YouTube Player', () => {
       handlers[MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]?.(
         {
           type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
-          requestId: '99999999-9999-4999-8999-999999999999',
+          requestId: '99999999-9999-4999-8999-999999999997',
           baseRevision: 0,
           sourceUrl: 'https://www.youtube.com/playlist?list=PL_STALE',
           title: 'Stale',

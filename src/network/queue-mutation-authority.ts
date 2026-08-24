@@ -42,11 +42,13 @@ type StandardQueueMutationRequestOutcome = QueueMutationClaim | 'unauthorized' |
 interface HostMutationRecord {
   fingerprint: string;
   acceptedRevision: number;
-  settled: null | {
-    outcome: 'applied' | 'rejected';
-    revision: number;
-    code: StandardQueueMutationResultCode | null;
-  };
+  settled: HostMutationSettlement | null;
+}
+
+interface HostMutationSettlement {
+  outcome: 'applied' | 'rejected';
+  revision: number;
+  code: StandardQueueMutationResultCode | null;
 }
 
 interface PendingGuestMutation {
@@ -232,17 +234,17 @@ export function acceptStandardQueueMutationRequest(input: {
   return claim;
 }
 
-export function settleStandardQueueMutationRequest(
+function recordStandardQueueMutationSettlementInternal(
   conn: DataConnection,
   requestId: string,
   settlement:
     | { outcome: 'applied' }
     | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
-): boolean {
+): HostMutationSettlement | null {
   const record = requestsByConnection.get(conn)?.get(requestId);
   if (!record) {
     log.debug(`[Playlist] Ignored settlement for unknown request: ${requestId}`);
-    return false;
+    return null;
   }
 
   if (!record.settled) {
@@ -252,13 +254,36 @@ export function settleStandardQueueMutationRequest(
       code: settlement.outcome === 'applied' ? null : settlement.code,
     };
   }
+  return record.settled;
+}
+
+/** Record the first terminal outcome without sending a result frame. */
+export function recordStandardQueueMutationSettlement(
+  conn: DataConnection,
+  requestId: string,
+  settlement:
+    | { outcome: 'applied' }
+    | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
+): boolean {
+  return recordStandardQueueMutationSettlementInternal(conn, requestId, settlement) !== null;
+}
+
+export function settleStandardQueueMutationRequest(
+  conn: DataConnection,
+  requestId: string,
+  settlement:
+    | { outcome: 'applied' }
+    | { outcome: 'rejected'; code: StandardQueueMutationResultCode },
+): boolean {
+  const recorded = recordStandardQueueMutationSettlementInternal(conn, requestId, settlement);
+  if (!recorded) return false;
   return sendMutationResult(
     conn,
     requestId,
     'settled',
-    record.settled.outcome,
-    record.settled.revision,
-    record.settled.code,
+    recorded.outcome,
+    recorded.revision,
+    recorded.code,
   );
 }
 

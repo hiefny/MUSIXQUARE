@@ -87,7 +87,7 @@ describe('About page current UI contract', () => {
       '방을 열고 여섯 자리 숫자만 공유해요. 브라우저만 있으면 누구나 몇 초 안에 참여할 수 있어요.',
     );
     expect(landingI18n).toContain("'sync.h2': '네트워크를 넘어<br>프레임 단위로 정확하게'");
-    expect(landingI18n).toContain('각 기기가 방장과의 지연을 측정하고 칼같이 정렬해요.');
+    expect(landingI18n).toContain('각 기기가 지연을 측정하고 칼같이 정렬해요.');
     expect(landingI18n).not.toMatch(
       /'(?:code\.lead|sync\.lead|sync\.transport_value)':\s*'[^']*\bPRO\b[^']*'/giu,
     );

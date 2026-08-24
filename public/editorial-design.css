@@ -1041,6 +1041,10 @@
   color: var(--youtube-filled);
 }
 
+.playlist-source.youtube-playlist {
+  transform: scale(1.2);
+}
+
 .expand-toggle {
   width: 44px;
   height: 44px;
@@ -2094,8 +2098,15 @@
 }
 
 .app-loading-header-logo {
-  width: 120px;
-  height: 14px;
+  /* Match the production header SVG's 214:24 viewBox at its 16px height.
+     The shared editorial mask includes 2px of extra bottom canvas, so scale
+     that mask vertically and clip it to the production viewBox. */
+  width: 142.667px;
+  height: 16px;
+  mask-position: left top;
+  mask-size: 100% 108.333%;
+  -webkit-mask-position: left top;
+  -webkit-mask-size: 100% 108.333%;
   animation: app-header-logo-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite;
 }
 
@@ -2114,13 +2125,13 @@
   padding: 6px 14px;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   border-radius: 999px;
   background: var(--primary-filled);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
-  line-height: 1.2;
+  line-height: normal;
   animation: app-header-badge-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite;
 }
 

@@ -379,7 +379,33 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           headerHeight: document
             .querySelector<HTMLElement>('.app-loading-header-demo')!
             .getBoundingClientRect().height,
-          headerBadgeDot: !!document.querySelector('.app-loading-header-badge i'),
+          headerLogo: (() => {
+            const logo = document.querySelector<HTMLElement>('.app-loading-header-logo')!;
+            const rect = logo.getBoundingClientRect();
+            const style = getComputedStyle(logo);
+            return {
+              height: rect.height,
+              width: rect.width,
+              maskPosition: style.maskPosition,
+              maskSize: style.maskSize,
+            };
+          })(),
+          headerBadge: (() => {
+            const badge = document.querySelector<HTMLElement>('.app-loading-header-badge')!;
+            const style = getComputedStyle(badge);
+            return {
+              fontSize: style.fontSize,
+              fontWeight: style.fontWeight,
+              gap: style.gap,
+              lineHeight: style.lineHeight,
+              padding: style.padding,
+            };
+          })(),
+          headerBadgeDot: (() => {
+            const dot = document.querySelector<HTMLElement>('.app-loading-header-badge i')!;
+            const rect = dot.getBoundingClientRect();
+            return { height: rect.height, width: rect.width };
+          })(),
           headerProgress: !!document.querySelector('.app-loading-header-progress'),
         },
         playlistRemoval: {
@@ -407,6 +433,19 @@ test('keeps the Design System rail and examples coherent at every layout size', 
           playbackCount: document.querySelectorAll('.playback-comp .tab-action-btn-sample').length,
           playlistCount: document.querySelectorAll('.playlist-comp .tab-action-btn-sample').length,
         },
+        playlistSourceIcons: [
+          ...document.querySelectorAll<SVGElement>('.playlist-item .playlist-source'),
+        ].map((icon) => {
+          const rect = icon.getBoundingClientRect();
+          const name = icon.closest<HTMLElement>('.playlist-name')!;
+          const label = icon.nextElementSibling!.getBoundingClientRect();
+          return {
+            gap: getComputedStyle(name).gap,
+            transform: getComputedStyle(icon).transform,
+            visualGap: label.left - rect.right,
+            width: rect.width,
+          };
+        }),
         volumeCycle: {
           mutedMarks: document.querySelectorAll('.volume-cycle-demo .volume-muted-mark').length,
           waves: document.querySelectorAll('.volume-cycle-demo .volume-wave').length,
@@ -551,7 +590,18 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.interfacePatterns.spinnerSize).toBe(36);
     expect(components.interfacePatterns.spinnerBackground).toBe('rgb(32, 32, 32)');
     expect(components.interfacePatterns.headerHeight).toBe(60);
-    expect(components.interfacePatterns.headerBadgeDot).toBe(true);
+    expect(components.interfacePatterns.headerLogo.height).toBe(16);
+    expect(components.interfacePatterns.headerLogo.width).toBeCloseTo(142.667, 1);
+    expect(components.interfacePatterns.headerLogo.maskPosition).toBe('0% 0%');
+    expect(components.interfacePatterns.headerLogo.maskSize).toBe('100% 108.333%');
+    expect(components.interfacePatterns.headerBadge).toEqual({
+      fontSize: '11px',
+      fontWeight: '700',
+      gap: '6px',
+      lineHeight: 'normal',
+      padding: '6px 14px',
+    });
+    expect(components.interfacePatterns.headerBadgeDot).toEqual({ height: 6, width: 6 });
     expect(components.interfacePatterns.headerProgress).toBe(true);
     expect(components.playlistHeaderActions).toEqual(['Repeat one', 'Shuffle', 'Add media']);
     expect(components.playlistHeaderOwner).toEqual({
@@ -559,6 +609,18 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       playbackCount: 0,
       playlistCount: 3,
     });
+    expect(components.playlistSourceIcons.map((icon) => icon.gap)).toEqual(['8px', '8px', '8px']);
+    expect(components.playlistSourceIcons.slice(0, 2).map((icon) => icon.transform)).toEqual([
+      'none',
+      'none',
+    ]);
+    expect(components.playlistSourceIcons[2]?.transform).toBe('matrix(1.2, 0, 0, 1.2, 0, 0)');
+    expect(components.playlistSourceIcons.slice(0, 2).map((icon) => icon.width)).toEqual([16, 16]);
+    expect(components.playlistSourceIcons[2]?.width).toBeCloseTo(19.2, 1);
+    expect(components.playlistSourceIcons.slice(0, 2).map((icon) => icon.visualGap)).toEqual([
+      8, 8,
+    ]);
+    expect(components.playlistSourceIcons[2]?.visualGap).toBeCloseTo(6.4, 1);
     expect(components.volumeCycle).toEqual({ mutedMarks: 1, waves: 2 });
     expect(components.playlistRemoval).toEqual({
       actionCount: 3,

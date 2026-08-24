@@ -183,6 +183,36 @@ describe('landing-page translation integrity', () => {
     });
   });
 
+  it('keeps synchronization copy concise and neutral across every language', async () => {
+    const dictionaries = await loadLandingDictionary();
+    const actual = Object.fromEntries(
+      Object.entries(dictionaries).map(([language, dictionary]) => [
+        language,
+        dictionary['sync.lead'],
+      ]),
+    );
+
+    expect(actual).toEqual({
+      en: 'Each device checks the delay and keeps playback precisely aligned.',
+      ko: '각 기기가 지연을 측정하고 칼같이 정렬해요.',
+      ja: '各デバイスが遅れを測り、再生のタイミングをぴったりそろえます。',
+      'zh-hans': '每台设备都会测量延迟，把播放时间准确对齐。',
+      'zh-hant': '每台裝置都會測量延遲，把播放時間精準對齊。',
+      es: 'Cada dispositivo mide el retraso y ajusta la reproducción con precisión.',
+      'pt-br': 'Cada dispositivo mede o atraso e alinha a reprodução com precisão.',
+      fr: 'Chaque appareil mesure le décalage et aligne précisément la lecture.',
+      de: 'Jedes Gerät misst die Verzögerung und richtet die Wiedergabe präzise aus.',
+      nl: 'Elk apparaat meet de vertraging en laat het afspelen precies gelijklopen.',
+      it: 'Ogni dispositivo misura il ritardo e allinea con precisione la riproduzione.',
+      pl: 'Każde urządzenie mierzy opóźnienie i precyzyjnie wyrównuje odtwarzanie.',
+      ru: 'Каждое устройство измеряет задержку и точно выравнивает воспроизведение.',
+      tr: 'Her cihaz gecikmeyi ölçer ve oynatmayı hassas biçimde hizalar.',
+      id: 'Setiap perangkat mengukur jeda lalu menyelaraskan pemutaran dengan tepat.',
+      vi: 'Mỗi thiết bị đo độ trễ rồi căn chỉnh phát thật chính xác.',
+      th: 'แต่ละอุปกรณ์วัดความหน่วง แล้วจัดเวลาเล่นให้ตรงกันอย่างแม่นยำ',
+    });
+  });
+
   it('keeps the Indonesian About copy within the supported-browser and sync contracts', async () => {
     const dictionary = (await loadLandingDictionary()).id;
 

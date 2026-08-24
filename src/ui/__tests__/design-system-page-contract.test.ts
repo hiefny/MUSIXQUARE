@@ -281,6 +281,7 @@ describe('public design-system page contract', () => {
     ];
     const thirdItem = items[2];
     const thirdEntry = entries[2];
+    const thirdSource = thirdItem?.querySelector<SVGElement>('.playlist-source.youtube-playlist');
     const thirdExpand = thirdItem?.querySelector<HTMLButtonElement>('.expand-toggle');
     const thirdRemove = thirdItem?.querySelector<HTMLButtonElement>('.playlist-remove');
     const subTracks = [...(thirdEntry?.querySelectorAll<HTMLElement>('.sub-track-item') ?? [])];
@@ -295,6 +296,10 @@ describe('public design-system page contract', () => {
     );
     expect(sourcePaths).toEqual(
       [FILE_PATH, YOUTUBE_PATH, YOUTUBE_PLAYLIST_PATH].map(normalizedPath),
+    );
+    expect(thirdSource).toBeTruthy();
+    expect(designStylesheet).toMatch(
+      /\.playlist-source\.youtube-playlist\s*\{[^}]*transform:\s*scale\(1\.2\);/su,
     );
     expect(expandButtons).toHaveLength(1);
     expect(items.slice(0, 2).every((item) => item.querySelector('.expand-toggle') === null)).toBe(
@@ -536,6 +541,15 @@ describe('public design-system page contract', () => {
       /\.large-spinner-stage\s*\{[^}]*height:\s*60px;[^}]*background:\s*var\(--surface-2\);/su,
     );
     expect(designStylesheet).toMatch(/\.app-loading-header-demo\s*\{[^}]*height:\s*60px;/su);
+    expect(designStylesheet).toMatch(
+      /\.app-loading-header-logo\s*\{[^}]*width:\s*142\.667px;[^}]*height:\s*16px;[^}]*mask-position:\s*left top;[^}]*mask-size:\s*100% 108\.333%;/su,
+    );
+    expect(designStylesheet).toMatch(
+      /\.app-loading-header-badge\s*\{[^}]*padding:\s*6px 14px;[^}]*gap:\s*6px;[^}]*font-size:\s*11px;[^}]*font-weight:\s*700;[^}]*line-height:\s*normal;/su,
+    );
+    expect(designStylesheet).toMatch(
+      /\.app-loading-header-badge i\s*\{[^}]*width:\s*6px;[^}]*height:\s*6px;/su,
+    );
     expect(designStylesheet).toMatch(
       /48%\s*\{[^}]*stroke-dasharray:\s*74 26;[^}]*stroke-dashoffset:\s*-12;/su,
     );

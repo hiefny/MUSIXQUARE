@@ -66,8 +66,7 @@
       'remote.whisper_msg': 'ask for playlist recs in the notice',
 
       'sync.h2': 'Synchronized playback.<br>Across networks.',
-      'sync.lead':
-        'Each device measures its round-trip latency against the host, then aligns playback to a shared master clock.',
+      'sync.lead': 'Each device checks the delay and keeps playback precisely aligned.',
       'sync.video_label': 'MEDIA',
       'sync.video_value': 'Synchronized media playback',
       'sync.transport_label': 'Transport',
@@ -159,7 +158,7 @@
       'remote.whisper_msg': '공지로 플리 추천 좀 받아봐',
 
       'sync.h2': '네트워크를 넘어<br>프레임 단위로 정확하게',
-      'sync.lead': '각 기기가 방장과의 지연을 측정하고 칼같이 정렬해요.',
+      'sync.lead': '각 기기가 지연을 측정하고 칼같이 정렬해요.',
       'sync.video_label': '미디어',
       'sync.video_value': '동기화된 미디어 재생',
       'sync.transport_label': '전송',
@@ -293,8 +292,7 @@
     'remote.whisper_sender': 'HOSTへの個別メッセージ',
     'remote.whisper_msg': 'お知らせでおすすめ募集してみて',
     'sync.h2': 'ネットワークを越えて<br>同期再生',
-    'sync.lead':
-      '各デバイスがホストとの往復遅延を測定し、共有マスタークロックに合わせて再生をそろえます。',
+    'sync.lead': '各デバイスが遅れを測り、再生のタイミングをぴったりそろえます。',
     'sync.video_label': 'メディア',
     'sync.video_value': '同期メディア再生',
     'sync.transport_label': '転送',
@@ -377,7 +375,7 @@
     'remote.whisper_sender': '私聊房主',
     'remote.whisper_msg': '发个公告求歌单推荐吧',
     'sync.h2': '跨越网络<br>同步播放',
-    'sync.lead': '每台设备都会测量与房主设备之间的往返延迟，再按照共享主时钟对齐播放。',
+    'sync.lead': '每台设备都会测量延迟，把播放时间准确对齐。',
     'sync.video_label': '媒体',
     'sync.video_value': '同步媒体播放',
     'sync.transport_label': '传输',
@@ -458,7 +456,7 @@
     'remote.whisper_sender': '私訊房主',
     'remote.whisper_msg': '發個公告問大家有沒有推薦歌單',
     'sync.h2': '跨越不同網路<br>也能同步播放',
-    'sync.lead': '每台裝置都會測量與房主裝置之間的往返延遲，再依照共用主時鐘對齊播放。',
+    'sync.lead': '每台裝置都會測量延遲，把播放時間精準對齊。',
     'sync.video_label': '媒體',
     'sync.video_value': '同步媒體播放',
     'sync.transport_label': '傳輸',
@@ -542,8 +540,7 @@
     'remote.whisper_sender': 'privado para ANFITRIÓN',
     'remote.whisper_msg': 'pide recomendaciones de playlists en el aviso',
     'sync.h2': 'Reproducción sincronizada<br>entre distintas redes',
-    'sync.lead':
-      'Cada dispositivo mide la latencia de ida y vuelta con el anfitrión y alinea la reproducción con un reloj maestro compartido.',
+    'sync.lead': 'Cada dispositivo mide el retraso y ajusta la reproducción con precisión.',
     'sync.video_label': 'Multimedia',
     'sync.video_value': 'Reproducción multimedia sincronizada',
     'sync.transport_label': 'Transporte',
@@ -632,8 +629,7 @@
     'remote.whisper_sender': 'privado para ANFITRIÃO',
     'remote.whisper_msg': 'pede sugestões de playlist no aviso',
     'sync.h2': 'Reprodução sincronizada<br>mesmo entre redes',
-    'sync.lead':
-      'Cada dispositivo mede o tempo de ida e volta até o anfitrião e alinha a reprodução a um relógio mestre compartilhado.',
+    'sync.lead': 'Cada dispositivo mede o atraso e alinha a reprodução com precisão.',
     'sync.video_label': 'Mídia',
     'sync.video_value': 'Reprodução de mídia sincronizada',
     'sync.transport_label': 'Transporte',
@@ -722,8 +718,7 @@
     'remote.whisper_sender': 'message privé à l’HÔTE',
     'remote.whisper_msg': 'demande des recos de playlists dans l’annonce',
     'sync.h2': 'Lecture synchronisée<br>d’un réseau à l’autre',
-    'sync.lead':
-      'Chaque appareil mesure la latence aller-retour avec l’hôte, puis aligne la lecture sur une horloge maîtresse commune.',
+    'sync.lead': 'Chaque appareil mesure le décalage et aligne précisément la lecture.',
     'sync.video_label': 'Média',
     'sync.video_value': 'Lecture synchronisée des médias',
     'sync.transport_label': 'Transport',
@@ -812,8 +807,7 @@
     'remote.whisper_sender': 'Private Nachricht an HOST',
     'remote.whisper_msg': 'frag in der Ankündigung nach Playlist-Tipps',
     'sync.h2': 'Synchrone Wiedergabe<br>über Netzwerke hinweg',
-    'sync.lead':
-      'Jedes Gerät misst die Latenz für Hin- und Rückweg zum Host und richtet die Wiedergabe an einem gemeinsamen Referenztakt aus.',
+    'sync.lead': 'Jedes Gerät misst die Verzögerung und richtet die Wiedergabe präzise aus.',
     'sync.video_label': 'Medien',
     'sync.video_value': 'Synchrone Medienwiedergabe',
     'sync.transport_label': 'Transport',
@@ -902,8 +896,7 @@
     'remote.whisper_sender': 'fluisterbericht aan HOST',
     'remote.whisper_msg': 'vraag in de mededeling om playlisttips',
     'sync.h2': 'Synchroon afspelen<br>over verschillende netwerken',
-    'sync.lead':
-      'Elk apparaat meet de roundtriplatentie naar de host en synchroniseert het afspelen vervolgens met een gedeelde masterklok.',
+    'sync.lead': 'Elk apparaat meet de vertraging en laat het afspelen precies gelijklopen.',
     'sync.video_label': 'MEDIA',
     'sync.video_value': 'Synchroon afspelen van media',
     'sync.transport_label': 'Overdracht',
@@ -990,8 +983,7 @@
     'remote.whisper_sender': 'messaggio privato a HOST',
     'remote.whisper_msg': 'chiedi nell’avviso se hanno playlist da consigliare',
     'sync.h2': 'Riproduzione sincronizzata<br>anche tra reti diverse',
-    'sync.lead':
-      'Ogni dispositivo misura la latenza di andata e ritorno verso l’host, quindi allinea la riproduzione a un riferimento temporale condiviso.',
+    'sync.lead': 'Ogni dispositivo misura il ritardo e allinea con precisione la riproduzione.',
     'sync.video_label': 'Contenuti',
     'sync.video_value': 'Riproduzione multimediale sincronizzata',
     'sync.transport_label': 'Trasporto',
@@ -1079,8 +1071,7 @@
     'remote.whisper_sender': 'prywatna wiadomość do hosta',
     'remote.whisper_msg': 'zapytaj w ogłoszeniu o polecane playlisty',
     'sync.h2': 'Zsynchronizowane odtwarzanie<br>w różnych sieciach',
-    'sync.lead':
-      'Każde urządzenie mierzy opóźnienie w obie strony względem hosta, a następnie dopasowuje odtwarzanie do wspólnego zegara głównego.',
+    'sync.lead': 'Każde urządzenie mierzy opóźnienie i precyzyjnie wyrównuje odtwarzanie.',
     'sync.video_label': 'Media',
     'sync.video_value': 'Zsynchronizowane odtwarzanie multimediów',
     'sync.transport_label': 'Transport',
@@ -1166,8 +1157,7 @@
     'remote.whisper_sender': 'личное сообщение ХОСТУ',
     'remote.whisper_msg': 'попроси в объявлении посоветовать плейлисты',
     'sync.h2': 'Синхронное воспроизведение<br>между разными сетями',
-    'sync.lead':
-      'Каждое устройство измеряет задержку до хоста и обратно, а затем выравнивает воспроизведение по общим эталонным часам.',
+    'sync.lead': 'Каждое устройство измеряет задержку и точно выравнивает воспроизведение.',
     'sync.video_label': 'Медиа',
     'sync.video_value': 'Синхронное воспроизведение медиа',
     'sync.transport_label': 'Передача',
@@ -1253,8 +1243,7 @@
     'remote.whisper_sender': 'ODA SAHİBİNE özel mesaj',
     'remote.whisper_msg': 'duyuruda playlist önerisi istesene',
     'sync.h2': 'Ağlar arasında<br>senkronize oynatma',
-    'sync.lead':
-      'Her cihaz oda sahibine gidiş-dönüş gecikmesini ölçer ve oynatmayı ortak ana saate göre hizalar.',
+    'sync.lead': 'Her cihaz gecikmeyi ölçer ve oynatmayı hassas biçimde hizalar.',
     'sync.video_label': 'Medya',
     'sync.video_value': 'Senkronize medya oynatma',
     'sync.transport_label': 'Aktarım',
@@ -1342,8 +1331,7 @@
     'remote.whisper_sender': 'pesan pribadi kepada HOST',
     'remote.whisper_msg': 'coba minta rekomendasi playlist di pengumuman',
     'sync.h2': 'Pemutaran tersinkronisasi.<br>Lintas jaringan.',
-    'sync.lead':
-      'Setiap perangkat mengukur latensi bolak-balik ke host, lalu menyelaraskan pemutaran dengan jam utama bersama.',
+    'sync.lead': 'Setiap perangkat mengukur jeda lalu menyelaraskan pemutaran dengan tepat.',
     'sync.video_label': 'Media',
     'sync.video_value': 'Pemutaran media tersinkronisasi',
     'sync.transport_label': 'Transmisi',
@@ -1429,8 +1417,7 @@
     'remote.whisper_sender': 'nhắn riêng cho CHỦ PHÒNG',
     'remote.whisper_msg': 'đăng thông báo xin gợi ý playlist đi',
     'sync.h2': 'Phát đồng bộ.<br>Dù khác mạng.',
-    'sync.lead':
-      'Mỗi thiết bị đo độ trễ khứ hồi với chủ phòng, sau đó căn chỉnh việc phát theo một đồng hồ chủ dùng chung.',
+    'sync.lead': 'Mỗi thiết bị đo độ trễ rồi căn chỉnh phát thật chính xác.',
     'sync.video_label': 'ĐA PHƯƠNG TIỆN',
     'sync.video_value': 'Phát nội dung đa phương tiện đồng bộ',
     'sync.transport_label': 'Truyền tải',
@@ -1515,8 +1502,7 @@
     'remote.whisper_sender': 'ข้อความส่วนตัวถึงเจ้าของห้อง',
     'remote.whisper_msg': 'ประกาศขอเพลย์ลิสต์แนะนำหน่อย',
     'sync.h2': 'เล่นแบบซิงก์กัน<br>ข้ามเครือข่าย',
-    'sync.lead':
-      'แต่ละอุปกรณ์วัดเวลาไป-กลับกับอุปกรณ์ของเจ้าของห้อง แล้วจัดเวลาเล่นให้ตรงกับนาฬิกาหลักร่วมกัน',
+    'sync.lead': 'แต่ละอุปกรณ์วัดความหน่วง แล้วจัดเวลาเล่นให้ตรงกันอย่างแม่นยำ',
     'sync.video_label': 'สื่อ',
     'sync.video_value': 'เล่นสื่อแบบซิงก์กัน',
     'sync.transport_label': 'การส่งข้อมูล',

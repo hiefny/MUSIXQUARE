@@ -6407,20 +6407,31 @@
   }
 
   .setup-host-qr-loading-spinner {
-    --material-elastic-size: 26px;
+    --material-elastic-size: 42px;
+    position: relative;
     grid-area: 1 / 1;
     z-index: 2;
-    box-sizing: content-box;
-    padding: 13px;
-    border-radius: 50%;
-    background: var(--bg);
-    color: var(--primary);
+    color: #fff;
     opacity: 0;
     visibility: hidden;
     transition:
       opacity 0.18s ease-out,
       visibility 0s linear 0.18s;
     pointer-events: none;
+  }
+
+  .setup-host-qr-loading-spinner::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border: 7px solid var(--bg);
+    border-radius: 50%;
+  }
+
+  .setup-host-qr-loading-spinner > svg {
+    position: relative;
+    z-index: 1;
   }
 
   .setup-host-invite-stage.is-room-qr-loading > .setup-host-qr-loading-spinner {
@@ -6538,7 +6549,7 @@
   .setup-qr-join-spinner {
     --material-elastic-size: 42px;
     display: none;
-    color: var(--primary);
+    color: #fff;
   }
 
   .setup-qr-scan-button[aria-busy='true'] .setup-qr-scan-symbol {

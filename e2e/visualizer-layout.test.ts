@@ -127,6 +127,43 @@ async function readVariableGaps(page: Page): Promise<VariableGapGeometry> {
 }
 
 test.describe('mobile visualizer layout', () => {
+  test('matches bottom clearance to the edge-to-edge nav without crowding feedback', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await setupHostAndStart(page);
+
+    const geometry = await page.evaluate(() => {
+      const root = document.documentElement;
+      const nav = document.querySelector<HTMLElement>('.bottom-nav');
+      const tabBody = document.querySelector<HTMLElement>('#tab-play > .tab-body');
+      const secondary = document.querySelector<HTMLElement>('.play-secondary-area');
+      const toast = document.querySelector<HTMLElement>('.toast');
+      const selection = document.querySelector<HTMLElement>('.playlist-selection-pill');
+
+      if (!nav || !tabBody || !secondary || !toast || !selection) {
+        throw new Error('Mobile nav-clearance elements are missing');
+      }
+
+      const navHeight = nav.getBoundingClientRect().height;
+      return {
+        navHeight,
+        navToken: Number.parseFloat(getComputedStyle(root).getPropertyValue('--nav-height')),
+        playBottomClearance: Number.parseFloat(getComputedStyle(tabBody).paddingBottom),
+        secondaryPadding: Number.parseFloat(getComputedStyle(secondary).paddingBottom),
+        toastGap: Number.parseFloat(getComputedStyle(toast).bottom) - navHeight,
+        selectionGap: Number.parseFloat(getComputedStyle(selection).bottom) - navHeight,
+      };
+    });
+
+    expect(geometry.navHeight).toBe(64);
+    expect(geometry.navToken).toBe(64);
+    expect(geometry.playBottomClearance).toBe(64);
+    expect(geometry.secondaryPadding).toBe(24);
+    expect(geometry.toastGap).toBe(46);
+    expect(geometry.selectionGap).toBe(14);
+  });
+
   test('ties the YouTube frame treatment to the active mobile UI tier', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupHostAndStart(page);

@@ -40,7 +40,11 @@ import {
 import { animateTransition } from './dom.ts';
 import { precreateYouTubePlayer } from '../youtube/player.ts';
 import { prepareSetupStartFromGesture } from './setup-start.ts';
-import { resetHostInviteVisual, revealHostInviteQr } from './setup-host-invite.ts';
+import {
+  finishHostInviteLoading,
+  resetHostInviteVisual,
+  revealHostInviteQr,
+} from './setup-host-invite.ts';
 import { isStandardRoomRole } from '../rooms/authority.ts';
 
 // ─── Host Flow ───────────────────────────────────────────────────
@@ -172,6 +176,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
     if (flowId !== getHostCodeFlowId()) return;
 
     log.error('[Setup] Host session init failed', e);
+    finishHostInviteLoading();
     const reloadRequired = isLazyFeatureLoadError(e);
     setupSetHostError(t(reloadRequired ? 'dialog.sw_update_msg' : 'error.session_create_fail'));
     setupRenderActions(

@@ -15,13 +15,18 @@ vi.mock('../../core/log.ts', () => ({
   log: { warn: mocks.warn },
 }));
 
-import { resetHostInviteVisual, revealHostInviteQr } from '../setup-host-invite.ts';
+import {
+  finishHostInviteLoading,
+  resetHostInviteVisual,
+  revealHostInviteQr,
+} from '../setup-host-invite.ts';
 
 function renderStage(): void {
   document.body.innerHTML = `
-    <div id="setup-host-invite-stage" class="setup-host-invite-stage">
+    <div id="setup-host-invite-stage" class="setup-host-invite-stage" aria-busy="false">
       <div id="setup-host-qr-placeholder" aria-hidden="true"></div>
       <div id="setup-host-qr" aria-hidden="true"></div>
+      <span class="material-elastic-spinner setup-host-qr-loading-spinner" aria-hidden="true"></span>
     </div>
   `;
 }
@@ -58,6 +63,8 @@ describe('host setup invitation QR', () => {
     const svg = qr?.querySelector('svg');
 
     expect(stage?.classList.contains('is-room-qr-visible')).toBe(true);
+    expect(stage?.classList.contains('is-room-qr-loading')).toBe(false);
+    expect(stage?.getAttribute('aria-busy')).toBe('false');
     expect(placeholder?.getAttribute('aria-hidden')).toBe('true');
     expect(qr?.getAttribute('aria-hidden')).toBe('false');
     expect(svg?.classList.contains('qr-svg')).toBe(true);
@@ -84,6 +91,9 @@ describe('host setup invitation QR', () => {
       'is-room-qr-visible',
     );
     expect(document.getElementById('setup-host-qr')?.children).toHaveLength(0);
+    expect(document.getElementById('setup-host-invite-stage')?.getAttribute('aria-busy')).toBe(
+      'true',
+    );
   });
 
   it('returns to the placeholder and invalidates an in-flight render for a retry', async () => {
@@ -109,6 +119,9 @@ describe('host setup invitation QR', () => {
     );
     expect(document.getElementById('setup-host-qr')?.getAttribute('aria-hidden')).toBe('true');
     expect(document.getElementById('setup-host-qr')?.children).toHaveLength(0);
+    expect(
+      document.getElementById('setup-host-invite-stage')?.classList.contains('is-room-qr-loading'),
+    ).toBe(true);
   });
 
   it('keeps the placeholder visible when encoding fails', async () => {
@@ -123,7 +136,30 @@ describe('host setup invitation QR', () => {
       'true',
     );
     expect(document.getElementById('setup-host-qr')?.getAttribute('aria-hidden')).toBe('true');
+    expect(document.getElementById('setup-host-invite-stage')?.getAttribute('aria-busy')).toBe(
+      'false',
+    );
     expect(mocks.warn).toHaveBeenCalledOnce();
+  });
+
+  it('stops loading when the encoder returns no SVG root', async () => {
+    mocks.toString.mockResolvedValueOnce('<span>invalid QR output</span>');
+
+    await expect(revealHostInviteQr('123456', () => true)).resolves.toBe(false);
+
+    const stage = document.getElementById('setup-host-invite-stage');
+    expect(stage?.classList.contains('is-room-qr-loading')).toBe(false);
+    expect(stage?.getAttribute('aria-busy')).toBe('false');
+  });
+
+  it('stops the placeholder loader when host session creation fails before QR encoding', () => {
+    const stage = document.getElementById('setup-host-invite-stage');
+    expect(stage?.classList.contains('is-room-qr-loading')).toBe(true);
+
+    finishHostInviteLoading();
+
+    expect(stage?.classList.contains('is-room-qr-loading')).toBe(false);
+    expect(stage?.getAttribute('aria-busy')).toBe('false');
   });
 
   it('rejects a non-canonical code without loading the encoder', async () => {

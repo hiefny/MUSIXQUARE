@@ -643,6 +643,7 @@ describe('public design-system page contract', () => {
   });
 
   it('mirrors manual, OS-preference, and forced-color palette ownership', () => {
+    expect(customPropertyValue(designTokenStylesheet, '--nav-height')).toBe('64px');
     expect(designTokenStylesheet).toContain("html[data-contrast='more']");
     expect(designTokenStylesheet).toContain("html[data-theme='light'][data-contrast='more']");
     expect(designTokenStylesheet).toContain('@media (prefers-contrast: more)');

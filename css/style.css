@@ -76,7 +76,8 @@
     --safe-bottom: env(safe-area-inset-bottom, 0px);
 
     --header-height: calc(60px + var(--safe-top));
-    --nav-height: 72px;
+    /* Edge-to-edge mobile nav: 44px item + 10px block padding on each side. */
+    --nav-height: 64px;
     --list-row-height: 56px;
   }
 
@@ -6405,6 +6406,31 @@
     grid-area: 1 / 1;
   }
 
+  .setup-host-qr-loading-spinner {
+    --material-elastic-size: 26px;
+    grid-area: 1 / 1;
+    z-index: 2;
+    box-sizing: content-box;
+    padding: 13px;
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--primary);
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity 0.18s ease-out,
+      visibility 0s linear 0.18s;
+    pointer-events: none;
+  }
+
+  .setup-host-invite-stage.is-room-qr-loading > .setup-host-qr-loading-spinner {
+    opacity: 1;
+    visibility: visible;
+    transition:
+      opacity 0.18s ease-out,
+      visibility 0s linear 0s;
+  }
+
   .setup-host-qr {
     width: min(272px, 56vw, 36vh);
     width: min(272px, 56vw, 36dvh);
@@ -6454,7 +6480,8 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .setup-host-qr {
+    .setup-host-qr,
+    .setup-host-qr-loading-spinner {
       transition: none !important;
     }
   }
@@ -6498,10 +6525,28 @@
     transform: none;
   }
 
+  .setup-qr-scan-button[aria-busy='true'] {
+    opacity: 1;
+  }
+
   .setup-qr-scan-symbol {
     width: 46%;
     height: 46%;
     fill: currentColor;
+  }
+
+  .setup-qr-join-spinner {
+    --material-elastic-size: 42px;
+    display: none;
+    color: var(--primary);
+  }
+
+  .setup-qr-scan-button[aria-busy='true'] .setup-qr-scan-symbol {
+    display: none;
+  }
+
+  .setup-qr-scan-button[aria-busy='true'] .setup-qr-join-spinner {
+    display: block;
   }
 
   .setup-qr-camera-corners {

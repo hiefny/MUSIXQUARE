@@ -51,12 +51,23 @@ function mountQrSvg(container: HTMLElement, svgString: string): boolean {
   return true;
 }
 
+function setHostInviteLoading(elements: { stage: HTMLElement }, loading: boolean): void {
+  elements.stage.classList.toggle('is-room-qr-loading', loading);
+  elements.stage.setAttribute('aria-busy', String(loading));
+}
+
+export function finishHostInviteLoading(): void {
+  const elements = hostInviteElements();
+  if (elements) setHostInviteLoading(elements, false);
+}
+
 export function resetHostInviteVisual(): void {
   hostInviteRenderGeneration += 1;
   const elements = hostInviteElements();
   if (!elements) return;
 
   elements.stage.classList.remove('is-room-qr-visible');
+  setHostInviteLoading(elements, true);
   elements.roomQr.setAttribute('aria-hidden', 'true');
   elements.roomQr.replaceChildren();
 }
@@ -68,19 +79,25 @@ export async function revealHostInviteQr(code: string, isCurrent: () => boolean)
   if (!elements) return false;
 
   const generation = ++hostInviteRenderGeneration;
+  setHostInviteLoading(elements, true);
 
   try {
     const svgString = await encodeHostInviteQr(`${HOST_INVITE_ROOT}/${code}`);
 
     if (generation !== hostInviteRenderGeneration || !isCurrent()) return false;
-    if (!mountQrSvg(elements.roomQr, svgString)) return false;
+    if (!mountQrSvg(elements.roomQr, svgString)) {
+      setHostInviteLoading(elements, false);
+      return false;
+    }
 
     elements.roomQr.setAttribute('aria-hidden', 'false');
     void elements.stage.offsetWidth;
     elements.stage.classList.add('is-room-qr-visible');
+    setHostInviteLoading(elements, false);
     return true;
   } catch (error) {
     if (generation === hostInviteRenderGeneration) {
+      setHostInviteLoading(elements, false);
       log.warn('[Setup] Host invitation QR generation failed', error);
     }
     return false;

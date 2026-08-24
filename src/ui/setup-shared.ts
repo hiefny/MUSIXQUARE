@@ -316,7 +316,10 @@ export function setupSetGuestJoinBusy(busy: boolean): void {
   if (input) input.disabled = !!busy;
 
   const scanButton = setupEl('btn-setup-qr-scan') as HTMLButtonElement | null;
-  if (scanButton) scanButton.disabled = !!busy;
+  if (scanButton) {
+    scanButton.disabled = !!busy;
+    scanButton.setAttribute('aria-busy', String(!!busy));
+  }
 
   const grid = setupEl('setup-role-grid') as HTMLElement | null;
   if (grid) {

@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v486"></script>
+    <script src="/bootstrap.js?cache=v487"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -2523,7 +2523,7 @@
               <h2 data-i18n="setup.last_step"></h2>
               <p data-i18n="setup.connect_devices"></p>
             </div>
-            <div id="setup-host-invite-stage" class="setup-host-invite-stage">
+            <div id="setup-host-invite-stage" class="setup-host-invite-stage" aria-busy="false">
               <div
                 id="setup-host-qr-placeholder"
                 class="setup-host-qr setup-host-qr-placeholder"
@@ -2548,6 +2548,14 @@
                 aria-hidden="true"
                 data-i18n-aria-label="connect.qr_title"
               ></div>
+              <span
+                class="material-elastic-spinner setup-host-qr-loading-spinner"
+                aria-hidden="true"
+              >
+                <svg viewBox="0 0 44 44">
+                  <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                </svg>
+              </span>
             </div>
 
             <div class="setup-code-area-bottom">
@@ -2590,6 +2598,7 @@
                 id="btn-setup-qr-scan"
                 class="setup-qr-scan-button"
                 type="button"
+                aria-busy="false"
                 data-i18n-aria-label="setup.scan_qr"
               >
                 <svg class="setup-qr-scan-symbol" viewBox="0 -960 960 960" aria-hidden="true">
@@ -2597,6 +2606,11 @@
                     d="M480-260q75 0 127.5-52.5T660-440q0-75-52.5-127.5T480-620q-75 0-127.5 52.5T300-440q0 75 52.5 127.5T480-260Zm0-80q-42 0-71-29t-29-71q0-42 29-71t71-29q42 0 71 29t29 71q0 42-29 71t-71 29ZM160-120q-33 0-56.5-23.5T80-200v-480q0-33 23.5-56.5T160-760h126l74-80h240l74 80h126q33 0 56.5 23.5T880-680v480q0 33-23.5 56.5T800-120H160Z"
                   />
                 </svg>
+                <span class="material-elastic-spinner setup-qr-join-spinner" aria-hidden="true">
+                  <svg viewBox="0 0 44 44">
+                    <circle cx="22" cy="22" r="18" pathLength="100"></circle>
+                  </svg>
+                </span>
               </button>
               <div id="setup-qr-camera" class="setup-qr-camera" hidden>
                 <video id="setup-qr-video" preload="none" muted playsinline></video>

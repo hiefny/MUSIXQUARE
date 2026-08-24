@@ -46,6 +46,15 @@ describe('visualizer layout contract', () => {
     expect(stylesheet).toMatch(
       /\.play-secondary-area\s*\{[\s\S]*?padding-top:\s*32px;[\s\S]*?padding-bottom:\s*24px;/u,
     );
+    expect(stylesheet).toMatch(/--nav-height:\s*64px;/u);
+    expect(stylesheet).toMatch(
+      /\.bottom-nav\s*\{[\s\S]*?padding:\s*10px 16px calc\(10px \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\)\);/u,
+    );
+    expect(stylesheet).toMatch(/\.nav-item\s*\{[\s\S]*?min-height:\s*44px;/u);
+    expect(stylesheet).toMatch(/\.toast\s*\{[\s\S]*?bottom:\s*110px;/u);
+    expect(stylesheet).toMatch(
+      /\.playlist-selection-pill\s*\{[\s\S]*?bottom:\s*calc\(var\(--nav-height\) \+ var\(--safe-bottom\) \+ var\(--safe-nav-bottom, 0px\) \+ 14px\);/u,
+    );
     expect(desktopStylesheet).toMatch(
       /#tab-play \.tab-body::before\s*\{[\s\S]*?content:\s*'';[\s\S]*?flex:\s*0 0 0;[\s\S]*?margin-top:\s*auto;/u,
     );

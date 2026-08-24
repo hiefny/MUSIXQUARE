@@ -35,6 +35,15 @@ test.describe('Host-Guest Connection', () => {
   test('host creates session and gets 6-digit code', async () => {
     const code = await setupHost(pair.hostPage);
     expect(code).toMatch(/^\d{6}$/);
+
+    await expect(pair.hostPage.locator('#setup-host-invite-stage')).toHaveClass(
+      /is-room-qr-visible/,
+    );
+    await expect(pair.hostPage.locator('#setup-host-invite-stage')).toHaveAttribute(
+      'aria-busy',
+      'false',
+    );
+    await expect(pair.hostPage.locator('.setup-host-qr-loading-spinner')).toBeHidden();
   });
 
   test('host starts session and overlay closes', async () => {
@@ -85,7 +94,25 @@ test.describe('Host-Guest Connection', () => {
     await pair.guestPage.click('#btn-setup-guest');
     await pair.guestPage.waitForSelector('#setup-join-area', { state: 'visible', timeout: 10_000 });
     await pair.guestPage.fill('#setup-join-code', '999999');
-    await pair.guestPage.click('#btn-setup-confirm');
+    const joiningVisual = await pair.guestPage.evaluate(() => {
+      document.getElementById('btn-setup-confirm')?.click();
+      const scan = document.getElementById('btn-setup-qr-scan') as HTMLButtonElement | null;
+      const cameraIcon = scan?.querySelector<HTMLElement>('.setup-qr-scan-symbol');
+      const spinner = scan?.querySelector<HTMLElement>('.setup-qr-join-spinner');
+      return {
+        busy: scan?.getAttribute('aria-busy'),
+        disabled: scan?.disabled,
+        cameraDisplay: cameraIcon ? getComputedStyle(cameraIcon).display : null,
+        spinnerDisplay: spinner ? getComputedStyle(spinner).display : null,
+      };
+    });
+
+    expect(joiningVisual).toEqual({
+      busy: 'true',
+      disabled: true,
+      cameraDisplay: 'none',
+      spinnerDisplay: 'block',
+    });
 
     // A negative assertion needs a bounded observation window because there is
     // no DOM event for an overlay that correctly remains open.

@@ -50,6 +50,7 @@ import {
   setCurrentObSlide,
   setupHighlightJoinRole,
   setupRenderActions,
+  setupSetGuestJoinBusy,
   setupSetGuestJoinError,
   setupShowWelcome,
   updateObSlider,
@@ -471,6 +472,8 @@ describe('setup greeting reveal', () => {
     expect(markup).toContain('id="setup-host-invite-stage"');
     expect(markup).toContain('id="setup-host-qr-placeholder"');
     expect(markup).toContain('id="setup-host-qr"');
+    expect(markup).toContain('class="material-elastic-spinner setup-host-qr-loading-spinner"');
+    expect(markup).toContain('class="material-elastic-spinner setup-qr-join-spinner"');
     expect(stylesheet).toContain(
       '.setup-host-invite-stage.is-room-qr-visible > .setup-host-qr-placeholder',
     );
@@ -480,6 +483,13 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toContain('opacity 0.36s ease-in');
     expect(stylesheet).toContain('opacity 0.48s ease-out');
     expect(stylesheet).toContain('.setup-host-qr {');
+    expect(stylesheet).toContain(
+      '.setup-host-invite-stage.is-room-qr-loading > .setup-host-qr-loading-spinner',
+    );
+    expect(stylesheet).toMatch(
+      /\.setup-host-qr-loading-spinner\s*{[^}]*background:\s*var\(--bg\);/s,
+    );
+    expect(stylesheet).toContain(".setup-qr-scan-button[aria-busy='true'] .setup-qr-join-spinner");
     expect(stylesheet).toContain('transition: none !important;');
     expect(stylesheet).toContain('@media (max-width: 719px) and (orientation: portrait)');
     expect(
@@ -530,6 +540,30 @@ describe('setup greeting reveal', () => {
 });
 
 describe('setup recovery accessibility', () => {
+  it('replaces the QR camera action with the canonical spinner while joining', () => {
+    document.body.innerHTML = `
+      <input id="setup-join-code">
+      <button id="btn-setup-qr-scan" aria-busy="false">
+        <svg class="setup-qr-scan-symbol"></svg>
+        <span class="material-elastic-spinner setup-qr-join-spinner" aria-hidden="true"></span>
+      </button>
+      <div id="setup-role-grid"></div>
+    `;
+
+    const input = document.getElementById('setup-join-code') as HTMLInputElement;
+    const scanButton = document.getElementById('btn-setup-qr-scan') as HTMLButtonElement;
+
+    setupSetGuestJoinBusy(true);
+    expect(input.disabled).toBe(true);
+    expect(scanButton.disabled).toBe(true);
+    expect(scanButton.getAttribute('aria-busy')).toBe('true');
+
+    setupSetGuestJoinBusy(false);
+    expect(input.disabled).toBe(false);
+    expect(scanButton.disabled).toBe(false);
+    expect(scanButton.getAttribute('aria-busy')).toBe('false');
+  });
+
   it('keeps join-role visual and pressed states synchronized through selection and reset', async () => {
     const markup = await readFile('index.html', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');

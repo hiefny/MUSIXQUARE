@@ -129,7 +129,7 @@
 
       'code.h2': '여섯 자리 숫자만<br>있으면 돼요',
       'code.lead':
-        '방을 열면 여섯 자리 코드가 생겨요. 지원되는 브라우저에서는 금방 연결할 수 있어요.',
+        '방을 열고 여섯 자리 숫자만 공유해요. 브라우저만 있으면 누구나 몇 초 안에 참여할 수 있어요.',
       'code.aria_code': '예시 방 코드',
       'code.aria_qr': 'musixquare.com QR 코드',
       'code.copy_btn': '초대 링크 복사하기',
@@ -158,9 +158,8 @@
       'remote.whisper_sender': 'HOST에게 귓속말',
       'remote.whisper_msg': '공지로 플리 추천 좀 받아봐',
 
-      'sync.h2': '네트워크를 넘어<br>동기화된 재생',
-      'sync.lead':
-        '각 기기가 방장과의 왕복 지연 시간을 측정한 뒤, 공유 마스터 클록에 맞춰 재생해요.',
+      'sync.h2': '네트워크를 넘어<br>프레임 단위로 정확하게',
+      'sync.lead': '각 기기가 방장과의 지연을 측정하고 칼같이 정렬해요.',
       'sync.video_label': '미디어',
       'sync.video_value': '동기화된 미디어 재생',
       'sync.transport_label': '전송',

@@ -82,12 +82,12 @@ describe('About page current UI contract', () => {
   });
 
   it('keeps joining and synchronization copy neutral across room types', () => {
+    expect(landingI18n).toContain("'code.h2': '여섯 자리 숫자만<br>있으면 돼요'");
     expect(landingI18n).toContain(
-      '방을 열면 여섯 자리 코드가 생겨요. 지원되는 브라우저에서는 금방 연결할 수 있어요.',
+      '방을 열고 여섯 자리 숫자만 공유해요. 브라우저만 있으면 누구나 몇 초 안에 참여할 수 있어요.',
     );
-    expect(landingI18n).toContain(
-      '각 기기가 방장과의 왕복 지연 시간을 측정한 뒤, 공유 마스터 클록에 맞춰 재생해요.',
-    );
+    expect(landingI18n).toContain("'sync.h2': '네트워크를 넘어<br>프레임 단위로 정확하게'");
+    expect(landingI18n).toContain('각 기기가 방장과의 지연을 측정하고 칼같이 정렬해요.');
     expect(landingI18n).not.toMatch(
       /'(?:code\.lead|sync\.lead|sync\.transport_value)':\s*'[^']*\bPRO\b[^']*'/giu,
     );

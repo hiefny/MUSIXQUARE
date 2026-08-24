@@ -50,58 +50,18 @@ const completedLanguageContracts = {
   en: [
     'supported browser',
     'supported browser',
-    'browser host',
-    'room server',
     'computer',
     'sharing device',
     'volume',
     /frame|precis/i,
   ],
-  ko: [
-    '지원되는 브라우저',
-    '지원되는 브라우저',
-    '브라우저 방장',
-    '방 서버',
-    '컴퓨터',
-    '송신 중인 기기',
-    '볼륨',
-    /프레임|정확/,
-  ],
-  ja: [
-    '対応ブラウザ',
-    '対応ブラウザ',
-    'ブラウザホスト',
-    'ルームサーバー',
-    'パソコン',
-    '共有元デバイス',
-    '音量',
-    /フレーム|正確/,
-  ],
-  'zh-hans': [
-    '受支持浏览器',
-    '受支持的浏览器',
-    '浏览器房主',
-    '房间服务器',
-    '电脑',
-    '共享设备',
-    '音量',
-    /帧|精准|准确/,
-  ],
-  'zh-hant': [
-    '支援瀏覽器',
-    '支援的瀏覽器',
-    '瀏覽器房主',
-    '房間伺服器',
-    '電腦',
-    '分享裝置',
-    '音量',
-    /幀|精準|準確/,
-  ],
+  ko: ['지원되는 브라우저', '지원되는 브라우저', '컴퓨터', '송신 중인 기기', '볼륨', /프레임|정확/],
+  ja: ['対応ブラウザ', '対応ブラウザ', 'パソコン', '共有元デバイス', '音量', /フレーム|正確/],
+  'zh-hans': ['受支持浏览器', '受支持的浏览器', '电脑', '共享设备', '音量', /帧|精准|准确/],
+  'zh-hant': ['支援瀏覽器', '支援的瀏覽器', '電腦', '分享裝置', '音量', /幀|精準|準確/],
   es: [
     'navegador compatible',
     'navegadores compatibles',
-    'anfitrión del navegador',
-    'servidor de la sala',
     'ordenadores',
     'dispositivo emisor',
     'volumen',
@@ -110,8 +70,6 @@ const completedLanguageContracts = {
   id: [
     'browser yang didukung',
     'browser yang didukung',
-    'host browser',
-    'server ruang',
     'komputer',
     'perangkat pengirim',
     'volume',
@@ -120,8 +78,6 @@ const completedLanguageContracts = {
   'pt-br': [
     'navegador compatível',
     'navegadores compatíveis',
-    'host do navegador',
-    'servidor da sala',
     'computadores',
     'dispositivo transmissor',
     'volume',
@@ -130,8 +86,6 @@ const completedLanguageContracts = {
   fr: [
     'navigateur compatible',
     'navigateurs compatibles',
-    'hôte du navigateur',
-    'serveur du salon',
     'ordinateur',
     'appareil émetteur',
     'volume',
@@ -140,8 +94,6 @@ const completedLanguageContracts = {
   de: [
     'unterstützten browser',
     'unterstützte browser',
-    'browser-host',
-    'raumserver',
     'computern',
     'sendenden geräts',
     'lautstärke',
@@ -150,8 +102,6 @@ const completedLanguageContracts = {
   nl: [
     'ondersteunde browser',
     'ondersteunde browsers',
-    'browserhost',
-    'kamerserver',
     'computers',
     'delende apparaat',
     'volume',
@@ -160,8 +110,6 @@ const completedLanguageContracts = {
   it: [
     'browser supportato',
     'browser supportati',
-    'host del browser',
-    'server della stanza',
     'computer',
     'dispositivo che condivide',
     'volume',
@@ -170,8 +118,6 @@ const completedLanguageContracts = {
   pl: [
     'obsługiwanej przeglądarki',
     'obsługiwane przeglądarki',
-    'host przeglądarki',
-    'serwer pokoju',
     'komputer',
     'urządzenia udostępniającego',
     'głośność',
@@ -180,8 +126,6 @@ const completedLanguageContracts = {
   ru: [
     'поддерживаемым браузером',
     'поддерживаемые браузеры',
-    'браузер-хост',
-    'сервер комнаты',
     'компьютер',
     'устройства-источника',
     'громкость',
@@ -190,8 +134,6 @@ const completedLanguageContracts = {
   th: [
     'เบราว์เซอร์ที่รองรับ',
     'เบราว์เซอร์ที่รองรับ',
-    'โฮสต์ในเบราว์เซอร์',
-    'เซิร์ฟเวอร์ห้อง',
     'คอมพิวเตอร์',
     'เครื่องที่แชร์',
     'ลดเสียง',
@@ -200,8 +142,6 @@ const completedLanguageContracts = {
   tr: [
     'desteklenen bir tarayıcı',
     'desteklenen tarayıcılar',
-    'tarayıcı hostu',
-    'oda sunucusu',
     'bilgisayar',
     'paylaşan cihazın',
     'sesini',
@@ -210,8 +150,6 @@ const completedLanguageContracts = {
   vi: [
     'trình duyệt được hỗ trợ',
     'trình duyệt được hỗ trợ',
-    'trình duyệt chủ phòng',
-    'máy chủ phòng',
     'máy tính',
     'thiết bị phát',
     'âm lượng',
@@ -258,16 +196,8 @@ describe('completed translation factual contracts', () => {
 
     for (const [language, contract] of Object.entries(completedLanguageContracts)) {
       const dictionary = dictionaries[language];
-      const [
-        codeBrowser,
-        reachBrowser,
-        standardAuthority,
-        proAuthority,
-        computer,
-        sharingDevice,
-        volume,
-        exaggeratedSync,
-      ] = contract;
+      const [codeBrowser, reachBrowser, computer, sharingDevice, volume, exaggeratedSync] =
+        contract;
 
       expectContains(dictionary['code.lead'], codeBrowser, `${language}.code.lead`);
       expectContains(
@@ -275,18 +205,12 @@ describe('completed translation factual contracts', () => {
         reachBrowser,
         `${language}.remote.reach_value`,
       );
-      expectContains(
-        dictionary['sync.transport_value'],
-        standardAuthority,
-        `${language}.sync.transport_value standard authority`,
-      );
-      expectContains(
-        dictionary['sync.transport_value'],
-        proAuthority,
-        `${language}.sync.transport_value PRO authority`,
+      expect(dictionary['code.lead'], `${language}.code.lead`).not.toMatch(/\bPRO\b/iu);
+      expect(dictionary['sync.lead'], `${language}.sync.lead`).not.toMatch(/\bPRO\b/iu);
+      expect(dictionary['sync.transport_value'], `${language}.sync.transport_value`).not.toMatch(
+        /\bPRO\b/iu,
       );
       expect(dictionary['sync.transport_value'], language).toContain('WebRTC');
-      expect(dictionary['sync.transport_value'], language).not.toMatch(/peer-to-peer|\bP2P\b/i);
       expect(
         `${dictionary['sync.h2']} ${dictionary['sync.video_value']}`,
         `${language} sync precision claim`,

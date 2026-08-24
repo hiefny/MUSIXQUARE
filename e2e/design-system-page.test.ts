@@ -243,6 +243,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       const interfaceSample = document.querySelector<HTMLElement>('.interface-comp')!;
       const feedback = document.querySelector<HTMLElement>('.feedback-comp')!;
       const navigation = document.querySelector<HTMLElement>('.nav-comp')!;
+      const componentGrid = document.querySelector<HTMLElement>('.component-grid')!;
       const toast = feedback.querySelector<HTMLElement>('.toast')!;
       const dialog = feedback.querySelector<HTMLElement>('.dialog')!;
       const expand = document.querySelector<HTMLButtonElement>(
@@ -298,6 +299,40 @@ test('keeps the Design System rail and examples coherent at every layout size', 
         iconTilesTransparent: iconTiles.every(
           (tile) => getComputedStyle(tile).backgroundColor === 'rgba(0, 0, 0, 0)',
         ),
+        componentDividers: {
+          horizontal: [...document.querySelectorAll<HTMLElement>('.component-row-divider')].map(
+            (divider) => {
+              const rect = divider.getBoundingClientRect();
+              return {
+                backgroundColor: getComputedStyle(divider).backgroundColor,
+                height: rect.height,
+                width: rect.width,
+              };
+            },
+          ),
+          gridWidth: componentGrid.getBoundingClientRect().width,
+          selectionBorder: {
+            color: getComputedStyle(selection).borderTopColor,
+            width: getComputedStyle(selection).borderTopWidth,
+          },
+          stackedBorders: [ranges, devices, interfaceSample, navigation].map((region) => ({
+            color: getComputedStyle(region).borderTopColor,
+            width: getComputedStyle(region).borderTopWidth,
+          })),
+          vertical: [
+            getComputedStyle(
+              document.querySelector<HTMLElement>('.component-control-stack')!,
+              '::after',
+            ),
+            getComputedStyle(playlist, '::after'),
+            getComputedStyle(messaging, '::after'),
+            getComputedStyle(navigation, '::before'),
+          ].map((style) => ({
+            backgroundColor: style.backgroundColor,
+            content: style.content,
+            width: style.width,
+          })),
+        },
         rangeControls: {
           count: document.querySelectorAll('.design-range').length,
           eqCount: document.querySelectorAll('.design-range-eq').length,
@@ -382,6 +417,23 @@ test('keeps the Design System rail and examples coherent at every layout size', 
             return { height: rect.height, width: rect.width };
           },
         ),
+        administratorGrants: [
+          ...document.querySelectorAll<HTMLButtonElement>(
+            '.device-row-sample .d-op-btn.administrator-state-button.grant',
+          ),
+        ].map((button) => ({
+          label: button.getAttribute('aria-label'),
+          member: button
+            .closest('.device-row-sample')
+            ?.querySelector('.d-order')
+            ?.textContent?.trim(),
+          path: button
+            .querySelector('path')
+            ?.getAttribute('d')
+            ?.replace(/[\s,]+/gu, '')
+            .toLowerCase(),
+          state: button.dataset.administratorState,
+        })),
         physicalDeviceActions: [
           ...document.querySelectorAll<HTMLButtonElement>('.btn-kick-physical-device'),
         ].map((button) => {
@@ -446,18 +498,35 @@ test('keeps the Design System rail and examples coherent at every layout size', 
         devices: { top: devicesRect.top, width: devicesRect.width },
         toastBeforeDialog: toastRect.bottom < dialogRect.top,
         tokenOverflow: tokenReference.scrollWidth - tokenReference.clientWidth,
-        wrappersTransparent: wrappers.every((wrapper) => {
+        wrappersFlat: wrappers.every((wrapper) => {
           const style = getComputedStyle(wrapper);
-          return style.backgroundColor === 'rgba(0, 0, 0, 0)' && style.borderWidth === '0px';
+          return (
+            style.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+            style.borderRadius === '0px' &&
+            style.boxShadow === 'none'
+          );
         }),
       };
     });
 
     expect(components.horizontalOverflow).toBe(0);
     expect(components.tokenOverflow).toBe(0);
-    expect(components.wrappersTransparent).toBe(true);
+    expect(components.wrappersFlat).toBe(true);
     expect(components.iconSamplesTransparent).toBe(true);
     expect(components.iconTilesTransparent).toBe(true);
+    expect(components.componentDividers.horizontal).toHaveLength(4);
+    expect(
+      components.componentDividers.horizontal.every(
+        ({ backgroundColor, height, width }) =>
+          backgroundColor === 'rgb(38, 38, 38)' &&
+          height === 1 &&
+          Math.abs(width - components.componentDividers.gridWidth) < 1,
+      ),
+    ).toBe(true);
+    expect(components.componentDividers.selectionBorder).toEqual({
+      color: 'rgb(38, 38, 38)',
+      width: '1px',
+    });
     expect(components.rangeControls).toEqual(
       expect.objectContaining({
         allVisible: true,
@@ -503,10 +572,20 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       playlistVisible: true,
     });
     expect(components.deviceActions).toEqual([
+      { height: 32, width: 32 },
       { height: 28, width: 28 },
+      { height: 32, width: 32 },
       { height: 32, width: 32 },
       { height: 28, width: 28 },
     ]);
+    expect(components.administratorGrants).toEqual(
+      ['#2', '#3'].map((member) => ({
+        label: 'Grant',
+        member,
+        path: 'm51635l5.55l124l3.56l215l-211h5zm12h12v2h6z',
+        state: 'inactive',
+      })),
+    );
     expect(components.physicalDeviceActions).toEqual([
       { height: 28, label: 'Remove macOS device (A1B2)', width: 28 },
       { height: 28, label: 'Remove Windows device (C3D4)', width: 28 },
@@ -529,6 +608,12 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.dialogRadii).toEqual(['999px', '999px']);
     expect(components.toastBeforeDialog).toBe(true);
     if (viewport.width >= 900) {
+      expect(
+        components.componentDividers.vertical.every(
+          ({ backgroundColor, content, width }) =>
+            backgroundColor === 'rgb(38, 38, 38)' && content !== 'none' && width === '1px',
+        ),
+      ).toBe(true);
       expect(Math.abs(components.playback.top - components.ranges.top)).toBeLessThan(1);
       expect(components.selection.top).toBeGreaterThanOrEqual(components.playback.bottom);
       expect(components.ranges.width).toBeGreaterThan(components.playback.width);
@@ -539,6 +624,11 @@ test('keeps the Design System rail and examples coherent at every layout size', 
       expect(Math.abs(components.feedback.top - components.navigation.top)).toBeLessThan(1);
       expect(components.navigation.width).toBeGreaterThan(components.feedback.width);
     } else {
+      expect(
+        components.componentDividers.stackedBorders.every(
+          ({ color, width }) => color === 'rgb(38, 38, 38)' && width === '1px',
+        ),
+      ).toBe(true);
       expect(components.selection.top).toBeGreaterThanOrEqual(components.playback.bottom);
       expect(components.ranges.top).toBeGreaterThanOrEqual(components.selection.bottom);
       expect(components.devices.top).toBeGreaterThanOrEqual(components.playlist.bottom);

@@ -16,6 +16,7 @@ const FILE_PATH =
 const CLOSE_PATH =
   'M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12Z';
 const EXPAND_PATH = 'm6.5 9 5.5 5.5L17.5 9';
+const CROWN_PATH = 'M5 16 3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm1 2h12v2H6z';
 const REPEAT_PATH = 'M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z';
 const SHUFFLE_PATH =
   'M10.59 9.17 5.41 4 4 5.41l5.17 5.17 1.42-1.41ZM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5Zm.33 9.41-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13Z';
@@ -366,6 +367,7 @@ describe('public design-system page contract', () => {
       ...components.querySelectorAll<HTMLButtonElement>('.tab-action-btn-sample'),
     ];
     const selectionPanel = components.querySelector<HTMLElement>('.playlist-selection-pill');
+    const rowDividers = [...components.querySelectorAll<HTMLElement>('.component-row-divider')];
     const controlLayout = components.querySelector<HTMLElement>('.component-control-layout');
     const controlStack = controlLayout?.querySelector<HTMLElement>('.component-control-stack');
     const listLayout = components.querySelector<HTMLElement>('.component-list-layout');
@@ -413,6 +415,19 @@ describe('public design-system page contract', () => {
         (child) => child.className,
       ),
     ).toEqual(['comp playlist-comp', 'comp device-comp']);
+    expect(rowDividers).toHaveLength(4);
+    expect(rowDividers.every((divider) => divider.getAttribute('aria-hidden') === 'true')).toBe(
+      true,
+    );
+    expect(designStylesheet).toMatch(
+      /\.component-row-divider\s*\{[^}]*height:\s*1px;[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*background:\s*var\(--divider\);/su,
+    );
+    expect(designStylesheet).toMatch(
+      /\.editorial-designsystem \.component-control-stack \.selection-comp\s*\{[^}]*padding-top:\s*32px;[^}]*border-top:\s*1px solid var\(--divider\);/su,
+    );
+    expect(designStylesheet).toMatch(
+      /@media\s*\(max-width:\s*899px\)\s*\{[\s\S]*?\.editorial-designsystem \.component-grid \.ranges-comp,[\s\S]*?\.editorial-designsystem \.component-grid \.nav-comp\s*\{[^}]*padding-top:\s*32px;[^}]*border-top:\s*1px solid var\(--divider\);/u,
+    );
     expect(choices.map((choice) => choice.textContent?.trim())).toEqual(['On', 'Off']);
     expect(choices.filter((choice) => choice.getAttribute('aria-pressed') === 'true')).toHaveLength(
       1,
@@ -441,6 +456,11 @@ describe('public design-system page contract', () => {
     const composer = components.querySelector<HTMLElement>('.chat-input');
     const search = components.querySelector<HTMLElement>('.yt-intro-text');
     const devices = [...components.querySelectorAll<HTMLElement>('.device-row-sample')];
+    const administratorGrants = [
+      ...components.querySelectorAll<HTMLButtonElement>(
+        '.device-row-sample .d-op-btn.administrator-state-button.grant',
+      ),
+    ];
 
     expect(ranges).toHaveLength(8);
     expect(ranges.map((range) => range.style.getPropertyValue('--range-progress'))).toEqual([
@@ -536,6 +556,29 @@ describe('public design-system page contract', () => {
     expect(deviceEntries).toHaveLength(3);
     expect(devices).toHaveLength(3);
     expect(deviceNames).toEqual(['Mina Park', 'Jules Kim', 'Noah Lee']);
+    expect(
+      administratorGrants.map((button) => ({
+        label: button.getAttribute('aria-label'),
+        member: button
+          .closest('.device-row-sample')
+          ?.querySelector('.d-order')
+          ?.textContent?.trim(),
+        path: normalizedPath(button.querySelector('path')?.getAttribute('d') ?? null),
+        state: button.dataset.administratorState,
+        title: button.title,
+      })),
+    ).toEqual(
+      ['#2', '#3'].map((member) => ({
+        label: 'Grant',
+        member,
+        path: normalizedPath(CROWN_PATH),
+        state: 'inactive',
+        title: 'Grant',
+      })),
+    );
+    expect(designStylesheet).toMatch(
+      /\.d-op-btn\.administrator-state-button\s*\{[^}]*width:\s*32px;[^}]*height:\s*32px;[^}]*background:\s*transparent;[^}]*color:\s*var\(--text-muted\);/su,
+    );
     expect(devices[0]?.getAttribute('aria-current')).toBe('true');
     expect(devices[1]?.querySelector('.btn-kick-device')).toBeTruthy();
     expect(deviceExpand?.getAttribute('aria-expanded')).toBe('true');

@@ -539,8 +539,15 @@
 
 .component-grid {
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: 72px 40px;
+  gap: 36px 40px;
   align-items: start;
+}
+
+.component-row-divider {
+  width: 100%;
+  height: 1px;
+  grid-column: 1 / -1;
+  background: var(--divider);
 }
 
 .component-control-layout,
@@ -568,7 +575,7 @@
 .component-control-stack {
   min-width: 0;
   display: grid;
-  gap: 64px;
+  gap: 32px;
 }
 
 .playback-comp,
@@ -610,6 +617,11 @@
 .component-subsection {
   margin-top: 28px;
   padding-top: 24px;
+  border-top: 1px solid var(--divider);
+}
+
+.editorial-designsystem .component-control-stack .selection-comp {
+  padding-top: 32px;
   border-top: 1px solid var(--divider);
 }
 
@@ -2245,6 +2257,7 @@
 }
 
 .device-expand-toggle,
+.d-op-btn.administrator-state-button,
 .btn-kick-device,
 .btn-kick-physical-device {
   padding: 0;
@@ -2261,6 +2274,21 @@
   width: 32px;
   height: 32px;
   flex: 0 0 32px;
+}
+
+.d-op-btn.administrator-state-button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.d-op-btn.administrator-state-button svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
 }
 
 .device-expand-toggle svg {
@@ -2293,6 +2321,7 @@
 }
 
 .device-expand-toggle:focus-visible,
+.d-op-btn.administrator-state-button:focus-visible,
 .btn-kick-device:focus-visible,
 .btn-kick-physical-device:focus-visible {
   outline: 2px solid var(--primary);
@@ -2302,6 +2331,12 @@
 .device-expand-toggle:hover {
   background: var(--surface-3);
   color: var(--text-main);
+}
+
+.d-op-btn.administrator-state-button:hover,
+.d-op-btn.administrator-state-button:focus-visible {
+  background: var(--surface-2);
+  color: var(--text-sub);
 }
 
 .btn-kick-device:hover,
@@ -2742,7 +2777,15 @@
   .component-control-layout,
   .component-list-layout {
     grid-template-columns: minmax(0, 1fr);
-    gap: 64px;
+    gap: 32px;
+  }
+
+  .editorial-designsystem .component-grid .ranges-comp,
+  .editorial-designsystem .component-grid .device-comp,
+  .editorial-designsystem .component-grid .interface-comp,
+  .editorial-designsystem .component-grid .nav-comp {
+    padding-top: 32px;
+    border-top: 1px solid var(--divider);
   }
 
   .range-demo-grid {
@@ -2763,6 +2806,35 @@
 }
 
 @media (min-width: 900px) {
+  .component-control-stack,
+  .playlist-comp,
+  .messaging-comp,
+  .nav-comp {
+    position: relative;
+  }
+
+  .component-control-stack::after,
+  .playlist-comp::after,
+  .messaging-comp::after,
+  .nav-comp::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: var(--divider);
+    content: '';
+  }
+
+  .component-control-stack::after,
+  .playlist-comp::after,
+  .messaging-comp::after {
+    right: -20px;
+  }
+
+  .nav-comp::before {
+    left: -20px;
+  }
+
   .nav-comp .nav-stage {
     flex: 1;
     min-height: 300px;

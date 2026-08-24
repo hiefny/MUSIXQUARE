@@ -81,6 +81,24 @@ describe('About page current UI contract', () => {
     expect(aboutStyles).toMatch(/\.lp-footer__inner\s*\{[^}]*max-width:\s*none;/su);
   });
 
+  it('keeps joining and synchronization copy neutral across room types', () => {
+    expect(landingI18n).toContain(
+      '방을 열면 여섯 자리 코드가 생겨요. 지원되는 브라우저에서는 금방 연결할 수 있어요.',
+    );
+    expect(landingI18n).toContain(
+      '각 기기가 방장과의 왕복 지연 시간을 측정한 뒤, 공유 마스터 클록에 맞춰 재생해요.',
+    );
+    expect(landingI18n).not.toMatch(
+      /'(?:code\.lead|sync\.lead|sync\.transport_value)':\s*'[^']*\bPRO\b[^']*'/giu,
+    );
+    expect(aboutDocument.querySelector('[data-i18n="code.lead"]')?.textContent).not.toMatch(
+      /\bPRO\b/iu,
+    );
+    expect(aboutDocument.querySelector('[data-i18n="sync.lead"]')?.textContent).not.toMatch(
+      /\bPRO\b/iu,
+    );
+  });
+
   it('names the transmitting device in the Korean system-audio warning', () => {
     expect(landingI18n).toContain('송신 중인 기기를 포함해 최대 4대');
     expect(landingI18n).toContain('송신 중인 기기의 볼륨을 낮춰 주세요');

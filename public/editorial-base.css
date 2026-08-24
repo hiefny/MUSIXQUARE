@@ -156,6 +156,14 @@ svg {
   height: 16px;
 }
 
+/* The editorial wordmark asset includes the Q tail in its 26px viewBox,
+   while the app centers the 24px letter body and lets the tail hang below.
+   Keep the editorial size, but align its visible letter body to the app. */
+.lp-logo svg,
+.lp-logo .editorial-wordmark {
+  transform: translateY(0.6px);
+}
+
 .editorial-wordmark {
   background: currentColor;
   mask: url("/designsystem/assets/logo-wordmark.svg") center / contain no-repeat;

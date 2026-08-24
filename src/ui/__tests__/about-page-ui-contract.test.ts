@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 
 let aboutDocument: Document;
 let aboutStyles: string;
+let editorialBaseStyles: string;
 let aboutRuntime: string;
 let landingI18n: string;
 let heroPng: Buffer;
@@ -15,6 +16,7 @@ beforeAll(() => {
   const source = readFileSync(resolve('.workshop/landing/landing.html'), 'utf8');
   aboutDocument = new DOMParser().parseFromString(source, 'text/html');
   aboutStyles = readFileSync(resolve('public/editorial-about.css'), 'utf8');
+  editorialBaseStyles = readFileSync(resolve('public/editorial-base.css'), 'utf8');
   aboutRuntime = readFileSync(resolve('.workshop/landing/main.ts'), 'utf8');
   landingI18n = readFileSync(resolve('browser/classic-runtime/landing-i18n.ts'), 'utf8');
   heroPng = readFileSync(resolve('public/landing/hero.png'));
@@ -43,16 +45,24 @@ describe('About page current UI contract', () => {
     );
   });
 
-  it('shows four synchronized peers without the generated example caption', () => {
+  it('shows three synchronized peers without the generated example caption', () => {
     const peerRows = [...aboutDocument.querySelectorAll('.lp-sync__rows > div')];
 
     expect(peerRows.map((row) => row.querySelector('dt')?.textContent?.trim())).toEqual([
       'peer-1',
       'peer-2',
       'peer-3',
-      'peer-4',
     ]);
     expect(aboutDocument.querySelector('[data-i18n="sync.meta"]')).toBeNull();
+  });
+
+  it('centers the wordmark body independently of its Q tail without resizing it', () => {
+    expect(editorialBaseStyles).toMatch(
+      /\.lp-logo svg,\s*\.lp-logo \.editorial-wordmark\s*\{[^}]*transform:\s*translateY\(0\.6px\);/su,
+    );
+    expect(editorialBaseStyles).toMatch(
+      /\.lp-logo svg,\s*\.editorial-wordmark\s*\{[^}]*width:\s*132px;[^}]*height:\s*16px;/su,
+    );
   });
 
   it('uses centered filled speaker glyphs instead of rounded wave strokes', () => {
@@ -79,6 +89,11 @@ describe('About page current UI contract', () => {
       /\.lp-footer\s*\{[^}]*max-width:\s*var\(--max-w\);[^}]*margin-inline:\s*auto;/su,
     );
     expect(aboutStyles).toMatch(/\.lp-footer__inner\s*\{[^}]*max-width:\s*none;/su);
+    expect(aboutDocument.querySelector('.lp-lang-divider')).toBeNull();
+    expect(aboutStyles).toMatch(/\.lp-footer \.static-lang-trigger\s*\{[^}]*border:\s*0;/su);
+    expect(aboutStyles).toMatch(
+      /\.lp-footer \.static-lang-trigger:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--primary\);/su,
+    );
   });
 
   it('keeps joining and synchronization copy neutral across room types', () => {

@@ -106,13 +106,13 @@ describe('public design-system page contract', () => {
       {
         palette: 'contrast-dark',
         tag: 'ARTICLE',
-        title: 'High contrast dark',
+        title: 'High contrast',
         titleLevel: 'H3',
       },
       {
         palette: 'contrast-light',
         tag: 'ARTICLE',
-        title: 'High contrast light',
+        title: 'High contrast',
         titleLevel: 'H3',
       },
     ]);

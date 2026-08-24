@@ -150,8 +150,8 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(foundations.boardTitles).toEqual([
       { level: 'H3', palette: 'dark', text: 'Dark' },
       { level: 'H3', palette: 'light', text: 'Light' },
-      { level: 'H3', palette: 'contrast-dark', text: 'High contrast dark' },
-      { level: 'H3', palette: 'contrast-light', text: 'High contrast light' },
+      { level: 'H3', palette: 'contrast-dark', text: 'High contrast' },
+      { level: 'H3', palette: 'contrast-light', text: 'High contrast' },
     ]);
     expect(foundations.boardBandOrders).toEqual(
       Array.from({ length: 4 }, () => [

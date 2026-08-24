@@ -1046,6 +1046,15 @@ main {
   max-width: none;
 }
 
+.lp-footer .static-lang-trigger {
+  border: 0;
+}
+
+.lp-footer .static-lang-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lp-chat-bubble {
     transform: none;

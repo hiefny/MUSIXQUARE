@@ -6408,7 +6408,6 @@
 
   .setup-host-qr-loading-spinner {
     --material-elastic-size: 42px;
-    position: relative;
     grid-area: 1 / 1;
     z-index: 2;
     color: #fff;
@@ -6418,20 +6417,6 @@
       opacity 0.18s ease-out,
       visibility 0s linear 0.18s;
     pointer-events: none;
-  }
-
-  .setup-host-qr-loading-spinner::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    border: 7px solid var(--bg);
-    border-radius: 50%;
-  }
-
-  .setup-host-qr-loading-spinner > svg {
-    position: relative;
-    z-index: 1;
   }
 
   .setup-host-invite-stage.is-room-qr-loading > .setup-host-qr-loading-spinner {

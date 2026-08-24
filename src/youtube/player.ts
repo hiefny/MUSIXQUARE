@@ -15,6 +15,8 @@ import { bus } from '../core/events.ts';
 import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
+import { OrderedCommitLane } from '../core/ordered-commit-lane.ts';
+import { SessionScope } from '../core/session-scope.ts';
 import { clearManagedTimer, delay, setManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { IS_ANDROID, IS_IOS } from '../core/platform.ts';
 import {
@@ -2217,8 +2219,34 @@ export function initYouTube(): void {
         code: 'invalid-source' | 'resolution-failed';
       };
 
-  let standardOperatorYouTubeMutationTail: Promise<void> = Promise.resolve();
+  let standardOperatorYouTubeMutationScope: SessionScope | null = null;
+  let standardOperatorYouTubeMutationLane: OrderedCommitLane | null = null;
   let standardOperatorYouTubeMutationRoomCode: string | null = null;
+
+  function disposeStandardOperatorYouTubeMutationLane(): void {
+    standardOperatorYouTubeMutationScope?.dispose();
+    standardOperatorYouTubeMutationScope = null;
+    standardOperatorYouTubeMutationLane = null;
+    standardOperatorYouTubeMutationRoomCode = null;
+  }
+
+  function getStandardOperatorYouTubeMutationLane(roomCode: string): OrderedCommitLane {
+    if (
+      standardOperatorYouTubeMutationRoomCode !== roomCode ||
+      !standardOperatorYouTubeMutationScope ||
+      standardOperatorYouTubeMutationScope.aborted ||
+      !standardOperatorYouTubeMutationLane
+    ) {
+      standardOperatorYouTubeMutationScope = SessionScope.replace(
+        standardOperatorYouTubeMutationScope,
+      );
+      standardOperatorYouTubeMutationLane = new OrderedCommitLane(
+        standardOperatorYouTubeMutationScope,
+      );
+      standardOperatorYouTubeMutationRoomCode = roomCode;
+    }
+    return standardOperatorYouTubeMutationLane;
+  }
 
   function prepareStandardOperatorYouTubeAdd(
     data: StandardOperatorYouTubeRequest,
@@ -2253,13 +2281,12 @@ export function initYouTube(): void {
     });
   }
 
-  async function applyStandardOperatorYouTubeAdd(
+  function applyStandardOperatorYouTubeAdd(
     data: StandardOperatorYouTubeRequest,
     conn: DataConnection,
     roomCode: string,
-    prepared: Promise<PreparedStandardOperatorYouTubeAdd>,
-  ): Promise<void> {
-    const resolved = await prepared;
+    resolved: PreparedStandardOperatorYouTubeAdd,
+  ): void {
     if (!isLiveStandardOperatorConnection(conn, roomCode)) return;
     if (!resolved.ok) {
       sendStandardQueueRequestFailure(conn, roomCode, data.requestId, resolved.code);
@@ -2295,24 +2322,21 @@ export function initYouTube(): void {
     conn: DataConnection,
     roomCode: string,
   ): void {
-    // Do not let a timed-out resolver from a room that has already ended hold
-    // up additions in the next room. The stale task still revalidates its
-    // captured room/connection before every side effect.
-    if (standardOperatorYouTubeMutationRoomCode !== roomCode) {
-      standardOperatorYouTubeMutationRoomCode = roomCode;
-      standardOperatorYouTubeMutationTail = Promise.resolve();
-    }
     // Resolve playlist metadata immediately and concurrently. Only the commit
     // is serialized, preserving request arrival order without multiplying the
-    // resolver's bounded timeout by the number of queued requests.
-    const prepared = prepareStandardOperatorYouTubeAdd(data);
-    const task = standardOperatorYouTubeMutationTail.then(() =>
-      applyStandardOperatorYouTubeAdd(data, conn, roomCode, prepared),
-    );
-    standardOperatorYouTubeMutationTail = task.catch((error) => {
-      log.warn('[YouTube] Standard operator mutation failed:', error);
-      sendStandardQueueRequestFailure(conn, roomCode, data.requestId, 'internal-error');
-    });
+    // resolver's bounded timeout by the number of queued requests. Replacing
+    // the room scope releases queued commits immediately; an old resolver can
+    // finish later, but it no longer owns a mutation slot or side effect.
+    const lane = getStandardOperatorYouTubeMutationLane(roomCode);
+    void lane
+      .enqueue({
+        prepare: () => prepareStandardOperatorYouTubeAdd(data),
+        commit: (resolved) => applyStandardOperatorYouTubeAdd(data, conn, roomCode, resolved),
+      })
+      .catch((error) => {
+        log.warn('[YouTube] Standard operator mutation failed:', error);
+        sendStandardQueueRequestFailure(conn, roomCode, data.requestId, 'internal-error');
+      });
   }
 
   function handleRequestPlaylistAddYouTube(
@@ -2374,9 +2398,23 @@ export function initYouTube(): void {
     },
   });
 
-  bus.on('state:room.context', reconcileZeroStartAuthority);
-  bus.on('state:network.appRole', reconcileZeroStartAuthority);
+  bus.on('state:room.context', () => {
+    reconcileZeroStartAuthority();
+    if (getRoomContext().kind !== 'standard') disposeStandardOperatorYouTubeMutationLane();
+  });
+  bus.on('state:network.appRole', (role) => {
+    reconcileZeroStartAuthority();
+    if (role !== 'host') disposeStandardOperatorYouTubeMutationLane();
+  });
   bus.on('state:network.hostConn', reconcileZeroStartAuthority);
+  bus.on('state:network.sessionCode', (roomCode) => {
+    if (
+      standardOperatorYouTubeMutationRoomCode !== null &&
+      roomCode !== standardOperatorYouTubeMutationRoomCode
+    ) {
+      disposeStandardOperatorYouTubeMutationLane();
+    }
+  });
   bus.on('youtube:player-ready', advertiseZeroStartRuntimeReadiness);
   bus.on('youtube:zero-start-readiness-changed', advertiseZeroStartRuntimeReadiness);
   bus.on('sync:latency-update', advertiseZeroStartRuntimeReadiness);

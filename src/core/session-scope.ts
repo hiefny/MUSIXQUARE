@@ -1,12 +1,16 @@
-/** Groups an AbortSignal with timers owned by one logical session. */
+/** Groups cancellable resources owned by one logical session. */
 
 import { clearManagedTimer, setManagedTimer } from './timers.ts';
+import { log } from './log.ts';
 
 let nextScopeId = 0;
+
+type ScopeCleanup = () => void;
 
 export class SessionScope {
   private _controller = new AbortController();
   private _timers = new Map<string, string>();
+  private _cleanups = new Set<ScopeCleanup>();
   private readonly _timerPrefix = `session-scope:${++nextScopeId}:`;
 
   get signal(): AbortSignal {
@@ -15,6 +19,51 @@ export class SessionScope {
 
   get aborted(): boolean {
     return this._controller.signal.aborted;
+  }
+
+  /** Throw the signal's AbortError when this scope no longer owns work. */
+  throwIfAborted(): void {
+    this.signal.throwIfAborted();
+  }
+
+  /**
+   * Own an arbitrary synchronous cleanup.
+   *
+   * The returned disposer is safe to call repeatedly and releases the resource
+   * immediately. Scope disposal releases remaining resources in reverse
+   * registration order. A resource registered after disposal is released
+   * immediately so it cannot escape a raced lifecycle boundary.
+   */
+  own(cleanup: ScopeCleanup): ScopeCleanup {
+    let active = true;
+    const disposeOwnedResource = (): void => {
+      if (!active) return;
+      active = false;
+      this._cleanups.delete(disposeOwnedResource);
+      try {
+        cleanup();
+      } catch (error) {
+        // One faulty teardown must not strand the resources registered before it.
+        log.error('[SessionScope] Owned cleanup failed:', error);
+      }
+    };
+
+    if (this.aborted) {
+      disposeOwnedResource();
+    } else {
+      this._cleanups.add(disposeOwnedResource);
+    }
+    return disposeOwnedResource;
+  }
+
+  /** Create a child that is disposed with this scope but may finish earlier. */
+  child(): SessionScope {
+    const child = new SessionScope();
+    const disposeChild = this.own(() => child.dispose());
+    // Finishing the child early also detaches its parent-held cleanup, avoiding
+    // retention when a long-lived session creates many short operations.
+    child.own(disposeChild);
+    return child;
   }
 
   /** Register a scope-local timer. Equal names in other scopes cannot collide. */
@@ -45,13 +94,18 @@ export class SessionScope {
     this._timers.delete(name);
   }
 
-  /** Abort the signal and clear registered timer names. Safe to call repeatedly. */
+  /** Abort and release every owned resource. Safe to call repeatedly. */
   dispose(): void {
-    if (!this._controller.signal.aborted) {
-      this._controller.abort();
-    }
+    if (this._controller.signal.aborted) return;
+
+    // Publish cancellation before teardown. Abort-aware work can become inert
+    // synchronously even when a later resource cleanup throws.
+    this._controller.abort();
     for (const name of Array.from(this._timers.keys())) {
       this.clearTimer(name);
+    }
+    for (const cleanup of Array.from(this._cleanups).reverse()) {
+      cleanup();
     }
   }
 

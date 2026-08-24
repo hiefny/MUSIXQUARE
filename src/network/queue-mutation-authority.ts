@@ -8,11 +8,10 @@
  */
 
 import { MSG } from '../core/constants.ts';
-import { createBusScope } from '../core/events.ts';
 import { bus } from '../core/events.ts';
 import { log } from '../core/log.ts';
+import { SessionScope } from '../core/session-scope.ts';
 import { getState } from '../core/state.ts';
-import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getRoomContext, hasRoomCapability, verifyPeerCapability } from '../rooms/authority.ts';
 import type { DataConnection, ProtocolMsg, RoomCapability } from '../types/index.ts';
 import { safeSend } from './peer-state.ts';
@@ -57,7 +56,8 @@ interface PendingGuestMutation {
 
 const requestsByConnection = new WeakMap<DataConnection, Map<string, HostMutationRecord>>();
 const pendingGuestMutations = new Map<string, PendingGuestMutation>();
-const guestLifecycleScope = createBusScope();
+let guestLifecycleScope: SessionScope | null = null;
+let guestMutationScope: SessionScope | null = null;
 
 function acceptTimerKey(requestId: string): string {
   return `operator-queue-accept-${requestId}`;
@@ -69,12 +69,21 @@ function settleTimerKey(requestId: string): string {
 
 function clearGuestMutation(requestId: string): void {
   pendingGuestMutations.delete(requestId);
-  clearManagedTimer(acceptTimerKey(requestId));
-  clearManagedTimer(settleTimerKey(requestId));
+  guestMutationScope?.clearTimer(acceptTimerKey(requestId));
+  guestMutationScope?.clearTimer(settleTimerKey(requestId));
 }
 
 function cancelAllGuestMutations(): void {
-  for (const requestId of [...pendingGuestMutations.keys()]) clearGuestMutation(requestId);
+  pendingGuestMutations.clear();
+  guestMutationScope?.dispose();
+  guestMutationScope = null;
+}
+
+function ensureGuestMutationScope(): SessionScope {
+  if (guestMutationScope && !guestMutationScope.aborted) return guestMutationScope;
+  const lifecycle = guestLifecycleScope ?? (guestLifecycleScope = new SessionScope());
+  guestMutationScope = lifecycle.child();
+  return guestMutationScope;
 }
 
 function failGuestMutation(
@@ -277,12 +286,13 @@ export function sendStandardQueueMutationRequest(message: StandardQueueMutationR
   }
 
   pendingGuestMutations.set(message.requestId, { conn, accepted: false });
-  setManagedTimer(
+  const scope = ensureGuestMutationScope();
+  scope.timer(
     acceptTimerKey(message.requestId),
     () => failGuestMutation(message.requestId, 'accept-timeout'),
     ACCEPT_TIMEOUT_MS,
   );
-  setManagedTimer(
+  scope.timer(
     settleTimerKey(message.requestId),
     () => failGuestMutation(message.requestId, 'settle-timeout'),
     SETTLE_TIMEOUT_MS,
@@ -300,7 +310,7 @@ function handleQueueMutationResult(data: QueueMutationResult, conn: DataConnecti
   if (data.phase === 'accepted') {
     if (pending.accepted) return;
     pending.accepted = true;
-    clearManagedTimer(acceptTimerKey(data.requestId));
+    guestMutationScope?.clearTimer(acceptTimerKey(data.requestId));
     return;
   }
 
@@ -313,34 +323,45 @@ function handleQueueMutationResult(data: QueueMutationResult, conn: DataConnecti
 
 export function initStandardQueueMutationAuthority(): void {
   cancelAllGuestMutations();
-  guestLifecycleScope.dispose();
+  guestLifecycleScope = SessionScope.replace(guestLifecycleScope);
+  const scope = guestLifecycleScope;
   registerHandler(MSG.OPERATOR_QUEUE_MUTATION_RESULT, handleQueueMutationResult);
 
-  guestLifecycleScope.on('state:network.hostConn', (nextConn) => {
-    for (const [requestId, pending] of pendingGuestMutations) {
-      if (nextConn !== pending.conn) clearGuestMutation(requestId);
-    }
-  });
-  guestLifecycleScope.on('state:network.isOperator', (isOperator) => {
-    if (isOperator !== true) cancelAllGuestMutations();
-  });
-  guestLifecycleScope.on('state:network.standardRoomCapabilities', () => {
-    // A fine-grained permission edit can revoke the request capability while
-    // the compatibility ADMIN projection remains true.
-    cancelAllGuestMutations();
-  });
-  guestLifecycleScope.on('state:network.appRole', (role) => {
-    if (role !== 'guest') cancelAllGuestMutations();
-  });
-  guestLifecycleScope.on('state:room.context', (context) => {
-    if (
-      !context ||
-      typeof context !== 'object' ||
-      (context as { kind?: unknown }).kind !== 'standard'
-    ) {
+  scope.own(
+    bus.on('state:network.hostConn', (nextConn) => {
+      for (const [requestId, pending] of pendingGuestMutations) {
+        if (nextConn !== pending.conn) clearGuestMutation(requestId);
+      }
+    }),
+  );
+  scope.own(
+    bus.on('state:network.isOperator', (isOperator) => {
+      if (isOperator !== true) cancelAllGuestMutations();
+    }),
+  );
+  scope.own(
+    bus.on('state:network.standardRoomCapabilities', () => {
+      // A fine-grained permission edit can revoke the request capability while
+      // the compatibility ADMIN projection remains true.
       cancelAllGuestMutations();
-    }
-  });
+    }),
+  );
+  scope.own(
+    bus.on('state:network.appRole', (role) => {
+      if (role !== 'guest') cancelAllGuestMutations();
+    }),
+  );
+  scope.own(
+    bus.on('state:room.context', (context) => {
+      if (
+        !context ||
+        typeof context !== 'object' ||
+        (context as { kind?: unknown }).kind !== 'standard'
+      ) {
+        cancelAllGuestMutations();
+      }
+    }),
+  );
 }
 
 export const standardQueueMutationTimingForTests = {

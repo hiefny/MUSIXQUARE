@@ -2513,6 +2513,86 @@ describe('YouTube Player', () => {
       });
     });
 
+    it('releases a pending room lane so the next room can commit immediately', async () => {
+      const conn = {
+        peer: 'operator-room-replacement',
+        open: true,
+        send: vi.fn(),
+      } as unknown as DataConnection;
+      setState('network.appRole', 'host');
+      setState('network.sessionCode', '111111');
+      setState('network.activeHostConnByPeerId', new Map([[conn.peer, conn]]));
+      setState('network.connectedPeers', [
+        {
+          id: conn.peer,
+          slot: 1,
+          label: 'Operator',
+          conn,
+          isOp: true,
+          preloadedQueueItemIds: new Set(),
+          status: 'connected',
+          isDataTarget: true,
+          joinOrder: 1,
+          connectionType: 'local',
+          lastHeartbeat: Date.now(),
+        },
+      ]);
+      const search = await import('../search.ts');
+      vi.mocked(search.extractYouTubePlaylistId).mockImplementation((url: string) =>
+        url.includes('list=PL_OLD_ROOM') ? 'PL_OLD_ROOM' : null,
+      );
+      let resolveOldRoom!: (entry: { playlistId: string; videoId: string; title: string }) => void;
+      vi.mocked(search.resolveYouTubePlaylistEntry).mockReturnValue(
+        new Promise((resolve) => {
+          resolveOldRoom = resolve;
+        }),
+      );
+      const protocol = await import('../../network/protocol.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      const handlers = vi.mocked(protocol.registerHandlers).mock.calls.at(-1)?.[0] as Record<
+        string,
+        ((data: Record<string, unknown>, conn: DataConnection) => void) | undefined
+      >;
+      const handler = handlers[MSG.REQUEST_PLAYLIST_ADD_YOUTUBE]!;
+
+      handler(
+        {
+          type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+          requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+          baseRevision: 0,
+          sourceUrl: 'https://www.youtube.com/playlist?list=PL_OLD_ROOM',
+          title: 'Old room',
+        },
+        conn,
+      );
+      setState('network.sessionCode', '222222');
+      handler(
+        {
+          type: MSG.REQUEST_PLAYLIST_ADD_YOUTUBE,
+          requestId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+          baseRevision: 0,
+          sourceUrl: 'https://www.youtube.com/watch?v=VIDEO_ID_03',
+          title: 'New room',
+        },
+        conn,
+      );
+
+      await vi.waitFor(() => {
+        expect(getState('playlist.items').map((item) => item.videoId)).toEqual(['VIDEO_ID_03']);
+      });
+
+      resolveOldRoom({
+        playlistId: 'PL_OLD_ROOM',
+        videoId: 'RESOLVED001',
+        title: 'Resolved old room video',
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(getState('playlist.items').map((item) => item.videoId)).toEqual(['VIDEO_ID_03']);
+    });
+
     it('does not send async failure data to a replaced operator connection', async () => {
       const conn = {
         peer: 'operator-stale',

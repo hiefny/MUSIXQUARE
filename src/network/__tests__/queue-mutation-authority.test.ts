@@ -181,6 +181,27 @@ describe('standard queue mutation result fence', () => {
     unsubscribe();
   });
 
+  it('disposes pending feedback and replaces lifecycle ownership when reinitialized', () => {
+    const conn = connection('host');
+    configureGuest(conn);
+    const failures = vi.fn();
+    const unsubscribe = bus.on('standard-room:queue-mutation-failed', failures);
+
+    sendStandardQueueMutationRequest(addYoutubeRequest());
+    initStandardQueueMutationAuthority();
+    vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
+
+    expect(failures).not.toHaveBeenCalled();
+
+    configureGuest(conn);
+    expect(sendStandardQueueMutationRequest(addYoutubeRequest())).toBe(true);
+    setState('network.hostConn', null);
+    vi.advanceTimersByTime(standardQueueMutationTimingForTests.settleTimeoutMs + 1);
+
+    expect(failures).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+
   it('replays both phases for an identical duplicate host request', () => {
     const conn = connection('operator');
     configureHost(conn);

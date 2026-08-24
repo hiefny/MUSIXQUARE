@@ -290,8 +290,8 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/network/queue-mutation-authority.ts',
     [
-      'event:appRole @ function:initStandardQueueMutationAuthority :: guestLifecycleScope.on("state:network.appRole", (role) => { if (role !== \'guest\') cancelAllGuestMutations(); })',
-      'event:isOperator @ function:initStandardQueueMutationAuthority :: guestLifecycleScope.on("state:network.isOperator", (isOperator) => { if (isOperator !== true) cancelAllGuestMutations(); })',
+      'event:appRole @ function:initStandardQueueMutationAuthority :: bus.on("state:network.appRole", (role) => { if (role !== \'guest\') cancelAllGuestMutations(); })',
+      'event:isOperator @ function:initStandardQueueMutationAuthority :: bus.on("state:network.isOperator", (isOperator) => { if (isOperator !== true) cancelAllGuestMutations(); })',
       "read:appRole @ function:isExactLiveStandardGuestConnection :: return (getRoomContext().kind === 'standard' && getState('network.appRole') === 'host' && !getState('network.hostConn') && conn.open === true && !!conn.peer && getState('network.activeHostConnByPeerId').get(conn.peer) === conn && getState('network.connectedPeers').some((peer) => peer.id === conn.peer && peer.conn === conn))",
       "read:appRole @ function:sendStandardQueueMutationRequest :: if (getRoomContext().kind !== 'standard' || getState('network.appRole') !== 'guest' || conn?.open !== true || !hasRoomCapability(requiredQueueMutationCapability(message)))",
     ],
@@ -491,7 +491,7 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/youtube/player.ts',
     [
-      'event:appRole @ function:initYouTube :: bus.on("state:network.appRole", reconcileZeroStartAuthority)',
+      'event:appRole @ function:initYouTube :: bus.on("state:network.appRole", (role) => { reconcileZeroStartAuthority(); if (role !== \'host\') disposeStandardOperatorYouTubeMutationLane(); })',
       "read:appRole @ callback-variable:getZeroStartAuthoritySignature :: return [ room.kind, room.roomId ?? '', room.role, room.coordinatorId ?? '', room.epoch, getState('network.appRole') ?? '', getState('network.hostConn')?.peer ?? '', ].join('|')",
       "read:appRole @ function:getYouTubeZeroStartRole :: return getState('network.appRole') === 'guest' ? 'guest' : 'host'",
       "read:appRole @ function:isLiveStandardOperatorConnection :: return (getRoomContext().kind === 'standard' && getState('network.appRole') === 'host' && !getState('network.hostConn') && getState('network.sessionCode') === roomCode && conn.open === true && getState('network.activeHostConnByPeerId').get(conn.peer) === conn && verifyPeerCapability(conn, 'media.add'))",

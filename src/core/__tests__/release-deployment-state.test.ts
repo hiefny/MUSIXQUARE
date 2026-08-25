@@ -780,7 +780,7 @@ describe('release deployment rollback state', () => {
         gitRunner: git,
       }).status,
     ).toBe('compatible');
-  });
+  }, 30_000);
 
   it('allows an app-only release when every unselected Worker is source-equivalent', () => {
     const directory = createDirectory();

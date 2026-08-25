@@ -261,6 +261,8 @@ describe('AudioContext interruption recovery', () => {
         source: 'background-resume',
       }),
     );
+    const preparedRequest = recoveryNeeded.mock.calls[0]![0] as { isCurrent: () => boolean };
+    expect(preparedRequest.isCurrent()).toBe(true);
     expect(confirmPendingAudioContextRecoveryHealth(attempt)).toMatchObject({ running: false });
 
     await resumePendingAudioContextInterruptionFromGesture();
@@ -313,6 +315,18 @@ describe('AudioContext interruption recovery', () => {
 
     expect(context.resume).toHaveBeenCalledOnce();
     expect(rejoin).not.toHaveBeenCalled();
+  });
+
+  it('contains a rejected best-effort resume outside active playback', async () => {
+    const context = new FakeAudioContext();
+    context.resume.mockRejectedValueOnce(new Error('native resume rejected'));
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+    context.dispatchState('suspended');
+    await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+
+    expect(hasPendingAudioContextInterruption()).toBe(false);
+    dispose();
   });
 
   it('never calls native resume while hidden without active playback', () => {
@@ -784,6 +798,55 @@ describe('AudioContext interruption recovery', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('reports when an automatically resumed context stops during its clock proof', async () => {
+    vi.useFakeTimers();
+    try {
+      markActiveFileRoom();
+      const context = new FakeAudioContext();
+      context.resume.mockImplementation(async () => {
+        context.state = 'running';
+      });
+      const recoveryNeeded = vi.fn();
+      bus.on('audio:output-recovery-needed', recoveryNeeded);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+      context.dispatchState('suspended');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(context.state).toBe('running');
+
+      context.state = 'suspended';
+      await vi.advanceTimersByTimeAsync(180);
+
+      expect(recoveryNeeded).toHaveBeenCalledOnce();
+      expect(recoveryNeeded).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reason: 'context-not-running',
+          source: 'background-resume',
+        }),
+      );
+      const request = recoveryNeeded.mock.calls[0]![0] as { isCurrent: () => boolean };
+      expect(request.isCurrent()).toBe(true);
+      dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles a rejected native suspend without exposing gesture recovery', async () => {
+    markActiveFileRoom();
+    const context = new FakeAudioContext();
+    context.suspend.mockRejectedValueOnce(new Error('native suspend rejected'));
+    const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+
+    await expect(
+      armPendingAudioContextRecoveryFromBackground(context as unknown as AudioContext),
+    ).resolves.toBeNull();
+
+    expect(context.suspend).toHaveBeenCalledOnce();
+    expect(hasPendingAudioContextInterruption()).toBe(false);
+    dispose();
   });
 
   it('does not expose gesture recovery before a timed-out native suspend lands', async () => {

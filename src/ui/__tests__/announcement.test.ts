@@ -181,4 +181,27 @@ describe('announcement polling', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(showToast).toHaveBeenCalledOnce();
   });
+
+  it('observes a polling rejection that escapes the request boundary', async () => {
+    const requestError = new Error('announcement endpoint unavailable');
+    const escapedError = new Error('diagnostic sink unavailable');
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(requestError));
+
+    const { log } = await import('../../core/log.ts');
+    vi.mocked(log.debug).mockImplementationOnce(() => {
+      throw escapedError;
+    });
+
+    const { initAnnouncementPolling } = await import('../announcement.ts');
+    initAnnouncementPolling();
+    setState('network.appRole', 'guest');
+
+    await vi.waitFor(() => {
+      expect(log.warn).toHaveBeenCalledWith(
+        '[Announcement] Poll escaped its request boundary',
+        escapedError,
+      );
+    });
+    expect(log.debug).toHaveBeenCalledWith('[Announcement] check failed:', requestError);
+  });
 });

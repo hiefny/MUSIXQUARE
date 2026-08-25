@@ -5,8 +5,11 @@ import {
   loadRoomAuthoritySources,
 } from '../../../scripts/check-room-authority-boundaries.mts';
 
+let baselineSources: ReadonlyMap<string, string> | null = null;
+
 function sources(): Map<string, string> {
-  return new Map(loadRoomAuthoritySources(process.cwd()));
+  baselineSources ??= new Map(loadRoomAuthoritySources(process.cwd()));
+  return new Map(baselineSources);
 }
 
 describe('room-authority static boundary', () => {

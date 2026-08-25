@@ -753,7 +753,7 @@ async function reconcileAmbiguousDirectPromotion(
     clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
     setManagedTimer(
       DIRECT_PROMOTION_RETRY_TIMER,
-      () => void reconcileAmbiguousDirectPromotion(context),
+      () => reconcileAmbiguousDirectPromotion(context),
       RECOVERY_DELAY_MS,
     );
     return;
@@ -1609,11 +1609,13 @@ async function recoverLocalPublisher(): Promise<void> {
     if (!ownsPublisherRecovery(flight)) {
       // A user stop can cancel recovery while the acquire response is already
       // in flight. If that response still installed only the abandoned
-      // recovery lease, fence it without touching a newer local publication.
+      // recovery lease, fence it without touching a newer local publication
+      // or a capture attempt that adopted the controller's shared acquire.
       if (
         isServiceSessionCurrent(epoch) &&
         controller === activeController &&
         !localPublishFlight &&
+        !localLeaseAttemptOwner &&
         reacquired?.hasCredential &&
         reacquired.roomCode === flight.initialLease.roomCode &&
         reacquired.generation === preparing.generation
@@ -1819,7 +1821,7 @@ export function registerProSystemAudioServiceListeners(): void {
         clearManagedTimer(PUBLISHER_RETRY_TIMER);
         return;
       }
-      setManagedTimer(PUBLISHER_RETRY_TIMER, () => void recoverLocalPublisher(), RECOVERY_DELAY_MS);
+      setManagedTimer(PUBLISHER_RETRY_TIMER, () => recoverLocalPublisher(), RECOVERY_DELAY_MS);
     }
   });
 }

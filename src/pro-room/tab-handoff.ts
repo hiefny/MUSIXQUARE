@@ -27,7 +27,13 @@ function getChannel(): BroadcastChannel | null {
         return;
       }
       const roomCode = (value as { roomCode: string }).roomCode;
-      for (const listener of [...listeners]) listener(roomCode);
+      for (const listener of [...listeners]) {
+        try {
+          listener(roomCode);
+        } catch {
+          // One stale tab observer cannot suppress authoritative takeover cleanup.
+        }
+      }
     });
   } catch {
     // Server-side active-presence fencing remains authoritative when a

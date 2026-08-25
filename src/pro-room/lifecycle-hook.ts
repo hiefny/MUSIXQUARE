@@ -44,7 +44,11 @@ export function requestProRoomLeave(): void {
   // mutation. Do not race it with the explicit multi-request leave sequence.
   if (confirmedUnloadHandled) return;
   if (!leaveHandler) return;
-  void Promise.resolve(leaveHandler()).catch(() => undefined);
+  try {
+    void Promise.resolve(leaveHandler()).catch(() => undefined);
+  } catch {
+    // A synchronous teardown failure cannot escape a best-effort lifecycle hook.
+  }
 }
 
 /** Keep the network retry loop independent from the authenticated runtime. */
@@ -73,5 +77,9 @@ export function registerProRoomSignalingEpochAdvanceHandler(
 
 export function requestProRoomSignalingEpochAdvance(): void {
   if (!signalingEpochAdvanceHandler) return;
-  void Promise.resolve(signalingEpochAdvanceHandler()).catch(() => undefined);
+  try {
+    void Promise.resolve(signalingEpochAdvanceHandler()).catch(() => undefined);
+  } catch {
+    // Realtime recovery owns reporting; lifecycle dispatch remains best-effort.
+  }
 }

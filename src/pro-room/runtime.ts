@@ -143,6 +143,7 @@ import {
   type ProRoomFirstAppendSelectionRequest,
 } from './playlist-state-manager.ts';
 import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from './upload-queue.ts';
+import { resolveProRoomUploadFailureDialog } from './upload-failure-dialog.ts';
 import {
   findRemovedProRoomQueueItemIds,
   resolveProRoomRemovalTransition,
@@ -1147,28 +1148,28 @@ function installMediaHooks(
         queue.dismissFailedBatch(result.batchId);
         return;
       }
-      showDialog({
-        title: t('pro.upload.batch_failed_title'),
-        message: t('pro.upload.batch_failed_message', {
-          total: result.requestedCount,
-          failed: result.failedCount,
+      observeProRoomRuntimeTask(
+        resolveProRoomUploadFailureDialog({
+          queue,
+          batchId: result.batchId,
+          show: () =>
+            showDialog({
+              title: t('pro.upload.batch_failed_title'),
+              message: t('pro.upload.batch_failed_message', {
+                total: result.requestedCount,
+                failed: result.failedCount,
+              }),
+              buttonText: t('common.retry'),
+              secondaryText: t('common.close'),
+              defaultFocus: 'secondary',
+              dismissible: true,
+            }),
+          isCurrent: () => isPlaylistLeaseCurrent(lease),
+          reportPresentationFailure: (error) =>
+            log.warn('[PRO] Upload failure dialog could not be presented', error),
         }),
-        buttonText: t('common.retry'),
-        secondaryText: t('common.close'),
-        defaultFocus: 'secondary',
-        dismissible: true,
-      })
-        .then(({ action }) => {
-          if (action === 'ok' && isPlaylistLeaseCurrent(lease)) {
-            queue.retryFailedBatch(result.batchId);
-          } else {
-            queue.dismissFailedBatch(result.batchId);
-          }
-        })
-        .catch((error) => {
-          log.warn('[PRO] Upload failure dialog could not be presented', error);
-          queue.dismissFailedBatch(result.batchId);
-        });
+        'upload failure dialog',
+      );
     },
   });
   proRoomUploadQueue = queue;
@@ -2740,7 +2741,7 @@ async function runHeartbeat(
     if (propagateFailure) throw error;
   } finally {
     if (isPlaylistLeaseCurrent(lease) && active) {
-      setManagedTimer(HEARTBEAT_TIMER, () => void runHeartbeat(), HEARTBEAT_INTERVAL_MS);
+      setManagedTimer(HEARTBEAT_TIMER, () => runHeartbeat(), HEARTBEAT_INTERVAL_MS);
     }
   }
 }
@@ -3002,11 +3003,7 @@ function scheduleVisibilityPlaybackRecoveryRetry(): void {
     ] ?? HEARTBEAT_INTERVAL_MS;
   visibilityPlaybackRecoveryAttempt += 1;
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
-  setManagedTimer(
-    VISIBILITY_PLAYBACK_RECOVERY_TIMER,
-    () => void recoverVisibleProRoomPlayback(),
-    delay,
-  );
+  setManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER, () => recoverVisibleProRoomPlayback(), delay);
 }
 
 async function recoverVisibleProRoomPlayback(): Promise<void> {

@@ -4,7 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   registerProRoomHardCloseHandler,
   registerProRoomLeaveHandler,
+  registerProRoomSignalingEpochAdvanceHandler,
   requestProRoomLeave,
+  requestProRoomSignalingEpochAdvance,
 } from '../lifecycle-hook.ts';
 
 function pageHide(persisted: boolean): Event {
@@ -16,6 +18,7 @@ function pageHide(persisted: boolean): Event {
 afterEach(() => {
   registerProRoomHardCloseHandler(null);
   registerProRoomLeaveHandler(null);
+  registerProRoomSignalingEpochAdvanceHandler(null);
 });
 
 describe('PRO room confirmed-unload lifecycle', () => {
@@ -71,5 +74,19 @@ describe('PRO room confirmed-unload lifecycle', () => {
 
     expect(hardClose).not.toHaveBeenCalled();
     expect(explicitLeave).toHaveBeenCalledTimes(1);
+  });
+
+  it('contains synchronous failures from best-effort lifecycle handlers', () => {
+    const leaveFailure = new Error('leave failed before returning a promise');
+    const epochFailure = new Error('epoch advance failed before returning a promise');
+    registerProRoomLeaveHandler(() => {
+      throw leaveFailure;
+    });
+    registerProRoomSignalingEpochAdvanceHandler(() => {
+      throw epochFailure;
+    });
+
+    expect(() => requestProRoomLeave()).not.toThrow();
+    expect(() => requestProRoomSignalingEpochAdvance()).not.toThrow();
   });
 });

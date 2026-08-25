@@ -96,14 +96,14 @@ describe('ProRoomHeartbeatSingleFlight', () => {
 
     const oldFlight = flight.run(oldOperation);
     await Promise.resolve();
-    flight.run(oldOperation, { forceFollowUp: true });
+    const resetFollowUp = flight.run(oldOperation, { forceFollowUp: true });
     flight.reset();
     const nextFlight = flight.run(nextOperation);
     await Promise.resolve();
 
     oldHeartbeat.resolve();
     nextHeartbeat.resolve();
-    await Promise.all([oldFlight, nextFlight]);
+    await Promise.all([oldFlight, resetFollowUp, nextFlight]);
     expect(oldOperation).toHaveBeenCalledTimes(1);
     expect(nextOperation).toHaveBeenCalledTimes(1);
   });

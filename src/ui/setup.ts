@@ -68,6 +68,16 @@ import {
 import { isProRoomCode } from '../pro-room/room-code.ts';
 import { scheduleStandardRoomPrerequisiteWarmup } from '../network/standard-room-prerequisites.ts';
 
+function startSetupJoinWithRole(mode: number): void {
+  handleSetupJoinWithRole(mode).catch((error) => {
+    log.error('[Setup] Guest join operation escaped its flow boundary', error);
+    bus.emit('setup:guest-join-failure', {
+      error,
+      userMessage: t('error.network_generic'),
+    });
+  });
+}
+
 // ─── Host / Guest Choice ─────────────────────────────────────────
 
 function showHostGuestSelection(): void {
@@ -409,7 +419,7 @@ export function initSetup(): void {
       e.preventDefault();
       const mode = getPendingGuestRoleMode();
       if (mode !== null) {
-        handleSetupJoinWithRole(mode);
+        startSetupJoinWithRole(mode);
       }
     });
   }
@@ -638,7 +648,9 @@ export function initSetup(): void {
     const message = (msg as string) || t('network.session_full');
     showSetupOverlay();
     startGuestFlow();
-    showDialog({ title: t('network.session_full'), message: String(message) });
+    showDialog({ title: t('network.session_full'), message: String(message) }).catch((error) => {
+      log.warn('[Setup] Session-full dialog failed', error);
+    });
   });
 
   // Kicked from session (guest removed from host device list)

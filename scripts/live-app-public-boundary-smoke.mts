@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 const AUTH_SESSION_URL = 'https://musixquare.com/api/auth/session';
 const SECURITY_CONFIG_URL = 'https://musixquare.com/api/security-config';
 const PAID_BOUNDARY_URL = 'https://musixquare.com/api/get-turn-config';
+const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
 export const APP_PUBLIC_BOUNDARY_TIMEOUT_MS = 10_000;
 const MUSIXQUARE_COOKIE_RE = /(?:^|[,\r\n]\s*)(?:__Host|__Secure)-mxqr_[^=;,]*=/;
 
@@ -30,6 +31,15 @@ export interface ProductionCapabilityBoundaryRead {
 export interface ProductionCapabilityBoundaryResult {
   capabilityRequired: true;
   anonymousPaidApiRejected: true;
+}
+
+export interface ProductionOriginBoundaryRead {
+  status: number;
+  allowOrigin: string | null;
+}
+
+export interface ProductionOriginBoundaryResult {
+  unrelatedTossOriginRejected: true;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -101,6 +111,31 @@ async function readCapabilityBoundary(): Promise<ProductionCapabilityBoundaryRea
   };
 }
 
+async function readOriginBoundary(): Promise<ProductionOriginBoundaryRead> {
+  let response: Response;
+  try {
+    response = await fetch(PAID_BOUNDARY_URL, {
+      cache: 'no-store',
+      headers: { Accept: 'application/json', Origin: UNRELATED_TOSS_ORIGIN },
+      signal: AbortSignal.timeout(APP_PUBLIC_BOUNDARY_TIMEOUT_MS),
+    });
+  } catch {
+    throw new Error('Production App origin boundary request failed');
+  }
+  try {
+    return {
+      status: response.status,
+      allowOrigin: response.headers.get('Access-Control-Allow-Origin'),
+    };
+  } finally {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // Body cleanup cannot replace the origin-boundary result.
+    }
+  }
+}
+
 export async function verifyAnonymousAccountSessionBoundary({
   read = readAnonymousSession,
 }: {
@@ -156,12 +191,30 @@ export async function verifyProductionCapabilityBoundary({
   return { capabilityRequired: true, anonymousPaidApiRejected: true };
 }
 
+export async function verifyProductionOriginBoundary({
+  read = readOriginBoundary,
+}: {
+  read?: () => Promise<ProductionOriginBoundaryRead>;
+} = {}): Promise<ProductionOriginBoundaryResult> {
+  const result: unknown = await read();
+  if (
+    !isRecord(result) ||
+    (result.status !== 401 && result.status !== 403) ||
+    result.allowOrigin === UNRELATED_TOSS_ORIGIN ||
+    result.allowOrigin === '*'
+  ) {
+    throw new Error('Production App still trusts an unrelated Toss app origin');
+  }
+  return { unrelatedTossOriginRejected: true };
+}
+
 export async function main(): Promise<void> {
-  const [accountBoundary, capabilityBoundary] = await Promise.all([
+  const [accountBoundary, capabilityBoundary, originBoundary] = await Promise.all([
     verifyAnonymousAccountSessionBoundary(),
     verifyProductionCapabilityBoundary(),
+    verifyProductionOriginBoundary(),
   ]);
-  console.log(JSON.stringify({ ok: true, accountBoundary, capabilityBoundary }));
+  console.log(JSON.stringify({ ok: true, accountBoundary, capabilityBoundary, originBoundary }));
 }
 
 const entryPath = process.argv[1];

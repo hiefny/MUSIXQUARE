@@ -2,6 +2,8 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { transformWithEsbuild, type Plugin } from 'vite';
 
+import { useAsyncConnectMiddleware } from './async-connect-middleware.ts';
+
 export const UI_KIT_SOURCE_DIRECTORY = 'browser/ui-kit/app';
 export const UI_KIT_DECLARATION_PATH = `${UI_KIT_SOURCE_DIRECTORY}/globals.d.ts`;
 export const UI_KIT_HTML_PATH = 'public/designsystem/ui_kits/app/index.html';
@@ -190,7 +192,7 @@ export function uiKitAsset(): Plugin {
     },
     async configureServer(server) {
       await assertUiKitSourceCompleteness(server.config.root);
-      server.middlewares.use(async (request, response, next) => {
+      useAsyncConnectMiddleware(server.middlewares, async (request, response, next) => {
         if (request.method !== 'GET' && request.method !== 'HEAD') {
           next();
           return;

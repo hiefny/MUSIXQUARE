@@ -283,12 +283,12 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
     setState('network.myId', 'host-id');
   });
 
-  function sendChat(text: string): Array<Record<string, unknown>> {
+  async function sendChat(text: string): Promise<Array<Record<string, unknown>>> {
     const relayed: Array<Record<string, unknown>> = [];
     bus.on('network:broadcast-except', (_peerId, data) => {
       relayed.push(data as Record<string, unknown>);
     });
-    void handleData(
+    await handleData(
       {
         type: MSG.CHAT,
         text,
@@ -302,15 +302,15 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
     return relayed;
   }
 
-  it('relays the TRUNCATED text with the profanity filter off (the default)', () => {
-    const relayed = sendChat('x'.repeat(3000)); // passes the 4000 validator cap
+  it('relays the TRUNCATED text with the profanity filter off (the default)', async () => {
+    const relayed = await sendChat('x'.repeat(3000)); // passes the 4000 validator cap
 
     expect(relayed).toHaveLength(1);
     expect((relayed[0].text as string).length).toBe(500);
   });
 
-  it('never renders or relays a raw sender label before the peer list is authoritative', () => {
-    const relayed = sendChat('hello');
+  it('never renders or relays a raw sender label before the peer list is authoritative', async () => {
+    const relayed = await sendChat('hello');
 
     expect(addChatMessage).toHaveBeenCalledWith(
       PEER_NAME_PREFIX,
@@ -328,27 +328,27 @@ describe('host chat fan-out truncation (CHAT-1)', () => {
     expect(relayed[0]).not.toHaveProperty('joinOrder');
   });
 
-  it('relays truncated text with the filter on too (guards the branch re-coupling)', () => {
+  it('relays truncated text with the filter on too (guards the branch re-coupling)', async () => {
     setState('network.filterEnabled', true);
-    const relayed = sendChat('y'.repeat(3000));
+    const relayed = await sendChat('y'.repeat(3000));
 
     expect(relayed).toHaveLength(1);
     expect((relayed[0].text as string).length).toBe(500);
   });
 
-  it('drops multi-KB frames at the validator before the handler runs', () => {
-    const relayed = sendChat('z'.repeat(5000)); // over the 4000 wire cap
+  it('drops multi-KB frames at the validator before the handler runs', async () => {
+    const relayed = await sendChat('z'.repeat(5000)); // over the 4000 wire cap
 
     expect(relayed).toHaveLength(0);
   });
 
-  it('does not amplify unknown inbound fields through host fan-out', () => {
+  it('does not amplify unknown inbound fields through host fan-out', async () => {
     const relayed: Array<Record<string, unknown>> = [];
     bus.on('network:broadcast-except', (_peerId, data) => {
       relayed.push(data as Record<string, unknown>);
     });
 
-    void handleData(
+    await handleData(
       {
         type: MSG.CHAT,
         text: 'bounded',

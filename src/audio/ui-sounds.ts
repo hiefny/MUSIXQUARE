@@ -8,6 +8,7 @@
 
 import { getAudioContext } from './context.ts';
 import { bus, createBusScope } from '../core/events.ts';
+import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 
 const STORAGE_KEY = 'musixquare-ui-sounds-enabled';
@@ -44,6 +45,12 @@ let previousSessionStarted = getState('setup.sessionStarted');
 let initialized = false;
 let removeDomListeners: (() => void) | null = null;
 const busScope = createBusScope();
+
+function observeUiSoundTask(operation: Promise<unknown>, source: string): void {
+  operation.catch((error) => {
+    log.debug(`[Audio] ${source} UI sound failed`, error);
+  });
+}
 
 function nowMs(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -261,22 +268,25 @@ export function playUiTouchSound(options: { force?: boolean } = {}): void {
   const now = nowMs();
   if (!options.force && now - lastUiTouchAt < UI_TOUCH_COOLDOWN_MS) return;
   lastUiTouchAt = now;
-  void playTouch(options.force === true);
+  observeUiSoundTask(playTouch(options.force === true), 'touch');
 }
 
 function playSessionSound(frequency: number): void {
   const now = nowMs();
   if (now - lastSessionSoundAt < SESSION_SOUND_COOLDOWN_MS) return;
   lastSessionSoundAt = now;
-  void readyOutput().then((output) => {
-    if (!output) return;
-    scheduleMicroEcho(
-      output.context,
-      output.attentionInput,
-      output.context.currentTime + 0.008,
-      frequency,
-    );
-  });
+  observeUiSoundTask(
+    readyOutput().then((output) => {
+      if (!output) return;
+      scheduleMicroEcho(
+        output.context,
+        output.attentionInput,
+        output.context.currentTime + 0.008,
+        frequency,
+      );
+    }),
+    'session',
+  );
 }
 
 function playParticipantJoinSound(): void {
@@ -290,28 +300,31 @@ function playParticipantLeaveSound(): void {
 }
 
 export function playAnnouncementSound(): void {
-  void readyOutput().then((output) => {
-    if (!output) return;
-    const time = output.context.currentTime + 0.008;
-    // Sound Lab #10: Two Step.
-    scheduleTone(output.context, output.attentionInput, time, {
-      from: ANNOUNCEMENT_LOW_FREQUENCY_HZ,
-      duration: 0.16,
-      gain: 0.055,
-      attack: 0.004,
-      release: 0.12,
-      pan: -0.04,
-    });
-    scheduleTone(output.context, output.attentionInput, time, {
-      from: ANNOUNCEMENT_HIGH_FREQUENCY_HZ,
-      delay: 0.095,
-      duration: 0.23,
-      gain: 0.068,
-      attack: 0.004,
-      release: 0.18,
-      pan: 0.04,
-    });
-  });
+  observeUiSoundTask(
+    readyOutput().then((output) => {
+      if (!output) return;
+      const time = output.context.currentTime + 0.008;
+      // Sound Lab #10: Two Step.
+      scheduleTone(output.context, output.attentionInput, time, {
+        from: ANNOUNCEMENT_LOW_FREQUENCY_HZ,
+        duration: 0.16,
+        gain: 0.055,
+        attack: 0.004,
+        release: 0.12,
+        pan: -0.04,
+      });
+      scheduleTone(output.context, output.attentionInput, time, {
+        from: ANNOUNCEMENT_HIGH_FREQUENCY_HZ,
+        delay: 0.095,
+        duration: 0.23,
+        gain: 0.068,
+        attack: 0.004,
+        release: 0.18,
+        pan: 0.04,
+      });
+    }),
+    'announcement',
+  );
 }
 
 export function playChatSystemEventSound(

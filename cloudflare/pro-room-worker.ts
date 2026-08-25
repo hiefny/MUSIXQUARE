@@ -1234,11 +1234,13 @@ async function recheckSuspendedRoomGeneration(
       }
     })();
     cache.suspendedRechecks.set(key, recheck);
-    recheck.finally(() => {
-      if (cache.suspendedRechecks.get(key) === recheck) {
-        cache.suspendedRechecks.delete(key);
-      }
-    });
+    recheck
+      .finally(() => {
+        if (cache.suspendedRechecks.get(key) === recheck) {
+          cache.suspendedRechecks.delete(key);
+        }
+      })
+      .catch(() => undefined);
   }
   return cache.suspendedRechecks.get(key) ?? null;
 }
@@ -3851,8 +3853,9 @@ export class MusixquareProRoom {
       this.normalizeLoadedPresenceBroadcast();
       this.normalizeLoadedAssetDeletions();
     };
-    if (typeof state.blockConcurrencyWhile === 'function') state.blockConcurrencyWhile(load);
-    else this.ready = load();
+    if (typeof state.blockConcurrencyWhile === 'function') {
+      this.ready = state.blockConcurrencyWhile(load);
+    } else this.ready = load();
   }
 
   async ensureReady(request: Request): Promise<boolean> {
@@ -10418,7 +10421,7 @@ export class MusixquareProRoom {
     return delivered;
   }
 
-  scheduleServerEvent(event: JsonRecord, targets: string[] = this.realtimePresenceTargets()) {
+  scheduleServerEvent(event: JsonRecord, targets: string[] = this.realtimePresenceTargets()): void {
     if (
       event?.type === 'pro-playback-prepare' ||
       event?.type === 'pro-playback-cancel' ||
@@ -10426,7 +10429,8 @@ export class MusixquareProRoom {
     ) {
       // Playback events must be included in the caller's next canonical room
       // persist. Never start cross-Worker delivery from this pre-persist seam.
-      return Promise.resolve(this.enqueuePlaybackBroadcast(event, targets));
+      this.enqueuePlaybackBroadcast(event, targets);
+      return;
     }
     const coordinatorEpoch = this.activeRoom.presence.coordinatorEpoch;
     const hasSignalingNamespace =
@@ -10435,8 +10439,13 @@ export class MusixquareProRoom {
       event?.type === 'pro-presence-snapshot' && hasSignalingNamespace
         ? this.deliverPresenceBroadcast(event, targets, coordinatorEpoch)
         : this.broadcastServerEvent(event, targets, coordinatorEpoch);
-    if (typeof this.state.waitUntil === 'function') this.state.waitUntil(delivery);
-    return delivery;
+    if (typeof this.state.waitUntil === 'function') {
+      this.state.waitUntil(delivery);
+    } else {
+      delivery.catch((error: unknown) => {
+        console.warn('[PRO realtime] background event delivery failed', error);
+      });
+    }
   }
 
   presenceEvent() {

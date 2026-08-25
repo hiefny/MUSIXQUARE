@@ -102,7 +102,7 @@ describe('connection-type waiter lifecycle', () => {
     const successor = waitForGuestConnectionType(3_000);
     const successorPoll = callbackFor('guestConnType-interval-');
     let successorSettled = false;
-    void successor.then(() => {
+    const observedSuccessor = successor.then(() => {
       successorSettled = true;
     });
     setState('network.connectionType', 'local');
@@ -113,6 +113,7 @@ describe('connection-type waiter lifecycle', () => {
 
     successorPoll();
     await expect(successor).resolves.toBe('local');
+    await observedSuccessor;
     expect(timerMocks.callbacks.size).toBe(0);
   });
 });

@@ -1,4 +1,5 @@
 import { createBusScope } from '../core/events.ts';
+import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { getPeer } from '../network/peer-state.ts';
 import type { StandardRoomAssertionRequest } from '../network/transport/types.ts';
@@ -21,6 +22,13 @@ let _lastAccountProjectionKey: string | null = null;
 let _refreshQueued = false;
 let _refreshScheduleGeneration = 0;
 const _assertionsInFlight = new Map<string, Promise<StandardRoomIdentityAssertions | undefined>>();
+
+function observeStandardRoomIdentityRefresh(operation: Promise<void> | undefined): void {
+  if (!operation) return;
+  operation.catch((error) => {
+    log.warn('[Account] Standard room identity refresh failed', error);
+  });
+}
 
 function accountProjectionKey(snapshot: Readonly<AccountSnapshot>): string | null {
   if (snapshot.status === 'loading' || snapshot.status === 'unavailable') return null;
@@ -100,7 +108,7 @@ function refreshCurrentStandardRoomIdentity(): void {
     if (generation !== _refreshScheduleGeneration) return;
     _refreshQueued = false;
     if (!getState('setup.sessionStarted') || getRoomContext().kind === 'pro') return;
-    void getPeer()?.refreshStandardRoomIdentity?.();
+    observeStandardRoomIdentityRefresh(getPeer()?.refreshStandardRoomIdentity?.());
   });
 }
 

@@ -16,6 +16,7 @@ import {
   setAccountUnavailable,
 } from './state.ts';
 import { bus } from '../core/events.ts';
+import { log } from '../core/log.ts';
 
 let _operationGeneration = 0;
 let _sessionFence = 0;
@@ -62,6 +63,16 @@ const ACCOUNT_SYNC_STORAGE_KEY = 'mxqr-account-refresh';
 const MAX_RECENT_EXTERNAL_REFRESH_IDS = 32;
 
 type AccountRefreshPulse = Readonly<{ id: string | null; loginSuccess: boolean }>;
+
+function observeAccountSessionOperation(
+  operation: Promise<unknown> | null | undefined,
+  source: string,
+): void {
+  if (!operation) return;
+  operation.catch((error) => {
+    log.warn(`[Account] ${source} reconciliation failed`, error);
+  });
+}
 
 export type AccountLoginPopupOutcome =
   | 'authenticated'
@@ -219,7 +230,7 @@ function scheduleAccountRecovery(): void {
     _recoveryTimer = null;
     if (!_recoveryNeeded) return;
     if (!canRunAccountRecovery()) return;
-    void refreshAccountSession(false, false);
+    observeAccountSessionOperation(refreshAccountSession(false, false), 'scheduled recovery');
   }, delay);
 }
 
@@ -299,11 +310,11 @@ async function runExplicitAccountRecovery(
 
 function refreshAfterUserReturns(): void {
   if (_recoveryNeeded) {
-    void requestImmediateAccountRecovery(false);
+    observeAccountSessionOperation(requestImmediateAccountRecovery(false), 'foreground recovery');
     return;
   }
   if (Date.now() - _lastRefreshStartedAt < ACCOUNT_REFRESH_DEBOUNCE_MS) return;
-  void refreshAccountSession(true, false);
+  observeAccountSessionOperation(refreshAccountSession(true, false), 'foreground refresh');
 }
 
 function refreshAfterPopupMessage(event: MessageEvent): void {
@@ -330,7 +341,7 @@ function refreshAfterVisibilityChange(): void {
 }
 
 function refreshAfterOnline(): void {
-  void requestImmediateAccountRecovery(true);
+  observeAccountSessionOperation(requestImmediateAccountRecovery(true), 'online recovery');
 }
 
 function refreshAfterPageShow(): void {
@@ -370,7 +381,7 @@ function reconcileExternalAccountChange(refreshId: string | null, loginSuccess =
     // either order (and in separate tasks for BroadcastChannel/storage). Keep
     // one bounded, replayable operation per nonce so every consumer observes
     // the same authoritative response without starting another request.
-    void reconcileAccountLoginResult(refreshId)?.catch(() => undefined);
+    observeAccountSessionOperation(reconcileAccountLoginResult(refreshId), 'login-result');
     return;
   }
   if (!rememberExternalRefreshId(refreshId)) return;
@@ -411,7 +422,7 @@ function bindAccountSessionLifecycle(): void {
 
 export function startAccountSessionRefresh(): void {
   bindAccountSessionLifecycle();
-  void refreshAccountSession();
+  observeAccountSessionOperation(refreshAccountSession(), 'startup');
 }
 
 /** Retry an unavailable account read from an explicit user action. */
@@ -585,7 +596,7 @@ function drainRefreshFollowUp(): void {
   // A completed mutation already supplied the visible authoritative state.
   // Reconcile any refresh requested during it without flashing that state back
   // to "loading" while the post-mutation cookie check is in flight.
-  void refreshAccountSession(false);
+  observeAccountSessionOperation(refreshAccountSession(false), 'post-mutation follow-up');
 }
 
 function refreshAccountSession(showLoading = true, followUpIfBusy = true): Promise<void> {

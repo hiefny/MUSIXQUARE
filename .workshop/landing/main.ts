@@ -174,7 +174,7 @@ function initCopyInvite(): void {
     }, 2000);
   };
 
-  btn.addEventListener('click', async () => {
+  const copyInvite = async (): Promise<void> => {
     const url = 'https://musixquare.com';
     try {
       await navigator.clipboard.writeText(url);
@@ -182,6 +182,11 @@ function initCopyInvite(): void {
     } catch {
       flash(translateLanding('code.toast_fail', 'Copy failed'));
     }
+  };
+  btn.addEventListener('click', () => {
+    copyInvite().catch((error: unknown) => {
+      console.error('[landing] Copy action failed unexpectedly.', error);
+    });
   });
 }
 

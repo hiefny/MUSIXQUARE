@@ -1,9 +1,8 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer as createHttpServer, request as requestHttp } from 'node:http';
+import { request as requestHttp } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { JSDOM } from 'jsdom';
-import { createServer as createViteServer } from 'vite';
 import { describe, expect, it } from 'vitest';
 
 import { countExecutableInlineScripts } from '../../../scripts/check-authored-inline-js-inventory.mts';
@@ -19,6 +18,7 @@ import {
   compileUiKitAsset,
   uiKitAsset,
 } from '../../../scripts/ui-kit-asset.ts';
+import { startViteMiddlewareTestServer } from './helpers/vite-middleware-test-server.ts';
 
 const REPO_ROOT = resolve(process.cwd());
 
@@ -234,33 +234,17 @@ async function startUiKitDevServer(): Promise<{
   readonly origin: string;
   close(): Promise<void>;
 }> {
-  const vite = await createViteServer({
-    appType: 'custom',
-    configFile: false,
-    publicDir: false,
-    root: REPO_ROOT,
-    plugins: [uiKitAsset()],
-    optimizeDeps: { include: [], noDiscovery: true },
-    server: { middlewareMode: true, preTransformRequests: false },
-  });
-  const http = createHttpServer(vite.middlewares);
-  await new Promise<void>((resolveListen, rejectListen) => {
-    http.once('error', rejectListen);
-    http.listen(0, '127.0.0.1', resolveListen);
-  });
-  const address = http.address();
-  if (!address || typeof address === 'string') {
-    throw new Error('UI kit test server did not bind a TCP port.');
-  }
-  return {
-    origin: `http://127.0.0.1:${address.port}`,
-    async close() {
-      await new Promise<void>((resolveClose, rejectClose) => {
-        http.close((error) => (error ? rejectClose(error) : resolveClose()));
-      });
-      await vite.close();
+  return startViteMiddlewareTestServer(
+    {
+      appType: 'custom',
+      configFile: false,
+      publicDir: false,
+      root: REPO_ROOT,
+      plugins: [uiKitAsset()],
+      optimizeDeps: { include: [], noDiscovery: true },
     },
-  };
+    'UI kit',
+  );
 }
 
 async function requestDevServer(

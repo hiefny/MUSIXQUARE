@@ -6,12 +6,15 @@ import {
   InitialHostSocketConvergenceError,
   STALE_VERSION_RETRY_DELAYS_MS,
   StaleSignalingVersionError,
+  UNRELATED_TOSS_ORIGIN,
   assertPeerOpenVersion,
   createSocketInbox,
   initialHostHandshakeError,
   initialHostSocketCloseError,
   initialHostSocketError,
+  readSignalingOriginBoundary,
   settleUnexpectedInitialHostResponse,
+  verifySignalingOriginBoundary,
   withSignalingReadinessRetry,
 } from '../../../scripts/live-signaling-smoke.mts';
 
@@ -40,6 +43,41 @@ function fakeInitialHost(expectedVersion = EXPECTED_VERSION) {
 }
 
 describe('live signaling smoke deployment readiness', () => {
+  it('pins the live negative probe to the unrelated Apps-in-Toss origin and HTTP 403', async () => {
+    const socket = new FakeWebSocket();
+    const resume = vi.fn();
+    const terminate = vi.spyOn(socket, 'terminate');
+    let observedOrigin = '';
+    const read = readSignalingOriginBoundary({
+      timeoutMs: 100,
+      createWebSocket: (_target, options) => {
+        observedOrigin = String(options.origin || '');
+        queueMicrotask(() => {
+          socket.emit('unexpected-response', {}, { statusCode: 403, resume });
+        });
+        return socket;
+      },
+    });
+
+    await expect(read).resolves.toEqual({ statusCode: 403 });
+    expect(UNRELATED_TOSS_ORIGIN).toBe('https://unrelated.apps.tossmini.com');
+    expect(observedOrigin).toBe(UNRELATED_TOSS_ORIGIN);
+    expect(resume).toHaveBeenCalledOnce();
+    expect(terminate).toHaveBeenCalledOnce();
+  });
+
+  it('accepts only HTTP 403 as the live signaling origin boundary', async () => {
+    await expect(
+      verifySignalingOriginBoundary({ read: async () => ({ statusCode: 403 }) }),
+    ).resolves.toEqual({ unrelatedTossOriginRejected: true });
+
+    for (const statusCode of [101, 200, 401, 404, 426, 500]) {
+      await expect(
+        verifySignalingOriginBoundary({ read: async () => ({ statusCode }) }),
+      ).rejects.toThrow('Production signaling still trusts an unrelated Toss app origin');
+    }
+  });
+
   it('keeps the bounded backoff comfortably below 45 seconds', () => {
     expect(STALE_VERSION_RETRY_DELAYS_MS.reduce((total, value) => total + value, 0)).toBeLessThan(
       45_000,

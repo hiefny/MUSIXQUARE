@@ -54,6 +54,16 @@ let _pendingPasswordJoin: { code: string; mode: number; inviteLink: boolean } | 
 let _roomPasswordPromptOpen = false;
 const DEFAULT_SETUP_ROLE = 0;
 
+function observeGuestJoin(operation: Promise<void>): void {
+  operation.catch((error) => {
+    log.error('[Setup] Guest join operation escaped its flow boundary', error);
+    bus.emit('setup:guest-join-failure', {
+      error,
+      userMessage: t('error.network_generic'),
+    });
+  });
+}
+
 export function setGuestGoBack(fn: () => void): void {
   _goBack = fn;
 }
@@ -157,7 +167,7 @@ function _renderInviteLinkActions(retry = false, reloadRequired = false): void {
         kind: 'primary',
         onClick: reloadRequired
           ? () => scheduleDocumentReload(t('dialog.refreshing_session'))
-          : () => _handleInviteLinkJoin(DEFAULT_SETUP_ROLE),
+          : () => observeGuestJoin(_handleInviteLinkJoin(DEFAULT_SETUP_ROLE)),
       },
     ],
     'horizontal-with-back',
@@ -287,7 +297,7 @@ function proceedToGuestCode(mode: number): void {
         id: 'btn-setup-confirm',
         text: t('common.start'),
         kind: 'primary',
-        onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode()),
+        onClick: () => startSetupJoinWithRole(getPendingGuestRoleMode()),
       },
     ],
     'horizontal-with-back',
@@ -306,7 +316,7 @@ function proceedToGuestCode(mode: number): void {
       setupSetGuestJoinError(null);
       input.value = code;
       input.dispatchEvent(new Event('input', { bubbles: true }));
-      void handleSetupJoinWithRole(getPendingGuestRoleMode(), true);
+      startSetupJoinWithRole(getPendingGuestRoleMode(), true);
     },
     onError: (reason) => {
       setupSetGuestJoinError(null);
@@ -401,6 +411,11 @@ export async function handleSetupJoinWithRole(
   joinSession(code);
 }
 
+/** Synchronous adapter for DOM/setup action callbacks that cannot observe a returned Promise. */
+function startSetupJoinWithRole(mode: number | null, preserveQrScannerSuccess = false): void {
+  observeGuestJoin(handleSetupJoinWithRole(mode, preserveQrScannerSuccess));
+}
+
 function restoreJoinControlsAfterPasswordCancel(): void {
   setupSetGuestJoinBusy(false);
   setupSetGuestJoinError(null);
@@ -423,7 +438,7 @@ function restoreJoinControlsAfterPasswordCancel(): void {
         id: 'btn-setup-confirm',
         text: t('common.start'),
         kind: 'primary',
-        onClick: () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
+        onClick: () => startSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
       },
     ],
     'horizontal-with-back',
@@ -466,7 +481,7 @@ export function restoreGuestJoinControlsAfterFailure(
         kind: 'primary',
         onClick: reloadRequired
           ? () => scheduleDocumentReload(t('dialog.refreshing_session'))
-          : () => handleSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
+          : () => startSetupJoinWithRole(getPendingGuestRoleMode() ?? null),
       },
     ],
     'horizontal-with-back',

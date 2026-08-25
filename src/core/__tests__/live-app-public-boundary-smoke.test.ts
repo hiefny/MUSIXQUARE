@@ -4,6 +4,7 @@ import {
   APP_PUBLIC_BOUNDARY_TIMEOUT_MS,
   verifyAnonymousAccountSessionBoundary,
   verifyProductionCapabilityBoundary,
+  verifyProductionOriginBoundary,
 } from '../../../scripts/live-app-public-boundary-smoke.mts';
 
 describe('live app public boundary smoke', () => {
@@ -94,5 +95,27 @@ describe('live app public boundary smoke', () => {
     await expect(
       verifyProductionCapabilityBoundary({ read: async () => result }),
     ).rejects.toThrow();
+  });
+
+  it.each([401, 403])(
+    'requires the live App Worker to reject unrelated Toss app origins with HTTP %i',
+    async (status) => {
+      const read = vi.fn(async () => ({ status, allowOrigin: null }));
+
+      await expect(verifyProductionOriginBoundary({ read })).resolves.toEqual({
+        unrelatedTossOriginRejected: true,
+      });
+      expect(read).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    { status: 200, allowOrigin: null },
+    { status: 403, allowOrigin: 'https://unrelated.apps.tossmini.com' },
+    { status: 403, allowOrigin: '*' },
+  ])('fails closed when the live App origin boundary is permissive %#', async (result) => {
+    await expect(verifyProductionOriginBoundary({ read: async () => result })).rejects.toThrow(
+      'Production App still trusts an unrelated Toss app origin',
+    );
   });
 });

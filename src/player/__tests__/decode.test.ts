@@ -74,7 +74,7 @@ vi.mock('../../storage/transfer.ts', () => ({
 }));
 
 vi.mock('../../share/remote-share.ts', () => ({
-  shareRemoteFileIfNeeded: vi.fn(),
+  shareRemoteFileIfNeeded: vi.fn(async () => undefined),
 }));
 
 vi.mock('../../storage/preload.ts', () => ({

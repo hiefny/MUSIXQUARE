@@ -142,6 +142,7 @@ beforeEach(() => {
   // every test that runs after it.
   vi.mocked(isRemoteGuest).mockReturnValue(false);
   remoteShareMocks.isConfigured.mockReturnValue(false);
+  remoteShareMocks.shareRemoteFileIfNeeded.mockResolvedValue(undefined);
   setState('playlist.items', [
     { queueItemId: Q0, type: 'file', name: 'same.mp3', videoId: null, playlistId: null },
     { queueItemId: Q1, type: 'file', name: 'same.mp3', videoId: null, playlistId: null },

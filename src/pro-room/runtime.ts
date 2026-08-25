@@ -143,6 +143,7 @@ import {
   type ProRoomFirstAppendSelectionRequest,
 } from './playlist-state-manager.ts';
 import { ProRoomUploadQueue, setActiveProRoomUploadQueue } from './upload-queue.ts';
+import { resolveProRoomUploadFailureDialog } from './upload-failure-dialog.ts';
 import {
   findRemovedProRoomQueueItemIds,
   resolveProRoomRemovalTransition,
@@ -183,6 +184,13 @@ const EXPLICIT_LEAVE_CLOSE_TIMEOUT_MS = 1_200;
 const api = new ProRoomApiClient();
 configureProSystemAudioService(api);
 const bridge = proRoomServerBridge;
+
+function observeProRoomRuntimeTask(operation: Promise<unknown>, context: string): void {
+  operation.catch((error) => {
+    log.warn(`[PRO] ${context} escaped its operation boundary`, error);
+  });
+}
+
 let active = false;
 let refreshInFlight = false;
 let visibilityBound = false;
@@ -1140,23 +1148,28 @@ function installMediaHooks(
         queue.dismissFailedBatch(result.batchId);
         return;
       }
-      void showDialog({
-        title: t('pro.upload.batch_failed_title'),
-        message: t('pro.upload.batch_failed_message', {
-          total: result.requestedCount,
-          failed: result.failedCount,
+      observeProRoomRuntimeTask(
+        resolveProRoomUploadFailureDialog({
+          queue,
+          batchId: result.batchId,
+          show: () =>
+            showDialog({
+              title: t('pro.upload.batch_failed_title'),
+              message: t('pro.upload.batch_failed_message', {
+                total: result.requestedCount,
+                failed: result.failedCount,
+              }),
+              buttonText: t('common.retry'),
+              secondaryText: t('common.close'),
+              defaultFocus: 'secondary',
+              dismissible: true,
+            }),
+          isCurrent: () => isPlaylistLeaseCurrent(lease),
+          reportPresentationFailure: (error) =>
+            log.warn('[PRO] Upload failure dialog could not be presented', error),
         }),
-        buttonText: t('common.retry'),
-        secondaryText: t('common.close'),
-        defaultFocus: 'secondary',
-        dismissible: true,
-      }).then(({ action }) => {
-        if (action === 'ok' && isPlaylistLeaseCurrent(lease)) {
-          queue.retryFailedBatch(result.batchId);
-        } else {
-          queue.dismissFailedBatch(result.batchId);
-        }
-      });
+        'upload failure dialog',
+      );
     },
   });
   proRoomUploadQueue = queue;
@@ -1577,7 +1590,7 @@ function armEffectsCheckpoint(delayMs: number, lease = playlistRuntimeLease): vo
         cancelEffectsCheckpoint();
         return;
       }
-      void persistRoomEffects();
+      return persistRoomEffects();
     },
     delayMs,
   );
@@ -2527,7 +2540,7 @@ function recoverAccountMediaHooksAfterUncertainMutation(operation: 'attach' | 'd
   // A mutation response can be lost after commit. The accepted canonical
   // heartbeat is the only safe fallback proof for renewing the exact hook
   // handle; ordinary later heartbeats can retry the same fenced recovery.
-  void runHeartbeat(true);
+  observeProRoomRuntimeTask(runHeartbeat(true), 'media-hook recovery heartbeat');
 }
 
 const accountReconciler = new ProRoomAccountReconciler({
@@ -2552,7 +2565,7 @@ const accountReconciler = new ProRoomAccountReconciler({
   },
   failed: (operation, error) => {
     if (isTerminalSessionError(error)) {
-      void recoverTerminalSession(error);
+      observeProRoomRuntimeTask(recoverTerminalSession(error), 'terminal account recovery');
       return;
     }
     log.warn(`[PRO] Account identity ${operation} deferred`, error);
@@ -2562,7 +2575,10 @@ const accountReconciler = new ProRoomAccountReconciler({
 
 onProRoomTabTakeover((roomCode) => {
   if (!active || controller.snapshot?.roomCode !== roomCode) return;
-  void recoverTerminalSession(new ProRoomApiError('PRESENCE_SUPERSEDED', 409));
+  observeProRoomRuntimeTask(
+    recoverTerminalSession(new ProRoomApiError('PRESENCE_SUPERSEDED', 409)),
+    'superseded-tab recovery',
+  );
 });
 
 function isTerminalSessionError(error: unknown): error is ProRoomApiError {
@@ -2725,7 +2741,7 @@ async function runHeartbeat(
     if (propagateFailure) throw error;
   } finally {
     if (isPlaylistLeaseCurrent(lease) && active) {
-      setManagedTimer(HEARTBEAT_TIMER, () => void runHeartbeat(), HEARTBEAT_INTERVAL_MS);
+      setManagedTimer(HEARTBEAT_TIMER, () => runHeartbeat(), HEARTBEAT_INTERVAL_MS);
     }
   }
 }
@@ -2766,7 +2782,7 @@ async function runControlChannelRecovery(): Promise<void> {
           controlChannelRecoveryAttempt + 1,
           SIGNALING_RECOVERY_MAX_ATTEMPTS,
         );
-        void runControlChannelRecovery();
+        return runControlChannelRecovery();
       },
       delay,
     );
@@ -2791,11 +2807,7 @@ function scheduleAccountIdentityLeaseRenewal(delayMs?: number | null): void {
       ? getProAccountIdentityLeaseRenewDelayMs(Date.now(), accountIdentityLeaseExpiresAtMs)
       : delayMs;
   if (resolvedDelayMs === null) return;
-  setManagedTimer(
-    ACCOUNT_IDENTITY_LEASE_TIMER,
-    () => void renewAccountIdentityLease(),
-    resolvedDelayMs,
-  );
+  setManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER, () => renewAccountIdentityLease(), resolvedDelayMs);
 }
 
 async function renewAccountIdentityLease(): Promise<void> {
@@ -2991,11 +3003,7 @@ function scheduleVisibilityPlaybackRecoveryRetry(): void {
     ] ?? HEARTBEAT_INTERVAL_MS;
   visibilityPlaybackRecoveryAttempt += 1;
   clearManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER);
-  setManagedTimer(
-    VISIBILITY_PLAYBACK_RECOVERY_TIMER,
-    () => void recoverVisibleProRoomPlayback(),
-    delay,
-  );
+  setManagedTimer(VISIBILITY_PLAYBACK_RECOVERY_TIMER, () => recoverVisibleProRoomPlayback(), delay);
 }
 
 async function recoverVisibleProRoomPlayback(): Promise<void> {
@@ -3047,9 +3055,9 @@ function bindVisibilityRefresh(): void {
     // revision keeps advancing. A normal heartbeat intentionally deduplicates
     // that revision, so foreground recovery must explicitly re-apply it.
     if (recoverPlayback) {
-      void recoverVisibleProRoomPlayback();
+      observeProRoomRuntimeTask(recoverVisibleProRoomPlayback(), 'foreground playback recovery');
     } else {
-      void runHeartbeat();
+      observeProRoomRuntimeTask(runHeartbeat(), 'foreground heartbeat');
     }
     // WebKit may suspend timeout delivery for a long background interval.
     // Reconcile an overdue safety read immediately on foreground resume while
@@ -3060,7 +3068,7 @@ function bindVisibilityRefresh(): void {
       });
     }
     clearManagedTimer(ACCOUNT_IDENTITY_LEASE_TIMER);
-    void renewAccountIdentityLease();
+    observeProRoomRuntimeTask(renewAccountIdentityLease(), 'foreground account lease renewal');
   });
 }
 
@@ -3074,11 +3082,11 @@ function startLifecycle(): void {
   terminalRecoveryInFlight = false;
   bindVisibilityRefresh();
   clearManagedTimer(HEARTBEAT_TIMER);
-  setManagedTimer(HEARTBEAT_TIMER, () => void runHeartbeat(), HEARTBEAT_INTERVAL_MS);
+  setManagedTimer(HEARTBEAT_TIMER, () => runHeartbeat(), HEARTBEAT_INTERVAL_MS);
   scheduleAccountIdentityLeaseRenewal();
   // Reconcile the authenticated display name immediately so queue notices
   // never stay pinned to the login-time generic "Peer" value.
-  void runHeartbeat(true);
+  observeProRoomRuntimeTask(runHeartbeat(true), 'initial account-display heartbeat');
   accountReconciler.update(getAccountSnapshot());
 }
 
@@ -3128,7 +3136,7 @@ function acceptAdministratorDirectory(
   // The directory mutation also changes participant roles/capabilities. A
   // forced heartbeat reconciles those rows without making the committed
   // directory mutation look failed if the follow-up network read is delayed.
-  void runHeartbeat(true);
+  observeProRoomRuntimeTask(runHeartbeat(true), 'administrator-directory heartbeat');
   return projection;
 }
 
@@ -3512,7 +3520,7 @@ function acceptProRoomRealtimeFrame(
   if (queueAddition) acceptQueueAddition(queueAddition);
 
   if (frame.event.type === 'pro-room-invalidated' || frame.event.type === 'pro-presence-snapshot') {
-    void runHeartbeat(true);
+    observeProRoomRuntimeTask(runHeartbeat(true), 'realtime invalidation heartbeat');
     if (
       frame.event.type === 'pro-room-invalidated' &&
       typeof frame.event.systemAudioGeneration === 'number' &&
@@ -3553,7 +3561,7 @@ bus.on('pro-room:kick-member', (memberIdOrLegacyParticipantId) => {
   if (!memberId) return;
   void kickActiveProRoomMember(memberId).catch((error) => {
     if (isTerminalSessionError(error)) {
-      void recoverTerminalSession(error);
+      observeProRoomRuntimeTask(recoverTerminalSession(error), 'terminal kick recovery');
       return;
     }
     log.warn('[PRO] Could not remove participant', error);

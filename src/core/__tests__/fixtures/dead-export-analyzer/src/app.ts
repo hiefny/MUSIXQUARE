@@ -12,5 +12,7 @@ void defaultValue;
 void overloaded('fixture');
 const reachableType: ReachableType = { value: 1 };
 void reachableType;
-void import('./lazy.ts');
+import('./lazy.ts').catch((error) => {
+  console.error('[DeadExportFixture] Lazy module failed to load', error);
+});
 new Worker(new URL('./worker.ts', import.meta.url));

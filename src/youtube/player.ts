@@ -3592,7 +3592,9 @@ export function initYouTube(): void {
     }
     const input = document.getElementById('youtube-url-input');
     if (!input) return;
-    void searchYouTubeFromInput(input.textContent || '');
+    searchYouTubeFromInput(input.textContent || '').catch((error) => {
+      log.warn('[YouTube] Search submission failed', error);
+    });
   });
 
   bus.on('youtube:load-from-input', () => {
@@ -3621,7 +3623,9 @@ export function initYouTube(): void {
     if (intent.kind === 'search-query') {
       const selected = getSelectedYouTubeSearchResult(rawInput);
       if (!selected) {
-        void searchYouTubeFromInput(rawInput);
+        searchYouTubeFromInput(rawInput).catch((error) => {
+          log.warn('[YouTube] Search result submission failed', error);
+        });
         return;
       }
       videoId = selected.videoId;
@@ -3868,7 +3872,11 @@ export function initYouTube(): void {
     // Full fetch when user explicitly expands the sub-playlist UI
     const currentSubMap = getState('youtube.subItemsMap') || {};
     if (currentSubMap[playlistId]?.ids?.length > 0) {
-      fetchPlaylistSubTitles(playlistId, currentSubMap[playlistId].ids, { fullFetch: true });
+      fetchPlaylistSubTitles(playlistId, currentSubMap[playlistId].ids, {
+        fullFetch: true,
+      }).catch((error) => {
+        log.warn(`[YouTube] Background title fetch failed for ${playlistId}`, error);
+      });
     }
 
     // 4. Guest: Request info from Host if sub-item data is missing

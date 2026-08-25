@@ -12,6 +12,7 @@ import {
 } from './scripts/service-worker-asset.ts';
 import { uiKitAsset } from './scripts/ui-kit-asset.ts';
 import { auxiliaryBrowserAssets } from './scripts/auxiliary-browser-assets.ts';
+import { useAsyncConnectMiddleware } from './scripts/async-connect-middleware.ts';
 
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
 
@@ -454,7 +455,7 @@ export const serviceWorkerAsset = (): Plugin => {
     },
     async configureServer(server) {
       await assertServiceWorkerSourceCompleteness(server.config.root);
-      server.middlewares.use(async (request, response, next) => {
+      useAsyncConnectMiddleware(server.middlewares, async (request, response, next) => {
         if (request.method !== 'GET' && request.method !== 'HEAD') {
           next();
           return;

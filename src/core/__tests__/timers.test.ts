@@ -82,4 +82,40 @@ describe('Managed Timers', () => {
     expect(getManagedTimer('sw-update-check')).not.toBeNull();
     expect(getManagedTimer('heartbeatMonitor')).toBeNull();
   });
+
+  it('reports a rejected timeout callback without leaking an unhandled rejection', async () => {
+    const error = new Error('timeout rejected');
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    setManagedTimer(
+      'async-timeout',
+      async () => {
+        throw error;
+      },
+      100,
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(errorLog).toHaveBeenCalledWith('[Timer] "async-timeout" rejected:', error);
+    errorLog.mockRestore();
+  });
+
+  it('reports a rejected interval callback and keeps the interval registered', async () => {
+    const error = new Error('interval rejected');
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    setManagedTimer(
+      'async-interval',
+      async () => {
+        throw error;
+      },
+      100,
+      { interval: true },
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(errorLog).toHaveBeenCalledWith('[Timer] "async-interval" rejected:', error);
+    expect(getManagedTimer('async-interval')).not.toBeNull();
+    errorLog.mockRestore();
+  });
 });

@@ -8,6 +8,7 @@
  */
 
 import { bus } from '../core/events.ts';
+import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
 import { partitionAudioFileCandidates } from '../media/audio-file.ts';
@@ -227,7 +228,9 @@ function handleFileDrop(event: DragEvent): void {
   }
 
   _dropConfirmationInFlight = true;
-  void confirmDroppedFiles(accepted, rejected.length);
+  confirmDroppedFiles(accepted, rejected.length).catch((error) => {
+    log.warn('[FileDrop] Confirmation flow failed', error);
+  });
 }
 
 export function initGlobalFileDrop(): void {

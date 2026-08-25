@@ -115,6 +115,12 @@ const DEMO_PLAY_SCHEDULE_AHEAD_MS = 350;
 const DEMO_LAYOUT_REFRESH_DELAYS_MS = [40, 180, 420, 720] as const;
 const _busScope = createBusScope();
 
+function observeDemoOperation(operation: Promise<unknown>, source: string): void {
+  operation.catch((error) => {
+    log.warn(`[Demo] ${source} failed outside its interaction boundary`, error);
+  });
+}
+
 let _snapshot: DemoSnapshot | null = null;
 let _visualizerPlaceholder: Comment | null = null;
 let _promptInFlight = false;
@@ -911,7 +917,7 @@ function syncDemoSessionCopy(): void {
     el.textContent =
       count > 1 ? t('demo.session_body_connected', { count }) : t('demo.session_body_alone');
   });
-  void renderDemoQRCode(code);
+  observeDemoOperation(renderDemoQRCode(code), 'QR render');
 }
 
 let _demoQrGeneration = 0;
@@ -1157,17 +1163,20 @@ function applyPendingDemoPlay(): void {
       const hostCommandAt = hostPlayAt - DEMO_PLAY_SCHEDULE_AHEAD_MS;
       const guestStartAtHostTime = now + waitMs;
       const elapsedSinceHostCommand = Math.max(0, guestStartAtHostTime - hostCommandAt);
-      void play(pending.time + elapsedSinceHostCommand / 1000, waitMs / 1000);
+      observeDemoOperation(
+        play(pending.time + elapsedSinceHostCommand / 1000, waitMs / 1000),
+        'scheduled guest playback',
+      );
     } else {
       log.warn(`[Demo] hostPlayAt out of range (${waitMsRaw}ms), playing immediately`);
-      void play(pending.time);
+      observeDemoOperation(play(pending.time), 'fallback guest playback');
     }
   } else {
     if (hostPlayAt > 0) {
       log.warn('[Demo] SharedClock uncalibrated - ignoring hostPlayAt for demo play');
     }
     const elapsed = Math.max(0, Date.now() - pending.receivedAt) / 1000;
-    void play(pending.time + elapsed);
+    observeDemoOperation(play(pending.time + elapsed), 'uncalibrated guest playback');
   }
   if (getState('network.hostConn')?.open) {
     bus.emit('sync:arm-initial');
@@ -1185,7 +1194,7 @@ function stopDemoPlaybackForIncomingTrack(index: number): void {
 
 function startDemoPlayback(time = 0): void {
   broadcastDemoPlay(_demoTrackIndex, time);
-  void play(time);
+  observeDemoOperation(play(time), 'host playback');
   syncPlayButton();
 }
 
@@ -1238,7 +1247,7 @@ async function enterDemoMode(options: EnterDemoOptions = {}): Promise<DemoAsyncR
   // Guided demo playback never creates a room transport. Start the same
   // document-scoped optional Media Session loader used by room entry so lock
   // screen/hardware controls are not silently lost after the bundle split.
-  void prepareMediaSession();
+  observeDemoOperation(prepareMediaSession(), 'Media Session preparation');
   if (getState('demo.active')) {
     const nextIndex = normalizeDemoTrackIndex(options.index ?? _demoTrackIndex);
     // Reload also when the buffer is missing: a guest whose own fetch failed
@@ -1665,14 +1674,17 @@ export function initDemoMode(): void {
   _suppressFirstRunPrompt = hasAppUseRecord();
 
   _busScope.on('demo:enter', () => {
-    void enterDemoMode({ index: 0, autoplay: false, broadcastEntry: true }).then((result) => {
-      if (!isCurrentDemoResult(result)) return;
-      if (getState('network.hostConn')) {
-        void play(0);
-      } else {
-        startDemoPlayback(0);
-      }
-    });
+    observeDemoOperation(
+      enterDemoMode({ index: 0, autoplay: false, broadcastEntry: true }).then((result) => {
+        if (!isCurrentDemoResult(result)) return;
+        if (getState('network.hostConn')) {
+          observeDemoOperation(play(0), 'guest entry playback');
+        } else {
+          startDemoPlayback(0);
+        }
+      }),
+      'entry',
+    );
   });
   _busScope.on('demo:authority-reset', () => {
     exitDemoMode({ broadcastExit: false, restoreSnapshot: false });

@@ -1,9 +1,8 @@
 import { readFile, stat } from 'node:fs/promises';
-import { createServer as createHttpServer, request as requestHttp } from 'node:http';
+import { request as requestHttp } from 'node:http';
 import { resolve } from 'node:path';
 
 import { JSDOM } from 'jsdom';
-import { createServer as createViteServer } from 'vite';
 import { describe, expect, it } from 'vitest';
 
 import { countExecutableInlineScripts } from '../../../scripts/check-authored-inline-js-inventory.mts';
@@ -17,6 +16,7 @@ import {
   compileAuxiliaryBrowserAssets,
   materializeFileUrlAuxiliaryAssets,
 } from '../../../scripts/auxiliary-browser-assets.ts';
+import { startViteMiddlewareTestServer } from './helpers/vite-middleware-test-server.ts';
 
 const REPOSITORY = resolve(process.cwd());
 
@@ -24,33 +24,17 @@ async function startAuxiliaryDevServer(): Promise<{
   readonly origin: string;
   close(): Promise<void>;
 }> {
-  const vite = await createViteServer({
-    appType: 'custom',
-    configFile: false,
-    publicDir: false,
-    root: REPOSITORY,
-    plugins: [auxiliaryBrowserAssets()],
-    optimizeDeps: { include: [], noDiscovery: true },
-    server: { middlewareMode: true, preTransformRequests: false },
-  });
-  const http = createHttpServer(vite.middlewares);
-  await new Promise<void>((resolveListen, rejectListen) => {
-    http.once('error', rejectListen);
-    http.listen(0, '127.0.0.1', resolveListen);
-  });
-  const address = http.address();
-  if (!address || typeof address === 'string') {
-    throw new Error('Auxiliary browser test server did not bind a TCP port.');
-  }
-  return {
-    origin: `http://127.0.0.1:${address.port}`,
-    async close() {
-      await new Promise<void>((resolveClose, rejectClose) => {
-        http.close((error) => (error ? rejectClose(error) : resolveClose()));
-      });
-      await vite.close();
+  return startViteMiddlewareTestServer(
+    {
+      appType: 'custom',
+      configFile: false,
+      publicDir: false,
+      root: REPOSITORY,
+      plugins: [auxiliaryBrowserAssets()],
+      optimizeDeps: { include: [], noDiscovery: true },
     },
-  };
+    'Auxiliary browser',
+  );
 }
 
 async function requestDevServer(
@@ -568,6 +552,40 @@ describe('strict TypeScript auxiliary browser assets', () => {
       expect(suiteFailure.window.document.getElementById('badge')?.textContent).toBe('RUN FAILED');
     } finally {
       suiteFailure.window.close();
+    }
+  });
+
+  it('owns a clipboard success-continuation failure after the report button is removed', async () => {
+    const dom = await executeReportViewer(reportFixture());
+    let resolveWrite!: () => void;
+    const writeText = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveWrite = resolve;
+        }),
+    );
+    Object.defineProperty(dom.window.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const copyFailure = vi.spyOn(dom.window.console, 'error').mockImplementation(() => undefined);
+    try {
+      const button = dom.window.document.getElementById('copy-btn');
+      if (!(button instanceof dom.window.HTMLElement))
+        throw new Error('Missing report copy button.');
+      button.click();
+      button.remove();
+      resolveWrite();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(writeText).toHaveBeenCalledOnce();
+      expect(copyFailure).toHaveBeenCalledWith(
+        '[report-viewer] Copy failed.',
+        expect.objectContaining({ message: 'Missing report viewer element #copy-btn.' }),
+      );
+    } finally {
+      dom.window.close();
     }
   });
 

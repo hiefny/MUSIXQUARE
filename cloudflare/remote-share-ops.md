@@ -188,11 +188,12 @@ One remote whole-file upload attempt roughly means:
   is issued. The complete `0xxxxx` namespace is reserved for PRO rooms, whose
   persistent media uses a separate bucket and control plane.
 - R2 bucket CORS must match the checked-in source list. It contains explicit
-  MUSIXQUARE and local-development origins plus Toss origin-pattern entries.
-  The live write smoke proves only `https://musixquare.com`; it does not prove
-  that the provider accepts or matches the Toss patterns. Before relying on
-  those entries, verify the current provider contract, replace patterns with
-  explicit production origins when required, and exercise each intended origin.
+  MUSIXQUARE and local-development origins plus the two app-scoped Apps-in-Toss
+  origins: `https://musixquare.apps.tossmini.com` for production and
+  `https://musixquare.private-apps.tossmini.com` for QR testing. Do not add
+  `*.tossmini.com`, `*.toss.im`, or `*.toss-internal.com`: those ranges include
+  unrelated Toss apps. The live write smoke proves only `https://musixquare.com`,
+  so exercise both intended Toss origins during the corresponding WebView QA.
 - The app Worker CSP allows direct R2 upload connections through
   `https://*.r2.cloudflarestorage.com`.
 

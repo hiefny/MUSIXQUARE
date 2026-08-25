@@ -311,7 +311,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.4.16';
+const ADMIN_ASSET_VERSION = '8.4.17';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -1235,6 +1235,13 @@ function normalizeCorsOrigin(value: unknown) {
   }
 }
 
+// Apps-in-Toss assigns one app-scoped production origin and one QR-test origin.
+// A parent/root or wildcard Toss domain would also trust unrelated mini apps.
+const TOSS_WEBVIEW_ORIGINS = new Set([
+  'https://musixquare.apps.tossmini.com',
+  'https://musixquare.private-apps.tossmini.com',
+]);
+
 function configuredTrustedOrigins(env: AppEnv) {
   const raw = env.TRUSTED_CORS_ORIGINS || env.CORS_ALLOWED_ORIGINS || '';
   if (typeof raw !== 'string' || !raw.trim()) return new Set();
@@ -1263,9 +1270,6 @@ function trustedCors(
   const fetchSite = (request.headers.get('Sec-Fetch-Site') || '').toLowerCase();
   const trustedPatterns = [
     /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i,
-    /^https:\/\/(?:[^/]+\.)?toss\.im$/i,
-    /^https:\/\/(?:[^/]+\.)?toss-internal\.com$/i,
-    /^https:\/\/(?:[^/]+\.)?tossmini\.com$/i,
     /^https:\/\/musixquare\.com$/i,
     /^https:\/\/[^/]*\.musixquare\.com$/i,
   ];
@@ -1285,6 +1289,7 @@ function trustedCors(
     sameOrigin ||
     browserSameOrigin ||
     (options.allowInferred && sameOriginInferred) ||
+    TOSS_WEBVIEW_ORIGINS.has(origin) ||
     trustedPatterns.some((pattern) => pattern.test(origin)) ||
     isConfiguredTrustedOrigin(origin, env);
   const allowOrigin = isTrusted ? origin : '';
@@ -1526,12 +1531,7 @@ function isAllowedTurnstileHostname(hostname: string, env: AppEnv) {
     normalized === 'musixquare.com' ||
     normalized === 'www.musixquare.com' ||
     normalized.endsWith('.musixquare.com') ||
-    normalized === 'toss.im' ||
-    normalized.endsWith('.toss.im') ||
-    normalized === 'toss-internal.com' ||
-    normalized.endsWith('.toss-internal.com') ||
-    normalized === 'tossmini.com' ||
-    normalized.endsWith('.tossmini.com')
+    TOSS_WEBVIEW_ORIGINS.has(`https://${normalized}`)
   );
 }
 

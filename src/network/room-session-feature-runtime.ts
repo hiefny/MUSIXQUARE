@@ -16,7 +16,9 @@ registerSystemAudioGuestListeners();
 registerSystemAudioSfuListeners();
 registerProSystemAudioServiceListeners();
 
-void prepareMediaSession();
+prepareMediaSession().catch((error: unknown) => {
+  log.warn('[RoomSession] Optional MediaSession initialization failed', error);
+});
 
 // OS media controls and participant-local output recovery are optional
 // enhancements. A browser-specific exception in either one must not reject

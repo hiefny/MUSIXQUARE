@@ -683,7 +683,9 @@ async function runBotCommand(rawArgs: string, requestId?: string): Promise<void>
 }
 
 function cmdBot(_args: string[], rawArgs: string, context?: CommandExecutionContext): void {
-  void runBotCommand(rawArgs, context?.botRequestId);
+  runBotCommand(rawArgs, context?.botRequestId).catch((error) => {
+    log.error('[Chat] Bot command failed outside its request boundary', error);
+  });
 }
 
 async function cmdDebugLazy(args: string[], _rawArgs: string): Promise<void> {
@@ -696,6 +698,12 @@ async function cmdDebugLazy(args: string[], _rawArgs: string): Promise<void> {
   } catch (error) {
     log.error('[Chat] Failed to load the debug console', error);
   }
+}
+
+function cmdDebugCommand(args: string[], rawArgs: string): void {
+  cmdDebugLazy(args, rawArgs).catch((error) => {
+    log.error('[Chat] Debug command failed outside its lazy-load boundary', error);
+  });
 }
 
 // ─── Command Registry ───────────────────────────────────────────
@@ -804,7 +812,7 @@ const COMMANDS_DEF: Record<
   },
   debug: {
     permission: 'all',
-    execute: cmdDebugLazy,
+    execute: cmdDebugCommand,
     usageKey: 'chat.cmd_u_debug',
     descKey: 'chat.cmd_d_debug',
   },

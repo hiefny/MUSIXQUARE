@@ -52,13 +52,28 @@ type SignalingProtocolModule = {
   validateIncomingMessage(message: unknown, role: string): 'valid' | 'ignore' | 'oversized';
 };
 
-type RoomMeta = {
+type LegacyRoomMeta = {
   v: 1;
   roomSecret: string | null;
   roomPassword: string;
   hostPeerId: string | null;
   hostReleaseAt: number;
 };
+
+type CurrentRoomMeta = {
+  v: 2;
+  roomSecret: string | null;
+  roomPassword: string;
+  roomPasswordVerifier: {
+    v: number;
+    algorithm: string;
+    digest: string;
+  } | null;
+  hostPeerId: string | null;
+  hostReleaseAt: number;
+};
+
+type RoomMeta = LegacyRoomMeta | CurrentRoomMeta;
 
 type ProTicketPayload = {
   v: 1;
@@ -84,12 +99,14 @@ const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
 const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
 const REMOTE_SHARE_UPLOAD_ASSERTION_SECRET =
   'remote-share-upload-assertion-secret-for-signaling-tests';
+const REMOTE_SHARE_UPLOAD_ASSERTION_CURRENT_SECRET =
+  'next-remote-share-upload-assertion-secret-for-signaling-tests';
 const REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING = `${REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING_PREFIX}${JSON.stringify(
   {
     v: 1,
     current: {
       kid: '2026-09-current',
-      secret: 'next-remote-share-upload-assertion-secret-for-signaling-tests',
+      secret: REMOTE_SHARE_UPLOAD_ASSERTION_CURRENT_SECRET,
     },
     previous: { kid: '2026-08-old', secret: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET },
   },
@@ -326,6 +343,14 @@ const STANDARD_WS_RATE_STATE_KEY = 'standard-ws-open-rate-state-v1';
 const STANDARD_WS_RATE_CONSUME_PATH = '/internal/standard-ws-open-rate/v1/consume';
 const STANDARD_ACCOUNT_ASSERTION_SECRET =
   'standard-room-account-assertion-test-secret-at-least-32-bytes';
+const STANDARD_ROOM_PIN_PEPPER = 'standard-room-pin-pepper-test-secret-at-least-32-bytes';
+const STANDARD_ROOM_PIN_NEXT_PEPPER = 'standard-room-pin-next-pepper-test-secret-at-least-32-bytes';
+const STANDARD_ROOM_PIN_PEPPER_KEYRING = `mxqr-keyring-v1:${JSON.stringify({
+  v: 1,
+  current: { kid: 'pin-2026-b', secret: STANDARD_ROOM_PIN_NEXT_PEPPER },
+  previous: { kid: 'pin-2026-a', secret: STANDARD_ROOM_PIN_PEPPER },
+})}`;
+const TEST_PIN_MUTATION_ID = 'test-pin-mutation-0000000000000001';
 const STANDARD_ACCOUNT_ID = 'acct_0123456789abcdefghijkl';
 
 function base64Url(bytes: Uint8Array): string {
@@ -666,7 +691,9 @@ async function createHostRoom(): Promise<{
   host: FakeSocket;
 }> {
   const state = new FakeDurableObjectState();
-  const room = new workerModule.MusixquareRoom(state);
+  const room = new workerModule.MusixquareRoom(state, {
+    MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+  });
   const host = await authenticateHost(room, 'host-1', 'secret-a');
   return { room, state, host };
 }
@@ -676,6 +703,7 @@ async function authenticateHost(
   peerId: string,
   secret: string,
   accountAssertion?: string,
+  desiredRoomPassword = '',
 ): Promise<FakeSocket> {
   await room.fetch(wsRequest('123456', 'host', peerId));
   const host = lastServer();
@@ -684,9 +712,21 @@ async function authenticateHost(
     JSON.stringify({
       type: 'host-auth',
       secret,
+      desiredRoomPassword,
+      pinMutationId: TEST_PIN_MUTATION_ID,
       ...(accountAssertion === undefined ? {} : { accountAssertion }),
     }),
   );
+  if (sent(host).some((message) => message.type === 'peer-open')) {
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: desiredRoomPassword,
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
+    );
+  }
   return host;
 }
 
@@ -698,9 +738,35 @@ async function createPasswordRoom(): Promise<{
   const setup = await createHostRoom();
   await setup.room.webSocketMessage(
     setup.host,
-    JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+    JSON.stringify({
+      type: 'room-password-set',
+      password: '12345678',
+      pinMutationId: TEST_PIN_MUTATION_ID,
+    }),
   );
   return setup;
+}
+
+async function createLegacyPasswordRoom(
+  env: Record<string, unknown> = {
+    MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+  },
+): Promise<{
+  room: InstanceType<WorkerModule['MusixquareRoom']>;
+  state: FakeDurableObjectState;
+  host: FakeSocket;
+}> {
+  const state = new FakeDurableObjectState();
+  await state.storage.put('roomMeta', {
+    v: 1,
+    roomSecret: 'secret-a',
+    roomPassword: '12345678',
+    hostPeerId: null,
+    hostReleaseAt: 0,
+  } satisfies LegacyRoomMeta);
+  const room = new workerModule.MusixquareRoom(state, env);
+  const host = await authenticateHost(room, 'host-1', 'secret-a', undefined, '12345678');
+  return { room, state, host };
 }
 
 async function joinGuest(
@@ -1328,6 +1394,7 @@ describe('Cloudflare signaling Remote Share host assertions', () => {
     const host = await authenticateHost(room, 'host-1', 'secret-a');
     host.sent.length = 0;
 
+    vi.restoreAllMocks();
     const originalSign = crypto.subtle.sign.bind(crypto.subtle);
     let releaseSigning!: () => void;
     let signingStarted!: () => void;
@@ -1430,7 +1497,15 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const beforeStorage = structuredClone([...state.storage.data.entries()]);
 
     env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding();
-    await room.webSocketMessage(socket, JSON.stringify({ type: 'host-auth', secret: 'ignored' }));
+    await room.webSocketMessage(
+      socket,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'ignored',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
+    );
     expect(socket.closed).toBe(true);
     expect(socket.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'SERVICE_MAINTENANCE' });
     await room.webSocketClose(socket);
@@ -1471,9 +1546,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     expect(guest.closeEvents.at(-1)).toEqual({ code: 1012, reason: 'ROOM_EXPIRED' });
     expect(await state.storage.get('roomMeta')).toEqual({
-      v: 1,
+      v: 2,
       roomSecret: null,
       roomPassword: '',
+      roomPasswordVerifier: null,
       hostPeerId: null,
       hostReleaseAt: 0,
     });
@@ -1563,6 +1639,45 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(response.status).toBe(403);
     expect(idFromName).not.toHaveBeenCalled();
   });
+
+  it.each(['https://musixquare.apps.tossmini.com', 'https://musixquare.private-apps.tossmini.com'])(
+    'allows the official MUSIXQUARE Apps-in-Toss WebSocket origin: %s',
+    async (origin) => {
+      const { env, idFromName } = workerEnv();
+      const response = await workerModule.default.fetch(
+        requestLike('https://signal.example.test/api/rooms/123456/ws?role=host&peerId=toss-host', {
+          Origin: origin,
+          Upgrade: 'websocket',
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(101);
+      expect(idFromName).toHaveBeenCalledWith('123456');
+    },
+  );
+
+  it.each([
+    'https://unrelated.apps.tossmini.com',
+    'https://another-app.apps.tossmini.com',
+    'https://musixquare.toss.im',
+    'https://musixquare.toss-internal.com',
+  ])(
+    'rejects an unrelated Toss WebSocket origin before Durable Object lookup: %s',
+    async (origin) => {
+      const { env, idFromName } = workerEnv();
+      const response = await workerModule.default.fetch(
+        requestLike('https://signal.example.test/api/rooms/123456/ws?role=host&peerId=toss-probe', {
+          Origin: origin,
+          Upgrade: 'websocket',
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(403);
+      expect(idFromName).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects malformed room peers before Durable Object lookup', async () => {
     const { env, idFromName } = workerEnv();
@@ -5898,10 +6013,15 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.webSocketMessage(
       host,
-      JSON.stringify({ type: 'host-auth', secret: 'first-frame-secret' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'first-frame-secret',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
 
-    expect(sent(host)[0]).toEqual({ type: 'peer-open', peerId: '123456', roomId: '123456' });
+    expect(sent(host)[0]).toMatchObject({ type: 'peer-open', peerId: '123456', roomId: '123456' });
     expect(await state.storage.get('roomMeta')).toMatchObject({
       roomSecret: 'first-frame-secret',
       hostPeerId: 'legacy-host',
@@ -5927,7 +6047,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.webSocketMessage(
       host,
-      JSON.stringify({ type: 'host-auth', secret: 'frame-secret-a' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'frame-secret-a',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
 
     expect(host.deserializeAttachment()).toMatchObject({
@@ -5967,7 +6092,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.webSocketMessage(
       attacker,
-      JSON.stringify({ type: 'host-auth', secret: 'wrong-secret' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'wrong-secret',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
 
     expect(attacker.closeEvents.at(-1)?.reason).toBe('ROOM_ALREADY_ACTIVE');
@@ -5987,26 +6117,75 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const candidate = lastServer();
 
     await expect(
-      room.webSocketMessage(candidate, JSON.stringify({ type: 'host-auth', secret: 'secret-a' })),
+      room.webSocketMessage(
+        candidate,
+        JSON.stringify({
+          type: 'host-auth',
+          secret: 'secret-a',
+          desiredRoomPassword: '',
+          pinMutationId: TEST_PIN_MUTATION_ID,
+        }),
+      ),
     ).rejects.toThrow('room metadata unavailable');
 
     expect(host.closed).toBe(false);
-    expect(candidate.deserializeAttachment()).toMatchObject({
-      auth: 'pending',
-      authStarted: false,
-    });
+    expect(candidate.closed).toBe(true);
+    expect(sent(candidate)).toContainEqual(
+      expect.objectContaining({
+        type: 'room-password-result',
+        mutationId: TEST_PIN_MUTATION_ID,
+        applied: false,
+        errorType: 'ROOM_PASSWORD_STORAGE_UNAVAILABLE',
+      }),
+    );
     expect(await state.storage.get('roomMeta')).toMatchObject({
       roomSecret: 'secret-a',
       hostPeerId: 'host-1',
     });
 
     state.storage.put = originalPut;
-    await room.webSocketMessage(
-      candidate,
-      JSON.stringify({ type: 'host-auth', secret: 'secret-a' }),
-    );
+    const replacement = await authenticateHost(room, 'replacement-host', 'secret-a');
     expect(host.closeEvents.at(-1)?.reason).toBe('HOST_REPLACED');
-    expect(candidate.closed).toBe(false);
+    expect(replacement.closed).toBe(false);
+  });
+
+  it('restores the prior PIN fence when replacement identity persistence fails', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+    const originalPut = state.storage.put.bind(state.storage);
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (key === 'standardRoomAccountMembers') {
+        throw new Error('member directory unavailable');
+      }
+      await originalPut(key, value);
+    });
+
+    await room.fetch(wsRequest('123456', 'host', 'identity-replacement'));
+    const candidate = lastServer();
+    await expect(
+      room.webSocketMessage(
+        candidate,
+        JSON.stringify({
+          type: 'host-auth',
+          secret: 'secret-a',
+          desiredRoomPassword: '',
+          pinMutationId: TEST_PIN_MUTATION_ID,
+          accountAssertion: await standardAccountAssertion({
+            peerId: 'identity-replacement',
+            role: 'host',
+          }),
+        }),
+      ),
+    ).rejects.toThrow('member directory unavailable');
+
+    expect(candidate.closed).toBe(true);
+    expect(host.closed).toBe(false);
+    const guest = await joinGuest(room, 'guest-after-identity-write-failure');
+    expect(guest.closed).toBe(false);
   });
 
   it('restores the live host when a replacement socket closes during persistence', async () => {
@@ -6032,7 +6211,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const replacement = lastServer();
     const authenticate = room.webSocketMessage(
       replacement,
-      JSON.stringify({ type: 'host-auth', secret: 'secret-a' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
     await replacementWriteEntered;
     replacement.close(1000, 'client disconnected');
@@ -6057,7 +6241,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.webSocketMessage(
       reconnect,
-      JSON.stringify({ type: 'host-auth', secret: 'secret-a' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
 
     expect(host.closeEvents.at(-1)?.reason).toBe('HOST_REPLACED');
@@ -6088,7 +6277,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const replacement = lastServer();
     const authenticate = room.webSocketMessage(
       replacement,
-      JSON.stringify({ type: 'host-auth', secret: 'secret-a' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
     await replacementWriteEntered;
     const staleClose = room.webSocketClose(host);
@@ -6131,7 +6325,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.fetch(wsRequest('123456', 'host', 'single-attempt-host'));
     const candidate = lastServer();
-    const frame = JSON.stringify({ type: 'host-auth', secret: 'secret-a' });
+    const frame = JSON.stringify({
+      type: 'host-auth',
+      secret: 'secret-a',
+      desiredRoomPassword: '',
+      pinMutationId: TEST_PIN_MUTATION_ID,
+    });
     const firstAttempt = room.webSocketMessage(candidate, frame);
     await replacementWriteEntered;
     await room.webSocketMessage(candidate, frame);
@@ -6139,11 +6338,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(replacementWriteCount).toBe(1);
     releaseReplacementWrite();
     await firstAttempt;
-    expect(sent(candidate)).toContainEqual({
-      type: 'peer-open',
-      peerId: '123456',
-      roomId: '123456',
-    });
+    expect(sent(candidate)).toContainEqual(
+      expect.objectContaining({
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+      }),
+    );
   });
 
   it('serializes simultaneous first-frame host claims so only one secret owns the room', async () => {
@@ -6155,8 +6356,24 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const second = lastServer();
 
     await Promise.all([
-      room.webSocketMessage(first, JSON.stringify({ type: 'host-auth', secret: 'first-secret' })),
-      room.webSocketMessage(second, JSON.stringify({ type: 'host-auth', secret: 'second-secret' })),
+      room.webSocketMessage(
+        first,
+        JSON.stringify({
+          type: 'host-auth',
+          secret: 'first-secret',
+          desiredRoomPassword: '',
+          pinMutationId: TEST_PIN_MUTATION_ID,
+        }),
+      ),
+      room.webSocketMessage(
+        second,
+        JSON.stringify({
+          type: 'host-auth',
+          secret: 'second-secret',
+          desiredRoomPassword: '',
+          pinMutationId: TEST_PIN_MUTATION_ID,
+        }),
+      ),
     ]);
 
     expect([first, second].filter((socket) => !socket.closed)).toHaveLength(1);
@@ -6991,6 +7208,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'host-auth',
         secret: 'first-room-secret',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
         accountAssertion: await standardAccountAssertion({
           peerId: 'host-first',
           role: 'host',
@@ -7013,9 +7232,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     vi.advanceTimersByTime(121_001);
     await room.alarm();
     expect(await state.storage.get('roomMeta')).toEqual({
-      v: 1,
+      v: 2,
       roomSecret: null,
       roomPassword: '',
+      roomPasswordVerifier: null,
       hostPeerId: null,
       hostReleaseAt: 0,
     });
@@ -7030,6 +7250,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       JSON.stringify({
         type: 'host-auth',
         secret: 'second-room-secret',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
         accountAssertion: await standardAccountAssertion({
           peerId: 'host-second',
           role: 'host',
@@ -7101,7 +7323,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const host = await authenticateHost(room, 'host-1', 'secret-a');
     const guest = await joinGuest(room, 'guest-1');
 
-    expect(sent(host)[0]).toEqual({
+    expect(sent(host)[0]).toMatchObject({
       type: 'peer-open',
       peerId: '123456',
       roomId: '123456',
@@ -7163,7 +7385,11 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const host = await authenticateHost(room, 'host-1', 'secret-a');
     const guest = await joinGuest(room, 'guest-1');
 
-    expect(sent(host)[0]).toEqual({ type: 'peer-open', peerId: '123456', roomId: '123456' });
+    expect(sent(host)[0]).toMatchObject({
+      type: 'peer-open',
+      peerId: '123456',
+      roomId: '123456',
+    });
     expect(sent(guest)[0]).toEqual({ type: 'peer-open', peerId: 'guest-1', roomId: '123456' });
     expect(state.waitUntilTasks.length).toBeGreaterThan(0);
 
@@ -7601,6 +7827,107 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(replacement.closed).toBe(false);
   });
 
+  it.each(['missing', 'malformed', 'future'] as const)(
+    'fails reconnect ownership closed without rewriting %s binding state',
+    async (stateShape) => {
+      const { room, state } = await createHostRoom();
+      const original = await joinGuest(room, 'binding-state-guest');
+      if (stateShape === 'missing') {
+        await state.storage.delete('guestReconnectBindings');
+      } else {
+        await state.storage.put(
+          'guestReconnectBindings',
+          stateShape === 'malformed'
+            ? {
+                v: 1,
+                entries: [
+                  {
+                    peerId: 'binding-state-guest',
+                    secretHash: 'corrupt',
+                    updatedAt: Date.now(),
+                  },
+                ],
+              }
+            : {
+                v: 2,
+                entries: [],
+                reconnectAuthority: { revision: 1 },
+              },
+        );
+      }
+      const storedBefore = await state.storage.get('guestReconnectBindings');
+
+      const rehydrated = new workerModule.MusixquareRoom(state, {
+        MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      });
+      const attacker = await joinGuest(rehydrated, 'binding-state-guest', {
+        reconnectSecret: OTHER_RECONNECT_SECRET,
+      });
+
+      expect(attacker.closeEvents.at(-1)).toEqual({ code: 1011, reason: 'ROOM_STATE_INVALID' });
+      expect(original.closed).toBe(false);
+      expect(await state.storage.get('guestReconnectBindings')).toEqual(storedBefore);
+    },
+  );
+
+  it('shares the hibernation-time reconnect binding read with the first guest admission', async () => {
+    const { state } = await createHostRoom();
+    const originalGet = state.storage.get.bind(state.storage);
+    let bindingReads = 0;
+    let markFirstReadEntered!: () => void;
+    let releaseFirstRead!: () => void;
+    const firstReadEntered = new Promise<void>((resolve) => {
+      markFirstReadEntered = resolve;
+    });
+    const firstReadGate = new Promise<void>((resolve) => {
+      releaseFirstRead = resolve;
+    });
+    state.storage.get = vi.fn(async (key: string) => {
+      const snapshot = await originalGet(key);
+      if (key !== 'guestReconnectBindings') return snapshot;
+      bindingReads += 1;
+      if (bindingReads === 1) {
+        markFirstReadEntered();
+        await firstReadGate;
+      }
+      return snapshot;
+    });
+
+    const rehydrated = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    await firstReadEntered;
+    await rehydrated.fetch(wsRequest('123456', 'guest', 'single-flight-binding'));
+    const guest = lastServer();
+    let admissionSettled = false;
+    const admission = rehydrated
+      .webSocketMessage(
+        guest,
+        JSON.stringify({
+          type: 'guest-auth',
+          password: '',
+          reconnectSecret: DEFAULT_RECONNECT_SECRET,
+        }),
+      )
+      .finally(() => {
+        admissionSettled = true;
+      });
+    await Promise.resolve();
+    await Promise.resolve();
+    const readsWhileBlocked = bindingReads;
+    const settledWhileBlocked = admissionSettled;
+
+    releaseFirstRead();
+    await Promise.all([admission, state.flushWaitUntil()]);
+
+    expect(readsWhileBlocked).toBe(1);
+    expect(settledWhileBlocked).toBe(false);
+    const attacker = await joinGuest(rehydrated, 'single-flight-binding', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(attacker.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+  });
+
   it('retains the room epoch and guest ownership when its last guest leaves during host grace', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
@@ -7625,7 +7952,9 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(rejectedHost.closeEvents.at(-1)?.reason).toBe('ROOM_ALREADY_ACTIVE');
 
     const restoredHost = await authenticateHost(room, 'host-1', 'secret-a');
-    expect(sent(restoredHost).at(-1)).toMatchObject({ type: 'peer-open', roomId: '123456' });
+    expect(sent(restoredHost)).toContainEqual(
+      expect.objectContaining({ type: 'peer-open', roomId: '123456' }),
+    );
 
     const attacker = await joinGuest(room, 'guest-1', {
       reconnectSecret: OTHER_RECONNECT_SECRET,
@@ -7637,7 +7966,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(sent(recoveredGuest)[0]).toMatchObject({ type: 'peer-open' });
   });
 
-  it('does not clear room ownership when the host reconnects during last-guest cleanup', async () => {
+  it('preserves room ownership and reports the departure when the host reconnects during cleanup', async () => {
     const { room, state, host } = await createHostRoom();
     const guest = await joinGuest(room, 'guest-1');
     await room.webSocketClose(host);
@@ -7673,13 +8002,23 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const reconnectedHost = lastServer();
     const reconnect = room.webSocketMessage(
       reconnectedHost,
-      JSON.stringify({ type: 'host-auth', secret: 'secret-a' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
 
     releaseCleanup();
     await Promise.all([cleanup, reconnect]);
 
-    expect(sent(reconnectedHost).at(-1)).toMatchObject({ type: 'peer-open' });
+    expect(sent(reconnectedHost)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'peer-open' }),
+        { type: 'peer-left', peerId: 'guest-1' },
+      ]),
+    );
 
     expect(await state.storage.get('roomMeta')).toMatchObject({
       roomSecret: 'secret-a',
@@ -7689,7 +8028,6 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('guestReconnectBindings')).toMatchObject({
       entries: [{ peerId: 'guest-1' }],
     });
-    expect(sent(reconnectedHost)).not.toContainEqual({ type: 'peer-left', peerId: 'guest-1' });
   });
 
   it('protects a disconnected binding for five minutes, then releases its inactive identity', async () => {
@@ -8145,6 +8483,1261 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     );
   });
 
+  it('stores new Standard room PINs only as a versioned peppered HMAC verifier', async () => {
+    const { state } = await createPasswordRoom();
+
+    const stored = (await state.storage.get('roomMeta')) as Record<string, unknown>;
+    expect(stored).toEqual({
+      v: 2,
+      roomSecret: 'secret-a',
+      roomPassword: expect.stringMatching(/^mxqr-pin-v2:[A-Za-z0-9_-]{43}$/),
+      roomPasswordVerifier: {
+        v: 1,
+        algorithm: 'HMAC-SHA-256',
+        digest: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      },
+      hostPeerId: 'host-1',
+      hostReleaseAt: 0,
+    });
+    expect(stored.roomPassword).not.toBe('12345678');
+    expect(JSON.stringify(stored)).not.toContain('12345678');
+  });
+
+  it('keeps legacy hosts fenced until their post-open PIN commit survives rehydration', async () => {
+    const state = new FakeDurableObjectState();
+    const env = { MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER };
+    const room = new workerModule.MusixquareRoom(state, env);
+
+    await room.fetch(wsRequest('123456', 'host', 'legacy-host'));
+    const firstHost = lastServer();
+    const legacyHostAuth = JSON.stringify({ type: 'host-auth', secret: 'legacy-secret' });
+    await room.webSocketMessage(firstHost, legacyHostAuth);
+
+    expect(sent(firstHost)[0]).toMatchObject({ type: 'peer-open' });
+    expect(sent(firstHost)[0]).not.toHaveProperty('roomPasswordApplied');
+    expect(firstHost.deserializeAttachment()).toMatchObject({
+      auth: 'ok',
+      pinConfigurationPending: true,
+    });
+    const beforeConfiguration = await joinGuest(room, 'guest-before-legacy-config');
+    expect(beforeConfiguration.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_MUTATION_PENDING');
+
+    const rehydratedBeforeConfiguration = new workerModule.MusixquareRoom(state, env);
+    expect(firstHost.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_CONFIGURATION_RETRY_REQUIRED');
+
+    await rehydratedBeforeConfiguration.fetch(wsRequest('123456', 'host', 'legacy-host'));
+    const secondHost = lastServer();
+    await rehydratedBeforeConfiguration.webSocketMessage(secondHost, legacyHostAuth);
+    const pendingAttachment = secondHost.deserializeAttachment();
+    await rehydratedBeforeConfiguration.webSocketMessage(
+      secondHost,
+      JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+    );
+    expect(secondHost.deserializeAttachment()).not.toHaveProperty('pinConfigurationPending');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPasswordVerifier: { v: 1, algorithm: 'HMAC-SHA-256' },
+    });
+
+    // Model a crash after the durable PIN write but before the compatibility
+    // attachment clear. The stale marker must force one replay, never infer a
+    // passwordless or configured state from ambiguous metadata.
+    secondHost.serializeAttachment(pendingAttachment);
+    const rehydratedAfterCommit = new workerModule.MusixquareRoom(state, env);
+    expect(secondHost.closeEvents.at(-1)?.reason).toBe(
+      'ROOM_PASSWORD_CONFIGURATION_RETRY_REQUIRED',
+    );
+    await rehydratedAfterCommit.fetch(wsRequest('123456', 'host', 'legacy-host'));
+    const convergedHost = lastServer();
+    await rehydratedAfterCommit.webSocketMessage(convergedHost, legacyHostAuth);
+    await rehydratedAfterCommit.webSocketMessage(
+      convergedHost,
+      JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+    );
+
+    const admitted = await joinGuest(rehydratedAfterCommit, 'legacy-configured-guest', {
+      password: '12345678',
+    });
+    expect(admitted.closed).toBe(false);
+  });
+
+  it('reconciles a crash-committed host replacement against durable authority on wake', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-26T02:00:00.000Z'));
+    const { room, state, host: predecessor } = await createPasswordRoom();
+    const guest = await joinGuest(room, 'replacement-crash-guest', { password: '12345678' });
+    predecessor.sent.length = 0;
+
+    const committed = (await state.storage.get('roomMeta')) as CurrentRoomMeta;
+    await state.storage.put('roomMeta', {
+      ...committed,
+      hostPeerId: 'replacement-after-crash',
+      hostReleaseAt: 0,
+    });
+    const interruptedCandidate = new FakeSocket();
+    interruptedCandidate.serializeAttachment({
+      v: 1,
+      role: 'host',
+      roomId: '123456',
+      peerId: 'replacement-after-crash',
+      auth: 'pending',
+      authDeadline: Date.now() + 10_000,
+      authStarted: true,
+    });
+    state.sockets.push(interruptedCandidate);
+
+    const rehydrated = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    await state.flushWaitUntil();
+
+    expect(predecessor.closeEvents.at(-1)?.reason).toBe('STANDARD_ROOM_AUTHORITY_STALE');
+    expect(interruptedCandidate.closeEvents.at(-1)?.reason).toBe('HOST_AUTH_RETRY_REQUIRED');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: 'secret-a',
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 120_000,
+    });
+
+    await rehydrated.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'must-not-reach-stale-host' },
+      }),
+    );
+    expect(sent(predecessor)).toEqual([]);
+
+    const recovered = await authenticateHost(
+      rehydrated,
+      'replacement-after-crash',
+      'secret-a',
+      undefined,
+      '12345678',
+    );
+    expect(recovered.closed).toBe(false);
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      hostPeerId: 'replacement-after-crash',
+      hostReleaseAt: 0,
+    });
+  });
+
+  it('replays a legacy PIN intent after storage failure without reopening the old room', async () => {
+    const state = new FakeDurableObjectState();
+    const env = { MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER };
+    const room = new workerModule.MusixquareRoom(state, env);
+    await room.fetch(wsRequest('123456', 'host', 'legacy-retry-host'));
+    const firstHost = lastServer();
+    const legacyHostAuth = JSON.stringify({ type: 'host-auth', secret: 'legacy-retry-secret' });
+    await room.webSocketMessage(firstHost, legacyHostAuth);
+
+    const originalPut = state.storage.put.bind(state.storage);
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (key === 'roomMeta' && (value as Partial<CurrentRoomMeta>)?.roomPasswordVerifier) {
+        throw new Error('simulated PIN storage outage');
+      }
+      await originalPut(key, value);
+    });
+    await expect(
+      room.webSocketMessage(
+        firstHost,
+        JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+      ),
+    ).rejects.toThrow('simulated PIN storage outage');
+    expect(firstHost.closeEvents.at(-1)?.reason).toBe('ROOM_SECURITY_CONFIG_UNAVAILABLE');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPassword: '',
+      roomPasswordVerifier: null,
+    });
+
+    state.storage.put = originalPut;
+    const recoveredRoom = new workerModule.MusixquareRoom(state, env);
+    const unavailableGuest = await joinGuest(recoveredRoom, 'guest-during-pin-retry');
+    expect(unavailableGuest.closeEvents.at(-1)?.reason).toBe('HOST_NOT_AVAILABLE');
+    await recoveredRoom.fetch(wsRequest('123456', 'host', 'legacy-retry-host'));
+    const recoveredHost = lastServer();
+    await recoveredRoom.webSocketMessage(recoveredHost, legacyHostAuth);
+    await recoveredRoom.webSocketMessage(
+      recoveredHost,
+      JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+    );
+    const admitted = await joinGuest(recoveredRoom, 'guest-after-pin-retry', {
+      password: '12345678',
+    });
+    expect(admitted.closed).toBe(false);
+  });
+
+  it('clears only the legacy PIN marker from the latest concurrent host attachment', async () => {
+    const state = new FakeDurableObjectState();
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: REMOTE_SHARE_UPLOAD_ASSERTION_SECRET,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'legacy-concurrent-host'));
+    const host = lastServer();
+    await room.webSocketMessage(
+      host,
+      JSON.stringify({ type: 'host-auth', secret: 'legacy-concurrent-secret' }),
+    );
+
+    const originalPut = state.storage.put.bind(state.storage);
+    let releasePinWrite!: () => void;
+    let markPinWriteEntered!: () => void;
+    const pinWriteEntered = new Promise<void>((resolve) => {
+      markPinWriteEntered = resolve;
+    });
+    const pinWriteGate = new Promise<void>((resolve) => {
+      releasePinWrite = resolve;
+    });
+    let blocked = false;
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (
+        !blocked &&
+        key === 'roomMeta' &&
+        (value as Partial<CurrentRoomMeta>)?.roomPasswordVerifier
+      ) {
+        blocked = true;
+        markPinWriteEntered();
+        await pinWriteGate;
+      }
+      await originalPut(key, value);
+    });
+
+    const configure = room.webSocketMessage(
+      host,
+      JSON.stringify({ type: 'room-password-set', password: '12345678' }),
+    );
+    await pinWriteEntered;
+    await room.webSocketMessage(host, JSON.stringify(REMOTE_SHARE_UPLOAD_ASSERTION_REQUEST));
+    const afterAssertion = host.deserializeAttachment() as Record<string, unknown>;
+    expect(afterAssertion.remoteShareUploadAssertionTokens).toEqual(expect.any(Number));
+
+    releasePinWrite();
+    await configure;
+    const afterConfiguration = host.deserializeAttachment() as Record<string, unknown>;
+    expect(afterConfiguration).not.toHaveProperty('pinConfigurationPending');
+    expect(afterConfiguration.remoteShareUploadAssertionTokens).toBe(
+      afterAssertion.remoteShareUploadAssertionTokens,
+    );
+  });
+
+  it('keeps protected v2 rooms fail-closed for the legacy plaintext reader', async () => {
+    const protectedRoom = await createPasswordRoom();
+    const passwordlessRoom = await createHostRoom();
+    const protectedMeta = (await protectedRoom.state.storage.get('roomMeta')) as Record<
+      string,
+      unknown
+    >;
+    const passwordlessMeta = (await passwordlessRoom.state.storage.get('roomMeta')) as Record<
+      string,
+      unknown
+    >;
+    const legacyWorkerAccepts = (meta: Record<string, unknown>, password: string): boolean => {
+      const storedPassword = typeof meta.roomPassword === 'string' ? meta.roomPassword : '';
+      if (storedPassword && !password) return false;
+      return !storedPassword || password === storedPassword;
+    };
+
+    for (const candidate of ['', '12345678', '87654321']) {
+      expect(legacyWorkerAccepts(protectedMeta, candidate), candidate || '<empty>').toBe(false);
+    }
+    expect(legacyWorkerAccepts(passwordlessMeta, '')).toBe(true);
+    expect(protectedMeta.roomPassword).toMatch(/^mxqr-pin-v2:[A-Za-z0-9_-]{43}$/);
+  });
+
+  it('restores a protected verifier after an old Worker rewrites v2 metadata as v1', async () => {
+    const { state } = await createPasswordRoom();
+    const current = (await state.storage.get('roomMeta')) as CurrentRoomMeta;
+
+    // The retired Worker normalized every record to v1 before persisting an
+    // unrelated host lifecycle update. Model that exact rollback round trip.
+    await state.storage.put('roomMeta', {
+      v: 1,
+      roomSecret: current.roomSecret,
+      roomPassword: current.roomPassword,
+      hostPeerId: current.hostPeerId,
+      hostReleaseAt: current.hostReleaseAt,
+    } satisfies LegacyRoomMeta);
+
+    const forwardFixedRoom = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    const accepted = await joinGuest(forwardFixedRoom, 'rollback-round-trip', {
+      password: '12345678',
+    });
+
+    expect(accepted.closed).toBe(false);
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPassword: current.roomPassword,
+      roomPasswordVerifier: current.roomPasswordVerifier,
+    });
+  });
+
+  it.each(['1234567', '123456789', 'abcdefgh', '１２３４５６７８'])(
+    'rejects a protected-room PIN outside the exact eight-ASCII-digit contract: %s',
+    async (password) => {
+      const { room } = await createPasswordRoom();
+
+      const guest = await joinGuest(room, `invalid-pin-shape-${password.length}`, { password });
+
+      expect(guest.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
+    },
+  );
+
+  it('eagerly replaces a legacy plaintext PIN before admitting the host or any guest', async () => {
+    const { room, state } = await createLegacyPasswordRoom();
+    const migratedBeforeGuest = (await state.storage.get('roomMeta')) as Record<string, unknown>;
+    expect(migratedBeforeGuest).toMatchObject({
+      v: 2,
+      roomPassword: expect.stringMatching(/^mxqr-pin-v2:[A-Za-z0-9_-]{43}$/),
+      roomPasswordVerifier: { v: 1, algorithm: 'HMAC-SHA-256' },
+    });
+    expect(JSON.stringify(migratedBeforeGuest)).not.toContain('12345678');
+
+    const rejected = await joinGuest(room, 'wrong-pin-first', { password: '87654321' });
+    expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
+    expect(await state.storage.get('roomMeta')).toEqual(migratedBeforeGuest);
+
+    const accepted = await joinGuest(room, 'legacy-pin-valid', { password: '12345678' });
+    expect(accepted.closed).toBe(false);
+    const migrated = (await state.storage.get('roomMeta')) as Record<string, unknown>;
+    expect(migrated).toMatchObject({
+      v: 2,
+      roomPassword: expect.stringMatching(/^mxqr-pin-v2:[A-Za-z0-9_-]{43}$/),
+      roomPasswordVerifier: {
+        v: 1,
+        algorithm: 'HMAC-SHA-256',
+        digest: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      },
+    });
+    expect(migrated.roomPassword).not.toBe('12345678');
+    expect(JSON.stringify(migrated)).not.toContain('12345678');
+  });
+
+  it('makes eager legacy PIN migration durable before admitting the host', async () => {
+    const state = new FakeDurableObjectState();
+    await state.storage.put('roomMeta', {
+      v: 1,
+      roomSecret: 'secret-a',
+      roomPassword: '12345678',
+      hostPeerId: null,
+      hostReleaseAt: 0,
+    } satisfies LegacyRoomMeta);
+    const originalPut = state.storage.put.bind(state.storage);
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (key === 'roomMeta' && (value as { v?: unknown })?.v === 2) {
+        throw new Error('simulated PIN migration write failure');
+      }
+      await originalPut(key, value);
+    });
+
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    await room.fetch(wsRequest('123456', 'host', 'migration-retry'));
+    const host = lastServer();
+    const authFrame = JSON.stringify({
+      type: 'host-auth',
+      secret: 'secret-a',
+      desiredRoomPassword: '12345678',
+      pinMutationId: TEST_PIN_MUTATION_ID,
+    });
+    await expect(room.webSocketMessage(host, authFrame)).rejects.toThrow(
+      'simulated PIN migration write failure',
+    );
+
+    expect(sent(host)).toEqual([]);
+    expect(host.deserializeAttachment()).toMatchObject({ auth: 'pending', authStarted: false });
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 1,
+      roomPassword: '12345678',
+    });
+
+    state.storage.put = originalPut;
+    await room.webSocketMessage(host, authFrame);
+    expect(sent(host)[0]).toMatchObject({ type: 'peer-open' });
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPasswordVerifier: { v: 1, algorithm: 'HMAC-SHA-256' },
+    });
+  });
+
+  it('shares an in-flight legacy migration so maintenance cannot overwrite a newer host PIN', async () => {
+    const state = new FakeDurableObjectState();
+    const host = new FakeSocket();
+    host.serializeAttachment({
+      v: 1,
+      role: 'host',
+      roomId: '123456',
+      peerId: 'host-1',
+      secret: 'secret-a',
+      auth: 'ok',
+    });
+    state.sockets.push(host);
+    await state.storage.put('roomMeta', {
+      v: 1,
+      roomSecret: 'secret-a',
+      roomPassword: '12345678',
+      hostPeerId: 'host-1',
+      hostReleaseAt: 0,
+    } satisfies LegacyRoomMeta);
+
+    vi.restoreAllMocks();
+    const originalSign = crypto.subtle.sign.bind(crypto.subtle);
+    let releaseFirstSign!: () => void;
+    let firstSignStarted!: () => void;
+    const firstSignGate = new Promise<void>((resolve) => {
+      releaseFirstSign = resolve;
+    });
+    const enteredFirstSign = new Promise<void>((resolve) => {
+      firstSignStarted = resolve;
+    });
+    let signCount = 0;
+    vi.spyOn(crypto.subtle, 'sign').mockImplementation(
+      async (algorithm: AlgorithmIdentifier, key: CryptoKey, data: BufferSource) => {
+        signCount += 1;
+        if (signCount === 1) {
+          firstSignStarted();
+          await firstSignGate;
+        }
+        return originalSign(algorithm, key, data);
+      },
+    );
+
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    await enteredFirstSign;
+    const pinChange = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '87654321',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
+    );
+    let pinChangeSettled = false;
+    const pinChangeObservation = pinChange.then(
+      () => {
+        pinChangeSettled = true;
+      },
+      () => {
+        pinChangeSettled = true;
+      },
+    );
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(signCount).toBe(1);
+    expect(pinChangeSettled).toBe(false);
+
+    releaseFirstSign();
+    try {
+      await Promise.all([pinChange, pinChangeObservation, state.flushWaitUntil()]);
+    } finally {
+      vi.restoreAllMocks();
+    }
+    expect(sent(host)).toContainEqual({
+      type: 'room-password-result',
+      mutationId: TEST_PIN_MUTATION_ID,
+      applied: true,
+    });
+
+    const oldPin = await joinGuest(room, 'stale-migration-pin', { password: '12345678' });
+    expect(oldPin.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
+    const newPin = await joinGuest(room, 'newer-host-pin', { password: '87654321' });
+    expect(newPin.closed).toBe(false);
+  });
+
+  it('persists a live PIN mutation fence before maintenance and fails it closed on wake', async () => {
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    };
+    const room = new workerModule.MusixquareRoom(state, env);
+    const host = await authenticateHost(room, 'pin-fence-host', 'pin-fence-secret');
+    const mutationId = 'pin-fence-current-0001';
+    const delayedMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = delayedMaintenance.binding;
+
+    const mutation = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '12345678',
+        pinMutationId: mutationId,
+      }),
+    );
+
+    try {
+      // The attachment claim is synchronous: it exists before the first
+      // maintenance await can resolve and therefore survives hibernation.
+      expect(host.deserializeAttachment()).toMatchObject({
+        pinConfigurationPending: true,
+        pinConfigurationMutationId: mutationId,
+      });
+      expect(
+        (room as unknown as { standardRoomPinMutationFence: string | null })
+          .standardRoomPinMutationFence,
+      ).toBe(mutationId);
+      await delayedMaintenance.entered;
+
+      const crashState = new FakeDurableObjectState();
+      crashState.storage.data = new Map(
+        [...state.storage.data.entries()].map(([key, value]) => [key, structuredClone(value)]),
+      );
+      const interruptedHost = new FakeSocket();
+      interruptedHost.serializeAttachment(host.deserializeAttachment());
+      crashState.sockets.push(interruptedHost);
+
+      const rehydrated = new workerModule.MusixquareRoom(crashState, {
+        MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      });
+      await crashState.flushWaitUntil();
+      expect(interruptedHost.closeEvents.at(-1)?.reason).toBe(
+        'ROOM_PASSWORD_CONFIGURATION_RETRY_REQUIRED',
+      );
+      const staleSettingGuest = await joinGuest(rehydrated, 'pin-fence-stale-setting');
+      expect(staleSettingGuest.closeEvents.at(-1)?.reason).toBe('HOST_NOT_AVAILABLE');
+    } finally {
+      delayedMaintenance.release();
+      await mutation;
+    }
+  });
+
+  it('keeps a replacement host fence owned across a stale host PIN preclaim and release', async () => {
+    const { room, state, host: previousHost } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'host', 'replacement-fence-host'));
+    const replacementHost = lastServer();
+    const replacementMutationId = 'replacement-fence-0001';
+    const staleMutationId = 'stale-host-fence-0001';
+
+    const originalPut = state.storage.put.bind(state.storage);
+    let markReplacementWriteEntered!: () => void;
+    let releaseReplacementWrite!: () => void;
+    const replacementWriteEntered = new Promise<void>((resolve) => {
+      markReplacementWriteEntered = resolve;
+    });
+    const replacementWriteGate = new Promise<void>((resolve) => {
+      releaseReplacementWrite = resolve;
+    });
+    let blockedReplacementWrite = false;
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (
+        !blockedReplacementWrite &&
+        key === 'roomMeta' &&
+        (value as Partial<CurrentRoomMeta>)?.hostPeerId === 'replacement-fence-host'
+      ) {
+        blockedReplacementWrite = true;
+        markReplacementWriteEntered();
+        await replacementWriteGate;
+      }
+      await originalPut(key, value);
+    });
+
+    const replacementAuth = room.webSocketMessage(
+      replacementHost,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '',
+        pinMutationId: replacementMutationId,
+      }),
+    );
+    await replacementWriteEntered;
+
+    const internals = room as unknown as {
+      standardRoomPinMutationFence: string | null;
+      standardRoomPinMutationFenceOwner: FakeSocket | null;
+    };
+    expect(internals.standardRoomPinMutationFence).toBe(replacementMutationId);
+    expect(internals.standardRoomPinMutationFenceOwner).toBe(replacementHost);
+
+    // This claim is persisted on H1 for crash safety, but H1 belongs to the
+    // older authority generation and must not replace H2's global fence.
+    const staleMutation = room.webSocketMessage(
+      previousHost,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '',
+        pinMutationId: staleMutationId,
+      }),
+    );
+    expect(previousHost.deserializeAttachment()).toMatchObject({
+      pinConfigurationPending: true,
+      pinConfigurationMutationId: staleMutationId,
+    });
+    expect(internals.standardRoomPinMutationFence).toBe(replacementMutationId);
+    expect(internals.standardRoomPinMutationFenceOwner).toBe(replacementHost);
+
+    releaseReplacementWrite();
+    await Promise.all([replacementAuth, staleMutation]);
+    expect(previousHost.closeEvents.at(-1)?.reason).toBe('HOST_REPLACED');
+    expect(internals.standardRoomPinMutationFence).toBe(replacementMutationId);
+    expect(internals.standardRoomPinMutationFenceOwner).toBe(replacementHost);
+
+    const prematureGuest = await joinGuest(room, 'replacement-fence-premature');
+    expect(prematureGuest.closeEvents.at(-1)).toEqual({
+      code: 1013,
+      reason: 'ROOM_PASSWORD_MUTATION_PENDING',
+    });
+
+    await room.webSocketMessage(
+      replacementHost,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '',
+        pinMutationId: replacementMutationId,
+      }),
+    );
+    expect(internals.standardRoomPinMutationFence).toBeNull();
+    expect(internals.standardRoomPinMutationFenceOwner).toBeNull();
+    const admittedGuest = await joinGuest(room, 'replacement-fence-confirmed');
+    expect(admittedGuest.closed).toBe(false);
+  });
+
+  it('preserves receive order when an older PIN mutation has a slower maintenance read', async () => {
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    };
+    const room = new workerModule.MusixquareRoom(state, env);
+    const host = await authenticateHost(room, 'ordered-pin-host', 'ordered-pin-secret');
+    host.sent.length = 0;
+
+    const delayedMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = delayedMaintenance.binding;
+    const olderMutation = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '11111111',
+        pinMutationId: 'pin-order-older-0001',
+      }),
+    );
+    expect(host.deserializeAttachment()).toMatchObject({
+      pinConfigurationPending: true,
+      pinConfigurationMutationId: 'pin-order-older-0001',
+    });
+    await delayedMaintenance.entered;
+
+    const newerMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = newerMaintenance.binding;
+    const newerMutation = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '22222222',
+        pinMutationId: 'pin-order-newer-0002',
+      }),
+    );
+    expect(host.deserializeAttachment()).toMatchObject({
+      pinConfigurationPending: true,
+      pinConfigurationMutationId: 'pin-order-newer-0002',
+    });
+
+    delayedMaintenance.release();
+    await newerMaintenance.entered;
+    expect(host.deserializeAttachment()).toMatchObject({
+      pinConfigurationPending: true,
+      pinConfigurationMutationId: 'pin-order-newer-0002',
+    });
+    expect(
+      (room as unknown as { standardRoomPinMutationFence: string | null })
+        .standardRoomPinMutationFence,
+    ).toBe('pin-order-newer-0002');
+    newerMaintenance.release();
+    await Promise.all([olderMutation, newerMutation]);
+
+    expect(host.deserializeAttachment()).not.toHaveProperty('pinConfigurationPending');
+    expect(
+      (room as unknown as { standardRoomPinMutationFence: string | null })
+        .standardRoomPinMutationFence,
+    ).toBeNull();
+
+    expect(
+      sent(host)
+        .filter((message) => message.type === 'room-password-result')
+        .map((message) => message.mutationId),
+    ).toEqual(['pin-order-older-0001', 'pin-order-newer-0002']);
+    const currentPin = await joinGuest(room, 'ordered-pin-current', { password: '22222222' });
+    expect(currentPin.closed).toBe(false);
+    const stalePin = await joinGuest(room, 'ordered-pin-stale', { password: '11111111' });
+    expect(stalePin.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
+  });
+
+  it('verifies the previous PIN pepper once and durably rewraps with the current key', async () => {
+    const { state } = await createPasswordRoom();
+    const before = (await state.storage.get('roomMeta')) as CurrentRoomMeta;
+
+    const rotatingRoom = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER_KEYRING,
+    });
+    const rejected = await joinGuest(rotatingRoom, 'rotation-wrong', { password: '87654321' });
+    expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
+    expect(await state.storage.get('roomMeta')).toEqual(before);
+
+    const accepted = await joinGuest(rotatingRoom, 'rotation-valid', { password: '12345678' });
+    expect(accepted.closed).toBe(false);
+    const rewrapped = (await state.storage.get('roomMeta')) as CurrentRoomMeta;
+    expect(rewrapped.roomPasswordVerifier).toMatchObject({
+      v: 1,
+      algorithm: 'HMAC-SHA-256',
+      digest: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+    });
+    expect(rewrapped.roomPasswordVerifier?.digest).not.toBe(before.roomPasswordVerifier?.digest);
+    expect(rewrapped.roomPassword).not.toBe(before.roomPassword);
+
+    const currentOnlyRoom = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_NEXT_PEPPER,
+    });
+    const afterRetirement = await joinGuest(currentOnlyRoom, 'rotation-current-only', {
+      password: '12345678',
+    });
+    expect(afterRetirement.closed).toBe(false);
+  });
+
+  it('fails protected Standard rooms closed when the dedicated PIN pepper is unavailable', async () => {
+    const { state, host: legacyHost } = await createLegacyPasswordRoom({});
+
+    expect(legacyHost.closeEvents.at(-1)?.reason).toBe('ROOM_SECURITY_CONFIG_UNAVAILABLE');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 1,
+      roomPassword: '12345678',
+      hostPeerId: null,
+    });
+
+    // Configuration failure is not corruption. Preserve the protected legacy
+    // record for a later retry, then remove the plaintext before admission as
+    // soon as a valid key is available.
+    const recoveredRoom = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    const recoveredHost = await authenticateHost(
+      recoveredRoom,
+      'host-after-pepper-recovery',
+      'secret-a',
+      undefined,
+      '12345678',
+    );
+    expect(recoveredHost.closed).toBe(false);
+    const recoveredMeta = (await state.storage.get('roomMeta')) as Record<string, unknown>;
+    expect(recoveredMeta).toMatchObject({
+      v: 2,
+      roomPasswordVerifier: { v: 1, algorithm: 'HMAC-SHA-256' },
+    });
+    expect(JSON.stringify(recoveredMeta)).not.toContain('12345678');
+
+    const newState = new FakeDurableObjectState();
+    const newRoom = new workerModule.MusixquareRoom(newState);
+    const host = await authenticateHost(newRoom, 'host-without-pepper', 'secret-without-pepper');
+    await expect(
+      newRoom.webSocketMessage(
+        host,
+        JSON.stringify({
+          type: 'room-password-set',
+          password: '12345678',
+          pinMutationId: TEST_PIN_MUTATION_ID,
+        }),
+      ),
+    ).rejects.toThrow('STANDARD_ROOM_PIN_PEPPER_UNAVAILABLE');
+    expect(host.closeEvents.at(-1)?.reason).toBe('ROOM_SECURITY_CONFIG_UNAVAILABLE');
+    expect(sent(host)).toContainEqual(
+      expect.objectContaining({
+        type: 'room-password-result',
+        mutationId: TEST_PIN_MUTATION_ID,
+        applied: false,
+        errorType: 'STANDARD_ROOM_PIN_PEPPER_UNAVAILABLE',
+      }),
+    );
+    expect(await newState.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPassword: '',
+      roomPasswordVerifier: null,
+    });
+    const failClosedGuest = await joinGuest(newRoom, 'guest-after-pin-config-failure');
+    expect(failClosedGuest.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_MUTATION_PENDING');
+  });
+
+  it('rejects reuse of the account assertion secret as the Standard PIN pepper', async () => {
+    const { state, host } = await createLegacyPasswordRoom({
+      MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ACCOUNT_ASSERTION_SECRET,
+    });
+
+    expect(host.closeEvents.at(-1)?.reason).toBe('ROOM_SECURITY_CONFIG_UNAVAILABLE');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 1,
+      roomPassword: '12345678',
+    });
+  });
+
+  it.each([
+    ['current', REMOTE_SHARE_UPLOAD_ASSERTION_CURRENT_SECRET],
+    ['previous', REMOTE_SHARE_UPLOAD_ASSERTION_SECRET],
+  ])(
+    'rejects reuse of the Remote Share keyring %s key as the Standard PIN pepper',
+    async (_keySlot, reusedSecret) => {
+      const { state, host } = await createLegacyPasswordRoom({
+        MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: REMOTE_SHARE_UPLOAD_ASSERTION_KEYRING,
+        MXQR_STANDARD_ROOM_PIN_PEPPER: reusedSecret,
+      });
+
+      expect(host.closeEvents.at(-1)?.reason).toBe('ROOM_SECURITY_CONFIG_UNAVAILABLE');
+      expect(await state.storage.get('roomMeta')).toMatchObject({
+        v: 1,
+        roomPassword: '12345678',
+      });
+    },
+  );
+
+  it.each([
+    ['null', null],
+    ['scalar', 42],
+    ['missing-password', { v: 1, roomSecret: 'secret-a', hostPeerId: null, hostReleaseAt: 0 }],
+    [
+      'non-string-room-secret',
+      {
+        v: 1,
+        roomSecret: 123,
+        roomPassword: '',
+        hostPeerId: null,
+        hostReleaseAt: 0,
+      },
+    ],
+    [
+      'empty-room-secret',
+      {
+        v: 1,
+        roomSecret: '',
+        roomPassword: '',
+        hostPeerId: null,
+        hostReleaseAt: 0,
+      },
+    ],
+    [
+      'invalid-host-peer-id',
+      {
+        v: 1,
+        roomSecret: 'secret-a',
+        roomPassword: '',
+        hostPeerId: 42,
+        hostReleaseAt: 0,
+      },
+    ],
+    [
+      'invalid-host-release-at',
+      {
+        v: 1,
+        roomSecret: 'secret-a',
+        roomPassword: '',
+        hostPeerId: null,
+        hostReleaseAt: -1,
+      },
+    ],
+    [
+      'non-string-password',
+      {
+        v: 1,
+        roomSecret: 'secret-a',
+        roomPassword: 12345678,
+        hostPeerId: null,
+        hostReleaseAt: 0,
+      },
+    ],
+    [
+      'ambiguous-security-fields',
+      {
+        v: 1,
+        roomSecret: 'secret-a',
+        roomPassword: '',
+        roomPasswordVerifier: {
+          v: 1,
+          algorithm: 'HMAC-SHA-256',
+          digest: 'A'.repeat(43),
+        },
+        hostPeerId: null,
+        hostReleaseAt: 0,
+      },
+    ],
+  ])('keeps malformed Standard room metadata fail-closed: %s', async (label, malformedMeta) => {
+    const state = new FakeDurableObjectState();
+    await state.storage.put('roomMeta', malformedMeta);
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    const host = await authenticateHost(room, `host-malformed-${label}`, 'secret-a');
+
+    expect(host.closeEvents.at(-1)?.reason).toBe('ROOM_STATE_INVALID');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPassword: expect.stringMatching(/^mxqr-pin-invalid:[A-Za-z0-9_-]{43}$/),
+      roomPasswordVerifier: {
+        v: 0,
+        algorithm: 'INVALID',
+        digest: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      },
+    });
+  });
+
+  it('recovers malformed current-schema metadata after one host reclaim grace window', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-26T00:00:00.000Z'));
+    const startedAt = Date.now();
+    const state = new FakeDurableObjectState();
+    await state.storage.put('roomMeta', {
+      v: 2,
+      roomSecret: 'secret-corrupt',
+      roomPassword: '',
+      roomPasswordVerifier: null,
+      hostPeerId: null,
+      hostReleaseAt: 0,
+      ambiguousFutureField: true,
+    });
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+
+    const rejected = await authenticateHost(room, 'host-before-quarantine-grace', 'secret-new');
+    expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_STATE_INVALID');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      hostPeerId: null,
+      hostReleaseAt: startedAt + 120_000,
+      roomPasswordVerifier: { v: 0, algorithm: 'INVALID' },
+    });
+
+    vi.setSystemTime(startedAt + 120_001);
+    const reclaimed = await authenticateHost(room, 'host-after-quarantine-grace', 'secret-new');
+    expect(reclaimed.closed).toBe(false);
+    expect(sent(reclaimed)[0]).toMatchObject({ type: 'peer-open', roomId: '123456' });
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomSecret: 'secret-new',
+      hostPeerId: 'host-after-quarantine-grace',
+      hostReleaseAt: 0,
+      roomPassword: '',
+      roomPasswordVerifier: null,
+    });
+  });
+
+  it.each(['already-expired', 'effectively-unbounded'] as const)(
+    'replaces an untrusted malformed quarantine deadline with one bounded grace: %s',
+    async (deadlineShape) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-26T00:30:00.000Z'));
+      const now = Date.now();
+      const state = new FakeDurableObjectState();
+      await state.storage.put('roomMeta', {
+        v: 2,
+        roomSecret: 'secret-corrupt-deadline',
+        roomPassword: '',
+        roomPasswordVerifier: null,
+        hostPeerId: null,
+        hostReleaseAt: deadlineShape === 'already-expired' ? now - 1 : Number.MAX_VALUE,
+        malformedExtraField: true,
+      });
+      const room = new workerModule.MusixquareRoom(state, {
+        MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      });
+
+      const rejected = await authenticateHost(
+        room,
+        `host-untrusted-deadline-${deadlineShape}`,
+        'secret-new',
+      );
+
+      expect(rejected.closeEvents.at(-1)?.reason).toBe('ROOM_STATE_INVALID');
+      expect(await state.storage.get('roomMeta')).toMatchObject({
+        v: 2,
+        hostPeerId: null,
+        hostReleaseAt: now + 120_000,
+        roomPasswordVerifier: { v: 0, algorithm: 'INVALID' },
+      });
+    },
+  );
+
+  it('rejects but never rewrites a future room metadata schema', async () => {
+    const state = new FakeDurableObjectState();
+    const futureMeta = {
+      v: 3,
+      roomSecret: 'future-secret',
+      roomPassword: 'future-owned-format',
+      hostPeerId: null,
+      hostReleaseAt: 0,
+      futureVerifier: { version: 7, opaque: 'preserve-exactly' },
+    };
+    await state.storage.put('roomMeta', futureMeta);
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+
+    const rejected = await authenticateHost(room, 'host-future-schema', 'future-secret');
+
+    expect(rejected.closeEvents.at(-1)?.reason).toBe('STANDARD_ROOM_PROTOCOL_UPGRADED');
+    await room.webSocketClose(rejected);
+    await room.alarm();
+    expect(await state.storage.get('roomMeta')).toEqual(futureMeta);
+  });
+
+  it('revokes hibernated Standard sockets before relaying against a future room schema', async () => {
+    const state = new FakeDurableObjectState();
+    const host = new FakeSocket();
+    const guest = new FakeSocket();
+    host.serializeAttachment({
+      v: 1,
+      role: 'host',
+      roomId: '123456',
+      peerId: 'future-host',
+      secret: 'future-secret',
+      auth: 'ok',
+    });
+    guest.serializeAttachment({
+      v: 1,
+      role: 'guest',
+      roomId: '123456',
+      peerId: 'future-guest',
+      auth: 'ok',
+    });
+    state.sockets.push(host, guest);
+    const futureMeta = {
+      v: 3,
+      roomSecret: 'future-secret',
+      roomPassword: 'future-owned-format',
+      hostPeerId: 'future-host',
+      hostReleaseAt: 0,
+      futureAuthority: { revision: 7 },
+    };
+    await state.storage.put('roomMeta', futureMeta);
+
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    await room.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'must-not-relay' },
+      }),
+    );
+
+    expect(host.closeEvents.at(-1)).toEqual({
+      code: 1012,
+      reason: 'STANDARD_ROOM_PROTOCOL_UPGRADED',
+    });
+    expect(guest.closeEvents.at(-1)).toEqual({
+      code: 1012,
+      reason: 'STANDARD_ROOM_PROTOCOL_UPGRADED',
+    });
+    expect(sent(host)).toEqual([]);
+    expect(await state.storage.get('roomMeta')).toEqual(futureMeta);
+  });
+
+  it.each(['close', 'alarm'] as const)(
+    'fences a hibernated Standard %s event behind future-schema validation',
+    async (event) => {
+      const state = new FakeDurableObjectState();
+      const host = new FakeSocket();
+      const guest = new FakeSocket();
+      host.serializeAttachment({
+        v: 1,
+        role: 'host',
+        roomId: '123456',
+        peerId: 'future-host',
+        secret: 'future-secret',
+        auth: 'ok',
+        identityExpiresAt: Date.now() - 1,
+      });
+      guest.serializeAttachment({
+        v: 1,
+        role: 'guest',
+        roomId: '123456',
+        peerId: 'future-guest',
+        auth: 'ok',
+        identityExpiresAt: Date.now() - 1,
+      });
+      state.sockets.push(host, guest);
+      const futureMeta = {
+        v: 3,
+        roomSecret: 'future-secret',
+        roomPassword: 'future-owned-format',
+        hostPeerId: 'future-host',
+        hostReleaseAt: 0,
+        futureAuthority: { revision: 8 },
+      };
+      const bindings = {
+        v: 1,
+        entries: [
+          {
+            peerId: 'future-guest',
+            secretHash: 'A'.repeat(43),
+            updatedAt: 1,
+          },
+        ],
+      };
+      await state.storage.put('roomMeta', futureMeta);
+      await state.storage.put('guestReconnectBindings', bindings);
+      const room = new workerModule.MusixquareRoom(state, {
+        MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      });
+
+      if (event === 'close') await room.webSocketClose(guest);
+      else await room.alarm();
+
+      expect(host.closeEvents.at(-1)?.reason).toBe('STANDARD_ROOM_PROTOCOL_UPGRADED');
+      expect(guest.closeEvents.at(-1)?.reason).toBe('STANDARD_ROOM_PROTOCOL_UPGRADED');
+      expect(sent(host)).toEqual([]);
+      expect(sent(guest)).toEqual([]);
+      expect(await state.storage.get('roomMeta')).toEqual(futureMeta);
+      expect(await state.storage.get('guestReconnectBindings')).toEqual(bindings);
+    },
+  );
+
+  it('uses an unguessable quarantine lock and restores quarantine after a legacy rewrite', async () => {
+    const quarantine = async () => {
+      const state = new FakeDurableObjectState();
+      await state.storage.put('roomMeta', null);
+      const room = new workerModule.MusixquareRoom(state, {
+        MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      });
+      const host = await authenticateHost(
+        room,
+        `host-quarantine-${crypto.randomUUID()}`,
+        'secret-a',
+      );
+      expect(host.closeEvents.at(-1)?.reason).toBe('ROOM_STATE_INVALID');
+      return { state, meta: (await state.storage.get('roomMeta')) as CurrentRoomMeta };
+    };
+
+    const first = await quarantine();
+    const second = await quarantine();
+    expect(first.meta.roomPassword).toMatch(/^mxqr-pin-invalid:[A-Za-z0-9_-]{43}$/);
+    expect(first.meta.roomPassword).not.toBe(second.meta.roomPassword);
+
+    const legacyWorkerAccepts = (password: string): boolean =>
+      !first.meta.roomPassword || password === first.meta.roomPassword;
+    for (const predictableCandidate of [
+      '',
+      '12345678',
+      'mxqr-pin-v2:invalid',
+      'mxqr-pin-invalid:invalid',
+    ]) {
+      expect(legacyWorkerAccepts(predictableCandidate), predictableCandidate || '<empty>').toBe(
+        false,
+      );
+    }
+
+    await first.state.storage.put('roomMeta', {
+      v: 1,
+      roomSecret: first.meta.roomSecret,
+      roomPassword: first.meta.roomPassword,
+      hostPeerId: first.meta.hostPeerId,
+      hostReleaseAt: first.meta.hostReleaseAt,
+    } satisfies LegacyRoomMeta);
+    const forwardFixedRoom = new workerModule.MusixquareRoom(first.state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    const forwardHost = await authenticateHost(
+      forwardFixedRoom,
+      'host-quarantine-forward-fix',
+      'secret-a',
+    );
+
+    expect(forwardHost.closeEvents.at(-1)?.reason).toBe('ROOM_STATE_INVALID');
+    expect(await first.state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPassword: first.meta.roomPassword,
+      roomPasswordVerifier: first.meta.roomPasswordVerifier,
+      hostPeerId: null,
+      hostReleaseAt: expect.any(Number),
+    });
+  });
+
+  it('does not recreate a live protected room as passwordless when metadata disappears', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-26T01:00:00.000Z'));
+    const startedAt = Date.now();
+    const { state } = await createPasswordRoom();
+    await state.storage.delete('roomMeta');
+
+    const rehydratedRoom = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    const rehydratedHost = state.sockets.find(
+      (socket) =>
+        (socket.deserializeAttachment() as { role?: unknown } | null)?.role === 'host' &&
+        !socket.closed,
+    );
+    expect(rehydratedHost).toBeDefined();
+    await rehydratedRoom.webSocketMessage(
+      rehydratedHost!,
+      JSON.stringify({ type: 'room-password-set', password: '' }),
+    );
+    const guest = await joinGuest(rehydratedRoom, 'missing-live-room-meta', {
+      password: '12345678',
+    });
+
+    expect(guest.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPassword: expect.stringMatching(/^mxqr-pin-invalid:[A-Za-z0-9_-]{43}$/),
+      roomPasswordVerifier: {
+        v: 0,
+        algorithm: 'INVALID',
+        digest: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      },
+    });
+
+    await rehydratedRoom.webSocketClose(rehydratedHost!);
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      hostPeerId: null,
+      hostReleaseAt: startedAt + 120_000,
+      roomPasswordVerifier: { v: 0, algorithm: 'INVALID' },
+    });
+    vi.setSystemTime(startedAt + 120_001);
+    const recoveredHost = await authenticateHost(
+      rehydratedRoom,
+      'host-after-missing-meta-grace',
+      'secret-after-missing-meta',
+    );
+    expect(recoveredHost.closed).toBe(false);
+    expect(sent(recoveredHost)[0]).toMatchObject({ type: 'peer-open' });
+  });
+
+  it('treats malformed v2 PIN verifier state as protected and fails it closed', async () => {
+    const state = new FakeDurableObjectState();
+    await state.storage.put('roomMeta', {
+      v: 2,
+      roomSecret: 'secret-a',
+      roomPasswordVerifier: {
+        v: 1,
+        algorithm: 'HMAC-SHA-256',
+        digest: 'malformed',
+      },
+      hostPeerId: null,
+      hostReleaseAt: 0,
+    });
+    const room = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    const host = await authenticateHost(room, 'host-1', 'secret-a');
+
+    expect(host.closeEvents.at(-1)?.reason).toBe('ROOM_STATE_INVALID');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      v: 2,
+      roomPassword: expect.stringMatching(/^mxqr-pin-invalid:[A-Za-z0-9_-]{43}$/),
+      roomPasswordVerifier: {
+        v: 0,
+        algorithm: 'INVALID',
+        digest: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
+      },
+    });
+  });
+
   it('keeps password-protected guests pending until valid guest-auth', async () => {
     const { room } = await createPasswordRoom();
 
@@ -8274,7 +9867,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const valid = lastServer();
     await room.webSocketMessage(
       valid,
-      JSON.stringify({ type: 'host-auth', secret: 'valid-host-secret' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'valid-host-secret',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
     expect(valid.closed).toBe(false);
     expect(sent(valid)[0]).toMatchObject({ type: 'peer-open' });
@@ -8368,11 +9966,13 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     vi.setSystemTime(new Date('2026-05-16T00:02:01.000Z'));
     const reclaimed = await authenticateHost(room, 'host-3', 'secret-b');
-    expect(sent(reclaimed).at(-1)).toEqual({
-      type: 'peer-open',
-      peerId: '123456',
-      roomId: '123456',
-    });
+    expect(sent(reclaimed)).toContainEqual(
+      expect.objectContaining({
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+      }),
+    );
     expect(await state.storage.get('roomMeta')).toMatchObject({
       roomSecret: 'secret-b',
       hostPeerId: 'host-3',
@@ -8392,7 +9992,12 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
 
     await room.webSocketMessage(
       reclaimed,
-      JSON.stringify({ type: 'host-auth', secret: 'frame-secret-after-grace' }),
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'frame-secret-after-grace',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
     );
 
     expect(reclaimed.closed).toBe(false);
@@ -8416,9 +10021,10 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     await room.alarm();
 
     expect(await state.storage.get('roomMeta')).toEqual({
-      v: 1,
+      v: 2,
       roomSecret: null,
       roomPassword: '',
+      roomPasswordVerifier: null,
       hostPeerId: null,
       hostReleaseAt: 0,
     });
@@ -8478,6 +10084,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('roomMeta')).toMatchObject({
       roomSecret: null,
       roomPassword: '',
+      roomPasswordVerifier: null,
       hostReleaseAt: 0,
     });
     expect(state.storage.alarmTime).toBeNull();
@@ -8544,6 +10151,31 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(idleState.storage.alarmTime).toBe(now + 100);
     await idleRoom.scheduleMaintenanceAlarm();
     expect(idleState.storage.alarmTime).toBeNull();
+  });
+
+  it('reports the aggregate failure when background alarm sync and durable retry both fail', async () => {
+    const state = new FakeDurableObjectState();
+    state.storage.getAlarm = vi.fn(async () => {
+      throw new Error('alarm read unavailable');
+    });
+    state.storage.setAlarm = vi.fn(async () => {
+      throw new Error('alarm retry write unavailable');
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const room = new workerModule.MusixquareRoom(state);
+
+    await room.fetch(wsRequest('123456', 'host', 'background-alarm-double-failure'));
+    await state.flushWaitUntil();
+
+    const backgroundFailure = warn.mock.calls.find(
+      ([message]) => message === '[Room] Background maintenance alarm synchronization failed',
+    )?.[1];
+    expect(backgroundFailure).toBeInstanceOf(AggregateError);
+    expect((backgroundFailure as AggregateError).errors).toEqual([
+      expect.objectContaining({ message: 'alarm read unavailable' }),
+      expect.objectContaining({ message: 'alarm retry write unavailable' }),
+    ]);
+    expect(state.storage.alarmTime).toBeNull();
   });
 
   it('does not use non-hibernatable WebSocket or timer APIs', async () => {

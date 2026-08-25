@@ -97,6 +97,21 @@ describe('standard-room security/performance policy', () => {
     );
   });
 
+  it('rejects starting deferred TURN settlement without a terminal rejection observer', async () => {
+    const current = await sources();
+    const unobserved = replaceOrThrow(
+      current.peer,
+      `      ).catch((error) => {
+        log.error('[Network] Deferred RTC configuration escaped its boundary', error);
+      });`,
+      '      );',
+    );
+
+    expect(() => assertStandardRoomHotPath({ ...current, peer: unobserved })).toThrow(
+      /TURN settlement must start exactly once as an observed background task/u,
+    );
+  });
+
   it('rejects restoring a control-plane readiness preflight ahead of room signaling', async () => {
     const current = await sources();
     const gatedHost = replaceOrThrow(

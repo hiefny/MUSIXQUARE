@@ -7,6 +7,7 @@ import WebSocket from 'ws';
 
 const APP_ORIGIN = 'https://musixquare.com';
 const SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
+export const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
 const MESSAGE_TIMEOUT_MS = 10_000;
 export const STALE_VERSION_RETRY_DELAYS_MS = Object.freeze([1_000, 2_000, 4_000, 8_000, 8_000]);
 
@@ -24,7 +25,7 @@ interface SocketWaiter {
   timer: ReturnType<typeof setTimeout>;
 }
 
-interface SocketLifecyclePort {
+export interface SocketLifecyclePort {
   readyState: number;
   once(event: 'open', listener: () => void): this;
   once(event: 'error', listener: (error: Error) => void): this;
@@ -50,6 +51,14 @@ export interface SocketInbox<TSocket extends SocketLifecyclePort = WebSocket> {
 interface SocketInboxOptions<TSocket extends SocketLifecyclePort> {
   expectedInitialHostVersion?: string;
   createWebSocket: (target: string, options: WebSocket.ClientOptions) => TSocket;
+}
+
+export interface SignalingOriginBoundaryRead {
+  statusCode: number;
+}
+
+export interface SignalingOriginBoundaryResult {
+  unrelatedTossOriginRejected: true;
 }
 
 type ReadinessError =
@@ -179,6 +188,76 @@ function socketUrl(roomId: string, role: 'host' | 'guest', peerId: string): stri
   url.searchParams.set('role', role);
   url.searchParams.set('peerId', peerId);
   return url.toString();
+}
+
+export async function readSignalingOriginBoundary({
+  createWebSocket = (target: string, options: WebSocket.ClientOptions) =>
+    new WebSocket(target, options),
+  timeoutMs = MESSAGE_TIMEOUT_MS,
+}: {
+  createWebSocket?: (target: string, options: WebSocket.ClientOptions) => SocketLifecyclePort;
+  timeoutMs?: number;
+} = {}): Promise<SignalingOriginBoundaryRead> {
+  const roomId = String(randomInt(100_000, 1_000_000));
+  const peerId = `origin-boundary-${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  const socket = createWebSocket(socketUrl(roomId, 'host', peerId), {
+    origin: UNRELATED_TOSS_ORIGIN,
+  });
+
+  return new Promise<SignalingOriginBoundaryRead>((resolveRead, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.terminate();
+      reject(new Error('unrelated Toss origin WebSocket rejection timed out'));
+    }, timeoutMs);
+    const settle = (operation: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      operation();
+    };
+
+    socket.once('unexpected-response', (_request, response) => {
+      const statusCode = Number.isInteger(response.statusCode) ? response.statusCode || 0 : 0;
+      response.resume();
+      settle(() => {
+        socket.terminate();
+        resolveRead({ statusCode });
+      });
+    });
+    socket.once('open', () => {
+      settle(() => {
+        socket.close(1000, 'origin boundary unexpectedly accepted');
+        reject(new Error('Production signaling still trusts an unrelated Toss app origin'));
+      });
+    });
+    socket.once('error', (error) => {
+      settle(() => reject(error));
+    });
+    socket.once('close', (code, reason) => {
+      settle(() =>
+        reject(
+          new Error(
+            `unrelated Toss origin probe closed ${code}/${reason.toString() || 'without HTTP rejection'}`,
+          ),
+        ),
+      );
+    });
+  });
+}
+
+export async function verifySignalingOriginBoundary({
+  read = readSignalingOriginBoundary,
+}: {
+  read?: () => Promise<SignalingOriginBoundaryRead>;
+} = {}): Promise<SignalingOriginBoundaryResult> {
+  const result: unknown = await read();
+  if (!isJsonObject(result) || result.statusCode !== 403) {
+    throw new Error('Production signaling still trusts an unrelated Toss app origin');
+  }
+  return { unrelatedTossOriginRejected: true };
 }
 
 export function createSocketInbox(
@@ -435,6 +514,102 @@ interface RoomSmokeResult {
   answer: true;
 }
 
+interface LegacyCompatibilitySmokeResult {
+  roomId: string;
+  preConfigurationGuestRejected: true;
+  postConfigurationWrongPasswordRejected: true;
+  postConfigurationGuestAdmitted: true;
+}
+
+async function runLegacyCompatibilityAttempt(
+  expectedVersion: string,
+): Promise<LegacyCompatibilitySmokeResult> {
+  const roomId = String(randomInt(100_000, 1_000_000));
+  const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
+  const password = '13572468';
+  const host = createSocketInbox(
+    socketUrl(roomId, 'host', `legacy-host-${suffix}`),
+    'legacy compatibility host',
+    { expectedInitialHostVersion: expectedVersion },
+  );
+  const guests = new Set<SocketInbox>();
+  const createGuest = (peerId: string, label: string): SocketInbox => {
+    const inbox = createSocketInbox(socketUrl(roomId, 'guest', peerId), label);
+    guests.add(inbox);
+    return inbox;
+  };
+
+  try {
+    await host.opened;
+    host.socket.send(JSON.stringify({ type: 'host-auth', secret: `legacy-${randomUUID()}` }));
+    const hostOpen = await waitForType(host, 'peer-open');
+    assertPeerOpenVersion(hostOpen, expectedVersion, 'legacy host peer-open', true);
+    if (hostOpen.roomId !== roomId) throw new Error('legacy host room mismatch');
+    if (hostOpen.roomPasswordApplied !== undefined) {
+      throw new Error('legacy host unexpectedly received a modern PIN acknowledgement');
+    }
+
+    const fencedGuest = createGuest(`legacy-fenced-${suffix}`, 'legacy pre-config guest');
+    await fencedGuest.opened;
+    fencedGuest.socket.send(
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: randomBytes(32).toString('base64url'),
+      }),
+    );
+    await expectGuestRejection(
+      fencedGuest,
+      'service-unavailable',
+      'ROOM_PASSWORD_MUTATION_PENDING',
+      1013,
+    );
+
+    host.socket.send(JSON.stringify({ type: 'room-password-set', password }));
+    // Legacy clients have no result frame. Opening the next socket after this
+    // short settle exercises the exact signaling-first/app-later rollout path.
+    await delay(150);
+    const wrongPasswordGuest = createGuest(
+      `legacy-wrong-password-${suffix}`,
+      'legacy wrong-password guest',
+    );
+    await wrongPasswordGuest.opened;
+    wrongPasswordGuest.socket.send(
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '00000000',
+        reconnectSecret: randomBytes(32).toString('base64url'),
+      }),
+    );
+    await expectGuestRejection(
+      wrongPasswordGuest,
+      'room-password-invalid',
+      'ROOM_PASSWORD_INVALID',
+      1011,
+    );
+    const admittedGuest = createGuest(`legacy-admitted-${suffix}`, 'legacy configured guest');
+    await admittedGuest.opened;
+    admittedGuest.socket.send(
+      JSON.stringify({
+        type: 'guest-auth',
+        password,
+        reconnectSecret: randomBytes(32).toString('base64url'),
+      }),
+    );
+    const guestOpen = await waitForType(admittedGuest, 'peer-open');
+    assertPeerOpenVersion(guestOpen, expectedVersion, 'legacy configured guest peer-open');
+    return {
+      roomId,
+      preConfigurationGuestRejected: true,
+      postConfigurationWrongPasswordRejected: true,
+      postConfigurationGuestAdmitted: true,
+    };
+  } finally {
+    for (const inbox of guests) await closeSocket(inbox.socket);
+    await closeSocket(host.socket);
+  }
+}
+
 async function runRoomAttempt(password: string, expectedVersion: string): Promise<RoomSmokeResult> {
   if (password && !/^\d{8}$/.test(password)) {
     throw new Error('protected-room smoke password must be exactly eight digits');
@@ -444,6 +619,7 @@ async function runRoomAttempt(password: string, expectedVersion: string): Promis
   const hostPeerId = `host-${suffix}`;
   const guestPeerId = `guest-${suffix}`;
   const hostSecret = `secret-${randomUUID()}`;
+  const pinMutationId = randomBytes(24).toString('base64url');
   const reconnectSecret = randomBytes(32).toString('base64url');
   const wrongReconnectSecret = randomBytes(32).toString('base64url');
   const negotiationId = `live-smoke-${suffix}`;
@@ -464,16 +640,30 @@ async function runRoomAttempt(password: string, expectedVersion: string): Promis
 
   try {
     await host.opened;
-    // Exercise the current production contract: the host bearer credential is
-    // the first WebSocket frame and never part of an edge-loggable URL.
-    host.socket.send(JSON.stringify({ type: 'host-auth', secret: hostSecret }));
+    // The RAM-only host proof and desired PIN are one admission transaction:
+    // peer-open is emitted only after both ownership and the verifier commit.
+    host.socket.send(
+      JSON.stringify({
+        type: 'host-auth',
+        secret: hostSecret,
+        desiredRoomPassword: password,
+        pinMutationId,
+      }),
+    );
     const hostOpen = await waitForType(host, 'peer-open');
     assertPeerOpenVersion(hostOpen, expectedVersion, 'host peer-open', true);
     if (hostOpen.roomId !== roomId) throw new Error('host room mismatch');
-    host.socket.send(JSON.stringify({ type: 'room-password-set', password }));
-    // room-password-set has no acknowledgement; let that frame settle before
-    // opening the independent guest socket.
-    await delay(150);
+    if (
+      hostOpen.roomPasswordApplied !== true ||
+      hostOpen.roomPasswordMutationId !== pinMutationId
+    ) {
+      throw new Error('host PIN was not durably acknowledged before peer-open');
+    }
+    host.socket.send(JSON.stringify({ type: 'room-password-set', password, pinMutationId }));
+    const hostPinResult = await waitForType(host, 'room-password-result');
+    if (hostPinResult.mutationId !== pinMutationId || hostPinResult.applied !== true) {
+      throw new Error('host PIN final confirmation was not acknowledged');
+    }
 
     if (password) {
       const invalidPasswordGuest = createGuest(`invalid-${suffix}`, 'invalid-password guest');
@@ -598,12 +788,35 @@ async function runRoomAttempt(password: string, expectedVersion: string): Promis
       `${password ? 'protected' : 'passwordless'} reconnect host`,
     );
     await reconnectedHost.opened;
-    // Reconnect with the same RAM-only bearer proof and exercise the permanent
-    // first-frame contract again. The query remains limited to routing IDs.
-    reconnectedHost.socket.send(JSON.stringify({ type: 'host-auth', secret: hostSecret }));
+    // Reconnect reasserts the same desired mutation. The query remains limited
+    // to routing IDs and the Worker again commits before publishing peer-open.
+    reconnectedHost.socket.send(
+      JSON.stringify({
+        type: 'host-auth',
+        secret: hostSecret,
+        desiredRoomPassword: password,
+        pinMutationId,
+      }),
+    );
     const reconnectedHostOpen = await waitForType(reconnectedHost, 'peer-open');
     assertPeerOpenVersion(reconnectedHostOpen, expectedVersion, 'reconnected host peer-open');
     if (reconnectedHostOpen.roomId !== roomId) throw new Error('reconnected host room mismatch');
+    if (
+      reconnectedHostOpen.roomPasswordApplied !== true ||
+      reconnectedHostOpen.roomPasswordMutationId !== pinMutationId
+    ) {
+      throw new Error('reconnected host PIN was not durably acknowledged');
+    }
+    reconnectedHost.socket.send(
+      JSON.stringify({ type: 'room-password-set', password, pinMutationId }),
+    );
+    const reconnectedPinResult = await waitForType(reconnectedHost, 'room-password-result');
+    if (
+      reconnectedPinResult.mutationId !== pinMutationId ||
+      reconnectedPinResult.applied !== true
+    ) {
+      throw new Error('reconnected host PIN final confirmation was not acknowledged');
+    }
     const replacedHostClose = await withTimeout(host.closed, 'replaced host socket close');
     if (replacedHostClose.code !== 1012 || replacedHostClose.reason !== 'HOST_REPLACED') {
       throw new Error(
@@ -676,12 +889,31 @@ async function runRoom(password: string, expectedVersion: string): Promise<RoomS
   return withSignalingReadinessRetry(() => runRoomAttempt(password, expectedVersion));
 }
 
+async function runLegacyCompatibility(
+  expectedVersion: string,
+): Promise<LegacyCompatibilitySmokeResult> {
+  return withSignalingReadinessRetry(() => runLegacyCompatibilityAttempt(expectedVersion));
+}
+
 export async function main(): Promise<void> {
   const expectedVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
   const rooms: RoomSmokeResult[] = [];
   rooms.push(await runRoom('', expectedVersion));
+  // The first room has already converged on MXQR_EXPECTED_SIGNALING_VERSION,
+  // so this negative request checks the newly deployed origin boundary rather
+  // than racing the prior traffic version during propagation.
+  const originBoundary = await verifySignalingOriginBoundary();
   rooms.push(await runRoom('24681357', expectedVersion));
-  console.log(JSON.stringify({ ok: true, expectedVersion: expectedVersion || null, rooms }));
+  const legacyCompatibility = await runLegacyCompatibility(expectedVersion);
+  console.log(
+    JSON.stringify({
+      ok: true,
+      expectedVersion: expectedVersion || null,
+      originBoundary,
+      rooms,
+      legacyCompatibility,
+    }),
+  );
 }
 
 const entryPath = process.argv[1];

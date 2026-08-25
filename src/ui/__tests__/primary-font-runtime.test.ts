@@ -92,18 +92,22 @@ describe('primary font recovery runtime', () => {
       document.head.appendChild(style);
 
       const nativeAppendChild = document.head.appendChild.bind(document.head);
+      const fontErrorDispatches: Promise<void>[] = [];
       vi.spyOn(document.head, 'appendChild').mockImplementation((node: Node) => {
         const appended = nativeAppendChild(node);
         if (
           node instanceof dom.window.HTMLLinkElement &&
           node.hasAttribute('data-mxqr-primary-font')
         ) {
-          void Promise.resolve().then(() => node.onerror?.(new dom.window.Event('error')));
+          fontErrorDispatches.push(
+            Promise.resolve().then(() => node.onerror?.(new dom.window.Event('error'))),
+          );
         }
         return appended;
       });
 
       dom.window.eval(script);
+      await Promise.all(fontErrorDispatches);
       await vi.waitFor(() => {
         expect([...pendingTimers.values()].some(({ delay }) => delay === 1_000)).toBe(true);
       });

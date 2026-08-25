@@ -3,7 +3,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
-import { PLAYBACK_STATE } from '../../core/constants.ts';
+import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { handleData, resetInboundRateLimit } from '../../network/protocol.ts';
@@ -23,6 +23,7 @@ const QID_C = '00000000-0000-4000-8000-000000000003';
 const mocks = vi.hoisted(() => ({
   play: vi.fn(),
   pause: vi.fn(),
+  startHostFileAndBroadcastPlay: vi.fn(),
   finalizeGuestFile: vi.fn(),
   loadPreloadedTrack: vi.fn(),
   readStoredFile: vi.fn(),
@@ -35,7 +36,12 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../transport.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../transport.ts')>();
-  return { ...actual, play: mocks.play, pause: mocks.pause };
+  return {
+    ...actual,
+    play: mocks.play,
+    pause: mocks.pause,
+    startHostFileAndBroadcastPlay: mocks.startHostFileAndBroadcastPlay,
+  };
 });
 
 vi.mock('../decode.ts', async (importOriginal) => {
@@ -103,7 +109,8 @@ beforeEach(() => {
   resetInboundRateLimit('host-1');
   setCurrentAudioBuffer(null);
   vi.clearAllMocks();
-  mocks.play.mockResolvedValue(undefined);
+  mocks.play.mockResolvedValue(true);
+  mocks.startHostFileAndBroadcastPlay.mockResolvedValue(true);
   mocks.finalizeGuestFile.mockResolvedValue(undefined);
   mocks.loadPreloadedTrack.mockResolvedValue(undefined);
   mocks.unicastFile.mockResolvedValue(undefined);
@@ -177,6 +184,76 @@ describe('operator request queue identity guards', () => {
     expect(mocks.pause).not.toHaveBeenCalled();
     expect(mocks.broadcast).not.toHaveBeenCalled();
     expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
+  });
+});
+
+describe('operator PLAY success boundary', () => {
+  function arrangeOperatorHost(): DataConnection {
+    const opConn = { open: true, peer: 'op-start' } as DataConnection;
+    const current = resident(QID_B, 0, 'b.mp3', 5);
+    const peer: ConnectedPeer = {
+      id: opConn.peer,
+      slot: 1,
+      label: 'Operator',
+      conn: opConn,
+      isOp: true,
+      preloadedQueueItemIds: new Set(),
+      status: 'connected',
+      isDataTarget: true,
+      joinOrder: 1,
+      connectionType: 'local',
+      lastHeartbeat: 0,
+    };
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[opConn.peer, opConn]]));
+    setState('network.connectedPeers', [peer]);
+    setState('playlist.items', [item(QID_B, 'b.mp3')]);
+    setState('playlist.currentQueueItemId', QID_B);
+    setState('files.current', current);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    setPlaybackFilePlaying();
+    initPlayback();
+    return opConn;
+  }
+
+  it('does not broadcast canonical PLAY when play returns false', async () => {
+    const opConn = arrangeOperatorHost();
+    mocks.startHostFileAndBroadcastPlay.mockResolvedValueOnce(false);
+
+    await handleData({ type: MSG.REQUEST_PLAY, time: 4, queueItemId: QID_B }, opConn);
+
+    expect(mocks.broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+  });
+
+  it('contains a rejected play and does not broadcast canonical PLAY', async () => {
+    const opConn = arrangeOperatorHost();
+    mocks.startHostFileAndBroadcastPlay.mockRejectedValueOnce(new Error('source start failed'));
+
+    await handleData({ type: MSG.REQUEST_PLAY, time: 4, queueItemId: QID_B }, opConn);
+
+    expect(mocks.broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+  });
+
+  it('delegates the operator occurrence fence to the canonical start kernel', async () => {
+    const opConn = arrangeOperatorHost();
+
+    await handleData({ type: MSG.REQUEST_PLAY, time: 4, queueItemId: QID_B }, opConn);
+    expect(mocks.startHostFileAndBroadcastPlay).toHaveBeenCalledWith(
+      expect.objectContaining({
+        time: 4,
+        queueItemId: QID_B,
+        context: 'operator play request',
+        shouldApply: expect.any(Function),
+      }),
+    );
+
+    const options = mocks.startHostFileAndBroadcastPlay.mock.calls[0]?.[0] as
+      | { shouldApply?: () => boolean }
+      | undefined;
+    expect(options?.shouldApply?.()).toBe(true);
+    setState('network.connectedPeers', []);
+    expect(options?.shouldApply?.()).toBe(false);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 });
 

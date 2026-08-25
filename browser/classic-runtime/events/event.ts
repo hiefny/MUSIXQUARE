@@ -37,6 +37,20 @@
 
   type CampaignNotice = readonly [title: string, message: string, retryable: boolean];
 
+  function reportUnexpectedAsyncFailure(error: unknown): void {
+    console.error('[event] Unexpected asynchronous action failure.', error);
+  }
+
+  function addAsyncEventListener(
+    target: EventTarget,
+    type: string,
+    listener: (event: Event) => Promise<void>,
+  ): void {
+    target.addEventListener(type, (event) => {
+      listener(event).catch(reportUnexpectedAsyncFailure);
+    });
+  }
+
   function requiredElement(id: string): HTMLElement {
     const element = document.getElementById(id);
     if (!(element instanceof HTMLElement)) throw new Error('Missing event control: #' + id);
@@ -521,7 +535,7 @@
       authPopup = null;
       stopAuthPopupMonitor();
       resetAccountAction();
-      void refreshAfterAuthSignal();
+      refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);
     }, 250);
   }
 
@@ -547,7 +561,7 @@
     }
     authPopup = null;
     stopAuthPopupMonitor();
-    void refreshAfterAuthSignal();
+    refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);
   }
 
   function openGoogleLogin(): void {
@@ -626,7 +640,7 @@
     safeFocus(nicknameInput);
   }
 
-  async function saveNickname(event: SubmitEvent): Promise<void> {
+  async function saveNickname(event: Event): Promise<void> {
     event.preventDefault();
     const nickname = nicknameInput.value.normalize('NFC');
     const validationMessage = nicknameValidationMessage(nickname);
@@ -755,7 +769,7 @@
         );
       } else if (apiError.code === 'CAMPAIGN_NOT_ACTIVE') {
         resetRedeemForm();
-        void loadSession();
+        loadSession().catch(reportUnexpectedAsyncFailure);
       } else if (apiError.code === 'PRO_GRANT_UNAVAILABLE') {
         resetRedeemForm();
         showNotice('준비된 PRO 방이 모두 지급되었어요', '다음 이벤트를 기다려 주세요.', false);
@@ -832,11 +846,11 @@
     redeemCode.setAttribute('aria-invalid', 'false');
     redeemMessage.textContent = '';
   });
-  redeemSubmit.addEventListener('click', submitRedeem);
+  addAsyncEventListener(redeemSubmit, 'click', submitRedeem);
   redeemCode.addEventListener('keydown', function (event) {
     if (event.key !== 'Enter' || event.isComposing) return;
     event.preventDefault();
-    void submitRedeem(event);
+    submitRedeem(event).catch(reportUnexpectedAsyncFailure);
   });
 
   tryAnotherButton.addEventListener('click', function () {
@@ -845,10 +859,10 @@
   });
 
   noticeRetry.addEventListener('click', function () {
-    void loadSession();
+    loadSession().catch(reportUnexpectedAsyncFailure);
   });
 
-  nicknameForm.addEventListener('submit', saveNickname);
+  addAsyncEventListener(nicknameForm, 'submit', saveNickname);
   nicknameCancel.addEventListener('click', function () {
     nicknameDialog.close();
     safeFocus(accountAction);
@@ -859,7 +873,7 @@
     nicknameMessage.classList.remove('is-error');
   });
 
-  copyRoomButton.addEventListener('click', async function () {
+  addAsyncEventListener(copyRoomButton, 'click', async function () {
     if (!currentRoomCode) return;
     try {
       await copyText(currentRoomCode);
@@ -869,7 +883,7 @@
     }
   });
 
-  openRoomButton.addEventListener('click', async function () {
+  addAsyncEventListener(openRoomButton, 'click', async function () {
     if (!currentRoomCode || currentRoomGeneration === null) return;
     if (!roomSetupRequired) {
       window.location.assign('/' + currentRoomCode);
@@ -911,20 +925,22 @@
   window.addEventListener('storage', function (event) {
     if (event.key !== ACCOUNT_SYNC_STORAGE_KEY) return;
     if (!event.newValue) {
-      void refreshAfterAuthSignal();
+      refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);
       return;
     }
     try {
       handleAuthSignal(JSON.parse(event.newValue));
     } catch (_error) {
-      void refreshAfterAuthSignal();
+      refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);
     }
   });
   window.addEventListener('focus', function () {
-    if (authPopup) void refreshAfterAuthSignal();
+    if (authPopup) refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);
   });
   document.addEventListener('visibilitychange', function () {
-    if (document.visibilityState === 'visible' && authPopup) void refreshAfterAuthSignal();
+    if (document.visibilityState === 'visible' && authPopup) {
+      refreshAfterAuthSignal().catch(reportUnexpectedAsyncFailure);
+    }
   });
 
   if (typeof BroadcastChannel !== 'undefined') {
@@ -946,5 +962,5 @@
     }
   });
 
-  void loadSession();
+  loadSession().catch(reportUnexpectedAsyncFailure);
 })();

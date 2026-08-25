@@ -1,5 +1,4 @@
-// Pure wire-protocol validation for standard signaling and PRO realtime frames.
-// Durable Object storage and WebSocket lifecycle state stay in signaling-worker.ts.
+// Pure signaling validation; storage and socket lifecycle stay in signaling-worker.ts.
 export const WS_MESSAGE_MAX_BYTES = 64 * 1024;
 export const PRO_REALTIME_BODY_MAX_BYTES = 8 * 1024;
 export const PRO_CHAT_SLOWMODE_MAX_SECONDS = 60;
@@ -50,6 +49,7 @@ const REMOTE_SHARE_UPLOAD_ASSERTION_BODY_SHA256_RE = /^[A-Za-z0-9_-]{43}$/;
 const REMOTE_SHARE_UPLOAD_ASSERTION_QUEUE_ITEM_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
+const STANDARD_ROOM_PIN_MUTATION_ID_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -109,8 +109,7 @@ function utf8ByteLength(value: unknown): number | null {
 
 export function rawMessageByteLength(raw: unknown): number | null {
   if (typeof raw === 'string') {
-    // UTF-8 is never shorter than the JavaScript code-unit length, so avoid
-    // allocating a second huge buffer once the limit is already exceeded.
+    // UTF-8 is never shorter, so avoid another allocation past the limit.
     if (raw.length > WS_MESSAGE_MAX_BYTES) return raw.length;
     return utf8ByteLength(raw);
   }
@@ -534,9 +533,8 @@ function normalizeProSystemAudioCandidate(
     return null;
   }
   return {
-    // Strip optional ICE extensions before relay. The bounded base candidate is
-    // sufficient for host connectivity and cannot smuggle caller-selected
-    // related addresses through extension fields.
+    // The bounded base candidate is sufficient and cannot smuggle caller-set
+    // related addresses through optional ICE extensions.
     candidate: candidateFields.slice(0, 8).join(' '),
     ...(value.sdpMid === undefined ? {} : { sdpMid: value.sdpMid as string | null }),
     ...(value.sdpMLineIndex === undefined
@@ -815,22 +813,33 @@ function isOversizedIceCandidate(value: unknown): boolean {
   const bytes = utf8ByteLength(JSON.stringify(value));
   return bytes !== null && bytes > ICE_CANDIDATE_MAX_BYTES;
 }
-
 export function validateIncomingMessage(message: unknown, role: string): IncomingMessageValidation {
   if (!isUnknownRecord(message) || typeof message.type !== 'string' || message.type.length > 64) {
     return 'ignore';
   }
-
   if (role === 'host-pending') {
-    return hasExactObjectKeys(message, ['type', 'secret'], ['accountAssertion']) &&
+    const hasDesiredPassword = Object.prototype.hasOwnProperty.call(message, 'desiredRoomPassword');
+    const hasPinMutationId = Object.prototype.hasOwnProperty.call(message, 'pinMutationId');
+    return hasExactObjectKeys(
+      message,
+      ['type', 'secret'],
+      ['accountAssertion', 'desiredRoomPassword', 'pinMutationId'],
+    ) &&
       message.type === 'host-auth' &&
       isPeerId(message.secret) &&
       (message.accountAssertion === undefined ||
-        (typeof message.accountAssertion === 'string' && message.accountAssertion.length <= 2048))
+        (typeof message.accountAssertion === 'string' &&
+          message.accountAssertion.length <= 2048)) &&
+      hasDesiredPassword === hasPinMutationId &&
+      (!hasDesiredPassword ||
+        ((message.desiredRoomPassword === '' ||
+          (typeof message.desiredRoomPassword === 'string' &&
+            /^\d{8}$/.test(message.desiredRoomPassword))) &&
+          typeof message.pinMutationId === 'string' &&
+          STANDARD_ROOM_PIN_MUTATION_ID_RE.test(message.pinMutationId)))
       ? 'valid'
       : 'ignore';
   }
-
   if (role === 'pending') {
     if (message.type !== 'guest-auth') return 'ignore';
     if (typeof message.password !== 'string') return 'ignore';
@@ -845,11 +854,8 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
     }
     return 'valid';
   }
-
   if (role === 'guest') {
-    // The current client sends this on every guest socket, including rooms
-    // without a password. Once the guest is admitted it is intentionally a
-    // harmless no-op after admission.
+    // Repeated guest-auth after admission is intentionally harmless.
     if (message.type === 'guest-auth') return 'ignore';
     if (message.type === 'account-identity-refresh') {
       return hasExactObjectKeys(message, ['type', 'accountAssertion']) &&
@@ -914,7 +920,14 @@ export function validateIncomingMessage(message: unknown, role: string): Incomin
       : 'ignore';
   }
   if (message.type === 'room-password-set') {
-    return typeof message.password === 'string' ? 'valid' : 'ignore';
+    return hasExactObjectKeys(message, ['type', 'password'], ['pinMutationId']) &&
+      (message.password === '' ||
+        (typeof message.password === 'string' && /^\d{8}$/.test(message.password))) &&
+      (message.pinMutationId === undefined ||
+        (typeof message.pinMutationId === 'string' &&
+          STANDARD_ROOM_PIN_MUTATION_ID_RE.test(message.pinMutationId)))
+      ? 'valid'
+      : 'ignore';
   }
   if (message.type === 'remote-share-upload-assertion-request') {
     return hasExactObjectKeys(message, [

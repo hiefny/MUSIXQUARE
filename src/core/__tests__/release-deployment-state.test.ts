@@ -447,12 +447,54 @@ describe('release deployment rollback state', () => {
     expect(failClosedCli.stdout).toBe('true');
   });
 
+  it('keeps Standard room PIN storage on a signaling forward-repair floor', () => {
+    const marker = 'cloudflare/standard-room-pin-storage-contract-version.txt';
+    expect(readFileSync(resolve(marker), 'utf8')).toBe('standard-room-pin-v2\n');
+    expect(EMERGENCY_EXTERNAL_STATE_PATHS).toContain(marker);
+    expect(runtimePathsForWorker('signaling')).toContain(marker);
+    expect(runtimePathsForWorker('app')).toContain(marker);
+
+    const releaseWorkflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const cutoverStep = workflowStepSource(
+      releaseWorkflow,
+      'Require a full release for Standard room PIN contract cutovers',
+    );
+    expect(cutoverStep).toContain(`contract_marker='${marker}'`);
+    expect(cutoverStep).toContain("inputs.target }}\" != 'all'");
+    expect(cutoverStep).toContain('signaling and the app deploy together');
+
+    for (const recoveryWorkflowPath of [
+      '.github/workflows/release.yml',
+      '.github/workflows/release-recovery.yml',
+    ]) {
+      const recoveryWorkflow = readFileSync(resolve(recoveryWorkflowPath), 'utf8');
+      expect(recoveryWorkflow).toContain('standard-room-pin-forward-floor "$GITHUB_SHA"');
+      expect(recoveryWorkflow).toContain(
+        'MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR="$standard_room_pin_forward_floor"',
+      );
+    }
+
+    const missingCheckpoint = createDirectory();
+    const failClosedCli = runScript([
+      'standard-room-pin-forward-floor',
+      'd'.repeat(40),
+      missingCheckpoint,
+    ]);
+    expect(failClosedCli.status, String(failClosedCli.stderr)).toBe(0);
+    expect(failClosedCli.stdout).toBe('true');
+  });
+
   it.each([
     ['service-control', 'cloudflare/service-control-contract-version.txt', ['pro-room', 'app']],
     [
       'PRO system-audio',
       'cloudflare/pro-system-audio-contract-version.txt',
       ['pro-room', 'signaling', 'app'],
+    ],
+    [
+      'Standard room PIN storage',
+      'cloudflare/standard-room-pin-storage-contract-version.txt',
+      ['signaling'],
     ],
   ] as const)(
     'keeps a multi-commit first %s cutover on the forward-repair floor',
@@ -547,6 +589,11 @@ describe('release deployment rollback state', () => {
       'PRO system-audio',
       'cloudflare/pro-system-audio-contract-version.txt',
       ['pro-room', 'signaling', 'app'],
+    ],
+    [
+      'Standard room PIN storage',
+      'cloudflare/standard-room-pin-storage-contract-version.txt',
+      ['signaling'],
     ],
   ] as const)(
     'does not invent a %s candidate boundary before the first Worker deploy',
@@ -733,7 +780,7 @@ describe('release deployment rollback state', () => {
         gitRunner: git,
       }).status,
     ).toBe('compatible');
-  });
+  }, 30_000);
 
   it('allows an app-only release when every unselected Worker is source-equivalent', () => {
     const directory = createDirectory();
@@ -2276,7 +2323,7 @@ describe('release deployment rollback state', () => {
     expect(workflow.slice(deployStart, deploySteps)).toContain('timeout-minutes: 240');
 
     const secretPreflight = workflow.indexOf(
-      '- name: Verify Remote Share assertion secret inventory',
+      '- name: Verify release-critical Worker secret inventory',
     );
     const mutationAuthorization = workflow.indexOf(
       '- name: Authorize production mutations from persisted checkpoint',
@@ -2286,6 +2333,7 @@ describe('release deployment rollback state', () => {
     const secretPreflightEnd = workflow.indexOf('\n      - name:', secretPreflight + 1);
     const secretStep = workflow.slice(secretPreflight, secretPreflightEnd);
     expect(secretStep).toContain('MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET');
+    expect(secretStep).toContain('MXQR_STANDARD_ROOM_PIN_PEPPER');
     expect(secretStep).toContain('cloudflare/wrangler.remote-share.toml');
     expect(secretStep).toContain('cloudflare/wrangler.signaling.toml');
     expect(secretStep).toContain("'any(.[]; .name == $name)'");

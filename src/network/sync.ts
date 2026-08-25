@@ -60,6 +60,7 @@ let _wasPlaying = false;
 let _softFileDriftDirection: -1 | 0 | 1 = 0;
 let _softFileDriftSamples = 0;
 let _lastSoftFileResyncAt = Number.NEGATIVE_INFINITY;
+let _fileSyncAttemptGeneration = 0;
 
 const YOUTUBE_NUDGE_APPLY_DEBOUNCE_MS = 1000;
 const FILE_SYNC_END_FENCE_SEC = 0.1;
@@ -79,6 +80,7 @@ function resetSoftFileResyncState(): void {
 }
 
 function resetSyncClockRuntime(): void {
+  _fileSyncAttemptGeneration += 1;
   setState('sync.lastLatencyMs', 0);
   setState('sync.latencyHistory', []);
   resetClockState();
@@ -215,7 +217,9 @@ export function handleAutoSync(): void {
   // changes the displayed value while the audio remains desynced, and
   // the only recovery is a host seek or pause+play.
   if (!isPlaybackPlayingFile()) return;
-  play(getTrackPosition());
+  void play(getTrackPosition()).catch((error) =>
+    log.warn('[Sync] Failed to restart file playback after sync reset:', error),
+  );
 }
 
 // ─── Protocol Handlers ──────────────────────────────────────────────
@@ -324,19 +328,79 @@ function getPlayableFileSyncPosition(estimatedHostPos: number): number | null {
   return syncPosition;
 }
 
-function maybeSoftResyncFile(syncPosition: number, localPosition: number): boolean {
+type FileSyncStartResult = 'started' | 'pending' | 'rejected';
+
+async function startFileSyncAttempt(
+  syncPosition: number,
+  data: Record<string, unknown>,
+  hostConn: DataConnection,
+  attemptGeneration: number,
+  onStarted: () => void,
+  context: string,
+): Promise<FileSyncStartResult> {
+  const buffer = getCurrentAudioBuffer();
+  let committed = false;
+  const occurrenceStillCurrent = (): boolean =>
+    attemptGeneration === _fileSyncAttemptGeneration &&
+    getState('network.hostConn') === hostConn &&
+    hostConn.open &&
+    !isLocalFilePaused() &&
+    isSyncPongPlayingFile(data) &&
+    isSyncPongTrackIdentityCurrent(data) &&
+    getCurrentAudioBuffer() === buffer;
+  const commitStarted = (): void => {
+    if (committed || !occurrenceStillCurrent()) return;
+    committed = true;
+    onStarted();
+  };
+
+  try {
+    const started = await play(syncPosition, 0, undefined, occurrenceStillCurrent, {
+      timing: 'catch-up',
+      onRecoveredStarted: commitStarted,
+    });
+    if (started) commitStarted();
+    return committed ? 'started' : 'pending';
+  } catch (error) {
+    log.warn(`[Sync] Failed to apply ${context}:`, error);
+    return 'rejected';
+  }
+}
+
+function emitFileSyncStartFailure(
+  result: Exclude<FileSyncStartResult, 'started'>,
+  expectedPositionSeconds: number,
+  attemptGeneration: number,
+  localPositionSeconds?: number,
+): void {
+  if (attemptGeneration !== _fileSyncAttemptGeneration) return;
+  bus.emit('sync:diagnostic-standard-decision', {
+    decision: 'skipped',
+    expectedPositionSeconds,
+    ...(localPositionSeconds === undefined ? {} : { localPositionSeconds }),
+    reason: result === 'rejected' ? 'play-rejected' : 'play-not-started',
+  });
+}
+
+async function maybeSoftResyncFile(
+  syncPosition: number,
+  localPosition: number,
+  data: Record<string, unknown>,
+  hostConn: DataConnection,
+  attemptGeneration: number,
+): Promise<'not-needed' | FileSyncStartResult> {
   const signedDrift = syncPosition - localPosition;
   const absDrift = Math.abs(signedDrift);
 
   if (absDrift < FILE_SOFT_RESYNC_DRIFT_SEC) {
     resetSoftFileResyncState();
-    return false;
+    return 'not-needed';
   }
 
   const now = Date.now();
   if (now - _lastSoftFileResyncAt < FILE_SOFT_RESYNC_COOLDOWN_MS) {
     resetSoftFileResyncState();
-    return false;
+    return 'not-needed';
   }
 
   const direction: -1 | 1 = signedDrift > 0 ? 1 : -1;
@@ -347,15 +411,27 @@ function maybeSoftResyncFile(syncPosition: number, localPosition: number): boole
     _softFileDriftSamples = 1;
   }
 
-  if (_softFileDriftSamples < FILE_SOFT_RESYNC_REQUIRED_SAMPLES) return false;
+  if (_softFileDriftSamples < FILE_SOFT_RESYNC_REQUIRED_SAMPLES) return 'not-needed';
 
-  log.info(
-    `[Sync] Soft file resync: drift=${Math.round(signedDrift * 1000)}ms, samples=${_softFileDriftSamples}`,
+  return startFileSyncAttempt(
+    syncPosition,
+    data,
+    hostConn,
+    attemptGeneration,
+    () => {
+      log.info(
+        `[Sync] Soft file resync: drift=${Math.round(signedDrift * 1000)}ms, samples=${_softFileDriftSamples}`,
+      );
+      _lastSoftFileResyncAt = Date.now();
+      resetSoftFileResyncState();
+      bus.emit('sync:diagnostic-standard-decision', {
+        decision: 'soft',
+        expectedPositionSeconds: syncPosition,
+        localPositionSeconds: localPosition,
+      });
+    },
+    'soft file resync',
   );
-  _lastSoftFileResyncAt = now;
-  resetSoftFileResyncState();
-  play(syncPosition);
-  return true;
 }
 
 function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): void {
@@ -399,7 +475,7 @@ function handleSyncPing(data: Record<string, unknown>, conn: DataConnection): vo
   }
 }
 
-function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): void {
+async function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): Promise<void> {
   // SYNC_PONG is host's reply to a guest's SYNC_PING — host never receives
   // it on the legitimate path, and a guest only receives it from hostConn.
   // Without this guard, any non-host peer could inject a fake
@@ -417,6 +493,10 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   // 1. Clock offset calculation (from shared-clock processSyncPong)
   const result = processSyncPong(pingId, hostTime);
   if (!result) return;
+  // Data-channel events call handleData independently, so handler promises are
+  // not serialized. Every accepted newer PONG revokes the success continuation
+  // of an older in-flight/queued correction for this guest.
+  const attemptGeneration = ++_fileSyncAttemptGeneration;
 
   const pongTrackKey = getState('demo.active')
     ? typeof data.demoTrackIndex === 'number' && Number.isSafeInteger(data.demoTrackIndex)
@@ -527,13 +607,24 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
       log.info(
         `[Sync] Initial bootstrap: starting playback at host position ${syncPosition.toFixed(2)}s`,
       );
-      play(syncPosition);
-      _needsInitialSync = false;
-      bus.emit('sync:arm-initial');
-      bus.emit('sync:diagnostic-standard-decision', {
-        decision: 'bootstrap',
-        expectedPositionSeconds: syncPosition,
-      });
+      const startResult = await startFileSyncAttempt(
+        syncPosition,
+        data,
+        hostConn,
+        attemptGeneration,
+        () => {
+          _needsInitialSync = false;
+          bus.emit('sync:arm-initial');
+          bus.emit('sync:diagnostic-standard-decision', {
+            decision: 'bootstrap',
+            expectedPositionSeconds: syncPosition,
+          });
+        },
+        'initial file bootstrap',
+      );
+      if (startResult !== 'started') {
+        emitFileSyncStartFailure(startResult, syncPosition, attemptGeneration);
+      }
     } else {
       bus.emit('sync:diagnostic-standard-decision', {
         decision: 'skipped',
@@ -556,15 +647,26 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
 
   // First pong after play start: unconditionally lock to host
   if (_needsInitialSync) {
-    _needsInitialSync = false;
-    resetSoftFileResyncState();
     const localPosition = getTrackPosition();
-    play(syncPosition);
-    bus.emit('sync:diagnostic-standard-decision', {
-      decision: 'initial',
-      expectedPositionSeconds: syncPosition,
-      localPositionSeconds: localPosition,
-    });
+    const startResult = await startFileSyncAttempt(
+      syncPosition,
+      data,
+      hostConn,
+      attemptGeneration,
+      () => {
+        _needsInitialSync = false;
+        resetSoftFileResyncState();
+        bus.emit('sync:diagnostic-standard-decision', {
+          decision: 'initial',
+          expectedPositionSeconds: syncPosition,
+          localPositionSeconds: localPosition,
+        });
+      },
+      'initial file resync',
+    );
+    if (startResult !== 'started') {
+      emitFileSyncStartFailure(startResult, syncPosition, attemptGeneration, localPosition);
+    }
     return;
   }
   // Ongoing: hard-correct large divergence immediately; soft-correct stable
@@ -573,21 +675,43 @@ function handleSyncPong(data: Record<string, unknown>, conn?: DataConnection): v
   const localPosition = getTrackPosition();
   const drift = Math.abs(syncPosition - localPosition);
   if (drift > FILE_HARD_RESYNC_DRIFT_SEC) {
-    resetSoftFileResyncState();
-    play(syncPosition);
+    const startResult = await startFileSyncAttempt(
+      syncPosition,
+      data,
+      hostConn,
+      attemptGeneration,
+      () => {
+        resetSoftFileResyncState();
+        bus.emit('sync:diagnostic-standard-decision', {
+          decision: 'hard',
+          expectedPositionSeconds: syncPosition,
+          localPositionSeconds: localPosition,
+        });
+      },
+      'hard file resync',
+    );
+    if (startResult !== 'started') {
+      emitFileSyncStartFailure(startResult, syncPosition, attemptGeneration, localPosition);
+    }
+    return;
+  }
+  const softResult = await maybeSoftResyncFile(
+    syncPosition,
+    localPosition,
+    data,
+    hostConn,
+    attemptGeneration,
+  );
+  if (attemptGeneration !== _fileSyncAttemptGeneration) return;
+  if (softResult === 'not-needed') {
     bus.emit('sync:diagnostic-standard-decision', {
-      decision: 'hard',
+      decision: 'observe',
       expectedPositionSeconds: syncPosition,
       localPositionSeconds: localPosition,
     });
-    return;
+  } else if (softResult !== 'started') {
+    emitFileSyncStartFailure(softResult, syncPosition, attemptGeneration, localPosition);
   }
-  const softResynced = maybeSoftResyncFile(syncPosition, localPosition);
-  bus.emit('sync:diagnostic-standard-decision', {
-    decision: softResynced ? 'soft' : 'observe',
-    expectedPositionSeconds: syncPosition,
-    localPositionSeconds: localPosition,
-  });
 }
 
 // Keep the legacy standard-room compatibility read at the established sync

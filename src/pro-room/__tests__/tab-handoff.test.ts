@@ -70,4 +70,18 @@ describe('PRO room cross-tab handoff', () => {
     vi.stubGlobal('BroadcastChannel', undefined);
     expect(() => announceProRoomTabTakeover('000001')).not.toThrow();
   });
+
+  it('isolates takeover observers so one failure cannot suppress later cleanup', () => {
+    const received: string[] = [];
+    onProRoomTabTakeover(() => {
+      throw new Error('stale observer failed');
+    });
+    onProRoomTabTakeover((roomCode) => received.push(roomCode));
+    const otherTab = new FakeBroadcastChannel('musixquare-pro-room-tab-handoff-v1');
+
+    expect(() =>
+      otherTab.postMessage({ type: 'pro-room-tab-takeover', roomCode: '000001' }),
+    ).not.toThrow();
+    expect(received).toEqual(['000001']);
+  });
 });

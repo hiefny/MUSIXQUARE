@@ -300,7 +300,9 @@ export function registerServiceWorker(): void {
 
         newWorker.addEventListener('statechange', () => {
           if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-            void handleWaitingWorker(reg.waiting || newWorker);
+            handleWaitingWorker(reg.waiting || newWorker).catch((error) => {
+              log.warn('[SW] Waiting worker prompt failed', error);
+            });
           }
         });
       });
@@ -308,7 +310,9 @@ export function registerServiceWorker(): void {
       // updatefound only reports future installations. A worker can already
       // be waiting after a prior "Later" choice or a background-tab update.
       if (reg.waiting && navigator.serviceWorker.controller) {
-        void handleWaitingWorker(reg.waiting);
+        handleWaitingWorker(reg.waiting).catch((error) => {
+          log.warn('[SW] Existing waiting worker prompt failed', error);
+        });
       }
 
       // Check for updates periodically (every 60 minutes)
@@ -331,9 +335,12 @@ export function registerServiceWorker(): void {
     }
   };
 
-  if (document.readyState === 'complete') {
-    doRegister();
-  } else {
-    window.addEventListener('load', doRegister, { once: true });
-  }
+  const startRegistration = (): void => {
+    doRegister().catch((error) => {
+      log.warn('[SW] Registration escaped its internal failure boundary', error);
+    });
+  };
+
+  if (document.readyState === 'complete') startRegistration();
+  else window.addEventListener('load', startRegistration, { once: true });
 }

@@ -22,7 +22,9 @@ import {
 function createAppExecutionContextFixture() {
   return {
     waitUntil(promise: Promise<unknown>): void {
-      void promise;
+      promise.catch((error) => {
+        console.error('[TestExecutionContext] waitUntil task rejected', error);
+      });
     },
   };
 }

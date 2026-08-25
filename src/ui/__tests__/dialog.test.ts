@@ -131,7 +131,7 @@ describe('Dialog System', () => {
 
     it('shows the overlay', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
-      showDialog({ title: 'Test' });
+      const promise = showDialog({ title: 'Test' });
       vi.advanceTimersByTime(10);
 
       const overlay = document.getElementById('dialog-overlay');
@@ -139,11 +139,12 @@ describe('Dialog System', () => {
 
       closeDialog();
       vi.advanceTimersByTime(10);
+      await promise;
     });
 
     it('sets title and message text', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
-      showDialog({ title: 'My Title', message: 'My Message' });
+      const promise = showDialog({ title: 'My Title', message: 'My Message' });
       vi.advanceTimersByTime(10);
 
       expect(document.getElementById('dialog-title')?.textContent).toBe('My Title');
@@ -151,11 +152,12 @@ describe('Dialog System', () => {
 
       closeDialog();
       vi.advanceTimersByTime(10);
+      await promise;
     });
 
     it('handles string input (wraps to message)', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
-      showDialog('Hello World');
+      const promise = showDialog('Hello World');
       vi.advanceTimersByTime(10);
 
       expect(document.getElementById('dialog-message')?.textContent).toBe('Hello World');
@@ -163,11 +165,12 @@ describe('Dialog System', () => {
 
       closeDialog();
       vi.advanceTimersByTime(10);
+      await promise;
     });
 
     it('shows secondary button when secondaryText provided', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
-      showDialog({ title: 'Test', secondaryText: 'Cancel' });
+      const promise = showDialog({ title: 'Test', secondaryText: 'Cancel' });
       vi.advanceTimersByTime(10);
 
       const btn = document.getElementById('btn-dialog-secondary') as HTMLButtonElement | null;
@@ -179,11 +182,12 @@ describe('Dialog System', () => {
 
       closeDialog();
       vi.advanceTimersByTime(10);
+      await promise;
     });
 
     it('hides secondary button when no secondaryText', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
-      showDialog({ title: 'Test' });
+      const promise = showDialog({ title: 'Test' });
       vi.advanceTimersByTime(10);
 
       const btn = document.getElementById('btn-dialog-secondary') as HTMLButtonElement | null;
@@ -191,6 +195,7 @@ describe('Dialog System', () => {
 
       closeDialog();
       vi.advanceTimersByTime(10);
+      await promise;
     });
 
     it('returns the edited split PIN and keeps its hint adjacent to the input group', async () => {
@@ -295,13 +300,14 @@ describe('Dialog System', () => {
 
     it('removes show class from overlay', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
-      showDialog({ title: 'Test' });
+      const promise = showDialog({ title: 'Test' });
       vi.advanceTimersByTime(10);
 
       closeDialog();
       const overlay = document.getElementById('dialog-overlay');
       expect(overlay?.classList.contains('show')).toBe(false);
       vi.advanceTimersByTime(10);
+      await promise;
     });
   });
 
@@ -392,7 +398,7 @@ describe('Dialog System', () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       let resolved = false;
       const promise = showDialog({ title: 'Default Esc Test' });
-      promise.then(() => {
+      const observedResolution = promise.then(() => {
         resolved = true;
       });
       vi.advanceTimersByTime(10);
@@ -404,14 +410,14 @@ describe('Dialog System', () => {
 
       closeDialog('ok');
       vi.advanceTimersByTime(10);
-      await promise;
+      await observedResolution;
     });
 
     it('Escape does NOT close non-dismissible dialog', async () => {
       const { showDialog, closeDialog } = await import('../dialog.ts');
       let resolved = false;
       const promise = showDialog({ title: 'No Esc', dismissible: false });
-      promise.then(() => {
+      const observedResolution = promise.then(() => {
         resolved = true;
       });
       vi.advanceTimersByTime(10);
@@ -423,7 +429,7 @@ describe('Dialog System', () => {
 
       closeDialog('ok');
       vi.advanceTimersByTime(10);
-      await promise;
+      await observedResolution;
     });
   });
 });

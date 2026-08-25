@@ -31,6 +31,7 @@ import {
   type ProPlaybackMediaEndpoint,
   type ProPlaybackPrepareResult,
 } from '../playback-authority-hooks.ts';
+import { ProRoomPlaybackController } from '../playback-controller.ts';
 import { requestProRoomTransportRecovery } from '../transport-recovery.ts';
 import {
   acceptProRoomRealtimeFrameForTests,
@@ -495,6 +496,35 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     } finally {
       off();
     }
+  });
+
+  it('delegates public playback intents and recovers terminal session failures', async () => {
+    const terminalError = new ProRoomApiError('SESSION_REQUIRED', 401);
+    const recoverTerminalSession = vi.fn().mockResolvedValue(undefined);
+    const controller = new ProRoomPlaybackController({
+      isActive: () => true,
+      getCanonicalSnapshot: () => snapshot(),
+      getPlaylistSnapshot: () => snapshot(),
+      capturePlaylistLease: () => ({ generation: 1, roomCode: ROOM_CODE }),
+      isPlaylistLeaseCurrent: () => true,
+      getRoomAbortSignal: () => undefined,
+      subscribePlaylistProjection: () => () => undefined,
+      runHeartbeat: vi.fn().mockResolvedValue(undefined),
+      reportPlaybackTransitionReady: vi.fn().mockResolvedValue('waiting'),
+      executePlaybackCommand: vi.fn().mockRejectedValue(terminalError),
+      recoverTerminalSession,
+    });
+
+    await controller.enqueueIntent({
+      kind: 'play',
+      roomId: ROOM_CODE,
+      roomEpoch: ROOM_EPOCH,
+      queueItemId: QUEUE_ITEM_ID,
+      positionSeconds: 0,
+    });
+
+    expect(recoverTerminalSession).toHaveBeenCalledOnce();
+    expect(recoverTerminalSession).toHaveBeenCalledWith(terminalError);
   });
 
   it('drops a superseded UI command before it reaches the serialized API tail', async () => {

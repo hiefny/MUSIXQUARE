@@ -1509,10 +1509,7 @@ type OpsDriftFetcher = (url: string, init: RequestInit) => Response | Promise<Re
 
 function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>, reason: string): void {
   try {
-    const cancellation = reader.cancel(reason);
-    if (cancellation && typeof cancellation.catch === 'function') {
-      void cancellation.catch(() => undefined);
-    }
+    reader.cancel(reason).catch(() => undefined);
   } catch {
     // Cleanup must not hide or delay the primary timeout/protocol/cap error.
   }

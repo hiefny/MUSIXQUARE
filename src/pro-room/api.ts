@@ -531,7 +531,7 @@ function cancelReaderBestEffort(
   reason?: unknown,
 ): void {
   try {
-    void Promise.resolve(reader.cancel(reason)).catch(() => undefined);
+    Promise.resolve(reader.cancel(reason)).catch(() => undefined);
   } catch {
     // Cancellation is cleanup only; preserve the protocol result.
   }
@@ -539,7 +539,7 @@ function cancelReaderBestEffort(
 
 function cancelUnreadResponseBody(response: Response): void {
   try {
-    void response.body?.cancel().catch(() => undefined);
+    response.body?.cancel().catch(() => undefined);
   } catch {
     // Best-effort resource release; the protocol error below is authoritative.
   }

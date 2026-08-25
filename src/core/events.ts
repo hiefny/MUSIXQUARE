@@ -15,9 +15,13 @@ type EventKey = keyof EventMap;
 
 type EventArgs<K extends EventKey> = EventMap[K];
 
-type TypedListener<K extends EventKey> = (...args: EventArgs<K>) => void;
+// Listener results are intentionally observable: emit() attaches a rejection
+// handler to every returned thenable while preserving synchronous fan-out.
+// Keeping this as `unknown` (rather than `void`) makes that ownership contract
+// visible to both TypeScript and type-aware Promise lint rules.
+type TypedListener<K extends EventKey> = (...args: EventArgs<K>) => unknown;
 
-type AnyListener = (...args: unknown[]) => void;
+type AnyListener = (...args: unknown[]) => unknown;
 
 const _onceOriginals = new WeakMap<AnyListener, AnyListener>();
 
@@ -43,7 +47,7 @@ class EventBusImpl {
   once<K extends EventKey>(event: K, fn: TypedListener<K>): () => void {
     const wrapper: AnyListener = (...args) => {
       this.off(event, wrapper as TypedListener<K>);
-      (fn as AnyListener)(...args);
+      return (fn as AnyListener)(...args);
     };
     _onceOriginals.set(wrapper, fn as AnyListener);
     return this.on(event, wrapper as TypedListener<K>);
@@ -80,7 +84,16 @@ class EventBusImpl {
     const snapshot = [...set];
     for (const fn of snapshot) {
       try {
-        fn(...args);
+        const result = fn(...args);
+        if (
+          result !== null &&
+          (typeof result === 'object' || typeof result === 'function') &&
+          typeof (result as PromiseLike<unknown>).then === 'function'
+        ) {
+          void Promise.resolve(result).catch((error) => {
+            log.error(`[EventBus] Async handler for "${event as string}" rejected:`, error);
+          });
+        }
       } catch (e) {
         log.error(`[EventBus] Error in handler for "${event as string}":`, e);
       }

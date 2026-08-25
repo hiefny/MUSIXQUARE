@@ -203,7 +203,9 @@ export function getLanguageMode(): LanguageMode {
 
 /** Switch language mode. Persists to localStorage and retranslates DOM. */
 export function setLanguageMode(mode: string): void {
-  void _setLanguageMode(mode);
+  _setLanguageMode(mode).catch((error) => {
+    log.warn('[i18n] Language mode update failed', error);
+  });
 }
 
 async function _setLanguageMode(mode: string): Promise<void> {
@@ -244,7 +246,11 @@ export async function initI18n(): Promise<void> {
     // is never re-emitted (and its re-render subscribers never churn)
     // unless a previously-requested locale is genuinely missing.
     window.addEventListener('online', () => {
-      if (!_dicts[_resolved] && _localeLoaders[_resolved]) void _applyLanguage(_resolved);
+      if (!_dicts[_resolved] && _localeLoaders[_resolved]) {
+        _applyLanguage(_resolved).catch((error) => {
+          log.warn('[i18n] Online locale recovery failed', error);
+        });
+      }
     });
   } catch {
     /* ignore */

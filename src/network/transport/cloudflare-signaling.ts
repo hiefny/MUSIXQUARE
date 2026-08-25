@@ -40,6 +40,14 @@ type SignalingMessage =
       memberIdentity?: StandardRoomMemberIdentity;
       remoteShareUploadAssertionVersion?: 1;
       remoteShareUploadAssertionKeyringVersion?: 1;
+      roomPasswordMutationId?: string;
+      roomPasswordApplied?: true;
+    }
+  | {
+      type: 'room-password-result';
+      mutationId: string;
+      applied: boolean;
+      errorType?: string;
     }
   | { type: 'error'; errorType?: string; message?: string }
   | {
@@ -108,7 +116,7 @@ type SignalingMessage =
   | ProQueueAdditionFrame;
 
 type OutgoingSignal =
-  | { type: 'room-password-set'; password: string }
+  | { type: 'room-password-set'; password: string; pinMutationId: string }
   | ({
       type: 'remote-share-upload-assertion-request';
       correlationId: string;
@@ -1038,6 +1046,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly proParticipantId: string | null;
   private proSignalingAccess: ProSignalingOptions | null;
   private roomPassword: string | null = null;
+  private roomPasswordMutationId = randomBase64Url(24);
+  private acknowledgedRoomPasswordMutationId: string | null = null;
+  private acknowledgedRoomPasswordSocket: WebSocket | null = null;
   private readonly standardRoomIdentityRefreshTimerKey = 'standard-room-identity-refresh';
   private readonly standardRoomIdentityDeletionReconcileTimerKey =
     'standard-room-identity-deletion-reconcile';
@@ -1140,11 +1151,34 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     setManagedTimer(
       this.standardRoomIdentityRefreshTimerKey,
-      () => {
-        void this.refreshStandardRoomIdentity();
-      },
+      () =>
+        this.refreshStandardRoomIdentity().catch((error) =>
+          this.handleStandardRoomIdentityBackgroundFailure(error, 'renewal'),
+        ),
       delayMs,
     );
+  }
+
+  private handleStandardRoomIdentityBackgroundFailure(error: unknown, operation: string): void {
+    // Identity projection is optional background enrichment on an already-open
+    // Standard-room socket. A failed send must not masquerade as a fatal room
+    // transport error (which the UI turns into a generic network toast).
+    try {
+      log.warn(`[Transport] Standard room identity ${operation} failed; retrying`, error);
+    } catch {
+      // Diagnostics must never replace the original non-fatal outcome.
+    }
+    try {
+      if (!this.destroyed && !this.proSignalingAccess) {
+        this.scheduleStandardRoomIdentityRefresh(STANDARD_ROOM_IDENTITY_RETRY_MS);
+      }
+    } catch (retryError) {
+      try {
+        log.warn('[Transport] Failed to schedule Standard room identity retry', retryError);
+      } catch {
+        // The room transport remains authoritative even if diagnostics fail.
+      }
+    }
   }
 
   private scheduleStandardRoomIdentityDeletionReconcile(): void {
@@ -1159,9 +1193,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (getManagedTimer(this.standardRoomIdentityDeletionReconcileTimerKey) !== null) return;
     setManagedTimer(
       this.standardRoomIdentityDeletionReconcileTimerKey,
-      () => {
-        void this.refreshStandardRoomIdentity(false);
-      },
+      () =>
+        this.refreshStandardRoomIdentity(false).catch((error) =>
+          this.handleStandardRoomIdentityBackgroundFailure(error, 'deletion reconciliation'),
+        ),
       STANDARD_ROOM_IDENTITY_RETRY_MS,
     );
   }
@@ -1224,6 +1259,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       JSON.stringify({
         type: 'host-auth',
         secret: this.hostSecret,
+        desiredRoomPassword: this.roomPassword || '',
+        pinMutationId: this.roomPasswordMutationId,
       }),
     );
   }
@@ -1489,6 +1526,23 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (!this.hostRoomId) return;
     const normalized = typeof password === 'string' && /^\d{8}$/.test(password) ? password : '';
     this.roomPassword = normalized || null;
+    this.roomPasswordMutationId = randomBase64Url(24);
+    this.acknowledgedRoomPasswordMutationId = null;
+    this.acknowledgedRoomPasswordSocket = null;
+    const socket = this.hostSocket;
+    if (
+      !this.proSignalingAccess &&
+      socket?.readyState === WebSocket.OPEN &&
+      !this.standardRoomIdentityAdmittedHostSockets.has(socket)
+    ) {
+      // host-auth already captured the previous desired PIN. Do not let its
+      // peer-open briefly publish that stale configuration and admit a guest
+      // before the follow-up mutation round trip. Replace the pre-admission
+      // socket immediately; its next first frame carries this exact intent.
+      this.retireHostSignalingSocket(socket, true);
+      this.openHostSocket();
+      return;
+    }
     this.sendRoomPassword();
   }
 
@@ -1727,8 +1781,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (this.proSignalingAccess) return;
     const socket = this.hostSocket;
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (
+      this.acknowledgedRoomPasswordMutationId === this.roomPasswordMutationId &&
+      this.acknowledgedRoomPasswordSocket === socket
+    ) {
+      return;
+    }
+    if (!this.standardRoomIdentityAdmittedHostSockets.has(socket)) return;
     try {
-      this.send(socket, { type: 'room-password-set', password: this.roomPassword || '' });
+      this.send(socket, {
+        type: 'room-password-set',
+        password: this.roomPassword || '',
+        pinMutationId: this.roomPasswordMutationId,
+      });
     } catch (error) {
       this.emit('error', error);
     }
@@ -1970,6 +2035,31 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   ): Promise<void> {
     const message = await this.parseSignal(raw);
     if (this.destroyed || sourceSocket !== this.hostSocket) return;
+    if (message.type === 'room-password-result') {
+      if (message.mutationId !== this.roomPasswordMutationId) return;
+      if (message.applied) {
+        this.acknowledgedRoomPasswordMutationId = message.mutationId;
+        this.acknowledgedRoomPasswordSocket = sourceSocket;
+      } else {
+        try {
+          log.warn(
+            `[Transport] Standard room password mutation was not committed (${message.errorType || 'unknown'})`,
+          );
+        } catch {
+          // A failed diagnostic must not consume the reconnect-owned intent.
+        }
+        try {
+          if (sourceSocket?.readyState === WebSocket.OPEN) {
+            sourceSocket.close(4001, 'ROOM_PASSWORD_RETRY_REQUIRED');
+          }
+        } catch {
+          // The Worker also closes failed mutations. This local close is the
+          // defensive convergence path for mixed versions or a lost close
+          // frame; reconnect will replay the same desired PIN and mutation ID.
+        }
+      }
+      return;
+    }
     if (message.type === 'remote-share-upload-assertion') {
       if (!sourceSocket) return;
       const pending = this.takePendingRemoteShareUploadAssertion(
@@ -2047,6 +2137,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.open = true;
       this.disconnected = false;
       this.emit('open', message.peerId);
+      // host-auth commits a snapshot, but the local desired PIN can change
+      // while that write is in flight. Always echo the current mutation after
+      // peer-open; the Worker keeps guest admission fenced until it ACKs this
+      // final confirmation.
       this.sendRoomPassword();
       return;
     }
@@ -2586,7 +2680,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // The App Worker mints a deletion-audience assertion only after the D1
     // account deletion transaction commits. A normal attach assertion is
     // intentionally never cached or repurposed as deletion authority.
-    void this.refreshStandardRoomIdentity();
+    this.refreshStandardRoomIdentity().catch((error) =>
+      this.handleStandardRoomIdentityBackgroundFailure(error, 'deletion'),
+    );
   }
 
   private async startMediaOffer(

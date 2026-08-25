@@ -11,7 +11,11 @@ const mocks = vi.hoisted(() => ({
     }) => true,
   ),
   rendezvous: vi.fn(
-    (): {
+    (_options?: {
+      silent?: boolean;
+      suppressProgressToast?: boolean;
+      onComplete?: () => void;
+    }): {
       status: 'started' | 'completed' | 'busy' | 'not-ready' | 'no-data';
       retryAfterMs?: number;
     } => ({
@@ -235,6 +239,9 @@ describe('participant-local output rejoin', () => {
       suppressProgressToast: true,
       onComplete: expect.any(Function),
     });
+    const onComplete = mocks.rendezvous.mock.calls[0]![0]?.onComplete;
+    expect(onComplete).toBeTypeOf('function');
+    expect(() => onComplete?.()).not.toThrow();
     expect(isLocalYouTubePaused()).toBe(false);
   });
 

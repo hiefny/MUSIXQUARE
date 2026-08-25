@@ -532,8 +532,9 @@ describe('coordinator-free PRO server channel', () => {
       fallbackTimeoutMs: 750,
     });
     let settled = false;
-    void calibrated.then(() => {
+    const observedCalibration = calibrated.then((result) => {
       settled = true;
+      return result;
     });
     await Promise.resolve();
     expect(settled).toBe(false);
@@ -557,7 +558,7 @@ describe('coordinator-free PRO server channel', () => {
     // RTT 10ms, offset +505ms. This lower-RTT sample must win the round.
     answerClockRequest(socket, second, 1_590);
 
-    await expect(calibrated).resolves.toBe(true);
+    await expect(observedCalibration).resolves.toBe(true);
     expect(bridge.serverNowMs).toBe(1_595);
     bridge.disconnect();
   });
@@ -572,8 +573,9 @@ describe('coordinator-free PRO server channel', () => {
       fallbackTimeoutMs: 750,
     });
     let settled = false;
-    void calibrated.then(() => {
+    const observedCalibration = calibrated.then((result) => {
       settled = true;
+      return result;
     });
     const first = clockRequests(socket).at(-1);
     if (!first) throw new Error('ready clock request was not sent');
@@ -584,7 +586,7 @@ describe('coordinator-free PRO server channel', () => {
     expect(settled).toBe(false);
 
     await vi.advanceTimersByTimeAsync(1);
-    await expect(calibrated).resolves.toBe(true);
+    await expect(observedCalibration).resolves.toBe(true);
     expect(bridge.serverNowMs).toBe(1_700);
     bridge.disconnect();
   });

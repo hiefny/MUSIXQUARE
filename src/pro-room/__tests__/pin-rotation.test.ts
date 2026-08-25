@@ -44,14 +44,15 @@ describe('completeProRoomPinRotation', () => {
     expect(order).toEqual(['old-heartbeat', 'pin', 'new-epoch-reconfigure']);
 
     let completed = false;
-    void completion.then(() => {
+    const observedCompletion = completion.then((result) => {
       completed = true;
+      return result;
     });
     await Promise.resolve();
     expect(completed).toBe(false);
 
     finishReconfigure();
-    await expect(completion).resolves.toBe(true);
+    await expect(observedCompletion).resolves.toBe(true);
     await scheduledHeartbeat;
   });
 

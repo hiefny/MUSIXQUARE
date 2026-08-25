@@ -202,11 +202,11 @@ async function generateQR(containerId: string): Promise<void> {
     copyBtn.type = 'button';
     copyBtn.className = 'btn-copy-invite-link';
     copyBtn.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${INVITE_LINK_ICON_PATH}"/></svg><span class="material-elastic-spinner signaling-recovery-spinner" aria-hidden="true"><svg viewBox="0 0 44 44"><circle cx="22" cy="22" r="18" pathLength="100"></circle></svg></span><span data-i18n="connect.copy_invite_link">${t('connect.copy_invite_link')}</span>`;
-    copyBtn.addEventListener('click', async () => {
+    const copyInviteLink = async (): Promise<void> => {
       const healthStatus = getState('network.signalingHealth').status;
       if (_manualSignalingRecovery || healthStatus === 'reconnecting') return;
       if (healthStatus === 'exhausted') {
-        void beginManualSignalingRecovery();
+        await beginManualSignalingRecovery();
         return;
       }
       // Route through copyTextToClipboard so the textarea+execCommand fallback
@@ -214,6 +214,12 @@ async function generateQR(containerId: string): Promise<void> {
       // (Toss in-app) where navigator.clipboard may reject or be absent.
       const ok = await copyTextToClipboard(shareUrl);
       showToast(ok ? t('connect.link_copied') : t('toast.copy_failed'));
+    };
+    copyBtn.addEventListener('click', () => {
+      copyInviteLink().catch((error) => {
+        log.warn('[Connect] Invite-link copy failed', error);
+        showToast(t('toast.copy_failed'));
+      });
     });
     container.appendChild(copyBtn);
     syncSignalingInviteButtons();
@@ -243,8 +249,12 @@ async function generateQR(containerId: string): Promise<void> {
 }
 
 function refreshAllQR(): void {
-  generateQR('qr-container');
-  generateQR('desktop-qr-container');
+  generateQR('qr-container').catch((error) => {
+    log.warn('[Connect] Mobile QR refresh failed', error);
+  });
+  generateQR('desktop-qr-container').catch((error) => {
+    log.warn('[Connect] Desktop QR refresh failed', error);
+  });
 }
 
 const SIGNALING_RECOVERY_OVERLAY_ID = 'signaling-recovery-overlay';
@@ -379,14 +389,21 @@ function setSignalingRecoveryDialogState(
 
   if (!overlay || !dialog || !title || !message || !actions || !confirm || !retry) {
     if (state === 'failed') {
-      void showDialog({
+      showDialog({
         title: t('connect.signaling_failed'),
         message: t('connect.signaling_exhausted'),
         buttonText: t('connect.signaling_retry'),
         secondaryText: t('common.ok'),
-      }).then((result) => {
-        if (result.action === 'ok') void beginManualSignalingRecovery();
-      });
+      })
+        .then((result) => {
+          if (result.action !== 'ok') return;
+          beginManualSignalingRecovery().catch((error) => {
+            log.warn('[Connect] Signaling recovery retry failed', error);
+          });
+        })
+        .catch((error) => {
+          log.warn('[Connect] Signaling recovery dialog failed', error);
+        });
     }
     return;
   }
@@ -427,7 +444,9 @@ function initSignalingRecoveryDialog(): void {
 
   confirm.addEventListener('click', () => closeSignalingRecoveryDialog());
   retry.addEventListener('click', () => {
-    void beginManualSignalingRecovery();
+    beginManualSignalingRecovery().catch((error) => {
+      log.warn('[Connect] Manual signaling recovery failed', error);
+    });
     closeSignalingRecoveryDialog(true);
   });
   overlay.addEventListener('keydown', (event) => {
@@ -736,7 +755,10 @@ function initRoomPasswordControls(): void {
     if (!button) return;
     button.addEventListener('click', () => {
       if (_isProRoom()) {
-        void changeProRoomPin();
+        changeProRoomPin().catch((error) => {
+          log.warn('[Connect] PRO room PIN change failed', error);
+          showToast(t('error.network_generic'));
+        });
         return;
       }
       if (_guardRoomPasswordCtrl()) return;
@@ -1023,7 +1045,12 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
             'revoke',
             t('connect.administrator_revoke_aria', { name: administrator.displayName }),
             REVOKE_ICON,
-            () => void confirmRevokeAdministrator(administrator),
+            () => {
+              confirmRevokeAdministrator(administrator).catch((error) => {
+                log.warn('[Connect] Administrator revoke confirmation failed', error);
+                showToast(t('error.network_generic'));
+              });
+            },
           ),
         );
         row.appendChild(actions);
@@ -1418,9 +1445,12 @@ function initAdministratorPermissionsDialog(): void {
   document
     .getElementById('btn-administrator-permissions-cancel')
     ?.addEventListener('click', closeAdministratorPermissionsDialog);
-  document
-    .getElementById('btn-administrator-permissions-save')
-    ?.addEventListener('click', () => void saveAdministratorPermissions());
+  document.getElementById('btn-administrator-permissions-save')?.addEventListener('click', () => {
+    saveAdministratorPermissions().catch((error) => {
+      log.warn('[Connect] Administrator permission save failed', error);
+      showToast(t('error.network_generic'));
+    });
+  });
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) closeAdministratorPermissionsDialog();
   });
@@ -1562,7 +1592,7 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
             event.preventDefault();
             event.stopPropagation();
             opBtn.disabled = true;
-            void grantAdministrator(member)
+            grantAdministrator(member)
               .catch((error) => {
                 log.warn('[Connect] Could not grant administrator', error);
                 showToast(t('error.network_generic'));
@@ -1603,29 +1633,30 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
           kickBtn.setAttribute('aria-label', t('connect.kick_title'));
           kickBtn.innerHTML =
             '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
-          kickBtn.addEventListener('click', async (event) => {
+          kickBtn.addEventListener('click', (event) => {
             event.preventDefault();
             event.stopPropagation();
-            const result = await showDialog({
-              title: t('connect.kick_title'),
-              message: t('connect.kick_member_message', { name: member.label }),
-              buttonText: t('connect.kick_yes'),
-              secondaryText: t('common.cancel'),
-            });
-            if (
-              result.action !== 'ok' ||
-              !hasRoomCapability('members.manage') ||
-              isRoomOwner ||
-              (isAdministrator && !_canManageAdministrators())
-            ) {
-              return;
-            }
-            try {
+            const confirmAndKickMember = async (): Promise<void> => {
+              const result = await showDialog({
+                title: t('connect.kick_title'),
+                message: t('connect.kick_member_message', { name: member.label }),
+                buttonText: t('connect.kick_yes'),
+                secondaryText: t('common.cancel'),
+              });
+              if (
+                result.action !== 'ok' ||
+                !hasRoomCapability('members.manage') ||
+                isRoomOwner ||
+                (isAdministrator && !_canManageAdministrators())
+              ) {
+                return;
+              }
               await kickRoomMember(member);
-            } catch (error) {
+            };
+            confirmAndKickMember().catch((error) => {
               log.warn('[Connect] Could not remove member', error);
               showToast(t('error.network_generic'));
-            }
+            });
           });
           actions.appendChild(kickBtn);
         }
@@ -1685,83 +1716,87 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
             kickDeviceBtn.setAttribute('aria-label', `${t('connect.kick_title')}: ${displayName}`);
             kickDeviceBtn.innerHTML =
               '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
-            kickDeviceBtn.addEventListener('click', async (event) => {
+            kickDeviceBtn.addEventListener('click', (event) => {
               event.preventDefault();
               event.stopPropagation();
-              if (deviceExpansionRoomBoundary() !== renderBoundary) return;
-              const result = await showDialog({
-                title: t('connect.kick_title'),
-                message: t('connect.kick_message', { name: displayName }),
-                buttonText: t('connect.kick_yes'),
-                secondaryText: t('common.cancel'),
-              });
-              if (
-                result.action !== 'ok' ||
-                !hasRoomCapability('members.manage') ||
-                deviceExpansionRoomBoundary() !== renderBoundary
-              ) {
-                return;
-              }
+              const confirmAndKickPhysicalDevice = async (): Promise<void> => {
+                if (deviceExpansionRoomBoundary() !== renderBoundary) return;
+                const result = await showDialog({
+                  title: t('connect.kick_title'),
+                  message: t('connect.kick_message', { name: displayName }),
+                  buttonText: t('connect.kick_yes'),
+                  secondaryText: t('common.cancel'),
+                });
+                if (
+                  result.action !== 'ok' ||
+                  !hasRoomCapability('members.manage') ||
+                  deviceExpansionRoomBoundary() !== renderBoundary
+                ) {
+                  return;
+                }
 
-              // The confirmation dialog can outlive a room switch or a
-              // heartbeat update. Re-resolve every identity and authority
-              // decision from the latest projection before dispatching.
-              const latestDevices = _lastDeviceList;
-              const latestDeviceById = new Map(
-                latestDevices
-                  .filter((candidate) => candidate && typeof candidate.id === 'string')
-                  .map((candidate) => [candidate.id, candidate] as const),
-              );
-              const latestCurrentDeviceId = getState('network.myId') || '';
-              const latestTarget = latestDeviceById.get(device.id);
-              if (
-                !latestTarget ||
-                latestTarget.id === latestCurrentDeviceId ||
-                latestTarget.status !== 'connected'
-              ) {
-                return;
-              }
+                // The confirmation dialog can outlive a room switch or a
+                // heartbeat update. Re-resolve every identity and authority
+                // decision from the latest projection before dispatching.
+                const latestDevices = _lastDeviceList;
+                const latestDeviceById = new Map(
+                  latestDevices
+                    .filter((candidate) => candidate && typeof candidate.id === 'string')
+                    .map((candidate) => [candidate.id, candidate] as const),
+                );
+                const latestCurrentDeviceId = getState('network.myId') || '';
+                const latestTarget = latestDeviceById.get(device.id);
+                if (
+                  !latestTarget ||
+                  latestTarget.id === latestCurrentDeviceId ||
+                  latestTarget.status !== 'connected'
+                ) {
+                  return;
+                }
 
-              const latestMembers = groupConnectedRoomMembers(latestDevices, latestCurrentDeviceId);
-              const latestMember = latestMembers.find((candidate) =>
-                candidate.deviceIds.includes(latestTarget.id),
-              );
-              if (!latestMember) return;
-              const latestAdministrators = _administratorsForMembers(latestMembers);
-              const latestAuthorityKey = memberAuthorityKey(latestMember);
-              const latestIsAdministrator =
-                latestMember.isAdministrator ||
-                latestAdministrators.some(
-                  (administrator) => administrator.memberId === latestAuthorityKey,
+                const latestMembers = groupConnectedRoomMembers(
+                  latestDevices,
+                  latestCurrentDeviceId,
                 );
-              const latestIsRoomOwner = latestAdministrators.some(
-                (administrator) =>
-                  administrator.isOwner && administrator.memberId === latestAuthorityKey,
-              );
-              const ownAuthenticatedSiblingNow =
-                latestMember.isCurrent &&
-                latestMember.isAuthenticated &&
-                isAuthenticatedSiblingDevice(
-                  latestDeviceById.get(latestCurrentDeviceId),
-                  latestTarget,
+                const latestMember = latestMembers.find((candidate) =>
+                  candidate.deviceIds.includes(latestTarget.id),
                 );
-              if (
-                ownAuthenticatedSiblingNow
-                  ? !_isProRoom() && latestTarget.isHost === true
-                  : latestMember.isCurrent ||
-                    latestMember.isHost ||
-                    latestTarget.isHost === true ||
-                    latestIsRoomOwner ||
-                    (latestIsAdministrator && !_canManageAdministrators())
-              ) {
-                return;
-              }
-              try {
+                if (!latestMember) return;
+                const latestAdministrators = _administratorsForMembers(latestMembers);
+                const latestAuthorityKey = memberAuthorityKey(latestMember);
+                const latestIsAdministrator =
+                  latestMember.isAdministrator ||
+                  latestAdministrators.some(
+                    (administrator) => administrator.memberId === latestAuthorityKey,
+                  );
+                const latestIsRoomOwner = latestAdministrators.some(
+                  (administrator) =>
+                    administrator.isOwner && administrator.memberId === latestAuthorityKey,
+                );
+                const ownAuthenticatedSiblingNow =
+                  latestMember.isCurrent &&
+                  latestMember.isAuthenticated &&
+                  isAuthenticatedSiblingDevice(
+                    latestDeviceById.get(latestCurrentDeviceId),
+                    latestTarget,
+                  );
+                if (
+                  ownAuthenticatedSiblingNow
+                    ? !_isProRoom() && latestTarget.isHost === true
+                    : latestMember.isCurrent ||
+                      latestMember.isHost ||
+                      latestTarget.isHost === true ||
+                      latestIsRoomOwner ||
+                      (latestIsAdministrator && !_canManageAdministrators())
+                ) {
+                  return;
+                }
                 await kickRoomPhysicalDevice(latestTarget);
-              } catch (error) {
+              };
+              confirmAndKickPhysicalDevice().catch((error) => {
                 log.warn('[Connect] Could not disconnect physical device', error);
                 showToast(t('error.network_generic'));
-              }
+              });
             });
             subrow.appendChild(kickDeviceBtn);
           }
@@ -1925,17 +1960,26 @@ export function initConnect(): void {
       message: `${t('dialog.return_home_msg')}\n${t('dialog.return_home_detail')}`,
       buttonText: t('common.ok'),
       secondaryText: t('common.cancel'),
-    }).then((res) => {
-      if (res && res.action === 'ok') {
-        scheduleSessionReset(t('dialog.leaving_session'), navigateToAppHome);
-      }
-    });
+    })
+      .then((res) => {
+        if (res && res.action === 'ok') {
+          scheduleSessionReset(t('dialog.leaving_session'), navigateToAppHome);
+        }
+      })
+      .catch((error) => {
+        log.warn('[Connect] Leave-session dialog failed', error);
+      });
   };
   document.getElementById('btn-leave-session')?.addEventListener('click', leaveHandler);
   document.getElementById('desktop-btn-leave-session')?.addEventListener('click', leaveHandler);
 
   // Account nickname buttons (mobile + desktop)
-  const nicknameChangeHandler = () => void requestAccountNicknameChange();
+  const nicknameChangeHandler = () => {
+    requestAccountNicknameChange().catch((error) => {
+      log.warn('[Connect] Account nickname change failed', error);
+      showToast(t('error.network_generic'));
+    });
+  };
   document.getElementById('btn-change-nickname')?.addEventListener('click', nicknameChangeHandler);
   document
     .getElementById('desktop-btn-change-nickname')

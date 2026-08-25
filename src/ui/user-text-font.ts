@@ -8,6 +8,7 @@
  */
 
 import { preloadLocaleFontGlyphs, type LocaleFontCode } from '../i18n/locale-fonts.ts';
+import { log } from '../core/log.ts';
 
 const HIRAGANA_OR_KATAKANA_RE = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
 const CYRILLIC_RE = /\p{Script=Cyrillic}/u;
@@ -89,7 +90,9 @@ export function applyUserTextFontFallback(
     // Register the locale face and explicitly warm only the unicode-range
     // shards needed by this rendering boundary. Importing the CSS alone does
     // not make a hidden/external string request its matching WOFF2 shard.
-    void preloadLocaleFontGlyphs(code, text);
+    preloadLocaleFontGlyphs(code, text).catch((error) => {
+      log.warn(`[UI] User-text font preload escaped its loader boundary (${code})`, error);
+    });
   }
   element.dataset.userTextFonts = codes.join(' ');
   return codes;

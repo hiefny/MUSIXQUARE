@@ -86,7 +86,7 @@ beforeEach(() => {
   bus.clear();
   resetInboundRateLimit('guest-1');
   transportMocks.play.mockReset();
-  transportMocks.play.mockResolvedValue(undefined);
+  transportMocks.play.mockResolvedValue(true);
   zeroStartFacade.active = false;
   setLocalFilePaused(false);
 });
@@ -832,6 +832,97 @@ describe('local-file sync correction', () => {
     await deliverPlayingFilePong(hostConn, 208, 15_000, 0.04);
     await deliverPlayingFilePong(hostConn, 209, 16_000, 0.04);
     expect(transportMocks.play).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['false', 'reject'] as const)(
+    'keeps initial-sync retry ownership after a %s play result',
+    async (failureMode) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(1000);
+      initSync();
+
+      const hostConn = mockDataConnection('host-1');
+      setState('network.hostConn', hostConn);
+      setPlaybackFilePlaying();
+      setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+      setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+      const decisions: Array<{ decision: string; reason?: string }> = [];
+      bus.on('sync:diagnostic-standard-decision', (decision) => decisions.push(decision));
+      bus.emit('sync:arm-initial');
+      await vi.advanceTimersByTimeAsync(1000);
+
+      if (failureMode === 'false') {
+        transportMocks.play.mockResolvedValueOnce(false);
+      } else {
+        transportMocks.play.mockRejectedValueOnce(new Error('source start failed'));
+      }
+      transportMocks.play.mockResolvedValueOnce(true);
+
+      await deliverPlayingFilePong(hostConn, 301, 3000, 1);
+      expect(decisions.some((decision) => decision.decision === 'initial')).toBe(false);
+      expect(decisions.at(-1)?.reason).toBe(
+        failureMode === 'false' ? 'play-not-started' : 'play-rejected',
+      );
+
+      await deliverPlayingFilePong(hostConn, 302, 4000, 1);
+
+      expect(transportMocks.play).toHaveBeenCalledTimes(2);
+      expect(decisions.filter((decision) => decision.decision === 'initial')).toHaveLength(1);
+    },
+  );
+
+  it('retries a failed soft correction without consuming its samples or cooldown', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+
+    const hostConn = mockDataConnection('host-1');
+    setState('network.hostConn', hostConn);
+    setPlaybackFilePlaying();
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+    transportMocks.play.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+    await deliverPlayingFilePong(hostConn, 401, 1000, 0.04);
+    await deliverPlayingFilePong(hostConn, 402, 2000, 0.04);
+    await deliverPlayingFilePong(hostConn, 403, 3000, 0.04);
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+
+    await deliverPlayingFilePong(hostConn, 404, 4000, 0.04);
+
+    expect(transportMocks.play).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets only the newest concurrent PONG commit initial-sync diagnostics', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    initSync();
+
+    const hostConn = mockDataConnection('host-1');
+    setState('network.hostConn', hostConn);
+    setPlaybackFilePlaying();
+    setPlaybackLifecycleState(PLAYBACK_STATE.PLAYING);
+    setCurrentAudioBuffer({ duration: 300 } as AudioBuffer);
+    const decisions: Array<{ decision: string; reason?: string }> = [];
+    bus.on('sync:diagnostic-standard-decision', (decision) => decisions.push(decision));
+    bus.emit('sync:arm-initial');
+    await vi.advanceTimersByTimeAsync(1000);
+
+    let releaseOlder!: (started: boolean) => void;
+    const olderStart = new Promise<boolean>((resolve) => {
+      releaseOlder = resolve;
+    });
+    transportMocks.play.mockReturnValueOnce(olderStart).mockResolvedValueOnce(true);
+
+    const olderPong = deliverPlayingFilePong(hostConn, 501, 3000, 1);
+    await vi.waitFor(() => expect(transportMocks.play).toHaveBeenCalledTimes(1));
+    const newerPong = deliverPlayingFilePong(hostConn, 502, 4000, 2);
+    await newerPong;
+    releaseOlder(true);
+    await olderPong;
+
+    expect(decisions.filter((decision) => decision.decision === 'initial')).toHaveLength(1);
+    expect(decisions.filter((decision) => decision.reason === 'play-not-started')).toHaveLength(0);
   });
 });
 

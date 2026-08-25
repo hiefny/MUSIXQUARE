@@ -487,10 +487,10 @@ describe('setup greeting reveal', () => {
       '.setup-host-invite-stage.is-room-qr-loading > .setup-host-qr-loading-spinner',
     );
     expect(stylesheet).toMatch(
-      /\.setup-host-qr-loading-spinner\s*{[^}]*--material-elastic-size:\s*42px;[^}]*color:\s*#fff;/s,
+      /\.setup-host-qr-loading-spinner\s*{[^}]*--material-elastic-size:\s*42px;[^}]*color:\s*var\(--text-main\);/s,
     );
     expect(stylesheet).not.toContain('.setup-host-qr-loading-spinner::before');
-    expect(stylesheet).toMatch(/\.setup-qr-join-spinner\s*{[^}]*color:\s*#fff;/s);
+    expect(stylesheet).toMatch(/\.setup-qr-join-spinner\s*{[^}]*color:\s*var\(--text-main\);/s);
     expect(stylesheet).toContain(".setup-qr-scan-button[aria-busy='true'] .setup-qr-join-spinner");
     expect(stylesheet).toContain('transition: none !important;');
     expect(stylesheet).toContain('@media (max-width: 719px) and (orientation: portrait)');

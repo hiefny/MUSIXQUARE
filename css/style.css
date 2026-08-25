@@ -6410,7 +6410,7 @@
     --material-elastic-size: 42px;
     grid-area: 1 / 1;
     z-index: 2;
-    color: #fff;
+    color: var(--text-main);
     opacity: 0;
     visibility: hidden;
     transition:
@@ -6534,7 +6534,7 @@
   .setup-qr-join-spinner {
     --material-elastic-size: 42px;
     display: none;
-    color: #fff;
+    color: var(--text-main);
   }
 
   .setup-qr-scan-button[aria-busy='true'] .setup-qr-scan-symbol {

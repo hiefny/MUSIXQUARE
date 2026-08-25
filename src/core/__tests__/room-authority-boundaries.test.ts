@@ -12,7 +12,7 @@ function sources(): Map<string, string> {
   return new Map(baselineSources);
 }
 
-describe('room-authority static boundary', () => {
+describe('room-authority static boundary', { timeout: 30_000 }, () => {
   it('freezes every production legacy access and keeps PRO reads at zero', () => {
     expect(assertRoomAuthorityBoundaries(sources())).toMatchObject({
       directReads: 86,

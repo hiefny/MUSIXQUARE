@@ -51,8 +51,10 @@ import {
   stopAllMedia,
   getTrackPosition,
   handleEnded,
+  invalidatePendingFilePlayIntent,
   isFilePipelineBusyForPlay,
   skipTime,
+  startHostFileAndBroadcastPlay,
 } from './transport.ts';
 
 import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
@@ -207,14 +209,18 @@ function activatePreloadedTrack(resident: Readonly<ResidentFile>): void {
   const newEpoch = newLoadEpoch();
   const target: ActivePreloadTarget = { resident, epoch: newEpoch };
   _activePreloadTarget = target;
-  void loadPreloadedTrack(queueItemId, newEpoch).finally(() => {
-    if (_activePreloadTarget === target) _activePreloadTarget = null;
-  });
+  loadPreloadedTrack(queueItemId, newEpoch)
+    .finally(() => {
+      if (_activePreloadTarget === target) _activePreloadTarget = null;
+    })
+    .catch((error) => {
+      log.warn('[Playback] Preloaded track activation failed', error);
+    });
 }
 
 // ─── Network Message Handlers ──────────────────────────────────────
 
-function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): void {
+async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): Promise<void> {
   // PLAY is an authoritative host→guest command. Host-local changes bypass
   // this handler, and peer-supplied frames must not mutate another guest's
   // queue selection or playback position.
@@ -377,6 +383,45 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
     // from READY under the tested lifecycle contract.
     transition({ type: 'PLAY', time, queueItemId: incomingQueueItemId, sameTrack: true });
 
+    const residentFile = getState('files.current');
+    const buffer = getCurrentAudioBuffer();
+    let startPublished = false;
+    const occurrenceStillCurrent = (): boolean =>
+      getState('network.hostConn') === hostConn &&
+      hostConn.open &&
+      getCurrentQueueItemId() === incomingQueueItemId &&
+      getState('files.current') === residentFile &&
+      getCurrentAudioBuffer() === buffer;
+    const publishStartedPlay = (): void => {
+      if (startPublished || !occurrenceStillCurrent() || !isPlaybackPlayingFile()) return;
+      startPublished = true;
+      bus.emit('sync:arm-initial');
+      scheduleSameTrackReplayResync(time, incomingQueueItemId, currentQueueItemId);
+    };
+    const startOwnedFile = async (
+      offset: number,
+      scheduleDelay = 0,
+      scheduleDeadlineMs?: number,
+    ): Promise<boolean> => {
+      try {
+        const started = await play(
+          offset,
+          scheduleDelay,
+          scheduleDeadlineMs,
+          occurrenceStillCurrent,
+          {
+            timing: 'catch-up',
+            onRecoveredStarted: publishStartedPlay,
+          },
+        );
+        if (started) publishStartedPlay();
+        return started;
+      } catch (error) {
+        log.warn('[Guest] Failed to apply authoritative PLAY:', error);
+        return false;
+      }
+    };
+
     // Shared Clock: schedule play at the host-specified time.
     //
     // hostPlayAt is produced as "host command time + SCHEDULE_AHEAD_MS" after
@@ -398,24 +443,25 @@ function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): vo
         const guestStartAtHostTime = now + waitMs;
         const elapsedSinceHostCommand = Math.max(0, guestStartAtHostTime - hostCommandAt);
         const compensatedTime = time + elapsedSinceHostCommand / 1000;
+        // Keep the local rendezvous as an absolute monotonic deadline. If Web
+        // Audio setup or the play lock defers this intent, transport can then
+        // consume only the remaining delay (and advance the offset when late)
+        // instead of replaying the original network wait a second time.
+        const scheduleDeadlineMs = performance.now() + waitMs;
         // Web Audio hardware-timed start — sub-ms precision (no setTimeout jitter)
-        play(compensatedTime, waitMs / 1000);
-        log.debug(
-          `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, commandAge=${elapsedSinceHostCommand.toFixed(0)}ms, WebAudio)`,
-        );
-        bus.emit('sync:arm-initial');
-        scheduleSameTrackReplayResync(time, incomingQueueItemId, currentQueueItemId);
+        const started = await startOwnedFile(compensatedTime, waitMs / 1000, scheduleDeadlineMs);
+        if (started) {
+          log.debug(
+            `[SharedClock] Scheduled play in ${waitMs}ms at ${compensatedTime.toFixed(2)}s (offset=${offset}ms, rtt=${bestRtt}ms, commandAge=${elapsedSinceHostCommand.toFixed(0)}ms, WebAudio)`,
+          );
+        }
       } else {
         log.warn(`[SharedClock] waitMs out of range (${waitMsRaw}ms), playing immediately`);
-        play(time);
-        bus.emit('sync:arm-initial');
-        scheduleSameTrackReplayResync(time, incomingQueueItemId, currentQueueItemId);
+        await startOwnedFile(time);
       }
     } else {
       // Without hostPlayAt, start immediately and let initial sync correct it.
-      play(time);
-      bus.emit('sync:arm-initial');
-      scheduleSameTrackReplayResync(time, incomingQueueItemId, currentQueueItemId);
+      await startOwnedFile(time);
     }
   } else {
     if (isProRoomPersistentPlaylistFile(incomingQueueItemId)) {
@@ -554,7 +600,10 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   transition({ type: 'PAUSE', time, queueItemId: incomingQueueItemId, endOfPlaylist });
 }
 
-function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection): void {
+async function handleRequestPlay(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): Promise<void> {
   // Host handles OP's request to play
   const hostConn = getState('network.hostConn');
   if (hostConn) return; // Only Host executes
@@ -612,12 +661,11 @@ function handleRequestPlay(data: Record<string, unknown>, conn: DataConnection):
     return;
   }
 
-  play(time);
-  broadcast({
-    type: MSG.PLAY,
+  await startHostFileAndBroadcastPlay({
     time,
     queueItemId: currentQueueItemId,
-    hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+    shouldApply: () => verifyOperator(conn, data),
+    context: 'operator play request',
   });
   // SharedClock handles sync
 }
@@ -648,7 +696,10 @@ function handleRequestPause(data: Record<string, unknown>, conn: DataConnection)
   });
 }
 
-function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection): void {
+async function handleRequestSeek(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): Promise<void> {
   const hostConn = getState('network.hostConn');
   if (hostConn) return;
 
@@ -699,14 +750,14 @@ function handleRequestSeek(data: Record<string, unknown>, conn: DataConnection):
       log.debug('[Playback] Ignoring REQUEST_SEEK without the selected resident file');
       return;
     }
-    play(time);
-    broadcast({
-      type: MSG.PLAY,
+    await startHostFileAndBroadcastPlay({
       time,
       queueItemId: currentQueueItemId,
-      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      shouldApply: () => verifyOperator(conn, data),
+      context: 'operator seek request',
     });
   } else {
+    invalidatePendingFilePlayIntent();
     setState('player.pausedAt', time);
     broadcast({ type: MSG.PAUSE, time, queueItemId: currentQueueItemId, reason: 'seek' });
   }
@@ -767,12 +818,30 @@ export function initPlayback(): void {
 
     const doReplay = () => {
       log.debug('[Guest] Replaying current track from start');
-      play(0);
-      // Auto-sync 1s later to align with host
       const hostConn = getState('network.hostConn');
-      if (hostConn?.open) {
+      const residentFile = getState('files.current');
+      const buffer = getCurrentAudioBuffer();
+      let syncScheduled = false;
+      const occurrenceStillCurrent = (): boolean =>
+        !!hostConn?.open &&
+        getState('network.hostConn') === hostConn &&
+        getCurrentQueueItemId() === queueItemId &&
+        getState('files.current') === residentFile &&
+        getCurrentAudioBuffer() === buffer;
+      const scheduleSyncAfterStart = (): void => {
+        if (syncScheduled || !occurrenceStillCurrent() || !isPlaybackPlayingFile()) return;
+        syncScheduled = true;
+        // Auto-sync 1s later to align with host.
         setManagedTimer('playback-repeat-auto-sync', () => bus.emit('sync:force-resync'), 1000);
-      }
+      };
+      void play(0, 0, undefined, occurrenceStillCurrent, {
+        timing: 'catch-up',
+        onRecoveredStarted: scheduleSyncAfterStart,
+      })
+        .then((started) => {
+          if (started) scheduleSyncAfterStart();
+        })
+        .catch((error) => log.warn('[Guest] Failed to replay the current track:', error));
     };
 
     if (delayMs && delayMs > 0) {
@@ -816,7 +885,9 @@ export function initPlayback(): void {
       handleEnded();
       return;
     }
-    void play(position, 0, capturedAt);
+    void play(position, 0, capturedAt).catch((error) =>
+      log.warn('[Playback] Failed to refresh the current file position:', error),
+    );
   });
 
   // Safety polling: periodically check if track ended (called from UI loop)

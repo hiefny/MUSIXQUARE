@@ -27,7 +27,7 @@ import { DEMO_TRACKS } from '../tracks.ts';
 import type { DataConnection } from '../../types/index.ts';
 
 const mocks = vi.hoisted(() => ({
-  play: vi.fn(),
+  play: vi.fn(async (_offset: number, _scheduleDelay = 0) => true),
   pause: vi.fn(),
   stopAllMedia: vi.fn(),
   getTrackPosition: vi.fn(() => 12),

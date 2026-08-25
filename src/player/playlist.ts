@@ -20,6 +20,7 @@ import {
   isFilePipelineBusyForPlay,
   applyProPlaybackFileCommit,
   fmtTime,
+  startHostFileAndBroadcastPlay,
 } from './transport.ts';
 import { clearPreviousTrackState, loadAndBroadcastFile, loadPreloadedTrack } from './decode.ts';
 import {
@@ -164,6 +165,37 @@ interface ProRoomFilePreparation {
 
 function getLocalFileHostPlayAt(): number {
   return getHostNow() + LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS;
+}
+
+function startLocalFileAndBroadcastPlay({
+  time,
+  queueItemId,
+  name,
+  shouldApply,
+  context,
+}: {
+  time: number;
+  queueItemId: QueueItemId;
+  name?: string;
+  shouldApply?: () => boolean;
+  context: string;
+}): void {
+  startHostFileAndBroadcastPlay({
+    time,
+    queueItemId,
+    name,
+    // Local/offline playback is valid without a live room. The shared kernel
+    // separately snapshots coordinator authority and publishes only while
+    // that exact Standard-room authority remains current.
+    shouldApply: () => !!getQueueItemById(queueItemId) && shouldApply?.() !== false,
+    context,
+  }).catch((error) => {
+    log.warn(`[Playlist] Failed to start ${context} outside its transport boundary:`, error);
+  });
+}
+
+function observePlayTrack(promise: Promise<void>, context: string): void {
+  void promise.catch((error) => log.warn(`[Playlist] Failed to ${context}:`, error));
 }
 
 function clampRestorePosition(positionSeconds: number): number {
@@ -750,7 +782,9 @@ export async function playTrack(
       sessionId,
     );
     if (!isProRoomPersistentPlaylistFile(queueItemId)) {
-      void shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId });
+      shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId }).catch((error) => {
+        log.warn('[Playlist] Same-track Remote Share publication failed', error);
+      });
     }
 
     // Reset host position to 0 and wait, mirroring the normal branch's UX
@@ -767,13 +801,11 @@ export async function playTrack(
       'autoPlayTimer',
       () => {
         if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-        play(0);
-        broadcast({
-          type: MSG.PLAY,
+        startLocalFileAndBroadcastPlay({
           time: 0,
           queueItemId,
           name: file.name,
-          hostPlayAt: getLocalFileHostPlayAt(),
+          context: 'same-track replay',
         });
       },
       autoPlayDelayMs,
@@ -969,30 +1001,19 @@ export async function playTrack(
     // own AudioBuffer, never while the previous track still owns that slot.
     if (!isProDirect) {
       const remoteShareSessionId = getState('transfer.currentSessionId') || null;
-      void shareRemoteFileIfNeeded(preloadFile, remoteShareSessionId, undefined, { queueItemId });
-    }
-    let recoveredStartPublished = false;
-    const publishRecoveredPreloadedStart = (): void => {
-      if (
-        recoveredStartPublished ||
-        !isCurrentLoadEpoch(myLoadEpoch) ||
-        getCurrentQueueItemId() !== queueItemId ||
-        getState('playback.activity') !== 'playing'
-      ) {
-        return;
-      }
-      recoveredStartPublished = true;
-      broadcast({
-        type: MSG.PLAY,
-        time: 0,
+      shareRemoteFileIfNeeded(preloadFile, remoteShareSessionId, undefined, {
         queueItemId,
-        name: fileName,
-        hostPlayAt: getLocalFileHostPlayAt(),
+      }).catch((error) => {
+        log.warn('[Playlist] Preloaded Remote Share publication failed', error);
       });
-      schedulePreload();
-    };
-    const started = await play(0, 0, undefined, undefined, {
-      onRecoveredStarted: publishRecoveredPreloadedStart,
+    }
+    const started = await startHostFileAndBroadcastPlay({
+      time: 0,
+      queueItemId,
+      name: fileName,
+      shouldApply: () => isCurrentLoadEpoch(myLoadEpoch) && !!getQueueItemById(queueItemId),
+      onStarted: schedulePreload,
+      context: 'activated preload',
     });
     // play() crosses AudioContext resume/engine-init awaits. A newer
     // playTrack() can take ownership during that window; the transport then
@@ -1007,7 +1028,6 @@ export async function playTrack(
       log.debug('[Host] Preloaded play superseded before broadcast');
       return;
     }
-    publishRecoveredPreloadedStart();
     return;
   }
 
@@ -1357,9 +1377,16 @@ export async function playTrack(
           hostPlayAt: getLocalFileHostPlayAt(),
         });
       };
-      const started = await play(restorePosition, 0, undefined, undefined, {
-        onRecoveredStarted: publishRecoveredRestoredStart,
-      });
+      let started: boolean;
+      try {
+        started = await play(restorePosition, 0, undefined, undefined, {
+          timing: 'catch-up',
+          onRecoveredStarted: publishRecoveredRestoredStart,
+        });
+      } catch (error) {
+        log.warn('[Playlist] Failed to restore file playback:', error);
+        return;
+      }
       if (
         !started ||
         !isCurrentLoadEpoch(myLoadEpoch) ||
@@ -1381,13 +1408,12 @@ export async function playTrack(
         'autoPlayTimer',
         () => {
           if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-          play(0);
-          broadcast({
-            type: MSG.PLAY,
+          startLocalFileAndBroadcastPlay({
             time: 0,
             queueItemId,
             name: file.name,
-            hostPlayAt: getLocalFileHostPlayAt(),
+            shouldApply: () => isCurrentLoadEpoch(myLoadEpoch),
+            context: 'automatic track start',
           });
           // SharedClock handles sync
         },
@@ -1508,7 +1534,10 @@ export function playNextTrack(): void {
   }
 
   if (nextQueueItemId) {
-    playTrack(nextQueueItemId, undefined, { navigateToPlay: false });
+    observePlayTrack(
+      playTrack(nextQueueItemId, undefined, { navigateToPlay: false }),
+      'play the next track',
+    );
   }
 }
 
@@ -1526,12 +1555,10 @@ function restartCurrentTrackFromStart(queueItemId: QueueItemId): void {
     log.debug('[Playlist] Ignoring restart-current while file pipeline is preparing');
     return;
   }
-  play(0);
-  broadcast({
-    type: MSG.PLAY,
+  startLocalFileAndBroadcastPlay({
     time: 0,
     queueItemId,
-    hostPlayAt: getLocalFileHostPlayAt(),
+    context: 'current-track restart',
   });
   // SharedClock handles sync
 }
@@ -1574,22 +1601,26 @@ export function playPrevTrack(): void {
     if (isShuffle && playlist.length > 1) {
       const previousQueueItemId = advanceToShufflePreviousQueueItemId();
       if (previousQueueItemId) {
-        playTrack(previousQueueItemId);
+        observePlayTrack(playTrack(previousQueueItemId), 'play the previous shuffled track');
       } else if (currentQueueItemId) {
-        playTrack(currentQueueItemId);
+        observePlayTrack(playTrack(currentQueueItemId), 'restart the current shuffled track');
       }
       return;
     }
 
     if (currentIndex > 0) {
       const previousQueueItemId = playlist[currentIndex - 1]?.queueItemId;
-      if (previousQueueItemId) playTrack(previousQueueItemId);
+      if (previousQueueItemId) {
+        observePlayTrack(playTrack(previousQueueItemId), 'play the previous YouTube track');
+      }
     } else {
       if (repeatMode === 1 && playlist.length > 1) {
         const lastQueueItemId = playlist.at(-1)?.queueItemId;
-        if (lastQueueItemId) playTrack(lastQueueItemId);
+        if (lastQueueItemId) {
+          observePlayTrack(playTrack(lastQueueItemId), 'wrap to the last YouTube track');
+        }
       } else if (playlist[0]) {
-        playTrack(playlist[0].queueItemId);
+        observePlayTrack(playTrack(playlist[0].queueItemId), 'restart the first YouTube track');
       }
     }
     return;
@@ -1612,7 +1643,7 @@ export function playPrevTrack(): void {
   if (isShuffle && playlist.length > 1) {
     const previousQueueItemId = advanceToShufflePreviousQueueItemId();
     if (previousQueueItemId) {
-      playTrack(previousQueueItemId);
+      observePlayTrack(playTrack(previousQueueItemId), 'play the previous shuffled track');
       return;
     }
 
@@ -1620,7 +1651,9 @@ export function playPrevTrack(): void {
     // sequential behaviour at first track.
     if (isQueueIdle()) {
       const fallbackQueueItemId = currentQueueItemId ?? playlist[0]?.queueItemId;
-      if (fallbackQueueItemId) playTrack(fallbackQueueItemId);
+      if (fallbackQueueItemId) {
+        observePlayTrack(playTrack(fallbackQueueItemId), 'reload the shuffled fallback track');
+      }
     } else if (currentQueueItemId) {
       restartCurrentTrackFromStart(currentQueueItemId);
     }
@@ -1629,19 +1662,25 @@ export function playPrevTrack(): void {
 
   if (currentIndex > 0) {
     const previousQueueItemId = playlist[currentIndex - 1]?.queueItemId;
-    if (previousQueueItemId) playTrack(previousQueueItemId);
+    if (previousQueueItemId) {
+      observePlayTrack(playTrack(previousQueueItemId), 'play the previous track');
+    }
   } else {
     // At first track: wrap to last if repeat-all, otherwise restart
     if (repeatMode === 1 && playlist.length > 1) {
       const lastQueueItemId = playlist.at(-1)?.queueItemId;
-      if (lastQueueItemId) playTrack(lastQueueItemId);
+      if (lastQueueItemId) {
+        observePlayTrack(playTrack(lastQueueItemId), 'wrap to the last track');
+      }
     } else {
       // In IDLE state (after track ended + stopAllMedia), play(0) silently fails
       // because no media source is available, but broadcast still fires → host-guest desync.
       // Use playTrack to reload the file instead.
       if (isQueueIdle()) {
         const fallbackQueueItemId = currentQueueItemId ?? playlist[0]?.queueItemId;
-        if (fallbackQueueItemId) playTrack(fallbackQueueItemId);
+        if (fallbackQueueItemId) {
+          observePlayTrack(playTrack(fallbackQueueItemId), 'reload the fallback track');
+        }
       } else if (currentQueueItemId) {
         restartCurrentTrackFromStart(currentQueueItemId);
       }
@@ -1777,7 +1816,7 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
     log.warn(`[Playlist] Invalid queue item ID: ${String(queueItemId)}`);
     return;
   }
-  playTrack(queueItemId);
+  observePlayTrack(playTrack(queueItemId), 'apply the operator track change');
 }
 
 function handleRequestNextTrack(data: Record<string, unknown>, conn: DataConnection): void {
@@ -2028,7 +2067,7 @@ function appendStandardHostFiles(
   );
 
   if (shouldAutoPlay && firstAddedQueueItemId) {
-    void playTrack(firstAddedQueueItemId);
+    observePlayTrack(playTrack(firstAddedQueueItemId), 'autoplay the first added track');
   } else {
     schedulePreload(1000);
   }
@@ -2068,7 +2107,9 @@ async function handleFilesSelected(files: FileList | readonly File[] | null): Pr
     if (rejected.length > 0) {
       showToast(t('toast.unsupported_files_excluded', { count: rejected.length }));
     }
-    void uploadStandardOperatorFiles(accepted);
+    uploadStandardOperatorFiles(accepted).catch((error) => {
+      log.warn('[Playlist] Standard-room operator upload failed', error);
+    });
     return;
   }
 
@@ -2364,7 +2405,7 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
   if (wasCurrent && successorQueueItemId) {
     setCurrentAudioBuffer(null);
     setState('files.current', null);
-    void playTrack(successorQueueItemId);
+    observePlayTrack(playTrack(successorQueueItemId), 'play the successor after removal');
   } else if (preloadOwnsRemovedItem && nextItems.length > 0) {
     schedulePreload();
   }
@@ -2662,17 +2703,14 @@ export function initPlaylist(): void {
           if (token !== _endedAdvanceToken) return;
           // Reuse in-memory audio buffer — skip file re-transfer to guests.
           // Same optimized path as playNextTrack() repeat-one branch.
-          newLoadEpoch();
+          const replayLoadEpoch = newLoadEpoch();
           const queueItemId = getCurrentQueueItemId();
           if (!queueItemId || !getQueueItemById(queueItemId)) return;
-          play(0).catch(() => {
-            /* noop */
-          });
-          broadcast({
-            type: MSG.PLAY,
+          startLocalFileAndBroadcastPlay({
             time: 0,
             queueItemId,
-            hostPlayAt: getLocalFileHostPlayAt(),
+            shouldApply: () => token === _endedAdvanceToken && isCurrentLoadEpoch(replayLoadEpoch),
+            context: 'repeat-one replay',
           });
           // SharedClock handles sync
         },
@@ -2696,7 +2734,7 @@ export function initPlaylist(): void {
 
   // File selection
   bus.on('app:files-selected', (files) => {
-    handleFilesSelected(files);
+    return handleFilesSelected(files);
   });
 
   // The operator uplink emits only after the host has received and verified
@@ -2728,7 +2766,7 @@ export function initPlaylist(): void {
 
   // Play specific track from playlist view click
   bus.on('playlist:play-track', (queueItemId, subIndex, options) => {
-    if (getQueueItemById(queueItemId)) playTrack(queueItemId, subIndex, options);
+    if (getQueueItemById(queueItemId)) return playTrack(queueItemId, subIndex, options);
   });
 
   // Host: Remove track from playlist

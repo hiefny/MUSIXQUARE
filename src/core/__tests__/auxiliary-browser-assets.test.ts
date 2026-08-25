@@ -571,6 +571,40 @@ describe('strict TypeScript auxiliary browser assets', () => {
     }
   });
 
+  it('owns a clipboard success-continuation failure after the report button is removed', async () => {
+    const dom = await executeReportViewer(reportFixture());
+    let resolveWrite!: () => void;
+    const writeText = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveWrite = resolve;
+        }),
+    );
+    Object.defineProperty(dom.window.navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+    const copyFailure = vi.spyOn(dom.window.console, 'error').mockImplementation(() => undefined);
+    try {
+      const button = dom.window.document.getElementById('copy-btn');
+      if (!(button instanceof dom.window.HTMLElement))
+        throw new Error('Missing report copy button.');
+      button.click();
+      button.remove();
+      resolveWrite();
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(writeText).toHaveBeenCalledOnce();
+      expect(copyFailure).toHaveBeenCalledWith(
+        '[report-viewer] Copy failed.',
+        expect.objectContaining({ message: 'Missing report viewer element #copy-btn.' }),
+      );
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it('materializes byte-exact ignored JS before the direct-file viewer opens', async () => {
     const outputs = await materializeFileUrlAuxiliaryAssets(REPOSITORY);
     expect(outputs).toEqual(['e2e/report-viewer.js']);

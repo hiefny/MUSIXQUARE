@@ -1765,7 +1765,7 @@ describe('remote-share Worker capability gate', () => {
       directUploadEnv(),
     );
     let settled = false;
-    void responsePromise.then(() => {
+    const observedResponse = responsePromise.then(() => {
       settled = true;
     });
 
@@ -1775,6 +1775,7 @@ describe('remote-share Worker capability gate', () => {
     await vi.advanceTimersByTimeAsync(1);
 
     const response = await responsePromise;
+    await observedResponse;
     expect(response.status).toBe(408);
     expect(await response.json()).toEqual({ error: 'request body timed out' });
     expect(cancel).toHaveBeenCalled();
@@ -2231,7 +2232,7 @@ describe('remote-share Worker capability gate', () => {
       }),
     );
     let settled = false;
-    void responsePromise.then(() => {
+    const observedResponse = responsePromise.then(() => {
       settled = true;
     });
 
@@ -2241,6 +2242,7 @@ describe('remote-share Worker capability gate', () => {
     await vi.advanceTimersByTimeAsync(1);
 
     const response = await responsePromise;
+    await observedResponse;
     expect(response.status).toBe(503);
     expect(await response.json()).toEqual({ error: 'room storage quota unavailable' });
     expect(reserveCalls).toBe(1);

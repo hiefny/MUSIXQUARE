@@ -6,6 +6,7 @@
   },
   "include": [
     ".workshop/promo/render.ts",
+    "scripts/async-connect-middleware.ts",
     "scripts/classic-runtime-assets.ts",
     "scripts/auxiliary-browser-assets.ts",
     "scripts/service-worker-asset.ts",

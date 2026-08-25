@@ -12,6 +12,7 @@ const BASE_ENV = {
   MXQR_SERVICE_CONTROL_FORWARD_FLOOR: 'false',
   MXQR_REMOTE_SHARE_FORWARD_FLOOR: 'false',
   MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'false',
+  MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR: 'false',
 };
 
 function plan(overrides: Record<string, string> = {}) {
@@ -57,6 +58,7 @@ describe('release recovery target plan', () => {
       MXQR_SERVICE_CONTROL_FORWARD_FLOOR: 'true',
       MXQR_REMOTE_SHARE_FORWARD_FLOOR: 'true',
       MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'true',
+      MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR: 'true',
     });
     expect(result.status, result.stderr).toBe(0);
     const targets = result.stdout.split(',');
@@ -68,6 +70,7 @@ describe('release recovery target plan', () => {
     ['service-control', 'MXQR_SERVICE_CONTROL_FORWARD_FLOOR', ['pro-room', 'app']],
     ['remote-share', 'MXQR_REMOTE_SHARE_FORWARD_FLOOR', ['remote-share', 'app']],
     ['PRO system-audio', 'MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR', ['pro-room', 'signaling', 'app']],
+    ['Standard room PIN storage', 'MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR', ['signaling']],
   ] as const)('retains the exact %s candidate boundary', (_label, floorVariable, expected) => {
     const result = plan({ RELEASE_TARGET: 'all', [floorVariable]: 'true' });
     expect(result.status, result.stderr).toBe(0);
@@ -78,6 +81,7 @@ describe('release recovery target plan', () => {
     expect(plan({ MXQR_R2_POLICY_OUTCOME: 'unknown' }).status).toBe(1);
     expect(plan({ MXQR_APPLY_DEVELOPER_API_D1: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'yes' }).status).toBe(1);
+    expect(plan({ MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_R2_FORWARD_TARGETS: 'not-a-worker' }).status).toBe(1);
   });
 });

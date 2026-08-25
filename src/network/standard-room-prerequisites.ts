@@ -345,7 +345,9 @@ function beginWarmupFromSetupIntent(event: Event): void {
     });
     return;
   }
-  void warmStandardRoomPrerequisites();
+  warmStandardRoomPrerequisites().catch((error: unknown) => {
+    log.debug('[Network] Standard-room prerequisite warmup rejected unexpectedly', error);
+  });
 }
 
 /**

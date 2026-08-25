@@ -2,6 +2,8 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { transformWithEsbuild, type Plugin } from 'vite';
 
+import { useAsyncConnectMiddleware } from './async-connect-middleware.ts';
+
 export interface ClassicRuntimeAsset {
   readonly sourcePath: string;
   readonly outputPath: string;
@@ -286,7 +288,7 @@ export function classicRuntimeAssets(): Plugin {
     },
     async configureServer(server) {
       await assertClassicRuntimeSourceCompleteness(server.config.root);
-      server.middlewares.use(async (request, response, next) => {
+      useAsyncConnectMiddleware(server.middlewares, async (request, response, next) => {
         if (request.method !== 'GET' && request.method !== 'HEAD') {
           next();
           return;

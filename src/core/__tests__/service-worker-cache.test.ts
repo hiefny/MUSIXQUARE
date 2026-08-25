@@ -1,4 +1,5 @@
 import vm from 'node:vm';
+import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CLASSIC_RUNTIME_ASSETS,
@@ -69,6 +70,11 @@ type MessageListener = (event: {
   waitUntil: (work: Promise<unknown>) => void;
 }) => void;
 
+type CacheMatchMock = Mock<
+  (request: Request, options?: { cacheName?: string }) => Promise<Response | undefined>
+>;
+type FetchMock = Mock<(request: Request, init?: RequestInit) => Promise<Response>>;
+
 describe('service worker cache policy', () => {
   let fetchListener: FetchListener;
   let installListener: ExtendableListener;
@@ -79,10 +85,10 @@ describe('service worker cache policy', () => {
   let cacheEntryKeys: ReturnType<typeof vi.fn>;
   let cacheEntryDelete: ReturnType<typeof vi.fn>;
   let cacheOpen: ReturnType<typeof vi.fn>;
-  let cacheMatch: ReturnType<typeof vi.fn>;
+  let cacheMatch: CacheMatchMock;
   let cacheKeys: ReturnType<typeof vi.fn>;
   let cacheDelete: ReturnType<typeof vi.fn>;
-  let fetchMock: ReturnType<typeof vi.fn>;
+  let fetchMock: FetchMock;
   let clientsClaim: ReturnType<typeof vi.fn>;
   let skipWaiting: ReturnType<typeof vi.fn>;
   let windowClients: Array<{ id: string; postMessage: ReturnType<typeof vi.fn> }>;
@@ -128,7 +134,7 @@ describe('service worker cache policy', () => {
     cacheMatch = vi.fn(async () => undefined);
     cacheKeys = vi.fn(async () => []);
     cacheDelete = vi.fn(async () => true);
-    fetchMock = vi.fn();
+    fetchMock = vi.fn<(request: Request, init?: RequestInit) => Promise<Response>>();
     clientsClaim = vi.fn(async () => undefined);
     skipWaiting = vi.fn(async () => undefined);
     windowClients = [];

@@ -847,7 +847,7 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
     playButton.setAttribute('aria-busy', 'true');
   }
 
-  void waitForPendingYouTubePrimeBounce(YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS)
+  waitForPendingYouTubePrimeBounce(YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS)
     .catch((error) => log.debug('[YouTube Prime] submit wait failed:', error))
     .then(() => {
       if (
@@ -876,6 +876,9 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
         // submission whose text is still present.
         if ((input.textContent || '') === submittedText) playButton.disabled = false;
       }
+    })
+    .catch((error) => {
+      log.warn('[YouTube Prime] Submit flow failed', error);
     });
 }
 
@@ -1421,7 +1424,9 @@ export function initPlayerControls(): void {
       } else if (isFakeFullscreen) {
         exitFake();
       } else if (document.exitFullscreen) {
-        document.exitFullscreen();
+        document.exitFullscreen().catch((error) => {
+          log.warn('[Fullscreen] Native exit failed', error);
+        });
       } else if (doc.webkitExitFullscreen) {
         doc.webkitExitFullscreen();
       }
@@ -1454,7 +1459,10 @@ export function initPlayerControls(): void {
       (e) => {
         e.preventDefault();
         e.stopPropagation();
-        handleLogoReturnToMain();
+        handleLogoReturnToMain().catch((error) => {
+          log.warn('[Navigation] Logo return-to-main flow failed', error);
+          showToast(t('error.network_generic'));
+        });
       },
       { signal: domSignal },
     );
@@ -1742,7 +1750,10 @@ export function initPlayerControls(): void {
       const target = (e.target as HTMLElement)?.closest?.('.invite-code-container');
       if (target) {
         e.preventDefault();
-        copyInviteCode();
+        copyInviteCode().catch((error) => {
+          log.warn('[Connect] Invite code copy failed', error);
+          showToast(t('toast.copy_failed'));
+        });
       }
     },
     { signal: domSignal },

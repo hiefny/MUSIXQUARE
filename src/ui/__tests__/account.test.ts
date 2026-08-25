@@ -164,8 +164,9 @@ describe('optional account UI', () => {
 
     const login = requestAccountLoginPopup();
     let settled = false;
-    void login.then(() => {
+    const observedLogin = login.then((outcome) => {
       settled = true;
+      return outcome;
     });
     applyAccountSession({
       configured: true,
@@ -189,7 +190,7 @@ describe('optional account UI', () => {
       statsScope: null,
     });
 
-    await expect(login).resolves.toBe('authenticated');
+    await expect(observedLogin).resolves.toBe('authenticated');
   });
 
   it('reuses the exact non-force popup reconciliation after completion auto-close', async () => {
@@ -340,8 +341,9 @@ describe('optional account UI', () => {
     );
 
     let switchedSettled = false;
-    void switchedLogin.then(() => {
+    const observedSwitchedLogin = switchedLogin.then((outcome) => {
       switchedSettled = true;
+      return outcome;
     });
     // A duplicate refresh from the first OAuth completion must not be
     // mistaken for the forced chooser's result while that popup is live.
@@ -380,7 +382,7 @@ describe('optional account UI', () => {
     await vi.advanceTimersByTimeAsync(250);
     vi.useRealTimers();
 
-    await expect(switchedLogin).resolves.toBe('authenticated');
+    await expect(observedSwitchedLogin).resolves.toBe('authenticated');
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(getAccountSnapshot().account).toMatchObject({
       nickname: 'Linked owner',
@@ -1096,7 +1098,10 @@ describe('optional account UI', () => {
     initAccount();
     await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
 
-    void requestAccountLoginPopup({ forceGoogleAccountChooser: true });
+    let loginError: unknown = null;
+    requestAccountLoginPopup({ forceGoogleAccountChooser: true }).then(undefined, (error) => {
+      loginError = error;
+    });
     const startUrl = String(replace.mock.calls[0]?.[0] || '');
     const returnTo = new URL(startUrl, window.location.origin).searchParams.get('returnTo') || '';
     const accountClient = new URL(returnTo, window.location.origin).searchParams.get(
@@ -1122,6 +1127,7 @@ describe('optional account UI', () => {
       account: { nickname: 'Later recovery', profileComplete: true },
       statsScope: STATS_SCOPE,
     });
+    expect(loginError).toBeNull();
     expect(showToast).not.toHaveBeenCalled();
   });
 
@@ -1849,6 +1855,25 @@ describe('optional account UI', () => {
     expect(deleted).not.toHaveBeenCalled();
     expect(pending).toHaveBeenCalledOnce();
     expect(getAccountSnapshot().status).toBe('anonymous');
+  });
+
+  it('owns a rejected delete-confirmation promise and restores the dialog pending state', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        statsScope: STATS_SCOPE,
+        account: { nickname: 'Minsu', profileComplete: true },
+      }),
+    );
+    vi.mocked(showDialog).mockRejectedValueOnce(new Error('dialog unavailable'));
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+
+    document.getElementById('btn-account-delete')?.click();
+
+    await vi.waitFor(() => expect(showToast).toHaveBeenCalledOnce());
+    expect(document.getElementById('account-dialog')?.getAttribute('aria-busy')).toBe('false');
   });
 
   it('closes with Escape and restores focus to the element that opened it', async () => {

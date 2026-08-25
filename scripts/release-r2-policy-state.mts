@@ -180,10 +180,7 @@ function normalizePolicy(kind: PolicyKind, value: unknown, label: string): unkno
 
 function cancelReader(reader: ReadableStreamDefaultReader<Uint8Array>, reason: unknown): void {
   try {
-    const cancellation = reader.cancel(reason);
-    if (cancellation && typeof cancellation.catch === 'function') {
-      void cancellation.catch(() => undefined);
-    }
+    reader.cancel(reason).catch(() => undefined);
   } catch {
     // Cancellation is resource cleanup only. It must never hide or delay the
     // primary protocol/cap/timeout error.

@@ -124,6 +124,19 @@ function callsNamed(root: ts.Node, names: ReadonlySet<string>): ts.CallExpressio
   );
 }
 
+function isObservedBackgroundCall(call: ts.CallExpression): boolean {
+  if (ts.isVoidExpression(call.parent)) return true;
+  const property = call.parent;
+  return (
+    ts.isPropertyAccessExpression(property) &&
+    property.expression === call &&
+    property.name.text === 'catch' &&
+    ts.isCallExpression(property.parent) &&
+    property.parent.expression === property &&
+    property.parent.arguments.length === 1
+  );
+}
+
 function localCallables(parsed: ts.SourceFile): Map<string, LocalCallable> {
   const callables = new Map<string, LocalCallable>();
   for (const node of collect(parsed, ts.isFunctionDeclaration)) {
@@ -562,7 +575,7 @@ function assertInviteReturnsBeforeTurn(peerSource: string, failures: string[]): 
   if (
     backgroundSettles.length !== 1 ||
     !backgroundSettle ||
-    !ts.isVoidExpression(backgroundSettle.parent)
+    !isObservedBackgroundCall(backgroundSettle)
   ) {
     failures.push('host TURN settlement must start exactly once as an observed background task');
   }

@@ -119,15 +119,12 @@ async function checkAnnouncement({ notify = true }: { notify?: boolean } = {}): 
 
 function startVisiblePolling({ notify = !initialCheckPending }: { notify?: boolean } = {}): void {
   if (!active || !isSessionActive() || document.visibilityState !== 'visible') return;
-  void checkAnnouncement({ notify });
-  setManagedTimer(
-    ANNOUNCEMENT_POLL_TIMER,
-    () => {
-      void checkAnnouncement();
-    },
-    ANNOUNCEMENT_POLL_MS,
-    { interval: true },
-  );
+  checkAnnouncement({ notify }).catch((error) => {
+    log.warn('[Announcement] Poll escaped its request boundary', error);
+  });
+  setManagedTimer(ANNOUNCEMENT_POLL_TIMER, () => checkAnnouncement(), ANNOUNCEMENT_POLL_MS, {
+    interval: true,
+  });
 }
 
 function handleAnnouncementVisibilityChange(): void {

@@ -105,7 +105,7 @@
     const delay = RETRY_DELAYS_MS[Math.min(attempt - 1, RETRY_DELAYS_MS.length - 1)] ?? 30000;
     retryTimer = window.setTimeout(() => {
       retryTimer = 0;
-      startAttempt();
+      startAttemptInBackground();
     }, delay);
   }
 
@@ -113,7 +113,7 @@
     if (complete) return;
     if (retryTimer) window.clearTimeout(retryTimer);
     retryTimer = 0;
-    if (!running) startAttempt();
+    if (!running) startAttemptInBackground();
   }
 
   async function startAttempt(): Promise<void> {
@@ -149,6 +149,14 @@
     }
   }
 
+  function startAttemptInBackground(): void {
+    startAttempt().catch((error: unknown) => {
+      runtime.state = 'retrying';
+      runtime.lastError = errorMessage(error);
+      scheduleRetry();
+    });
+  }
+
   function errorMessage(error: unknown): string {
     if (error && typeof error === 'object' && 'message' in error && error.message) {
       return String(error.message);
@@ -161,5 +169,5 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'hidden') retryNow();
   });
-  startAttempt();
+  startAttemptInBackground();
 })();

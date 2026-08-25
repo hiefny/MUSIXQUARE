@@ -57,6 +57,12 @@ export function setHostGoBack(fn: () => void): void {
   _goBack = fn;
 }
 
+function startHostCodeFlow(mode: number): void {
+  proceedToHostCode(mode).catch((error) => {
+    log.error('[Setup] Host-code flow escaped its operation boundary', error);
+  });
+}
+
 export function startHostFlow(): void {
   incrementHostCodeFlowId();
   setupSetHostError(null);
@@ -91,7 +97,7 @@ export function startHostFlow(): void {
     sliderArea.style.display = 'none';
   }
 
-  void proceedToHostCode(DEFAULT_SETUP_ROLE);
+  startHostCodeFlow(DEFAULT_SETUP_ROLE);
 }
 
 async function proceedToHostCode(mode: number): Promise<void> {
@@ -151,7 +157,9 @@ async function proceedToHostCode(mode: number): Promise<void> {
     updateInviteCodeUI();
     setState('network.myDeviceLabel', 'HOST');
     updateRoleBadge();
-    void revealHostInviteQr(code, inviteFlowIsCurrent);
+    revealHostInviteQr(code, inviteFlowIsCurrent).catch((error) => {
+      log.warn('[Setup] Host invitation QR flow escaped its loader boundary', error);
+    });
 
     setupRenderActions(
       [
@@ -194,7 +202,7 @@ async function proceedToHostCode(mode: number): Promise<void> {
           kind: 'primary',
           onClick: reloadRequired
             ? () => scheduleDocumentReload(t('dialog.refreshing_session'))
-            : () => void proceedToHostCode(mode),
+            : () => startHostCodeFlow(mode),
         },
       ],
       'horizontal-with-back',

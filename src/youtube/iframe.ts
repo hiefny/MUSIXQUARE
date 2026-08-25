@@ -3301,7 +3301,9 @@ function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
     });
 
     // Start fetching titles in the background
-    fetchPlaylistSubTitles(pid, ids);
+    fetchPlaylistSubTitles(pid, ids).catch((error) => {
+      log.warn(`[YouTube Snapshot] Background title fetch failed for ${pid}`, error);
+    });
 
     // Clear any pending snapshot timers as we just finished it
     clearManagedTimer('yt-playlist-snapshot');

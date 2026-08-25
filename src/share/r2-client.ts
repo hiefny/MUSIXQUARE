@@ -13,6 +13,7 @@ import {
   isCapabilityChallengeCancelled,
 } from '../core/capability.ts';
 import { REMOTE_SHARE_MAX_BYTES } from '../core/constants.ts';
+import { log } from '../core/log.ts';
 import type { QueueItemId } from '../types/index.ts';
 import { cancelResponseBody, withRequestDeadline } from '../core/request-lifetime.ts';
 import { resolveRemoteShareEndpointPolicy } from './remote-share-endpoint.ts';
@@ -204,7 +205,9 @@ async function readBoundedJson(
   if (declared !== null) {
     const length = Number(declared);
     if (!Number.isSafeInteger(length) || length < 0 || length > maxBytes) {
-      void cancelResponseBody(response);
+      cancelResponseBody(response).catch(() => {
+        // Body cancellation is best effort; retain the authoritative size error.
+      });
       throw new Error('REMOTE_SHARE_CONTROL_RESPONSE_TOO_LARGE');
     }
   }
@@ -980,7 +983,9 @@ export async function uploadWholeObject(
       if (settled) return;
       settled = true;
       finalizeXhr();
-      void cleanupUploadSession(endpoint, session, meta);
+      cleanupUploadSession(endpoint, session, meta).catch((cleanupError: unknown) => {
+        log.warn('[RemoteShare] Upload cleanup task rejected unexpectedly', cleanupError);
+      });
       reject(error);
     };
     try {

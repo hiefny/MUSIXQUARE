@@ -148,6 +148,19 @@ jobs:
             exit 1
           fi
 
+      - name: Require a full release for Standard room PIN contract cutovers
+        shell: bash
+        run: |
+          contract_marker='cloudflare/standard-room-pin-storage-contract-version.txt'
+          parent_sha="$(git rev-parse "${GITHUB_SHA}^")"
+          if git diff --quiet "$parent_sha" "$GITHUB_SHA" -- "$contract_marker"; then
+            exit 0
+          fi
+          if [[ "${{ inputs.target }}" != 'all' ]]; then
+            echo "::error::A Standard room PIN contract cutover requires target 'all' so signaling and the app deploy together."
+            exit 1
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -180,7 +193,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npm run --silent wrangler -- whoami
 
-      - name: Verify Remote Share assertion secret inventory
+      - name: Verify release-critical Worker secret inventory
         timeout-minutes: 5
         shell: bash
         env:
@@ -196,6 +209,13 @@ jobs:
               exit 1
             fi
           done
+          pin_secret_name='MXQR_STANDARD_ROOM_PIN_PEPPER'
+          signaling_config='cloudflare/wrangler.signaling.toml'
+          signaling_secrets="$(npm run --silent wrangler -- secret list --format json --config "$signaling_config")"
+          if ! jq -e --arg name "$pin_secret_name" 'any(.[]; .name == $name)' <<< "$signaling_secrets" >/dev/null; then
+            echo "::error::$signaling_config is missing required secret $pin_secret_name."
+            exit 1
+          fi
 
       - name: Verify partial release dependency compatibility
         if: inputs.target != 'all'
@@ -1217,6 +1237,10 @@ jobs:
             node scripts/release-deployment-state.mts \
               pro-system-audio-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
+          standard_room_pin_forward_floor="$(
+            node scripts/release-deployment-state.mts \
+              standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
+          )"
           rollback_skip_targets="$(
             MXQR_R2_POLICY_OUTCOME="${{ steps.r2_policy_assessment.outcome }}" \
             MXQR_R2_FORWARD_TARGETS="${{ steps.r2_policy_assessment.outputs.forward_targets }}" \
@@ -1227,6 +1251,7 @@ jobs:
             MXQR_SERVICE_CONTROL_FORWARD_FLOOR="$service_control_forward_floor" \
             MXQR_REMOTE_SHARE_FORWARD_FLOOR="$remote_share_forward_floor" \
             MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR="$pro_system_audio_forward_floor" \
+            MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR="$standard_room_pin_forward_floor" \
             node scripts/release-recovery-plan.mts
           )"
           echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"

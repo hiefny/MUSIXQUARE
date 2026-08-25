@@ -228,7 +228,9 @@ function adoptRetiredSuspendForCurrentPlayback(context: AudioContext, bindingTok
       recovery.cause === 'background-clock-stalled' &&
       recovery.phase === 'awaiting-gesture'
     ) {
-      void prepareStalledRecovery(recovery, { notifyWhenPrepared: true });
+      prepareStalledRecovery(recovery, { notifyWhenPrepared: true }).catch((error) => {
+        log.warn('[Audio] Failed to adopt prepared recovery after a retired suspend', error);
+      });
     }
     return;
   }
@@ -312,43 +314,45 @@ function watchSuspendLease(lease: SuspendLease): void {
   if (lease.settled || lease.lateStateFenceToken) return;
   const fenceToken = {};
   lease.lateStateFenceToken = fenceToken;
-  void delay(SUSPEND_WATCHDOG_MS).then(() => {
-    if (lease.settled || lease.lateStateFenceToken !== fenceToken) {
-      return;
-    }
-    if (isPreparedState(lease.context)) {
-      settleSuspendLease(lease);
-      return;
-    }
-    if (String(lease.context.state) === 'closed') {
-      settleSuspendLease(lease, new Error('AudioContext closed during late suspend fence'));
-      return;
-    }
+  delay(SUSPEND_WATCHDOG_MS)
+    .then(() => {
+      if (lease.settled || lease.lateStateFenceToken !== fenceToken) {
+        return;
+      }
+      if (isPreparedState(lease.context)) {
+        settleSuspendLease(lease);
+        return;
+      }
+      if (String(lease.context.state) === 'closed') {
+        settleSuspendLease(lease, new Error('AudioContext closed during late suspend fence'));
+        return;
+      }
 
-    const owner = detachInconclusiveSuspendLease(lease);
-    if (
-      !owner ||
-      !recoveryStillOwnsAttempt(owner) ||
-      owner.phase !== 'preparing-suspend' ||
-      !identityStillCurrent(owner.identity)
-    ) {
-      if (owner && recoveryStillOwnsAttempt(owner)) retireRecovery(owner);
-      return;
-    }
+      const owner = detachInconclusiveSuspendLease(lease);
+      if (
+        !owner ||
+        !recoveryStillOwnsAttempt(owner) ||
+        owner.phase !== 'preparing-suspend' ||
+        !identityStillCurrent(owner.identity)
+      ) {
+        if (owner && recoveryStillOwnsAttempt(owner)) retireRecovery(owner);
+        return;
+      }
 
-    if (owner.suspendPrepareAttempts >= MAX_SEMANTIC_SUSPEND_ATTEMPTS) {
-      const context = owner.context;
-      retireRecovery(owner);
-      armForegroundAudioContextClockHealthCheck(context);
-      return;
-    }
+      if (owner.suspendPrepareAttempts >= MAX_SEMANTIC_SUSPEND_ATTEMPTS) {
+        const context = owner.context;
+        retireRecovery(owner);
+        armForegroundAudioContextClockHealthCheck(context);
+        return;
+      }
 
-    // The original caller has already crossed its bounded preparation window.
-    // A concrete state from this fresh exact lease must therefore notify the
-    // UI even when the first arm did not request eager notification.
-    owner.prepareTimedOut = true;
-    createSuspendLease(owner.context, owner);
-  });
+      // The original caller has already crossed its bounded preparation window.
+      // A concrete state from this fresh exact lease must therefore notify the
+      // UI even when the first arm did not request eager notification.
+      owner.prepareTimedOut = true;
+      createSuspendLease(owner.context, owner);
+    })
+    .catch((error) => log.warn('[Audio] Suspend watchdog failed', error));
 }
 
 function createSuspendLease(context: AudioContext, owner: PendingContextRecovery): SuspendLease {
@@ -587,7 +591,9 @@ function handleNativeResumeSettlement(
   }
   if (successor.cause === 'background-clock-stalled') {
     if (successor.phase === 'awaiting-gesture' || successor.phase === 'preparing-suspend') {
-      void prepareStalledRecovery(successor, { notifyWhenPrepared: true });
+      prepareStalledRecovery(successor, { notifyWhenPrepared: true }).catch((error) => {
+        log.warn('[Audio] Successor stalled recovery preparation failed', error);
+      });
     }
     return;
   }
@@ -905,7 +911,9 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
       return;
     }
     if (recovery.phase === 'awaiting-resume' && isPreparedState(context)) {
-      void resumeContext(recovery, 'automatic');
+      resumeContext(recovery, 'automatic').catch((error) => {
+        log.warn('[Audio] Foreground automatic resume failed', error);
+      });
       return;
     }
     if (recovery.phase === 'awaiting-clock-verification' && String(context.state) === 'running') {
@@ -968,7 +976,9 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
           // context or begin the foreground-only clock proof.
           const hiddenResume = recovery.automaticResume;
           if (hiddenResume) {
-            void hiddenResume.then(() => continueRecoveryInForeground(recovery));
+            hiddenResume
+              .then(() => continueRecoveryInForeground(recovery))
+              .catch((error) => log.warn('[Audio] Hidden resume follow-up failed', error));
           }
         } else {
           continueRecoveryInForeground(recovery);
@@ -1052,7 +1062,9 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
           (document.visibilityState === 'visible' || canAttemptHiddenFileResume) &&
           !recovery.gestureResume
         ) {
-          void resumeContext(recovery, 'automatic');
+          resumeContext(recovery, 'automatic').catch((error) => {
+            log.warn('[Audio] State-change automatic resume failed', error);
+          });
         }
       } else if (document.visibilityState === 'visible' && !resumeWithoutPlayback) {
         const operation = context
@@ -1086,7 +1098,9 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
         // A late automatic resume undid the prepared suspension before the
         // user tapped. Re-establish the suspension; do not let resume() become
         // a no-op inside the eventual trusted activation.
-        void prepareStalledRecovery(recovery, { notifyWhenPrepared: true });
+        prepareStalledRecovery(recovery, { notifyWhenPrepared: true }).catch((error) => {
+          log.warn('[Audio] Failed to restore prepared recovery after late resume', error);
+        });
         return;
       }
       recovery.phase = 'awaiting-clock-verification';

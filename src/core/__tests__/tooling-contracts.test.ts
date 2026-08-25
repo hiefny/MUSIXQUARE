@@ -55,6 +55,7 @@ describe('tooling reproducibility contracts', () => {
         '.workshop/promo/render.ts',
         'eslint.config.ts',
         'eslint.tooling.config.ts',
+        'scripts/async-connect-middleware.ts',
         'scripts/auxiliary-browser-assets.ts',
         'scripts/classic-runtime-assets.ts',
         'scripts/live-app-session-smoke.ts',

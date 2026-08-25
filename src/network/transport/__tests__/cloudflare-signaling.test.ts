@@ -272,9 +272,14 @@ type ContractWorkerRoom = {
 async function createContractWorkerRoom(): Promise<ContractWorkerRoom> {
   const signalingWorkerModulePath = '../../../../cloudflare/signaling-worker.ts';
   const workerModule = (await import(signalingWorkerModulePath)) as unknown as {
-    MusixquareRoom: new (state: ContractWorkerState) => ContractWorkerRoom;
+    MusixquareRoom: new (
+      state: ContractWorkerState,
+      env?: { MXQR_STANDARD_ROOM_PIN_PEPPER?: string },
+    ) => ContractWorkerRoom;
   };
-  return new workerModule.MusixquareRoom(new ContractWorkerState());
+  return new workerModule.MusixquareRoom(new ContractWorkerState(), {
+    MXQR_STANDARD_ROOM_PIN_PEPPER: 'contract-test-standard-room-pin-pepper-32-bytes-minimum',
+  });
 }
 
 function workerSentOfType(
@@ -788,6 +793,8 @@ describe('standard-room account identity refresh', () => {
       {
         type: 'host-auth',
         secret: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+        desiredRoomPassword: '',
+        pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
       },
     ]);
     expect(assertionProvider).not.toHaveBeenCalled();
@@ -801,9 +808,16 @@ describe('standard-room account identity refresh', () => {
       'host-auth',
     ]);
 
+    const pinMutationId = sentOfType(socket, 'host-auth')[0]?.pinMutationId;
     socket.dispatch(
       'message',
-      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+      JSON.stringify({
+        type: 'peer-open',
+        peerId: '123456',
+        roomId: '123456',
+        roomPasswordMutationId: pinMutationId,
+        roomPasswordApplied: true,
+      }),
     );
     await Promise.resolve();
     await Promise.resolve();
@@ -941,6 +955,41 @@ describe('standard-room account identity refresh', () => {
         accountAssertion: 'slow-renewed-assertion',
       },
     ]);
+    peer.destroy();
+  });
+
+  it('keeps a background identity send failure non-fatal to the active room transport', async () => {
+    installFakeWebSocket();
+    const assertionProvider = vi.fn(async () => ({
+      accountAssertion: 'background-identity-assertion',
+      deletionAssertion: null,
+    }));
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      standardRoomAssertionProvider: assertionProvider,
+    });
+    const fatalErrors = vi.fn();
+    peer.on('error', fatalErrors);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    const sendFailure = vi.spyOn(socket, 'send').mockImplementation(() => {
+      throw new Error('socket send failed during background identity refresh');
+    });
+    peer.deleteStandardRoomIdentity();
+    await flushAsync();
+
+    expect(sendFailure).toHaveBeenCalled();
+    expect(fatalErrors).not.toHaveBeenCalled();
+    expect(socket.readyState).toBe(FakeWebSocket.OPEN);
     peer.destroy();
   });
 
@@ -2769,6 +2818,15 @@ describe('Cloudflare client/Worker signaling contract', () => {
       hostServerSocket,
       JSON.stringify(sentOfType(hostClientSocket, 'host-auth')[0]),
     );
+    hostClientSocket.dispatch(
+      'message',
+      JSON.stringify(workerSentOfType(hostServerSocket, 'peer-open')[0]),
+    );
+    await flushAsync();
+    await room.webSocketMessage(
+      hostServerSocket,
+      JSON.stringify(sentOfType(hostClientSocket, 'room-password-set')[0]),
+    );
 
     const oldAdmission = deferred<{ accountAssertion: string; deletionAssertion: null }>();
     const assertionProvider = vi
@@ -2857,16 +2915,43 @@ describe('Cloudflare client/Worker signaling contract', () => {
       expect(hostAuthFrame).toEqual({
         type: 'host-auth',
         secret: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+        desiredRoomPassword: roomPassword,
+        pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
       });
       room.acceptPendingHost(hostServerSocket, '123456', hostUrl.searchParams.get('peerId') || '');
       expect(workerSentOfType(hostServerSocket, 'peer-open')).toHaveLength(0);
       await room.webSocketMessage(hostServerSocket, JSON.stringify(hostAuthFrame));
 
-      hostClientSocket.dispatch('message', hostServerSocket.sent[0]);
+      const peerOpenFrame = workerSentOfType(hostServerSocket, 'peer-open')[0];
+      expect(peerOpenFrame).toMatchObject({
+        roomPasswordMutationId: hostAuthFrame?.pinMutationId,
+        roomPasswordApplied: true,
+      });
+      hostClientSocket.dispatch('message', JSON.stringify(peerOpenFrame));
       await flushAsync();
-      const passwordFrame = sentOfType(hostClientSocket, 'room-password-set')[0];
-      expect(passwordFrame).toEqual({ type: 'room-password-set', password: roomPassword });
-      await room.webSocketMessage(hostServerSocket, JSON.stringify(passwordFrame));
+      const finalPasswordFrame = sentOfType(hostClientSocket, 'room-password-set')[0];
+      expect(finalPasswordFrame).toEqual({
+        type: 'room-password-set',
+        password: roomPassword,
+        pinMutationId: hostAuthFrame?.pinMutationId,
+      });
+      const preConfirmationGuest = new ContractWorkerSocket();
+      await room.acceptGuest(preConfirmationGuest, '123456', 'guest-before-pin-confirmation');
+      expect(preConfirmationGuest.closed).toBe(true);
+      expect(workerSentOfType(preConfirmationGuest, 'error')[0]).toMatchObject({
+        type: 'error',
+        errorType: 'service-unavailable',
+        message: 'ROOM_PASSWORD_MUTATION_PENDING',
+      });
+      await room.webSocketMessage(hostServerSocket, JSON.stringify(finalPasswordFrame));
+      const finalPasswordResult = workerSentOfType(hostServerSocket, 'room-password-result')[0];
+      expect(finalPasswordResult).toEqual({
+        type: 'room-password-result',
+        mutationId: hostAuthFrame?.pinMutationId,
+        applied: true,
+      });
+      hostClientSocket.dispatch('message', JSON.stringify(finalPasswordResult));
+      await flushAsync();
 
       const guestPeer = createGuestPeer();
       guestPeer.connect(
@@ -2960,6 +3045,163 @@ describe('Cloudflare client/Worker signaling contract', () => {
 
     expect(new URL(reopened.url).searchParams.get('secret')).toBeNull();
     expect(sentOfType(reopened, 'host-auth')[0]).toEqual(firstAuth);
+    peer.destroy();
+  });
+
+  it('reconnects and reasserts the exact desired PIN mutation after a negative acknowledgement', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    peer.setRoomPassword('12345678');
+    await Promise.resolve();
+    const first = FakeWebSocket.instances[0];
+    first.dispatch('open');
+    await flushAsync();
+    const firstAuth = sentOfType(first, 'host-auth')[0];
+    expect(firstAuth).toMatchObject({
+      desiredRoomPassword: '12345678',
+      pinMutationId: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+    });
+
+    first.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'room-password-result',
+        mutationId: firstAuth?.pinMutationId,
+        applied: false,
+        errorType: 'ROOM_PASSWORD_STORAGE_UNAVAILABLE',
+      }),
+    );
+    await flushAsync();
+    expect(first.closeCount).toBe(1);
+
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+    await flushAsync();
+    expect(sentOfType(reopened, 'host-auth')[0]).toEqual(firstAuth);
+    peer.destroy();
+  });
+
+  it('requires a fresh final PIN confirmation on every admitted host socket', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    peer.setRoomPassword('12345678');
+    await Promise.resolve();
+    const first = FakeWebSocket.instances[0];
+    first.dispatch('open');
+    await flushAsync();
+    const firstAuth = sentOfType(first, 'host-auth')[0];
+    const peerOpen = {
+      type: 'peer-open',
+      peerId: '123456',
+      roomId: '123456',
+      roomPasswordApplied: true,
+      roomPasswordMutationId: firstAuth?.pinMutationId,
+    };
+    first.dispatch('message', JSON.stringify(peerOpen));
+    await flushAsync();
+    const firstConfirmation = sentOfType(first, 'room-password-set')[0];
+    expect(firstConfirmation).toMatchObject({
+      password: '12345678',
+      pinMutationId: firstAuth?.pinMutationId,
+    });
+    first.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'room-password-result',
+        mutationId: firstAuth?.pinMutationId,
+        applied: true,
+      }),
+    );
+    await flushAsync();
+
+    first.close();
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+    await flushAsync();
+    expect(sentOfType(reopened, 'host-auth')[0]).toEqual(firstAuth);
+
+    reopened.dispatch('message', JSON.stringify(peerOpen));
+    await flushAsync();
+    expect(sentOfType(reopened, 'room-password-set')[0]).toEqual(firstConfirmation);
+    peer.destroy();
+  });
+
+  it('keeps Worker guest admission fenced until a reconnected client confirms on its new socket', async () => {
+    installFakeWebSocket();
+    const room = await createContractWorkerRoom();
+    const peer = createHostPeer();
+    peer.setRoomPassword('12345678');
+    await Promise.resolve();
+
+    const admitClientSocket = async (
+      clientSocket: FakeWebSocket,
+      serverSocket: ContractWorkerSocket,
+    ): Promise<Record<string, unknown>> => {
+      clientSocket.dispatch('open');
+      await flushAsync();
+      const url = new URL(clientSocket.url);
+      room.acceptPendingHost(serverSocket, '123456', url.searchParams.get('peerId') || '');
+      const auth = sentOfType(clientSocket, 'host-auth')[0];
+      await room.webSocketMessage(serverSocket, JSON.stringify(auth));
+      const opened = workerSentOfType(serverSocket, 'peer-open')[0];
+      clientSocket.dispatch('message', JSON.stringify(opened));
+      await flushAsync();
+      return sentOfType(clientSocket, 'room-password-set')[0];
+    };
+
+    const firstClient = FakeWebSocket.instances[0];
+    const firstServer = new ContractWorkerSocket();
+    const firstConfirmation = await admitClientSocket(firstClient, firstServer);
+    await room.webSocketMessage(firstServer, JSON.stringify(firstConfirmation));
+    firstClient.dispatch(
+      'message',
+      JSON.stringify(workerSentOfType(firstServer, 'room-password-result')[0]),
+    );
+    await flushAsync();
+
+    firstClient.close();
+    peer.reconnect();
+    const reconnectedClient = FakeWebSocket.instances[1];
+    const reconnectedServer = new ContractWorkerSocket();
+    const reconnectedConfirmation = await admitClientSocket(reconnectedClient, reconnectedServer);
+    expect(reconnectedConfirmation).toEqual(firstConfirmation);
+
+    const fencedGuest = new ContractWorkerSocket();
+    await room.acceptGuest(fencedGuest, '123456', 'guest-before-reconnect-confirmation');
+    expect(workerSentOfType(fencedGuest, 'error')[0]).toMatchObject({
+      errorType: 'service-unavailable',
+      message: 'ROOM_PASSWORD_MUTATION_PENDING',
+    });
+
+    await room.webSocketMessage(reconnectedServer, JSON.stringify(reconnectedConfirmation));
+    const admittedGuest = new ContractWorkerSocket();
+    await room.acceptGuest(admittedGuest, '123456', 'guest-after-reconnect-confirmation');
+    expect(admittedGuest.closed).toBe(false);
+    peer.destroy();
+  });
+
+  it('restarts pre-admission host auth when the desired PIN changes in flight', async () => {
+    installFakeWebSocket();
+    const peer = createHostPeer();
+    await Promise.resolve();
+    const staleSocket = FakeWebSocket.instances[0];
+    staleSocket.dispatch('open');
+    await flushAsync();
+    const staleAuth = sentOfType(staleSocket, 'host-auth')[0];
+    expect(staleAuth).toMatchObject({ desiredRoomPassword: '' });
+
+    peer.setRoomPassword('12345678');
+
+    expect(staleSocket.closeCount).toBe(1);
+    const currentSocket = FakeWebSocket.instances[1];
+    currentSocket.dispatch('open');
+    await flushAsync();
+    const currentAuth = sentOfType(currentSocket, 'host-auth')[0];
+    expect(currentAuth).toMatchObject({ desiredRoomPassword: '12345678' });
+    expect(currentAuth?.pinMutationId).not.toBe(staleAuth?.pinMutationId);
+    expect(sentOfType(staleSocket, 'room-password-set')).toEqual([]);
     peer.destroy();
   });
 });

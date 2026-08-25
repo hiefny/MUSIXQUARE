@@ -649,7 +649,7 @@ function deferRoomUploadAssertionMetric(
     // The metric write catches its own failures. A local runtime without a
     // usable ExecutionContext still receives best-effort delivery below.
   }
-  void task;
+  task.catch(() => undefined);
 }
 
 async function deferRejectedRoomUploadAssertionMetric(
@@ -1846,7 +1846,7 @@ async function consumeUploadSessionRateLimits(
           inFlightUploadSessionRateLimits.delete(coalesceKey);
         }
       };
-      void pending.then(cleanup, cleanup);
+      pending.then(cleanup, cleanup);
     }
   }
   const result = await pending;

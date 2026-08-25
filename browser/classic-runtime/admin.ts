@@ -293,8 +293,22 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.4.16';
+const ADMIN_SCRIPT_VERSION = '8.4.17';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
+
+function reportUnexpectedAdminActionFailure(error: unknown): void {
+  console.error('[admin] Unexpected asynchronous action failure.', error);
+}
+
+function addAsyncAdminEventListener(
+  target: EventTarget | null,
+  type: string,
+  listener: (event: Event) => Promise<void>,
+): void {
+  target?.addEventListener(type, (event) => {
+    listener(event).catch(reportUnexpectedAdminActionFailure);
+  });
+}
 
 const root = document.querySelector<HTMLElement>('.admin-shell');
 const loginPanel = document.querySelector<HTMLElement>('[data-login-panel]');
@@ -3182,7 +3196,7 @@ function renderProRoomApiKey(
     revoke.type = 'button';
     revoke.textContent = 'Revoke';
     revoke.setAttribute('aria-label', `Revoke ${label.textContent}`);
-    revoke.addEventListener('click', async () => {
+    addAsyncAdminEventListener(revoke, 'click', async () => {
       if (!window.confirm(`Revoke “${label.textContent}”? This cannot be undone.`)) return;
       revoke.disabled = true;
       revoke.textContent = 'Revoking...';
@@ -3386,7 +3400,7 @@ function renderProRoomApiPanel(
     issue.title = 'Activate or resume this room before issuing a key.';
   }
   form.append(labelField, accessField, expiryField, issue);
-  form.addEventListener('submit', async (event) => {
+  addAsyncAdminEventListener(form, 'submit', async (event) => {
     event.preventDefault();
     if (!validRoomGeneration) return;
     const preset = developerApiPresets[accessSelect.value] || developerApiPresets.read || [];
@@ -3609,7 +3623,7 @@ function renderProRoomLabelEditor(
       !nextLabel || nextLabel.length > 64 || nextLabel === String(room?.label || '').trim();
   };
   input.addEventListener('input', syncSaveState);
-  form.addEventListener('submit', async (event) => {
+  addAsyncAdminEventListener(form, 'submit', async (event) => {
     event.preventDefault();
     const nextLabel = input.value.trim();
     if (!nextLabel || nextLabel.length > 64 || save.disabled) return;
@@ -3712,7 +3726,7 @@ function renderProRoomActions(
   activation.type = 'button';
   if (rawStatus === 'provisioning') {
     activation.textContent = 'Retry provisioning';
-    activation.addEventListener('click', async () => {
+    addAsyncAdminEventListener(activation, 'click', async () => {
       activation.disabled = true;
       activation.textContent = 'Retrying...';
       setProRoomStatus('');
@@ -3735,7 +3749,7 @@ function renderProRoomActions(
       : 'Issue owner recovery link';
     activation.title =
       'Recovery works only for the same account already linked as owner. To assign a different or previously unlinked account, use ownership transfer.';
-    activation.addEventListener('click', async () => {
+    addAsyncAdminEventListener(activation, 'click', async () => {
       activation.disabled = true;
       activation.textContent = 'Issuing...';
       setProRoomStatus('');
@@ -3789,7 +3803,7 @@ function renderProRoomActions(
       : 'Issue activation link';
     activation.disabled = rawStatus === 'suspended';
     if (rawStatus === 'suspended') activation.title = 'Resume the room before issuing a link.';
-    activation.addEventListener('click', async () => {
+    addAsyncAdminEventListener(activation, 'click', async () => {
       activation.disabled = true;
       activation.textContent = 'Issuing...';
       setProRoomStatus('');
@@ -3835,7 +3849,7 @@ function renderProRoomActions(
     stateButton.type = 'button';
     stateButton.className = rawStatus === 'active' ? 'is-danger' : 'is-secondary';
     stateButton.textContent = rawStatus === 'active' ? 'Suspend room' : 'Resume room';
-    stateButton.addEventListener('click', async () => {
+    addAsyncAdminEventListener(stateButton, 'click', async () => {
       if (
         targetStatus === 'suspended' &&
         !window.confirm(`Suspend room ${roomCode}? Connected participants will be signed out.`)
@@ -5147,7 +5161,7 @@ function renderArticleRow(article: AdminArticle): HTMLElement {
   toggle.type = 'button';
   toggle.className = 'article-toggle';
   toggle.textContent = article.hidden ? 'Restore' : 'Hide';
-  toggle.addEventListener('click', async () => {
+  addAsyncAdminEventListener(toggle, 'click', async () => {
     toggle.disabled = true;
     toggle.textContent = article.hidden ? 'Restoring...' : 'Hiding...';
     try {
@@ -5631,7 +5645,7 @@ async function init(): Promise<void> {
   }
 }
 
-loginForm?.addEventListener('submit', async (event) => {
+addAsyncAdminEventListener(loginForm, 'submit', async (event) => {
   event.preventDefault();
   // The logout response clears the server cookie. Never allow a newer login
   // to race ahead of that response and then have its fresh cookie removed.
@@ -5639,7 +5653,7 @@ loginForm?.addEventListener('submit', async (event) => {
     setStatus('Signing out...');
     return;
   }
-  const form = new FormData(loginForm);
+  const form = new FormData(loginForm ?? undefined);
   const password = String(form.get('password') || '');
   setStatus('Checking...');
   try {
@@ -5648,7 +5662,7 @@ loginForm?.addEventListener('submit', async (event) => {
       body: JSON.stringify({ password }),
       sessionBound: false,
     });
-    loginForm.reset();
+    loginForm?.reset();
     beginAdminSession();
     await loadAuthenticatedDashboard();
   } catch (error) {
@@ -5901,7 +5915,7 @@ announcementClearBtn?.addEventListener('click', () => {
   });
 });
 
-logoutBtn?.addEventListener('click', async () => {
+addAsyncAdminEventListener(logoutBtn, 'click', async () => {
   if (adminLogoutInFlight) return;
   clearProRoomClaimState();
   invalidateAdminSession();
@@ -5923,4 +5937,4 @@ logoutBtn?.addEventListener('click', async () => {
   }
 });
 
-init();
+init().catch(reportUnexpectedAdminActionFailure);

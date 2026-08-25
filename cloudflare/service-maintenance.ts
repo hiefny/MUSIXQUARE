@@ -1070,7 +1070,7 @@ export async function readServiceMaintenance(
     cache.refresh = refresh;
     cache.refreshVersion = version;
   }
-  return cache.refresh || unavailableServiceMaintenanceState();
+  return cache.refresh ?? unavailableServiceMaintenanceState();
 }
 
 /**
@@ -1527,7 +1527,7 @@ export async function readAdminAnnouncementControl(
     cache.refresh = refresh;
     cache.refreshVersion = version;
   }
-  return cache.refresh || { status: 'unavailable', payload: null };
+  return cache.refresh ?? { status: 'unavailable', payload: null };
 }
 
 export async function updateAdminAnnouncementControl(

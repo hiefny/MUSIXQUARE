@@ -20,6 +20,7 @@ import {
   type AccountSnapshot,
 } from './state.ts';
 import { bus } from '../core/events.ts';
+import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 
@@ -80,6 +81,12 @@ type AccountActivityStatsFlushResult =
   | { status: 'updated'; stats: AccountStats }
   | { status: 'idle' }
   | { status: 'uncertain' };
+
+function observeActivityStatsFlush(operation: Promise<void>, source: string): void {
+  operation.catch((error) => {
+    log.warn(`[AccountStats] ${source} flush failed outside the delivery boundary`, error);
+  });
+}
 
 interface AccountActivityStatsTracker {
   /** Reconcile state immediately; useful for injected runtimes and tests. */
@@ -736,7 +743,7 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
       'flush',
       () => {
         this.#stopFlushTimer = null;
-        void this.flush();
+        observeActivityStatsFlush(this.flush(), 'scheduled');
       },
       AUTO_FLUSH_DELAY_MS,
     );
@@ -762,7 +769,7 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
     if (this.#disposed) return;
     this.#refreshTrackDuration();
     this.#advance(this.#deps.now());
-    void this.flush();
+    observeActivityStatsFlush(this.flush(), 'pagehide');
   }
 }
 

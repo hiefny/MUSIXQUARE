@@ -701,33 +701,37 @@ export function joinSession(
 
     // Detect local vs remote connection. The detectConnectionType function
     // now internally polls until ICE stabilizes (up to 10 seconds).
-    detectConnectionType(conn).then((type) => {
-      if (!conn.open || getState('network.hostConn') !== conn) return;
-      const applied = applyGuestDetectedConnectionType(type, 'Initial ICE detection');
-      if (applied) log.info(`[Peer] Connection type: ${type}`);
+    detectConnectionType(conn)
+      .then((type) => {
+        if (!conn.open || getState('network.hostConn') !== conn) return;
+        const applied = applyGuestDetectedConnectionType(type, 'Initial ICE detection');
+        if (applied) log.info(`[Peer] Connection type: ${type}`);
 
-      // Worst-case fallback: see host.ts for rationale. Recheck once after
-      // 30s to recover from a misclassified LAN peer where ICE was still
-      // stabilizing during the initial poll.
-      if (type === 'remote' && conn.open) {
-        setManagedTimer(
-          'guest-ice-fallback',
-          async () => {
-            if (!conn.open || getState('network.hostConn') !== conn) return;
-            const recheck = await detectConnectionType(conn);
-            if (!conn.open || getState('network.hostConn') !== conn) return;
-            if (recheck === 'local' && getState('network.connectionType') !== 'local') {
-              const appliedFallback = applyGuestDetectedConnectionType(
-                'local',
-                'Fallback ICE detection',
-              );
-              if (appliedFallback) log.info('[Peer] Reclassified as local on fallback');
-            }
-          },
-          30000,
-        );
-      }
-    });
+        // Worst-case fallback: see host.ts for rationale. Recheck once after
+        // 30s to recover from a misclassified LAN peer where ICE was still
+        // stabilizing during the initial poll.
+        if (type === 'remote' && conn.open) {
+          setManagedTimer(
+            'guest-ice-fallback',
+            async () => {
+              if (!conn.open || getState('network.hostConn') !== conn) return;
+              const recheck = await detectConnectionType(conn);
+              if (!conn.open || getState('network.hostConn') !== conn) return;
+              if (recheck === 'local' && getState('network.connectionType') !== 'local') {
+                const appliedFallback = applyGuestDetectedConnectionType(
+                  'local',
+                  'Fallback ICE detection',
+                );
+                if (appliedFallback) log.info('[Peer] Reclassified as local on fallback');
+              }
+            },
+            30000,
+          );
+        }
+      })
+      .catch((error) => {
+        log.warn('[Guest] Initial ICE detection failed', error);
+      });
   });
 }
 

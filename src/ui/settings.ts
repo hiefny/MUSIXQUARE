@@ -797,7 +797,7 @@ function prepareLanguagePickerFonts(): void {
   const generation = _languagePickerPreparationGeneration;
   const request = ++_languagePickerPreparationRequest;
 
-  void Promise.all(preloadTasks)
+  Promise.all(preloadTasks)
     .then((results) => results.every(Boolean))
     .catch(() => false)
     .then((ready) => {
@@ -812,6 +812,9 @@ function prepareLanguagePickerFonts(): void {
       // latest intent performs the shared scrollbar/mask relayout.
       bus.emit('ui:scrollbar-relayout');
       updateLanguageScrollMask();
+    })
+    .catch((error) => {
+      log.warn('[Settings] Language picker font preparation failed', error);
     });
 }
 

@@ -50,37 +50,41 @@ export function animateTransition(callback: () => void): void {
   }
 
   _batchedTransitionCb = callback;
-  Promise.resolve().then(() => {
-    const cb = _batchedTransitionCb;
-    _batchedTransitionCb = null;
-    if (!cb) return;
-    let executed = false;
-    try {
-      // startViewTransition returns a ViewTransition object whose
-      // `ready` / `finished` / `updateCallbackDone` Promises reject when
-      // the transition is aborted (e.g. another transition supersedes
-      // this one, or the document visibility flips mid-animation). The
-      // callback still runs, so the abort has no user-facing impact —
-      // but an uncaught rejection lands in the global `unhandledrejection`
-      // handler and shows up in console as "InvalidStateError: Transition
-      // was aborted because of invalid state". Silence the benign ones.
-      const vt = transitionDocument.startViewTransition(() => {
-        executed = true;
-        cb();
-      });
-      vt?.ready?.catch(() => {
-        /* noop — benign abort */
-      });
-      vt?.finished?.catch(() => {
-        /* noop — benign abort */
-      });
-      vt?.updateCallbackDone?.catch(() => {
-        /* noop — benign abort */
-      });
-    } catch {
-      if (!executed) cb();
-    }
-  });
+  Promise.resolve()
+    .then(() => {
+      const cb = _batchedTransitionCb;
+      _batchedTransitionCb = null;
+      if (!cb) return;
+      let executed = false;
+      try {
+        // startViewTransition returns a ViewTransition object whose
+        // `ready` / `finished` / `updateCallbackDone` Promises reject when
+        // the transition is aborted (e.g. another transition supersedes
+        // this one, or the document visibility flips mid-animation). The
+        // callback still runs, so the abort has no user-facing impact —
+        // but an uncaught rejection lands in the global `unhandledrejection`
+        // handler and shows up in console as "InvalidStateError: Transition
+        // was aborted because of invalid state". Silence the benign ones.
+        const vt = transitionDocument.startViewTransition(() => {
+          executed = true;
+          cb();
+        });
+        vt?.ready?.catch(() => {
+          /* noop — benign abort */
+        });
+        vt?.finished?.catch(() => {
+          /* noop — benign abort */
+        });
+        vt?.updateCallbackDone?.catch(() => {
+          /* noop — benign abort */
+        });
+      } catch {
+        if (!executed) cb();
+      }
+    })
+    .catch((error) => {
+      log.warn('[UI] Batched view transition failed', error);
+    });
 }
 
 // ─── HTML Escaping ───────────────────────────────────────────────

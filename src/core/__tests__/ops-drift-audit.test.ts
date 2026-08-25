@@ -290,7 +290,7 @@ describe('operations drift audit', () => {
       r2ExactLifecyclePolicyCount: 1,
       r2ShortLifecycleGuardCount: 1,
       workerSecretPolicyCount: 6,
-      workerSecretNameCount: 38,
+      workerSecretNameCount: 39,
       workerSurfacePolicyCount: 6,
       workerBindingCount: 63,
       workerCustomDomainCount: 5,
@@ -330,6 +330,7 @@ describe('operations drift audit', () => {
     expect(appInventory.expectedNames).not.toContain('MXQR_PRO_ROOM_REUSE_CANARY_OPS_SECRET');
     expect(signalingInventory.expectedNames).not.toContain('PRO_ROOM_DECOMMISSION_VERIFY_SECRET');
     expect(signalingInventory.expectedNames).toContain('MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET');
+    expect(signalingInventory.expectedNames).toContain('MXQR_STANDARD_ROOM_PIN_PEPPER');
     expect(remoteShareInventory.expectedNames).toContain(
       'MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET',
     );

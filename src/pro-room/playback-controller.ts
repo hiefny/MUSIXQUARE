@@ -507,7 +507,11 @@ function createImplementation(
             status,
           });
           // A lost WebSocket COMMIT is recovered from the canonical snapshot.
-          if (outcome === 'committed') void ports.runHeartbeat(true);
+          if (outcome === 'committed') {
+            ports.runHeartbeat(true).catch((error) => {
+              log.warn('[PRO Playback] Post-COMMIT heartbeat failed', error);
+            });
+          }
         } catch (error) {
           if (
             error instanceof ProRoomApiError &&
@@ -959,7 +963,9 @@ function createImplementation(
           playback.revision,
           playback.positionSeconds,
         );
-        void ports.runHeartbeat(true);
+        ports.runHeartbeat(true).catch((error) => {
+          log.warn('[PRO Playback] Post-checkpoint heartbeat failed', error);
+        });
         return;
       }
     }
@@ -1040,7 +1046,9 @@ function createImplementation(
       state.activeTransition.clockAbort.abort();
       state.activeTransition = null;
     }
-    void ports.runHeartbeat(true);
+    ports.runHeartbeat(true).catch((error) => {
+      log.warn('[PRO Playback] Post-COMMIT heartbeat failed', error);
+    });
   }
 
   function acceptPlaybackCommit(
@@ -1255,7 +1263,7 @@ function createImplementation(
         });
       } else if (result.status === 'unchanged') {
         if (result.playback.revision > state.lastAppliedRevision) {
-          void restorePlaybackCheckpoint(result.playback, intent.roomId, intent.roomEpoch);
+          restorePlaybackCheckpoint(result.playback, intent.roomId, intent.roomEpoch);
           settleLocalPlaybackUiControl(localUiControl, 'applied', result.playback.positionSeconds);
         } else if (intent.kind === 'play' && result.playback.state === 'playing') {
           // The room can already be playing while a foregrounded WebKit iframe
@@ -1392,12 +1400,12 @@ function createImplementation(
     return operation;
   }
 
-  async function restorePlaybackCheckpoint(
+  function restorePlaybackCheckpoint(
     playback: ProRoomPlaybackCheckpoint,
     roomCode: string,
     roomEpoch: number,
     isRequestCurrent: () => boolean = canonicalPlaybackCommitOwner,
-  ): Promise<void> {
+  ): void {
     const context = getState('room.context');
     if (
       !isRequestCurrent() ||

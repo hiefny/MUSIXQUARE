@@ -7,6 +7,25 @@ interface ManagedTimer {
 
 const _timers = new Map<string, ManagedTimer>();
 
+type ManagedTimerCallback = () => unknown;
+
+function runManagedTimerCallback(name: string, fn: ManagedTimerCallback): void {
+  try {
+    const result = fn();
+    if (
+      result !== null &&
+      (typeof result === 'object' || typeof result === 'function') &&
+      typeof (result as PromiseLike<unknown>).then === 'function'
+    ) {
+      void Promise.resolve(result).catch((error) => {
+        console.error(`[Timer] "${name}" rejected:`, error);
+      });
+    }
+  } catch (error) {
+    console.error(`[Timer] "${name}" threw:`, error);
+  }
+}
+
 /**
  * Set a managed timer. Automatically clears the previous timer for that name.
  * Names are page-global singleton keys. Concurrent owners must parameterize
@@ -14,7 +33,7 @@ const _timers = new Map<string, ManagedTimer>();
  */
 export function setManagedTimer(
   name: string,
-  fn: () => void,
+  fn: ManagedTimerCallback,
   delayMs: number,
   opts?: { interval?: boolean },
 ): void {
@@ -22,19 +41,11 @@ export function setManagedTimer(
   const interval = opts?.interval === true;
   const handle = interval
     ? setInterval(() => {
-        try {
-          fn();
-        } catch (e) {
-          console.error(`[Timer] "${name}" threw:`, e);
-        }
+        runManagedTimerCallback(name, fn);
       }, delayMs)
     : setTimeout(() => {
         _timers.delete(name);
-        try {
-          fn();
-        } catch (e) {
-          console.error(`[Timer] "${name}" threw:`, e);
-        }
+        runManagedTimerCallback(name, fn);
       }, delayMs);
   _timers.set(name, { handle, interval });
 }

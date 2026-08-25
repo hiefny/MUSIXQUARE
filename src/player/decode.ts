@@ -391,7 +391,9 @@ export async function loadAndBroadcastFile(
         broadcastFileDebounced(file, queueItemId, sessionId, prepareMsg);
         // Queue files are user media regardless of filename. Bundled demo audio
         // has its own DEMO_* protocol and never enters this queue pipeline.
-        void shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId });
+        shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId }).catch((error) => {
+          log.warn('[Load] Remote Share publication failed outside its transfer boundary', error);
+        });
       }
     }
 

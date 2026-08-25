@@ -106,4 +106,31 @@ describe('back-button guard controller', () => {
     controller.handleSessionStateChange();
     expect(pushGuard).toHaveBeenCalledOnce();
   });
+
+  it('reports a rejected confirmation once even when the error observer throws', async () => {
+    const requestLeaveConfirmation = vi
+      .fn<() => Promise<boolean>>()
+      .mockRejectedValueOnce(new Error('dialog unavailable'))
+      .mockResolvedValueOnce(false);
+    const onConfirmationError = vi.fn(() => {
+      throw new Error('diagnostic observer failed');
+    });
+    const controller = createBackButtonGuardController({
+      isSessionActive: () => true,
+      pushGuard: vi.fn(),
+      requestLeaveConfirmation,
+      onLeaveConfirmed: vi.fn(),
+      onConfirmationError,
+    });
+
+    controller.handleSessionStateChange();
+    controller.handlePopState();
+    await flushMicrotasks();
+
+    expect(onConfirmationError).toHaveBeenCalledTimes(1);
+    controller.handlePopState();
+    await flushMicrotasks();
+    expect(requestLeaveConfirmation).toHaveBeenCalledTimes(2);
+    expect(onConfirmationError).toHaveBeenCalledTimes(1);
+  });
 });

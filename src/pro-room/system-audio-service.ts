@@ -110,6 +110,12 @@ let coordinatorSubscriptionKey: string | null = null;
 let coordinatorSubscriptionFlight: { key: string; promise: Promise<void> } | null = null;
 const coordinatorPrimers = new Map<'L' | 'R', WebRtcAudioDecoderPrimer>();
 
+function observeSystemAudioTask(operation: Promise<unknown>, context: string): void {
+  operation.catch((error) => {
+    log.warn(`[PRO SystemAudio] ${context} escaped its operation boundary`, error);
+  });
+}
+
 interface LocalLeaseIdentity {
   epoch: number;
   roomCode: string;
@@ -451,7 +457,7 @@ function ownerDisplayName(state: ProRoomSystemAudioState | null): string | null 
 function notifyMutation(state: ProRoomSystemAudioState): void {
   // The Durable Object broadcasts a state invalidation. Reconcile locally as
   // well so the initiating endpoint does not wait for the WebSocket echo.
-  void reconcileCoordinatorState(state);
+  reconcileCoordinatorState(state);
 }
 
 function clearCoordinatorPrimers(): void {
@@ -639,7 +645,9 @@ function scheduleFailedSfuPublisherRecheck(sessionId: string): void {
         current.publication.sessionId === sessionId,
       );
       failedSfuPublisherSessionId = null;
-      if (failedSessionIsCanonical) void recoverLocalPublisher();
+      if (failedSessionIsCanonical) {
+        observeSystemAudioTask(recoverLocalPublisher(), 'publisher recovery');
+      }
     },
     RECOVERY_DELAY_MS,
   );
@@ -715,7 +723,7 @@ function scheduleDirectPromotionRetry(reason: string): void {
   clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
   setManagedTimer(
     DIRECT_PROMOTION_RETRY_TIMER,
-    () => void promoteLocalDirectPublicationToSfu(reason),
+    () => requestDirectPromotion(reason),
     RECOVERY_DELAY_MS,
   );
 }
@@ -792,7 +800,7 @@ async function ensureCoordinatorSubscription(
       );
       if (activeLocalDirectPublicationKey === publicationKey) {
         const reconciled = await reconcileProSystemAudioDirectTargets(targets);
-        if (!reconciled) void promoteLocalDirectPublicationToSfu('direct-target-fallback');
+        if (!reconciled) requestDirectPromotion('direct-target-fallback');
         return;
       }
       const activationTargets = currentDirectTargets();
@@ -803,12 +811,12 @@ async function ensureCoordinatorSubscription(
         targets: activationTargets,
       });
       if (!activated) {
-        void promoteLocalDirectPublicationToSfu('direct-activation-failed');
+        requestDirectPromotion('direct-activation-failed');
         return;
       }
       activeLocalDirectPublicationKey = publicationKey;
       const reconciled = await reconcileProSystemAudioDirectTargets(currentDirectTargets());
-      if (!reconciled) void promoteLocalDirectPublicationToSfu('direct-target-fallback');
+      if (!reconciled) requestDirectPromotion('direct-target-fallback');
     } else {
       resetProSystemAudioDirectTransport({ notifyPeers: false });
     }
@@ -870,7 +878,7 @@ function handleDirectRouteFallback(event: ProSystemAudioDirectFallbackEvent): vo
     return;
   }
   if (event.role === 'publisher' && state.ownerParticipantId === localParticipantId()) {
-    void promoteLocalDirectPublicationToSfu(event.reason);
+    requestDirectPromotion(event.reason);
     return;
   }
   if (event.role === 'receiver' && state.ownerParticipantId !== localParticipantId()) {
@@ -983,7 +991,14 @@ function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
   return flight;
 }
 
-async function reconcileCoordinatorState(state: ProRoomSystemAudioState): Promise<void> {
+function requestDirectPromotion(reason: string): void {
+  observeSystemAudioTask(
+    promoteLocalDirectPublicationToSfu(reason),
+    `LAN-direct to SFU promotion (${reason})`,
+  );
+}
+
+function reconcileCoordinatorState(state: ProRoomSystemAudioState): void {
   if (!isActiveProRoom()) return;
   if (state.status === 'live') {
     const identity = captureCoordinatorPublicationIdentity(state);
@@ -1034,7 +1049,7 @@ function onControllerState(view: ProRoomSystemAudioViewState): void {
     },
     ownerDisplayName(state),
   );
-  if (state) void reconcileCoordinatorState(state);
+  if (state) reconcileCoordinatorState(state);
 }
 
 function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
@@ -1123,7 +1138,7 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
   remoteOwnerDisplayName = null;
   controller?.bindSession(snapshot);
   const state = controller?.getCurrentState();
-  if (state) void reconcileCoordinatorState(state);
+  if (state) reconcileCoordinatorState(state);
 }
 
 export function resetProSystemAudioService(): void {
@@ -1419,7 +1434,7 @@ export async function publishLocalProSystemAudio(
         publicationId: state.publication.publicationId,
         targets: activationTargets,
       });
-      if (!activated) void promoteLocalDirectPublicationToSfu('post-commit-activation-failed');
+      if (!activated) requestDirectPromotion('post-commit-activation-failed');
       else {
         activeLocalDirectPublicationKey = directPublicationKey(
           state.ownerParticipantId,
@@ -1427,7 +1442,7 @@ export async function publishLocalProSystemAudio(
           state.publication.publicationId,
         );
         const reconciled = await reconcileProSystemAudioDirectTargets(currentDirectTargets());
-        if (!reconciled) void promoteLocalDirectPublicationToSfu('post-commit-target-fallback');
+        if (!reconciled) requestDirectPromotion('post-commit-target-fallback');
       }
     }
     notifyMutation(state);
@@ -1671,7 +1686,7 @@ export function registerProSystemAudioServiceListeners(): void {
     }
     cleanupSystemAudioSfuGuestRoute();
     const state = controller?.getCurrentState();
-    if (state) void reconcileCoordinatorState(state);
+    if (state) reconcileCoordinatorState(state);
     // The PRO runtime owns the authoritative initial read and its safety
     // deadline. Fetching here as well races that read and can issue a second
     // request after a fast response without registering the result with the

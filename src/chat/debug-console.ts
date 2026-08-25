@@ -20,6 +20,7 @@ import { ramStats } from '../storage/ramstore.ts';
 import { getCurrentAudioBuffer, liveAudioBufferCount } from '../player/_state.ts';
 import { getCurrentQueueItemId, getCurrentQueueItemIndex } from '../player/queue-model.ts';
 import { getCapturedLogs } from '../core/log-capture.ts';
+import { log } from '../core/log.ts';
 import { getPlaybackOwnership } from '../player/ownership.ts';
 import { collectSystemAudioDebugText } from '../network/system-audio-debug.ts';
 import {
@@ -98,7 +99,9 @@ export function cmdDebug(args: string[]): void {
   // any string after `/debug ` works only for users who already know).
   const sub = (args[0] || '').toLowerCase();
   if (sub === 'memory' || sub === 'mem') {
-    cmdDebugMemory();
+    cmdDebugMemory().catch((error) => {
+      log.warn('[Debug] Memory snapshot failed', error);
+    });
     return;
   }
   if (sub === 'screen' || sub === 'viewport' || sub === 'vp') {
@@ -106,7 +109,7 @@ export function cmdDebug(args: string[]): void {
     return;
   }
   if (sub === 'systemaudio' || sub === 'sysaudio' || sub === 'sa') {
-    void cmdDebugSystemAudio();
+    cmdDebugSystemAudio();
     return;
   }
   if (sub === 'console' || sub === 'log' || sub === 'logs') {
@@ -350,7 +353,7 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     if (inFlight) return;
     inFlight = true;
     const stick = !!opts.scrollable && pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
-    void (async () => {
+    (async () => {
       let text: string;
       try {
         text = await opts.collect();
@@ -361,7 +364,10 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
       if (disposed) return;
       pre.textContent = text;
       if (stick) pre.scrollTop = pre.scrollHeight;
-    })();
+    })().catch((error) => {
+      inFlight = false;
+      log.warn('[Debug] Text overlay refresh failed', error);
+    });
   };
 
   const close = (): void => closeActiveTextDebugOverlay();
@@ -406,7 +412,7 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
   });
 
   // One-shot clipboard copy of the first sample.
-  void (async () => {
+  (async () => {
     let text: string;
     try {
       text = await opts.collect();
@@ -419,7 +425,7 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     } catch {
       /* clipboard unavailable */
     }
-  })();
+  })().catch((error) => log.warn('[Debug] Clipboard snapshot failed', error));
 }
 
 function cmdDebugSystemAudio(): void {
@@ -994,7 +1000,9 @@ function startDebugMemorySession(initial: MemSnapshot): void {
         stopDebugMemorySession();
         return;
       }
-      void tickDebugMemorySession(session);
+      tickDebugMemorySession(session).catch((error) => {
+        log.warn('[Debug] Memory polling failed', error);
+      });
     },
     DEBUG_POLL_INTERVAL_MS,
     { interval: true },

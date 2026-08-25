@@ -709,7 +709,7 @@ async function waitForPreviewManifestBudget(
     const onAbort = (): void => finish('aborted');
     const timeoutId = window.setTimeout(() => finish('timeout'), remainingMs);
     signal.addEventListener('abort', onAbort, { once: true });
-    void prefetch.then(finish);
+    prefetch.then(finish).catch(() => finish('aborted'));
   });
 }
 
@@ -879,9 +879,13 @@ export function fetchYouTubePreview(url: string): void {
       } finally {
         if (_previewAbort === abort) {
           if (manifestPrefetch && !abort.signal.aborted) {
-            void manifestPrefetch.finally(() => {
-              if (_previewAbort === abort) _previewAbort = null;
-            });
+            manifestPrefetch
+              .finally(() => {
+                if (_previewAbort === abort) _previewAbort = null;
+              })
+              .catch((error) => {
+                log.warn('[YouTube Preview] Detached playlist manifest prefetch failed', error);
+              });
           } else {
             _previewAbort = null;
           }

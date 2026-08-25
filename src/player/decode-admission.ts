@@ -14,6 +14,7 @@
  */
 
 import { probeAudioChannelCount } from './audio-header.ts';
+import { log } from '../core/log.ts';
 
 const MIB = 1024 * 1024;
 const PCM_BYTES_PER_SAMPLE = Float32Array.BYTES_PER_ELEMENT;
@@ -225,11 +226,16 @@ function getProbedDuration(blob: Blob): Promise<number | null> {
   if (cached) return cached;
   const pending = probeAudioDuration(blob);
   durationCache.set(blob, pending);
-  void pending.then((duration) => {
-    // A timeout/error is not authoritative. Let a later user retry probe the
-    // same local File instead of pinning the conservative fallback forever.
-    if (duration === null && durationCache.get(blob) === pending) durationCache.delete(blob);
-  });
+  pending
+    .then((duration) => {
+      // A timeout/error is not authoritative. Let a later user retry probe the
+      // same local File instead of pinning the conservative fallback forever.
+      if (duration === null && durationCache.get(blob) === pending) durationCache.delete(blob);
+    })
+    .catch((error) => {
+      if (durationCache.get(blob) === pending) durationCache.delete(blob);
+      log.warn('[DecodeAdmission] Duration probe failed', error);
+    });
   return pending;
 }
 

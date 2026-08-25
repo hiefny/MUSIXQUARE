@@ -44,9 +44,10 @@ import {
   getRoomContext,
   hasRoomCapability,
   isActiveStandardRoomCoordinator,
+  isStandardRoomRole,
 } from '../rooms/authority.ts';
 import { loadPlaylistModule } from './playlist-loader.ts';
-import type { ResidentFile } from '../types/index.ts';
+import type { QueueItemId, ResidentFile } from '../types/index.ts';
 
 /** Lead time for a host command to reach guests before the shared start. */
 const SCHEDULE_AHEAD_MS = 200;
@@ -283,9 +284,17 @@ interface PendingPlayIntent {
   readonly recoveryGeneration: number;
 }
 
+type PlayRecoveryTiming = 'catch-up' | 'canonical-rebase';
+
 interface PlayRecoveryOptions {
   readonly suppressPrompt?: boolean;
   readonly onRecoveredStarted?: () => void | Promise<void>;
+  /**
+   * `catch-up` preserves the requested timeline across a delayed recovery.
+   * `canonical-rebase` restarts the captured position and lets a host publish
+   * a fresh canonical PLAY only after that retry really starts.
+   */
+  readonly timing?: PlayRecoveryTiming;
   readonly recoveryGeneration?: number;
 }
 
@@ -394,7 +403,7 @@ function revokeInFlightPlayStart(): void {
   playStartFence += 1;
 }
 
-function invalidatePendingFilePlayIntent(): void {
+export function invalidatePendingFilePlayIntent(): void {
   clearPendingPlayIntent();
   failedPlayRecoveryGeneration += 1;
   revokeInFlightPlayStart();
@@ -478,6 +487,106 @@ function isFileTransportInactive(): boolean {
 
 function isFilePlaybackPlaying(): boolean {
   return isPlaybackPlayingFile(getPlaybackModeActivity());
+}
+
+export async function startHostFileAndBroadcastPlay({
+  time,
+  queueItemId,
+  name,
+  shouldApply,
+  onStarted,
+  onPublished,
+  context,
+}: {
+  time: number;
+  queueItemId: QueueItemId;
+  name?: string;
+  shouldApply?: () => boolean;
+  onStarted?: () => void;
+  onPublished?: () => void;
+  context: string;
+}): Promise<boolean> {
+  const room = getRoomContext();
+  const sessionCode = getState('network.sessionCode');
+  const startedAsStandardHost = isStandardRoomRole('host');
+  const startedAsStandardGuest = isStandardRoomRole('guest');
+  const hostConn = getState('network.hostConn');
+  const residentFile = getState('files.current');
+  const buffer = getCurrentAudioBuffer();
+  const ownsCanonicalTimeline = isActiveStandardRoomCoordinator();
+  let startedCommitted = false;
+  let published = false;
+
+  // A guest must never enter this host-local primitive, including during the
+  // short handoff window where its UI intent and connection state can differ.
+  if (hostConn || startedAsStandardGuest) return false;
+
+  const occurrenceStillCurrent = (): boolean => {
+    const currentRoom = getRoomContext();
+    return (
+      shouldApply?.() !== false &&
+      getState('network.hostConn') === hostConn &&
+      isStandardRoomRole('host') === startedAsStandardHost &&
+      isStandardRoomRole('guest') === startedAsStandardGuest &&
+      (!ownsCanonicalTimeline || isActiveStandardRoomCoordinator()) &&
+      getState('network.sessionCode') === sessionCode &&
+      currentRoom.kind === room.kind &&
+      currentRoom.roomId === room.roomId &&
+      currentRoom.epoch === room.epoch &&
+      getCurrentQueueItemId() === queueItemId &&
+      getState('files.current') === residentFile &&
+      getCurrentAudioBuffer() === buffer
+    );
+  };
+  const publishStartedPlay = (): void => {
+    if (
+      published ||
+      !ownsCanonicalTimeline ||
+      !isActiveStandardRoomCoordinator() ||
+      !occurrenceStillCurrent() ||
+      !isFilePlaybackPlaying()
+    ) {
+      return;
+    }
+    published = true;
+    broadcast({
+      type: MSG.PLAY,
+      time,
+      queueItemId,
+      ...(name === undefined ? {} : { name }),
+      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+    });
+    try {
+      onPublished?.();
+    } catch (error) {
+      log.warn(`[Transport] Post-publish continuation failed for ${context}:`, error);
+    }
+  };
+  const commitStarted = (): void => {
+    if (startedCommitted || !occurrenceStillCurrent() || !isFilePlaybackPlaying()) return;
+    startedCommitted = true;
+    try {
+      onStarted?.();
+    } catch (error) {
+      log.warn(`[Transport] Post-start continuation failed for ${context}:`, error);
+    }
+    publishStartedPlay();
+  };
+
+  try {
+    const started = await play(time, 0, undefined, occurrenceStillCurrent, {
+      // This primitive owns a local host intent. While output recovery is
+      // pending no source is audible and no canonical PLAY has been published,
+      // so elapsed wall time must never be mistaken for elapsed track time.
+      timing: 'canonical-rebase',
+      onRecoveredStarted: commitStarted,
+    });
+    if (started) commitStarted();
+    return started;
+  } catch (error) {
+    log.warn(`[Transport] Failed to start ${context}:`, error);
+    return false;
+  }
 }
 
 function isSystemAudioPlaying(): boolean {
@@ -619,6 +728,30 @@ export function stopPlayerNode(): void {
     /* InvalidStateError on spec-strict engines — ignore */
   }
   setPlayerNode(null);
+}
+
+function releaseUncommittedSourceNode(node: AudioBufferSourceNode | null): void {
+  if (!node) return;
+  try {
+    node.onended = null;
+  } catch {
+    /* ignore */
+  }
+  try {
+    node.disconnect();
+  } catch {
+    /* ignore */
+  }
+  try {
+    node.stop();
+  } catch {
+    /* An unstarted or rejected node may not accept stop(). */
+  }
+  try {
+    node.buffer = null;
+  } catch {
+    /* InvalidStateError on spec-strict engines — ignore */
+  }
 }
 
 function armStandardFileCanonicalEnd(
@@ -830,12 +963,12 @@ export function seekTo(time: number): void {
   // Host: playing → seek + broadcast
   if (isFilePlaybackPlaying()) {
     if (!queueItemId) return;
-    play(time);
-    broadcast({
-      type: MSG.PLAY,
+    startHostFileAndBroadcastPlay({
       time,
       queueItemId,
-      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      context: 'host seek',
+    }).catch((error) => {
+      log.warn('[Seek] Host start escaped its transport boundary', error);
     });
   } else {
     // Paused: update position + broadcast
@@ -964,14 +1097,16 @@ export async function play(
               ...pendingIntent.recoveryOptions,
               recoveryGeneration: pendingIntent.recoveryGeneration,
             },
-          ).then(async (started) => {
-            if (!started) return;
-            try {
-              await pendingIntent.recoveryOptions?.onRecoveredStarted?.();
-            } catch (error) {
-              log.warn('[Audio] Deferred PLAY continuation failed', error);
-            }
-          });
+          )
+            .then(async (started) => {
+              if (!started) return;
+              try {
+                await pendingIntent.recoveryOptions?.onRecoveredStarted?.();
+              } catch (error) {
+                log.warn('[Audio] Deferred PLAY continuation failed', error);
+              }
+            })
+            .catch((error) => log.warn('[Audio] Deferred PLAY failed', error));
         });
       }
     }
@@ -1064,14 +1199,14 @@ async function _internalPlay(
         }
         recoveryClaimed = true;
         const retryNowMs = performance.now();
-        const publishesAfterRecovery = Boolean(recoveryOptions?.onRecoveredStarted);
+        const rebasesCanonicalTimeline = recoveryOptions?.timing === 'canonical-rebase';
         const hasAbsoluteDeadline = Number.isFinite(scheduleDeadlineMs);
         const retryOffset =
-          publishesAfterRecovery || hasAbsoluteDeadline
+          rebasesCanonicalTimeline || hasAbsoluteDeadline
             ? offset
             : offset + Math.max(0, retryNowMs - requestedStartAtMs) / 1_000;
         const retryDelay =
-          publishesAfterRecovery || hasAbsoluteDeadline
+          rebasesCanonicalTimeline || hasAbsoluteDeadline
             ? scheduleDelay
             : Math.max(0, requestedStartAtMs - retryNowMs) / 1_000;
         const retryStarted = await play(
@@ -1181,9 +1316,13 @@ async function _internalPlay(
       if (preparation.status === 'prepared') {
         announcePreparedRecovery();
       } else {
-        void preparation.whenPrepared.then((prepared) => {
-          if (prepared) announcePreparedRecovery();
-        });
+        preparation.whenPrepared
+          .then((prepared) => {
+            if (prepared) announcePreparedRecovery();
+          })
+          .catch((error) => {
+            log.warn('[Audio] Foreground recovery preparation failed', error);
+          });
       }
       return false;
     } else if (health.reason === 'not-running') {
@@ -1268,57 +1407,89 @@ async function _internalPlay(
   let startedSourceNode: AudioBufferSourceNode | null = null;
   const standardHostOwnsCanonicalEnd = isActiveStandardRoomCoordinator();
   if (_currentAudioBuffer) {
+    const previousNode = getPlayerNode();
+    const previousSourceUsable =
+      isFilePlaybackPlaying() &&
+      previousNode !== null &&
+      isFileSourceNodeUsable(previousNode, _currentAudioBuffer);
+    let newNode: AudioBufferSourceNode | null = null;
+
+    try {
+      const candidateNode = ctx.createBufferSource();
+      newNode = candidateNode;
+      candidateNode.buffer = _currentAudioBuffer;
+
+      const isSurroundMode = getState('audio.isSurroundMode');
+      const surroundChannelIndex = getState('audio.surroundChannelIndex');
+
+      if (isSurroundMode) {
+        // The audio graph owns a stable route, so the source node itself
+        // never changes routing ownership when the selected channel changes.
+        bus.emit('audio:connect-surround', surroundChannelIndex);
+        log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
+      } else {
+        log.debug('[BufferMode] Playing in Stereo');
+      }
+
+      // Every backend connects exactly once to the stable route input. Surround
+      // changes only rewire nodes downstream of that input, so toggling a role
+      // never recreates or restarts this source.
+      const destination = getFilePlaybackDestination();
+      if (destination) candidateNode.connect(destination);
+
+      // Use the onended slot because stopPlayerNode clears that exact callback.
+      // addEventListener + `onended = null` would leave the closure (and its
+      // captured load epoch) attached to retired WebKit source nodes.
+      candidateNode.onended = () => {
+        naturallyEndedFileSources.add(candidateNode);
+        if (!isCurrentLoadEpoch(myLoadEpoch)) return;
+        // For an active standard host the local source may end on either side
+        // of the room boundary. Even a tiny positive offset (including the
+        // Windows output compensation) falls inside handleEnded's tolerance,
+        // so the canonical deadline must be the sole natural-end owner.
+        if (standardHostOwnsCanonicalEnd) return;
+        if (isFilePlaybackPlaying()) {
+          handleEnded();
+        }
+      };
+
+      // Determine the exact audio-context time to start
+      const startWhen = effectiveScheduleDelay > 0 ? ctx.currentTime + effectiveScheduleDelay : 0;
+
+      // Apply manual nudge to the audible start position
+      const nudgeOffset = safeOffset + localOffset;
+      let finalStartPos = nudgeOffset;
+      if (duration > 0) {
+        finalStartPos = Math.max(0, Math.min(duration - 0.001, nudgeOffset));
+      }
+
+      // Keep the previous source authoritative until the replacement accepts
+      // start(). A rejected node is never published into shared player state.
+      candidateNode.start(startWhen, finalStartPos);
+    } catch (error) {
+      releaseUncommittedSourceNode(newNode);
+      if (!previousSourceUsable) {
+        if (getPlayerNode() === previousNode) stopPlayerNode();
+        clearStandardHostCanonicalTimeline();
+        setState('player.pausedAt', safeOffset);
+        if (isFilePlaybackPlaying()) {
+          setPlaybackFilePaused();
+          transition({
+            type: 'PAUSE',
+            time: safeOffset,
+            queueItemId: getCurrentQueueItemId(),
+            endOfPlaylist: false,
+          });
+          bus.emit('visualizer:hold-frame');
+        }
+      }
+      log.error('[Audio] Source start failed:', error);
+      return false;
+    }
+
     stopPlayerNode();
-    const newNode = ctx.createBufferSource();
-    newNode.buffer = _currentAudioBuffer;
     setPlayerNode(newNode);
     startedSourceNode = newNode;
-
-    const isSurroundMode = getState('audio.isSurroundMode');
-    const surroundChannelIndex = getState('audio.surroundChannelIndex');
-
-    if (isSurroundMode) {
-      // The audio graph owns a stable route, so the source node itself
-      // never changes routing ownership when the selected channel changes.
-      bus.emit('audio:connect-surround', surroundChannelIndex);
-      log.debug(`[BufferMode] Playing in 7.1 Surround (Ch: ${surroundChannelIndex})`);
-    } else {
-      log.debug('[BufferMode] Playing in Stereo');
-    }
-
-    // Every backend connects exactly once to the stable route input. Surround
-    // changes only rewire nodes downstream of that input, so toggling a role
-    // never recreates or restarts this source.
-    const destination = getFilePlaybackDestination();
-    if (destination) newNode.connect(destination);
-
-    // Use the onended slot because stopPlayerNode clears that exact callback.
-    // addEventListener + `onended = null` would leave the closure (and its
-    // captured load epoch) attached to retired WebKit source nodes.
-    newNode.onended = () => {
-      naturallyEndedFileSources.add(newNode);
-      if (!isCurrentLoadEpoch(myLoadEpoch)) return;
-      // For an active standard host the local source may end on either side
-      // of the room boundary. Even a tiny positive offset (including the
-      // Windows output compensation) falls inside handleEnded's tolerance,
-      // so the canonical deadline must be the sole natural-end owner.
-      if (standardHostOwnsCanonicalEnd) return;
-      if (isFilePlaybackPlaying()) {
-        handleEnded();
-      }
-    };
-
-    // Determine the exact audio-context time to start
-    const startWhen = effectiveScheduleDelay > 0 ? ctx.currentTime + effectiveScheduleDelay : 0;
-
-    // Apply manual nudge to the audible start position
-    const nudgeOffset = safeOffset + localOffset;
-    let finalStartPos = nudgeOffset;
-    if (duration > 0) {
-      finalStartPos = Math.max(0, Math.min(duration - 0.001, nudgeOffset));
-    }
-
-    newNode.start(startWhen, finalStartPos);
   }
 
   // Update timing
@@ -1687,53 +1858,13 @@ export function togglePlay(): void {
   } else {
     if (!hostConn) {
       if (!currentQueueItemId) return;
-      if (isActiveStandardRoomCoordinator()) {
-        const room = getRoomContext();
-        const sessionCode = getState('network.sessionCode');
-        const residentFile = getState('files.current');
-        const buffer = getCurrentAudioBuffer();
-        const hostPlayAt = getHostNow() + SCHEDULE_AHEAD_MS;
-        const localPlayAt = performance.now() + SCHEDULE_AHEAD_MS;
-        let published = false;
-        const occurrenceStillCurrent = (): boolean => {
-          const currentRoom = getRoomContext();
-          return (
-            isActiveStandardRoomCoordinator() &&
-            getState('network.sessionCode') === sessionCode &&
-            currentRoom.roomId === room.roomId &&
-            currentRoom.epoch === room.epoch &&
-            getCurrentQueueItemId() === currentQueueItemId &&
-            getState('files.current') === residentFile &&
-            getCurrentAudioBuffer() === buffer
-          );
-        };
-        const publishStartedPlay = (): void => {
-          if (published || !occurrenceStillCurrent() || !isFilePlaybackPlaying()) return;
-          published = true;
-          broadcast({
-            type: MSG.PLAY,
-            time: pausedAt,
-            queueItemId: currentQueueItemId,
-            hostPlayAt,
-          });
-        };
-
-        void play(pausedAt, SCHEDULE_AHEAD_MS / 1_000, localPlayAt, occurrenceStillCurrent, {
-          onRecoveredStarted: publishStartedPlay,
-        })
-          .then((started) => {
-            if (started) publishStartedPlay();
-          })
-          .catch((error) => log.warn('[Play] Failed to start host toggle:', error));
-      } else {
-        void play(pausedAt);
-        broadcast({
-          type: MSG.PLAY,
-          time: pausedAt,
-          queueItemId: currentQueueItemId,
-          hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
-        });
-      }
+      startHostFileAndBroadcastPlay({
+        time: pausedAt,
+        queueItemId: currentQueueItemId,
+        context: isActiveStandardRoomCoordinator() ? 'host toggle' : 'local play toggle',
+      }).catch((error) => {
+        log.warn('[Play] Local toggle escaped its transport boundary', error);
+      });
     } else if (canControlPlayback) {
       if (currentQueueItemId) {
         sendToHost({ type: MSG.REQUEST_PLAY, time: pausedAt, queueItemId: currentQueueItemId });
@@ -1874,14 +2005,15 @@ export function skipTime(sec: number): void {
 
   if (isPlaying) {
     if (!queueItemId) return;
-    play(target);
-    broadcast({
-      type: MSG.PLAY,
+    startHostFileAndBroadcastPlay({
       time: target,
       queueItemId,
-      hostPlayAt: getHostNow() + SCHEDULE_AHEAD_MS,
+      context: 'host skip',
+    }).catch((error) => {
+      log.warn('[Skip] Host start escaped its transport boundary', error);
     });
   } else {
+    invalidatePendingFilePlayIntent();
     setState('player.pausedAt', target);
     broadcast({ type: MSG.PAUSE, time: target, queueItemId, reason: 'seek' });
   }
@@ -1945,7 +2077,9 @@ export function adjustSync(val: number): void {
     () => {
       // Re-check playback state at fire time — user may have paused during the burst.
       if (isFileTransportInactive()) return;
-      play(getTrackPosition());
+      void play(getTrackPosition()).catch((error) =>
+        log.warn('[Sync] Failed to apply the local file nudge:', error),
+      );
     },
     NUDGE_REPLAY_DEBOUNCE_MS,
   );

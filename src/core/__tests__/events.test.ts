@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { bus } from '../events.ts';
+import { log } from '../log.ts';
 
 beforeEach(() => {
   bus.clear();
@@ -91,5 +92,45 @@ describe('EventBus', () => {
     bus.emit('sync:auto-sync');
     expect(fn1).toHaveBeenCalled();
     expect(fn2).toHaveBeenCalled();
+  });
+
+  it('reports rejected async handlers without leaking an unhandled rejection', async () => {
+    const error = new Error('async boom');
+    const errorLog = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const laterHandler = vi.fn();
+    bus.on('sync:auto-sync', async () => {
+      throw error;
+    });
+    bus.on('sync:auto-sync', laterHandler);
+
+    bus.emit('sync:auto-sync');
+    await Promise.resolve();
+
+    expect(laterHandler).toHaveBeenCalledOnce();
+    expect(errorLog).toHaveBeenCalledWith(
+      '[EventBus] Async handler for "sync:auto-sync" rejected:',
+      error,
+    );
+    errorLog.mockRestore();
+  });
+
+  it('reports rejection from a once handler after removing it', async () => {
+    const error = new Error('once boom');
+    const errorLog = vi.spyOn(log, 'error').mockImplementation(() => undefined);
+    const handler = vi.fn(async () => {
+      throw error;
+    });
+    bus.once('sync:auto-sync', handler);
+
+    bus.emit('sync:auto-sync');
+    bus.emit('sync:auto-sync');
+    await Promise.resolve();
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(errorLog).toHaveBeenCalledWith(
+      '[EventBus] Async handler for "sync:auto-sync" rejected:',
+      error,
+    );
+    errorLog.mockRestore();
   });
 });

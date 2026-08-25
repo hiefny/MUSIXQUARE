@@ -32,6 +32,16 @@ function makeConnection(peer: string, onSend?: (message: Record<string, unknown>
   return { conn, send };
 }
 
+function queueInboundData(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+  pending: Promise<void>[],
+): void {
+  queueMicrotask(() => {
+    pending.push(handleData(data, conn));
+  });
+}
+
 function makeConnectedPeer(conn: DataConnection, isOp = true): ConnectedPeer {
   return {
     id: conn.peer,
@@ -581,23 +591,23 @@ describe('standard operator file uplink sender', () => {
 
   it('queues a multi-file selection strictly one at a time and reports progress', async () => {
     const messages: Record<string, unknown>[] = [];
+    const inboundDeliveries: Promise<void>[] = [];
     const { conn } = makeConnection('host-1', (message) => {
       messages.push(message);
       if (message.type === MSG.OPERATOR_FILE_UPLOAD_START) {
-        queueMicrotask(() => {
-          void handleData(
-            {
-              type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
-              requestId: message.requestId,
-              sessionId: message.sessionId,
-              status: 'ready',
-              loaded: 0,
-              total: message.size,
-              code: null,
-            },
-            conn,
-          );
-        });
+        queueInboundData(
+          {
+            type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            status: 'ready',
+            loaded: 0,
+            total: message.size,
+            code: null,
+          },
+          conn,
+          inboundDeliveries,
+        );
       }
       if (message.type === MSG.OPERATOR_FILE_UPLOAD_FINISH) {
         const start = messages.find(
@@ -605,20 +615,19 @@ describe('standard operator file uplink sender', () => {
             candidate.type === MSG.OPERATOR_FILE_UPLOAD_START &&
             candidate.sessionId === message.sessionId,
         );
-        queueMicrotask(() => {
-          void handleData(
-            {
-              type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
-              requestId: message.requestId,
-              sessionId: message.sessionId,
-              status: 'complete',
-              loaded: start?.size,
-              total: start?.size,
-              code: null,
-            },
-            conn,
-          );
-        });
+        queueInboundData(
+          {
+            type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            status: 'complete',
+            loaded: start?.size,
+            total: start?.size,
+            code: null,
+          },
+          conn,
+          inboundDeliveries,
+        );
       }
     });
     enterOperatorGuest(conn);
@@ -631,6 +640,7 @@ describe('standard operator file uplink sender', () => {
       new File([new Uint8Array([1, 2])], 'one.mp3', { type: 'audio/mpeg' }),
       new File([new Uint8Array([3, 4, 5])], 'two.flac', { type: 'audio/flac' }),
     ]);
+    await Promise.all(inboundDeliveries);
 
     expect(messages[0]).toMatchObject({
       type: MSG.OPERATOR_FILE_UPLOAD_BATCH_START,
@@ -693,23 +703,23 @@ describe('standard operator file uplink sender', () => {
 
   it('settles safely when revoke arrives after acceptance during backpressure', async () => {
     const messages: Record<string, unknown>[] = [];
+    const inboundDeliveries: Promise<void>[] = [];
     const { conn } = makeConnection('host-3', (message) => {
       messages.push(message);
       if (message.type !== MSG.OPERATOR_FILE_UPLOAD_START) return;
-      queueMicrotask(() => {
-        void handleData(
-          {
-            type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
-            requestId: message.requestId,
-            sessionId: message.sessionId,
-            status: 'ready',
-            loaded: 0,
-            total: message.size,
-            code: null,
-          },
-          conn,
-        );
-      });
+      queueInboundData(
+        {
+          type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          status: 'ready',
+          loaded: 0,
+          total: message.size,
+          code: null,
+        },
+        conn,
+        inboundDeliveries,
+      );
     });
     Object.assign(conn, {
       dataChannel: {
@@ -727,6 +737,7 @@ describe('standard operator file uplink sender', () => {
     await Promise.resolve();
     setState('network.isOperator', false);
     await expect(promise).resolves.toBeUndefined();
+    await Promise.all(inboundDeliveries);
 
     expect(
       messages.filter((message) => message.type === MSG.OPERATOR_FILE_UPLOAD_START),
@@ -737,42 +748,41 @@ describe('standard operator file uplink sender', () => {
   it('retries FINISH once and accepts replayed COMPLETE after the first ACK is lost', async () => {
     vi.useFakeTimers();
     const messages: Record<string, unknown>[] = [];
+    const inboundDeliveries: Promise<void>[] = [];
     let finishCount = 0;
     const { conn } = makeConnection('host-complete-replay', (message) => {
       messages.push(message);
       if (message.type === MSG.OPERATOR_FILE_UPLOAD_START) {
-        queueMicrotask(() => {
-          void handleData(
-            {
-              type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
-              requestId: message.requestId,
-              sessionId: message.sessionId,
-              status: 'ready',
-              loaded: 0,
-              total: message.size,
-              code: null,
-            },
-            conn,
-          );
-        });
+        queueInboundData(
+          {
+            type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            status: 'ready',
+            loaded: 0,
+            total: message.size,
+            code: null,
+          },
+          conn,
+          inboundDeliveries,
+        );
       }
       if (message.type === MSG.OPERATOR_FILE_UPLOAD_FINISH) {
         finishCount += 1;
         if (finishCount === 2) {
-          queueMicrotask(() => {
-            void handleData(
-              {
-                type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
-                requestId: message.requestId,
-                sessionId: message.sessionId,
-                status: 'complete',
-                loaded: 1,
-                total: 1,
-                code: null,
-              },
-              conn,
-            );
-          });
+          queueInboundData(
+            {
+              type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+              requestId: message.requestId,
+              sessionId: message.sessionId,
+              status: 'complete',
+              loaded: 1,
+              total: 1,
+              code: null,
+            },
+            conn,
+            inboundDeliveries,
+          );
         }
       }
     });
@@ -788,6 +798,7 @@ describe('standard operator file uplink sender', () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
     await promise;
+    await Promise.all(inboundDeliveries);
 
     expect(finishCount).toBe(2);
     expect(
@@ -797,23 +808,23 @@ describe('standard operator file uplink sender', () => {
 
   it('stops the remaining batch immediately when the host is busy', async () => {
     const messages: Record<string, unknown>[] = [];
+    const inboundDeliveries: Promise<void>[] = [];
     const { conn } = makeConnection('host-busy-batch', (message) => {
       messages.push(message);
       if (message.type !== MSG.OPERATOR_FILE_UPLOAD_START) return;
-      queueMicrotask(() => {
-        void handleData(
-          {
-            type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
-            requestId: message.requestId,
-            sessionId: message.sessionId,
-            status: 'rejected',
-            loaded: 0,
-            total: message.size,
-            code: 'host-busy',
-          },
-          conn,
-        );
-      });
+      queueInboundData(
+        {
+          type: MSG.OPERATOR_FILE_UPLOAD_STATUS,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          status: 'rejected',
+          loaded: 0,
+          total: message.size,
+          code: 'host-busy',
+        },
+        conn,
+        inboundDeliveries,
+      );
     });
     enterOperatorGuest(conn);
 
@@ -821,6 +832,7 @@ describe('standard operator file uplink sender', () => {
       new File([new Uint8Array([1])], 'one.mp3', { type: 'audio/mpeg' }),
       new File([new Uint8Array([2])], 'two.mp3', { type: 'audio/mpeg' }),
     ]);
+    await Promise.all(inboundDeliveries);
 
     expect(
       messages.filter((message) => message.type === MSG.OPERATOR_FILE_UPLOAD_START),

@@ -317,6 +317,12 @@ function audioRecoveryIdentityStillCurrent(identity: AudioRecoveryIdentity): boo
   );
 }
 
+function observeAudioRecoveryOperation(operation: Promise<unknown>, source: string): void {
+  operation.catch((error) => {
+    log.warn(`[Audio] ${source} failed outside the recovery boundary`, error);
+  });
+}
+
 function primeIosAudioFromGesture(): void {
   const primer = document.getElementById('silent-trigger') as HTMLAudioElement | null;
   if (!primer) return;
@@ -442,16 +448,19 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
         }
         return;
       }
-      void runAudioRecoveryRequest(next);
+      observeAudioRecoveryOperation(runAudioRecoveryRequest(next), 'queued recovery');
     };
 
     if (preparation.status === 'prepared') {
       enqueue();
       return;
     }
-    void preparation.whenPrepared.then((prepared) => {
-      if (prepared) enqueue();
-    });
+    observeAudioRecoveryOperation(
+      preparation.whenPrepared.then((prepared) => {
+        if (prepared) enqueue();
+      }),
+      'foreground restart preparation',
+    );
   };
   let gestureFlight: Promise<GestureRecoveryFlightResult> | null = null;
   let gestureSemanticAttemptToken: object | null = null;
@@ -705,7 +714,7 @@ function runAudioRecoveryRequest(request: AudioRecoveryRequest): Promise<boolean
       pendingAudioRecoveryRequest = null;
       if (next) {
         queueMicrotask(() => {
-          void runAudioRecoveryRequest(next);
+          observeAudioRecoveryOperation(runAudioRecoveryRequest(next), 'follow-up recovery');
         });
       }
     });
@@ -834,14 +843,17 @@ function initAudioOutputRecovery(): void {
     if (event.source === 'background-resume') {
       suppressLongBackgroundWarningForIncident = true;
     }
-    void requestAudioOutputRecovery(
-      event.reason,
-      event.source,
-      event.queueItemId,
-      event.isCurrent,
-      event.foregroundRestartAttemptToken,
-      event.confirmForegroundRestart,
-      event.retry,
+    observeAudioRecoveryOperation(
+      requestAudioOutputRecovery(
+        event.reason,
+        event.source,
+        event.queueItemId,
+        event.isCurrent,
+        event.foregroundRestartAttemptToken,
+        event.confirmForegroundRestart,
+        event.retry,
+      ),
+      'event-triggered recovery',
     );
   });
 }

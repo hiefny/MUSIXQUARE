@@ -290,7 +290,11 @@ async function handleRequestCurrentFile(
     return;
   }
   if (isRemoteShareConfigured() && fileToSend instanceof File) {
-    void shareRemoteFileIfNeeded(fileToSend, sid, conn, { queueItemId: match.queueItemId });
+    shareRemoteFileIfNeeded(fileToSend, sid, conn, { queueItemId: match.queueItemId }).catch(
+      (error: unknown) => {
+        log.warn('[Recovery] Remote-share recovery publication rejected unexpectedly', error);
+      },
+    );
     return;
   }
   // Share unconfigured: tell the guest to wait so its FILE_WAIT timeout path
@@ -364,7 +368,11 @@ async function handleRequestDataRecovery(
       return;
     }
     if (isRemoteShareConfigured() && fileToSend instanceof File) {
-      void shareRemoteFileIfNeeded(fileToSend, sid, conn, { queueItemId: match.queueItemId });
+      shareRemoteFileIfNeeded(fileToSend, sid, conn, { queueItemId: match.queueItemId }).catch(
+        (error: unknown) => {
+          log.warn('[Recovery] Remote-share recovery publication rejected unexpectedly', error);
+        },
+      );
       return;
     }
     sendFileWait(conn, data, 'Host cannot serve this peer directly');

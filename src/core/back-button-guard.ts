@@ -22,6 +22,15 @@ export function createBackButtonGuardController(
   let confirmInFlight = false;
   let guardActive = false;
 
+  const reportConfirmationError = (error: unknown): void => {
+    try {
+      deps.onConfirmationError?.(error);
+    } catch {
+      // Error reporting is terminal and must never re-enter the callback or
+      // create a second unhandled rejection when the observer itself fails.
+    }
+  };
+
   const seedGuard = (): void => {
     try {
       deps.pushGuard();
@@ -46,15 +55,15 @@ export function createBackButtonGuardController(
     if (confirmInFlight) return;
 
     confirmInFlight = true;
-    void (async () => {
+    (async () => {
       try {
         if (await deps.requestLeaveConfirmation()) deps.onLeaveConfirmed();
       } catch (error) {
-        deps.onConfirmationError?.(error);
+        reportConfirmationError(error);
       } finally {
         confirmInFlight = false;
       }
-    })();
+    })().catch(reportConfirmationError);
   };
 
   return { handleSessionStateChange, handlePopState };

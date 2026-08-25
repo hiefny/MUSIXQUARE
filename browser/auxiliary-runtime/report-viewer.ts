@@ -252,15 +252,24 @@ requiredElement('copy-btn').addEventListener('click', () => {
     text += 'All tests passed.\n';
   }
 
-  void navigator.clipboard.writeText(text).then(() => {
-    const button = requiredElement('copy-btn');
-    button.textContent = 'Copied';
-    button.classList.add('copied');
-    setTimeout(() => {
-      button.textContent = 'Copy report';
-      button.classList.remove('copied');
-    }, 2_000);
-  });
+  navigator.clipboard
+    .writeText(text)
+    .then(() => {
+      const button = requiredElement('copy-btn');
+      button.textContent = 'Copied';
+      button.classList.add('copied');
+      setTimeout(() => {
+        button.textContent = 'Copy report';
+        button.classList.remove('copied');
+      }, 2_000);
+    })
+    .catch((error: unknown) => {
+      try {
+        console.error('[report-viewer] Copy failed.', error);
+      } catch {
+        // Clipboard feedback is best-effort and terminal.
+      }
+    });
 });
 
 export {};

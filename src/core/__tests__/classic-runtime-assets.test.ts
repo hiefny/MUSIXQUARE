@@ -52,7 +52,7 @@ type DevMiddleware = (
     end(body?: string): void;
   },
   next: (error?: unknown) => void,
-) => Promise<void>;
+) => void;
 
 async function classicRuntimeDevMiddleware(): Promise<DevMiddleware> {
   const plugin = classicRuntimeAssets();
@@ -211,7 +211,13 @@ describe('strict TypeScript classic browser runtimes', () => {
     for (const asset of CLASSIC_RUNTIME_ASSETS) {
       const headers = new Map<string, string>();
       let body: string | undefined;
-      const next = vi.fn();
+      let finishRequest = (): void => undefined;
+      const requestHandled = new Promise<void>((resolve) => {
+        finishRequest = resolve;
+      });
+      const next = vi.fn(() => {
+        finishRequest();
+      });
       const response = {
         statusCode: 0,
         setHeader(name: string, value: string) {
@@ -219,10 +225,12 @@ describe('strict TypeScript classic browser runtimes', () => {
         },
         end(value?: string) {
           body = value;
+          finishRequest();
         },
       };
 
-      await middleware({ method: 'GET', url: `/${asset.outputPath}?hmr=1` }, response, next);
+      middleware({ method: 'GET', url: `/${asset.outputPath}?hmr=1` }, response, next);
+      await requestHandled;
 
       expect(next, asset.outputPath).not.toHaveBeenCalled();
       expect(response.statusCode, asset.outputPath).toBe(200);
@@ -234,7 +242,13 @@ describe('strict TypeScript classic browser runtimes', () => {
 
       const headHeaders = new Map<string, string>();
       let headBody: string | undefined;
-      const headNext = vi.fn();
+      let finishHeadRequest = (): void => undefined;
+      const headRequestHandled = new Promise<void>((resolve) => {
+        finishHeadRequest = resolve;
+      });
+      const headNext = vi.fn(() => {
+        finishHeadRequest();
+      });
       const headResponse = {
         statusCode: 0,
         setHeader(name: string, value: string) {
@@ -242,14 +256,12 @@ describe('strict TypeScript classic browser runtimes', () => {
         },
         end(value?: string) {
           headBody = value;
+          finishHeadRequest();
         },
       };
 
-      await middleware(
-        { method: 'HEAD', url: `/${asset.outputPath}?hmr=1` },
-        headResponse,
-        headNext,
-      );
+      middleware({ method: 'HEAD', url: `/${asset.outputPath}?hmr=1` }, headResponse, headNext);
+      await headRequestHandled;
 
       expect(headNext, asset.outputPath).not.toHaveBeenCalled();
       expect(headResponse.statusCode, asset.outputPath).toBe(200);

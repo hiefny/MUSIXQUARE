@@ -1280,7 +1280,7 @@ export class MusixquareServiceControl {
   }
 
   async fetch(request: Request): Promise<Response> {
-    if (this.ready) await this.ready;
+    await this.ready;
     const url = new URL(request.url);
     if (url.search || url.hash) return serviceControlJson({ error: 'NOT_FOUND' }, 404);
     if (
@@ -1410,7 +1410,7 @@ export class MusixquareServiceControl {
   }
 
   async alarm(): Promise<void> {
-    if (this.ready) await this.ready;
+    await this.ready;
     return this.withMutation(async () => {
       const stateKey = this.abuseRatePairOnly ? ABUSE_RATE_PAIR_STATE_KEY : ABUSE_RATE_STATE_KEY;
       const stored = await storageGet(this.storage, stateKey);

@@ -249,7 +249,7 @@ function scheduleRetry(request: RejoinRequest, delayMs: number): void {
     () => {
       const retry = scheduledRetryRequest;
       scheduledRetryRequest = null;
-      if (retry && requestStillCurrent(retry)) void requestLocalOutputRejoin(retry);
+      if (retry && requestStillCurrent(retry)) return requestLocalOutputRejoin(retry);
     },
     Math.max(10, delayMs),
   );
@@ -308,7 +308,11 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
         scheduledRetryRequest = preferRequest(scheduledRetryRequest, pending);
         return;
       }
-      queueMicrotask(() => void requestLocalOutputRejoin(pending));
+      queueMicrotask(() => {
+        requestLocalOutputRejoin(pending).catch((error) => {
+          log.warn('[Playback] Queued local output rejoin failed', error);
+        });
+      });
     });
   rejoinInFlight = operation;
   return operation;
@@ -327,7 +331,7 @@ export function initLocalOutputRejoin(): void {
   lastSuccessfulRejoinIdentity = null;
 
   scope.on('playback:local-output-rejoin', (request) => {
-    void requestLocalOutputRejoin(captureRequest(request));
+    return requestLocalOutputRejoin(captureRequest(request));
   });
   scope.on('state:setup.sessionStarted', (started) => {
     if (!started) {

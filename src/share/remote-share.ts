@@ -795,7 +795,9 @@ export function promoteRemotePreloadWait(queueItemId: QueueItemId, name: string)
   _activeDownload = promoted;
   adoptRemoteContext(promoted.descriptor);
   enterForegroundRemoteDownload(promoted);
-  void runRemoteDownload(promoted);
+  runRemoteDownload(promoted).catch((error) => {
+    log.error('[RemoteShare] Promoted preload download failed', error);
+  });
   log.info(`[RemoteShare] PLAY_PRELOADED activated queued remote preload (${queueItemId})`);
   return true;
 }
@@ -1586,7 +1588,9 @@ function scheduleDeferredRemotePreloadDrain(): void {
   _remotePreloadDrainQueued = true;
   queueMicrotask(() => {
     _remotePreloadDrainQueued = false;
-    void drainDeferredRemotePreload();
+    drainDeferredRemotePreload().catch((error) => {
+      log.warn('[RemoteShare] Deferred preload drain failed', error);
+    });
   });
 }
 
@@ -2375,7 +2379,9 @@ export function initRemoteShare(): void {
   bus.on('orchestrator:peer-data-target-ready', warmLateR2Peer);
 
   bus.on('orchestrator:peer-evaluated', (peerId: string) => {
-    warmLateR2Peer(peerId);
+    warmLateR2Peer(peerId).catch((error) => {
+      log.warn(`[RemoteShare] Failed to warm late R2 peer ${peerId}`, error);
+    });
     abortActiveUploadsWithoutTargets('no-r2-targets');
   });
 

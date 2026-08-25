@@ -32,6 +32,12 @@ const PRE_OFFER_CANDIDATE_TTL_MS = 5_000;
 const LIVE_PAIR_REPROOF_INTERVAL_MS = 5_000;
 const RECEIVER_TRACK_READY_TIMEOUT_MS = 5_000;
 
+function observeDirectTask(task: Promise<void>, label: string): void {
+  task.catch((error: unknown) => {
+    log.debug(`[ProSysAudioDirect] ${label} rejected`, error);
+  });
+}
+
 type DirectDirection = 'publisher' | 'subscriber';
 type DirectCloseReason = 'stopped' | 'fallback' | 'superseded';
 type DirectSignalKind = 'offer' | 'answer' | 'candidate' | 'close';
@@ -1086,7 +1092,10 @@ function handlePublisherConnectionState(route: PublisherRoute): void {
     route.provenLocal &&
     publisherRouteIsCurrent(session, route)
   ) {
-    void reproveLivePublisherRoute(session, route, 'connection-locality-changed');
+    observeDirectTask(
+      reproveLivePublisherRoute(session, route, 'connection-locality-changed'),
+      'Publisher locality reproof',
+    );
   }
 }
 
@@ -1352,7 +1361,11 @@ function scheduleLivePublisherRouteReproof(session: PublisherSession, route: Pub
   }
   setManagedTimer(
     publisherRouteTimerName(route),
-    () => void reproveLivePublisherRoute(session, route, 'periodic-locality-check-failed'),
+    () =>
+      observeDirectTask(
+        reproveLivePublisherRoute(session, route, 'periodic-locality-check-failed'),
+        'Periodic publisher locality reproof',
+      ),
     LIVE_PAIR_REPROOF_INTERVAL_MS,
   );
 }
@@ -1878,11 +1891,11 @@ function handleRealtimeFrame(frame: ProServerEventEnvelope | ProRealtimeRelayEnv
     ) {
       return;
     }
-    void acceptOffer(signal, senderParticipantId);
+    observeDirectTask(acceptOffer(signal, senderParticipantId), 'Inbound offer handling');
   } else if (signal.kind === 'answer') {
-    void acceptAnswer(signal, senderParticipantId);
+    observeDirectTask(acceptAnswer(signal, senderParticipantId), 'Inbound answer handling');
   } else if (signal.kind === 'candidate') {
-    void acceptCandidate(signal, senderParticipantId);
+    observeDirectTask(acceptCandidate(signal, senderParticipantId), 'Inbound candidate handling');
   } else {
     acceptClose(signal, senderParticipantId);
   }

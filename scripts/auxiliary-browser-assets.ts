@@ -4,6 +4,8 @@ import path from 'node:path';
 import { build } from 'esbuild';
 import type { Plugin } from 'vite';
 
+import { useAsyncConnectMiddleware } from './async-connect-middleware.ts';
+
 export const AUXILIARY_BROWSER_SOURCE_DIRECTORY = 'browser/auxiliary-runtime';
 export const AUXILIARY_BROWSER_DECLARATION_PATH = `${AUXILIARY_BROWSER_SOURCE_DIRECTORY}/remote-modules.d.ts`;
 export const AUXILIARY_BROWSER_SUPPORT_SOURCES = [
@@ -311,7 +313,7 @@ export function auxiliaryBrowserAssets(): Plugin {
     },
     async configureServer(server) {
       await assertAuxiliaryBrowserSourceCompleteness(server.config.root);
-      server.middlewares.use(async (request, response, next) => {
+      useAsyncConnectMiddleware(server.middlewares, async (request, response, next) => {
         if (request.method !== 'GET' && request.method !== 'HEAD') {
           next();
           return;

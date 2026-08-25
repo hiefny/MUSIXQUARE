@@ -50,6 +50,7 @@ import {
 } from '../../core/timers.ts';
 import { batchSetState, getState, resetState, setState } from '../../core/state.ts';
 import { handleData } from '../../network/protocol.ts';
+import { markQueueAuthorityReady } from '../../network/queue-authority.ts';
 import { initSync } from '../../network/sync.ts';
 import type {
   DataConnection,
@@ -146,7 +147,7 @@ vi.mock('../../storage/recovery.ts', () => ({
 }));
 
 vi.mock('../../share/remote-share.ts', () => ({
-  shareRemoteFileIfNeeded: vi.fn(),
+  shareRemoteFileIfNeeded: vi.fn(async () => undefined),
   prepareRemoteShareWait: vi.fn(),
   shouldWaitForRemoteShare: vi.fn(() => false),
 }));
@@ -190,6 +191,8 @@ import {
   pause,
   play,
   seekTo,
+  skipTime,
+  startHostFileAndBroadcastPlay,
   stopAllMedia,
   togglePlay,
 } from '../transport.ts';
@@ -645,6 +648,8 @@ describe('standard host canonical file end boundary', () => {
     setSelectedResidentFile();
     setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
     setPlaybackFilePaused();
+    const source = makeFakeSourceNode();
+    mocks.createBufferSource.mockReturnValueOnce(source);
     const resume = deferred<void>();
     mocks.ensureRunning.mockReturnValueOnce(resume.promise);
 
@@ -654,6 +659,9 @@ describe('standard host canonical file end boundary', () => {
     resume.resolve();
     await vi.waitFor(() => expect(getPlayerNode()).not.toBeNull());
 
+    // The host starts immediately. The +200ms wire rendezvous is guest-only
+    // compensation, not an extra delay on the canonical host source.
+    expect(source.start).toHaveBeenCalledWith(0, 0);
     expect(mocks.broadcast).toHaveBeenCalledTimes(1);
     expect(mocks.broadcast).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -699,6 +707,212 @@ describe('standard host canonical file end boundary', () => {
     await vi.waitFor(() => expect(mocks.ensureRunning).toHaveBeenCalledTimes(3));
     await Promise.resolve();
     expect(mocks.broadcast).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    { label: 'seek', run: () => seekTo(17) },
+    { label: 'skip', run: () => skipTime(10) },
+  ])('does not publish a host $label when source.start rejects', async ({ run }) => {
+    activateStandardHost(0);
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePlaying();
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    const source = makeFakeSourceNode();
+    source.start.mockImplementationOnce(() => {
+      throw new Error('source start failed');
+    });
+    mocks.createBufferSource.mockReturnValueOnce(source);
+
+    run();
+    await vi.waitFor(() => expect(source.start).toHaveBeenCalledOnce());
+
+    expect(mocks.broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+    expect(getPlayerNode()).toBeNull();
+    expect(getState('playback.activity')).toBe('paused');
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PAUSED);
+  });
+
+  it('keeps a usable source and playing clock authoritative when its replacement start rejects', async () => {
+    activateStandardHost(0);
+    setSelectedResidentFile();
+    const buffer = { duration: 60 } as AudioBuffer;
+    setCurrentAudioBuffer(buffer);
+    const previousSource = makeFakeSourceNode();
+    previousSource.buffer = buffer;
+    setPlayerNode(previousSource as unknown as AudioBufferSourceNode);
+    setPlaybackFilePlaying();
+    setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+    setState('player.startedAt', 83);
+    const failedReplacement = makeFakeSourceNode();
+    failedReplacement.start.mockImplementationOnce(() => {
+      throw new Error('replacement rejected');
+    });
+    mocks.createBufferSource.mockReturnValueOnce(failedReplacement);
+
+    await expect(play(17)).resolves.toBe(false);
+
+    expect(getPlayerNode()).toBe(previousSource);
+    expect(previousSource.stop).not.toHaveBeenCalled();
+    expect(failedReplacement.disconnect).toHaveBeenCalledOnce();
+    expect(failedReplacement.stop).toHaveBeenCalledOnce();
+    expect(getState('playback.activity')).toBe('playing');
+    expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PLAYING);
+    expect(getState('player.startedAt')).toBe(83);
+  });
+
+  it('publishes a recovered host seek exactly once after the retry starts', async () => {
+    vi.useFakeTimers();
+    activateStandardHost(0);
+    const expectedQueueItemId = queueItemIdAt(0);
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePlaying();
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('iOS resume blocked'));
+    let recoveryEvent: { retry?: () => Promise<boolean> } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+
+    seekTo(17);
+    await vi.waitFor(() => expect(recoveryEvent?.retry).toEqual(expect.any(Function)));
+    expect(mocks.broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
+
+    const recoveredSource = getPlayerNode() as unknown as FakeSourceNode;
+    expect(recoveredSource.start).toHaveBeenCalledWith(0, expect.closeTo(17, 6));
+    expect(mocks.broadcast).toHaveBeenCalledTimes(1);
+    expect(mocks.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: MSG.PLAY,
+        time: 17,
+        queueItemId: expectedQueueItemId,
+      }),
+    );
+  });
+
+  it('catches a guest retry up to elapsed host time without rebasing the PLAY frame', async () => {
+    vi.useFakeTimers();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('playlist.currentQueueItemId', queueItemIdAt(0));
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePaused();
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
+    markQueueAuthorityReady(hostConn);
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('iOS resume blocked'));
+    let recoveryEvent: { retry?: () => Promise<boolean> } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+    initPlayback();
+
+    await handleData(
+      { type: MSG.PLAY, time: 10, queueItemId: queueItemIdAt(0), name: itemAt(0).name },
+      hostConn,
+    );
+    await vi.waitFor(() => expect(recoveryEvent?.retry).toEqual(expect.any(Function)));
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
+
+    const recoveredSource = getPlayerNode() as unknown as FakeSourceNode;
+    const recoveredOffset = recoveredSource.start.mock.calls[0]?.[1] as number;
+    // Includes the platform output compensation (50ms in this fixture), but
+    // critically not the stale original 10s frame position.
+    expect(recoveredOffset).toBeGreaterThan(11.9);
+    expect(recoveredOffset).toBeLessThan(12.1);
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('fences a canonical recovery retry after host authority transfers away', async () => {
+    activateStandardHost(0);
+    const expectedQueueItemId = queueItemIdAt(0);
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePaused();
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('iOS resume blocked'));
+    let recoveryEvent: { retry?: () => Promise<boolean>; isCurrent?: () => boolean } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+
+    const start = startHostFileAndBroadcastPlay({
+      time: 9,
+      queueItemId: expectedQueueItemId,
+      context: 'authority handoff test',
+    });
+    await expect(start).resolves.toBe(false);
+    expect(recoveryEvent?.isCurrent?.()).toBe(true);
+
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('room.context', {
+      ...getState('room.context'),
+      role: 'member',
+      coordinatorId: 'host-2',
+      epoch: 8,
+    });
+
+    expect(recoveryEvent?.isCurrent?.()).toBe(false);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(false);
+    expect(getPlayerNode()).toBeNull();
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('starts an offline local file without publishing a canonical room frame', async () => {
+    const expectedQueueItemId = selectIndex(0)!;
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePaused();
+    const started = vi.fn();
+
+    await expect(
+      startHostFileAndBroadcastPlay({
+        time: 3,
+        queueItemId: expectedQueueItemId,
+        onStarted: started,
+        context: 'offline local start test',
+      }),
+    ).resolves.toBe(true);
+
+    expect(started).toHaveBeenCalledOnce();
+    expect(getPlayerNode()).not.toBeNull();
+    expect(getState('playback.activity')).toBe('playing');
+    expect(mocks.broadcast).not.toHaveBeenCalled();
+  });
+
+  it('rebases an offline local retry to the paused intent instead of skipping silence', async () => {
+    vi.useFakeTimers();
+    const expectedQueueItemId = selectIndex(0)!;
+    setSelectedResidentFile();
+    setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+    setPlaybackFilePaused();
+    mocks.ensureRunning.mockRejectedValueOnce(new Error('WebKit context did not resume'));
+    let recoveryEvent: { retry?: () => Promise<boolean> } | undefined;
+    bus.on('audio:output-recovery-needed', (event) => {
+      recoveryEvent = event;
+    });
+
+    await expect(
+      startHostFileAndBroadcastPlay({
+        time: 3,
+        queueItemId: expectedQueueItemId,
+        context: 'offline recovery rebase test',
+      }),
+    ).resolves.toBe(false);
+    await vi.waitFor(() => expect(recoveryEvent?.retry).toEqual(expect.any(Function)));
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(recoveryEvent?.retry?.()).resolves.toBe(true);
+
+    const recoveredSource = getPlayerNode() as unknown as FakeSourceNode;
+    expect(recoveredSource.start).toHaveBeenCalledWith(0, expect.closeTo(3, 6));
+    expect(mocks.broadcast).not.toHaveBeenCalled();
   });
 
   it('advances a negative-offset source at canonical end before local onended', async () => {
@@ -1576,6 +1790,9 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
   it('invalidates a failed PLAY recovery token on a newer PAUSE intent', async () => {
     selectIndex(0);
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    setPlaybackFilePaused();
+    setState('player.pausedAt', 3);
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
     mocks.ensureRunning.mockRejectedValueOnce(new Error('WebKit context did not resume'));
     let recoveryEvent: { isCurrent?: () => boolean; retry?: () => Promise<boolean> } | undefined;
     bus.on('audio:output-recovery-needed', (event) => {
@@ -1590,25 +1807,104 @@ describe('play invocation owner — stale unlock/watchdog isolation', () => {
     expect(mocks.createBufferSource).not.toHaveBeenCalled();
   });
 
-  it('invalidates a failed PLAY recovery token on a paused seek intent', async () => {
+  it.each([
+    { label: 'seek', applyPausedIntent: () => seekTo(17) },
+    { label: 'skip', applyPausedIntent: () => skipTime(10) },
+  ])(
+    'invalidates a failed PLAY recovery token on a paused $label intent',
+    async ({ applyPausedIntent }) => {
+      setState('network.appRole', 'host');
+      setState('network.hostConn', null);
+      setState('network.sessionCode', '123456');
+      setState('setup.sessionStarted', true);
+      selectIndex(0);
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      setPlaybackFilePaused();
+      setState('player.pausedAt', 3);
+      setState('playback.lifecycle', PLAYBACK_STATE.READY);
+      mocks.ensureRunning.mockRejectedValueOnce(new Error('WebKit context did not resume'));
+      let recoveryEvent: { isCurrent?: () => boolean; retry?: () => Promise<boolean> } | undefined;
+      bus.on('audio:output-recovery-needed', (event) => {
+        recoveryEvent = event;
+      });
+
+      await play(3);
+      expect(recoveryEvent?.isCurrent?.()).toBe(true);
+      applyPausedIntent();
+      expect(recoveryEvent?.isCurrent?.()).toBe(false);
+      await expect(recoveryEvent?.retry?.()).resolves.toBe(false);
+      expect(mocks.createBufferSource).not.toHaveBeenCalled();
+    },
+  );
+
+  it('invalidates a failed PLAY recovery token on a paused operator seek', async () => {
     setState('network.appRole', 'host');
     setState('network.hostConn', null);
     setState('network.sessionCode', '123456');
     setState('setup.sessionStarted', true);
-    selectIndex(0);
+    setState('room.context', {
+      kind: 'standard',
+      roomId: '123456',
+      role: 'coordinator',
+      coordinatorId: 'host-1',
+      epoch: 7,
+      snapshotRevision: 1,
+      capabilities: ['playback.control'],
+    });
+    const queueItemId = selectIndex(0)!;
+    const item = itemAt(0);
+    const blob = makeFile(item.name);
+    setState('files.current', { ...fileMetaFor(item, blob, 1), blob });
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    setPlaybackFilePaused();
+    setState('player.pausedAt', 3);
+    setState('playback.lifecycle', PLAYBACK_STATE.READY);
     mocks.ensureRunning.mockRejectedValueOnce(new Error('WebKit context did not resume'));
     let recoveryEvent: { isCurrent?: () => boolean; retry?: () => Promise<boolean> } | undefined;
     bus.on('audio:output-recovery-needed', (event) => {
       recoveryEvent = event;
     });
+    initPlayback();
 
-    await play(3);
+    togglePlay();
+    await vi.waitFor(() => expect(recoveryEvent?.retry).toEqual(expect.any(Function)));
     expect(recoveryEvent?.isCurrent?.()).toBe(true);
-    seekTo(17);
+
+    const operator = {
+      open: true,
+      peer: 'operator-1',
+      send: vi.fn(),
+      close: vi.fn(),
+      on: () => undefined,
+    } as DataConnection;
+    setState('network.activeHostConnByPeerId', new Map([[operator.peer, operator]]));
+    setState('network.connectedPeers', [
+      {
+        id: operator.peer,
+        slot: 1,
+        label: 'OP',
+        conn: operator,
+        isOp: true,
+        preloadedQueueItemIds: new Set<QueueItemId>(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: 1,
+        connectionType: 'local',
+        lastHeartbeat: Date.now(),
+      },
+    ]);
+
+    await handleData({ type: MSG.REQUEST_SEEK, time: 13, queueItemId }, operator);
+
     expect(recoveryEvent?.isCurrent?.()).toBe(false);
     await expect(recoveryEvent?.retry?.()).resolves.toBe(false);
-    expect(mocks.createBufferSource).not.toHaveBeenCalled();
+    expect(mocks.broadcast).toHaveBeenCalledWith({
+      type: MSG.PAUSE,
+      time: 13,
+      queueItemId,
+      reason: 'seek',
+    });
+    expect(mocks.broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
   });
 
   it('does not let an old same-track prompt retry after a newer PLAY succeeds', async () => {

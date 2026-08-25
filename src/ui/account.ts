@@ -40,6 +40,7 @@ import {
   sanitizeAccountLoginReturnPath,
 } from '../account/login-return.ts';
 import { clearIntentionalNav, markIntentionalNav } from '../core/page-lifecycle.ts';
+import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { getResolvedLanguage, t } from '../i18n/index.ts';
 import { getRoomContext } from '../rooms/authority.ts';
@@ -447,7 +448,9 @@ function beginAccountStatsLoad(owner: AccountStatsOwner): void {
   _accountStatsOwner = owner;
   _accountStatsLoading = true;
   renderAccountStats(getAccountSnapshot());
-  void loadAccountStats(owner, requestId);
+  loadAccountStats(owner, requestId).catch((error) => {
+    log.warn('[Account] Statistics load escaped its request boundary', error);
+  });
 }
 
 function setPending(pending: boolean): void {
@@ -796,14 +799,19 @@ function requestAccountLoginPopupOnly(
     if (options.acceptIncompleteProfile) return Promise.resolve('profile-incomplete');
     const promise = createAccountLoginPopupAttempt(null, options);
     _profilePromptShown = true;
-    void requestAccountNicknameChange().then((outcome) => {
-      if (!_accountLoginPopupAttempt) return;
-      if (outcome === 'completed') {
-        observeAccountLoginPopupAttempt(getAccountSnapshot());
-        return;
-      }
-      settleAccountLoginPopupAttempt(outcome === 'cancelled' ? 'cancelled' : 'error');
-    });
+    requestAccountNicknameChange()
+      .then((outcome) => {
+        if (!_accountLoginPopupAttempt) return;
+        if (outcome === 'completed') {
+          observeAccountLoginPopupAttempt(getAccountSnapshot());
+          return;
+        }
+        settleAccountLoginPopupAttempt(outcome === 'cancelled' ? 'cancelled' : 'error');
+      })
+      .catch((error) => {
+        log.warn('[Account] Required nickname prompt failed', error);
+        if (_accountLoginPopupAttempt) settleAccountLoginPopupAttempt('error');
+      });
     return promise;
   }
 
@@ -867,7 +875,10 @@ function monitorAccountLoginPopup(popup: Window): void {
       const attempt = _accountLoginPopupAttempt;
       attempt.popupClosed = true;
       if (attempt.waitsForPopupReconciliation || attempt.successReconciliation) {
-        void reconcileAccountLoginPopupAttempt(attempt);
+        reconcileAccountLoginPopupAttempt(attempt).catch((error) => {
+          log.warn('[Account] Popup reconciliation escaped its request boundary', error);
+          if (_accountLoginPopupAttempt === attempt) settleAccountLoginPopupAttempt('error');
+        });
         return;
       }
     }
@@ -1184,20 +1195,29 @@ function bindAccountDialog(): void {
   if (!overlay || overlay.dataset.accountBound === '1') return;
   overlay.dataset.accountBound = '1';
 
-  byId<HTMLButtonElement>('btn-account-login-close')?.addEventListener('click', async () => {
-    if (getAccountSnapshot().status === 'unavailable') {
-      setPending(true);
-      try {
-        await retryAccountSessionRefresh();
-      } finally {
-        setPending(false);
-        if (getAccountSnapshot().status === 'unavailable') {
-          focusWithoutScroll(byId<HTMLButtonElement>('btn-account-login-close'));
+  const reportUnhandledAccountDialogAction = (error: unknown): void => {
+    log.warn('[Account] Dialog action failed outside its operation boundary', error);
+    setPending(false);
+    showToast(t('account.action_failed'));
+  };
+
+  byId<HTMLButtonElement>('btn-account-login-close')?.addEventListener('click', () => {
+    const closeLoginDialog = async (): Promise<void> => {
+      if (getAccountSnapshot().status === 'unavailable') {
+        setPending(true);
+        try {
+          await retryAccountSessionRefresh();
+        } finally {
+          setPending(false);
+          if (getAccountSnapshot().status === 'unavailable') {
+            focusWithoutScroll(byId<HTMLButtonElement>('btn-account-login-close'));
+          }
         }
+        return;
       }
-      return;
-    }
-    closeAccountDialog();
+      closeAccountDialog();
+    };
+    closeLoginDialog().catch(reportUnhandledAccountDialogAction);
   });
   byId<HTMLButtonElement>('btn-account-center-close')?.addEventListener(
     'click',
@@ -1273,41 +1293,47 @@ function bindAccountDialog(): void {
   byId<HTMLButtonElement>('btn-account-title-edit')?.addEventListener('click', () => {
     if (!isAccountAuthenticated()) return;
     closeAccountDialog();
-    void requestAccountNicknameChange();
+    requestAccountNicknameChange().catch(reportUnhandledAccountDialogAction);
   });
-  byId<HTMLButtonElement>('btn-account-logout')?.addEventListener('click', async () => {
-    if (_accountActionPending) return;
-    setPending(true);
-    try {
-      await signOutAccount();
-      setPending(false);
+  byId<HTMLButtonElement>('btn-account-logout')?.addEventListener('click', () => {
+    const signOut = async (): Promise<void> => {
+      if (_accountActionPending) return;
+      setPending(true);
+      try {
+        await signOutAccount();
+        setPending(false);
+        closeAccountDialog();
+      } catch {
+        setPending(false);
+        focusWithoutScroll(byId<HTMLButtonElement>('btn-account-logout'));
+        showToast(t('account.action_failed'));
+      }
+    };
+    signOut().catch(reportUnhandledAccountDialogAction);
+  });
+  byId<HTMLButtonElement>('btn-account-delete')?.addEventListener('click', () => {
+    const removeCurrentAccount = async (): Promise<void> => {
+      if (_accountActionPending) return;
       closeAccountDialog();
-    } catch {
-      setPending(false);
-      focusWithoutScroll(byId<HTMLButtonElement>('btn-account-logout'));
-      showToast(t('account.action_failed'));
-    }
-  });
-  byId<HTMLButtonElement>('btn-account-delete')?.addEventListener('click', async () => {
-    if (_accountActionPending) return;
-    closeAccountDialog();
-    const confirmation = await showDialog({
-      title: t('account.delete_confirm_title'),
-      message: t('account.delete_confirm_message'),
-      buttonText: t('account.delete_account'),
-      secondaryText: t('common.cancel'),
-      defaultFocus: 'secondary',
-    });
-    if (confirmation.action !== 'ok') return;
-    setPending(true);
-    try {
-      const result = await removeAccount();
-      setPending(false);
-      if (result.pending) showToast(t('account.delete_pending'));
-    } catch {
-      setPending(false);
-      showToast(t('account.action_failed'));
-    }
+      const confirmation = await showDialog({
+        title: t('account.delete_confirm_title'),
+        message: t('account.delete_confirm_message'),
+        buttonText: t('account.delete_account'),
+        secondaryText: t('common.cancel'),
+        defaultFocus: 'secondary',
+      });
+      if (confirmation.action !== 'ok') return;
+      setPending(true);
+      try {
+        const result = await removeAccount();
+        setPending(false);
+        if (result.pending) showToast(t('account.delete_pending'));
+      } catch {
+        setPending(false);
+        showToast(t('account.action_failed'));
+      }
+    };
+    removeCurrentAccount().catch(reportUnhandledAccountDialogAction);
   });
 }
 
@@ -1363,10 +1389,15 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
     // it with the first-login nickname dialog instead of stacking two modal
     // focus traps over each other.
     closeAccountDialog();
-    void requestAccountNicknameChange().then((outcome) => {
-      if (!_accountLoginPopupAttempt || outcome === 'completed') return;
-      settleAccountLoginPopupAttempt(outcome === 'cancelled' ? 'cancelled' : 'error');
-    });
+    requestAccountNicknameChange()
+      .then((outcome) => {
+        if (!_accountLoginPopupAttempt || outcome === 'completed') return;
+        settleAccountLoginPopupAttempt(outcome === 'cancelled' ? 'cancelled' : 'error');
+      })
+      .catch((error) => {
+        log.warn('[Account] Profile completion prompt failed', error);
+        if (_accountLoginPopupAttempt) settleAccountLoginPopupAttempt('error');
+      });
   }
 }
 

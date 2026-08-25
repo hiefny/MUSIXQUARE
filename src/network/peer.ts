@@ -447,13 +447,15 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
 
       const peerOpenRequest = waitForPeerOpen(newPeer, owner);
       owner.deferredRtcConfigurationPending = true;
-      void settleDeferredHostRtcConfiguration(
+      settleDeferredHostRtcConfiguration(
         owner,
         newPeer,
         setRtcConfiguration,
         iceServers,
         turnCredentialsRequest,
-      );
+      ).catch((error) => {
+        log.error('[Network] Deferred RTC configuration escaped its boundary', error);
+      });
       const id = await peerOpenRequest;
 
       assertNetworkInitStillActive(owner);
@@ -699,7 +701,9 @@ function attemptPeerReconnect(): void {
         _reconnectAttempts = 0;
         return;
       }
-      void performScheduledPeerReconnect(peer);
+      performScheduledPeerReconnect(peer).catch((error) => {
+        log.warn('[Transport] Scheduled signaling reconnect failed', error);
+      });
     },
     delay,
   );
@@ -727,7 +731,9 @@ export function retryPeerSignalingConnection(): boolean {
   clearManagedTimer('peer-signaling-reconnect');
   _reconnectAttempts = 1;
   publishSignalingReconnectAttempt(_reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
-  void performScheduledPeerReconnect(peer);
+  performScheduledPeerReconnect(peer).catch((error) => {
+    log.warn('[Transport] Manual signaling reconnect failed', error);
+  });
   return true;
 }
 
@@ -783,10 +789,14 @@ function schedulePeerDisconnectGrace(peer: PeerInstance): void {
         title: t('network.disconnected'),
         message: t('dialog.session_lost_msg'),
         buttonText: t('dialog.session_lost_btn'),
-      }).then((res) => {
-        if (res.action !== 'ok') return; // ESC / background dismiss
-        scheduleDocumentReload(t('dialog.refreshing_session'));
-      });
+      })
+        .then((res) => {
+          if (res.action !== 'ok') return; // ESC / background dismiss
+          scheduleDocumentReload(t('dialog.refreshing_session'));
+        })
+        .catch((error) => {
+          log.warn('[Transport] Session-loss dialog failed', error);
+        });
     },
     5000,
   );

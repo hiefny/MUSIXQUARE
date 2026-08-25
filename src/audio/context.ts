@@ -4,6 +4,7 @@
  * Owns the lazily created native AudioContext shared by all audio modules.
  */
 
+import { log } from '../core/log.ts';
 import { delay } from '../core/timers.ts';
 
 let _ctx: AudioContext | null = null;
@@ -326,13 +327,15 @@ function installForegroundLateSuspendFence(context: AudioContext): void {
   };
   foregroundLateSuspendFences.set(context, fence);
   context.addEventListener('statechange', handleStateChange);
-  void delay(FOREGROUND_LATE_SUSPEND_FENCE_MS).then(() => {
-    if (foregroundLateSuspendFences.get(context) === fence) {
-      const successor = fence.successor;
-      clearForegroundLateSuspendFence(context);
-      if (successor) startFreshForegroundSuspend(successor);
-    }
-  });
+  delay(FOREGROUND_LATE_SUSPEND_FENCE_MS)
+    .then(() => {
+      if (foregroundLateSuspendFences.get(context) === fence) {
+        const successor = fence.successor;
+        clearForegroundLateSuspendFence(context);
+        if (successor) startFreshForegroundSuspend(successor);
+      }
+    })
+    .catch((error) => log.warn('[Audio] Late suspend fence failed', error));
 }
 
 function retireForegroundRestartAttempt(
@@ -399,36 +402,38 @@ function watchForegroundSuspendLease(lease: ForegroundSuspendLease): void {
   if (lease.settled || lease.abandoned || lease.autoRotateToken) return;
   const rotateToken = {};
   lease.autoRotateToken = rotateToken;
-  void delay(FOREGROUND_SUSPEND_WATCHDOG_MS).then(() => {
-    if (lease.settled || lease.abandoned || lease.autoRotateToken !== rotateToken) {
-      return;
-    }
-    if (isForegroundRestartPrepared(lease.context)) {
-      settleForegroundSuspendLease(lease);
-      return;
-    }
-    if (String(lease.context.state) === 'closed') {
-      settleForegroundSuspendLease(lease, true);
-      return;
-    }
+  delay(FOREGROUND_SUSPEND_WATCHDOG_MS)
+    .then(() => {
+      if (lease.settled || lease.abandoned || lease.autoRotateToken !== rotateToken) {
+        return;
+      }
+      if (isForegroundRestartPrepared(lease.context)) {
+        settleForegroundSuspendLease(lease);
+        return;
+      }
+      if (String(lease.context.state) === 'closed') {
+        settleForegroundSuspendLease(lease, true);
+        return;
+      }
 
-    const owner = lease.owner;
-    if (!owner || !foregroundRestartStillCurrent(owner) || owner.phase !== 'preparing-suspend') {
-      abandonForegroundSuspendLease(lease, true);
-      return;
-    }
-    if (owner.suspendPrepareAttempts >= MAX_FOREGROUND_SUSPEND_ATTEMPTS) {
-      abandonForegroundSuspendLease(lease, true);
-      retireForegroundRestartAttempt(owner, false);
-      return;
-    }
+      const owner = lease.owner;
+      if (!owner || !foregroundRestartStillCurrent(owner) || owner.phase !== 'preparing-suspend') {
+        abandonForegroundSuspendLease(lease, true);
+        return;
+      }
+      if (owner.suspendPrepareAttempts >= MAX_FOREGROUND_SUSPEND_ATTEMPTS) {
+        abandonForegroundSuspendLease(lease, true);
+        retireForegroundRestartAttempt(owner, false);
+        return;
+      }
 
-    // Preserve the same attempt/whenPrepared identity. The late fence either
-    // hands an old physical suspend to this owner or starts one fresh native
-    // suspend after the old operation's bounded quarantine closes.
-    abandonForegroundSuspendLease(lease, true);
-    startFreshForegroundSuspend(owner);
-  });
+      // Preserve the same attempt/whenPrepared identity. The late fence either
+      // hands an old physical suspend to this owner or starts one fresh native
+      // suspend after the old operation's bounded quarantine closes.
+      abandonForegroundSuspendLease(lease, true);
+      startFreshForegroundSuspend(owner);
+    })
+    .catch((error) => log.warn('[Audio] Foreground suspend watchdog failed', error));
 }
 
 function createForegroundSuspendLease(

@@ -174,7 +174,11 @@ export function createIdleWatchdog(
  */
 export function cancelResponseBody(response: Response): Promise<void> {
   try {
-    void response.body?.cancel().catch(() => undefined);
+    if (response.body) {
+      response.body.cancel().catch(() => {
+        // Body cancellation is cleanup only; preserve the caller's primary outcome.
+      });
+    }
   } catch {
     // Cancellation is cleanup only; preserve the caller's primary outcome.
   }

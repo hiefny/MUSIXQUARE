@@ -110,6 +110,10 @@ export function releaseRecoverySkipTargets(
     environment.MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR,
     'MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR',
   );
+  const standardRoomPinForwardFloor = exactBoolean(
+    environment.MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR,
+    'MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR',
+  );
 
   const skip = new Set(
     r2Outcome === 'success'
@@ -144,6 +148,9 @@ export function releaseRecoverySkipTargets(
     skip.add('pro-room');
     skip.add('signaling');
     skip.add('app');
+  }
+  if (standardRoomPinForwardFloor) {
+    skip.add('signaling');
   }
   return [...skip];
 }

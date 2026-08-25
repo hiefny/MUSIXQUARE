@@ -66,6 +66,10 @@ export function initBackgroundResumeGuard(
   let pendingResume: BackgroundResumeEvent | null = null;
   let disposed = false;
 
+  const reportDetachedResumeFailure = (error: unknown): void => {
+    deps.log?.warn?.('[BackgroundResume] Detached resume task failed', error);
+  };
+
   const handleResume = async (event: BackgroundResumeEvent): Promise<void> => {
     if (disposed) return;
     if (deps.shouldHandle && !deps.shouldHandle(event)) return;
@@ -110,7 +114,7 @@ export function initBackgroundResumeGuard(
       inFlight = false;
       const followUp = pendingResume;
       pendingResume = null;
-      if (followUp && !disposed) void handleResume(followUp);
+      if (followUp && !disposed) handleResume(followUp).catch(reportDetachedResumeFailure);
     }
   };
 
@@ -130,7 +134,7 @@ export function initBackgroundResumeGuard(
 
     if (hiddenMs < Math.min(recoverThresholdMs, warnThresholdMs)) return;
 
-    void handleResume({ hiddenMs });
+    handleResume({ hiddenMs }).catch(reportDetachedResumeFailure);
   };
 
   document.addEventListener('visibilitychange', onVisibilityChange, opts);

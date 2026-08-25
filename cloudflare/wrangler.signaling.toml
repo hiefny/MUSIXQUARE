@@ -27,9 +27,12 @@ enabled = false
 # named counterpart:
 #   npm run wrangler -- secret put PRO_SIGNALING_SECRET --config cloudflare/wrangler.signaling.toml
 #   npm run wrangler -- secret put MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET --config cloudflare/wrangler.signaling.toml
+#   npm run wrangler -- secret put MXQR_STANDARD_ROOM_PIN_PEPPER --config cloudflare/wrangler.signaling.toml
 #   npm run wrangler -- secret put MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET --config cloudflare/wrangler.signaling.toml
-#   (The optional prefixed JSON current/previous rotation form is documented in
-#   cloudflare/remote-share-ops.md.)
+#   (Remote Share rotation is documented in cloudflare/remote-share-ops.md.
+#   Standard PIN pepper rotation has a different retirement boundary; follow
+#   cloudflare/standard-room-pin-ops.md and never apply the 90-second assertion
+#   TTL rule to persisted room PIN verifiers.)
 
 [[routes]]
 pattern = "signal.musixquare.com"

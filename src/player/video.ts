@@ -85,7 +85,11 @@ export function exitYouTubeFullscreen(): void {
 
   try {
     const pendingExit: void | Promise<void> = exitFullscreen.call(document);
-    if (pendingExit && typeof pendingExit.catch === 'function') {
+    if (
+      typeof pendingExit === 'object' &&
+      pendingExit !== null &&
+      typeof pendingExit.catch === 'function'
+    ) {
       void pendingExit.catch(() => undefined);
     }
   } catch {

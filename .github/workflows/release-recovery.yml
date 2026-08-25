@@ -347,6 +347,10 @@ jobs:
             node scripts/release-deployment-state.mts \
               pro-system-audio-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
+          standard_room_pin_forward_floor="$(
+            node scripts/release-deployment-state.mts \
+              standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
+          )"
           skip_targets="$(
             MXQR_R2_POLICY_OUTCOME="${{ steps.fallback_r2_policy_assessment.outcome }}" \
             MXQR_R2_FORWARD_TARGETS="${{ steps.fallback_r2_policy_assessment.outputs.forward_targets }}" \
@@ -357,6 +361,7 @@ jobs:
             MXQR_SERVICE_CONTROL_FORWARD_FLOOR="$service_control_forward_floor" \
             MXQR_REMOTE_SHARE_FORWARD_FLOOR="$remote_share_forward_floor" \
             MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR="$pro_system_audio_forward_floor" \
+            MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR="$standard_room_pin_forward_floor" \
             node scripts/release-recovery-plan.mts
           )"
           echo "skipped_targets=${skip_targets}" >> "$GITHUB_OUTPUT"

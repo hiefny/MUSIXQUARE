@@ -373,13 +373,14 @@ describe('account session mutation ordering', () => {
     expect(getAccountSnapshot().status).toBe('authenticated');
     expect(getAccountSnapshot().account?.nickname).toBe('Old');
 
-    retryAccountSessionRefresh();
-    retryAccountSessionRefresh();
+    const firstExplicitRetry = retryAccountSessionRefresh();
+    const coalescedExplicitRetry = retryAccountSessionRefresh();
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(getAccountSnapshot().account?.nickname).toBe('Old');
 
     retryRead.resolve(jsonResponse(AUTHENTICATED_NEW));
     await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+    await Promise.all([firstExplicitRetry, coalescedExplicitRetry]);
     await vi.advanceTimersByTimeAsync(60_000);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

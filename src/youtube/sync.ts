@@ -1522,7 +1522,9 @@ function handleYouTubePlaylistInfo(data: Record<string, unknown>, conn?: DataCon
 
   // Guest can also fetch missing titles in background
   if (ids && ids.length > 0) {
-    fetchPlaylistSubTitles(playlistId, ids);
+    fetchPlaylistSubTitles(playlistId, ids).catch((error) => {
+      log.warn(`[YouTube Sync] Background title fetch failed for ${playlistId}`, error);
+    });
   }
 }
 

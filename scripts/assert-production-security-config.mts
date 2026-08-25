@@ -6,6 +6,7 @@ import {
   validateRemoteShareRolloutConfig,
 } from './production-security-rollout.mts';
 import { validateProSignalingCredentialBoundary } from './pro-signaling-credential-boundary.mts';
+import { validateStandardRoomPinStorageBoundary } from './standard-room-pin-storage-boundary.mts';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -81,6 +82,7 @@ const hits: SecurityFlagHit[] = [];
 const rolloutErrors: string[] = [];
 const remoteShareRolloutErrors: string[] = [];
 const proSignalingCredentialErrors: string[] = [];
+const standardRoomPinStorageErrors: string[] = [];
 
 for (const flag of dangerousFlags) {
   if (isTruthy(process.env[flag])) {
@@ -138,12 +140,19 @@ proSignalingCredentialErrors.push(
     workerSource: signalingWorker,
   }),
 );
+standardRoomPinStorageErrors.push(
+  ...validateStandardRoomPinStorageBoundary({
+    workerSource: signalingWorker,
+    signalingConfig,
+  }),
+);
 
 if (
   hits.length > 0 ||
   rolloutErrors.length > 0 ||
   remoteShareRolloutErrors.length > 0 ||
-  proSignalingCredentialErrors.length > 0
+  proSignalingCredentialErrors.length > 0 ||
+  standardRoomPinStorageErrors.length > 0
 ) {
   console.error('[prod-security-guard] Unsafe production configuration detected:');
   for (const hit of hits) {
@@ -157,6 +166,9 @@ if (
   }
   for (const error of proSignalingCredentialErrors) {
     console.error(`  - PRO signaling credential boundary: ${error}`);
+  }
+  for (const error of standardRoomPinStorageErrors) {
+    console.error(`  - Standard room PIN storage boundary: ${error}`);
   }
   console.error(
     '[prod-security-guard] Fix the production security/rollout configuration before deploying.',

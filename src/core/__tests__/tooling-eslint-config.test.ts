@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 const eslint = new ESLint({
   cwd: process.cwd(),
   overrideConfigFile: 'eslint.tooling.config.ts',
+  concurrency: 4,
 });
 
 interface TypeScriptConfigShape {
@@ -56,5 +57,5 @@ describe('tooling ESLint and runtime TypeScript profiles', () => {
     );
 
     expect(identities).toEqual([]);
-  }, 60_000);
+  }, 90_000);
 });

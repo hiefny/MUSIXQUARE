@@ -441,13 +441,7 @@ export function resetPreloadReceiveAuthority(): void {
 export function schedulePreload(delayMs = 500): void {
   _preloadGeneration++;
   clearManagedTimer('preloadScheduleTimer');
-  setManagedTimer(
-    'preloadScheduleTimer',
-    () => {
-      preloadNextTrack();
-    },
-    delayMs,
-  );
+  setManagedTimer('preloadScheduleTimer', () => preloadNextTrack(), delayMs);
 }
 
 /** Reset preload cache fields so no local fast path can pick up a stale entry. */
@@ -616,7 +610,9 @@ function handleProRoomFilePreload(
   const operation = beginProRoomFilePreload(data.queueItemId, data.sessionId);
   if (operation) {
     _pendingProRoomPreloadHint = null;
-    void operation;
+    operation.catch((error) => {
+      log.warn('[Preload] PRO room preload operation failed', error);
+    });
     return;
   }
 
@@ -653,7 +649,9 @@ function replayPendingProRoomPreloadHint(): void {
   const operation = beginProRoomFilePreload(pending.queueItemId, pending.sessionId);
   if (!operation) return;
   _pendingProRoomPreloadHint = null;
-  void operation;
+  operation.catch((error) => {
+    log.warn('[Preload] Replayed PRO room preload operation failed', error);
+  });
 }
 
 /**

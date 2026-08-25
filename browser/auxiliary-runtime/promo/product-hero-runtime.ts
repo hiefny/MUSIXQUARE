@@ -338,7 +338,9 @@ export function startProductHero(config: ProductHeroConfig): void {
     {
       'Copy bg': () => {
         const css = `background: ${bgState.radial ? 'radial-gradient(ellipse at center' : 'linear-gradient(180deg'}, ${bgState.top} 0%, ${bgState.bottom} 100%);`;
-        navigator.clipboard.writeText(css);
+        navigator.clipboard.writeText(css).catch((error: unknown) => {
+          console.error('[copy failed]', error);
+        });
         console.log('[copied]', css);
       },
     },
@@ -420,7 +422,9 @@ export function startProductHero(config: ProductHeroConfig): void {
         const lines = Object.entries(matState)
           .map(([k, v]) => `    ${k}: ${v.toFixed(3)},`)
           .join('\n');
-        navigator.clipboard.writeText(lines);
+        navigator.clipboard.writeText(lines).catch((error: unknown) => {
+          console.error('[copy failed]', error);
+        });
         console.log('[copied]\n' + lines);
       },
     },
@@ -460,7 +464,9 @@ export function startProductHero(config: ProductHeroConfig): void {
         const lines = Object.entries(shadowState)
           .map(([k, v]) => `    ${k}: ${v.toFixed(3)},`)
           .join('\n');
-        navigator.clipboard.writeText(lines);
+        navigator.clipboard.writeText(lines).catch((error: unknown) => {
+          console.error('[copy failed]', error);
+        });
         console.log('[copied]\n' + lines);
       },
     },
@@ -515,7 +521,9 @@ export function startProductHero(config: ProductHeroConfig): void {
         const lines = Object.entries(lightState)
           .map(([k, v]) => `    ${k}: ${typeof v === 'number' ? v.toFixed(2) : JSON.stringify(v)},`)
           .join('\n');
-        navigator.clipboard.writeText(lines);
+        navigator.clipboard.writeText(lines).catch((error: unknown) => {
+          console.error('[copy failed]', error);
+        });
         console.log('[copied]\n' + lines);
       },
     },
@@ -659,7 +667,9 @@ export function startProductHero(config: ProductHeroConfig): void {
           const c = PANELS[selectedIndex];
           const g = panelsGroup.children[selectedIndex];
           const line = `  { file: '${c.file}', pos: [${g.position.x.toFixed(2).padStart(5)}, ${g.position.y.toFixed(2).padStart(5)}, ${g.position.z.toFixed(2).padStart(5)}], rotY: ${g.rotation.y.toFixed(3).padStart(6)}, rotX: ${g.rotation.x.toFixed(3).padStart(6)}, rotZ: ${g.rotation.z.toFixed(3).padStart(6)}, scale: ${c.scale} },`;
-          navigator.clipboard.writeText(line);
+          navigator.clipboard.writeText(line).catch((error: unknown) => {
+            console.error('[copy failed]', error);
+          });
           console.log('[copied]', line);
         },
       },

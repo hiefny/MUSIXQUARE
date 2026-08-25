@@ -1640,6 +1640,45 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(idFromName).not.toHaveBeenCalled();
   });
 
+  it.each(['https://musixquare.apps.tossmini.com', 'https://musixquare.private-apps.tossmini.com'])(
+    'allows the official MUSIXQUARE Apps-in-Toss WebSocket origin: %s',
+    async (origin) => {
+      const { env, idFromName } = workerEnv();
+      const response = await workerModule.default.fetch(
+        requestLike('https://signal.example.test/api/rooms/123456/ws?role=host&peerId=toss-host', {
+          Origin: origin,
+          Upgrade: 'websocket',
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(101);
+      expect(idFromName).toHaveBeenCalledWith('123456');
+    },
+  );
+
+  it.each([
+    'https://unrelated.apps.tossmini.com',
+    'https://another-app.apps.tossmini.com',
+    'https://musixquare.toss.im',
+    'https://musixquare.toss-internal.com',
+  ])(
+    'rejects an unrelated Toss WebSocket origin before Durable Object lookup: %s',
+    async (origin) => {
+      const { env, idFromName } = workerEnv();
+      const response = await workerModule.default.fetch(
+        requestLike('https://signal.example.test/api/rooms/123456/ws?role=host&peerId=toss-probe', {
+          Origin: origin,
+          Upgrade: 'websocket',
+        }),
+        env,
+      );
+
+      expect(response.status).toBe(403);
+      expect(idFromName).not.toHaveBeenCalled();
+    },
+  );
+
   it('rejects malformed room peers before Durable Object lookup', async () => {
     const { env, idFromName } = workerEnv();
     const response = await workerModule.default.fetch(
@@ -7788,6 +7827,107 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(replacement.closed).toBe(false);
   });
 
+  it.each(['missing', 'malformed', 'future'] as const)(
+    'fails reconnect ownership closed without rewriting %s binding state',
+    async (stateShape) => {
+      const { room, state } = await createHostRoom();
+      const original = await joinGuest(room, 'binding-state-guest');
+      if (stateShape === 'missing') {
+        await state.storage.delete('guestReconnectBindings');
+      } else {
+        await state.storage.put(
+          'guestReconnectBindings',
+          stateShape === 'malformed'
+            ? {
+                v: 1,
+                entries: [
+                  {
+                    peerId: 'binding-state-guest',
+                    secretHash: 'corrupt',
+                    updatedAt: Date.now(),
+                  },
+                ],
+              }
+            : {
+                v: 2,
+                entries: [],
+                reconnectAuthority: { revision: 1 },
+              },
+        );
+      }
+      const storedBefore = await state.storage.get('guestReconnectBindings');
+
+      const rehydrated = new workerModule.MusixquareRoom(state, {
+        MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      });
+      const attacker = await joinGuest(rehydrated, 'binding-state-guest', {
+        reconnectSecret: OTHER_RECONNECT_SECRET,
+      });
+
+      expect(attacker.closeEvents.at(-1)).toEqual({ code: 1011, reason: 'ROOM_STATE_INVALID' });
+      expect(original.closed).toBe(false);
+      expect(await state.storage.get('guestReconnectBindings')).toEqual(storedBefore);
+    },
+  );
+
+  it('shares the hibernation-time reconnect binding read with the first guest admission', async () => {
+    const { state } = await createHostRoom();
+    const originalGet = state.storage.get.bind(state.storage);
+    let bindingReads = 0;
+    let markFirstReadEntered!: () => void;
+    let releaseFirstRead!: () => void;
+    const firstReadEntered = new Promise<void>((resolve) => {
+      markFirstReadEntered = resolve;
+    });
+    const firstReadGate = new Promise<void>((resolve) => {
+      releaseFirstRead = resolve;
+    });
+    state.storage.get = vi.fn(async (key: string) => {
+      const snapshot = await originalGet(key);
+      if (key !== 'guestReconnectBindings') return snapshot;
+      bindingReads += 1;
+      if (bindingReads === 1) {
+        markFirstReadEntered();
+        await firstReadGate;
+      }
+      return snapshot;
+    });
+
+    const rehydrated = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    await firstReadEntered;
+    await rehydrated.fetch(wsRequest('123456', 'guest', 'single-flight-binding'));
+    const guest = lastServer();
+    let admissionSettled = false;
+    const admission = rehydrated
+      .webSocketMessage(
+        guest,
+        JSON.stringify({
+          type: 'guest-auth',
+          password: '',
+          reconnectSecret: DEFAULT_RECONNECT_SECRET,
+        }),
+      )
+      .finally(() => {
+        admissionSettled = true;
+      });
+    await Promise.resolve();
+    await Promise.resolve();
+    const readsWhileBlocked = bindingReads;
+    const settledWhileBlocked = admissionSettled;
+
+    releaseFirstRead();
+    await Promise.all([admission, state.flushWaitUntil()]);
+
+    expect(readsWhileBlocked).toBe(1);
+    expect(settledWhileBlocked).toBe(false);
+    const attacker = await joinGuest(rehydrated, 'single-flight-binding', {
+      reconnectSecret: OTHER_RECONNECT_SECRET,
+    });
+    expect(attacker.closeEvents.at(-1)?.reason).toBe('GUEST_RECONNECT_DENIED');
+  });
+
   it('retains the room epoch and guest ownership when its last guest leaves during host grace', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-16T00:00:00.000Z'));
@@ -8421,6 +8561,69 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(admitted.closed).toBe(false);
   });
 
+  it('reconciles a crash-committed host replacement against durable authority on wake', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-26T02:00:00.000Z'));
+    const { room, state, host: predecessor } = await createPasswordRoom();
+    const guest = await joinGuest(room, 'replacement-crash-guest', { password: '12345678' });
+    predecessor.sent.length = 0;
+
+    const committed = (await state.storage.get('roomMeta')) as CurrentRoomMeta;
+    await state.storage.put('roomMeta', {
+      ...committed,
+      hostPeerId: 'replacement-after-crash',
+      hostReleaseAt: 0,
+    });
+    const interruptedCandidate = new FakeSocket();
+    interruptedCandidate.serializeAttachment({
+      v: 1,
+      role: 'host',
+      roomId: '123456',
+      peerId: 'replacement-after-crash',
+      auth: 'pending',
+      authDeadline: Date.now() + 10_000,
+      authStarted: true,
+    });
+    state.sockets.push(interruptedCandidate);
+
+    const rehydrated = new workerModule.MusixquareRoom(state, {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    });
+    await state.flushWaitUntil();
+
+    expect(predecessor.closeEvents.at(-1)?.reason).toBe('STANDARD_ROOM_AUTHORITY_STALE');
+    expect(interruptedCandidate.closeEvents.at(-1)?.reason).toBe('HOST_AUTH_RETRY_REQUIRED');
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      roomSecret: 'secret-a',
+      hostPeerId: null,
+      hostReleaseAt: Date.now() + 120_000,
+    });
+
+    await rehydrated.webSocketMessage(
+      guest,
+      JSON.stringify({
+        type: 'signal-offer',
+        to: 'host',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'must-not-reach-stale-host' },
+      }),
+    );
+    expect(sent(predecessor)).toEqual([]);
+
+    const recovered = await authenticateHost(
+      rehydrated,
+      'replacement-after-crash',
+      'secret-a',
+      undefined,
+      '12345678',
+    );
+    expect(recovered.closed).toBe(false);
+    expect(await state.storage.get('roomMeta')).toMatchObject({
+      hostPeerId: 'replacement-after-crash',
+      hostReleaseAt: 0,
+    });
+  });
+
   it('replays a legacy PIN intent after storage failure without reopening the old room', async () => {
     const state = new FakeDurableObjectState();
     const env = { MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER };
@@ -8746,6 +8949,223 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(oldPin.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
     const newPin = await joinGuest(room, 'newer-host-pin', { password: '87654321' });
     expect(newPin.closed).toBe(false);
+  });
+
+  it('persists a live PIN mutation fence before maintenance and fails it closed on wake', async () => {
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    };
+    const room = new workerModule.MusixquareRoom(state, env);
+    const host = await authenticateHost(room, 'pin-fence-host', 'pin-fence-secret');
+    const mutationId = 'pin-fence-current-0001';
+    const delayedMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = delayedMaintenance.binding;
+
+    const mutation = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '12345678',
+        pinMutationId: mutationId,
+      }),
+    );
+
+    try {
+      // The attachment claim is synchronous: it exists before the first
+      // maintenance await can resolve and therefore survives hibernation.
+      expect(host.deserializeAttachment()).toMatchObject({
+        pinConfigurationPending: true,
+        pinConfigurationMutationId: mutationId,
+      });
+      expect(
+        (room as unknown as { standardRoomPinMutationFence: string | null })
+          .standardRoomPinMutationFence,
+      ).toBe(mutationId);
+      await delayedMaintenance.entered;
+
+      const crashState = new FakeDurableObjectState();
+      crashState.storage.data = new Map(
+        [...state.storage.data.entries()].map(([key, value]) => [key, structuredClone(value)]),
+      );
+      const interruptedHost = new FakeSocket();
+      interruptedHost.serializeAttachment(host.deserializeAttachment());
+      crashState.sockets.push(interruptedHost);
+
+      const rehydrated = new workerModule.MusixquareRoom(crashState, {
+        MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+      });
+      await crashState.flushWaitUntil();
+      expect(interruptedHost.closeEvents.at(-1)?.reason).toBe(
+        'ROOM_PASSWORD_CONFIGURATION_RETRY_REQUIRED',
+      );
+      const staleSettingGuest = await joinGuest(rehydrated, 'pin-fence-stale-setting');
+      expect(staleSettingGuest.closeEvents.at(-1)?.reason).toBe('HOST_NOT_AVAILABLE');
+    } finally {
+      delayedMaintenance.release();
+      await mutation;
+    }
+  });
+
+  it('keeps a replacement host fence owned across a stale host PIN preclaim and release', async () => {
+    const { room, state, host: previousHost } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'host', 'replacement-fence-host'));
+    const replacementHost = lastServer();
+    const replacementMutationId = 'replacement-fence-0001';
+    const staleMutationId = 'stale-host-fence-0001';
+
+    const originalPut = state.storage.put.bind(state.storage);
+    let markReplacementWriteEntered!: () => void;
+    let releaseReplacementWrite!: () => void;
+    const replacementWriteEntered = new Promise<void>((resolve) => {
+      markReplacementWriteEntered = resolve;
+    });
+    const replacementWriteGate = new Promise<void>((resolve) => {
+      releaseReplacementWrite = resolve;
+    });
+    let blockedReplacementWrite = false;
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (
+        !blockedReplacementWrite &&
+        key === 'roomMeta' &&
+        (value as Partial<CurrentRoomMeta>)?.hostPeerId === 'replacement-fence-host'
+      ) {
+        blockedReplacementWrite = true;
+        markReplacementWriteEntered();
+        await replacementWriteGate;
+      }
+      await originalPut(key, value);
+    });
+
+    const replacementAuth = room.webSocketMessage(
+      replacementHost,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '',
+        pinMutationId: replacementMutationId,
+      }),
+    );
+    await replacementWriteEntered;
+
+    const internals = room as unknown as {
+      standardRoomPinMutationFence: string | null;
+      standardRoomPinMutationFenceOwner: FakeSocket | null;
+    };
+    expect(internals.standardRoomPinMutationFence).toBe(replacementMutationId);
+    expect(internals.standardRoomPinMutationFenceOwner).toBe(replacementHost);
+
+    // This claim is persisted on H1 for crash safety, but H1 belongs to the
+    // older authority generation and must not replace H2's global fence.
+    const staleMutation = room.webSocketMessage(
+      previousHost,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '',
+        pinMutationId: staleMutationId,
+      }),
+    );
+    expect(previousHost.deserializeAttachment()).toMatchObject({
+      pinConfigurationPending: true,
+      pinConfigurationMutationId: staleMutationId,
+    });
+    expect(internals.standardRoomPinMutationFence).toBe(replacementMutationId);
+    expect(internals.standardRoomPinMutationFenceOwner).toBe(replacementHost);
+
+    releaseReplacementWrite();
+    await Promise.all([replacementAuth, staleMutation]);
+    expect(previousHost.closeEvents.at(-1)?.reason).toBe('HOST_REPLACED');
+    expect(internals.standardRoomPinMutationFence).toBe(replacementMutationId);
+    expect(internals.standardRoomPinMutationFenceOwner).toBe(replacementHost);
+
+    const prematureGuest = await joinGuest(room, 'replacement-fence-premature');
+    expect(prematureGuest.closeEvents.at(-1)).toEqual({
+      code: 1013,
+      reason: 'ROOM_PASSWORD_MUTATION_PENDING',
+    });
+
+    await room.webSocketMessage(
+      replacementHost,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '',
+        pinMutationId: replacementMutationId,
+      }),
+    );
+    expect(internals.standardRoomPinMutationFence).toBeNull();
+    expect(internals.standardRoomPinMutationFenceOwner).toBeNull();
+    const admittedGuest = await joinGuest(room, 'replacement-fence-confirmed');
+    expect(admittedGuest.closed).toBe(false);
+  });
+
+  it('preserves receive order when an older PIN mutation has a slower maintenance read', async () => {
+    const state = new FakeDurableObjectState();
+    const env: Record<string, unknown> = {
+      MXQR_STANDARD_ROOM_PIN_PEPPER: STANDARD_ROOM_PIN_PEPPER,
+    };
+    const room = new workerModule.MusixquareRoom(state, env);
+    const host = await authenticateHost(room, 'ordered-pin-host', 'ordered-pin-secret');
+    host.sent.length = 0;
+
+    const delayedMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = delayedMaintenance.binding;
+    const olderMutation = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '11111111',
+        pinMutationId: 'pin-order-older-0001',
+      }),
+    );
+    expect(host.deserializeAttachment()).toMatchObject({
+      pinConfigurationPending: true,
+      pinConfigurationMutationId: 'pin-order-older-0001',
+    });
+    await delayedMaintenance.entered;
+
+    const newerMaintenance = gatedInactiveMaintenanceBinding();
+    env.MUSIXQUARE_SERVICE_CONTROL = newerMaintenance.binding;
+    const newerMutation = room.webSocketMessage(
+      host,
+      JSON.stringify({
+        type: 'room-password-set',
+        password: '22222222',
+        pinMutationId: 'pin-order-newer-0002',
+      }),
+    );
+    expect(host.deserializeAttachment()).toMatchObject({
+      pinConfigurationPending: true,
+      pinConfigurationMutationId: 'pin-order-newer-0002',
+    });
+
+    delayedMaintenance.release();
+    await newerMaintenance.entered;
+    expect(host.deserializeAttachment()).toMatchObject({
+      pinConfigurationPending: true,
+      pinConfigurationMutationId: 'pin-order-newer-0002',
+    });
+    expect(
+      (room as unknown as { standardRoomPinMutationFence: string | null })
+        .standardRoomPinMutationFence,
+    ).toBe('pin-order-newer-0002');
+    newerMaintenance.release();
+    await Promise.all([olderMutation, newerMutation]);
+
+    expect(host.deserializeAttachment()).not.toHaveProperty('pinConfigurationPending');
+    expect(
+      (room as unknown as { standardRoomPinMutationFence: string | null })
+        .standardRoomPinMutationFence,
+    ).toBeNull();
+
+    expect(
+      sent(host)
+        .filter((message) => message.type === 'room-password-result')
+        .map((message) => message.mutationId),
+    ).toEqual(['pin-order-older-0001', 'pin-order-newer-0002']);
+    const currentPin = await joinGuest(room, 'ordered-pin-current', { password: '22222222' });
+    expect(currentPin.closed).toBe(false);
+    const stalePin = await joinGuest(room, 'ordered-pin-stale', { password: '11111111' });
+    expect(stalePin.closeEvents.at(-1)?.reason).toBe('ROOM_PASSWORD_INVALID');
   });
 
   it('verifies the previous PIN pepper once and durably rewraps with the current key', async () => {

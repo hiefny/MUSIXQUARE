@@ -1008,6 +1008,13 @@ describe('remote-share Worker capability gate', () => {
   it('bounds R2 CORS propagation retries to preflight 403 responses', () => {
     expect(liveSmokeSource).toContain('R2_CORS_PROPAGATION_TIMEOUT_MS = 45_000');
     expect(liveSmokeSource).toContain('R2_CORS_RETRY_INTERVAL_MS = 2_000');
+    expect(liveSmokeSource).toContain(
+      "UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com'",
+    );
+    expect(liveSmokeSource).toContain('R2 CORS still reflects an unrelated Toss app origin');
+    expect(liveSmokeSource).toContain('assertRemoteShareRejectsUnrelatedTossOrigin()');
+    expect(liveSmokeSource).toContain('unrelatedTossOriginRejected: true');
+    expect(liveSmokeSource).toContain('corsUnrelatedTossOriginRejected: true');
     expect(liveSmokeSource).toContain('response.status !== 403 || Date.now() >= deadline');
     expect(liveSmokeSource).toContain(
       'throw new Error(`R2 CORS preflight HTTP ${response.status}`)',
@@ -1110,12 +1117,10 @@ describe('remote-share Worker capability gate', () => {
       ['https://musixquare.com', 'https://musixquare.com'],
       ['https://www.musixquare.com', 'https://www.musixquare.com'],
       ['https://musixquare.apps.tossmini.com', 'https://musixquare.apps.tossmini.com'],
-      ['https://tossmini.com', 'https://tossmini.com'],
-      ['https://*.tossmini.com', 'https://music.tossmini.com'],
-      ['https://toss.im', 'https://toss.im'],
-      ['https://*.toss.im', 'https://music.toss.im'],
-      ['https://toss-internal.com', 'https://toss-internal.com'],
-      ['https://*.toss-internal.com', 'https://music.toss-internal.com'],
+      [
+        'https://musixquare.private-apps.tossmini.com',
+        'https://musixquare.private-apps.tossmini.com',
+      ],
       ['http://localhost:4173', 'http://localhost:4173'],
       ['http://127.0.0.1:4173', 'http://127.0.0.1:4173'],
     ] as const;
@@ -1136,6 +1141,33 @@ describe('remote-share Worker capability gate', () => {
         'x-mxqr-room-upload-assertion',
       );
     }
+
+    for (const origin of [
+      'https://unrelated.apps.tossmini.com',
+      'https://tossmini.com',
+      'https://music.toss.im',
+      'https://toss-internal.com',
+    ]) {
+      expect(corsRule!.allowed.origins).not.toContain(origin);
+      const response = await workerModule.default.fetch(
+        new Request('https://share.musixquare.com/session', {
+          method: 'OPTIONS',
+          headers: { origin },
+        }),
+        env(),
+      );
+      expect(response.status).toBe(403);
+      expect(response.headers.get('access-control-allow-origin')).not.toBe(origin);
+    }
+    expect(corsRule!.allowed.origins).not.toEqual(
+      expect.arrayContaining([
+        'https://*.tossmini.com',
+        'https://toss.im',
+        'https://*.toss.im',
+        'https://toss-internal.com',
+        'https://*.toss-internal.com',
+      ]),
+    );
   });
 
   it('reports the production capability and durable replay contract', async () => {
@@ -1183,6 +1215,14 @@ describe('remote-share Worker capability gate', () => {
     expect(remoteShareWranglerSource).toContain('binding = "CF_VERSION_METADATA"');
     expect(remoteShareWranglerSource).toContain('binding = "MUSIXQUARE_ADMIN_DB"');
     expect(remoteShareWranglerSource).toContain('name = "REMOTE_SHARE_QUOTA"');
+    for (const source of [remoteShareWranglerSource, remoteShareExampleWranglerSource]) {
+      expect(source).toContain('https://musixquare.apps.tossmini.com');
+      expect(source).toContain('https://musixquare.private-apps.tossmini.com');
+      expect(source).not.toContain('https://tossmini.com');
+      expect(source).not.toContain('https://*.tossmini.com');
+      expect(source).not.toContain('toss-internal.com');
+      expect(source).not.toContain('https://toss.im');
+    }
     expect(remoteShareWranglerSource).not.toContain('MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION');
     expect(productionSecurityGuardSource).toContain("'MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION'");
   });

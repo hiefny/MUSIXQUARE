@@ -7,6 +7,7 @@ import WebSocket from 'ws';
 
 const APP_ORIGIN = 'https://musixquare.com';
 const SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
+export const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
 const MESSAGE_TIMEOUT_MS = 10_000;
 export const STALE_VERSION_RETRY_DELAYS_MS = Object.freeze([1_000, 2_000, 4_000, 8_000, 8_000]);
 
@@ -24,7 +25,7 @@ interface SocketWaiter {
   timer: ReturnType<typeof setTimeout>;
 }
 
-interface SocketLifecyclePort {
+export interface SocketLifecyclePort {
   readyState: number;
   once(event: 'open', listener: () => void): this;
   once(event: 'error', listener: (error: Error) => void): this;
@@ -50,6 +51,14 @@ export interface SocketInbox<TSocket extends SocketLifecyclePort = WebSocket> {
 interface SocketInboxOptions<TSocket extends SocketLifecyclePort> {
   expectedInitialHostVersion?: string;
   createWebSocket: (target: string, options: WebSocket.ClientOptions) => TSocket;
+}
+
+export interface SignalingOriginBoundaryRead {
+  statusCode: number;
+}
+
+export interface SignalingOriginBoundaryResult {
+  unrelatedTossOriginRejected: true;
 }
 
 type ReadinessError =
@@ -179,6 +188,76 @@ function socketUrl(roomId: string, role: 'host' | 'guest', peerId: string): stri
   url.searchParams.set('role', role);
   url.searchParams.set('peerId', peerId);
   return url.toString();
+}
+
+export async function readSignalingOriginBoundary({
+  createWebSocket = (target: string, options: WebSocket.ClientOptions) =>
+    new WebSocket(target, options),
+  timeoutMs = MESSAGE_TIMEOUT_MS,
+}: {
+  createWebSocket?: (target: string, options: WebSocket.ClientOptions) => SocketLifecyclePort;
+  timeoutMs?: number;
+} = {}): Promise<SignalingOriginBoundaryRead> {
+  const roomId = String(randomInt(100_000, 1_000_000));
+  const peerId = `origin-boundary-${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  const socket = createWebSocket(socketUrl(roomId, 'host', peerId), {
+    origin: UNRELATED_TOSS_ORIGIN,
+  });
+
+  return new Promise<SignalingOriginBoundaryRead>((resolveRead, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.terminate();
+      reject(new Error('unrelated Toss origin WebSocket rejection timed out'));
+    }, timeoutMs);
+    const settle = (operation: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      operation();
+    };
+
+    socket.once('unexpected-response', (_request, response) => {
+      const statusCode = Number.isInteger(response.statusCode) ? response.statusCode || 0 : 0;
+      response.resume();
+      settle(() => {
+        socket.terminate();
+        resolveRead({ statusCode });
+      });
+    });
+    socket.once('open', () => {
+      settle(() => {
+        socket.close(1000, 'origin boundary unexpectedly accepted');
+        reject(new Error('Production signaling still trusts an unrelated Toss app origin'));
+      });
+    });
+    socket.once('error', (error) => {
+      settle(() => reject(error));
+    });
+    socket.once('close', (code, reason) => {
+      settle(() =>
+        reject(
+          new Error(
+            `unrelated Toss origin probe closed ${code}/${reason.toString() || 'without HTTP rejection'}`,
+          ),
+        ),
+      );
+    });
+  });
+}
+
+export async function verifySignalingOriginBoundary({
+  read = readSignalingOriginBoundary,
+}: {
+  read?: () => Promise<SignalingOriginBoundaryRead>;
+} = {}): Promise<SignalingOriginBoundaryResult> {
+  const result: unknown = await read();
+  if (!isJsonObject(result) || result.statusCode !== 403) {
+    throw new Error('Production signaling still trusts an unrelated Toss app origin');
+  }
+  return { unrelatedTossOriginRejected: true };
 }
 
 export function createSocketInbox(
@@ -820,12 +899,17 @@ export async function main(): Promise<void> {
   const expectedVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
   const rooms: RoomSmokeResult[] = [];
   rooms.push(await runRoom('', expectedVersion));
+  // The first room has already converged on MXQR_EXPECTED_SIGNALING_VERSION,
+  // so this negative request checks the newly deployed origin boundary rather
+  // than racing the prior traffic version during propagation.
+  const originBoundary = await verifySignalingOriginBoundary();
   rooms.push(await runRoom('24681357', expectedVersion));
   const legacyCompatibility = await runLegacyCompatibility(expectedVersion);
   console.log(
     JSON.stringify({
       ok: true,
       expectedVersion: expectedVersion || null,
+      originBoundary,
       rooms,
       legacyCompatibility,
     }),

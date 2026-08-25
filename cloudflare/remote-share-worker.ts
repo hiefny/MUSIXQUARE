@@ -284,6 +284,9 @@ const SESSION_RECEIPT_KEY_RE = /^rs_[A-Za-z0-9_-]{43}$/;
 const DEFAULT_ALLOWED_ORIGINS = new Set([
   'https://musixquare.com',
   'https://www.musixquare.com',
+  // Keep Toss access app-scoped; wildcard/root ranges include unrelated mini apps.
+  'https://musixquare.apps.tossmini.com',
+  'https://musixquare.private-apps.tossmini.com',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
   'http://localhost:5173',
@@ -292,12 +295,6 @@ const DEFAULT_ALLOWED_ORIGINS = new Set([
   'http://127.0.0.1:4173',
 ]);
 const inFlightUploadSessionRateLimits = new Map<string, Promise<Response | null>>();
-
-const DEFAULT_ALLOWED_ORIGIN_PATTERNS = [
-  /^https:\/\/(?:[^/]+\.)?tossmini\.com$/i,
-  /^https:\/\/(?:[^/]+\.)?toss\.im$/i,
-  /^https:\/\/(?:[^/]+\.)?toss-internal\.com$/i,
-];
 const SECURITY_HEADERS = {
   'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
   'x-content-type-options': 'nosniff',
@@ -316,8 +313,7 @@ function allowedRequestOrigin(request: Request, env: RemoteShareEnvPort): string
   const origin = request.headers.get('origin') || '';
   if (!origin) return null;
   const allowed = configuredAllowedOrigins(env);
-  if (allowed.has(origin)) return origin;
-  return DEFAULT_ALLOWED_ORIGIN_PATTERNS.some((pattern) => pattern.test(origin)) ? origin : null;
+  return allowed.has(origin) ? origin : null;
 }
 
 function corsHeaders(request: Request, env: RemoteShareEnvPort): HeaderRecord {

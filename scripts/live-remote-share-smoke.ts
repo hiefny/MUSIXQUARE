@@ -10,6 +10,7 @@ const WebSocket = createRequire(`${process.cwd()}/package.json`)('ws') as typeof
 const APP_ORIGIN = 'https://musixquare.com';
 const REMOTE_ORIGIN = 'https://share.musixquare.com';
 const SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
+const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
 const DEFAULT_BYTES = 32;
 const MAX_SMOKE_BYTES = 1024 * 1024;
 const FILE_NAME = 'live-remote-share-smoke.wav';
@@ -108,6 +109,11 @@ function assertAllowedOrigin(response: Response, label: string): void {
   }
 }
 
+function reflectsOrigin(response: Response, origin: string): boolean {
+  const allowedOrigin = response.headers.get('access-control-allow-origin');
+  return allowedOrigin === origin || allowedOrigin === '*';
+}
+
 function cancelResponseBody(response: Response, reason: string): void {
   if (!response.body) return;
   try {
@@ -198,6 +204,25 @@ async function waitForRemoteShareWorkerReady(): Promise<RemoteShareReadiness> {
     await new Promise((resolve) =>
       setTimeout(resolve, Math.min(WORKER_RETRY_INTERVAL_MS, Math.max(0, deadline - Date.now()))),
     );
+  }
+}
+
+async function assertRemoteShareRejectsUnrelatedTossOrigin(): Promise<void> {
+  const url = new URL('/security-config', REMOTE_ORIGIN);
+  url.searchParams.set('origin-boundary', `${Date.now()}-${randomUUID()}`);
+  const response = await fetchWithTimeout(url, {
+    headers: { Accept: 'application/json', Origin: UNRELATED_TOSS_ORIGIN },
+  });
+  try {
+    if (response.status !== 403 || reflectsOrigin(response, UNRELATED_TOSS_ORIGIN)) {
+      throw new Error(
+        `remote-share unrelated Toss origin boundary failed: HTTP ${response.status}, allow-origin ${String(
+          response.headers.get('access-control-allow-origin'),
+        )}`,
+      );
+    }
+  } finally {
+    cancelResponseBody(response, 'remote-share unrelated Toss origin probe complete');
   }
 }
 
@@ -722,6 +747,30 @@ function assertUploadMetadata(session: RemoteShareSession, sourceFile: File): vo
 
 async function assertUploadCors(target: UploadTarget): Promise<void> {
   const requestedHeaders = Object.keys(target.uploadHeaders).join(',');
+  const unrelatedDeadline = Date.now() + R2_CORS_PROPAGATION_TIMEOUT_MS;
+  for (;;) {
+    const unrelated = await fetchWithTimeout(target.uploadUrl, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: UNRELATED_TOSS_ORIGIN,
+        'Access-Control-Request-Method': 'PUT',
+        'Access-Control-Request-Headers': requestedHeaders,
+      },
+    });
+    const stillReflected = reflectsOrigin(unrelated, UNRELATED_TOSS_ORIGIN);
+    cancelResponseBody(unrelated, 'R2 unrelated Toss origin probe complete');
+    if (!stillReflected) break;
+    if (Date.now() >= unrelatedDeadline) {
+      throw new Error('R2 CORS still reflects an unrelated Toss app origin');
+    }
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        Math.min(R2_CORS_RETRY_INTERVAL_MS, Math.max(0, unrelatedDeadline - Date.now())),
+      ),
+    );
+  }
+
   const deadline = Date.now() + R2_CORS_PROPAGATION_TIMEOUT_MS;
   let response: Response;
   for (;;) {
@@ -950,6 +999,7 @@ async function runWholeObjectSmoke(
       bytes: sourceFile.size,
       directR2Put: true,
       corsPreflight: true,
+      corsUnrelatedTossOriginRejected: true,
       exactByteRoundTrip: true,
       bearerHeaderOnly: true,
       roomUploadAssertion: assertionProvider !== null,
@@ -975,6 +1025,7 @@ async function main(): Promise<void> {
   const sourceBytes = new Uint8Array(randomBytes(byteCount));
   const token = await requestCapabilityToken();
   const readiness = await waitForRemoteShareWorkerReady();
+  await assertRemoteShareRejectsUnrelatedTossOrigin();
   const authority = await openRoomUploadAssertionAuthority(roomId, readiness, requireAssertion);
   let wholeObject: Record<string, unknown>;
   try {
@@ -992,6 +1043,7 @@ async function main(): Promise<void> {
       assertionRequiredBySmoke: readiness.roomUploadAssertionRequired,
       assertionExplicitlyRequested: requireAssertion,
       roomUploadAssertionMode: readiness.roomUploadAssertionMode,
+      unrelatedTossOriginRejected: true,
       wholeObject,
     }),
   );

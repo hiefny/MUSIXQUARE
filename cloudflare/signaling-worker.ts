@@ -172,6 +172,7 @@ interface StandardHostOkAttachment extends JsonRecord, StandardIdentityFields {
   secret: string;
   auth: 'ok';
   pinConfigurationPending?: true;
+  pinConfigurationMutationId?: string;
   remoteShareUploadAssertionTokens?: number;
   remoteShareUploadAssertionUpdatedAt?: number;
 }
@@ -185,6 +186,11 @@ interface StandardHostPendingAttachment extends JsonRecord {
   auth: 'pending';
   authDeadline: number;
   authStarted?: boolean;
+}
+
+interface StandardOrderedIngress {
+  preclaimedAuth: boolean;
+  pinConfigurationMutationId?: string;
 }
 
 interface StandardGuestOkAttachment extends JsonRecord, StandardIdentityFields {
@@ -563,9 +569,8 @@ function isAllowedOrigin(origin: unknown, env: SignalingEnvPort = {}): boolean {
       /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(url.origin) ||
       /^https:\/\/musixquare\.com$/i.test(url.origin) ||
       /^https:\/\/www\.musixquare\.com$/i.test(url.origin) ||
-      /^https:\/\/(?:[^/]+\.)?toss\.im$/i.test(url.origin) ||
-      /^https:\/\/(?:[^/]+\.)?toss-internal\.com$/i.test(url.origin) ||
-      /^https:\/\/(?:[^/]+\.)?tossmini\.com$/i.test(url.origin)
+      /^https:\/\/musixquare\.apps\.tossmini\.com$/i.test(url.origin) ||
+      /^https:\/\/musixquare\.private-apps\.tossmini\.com$/i.test(url.origin)
     );
   } catch {
     return false;
@@ -932,21 +937,34 @@ function defaultGuestBindings(): GuestBindings {
   return { v: 1, entries: [] };
 }
 
-function normalizeGuestBindings(value: unknown): GuestBindings {
+function normalizeGuestBindings(value: unknown): GuestBindings | null {
+  if (
+    !hasExactKeys(value, ['v', 'entries']) ||
+    value.v !== 1 ||
+    !Array.isArray(value.entries) ||
+    value.entries.length > MAX_GUEST_BINDINGS
+  ) {
+    return null;
+  }
   const normalized = defaultGuestBindings();
-  if (!isRecord(value) || !Array.isArray(value.entries)) return normalized;
-  const seen = new Set();
+  const seen = new Set<string>();
   for (const entry of value.entries) {
-    if (normalized.entries.length >= MAX_GUEST_BINDINGS) break;
-    if (!isRecord(entry) || !isValidPeerId(entry.peerId) || seen.has(entry.peerId)) continue;
-    if (typeof entry.secretHash !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(entry.secretHash)) {
-      continue;
+    if (
+      !hasExactKeys(entry, ['peerId', 'secretHash', 'updatedAt']) ||
+      !isValidPeerId(entry.peerId) ||
+      seen.has(entry.peerId) ||
+      typeof entry.secretHash !== 'string' ||
+      !/^[A-Za-z0-9_-]{43}$/.test(entry.secretHash) ||
+      !isFiniteNumber(entry.updatedAt) ||
+      entry.updatedAt < 0
+    ) {
+      return null;
     }
     seen.add(entry.peerId);
     normalized.entries.push({
       peerId: entry.peerId,
       secretHash: entry.secretHash,
-      updatedAt: isFiniteNumber(entry.updatedAt) ? Math.max(0, entry.updatedAt) : 0,
+      updatedAt: entry.updatedAt,
     });
   }
   return normalized;
@@ -2139,7 +2157,15 @@ function normalizeAttachment(value: unknown): SocketAttachment | null {
         peerId: value.peerId,
         secret: value.secret,
         auth: 'ok',
-        ...(value.pinConfigurationPending === true ? { pinConfigurationPending: true } : {}),
+        ...(value.pinConfigurationPending === true
+          ? {
+              pinConfigurationPending: true as const,
+              ...(typeof value.pinConfigurationMutationId === 'string' &&
+              /^[A-Za-z0-9_-]{16,64}$/.test(value.pinConfigurationMutationId)
+                ? { pinConfigurationMutationId: value.pinConfigurationMutationId }
+                : {}),
+            }
+          : {}),
         ...normalizeStandardRoomIdentityAttachment(value),
         ...remoteShareUploadAssertionBucket,
       };
@@ -2233,8 +2259,11 @@ export class MusixquareRoom {
   private standardRateAlarmAt: number | null;
   private standardRateReady: Promise<unknown>;
   private standardRoomId: string | null;
+  private standardSocketsValidated: boolean;
+  private readonly standardPinRetrySockets: Set<SocketPort>;
   private futureRoomMetaVersion: boolean;
   private standardRoomPinMutationFence: string | null;
+  private standardRoomPinMutationFenceOwner: SocketPort | null;
   private roomMeta: RoomMeta | null;
   private roomMetaLoad: Promise<RoomMeta> | null;
   private proRoomMeta: ProRoomMeta | null;
@@ -2245,6 +2274,9 @@ export class MusixquareRoom {
   private readonly pendingGuests: Set<SocketPort>;
   private readonly proMembers: Map<string, SocketPort>;
   private guestBindings: GuestBindings | null;
+  private guestBindingsInvalid: boolean;
+  private guestBindingsFutureVersion: boolean;
+  private guestBindingsLoad: Promise<GuestBindings> | null;
   private standardRoomMembers: StandardRoomMembers | null;
   private proTicketUses: ProTicketUses | null;
   private proParticipantHighWater: ProParticipantHighWater | null;
@@ -2253,7 +2285,7 @@ export class MusixquareRoom {
   private proBotRequestProofs: ProBotRequestProofs | null | undefined;
   private proOwnerAccountDeletionFence: ProOwnerAccountDeletionFence | null | undefined;
   private standardAdmissionSync: Promise<unknown>;
-  private standardIdentityIngressSync: Promise<unknown>;
+  private standardOrderedIngressSync: Promise<unknown>;
   private proAdmissionSync: Promise<unknown>;
   private proChatMutationSync: Promise<unknown>;
   private readonly proRealtimeIngressDepth: WeakMap<SocketPort, number>;
@@ -2285,8 +2317,11 @@ export class MusixquareRoom {
     this.standardRateStateInvalid = false;
     this.standardRateAlarmAt = null;
     this.standardRoomId = null;
+    this.standardSocketsValidated = false;
+    this.standardPinRetrySockets = new Set();
     this.futureRoomMetaVersion = false;
     this.standardRoomPinMutationFence = null;
+    this.standardRoomPinMutationFenceOwner = null;
     this.roomMeta = null;
     this.roomMetaLoad = null;
     this.proRoomMeta = null;
@@ -2297,6 +2332,9 @@ export class MusixquareRoom {
     this.pendingGuests = new Set();
     this.proMembers = new Map();
     this.guestBindings = null;
+    this.guestBindingsInvalid = false;
+    this.guestBindingsFutureVersion = false;
+    this.guestBindingsLoad = null;
     this.standardRoomMembers = null;
     this.proTicketUses = null;
     this.proParticipantHighWater = null;
@@ -2309,11 +2347,11 @@ export class MusixquareRoom {
     // awaited host reconnect write cannot be overwritten by a stale host close
     // or an overlapping empty-room cleanup.
     this.standardAdmissionSync = Promise.resolve();
-    // Capture identity-bearing Standard-room admissions and authenticated
-    // identity mutations in receive order before the asynchronous maintenance
+    // Capture authority-bearing Standard-room admissions, identity changes,
+    // and PIN mutations in receive order before the asynchronous maintenance
     // gate. They later join the admission queue only for their authoritative
     // read/verify/write section, so ordinary signaling remains independent.
-    this.standardIdentityIngressSync = Promise.resolve();
+    this.standardOrderedIngressSync = Promise.resolve();
     this.proAdmissionSync = Promise.resolve();
     this.proChatMutationSync = Promise.resolve();
     this.proRealtimeIngressDepth = new WeakMap();
@@ -2621,6 +2659,14 @@ export class MusixquareRoom {
     }
     if (attachment.role === 'host') {
       if (attachment.auth === 'pending') {
+        if (attachment.authStarted) {
+          // No authentication task survives an isolate restart. A persisted
+          // in-flight marker would otherwise make every replay a no-op until
+          // the timeout alarm fires, and a host claim that already committed
+          // metadata could leave the prior host indexed in the meantime.
+          closeSocket(ws, 1012, 'HOST_AUTH_RETRY_REQUIRED');
+          return false;
+        }
         if (this.pendingHosts.size >= MAX_PENDING_HOST_SOCKETS) {
           closeWithError(ws, 'room-full', 'HOST_PENDING_LIMIT_REACHED', 1008);
           return false;
@@ -2639,6 +2685,7 @@ export class MusixquareRoom {
         // the only safe convergence is to reconnect and replay the handshake.
         // Never infer success from the room metadata: a blank desired PIN and
         // a pre-existing blank room are intentionally indistinguishable.
+        this.standardPinRetrySockets.add(ws);
         closeSocket(ws, 1012, 'ROOM_PASSWORD_CONFIGURATION_RETRY_REQUIRED');
         return false;
       }
@@ -2656,6 +2703,13 @@ export class MusixquareRoom {
       return identityExpired;
     }
     if (attachment.auth === 'pending') {
+      if (attachment.authStarted) {
+        // As with host authentication, the receive-order claim belongs to the
+        // previous isolate. Reconnect immediately instead of retaining an
+        // orphaned pending socket that can no longer complete its first frame.
+        closeSocket(ws, 1012, 'GUEST_AUTH_RETRY_REQUIRED');
+        return false;
+      }
       if (this.pendingGuests.size >= MAX_PENDING_GUEST_SOCKETS) {
         closeWithError(ws, 'room-full', 'ROOM_PENDING_LIMIT_REACHED', 1008);
         this.recordMetric('guest_pending_capacity');
@@ -3411,7 +3465,11 @@ export class MusixquareRoom {
 
   private loadRoomMeta(): Promise<RoomMeta> {
     if (this.roomMetaLoad) return this.roomMetaLoad;
-    if (this.roomMeta && (this.futureRoomMetaVersion || this.roomMeta.v !== 1)) {
+    if (
+      this.roomMeta &&
+      this.standardSocketsValidated &&
+      (this.futureRoomMetaVersion || this.roomMeta.v !== 1)
+    ) {
       return Promise.resolve(this.roomMeta);
     }
     const shared = this.loadAndMigrateRoomMeta().finally(() => {
@@ -3490,7 +3548,74 @@ export class MusixquareRoom {
         this.roomMeta = migrated;
       }
     }
+    this.roomMeta = await this.validateRehydratedStandardSockets(this.roomMeta);
     return this.roomMeta;
+  }
+
+  private async validateRehydratedStandardSockets(meta: RoomMeta): Promise<RoomMeta> {
+    if (this.standardSocketsValidated) return meta;
+    if (this.futureRoomMetaVersion || isQuarantinedRoomMeta(meta)) {
+      this.standardSocketsValidated = true;
+      return meta;
+    }
+    if (typeof this.state.getWebSockets !== 'function') {
+      this.standardSocketsValidated = true;
+      return meta;
+    }
+
+    // WebSocket attachments are hibernation indexes, not durable host
+    // authority. A replacement can commit roomMeta and then lose its isolate
+    // before promoting its attachment or closing the predecessor. Select the
+    // socket named by the durable record regardless of enumeration order and
+    // revoke every other auth-ok host before any Standard frame can relay.
+    const indexedHost = this.host;
+    const sockets = this.state.getWebSockets();
+    const orderedSockets = indexedHost
+      ? [indexedHost, ...sockets.filter((socket) => socket !== indexedHost)]
+      : sockets;
+    let authoritativeHost: SocketPort | null = null;
+    let authoritativeAttachment: StandardHostOkAttachment | null = null;
+    for (const socket of orderedSockets) {
+      const attachment = readAttachment(socket);
+      if (
+        !attachment ||
+        attachment.roomKind === 'pro' ||
+        attachment.role !== 'host' ||
+        attachment.auth !== 'ok' ||
+        this.standardPinRetrySockets.has(socket)
+      ) {
+        continue;
+      }
+      const authoritative =
+        authoritativeHost === null &&
+        meta.roomSecret !== null &&
+        meta.hostReleaseAt === 0 &&
+        attachment.roomId === this.standardRoomId &&
+        attachment.secret === meta.roomSecret &&
+        attachment.peerId === meta.hostPeerId;
+      if (authoritative) {
+        authoritativeHost = socket;
+        authoritativeAttachment = attachment;
+      } else {
+        closeSocket(socket, 1012, 'STANDARD_ROOM_AUTHORITY_STALE');
+      }
+    }
+    this.host = authoritativeHost;
+    this.hostPeerId = authoritativeAttachment?.peerId ?? null;
+
+    let reconciled = meta;
+    if (!authoritativeHost && meta.hostPeerId !== null && meta.hostReleaseAt === 0) {
+      // A durable host selection without its matching accepted attachment is a
+      // crash residue. Start the ordinary reclaim window so the same secret
+      // can reconnect immediately and the room cannot remain orphaned forever.
+      reconciled = await this.saveRoomMeta({
+        ...meta,
+        hostPeerId: null,
+        hostReleaseAt: Date.now() + HOST_RECLAIM_GRACE_MS,
+      });
+    }
+    this.standardSocketsValidated = true;
+    return reconciled;
   }
 
   private revokeStandardSocketsForFutureRoomMeta(): void {
@@ -3510,6 +3635,7 @@ export class MusixquareRoom {
     this.pendingHosts.clear();
     this.guests.clear();
     this.pendingGuests.clear();
+    this.standardSocketsValidated = true;
     for (const socket of sockets) {
       closeSocket(socket, 1012, 'STANDARD_ROOM_PROTOCOL_UPGRADED');
     }
@@ -3622,6 +3748,14 @@ export class MusixquareRoom {
     const roomMeta = defaultRoomMeta();
     const members = defaultStandardRoomMembers();
     const bindings = defaultGuestBindings();
+    // Do not let an older hibernation-time read publish a stale reconnect
+    // directory into memory after this atomic epoch reset commits. A future
+    // reconnect schema may carry authority this Worker cannot discard, so it
+    // remains byte-for-byte owned by the forward-capable release.
+    await this.loadGuestBindings();
+    if (this.guestBindingsFutureVersion) {
+      throw new Error('STANDARD_ROOM_GUEST_BINDINGS_FUTURE_VERSION');
+    }
     if (typeof this.state.storage.transaction === 'function') {
       await this.state.storage.transaction(async (transaction) => {
         await transaction.put(ROOM_META_KEY, roomMeta);
@@ -3639,6 +3773,8 @@ export class MusixquareRoom {
     this.futureRoomMetaVersion = false;
     this.standardRoomMembers = members;
     this.guestBindings = bindings;
+    this.guestBindingsInvalid = false;
+    this.guestBindingsFutureVersion = false;
     return roomMeta;
   }
 
@@ -3651,6 +3787,7 @@ export class MusixquareRoom {
     // reconnect. Until that exact mutation commits, block guest admission and
     // revoke every in-memory authority derived from the older durable record.
     this.standardRoomPinMutationFence = mutationId || `legacy-${crypto.randomUUID()}`;
+    this.standardRoomPinMutationFenceOwner = ws;
     if (mutationId) {
       sendChecked(ws, {
         type: 'room-password-result',
@@ -3681,6 +3818,7 @@ export class MusixquareRoom {
     ws: SocketPort,
     mutationId: string | null,
     previousFence: string | null,
+    previousFenceOwner: SocketPort | null,
     errorType: string,
     closeReason = 'ROOM_SECURITY_CONFIG_UNAVAILABLE',
   ): void {
@@ -3689,6 +3827,7 @@ export class MusixquareRoom {
     // guests; restore the fence that existed before this admission attempt and
     // reject only the candidate. The client retains the mutation for retry.
     this.standardRoomPinMutationFence = previousFence;
+    this.standardRoomPinMutationFenceOwner = previousFenceOwner;
     this.pendingHosts.delete(ws);
     if (mutationId) {
       sendChecked(ws, {
@@ -3797,23 +3936,56 @@ export class MusixquareRoom {
     return { accountSubject: verified.accountSubject, memberId };
   }
 
-  private async loadGuestBindings(): Promise<GuestBindings> {
-    if (!this.guestBindings) {
-      const stored = await this.state.storage.get(GUEST_BINDINGS_KEY);
-      this.guestBindings = normalizeGuestBindings(stored);
+  private loadGuestBindings(): Promise<GuestBindings> {
+    if (this.guestBindings) return Promise.resolve(this.guestBindings);
+    if (this.guestBindingsLoad) return this.guestBindingsLoad;
+    const shared = this.loadGuestBindingsFromStorage().finally(() => {
+      if (this.guestBindingsLoad === shared) this.guestBindingsLoad = null;
+    });
+    this.guestBindingsLoad = shared;
+    return shared;
+  }
+
+  private async loadGuestBindingsFromStorage(): Promise<GuestBindings> {
+    const stored = await this.state.storage.get(GUEST_BINDINGS_KEY);
+    if (stored === undefined) {
+      // New and pre-binding rooms legitimately have no directory. Live
+      // hibernated guests prove that reconnect ownership did exist, however;
+      // treating that loss as an empty map would let any secret take over an
+      // already admitted peerId.
+      this.guestBindingsInvalid = this.guests.size > 0;
+      this.guestBindingsFutureVersion = false;
+      this.guestBindings = defaultGuestBindings();
+      return this.guestBindings;
     }
+    const normalized = normalizeGuestBindings(stored);
+    this.guestBindingsFutureVersion = isRecord(stored) && isSafeInteger(stored.v) && stored.v > 1;
+    this.guestBindingsInvalid = normalized === null;
+    this.guestBindings = normalized ?? defaultGuestBindings();
     return this.guestBindings;
   }
 
   private async saveGuestBindings(bindings: unknown): Promise<GuestBindings> {
     const normalized = normalizeGuestBindings(bindings);
+    if (!normalized || this.guestBindingsInvalid) {
+      throw new Error('STANDARD_ROOM_GUEST_BINDINGS_INVALID');
+    }
     await this.state.storage.put(GUEST_BINDINGS_KEY, normalized);
     this.guestBindings = normalized;
     return normalized;
   }
 
   private async clearGuestBindings(): Promise<GuestBindings> {
-    return this.saveGuestBindings(defaultGuestBindings());
+    await this.loadGuestBindings();
+    if (this.guestBindingsFutureVersion) {
+      throw new Error('STANDARD_ROOM_GUEST_BINDINGS_FUTURE_VERSION');
+    }
+    const bindings = defaultGuestBindings();
+    await this.state.storage.put(GUEST_BINDINGS_KEY, bindings);
+    this.guestBindings = bindings;
+    this.guestBindingsInvalid = false;
+    this.guestBindingsFutureVersion = false;
+    return bindings;
   }
 
   private pruneGuestBindings(bindings: GuestBindings, now = Date.now()): GuestBindings {
@@ -3839,9 +4011,9 @@ export class MusixquareRoom {
     return this.enqueueStandardAdmission(task);
   }
 
-  private enqueueStandardIdentityIngress<T>(task: (value?: unknown) => Promise<T>): Promise<T> {
-    const run = this.standardIdentityIngressSync.then(task, task);
-    this.standardIdentityIngressSync = run.catch(() => {});
+  private enqueueStandardOrderedIngress<T>(task: (value?: unknown) => Promise<T>): Promise<T> {
+    const run = this.standardOrderedIngressSync.then(task, task);
+    this.standardOrderedIngressSync = run.catch(() => {});
     return run;
   }
 
@@ -3854,19 +4026,53 @@ export class MusixquareRoom {
     return this.guests.get(attachment.peerId) === ws ? attachment : null;
   }
 
-  private classifyStandardIdentityIngress(
+  private releaseStandardRoomPinMutationClaim(ws: SocketPort, mutationClaim?: string): void {
+    if (!mutationClaim) return;
+    const current = this.currentStandardRoomAttachment(ws);
+    if (
+      current?.role === 'host' &&
+      current.pinConfigurationPending &&
+      current.pinConfigurationMutationId === mutationClaim
+    ) {
+      const released = { ...current };
+      delete released.pinConfigurationPending;
+      delete released.pinConfigurationMutationId;
+      serializeSocketAttachment(ws, released);
+    }
+    if (
+      this.standardRoomPinMutationFence === mutationClaim &&
+      this.standardRoomPinMutationFenceOwner === ws
+    ) {
+      this.standardRoomPinMutationFence = null;
+      this.standardRoomPinMutationFenceOwner = null;
+    }
+  }
+
+  private classifyStandardOrderedIngress(
     ws: SocketPort,
     raw: unknown,
-  ): { preclaimedAuth: boolean } | null {
+  ): StandardOrderedIngress | null {
     const attachment = readAttachment(ws);
     if (!attachment || attachment.roomKind === 'pro') return null;
     if (attachment.auth === 'ok') {
       const rawBytes = rawMessageByteLength(raw);
       if (rawBytes === null || rawBytes > WS_MESSAGE_MAX_BYTES) return null;
-      return this.currentStandardRoomAttachment(ws) !== null &&
-        isStandardRoomIdentityMutation(this.parse(raw))
-        ? { preclaimedAuth: false }
-        : null;
+      const message = this.parse(raw);
+      if (this.currentStandardRoomAttachment(ws) === null) return null;
+      if (
+        attachment.role === 'host' &&
+        message?.type === 'room-password-set' &&
+        validateIncomingMessage(message, 'host') === 'valid'
+      ) {
+        return {
+          preclaimedAuth: false,
+          pinConfigurationMutationId:
+            typeof message.pinMutationId === 'string'
+              ? message.pinMutationId
+              : `legacy-${crypto.randomUUID()}`,
+        };
+      }
+      return isStandardRoomIdentityMutation(message) ? { preclaimedAuth: false } : null;
     }
     if (attachment.authStarted) return null;
     if (attachment.role === 'host') {
@@ -4846,6 +5052,7 @@ export class MusixquareRoom {
       typeof pinMutationId === 'string' &&
       /^[A-Za-z0-9_-]{16,64}$/.test(pinMutationId);
     const previousPinMutationFence = this.standardRoomPinMutationFence;
+    const previousPinMutationFenceOwner = this.standardRoomPinMutationFenceOwner;
 
     let desiredVerifier: StandardRoomPinVerifier | null = null;
     if (ownsPinMutation && desiredRoomPassword !== '') {
@@ -4860,6 +5067,7 @@ export class MusixquareRoom {
           ws,
           pinMutationId,
           previousPinMutationFence,
+          previousPinMutationFenceOwner,
           'STANDARD_ROOM_PIN_PEPPER_UNAVAILABLE',
         );
         return false;
@@ -4872,6 +5080,7 @@ export class MusixquareRoom {
     this.standardRoomPinMutationFence = ownsPinMutation
       ? pinMutationId
       : `legacy-${crypto.randomUUID()}`;
+    this.standardRoomPinMutationFenceOwner = ws;
     try {
       if (isNewRoom) {
         await this.clearGuestBindings();
@@ -4916,6 +5125,7 @@ export class MusixquareRoom {
         ws,
         ownsPinMutation ? pinMutationId : null,
         previousPinMutationFence,
+        previousPinMutationFenceOwner,
         'ROOM_PASSWORD_STORAGE_UNAVAILABLE',
       );
       throw error;
@@ -4956,6 +5166,7 @@ export class MusixquareRoom {
         ws,
         ownsPinMutation ? pinMutationId : null,
         previousPinMutationFence,
+        previousPinMutationFenceOwner,
         'HOST_AUTH_SOCKET_CLOSED',
         'HOST_AUTH_SOCKET_CLOSED',
       );
@@ -5142,9 +5353,11 @@ export class MusixquareRoom {
       // The same alarm also expires host metadata after reconnect grace.
       await this.clearExpiredHostRelease();
       const bindings = await this.loadGuestBindings();
-      const prunedBindings = this.pruneGuestBindings(bindings, now);
-      if (prunedBindings.entries.length !== bindings.entries.length) {
-        await this.saveGuestBindings(prunedBindings);
+      if (!this.guestBindingsInvalid) {
+        const prunedBindings = this.pruneGuestBindings(bindings, now);
+        if (prunedBindings.entries.length !== bindings.entries.length) {
+          await this.saveGuestBindings(prunedBindings);
+        }
       }
     });
     if (futureRoomMetaVersion) return;
@@ -5402,8 +5615,30 @@ export class MusixquareRoom {
         else this.proRealtimeIngressDepth.set(ws, remaining);
       });
     }
-    const ingress = this.classifyStandardIdentityIngress(ws, raw);
+    const ingress = this.classifyStandardOrderedIngress(ws, raw);
     if (ingress) {
+      if (ingress.pinConfigurationMutationId) {
+        const attachment = this.currentStandardRoomAttachment(ws);
+        if (!attachment || attachment.role !== 'host') {
+          return this.processWebSocketMessage(ws, raw);
+        }
+        // Persist the receive-order claim before maintenance, HMAC, or
+        // storage can yield. If the isolate restarts anywhere in that span,
+        // rehydration closes this host and requires the client to replay its
+        // latest desired PIN instead of serving the older durable setting.
+        serializeSocketAttachment(ws, {
+          ...attachment,
+          pinConfigurationPending: true,
+          pinConfigurationMutationId: ingress.pinConfigurationMutationId,
+        });
+        if (
+          this.standardRoomPinMutationFence === null ||
+          this.standardRoomPinMutationFenceOwner === ws
+        ) {
+          this.standardRoomPinMutationFence = ingress.pinConfigurationMutationId;
+          this.standardRoomPinMutationFenceOwner = ws;
+        }
+      }
       if (ingress.preclaimedAuth) {
         const attachment = readAttachment(ws);
         if (!attachment || attachment.auth !== 'pending' || attachment.authStarted) {
@@ -5414,7 +5649,7 @@ export class MusixquareRoom {
         // but cannot overtake this frame and become the authentication attempt.
         serializeSocketAttachment(ws, { ...attachment, authStarted: true });
       }
-      return this.enqueueStandardIdentityIngress(() =>
+      return this.enqueueStandardOrderedIngress(() =>
         this.processWebSocketMessage(ws, raw, ingress),
       );
     }
@@ -5424,7 +5659,7 @@ export class MusixquareRoom {
   private async processWebSocketMessage(
     ws: SocketPort,
     raw: unknown,
-    ingress: { preclaimedAuth: boolean } = { preclaimedAuth: false },
+    ingress: StandardOrderedIngress = { preclaimedAuth: false },
   ): Promise<void> {
     let attachment = readAttachment(ws);
     if (!attachment) return;
@@ -5537,14 +5772,17 @@ export class MusixquareRoom {
         return;
       }
       if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
-      if (this.host !== ws) return;
+      if (this.host !== ws) {
+        this.releaseStandardRoomPinMutationClaim(ws, ingress.pinConfigurationMutationId);
+        return;
+      }
       if (isStandardRoomIdentityMutation(message)) {
         await this.enqueueStandardAdmission(() =>
           this.handleStandardRoomIdentityMutation(ws, message),
         );
         return;
       }
-      await this.handleHostMessage(ws, message, attachment);
+      await this.handleHostMessage(ws, message, attachment, ingress.pinConfigurationMutationId);
       return;
     }
 
@@ -6091,6 +6329,13 @@ export class MusixquareRoom {
     }
 
     const storedBindings = await this.loadGuestBindings();
+    if (this.guestBindingsInvalid) {
+      this.pendingGuests.delete(ws);
+      this.requestMaintenanceAlarm();
+      this.recordMetric('guest_reconnect_state_invalid');
+      closeWithError(ws, 'room-state-invalid', 'ROOM_STATE_INVALID', 1011);
+      return;
+    }
     const bindings = this.pruneGuestBindings(storedBindings);
     const existingBinding = bindings.entries.find((entry) => entry.peerId === attachment.peerId);
     const reconnectSecret =
@@ -6164,6 +6409,7 @@ export class MusixquareRoom {
     ws: SocketPort,
     message: JsonRecord,
     attachment: StandardHostOkAttachment,
+    pinConfigurationMutationId?: string,
   ): Promise<void> {
     if (message.type === 'remote-share-upload-assertion-request') {
       if (
@@ -6240,14 +6486,20 @@ export class MusixquareRoom {
       const password = typeof message.password === 'string' ? message.password : '';
       const pinMutationId =
         typeof message.pinMutationId === 'string' ? message.pinMutationId : null;
+      const mutationClaim =
+        pinConfigurationMutationId || pinMutationId || `legacy-${crypto.randomUUID()}`;
       return this.enqueueHostAdmission(async () => {
-        if (this.host !== ws) return;
+        if (this.host !== ws) {
+          this.releaseStandardRoomPinMutationClaim(ws, mutationClaim);
+          return;
+        }
         const meta = await this.loadRoomMeta();
         if (
           this.host !== ws ||
           meta.roomSecret !== attachment.secret ||
           meta.hostPeerId !== attachment.peerId
         ) {
+          this.releaseStandardRoomPinMutationClaim(ws, mutationClaim);
           return;
         }
         // An invalid verifier represents corrupt/ambiguous durable state, not
@@ -6257,7 +6509,22 @@ export class MusixquareRoom {
           this.failStandardRoomPinMutation(ws, pinMutationId, 'ROOM_STATE_INVALID');
           return;
         }
-        this.standardRoomPinMutationFence = pinMutationId || `legacy-${crypto.randomUUID()}`;
+        const currentBeforeCommit = this.currentStandardRoomAttachment(ws);
+        if (!currentBeforeCommit || currentBeforeCommit.role !== 'host') return;
+        let activeMutationClaim = currentBeforeCommit.pinConfigurationMutationId;
+        if (!currentBeforeCommit.pinConfigurationPending || !activeMutationClaim) {
+          activeMutationClaim = mutationClaim;
+          serializeSocketAttachment(ws, {
+            ...currentBeforeCommit,
+            pinConfigurationPending: true,
+            pinConfigurationMutationId: mutationClaim,
+          });
+        }
+        // A newer frame can synchronously preclaim this attachment while an
+        // older frame is awaiting maintenance. Preserve that newer claim;
+        // the older durable commit must not reopen guest admission.
+        this.standardRoomPinMutationFence = activeMutationClaim;
+        this.standardRoomPinMutationFenceOwner = ws;
         let verifier: StandardRoomPinVerifier | null = null;
         if (/^\d{8}$/.test(password)) {
           verifier = await createStandardRoomPinVerifier(
@@ -6294,14 +6561,25 @@ export class MusixquareRoom {
           currentAttachment.peerId !== attachment.peerId ||
           currentAttachment.secret !== attachment.secret
         ) {
+          this.releaseStandardRoomPinMutationClaim(ws, mutationClaim);
           return;
         }
-        if (currentAttachment.pinConfigurationPending) {
+        if (
+          currentAttachment.pinConfigurationPending &&
+          currentAttachment.pinConfigurationMutationId === mutationClaim
+        ) {
           const configuredAttachment = { ...currentAttachment };
           delete configuredAttachment.pinConfigurationPending;
+          delete configuredAttachment.pinConfigurationMutationId;
           serializeSocketAttachment(ws, configuredAttachment);
         }
-        this.standardRoomPinMutationFence = null;
+        if (
+          this.standardRoomPinMutationFence === mutationClaim &&
+          this.standardRoomPinMutationFenceOwner === ws
+        ) {
+          this.standardRoomPinMutationFence = null;
+          this.standardRoomPinMutationFenceOwner = null;
+        }
         if (pinMutationId) {
           sendChecked(ws, {
             type: 'room-password-result',
@@ -6423,7 +6701,7 @@ export class MusixquareRoom {
 
     if (current === ws) {
       const bindings = await this.loadGuestBindings();
-      if (bindings.entries.some((entry) => entry.peerId === peerId)) {
+      if (!this.guestBindingsInvalid && bindings.entries.some((entry) => entry.peerId === peerId)) {
         await this.saveGuestBindings({
           ...bindings,
           entries: bindings.entries.map((entry) =>

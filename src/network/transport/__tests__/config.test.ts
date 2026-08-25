@@ -16,6 +16,9 @@ describe('transport config', () => {
     expect(getPublicSignalingUrlForHost('musixquare.apps.tossmini.com')).toBe(
       'wss://signal.musixquare.com/api/rooms',
     );
+    expect(getPublicSignalingUrlForHost('musixquare.private-apps.tossmini.com')).toBe(
+      'wss://signal.musixquare.com/api/rooms',
+    );
   });
 
   it('keeps localhost available for PeerJS development', () => {
@@ -31,6 +34,9 @@ describe('transport config', () => {
     );
     expect(
       resolveTransportProviderForHost('peerjs', undefined, 'musixquare.apps.tossmini.com'),
+    ).toBe('cloudflare');
+    expect(
+      resolveTransportProviderForHost('peerjs', undefined, 'musixquare.private-apps.tossmini.com'),
     ).toBe('cloudflare');
   });
 

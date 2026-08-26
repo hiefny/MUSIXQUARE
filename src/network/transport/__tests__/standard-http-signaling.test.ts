@@ -254,7 +254,6 @@ describe('StandardHttpSignalingSocket', () => {
     });
     socket.send(sensitiveFrame);
     for (let index = 1; index < 64; index += 1) socket.send(`frame-${index}`);
-    expect(socket.bufferedAmount).toBeGreaterThan(0);
     expect(() => socket.send('overflow')).toThrowError(DOMException);
     const serializedSocket = JSON.stringify(socket);
     expect(serializedSocket).not.toContain(SESSION_TOKEN);

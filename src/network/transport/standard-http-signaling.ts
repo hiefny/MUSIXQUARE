@@ -225,10 +225,6 @@ export class StandardHttpSignalingSocket extends EventTarget {
     queueMicrotask(() => void this.openBridge());
   }
 
-  get bufferedAmount(): number {
-    return this.#pendingFrameBytes;
-  }
-
   send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
     if (this.readyState !== HTTP_OPEN || !this.#sessionToken) {
       throw new DOMException('HTTP signaling channel is not open', 'InvalidStateError');

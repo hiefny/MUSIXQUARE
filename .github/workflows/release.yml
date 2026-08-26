@@ -1174,7 +1174,7 @@ jobs:
 
       - name: Smoke Standard HTTPS signaling fallback
         id: standard_http_signaling_smoke
-        if: inputs.target == 'all'
+        if: inputs.target == 'all' || inputs.target == 'app'
         timeout-minutes: 5
         env:
           MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}

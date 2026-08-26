@@ -426,6 +426,123 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   return { promise, resolve };
 }
 
+interface HttpBridgeHarness {
+  readonly requests: Array<{ url: string; body: Record<string, unknown> | null }>;
+  failNextOpen: boolean;
+  readonly sendStatuses: number[];
+  nextAuthorityFrame: Record<string, unknown> | null;
+  nextTerminal: { code: number; reason: string } | null;
+  requestCount(suffix: string): number;
+}
+
+function installHttpBridgeHarness(options: { admit?: boolean } = {}): HttpBridgeHarness {
+  interface Session {
+    readonly roomId: string;
+    readonly peerId: string;
+    authSent: boolean;
+    authorityDelivered: boolean;
+    pendingPoll: ((response: Response) => void) | null;
+  }
+
+  const admit = options.admit !== false;
+  const sessions = new Map<string, Session>();
+  const requests: HttpBridgeHarness['requests'] = [];
+  let sessionSequence = 0;
+  const harness: HttpBridgeHarness = {
+    requests,
+    failNextOpen: false,
+    sendStatuses: [],
+    nextAuthorityFrame: null,
+    nextTerminal: null,
+    requestCount(suffix: string): number {
+      return requests.filter(({ url }) => url.endsWith(suffix)).length;
+    },
+  };
+
+  const authorityResponse = (session: Session): Response => {
+    session.authorityDelivered = true;
+    const frame = harness.nextAuthorityFrame ?? {
+      type: 'peer-open',
+      peerId: session.peerId,
+      roomId: session.roomId,
+    };
+    const terminal = harness.nextTerminal;
+    harness.nextAuthorityFrame = null;
+    harness.nextTerminal = null;
+    return Response.json({
+      v: 1,
+      events: [{ sseq: 1, data: JSON.stringify(frame) }],
+      ...(terminal ? { terminal } : {}),
+    });
+  };
+
+  const pendingPoll = (session: Session, signal?: AbortSignal | null): Promise<Response> =>
+    new Promise<Response>((resolve, reject) => {
+      session.pendingPoll = resolve;
+      const abort = () => {
+        if (session.pendingPoll === resolve) session.pendingPoll = null;
+        reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
+    });
+
+  const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+    const url = String(input);
+    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
+    requests.push({ url, body });
+    if (url.endsWith('/api/security-config')) {
+      return Promise.resolve(Response.json({ capabilityRequired: false }));
+    }
+    if (url.endsWith('/bridge/open')) {
+      if (harness.failNextOpen) {
+        harness.failNextOpen = false;
+        return Promise.reject(new TypeError('HTTP bridge route unavailable'));
+      }
+      const token = `session.${String(++sessionSequence).padStart(48, 'a')}`;
+      sessions.set(token, {
+        roomId: String(body?.roomId),
+        peerId: String(body?.peerId),
+        authSent: false,
+        authorityDelivered: false,
+        pendingPoll: null,
+      });
+      return Promise.resolve(Response.json({ sessionToken: token }));
+    }
+
+    const authorization = new Headers(init?.headers).get('Authorization') ?? '';
+    const token = authorization.replace(/^Bearer\s+/u, '');
+    const session = sessions.get(token);
+    if (!session) return Promise.resolve(Response.json({}, { status: 401 }));
+    if (url.endsWith('/bridge/send')) {
+      const status = harness.sendStatuses.shift();
+      if (status !== undefined) return Promise.resolve(Response.json({}, { status }));
+      const frame = typeof body?.frame === 'string' ? JSON.parse(body.frame) : null;
+      if (frame?.type === 'host-auth' || frame?.type === 'guest-auth') {
+        session.authSent = true;
+        if (admit && session.pendingPoll && !session.authorityDelivered) {
+          const resolve = session.pendingPoll;
+          session.pendingPoll = null;
+          resolve(authorityResponse(session));
+        }
+      }
+      return Promise.resolve(Response.json({ v: 1, ack: body?.cseq }));
+    }
+    if (url.endsWith('/bridge/poll')) {
+      if (admit && session.authSent && !session.authorityDelivered) {
+        return Promise.resolve(authorityResponse(session));
+      }
+      return pendingPoll(session, init?.signal);
+    }
+    if (url.endsWith('/bridge/close')) {
+      return Promise.resolve(Response.json({ ok: true }));
+    }
+    throw new Error(`Unexpected HTTP bridge URL: ${url}`);
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  return harness;
+}
+
 function sentOfType(socket: FakeWebSocket, type: string): Array<Record<string, unknown>> {
   return socket.sent
     .map((raw) => JSON.parse(raw) as Record<string, unknown>)
@@ -461,6 +578,7 @@ async function establishGuest(roomPassword = ''): Promise<{
 afterEach(() => {
   clearAllManagedTimers();
   __cloudflareSignalingForTests.resetPageSignalingSocketHandles();
+  __cloudflareSignalingForTests.resetStandardHttpPreference();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -3234,6 +3352,333 @@ describe('Cloudflare client/Worker signaling contract', () => {
     expect(currentAuth).toMatchObject({ desiredRoomPassword: '12345678' });
     expect(currentAuth?.pinMutationId).not.toBe(staleAuth?.pinMutationId);
     expect(sentOfType(staleSocket, 'room-password-set')).toEqual([]);
+    peer.destroy();
+  });
+});
+
+describe('Standard HTTPS route preference circuit breaker', () => {
+  function fallbackOptions(prepareNetworkRouteRetry = vi.fn(async () => null)) {
+    return {
+      provider: 'cloudflare' as const,
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry,
+    };
+  }
+
+  async function moveHostToHttp(peer: CloudflareSignalingPeer): Promise<void> {
+    await Promise.resolve();
+    const primary = FakeWebSocket.instances.at(-1)!;
+    primary.dispatch('open');
+    primary.dispatch('error');
+    await flushAsync();
+    const alternate = FakeWebSocket.instances.at(-1)!;
+    expect(alternate).not.toBe(primary);
+    alternate.dispatch('open');
+    alternate.dispatch('error');
+    await flushAsync();
+    await vi.waitFor(() => expect(peer.open).toBe(true));
+  }
+
+  it('reuses an admitted HTTP route across destroyed peers for both host and guest setup', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const bridge = installHttpBridgeHarness();
+    let now = 100;
+    __cloudflareSignalingForTests.setStandardHttpPreferenceNow(() => now);
+
+    const seedPrepare = vi.fn(async () => null);
+    const seed = new CloudflareSignalingPeer('123456', fallbackOptions(seedPrepare));
+    seed.setRoomPassword('12345678');
+    await moveHostToHttp(seed);
+    expect(seedPrepare).toHaveBeenCalledOnce();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(true);
+    seed.destroy();
+    await flushAsync();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(true);
+    expect(__cloudflareSignalingForTests.pageSignalingSocketHandleCount()).toBe(0);
+
+    FakeWebSocket.instances = [];
+    const hostOpenCount = bridge.requestCount('/bridge/open');
+    const nextHostPrepare = vi.fn(async () => null);
+    const nextHost = new CloudflareSignalingPeer('234567', fallbackOptions(nextHostPrepare));
+    nextHost.setRoomPassword('87654321');
+    await vi.waitFor(() => expect(bridge.requestCount('/bridge/open')).toBe(hostOpenCount + 1));
+    await vi.waitFor(() => expect(nextHost.open).toBe(true));
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(nextHostPrepare).not.toHaveBeenCalled();
+    nextHost.destroy();
+    await flushAsync();
+
+    const guestOpenCount = bridge.requestCount('/bridge/open');
+    const guestPrepare = vi.fn(async () => null);
+    const guest = new CloudflareSignalingPeer(null, fallbackOptions(guestPrepare));
+    const conn = guest.connect('345678');
+    await vi.waitFor(() => expect(bridge.requestCount('/bridge/open')).toBe(guestOpenCount + 1));
+    await vi.waitFor(() => expect(conn.peerConnection).not.toBeNull());
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(guestPrepare).not.toHaveBeenCalled();
+    now += 1;
+    guest.destroy();
+    expect(__cloudflareSignalingForTests.pageSignalingSocketHandleCount()).toBe(0);
+  });
+
+  it('expires lazily at five minutes and does not slide on repeated promotion', async () => {
+    installFakeWebSocket();
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>());
+    let now = 50;
+    const ttl = __cloudflareSignalingForTests.standardHttpPreferenceTtlMs;
+    __cloudflareSignalingForTests.setStandardHttpPreferenceNow(() => now);
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    now += ttl - 1;
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(true);
+    now += 1;
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+
+    const peer = new CloudflareSignalingPeer('123456', fallbackOptions());
+    peer.setRoomPassword('12345678');
+    await Promise.resolve();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(new URL(FakeWebSocket.instances[0].url).origin).toBe('wss://signal.example.test');
+    expect(fetch).not.toHaveBeenCalled();
+    peer.destroy();
+  });
+
+  it('does not promote an HTTP socket that only opens or later reports stale authority', async () => {
+    installFakeWebSocket();
+    const bridge = installHttpBridgeHarness({ admit: false });
+    const peer = new CloudflareSignalingPeer('123456', fallbackOptions());
+    peer.setRoomPassword('12345678');
+    await Promise.resolve();
+    FakeWebSocket.instances[0].dispatch('open');
+    FakeWebSocket.instances[0].dispatch('error');
+    await flushAsync();
+    FakeWebSocket.instances[1].dispatch('open');
+    FakeWebSocket.instances[1].dispatch('error');
+    await vi.waitFor(() => expect(bridge.requestCount('/bridge/open')).toBe(1));
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+
+    const staleSocket = (peer as unknown as { hostSocket: EventTarget }).hostSocket;
+    peer.destroy();
+    staleSocket.dispatchEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+      }),
+    );
+    await flushAsync();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+  });
+
+  it('ignores a superseded HTTP guest socket when its peer-open arrives late', async () => {
+    installFakeWebSocket();
+    const bridge = installHttpBridgeHarness({ admit: false });
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    const peer = new CloudflareSignalingPeer(null, fallbackOptions());
+    peer.connect('123456');
+    await vi.waitFor(() => expect(bridge.requestCount('/bridge/open')).toBe(1));
+    const staleSocket = (
+      peer as unknown as { roomSockets: Map<string, EventTarget> }
+    ).roomSockets.get('123456')!;
+    __cloudflareSignalingForTests.clearStandardHttpPreference();
+
+    peer.connect('123456');
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    staleSocket.dispatchEvent(
+      new MessageEvent('message', {
+        data: JSON.stringify({ type: 'peer-open', peerId: peer.id, roomId: '123456' }),
+      }),
+    );
+    await flushAsync();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+    peer.destroy();
+  });
+
+  it('clears a failed preferred HTTP route and tries primary then alternate without HTTP re-entry', async () => {
+    installFakeWebSocket();
+    const bridge = installHttpBridgeHarness();
+    bridge.failNextOpen = true;
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    const prepare = vi.fn(async () => null);
+    const peer = new CloudflareSignalingPeer(null, fallbackOptions(prepare));
+    const conn = peer.connect('123456');
+    const onError = vi.fn();
+    conn.on('error', onError);
+
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+    expect(prepare).toHaveBeenCalledOnce();
+    expect(new URL(FakeWebSocket.instances[0].url).origin).toBe('wss://signal.example.test');
+    FakeWebSocket.instances[0].dispatch('error');
+    await flushAsync();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(new URL(FakeWebSocket.instances[1].url).origin).toBe('wss://signal-alt.example.test');
+    expect(prepare).toHaveBeenCalledOnce();
+    FakeWebSocket.instances[1].dispatch('error');
+    await flushAsync();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(bridge.requestCount('/bridge/open')).toBe(1);
+    peer.destroy();
+  });
+
+  it.each([
+    { label: '200 protocol response', statuses: [200], recoversWithWss: true },
+    { label: '404 rollout miss', statuses: [404], recoversWithWss: true },
+    { label: '409 stale bridge state', statuses: [409], recoversWithWss: true },
+    { label: '410 expired bridge state', statuses: [410], recoversWithWss: true },
+    {
+      label: 'consecutive 503 responses',
+      statuses: [503, 503],
+      recoversWithWss: true,
+    },
+    { label: '400 invalid request', statuses: [400], recoversWithWss: false },
+    { label: '401 invalid bearer', statuses: [401], recoversWithWss: false },
+    { label: '403 denied bearer', statuses: [403], recoversWithWss: false },
+    { label: '429 rate limit', statuses: [429], recoversWithWss: false },
+  ] as const)('classifies preferred HTTP $label', async ({ statuses, recoversWithWss }) => {
+    installFakeWebSocket();
+    const bridge = installHttpBridgeHarness();
+    bridge.sendStatuses.push(...statuses);
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    const prepare = vi.fn(async () => null);
+    const peer = new CloudflareSignalingPeer(null, fallbackOptions(prepare));
+    const conn = peer.connect('123456');
+    const onError = vi.fn();
+    conn.on('error', onError);
+
+    if (recoversWithWss) {
+      await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+      expect(prepare).toHaveBeenCalledOnce();
+    } else {
+      await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+      expect(FakeWebSocket.instances).toHaveLength(0);
+      expect(prepare).not.toHaveBeenCalled();
+    }
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+    expect(bridge.requestCount('/bridge/open')).toBe(1);
+    peer.destroy();
+  });
+
+  it('keeps the preference on an authoritative room error and never downgrades it to WSS', async () => {
+    installFakeWebSocket();
+    const bridge = installHttpBridgeHarness();
+    bridge.nextAuthorityFrame = {
+      type: 'error',
+      errorType: 'room-password-invalid',
+      message: 'ROOM_PASSWORD_INVALID',
+    };
+    bridge.nextTerminal = { code: 1008, reason: 'semantic rejection' };
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    const peer = new CloudflareSignalingPeer(null, fallbackOptions());
+    const conn = peer.connect('123456', { roomPassword: 'wrong-pin' });
+    const onError = vi.fn();
+    conn.on('error', onError);
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError.mock.calls[0]?.[0]).toMatchObject({
+      type: 'room-password-invalid',
+      message: 'ROOM_PASSWORD_INVALID',
+    });
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(true);
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(bridge.requestCount('/bridge/open')).toBe(1);
+    expect(__cloudflareSignalingForTests.pageSignalingSocketHandleCount()).toBe(0);
+    await flushAsync();
+    expect(onError).toHaveBeenCalledOnce();
+    peer.destroy();
+  });
+
+  it('clears the preference on current WSS admission and admitted HTTP transport failure', async () => {
+    installFakeWebSocket();
+    const bridge = installHttpBridgeHarness();
+    const wssPeer = new CloudflareSignalingPeer('123456', fallbackOptions());
+    wssPeer.setRoomPassword('12345678');
+    await Promise.resolve();
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    const wss = FakeWebSocket.instances[0];
+    wss.dispatch('open');
+    wss.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+    wssPeer.destroy();
+
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    FakeWebSocket.instances = [];
+    const httpPeer = new CloudflareSignalingPeer('234567', fallbackOptions());
+    httpPeer.setRoomPassword('12345678');
+    await vi.waitFor(() => expect(httpPeer.open).toBe(true));
+    const currentHttp = (httpPeer as unknown as { hostSocket: EventTarget }).hostSocket;
+    currentHttp.dispatchEvent(new Event('error'));
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    httpPeer.destroy();
+
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    bridge.nextTerminal = { code: 1012, reason: 'service restart' };
+    const closingPeer = new CloudflareSignalingPeer('345678', fallbackOptions());
+    const onClosingPeerOpen = vi.fn();
+    closingPeer.on('open', onClosingPeerOpen);
+    closingPeer.setRoomPassword('12345678');
+    await vi.waitFor(() => expect(onClosingPeerOpen).toHaveBeenCalledOnce());
+    await vi.waitFor(() =>
+      expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false),
+    );
+    expect(FakeWebSocket.instances).toHaveLength(0);
+    expect(__cloudflareSignalingForTests.pageSignalingSocketHandleCount()).toBe(0);
+    closingPeer.destroy();
+    expect(bridge.requestCount('/bridge/open')).toBe(2);
+  });
+
+  it('leaves PRO signaling and ambient browser state untouched', async () => {
+    installFakeWebSocket();
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    let now = 10;
+    __cloudflareSignalingForTests.setStandardHttpPreferenceNow(() => now);
+    const timeout = vi.spyOn(globalThis, 'setTimeout');
+    const interval = vi.spyOn(globalThis, 'setInterval');
+    const addWindowListener = vi.spyOn(globalThis, 'addEventListener');
+    const storageWrite = vi.spyOn(Storage.prototype, 'setItem');
+    const cookieBefore = document.cookie;
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(true);
+    now += __cloudflareSignalingForTests.standardHttpPreferenceTtlMs;
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(false);
+    expect(timeout).not.toHaveBeenCalled();
+    expect(interval).not.toHaveBeenCalled();
+    expect(addWindowListener).not.toHaveBeenCalled();
+    expect(storageWrite).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(document.cookie).toBe(cookieBefore);
+
+    __cloudflareSignalingForTests.promoteStandardHttpPreference();
+    const ticket = clientProTicket('coordinator-device', { role: 'coordinator' });
+    const peer = new CloudflareSignalingPeer('000001', {
+      ...fallbackOptions(),
+      proSignaling: {
+        roomCode: '000001',
+        ticket,
+        role: 'coordinator',
+        coordinatorEpoch: 7,
+        presenceIncarnationId: 'presence-incarnation-0001',
+        ticketSequence: 1,
+      },
+    });
+    await Promise.resolve();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    expect(new URL(FakeWebSocket.instances[0].url).pathname).toBe('/api/pro-rooms/000001/ws');
+    expect(fetchMock).not.toHaveBeenCalled();
+    FakeWebSocket.instances[0].dispatch('open');
+    FakeWebSocket.instances[0].dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '000001', roomId: '000001' }),
+    );
+    await flushAsync();
+    expect(__cloudflareSignalingForTests.hasStandardHttpPreference()).toBe(true);
     peer.destroy();
   });
 });

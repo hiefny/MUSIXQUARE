@@ -300,6 +300,7 @@ interface GuestRoomRecord {
   /** Base signaling URL owned by this exact logical join generation. */
   signalingUrl: string;
   useHttpSignaling: boolean;
+  routePlan: StandardSetupRoutePlan;
   socketGeneration: number;
   routeRetryGeneration: number;
   routeRetryCount: number;
@@ -325,12 +326,30 @@ interface RetiredSignalingSocketListeners {
 type SignalingRoute = 'primary' | 'fallback' | 'http';
 type StandardSignalingSocket = WebSocket | StandardHttpSignalingSocket;
 
+interface StandardSetupRoutePlan {
+  readonly preferredHttpFirst: boolean;
+  readonly triedRoutes: Set<SignalingRoute>;
+  routeBarrierConsumed: boolean;
+}
+
+type StandardSetupRouteFailure =
+  | { readonly kind: 'error' }
+  | { readonly kind: 'close'; readonly code: number; readonly wasClean: boolean }
+  | { readonly kind: 'watchdog' };
+
+interface StandardSetupRouteRetryDecision {
+  readonly route: SignalingRoute;
+  readonly signalingUrl: string | null;
+  readonly prepareRoute: boolean;
+}
+
 interface SignalingSocketLifecycle {
   readonly route: SignalingRoute;
   readonly createdAt: number;
   everOpened: boolean;
   authSent: boolean;
   admitted: boolean;
+  semanticFailureObserved: boolean;
   failureObserved: boolean;
   terminalCloseLogged: boolean;
   closeCode: number | null;
@@ -385,6 +404,7 @@ const STANDARD_ROOM_ASSERTION_RENEWAL_WAIT_MS = 15_000;
 const STANDARD_ROOM_SETUP_ROUTE_RETRY_LIMIT = 2;
 const STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS = 3_000;
 const STANDARD_ROOM_HTTP_SETUP_ADMISSION_TIMEOUT_MS = 8_000;
+const STANDARD_ROOM_HTTP_PREFERENCE_TTL_MS = 5 * 60_000;
 const STANDARD_ROOM_FALLBACK_PEER_OPEN_TIMEOUT_MS = 25_000;
 // Primary and alternate WSS each receive three seconds, then the same-origin
 // HTTP bridge receives its separate eight-second admission window. Preserve a
@@ -416,6 +436,121 @@ interface PendingRemoteShareUploadAssertion {
 }
 
 const pageSignalingSocketCloseListeners = new Map<StandardSignalingSocket, EventListener>();
+let standardHttpPreferenceDeadline = 0;
+let standardHttpPreferenceNow = (): number => globalThis.performance.now();
+
+function monotonicStandardHttpPreferenceNow(): number | null {
+  try {
+    const now = standardHttpPreferenceNow();
+    return Number.isFinite(now) ? Math.max(0, now) : null;
+  } catch {
+    return null;
+  }
+}
+
+function hasStandardHttpPreference(): boolean {
+  if (standardHttpPreferenceDeadline === 0) return false;
+  const now = monotonicStandardHttpPreferenceNow();
+  if (now !== null && now < standardHttpPreferenceDeadline) return true;
+  standardHttpPreferenceDeadline = 0;
+  return false;
+}
+
+function promoteStandardHttpPreference(): void {
+  // Non-sliding by design: repeated HTTP admissions inside the same window do
+  // not keep a stale network-route decision alive indefinitely.
+  if (hasStandardHttpPreference()) return;
+  const now = monotonicStandardHttpPreferenceNow();
+  if (now === null) return;
+  standardHttpPreferenceDeadline = now + STANDARD_ROOM_HTTP_PREFERENCE_TTL_MS;
+}
+
+function clearStandardHttpPreference(): void {
+  standardHttpPreferenceDeadline = 0;
+}
+
+function createStandardSetupRoutePlan(preferredHttpFirst: boolean): StandardSetupRoutePlan {
+  return {
+    preferredHttpFirst,
+    triedRoutes: new Set<SignalingRoute>(),
+    routeBarrierConsumed: false,
+  };
+}
+
+function decideStandardSetupRouteRetry(
+  plan: StandardSetupRoutePlan,
+  failedRoute: SignalingRoute,
+  primarySignalingUrl: string,
+  fallbackSignalingUrl: string | null,
+  retryCount: number,
+): StandardSetupRouteRetryDecision | null {
+  let route: SignalingRoute;
+  let signalingUrl: string | null;
+
+  if (failedRoute === 'http') {
+    if (!plan.preferredHttpFirst || plan.triedRoutes.has('primary')) return null;
+    route = 'primary';
+    signalingUrl = primarySignalingUrl;
+  } else if (failedRoute === 'primary') {
+    if (fallbackSignalingUrl !== null && !plan.triedRoutes.has('fallback')) {
+      route = 'fallback';
+      signalingUrl = fallbackSignalingUrl;
+    } else if (fallbackSignalingUrl === null && retryCount === 0) {
+      // Preserve the established one-shot same-origin WSS readoption for
+      // deployments that intentionally have no alternate route.
+      route = 'primary';
+      signalingUrl = primarySignalingUrl;
+    } else {
+      return null;
+    }
+  } else {
+    if (plan.preferredHttpFirst || plan.triedRoutes.has('http')) return null;
+    route = 'http';
+    signalingUrl = null;
+  }
+
+  const prepareRoute = route !== 'http' && !plan.routeBarrierConsumed;
+  if (prepareRoute) plan.routeBarrierConsumed = true;
+  return { route, signalingUrl, prepareRoute };
+}
+
+function isGenuineStandardSetupRouteFailure(
+  socket: StandardSignalingSocket,
+  failure: StandardSetupRouteFailure,
+  semanticFailureObserved: boolean,
+): boolean {
+  if (semanticFailureObserved) return false;
+  if (failure.kind === 'watchdog') return true;
+  if (!isStandardHttpSignalingSocket(socket)) {
+    return failure.kind !== 'close' || failure.code < 4000;
+  }
+  if (failure.kind === 'close') {
+    return !failure.wasClean && failure.code >= 1001 && failure.code < 4000;
+  }
+  const status = socket.diagnostic?.status ?? null;
+  return (
+    status === null ||
+    (status >= 200 && status < 300) ||
+    status === 404 ||
+    status === 405 ||
+    status === 408 ||
+    status === 409 ||
+    status === 410 ||
+    status >= 500
+  );
+}
+
+function shouldClearPreferredHttpAfterFailure(
+  socket: StandardSignalingSocket,
+  failure: StandardSetupRouteFailure,
+  semanticFailureObserved: boolean,
+): boolean {
+  if (!isStandardHttpSignalingSocket(socket) || semanticFailureObserved) return false;
+  if (failure.kind !== 'close') return true;
+  // Application-defined terminal codes are authoritative room semantics. The
+  // bridge's abnormal transport/service closes live below that range.
+  return !failure.wasClean && failure.code < 4000;
+}
 
 function releasePageSignalingSocket(socket: StandardSignalingSocket): void {
   const closeListener = pageSignalingSocketCloseListeners.get(socket);
@@ -471,6 +606,13 @@ function signalingSocketReadyStateDiagnostic(socket: StandardSignalingSocket): {
 
 export const __cloudflareSignalingForTests = {
   maxPageSignalingSocketHandles: MAX_PAGE_SIGNALING_SOCKET_HANDLES,
+  standardHttpPreferenceTtlMs: STANDARD_ROOM_HTTP_PREFERENCE_TTL_MS,
+  hasStandardHttpPreference,
+  promoteStandardHttpPreference,
+  clearStandardHttpPreference,
+  setStandardHttpPreferenceNow(now: (() => number) | null): void {
+    standardHttpPreferenceNow = now ?? (() => globalThis.performance.now());
+  },
   pageSignalingSocketHandleCount(): number {
     pruneClosedPageSignalingSockets();
     return pageSignalingSocketCloseListeners.size;
@@ -480,6 +622,10 @@ export const __cloudflareSignalingForTests = {
       socket.removeEventListener('close', closeListener);
     }
     pageSignalingSocketCloseListeners.clear();
+  },
+  resetStandardHttpPreference(): void {
+    clearStandardHttpPreference();
+    standardHttpPreferenceNow = () => globalThis.performance.now();
   },
 };
 
@@ -1182,7 +1328,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private hostRouteRetryCount = 0;
   private hostRouteRetryController: AbortController | null = null;
   private hostUseHttpSignaling = false;
-  private standardHttpSignalingLatched = false;
+  private hostRoutePlan = createStandardSetupRoutePlan(false);
   private hostSignalingOpenedOnce = false;
   private hostAdmissionTimeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
   private readonly hostRoomId: string | null;
@@ -1518,6 +1664,16 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.hostRoomId = requestedId;
     this.proParticipantId = proParticipantId;
     this.proSignalingAccess = proSignaling ? { ...proSignaling } : null;
+    const preferHttpFirst =
+      requestedId !== null &&
+      !this.proSignalingAccess &&
+      this.fallbackSignalingUrl !== null &&
+      !!this.options.prepareNetworkRouteRetry &&
+      hasStandardHttpPreference();
+    if (preferHttpFirst) {
+      this.hostUseHttpSignaling = true;
+      this.hostRoutePlan = createStandardSetupRoutePlan(true);
+    }
     this.id =
       requestedId ??
       (proSignaling?.role === 'member' ? proParticipantId : null) ??
@@ -1577,12 +1733,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (!this.proSignalingAccess && !this.guestReconnectSecrets.has(roomId)) {
       this.guestReconnectSecrets.set(roomId, randomBase64Url(32));
     }
+    const preferHttpFirst =
+      !this.proSignalingAccess &&
+      this.fallbackSignalingUrl !== null &&
+      !!this.options.prepareNetworkRouteRetry &&
+      hasStandardHttpPreference();
     const record: GuestRoomRecord = {
       conn,
       metadata: options?.metadata,
       password: roomPassword,
       signalingUrl: this.primarySignalingUrl,
-      useHttpSignaling: this.standardHttpSignalingLatched,
+      useHttpSignaling: preferHttpFirst,
+      routePlan: createStandardSetupRoutePlan(preferHttpFirst),
       socketGeneration: 0,
       routeRetryGeneration: 0,
       routeRetryCount: 0,
@@ -2061,6 +2223,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (lifecycle) lifecycle.admitted = true;
   }
 
+  private noteSignalingSocketSemanticFailure(socket: StandardSignalingSocket): void {
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    if (lifecycle) lifecycle.semanticFailureObserved = true;
+  }
+
   private noteSignalingSocketFailure(socket: StandardSignalingSocket): void {
     const lifecycle = this.signalingSocketLifecycles.get(socket);
     if (lifecycle) lifecycle.failureObserved = true;
@@ -2134,6 +2301,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       everOpened: false,
       authSent: false,
       admitted: false,
+      semanticFailureObserved: false,
       failureObserved: false,
       terminalCloseLogged: false,
       closeCode: null,
@@ -2163,6 +2331,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       everOpened: false,
       authSent: false,
       admitted: false,
+      semanticFailureObserved: false,
       failureObserved: false,
       terminalCloseLogged: false,
       closeCode: null,
@@ -2210,6 +2379,20 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       );
       options.emitPreOpenError(event);
       return;
+    }
+
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    if (
+      lifecycle?.route === 'http' &&
+      shouldClearPreferredHttpAfterFailure(
+        socket,
+        { kind: 'error' },
+        lifecycle.semanticFailureObserved,
+      )
+    ) {
+      // This only changes the route chosen by a future setup. The admitted
+      // room keeps its established data channels and existing reconnect owner.
+      clearStandardHttpPreference();
     }
 
     log.warn(
@@ -2268,7 +2451,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         ) {
           return;
         }
-        if (this.scheduleHostSetupRouteRetry(socket, socketGeneration)) return;
+        if (this.scheduleHostSetupRouteRetry(socket, socketGeneration, { kind: 'watchdog' }))
+          return;
         this.noteSignalingSocketFailure(socket);
         this.hostSocket = null;
         this.retireSignalingSocket(socket);
@@ -2311,7 +2495,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         ) {
           return;
         }
-        if (this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration)) return;
+        if (
+          this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration, {
+            kind: 'watchdog',
+          })
+        )
+          return;
         this.noteSignalingSocketFailure(socket);
         this.roomSockets.delete(roomId);
         this.retireSignalingSocket(socket);
@@ -2333,6 +2522,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private scheduleHostSetupRouteRetry(
     socket: StandardSignalingSocket,
     socketGeneration: number,
+    failure: StandardSetupRouteFailure,
   ): boolean {
     if (
       !this.options.prepareNetworkRouteRetry ||
@@ -2341,21 +2531,45 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.hostSignalingOpenedOnce ||
       this.hostSocket !== socket ||
       socketGeneration !== this.hostSocketGeneration ||
-      this.hostRouteRetryCount >= STANDARD_ROOM_SETUP_ROUTE_RETRY_LIMIT ||
-      (this.hostRouteRetryCount >= 1 && this.fallbackSignalingUrl === null)
+      this.hostRouteRetryCount >= STANDARD_ROOM_SETUP_ROUTE_RETRY_LIMIT
     ) {
       return false;
     }
 
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    const failedRoute = lifecycle?.route;
+    if (!failedRoute) return false;
+    if (
+      failedRoute === 'http' &&
+      this.hostRoutePlan.preferredHttpFirst &&
+      shouldClearPreferredHttpAfterFailure(socket, failure, lifecycle.semanticFailureObserved)
+    ) {
+      // The breaker is only a setup hint. A genuine failure on its first HTTP
+      // route revokes both page and local preference before any WSS successor
+      // is selected, and this plan's tried set prevents HTTP re-entry.
+      clearStandardHttpPreference();
+      this.hostUseHttpSignaling = false;
+    }
+    if (!isGenuineStandardSetupRouteFailure(socket, failure, lifecycle.semanticFailureObserved)) {
+      return false;
+    }
+    const decision = decideStandardSetupRouteRetry(
+      this.hostRoutePlan,
+      failedRoute,
+      this.primarySignalingUrl,
+      this.fallbackSignalingUrl,
+      this.hostRouteRetryCount,
+    );
+    if (!decision) return false;
+
     this.clearHostSetupAdmissionTimeout();
     this.noteSignalingSocketFailure(socket);
-    const retryWithHttp = this.hostRouteRetryCount === 1;
     this.hostRouteRetryCount += 1;
     const retryGeneration = ++this.hostRouteRetryGeneration;
     this.hostRouteRetryController?.abort(new Error('HOST_ROUTE_RETRY_SUPERSEDED'));
     const controller = new AbortController();
     this.hostRouteRetryController = controller;
-    const retrySignalingUrl = this.fallbackSignalingUrl ?? this.hostSignalingUrl;
+    const retrySignalingUrl = decision.signalingUrl ?? this.hostSignalingUrl;
 
     // Retire the stale CONNECTING/OPEN-but-unadmitted path synchronously. The
     // Worker's host secret remains on this peer instance, so a commit whose
@@ -2366,14 +2580,16 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.retireSignalingSocket(socket);
 
     log.warn(
-      retryWithHttp
+      decision.route === 'http'
         ? '[Transport] Host alternate signaling failed before admission; activating HTTPS bridge fallback'
-        : '[Transport] Host signaling failed before admission; awaiting fresh route once',
+        : failedRoute === 'http'
+          ? '[Transport] Preferred HTTPS bridge failed before admission; retrying host WSS routes once'
+          : '[Transport] Host signaling failed before admission; awaiting fresh route once',
       this.signalingSocketDiagnostic(socket),
     );
-    const barrier = retryWithHttp
-      ? Promise.resolve()
-      : this.runNetworkRouteRetryBarrier(controller.signal, 'Host', retrySignalingUrl);
+    const barrier = decision.prepareRoute
+      ? this.runNetworkRouteRetryBarrier(controller.signal, 'Host', retrySignalingUrl)
+      : Promise.resolve();
     barrier
       .then(() => {
         if (
@@ -2387,8 +2603,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           return;
         }
         this.hostRouteRetryController = null;
-        if (retryWithHttp) this.hostUseHttpSignaling = true;
-        else this.hostSignalingUrl = retrySignalingUrl;
+        this.hostUseHttpSignaling = decision.route === 'http';
+        if (decision.signalingUrl) this.hostSignalingUrl = decision.signalingUrl;
         this.openHostSocket();
       })
       .catch((error) => log.warn('[Transport] Host route retry escaped its boundary', error));
@@ -2400,6 +2616,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     record: GuestRoomRecord,
     socket: StandardSignalingSocket,
     socketGeneration: number,
+    failure: StandardSetupRouteFailure,
   ): boolean {
     if (
       !this.options.prepareNetworkRouteRetry ||
@@ -2409,22 +2626,43 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.roomSockets.get(roomId) !== socket ||
       record.socketGeneration !== socketGeneration ||
       record.routeRetryCount >= STANDARD_ROOM_SETUP_ROUTE_RETRY_LIMIT ||
-      (record.routeRetryCount >= 1 && this.fallbackSignalingUrl === null) ||
       record.conn.open ||
       record.conn.peerConnection
     ) {
       return false;
     }
 
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    const failedRoute = lifecycle?.route;
+    if (!failedRoute) return false;
+    if (
+      failedRoute === 'http' &&
+      record.routePlan.preferredHttpFirst &&
+      shouldClearPreferredHttpAfterFailure(socket, failure, lifecycle.semanticFailureObserved)
+    ) {
+      clearStandardHttpPreference();
+      record.useHttpSignaling = false;
+    }
+    if (!isGenuineStandardSetupRouteFailure(socket, failure, lifecycle.semanticFailureObserved)) {
+      return false;
+    }
+    const decision = decideStandardSetupRouteRetry(
+      record.routePlan,
+      failedRoute,
+      this.primarySignalingUrl,
+      this.fallbackSignalingUrl,
+      record.routeRetryCount,
+    );
+    if (!decision) return false;
+
     this.clearGuestSetupAdmissionTimeout(record);
     this.noteSignalingSocketFailure(socket);
-    const retryWithHttp = record.routeRetryCount === 1;
     record.routeRetryCount += 1;
     const retryGeneration = ++record.routeRetryGeneration;
     record.routeRetryController?.abort(new Error('GUEST_ROUTE_RETRY_SUPERSEDED'));
     const controller = new AbortController();
     record.routeRetryController = controller;
-    const retrySignalingUrl = this.fallbackSignalingUrl ?? record.signalingUrl;
+    const retrySignalingUrl = decision.signalingUrl ?? record.signalingUrl;
 
     // Removing map ownership before close makes every queued callback from the
     // first socket inert. The same conn, peer ID, room password, and RAM-only
@@ -2434,14 +2672,16 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.retireSignalingSocket(socket);
 
     log.warn(
-      retryWithHttp
+      decision.route === 'http'
         ? '[Transport] Guest alternate signaling failed before admission; activating HTTPS bridge fallback'
-        : '[Transport] Guest signaling failed before admission; awaiting fresh route once',
+        : failedRoute === 'http'
+          ? '[Transport] Preferred HTTPS bridge failed before admission; retrying guest WSS routes once'
+          : '[Transport] Guest signaling failed before admission; awaiting fresh route once',
       this.signalingSocketDiagnostic(socket),
     );
-    const barrier = retryWithHttp
-      ? Promise.resolve()
-      : this.runNetworkRouteRetryBarrier(controller.signal, 'Guest', retrySignalingUrl);
+    const barrier = decision.prepareRoute
+      ? this.runNetworkRouteRetryBarrier(controller.signal, 'Guest', retrySignalingUrl)
+      : Promise.resolve();
     barrier
       .then(() => {
         if (
@@ -2458,8 +2698,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           return;
         }
         record.routeRetryController = null;
-        if (retryWithHttp) record.useHttpSignaling = true;
-        else record.signalingUrl = retrySignalingUrl;
+        record.useHttpSignaling = decision.route === 'http';
+        if (decision.signalingUrl) record.signalingUrl = decision.signalingUrl;
         this.openGuestSocket(roomId);
       })
       .catch((error) => log.warn('[Transport] Guest route retry escaped its boundary', error));
@@ -2510,9 +2750,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     let socket: StandardSignalingSocket;
     try {
-      const useHttp =
-        !this.proSignalingAccess &&
-        (this.hostUseHttpSignaling || this.standardHttpSignalingLatched);
+      const useHttp = !this.proSignalingAccess && this.hostUseHttpSignaling;
       if (useHttp) {
         this.hostUseHttpSignaling = true;
         socket = this.openHttpSignalingSocket(this.hostRoomId, 'host', this.id);
@@ -2533,6 +2771,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       this.emit('error', error);
       return;
     }
+
+    const openedRoute = this.signalingSocketLifecycles.get(socket)?.route;
+    if (openedRoute) this.hostRoutePlan.triedRoutes.add(openedRoute);
 
     this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
       ? 'unavailable'
@@ -2599,7 +2840,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         this.hostSocket === socket &&
         socketGeneration === this.hostSocketGeneration
       ) {
-        if (this.scheduleHostSetupRouteRetry(socket, socketGeneration)) return;
+        if (
+          this.scheduleHostSetupRouteRetry(socket, socketGeneration, {
+            kind: 'close',
+            code: (event as CloseEvent).code,
+            wasClean: (event as CloseEvent).wasClean,
+          })
+        )
+          return;
         this.noteSignalingSocketFailure(socket);
         this.clearHostSetupAdmissionTimeout();
         this.hostSocket = null;
@@ -2613,6 +2861,23 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         );
         return;
       }
+      const lifecycle = this.signalingSocketLifecycles.get(socket);
+      if (
+        this.hostSocket === socket &&
+        this.hostSignalingOpenedOnce &&
+        lifecycle?.route === 'http' &&
+        shouldClearPreferredHttpAfterFailure(
+          socket,
+          {
+            kind: 'close',
+            code: (event as CloseEvent).code,
+            wasClean: (event as CloseEvent).wasClean,
+          },
+          lifecycle.semanticFailureObserved,
+        )
+      ) {
+        clearStandardHttpPreference();
+      }
       this.retireHostSignalingSocket(socket, false);
     });
     socket.addEventListener('error', (event) =>
@@ -2623,7 +2888,8 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           isCurrent: () =>
             this.hostSocket === socket && socketGeneration === this.hostSocketGeneration,
           isEstablished: () => this.open,
-          retryPreOpen: () => this.scheduleHostSetupRouteRetry(socket, socketGeneration),
+          retryPreOpen: () =>
+            this.scheduleHostSetupRouteRetry(socket, socketGeneration, { kind: 'error' }),
           retireEstablished: () => {
             this.retireHostSignalingSocket(socket, true);
           },
@@ -2681,8 +2947,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     let socket: StandardSignalingSocket;
     try {
-      const useHttp =
-        !this.proSignalingAccess && (record.useHttpSignaling || this.standardHttpSignalingLatched);
+      const useHttp = !this.proSignalingAccess && record.useHttpSignaling;
       if (useHttp) {
         record.useHttpSignaling = true;
         socket = this.openHttpSignalingSocket(roomId, 'guest', this.id);
@@ -2703,6 +2968,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       queueMicrotask(() => conn.emit('error', error));
       return;
     }
+
+    const openedRoute = this.signalingSocketLifecycles.get(socket)?.route;
+    if (openedRoute) record.routePlan.triedRoutes.add(openedRoute);
 
     this.roomSockets.set(roomId, socket);
     const socketGeneration = ++record.socketGeneration;
@@ -2751,7 +3019,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       }
       if (this.roomSockets.get(roomId) === socket) {
         if (!conn.peerConnection && !conn.open) {
-          if (this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration)) return;
+          if (
+            this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration, {
+              kind: 'close',
+              code: (event as CloseEvent).code,
+              wasClean: (event as CloseEvent).wasClean,
+            })
+          )
+            return;
           this.noteSignalingSocketFailure(socket);
           this.clearGuestSetupAdmissionTimeout(record);
           this.roomSockets.delete(roomId);
@@ -2764,6 +3039,21 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
             createTransportError('network', 'SIGNALING_SOCKET_CLOSED_BEFORE_GUEST_ADMISSION'),
           );
           return;
+        }
+        const lifecycle = this.signalingSocketLifecycles.get(socket);
+        if (
+          lifecycle?.route === 'http' &&
+          shouldClearPreferredHttpAfterFailure(
+            socket,
+            {
+              kind: 'close',
+              code: (event as CloseEvent).code,
+              wasClean: (event as CloseEvent).wasClean,
+            },
+            lifecycle.semanticFailureObserved,
+          )
+        ) {
+          clearStandardHttpPreference();
         }
         this.roomSockets.delete(roomId);
         if (conn.peerConnection) {
@@ -2785,7 +3075,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
             record.socketGeneration === socketGeneration,
           isEstablished: () => this.isDataConnectionAlive(conn),
           retryPreOpen: () =>
-            this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration),
+            this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration, {
+              kind: 'error',
+            }),
           retireEstablished: () => {
             this.retireGuestSignalingSocket(roomId, record, socket, true);
           },
@@ -2884,6 +3176,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         this.acknowledgedRoomPasswordMutationId = message.mutationId;
         this.acknowledgedRoomPasswordSocket = sourceSocket;
       } else {
+        if (sourceSocket) this.noteSignalingSocketSemanticFailure(sourceSocket);
         try {
           log.warn(
             `[Transport] Standard room password mutation was not committed (${message.errorType || 'unknown'})`,
@@ -2955,8 +3248,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'peer-open') {
       if (sourceSocket) this.noteSignalingSocketAdmitted(sourceSocket);
       if (sourceSocket && isStandardHttpSignalingSocket(sourceSocket)) {
-        this.standardHttpSignalingLatched = true;
         this.hostUseHttpSignaling = true;
+        promoteStandardHttpPreference();
+      } else if (!this.proSignalingAccess && sourceSocket) {
+        clearStandardHttpPreference();
       }
       if (
         !this.proSignalingAccess &&
@@ -2998,6 +3293,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'error') {
+      if (sourceSocket) {
+        this.noteSignalingSocketSemanticFailure(sourceSocket);
+        if (!this.hostSignalingOpenedOnce && this.hostSocket === sourceSocket) {
+          // The Worker has already supplied the authoritative setup result.
+          // Revoke physical-socket ownership now so a following terminal close
+          // or a lost terminal/watchdog cannot emit a second generic error.
+          this.clearHostSetupAdmissionTimeout();
+          this.hostSocket = null;
+          this.retireSignalingSocket(sourceSocket);
+        }
+      }
       this.emit(
         'error',
         createTransportError(
@@ -3120,9 +3426,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (message.type === 'peer-open') {
       this.noteSignalingSocketAdmitted(socket);
       if (isStandardHttpSignalingSocket(socket)) {
-        this.standardHttpSignalingLatched = true;
         const currentRecord = this.guestRooms.get(roomId);
         if (currentRecord?.conn === conn) currentRecord.useHttpSignaling = true;
+        promoteStandardHttpPreference();
+      } else if (!this.proSignalingAccess) {
+        clearStandardHttpPreference();
       }
       // Only the Worker's peer-open proves that guest-auth won admission for
       // this exact socket. Before this point guest-auth must remain the sole
@@ -3152,6 +3460,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     if (message.type === 'account-member-updated') return;
     if (message.type === 'error') {
+      this.noteSignalingSocketSemanticFailure(socket);
       const error = createTransportError(
         message.errorType ?? 'server-error',
         message.message ?? 'SIGNALING_ERROR',
@@ -3176,6 +3485,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           this.retireSignalingSocket(socket);
         }
         return;
+      }
+      const preAdmissionRecord = this.guestRooms.get(roomId);
+      if (preAdmissionRecord?.conn === conn && this.roomSockets.get(roomId) === socket) {
+        this.clearGuestSetupAdmissionTimeout(preAdmissionRecord);
+        this.roomSockets.delete(roomId);
+        this.retireSignalingSocket(socket);
       }
       conn.emit('error', error);
       return;

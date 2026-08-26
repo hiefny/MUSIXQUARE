@@ -442,6 +442,7 @@ function isFetcher(value: unknown): value is FetcherPort {
 const ROOM_PATH = /^\/api\/rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_PATH = /^\/api\/pro-rooms\/(\d{6})\/ws$/;
 const PRO_ROOM_CODE_PATTERN = /^0\d{5}$/;
+const ALTERNATE_STANDARD_SIGNALING_HOST = 'signal-alt.musixquare.com';
 const HOST_RECLAIM_GRACE_MS = 120_000;
 const HOST_AUTH_TIMEOUT_MS = 10_000;
 const GUEST_AUTH_TIMEOUT_MS = 10_000;
@@ -6756,14 +6757,32 @@ export class MusixquareRoom {
 export default {
   async fetch(request: Request, env: SignalingWorkerEnvPort): Promise<Response> {
     const url = new URL(request.url);
+    const match = url.pathname.match(ROOM_PATH);
+    const proMatch = url.pathname.match(PRO_ROOM_PATH);
+    const hostname = url.hostname.toLowerCase();
+    if (
+      hostname === ALTERNATE_STANDARD_SIGNALING_HOST &&
+      url.pathname !== '/' &&
+      (!match?.[1] || isProNamespaceRoomCode(match[1]))
+    ) {
+      // The cold iOS route-retry alias is deliberately not a second public
+      // surface for PRO or private signaling. Keep only root health and an
+      // exact ordinary Standard-room WebSocket path reachable on this host.
+      return json({ error: 'NOT_FOUND' }, 404);
+    }
     if (url.pathname.startsWith('/internal/')) {
       return json({ error: 'NOT_FOUND' }, 404);
     }
     const maintenanceResponse = await gateServiceMaintenance(request, env, { format: 'json' });
     if (maintenanceResponse) return maintenanceResponse;
-    const match = url.pathname.match(ROOM_PATH);
-    const proMatch = url.pathname.match(PRO_ROOM_PATH);
     if (!match && !proMatch) {
+      if (hostname === ALTERNATE_STANDARD_SIGNALING_HOST) {
+        return json({
+          ok: true,
+          service: 'musixquare-signaling',
+          websocket: '/api/rooms/:roomId/ws',
+        });
+      }
       return json({
         ok: true,
         service: 'musixquare-signaling',

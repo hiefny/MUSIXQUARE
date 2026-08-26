@@ -1469,6 +1469,89 @@ describe('Cloudflare signaling Remote Share host assertions', () => {
 });
 
 describe('Cloudflare signaling Worker hibernation behavior', () => {
+  it('keeps the cold alternate host limited to root health and Standard-room admission', async () => {
+    const health = await workerModule.default.fetch(
+      requestLike('https://signal-alt.musixquare.com/?_mxqr_route=probe'),
+      workerEnv().env,
+    );
+    expect(health.status).toBe(200);
+    const healthBody = JSON.parse(String((health as unknown as FakeResponse).body));
+    expect(healthBody).toMatchObject({
+      ok: true,
+      service: 'musixquare-signaling',
+      websocket: '/api/rooms/:roomId/ws',
+    });
+    expect(healthBody).not.toHaveProperty('proWebsocket');
+
+    const routed = workerEnv();
+    const request = requestLike(
+      'https://signal-alt.musixquare.com/api/rooms/123456/ws?role=host&peerId=alternate-host',
+      {
+        Origin: 'https://musixquare.com',
+        Upgrade: 'websocket',
+      },
+    );
+    const response = await workerModule.default.fetch(request, routed.env);
+
+    expect(response.status).toBe(101);
+    expect(routed.idFromName).toHaveBeenCalledWith('123456');
+    expect(routed.roomFetch).toHaveBeenCalledWith(request);
+  });
+
+  it('keeps primary-host PRO signaling admission unchanged', async () => {
+    const routed = workerEnv();
+    routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+    const ticket = await proTicket({
+      roomGeneration: 17,
+      participantId: 'primary-pro-member',
+    });
+    const request = requestLike('https://signal.musixquare.com/api/pro-rooms/000001/ws', {
+      Origin: 'https://musixquare.com',
+      Upgrade: 'websocket',
+      'Sec-WebSocket-Protocol': proProtocolHeader(ticket),
+    });
+
+    const response = await workerModule.default.fetch(request, routed.env);
+
+    expect(response.status).toBe(101);
+    expect(routed.idFromName).toHaveBeenCalledWith('000001:generation:17');
+    expect(routed.roomFetch).toHaveBeenCalledWith(request);
+  });
+
+  it.each(['/api/pro-rooms/000001/ws', '/api/rooms/000001/ws?role=host&peerId=reserved-host'])(
+    'rejects PRO signaling through the cold alternate host: %s',
+    async (path) => {
+      const routed = workerEnv();
+      routed.env.PRO_SIGNALING_SECRET = PRO_SIGNALING_SECRET;
+      const response = await workerModule.default.fetch(
+        requestLike(`https://signal-alt.musixquare.com${path}`, {
+          Origin: 'https://musixquare.com',
+          Upgrade: 'websocket',
+        }),
+        routed.env,
+      );
+
+      expect(response.status).toBe(404);
+      expect(routed.idFromName).not.toHaveBeenCalled();
+      expect(routed.roomFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['/unknown', '/internal/developer/v1/dispatch'])(
+    'rejects non-Standard paths through the cold alternate host: %s',
+    async (path) => {
+      const routed = workerEnv();
+      const response = await workerModule.default.fetch(
+        requestLike(`https://signal-alt.musixquare.com${path}`),
+        routed.env,
+      );
+
+      expect(response.status).toBe(404);
+      expect(routed.idFromName).not.toHaveBeenCalled();
+      expect(routed.roomFetch).not.toHaveBeenCalled();
+    },
+  );
+
   it('blocks top-level and room-object admission while service maintenance is active', async () => {
     const routed = workerEnv();
     routed.env.MUSIXQUARE_SERVICE_CONTROL = maintenanceBinding();
@@ -1712,6 +1795,8 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
   });
 
   it('hard-limits barrier-concurrent WebSocket opens across room codes before routing', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-26T00:00:00.000Z'));
     const routed = workerEnv();
     const control = atomicRateBinding(121);
     routed.env.MUSIXQUARE_SERVICE_CONTROL = control.binding;

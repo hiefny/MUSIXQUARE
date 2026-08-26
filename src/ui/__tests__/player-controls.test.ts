@@ -1583,7 +1583,7 @@ describe('initPlayerControls tab title marquee wiring', () => {
     setState('playback.activity', 'playing');
     initPlayerControls();
 
-    expect(document.title).toBe('MUSIXQUARE · 뮤직스퀘어');
+    expect(document.title).toBe('MUSIXQUARE | 뮤직스퀘어, 실시간 음악·영상 동기화');
     expect(getManagedTimer('tab-title-marquee')).toBeNull();
 
     setState('player.currentTrackMeta', {

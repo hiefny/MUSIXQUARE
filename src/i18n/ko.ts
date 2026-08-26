@@ -346,7 +346,7 @@ const ko = {
   'setup.select_role': '역할을 선택해주세요',
   'setup.select_role_alt': '역할을 선택해 주세요',
   'setup.greeting': '안녕하세요!',
-  'setup.hello_select_role': '방을 만들거나 참여해 주세요.',
+  'setup.hello_select_role': '뮤직스퀘어에서 방을 만들거나 참여해 주세요.',
   'setup.enter_code': '6자리 초대 코드 입력',
   'setup.enter_host_code': '초대 코드 입력',
   'setup.enter_host_code_alt': 'QR을 스캔하거나 코드를 입력해 주세요',

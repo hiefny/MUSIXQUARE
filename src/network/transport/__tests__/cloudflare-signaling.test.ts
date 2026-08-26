@@ -4347,6 +4347,193 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
+  it('retries one setup guest socket behind the route barrier with the same join proof', async () => {
+    installFakeWebSocket();
+    const routeReady = deferred<RTCConfiguration | null>();
+    const prepareNetworkRouteRetry = vi.fn(() => routeReady.promise);
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry,
+    });
+    const conn = peer.connect('123456', { roomPassword: '12345678' });
+    const onError = vi.fn(() => conn.close());
+    conn.on('error', onError);
+    const first = FakeWebSocket.instances[0];
+    first.dispatch('open');
+    await flushAsync();
+    const firstAuth = sentOfType(first, 'guest-auth')[0]!;
+
+    first.dispatch('error');
+    first.dispatch('error');
+    expect(prepareNetworkRouteRetry).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    expect(first.closeCount).toBe(1);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+
+    routeReady.resolve({
+      iceServers: [{ urls: 'turn:route-fresh.example.test:3478' }],
+      bundlePolicy: 'max-bundle',
+    });
+    await flushAsync();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const replacement = FakeWebSocket.instances[1];
+    replacement.dispatch('open');
+    await flushAsync();
+    expect(sentOfType(replacement, 'guest-auth')[0]).toMatchObject({
+      password: firstAuth.password,
+      reconnectSecret: firstAuth.reconnectSecret,
+    });
+
+    // The single retry is terminal on its own generic pre-open failure. The
+    // app's connection error owner closes the conn, fencing queued duplicates.
+    replacement.dispatch('error');
+    replacement.dispatch('error');
+    expect(onError).toHaveBeenCalledOnce();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    peer.destroy();
+  });
+
+  it('retries one setup host socket with the same room claim and ignores the retired generation', async () => {
+    installFakeWebSocket();
+    const routeReady = deferred<RTCConfiguration | null>();
+    const prepareNetworkRouteRetry = vi.fn(() => routeReady.promise);
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry,
+    });
+    const onError = vi.fn();
+    const onOpen = vi.fn();
+    peer.on('error', onError);
+    peer.on('open', onOpen);
+    await Promise.resolve();
+    const first = FakeWebSocket.instances[0];
+    first.dispatch('open');
+    const firstAuth = sentOfType(first, 'host-auth')[0]!;
+
+    first.dispatch('error');
+    first.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+    expect(prepareNetworkRouteRetry).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(first.closeCount).toBe(1);
+
+    routeReady.resolve(null);
+    await flushAsync();
+    const replacement = FakeWebSocket.instances[1];
+    replacement.dispatch('open');
+    expect(sentOfType(replacement, 'host-auth')[0]?.secret).toBe(firstAuth.secret);
+    replacement.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    expect(onOpen).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    peer.destroy();
+  });
+
+  it('does not open a route-retry successor after provisional setup is destroyed', async () => {
+    installFakeWebSocket();
+    const routeReady = deferred<RTCConfiguration | null>();
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry: () => routeReady.promise,
+    });
+    await Promise.resolve();
+    FakeWebSocket.instances[0].dispatch('error');
+    peer.destroy();
+
+    routeReady.resolve(null);
+    await flushAsync();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it('converges a silent CONNECTING guest socket through one bounded route retry', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const prepareNetworkRouteRetry = vi.fn(async () => null);
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry,
+    });
+    const conn = peer.connect('123456');
+    const onError = vi.fn(() => conn.close());
+    conn.on('error', onError);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(prepareNetworkRouteRetry).toHaveBeenCalledOnce();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(FakeWebSocket.instances[0].closeCount).toBe(1);
+    expect(onError).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    peer.destroy();
+  });
+
+  it('does not charge the guest identity-assertion wait to the CONNECTING watchdog', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const prepareNetworkRouteRetry = vi.fn(async () => null);
+    const identity = deferred<{ accountAssertion: null; deletionAssertion: null } | undefined>();
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry,
+      standardRoomAssertionProvider: () => identity.promise,
+    });
+    peer.connect('123456');
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+
+    // The optional assertion wait expires at 2s. The admission watchdog starts
+    // only after guest-auth is sent, so t=3.5s is still a healthy first socket.
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(sentOfType(socket, 'guest-auth')).toHaveLength(1);
+    expect(prepareNetworkRouteRetry).not.toHaveBeenCalled();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    peer.destroy();
+  });
+
+  it('converges a silent CONNECTING host claim without creating a third socket', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    const prepareNetworkRouteRetry = vi.fn(async () => null);
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry,
+    });
+    const onError = vi.fn(() => peer.destroy());
+    peer.on('error', onError);
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(prepareNetworkRouteRetry).toHaveBeenCalledOnce();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(onError).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(FakeWebSocket.instances).toHaveLength(2);
+  });
+
   it('treats host signaling socket errors after open as signaling loss only', async () => {
     installFakeWebSocket();
     const peer = createHostPeer();

@@ -28,9 +28,11 @@ interface OnboardingDebugGestureOptions {
   now?: () => number;
 }
 
-// A setup overlay can be initialized more than once during a document's
-// lifetime. Opening remains a page-session-only action across those bindings.
-let _openedThisDocument = false;
+// Setup can be initialized repeatedly as a user enters and leaves the welcome
+// flow. Keep only one live listener set per carousel target, but do not lock the
+// diagnostics surface after it has opened: a later ten-tap sequence must be
+// able to capture another failure in the same PWA document.
+const activeBindings = new WeakMap<HTMLElement, AbortSignal>();
 
 /**
  * Bind a ten-tap developer gesture without consuming or cancelling normal
@@ -42,7 +44,16 @@ export function bindOnboardingDebugGesture({
   onOpen,
   now = () => performance.now(),
 }: OnboardingDebugGestureOptions): boolean {
-  if (!target || signal.aborted || _openedThisDocument) return false;
+  if (!target || signal.aborted || activeBindings.has(target)) return false;
+
+  activeBindings.set(target, signal);
+  signal.addEventListener(
+    'abort',
+    () => {
+      if (activeBindings.get(target) === signal) activeBindings.delete(target);
+    },
+    { once: true },
+  );
 
   let tapCount = 0;
   let sequenceStartedAt: number | null = null;
@@ -57,8 +68,6 @@ export function bindOnboardingDebugGesture({
   };
 
   const registerTap = (at: number): void => {
-    if (_openedThisDocument) return;
-
     if (
       sequenceStartedAt === null ||
       at < sequenceStartedAt ||
@@ -72,7 +81,6 @@ export function bindOnboardingDebugGesture({
 
     if (tapCount < REQUIRED_TAPS) return;
 
-    _openedThisDocument = true;
     resetSequence();
     activeTap = null;
     activePointerIds.clear();
@@ -80,8 +88,6 @@ export function bindOnboardingDebugGesture({
   };
 
   const handlePointerDown = (event: PointerEvent): void => {
-    if (_openedThisDocument) return;
-
     activePointerIds.add(event.pointerId);
     const unsupportedButton = event.pointerType === 'mouse' && event.button !== 0;
     if (activePointerIds.size !== 1 || !event.isPrimary || unsupportedButton) {
@@ -111,8 +117,6 @@ export function bindOnboardingDebugGesture({
   };
 
   const handlePointerUp = (event: PointerEvent): void => {
-    if (_openedThisDocument) return;
-
     const at = now();
     // A conforming pointer-generated click follows pointerup. Remember every
     // pointerup (including an invalid swipe) so that click cannot be counted as
@@ -152,7 +156,6 @@ export function bindOnboardingDebugGesture({
   };
 
   const handleClick = (event: MouseEvent): void => {
-    if (_openedThisDocument) return;
     const at = now();
 
     // Pointer-capable browsers emit click immediately after pointerup. Keep

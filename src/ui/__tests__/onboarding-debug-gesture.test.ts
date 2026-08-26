@@ -41,7 +41,7 @@ describe('onboarding debug gesture', () => {
     document.body.innerHTML = '<div id="ob-slider-area"><button>next</button></div>';
   });
 
-  it('opens once after ten pointer taps and ignores each synthesized click', async () => {
+  it('opens after each complete pointer-tap sequence and ignores synthesized clicks', async () => {
     const { bindOnboardingDebugGesture } = await import('../onboarding-debug-gesture.ts');
     const target = document.getElementById('ob-slider-area') as HTMLElement;
     const onOpen = vi.fn();
@@ -69,7 +69,7 @@ describe('onboarding debug gesture', () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
 
     for (let index = 0; index < 10; index += 1) dispatchClick(target, 0);
-    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
   it('supports desktop click and keyboard-generated click fallback', async () => {
@@ -192,16 +192,29 @@ describe('onboarding debug gesture', () => {
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
-  it('unbinds on abort and refuses absent or already-aborted targets', async () => {
+  it('unbinds on abort, supports reinit, and refuses duplicate or invalid bindings', async () => {
     const { bindOnboardingDebugGesture } = await import('../onboarding-debug-gesture.ts');
     const target = document.getElementById('ob-slider-area') as HTMLElement;
     const onOpen = vi.fn();
     const controller = new AbortController();
 
     expect(bindOnboardingDebugGesture({ target, signal: controller.signal, onOpen })).toBe(true);
+    expect(
+      bindOnboardingDebugGesture({
+        target,
+        signal: new AbortController().signal,
+        onOpen,
+      }),
+    ).toBe(false);
     controller.abort();
     for (let index = 0; index < 10; index += 1) dispatchClick(target, 0);
     expect(onOpen).not.toHaveBeenCalled();
+
+    const reinitialized = new AbortController();
+    expect(bindOnboardingDebugGesture({ target, signal: reinitialized.signal, onOpen })).toBe(true);
+    for (let index = 0; index < 10; index += 1) dispatchClick(target, 0);
+    expect(onOpen).toHaveBeenCalledOnce();
+    reinitialized.abort();
 
     const aborted = new AbortController();
     aborted.abort();

@@ -26,6 +26,7 @@ vi.mock('../../core/state.ts', () => ({
 }));
 
 import { bus } from '../../core/events.ts';
+import { bindOnboardingDebugGesture } from '../onboarding-debug-gesture.ts';
 import {
   onboardingDiagnosticsForTests,
   initOnboardingDiagnostics,
@@ -233,6 +234,7 @@ describe('onboarding diagnostics snapshot', () => {
         '11:22:34.000 INFO [Host] Minji iPhone connection established (peer: mx-privateDeviceId_)',
         '11:22:35.000 DEBUG [Preload] Starting for: divorce-documents.mp3 session: 1',
         '11:22:36.000 INFO [SW] Existing waiting worker detected',
+        '11:22:37.000 ERROR [App] room-session feature load failed; reload required: TypeError',
       ].join('\n'),
     );
     sessionStorage.setItem(
@@ -282,6 +284,7 @@ describe('onboarding diagnostics snapshot', () => {
     expect(snapshot).toContain('[id-redacted]');
     expect(snapshot).toContain('[email-redacted]');
     expect(snapshot).toContain('[ip-redacted]');
+    expect(snapshot).toContain('[App] room-session feature load failed');
   });
 });
 
@@ -321,6 +324,61 @@ describe('onboarding diagnostics lifecycle', () => {
 });
 
 describe('onboarding diagnostics overlay', () => {
+  it('reopens after close from a second ten-tap sequence', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const controller = new AbortController();
+    expect(
+      bindOnboardingDebugGesture({
+        target,
+        signal: controller.signal,
+        onOpen: openOnboardingDiagnostics,
+      }),
+    ).toBe(true);
+
+    for (let index = 0; index < 10; index += 1) {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    }
+    const firstOverlay = document.getElementById('onboarding-diagnostics-overlay');
+    expect(firstOverlay).not.toBeNull();
+    const firstClose = Array.from(firstOverlay?.querySelectorAll('button') || []).find(
+      (button) => button.textContent === 'CLOSE',
+    ) as HTMLButtonElement;
+    firstClose.click();
+    expect(document.getElementById('onboarding-diagnostics-overlay')).toBeNull();
+
+    for (let index = 0; index < 10; index += 1) {
+      target.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
+    }
+    const reopenedOverlay = document.getElementById('onboarding-diagnostics-overlay');
+    expect(reopenedOverlay).not.toBeNull();
+    expect(reopenedOverlay).not.toBe(firstOverlay);
+    expect(document.querySelectorAll('#onboarding-diagnostics-overlay')).toHaveLength(1);
+
+    controller.abort();
+  });
+
+  it('replaces an already-open diagnostics surface without duplicate overlays', () => {
+    const background = document.createElement('main');
+    document.body.appendChild(background);
+
+    openOnboardingDiagnostics();
+    const firstOverlay = document.getElementById('onboarding-diagnostics-overlay');
+    expect(background.inert).toBe(true);
+
+    openOnboardingDiagnostics();
+    const secondOverlay = document.getElementById('onboarding-diagnostics-overlay');
+    expect(secondOverlay).not.toBe(firstOverlay);
+    expect(document.querySelectorAll('#onboarding-diagnostics-overlay')).toHaveLength(1);
+    expect(background.inert).toBe(true);
+
+    const closeButton = Array.from(secondOverlay?.querySelectorAll('button') || []).find(
+      (button) => button.textContent === 'CLOSE',
+    ) as HTMLButtonElement;
+    closeButton.click();
+    expect(background.inert).toBe(false);
+  });
+
   it('renders a copyable partial snapshot when browser-owned diagnostic reads hang', async () => {
     vi.useFakeTimers();
     harness.getRegistration.mockReturnValue(new Promise(() => {}));

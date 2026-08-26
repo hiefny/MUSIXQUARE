@@ -44,6 +44,7 @@ import {
   scheduleDocumentReload,
   scheduleSessionReset,
 } from './core/session-reset.ts';
+import { createReloadRecoveryLatch } from './core/reload-recovery-latch.ts';
 
 // ── Audio ──
 import { initAudio, isAudioReady } from './audio/engine.ts';
@@ -1028,36 +1029,49 @@ function recordCachedNavigationFallback(): void {
   }
 }
 
-let lazyFeatureRecoveryPrompt: Promise<void> | null = null;
+type LazyFeatureFailure = {
+  feature: 'connect' | 'pro-room' | 'room-session';
+  error: unknown;
+};
+
+const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
+  async present() {
+    const result = await showDialog({
+      title: t('dialog.sw_update_title'),
+      message: t('dialog.sw_update_msg'),
+      buttonText: t('common.refresh'),
+      dismissible: false,
+      defaultFocus: 'primary',
+    });
+    return result.action === 'ok' ? 'accept' : 'decline';
+  },
+  reload(_failure, onRecovered) {
+    scheduleDocumentReload(t('dialog.refreshing_session'), onRecovered);
+  },
+  onDeclined() {
+    showToast(t('error.network_generic'));
+  },
+  onRecovered({ feature, error }) {
+    // A WebKit reload can be cancelled or become a no-op while the old
+    // document remains alive. Reopening the same modal from the recovery
+    // callback creates an update-dialog loop without changing the cached
+    // module graph. End this attempt; a later explicit feature action can
+    // offer recovery again.
+    log.warn(`[App] ${feature} reload recovery returned to the stale document`, error);
+    showToast(t('error.network_generic'));
+  },
+  onPresentationFailure(_failure, dialogError) {
+    log.error('[App] Lazy feature recovery dialog failed:', dialogError);
+    showToast(t('error.network_generic'));
+  },
+});
 
 function reportLazyFeatureLoadFailure(
   feature: 'connect' | 'pro-room' | 'room-session',
   error: unknown,
 ): void {
   log.error(`[App] ${feature} feature load failed; reload required:`, error);
-  lazyFeatureRecoveryPrompt ??= showDialog({
-    title: t('dialog.sw_update_title'),
-    message: t('dialog.sw_update_msg'),
-    buttonText: t('common.refresh'),
-    dismissible: false,
-    defaultFocus: 'primary',
-  })
-    .then((result) => {
-      if (result.action !== 'ok') {
-        lazyFeatureRecoveryPrompt = null;
-        showToast(t('error.network_generic'));
-        return;
-      }
-      scheduleDocumentReload(t('dialog.refreshing_session'), () => {
-        lazyFeatureRecoveryPrompt = null;
-        reportLazyFeatureLoadFailure(feature, error);
-      });
-    })
-    .catch((dialogError: unknown) => {
-      lazyFeatureRecoveryPrompt = null;
-      log.error('[App] Lazy feature recovery dialog failed:', dialogError);
-      showToast(t('error.network_generic'));
-    });
+  runLazyFeatureRecovery({ feature, error });
 }
 
 // bootstrap.js probes before the module graph, while sw-register repeats the

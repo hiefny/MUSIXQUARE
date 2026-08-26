@@ -35,7 +35,10 @@ import {
 import { requestStandardRoomAccountAssertion } from '../account/room-identity.ts';
 import { clearCurrentAccountLoginReturn } from '../account/login-return.ts';
 import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
-import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
+import {
+  getStandardRoomTurnCredentials,
+  prepareStandardRoomNetworkRouteRetry,
+} from './standard-room-prerequisites.ts';
 import {
   canRecoverSignalingInPlace,
   publishSignalingExhausted,
@@ -428,6 +431,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
           bundlePolicy: 'max-bundle',
         },
         deferRtcUntilConfigured: true,
+        prepareNetworkRouteRetry: prepareStandardRoomNetworkRouteRetry,
         standardRoomAssertionProvider: requestStandardRoomAccountAssertion,
       };
 
@@ -499,6 +503,9 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
         iceServers,
         bundlePolicy: 'max-bundle',
       },
+      ...(transportConfig.provider === 'cloudflare'
+        ? { prepareNetworkRouteRetry: prepareStandardRoomNetworkRouteRetry }
+        : {}),
       standardRoomAssertionProvider: requestStandardRoomAccountAssertion,
     };
 

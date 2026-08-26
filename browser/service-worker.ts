@@ -44,9 +44,13 @@ const OPTIONAL_CACHE_READY_KEY = `./.mxqr-optional-ready?cache=${CACHE_VERSION}`
 const CACHE_STATUS_REQUEST = 'MXQR_CACHE_STATUS_REQUEST';
 const CACHE_CLIENT_STATUS = 'MXQR_CACHE_CLIENT_STATUS';
 const CACHE_STATUS_PROBE = 'MXQR_CACHE_STATUS_PROBE';
+const SW_GENERATION_REQUEST = 'MXQR_SW_GENERATION_REQUEST';
+const SW_GENERATION_RESPONSE = 'MXQR_SW_GENERATION_RESPONSE';
 const ACCOUNT_COMPLETION_PATH = '/account-complete.html';
 const ACCOUNT_COMPLETION_SHELL = './account-complete.html';
 const cacheReadyClientIds = new Set<string>();
+const cacheStatusClientIds = new Set<string>();
+const retainedCacheVersionsByClientId = new Map<string, string>();
 const cachedNavigationClientIds = new Set<string>();
 const clearedNavigationClientIds = new Set<string>();
 
@@ -125,14 +129,6 @@ serviceWorker.addEventListener('install', (event) => {
   );
 });
 
-function responseWithBodyCopy(response: Response, body: BodyInit | null): Response {
-  return new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
-}
-
 async function stageOptionalPrimaryFontAssets(): Promise<void> {
   if (OPTIONAL_PRIMARY_FONT_ASSETS.length === 0) return;
 
@@ -156,22 +152,19 @@ async function stageOptionalPrimaryFontAssets(): Promise<void> {
     // A prior abandoned install may have left bodies behind. Removing the
     // marker first keeps every incomplete generation invisible.
     await optionalCache.delete(OPTIONAL_CACHE_READY_KEY);
-    const entries = await Promise.all(
-      OPTIONAL_PRIMARY_FONT_ASSETS.map(async (asset) => {
-        const request = new Request(new URL(asset, serviceWorker.location.href));
-        const response = controller
-          ? await fetch(request, { signal: controller.signal })
-          : await fetch(request);
-        if (!response || response.status === 206 || !response.ok) {
-          throw new Error(`OPTIONAL_ASSET_FETCH_FAILED:${request.url}`);
-        }
-        const body = await response.arrayBuffer();
-        return { request, response: responseWithBodyCopy(response, body) };
-      }),
-    );
-    if (expired) return;
-    for (const entry of entries) {
-      await optionalCache.put(entry.request, entry.response);
+    // Stream one response into CacheStorage at a time. The previous parallel
+    // arrayBuffer staging held the full 2 MiB font plus the loader/CSS bodies
+    // in JS memory during every install, amplifying WebKit CPU and memory use.
+    // Partial entries stay invisible until the final readiness marker exists.
+    for (const asset of OPTIONAL_PRIMARY_FONT_ASSETS) {
+      const request = new Request(new URL(asset, serviceWorker.location.href));
+      const response = controller
+        ? await fetch(request, { signal: controller.signal })
+        : await fetch(request);
+      if (!response || response.status === 206 || !response.ok) {
+        throw new Error(`OPTIONAL_ASSET_FETCH_FAILED:${request.url}`);
+      }
+      await optionalCache.put(request, response);
       if (expired) return;
     }
     await optionalCache.put(
@@ -200,6 +193,20 @@ async function stageOptionalPrimaryFontAssets(): Promise<void> {
 serviceWorker.addEventListener('message', (event) => {
   const data: unknown = event.data;
   if (!isRecord(data)) return;
+
+  if (data.type === SW_GENERATION_REQUEST) {
+    if (typeof data.requestId !== 'string' || data.requestId.length > 128) return;
+    try {
+      event.source?.postMessage({
+        type: SW_GENERATION_RESPONSE,
+        requestId: data.requestId,
+        cacheVersion: CACHE_VERSION,
+      });
+    } catch (_) {
+      /* the requesting page disappeared before the version reply */
+    }
+    return;
+  }
 
   if (data.type === 'SKIP_WAITING') {
     const activation = serviceWorker.skipWaiting();
@@ -232,8 +239,22 @@ serviceWorker.addEventListener('message', (event) => {
 
   const clientId = isClientMessageSource(event.source) ? event.source.id : '';
   if (!clientId) return;
-  if (data.ready === true) cacheReadyClientIds.add(clientId);
-  else cacheReadyClientIds.delete(clientId);
+  cacheStatusClientIds.add(clientId);
+  if (data.ready === true) {
+    cacheReadyClientIds.add(clientId);
+    retainedCacheVersionsByClientId.delete(clientId);
+  } else {
+    cacheReadyClientIds.delete(clientId);
+    if (
+      typeof data.pageCacheVersion === 'string' &&
+      /^v[1-9]\d*$/.test(data.pageCacheVersion) &&
+      data.pageCacheVersion !== CACHE_VERSION
+    ) {
+      retainedCacheVersionsByClientId.set(clientId, data.pageCacheVersion);
+    } else {
+      retainedCacheVersionsByClientId.delete(clientId);
+    }
+  }
   const repliesToRequest = data.replyToRequest === true;
 
   const work = (async () => {
@@ -254,14 +275,22 @@ async function getWindowClients(): Promise<readonly Client[]> {
   return serviceWorker.clients.matchAll({ type: 'window', includeUncontrolled: true });
 }
 
-async function deleteRetiredCaches(): Promise<void> {
+function cacheVersionFromName(cacheName: string): string | null {
+  return /^musixquare-(?:static|runtime|optional)-(v[1-9]\d*)$/.exec(cacheName)?.[1] || null; // brand-capitalization: allow-technical
+}
+
+async function deleteRetiredCaches(
+  preservedVersions: ReadonlySet<string> = new Set(),
+): Promise<void> {
   const keys = await caches.keys();
   await Promise.all(
     keys
       .filter((key) => {
+        const keyVersion = cacheVersionFromName(key);
         return (
           key.startsWith('musixquare-') && // brand-capitalization: allow-technical
-          ![STATIC_CACHE, RUNTIME_CACHE, OPTIONAL_CACHE].includes(key)
+          ![STATIC_CACHE, RUNTIME_CACHE, OPTIONAL_CACHE].includes(key) &&
+          (!keyVersion || !preservedVersions.has(keyVersion))
         );
       })
       .map((key) => caches.delete(key)),
@@ -357,11 +386,25 @@ async function retireOldCachesIfSafe(): Promise<boolean> {
   for (const clientId of cacheReadyClientIds) {
     if (!liveClientIds.has(clientId)) cacheReadyClientIds.delete(clientId);
   }
-
-  if (clients.length > 0 && !clients.every((client) => cacheReadyClientIds.has(client.id))) {
-    return false;
+  for (const clientId of cacheStatusClientIds) {
+    if (!liveClientIds.has(clientId)) cacheStatusClientIds.delete(clientId);
   }
-  await deleteRetiredCaches();
+  for (const clientId of retainedCacheVersionsByClientId.keys()) {
+    if (!liveClientIds.has(clientId)) retainedCacheVersionsByClientId.delete(clientId);
+  }
+
+  if (clients.length > 0) {
+    const allClientsReported = clients.every((client) => cacheStatusClientIds.has(client.id));
+    if (!allClientsReported) return false;
+
+    const hasUnknownRetainedGeneration = clients.some(
+      (client) =>
+        !cacheReadyClientIds.has(client.id) && !retainedCacheVersionsByClientId.has(client.id),
+    );
+    if (hasUnknownRetainedGeneration) return false;
+  }
+
+  await deleteRetiredCaches(new Set(retainedCacheVersionsByClientId.values()));
   return true;
 }
 

@@ -17,6 +17,27 @@
   let revealed = false;
   let timedOut = false;
 
+  function failOpenSetupBootGuard(): void {
+    const root = document.documentElement;
+    if (!root.classList.contains('setup-boot-block')) return;
+    if (document.getElementById('setup-overlay')?.classList.contains('active')) return;
+    root.classList.add('setup-boot-failed');
+    root.classList.remove('setup-boot-block');
+  }
+
+  function handleEarlyAppModuleError(event: Event): void {
+    const target = event.target as { src?: unknown; tagName?: unknown } | null;
+    const failedEntryScript =
+      target?.tagName === 'SCRIPT' &&
+      typeof target.src === 'string' &&
+      /\/(?:src\/app\.ts|assets\/main-[^/?]+\.js)(?:\?.*)?$/u.test(target.src);
+    const filename = (event as ErrorEvent).filename;
+    const failedEntryEvaluation =
+      typeof filename === 'string' &&
+      /\/(?:src\/app\.ts|assets\/main-[^/?]+\.js)(?:\?.*)?$/u.test(filename);
+    if (failedEntryScript || failedEntryEvaluation) failOpenSetupBootGuard();
+  }
+
   function reveal(): boolean {
     if (!document.body) return false;
     // Re-assert the class even after the first reveal. WebKit can restore a
@@ -53,10 +74,15 @@
   }
   document.addEventListener('visibilitychange', revealOnForeground);
   window.addEventListener('pageshow', reveal);
+  window.addEventListener('error', handleEarlyAppModuleError, true);
 
   requestAnimationFrame(check);
   setTimeout(() => {
     timedOut = true;
     reveal();
   }, 3000);
+  // A hung module graph or bootstrap promise cannot report its own failure.
+  // After a deliberately generous bound, replace the blank boot guard with a
+  // reloadable failure surface. Normal setup removes the guard long before it.
+  setTimeout(failOpenSetupBootGuard, 15_000);
 })();

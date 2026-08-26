@@ -127,6 +127,7 @@ import { initClearableEditors } from './ui/clearable-editors.ts';
 import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
 import { initSettings } from './ui/settings.ts';
 import { initSetup } from './ui/setup.ts';
+import { failOpenSetupBootGuard } from './ui/setup-boot-guard.ts';
 import { initDemoMode } from './demo/mode.ts';
 import { initAnnouncementPolling } from './ui/announcement.ts';
 import { initProRoomBranding } from './pro-room/branding.ts';
@@ -1202,7 +1203,17 @@ async function bootstrap(): Promise<void> {
     if (role === 'host' || role === 'guest') load();
   });
   safeInit('CustomScrollbars', initAllCustomScrollbars);
-  safeInit('Setup', initSetup);
+  safeInit('Setup', () => {
+    try {
+      initSetup();
+    } catch (error) {
+      // The parser-time setup guard must not turn a recoverable feature-init
+      // failure into a permanently blank shell. A successful setup releases
+      // it only after the overlay owns the visible frame.
+      failOpenSetupBootGuard();
+      throw error;
+    }
+  });
   safeInit('DemoMode', initDemoMode);
   safeInit('AnnouncementPolling', initAnnouncementPolling);
   safeInit('ProRoomBranding', initProRoomBranding);
@@ -1268,6 +1279,7 @@ async function bootstrap(): Promise<void> {
 function runBootstrap(): void {
   publishBootstrapDataset('bootstrapping');
   void bootstrap().catch((e) => {
+    failOpenSetupBootGuard();
     bootstrapReadiness.recordFailure('BootstrapOrchestrator', 'orchestration');
     const snapshot = bootstrapReadiness.snapshot();
     publishBootstrapDataset('aborted', snapshot);

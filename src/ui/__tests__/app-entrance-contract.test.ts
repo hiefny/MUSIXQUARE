@@ -10,6 +10,8 @@ interface EntranceTarget {
 }
 
 let setupSource: string;
+let setupSharedSource: string;
+let appSource: string;
 let appStylesheet: string;
 let desktopStylesheet: string;
 let appMarkup: string;
@@ -17,6 +19,8 @@ let entranceTargets: EntranceTarget[];
 
 beforeAll(() => {
   setupSource = readFileSync(resolve('src/ui/setup.ts'), 'utf8');
+  setupSharedSource = readFileSync(resolve('src/ui/setup-shared.ts'), 'utf8');
+  appSource = readFileSync(resolve('src/app.ts'), 'utf8');
   appStylesheet = readFileSync(resolve('css/style.css'), 'utf8');
   desktopStylesheet = readFileSync(resolve('css/desktop.css'), 'utf8');
   appMarkup = readFileSync(resolve('index.html'), 'utf8');
@@ -38,6 +42,58 @@ function target(selector: string): EntranceTarget | undefined {
 }
 
 describe('app entrance choreography contract', () => {
+  it('keeps the app chrome unpainted until onboarding owns the first visible frame', () => {
+    const openingHtmlTag = appMarkup.match(/<html\b[^>]*>/u)?.[0] ?? '';
+    expect(openingHtmlTag).toContain('class="setup-boot-block"');
+
+    const bootBlockRule = appStylesheet.match(
+      /html\.setup-boot-block \.skip-link,\s*html\.setup-boot-block header,\s*html\.setup-boot-block \.tab-content,\s*html\.setup-boot-block \.chat-drawer,\s*html\.setup-boot-block \.bottom-nav\s*\{([^}]*)\}/u,
+    )?.[1];
+    expect(bootBlockRule).toContain('visibility: hidden !important');
+    expect(bootBlockRule).toContain('opacity: 0 !important');
+    expect(bootBlockRule).toContain('pointer-events: none !important');
+    expect(bootBlockRule).toContain('transition: none !important');
+    expect(bootBlockRule).toContain('animation: none !important');
+
+    const showSetupBlock = setupSharedSource.match(
+      /export function showSetupOverlay\(\): void \{([\s\S]*?)\n\}/u,
+    )?.[1];
+    expect(showSetupBlock).toBeTruthy();
+    expect(showSetupBlock?.indexOf("ov.classList.add('active')")).toBeGreaterThanOrEqual(0);
+    expect(showSetupBlock?.indexOf("classList.remove('setup-boot-block')")).toBeGreaterThan(
+      showSetupBlock?.indexOf("ov.classList.add('active')") ?? Number.MAX_SAFE_INTEGER,
+    );
+
+    expect(appSource).toMatch(
+      /safeInit\('Setup', \(\) => \{[\s\S]*?initSetup\(\);[\s\S]*?catch \(error\) \{[\s\S]*?failOpenSetupBootGuard\(\);[\s\S]*?throw error;/u,
+    );
+    const failedBootRule = appStylesheet.match(
+      /html\.setup-boot-failed \.skip-link,\s*html\.setup-boot-failed header,\s*html\.setup-boot-failed \.tab-content,\s*html\.setup-boot-failed \.chat-drawer,\s*html\.setup-boot-failed \.bottom-nav,\s*html\.setup-boot-failed #setup-overlay\s*\{([^}]*)\}/u,
+    )?.[1];
+    expect(failedBootRule).toContain('visibility: hidden !important');
+    expect(failedBootRule).toContain('opacity: 0 !important');
+    expect(failedBootRule).toContain('pointer-events: none !important');
+    expect(failedBootRule).toContain('transition: none !important');
+    expect(appStylesheet).toMatch(
+      /body:has\(> noscript \.noscript-fallback\)\s*\{\s*opacity:\s*1;/u,
+    );
+    expect(appMarkup).toMatch(
+      /id="bootstrap-failure"[\s\S]*?role="alert"[\s\S]*?<form method="get">[\s\S]*?<button id="bootstrap-retry" type="submit">/u,
+    );
+    expect(appStylesheet).toMatch(
+      /html\.setup-boot-failed \.bootstrap-failure\s*\{\s*display:\s*flex;/u,
+    );
+    expect(appStylesheet).toMatch(
+      /html\.setup-boot-block body:not\(:has\(> noscript \.noscript-fallback\)\)[\s\S]*?setup-boot-body-fail-open[\s\S]*?var\(--setup-boot-failure-delay, 15s\)/u,
+    );
+    expect(appStylesheet).toMatch(
+      /html\.setup-boot-block[\s\S]*?body:not\(:has\(> noscript \.noscript-fallback\)\)[\s\S]*?> \.bootstrap-failure[\s\S]*?setup-boot-failure-reveal[\s\S]*?var\(--setup-boot-failure-delay, 15s\)/u,
+    );
+    expect(showSetupBlock).toMatch(
+      /hasTerminalSetupBootFailure\(\)[\s\S]*?animateTransition\([\s\S]*?hasTerminalSetupBootFailure\(\)[\s\S]*?classList\.add\('active'\)/u,
+    );
+  });
+
   it('finishes the visible stagger at exactly 1200ms before buffered cleanup', () => {
     expect(appStylesheet).toMatch(
       /\.app-entrance\s*\{[\s\S]*?opacity 0\.6s[\s\S]*?transform 0\.8s/u,

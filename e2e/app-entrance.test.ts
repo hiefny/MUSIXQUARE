@@ -16,7 +16,149 @@ async function entranceDelay(page: Page, selector: string): Promise<string> {
 }
 
 test.describe('app entrance choreography', () => {
-  test('reveals metadata and desktop settings as separate 1200ms cascades', async ({ page }) => {
+  for (const viewport of [
+    { label: 'portrait', width: 390, height: 844 },
+    { label: 'compact landscape', width: 844, height: 390 },
+  ] as const) {
+    test(`never paints ${viewport.label} navigation while cold-start setup is still loading`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+
+      let releaseAppModule: (() => void) | undefined;
+      let appModuleRouteHit = false;
+      const appModuleGate = new Promise<void>((resolve) => {
+        releaseAppModule = resolve;
+      });
+      await page.route(/\/(?:src\/app\.ts|assets\/main-[^/?]+\.js)(?:\?.*)?$/u, async (route) => {
+        appModuleRouteHit = true;
+        await appModuleGate;
+        await route.continue();
+      });
+
+      try {
+        await page.goto('/', { waitUntil: 'commit' });
+        await page.locator('.bottom-nav').waitFor({ state: 'attached' });
+        await expect.poll(() => appModuleRouteHit).toBe(true);
+        await expect(page.locator('body')).toHaveClass(/\bfouc-loaded\b/u);
+
+        expect(
+          await page.locator('.bottom-nav').evaluate((element) => {
+            const style = getComputedStyle(element);
+            return {
+              opacity: style.opacity,
+              visibility: style.visibility,
+              pointerEvents: style.pointerEvents,
+              transitionDuration: style.transitionDuration,
+            };
+          }),
+        ).toEqual({
+          opacity: '0',
+          visibility: 'hidden',
+          pointerEvents: 'none',
+          transitionDuration: '0s',
+        });
+      } finally {
+        releaseAppModule?.();
+      }
+
+      await expect(page.locator('#setup-overlay')).toHaveClass(/\bactive\b/u);
+      await expect(page.locator('html')).not.toHaveClass(/\bsetup-boot-block\b/u);
+      await expect(page.locator('.bottom-nav')).toHaveCSS('opacity', '0');
+    });
+  }
+
+  test('shows a reloadable failure surface if the app entry module cannot start', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.route(/\/(?:src\/app\.ts|assets\/main-[^/?]+\.js)(?:\?.*)?$/u, async (route) =>
+      route.abort('failed'),
+    );
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+
+    await expect(page.locator('html')).toHaveClass(/\bsetup-boot-failed\b/u);
+    await expect(page.locator('html')).not.toHaveClass(/\bsetup-boot-block\b/u);
+    await expect(page.locator('#bootstrap-failure')).toBeVisible();
+    await expect(page.locator('#bootstrap-retry')).toHaveAttribute('type', 'submit');
+    await expect(page.locator('.skip-link')).not.toBeVisible();
+    await expect(page.locator('header')).not.toBeVisible();
+    await expect(page.locator('.chat-drawer')).not.toBeVisible();
+    await expect(page.locator('.bottom-nav')).not.toBeVisible();
+    await expect(page.locator('#setup-overlay')).not.toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#bootstrap-retry')).toBeFocused();
+  });
+
+  test('keeps the no-script recovery message visible without the cleanup runtime', async ({
+    browser,
+    baseURL,
+  }) => {
+    const context = await browser.newContext({
+      baseURL,
+      javaScriptEnabled: false,
+      viewport: { width: 390, height: 844 },
+    });
+    const page = await context.newPage();
+
+    try {
+      await page.goto('/');
+      await expect(page.locator('.noscript-fallback')).toBeVisible();
+      await expect(page.locator('body')).toHaveCSS('opacity', '1');
+      await expect(page.locator('.bottom-nav')).toHaveCSS('visibility', 'hidden');
+    } finally {
+      await context.close();
+    }
+  });
+
+  test('keeps CSS recovery authoritative when an older cached runtime resumes the app late', async ({
+    page,
+  }) => {
+    let releaseAppModule: (() => void) | undefined;
+    let appModuleRouteHit = false;
+    const appModuleGate = new Promise<void>((resolve) => {
+      releaseAppModule = resolve;
+    });
+    await page.route('**/fouc-cleanup.js', async (route) =>
+      route.fulfill({
+        contentType: 'application/javascript',
+        body: `document.addEventListener('DOMContentLoaded', () => document.body.classList.add('fouc-loaded'), { once: true });`,
+      }),
+    );
+    await page.route(/\/assets\/main-[^/?]+\.js(?:\?.*)?$/u, async (route) => {
+      appModuleRouteHit = true;
+      await appModuleGate;
+      await route.continue();
+    });
+
+    try {
+      await page.goto('/', { waitUntil: 'commit' });
+      await page.locator('#bootstrap-failure').waitFor({ state: 'attached' });
+      await expect.poll(() => appModuleRouteHit).toBe(true);
+      await page.addStyleTag({
+        content: ':root { --setup-boot-failure-delay: 0s !important; }',
+      });
+
+      await expect(page.locator('html')).toHaveClass(/\bsetup-boot-block\b/u);
+      await expect(page.locator('#bootstrap-failure')).toBeVisible();
+      await expect(page.locator('.bottom-nav')).not.toBeVisible();
+    } finally {
+      releaseAppModule?.();
+    }
+
+    await expect(page.locator('html')).toHaveClass(/\bsetup-boot-failed\b/u);
+    await expect(page.locator('#setup-overlay')).not.toHaveClass(/\bactive\b/u);
+    await expect(page.locator('#bootstrap-failure')).not.toHaveAttribute('inert', '');
+    await page.keyboard.press('Tab');
+    await expect(page.locator('#bootstrap-retry')).toBeFocused();
+  });
+
+  test('reveals metadata and desktop settings as separate 1200ms cascades', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName === 'webkit', 'Desktop entrance timing is covered by the Chromium lane.');
     await page.setViewportSize({ width: 1440, height: 900 });
     await setupHost(page);
 

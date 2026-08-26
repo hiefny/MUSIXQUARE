@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md. -->
-<html lang="ko">
+<html lang="ko" class="setup-boot-block">
   <head>
     <meta charset="UTF-8" />
     <!-- MUSIXQUARE is a fixed-scale application surface, not a reflowing
@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v500"></script>
+    <script src="/bootstrap.js?cache=v501"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -89,6 +89,19 @@
         MUSIXQUARE는 JavaScript가 필요해요. 브라우저 설정에서 JavaScript를 켠 뒤 다시 시도해 주세요.
       </div>
     </noscript>
+
+    <section
+      id="bootstrap-failure"
+      class="bootstrap-failure"
+      role="alert"
+      aria-labelledby="bootstrap-failure-title"
+    >
+      <strong id="bootstrap-failure-title">MUSIXQUARE</strong>
+      <p>앱을 시작하지 못했어요.<br /><span lang="en">The app could not start.</span></p>
+      <form method="get">
+        <button id="bootstrap-retry" type="submit">다시 시도 / Retry</button>
+      </form>
+    </section>
 
     <header id="main-header">
       <div class="header-progress-bg" id="header-progress-bg"></div>

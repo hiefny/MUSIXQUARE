@@ -658,11 +658,35 @@
     animation: none !important;
   }
 
-  /* Setup overlay deferred mount: block interactions briefly until the setup overlay is shown */
+  /* The setup decision runs after async locale bootstrap. Keep the authored app
+     surface out of both paint and the accessibility tree from the first HTML
+     parse until the setup overlay is active. This prevents the mobile nav from
+     briefly rendering, then playing its overlay exit transition on cold start. */
+  html.setup-boot-block .skip-link,
   html.setup-boot-block header,
   html.setup-boot-block .tab-content,
+  html.setup-boot-block .chat-drawer,
   html.setup-boot-block .bottom-nav {
+    visibility: hidden !important;
+    opacity: 0 !important;
     pointer-events: none !important;
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* A setup exception exposes only the reloadable failure surface. The dead
+     app shell remains outside paint, pointer input, and sequential focus. */
+  html.setup-boot-failed .skip-link,
+  html.setup-boot-failed header,
+  html.setup-boot-failed .tab-content,
+  html.setup-boot-failed .chat-drawer,
+  html.setup-boot-failed .bottom-nav,
+  html.setup-boot-failed #setup-overlay {
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transition: none !important;
+    animation: none !important;
   }
 
   /* ── App Entrance Animation ────────────────────────────────────── */
@@ -10546,6 +10570,89 @@ body {
 
 body.fouc-loaded {
   opacity: 1;
+}
+
+/* With scripting disabled, the classic cleanup cannot add .fouc-loaded.
+   Browsers parse the noscript child only in that mode, making this a
+   CSS-only escape hatch without revealing the scripted shell early. */
+body:has(> noscript .noscript-fallback) {
+  opacity: 1;
+}
+
+@keyframes setup-boot-body-fail-open {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes setup-boot-failure-reveal {
+  to {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+/* This parser-owned fallback remains effective when a newly deployed HTML
+   document is controlled by an older service worker/cache generation. Normal
+   setup removes setup-boot-block and cancels both delayed zero-motion changes. */
+html.setup-boot-block body:not(:has(> noscript .noscript-fallback)) {
+  animation: setup-boot-body-fail-open 0s linear var(--setup-boot-failure-delay, 15s) forwards !important;
+}
+
+.bootstrap-failure {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: calc(24px + var(--safe-top)) calc(24px + var(--safe-right))
+    calc(24px + var(--safe-bottom)) calc(24px + var(--safe-left));
+  color: var(--text);
+  text-align: center;
+  background: var(--bg);
+}
+
+html.setup-boot-block body:not(:has(> noscript .noscript-fallback)) > .bootstrap-failure {
+  display: flex;
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  animation: setup-boot-failure-reveal 0s linear var(--setup-boot-failure-delay, 15s) forwards !important;
+}
+
+html.setup-boot-failed .bootstrap-failure {
+  display: flex;
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+  animation: none !important;
+}
+
+.bootstrap-failure strong {
+  font-size: 22px;
+}
+
+.bootstrap-failure p {
+  margin: 0;
+  color: var(--text-sub);
+  line-height: 1.6;
+}
+
+.bootstrap-failure button {
+  min-width: 160px;
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  font: inherit;
+  font-weight: 700;
+  background: var(--primary);
+  cursor: pointer;
 }
 
 /* ─── Viewport-safe height clamps ──────────────────────────────

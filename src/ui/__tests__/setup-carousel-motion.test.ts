@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  animateTransition: vi.fn((apply: () => void) => apply()),
   clearManagedTimer: vi.fn(),
   setManagedTimer: vi.fn(),
 }));
@@ -18,7 +19,7 @@ vi.mock('../../core/platform.ts', () => ({
 }));
 
 vi.mock('../dom.ts', () => ({
-  animateTransition: vi.fn((apply: () => void) => apply()),
+  animateTransition: mocks.animateTransition,
   updateOverlayOpenClass: vi.fn(),
 }));
 
@@ -53,6 +54,7 @@ import {
   setupSetGuestJoinBusy,
   setupSetGuestJoinError,
   setupShowWelcome,
+  showSetupOverlay,
   updateObSlider,
 } from '../setup-shared.ts';
 
@@ -162,11 +164,50 @@ function dispatchTouch(target: Element, type: 'touchstart' | 'touchend', clientX
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.animateTransition.mockImplementation((apply: () => void) => apply());
   installMatchMedia();
   Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+  document.documentElement.className = '';
+  document.body.className = '';
+  document.body.replaceChildren();
 });
 
 describe('onboarding carousel motion preference', () => {
+  it('keeps a late setup transition behind a terminal bootstrap failure', () => {
+    let applyTransition: (() => void) | undefined;
+    mocks.animateTransition.mockImplementationOnce((apply: () => void) => {
+      applyTransition = apply;
+    });
+    document.documentElement.className = 'setup-boot-block';
+    document.body.innerHTML = '<div id="setup-overlay"></div>';
+
+    showSetupOverlay();
+    document.documentElement.classList.add('setup-boot-failed');
+    document.documentElement.classList.remove('setup-boot-block');
+    applyTransition?.();
+
+    expect(document.getElementById('setup-overlay')?.classList.contains('active')).toBe(false);
+    expect(document.documentElement.classList.contains('setup-boot-failed')).toBe(true);
+    expect(mocks.setManagedTimer).not.toHaveBeenCalled();
+  });
+
+  it('promotes a visible CSS-only boot timeout before late setup can take ownership', () => {
+    document.documentElement.className = 'setup-boot-block';
+    document.body.innerHTML = `
+      <section id="bootstrap-failure" style="display:flex;visibility:visible;opacity:1"></section>
+      <div id="setup-overlay"></div>
+    `;
+
+    showSetupOverlay();
+
+    expect(document.documentElement.classList.contains('setup-boot-failed')).toBe(true);
+    expect(document.documentElement.classList.contains('setup-boot-block')).toBe(false);
+    expect(document.body.classList.contains('fouc-loaded')).toBe(true);
+    expect(document.getElementById('setup-overlay')?.classList.contains('active')).toBe(false);
+    expect(mocks.animateTransition).not.toHaveBeenCalled();
+    expect(mocks.setManagedTimer).not.toHaveBeenCalled();
+  });
+
   it('exposes buttons/current state and hides inactive slides from interaction', async () => {
     const markup = await readFile('index.html', 'utf8');
     const parsed = new DOMParser().parseFromString(markup, 'text/html');

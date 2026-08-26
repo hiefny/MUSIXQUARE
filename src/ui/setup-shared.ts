@@ -200,12 +200,48 @@ function scheduleSetupScrollbarReveal(): void {
   );
 }
 
+function hasTerminalSetupBootFailure(): boolean {
+  const root = document.documentElement;
+  if (root.classList.contains('setup-boot-failed')) return true;
+  if (!root.classList.contains('setup-boot-block')) return false;
+
+  const failure = setupEl('bootstrap-failure');
+  if (!failure) return false;
+  try {
+    const style = getComputedStyle(failure);
+    if (
+      style.display === 'none' ||
+      style.visibility !== 'visible' ||
+      Number.parseFloat(style.opacity || '0') <= 0
+    ) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  // Promote the parser/CSS-only timeout into the same terminal ownership used
+  // by the current runtime. Keep the body visible when removing the animation
+  // owner so a late bootstrap cannot turn the retry surface blank or inert.
+  document.body?.classList.add('fouc-loaded');
+  root.classList.add('setup-boot-failed');
+  root.classList.remove('setup-boot-block');
+  return true;
+}
+
 export function showSetupOverlay(): void {
+  if (hasTerminalSetupBootFailure()) return;
+
   animateTransition(() => {
+    // A bootstrap failure is terminal for this document. A late locale import
+    // or ViewTransition callback must never cover/inert the reload surface.
+    if (hasTerminalSetupBootFailure()) return;
+
     const ov = setupEl('setup-overlay');
     if (ov) ov.classList.add('active');
     updateOverlayOpenClass();
     try {
+      document.body?.classList.add('fouc-loaded');
       document.documentElement.classList.remove('setup-boot-block');
     } catch {
       /* ignore */

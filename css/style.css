@@ -81,6 +81,18 @@
     --list-row-height: 56px;
   }
 
+  /* Installed iOS WebKit can resolve 100dvh below the home-indicator area on
+     the first landscape frame. Seed the shell from the full standalone layout
+     viewport until platform.ts commits its measured pixel height. Safe-area
+     env() values remain padding inside this surface. */
+  @supports (-webkit-touch-callout: none) {
+    @media (display-mode: standalone) and (orientation: landscape) {
+      :root {
+        --app-height: 100vh;
+      }
+    }
+  }
+
   :root[data-mxqr-font-recovery='true'] {
     --font-primary: 'MUSIXQUARE Pretendard Recovery';
   }

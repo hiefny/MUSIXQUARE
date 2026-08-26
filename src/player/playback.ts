@@ -316,13 +316,13 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
           // remote-share descriptor to this guest.
           requestCurrentFile(incomingQueueItemId, waitName, 'remote_share_wait');
         }
-        log.info('[Guest] Remote guest — waiting for remote share descriptor');
+        log.info('[Guest] Remote guest: waiting for remote share descriptor');
         return;
       }
       setFileTrackMetaFromPlaylist(incomingQueueItemId, data.name as string | undefined);
       showLoader(false);
       showToast(t('share.remote.unavailable'));
-      log.info('[Guest] Remote guest — remote share unavailable');
+      log.info('[Guest] Remote guest: remote share unavailable');
       return;
     }
 
@@ -338,7 +338,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     // Don't send REQUEST_CURRENT_FILE — it would create a redundant double transfer
     // if the request arrives after the orchestrator sets isDataTarget=true.
     if (currentQueueItemId === null) {
-      log.debug('[Guest] Fresh join — file will arrive via orchestrator:peer-joined');
+      log.debug('[Guest] Fresh join: file will arrive via orchestrator:peer-joined');
       return;
     }
 
@@ -366,7 +366,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     // Drive the state machine for observability (it's a stay transition).
     transition({ type: 'PLAY', time, queueItemId: incomingQueueItemId, sameTrack: true });
     log.debug(
-      `[Guest] PLAY arrived while ${lifecycle} — deferring to pipeline completion (time=${time})`,
+      `[Guest] PLAY arrived while ${lifecycle}: deferring to pipeline completion (time=${time})`,
     );
     return;
   }
@@ -490,13 +490,13 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
           // Ask the host to resend the descriptor for this newly armed wait.
           requestCurrentFile(incomingQueueItemId, waitName, 'remote_share_wait');
         }
-        log.info('[Guest] Remote guest — waiting for remote share descriptor');
+        log.info('[Guest] Remote guest: waiting for remote share descriptor');
         return;
       }
       setFileTrackMetaFromPlaylist(incomingQueueItemId, data.name as string | undefined);
       showLoader(false);
       showToast(t('share.remote.unavailable'));
-      log.info('[Guest] Remote guest — remote share unavailable');
+      log.info('[Guest] Remote guest: remote share unavailable');
       return;
     }
     setPendingPlayTime(time);
@@ -571,7 +571,7 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
   // "재생목록 끝" toast overwrites it. Just stop everything and clear
   // the stale track meta so title/indicator mirror the host's reset.
   if (endOfPlaylist) {
-    log.debug('[Guest] Host signalled end of playlist — clearing track meta');
+    log.debug('[Guest] Host signalled end of playlist. Clearing track meta');
     setPlaybackTrackMeta(null);
     // Mirror host's deselected state so operator guest's togglePlay
     // also redirects to playTrack(0) instead of resuming stale audio.
@@ -1062,7 +1062,7 @@ export function initPlayback(): void {
         ) {
           return;
         }
-        log.warn('[Preload] Preloaded blob not available — stall timeout');
+        log.warn('[Preload] Preloaded blob not available: stall timeout');
         // shouldSkipIncomingFile() will return false once host's response
         // FILE_PREPARE transitions us out of AWAITING_PRELOAD into DOWNLOADING.
         showLoader(false);

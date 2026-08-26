@@ -1674,7 +1674,7 @@ function maintenanceHtml(language: MaintenanceLanguage): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <title lang="en">MUSIXQUARE — Service check</title>
+  <title lang="en">MUSIXQUARE: Service check</title>
   <style>
     :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100svh;display:grid;place-items:center;background:#e4e4e1;color:#171717;font-family:Inter,Pretendard,system-ui,-apple-system,sans-serif;padding:clamp(28px,7vw,88px)}main{width:min(960px,100%)}h1{margin:0}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0}.headline{display:block;font-size:clamp(34px,4.3vw,52px);font-weight:560;line-height:1.08;letter-spacing:-.04em;text-wrap:balance}.headline-lead{white-space:nowrap}.wordmark{display:inline-block;width:6em;max-width:calc(100% - 2em);height:auto;margin-right:clamp(8px,.2em,11px);color:#171717;vertical-align:middle}p{max-width:38rem;margin:clamp(26px,4vw,38px) 0 0;color:#5f5f5b;font-size:clamp(16px,2.5vw,19px);line-height:1.65;word-break:keep-all}@media(max-width:520px){body{place-items:start;padding-top:max(48px,12vh)}.headline{font-size:clamp(34px,9vw,40px)}}@media(orientation:landscape) and (max-height:520px){body{padding:24px clamp(32px,8vw,72px)}.headline{font-size:clamp(32px,4.8vw,40px)}p{margin-top:20px;font-size:16px;line-height:1.5}}
   </style>

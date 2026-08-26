@@ -9,6 +9,13 @@ const markup = readFileSync(resolve('index.html'), 'utf8');
 const document = new JSDOM(markup).window.document;
 
 describe('visualizer layout contract', () => {
+  it('seeds the complete standalone iOS landscape surface before JS reconciliation', () => {
+    expect(stylesheet).toMatch(
+      /@supports \(-webkit-touch-callout: none\)\s*\{\s*@media \(display-mode: standalone\) and \(orientation: landscape\)\s*\{\s*:root\s*\{\s*--app-height:\s*100vh;/u,
+    );
+    expect(stylesheet).not.toMatch(/--safe-bottom:\s*0(?:px)?\s*[;}]/u);
+  });
+
   it('mounts the visualizer and YouTube surface in one shared stage', () => {
     expect(markup).toMatch(
       /class="playback-stage"[\s\S]*?class="vinyl-wrapper"[\s\S]*?class="video-wrapper"/u,

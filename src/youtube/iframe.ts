@@ -1175,7 +1175,7 @@ export function loadYouTubeVideo(
   }
 
   if (isYouTubeToYouTube) {
-    log.debug('[YouTube] YouTube-to-YouTube transition — reusing player, skipping stop-all-media');
+    log.debug('[YouTube] YouTube-to-YouTube transition. Reusing player, skipping stop-all-media');
     try {
       // A retained iframe has more media work immediately ahead. stopVideo()
       // can emit ENDED and WebKit may discard reusable playback state; pause
@@ -1797,7 +1797,7 @@ function createYouTubePlayer(
           () => {
             if (_ifr.isScrapingPlaylist) {
               log.warn(
-                '[YouTube] Scrape safety timer fired — forcing isScrapingPlaylist + ytLoadInProgress cleanup',
+                '[YouTube] Scrape safety timer fired. Forcing isScrapingPlaylist + ytLoadInProgress cleanup',
               );
               _ifr.isScrapingPlaylist = false;
               _ifr.scrapeStartSubIndex = null;
@@ -2139,7 +2139,7 @@ function _finishScrape(ids: string[] | null): void {
   if (ids && ids.length > 0) {
     const subIdx = Math.max(0, Math.min(requestedSubIdx, ids.length - 1));
     if (pid) updateSubItemIds(pid, ids);
-    log.debug('[YouTube] Scrape captured IDs — switching to single-video mode');
+    log.debug('[YouTube] Scrape captured IDs. Switching to single-video mode');
     setYouTubeSubIndex(subIdx);
     const targetVideoId = ids[subIdx] || ids[0];
     rebindRetainedPlayerActiveTargetToVideo(player, targetVideoId);
@@ -2152,7 +2152,7 @@ function _finishScrape(ids: string[] | null): void {
     return;
   }
 
-  log.warn('[YouTube] Scrape returned no IDs — falling back to entry-point video');
+  log.warn('[YouTube] Scrape returned no IDs. Falling back to entry-point video');
   showToast(t('youtube.fetch_failed'));
   const entryVideoId = currentTrack?.videoId as string | undefined;
   if (entryVideoId) {
@@ -2435,7 +2435,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
       const pid = currentTrack?.playlistId;
       const subMap = getState('youtube.subItemsMap') || {};
       if (pid && (!subMap[pid] || !subMap[pid].ids.length)) {
-        log.debug('[YouTube] Playback started — triggering immediate playlist snapshot');
+        log.debug('[YouTube] Playback started. Triggering immediate playlist snapshot');
         _triggerPlaylistSnapshot(pid);
       }
     }
@@ -2498,7 +2498,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
     // between entry and here — this is about passing identity, not freshness.
     const indexingSession = getYtIndexingSession();
     if (indexingSession) {
-      log.debug('[YouTube] CUED during indexing — polling for full list');
+      log.debug('[YouTube] CUED during indexing. Polling for full list');
       // YouTube populates getPlaylist() lazily for large playlists — a
       // 100-track list commonly returns ~10 items on the first read after
       // CUED. Firing the callback immediately would cache a truncated list
@@ -2510,7 +2510,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
 
     const hostConn = getState('network.hostConn');
     if (!hostConn && _ifr.isScrapingPlaylist) {
-      log.debug('[YouTube] CUED during scrape — polling getPlaylist() for stable list');
+      log.debug('[YouTube] CUED during scrape. Polling getPlaylist() for stable list');
       // _ifr.isScrapingPlaylist stays true until _finishScrape runs so a
       // second CUED transition during the poll doesn't double-trigger.
       _pollScrapePlaylist(_ifr.scrapeSession, -1, 0);
@@ -2587,14 +2587,14 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
       // with the next video. If we set IDLE now, handleYouTubeState() would
       // drop the message (not in YouTube mode guard). Wait up to 5s
       // for the host's next-track command; fall back to IDLE if nothing arrives.
-      log.debug('[YouTube] Guest: video ended — waiting for host next-track');
+      log.debug('[YouTube] Guest: video ended. Waiting for host next-track');
       setManagedTimer(
         'yt-guest-ended-fallback',
         () => {
           // Host never sent next track (e.g. playlist truly ended) — clean up
           clearManagedTimer('youtubeUILoop');
           if (isPlaybackModeYouTube()) {
-            log.debug('[YouTube] Guest: no next-track from host — going IDLE');
+            log.debug('[YouTube] Guest: no next-track from host. Going IDLE');
             setPlaybackIdle();
             bus.emit('youtube:stop-mode');
           }
@@ -2685,7 +2685,7 @@ function updateYouTubeUI(): void {
     _ifr.crashFailCount++;
     if (_ifr.crashFailCount >= CRASH_FAIL_THRESHOLD) {
       log.error(
-        `[YouTube] iframe unresponsive (${_ifr.crashFailCount} failures) — rebuilding player`,
+        `[YouTube] iframe unresponsive (${_ifr.crashFailCount} failures). Rebuilding player`,
       );
       _ifr.crashFailCount = 0;
 
@@ -2844,7 +2844,7 @@ function updateYouTubeUI(): void {
     if (stuckEligible) {
       if (!_ifr.unavailableStuckSince) _ifr.unavailableStuckSince = Date.now();
       if (Date.now() - _ifr.unavailableStuckSince > UNAVAILABLE_STUCK_THRESHOLD_MS) {
-        log.error(`[YouTube] Player stuck in state ${state} — treating as unavailable, skipping`);
+        log.error(`[YouTube] Player stuck in state ${state}. Treating as unavailable, skipping`);
         _ifr.unavailableStuckSince = null;
         showToast(t('youtube.video_unavailable'));
         if (routeCurrentProYouTubeObservation('unavailable')) return;
@@ -2916,7 +2916,7 @@ function updateYouTubeUI(): void {
       // drive the transition. This eliminates the wrong-video window.
       if (hostConn && prevIdx !== -1 && playlistIdx >= 0) {
         log.info(
-          `[YouTube] Guest: suppressing auto-advance ${prevIdx} → ${playlistIdx} — pausing, waiting for host command`,
+          `[YouTube] Guest: suppressing auto-advance ${prevIdx} → ${playlistIdx}. Pausing, waiting for host command`,
         );
         try {
           player.pauseVideo?.();
@@ -3106,7 +3106,7 @@ function showYouTubeSyncOverlay(show: boolean): void {
           // permanently paused because downstream rendezvous playVideo() calls
           // fire outside a gesture and iOS will silently reject them. Roll
           // back the intent flag too so the pause-back guard stays armed.
-          log.warn('[YouTube iOS gate] prime play/pause threw — keeping overlay:', e);
+          log.warn('[YouTube iOS gate] prime play/pause threw. Keeping overlay:', e);
           setYtAutoplayIntent(false);
           return;
         }

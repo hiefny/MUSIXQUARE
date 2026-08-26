@@ -698,7 +698,7 @@ describe('joinSession reconnect racing', () => {
     expect(errors).toHaveBeenCalledOnce();
     expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_UNREACHABLE');
     expect(mocks.logWarn).toHaveBeenCalledWith(
-      '[Join] Connection timeout — data channel did not open in 20000ms',
+      '[Join] Connection timeout: data channel did not open in 20000ms',
     );
   });
 
@@ -717,7 +717,7 @@ describe('joinSession reconnect racing', () => {
     expect(conns[0].close).toHaveBeenCalledOnce();
     expect(errors).toHaveBeenCalledOnce();
     expect(mocks.logWarn).toHaveBeenCalledWith(
-      '[Join] Connection timeout — data channel did not open in 20000ms',
+      '[Join] Connection timeout: data channel did not open in 20000ms',
     );
   });
 

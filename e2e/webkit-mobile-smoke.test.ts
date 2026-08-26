@@ -25,6 +25,86 @@ async function openReadyApp(page: Page): Promise<void> {
 }
 
 test.describe('iPhone WebKit compatibility smoke', () => {
+  test('covers a cold standalone landscape shell and keeps the side navigation reachable', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== 'webkit', 'This regression targets installed iOS WebKit geometry');
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'standalone', {
+        configurable: true,
+        get: () => true,
+      });
+
+      const nativeMatchMedia = window.matchMedia.bind(window);
+      Object.defineProperty(window, 'matchMedia', {
+        configurable: true,
+        value: (query: string): MediaQueryList => {
+          const result = nativeMatchMedia(query);
+          if (query !== '(orientation: landscape)') return result;
+          return new Proxy(result, {
+            get(target, property) {
+              if (property === 'matches') return false;
+              const value = Reflect.get(target, property, target);
+              return typeof value === 'function' ? value.bind(target) : value;
+            },
+          });
+        },
+      });
+
+      try {
+        if (window.visualViewport) {
+          Object.defineProperty(window.visualViewport, 'height', {
+            configurable: true,
+            get: () => Math.max(1, window.innerHeight - 21),
+          });
+        }
+      } catch {
+        // Some WebKit builds expose a non-configurable getter. The real value
+        // still exercises the cold landscape/MQL mismatch path.
+      }
+    });
+
+    await openReadyApp(page);
+    await page.locator('.bottom-nav').evaluate((element) => element.classList.add('app-entered'));
+
+    const root = page.locator('html');
+    const nav = page.locator('.bottom-nav');
+    await expect(root).toHaveClass(/ios-standalone/);
+    await expect(root).not.toHaveClass(/keyboard-open/);
+    await expect.poll(() => nav.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+    await expect(nav).toBeInViewport();
+
+    const geometry = await page.evaluate(() => {
+      const nav = document.querySelector<HTMLElement>('.bottom-nav')!;
+      const navRect = nav.getBoundingClientRect();
+      const bodyRect = document.body.getBoundingClientRect();
+      return {
+        innerHeight: window.innerHeight,
+        visualHeight: window.visualViewport?.height ?? null,
+        appHeight: Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--app-height'),
+        ),
+        rootInlineHeight: document.documentElement.style.height,
+        bodyBottom: bodyRect.bottom,
+        navTop: navRect.top,
+        navBottom: navRect.bottom,
+        navPointerEvents: getComputedStyle(nav).pointerEvents,
+      };
+    });
+
+    expect(geometry.appHeight).toBeCloseTo(geometry.innerHeight, 0);
+    expect(geometry.bodyBottom).toBeCloseTo(geometry.innerHeight, 0);
+    expect(geometry.rootInlineHeight).toBe('');
+    expect(geometry.navTop).toBeGreaterThanOrEqual(0);
+    expect(geometry.navBottom).toBeLessThanOrEqual(geometry.innerHeight + 1);
+    expect(geometry.navPointerEvents).not.toBe('none');
+    if (geometry.visualHeight !== null && geometry.visualHeight < geometry.innerHeight) {
+      expect(geometry.appHeight).toBeGreaterThan(geometry.visualHeight);
+    }
+  });
+
   test('keeps the shared language dialog seamless for pointer and keyboard input', async ({
     page,
   }) => {

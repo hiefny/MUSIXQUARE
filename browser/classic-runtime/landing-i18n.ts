@@ -25,7 +25,7 @@
 
       'hero.h1': 'Every device,<br>one system.',
       'hero.lead':
-        'MUSIXQUARE turns multiple phones, tablets, and laptops into one sound system. No installation—just share one code.',
+        'MUSIXQUARE turns multiple phones, tablets, and laptops into one sound system. No installation. Just share one code.',
       'hero.btn_ghost': 'How it works',
       'hero.rooms_opened': '{{count}} rooms opened so far.',
 
@@ -1291,7 +1291,7 @@
     'header.try_aria': 'Coba MUSIXQUARE sekarang',
     'hero.h1': 'Semua perangkat,<br>satu sistem.',
     'hero.lead':
-      'MUSIXQUARE menghubungkan beberapa ponsel, tablet, dan laptop menjadi satu sistem suara. Tanpa instalasi—cukup bagikan satu kode.',
+      'MUSIXQUARE menghubungkan beberapa ponsel, tablet, dan laptop menjadi satu sistem suara. Tanpa instalasi, cukup bagikan satu kode.',
     'hero.btn_ghost': 'Lihat cara kerjanya',
     'hero.rooms_opened': 'Sejauh ini {{count}} ruang telah dibuka.',
     'array.h2': 'Suara surround<br>tanpa speaker surround',
@@ -1379,7 +1379,7 @@
     'header.try_aria': 'Thử MUSIXQUARE ngay',
     'hero.h1': 'Mọi thiết bị,<br>một hệ thống.',
     'hero.lead':
-      'MUSIXQUARE kết nối nhiều điện thoại, máy tính bảng và máy tính xách tay thành một hệ thống âm thanh. Không cần cài đặt—chỉ cần chia sẻ một mã.',
+      'MUSIXQUARE kết nối nhiều điện thoại, máy tính bảng và máy tính xách tay thành một hệ thống âm thanh. Không cần cài đặt, chỉ cần chia sẻ một mã.',
     'hero.btn_ghost': 'Xem cách hoạt động',
     'hero.rooms_opened': 'Đã có {{count}} phòng được mở.',
     'array.h2': 'Âm thanh vòm<br>không cần loa vòm.',

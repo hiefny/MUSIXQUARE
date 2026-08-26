@@ -780,7 +780,7 @@ async function resumeAudioForBackgroundRecovery(): Promise<void> {
 }
 
 async function recoverLongBackgroundResume(hiddenMs: number): Promise<void> {
-  log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s) — attempting recovery`);
+  log.warn(`[App] Background resume (${Math.round(hiddenMs / 1000)}s): attempting recovery`);
 
   suppressLongBackgroundWarningForIncident = false;
   await runBackgroundResumeRecovery(hiddenMs, {

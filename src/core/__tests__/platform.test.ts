@@ -1,10 +1,110 @@
 /**
  * @vitest-environment jsdom
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // platform.ts reads navigator.userAgent at import time, so each case installs
 // its browser inputs before dynamically importing a reset module.
+
+interface VisualViewportStub {
+  width: number;
+  height: number;
+  addEventListener: ReturnType<typeof vi.fn>;
+  removeEventListener: ReturnType<typeof vi.fn>;
+  dispatch(type: 'resize' | 'scroll'): void;
+  setMediaLandscape(value: boolean): void;
+}
+
+function installIOSStandaloneViewport(options: {
+  innerWidth: number;
+  innerHeight: number;
+  visualWidth?: number;
+  visualHeight?: number;
+  mediaLandscape?: boolean;
+  screenHeight?: number;
+}): VisualViewportStub {
+  Object.defineProperty(navigator, 'userAgent', {
+    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_6_1 like Mac OS X)',
+    configurable: true,
+  });
+  Object.defineProperty(navigator, 'platform', { value: 'iPhone', configurable: true });
+  Object.defineProperty(navigator, 'maxTouchPoints', { value: 5, configurable: true });
+  Object.defineProperty(navigator, 'standalone', { value: true, configurable: true });
+  Object.defineProperty(window, 'innerWidth', {
+    value: options.innerWidth,
+    configurable: true,
+  });
+  Object.defineProperty(window, 'innerHeight', {
+    value: options.innerHeight,
+    configurable: true,
+  });
+  Object.defineProperty(window.screen, 'height', {
+    value: options.screenHeight ?? Math.max(options.innerWidth, options.innerHeight),
+    configurable: true,
+  });
+
+  const viewportListeners = new Map<string, EventListenerOrEventListenerObject[]>();
+  let mediaLandscape = options.mediaLandscape ?? options.innerWidth > options.innerHeight;
+  const visualViewport: VisualViewportStub = {
+    width: options.visualWidth ?? options.innerWidth,
+    height: options.visualHeight ?? options.innerHeight,
+    addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+      const listeners = viewportListeners.get(type) ?? [];
+      listeners.push(listener);
+      viewportListeners.set(type, listeners);
+    }),
+    removeEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
+      const listeners = viewportListeners.get(type) ?? [];
+      viewportListeners.set(
+        type,
+        listeners.filter((candidate) => candidate !== listener),
+      );
+    }),
+    dispatch(type) {
+      const event = new Event(type);
+      for (const listener of viewportListeners.get(type) ?? []) {
+        if (typeof listener === 'function') listener(event);
+        else listener.handleEvent(event);
+      }
+    },
+    setMediaLandscape(value) {
+      mediaLandscape = value;
+    },
+  };
+  Object.defineProperty(window, 'visualViewport', {
+    value: visualViewport,
+    configurable: true,
+  });
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: vi.fn((query: string) => ({
+      matches:
+        query === '(display-mode: standalone)'
+          ? true
+          : query === '(orientation: landscape)'
+            ? mediaLandscape
+            : false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })),
+  });
+  return visualViewport;
+}
+
+afterEach(async () => {
+  try {
+    const { platformViewportForTests } = await import('../platform.ts');
+    platformViewportForTests.reset();
+  } catch {
+    /* noop */
+  }
+  vi.clearAllTimers();
+  vi.useRealTimers();
+  Reflect.deleteProperty(document, 'visibilityState');
+  document.body.replaceChildren();
+  document.documentElement.className = '';
+  document.documentElement.removeAttribute('style');
+});
 
 describe('Platform Detection', () => {
   beforeEach(() => {
@@ -243,6 +343,451 @@ describe('Platform Detection', () => {
       });
       const { isStandaloneDisplayMode } = await import('../platform.ts');
       expect(isStandaloneDisplayMode()).toBe(true);
+    });
+  });
+
+  describe('iOS standalone viewport reconciliation', () => {
+    it('covers a cold landscape surface when visualViewport and root omit the safe area', async () => {
+      installIOSStandaloneViewport({
+        innerWidth: 852,
+        innerHeight: 393,
+        visualHeight: 372,
+        mediaLandscape: false,
+        screenHeight: 852,
+      });
+      Object.defineProperty(document.documentElement, 'clientHeight', {
+        value: 372,
+        configurable: true,
+      });
+
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+      expect(document.documentElement.style.height).toBe('');
+      expect(document.documentElement.classList.contains('ios-standalone')).toBe(true);
+      platformViewportForTests.reset();
+    });
+
+    it('uses geometry instead of a stale landscape media query in portrait', async () => {
+      installIOSStandaloneViewport({
+        innerWidth: 393,
+        innerHeight: 852,
+        visualHeight: 820,
+        mediaLandscape: true,
+        screenHeight: 852,
+      });
+
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('852px');
+      expect(document.documentElement.style.height).toBe('852px');
+      platformViewportForTests.reset();
+    });
+
+    it('uses the CSS layout probe when the initial inner height is orientation-stale', async () => {
+      installIOSStandaloneViewport({
+        innerWidth: 852,
+        innerHeight: 852,
+        visualWidth: 852,
+        visualHeight: 372,
+        mediaLandscape: true,
+        screenHeight: 852,
+      });
+      const offsetWidth = vi
+        .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          return this.style.width === '100vw' ? 852 : 0;
+        });
+      const offsetHeight = vi
+        .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          return this.style.height === '100vh' ? 393 : 0;
+        });
+
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+      expect(document.documentElement.style.height).toBe('');
+      offsetWidth.mockRestore();
+      offsetHeight.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it('rejects an implausibly tall 100vh probe instead of moving the sidebar off-screen', async () => {
+      installIOSStandaloneViewport({
+        innerWidth: 852,
+        innerHeight: 393,
+        visualHeight: 372,
+      });
+      const offsetWidth = vi
+        .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          return this.style.width === '100vw' ? 852 : 0;
+        });
+      const offsetHeight = vi
+        .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          return this.style.height === '100vh' ? 844 : 0;
+        });
+
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+      offsetWidth.mockRestore();
+      offsetHeight.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it('preserves the committed height while every cold landscape signal is transitional', async () => {
+      installIOSStandaloneViewport({
+        innerWidth: 852,
+        innerHeight: 852,
+        visualWidth: 852,
+        visualHeight: 100,
+        mediaLandscape: true,
+      });
+      document.documentElement.style.setProperty('--app-height', '390px');
+      const offsetWidth = vi
+        .spyOn(HTMLElement.prototype, 'offsetWidth', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          return this.style.width === '100vw' ? 852 : 0;
+        });
+      const offsetHeight = vi
+        .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')
+        .mockImplementation(function (this: HTMLElement) {
+          return this.style.height === '100vh' ? 393 : 0;
+        });
+
+      const { platformViewportForTests } = await import('../platform.ts');
+      platformViewportForTests.updateNow();
+
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('390px');
+      offsetWidth.mockRestore();
+      offsetHeight.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it('locks cold-start keyboard inference and settles with bounded timers only', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-27T00:00:00Z'));
+      const visualViewport = installIOSStandaloneViewport({
+        innerWidth: 852,
+        innerHeight: 370,
+        visualHeight: 260,
+        mediaLandscape: false,
+      });
+      document.documentElement.classList.add('keyboard-open');
+      const rafCallbacks: FrameRequestCallback[] = [];
+      let nextRafId = 1;
+      const requestAnimationFrame = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          rafCallbacks.push(callback);
+          return nextRafId++;
+        });
+      const flushAnimationFrames = (): void => {
+        for (let callback = rafCallbacks.shift(); callback; callback = rafCallbacks.shift()) {
+          callback(performance.now());
+        }
+      };
+
+      const { initPlatform, platformViewportForTests } = await import('../platform.ts');
+      const { getManagedTimer } = await import('../timers.ts');
+      initPlatform();
+      flushAnimationFrames();
+
+      expect(document.documentElement.classList.contains('keyboard-open')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--keyboard-overlap')).toBe('0px');
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('370px');
+      expect(getManagedTimer('boot-height-ios-300')).not.toBeNull();
+      expect(getManagedTimer('boot-height-ios-1300')).not.toBeNull();
+      expect(getManagedTimer('boot-end')).not.toBeNull();
+
+      Object.defineProperty(window, 'innerHeight', { value: 393, configurable: true });
+      visualViewport.height = 372;
+      vi.advanceTimersByTime(300);
+      flushAnimationFrames();
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+      expect(getManagedTimer('boot-height-ios-300')).toBeNull();
+
+      vi.advanceTimersByTime(1000);
+      flushAnimationFrames();
+      expect(document.documentElement.classList.contains('keyboard-open')).toBe(false);
+      expect(getManagedTimer('boot-height-ios-1300')).toBeNull();
+      expect(getManagedTimer('boot-end')).not.toBeNull();
+
+      vi.advanceTimersByTime(100);
+      flushAnimationFrames();
+      expect(getManagedTimer('boot-end')).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+
+      requestAnimationFrame.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it('reconciles a viewport resize that arrives before editable focus', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-27T00:00:00Z'));
+      const visualViewport = installIOSStandaloneViewport({
+        innerWidth: 852,
+        innerHeight: 393,
+        visualHeight: 393,
+      });
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      const rafCallbacks: FrameRequestCallback[] = [];
+      const requestAnimationFrame = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          rafCallbacks.push(callback);
+          return rafCallbacks.length;
+        });
+      const flushAnimationFrames = (): void => {
+        for (let callback = rafCallbacks.shift(); callback; callback = rafCallbacks.shift()) {
+          callback(performance.now());
+        }
+      };
+
+      const { initPlatform, platformViewportForTests } = await import('../platform.ts');
+      initPlatform();
+      flushAnimationFrames();
+      vi.advanceTimersByTime(1400);
+      flushAnimationFrames();
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+
+      visualViewport.height = 250;
+      visualViewport.dispatch('resize');
+      flushAnimationFrames();
+      expect(document.documentElement.classList.contains('keyboard-open')).toBe(false);
+
+      input.focus();
+      flushAnimationFrames();
+      expect(document.documentElement.classList.contains('keyboard-open')).toBe(true);
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+
+      visualViewport.height = 393;
+      visualViewport.dispatch('resize');
+      flushAnimationFrames();
+      expect(document.documentElement.classList.contains('keyboard-open')).toBe(false);
+
+      vi.advanceTimersByTime(400);
+      flushAnimationFrames();
+      expect(vi.getTimerCount()).toBe(0);
+      requestAnimationFrame.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it('accepts an agreed portrait rotation after a focused landscape page resumes', async () => {
+      vi.useFakeTimers();
+      const visualViewport = installIOSStandaloneViewport({
+        innerWidth: 852,
+        innerHeight: 393,
+        visualWidth: 852,
+        visualHeight: 393,
+        mediaLandscape: true,
+        screenHeight: 852,
+      });
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      const rafCallbacks: FrameRequestCallback[] = [];
+      const requestAnimationFrame = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          rafCallbacks.push(callback);
+          return rafCallbacks.length;
+        });
+      const flushAnimationFrames = (): void => {
+        for (let callback = rafCallbacks.shift(); callback; callback = rafCallbacks.shift()) {
+          callback(performance.now());
+        }
+      };
+
+      const { initPlatform, platformViewportForTests } = await import('../platform.ts');
+      initPlatform();
+      flushAnimationFrames();
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+      expect(document.documentElement.style.height).toBe('');
+
+      input.focus();
+      Object.defineProperty(window, 'innerWidth', { value: 393, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 852, configurable: true });
+      visualViewport.width = 393;
+      visualViewport.height = 820;
+      visualViewport.setMediaLandscape(false);
+      window.dispatchEvent(new Event('pageshow'));
+      flushAnimationFrames();
+
+      expect(document.documentElement.classList.contains('keyboard-open')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('852px');
+      expect(document.documentElement.style.height).toBe('852px');
+
+      vi.clearAllTimers();
+      requestAnimationFrame.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it('resets the portrait keyboard baseline when a focused page resumes in landscape', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-27T00:00:00Z'));
+      const visualViewport = installIOSStandaloneViewport({
+        innerWidth: 393,
+        innerHeight: 852,
+        visualWidth: 393,
+        visualHeight: 820,
+        mediaLandscape: false,
+        screenHeight: 852,
+      });
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      const rafCallbacks: FrameRequestCallback[] = [];
+      const requestAnimationFrame = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          rafCallbacks.push(callback);
+          return rafCallbacks.length;
+        });
+      const flushAnimationFrames = (): void => {
+        for (let callback = rafCallbacks.shift(); callback; callback = rafCallbacks.shift()) {
+          callback(performance.now());
+        }
+      };
+
+      const { initPlatform, platformViewportForTests } = await import('../platform.ts');
+      initPlatform();
+      flushAnimationFrames();
+      vi.advanceTimersByTime(1400);
+      flushAnimationFrames();
+      input.focus();
+      flushAnimationFrames();
+
+      Object.defineProperty(window, 'innerWidth', { value: 852, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 393, configurable: true });
+      visualViewport.width = 852;
+      visualViewport.height = 372;
+      visualViewport.setMediaLandscape(true);
+      window.dispatchEvent(new Event('pageshow'));
+      flushAnimationFrames();
+
+      expect(document.documentElement.classList.contains('keyboard-open')).toBe(false);
+      expect(document.documentElement.style.getPropertyValue('--keyboard-overlap')).toBe('0px');
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+      expect(document.documentElement.style.height).toBe('');
+
+      vi.clearAllTimers();
+      requestAnimationFrame.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it('does not mistake a focused portrait keyboard for a resumed landscape rotation', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-27T00:00:00Z'));
+      const visualViewport = installIOSStandaloneViewport({
+        innerWidth: 393,
+        innerHeight: 852,
+        visualWidth: 393,
+        visualHeight: 820,
+        mediaLandscape: false,
+        screenHeight: 852,
+      });
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      const rafCallbacks: FrameRequestCallback[] = [];
+      const requestAnimationFrame = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          rafCallbacks.push(callback);
+          return rafCallbacks.length;
+        });
+      const flushAnimationFrames = (): void => {
+        for (let callback = rafCallbacks.shift(); callback; callback = rafCallbacks.shift()) {
+          callback(performance.now());
+        }
+      };
+
+      const { initPlatform, platformViewportForTests } = await import('../platform.ts');
+      initPlatform();
+      flushAnimationFrames();
+      vi.advanceTimersByTime(1400);
+      flushAnimationFrames();
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('852px');
+
+      input.focus();
+      flushAnimationFrames();
+      Object.defineProperty(window, 'innerHeight', { value: 300, configurable: true });
+      visualViewport.height = 280;
+      visualViewport.setMediaLandscape(true);
+      window.dispatchEvent(new Event('pageshow'));
+      flushAnimationFrames();
+
+      expect(document.documentElement.classList.contains('keyboard-open')).toBe(true);
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('852px');
+      expect(document.documentElement.style.height).toBe('852px');
+
+      vi.clearAllTimers();
+      requestAnimationFrame.mockRestore();
+      platformViewportForTests.reset();
+    });
+
+    it('retries focused foreground orientation after stale first-frame geometry settles', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-27T00:00:00Z'));
+      const visualViewport = installIOSStandaloneViewport({
+        innerWidth: 852,
+        innerHeight: 393,
+        visualWidth: 852,
+        visualHeight: 393,
+        mediaLandscape: true,
+        screenHeight: 852,
+      });
+      const input = document.createElement('input');
+      document.body.appendChild(input);
+      const rafCallbacks: FrameRequestCallback[] = [];
+      const requestAnimationFrame = vi
+        .spyOn(window, 'requestAnimationFrame')
+        .mockImplementation((callback: FrameRequestCallback) => {
+          rafCallbacks.push(callback);
+          return rafCallbacks.length;
+        });
+      const flushAnimationFrames = (): void => {
+        for (let callback = rafCallbacks.shift(); callback; callback = rafCallbacks.shift()) {
+          callback(performance.now());
+        }
+      };
+
+      const { initPlatform, platformViewportForTests } = await import('../platform.ts');
+      initPlatform();
+      flushAnimationFrames();
+      vi.advanceTimersByTime(1400);
+      flushAnimationFrames();
+      input.focus();
+      flushAnimationFrames();
+
+      Object.defineProperty(document, 'visibilityState', {
+        value: 'visible',
+        configurable: true,
+      });
+      document.dispatchEvent(new Event('visibilitychange'));
+      flushAnimationFrames();
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('393px');
+
+      Object.defineProperty(window, 'innerWidth', { value: 393, configurable: true });
+      Object.defineProperty(window, 'innerHeight', { value: 852, configurable: true });
+      visualViewport.width = 393;
+      visualViewport.height = 820;
+      visualViewport.setMediaLandscape(false);
+      vi.advanceTimersByTime(300);
+      flushAnimationFrames();
+
+      expect(document.documentElement.style.getPropertyValue('--app-height')).toBe('852px');
+      expect(document.documentElement.style.height).toBe('852px');
+
+      vi.clearAllTimers();
+      requestAnimationFrame.mockRestore();
+      platformViewportForTests.reset();
     });
   });
 });

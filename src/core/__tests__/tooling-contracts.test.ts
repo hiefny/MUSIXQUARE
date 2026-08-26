@@ -76,7 +76,7 @@ describe('tooling reproducibility contracts', () => {
     expect(packageManifest.scripts.typecheck).toContain('tsc -p tsconfig.tooling.json');
   });
 
-  it('keeps full browser E2E scheduled overnight and manually dispatchable', () => {
+  it('keeps full browser E2E scheduled monthly and manually dispatchable', () => {
     const workflow = readFileSync('.github/workflows/e2e.yml', 'utf8');
     const triggerBlock = workflow.slice(
       workflow.indexOf('on:'),
@@ -84,7 +84,7 @@ describe('tooling reproducibility contracts', () => {
     );
 
     expect(triggerBlock).toContain('schedule:');
-    expect(triggerBlock).toContain("- cron: '17 18 * * *'");
+    expect(triggerBlock).toContain("- cron: '17 18 1 * *'");
     expect(triggerBlock).toContain('workflow_dispatch:');
   });
 

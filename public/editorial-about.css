@@ -176,6 +176,12 @@ main {
   height: 0;
 }
 
+.lp-divider--full {
+  width: 100%;
+  max-width: none;
+  border-top-color: var(--divider);
+}
+
 .lp-array {
   display: grid;
   grid-template-columns: 1fr 3fr 1fr;

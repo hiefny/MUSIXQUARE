@@ -51,7 +51,7 @@ const _pendingPings = new Map<number, number>();
 export function getHostNow(): number {
   if (_isHostClock) return Date.now();
   if (_samples.length === 0)
-    log.warn('[SharedClock] getHostNow called with no samples — offset may be inaccurate');
+    log.warn('[SharedClock] getHostNow called with no samples. Offset may be inaccurate');
   return Date.now() + _bestOffset;
 }
 
@@ -167,7 +167,7 @@ export function processSyncPong(
   const STEP_THRESHOLD_MS = 2_000;
   if (_samples.length >= 3 && Math.abs(offset - _bestOffset) > STEP_THRESHOLD_MS) {
     log.warn(
-      `[SharedClock] Offset jump ${(offset - _bestOffset).toFixed(0)}ms — local clock likely stepped, flushing samples`,
+      `[SharedClock] Offset jump ${(offset - _bestOffset).toFixed(0)}ms. Local clock likely stepped, flushing samples`,
     );
     _samples = [];
   }

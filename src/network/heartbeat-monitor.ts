@@ -97,7 +97,7 @@ function startHeartbeatMonitor(): void {
         const staleThreshold = heartbeatTransportGrace(conn);
         if (elapsed > staleThreshold) {
           log.warn(
-            `[Heartbeat] Peer ${peer.label || peer.id} stale (${(elapsed / 1_000).toFixed(1)}s; transport=${conn?.peerConnection?.connectionState ?? 'unknown'}) — marking disconnected`,
+            `[Heartbeat] Peer ${peer.label || peer.id} stale (${(elapsed / 1_000).toFixed(1)}s; transport=${conn?.peerConnection?.connectionState ?? 'unknown'}): marking disconnected`,
           );
           stalePeers.push(peer);
         }

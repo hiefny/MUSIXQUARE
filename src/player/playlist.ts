@@ -755,7 +755,7 @@ export async function playTrack(
     _isLocalFileTrack &&
     _bufferMatchesTrack
   ) {
-    log.debug('[Host] Same-track re-click — fast replay path (no redecode/rebroadcast)');
+    log.debug('[Host] Same-track re-click: fast replay path (no redecode/rebroadcast)');
 
     const file = item.file ?? _residentFile;
     if (!file) return;
@@ -993,7 +993,7 @@ export async function playTrack(
     // the newer playTrack invocation.
     const activated = await loadPreloadedTrack(queueItemId, myLoadEpoch);
     if (!activated || !isCurrentLoadEpoch(myLoadEpoch) || getCurrentQueueItemId() !== queueItemId) {
-      log.debug('[Host] Preloaded activation failed or superseded — skipping play/broadcast');
+      log.debug('[Host] Preloaded activation failed or superseded. Skipping play/broadcast');
       return;
     }
     // Whole-object remote upload is admitted against the active PCM buffer.

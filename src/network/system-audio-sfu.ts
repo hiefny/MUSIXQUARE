@@ -897,7 +897,7 @@ async function connectGuestTrack(
   // same window with an epoch; pc-identity is the right key here since each
   // subscription owns exactly one pc. Must run BEFORE any node is created.
   if (guestPc !== pc) {
-    log.debug('[SysAudioSFU] Stale guest track attach (pc superseded during init) — skipping');
+    log.debug('[SysAudioSFU] Stale guest track attach (pc superseded during init). Skipping');
     return;
   }
   const ctx = getAudioContext();

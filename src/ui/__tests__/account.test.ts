@@ -76,15 +76,15 @@ function renderAccountDialog(): void {
         <dl id="account-dialog-stats" aria-live="polite" aria-busy="false" hidden>
           <div class="account-dialog-stat-row">
             <dt id="account-stats-sessions-label"></dt>
-            <dd id="account-stats-session-count">—</dd>
+            <dd id="account-stats-session-count">-</dd>
           </div>
           <div class="account-dialog-stat-row">
             <dt id="account-stats-listening-label"></dt>
-            <dd id="account-stats-listening-time">—</dd>
+            <dd id="account-stats-listening-time">-</dd>
           </div>
           <div class="account-dialog-stat-row">
             <dt id="account-stats-tracks-label"></dt>
-            <dd id="account-stats-track-count">—</dd>
+            <dd id="account-stats-track-count">-</dd>
           </div>
         </dl>
         <div id="account-dialog-actions" hidden>
@@ -1364,9 +1364,9 @@ describe('optional account UI', () => {
 
     expect(document.getElementById('account-dialog-stats')?.hidden).toBe(false);
     expect(document.getElementById('account-dialog-stats')?.getAttribute('aria-busy')).toBe('true');
-    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('—');
-    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('—');
-    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('—');
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('-');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('-');
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('-');
     await vi.waitFor(() => expect(flushAccountActivityStatsForRead).toHaveBeenCalledOnce());
     await vi.waitFor(() => expect(resolveStats).not.toBeNull());
 
@@ -1694,11 +1694,11 @@ describe('optional account UI', () => {
         'false',
       ),
     );
-    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('—');
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('-');
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps unavailable statistics isolated as em dashes', async () => {
+  it('keeps unavailable statistics isolated as hyphen placeholders', async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         jsonResponse({
@@ -1719,9 +1719,9 @@ describe('optional account UI', () => {
         'false',
       ),
     );
-    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('—');
-    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('—');
-    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('—');
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('-');
+    expect(document.getElementById('account-stats-listening-time')?.textContent).toBe('-');
+    expect(document.getElementById('account-stats-track-count')?.textContent).toBe('-');
     expect(document.getElementById('account-dialog-actions')?.hidden).toBe(false);
     expect(showToast).not.toHaveBeenCalled();
   });

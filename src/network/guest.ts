@@ -265,7 +265,7 @@ export function joinSession(
   // Only check on initial call — retries (retryAttempt > 0) must pass through
   // because isConnecting is already true from the initial call.
   if (retryAttempt === 0 && getState('network.isConnecting')) {
-    log.warn('[Join] Already connecting — ignoring duplicate joinSession call');
+    log.warn('[Join] Already connecting. Ignoring duplicate joinSession call');
     return;
   }
 
@@ -576,7 +576,7 @@ export function joinSession(
         return;
       }
       if (!terminateGuestJoin(joinEpoch)) return;
-      log.warn(`[Join] Connection timeout — data channel did not open in ${preOpenTimeoutMs}ms`);
+      log.warn(`[Join] Connection timeout: data channel did not open in ${preOpenTimeoutMs}ms`);
       try {
         conn.close();
       } catch {
@@ -627,7 +627,7 @@ export function joinSession(
       // before this close fired, the flag stays armed until the next
       // joinSession entry resets it.
       if (getState('network.hostConn') !== conn) {
-        log.debug('[Join] Stale connection closed — ignoring');
+        log.debug('[Join] Stale connection closed. Ignoring');
         return;
       }
       log.warn('[Join] Host connection closed');
@@ -654,7 +654,7 @@ export function joinSession(
       // draining error (e.g. a malformed frame on a dying transport) must
       // not surface an error dialog over the live connection.
       if (getState('network.hostConn') !== conn) {
-        log.debug('[Join] Stale connection error — ignoring', err);
+        log.debug('[Join] Stale connection error. Ignoring', err);
         return;
       }
       log.error('[Join] Host connection error', err);
@@ -854,7 +854,7 @@ function handleForceCloseDuplicate(_data: Record<string, unknown>, conn?: DataCo
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
 
-  log.warn('[Guest] Received force-close-duplicate — connection will close');
+  log.warn('[Guest] Received force-close-duplicate. Connection will close');
   // Mark as intentional so the close handler doesn't show HOST_DISCONNECTED error
   setState('network.isIntentionalDisconnect', true);
 }

@@ -142,8 +142,9 @@ stack that omits the epoch and would reject valid active keys as stale.
 
 The complete serial Playwright suite is intentionally not a production deploy
 gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit
-smoke every night at 03:17 KST and remains manually dispatchable when a change
-warrants the extra coverage before the next scheduled run. A focused
+smoke once a month, at 03:17 KST on the second day of each month, and remains
+manually dispatchable when a change warrants the extra coverage before the next
+scheduled run. A focused
 deterministic Chromium subset is blocking in exact-SHA CI, so an approved
 release cannot select a candidate until the critical owner-recovery,
 OAuth-return, host/guest, background-resume, and signed-upload browser paths

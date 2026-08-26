@@ -455,7 +455,7 @@ function updateObCarouselA11y(): void {
     const position = `${idx + 1} / ${TOTAL_OB_SLIDES}`;
     dot.setAttribute(
       'aria-label',
-      autoplayEligible ? `${position} \u2014 ${t('setup.carousel_pause')}` : position,
+      autoplayEligible ? `${position}, ${t('setup.carousel_pause')}` : position,
     );
   });
 }

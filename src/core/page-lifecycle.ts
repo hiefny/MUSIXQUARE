@@ -195,8 +195,8 @@ export function initPageLifecycleHandlers(deps: PageLifecycleDeps): PageLifecycl
 
       deps.log?.info(
         resetPending
-          ? '[PageLifecycle] Restored a pending session reset from bfcache — reloading'
-          : '[PageLifecycle] Restored from bfcache with active session — reloading',
+          ? '[PageLifecycle] Restored a pending session reset from bfcache. Reloading'
+          : '[PageLifecycle] Restored from bfcache with active session. Reloading',
       );
       if (role !== 'idle') markIntentionalNav(); // avoid prompting on the reload itself
       try {

@@ -1005,7 +1005,7 @@ export async function shareRemoteFileIfNeeded(
     }
   } catch (error) {
     if (isAbortError(error)) {
-      log.debug('[RemoteShare] Upload superseded — abort path is expected');
+      log.debug('[RemoteShare] Upload superseded. Abort path is expected');
       return;
     }
     if (isPreload) {
@@ -1896,7 +1896,7 @@ async function handleRemoteFileShare(
           descriptor.sessionId,
           descriptor.objectId,
         );
-        log.debug('[RemoteShare] Duplicate active descriptor — download kept, context re-pointed');
+        log.debug('[RemoteShare] Duplicate active descriptor. Download kept, context re-pointed');
       } else {
         log.debug('[RemoteShare] Duplicate active descriptor (same/older context), ignoring');
       }
@@ -2013,7 +2013,7 @@ async function handleRemoteFileShare(
         ) {
           throw error;
         }
-        log.warn('[RemoteShare] Transient download failure — retrying once:', error);
+        log.warn('[RemoteShare] Transient download failure. Retrying once:', error);
       }
     }
 
@@ -2091,7 +2091,7 @@ async function handleRemoteFileShare(
       return;
     }
     if (isAbortError(error)) {
-      log.debug('[RemoteShare] Active download superseded — abort is expected');
+      log.debug('[RemoteShare] Active download superseded. Abort is expected');
       return;
     }
     if (isAudioDecodeAdmissionError(error)) {

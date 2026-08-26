@@ -501,7 +501,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
       );
     } else {
       log.warn(
-        '[Network] TURN config unavailable — STUN only (P2P will likely fail behind symmetric NAT)',
+        '[Network] TURN config unavailable. STUN only (P2P will likely fail behind symmetric NAT)',
       );
     }
 
@@ -698,7 +698,7 @@ function attemptPeerReconnect(): void {
   }
   if (_reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
     log.warn(
-      `[Transport] Gave up on signaling reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts — new peers can't join until session restart`,
+      `[Transport] Gave up on signaling reconnect after ${MAX_RECONNECT_ATTEMPTS} attempts. New peers can't join until session restart`,
     );
     publishSignalingExhausted(MAX_RECONNECT_ATTEMPTS);
     return;
@@ -1123,7 +1123,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
   }
   invalidateGuestJoinAttempt();
   invalidateNetworkInit();
-  log.debug('[Network] Leaving session — full cleanup...');
+  log.debug('[Network] Leaving session: full cleanup...');
 
   setState('network.isIntentionalDisconnect', true);
 
@@ -1302,7 +1302,7 @@ export function leaveSession(options: { preserveAccountLoginReturn?: boolean } =
     200,
   );
 
-  log.debug('[Network] Session left — full cleanup complete.');
+  log.debug('[Network] Session left: full cleanup complete.');
 }
 
 // ─── Bus Event Handlers ─────────────────────────────────────────

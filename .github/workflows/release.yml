@@ -1464,7 +1464,7 @@ jobs:
           echo "- Commit: \`${GITHUB_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Target: \`${{ inputs.target }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Wrangler: \`${wrangler_version}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs nightly and remains manually dispatchable)." >> "$GITHUB_STEP_SUMMARY"
+          echo "- Validation: \`${RELEASE_VALIDATION_PROFILE}\` (full E2E runs monthly and remains manually dispatchable)." >> "$GITHUB_STEP_SUMMARY"
           echo "- Candidate source: run \`${RELEASE_SOURCE_RUN_ID}\`, attempt \`${RELEASE_SOURCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation readiness restore: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"

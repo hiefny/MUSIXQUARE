@@ -146,15 +146,206 @@ function preventIOSPinchZoom(): void {
  * than any rotation animation observed across iOS/Android while still feeling
  * instant if the user types right after rotating.
  */
-const KB_DETECTION_LOCK_MS = 1000;
+const KB_DETECTION_LOCK_MS = 1200;
+const IOS_STANDALONE_BOOT_SETTLE_MS = [300, 1300] as const;
+const IOS_STANDALONE_SAFE_AREA_DELTA_MAX = 64;
 
 let _appHeightRaf = 0;
 let _lastSoftKeyHeight = 0;
 let _platformClassesApplied = false;
 let _iosViewportProbe: HTMLDivElement | null = null;
+let _iosStandaloneViewportProbe: HTMLDivElement | null = null;
 let _stableViewportHeight = 0;
 let _keyboardFreezeUntil = 0;
 let _kbDetectionLockedUntil = 0;
+let _stableViewportLandscape: boolean | null = null;
+let _stableLayoutViewportWidth = 0;
+let _stableLayoutViewportHeight = 0;
+let _allowFocusedOrientationReconcile = false;
+const _platformViewportListenerCleanups: Array<() => void> = [];
+
+function clearPlatformViewportListeners(): void {
+  for (
+    let cleanup = _platformViewportListenerCleanups.pop();
+    cleanup;
+    cleanup = _platformViewportListenerCleanups.pop()
+  ) {
+    try {
+      cleanup();
+    } catch {
+      /* noop */
+    }
+  }
+}
+
+function addPlatformViewportListener(
+  target: EventTarget,
+  type: string,
+  listener: EventListener,
+  options: AddEventListenerOptions,
+): void {
+  target.addEventListener(type, listener, options);
+  _platformViewportListenerCleanups.push(() => {
+    target.removeEventListener(type, listener, options.capture ?? false);
+  });
+}
+
+function roundedPositive(value: number | undefined): number {
+  return Number.isFinite(value) && (value ?? 0) > 0 ? Math.round(value ?? 0) : 0;
+}
+
+function hasEditableFocus(): boolean {
+  return document.activeElement?.matches('input, textarea, [contenteditable="true"]') === true;
+}
+
+function mediaViewportLandscape(): boolean | null {
+  try {
+    const orientation = window.matchMedia?.('(orientation: landscape)');
+    return orientation ? orientation.matches : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Prefer live layout geometry over orientation media state. WebKit can expose
+ * the previous media-query orientation briefly while launching an installed
+ * PWA, whereas innerWidth/innerHeight already drive its compact layout.
+ */
+function isViewportLandscape(vv: VisualViewport | null, root: HTMLElement): boolean {
+  const allowFocusedOrientationReconcile = _allowFocusedOrientationReconcile;
+  _allowFocusedOrientationReconcile = false;
+  const innerWidth = roundedPositive(window.innerWidth);
+  const innerHeight = roundedPositive(window.innerHeight);
+  const innerLandscape =
+    innerWidth > 0 && innerHeight > 0 && innerWidth !== innerHeight
+      ? innerWidth > innerHeight
+      : null;
+
+  if (
+    _stableViewportLandscape !== null &&
+    (root.classList.contains('keyboard-open') || hasEditableFocus())
+  ) {
+    // Keep the committed orientation while keyboard geometry is transient.
+    // A background rotation can preserve input focus and omit
+    // orientationchange, though. A pageshow/foreground pass may replace it
+    // only when the layout axes have actually swapped. This rejects a portrait
+    // keyboard that merely makes height shorter than width.
+    const mediaLandscape = mediaViewportLandscape();
+    const axesSwapped =
+      _stableLayoutViewportWidth > 0 &&
+      _stableLayoutViewportHeight > 0 &&
+      Math.abs(innerWidth - _stableLayoutViewportHeight) <= IOS_STANDALONE_SAFE_AREA_DELTA_MAX &&
+      Math.abs(innerHeight - _stableLayoutViewportWidth) <= IOS_STANDALONE_SAFE_AREA_DELTA_MAX;
+    if (
+      allowFocusedOrientationReconcile &&
+      innerLandscape !== null &&
+      innerLandscape !== _stableViewportLandscape &&
+      mediaLandscape === innerLandscape &&
+      axesSwapped
+    ) {
+      _stableViewportLandscape = innerLandscape;
+      _stableLayoutViewportWidth = innerWidth;
+      _stableLayoutViewportHeight = innerHeight;
+      resetKeyboardViewportTransitionState();
+    }
+    return _stableViewportLandscape;
+  }
+
+  if (innerLandscape !== null) {
+    _stableViewportLandscape = innerLandscape;
+    _stableLayoutViewportWidth = innerWidth;
+    _stableLayoutViewportHeight = innerHeight;
+    return _stableViewportLandscape;
+  }
+
+  const visualWidth = roundedPositive(vv?.width);
+  const visualHeight = roundedPositive(vv?.height);
+  if (visualWidth > 0 && visualHeight > 0 && visualWidth !== visualHeight) {
+    _stableViewportLandscape = visualWidth > visualHeight;
+    return _stableViewportLandscape;
+  }
+
+  _stableViewportLandscape = mediaViewportLandscape() ?? false;
+  return _stableViewportLandscape;
+}
+
+/**
+ * Installed iOS WebKit can report visualViewport/100dvh without the home
+ * indicator area on a cold landscape launch. A 100vh probe represents the
+ * full standalone layout surface and is intentionally used only for that
+ * mode; safe-area env() values remain inner padding, not extra height.
+ */
+function measureIOSStandaloneLayoutViewport(): { width: number; height: number } {
+  try {
+    if (!_iosStandaloneViewportProbe && document.body) {
+      _iosStandaloneViewportProbe = document.createElement('div');
+      _iosStandaloneViewportProbe.setAttribute('aria-hidden', 'true');
+      _iosStandaloneViewportProbe.style.cssText =
+        'position:fixed;top:0;left:0;width:100vw;height:100vh;visibility:hidden;pointer-events:none';
+      document.body.appendChild(_iosStandaloneViewportProbe);
+    }
+    return {
+      width: roundedPositive(_iosStandaloneViewportProbe?.offsetWidth),
+      height: roundedPositive(_iosStandaloneViewportProbe?.offsetHeight),
+    };
+  } catch (e) {
+    log.debug('[Platform] iOS standalone viewport probe failed:', e);
+    return { width: 0, height: 0 };
+  }
+}
+
+function resolveIOSStandaloneLandscapeHeight(options: {
+  layoutWidth: number;
+  innerHeight: number;
+  visualWidth: number;
+  visualHeight: number;
+  cssLayoutWidth: number;
+  cssLayoutHeight: number;
+}): number {
+  const { layoutWidth, innerHeight, visualWidth, visualHeight, cssLayoutWidth, cssLayoutHeight } =
+    options;
+  const innerCandidate = layoutWidth > innerHeight ? innerHeight : 0;
+  const visualCandidate = visualWidth > visualHeight ? visualHeight : 0;
+  const cssCandidate = cssLayoutWidth > cssLayoutHeight ? cssLayoutHeight : 0;
+
+  if (innerCandidate > 0) {
+    if (
+      cssCandidate > 0 &&
+      Math.abs(cssCandidate - innerCandidate) <= IOS_STANDALONE_SAFE_AREA_DELTA_MAX
+    ) {
+      return Math.max(innerCandidate, cssCandidate);
+    }
+    return innerCandidate;
+  }
+
+  if (visualCandidate > 0 && cssCandidate > 0) {
+    return Math.abs(cssCandidate - visualCandidate) <= IOS_STANDALONE_SAFE_AREA_DELTA_MAX
+      ? Math.max(visualCandidate, cssCandidate)
+      : 0;
+  }
+
+  return 0;
+}
+
+function resetKeyboardViewportTransitionState(): void {
+  if (!IS_IOS && !IS_ANDROID) return;
+  _kbDetectionLockedUntil = Date.now() + KB_DETECTION_LOCK_MS;
+  _keyboardFreezeUntil = 0;
+  _stableViewportHeight = 0;
+  const root = document.documentElement;
+  root.classList.remove('keyboard-open');
+  root.style.setProperty('--keyboard-overlap', '0px');
+}
+
+function resetMobileViewportTransitionState(): void {
+  if (!IS_IOS && !IS_ANDROID) return;
+  resetKeyboardViewportTransitionState();
+  _stableViewportLandscape = null;
+  _stableLayoutViewportWidth = 0;
+  _stableLayoutViewportHeight = 0;
+  _allowFocusedOrientationReconcile = false;
+}
 
 function updateAppHeightNow(): void {
   const root = document.documentElement;
@@ -175,12 +366,7 @@ function updateAppHeightNow(): void {
   const vv = window.visualViewport;
   const isStandalone = isStandaloneDisplayMode();
 
-  let isLandscape: boolean;
-  try {
-    isLandscape = !!window.matchMedia?.('(orientation: landscape)').matches;
-  } catch {
-    isLandscape = window.innerWidth > window.innerHeight;
-  }
+  const isLandscape = isViewportLandscape(vv, root);
 
   // Collect all available height signals
   const validHeights: number[] = [];
@@ -272,7 +458,7 @@ function updateAppHeightNow(): void {
   }
 
   // ── Keyboard Detection (mobile only) ───────────────────────────
-  // Detect soft keyboard via visualViewport shrink, BEFORE focus event fires.
+  // Detect soft keyboard from an editable focus plus visualViewport shrink.
   // Sets keyboard-open class and --keyboard-overlap CSS variable proactively.
   //
   // Detection is locked for ~1s right after orientationchange. Without the
@@ -298,25 +484,25 @@ function updateAppHeightNow(): void {
 
     // Keyboard detected when viewport shrinks >15% from stable height
     const kbShrink = _stableViewportHeight > 0 ? _stableViewportHeight - kbVvH : 0;
-    const isKbOpen = _stableViewportHeight > 100 && kbShrink > _stableViewportHeight * 0.15;
+    const isKbOpen =
+      hasEditableFocus() && _stableViewportHeight > 100 && kbShrink > _stableViewportHeight * 0.15;
 
     if (isKbOpen && !wasKbOpen) {
       root.classList.add('keyboard-open');
       // No need for a settle timer — --app-height stays frozen while keyboard-open is present
       log.debug(
-        `[Platform] Keyboard opened — stable=${_stableViewportHeight} current=${kbVvH} shrink=${kbShrink}`,
+        `[Platform] Keyboard opened: stable=${_stableViewportHeight} current=${kbVvH} shrink=${kbShrink}`,
       );
     } else if (!isKbOpen && wasKbOpen) {
-      const active = document.activeElement;
-      const stillFocused = active?.matches('input, textarea, [contenteditable="true"]');
-      if (!stillFocused) {
-        root.classList.remove('keyboard-open');
-        // Brief freeze during close animation to prevent jitter
-        _keyboardFreezeUntil = Date.now() + 350;
-        setManagedTimer('kb-height-settle-close', scheduleAppHeightUpdate, 400);
-        _stableViewportHeight = Math.max(kbVvH, Math.round(window.innerHeight));
-        log.debug('[Platform] Keyboard closed');
-      }
+      // iOS can leave the input focused after the keyboard is dismissed. The
+      // recovered viewport, not blur delivery, is authoritative; otherwise
+      // keyboard-open keeps the compact side navigation hidden indefinitely.
+      root.classList.remove('keyboard-open');
+      // Brief freeze during close animation to prevent jitter
+      _keyboardFreezeUntil = Date.now() + 350;
+      setManagedTimer('kb-height-settle-close', scheduleAppHeightUpdate, 400);
+      _stableViewportHeight = Math.max(kbVvH, Math.round(window.innerHeight));
+      log.debug('[Platform] Keyboard closed');
     }
 
     // Set keyboard overlap CSS variable
@@ -335,22 +521,30 @@ function updateAppHeightNow(): void {
     (root.classList.contains('keyboard-open') ||
       (_keyboardFreezeUntil > 0 && Date.now() < _keyboardFreezeUntil));
 
-  // iOS PWA portrait: CSS units (100%, 100dvh) both exclude safe-area-inset-top
-  // on iOS standalone. Use the largest available height signal and set html
-  // element height directly. screen.height (hardware constant) is included as
-  // a stable fallback — innerHeight / visualViewport.height can report shorter
-  // values during cold-start before the viewport fully stabilises.
-  if (IS_IOS && isStandalone && !isLandscape) {
-    const ih = Number.isFinite(window.innerHeight) ? Math.round(window.innerHeight) : 0;
-    const vvH = vv && Number.isFinite(vv.height) ? Math.round(vv.height) : 0;
-    const scrH =
-      window.screen && Number.isFinite(window.screen.height) && window.screen.height > 0
-        ? Math.round(window.screen.height)
-        : 0;
-    const fullH = Math.max(ih, vvH, scrH);
+  // iOS PWA signals have different safe-area behaviour by orientation.
+  // Portrait retains the historical screen-height fallback for the top inset.
+  // Landscape excludes visualViewport/root.clientHeight from authority because
+  // WebKit may shorten both by the home-indicator area on a cold launch.
+  if (IS_IOS && isStandalone) {
+    const ih = roundedPositive(window.innerHeight);
+    const vvH = roundedPositive(vv?.height);
+    const scrH = roundedPositive(window.screen?.height);
+    const layoutWidth = roundedPositive(window.innerWidth);
+    const cssLayout = isLandscape ? measureIOSStandaloneLayoutViewport() : { width: 0, height: 0 };
+    const fullH = isLandscape
+      ? resolveIOSStandaloneLandscapeHeight({
+          layoutWidth,
+          innerHeight: ih,
+          visualWidth: roundedPositive(vv?.width),
+          visualHeight: vvH,
+          cssLayoutWidth: cssLayout.width,
+          cssLayoutHeight: cssLayout.height,
+        })
+      : Math.max(ih, vvH, scrH);
+    if (isLandscape) root.style.removeProperty('height');
     if (fullH > 0 && !shouldFreezeAppHeight) {
       try {
-        root.style.height = `${fullH}px`;
+        if (!isLandscape) root.style.height = `${fullH}px`;
         root.style.setProperty('--app-height', `${fullH}px`);
       } catch (e) {
         log.debug('[Platform] iOS standalone height set failed:', e);
@@ -402,6 +596,20 @@ function scheduleAppHeightUpdate(): void {
   }
 }
 
+function scheduleIOSStandaloneHeightSettles(allowFocusedOrientationReconcile = false): void {
+  if (!IS_IOS || !isStandaloneDisplayMode()) return;
+  for (const delayMs of IOS_STANDALONE_BOOT_SETTLE_MS) {
+    setManagedTimer(
+      `boot-height-ios-${delayMs}`,
+      () => {
+        if (allowFocusedOrientationReconcile) _allowFocusedOrientationReconcile = true;
+        scheduleAppHeightUpdate();
+      },
+      delayMs,
+    );
+  }
+}
+
 /**
  * Remove the is-booting guard class after viewport calculations stabilize.
  * This re-enables CSS transitions and backdrop-filter.
@@ -429,7 +637,12 @@ export function initPlatform(): void {
   // Suppress all transitions/animations during boot to prevent layout shaking.
   // CSS html.is-booting * { transition: none !important } handles the rest.
   try {
-    document.documentElement.classList.add('is-booting');
+    const root = document.documentElement;
+    root.classList.add('is-booting');
+    // A cold standalone landscape launch does not emit orientationchange.
+    // Apply the same bounded keyboard-inference lock up front so transient
+    // visualViewport values cannot hide the side navigation on first paint.
+    if (IS_IOS && isStandaloneDisplayMode()) resetMobileViewportTransitionState();
   } catch (e) {
     log.debug('[Platform] is-booting class failed:', e);
   }
@@ -443,6 +656,16 @@ export function initPlatform(): void {
       setManagedTimer('boot-height-1500', scheduleAppHeightUpdate, 1500);
       // Remove boot guard after last Android height update settles
       setManagedTimer('boot-end', endBootingPhase, 1800);
+    } else if (IS_IOS && isStandaloneDisplayMode()) {
+      // Installed WebKit can publish its final layout/safe-area geometry after
+      // the initial frame. Reconcile twice, then stop; there is no interval or
+      // background viewport probe after this bounded boot window.
+      scheduleIOSStandaloneHeightSettles();
+      setManagedTimer(
+        'boot-end',
+        endBootingPhase,
+        IOS_STANDALONE_BOOT_SETTLE_MS[IOS_STANDALONE_BOOT_SETTLE_MS.length - 1] + 100,
+      );
     } else {
       // Non-Android: remove boot guard after a short stabilization window
       setManagedTimer('boot-end', endBootingPhase, 300);
@@ -453,16 +676,15 @@ export function initPlatform(): void {
   run();
 
   try {
-    window.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
-    window.addEventListener(
+    clearPlatformViewportListeners();
+    addPlatformViewportListener(window, 'resize', scheduleAppHeightUpdate, { passive: true });
+    addPlatformViewportListener(
+      window,
       'orientationchange',
       () => {
-        // iOS keeps activeElement focused after rotation, even when the
-        // virtual keyboard is gone. The stillFocused check inside the
-        // keyboard-close branch then refuses to drop the keyboard-open
-        // class, which keeps shouldFreezeAppHeight=true and pins
-        // --app-height at the previous orientation's value. Force-blur
-        // here so the close branch actually fires on the next pass.
+        // iOS can keep activeElement focused after rotation even though the
+        // keyboard is gone. Blur before accepting geometry for the new
+        // orientation so a later resize cannot reuse that stale authority.
         const ae = document.activeElement as HTMLElement | null;
         if (ae && ae !== document.body && typeof ae.blur === 'function') {
           try {
@@ -472,25 +694,20 @@ export function initPlatform(): void {
           }
         }
 
-        // Reset stable viewport — orientation changes the full viewport dimensions.
-        _stableViewportHeight = 0;
-        // Reset keyboard freeze. A rotation that happens within the
+        // Reset keyboard freeze and the stable viewport. A rotation within the
         // keyboard-close freeze window (350ms) would otherwise lock
         // --app-height at the previous orientation's value: the next
         // updateAppHeight call sees shouldFreezeAppHeight=true and skips
         // the assignment, leaving the new orientation with a stale viewport
         // height. CSS that anchors on var(--app-height) (scrollbar centering,
         // sidebar height, modal positioning) then renders relative to the
-        // wrong dimension. Rotating always implies the keyboard is gone, so
-        // it's safe to clear both signals unconditionally.
-        _keyboardFreezeUntil = 0;
-        // Suppress keyboard detection for KB_DETECTION_LOCK_MS. visualViewport
+        // wrong dimension. Suppress keyboard detection for
+        // KB_DETECTION_LOCK_MS as visualViewport
         // .resize fires repeatedly during the rotation animation with shrunken
         // heights that get mis-detected as a keyboard opening — those false
         // positives re-add the keyboard-open class right after we clear it
         // below, defeating every other reset in this handler.
-        _kbDetectionLockedUntil = Date.now() + KB_DETECTION_LOCK_MS;
-        document.documentElement.classList.remove('keyboard-open');
+        resetMobileViewportTransitionState();
         scheduleAppHeightUpdate();
         // Settle timer for both platforms — visualViewport can lag behind
         // orientationchange while the OS animates the rotation, so a single
@@ -501,15 +718,61 @@ export function initPlatform(): void {
       },
       { passive: true },
     );
-    window.addEventListener('pageshow', scheduleAppHeightUpdate, { passive: true });
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') scheduleAppHeightUpdate();
-    });
+    addPlatformViewportListener(
+      window,
+      'pageshow',
+      () => {
+        _allowFocusedOrientationReconcile = true;
+        scheduleAppHeightUpdate();
+        scheduleIOSStandaloneHeightSettles(true);
+      },
+      { passive: true },
+    );
+    addPlatformViewportListener(
+      document,
+      'visibilitychange',
+      () => {
+        if (document.visibilityState === 'visible') {
+          _allowFocusedOrientationReconcile = true;
+          scheduleAppHeightUpdate();
+          scheduleIOSStandaloneHeightSettles(true);
+        }
+      },
+      { passive: true },
+    );
+    addPlatformViewportListener(document, 'focusin', scheduleAppHeightUpdate, { passive: true });
+    addPlatformViewportListener(document, 'focusout', scheduleAppHeightUpdate, { passive: true });
     if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', scheduleAppHeightUpdate, { passive: true });
-      window.visualViewport.addEventListener('scroll', scheduleAppHeightUpdate, { passive: true });
+      addPlatformViewportListener(window.visualViewport, 'resize', scheduleAppHeightUpdate, {
+        passive: true,
+      });
+      addPlatformViewportListener(window.visualViewport, 'scroll', scheduleAppHeightUpdate, {
+        passive: true,
+      });
     }
   } catch (e) {
     log.debug('[Platform] Event listener registration failed:', e);
   }
 }
+
+export const platformViewportForTests = {
+  updateNow: updateAppHeightNow,
+  reset(): void {
+    clearPlatformViewportListeners();
+    if (_appHeightRaf) cancelAnimationFrame(_appHeightRaf);
+    _appHeightRaf = 0;
+    _lastSoftKeyHeight = 0;
+    _platformClassesApplied = false;
+    _stableViewportHeight = 0;
+    _keyboardFreezeUntil = 0;
+    _kbDetectionLockedUntil = 0;
+    _stableViewportLandscape = null;
+    _stableLayoutViewportWidth = 0;
+    _stableLayoutViewportHeight = 0;
+    _allowFocusedOrientationReconcile = false;
+    _iosViewportProbe?.remove();
+    _iosViewportProbe = null;
+    _iosStandaloneViewportProbe?.remove();
+    _iosStandaloneViewportProbe = null;
+  },
+};

@@ -8,8 +8,6 @@ import { queryCurrent } from './release-deployment-state.mts';
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
 const REQUEST_TIMEOUT_MS = 15_000;
 const RESPONSE_MAX_BYTES = 512 * 1024;
-const PAGE_SIZE = 100;
-const MAX_PAGES = 100;
 const SIGNALING_CONFIG = 'cloudflare/wrangler.signaling.toml';
 const SIGNALING_STATE_FILE = 'signaling-state.json';
 const DEPLOYMENT_ID_RE = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u;
@@ -268,16 +266,16 @@ function integer(value: unknown, label: string): number {
   return Number(value);
 }
 
-function parseListEnvelope(
-  value: unknown,
-  requestedPage: number,
-): {
-  readonly domains: WorkerDomainIdentity[];
-  readonly page: number;
-  readonly perPage: number;
-  readonly totalCount: number;
-  readonly totalPages: number;
-} {
+function optionalInteger(
+  value: Record<string, unknown>,
+  key: string,
+  label: string,
+): number | undefined {
+  const candidate = value[key];
+  return candidate === undefined || candidate === null ? undefined : integer(candidate, label);
+}
+
+function parseListEnvelope(value: unknown): WorkerDomainIdentity[] {
   if (
     !isRecord(value) ||
     value.success !== true ||
@@ -285,68 +283,45 @@ function parseListEnvelope(
     value.errors.length !== 0 ||
     !Array.isArray(value.messages) ||
     !Array.isArray(value.result) ||
-    !isRecord(value.result_info)
+    (value.result_info !== undefined && !isRecord(value.result_info))
   ) {
     throw new Error('Cloudflare domain list returned an invalid API envelope.');
   }
-  const page = integer(value.result_info.page, 'page');
-  const perPage = integer(value.result_info.per_page, 'per-page count');
-  const count = integer(value.result_info.count, 'page count');
-  const totalCount = integer(value.result_info.total_count, 'total count');
-  if (page !== requestedPage || perPage < 1 || count !== value.result.length || count > perPage) {
-    throw new Error('Cloudflare domain list returned inconsistent pagination.');
+  if (isRecord(value.result_info)) {
+    const page = optionalInteger(value.result_info, 'page', 'page');
+    const perPage = optionalInteger(value.result_info, 'per_page', 'per-page count');
+    const count = optionalInteger(value.result_info, 'count', 'page count');
+    const totalCount = optionalInteger(value.result_info, 'total_count', 'total count');
+    const totalPages = optionalInteger(value.result_info, 'total_pages', 'total pages');
+    if (
+      (page !== undefined && page !== 1) ||
+      (perPage !== undefined && (perPage < 1 || value.result.length > perPage)) ||
+      (count !== undefined && count !== value.result.length) ||
+      (totalCount !== undefined && totalCount !== value.result.length) ||
+      (totalPages !== undefined && totalPages !== 1)
+    ) {
+      throw new Error('Cloudflare domain list returned inconsistent pagination metadata.');
+    }
   }
-  const calculatedPages = Math.max(1, Math.ceil(totalCount / perPage));
-  const declaredPages =
-    value.result_info.total_pages === undefined || value.result_info.total_pages === null
-      ? calculatedPages
-      : integer(value.result_info.total_pages, 'total pages');
-  if (declaredPages !== calculatedPages || declaredPages > MAX_PAGES) {
-    throw new Error('Cloudflare domain list returned an unsafe page count.');
-  }
-  return {
-    domains: value.result.map(parseDomain),
-    page,
-    perPage,
-    totalCount,
-    totalPages: declaredPages,
-  };
+  return value.result.map(parseDomain);
 }
 
 export async function listWorkerDomains(
   { fetcher = globalThis.fetch, env = process.env }: SignalingDomainStateOptions = {},
   filter: WorkerDomainFilter = {},
 ): Promise<WorkerDomainIdentity[]> {
-  // Cloudflare documents `result_info.total_count` as the account-wide total
-  // before search parameters are applied. Fetching with hostname/service
-  // filters and comparing the filtered rows with that total therefore cannot
-  // prove completeness. Read the exact account inventory first, validate its
-  // full pagination boundary, and only then apply release-owned filters in
-  // memory.
-  const domains: WorkerDomainIdentity[] = [];
-  let expectedTotal = -1;
-  let expectedPages = -1;
-  for (let page = 1; ; page += 1) {
-    const query = new URLSearchParams({ page: String(page), per_page: String(PAGE_SIZE) });
-    const payload = await cloudflareRequest(
-      `/workers/domains?${query.toString()}`,
-      'GET',
-      'Cloudflare signaling domain inventory',
-      { fetcher, env },
-    );
-    const parsed = parseListEnvelope(payload, page);
-    if (page === 1) {
-      expectedTotal = parsed.totalCount;
-      expectedPages = parsed.totalPages;
-    } else if (parsed.totalCount !== expectedTotal || parsed.totalPages !== expectedPages) {
-      throw new Error('Cloudflare domain inventory changed during pagination.');
-    }
-    domains.push(...parsed.domains);
-    if (page === expectedPages) break;
-  }
-  if (domains.length !== expectedTotal) {
-    throw new Error('Cloudflare domain inventory returned an incomplete result set.');
-  }
+  // Cloudflare defines this endpoint as an account-wide SinglePage list and
+  // does not support page/per_page query parameters. Read that unfiltered
+  // inventory once, then apply release-owned filters locally. `result_info`
+  // and each of its fields are optional; when present, the parser still
+  // rejects metadata that would imply a partial result set.
+  const payload = await cloudflareRequest(
+    '/workers/domains',
+    'GET',
+    'Cloudflare signaling domain inventory',
+    { fetcher, env },
+  );
+  const domains = parseListEnvelope(payload);
   const ids = new Set<string>();
   const hostnames = new Set<string>();
   for (const domain of domains) {

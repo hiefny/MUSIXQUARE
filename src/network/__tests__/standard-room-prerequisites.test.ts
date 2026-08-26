@@ -148,7 +148,13 @@ describe('standard-room prerequisite cache', () => {
     vi.stubGlobal('fetch', routeFetch);
     const controller = new AbortController();
 
+    scheduleStandardRoomPrerequisiteWarmup();
+    expect(
+      document.head.querySelectorAll('link[data-mxqr-standard-signaling-preconnect]'),
+    ).toHaveLength(1);
+
     const preparation = prepareStandardRoomNetworkRouteRetry(controller.signal);
+    expect(document.head.querySelector('link[data-mxqr-standard-signaling-preconnect]')).toBeNull();
     await vi.advanceTimersByTimeAsync(150);
     const configuration = await preparation;
 
@@ -245,8 +251,8 @@ describe('standard-room prerequisite cache', () => {
     expect(mocks.warmCapabilitySilently).not.toHaveBeenCalled();
     expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
     expect(
-      document.head.querySelector('link[data-mxqr-standard-signaling-preconnect]'),
-    ).not.toBeNull();
+      document.head.querySelectorAll('link[data-mxqr-standard-signaling-preconnect]'),
+    ).toHaveLength(1);
 
     document
       .getElementById('unrelated')
@@ -261,6 +267,9 @@ describe('standard-room prerequisite cache', () => {
     document
       .getElementById('btn-setup-host')
       ?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(
+      document.head.querySelectorAll('link[data-mxqr-standard-signaling-preconnect]'),
+    ).toHaveLength(1);
     expect(mocks.warmCapabilitySilently).toHaveBeenCalledOnce();
     expect(mocks.fetchWithCapability).not.toHaveBeenCalled();
 

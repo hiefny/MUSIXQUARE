@@ -116,7 +116,7 @@ const tr: Record<I18nKey, string> = {
   'player.repeat_mode': 'Tekrar Modunu Değiştir',
   'player.shuffle_mode': 'Karışık Çalma Modunu Değiştir',
   'player.sync_compact': 'Eşitle',
-  'player.syncing_compact': 'Senkron…',
+  'player.syncing_compact': 'Eşit…',
   'player.play_media': 'Medyayı Oynat',
   'player.play_media_compact': 'Medya',
   'player.play_media_action': 'Medyayı Oynat',

@@ -341,15 +341,16 @@ function preconnectToSignaling(): void {
   document.head.appendChild(link);
 }
 
-function refreshSignalingPreconnect(): void {
+function removeSignalingPreconnect(): void {
   document.head.querySelector(`link[${PRECONNECT_MARKER}]`)?.remove();
-  preconnectToSignaling();
 }
 
 /**
  * Retire page-scoped work that may still belong to a previous physical route.
  * Valid TURN credentials remain reusable because they are route-independent;
- * only an in-flight fetch and the browser's speculative preconnect are reset.
+ * only an in-flight fetch and the browser's stale speculative preconnect are
+ * reset. Do not immediately preconnect again: the bounded route probe below
+ * must establish the replacement path before signaling is used.
  */
 function invalidateStandardRoomNetworkRoute(): void {
   networkRouteGeneration += 1;
@@ -358,7 +359,7 @@ function invalidateStandardRoomNetworkRoute(): void {
   turnCredentialsRequestController = null;
   requestController?.abort(new Error('NETWORK_ROUTE_CHANGED'));
   capabilityWarmupRequest = null;
-  refreshSignalingPreconnect();
+  removeSignalingPreconnect();
 }
 
 function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
@@ -606,6 +607,6 @@ export const __standardRoomPrerequisitesForTests = {
     routeObservationController = null;
     warmupScheduled = false;
     networkRouteGeneration = 0;
-    document.head.querySelector(`link[${PRECONNECT_MARKER}]`)?.remove();
+    removeSignalingPreconnect();
   },
 };

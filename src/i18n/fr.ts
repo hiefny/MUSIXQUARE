@@ -210,7 +210,7 @@ const fr: Record<I18nKey, string> = {
   'player.repeat_mode': 'Changer le mode de répétition',
   'player.shuffle_mode': 'Changer le mode aléatoire',
   'player.sync_compact': 'Synchro',
-  'player.syncing_compact': 'Synchro…',
+  'player.syncing_compact': 'Sync…',
   'player.play_media': 'Lire le média',
   'player.play_media_compact': 'Média',
   'player.play_media_action': 'Lire le média',

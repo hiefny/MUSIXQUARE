@@ -208,7 +208,7 @@ const vi: Record<I18nKey, string> = {
   'player.repeat_mode': 'Đổi chế độ lặp',
   'player.shuffle_mode': 'Đổi chế độ ngẫu nhiên',
   'player.sync_compact': 'Đồng bộ',
-  'player.syncing_compact': 'Đồng bộ…',
+  'player.syncing_compact': 'Đ.bộ…',
   'player.play_media': 'Phát nội dung',
   'player.play_media_compact': 'Nội dung',
   'player.play_media_action': 'Phát nội dung',

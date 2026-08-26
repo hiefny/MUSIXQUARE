@@ -3,7 +3,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
-import { CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
+import { __cloudflareSignalingForTests, CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
 const SIGNALING_LIVENESS_INTERVAL_MS = 10_000;
 const SIGNALING_LIVENESS_TIMEOUT_MS = 8_000;
 const SIGNALING_LIVENESS_PING = '{"type":"signaling-liveness-ping","version":1}';
@@ -33,6 +33,10 @@ class FakeWebSocket {
     const listeners = this.listeners.get(event) ?? new Set<FakeSocketListener>();
     listeners.add(listener);
     this.listeners.set(event, listeners);
+  }
+
+  removeEventListener(event: string, listener: FakeSocketListener): void {
+    this.listeners.get(event)?.delete(listener);
   }
 
   send(data: string): void {
@@ -134,6 +138,7 @@ class WorkerState {
 
 afterEach(() => {
   clearAllManagedTimers();
+  __cloudflareSignalingForTests.resetPageSignalingSocketHandles();
   vi.useRealTimers();
   vi.restoreAllMocks();
   Object.defineProperty(globalThis, 'WebSocket', {

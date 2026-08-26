@@ -67,6 +67,8 @@ import {
 } from './setup-shared.ts';
 import { isProRoomCode } from '../pro-room/room-code.ts';
 import { scheduleStandardRoomPrerequisiteWarmup } from '../network/standard-room-prerequisites.ts';
+import { bindOnboardingDebugGesture } from './onboarding-debug-gesture.ts';
+import { initOnboardingDiagnostics, openOnboardingDiagnostics } from './onboarding-diagnostics.ts';
 
 function startSetupJoinWithRole(mode: number): void {
   handleSetupJoinWithRole(mode).catch((error) => {
@@ -337,6 +339,13 @@ function initSetupOverlay(): void {
   armSetupGreeting(signal);
   scheduleStandardRoomPrerequisiteWarmup();
   initObCarousel(signal);
+  bindOnboardingDebugGesture({
+    // Keep the hidden support gesture on the passive slide viewport so rapid
+    // use of Prev/Next/dots can never count as a developer unlock sequence.
+    target: setupEl('ob-slider-viewport'),
+    signal,
+    onOpen: openOnboardingDiagnostics,
+  });
 
   setupEl('setup-overlay')?.addEventListener(
     'click',
@@ -359,6 +368,8 @@ setGuestGoBack(initSetupOverlay);
 // ─── Public Init ─────────────────────────────────────────────────
 
 export function initSetup(): void {
+  initOnboardingDiagnostics();
+
   // Desktop / compact landscape layout listener
   try {
     const mqlDesktop = window.matchMedia('(min-width: 1280px)');

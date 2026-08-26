@@ -11135,6 +11135,60 @@ html:not(.ios-standalone) body {
   pointer-events: none;
 }
 
+/* Hidden onboarding support surface. It reuses the debug overlay shell but is
+ * intentionally static: diagnostics refresh only after an explicit tap. */
+.onboarding-diagnostics-overlay {
+  cursor: default;
+}
+
+.onboarding-diagnostics-content {
+  margin-bottom: 10px;
+  pointer-events: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  touch-action: pan-y;
+}
+
+.onboarding-diagnostics-status {
+  flex: 0 0 auto;
+  min-height: 18px;
+  padding: 0 8px 8px;
+  color: #b9c0ca;
+  font-family: 'SF Mono', ui-monospace, Menlo, Consolas, 'Courier New', monospace;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.onboarding-diagnostics-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+.onboarding-diagnostics-action {
+  min-width: 0;
+  min-height: 42px;
+  flex: 1 1 0;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #f4f4f4;
+  font:
+    600 11px/1 'SF Mono',
+    ui-monospace,
+    Menlo,
+    Consolas,
+    'Courier New',
+    monospace;
+  letter-spacing: 0.06em;
+  touch-action: manipulation;
+}
+
+.onboarding-diagnostics-action:disabled {
+  opacity: 0.45;
+}
+
 .debug-memory-graphs {
   flex: 0 0 auto;
   display: flex;

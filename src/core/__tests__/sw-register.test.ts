@@ -25,6 +25,8 @@ vi.mock('../session-reset.ts', () => ({
 
 interface FakeWorker {
   postMessage: ReturnType<typeof vi.fn>;
+  scriptURL?: string;
+  state?: ServiceWorkerState;
 }
 
 interface FakeResetHandle {
@@ -46,14 +48,15 @@ function createFakeResetHandle(): FakeResetHandle {
 }
 
 interface SwHarness {
-  setController(worker: FakeWorker | null): void;
+  setController(worker: FakeWorker | null, clearWaiting?: boolean, cacheVersion?: string): void;
   emit(type: 'controllerchange' | 'message', event?: unknown): void;
-  installUpdate(): {
+  installUpdate(cacheVersion?: string): {
     emitInstalled(): void;
     waitingWorker: FakeWorker;
   };
   register: ReturnType<typeof vi.fn>;
   reload: ReturnType<typeof vi.fn>;
+  update: ReturnType<typeof vi.fn>;
   waitingWorker: FakeWorker | null;
 }
 
@@ -61,14 +64,48 @@ function installServiceWorkerHarness(
   initialController: FakeWorker | null,
   navigationType: NavigationTimingType = 'navigate',
   hasWaitingWorker = false,
+  initialCacheGeneration = 493,
+  waitingCacheGeneration = initialCacheGeneration + 1,
 ): SwHarness {
   const listeners = new Map<string, Array<(event: any) => void>>();
   const registrationListeners = new Map<string, Array<() => void>>();
+  let cacheGeneration = initialCacheGeneration;
   let controller = initialController;
   const initialWaitingWorker: FakeWorker | null = hasWaitingWorker
     ? { postMessage: vi.fn() }
     : null;
   const reload = vi.fn();
+
+  const configureWorker = (
+    worker: FakeWorker | null,
+    cacheVersion: string,
+    state: ServiceWorkerState,
+  ) => {
+    if (!worker) return;
+    worker.scriptURL = 'https://musixquare.com/service-worker.js';
+    worker.state = state;
+    worker.postMessage.mockImplementation((data: unknown) => {
+      if (
+        data &&
+        typeof data === 'object' &&
+        (data as { type?: unknown }).type === 'MXQR_SW_GENERATION_REQUEST'
+      ) {
+        const requestId = (data as { requestId?: unknown }).requestId;
+        for (const listener of listeners.get('message') || []) {
+          listener({
+            data: {
+              type: 'MXQR_SW_GENERATION_RESPONSE',
+              requestId,
+              cacheVersion,
+            },
+            source: worker,
+          });
+        }
+      }
+    });
+  };
+  configureWorker(controller, `v${cacheGeneration}`, 'activated');
+  configureWorker(initialWaitingWorker, `v${waitingCacheGeneration}`, 'installed');
   const registration = {
     scope: 'https://musixquare.com/',
     installing: null as null | {
@@ -117,15 +154,19 @@ function installServiceWorkerHarness(
   Object.defineProperty(document, 'readyState', { configurable: true, value: 'complete' });
 
   return {
-    setController(worker) {
+    setController(worker, clearWaiting = false, exactCacheVersion) {
+      cacheGeneration += 1;
+      configureWorker(worker, exactCacheVersion || `v${cacheGeneration}`, 'activated');
       controller = worker;
+      if (clearWaiting) registration.waiting = null;
     },
     emit(type, event = {}) {
       for (const listener of listeners.get(type) || []) listener(event);
     },
-    installUpdate() {
+    installUpdate(cacheVersion = `v${cacheGeneration + 1}`) {
       const workerListeners = new Map<string, Array<() => void>>();
       const waitingWorker: FakeWorker = { postMessage: vi.fn() };
+      configureWorker(waitingWorker, cacheVersion, 'installed');
       const installingWorker = {
         state: 'installing' as ServiceWorkerState,
         addEventListener(type: string, listener: () => void) {
@@ -148,6 +189,7 @@ function installServiceWorkerHarness(
     },
     register,
     reload,
+    update: registration.update,
     waitingWorker: initialWaitingWorker,
   };
 }
@@ -159,11 +201,16 @@ async function registerWithHarness(harness: SwHarness): Promise<void> {
   expect(harness.register).toHaveBeenCalledWith('/service-worker.js', { scope: '/' });
 }
 
+async function flushAsyncControllerChange(): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 describe('service-worker cache-retirement client handshake', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
     sessionStorage.clear();
+    localStorage.clear();
     delete document.documentElement.dataset.mxqrNavigationSource;
     moduleMocks.getState.mockReturnValue('idle');
     moduleMocks.scheduleSessionReset.mockImplementation(() => createFakeResetHandle());
@@ -177,7 +224,7 @@ describe('service-worker cache-retirement client handshake', () => {
         handle.onRecovered(() => onRecovered?.());
       },
     );
-    moduleMocks.showDialog.mockResolvedValue(undefined);
+    moduleMocks.showDialog.mockResolvedValue({ action: 'secondary' });
   });
 
   afterEach(() => {
@@ -203,6 +250,7 @@ describe('service-worker cache-retirement client handshake', () => {
       type: 'MXQR_CACHE_CLIENT_STATUS',
       cacheVersion: 'v133',
       ready: false,
+      pageCacheVersion: 'v493',
       replyToRequest: true,
     });
 
@@ -225,6 +273,7 @@ describe('service-worker cache-retirement client handshake', () => {
       type: 'MXQR_CACHE_CLIENT_STATUS',
       cacheVersion: 'v133',
       ready: true,
+      pageCacheVersion: 'v133',
       replyToRequest: false,
     });
   });
@@ -256,6 +305,7 @@ describe('service-worker cache-retirement client handshake', () => {
       type: 'MXQR_CACHE_CLIENT_STATUS',
       cacheVersion: 'v416',
       ready: true,
+      pageCacheVersion: 'v416',
       replyToRequest: false,
     });
   });
@@ -266,7 +316,266 @@ describe('service-worker cache-retirement client handshake', () => {
     await registerWithHarness(harness);
 
     await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
-    expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalled();
+    expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'MXQR_SW_GENERATION_REQUEST' }),
+    );
+    expect(harness.waitingWorker?.postMessage).not.toHaveBeenCalledWith({
+      type: 'SKIP_WAITING',
+    });
+  });
+
+  it('silently clears an impossible same-cache-generation waiting worker', async () => {
+    const harness = installServiceWorkerHarness(
+      { postMessage: vi.fn() },
+      'navigate',
+      true,
+      493,
+      493,
+    );
+    await registerWithHarness(harness);
+
+    await vi.waitFor(() =>
+      expect(harness.waitingWorker?.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+    );
+    expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('compares a churned waiting worker with the current controller, not the page-load controller', async () => {
+    const pageLoadController: FakeWorker = { postMessage: vi.fn() };
+    const currentController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(pageLoadController);
+    moduleMocks.getState.mockReturnValue('host');
+    await registerWithHarness(harness);
+
+    harness.setController(currentController);
+    harness.emit('controllerchange');
+    await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
+
+    const churned = harness.installUpdate('v494');
+    churned.emitInstalled();
+
+    await vi.waitFor(() =>
+      expect(churned.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' }),
+    );
+    expect(moduleMocks.showDialog).not.toHaveBeenCalled();
+  });
+
+  it('drops a stale waiting-worker continuation when a newer install replaces it', async () => {
+    const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+    await registerWithHarness(harness);
+
+    const stale = harness.installUpdate('v494');
+    let staleRequestId: unknown;
+    stale.waitingWorker.postMessage.mockImplementation(
+      (data: { type?: unknown; requestId?: unknown }) => {
+        if (data.type === 'MXQR_SW_GENERATION_REQUEST') staleRequestId = data.requestId;
+      },
+    );
+    stale.emitInstalled();
+    await flushAsyncControllerChange();
+    expect(staleRequestId).toBeTypeOf('string');
+
+    const replacement = harness.installUpdate('v495');
+    replacement.emitInstalled();
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    harness.emit('message', {
+      data: {
+        type: 'MXQR_SW_GENERATION_RESPONSE',
+        requestId: staleRequestId,
+        cacheVersion: 'v494',
+      },
+      source: stale.waitingWorker,
+    });
+    await flushAsyncControllerChange();
+
+    expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    expect(stale.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+  });
+
+  it('applies an open-dialog Refresh choice to the latest replacement worker', async () => {
+    let resolveDialog!: (value: { action: 'ok' }) => void;
+    moduleMocks.showDialog.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDialog = resolve;
+      }),
+    );
+    const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+    await registerWithHarness(harness);
+
+    const stale = harness.installUpdate('v494');
+    stale.emitInstalled();
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    const replacement = harness.installUpdate('v495');
+    replacement.emitInstalled();
+    resolveDialog({ action: 'ok' });
+
+    await vi.waitFor(() =>
+      expect(replacement.waitingWorker.postMessage).toHaveBeenCalledWith({
+        type: 'SKIP_WAITING',
+      }),
+    );
+    expect(stale.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
+    expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+  });
+
+  it('applies an open-dialog Later choice to the latest replacement without re-prompting', async () => {
+    let resolveDialog!: (value: { action: 'secondary' }) => void;
+    moduleMocks.showDialog.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDialog = resolve;
+      }),
+    );
+    const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+    await registerWithHarness(harness);
+
+    const stale = harness.installUpdate('v494');
+    stale.emitInstalled();
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    const replacement = harness.installUpdate('v495');
+    replacement.emitInstalled();
+    resolveDialog({ action: 'secondary' });
+    await flushAsyncControllerChange();
+
+    expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    expect(replacement.waitingWorker.postMessage).not.toHaveBeenCalledWith({
+      type: 'SKIP_WAITING',
+    });
+
+    vi.resetModules();
+    const reopened = installServiceWorkerHarness(
+      { postMessage: vi.fn() },
+      'navigate',
+      true,
+      493,
+      495,
+    );
+    await registerWithHarness(reopened);
+    await flushAsyncControllerChange();
+    expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+  });
+
+  it('converges to one active-room toast when another client activates the prompted worker', async () => {
+    let resolveDialog!: (value: { action: 'secondary' }) => void;
+    moduleMocks.showDialog.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDialog = resolve;
+      }),
+    );
+    moduleMocks.getState.mockReturnValue('host');
+    const harness = installServiceWorkerHarness({ postMessage: vi.fn() });
+    await registerWithHarness(harness);
+
+    const update = harness.installUpdate('v494');
+    update.emitInstalled();
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    harness.setController(update.waitingWorker, true);
+    harness.emit('controllerchange');
+    await flushAsyncControllerChange();
+    resolveDialog({ action: 'secondary' });
+
+    await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
+    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+  });
+
+  it('still performs one bounded update check while an older worker is waiting', async () => {
+    const harness = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+    await registerWithHarness(harness);
+
+    await vi.waitFor(() => expect(harness.update).toHaveBeenCalledOnce());
+  });
+
+  it('does not re-prompt an explicitly dismissed waiting generation after an app reopen', async () => {
+    const first = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+    await registerWithHarness(first);
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    vi.resetModules();
+    const reopened = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+    await registerWithHarness(reopened);
+    await flushAsyncControllerChange();
+
+    expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    expect(reopened.waitingWorker?.postMessage).not.toHaveBeenCalledWith({
+      type: 'SKIP_WAITING',
+    });
+  });
+
+  it('prompts immediately when a newer waiting generation replaces a dismissed one', async () => {
+    const first = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+    await registerWithHarness(first);
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    vi.resetModules();
+    const replacement = installServiceWorkerHarness(
+      { postMessage: vi.fn() },
+      'navigate',
+      true,
+      494,
+    );
+    await registerWithHarness(replacement);
+
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledTimes(2));
+  });
+
+  it('lets only one app client present a prompt for the same waiting generation', async () => {
+    let keepPromptOpen!: () => void;
+    moduleMocks.showDialog.mockReturnValue(
+      new Promise((resolve) => {
+        keepPromptOpen = () => resolve({ action: 'secondary' });
+      }),
+    );
+    const first = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+    await registerWithHarness(first);
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    vi.resetModules();
+    const second = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+    await registerWithHarness(second);
+    await flushAsyncControllerChange();
+
+    expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+    keepPromptOpen();
+  });
+
+  it('briefly cools down a failed prompt presentation without hiding a newer generation', async () => {
+    moduleMocks.showDialog.mockRejectedValueOnce(new Error('dialog unavailable'));
+    const first = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+    await registerWithHarness(first);
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledOnce());
+
+    vi.resetModules();
+    const reopened = installServiceWorkerHarness({ postMessage: vi.fn() }, 'navigate', true);
+    await registerWithHarness(reopened);
+    await flushAsyncControllerChange();
+    expect(moduleMocks.showDialog).toHaveBeenCalledOnce();
+
+    vi.resetModules();
+    const replacement = installServiceWorkerHarness(
+      { postMessage: vi.fn() },
+      'navigate',
+      true,
+      494,
+    );
+    await registerWithHarness(replacement);
+    await vi.waitFor(() => expect(moduleMocks.showDialog).toHaveBeenCalledTimes(2));
+  });
+
+  it('deduplicates explicit boot-time update checks across app clients', async () => {
+    const first = installServiceWorkerHarness({ postMessage: vi.fn() });
+    await registerWithHarness(first);
+    await vi.waitFor(() => expect(first.update).toHaveBeenCalledOnce());
+
+    vi.resetModules();
+    const second = installServiceWorkerHarness({ postMessage: vi.fn() });
+    await registerWithHarness(second);
+    await flushAsyncControllerChange();
+
+    expect(second.update).not.toHaveBeenCalled();
   });
 
   it('routes an idle controlled-tab controller change through the reset coordinator', async () => {
@@ -278,7 +587,7 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
     expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledWith(
       'dialog.refreshing_session',
       expect.any(Function),
@@ -287,6 +596,22 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(resetAction).toBeTypeOf('function');
     resetAction?.();
     expect(harness.reload).toHaveBeenCalledOnce();
+  });
+
+  it('reserves an idle reset before the replacement generation replies', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const newController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    await registerWithHarness(harness);
+
+    harness.setController(newController);
+    newController.postMessage.mockImplementation(() => undefined);
+    harness.emit('controllerchange');
+
+    // This assertion is intentionally synchronous. A pre-protocol controller
+    // can take 750 ms to resolve, but pagehide must see the reset coordinator
+    // from the controllerchange turn itself.
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
   });
 
   it('accepts exactly one later controllerchange after its reset attempt recovers', async () => {
@@ -299,14 +624,41 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(firstController);
     harness.emit('controllerchange');
     harness.emit('controllerchange');
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
 
     const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
     firstHandle.emitRecovered();
+    harness.emit('controllerchange');
+    await flushAsyncControllerChange();
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
     harness.setController(secondController);
     harness.emit('controllerchange');
     harness.emit('controllerchange');
 
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2));
+  });
+
+  it('reserves an unresolved successor immediately when the current reload recovers', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const firstController: FakeWorker = { postMessage: vi.fn() };
+    const unresolvedSuccessor: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    await registerWithHarness(harness);
+
+    harness.setController(firstController);
+    harness.emit('controllerchange');
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
+
+    harness.setController(unresolvedSuccessor);
+    unresolvedSuccessor.postMessage.mockImplementation(() => undefined);
+    harness.emit('controllerchange');
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+
+    firstHandle.emitRecovered();
+
+    // The second reset is claimed inside recovery, without waiting for the
+    // mixed-version successor's generation timeout.
     expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2);
   });
 
@@ -320,21 +672,65 @@ describe('service-worker cache-retirement client handshake', () => {
 
     harness.setController(firstController);
     harness.emit('controllerchange');
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
     const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
     firstHandle.emitRecovered();
 
     harness.setController(secondController);
     harness.emit('controllerchange');
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2));
     const secondHandle = moduleMocks.scheduleSessionReset.mock.results[1]?.value as FakeResetHandle;
     firstHandle.emitRecovered();
 
     harness.setController(thirdController);
     harness.emit('controllerchange');
+    await flushAsyncControllerChange();
     expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(2);
 
     secondHandle.emitRecovered();
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(3));
+  });
+
+  it('drops a same-generation rapid successor before a no-op reload recovers', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const staleController: FakeWorker = { postMessage: vi.fn() };
+    const successorController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    await registerWithHarness(harness);
+
+    let staleRequestId: unknown;
+    harness.setController(staleController, false, 'v494');
+    staleController.postMessage.mockImplementation(
+      (data: { type?: unknown; requestId?: unknown }) => {
+        if (data.type === 'MXQR_SW_GENERATION_REQUEST') staleRequestId = data.requestId;
+      },
+    );
     harness.emit('controllerchange');
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(3);
+    await flushAsyncControllerChange();
+    expect(staleRequestId).toBeTypeOf('string');
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+
+    harness.setController(successorController, false, 'v494');
+    harness.emit('controllerchange');
+    harness.emit('message', {
+      data: {
+        type: 'MXQR_SW_GENERATION_RESPONSE',
+        requestId: staleRequestId,
+        cacheVersion: 'v494',
+      },
+      source: staleController,
+    });
+    await vi.waitFor(() =>
+      expect(successorController.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'MXQR_SW_GENERATION_REQUEST' }),
+      ),
+    );
+
+    const firstHandle = moduleMocks.scheduleSessionReset.mock.results[0]?.value as FakeResetHandle;
+    firstHandle.emitRecovered();
+    await flushAsyncControllerChange();
+
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
   });
 
   it('keeps another tab update non-disruptive while this tab has an active session', async () => {
@@ -347,10 +743,64 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
-    expect(moduleMocks.showToast).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
     expect(moduleMocks.showToast).toHaveBeenCalledWith('dialog.sw_update_msg');
     expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
     expect(harness.reload).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates active-room toasts across controller wrappers for one generation', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const firstWrapper: FakeWorker = { postMessage: vi.fn() };
+    const secondWrapper: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    moduleMocks.getState.mockReturnValue('host');
+    await registerWithHarness(harness);
+
+    harness.setController(firstWrapper, false, 'v494');
+    harness.emit('controllerchange');
+    await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
+
+    harness.setController(secondWrapper, false, 'v494');
+    harness.emit('controllerchange');
+    await flushAsyncControllerChange();
+
+    expect(moduleMocks.showToast).toHaveBeenCalledOnce();
+    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+  });
+
+  it('drops a stale generation continuation when a newer controller wins the race', async () => {
+    const oldController: FakeWorker = { postMessage: vi.fn() };
+    const staleController: FakeWorker = { postMessage: vi.fn() };
+    const winningController: FakeWorker = { postMessage: vi.fn() };
+    const harness = installServiceWorkerHarness(oldController);
+    moduleMocks.getState.mockReturnValue('host');
+    await registerWithHarness(harness);
+
+    let staleRequestId: unknown;
+    harness.setController(staleController);
+    staleController.postMessage.mockImplementation(
+      (data: { type?: unknown; requestId?: unknown }) => {
+        if (data.type === 'MXQR_SW_GENERATION_REQUEST') staleRequestId = data.requestId;
+      },
+    );
+    harness.emit('controllerchange');
+    await flushAsyncControllerChange();
+    expect(staleRequestId).toBeTypeOf('string');
+
+    harness.setController(winningController);
+    harness.emit('controllerchange');
+    harness.emit('message', {
+      data: {
+        type: 'MXQR_SW_GENERATION_RESPONSE',
+        requestId: staleRequestId,
+        cacheVersion: 'v494',
+      },
+      source: staleController,
+    });
+
+    await vi.waitFor(() => expect(moduleMocks.showToast).toHaveBeenCalledOnce());
+    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
   });
 
   it('waits for controllerchange before reloading an approved active-session update', async () => {
@@ -374,7 +824,7 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
     expect(moduleMocks.showToast).not.toHaveBeenCalled();
     expect(update.waitingWorker.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
     expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledWith(
@@ -420,7 +870,7 @@ describe('service-worker cache-retirement client handshake', () => {
 
     harness.setController(newController);
     harness.emit('controllerchange');
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
   });
 
   it('honors Refresh when another tab activates the worker while the dialog is open', async () => {
@@ -442,13 +892,14 @@ describe('service-worker cache-retirement client handshake', () => {
 
     harness.setController(newController);
     harness.emit('controllerchange');
+    await flushAsyncControllerChange();
     expect(moduleMocks.showToast).not.toHaveBeenCalled();
     expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
 
     resolveDialog({ action: 'ok' });
     await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
     expect(moduleMocks.showToast).not.toHaveBeenCalled();
-    expect(update.waitingWorker.postMessage).not.toHaveBeenCalled();
+    expect(update.waitingWorker.postMessage).not.toHaveBeenCalledWith({ type: 'SKIP_WAITING' });
   });
 
   it('finishes a legacy pre-activation reload without showing a duplicate update toast', async () => {
@@ -462,8 +913,8 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
+    await vi.waitFor(() => expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce());
     expect(moduleMocks.showToast).not.toHaveBeenCalled();
-    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledOnce();
     expect(Number(sessionStorage.getItem('sw-controller-confirmed-at'))).toBeGreaterThan(0);
   });
 
@@ -480,7 +931,9 @@ describe('service-worker cache-retirement client handshake', () => {
     harness.setController(newController);
     harness.emit('controllerchange');
 
-    expect(moduleMocks.showToast).toHaveBeenCalledWith('dialog.sw_update_msg');
+    await vi.waitFor(() =>
+      expect(moduleMocks.showToast).toHaveBeenCalledWith('dialog.sw_update_msg'),
+    );
     expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
   });
 });

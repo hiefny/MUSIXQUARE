@@ -492,6 +492,12 @@ export interface TransportPeerOptions {
   signalingUrl?: string;
   peerJsServer?: PeerJsServerConfig;
   proSignaling?: ProSignalingOptions;
+  /**
+   * Setup-only barrier used after one generic pre-open signaling failure.
+   * The provider owns the retry generation and aborts this work when that
+   * provisional peer/connection loses authority.
+   */
+  prepareNetworkRouteRetry?: (signal: AbortSignal) => Promise<RTCConfiguration | null>;
   standardRoomAssertionProvider?: (
     request: StandardRoomAssertionRequest,
   ) => Promise<StandardRoomIdentityAssertions | undefined>;

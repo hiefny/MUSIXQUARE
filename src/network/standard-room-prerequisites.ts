@@ -35,6 +35,15 @@ const TURN_REFRESH_SKEW_MS = 60_000;
 const FALLBACK_TURN_CACHE_MS = 5 * 60_000;
 const TURN_REQUEST_TIMEOUT_MS = 8_000;
 const TURN_RESPONSE_MAX_BYTES = 64 * 1024;
+const ROUTE_PROBE_ATTEMPT_TIMEOUT_MS = 900;
+const ROUTE_PROBE_RETRY_DELAY_MS = 250;
+const ROUTE_PROBE_BUDGET_MS = 3_000;
+const ROUTE_SETTLE_DELAY_MS = 150;
+const TURN_ROUTE_READOPTION_LIMIT = 2;
+const STANDARD_ROOM_BASE_ICE_SERVERS: readonly RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun.cloudflare.com:3478' },
+];
 const PRECONNECT_MARKER = 'data-mxqr-standard-signaling-preconnect';
 const SETUP_INTENT_SELECTOR =
   '#btn-setup-host, #btn-setup-guest, #btn-setup-confirm, #setup-join-code';
@@ -42,9 +51,12 @@ const SETUP_ACTIVATION_SELECTOR = '#btn-setup-host, #btn-setup-guest, #btn-setup
 
 let cachedTurnCredentials: CachedTurnCredentials | null = null;
 let turnCredentialsRequest: Promise<StandardRoomTurnCredentials | null> | null = null;
+let turnCredentialsRequestController: AbortController | null = null;
 let capabilityWarmupRequest: Promise<boolean> | null = null;
 let warmupScheduled = false;
 let warmupIntentController: AbortController | null = null;
+let routeObservationController: AbortController | null = null;
+let networkRouteGeneration = 0;
 
 function turnRequestEndpoints(baseHref = window.location.href): string[] {
   const seen = new Set<string>();
@@ -131,6 +143,10 @@ function createAbortError(signal: AbortSignal): Error {
   return error;
 }
 
+function isNetworkRouteChangedError(error: unknown): boolean {
+  return error instanceof Error && error.message === 'NETWORK_ROUTE_CHANGED';
+}
+
 function settleWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return promise;
   if (signal.aborted) return Promise.reject(createAbortError(signal));
@@ -154,10 +170,12 @@ function settleWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
   });
 }
 
-async function requestTurnCredentials(): Promise<StandardRoomTurnCredentials | null> {
+async function requestTurnCredentials(
+  routeGeneration: number,
+  controller: AbortController,
+): Promise<StandardRoomTurnCredentials | null> {
   if (import.meta.env.MODE === 'e2e') return null;
 
-  const controller = new AbortController();
   const timeout = window.setTimeout(
     () => controller.abort(new Error('TURN_REQUEST_TIMEOUT')),
     TURN_REQUEST_TIMEOUT_MS,
@@ -196,6 +214,13 @@ async function requestTurnCredentials(): Promise<StandardRoomTurnCredentials | n
           source,
           iceServers,
         };
+        // A cellular -> Wi-Fi hand-off can leave the old fetch resolving after
+        // its consumers have already moved to a new route generation. Never
+        // publish or cache that superseded result for the replacement setup.
+        if (routeGeneration !== networkRouteGeneration) throw new Error('NETWORK_ROUTE_CHANGED');
+        if (controller.signal.aborted) {
+          throw createAbortError(controller.signal);
+        }
         const lifetimeMs = cacheLifetimeMs(payload);
         if (lifetimeMs > 0) {
           cachedTurnCredentials = {
@@ -205,9 +230,23 @@ async function requestTurnCredentials(): Promise<StandardRoomTurnCredentials | n
         }
         return cloneCredentials(value);
       } catch (error) {
+        if (controller.signal.aborted && isNetworkRouteChangedError(controller.signal.reason)) {
+          throw controller.signal.reason;
+        }
         if (isCapabilityChallengeCancelled(error)) throw error;
+        if (isNetworkRouteChangedError(error)) throw error;
         if (controller.signal.aborted) {
-          log.warn('[Network] TURN credential request timed out');
+          if (
+            controller.signal.reason instanceof Error &&
+            controller.signal.reason.message === 'TURN_REQUEST_TIMEOUT'
+          ) {
+            log.warn('[Network] TURN credential request timed out');
+          } else {
+            log.debug('[Network] Superseded TURN request retired after network route change');
+          }
+          if (isNetworkRouteChangedError(controller.signal.reason)) {
+            throw controller.signal.reason;
+          }
           return null;
         }
         log.warn(
@@ -228,8 +267,9 @@ async function requestTurnCredentials(): Promise<StandardRoomTurnCredentials | n
  * and guest setup. The cache lives only for this page lifetime and refreshes
  * before the server-issued credential TTL expires.
  */
-export async function getStandardRoomTurnCredentials(
+async function getStandardRoomTurnCredentialsForRoute(
   signal?: AbortSignal,
+  readoptionAttempt = 0,
 ): Promise<StandardRoomTurnCredentials | null> {
   if (signal?.aborted) throw createAbortError(signal);
 
@@ -241,12 +281,38 @@ export async function getStandardRoomTurnCredentials(
   if (!request) {
     // The page-scoped fetch is shared. A cancelled setup abandons only its
     // wait; it must not tear down useful warmup work for a successor attempt.
-    request = requestTurnCredentials().finally(() => {
-      if (turnCredentialsRequest === request) turnCredentialsRequest = null;
+    const controller = new AbortController();
+    const routeGeneration = networkRouteGeneration;
+    turnCredentialsRequestController = controller;
+    request = requestTurnCredentials(routeGeneration, controller).finally(() => {
+      if (turnCredentialsRequest === request) {
+        turnCredentialsRequest = null;
+        turnCredentialsRequestController = null;
+      }
     });
     turnCredentialsRequest = request;
   }
-  return settleWithAbort(request, signal);
+  try {
+    return await settleWithAbort(request, signal);
+  } catch (error) {
+    if (
+      isNetworkRouteChangedError(error) &&
+      !signal?.aborted &&
+      readoptionAttempt < TURN_ROUTE_READOPTION_LIMIT
+    ) {
+      // Chromium does expose cellular <-> Wi-Fi through NetworkInformation.
+      // A setup already consuming the superseded shared request must adopt the
+      // replacement generation instead of silently continuing STUN-only.
+      return getStandardRoomTurnCredentialsForRoute(signal, readoptionAttempt + 1);
+    }
+    throw error;
+  }
+}
+
+export async function getStandardRoomTurnCredentials(
+  signal?: AbortSignal,
+): Promise<StandardRoomTurnCredentials | null> {
+  return getStandardRoomTurnCredentialsForRoute(signal);
 }
 
 function signalingHttpOrigin(): string | null {
@@ -273,6 +339,146 @@ function preconnectToSignaling(): void {
   link.crossOrigin = 'anonymous';
   link.setAttribute(PRECONNECT_MARKER, '');
   document.head.appendChild(link);
+}
+
+function refreshSignalingPreconnect(): void {
+  document.head.querySelector(`link[${PRECONNECT_MARKER}]`)?.remove();
+  preconnectToSignaling();
+}
+
+/**
+ * Retire page-scoped work that may still belong to a previous physical route.
+ * Valid TURN credentials remain reusable because they are route-independent;
+ * only an in-flight fetch and the browser's speculative preconnect are reset.
+ */
+function invalidateStandardRoomNetworkRoute(): void {
+  networkRouteGeneration += 1;
+  const requestController = turnCredentialsRequestController;
+  turnCredentialsRequest = null;
+  turnCredentialsRequestController = null;
+  requestController?.abort(new Error('NETWORK_ROUTE_CHANGED'));
+  capabilityWarmupRequest = null;
+  refreshSignalingPreconnect();
+}
+
+function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(createAbortError(signal));
+  return new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      signal.removeEventListener('abort', onAbort);
+      reject(createAbortError(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+async function probeSignalingRoute(signal: AbortSignal, timeoutMs: number): Promise<boolean> {
+  const origin = signalingHttpOrigin();
+  if (!origin) return false;
+
+  const controller = new AbortController();
+  const onAbort = () => controller.abort(signal.reason);
+  signal.addEventListener('abort', onAbort, { once: true });
+  if (signal.aborted) onAbort();
+  const timeout = window.setTimeout(
+    () => controller.abort(new Error('NETWORK_ROUTE_PROBE_TIMEOUT')),
+    timeoutMs,
+  );
+  try {
+    const url = new URL('/', origin);
+    url.searchParams.set('_mxqr_route', `${networkRouteGeneration}-${Date.now().toString(36)}`);
+    const response = await raceWithAbortSignal(
+      fetch(url, {
+        method: 'GET',
+        mode: 'no-cors',
+        cache: 'no-store',
+        credentials: 'omit',
+        redirect: 'follow',
+        referrerPolicy: 'no-referrer',
+        signal: controller.signal,
+      }),
+      controller.signal,
+      cancelResponseBody,
+    );
+    await cancelResponseBody(response);
+    return true;
+  } catch {
+    if (signal.aborted) throw createAbortError(signal);
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
+    signal.removeEventListener('abort', onAbort);
+  }
+}
+
+/**
+ * iOS 17 exposes neither NetworkInformation.change nor an offline/online edge
+ * for cellular -> Wi-Fi (both routes are "online"). A generic pre-open WSS
+ * failure is therefore the only reliable reactive signal. Before one bounded
+ * retry, prove a fresh HTTPS path to the signaling origin with an uncached,
+ * credential-free request. The root endpoint is read-only and returns service
+ * metadata; no room claim/join is performed by this barrier.
+ */
+export async function prepareStandardRoomNetworkRouteRetry(
+  signal: AbortSignal,
+): Promise<RTCConfiguration | null> {
+  if (signal.aborted) throw createAbortError(signal);
+  invalidateStandardRoomNetworkRoute();
+
+  const deadline = Date.now() + ROUTE_PROBE_BUDGET_MS;
+  while (!signal.aborted && Date.now() < deadline) {
+    const remainingMs = deadline - Date.now();
+    const routeReady = await probeSignalingRoute(
+      signal,
+      Math.max(1, Math.min(ROUTE_PROBE_ATTEMPT_TIMEOUT_MS, remainingMs)),
+    );
+    if (routeReady) {
+      await abortableDelay(ROUTE_SETTLE_DELAY_MS, signal);
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) return null;
+
+      // Start a new shared TURN request only after the fresh signaling route
+      // is proven. Abandon this retry's wait at the same three-second setup
+      // budget; the page-scoped request may still finish and populate the
+      // route-generation-fenced cache for a later connection.
+      const waitController = new AbortController();
+      const onAbort = () => waitController.abort(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      if (signal.aborted) onAbort();
+      const timeout = window.setTimeout(
+        () => waitController.abort(new Error('NETWORK_ROUTE_TURN_WAIT_TIMEOUT')),
+        remainingMs,
+      );
+      try {
+        const turnCredentials = await getStandardRoomTurnCredentials(waitController.signal);
+        if (signal.aborted) throw createAbortError(signal);
+        return {
+          iceServers: [
+            ...STANDARD_ROOM_BASE_ICE_SERVERS.map((server) => ({ ...server })),
+            ...(turnCredentials?.iceServers ?? []),
+          ],
+          bundlePolicy: 'max-bundle',
+        };
+      } catch {
+        if (signal.aborted) throw createAbortError(signal);
+        return null;
+      } finally {
+        window.clearTimeout(timeout);
+        signal.removeEventListener('abort', onAbort);
+      }
+    }
+
+    const retryDelayMs = Math.min(ROUTE_PROBE_RETRY_DELAY_MS, deadline - Date.now());
+    if (retryDelayMs > 0) await abortableDelay(retryDelayMs, signal);
+  }
+  if (signal.aborted) throw createAbortError(signal);
+  return null;
 }
 
 function warmStandardRoomCapability(): Promise<boolean> {
@@ -360,6 +566,20 @@ export function scheduleStandardRoomPrerequisiteWarmup(): void {
   if (warmupScheduled) return;
   warmupScheduled = true;
   preconnectToSignaling();
+  const routeController = new AbortController();
+  routeObservationController = routeController;
+  window.addEventListener('online', invalidateStandardRoomNetworkRoute, {
+    passive: true,
+    signal: routeController.signal,
+  });
+  const connection = (
+    navigator as Navigator & {
+      connection?: EventTarget;
+    }
+  ).connection;
+  connection?.addEventListener('change', invalidateStandardRoomNetworkRoute, {
+    signal: routeController.signal,
+  });
   const controller = new AbortController();
   warmupIntentController = controller;
   const options = { capture: true, passive: true, signal: controller.signal } as const;
@@ -370,15 +590,22 @@ export function scheduleStandardRoomPrerequisiteWarmup(): void {
 
 export const __standardRoomPrerequisitesForTests = {
   turnRequestTimeoutMs: TURN_REQUEST_TIMEOUT_MS,
+  routeProbeBudgetMs: ROUTE_PROBE_BUDGET_MS,
   requestEndpoints: turnRequestEndpoints,
   warm: warmStandardRoomPrerequisites,
+  invalidateNetworkRoute: invalidateStandardRoomNetworkRoute,
   reset(): void {
+    turnCredentialsRequestController?.abort(new Error('TEST_RESET'));
     cachedTurnCredentials = null;
     turnCredentialsRequest = null;
+    turnCredentialsRequestController = null;
     capabilityWarmupRequest = null;
     warmupIntentController?.abort();
     warmupIntentController = null;
+    routeObservationController?.abort();
+    routeObservationController = null;
     warmupScheduled = false;
+    networkRouteGeneration = 0;
     document.head.querySelector(`link[${PRECONNECT_MARKER}]`)?.remove();
   },
 };

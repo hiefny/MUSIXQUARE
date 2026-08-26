@@ -304,6 +304,9 @@ describe('app UX markup contract', () => {
   });
 
   it('turns a terminal lazy-feature failure into an explicit reload action', () => {
+    const recoveryStart = appRuntimeSource.indexOf('const runLazyFeatureRecovery');
+    const recoveryEnd = appRuntimeSource.indexOf('\n// bootstrap.js', recoveryStart);
+    const recoverySource = appRuntimeSource.slice(recoveryStart, recoveryEnd);
     const connectBoundaryStart = appRuntimeSource.indexOf("safeInit('Connect'");
     const connectBoundaryEnd = appRuntimeSource.indexOf(
       "safeInit('CustomScrollbars'",
@@ -314,6 +317,8 @@ describe('app UX markup contract', () => {
     expect(appRuntimeSource).toContain("bus.on('app:lazy-feature-load-failed'");
     expect(appRuntimeSource).toContain("buttonText: t('common.refresh')");
     expect(appRuntimeSource).toContain("scheduleDocumentReload(t('dialog.refreshing_session')");
+    expect(recoverySource).toContain("showToast(t('error.network_generic'))");
+    expect(recoverySource.match(/reportLazyFeatureLoadFailure\(/gu)).toHaveLength(1);
     expect(connectBoundary).toContain("bus.emit('app:lazy-feature-load-failed', 'connect', error)");
     expect(connectBoundary).not.toContain('loading = null');
   });

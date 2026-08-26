@@ -24,6 +24,7 @@ vi.mock('../transport/config.ts', () => ({
 import {
   __standardRoomPrerequisitesForTests,
   getStandardRoomTurnCredentials,
+  prepareStandardRoomNetworkRouteRetry,
   scheduleStandardRoomPrerequisiteWarmup,
 } from '../standard-room-prerequisites.ts';
 
@@ -65,6 +66,7 @@ afterEach(() => {
   __standardRoomPrerequisitesForTests.reset();
   document.body.replaceChildren();
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe('standard-room prerequisite cache', () => {
@@ -120,6 +122,50 @@ describe('standard-room prerequisite cache', () => {
     pending.resolve(turnResponse());
     await expect(successorGuest).resolves.toMatchObject({ provider: 'cloudflare' });
     expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
+  });
+
+  it('re-adopts a fresh TURN generation at a route boundary and fences the late result', async () => {
+    const stale = deferred<Response>();
+    mocks.fetchWithCapability
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(turnResponse());
+
+    const firstRoute = getStandardRoomTurnCredentials();
+    __standardRoomPrerequisitesForTests.invalidateNetworkRoute();
+    const replacementRoute = getStandardRoomTurnCredentials();
+    stale.resolve(turnResponse(600));
+    await expect(firstRoute).resolves.toMatchObject({ provider: 'cloudflare' });
+    await expect(replacementRoute).resolves.toMatchObject({ provider: 'cloudflare' });
+    expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(2);
+  });
+
+  it('proves an uncached signaling route before returning refreshed TURN configuration', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-26T02:47:40.000Z'));
+    const routeFetch = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 200 }),
+    );
+    vi.stubGlobal('fetch', routeFetch);
+    const controller = new AbortController();
+
+    const preparation = prepareStandardRoomNetworkRouteRetry(controller.signal);
+    await vi.advanceTimersByTimeAsync(150);
+    const configuration = await preparation;
+
+    expect(routeFetch).toHaveBeenCalledOnce();
+    const [routeUrl, init] = routeFetch.mock.calls[0]!;
+    expect(String(routeUrl)).toMatch(/^https:\/\/signal\.musixquare\.com\/\?_mxqr_route=/);
+    expect(init).toMatchObject({
+      mode: 'no-cors',
+      cache: 'no-store',
+      credentials: 'omit',
+    });
+    expect(configuration?.iceServers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ urls: 'stun:stun.cloudflare.com:3478' }),
+        expect.objectContaining({ urls: expect.arrayContaining(['turn:turn.example.test:3478']) }),
+      ]),
+    );
   });
 
   it('retries normally after an opportunistic warmup failure', async () => {

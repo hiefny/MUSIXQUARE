@@ -232,7 +232,7 @@ function capturedSupportLogs(): string {
 
   const entryStart = /^\d{2}:\d{2}:\d{2}\.\d{3}\s+[A-Z]+\s+/u;
   const relevantTag =
-    /\[(?:SW|Network|Transport|Setup|Join|Peer|Guest|Account|Diagnostics|Global)\]/u;
+    /\[(?:App|SW|Network|Transport|Setup|Join|Peer|Guest|Account|Diagnostics|Global)\]/u;
   const result: string[] = [];
   let includeEntry = false;
   for (const line of captured.split('\n')) {

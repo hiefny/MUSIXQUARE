@@ -286,8 +286,27 @@ describe('service worker cache policy', () => {
     await dispatchExtendable(installListener);
 
     expect(cacheAddAll).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledOnce();
     expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('streams optional font assets into CacheStorage sequentially', async () => {
+    let finishFirstWrite: (() => void) | undefined;
+    const firstWrite = new Promise<void>((resolve) => {
+      finishFirstWrite = resolve;
+    });
+    cachePut.mockReturnValueOnce(firstWrite);
+    fetchMock.mockResolvedValue(new Response('optional asset', { status: 200 }));
+
+    const install = dispatchExtendable(installListener);
+    await vi.waitFor(() => expect(cachePut).toHaveBeenCalledOnce());
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    finishFirstWrite?.();
+    await install;
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(cachePut).toHaveBeenCalledTimes(4);
   });
 
   it('bounds a stalled optional font prefetch without failing the core install', async () => {
@@ -347,6 +366,21 @@ describe('service worker cache policy', () => {
 
     finishActivation?.();
     await Promise.all(work);
+  });
+
+  it('reports its exact cache generation to a controlled client', async () => {
+    const client = { id: 'generation-client', postMessage: vi.fn() };
+
+    await dispatchMessage(client, {
+      type: 'MXQR_SW_GENERATION_REQUEST',
+      requestId: 'request-1',
+    });
+
+    expect(client.postMessage).toHaveBeenCalledWith({
+      type: 'MXQR_SW_GENERATION_RESPONSE',
+      requestId: 'request-1',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+    });
   });
 
   it('caches a successful navigation in the runtime cache', async () => {
@@ -1010,6 +1044,42 @@ describe('service worker cache policy', () => {
       replyToRequest: true,
     });
     expect(cacheDelete).not.toHaveBeenCalled();
+  });
+
+  it('keeps only the exact retired generation reported by a mixed-version live tab', async () => {
+    const oldTab = { id: 'old-tab', postMessage: vi.fn() };
+    const newTab = { id: 'new-tab', postMessage: vi.fn() };
+    const olderVersion = 'v193';
+    windowClients = [oldTab, newTab];
+    cacheKeys.mockResolvedValue([
+      `musixquare-static-${olderVersion}`,
+      `musixquare-runtime-${olderVersion}`,
+      `musixquare-static-${RETIRED_CACHE_VERSION}`,
+      `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
+      `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-runtime-${ACTIVE_CACHE_VERSION}`,
+    ]);
+
+    await dispatchExtendable(activateListener);
+    await dispatchMessage(newTab, {
+      type: 'MXQR_CACHE_CLIENT_STATUS',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+      ready: true,
+      pageCacheVersion: ACTIVE_CACHE_VERSION,
+      replyToRequest: true,
+    });
+    await dispatchMessage(oldTab, {
+      type: 'MXQR_CACHE_CLIENT_STATUS',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+      ready: false,
+      pageCacheVersion: RETIRED_CACHE_VERSION,
+      replyToRequest: true,
+    });
+
+    expect(cacheDelete).toHaveBeenCalledWith(`musixquare-static-${olderVersion}`);
+    expect(cacheDelete).toHaveBeenCalledWith(`musixquare-runtime-${olderVersion}`);
+    expect(cacheDelete).not.toHaveBeenCalledWith(`musixquare-static-${RETIRED_CACHE_VERSION}`);
+    expect(cacheDelete).not.toHaveBeenCalledWith(`musixquare-runtime-${RETIRED_CACHE_VERSION}`);
   });
 
   it('scrubs sensitive query entries from a retained runtime cache on activation', async () => {

@@ -32,6 +32,10 @@ interface FakeWorker {
   postMessage: ReturnType<typeof vi.fn>;
 }
 
+// These integration workers intentionally model the pre-generation-protocol
+// controller that a mixed-version upgrade can leave behind. The reset/pagehide
+// contract must not wait for its 750 ms identity fallback.
+
 interface IntegrationHarness {
   emitControllerChange(): void;
   reload: ReturnType<typeof vi.fn>;
@@ -134,6 +138,7 @@ describe('service-worker reset recovery integration', () => {
     vi.resetModules();
     vi.clearAllMocks();
     coordinator = null;
+    localStorage.clear();
     document.documentElement.className = '';
     document.body.innerHTML = '<main id="app"></main>';
     integrationMocks.getState.mockReturnValue('idle');

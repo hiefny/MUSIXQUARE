@@ -38,6 +38,14 @@ enabled = false
 pattern = "signal.musixquare.com"
 custom_domain = true
 
+# Cold Standard-room retry origin. The browser never preconnects this alias;
+# it is first contacted only after the primary signaling origin fails before
+# admission, so an iOS route hand-off gets a distinct hostname/TLS path while
+# still reaching this exact Worker and Durable Object namespace.
+[[routes]]
+pattern = "signal-alt.musixquare.com"
+custom_domain = true
+
 [[durable_objects.bindings]]
 name = "MUSIXQUARE_ROOMS"
 class_name = "MusixquareRoom"

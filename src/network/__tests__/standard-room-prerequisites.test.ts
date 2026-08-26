@@ -18,6 +18,7 @@ vi.mock('../transport/config.ts', () => ({
   getRuntimeTransportConfig: () => ({
     provider: 'cloudflare' as const,
     signalingUrl: 'wss://signal.musixquare.com/api/rooms',
+    signalingFallbackUrl: 'wss://signal-alt.musixquare.com/api/rooms',
   }),
 }));
 
@@ -152,6 +153,10 @@ describe('standard-room prerequisite cache', () => {
     expect(
       document.head.querySelectorAll('link[data-mxqr-standard-signaling-preconnect]'),
     ).toHaveLength(1);
+    expect(
+      document.head.querySelector<HTMLLinkElement>('link[data-mxqr-standard-signaling-preconnect]')
+        ?.href,
+    ).toBe('https://signal.musixquare.com/');
 
     const preparation = prepareStandardRoomNetworkRouteRetry(controller.signal);
     expect(document.head.querySelector('link[data-mxqr-standard-signaling-preconnect]')).toBeNull();
@@ -160,7 +165,7 @@ describe('standard-room prerequisite cache', () => {
 
     expect(routeFetch).toHaveBeenCalledOnce();
     const [routeUrl, init] = routeFetch.mock.calls[0]!;
-    expect(String(routeUrl)).toMatch(/^https:\/\/signal\.musixquare\.com\/\?_mxqr_route=/);
+    expect(String(routeUrl)).toMatch(/^https:\/\/signal-alt\.musixquare\.com\/\?_mxqr_route=/);
     expect(init).toMatchObject({
       mode: 'no-cors',
       cache: 'no-store',

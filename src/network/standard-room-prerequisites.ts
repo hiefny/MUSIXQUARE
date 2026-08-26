@@ -315,11 +315,12 @@ export async function getStandardRoomTurnCredentials(
   return getStandardRoomTurnCredentialsForRoute(signal);
 }
 
-function signalingHttpOrigin(): string | null {
+function signalingHttpOrigin(signalingUrl?: string): string | null {
   const config = getRuntimeTransportConfig();
-  if (config.provider !== 'cloudflare' || !config.signalingUrl) return null;
+  const source = signalingUrl ?? config.signalingUrl;
+  if (config.provider !== 'cloudflare' || !source) return null;
   try {
-    const url = new URL(config.signalingUrl, window.location.href);
+    const url = new URL(source, window.location.href);
     if (url.protocol === 'wss:') url.protocol = 'https:';
     else if (url.protocol === 'ws:') url.protocol = 'http:';
     if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
@@ -379,8 +380,12 @@ function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-async function probeSignalingRoute(signal: AbortSignal, timeoutMs: number): Promise<boolean> {
-  const origin = signalingHttpOrigin();
+async function probeSignalingRoute(
+  signal: AbortSignal,
+  timeoutMs: number,
+  retrySignalingUrl: string,
+): Promise<boolean> {
+  const origin = signalingHttpOrigin(retrySignalingUrl);
   if (!origin) return false;
 
   const controller = new AbortController();
@@ -428,9 +433,13 @@ async function probeSignalingRoute(signal: AbortSignal, timeoutMs: number): Prom
  */
 export async function prepareStandardRoomNetworkRouteRetry(
   signal: AbortSignal,
+  retrySignalingUrl?: string,
 ): Promise<RTCConfiguration | null> {
   if (signal.aborted) throw createAbortError(signal);
   invalidateStandardRoomNetworkRoute();
+  const config = getRuntimeTransportConfig();
+  const retryUrl = retrySignalingUrl ?? config.signalingFallbackUrl ?? config.signalingUrl;
+  if (!retryUrl) return null;
 
   const deadline = Date.now() + ROUTE_PROBE_BUDGET_MS;
   while (!signal.aborted && Date.now() < deadline) {
@@ -438,6 +447,7 @@ export async function prepareStandardRoomNetworkRouteRetry(
     const routeReady = await probeSignalingRoute(
       signal,
       Math.max(1, Math.min(ROUTE_PROBE_ATTEMPT_TIMEOUT_MS, remainingMs)),
+      retryUrl,
     );
     if (routeReady) {
       await abortableDelay(ROUTE_SETTLE_DELAY_MS, signal);

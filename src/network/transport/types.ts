@@ -317,6 +317,12 @@ export interface TransportDataConnection {
   peer: string;
   open: boolean;
   metadata?: unknown;
+  /**
+   * Provider recommendation for the application-owned data-channel-open
+   * deadline. Consumers must clamp this value; providers cannot disable or
+   * shorten the ordinary timeout through this additive hint.
+   */
+  readonly recommendedPreOpenTimeoutMs?: number;
   roomIdentity?: StandardRoomMemberIdentity | null;
   peerConnection?: RTCPeerConnection;
   dataChannel?: RTCDataChannel;
@@ -490,6 +496,8 @@ export interface TransportPeerOptions {
   deferRtcUntilConfigured?: boolean;
   provider: TransportProvider;
   signalingUrl?: string;
+  /** Separate Standard-room origin used only by the one pre-admission retry. */
+  signalingFallbackUrl?: string;
   peerJsServer?: PeerJsServerConfig;
   proSignaling?: ProSignalingOptions;
   /**
@@ -497,7 +505,10 @@ export interface TransportPeerOptions {
    * The provider owns the retry generation and aborts this work when that
    * provisional peer/connection loses authority.
    */
-  prepareNetworkRouteRetry?: (signal: AbortSignal) => Promise<RTCConfiguration | null>;
+  prepareNetworkRouteRetry?: (
+    signal: AbortSignal,
+    retrySignalingUrl: string,
+  ) => Promise<RTCConfiguration | null>;
   standardRoomAssertionProvider?: (
     request: StandardRoomAssertionRequest,
   ) => Promise<StandardRoomIdentityAssertions | undefined>;

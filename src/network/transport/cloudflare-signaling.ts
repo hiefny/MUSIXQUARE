@@ -2,6 +2,7 @@ import { log } from '../../core/log.ts';
 import { CHUNK_SIZE, MSG } from '../../core/constants.ts';
 import { clearManagedTimer, delay, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
 import { proSignalingWebSocketProtocols } from '../pro-signaling-websocket.ts';
+import { normalizeSignalingFallbackUrl } from './config.ts';
 import { TinyEmitter } from './emitter.ts';
 import {
   SIGNALING_LIVENESS_VERSION,
@@ -292,6 +293,8 @@ interface GuestRoomRecord {
   conn: CloudflareDataConnection;
   metadata: unknown;
   password: string;
+  /** Base signaling URL owned by this exact logical join generation. */
+  signalingUrl: string;
   socketGeneration: number;
   routeRetryGeneration: number;
   routeRetryUsed: boolean;
@@ -312,6 +315,20 @@ interface RetiredSignalingSocketListeners {
   readonly open: EventListener;
   readonly close: EventListener;
   readonly error: EventListener;
+}
+
+type SignalingRoute = 'primary' | 'fallback';
+
+interface SignalingSocketLifecycle {
+  readonly route: SignalingRoute;
+  readonly createdAt: number;
+  everOpened: boolean;
+  authSent: boolean;
+  admitted: boolean;
+  failureObserved: boolean;
+  terminalCloseLogged: boolean;
+  closeCode: number | null;
+  closeClean: boolean | null;
 }
 
 interface QueuedIceCandidate {
@@ -361,6 +378,10 @@ const STANDARD_ROOM_ASSERTION_ADMISSION_WAIT_MS = 2_000;
 const STANDARD_ROOM_ASSERTION_RENEWAL_WAIT_MS = 15_000;
 const STANDARD_ROOM_SETUP_ROUTE_RETRY_LIMIT = 1;
 const STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS = 3_000;
+// The fallback-capable guest may spend three seconds on each primary/fresh-
+// route/fallback stage. Leave a separate bounded window for ICE/data-channel
+// establishment without extending PeerJS, PRO, or same-origin retry UX.
+const STANDARD_ROOM_FALLBACK_GUEST_PRE_OPEN_TIMEOUT_MS = 15_000;
 // A setup attempt may legitimately own its initial socket plus one route-retry
 // successor. Eight page-wide handles leave room for several overlapping
 // teardown/retry generations while putting a hard ceiling on WebKit sockets
@@ -411,7 +432,7 @@ function pruneClosedPageSignalingSockets(): void {
   }
 }
 
-function signalingSocketDiagnostic(socket: WebSocket): {
+function signalingSocketReadyStateDiagnostic(socket: WebSocket): {
   readyState: number | null;
   readyStateName: 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | 'UNKNOWN';
   closeSuppressed: boolean;
@@ -667,6 +688,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
     readonly metadata?: unknown,
     public roomIdentity: StandardRoomMemberIdentity | null = null,
     private readonly onConnectionStateChange?: () => void,
+    readonly recommendedPreOpenTimeoutMs?: number,
   ) {
     super();
   }
@@ -1128,6 +1150,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
    * entries are authority handles rather than physical-lifetime handles.
    */
   private readonly retiredSignalingSockets = new Map<WebSocket, RetiredSignalingSocketListeners>();
+  private readonly signalingSocketLifecycles = new WeakMap<WebSocket, SignalingSocketLifecycle>();
   /** RAM-only per-room proof; survives conn replacement but never a page reload. */
   private readonly guestReconnectSecrets = new Map<string, string>();
   private rtcConfiguration: RTCConfiguration;
@@ -1135,6 +1158,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private rtcConfigurationPending: boolean;
   private resolveRtcConfigurationReady: (() => void) | null = null;
   private hostSocket: WebSocket | null = null;
+  private readonly primarySignalingUrl: string;
+  private readonly fallbackSignalingUrl: string | null;
+  private hostSignalingUrl: string;
   private hostSocketGeneration = 0;
   private hostRouteRetryGeneration = 0;
   private hostRouteRetryCount = 0;
@@ -1363,6 +1389,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         pinMutationId: this.roomPasswordMutationId,
       }),
     );
+    this.noteSignalingSocketAuthSent(socket);
     return true;
   }
 
@@ -1400,6 +1427,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           : {}),
       }),
     );
+    this.noteSignalingSocketAuthSent(socket);
     return true;
   }
 
@@ -1427,6 +1455,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     private readonly options: TransportPeerOptions,
   ) {
     super();
+    this.primarySignalingUrl = options.signalingUrl ?? '';
+    this.fallbackSignalingUrl =
+      normalizeSignalingFallbackUrl(options.signalingUrl, options.signalingFallbackUrl) ?? null;
+    this.hostSignalingUrl = this.primarySignalingUrl;
     this.rtcConfiguration = options.config;
     this.rtcConfigurationPending = options.deferRtcUntilConfigured === true;
     this.rtcConfigurationReady = options.deferRtcUntilConfigured
@@ -1483,9 +1515,21 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     ) {
       throw createTransportError('invalid-id', 'PRO_SIGNALING_ROOM_MISMATCH');
     }
-    const conn = new CloudflareDataConnection(roomId, options?.metadata, null, () => {
-      this.reconcileGuestBackgroundRecovery(roomId);
-    });
+    const recommendedPreOpenTimeoutMs =
+      !this.proSignalingAccess &&
+      this.fallbackSignalingUrl !== null &&
+      !!this.options.prepareNetworkRouteRetry
+        ? STANDARD_ROOM_FALLBACK_GUEST_PRE_OPEN_TIMEOUT_MS
+        : undefined;
+    const conn = new CloudflareDataConnection(
+      roomId,
+      options?.metadata,
+      null,
+      () => {
+        this.reconcileGuestBackgroundRecovery(roomId);
+      },
+      recommendedPreOpenTimeoutMs,
+    );
     const roomPassword =
       typeof options?.roomPassword === 'string' ? options.roomPassword.trim() : '';
     const previousRecord = this.guestRooms.get(roomId);
@@ -1509,6 +1553,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       conn,
       metadata: options?.metadata,
       password: roomPassword,
+      signalingUrl: this.primarySignalingUrl,
       socketGeneration: 0,
       routeRetryGeneration: 0,
       routeRetryUsed: false,
@@ -1603,6 +1648,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (this.retiredSignalingSockets.has(socket)) return;
 
     const release = () => this.releaseRetiredSignalingSocket(socket);
+    const releaseAfterClose: EventListener = (event) => {
+      this.noteSignalingSocketClosed(socket, event as CloseEvent);
+      release();
+    };
     const closeAfterOpen = () => {
       if (!this.retiredSignalingSockets.has(socket)) return;
       try {
@@ -1615,7 +1664,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     };
     const listeners: RetiredSignalingSocketListeners = {
       open: closeAfterOpen,
-      close: release,
+      close: releaseAfterClose,
       error: () => {
         // WebKit can report error while the physical operation remains
         // CONNECTING/CLOSING. Keep the handle in that case; only CLOSED is a
@@ -1914,14 +1963,22 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.clear();
   }
 
-  private requireSignalingUrl(): string {
-    const url = this.options.signalingUrl;
+  private requireSignalingUrl(url = this.primarySignalingUrl): string {
     if (!url) throw createTransportError('server-error', 'CLOUDFLARE_SIGNALING_URL_MISSING');
     return url;
   }
 
-  private buildSocketUrl(roomId: string, role: 'host' | 'guest', peerId: string): string {
-    const base = new URL(this.requireSignalingUrl());
+  private buildSocketUrl(
+    signalingUrl: string,
+    roomId: string,
+    role: 'host' | 'guest',
+    peerId: string,
+  ): string {
+    // PRO tickets are authority-bound to the primary ingress and never
+    // participate in the Standard-room route fallback.
+    const base = new URL(
+      this.requireSignalingUrl(this.proSignalingAccess ? this.primarySignalingUrl : signalingUrl),
+    );
     if (base.protocol === 'http:') base.protocol = 'ws:';
     else if (base.protocol === 'https:') base.protocol = 'wss:';
     const proSignaling = this.proSignalingAccess;
@@ -1946,7 +2003,70 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return base.toString();
   }
 
-  private openSignalingSocket(url: string): WebSocket {
+  private noteSignalingSocketOpened(socket: WebSocket): void {
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    if (lifecycle) lifecycle.everOpened = true;
+  }
+
+  private noteSignalingSocketAuthSent(socket: WebSocket): void {
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    if (lifecycle) lifecycle.authSent = true;
+  }
+
+  private noteSignalingSocketAdmitted(socket: WebSocket): void {
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    if (lifecycle) lifecycle.admitted = true;
+  }
+
+  private noteSignalingSocketFailure(socket: WebSocket): void {
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    if (lifecycle) lifecycle.failureObserved = true;
+  }
+
+  private noteSignalingSocketClosed(socket: WebSocket, event: CloseEvent): void {
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    if (!lifecycle) return;
+    lifecycle.closeCode = Number.isSafeInteger(event.code) ? event.code : null;
+    lifecycle.closeClean = typeof event.wasClean === 'boolean' ? event.wasClean : null;
+    if (lifecycle.failureObserved && !lifecycle.admitted && !lifecycle.terminalCloseLogged) {
+      lifecycle.terminalCloseLogged = true;
+      log.warn(
+        '[Transport] Signaling socket reached terminal close after pre-admission retirement',
+        this.signalingSocketDiagnostic(socket),
+      );
+    }
+  }
+
+  private signalingSocketDiagnostic(socket: WebSocket): {
+    route: SignalingRoute;
+    everOpened: boolean;
+    authSent: boolean;
+    admitted: boolean;
+    elapsedMs: number;
+    closeCode: number | null;
+    closeClean: boolean | null;
+    readyState: number | null;
+    readyStateName: 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | 'UNKNOWN';
+    closeSuppressed: boolean;
+  } {
+    const lifecycle = this.signalingSocketLifecycles.get(socket);
+    const rawElapsedMs = lifecycle ? Date.now() - lifecycle.createdAt : 0;
+    // Keep diagnostic cardinality bounded while retaining enough resolution to
+    // distinguish immediate ingress rejection from the admission watchdog.
+    const elapsedMs = Math.min(60_000, Math.max(0, Math.round(rawElapsedMs / 250) * 250));
+    return {
+      route: lifecycle?.route ?? 'primary',
+      everOpened: lifecycle?.everOpened ?? false,
+      authSent: lifecycle?.authSent ?? false,
+      admitted: lifecycle?.admitted ?? false,
+      elapsedMs,
+      closeCode: lifecycle?.closeCode ?? null,
+      closeClean: lifecycle?.closeClean ?? null,
+      ...signalingSocketReadyStateDiagnostic(socket),
+    };
+  }
+
+  private openSignalingSocket(url: string, route: SignalingRoute): WebSocket {
     pruneClosedPageSignalingSockets();
     if (pageSignalingSocketCloseListeners.size >= MAX_PAGE_SIGNALING_SOCKET_HANDLES) {
       log.warn('[Transport] Refusing signaling socket creation; page handle limit reached', {
@@ -1959,6 +2079,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const socket = ticket
       ? new WebSocket(url, proSignalingWebSocketProtocols(ticket))
       : new WebSocket(url);
+    this.signalingSocketLifecycles.set(socket, {
+      route,
+      createdAt: Date.now(),
+      everOpened: false,
+      authSent: false,
+      admitted: false,
+      failureObserved: false,
+      terminalCloseLogged: false,
+      closeCode: null,
+      closeClean: null,
+    });
     trackPageSignalingSocket(socket);
     return socket;
   }
@@ -1977,6 +2108,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   }
 
   private handleSignalingSocketError(
+    socket: WebSocket,
     options: {
       label: string;
       isCurrent: () => boolean;
@@ -1993,19 +2125,31 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     if (!options.isCurrent()) return;
     if (!options.isEstablished()) {
       if (options.retryPreOpen?.(event)) return;
+      this.noteSignalingSocketFailure(socket);
+      log.warn(
+        `[Transport] ${options.label} signaling socket error before admission`,
+        this.signalingSocketDiagnostic(socket),
+      );
       options.emitPreOpenError(event);
       return;
     }
 
-    log.warn(`[Transport] ${options.label} signaling socket error; preserving data channel`, event);
+    log.warn(
+      `[Transport] ${options.label} signaling socket error; preserving data channel`,
+      this.signalingSocketDiagnostic(socket),
+    );
     options.retireEstablished();
   }
 
-  private async runNetworkRouteRetryBarrier(signal: AbortSignal, label: string): Promise<void> {
+  private async runNetworkRouteRetryBarrier(
+    signal: AbortSignal,
+    label: string,
+    retrySignalingUrl: string,
+  ): Promise<void> {
     const prepare = this.options.prepareNetworkRouteRetry;
     if (!prepare) return;
     try {
-      const configuration = await prepare(signal);
+      const configuration = await prepare(signal, retrySignalingUrl);
       if (!signal.aborted && configuration) this.setRtcConfiguration(configuration);
     } catch (error) {
       if (signal.aborted) return;
@@ -2043,8 +2187,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         return;
       }
       if (this.scheduleHostSetupRouteRetry(socket, socketGeneration)) return;
+      this.noteSignalingSocketFailure(socket);
       this.hostSocket = null;
       this.retireSignalingSocket(socket);
+      log.warn(
+        '[Transport] Host signaling admission timed out',
+        this.signalingSocketDiagnostic(socket),
+      );
       this.emit('error', createTransportError('network', 'SIGNALING_HOST_ADMISSION_TIMEOUT'));
     }, STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS);
   }
@@ -2076,8 +2225,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         return;
       }
       if (this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration)) return;
+      this.noteSignalingSocketFailure(socket);
       this.roomSockets.delete(roomId);
       this.retireSignalingSocket(socket);
+      log.warn(
+        '[Transport] Guest signaling admission timed out',
+        this.signalingSocketDiagnostic(socket),
+      );
       record.conn.emit(
         'error',
         createTransportError('network', 'SIGNALING_GUEST_ADMISSION_TIMEOUT'),
@@ -2099,11 +2253,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
 
     this.clearHostSetupAdmissionTimeout();
+    this.noteSignalingSocketFailure(socket);
     this.hostRouteRetryCount += 1;
     const retryGeneration = ++this.hostRouteRetryGeneration;
     this.hostRouteRetryController?.abort(new Error('HOST_ROUTE_RETRY_SUPERSEDED'));
     const controller = new AbortController();
     this.hostRouteRetryController = controller;
+    const retrySignalingUrl = this.fallbackSignalingUrl ?? this.hostSignalingUrl;
 
     // Retire the stale CONNECTING/OPEN-but-unadmitted path synchronously. The
     // Worker's host secret remains on this peer instance, so a commit whose
@@ -2115,9 +2271,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     log.warn(
       '[Transport] Host signaling failed before admission; awaiting fresh route once',
-      signalingSocketDiagnostic(socket),
+      this.signalingSocketDiagnostic(socket),
     );
-    this.runNetworkRouteRetryBarrier(controller.signal, 'Host')
+    this.runNetworkRouteRetryBarrier(controller.signal, 'Host', retrySignalingUrl)
       .then(() => {
         if (
           controller.signal.aborted ||
@@ -2130,6 +2286,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           return;
         }
         this.hostRouteRetryController = null;
+        this.hostSignalingUrl = retrySignalingUrl;
         this.openHostSocket();
       })
       .catch((error) => log.warn('[Transport] Host route retry escaped its boundary', error));
@@ -2157,11 +2314,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
 
     this.clearGuestSetupAdmissionTimeout(record);
+    this.noteSignalingSocketFailure(socket);
     record.routeRetryUsed = true;
     const retryGeneration = ++record.routeRetryGeneration;
     record.routeRetryController?.abort(new Error('GUEST_ROUTE_RETRY_SUPERSEDED'));
     const controller = new AbortController();
     record.routeRetryController = controller;
+    const retrySignalingUrl = this.fallbackSignalingUrl ?? record.signalingUrl;
 
     // Removing map ownership before close makes every queued callback from the
     // first socket inert. The same conn, peer ID, room password, and RAM-only
@@ -2172,9 +2331,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     log.warn(
       '[Transport] Guest signaling failed before admission; awaiting fresh route once',
-      signalingSocketDiagnostic(socket),
+      this.signalingSocketDiagnostic(socket),
     );
-    this.runNetworkRouteRetryBarrier(controller.signal, 'Guest')
+    this.runNetworkRouteRetryBarrier(controller.signal, 'Guest', retrySignalingUrl)
       .then(() => {
         if (
           controller.signal.aborted ||
@@ -2190,6 +2349,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           return;
         }
         record.routeRetryController = null;
+        record.signalingUrl = retrySignalingUrl;
         this.openGuestSocket(roomId);
       })
       .catch((error) => log.warn('[Transport] Guest route retry escaped its boundary', error));
@@ -2240,7 +2400,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
     let socket: WebSocket;
     try {
-      socket = this.openSignalingSocket(this.buildSocketUrl(this.hostRoomId, 'host', this.id));
+      const signalingUrl = this.hostSignalingUrl;
+      const route: SignalingRoute =
+        !this.proSignalingAccess &&
+        this.fallbackSignalingUrl !== null &&
+        signalingUrl === this.fallbackSignalingUrl
+          ? 'fallback'
+          : 'primary';
+      socket = this.openSignalingSocket(
+        this.buildSocketUrl(signalingUrl, this.hostRoomId, 'host', this.id),
+        route,
+      );
     } catch (error) {
       this.emit('error', error);
       return;
@@ -2252,6 +2422,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.hostSocket = socket;
     const socketGeneration = ++this.hostSocketGeneration;
     socket.addEventListener('open', () => {
+      this.noteSignalingSocketOpened(socket);
       if (
         this.destroyed ||
         this.hostSocket !== socket ||
@@ -2279,6 +2450,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       );
     });
     socket.addEventListener('close', (event) => {
+      this.noteSignalingSocketClosed(socket, event as CloseEvent);
       this.releaseRetiredSignalingSocket(socket);
       if (this.destroyed) {
         this.signalingLiveness.stop(socket);
@@ -2305,8 +2477,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         socketGeneration === this.hostSocketGeneration
       ) {
         if (this.scheduleHostSetupRouteRetry(socket, socketGeneration)) return;
+        this.noteSignalingSocketFailure(socket);
         this.clearHostSetupAdmissionTimeout();
         this.hostSocket = null;
+        log.warn(
+          '[Transport] Host signaling socket closed before admission',
+          this.signalingSocketDiagnostic(socket),
+        );
         this.emit(
           'error',
           createTransportError('network', 'SIGNALING_SOCKET_CLOSED_BEFORE_HOST_ADMISSION'),
@@ -2317,6 +2494,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     });
     socket.addEventListener('error', (event) =>
       this.handleSignalingSocketError(
+        socket,
         {
           label: 'Host',
           isCurrent: () =>
@@ -2380,7 +2558,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
     let socket: WebSocket;
     try {
-      socket = this.openSignalingSocket(this.buildSocketUrl(roomId, 'guest', this.id));
+      const signalingUrl = record.signalingUrl;
+      const route: SignalingRoute =
+        !this.proSignalingAccess &&
+        this.fallbackSignalingUrl !== null &&
+        signalingUrl === this.fallbackSignalingUrl
+          ? 'fallback'
+          : 'primary';
+      socket = this.openSignalingSocket(
+        this.buildSocketUrl(signalingUrl, roomId, 'guest', this.id),
+        route,
+      );
     } catch (error) {
       queueMicrotask(() => conn.emit('error', error));
       return;
@@ -2389,6 +2577,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.roomSockets.set(roomId, socket);
     const socketGeneration = ++record.socketGeneration;
     socket.addEventListener('open', () => {
+      this.noteSignalingSocketOpened(socket);
       if (
         this.destroyed ||
         this.guestRooms.get(roomId) !== record ||
@@ -2422,6 +2611,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       );
     });
     socket.addEventListener('close', (event) => {
+      this.noteSignalingSocketClosed(socket, event as CloseEvent);
       this.releaseRetiredSignalingSocket(socket);
       if (this.destroyed) return;
       if ((event as CloseEvent).reason === 'PRO_COORDINATOR_EPOCH_ADVANCED') {
@@ -2432,8 +2622,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (this.roomSockets.get(roomId) === socket) {
         if (!conn.peerConnection && !conn.open) {
           if (this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration)) return;
+          this.noteSignalingSocketFailure(socket);
           this.clearGuestSetupAdmissionTimeout(record);
           this.roomSockets.delete(roomId);
+          log.warn(
+            '[Transport] Guest signaling socket closed before admission',
+            this.signalingSocketDiagnostic(socket),
+          );
           conn.emit(
             'error',
             createTransportError('network', 'SIGNALING_SOCKET_CLOSED_BEFORE_GUEST_ADMISSION'),
@@ -2451,6 +2646,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     });
     socket.addEventListener('error', (event) =>
       this.handleSignalingSocketError(
+        socket,
         {
           label: 'Guest',
           isCurrent: () =>
@@ -2627,6 +2823,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-open') {
+      if (sourceSocket) this.noteSignalingSocketAdmitted(sourceSocket);
       if (
         !this.proSignalingAccess &&
         sourceSocket &&
@@ -2786,6 +2983,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION');
     }
     if (message.type === 'peer-open') {
+      this.noteSignalingSocketAdmitted(socket);
       // Only the Worker's peer-open proves that guest-auth won admission for
       // this exact socket. Before this point guest-auth must remain the sole
       // first frame; background identity mutations would either close the

@@ -202,6 +202,7 @@ describe('CI quality and supply-chain gates', () => {
       'src/core/__tests__/release-identity.test.ts',
       'src/core/__tests__/release-manifest.test.ts',
       'src/core/__tests__/release-r2-policy-state.test.ts',
+      'src/core/__tests__/release-signaling-domain-state.test.ts',
       'src/core/__tests__/release-worker-floor-state.test.ts',
     ]);
     const coverage = toolingCoverageConfig.test?.coverage as {
@@ -221,6 +222,7 @@ describe('CI quality and supply-chain gates', () => {
       'scripts/release-identity.mts',
       'scripts/release-manifest.mts',
       'scripts/release-r2-policy-state.mts',
+      'scripts/release-signaling-domain-state.mts',
       'scripts/release-worker-floor-state.mts',
     ];
     expect(coverage.include).toEqual(coveredScripts);
@@ -282,6 +284,12 @@ describe('CI quality and supply-chain gates', () => {
         branches: 61,
         functions: 87,
         lines: 75,
+      },
+      'scripts/release-signaling-domain-state.mts': {
+        statements: 73,
+        branches: 72,
+        functions: 76,
+        lines: 77,
       },
       'scripts/release-worker-floor-state.mts': {
         statements: 81,

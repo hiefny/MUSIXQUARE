@@ -1,9 +1,20 @@
 import { EventEmitter } from 'node:events';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
+  ALTERNATE_SIGNALING_ORIGIN,
+  ALTERNATE_SIGNALING_HTTP_ORIGIN,
+  ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS,
+  ALTERNATE_PRO_SIGNALING_PROBE_URL,
   InitialHostDeploymentConvergenceError,
+  InitialHostOpenTimeoutConvergenceError,
   InitialHostSocketConvergenceError,
+  MESSAGE_TIMEOUT_MS,
+  PRIMARY_SIGNALING_ORIGIN,
+  SIGNALING_SMOKE_ROOM_READINESS,
+  SIGNALING_SMOKE_ROOM_ROUTES,
   STALE_VERSION_RETRY_DELAYS_MS,
   StaleSignalingVersionError,
   UNRELATED_TOSS_ORIGIN,
@@ -12,8 +23,11 @@ import {
   initialHostHandshakeError,
   initialHostSocketCloseError,
   initialHostSocketError,
+  readAlternateSignalingSurface,
   readSignalingOriginBoundary,
+  signalingSocketUrl,
   settleUnexpectedInitialHostResponse,
+  verifyAlternateSignalingSurface,
   verifySignalingOriginBoundary,
   withSignalingReadinessRetry,
 } from '../../../scripts/live-signaling-smoke.mts';
@@ -43,6 +57,66 @@ function fakeInitialHost(expectedVersion = EXPECTED_VERSION) {
 }
 
 describe('live signaling smoke deployment readiness', () => {
+  it('live-gates both custom domains through opposite host/guest room paths', () => {
+    expect(PRIMARY_SIGNALING_ORIGIN).toBe('wss://signal.musixquare.com/api/rooms');
+    expect(ALTERNATE_SIGNALING_ORIGIN).toBe('wss://signal-alt.musixquare.com/api/rooms');
+    expect(SIGNALING_SMOKE_ROOM_ROUTES).toEqual({
+      unprotected: {
+        hostOrigin: ALTERNATE_SIGNALING_ORIGIN,
+        guestOrigin: PRIMARY_SIGNALING_ORIGIN,
+      },
+      protected: {
+        hostOrigin: PRIMARY_SIGNALING_ORIGIN,
+        guestOrigin: ALTERNATE_SIGNALING_ORIGIN,
+      },
+    });
+    expect(SIGNALING_SMOKE_ROOM_READINESS).toEqual({
+      unprotected: {
+        retryDelaysMs: ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS,
+        retryInitialHostDeploymentConvergence: true,
+        retryGuestVersionConvergence: true,
+      },
+      protected: {
+        retryDelaysMs: STALE_VERSION_RETRY_DELAYS_MS,
+        retryInitialHostDeploymentConvergence: false,
+        retryGuestVersionConvergence: false,
+      },
+    });
+
+    const fallbackHost = new URL(
+      signalingSocketUrl('123456', 'host', 'host-test', ALTERNATE_SIGNALING_ORIGIN),
+    );
+    const primaryGuest = new URL(
+      signalingSocketUrl('123456', 'guest', 'guest-test', PRIMARY_SIGNALING_ORIGIN),
+    );
+    expect(fallbackHost.origin).toBe('wss://signal-alt.musixquare.com');
+    expect(primaryGuest.origin).toBe('wss://signal.musixquare.com');
+    expect(fallbackHost.pathname).toBe('/api/rooms/123456/ws');
+    expect(fallbackHost.searchParams.get('role')).toBe('host');
+    expect(primaryGuest.searchParams.get('role')).toBe('guest');
+  });
+
+  it('runs the exact-version signaling smoke before any app deployment', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const signalingDeployStart = workflow.indexOf('- name: Deploy and record signaling Worker');
+    const signalingSmokeStart = workflow.indexOf('- name: Smoke signaling Worker');
+    const appDeployStart = workflow.indexOf(
+      '- name: Deploy and record app Worker with immutable dist',
+    );
+    const signalingSmokeEnd = workflow.indexOf('\n      - name:', signalingSmokeStart + 1);
+    const signalingSmoke = workflow.slice(signalingSmokeStart, signalingSmokeEnd);
+
+    expect(signalingDeployStart).toBeGreaterThan(-1);
+    expect(signalingSmokeStart).toBeGreaterThan(signalingDeployStart);
+    expect(appDeployStart).toBeGreaterThan(signalingSmokeStart);
+    expect(signalingSmoke).toContain("inputs.target == 'all' || inputs.target == 'signaling'");
+    expect(signalingSmoke).toContain('timeout-minutes: 5');
+    expect(signalingSmoke).toContain(
+      'MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}',
+    );
+    expect(signalingSmoke).toContain('run: npm run smoke:live:signaling');
+  });
+
   it('pins the live negative probe to the unrelated Apps-in-Toss origin and HTTP 403', async () => {
     const socket = new FakeWebSocket();
     const resume = vi.fn();
@@ -78,22 +152,117 @@ describe('live signaling smoke deployment readiness', () => {
     }
   });
 
+  it('live-reads the exact alternate root, internal, and PRO WebSocket surfaces', async () => {
+    const requested: string[] = [];
+    const fetcher = (async (input: string | URL | Request) => {
+      const url = String(input);
+      requested.push(url);
+      if (url.endsWith('/internal/developer/v1/dispatch')) {
+        return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+      }
+      return Response.json({
+        ok: true,
+        service: 'musixquare-signaling',
+        websocket: '/api/rooms/:roomId/ws',
+      });
+    }) as typeof fetch;
+
+    await expect(
+      readAlternateSignalingSurface({
+        fetcher,
+        readProWebSocketStatus: async () => 404,
+      }),
+    ).resolves.toMatchObject({
+      rootStatusCode: 200,
+      internalStatusCode: 404,
+      proWebSocketStatusCode: 404,
+    });
+    expect(ALTERNATE_SIGNALING_HTTP_ORIGIN).toBe('https://signal-alt.musixquare.com');
+    expect(ALTERNATE_PRO_SIGNALING_PROBE_URL).toBe(
+      'wss://signal-alt.musixquare.com/api/pro-rooms/000001/ws',
+    );
+    expect(requested).toEqual([
+      'https://signal-alt.musixquare.com/',
+      'https://signal-alt.musixquare.com/internal/developer/v1/dispatch',
+    ]);
+  });
+
+  it('accepts only the exact restricted alternate signaling surface', async () => {
+    const exact = {
+      rootStatusCode: 200,
+      rootBody: {
+        ok: true,
+        service: 'musixquare-signaling',
+        websocket: '/api/rooms/:roomId/ws',
+      },
+      internalStatusCode: 404,
+      proWebSocketStatusCode: 404,
+    };
+    await expect(verifyAlternateSignalingSurface({ read: async () => exact })).resolves.toEqual({
+      standardWebSocketAdvertised: true,
+      proWebSocketHidden: true,
+      internalPathHidden: true,
+      proWebSocketRejected: true,
+    });
+
+    for (const proWebSocketStatusCode of [101, 200, 401, 403, 426, 500]) {
+      await expect(
+        verifyAlternateSignalingSurface({
+          read: async () => ({ ...exact, proWebSocketStatusCode }),
+        }),
+      ).rejects.toThrow('PRO WebSocket was not hidden with HTTP 404');
+    }
+    await expect(
+      verifyAlternateSignalingSurface({
+        read: async () => ({ ...exact, internalStatusCode: 403 }),
+      }),
+    ).rejects.toThrow('internal path was not hidden with HTTP 404');
+    await expect(
+      verifyAlternateSignalingSurface({
+        read: async () => ({
+          ...exact,
+          rootBody: { ...exact.rootBody, proWebsocket: '/api/pro-rooms/:roomId/ws' },
+        }),
+      }),
+    ).rejects.toThrow('root exposed an unexpected public surface');
+  });
+
   it('keeps the bounded backoff comfortably below 45 seconds', () => {
     expect(STALE_VERSION_RETRY_DELAYS_MS.reduce((total, value) => total + value, 0)).toBeLessThan(
       45_000,
     );
   });
 
-  it('classifies only an initial host HTTP 500 with an expected version as convergence', () => {
-    expect(initialHostHandshakeError(500, EXPECTED_VERSION, 'host')).toBeInstanceOf(
-      InitialHostDeploymentConvergenceError,
+  it('gives only the first alternate-domain handshake a bounded convergence backoff', () => {
+    const total = ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS.reduce(
+      (sum, delayMs) => sum + delayMs,
+      0,
     );
-    expect(initialHostHandshakeError(500, '', 'host')).not.toBeInstanceOf(
-      InitialHostDeploymentConvergenceError,
+    const worstCaseWithSocketTimeouts =
+      total + MESSAGE_TIMEOUT_MS * (ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS.length + 1);
+    expect(total).toBeGreaterThanOrEqual(90_000);
+    expect(total).toBeLessThanOrEqual(120_000);
+    expect(worstCaseWithSocketTimeouts).toBeLessThan(5 * 60_000);
+    expect(ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS).not.toEqual(
+      STALE_VERSION_RETRY_DELAYS_MS,
     );
+  });
 
-    for (const status of [400, 401, 403, 404, 409, 426, 429, 502, 503, 504]) {
+  it('classifies first-room host HTTP 404 and 5xx as convergence without retrying policy errors', () => {
+    for (const status of [404, 500, 501, 502, 503, 504, 599]) {
+      expect(initialHostHandshakeError(status, EXPECTED_VERSION, 'host', true)).toBeInstanceOf(
+        InitialHostDeploymentConvergenceError,
+      );
       expect(initialHostHandshakeError(status, EXPECTED_VERSION, 'host')).not.toBeInstanceOf(
+        InitialHostDeploymentConvergenceError,
+      );
+      expect(initialHostHandshakeError(status, '', 'host', true)).not.toBeInstanceOf(
+        InitialHostDeploymentConvergenceError,
+      );
+    }
+
+    for (const status of [400, 401, 403, 409, 426, 429]) {
+      expect(initialHostHandshakeError(status, EXPECTED_VERSION, 'host', true)).not.toBeInstanceOf(
         InitialHostDeploymentConvergenceError,
       );
     }
@@ -107,6 +276,7 @@ describe('live signaling smoke deployment readiness', () => {
       { statusCode: 500, resume: () => (resumed += 1) },
       EXPECTED_VERSION,
       'host',
+      true,
     );
 
     expect(error).toBeInstanceOf(InitialHostDeploymentConvergenceError);
@@ -169,6 +339,70 @@ describe('live signaling smoke deployment readiness', () => {
     await expect(inbox.opened).rejects.toBeInstanceOf(InitialHostSocketConvergenceError);
   });
 
+  it('terminates and retries an exact-version initial-host open timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: FakeWebSocket[] = [];
+      let attempts = 0;
+      const pending = withSignalingReadinessRetry(
+        async () => {
+          attempts += 1;
+          const socket = new FakeWebSocket();
+          sockets.push(socket);
+          const inbox = createSocketInbox('wss://signal.example/room', 'host', {
+            expectedInitialHostVersion: EXPECTED_VERSION,
+            createWebSocket: () => socket,
+          });
+          if (attempts === 2) queueMicrotask(() => socket.emit('open'));
+          await inbox.opened;
+          return attempts;
+        },
+        { retryDelaysMs: [0], wait: async () => {}, onRetry: () => {} },
+      );
+
+      await vi.advanceTimersByTimeAsync(MESSAGE_TIMEOUT_MS);
+      await expect(pending).resolves.toBe(2);
+      expect(attempts).toBe(2);
+      expect(sockets[0]?.readyState).toBe(3);
+      expect(sockets[1]?.readyState).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps an ordinary open timeout terminal and does not terminate the socket', async () => {
+    vi.useFakeTimers();
+    try {
+      const socket = new FakeWebSocket();
+      let attempts = 0;
+      const pending = withSignalingReadinessRetry(
+        () => {
+          attempts += 1;
+          const opened = createSocketInbox('wss://signal.example/room', 'guest', {
+            createWebSocket: () => socket,
+          }).opened;
+          return opened.catch((error: unknown) => {
+            throw error;
+          });
+        },
+        { retryDelaysMs: [0, 0], wait: async () => {}, onRetry: () => {} },
+      );
+      const rejection = pending.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(MESSAGE_TIMEOUT_MS);
+      const error = await rejection;
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('guest open timeout');
+      expect(attempts).toBe(1);
+      expect(socket.readyState).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('classifies the initial-host open timeout as convergence only with an exact version', () => {
+    expect(new InitialHostOpenTimeoutConvergenceError()).toBeInstanceOf(Error);
+  });
+
   it('does not retry 1006 after any raw frame, even when the frame is malformed', async () => {
     const { inbox, socket } = fakeInitialHost();
     socket.emit('open');
@@ -208,7 +442,7 @@ describe('live signaling smoke deployment readiness', () => {
     await expect(peerOpen).rejects.toBe(socketError);
   });
 
-  it('classifies only a host peer-open version mismatch as retryable staleness', () => {
+  it('classifies only an explicitly opted-in peer-open version mismatch as retryable staleness', () => {
     expect(() =>
       assertPeerOpenVersion(
         { workerVersionId: STALE_VERSION },
@@ -233,6 +467,14 @@ describe('live signaling smoke deployment readiness', () => {
     }
     expect(guestError).toBeInstanceOf(Error);
     expect(guestError).not.toBeInstanceOf(StaleSignalingVersionError);
+    expect(() =>
+      assertPeerOpenVersion(
+        { workerVersionId: STALE_VERSION },
+        EXPECTED_VERSION,
+        'first cross-host guest peer-open',
+        true,
+      ),
+    ).toThrow(StaleSignalingVersionError);
     expect(() =>
       assertPeerOpenVersion(
         { workerVersionId: EXPECTED_VERSION },

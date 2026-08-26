@@ -94,6 +94,10 @@ export function releaseRecoverySkipTargets(
     environment.MXQR_WORKER_FLOOR_OUTCOME,
     'MXQR_WORKER_FLOOR_OUTCOME',
   );
+  const signalingDomainRecoveryOutcome = outcome(
+    environment.MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME,
+    'MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME',
+  );
   const applyDeveloperApiD1 = exactBoolean(
     environment.MXQR_APPLY_DEVELOPER_API_D1,
     'MXQR_APPLY_DEVELOPER_API_D1',
@@ -150,6 +154,14 @@ export function releaseRecoverySkipTargets(
     skip.add('app');
   }
   if (standardRoomPinForwardFloor) {
+    skip.add('signaling');
+  }
+  if (
+    (releaseTarget === 'all' || releaseTarget === 'signaling') &&
+    signalingDomainRecoveryOutcome !== 'success'
+  ) {
+    // Never roll an older signaling version back under an alternate hostname
+    // that automatic recovery could not prove it safely detached.
     skip.add('signaling');
   }
   return [...skip];

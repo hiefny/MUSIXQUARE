@@ -239,6 +239,9 @@ jobs:
           node scripts/release-r2-policy-state.mts \
             snapshot "$RELEASE_TARGET" \
             release-artifacts/recovery-checkpoint
+          node scripts/release-signaling-domain-state.mts \
+            capture "$RELEASE_TARGET" \
+            release-artifacts/recovery-checkpoint
 
       - name: Capture immutable Worker compatibility floors
         timeout-minutes: 10
@@ -272,6 +275,26 @@ jobs:
       - name: Authorize production mutations from persisted checkpoint
         id: mutation_authorization
         run: echo 'authorized=true' >> "$GITHUB_OUTPUT"
+
+      - name: Authorize signaling Custom Domain mutation
+        if: inputs.target == 'all' || inputs.target == 'signaling'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/release-signaling-domain-state.mts \
+            authorize "$RELEASE_TARGET" \
+            release-artifacts/recovery-checkpoint
+
+      - name: Persist signaling Custom Domain mutation authorization
+        if: inputs.target == 'all' || inputs.target == 'signaling'
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-signaling-domain-authorization-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint/signaling-domain-attempt.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Read PRO room generation cutover before dependency rollout
         timeout-minutes: 10
@@ -880,11 +903,9 @@ jobs:
             > release-artifacts/deployments/signaling-before.json
           node scripts/release-deployment-state.mts prepare signaling
 
-      - name: Deploy and record signaling Worker
-        timeout-minutes: 15
-        id: signaling_deployment
+      - name: Preflight signaling Worker and Custom Domain mutation
         if: inputs.target == 'all' || inputs.target == 'signaling'
-        shell: bash
+        timeout-minutes: 5
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -893,7 +914,37 @@ jobs:
           fi
           node scripts/release-deployment-state.mts \
             preflight signaling release-artifacts/recovery-checkpoint
+          node scripts/release-signaling-domain-state.mts \
+            preflight "$RELEASE_TARGET" release-artifacts/recovery-checkpoint
           node scripts/release-deployment-state.mts attempt signaling
+
+      - name: Mark signaling Custom Domain deployment started
+        if: inputs.target == 'all' || inputs.target == 'signaling'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/release-signaling-domain-state.mts \
+            start "$RELEASE_TARGET" release-artifacts/recovery-checkpoint
+
+      - name: Persist signaling Custom Domain deployment-start evidence
+        if: inputs.target == 'all' || inputs.target == 'signaling'
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-signaling-domain-start-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint/signaling-domain-attempt.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Deploy and record signaling Worker
+        timeout-minutes: 15
+        id: signaling_deployment
+        if: inputs.target == 'all' || inputs.target == 'signaling'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
           set +e
           npm run --silent wrangler -- deploy \
             --config cloudflare/wrangler.signaling.toml \
@@ -908,12 +959,35 @@ jobs:
             node scripts/release-deployment-state.mts record signaling
             record_exit=$?
           fi
+          domain_record_exit=1
+          for domain_record_attempt in 1 2 3 4 5; do
+            node scripts/release-signaling-domain-state.mts \
+              record-attempt "$RELEASE_TARGET" release-artifacts/recovery-checkpoint
+            domain_record_exit=$?
+            if (( domain_record_exit == 0 || domain_record_attempt == 5 )); then break; fi
+            sleep "$((domain_record_attempt * 2))"
+          done
           set -e
           if (( deploy_exit != 0 )); then exit "$deploy_exit"; fi
           if (( status_exit != 0 )); then exit "$status_exit"; fi
           if (( record_exit != 0 )); then exit "$record_exit"; fi
+          if (( domain_record_exit != 0 )); then exit "$domain_record_exit"; fi
           version_id="$(node scripts/release-deployment-state.mts version signaling)"
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
+
+      - name: Persist signaling Custom Domain attempt evidence
+        if: >-
+          always() &&
+          steps.mutation_authorization.outputs.authorized == 'true' &&
+          steps.signaling_deployment.outcome != 'skipped' &&
+          (inputs.target == 'all' || inputs.target == 'signaling')
+        timeout-minutes: 5
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: production-signaling-domain-attempt-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint/signaling-domain-attempt.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Smoke signaling Worker
         if: inputs.target == 'all' || inputs.target == 'signaling'
@@ -1123,6 +1197,16 @@ jobs:
             ready \
             "${{ github.sha }}"
 
+      - name: Freshly verify signaling Custom Domain candidate
+        id: signaling_domain_candidate_verification
+        if: inputs.target == 'all' || inputs.target == 'signaling'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/release-signaling-domain-state.mts \
+            verify-candidate "$RELEASE_TARGET" release-artifacts/recovery-checkpoint
+
       - name: Mark coherent production candidate committed
         id: production_commit
         if: success()
@@ -1213,6 +1297,21 @@ jobs:
           forward_targets="$(node scripts/release-worker-floor-state.mts targets release-artifacts/recovery-checkpoint)"
           echo "forward_targets=${forward_targets}" >> "$GITHUB_OUTPUT"
 
+      - name: Restore signaling Custom Domain baseline before Worker rollback
+        timeout-minutes: 10
+        id: signaling_domain_recovery
+        if: >-
+          (failure() || cancelled()) &&
+          steps.mutation_authorization.outputs.authorized == 'true' &&
+          steps.production_commit.outputs.committed != 'true' &&
+          (inputs.target == 'all' || inputs.target == 'signaling')
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/release-signaling-domain-state.mts \
+            restore "$RELEASE_TARGET" release-artifacts/recovery-checkpoint
+
       - name: Restore release-owned Workers after a failed release
         timeout-minutes: 20
         id: worker_rollback
@@ -1241,12 +1340,20 @@ jobs:
             node scripts/release-deployment-state.mts \
               standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
+          signaling_domain_recovery_outcome="${{ steps.signaling_domain_recovery.outcome }}"
+          if [[ "$RELEASE_TARGET" == 'all' || "$RELEASE_TARGET" == 'signaling' ]]; then
+            if ! node scripts/release-signaling-domain-state.mts \
+              verify "$RELEASE_TARGET" release-artifacts/recovery-checkpoint; then
+              signaling_domain_recovery_outcome='failure'
+            fi
+          fi
           rollback_skip_targets="$(
             MXQR_R2_POLICY_OUTCOME="${{ steps.r2_policy_assessment.outcome }}" \
             MXQR_R2_FORWARD_TARGETS="${{ steps.r2_policy_assessment.outputs.forward_targets }}" \
             MXQR_GENERATION_FENCE_OUTCOME="${{ steps.pro_room_generation_cutover_disable.outcome }}" \
             MXQR_WORKER_FLOOR_OUTCOME="${{ steps.worker_floor_assessment.outcome }}" \
             MXQR_WORKER_FLOOR_TARGETS="${{ steps.worker_floor_assessment.outputs.forward_targets }}" \
+            MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME="$signaling_domain_recovery_outcome" \
             MXQR_APPLY_DEVELOPER_API_D1="${{ inputs.apply_developer_api_d1 }}" \
             MXQR_SERVICE_CONTROL_FORWARD_FLOOR="$service_control_forward_floor" \
             MXQR_REMOTE_SHARE_FORWARD_FLOOR="$remote_share_forward_floor" \
@@ -1258,6 +1365,22 @@ jobs:
           MXQR_ROLLBACK_SKIP_TARGETS="$rollback_skip_targets" \
             node scripts/release-deployment-state.mts \
               rollback release-artifacts/recovery-checkpoint
+
+      - name: Freshly verify signaling Custom Domain baseline
+        timeout-minutes: 5
+        id: signaling_domain_verification
+        if: >-
+          (failure() || cancelled()) &&
+          steps.mutation_authorization.outputs.authorized == 'true' &&
+          steps.production_commit.outputs.committed != 'true' &&
+          (inputs.target == 'all' || inputs.target == 'signaling')
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/release-signaling-domain-state.mts \
+            verify "$RELEASE_TARGET" release-artifacts/recovery-checkpoint
+
       - name: Reconcile R2 policy with the exact recovered Worker boundary
         timeout-minutes: 10
         id: r2_policy_reconciliation
@@ -1337,8 +1460,11 @@ jobs:
           echo "- Candidate source: run \`${RELEASE_SOURCE_RUN_ID}\`, attempt \`${RELEASE_SOURCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation readiness restore: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Final signaling Custom Domain candidate verification: \`${{ steps.signaling_domain_candidate_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery PRO generation fence: \`${{ steps.pro_room_generation_cutover_disable.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery Worker floor assessment: \`${{ steps.worker_floor_assessment.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Signaling Custom Domain recovery: \`${{ steps.signaling_domain_recovery.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Final signaling Custom Domain verification: \`${{ steps.signaling_domain_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Final Worker floor verification: \`${{ steps.worker_floor_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Final production ownership verification: \`${{ steps.final_verification.outcome || 'not-run' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery Worker outcome: \`${{ steps.worker_rollback.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
@@ -1358,6 +1484,15 @@ jobs:
            steps.pro_room_generation_cutover_disable.outcome == 'cancelled' ||
            steps.worker_floor_assessment.outcome == 'failure' ||
            steps.worker_floor_assessment.outcome == 'cancelled' ||
+           (steps.mutation_authorization.outputs.authorized == 'true' &&
+            steps.production_commit.outputs.committed != 'true' &&
+            (inputs.target == 'all' || inputs.target == 'signaling') &&
+            (steps.signaling_domain_recovery.outcome == 'failure' ||
+             steps.signaling_domain_recovery.outcome == 'cancelled' ||
+             steps.signaling_domain_recovery.outcome == 'skipped' ||
+             steps.signaling_domain_verification.outcome == 'failure' ||
+             steps.signaling_domain_verification.outcome == 'cancelled' ||
+             steps.signaling_domain_verification.outcome == 'skipped')) ||
            steps.worker_rollback.outcome == 'failure' ||
            steps.worker_rollback.outcome == 'cancelled' ||
            steps.r2_policy_reconciliation.outcome == 'failure' ||

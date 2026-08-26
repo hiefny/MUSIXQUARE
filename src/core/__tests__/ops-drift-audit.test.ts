@@ -293,7 +293,7 @@ describe('operations drift audit', () => {
       workerSecretNameCount: 39,
       workerSurfacePolicyCount: 6,
       workerBindingCount: 63,
-      workerCustomDomainCount: 5,
+      workerCustomDomainCount: 6,
       workerRouteCount: 0,
       githubRuleCount: 2,
       manualCheckCount: 4,
@@ -309,6 +309,11 @@ describe('operations drift audit', () => {
           workerSurfaceFromToml(readFileSync(entry.source, 'utf8'), entry.source).uploadSourceMaps,
       ),
     ).toEqual(Array.from({ length: 6 }, () => true));
+    expect(
+      contract.workerSurfaces.find(
+        (entry: { worker: string }) => entry.worker === 'musixquare-signaling',
+      )?.customDomains,
+    ).toEqual(['signal-alt.musixquare.com', 'signal.musixquare.com']);
     const appInventory = contract.workerSecrets.find(
       (entry: { worker: string }) => entry.worker === 'musixquare-app',
     );

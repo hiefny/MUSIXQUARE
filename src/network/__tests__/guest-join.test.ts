@@ -11,6 +11,7 @@ import { markQueueAuthorityReady } from '../queue-authority.ts';
 const mocks = vi.hoisted(() => ({
   getPeer: vi.fn(),
   detectConnectionType: vi.fn(),
+  logWarn: vi.fn(),
   startWorkerTimer: vi.fn(),
   showToast: vi.fn(),
 }));
@@ -19,7 +20,7 @@ vi.mock('../../core/log.ts', () => ({
   log: {
     debug: vi.fn(),
     info: vi.fn(),
-    warn: vi.fn(),
+    warn: mocks.logWarn,
     error: vi.fn(),
   },
 }));
@@ -58,11 +59,12 @@ type FiringConn = DataConnection & {
   open: boolean;
 };
 
-function makeFakeConn(peerId: string): FiringConn {
+function makeFakeConn(peerId: string, recommendedPreOpenTimeoutMs?: number): FiringConn {
   const handlers = new Map<string, Array<(...args: unknown[]) => void>>();
   return {
     peer: peerId,
     open: false,
+    ...(recommendedPreOpenTimeoutMs === undefined ? {} : { recommendedPreOpenTimeoutMs }),
     send: vi.fn(),
     close: vi.fn(),
     off: vi.fn(),
@@ -78,14 +80,14 @@ function makeFakeConn(peerId: string): FiringConn {
   } as unknown as FiringConn;
 }
 
-function makeFakePeer(): {
+function makeFakePeer(recommendedPreOpenTimeoutMs?: number): {
   peer: PeerInstance;
   conns: FiringConn[];
   connect: ReturnType<typeof vi.fn>;
 } {
   const conns: FiringConn[] = [];
   const connect = vi.fn((hostId: string) => {
-    const conn = makeFakeConn(hostId);
+    const conn = makeFakeConn(hostId, recommendedPreOpenTimeoutMs);
     conns.push(conn);
     return conn;
   });
@@ -672,6 +674,51 @@ describe('joinSession reconnect racing', () => {
     expect(getState('network.isConnecting')).toBe(false);
     expect(successes).not.toHaveBeenCalled();
     expect(inbound).not.toHaveBeenCalled();
+  });
+
+  it('reserves bounded ICE time for a fallback-capable transport before timing out', () => {
+    vi.useFakeTimers();
+    const { peer, conns } = makeFakePeer(15_000);
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    bus.on('network:error', errors);
+
+    joinSession('HOST01');
+    const conn = conns[0];
+
+    vi.advanceTimersByTime(10_000);
+    expect(errors).not.toHaveBeenCalled();
+    expect(getState('network.isConnecting')).toBe(true);
+
+    vi.advanceTimersByTime(4_999);
+    expect(errors).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(conn.close).toHaveBeenCalledOnce();
+    expect(errors).toHaveBeenCalledOnce();
+    expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_UNREACHABLE');
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      '[Join] Connection timeout — data channel did not open in 15000ms',
+    );
+  });
+
+  it('clamps provider timeout recommendations to the bounded fallback envelope', () => {
+    vi.useFakeTimers();
+    const { peer, conns } = makeFakePeer(60_000);
+    mocks.getPeer.mockReturnValue(peer);
+    const errors = vi.fn();
+    bus.on('network:error', errors);
+
+    joinSession('HOST01');
+    vi.advanceTimersByTime(14_999);
+    expect(errors).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1);
+    expect(conns[0].close).toHaveBeenCalledOnce();
+    expect(errors).toHaveBeenCalledOnce();
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      '[Join] Connection timeout — data channel did not open in 15000ms',
+    );
   });
 
   it('fails once when an open standard connection never completes bootstrap', () => {

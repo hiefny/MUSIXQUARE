@@ -22,8 +22,15 @@ const NEGOTIATION_ID = 'negotiation_test_000001';
 const NEXT_NEGOTIATION_ID = 'negotiation_test_000002';
 const PRO_SIGNALING_WEBSOCKET_PROTOCOL = 'mxqr.pro-signaling.v1';
 const PRO_SIGNALING_TICKET_PROTOCOL_PREFIX = 'mxqr.ticket.';
+const PRIMARY_SIGNALING_URL = 'wss://signal.example.test/api/rooms';
+const FALLBACK_SIGNALING_URL = 'wss://signal-alt.example.test/api/rooms';
 
-type FakeSocketListener = (event: { data?: unknown; reason?: string }) => void;
+type FakeSocketListener = (event: {
+  data?: unknown;
+  reason?: string;
+  code?: number;
+  wasClean?: boolean;
+}) => void;
 type FakeChannelListener = (event: { data?: unknown; error?: unknown }) => void;
 
 class FakeWebSocket {
@@ -63,7 +70,7 @@ class FakeWebSocket {
     this.sent.push(data);
   }
 
-  close(): void {
+  close(code = 1000, reason = ''): void {
     if (this.readyState === FakeWebSocket.CLOSED) return;
     this.closeCount++;
     if (FakeWebSocket.stallCloseWhileConnecting && this.readyState === FakeWebSocket.CONNECTING) {
@@ -73,14 +80,14 @@ class FakeWebSocket {
       return;
     }
     this.readyState = FakeWebSocket.CLOSED;
-    this.dispatch('close');
+    this.dispatch('close', undefined, reason, code, true);
   }
 
-  dispatch(event: string, data?: unknown, reason?: string): void {
+  dispatch(event: string, data?: unknown, reason?: string, code = 1006, wasClean = false): void {
     if (event === 'open') this.readyState = FakeWebSocket.OPEN;
     if (event === 'close') this.readyState = FakeWebSocket.CLOSED;
     for (const listener of this.listeners.get(event) ?? []) {
-      listener({ data, reason });
+      listener({ data, reason, code, wasClean });
     }
   }
 }
@@ -348,7 +355,7 @@ function installFakeRTCPeerConnection(): void {
 function createGuestPeer(): CloudflareSignalingPeer {
   return new CloudflareSignalingPeer(null, {
     provider: 'cloudflare',
-    signalingUrl: 'wss://signal.example.test/api/rooms',
+    signalingUrl: PRIMARY_SIGNALING_URL,
     config: { iceServers: [] },
   });
 }
@@ -356,7 +363,7 @@ function createGuestPeer(): CloudflareSignalingPeer {
 function createHostPeer(): CloudflareSignalingPeer {
   return new CloudflareSignalingPeer('123456', {
     provider: 'cloudflare',
-    signalingUrl: 'wss://signal.example.test/api/rooms',
+    signalingUrl: PRIMARY_SIGNALING_URL,
     config: { iceServers: [] },
   });
 }
@@ -2366,6 +2373,7 @@ describe('Cloudflare PRO signaling client contract', () => {
     const peer = new CloudflareSignalingPeer('000001', {
       provider: 'cloudflare',
       signalingUrl: 'wss://signal.example.test/api/rooms',
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
       config: { iceServers: [] },
       proSignaling: {
         roomCode: '000001',
@@ -2380,6 +2388,7 @@ describe('Cloudflare PRO signaling client contract', () => {
 
     const socket = FakeWebSocket.instances[0];
     const url = new URL(socket.url);
+    expect(url.origin).toBe('wss://signal.example.test');
     expect(url.pathname).toBe('/api/pro-rooms/000001/ws');
     expect(url.search).toBe('');
     expect(socket.protocols).toEqual([
@@ -2790,7 +2799,9 @@ describe('Cloudflare PRO signaling client contract', () => {
     const peer = new CloudflareSignalingPeer(null, {
       provider: 'cloudflare',
       signalingUrl: 'wss://signal.example.test/api/rooms',
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
       config: { iceServers: [] },
+      prepareNetworkRouteRetry: async () => null,
       proSignaling: {
         roomCode: '000001',
         ticket,
@@ -2802,7 +2813,8 @@ describe('Cloudflare PRO signaling client contract', () => {
     });
 
     expect(peer.id).toBe('stable-pro-member');
-    peer.connect('000001');
+    const conn = peer.connect('000001');
+    expect(conn.recommendedPreOpenTimeoutMs).toBeUndefined();
     const socket = FakeWebSocket.instances[0];
     const url = new URL(socket.url);
     expect(url.pathname).toBe('/api/pro-rooms/000001/ws');
@@ -4356,6 +4368,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     installFakeWebSocket();
     const peer = createGuestPeer();
     const conn = peer.connect('123456');
+    expect(conn.recommendedPreOpenTimeoutMs).toBeUndefined();
     const socket = FakeWebSocket.instances[0];
     const onError = vi.fn();
     conn.on('error', onError);
@@ -4367,18 +4380,24 @@ describe('Cloudflare signaling/data-channel boundary', () => {
 
   it('retries one setup guest socket behind the route barrier with the same join proof', async () => {
     installFakeWebSocket();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const routeReady = deferred<RTCConfiguration | null>();
-    const prepareNetworkRouteRetry = vi.fn(() => routeReady.promise);
+    const prepareNetworkRouteRetry = vi.fn(
+      (_signal: AbortSignal, _retrySignalingUrl: string) => routeReady.promise,
+    );
     const peer = new CloudflareSignalingPeer(null, {
       provider: 'cloudflare',
-      signalingUrl: 'wss://signal.example.test/api/rooms',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
       config: { iceServers: [] },
       prepareNetworkRouteRetry,
     });
     const conn = peer.connect('123456', { roomPassword: '12345678' });
+    expect(conn.recommendedPreOpenTimeoutMs).toBe(15_000);
     const onError = vi.fn(() => conn.close());
     conn.on('error', onError);
     const first = FakeWebSocket.instances[0];
+    expect(new URL(first.url).origin).toBe('wss://signal.example.test');
     first.dispatch('open');
     await flushAsync();
     const firstAuth = sentOfType(first, 'guest-auth')[0]!;
@@ -4386,6 +4405,10 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     first.dispatch('error');
     first.dispatch('error');
     expect(prepareNetworkRouteRetry).toHaveBeenCalledOnce();
+    expect(prepareNetworkRouteRetry).toHaveBeenCalledWith(
+      expect.any(AbortSignal),
+      FALLBACK_SIGNALING_URL,
+    );
     expect(onError).not.toHaveBeenCalled();
     expect(first.closeCount).toBe(1);
     expect(FakeWebSocket.instances).toHaveLength(1);
@@ -4397,6 +4420,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     await flushAsync();
     expect(FakeWebSocket.instances).toHaveLength(2);
     const replacement = FakeWebSocket.instances[1];
+    expect(new URL(replacement.url).origin).toBe('wss://signal-alt.example.test');
+    expect(new URL(replacement.url).pathname).toBe(new URL(first.url).pathname);
     replacement.dispatch('open');
     await flushAsync();
     expect(sentOfType(replacement, 'guest-auth')[0]).toMatchObject({
@@ -4410,16 +4435,36 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     replacement.dispatch('error');
     expect(onError).toHaveBeenCalledOnce();
     expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Guest signaling socket error before admission',
+      expect.objectContaining({
+        route: 'fallback',
+        everOpened: true,
+        authSent: true,
+        admitted: false,
+      }),
+    );
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Signaling socket reached terminal close after pre-admission retirement',
+      expect.objectContaining({
+        route: 'fallback',
+        closeCode: 1000,
+        closeClean: true,
+      }),
+    );
     peer.destroy();
   });
 
   it('retries one setup host socket with the same room claim and ignores the retired generation', async () => {
     installFakeWebSocket();
     const routeReady = deferred<RTCConfiguration | null>();
-    const prepareNetworkRouteRetry = vi.fn(() => routeReady.promise);
+    const prepareNetworkRouteRetry = vi.fn(
+      (_signal: AbortSignal, _retrySignalingUrl: string) => routeReady.promise,
+    );
     const peer = new CloudflareSignalingPeer('123456', {
       provider: 'cloudflare',
-      signalingUrl: 'wss://signal.example.test/api/rooms',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
       config: { iceServers: [] },
       prepareNetworkRouteRetry,
     });
@@ -4427,8 +4472,10 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     const onOpen = vi.fn();
     peer.on('error', onError);
     peer.on('open', onOpen);
+    peer.setRoomPassword('12345678');
     await Promise.resolve();
     const first = FakeWebSocket.instances[0];
+    expect(new URL(first.url).origin).toBe('wss://signal.example.test');
     first.dispatch('open');
     const firstAuth = sentOfType(first, 'host-auth')[0]!;
 
@@ -4439,6 +4486,10 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     );
     await flushAsync();
     expect(prepareNetworkRouteRetry).toHaveBeenCalledOnce();
+    expect(prepareNetworkRouteRetry).toHaveBeenCalledWith(
+      expect.any(AbortSignal),
+      FALLBACK_SIGNALING_URL,
+    );
     expect(onError).not.toHaveBeenCalled();
     expect(onOpen).not.toHaveBeenCalled();
     expect(first.closeCount).toBe(1);
@@ -4446,8 +4497,14 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     routeReady.resolve(null);
     await flushAsync();
     const replacement = FakeWebSocket.instances[1];
+    expect(new URL(replacement.url).origin).toBe('wss://signal-alt.example.test');
+    expect(new URL(replacement.url).pathname).toBe(new URL(first.url).pathname);
     replacement.dispatch('open');
-    expect(sentOfType(replacement, 'host-auth')[0]?.secret).toBe(firstAuth.secret);
+    expect(sentOfType(replacement, 'host-auth')[0]).toMatchObject({
+      secret: firstAuth.secret,
+      desiredRoomPassword: firstAuth.desiredRoomPassword,
+      pinMutationId: firstAuth.pinMutationId,
+    });
     replacement.dispatch(
       'message',
       JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
@@ -4482,11 +4539,56 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(FakeWebSocket.instances).toHaveLength(1);
   });
 
+  it('records final close metadata when an error reports CLOSED before its close event', async () => {
+    installFakeWebSocket();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const routeReady = deferred<RTCConfiguration | null>();
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry: () => routeReady.promise,
+    });
+    const conn = peer.connect('123456');
+    const onError = vi.fn();
+    conn.on('error', onError);
+    const retired = FakeWebSocket.instances[0];
+
+    retired.readyState = FakeWebSocket.CLOSED;
+    retired.dispatch('error');
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Guest signaling failed before admission; awaiting fresh route once',
+      expect.objectContaining({ readyStateName: 'CLOSED', closeSuppressed: false }),
+    );
+    retired.dispatch('close', undefined, '', 1006, false);
+
+    expect(onError).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Signaling socket reached terminal close after pre-admission retirement',
+      expect.objectContaining({
+        route: 'primary',
+        everOpened: false,
+        authSent: false,
+        closeCode: 1006,
+        closeClean: false,
+        readyStateName: 'CLOSED',
+      }),
+    );
+
+    peer.destroy();
+    routeReady.resolve(null);
+    await flushAsync();
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
   it('converges a silent CONNECTING guest socket through one bounded route retry', async () => {
     vi.useFakeTimers();
     installFakeWebSocket();
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
-    const prepareNetworkRouteRetry = vi.fn(async () => null);
+    const prepareNetworkRouteRetry = vi.fn(
+      async (_signal: AbortSignal, _retrySignalingUrl: string) => null,
+    );
     const peer = new CloudflareSignalingPeer(null, {
       provider: 'cloudflare',
       signalingUrl: 'wss://signal.example.test/api/rooms',
@@ -4494,22 +4596,35 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       prepareNetworkRouteRetry,
     });
     const conn = peer.connect('123456');
+    expect(conn.recommendedPreOpenTimeoutMs).toBeUndefined();
     const onError = vi.fn(() => conn.close());
     conn.on('error', onError);
 
     await vi.advanceTimersByTimeAsync(3_000);
     expect(prepareNetworkRouteRetry).toHaveBeenCalledOnce();
+    expect(prepareNetworkRouteRetry).toHaveBeenCalledWith(
+      expect.any(AbortSignal),
+      PRIMARY_SIGNALING_URL,
+    );
     expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(new URL(FakeWebSocket.instances[1].url).origin).toBe('wss://signal.example.test');
     expect(FakeWebSocket.instances[0].closeCount).toBe(0);
     expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.CONNECTING);
     expect(onError).not.toHaveBeenCalled();
     expect(warn).toHaveBeenCalledWith(
       '[Transport] Guest signaling failed before admission; awaiting fresh route once',
-      {
+      expect.objectContaining({
+        route: 'primary',
+        everOpened: false,
+        authSent: false,
+        admitted: false,
+        elapsedMs: 3_000,
+        closeCode: null,
+        closeClean: null,
         readyState: FakeWebSocket.CONNECTING,
         readyStateName: 'CONNECTING',
         closeSuppressed: true,
-      },
+      }),
     );
 
     await vi.advanceTimersByTimeAsync(3_000);

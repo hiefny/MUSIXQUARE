@@ -308,6 +308,12 @@ interface GuestRoomRecord {
   authFailed: boolean;
 }
 
+interface RetiredSignalingSocketListeners {
+  readonly open: EventListener;
+  readonly close: EventListener;
+  readonly error: EventListener;
+}
+
 interface QueuedIceCandidate {
   candidate: RTCIceCandidateInit;
   negotiationId: string;
@@ -355,6 +361,11 @@ const STANDARD_ROOM_ASSERTION_ADMISSION_WAIT_MS = 2_000;
 const STANDARD_ROOM_ASSERTION_RENEWAL_WAIT_MS = 15_000;
 const STANDARD_ROOM_SETUP_ROUTE_RETRY_LIMIT = 1;
 const STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS = 3_000;
+// A setup attempt may legitimately own its initial socket plus one route-retry
+// successor. Eight page-wide handles leave room for several overlapping
+// teardown/retry generations while putting a hard ceiling on WebKit sockets
+// that never leave CONNECTING/CLOSING.
+const MAX_PAGE_SIGNALING_SOCKET_HANDLES = 8;
 const REMOTE_SHARE_UPLOAD_ASSERTION_TIMEOUT_MS = 5_000;
 const REMOTE_SHARE_UPLOAD_ASSERTION_TOKEN_MAX_LENGTH = 4096;
 const REMOTE_SHARE_UPLOAD_ASSERTION_CORRELATION_ID_RE = /^rsaq_[A-Za-z0-9_-]{32}$/;
@@ -373,6 +384,70 @@ interface PendingRemoteShareUploadAssertion {
   readonly signal?: AbortSignal;
   readonly abort?: () => void;
 }
+
+const pageSignalingSocketCloseListeners = new Map<WebSocket, EventListener>();
+
+function releasePageSignalingSocket(socket: WebSocket): void {
+  const closeListener = pageSignalingSocketCloseListeners.get(socket);
+  if (!closeListener) return;
+  pageSignalingSocketCloseListeners.delete(socket);
+  socket.removeEventListener('close', closeListener);
+}
+
+function trackPageSignalingSocket(socket: WebSocket): void {
+  if (socket.readyState === WebSocket.CLOSED) return;
+  const closeListener: EventListener = () => releasePageSignalingSocket(socket);
+  pageSignalingSocketCloseListeners.set(socket, closeListener);
+  socket.addEventListener('close', closeListener);
+}
+
+function pruneClosedPageSignalingSockets(): void {
+  for (const socket of pageSignalingSocketCloseListeners.keys()) {
+    try {
+      if (socket.readyState === WebSocket.CLOSED) releasePageSignalingSocket(socket);
+    } catch {
+      // An unreadable non-terminal handle remains charged against the cap.
+    }
+  }
+}
+
+function signalingSocketDiagnostic(socket: WebSocket): {
+  readyState: number | null;
+  readyStateName: 'CONNECTING' | 'OPEN' | 'CLOSING' | 'CLOSED' | 'UNKNOWN';
+  closeSuppressed: boolean;
+} {
+  let readyState: number | null = null;
+  try {
+    readyState = socket.readyState;
+  } catch {
+    // Diagnostics must not alter retry ownership if a browser wrapper throws.
+  }
+  const readyStateName =
+    readyState === WebSocket.CONNECTING
+      ? 'CONNECTING'
+      : readyState === WebSocket.OPEN
+        ? 'OPEN'
+        : readyState === WebSocket.CLOSING
+          ? 'CLOSING'
+          : readyState === WebSocket.CLOSED
+            ? 'CLOSED'
+            : 'UNKNOWN';
+  return {
+    readyState,
+    readyStateName,
+    closeSuppressed: readyState === WebSocket.CONNECTING || readyState === WebSocket.CLOSING,
+  };
+}
+
+export const __cloudflareSignalingForTests = {
+  maxPageSignalingSocketHandles: MAX_PAGE_SIGNALING_SOCKET_HANDLES,
+  resetPageSignalingSocketHandles(): void {
+    for (const [socket, closeListener] of pageSignalingSocketCloseListeners) {
+      socket.removeEventListener('close', closeListener);
+    }
+    pageSignalingSocketCloseListeners.clear();
+  },
+};
 
 function parseIceNegotiationId(value: unknown): string | null {
   return typeof value === 'string' && ICE_NEGOTIATION_ID_RE.test(value) ? value : null;
@@ -1041,6 +1116,18 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private lastIceQueuePruneAt = 0;
   private readonly roomSockets = new Map<string, WebSocket>();
   private readonly guestRooms = new Map<string, GuestRoomRecord>();
+  /**
+   * Physical sockets whose logical authority has already been revoked.
+   *
+   * WebKit/CFNetwork can poison every later WebSocket in the app process when
+   * close() is called while a socket is still CONNECTING. Keep those sockets
+   * strongly owned instead: if one eventually opens, close it from OPEN; once
+   * it actually closes, release its retirement listeners. A non-terminal error
+   * is only observed because WebKit may leave readyState at CONNECTING. This
+   * registry is intentionally independent from hostSocket/roomSockets, whose
+   * entries are authority handles rather than physical-lifetime handles.
+   */
+  private readonly retiredSignalingSockets = new Map<WebSocket, RetiredSignalingSocketListeners>();
   /** RAM-only per-room proof; survives conn replacement but never a page reload. */
   private readonly guestReconnectSecrets = new Map<string, string>();
   private rtcConfiguration: RTCConfiguration;
@@ -1407,6 +1494,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       globalThis.clearTimeout(previousRecord.admissionTimeoutId);
       previousRecord.admissionTimeoutId = null;
     }
+    const previousSocket = this.roomSockets.get(roomId);
+    if (previousSocket) {
+      // Explicit re-join supersedes the previous socket even when its conn was
+      // already closed. Remove routing authority before retiring the physical
+      // handle so a late WebKit open cannot authenticate the old attempt.
+      this.roomSockets.delete(roomId);
+      this.retireSignalingSocket(previousSocket);
+    }
     if (!this.proSignalingAccess && !this.guestReconnectSecrets.has(roomId)) {
       this.guestReconnectSecrets.set(roomId, randomBase64Url(32));
     }
@@ -1435,6 +1530,11 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           globalThis.clearTimeout(currentRecord.admissionTimeoutId);
           currentRecord.admissionTimeoutId = null;
         }
+        const currentSocket = this.roomSockets.get(roomId);
+        if (currentSocket) {
+          this.roomSockets.delete(roomId);
+          this.retireSignalingSocket(currentSocket);
+        }
         this.guestRooms.delete(roomId);
       }
       if (this.connections.get(roomId) === conn) {
@@ -1442,11 +1542,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         this.clearIcePeerState(roomId, conn.peerConnection ?? undefined);
       }
     });
-    // Deliberately NOT ensureGuestSocket: a re-join over a still-open socket
-    // must REPLACE it, because the old socket's message listeners are
-    // closure-bound to the previous (dead) conn. The DO closes the replaced
-    // socket (GUEST_REPLACED) and the identity-guarded socket close handler
-    // ignores that late close.
+    // Deliberately NOT ensureGuestSocket: a re-join must create a socket whose
+    // listeners are closure-bound to this new conn. Any previous physical
+    // socket was authority-fenced and retired above before this replacement.
     this.openGuestSocket(roomId);
     return conn;
   }
@@ -1481,6 +1579,61 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     return mediaConn;
   }
 
+  private releaseRetiredSignalingSocket(socket: WebSocket): void {
+    const listeners = this.retiredSignalingSockets.get(socket);
+    if (!listeners) return;
+    this.retiredSignalingSockets.delete(socket);
+    socket.removeEventListener('open', listeners.open);
+    socket.removeEventListener('close', listeners.close);
+    socket.removeEventListener('error', listeners.error);
+    if (socket.readyState === WebSocket.CLOSED) releasePageSignalingSocket(socket);
+  }
+
+  /**
+   * Revoke a physical socket without ever calling close() in CONNECTING.
+   *
+   * Logical authority must be removed by the caller before entering here. A
+   * late open is therefore harmless: the original open callback is fenced by
+   * exact socket/generation ownership, then this retirement listener closes
+   * the now-OPEN socket safely. CLOSING is likewise observed rather than
+   * prodded, because another close() cannot improve it and has triggered
+   * process-wide CFNetwork WebSocket failures on iOS.
+   */
+  private retireSignalingSocket(socket: WebSocket): void {
+    if (this.retiredSignalingSockets.has(socket)) return;
+
+    const release = () => this.releaseRetiredSignalingSocket(socket);
+    const closeAfterOpen = () => {
+      if (!this.retiredSignalingSockets.has(socket)) return;
+      try {
+        socket.close();
+      } catch {
+        // Keep the handle until a later close/error. Losing it here would make
+        // destroy() and superseding setup attempts unable to fence the socket.
+      }
+      if (socket.readyState === WebSocket.CLOSED) release();
+    };
+    const listeners: RetiredSignalingSocketListeners = {
+      open: closeAfterOpen,
+      close: release,
+      error: () => {
+        // WebKit can report error while the physical operation remains
+        // CONNECTING/CLOSING. Keep the handle in that case; only CLOSED is a
+        // terminal cleanup signal, while an unexpectedly OPEN socket can now
+        // be closed without entering the CONNECTING-close failure mode.
+        if (socket.readyState === WebSocket.CLOSED) release();
+        else if (socket.readyState === WebSocket.OPEN) closeAfterOpen();
+      },
+    };
+    this.retiredSignalingSockets.set(socket, listeners);
+    socket.addEventListener('open', listeners.open);
+    socket.addEventListener('close', listeners.close);
+    socket.addEventListener('error', listeners.error);
+
+    if (socket.readyState === WebSocket.OPEN) closeAfterOpen();
+    else if (socket.readyState === WebSocket.CLOSED) release();
+  }
+
   private retireHostSignalingSocket(socket: WebSocket, closePhysical: boolean): boolean {
     this.signalingLiveness.stop(socket);
     this.rejectPendingRemoteShareUploadAssertions(
@@ -1497,14 +1650,29 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.open = false;
     const wasDisconnected = this.disconnected;
     this.disconnected = true;
-    if (closePhysical) {
-      try {
-        socket.close();
-      } catch {
-        /* noop */
-      }
-    }
+    if (closePhysical) this.retireSignalingSocket(socket);
     if (!wasDisconnected) this.emit('disconnected');
+    return true;
+  }
+
+  private retireGuestSignalingSocket(
+    roomId: string,
+    record: GuestRoomRecord,
+    socket: WebSocket,
+    signalingDisconnected: boolean,
+  ): boolean {
+    if (this.guestRooms.get(roomId) !== record || this.roomSockets.get(roomId) !== socket) {
+      return false;
+    }
+    this.clearGuestSetupAdmissionTimeout(record);
+    this.roomSockets.delete(roomId);
+    this.retireSignalingSocket(socket);
+    if (signalingDisconnected && record.conn.peerConnection) {
+      const wasDisconnected = this.disconnected;
+      this.disconnected = true;
+      this.reconcileGuestBackgroundRecovery(roomId, true);
+      if (!wasDisconnected) this.emit('disconnected');
+    }
     return true;
   }
 
@@ -1730,20 +1898,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         record.admissionTimeoutId = null;
       }
     }
-    for (const socket of this.roomSockets.values()) {
-      try {
-        socket.close();
-      } catch {
-        /* noop */
-      }
-    }
+    const roomSockets = [...this.roomSockets.values()];
     this.roomSockets.clear();
-    try {
-      this.hostSocket?.close();
-    } catch {
-      /* noop */
-    }
+    for (const socket of roomSockets) this.retireSignalingSocket(socket);
+    const hostSocket = this.hostSocket;
     this.hostSocket = null;
+    if (hostSocket) this.retireSignalingSocket(hostSocket);
     for (const conn of this.connections.values()) conn.close();
     this.connections.clear();
     this.guestRooms.clear();
@@ -1787,8 +1947,20 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   }
 
   private openSignalingSocket(url: string): WebSocket {
+    pruneClosedPageSignalingSockets();
+    if (pageSignalingSocketCloseListeners.size >= MAX_PAGE_SIGNALING_SOCKET_HANDLES) {
+      log.warn('[Transport] Refusing signaling socket creation; page handle limit reached', {
+        activeHandles: pageSignalingSocketCloseListeners.size,
+        handleLimit: MAX_PAGE_SIGNALING_SOCKET_HANDLES,
+      });
+      throw createTransportError('network', 'SIGNALING_SOCKET_HANDLE_LIMIT_REACHED');
+    }
     const ticket = this.proSignalingAccess?.ticket;
-    return ticket ? new WebSocket(url, proSignalingWebSocketProtocols(ticket)) : new WebSocket(url);
+    const socket = ticket
+      ? new WebSocket(url, proSignalingWebSocketProtocols(ticket))
+      : new WebSocket(url);
+    trackPageSignalingSocket(socket);
+    return socket;
   }
 
   private send(socket: WebSocket | null | undefined, message: OutgoingSignal): void {
@@ -1805,12 +1977,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   }
 
   private handleSignalingSocketError(
-    socket: WebSocket,
     options: {
       label: string;
       isCurrent: () => boolean;
       isEstablished: () => boolean;
       retryPreOpen?: (event: Event) => boolean;
+      retireEstablished: () => void;
       emitPreOpenError: (event: Event) => void;
     },
     event: Event,
@@ -1826,11 +1998,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     }
 
     log.warn(`[Transport] ${options.label} signaling socket error; preserving data channel`, event);
-    try {
-      socket.close();
-    } catch {
-      /* noop */
-    }
+    options.retireEstablished();
   }
 
   private async runNetworkRouteRetryBarrier(signal: AbortSignal, label: string): Promise<void> {
@@ -1876,11 +2044,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       }
       if (this.scheduleHostSetupRouteRetry(socket, socketGeneration)) return;
       this.hostSocket = null;
-      try {
-        socket.close();
-      } catch {
-        /* noop */
-      }
+      this.retireSignalingSocket(socket);
       this.emit('error', createTransportError('network', 'SIGNALING_HOST_ADMISSION_TIMEOUT'));
     }, STANDARD_ROOM_SETUP_ADMISSION_TIMEOUT_MS);
   }
@@ -1913,11 +2077,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       }
       if (this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration)) return;
       this.roomSockets.delete(roomId);
-      try {
-        socket.close();
-      } catch {
-        /* noop */
-      }
+      this.retireSignalingSocket(socket);
       record.conn.emit(
         'error',
         createTransportError('network', 'SIGNALING_GUEST_ADMISSION_TIMEOUT'),
@@ -1951,13 +2111,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // second room/code with a different authority token.
     this.signalingLiveness.stop(socket);
     if (this.hostSocket === socket) this.hostSocket = null;
-    try {
-      socket.close();
-    } catch {
-      /* noop */
-    }
+    this.retireSignalingSocket(socket);
 
-    log.warn('[Transport] Host signaling failed before admission; awaiting fresh route once');
+    log.warn(
+      '[Transport] Host signaling failed before admission; awaiting fresh route once',
+      signalingSocketDiagnostic(socket),
+    );
     this.runNetworkRouteRetryBarrier(controller.signal, 'Host')
       .then(() => {
         if (
@@ -2009,13 +2168,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     // reconnect proof cross the barrier, so this cannot duplicate a logical
     // join or let a stale attempt mutate guest join authority.
     this.roomSockets.delete(roomId);
-    try {
-      socket.close();
-    } catch {
-      /* noop */
-    }
+    this.retireSignalingSocket(socket);
 
-    log.warn('[Transport] Guest signaling failed before admission; awaiting fresh route once');
+    log.warn(
+      '[Transport] Guest signaling failed before admission; awaiting fresh route once',
+      signalingSocketDiagnostic(socket),
+    );
     this.runNetworkRouteRetryBarrier(controller.signal, 'Guest')
       .then(() => {
         if (
@@ -2071,6 +2229,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     ) {
       return;
     }
+    if (existing) {
+      this.rejectPendingRemoteShareUploadAssertions(
+        existing,
+        'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_REPLACED',
+      );
+      this.hostSocket = null;
+      this.retireSignalingSocket(existing);
+    }
 
     let socket: WebSocket;
     try {
@@ -2080,18 +2246,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
 
-    if (this.hostSocket && this.hostSocket !== socket) {
-      this.rejectPendingRemoteShareUploadAssertions(
-        this.hostSocket,
-        'REMOTE_SHARE_UPLOAD_ASSERTION_SOCKET_REPLACED',
-      );
-    }
     this.remoteShareUploadAssertionStatus = this.remoteShareUploadAssertionObserved
       ? 'unavailable'
       : 'unknown';
     this.hostSocket = socket;
     const socketGeneration = ++this.hostSocketGeneration;
     socket.addEventListener('open', () => {
+      if (
+        this.destroyed ||
+        this.hostSocket !== socket ||
+        socketGeneration !== this.hostSocketGeneration
+      ) {
+        return;
+      }
       if (this.proSignalingAccess) return;
       this.clearHostSetupAdmissionTimeout();
       try {
@@ -2112,6 +2279,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       );
     });
     socket.addEventListener('close', (event) => {
+      this.releaseRetiredSignalingSocket(socket);
       if (this.destroyed) {
         this.signalingLiveness.stop(socket);
         this.rejectPendingRemoteShareUploadAssertions(
@@ -2149,21 +2317,19 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     });
     socket.addEventListener('error', (event) =>
       this.handleSignalingSocketError(
-        socket,
         {
           label: 'Host',
           isCurrent: () =>
             this.hostSocket === socket && socketGeneration === this.hostSocketGeneration,
           isEstablished: () => this.open,
           retryPreOpen: () => this.scheduleHostSetupRouteRetry(socket, socketGeneration),
+          retireEstablished: () => {
+            this.retireHostSignalingSocket(socket, true);
+          },
           emitPreOpenError: (error) => {
             this.clearHostSetupAdmissionTimeout();
             if (this.hostSocket === socket) this.hostSocket = null;
-            try {
-              socket.close();
-            } catch {
-              /* noop */
-            }
+            this.retireSignalingSocket(socket);
             this.emit('error', error);
           },
         },
@@ -2205,8 +2371,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private openGuestSocket(roomId: string): void {
     const record = this.guestRooms.get(roomId);
-    if (!record || !this.id) return;
+    if (!record || !this.id || this.destroyed) return;
     const { conn, metadata } = record;
+    const existing = this.roomSockets.get(roomId);
+    if (existing) {
+      this.roomSockets.delete(roomId);
+      this.retireSignalingSocket(existing);
+    }
     let socket: WebSocket;
     try {
       socket = this.openSignalingSocket(this.buildSocketUrl(roomId, 'guest', this.id));
@@ -2218,6 +2389,14 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.roomSockets.set(roomId, socket);
     const socketGeneration = ++record.socketGeneration;
     socket.addEventListener('open', () => {
+      if (
+        this.destroyed ||
+        this.guestRooms.get(roomId) !== record ||
+        this.roomSockets.get(roomId) !== socket ||
+        record.socketGeneration !== socketGeneration
+      ) {
+        return;
+      }
       if (this.proSignalingAccess) return;
       // Optional identity projection may legitimately consume its own two-
       // second budget. Do not count that work as a stuck CONNECTING socket.
@@ -2243,6 +2422,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       );
     });
     socket.addEventListener('close', (event) => {
+      this.releaseRetiredSignalingSocket(socket);
       if (this.destroyed) return;
       if ((event as CloseEvent).reason === 'PRO_COORDINATOR_EPOCH_ADVANCED') {
         if (this.roomSockets.get(roomId) === socket) this.roomSockets.delete(roomId);
@@ -2271,7 +2451,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     });
     socket.addEventListener('error', (event) =>
       this.handleSignalingSocketError(
-        socket,
         {
           label: 'Guest',
           isCurrent: () =>
@@ -2281,14 +2460,13 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           isEstablished: () => this.isDataConnectionAlive(conn),
           retryPreOpen: () =>
             this.scheduleGuestSetupRouteRetry(roomId, record, socket, socketGeneration),
+          retireEstablished: () => {
+            this.retireGuestSignalingSocket(roomId, record, socket, true);
+          },
           emitPreOpenError: (error) => {
             this.clearGuestSetupAdmissionTimeout(record);
             if (this.roomSockets.get(roomId) === socket) this.roomSockets.delete(roomId);
-            try {
-              socket.close();
-            } catch {
-              /* noop */
-            }
+            this.retireSignalingSocket(socket);
             conn.emit('error', error);
           },
         },
@@ -2643,21 +2821,21 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       if (this.isDataConnectionAlive(conn)) {
         // These rejection frames concern the signaling socket, not necessarily
         // the established data channel. Emitting a connection error would tear
-        // down a channel that may still work, so log and close only the socket;
-        // its close event emits 'disconnected' for the outer reconnect backoff.
+        // down a channel that may still work, so retire only the socket and
+        // publish signaling loss for the outer reconnect backoff.
+        const record = this.guestRooms.get(roomId);
         if (isPermanentGuestAuthError(message.errorType)) {
-          const record = this.guestRooms.get(roomId);
           if (record?.conn === conn) record.authFailed = true;
         }
-        this.reconcileGuestBackgroundRecovery(roomId, true);
         log.warn(
           '[Transport] Guest signaling rejected after establishment; preserving data channel',
           error,
         );
-        try {
-          socket.close();
-        } catch {
-          /* noop */
+        if (record?.conn === conn) {
+          this.retireGuestSignalingSocket(roomId, record, socket, true);
+        } else if (this.roomSockets.get(roomId) === socket) {
+          this.roomSockets.delete(roomId);
+          this.retireSignalingSocket(socket);
         }
         return;
       }

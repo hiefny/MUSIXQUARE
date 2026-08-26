@@ -3,8 +3,13 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CHUNK_SIZE, MSG } from '../../../core/constants.ts';
+import { log } from '../../../core/log.ts';
 import { clearAllManagedTimers } from '../../../core/timers.ts';
-import { CloudflareDataConnection, CloudflareSignalingPeer } from '../cloudflare-signaling.ts';
+import {
+  __cloudflareSignalingForTests,
+  CloudflareDataConnection,
+  CloudflareSignalingPeer,
+} from '../cloudflare-signaling.ts';
 import type { TransportDataConnection, TransportMediaConnection } from '../types.ts';
 
 const originalWebSocket = globalThis.WebSocket;
@@ -27,6 +32,7 @@ class FakeWebSocket {
   static readonly CLOSING = 2;
   static readonly CLOSED = 3;
   static instances: FakeWebSocket[] = [];
+  static stallCloseWhileConnecting = false;
 
   readyState = FakeWebSocket.CONNECTING;
   closeCount = 0;
@@ -49,6 +55,10 @@ class FakeWebSocket {
     this.listeners.set(event, listeners);
   }
 
+  removeEventListener(event: string, listener: FakeSocketListener): void {
+    this.listeners.get(event)?.delete(listener);
+  }
+
   send(data: string): void {
     this.sent.push(data);
   }
@@ -56,6 +66,12 @@ class FakeWebSocket {
   close(): void {
     if (this.readyState === FakeWebSocket.CLOSED) return;
     this.closeCount++;
+    if (FakeWebSocket.stallCloseWhileConnecting && this.readyState === FakeWebSocket.CONNECTING) {
+      // iOS/CFNetwork regression model: close(CONNECTING) never reaches a
+      // terminal event and poisons subsequent WebSocket work in the app.
+      this.readyState = FakeWebSocket.CLOSING;
+      return;
+    }
     this.readyState = FakeWebSocket.CLOSED;
     this.dispatch('close');
   }
@@ -293,6 +309,7 @@ function workerSentOfType(
 
 function installFakeWebSocket(): void {
   FakeWebSocket.instances = [];
+  FakeWebSocket.stallCloseWhileConnecting = false;
   Object.defineProperty(globalThis, 'WebSocket', {
     configurable: true,
     value: FakeWebSocket as unknown as typeof WebSocket,
@@ -436,6 +453,7 @@ async function establishGuest(roomPassword = ''): Promise<{
 
 afterEach(() => {
   clearAllManagedTimers();
+  __cloudflareSignalingForTests.resetPageSignalingSocketHandles();
   vi.useRealTimers();
   vi.restoreAllMocks();
   Object.defineProperty(globalThis, 'WebSocket', {
@@ -4451,8 +4469,13 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       prepareNetworkRouteRetry: () => routeReady.promise,
     });
     await Promise.resolve();
-    FakeWebSocket.instances[0].dispatch('error');
+    const retired = FakeWebSocket.instances[0];
+    retired.dispatch('error');
     peer.destroy();
+    expect(retired.closeCount).toBe(0);
+    retired.dispatch('open');
+    expect(retired.closeCount).toBe(1);
+    expect(sentOfType(retired, 'host-auth')).toHaveLength(0);
 
     routeReady.resolve(null);
     await flushAsync();
@@ -4462,6 +4485,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
   it('converges a silent CONNECTING guest socket through one bounded route retry', async () => {
     vi.useFakeTimers();
     installFakeWebSocket();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
     const prepareNetworkRouteRetry = vi.fn(async () => null);
     const peer = new CloudflareSignalingPeer(null, {
       provider: 'cloudflare',
@@ -4476,13 +4500,160 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     await vi.advanceTimersByTimeAsync(3_000);
     expect(prepareNetworkRouteRetry).toHaveBeenCalledOnce();
     expect(FakeWebSocket.instances).toHaveLength(2);
-    expect(FakeWebSocket.instances[0].closeCount).toBe(1);
+    expect(FakeWebSocket.instances[0].closeCount).toBe(0);
+    expect(FakeWebSocket.instances[0].readyState).toBe(FakeWebSocket.CONNECTING);
     expect(onError).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      '[Transport] Guest signaling failed before admission; awaiting fresh route once',
+      {
+        readyState: FakeWebSocket.CONNECTING,
+        readyStateName: 'CONNECTING',
+        closeSuppressed: true,
+      },
+    );
 
     await vi.advanceTimersByTimeAsync(3_000);
     expect(onError).toHaveBeenCalledOnce();
     expect(FakeWebSocket.instances).toHaveLength(2);
     peer.destroy();
+  });
+
+  it('bounds page-wide stuck setup handles and fails before creating another socket', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const handleLimit = __cloudflareSignalingForTests.maxPageSignalingSocketHandles;
+    expect(handleLimit).toBeGreaterThanOrEqual(2);
+    expect(handleLimit % 2).toBe(0);
+
+    const exhaustedPeers: CloudflareSignalingPeer[] = [];
+    for (let attempt = 0; attempt < handleLimit / 2; attempt++) {
+      const peer = new CloudflareSignalingPeer(null, {
+        provider: 'cloudflare',
+        signalingUrl: 'wss://signal.example.test/api/rooms',
+        config: { iceServers: [] },
+        prepareNetworkRouteRetry: async () => null,
+      });
+      exhaustedPeers.push(peer);
+      const conn = peer.connect('123456');
+      conn.on('error', () => conn.close());
+
+      await vi.advanceTimersByTimeAsync(3_000);
+      await vi.advanceTimersByTimeAsync(3_000);
+    }
+    expect(FakeWebSocket.instances).toHaveLength(handleLimit);
+
+    const blockedGuest = createGuestPeer();
+    const blockedConn = blockedGuest.connect('654321');
+    const guestError = vi.fn();
+    blockedConn.on('error', guestError);
+    await Promise.resolve();
+    expect(FakeWebSocket.instances).toHaveLength(handleLimit);
+    expect(guestError).toHaveBeenCalledOnce();
+    expect(guestError.mock.calls[0]?.[0]).toMatchObject({
+      type: 'network',
+      message: 'SIGNALING_SOCKET_HANDLE_LIMIT_REACHED',
+    });
+
+    const blockedHost = createHostPeer();
+    const hostError = vi.fn();
+    blockedHost.on('error', hostError);
+    await Promise.resolve();
+    expect(FakeWebSocket.instances).toHaveLength(handleLimit);
+    expect(hostError).toHaveBeenCalledOnce();
+    expect(hostError.mock.calls[0]?.[0]).toMatchObject({
+      type: 'network',
+      message: 'SIGNALING_SOCKET_HANDLE_LIMIT_REACHED',
+    });
+
+    // A truly terminal socket returns one page-wide slot; the next explicit
+    // attempt may create a physical socket immediately.
+    FakeWebSocket.instances[0].dispatch('close');
+    const recoveredPeer = createGuestPeer();
+    recoveredPeer.connect('999999');
+    expect(FakeWebSocket.instances).toHaveLength(handleLimit + 1);
+
+    recoveredPeer.destroy();
+    blockedGuest.destroy();
+    blockedHost.destroy();
+    for (const peer of exhaustedPeers) peer.destroy();
+  });
+
+  it('never closes CONNECTING setup sockets and retains them through a non-terminal error', async () => {
+    vi.useFakeTimers();
+    installFakeWebSocket();
+    FakeWebSocket.stallCloseWhileConnecting = true;
+    const prepareNetworkRouteRetry = vi.fn(async () => null);
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry,
+    });
+    const conn = peer.connect('123456');
+    const onError = vi.fn(() => conn.close());
+    conn.on('error', onError);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    const retired = FakeWebSocket.instances[0];
+    const successor = FakeWebSocket.instances[1];
+    expect(retired.closeCount).toBe(0);
+    expect(retired.readyState).toBe(FakeWebSocket.CONNECTING);
+
+    // Some CFNetwork failures emit error without moving readyState to CLOSED.
+    // The retired handle must survive that notification so a late open can be
+    // authority-fenced and closed safely from OPEN.
+    retired.dispatch('error');
+    expect(retired.closeCount).toBe(0);
+    expect(retired.readyState).toBe(FakeWebSocket.CONNECTING);
+    retired.dispatch('open');
+    expect(retired.closeCount).toBe(1);
+    expect(retired.readyState).toBe(FakeWebSocket.CLOSED);
+    expect(sentOfType(retired, 'guest-auth')).toHaveLength(0);
+
+    // The stale open must not clear the successor's admission watchdog.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(successor.closeCount).toBe(0);
+    expect(successor.readyState).toBe(FakeWebSocket.CONNECTING);
+
+    // Even after conn cleanup and peer destruction, the terminal successor is
+    // retained until its own late open, then closed without CONNECTING poison.
+    successor.dispatch('error');
+    peer.destroy();
+    successor.dispatch('open');
+    expect(successor.closeCount).toBe(1);
+    expect(successor.readyState).toBe(FakeWebSocket.CLOSED);
+  });
+
+  it('keeps superseded and destroyed CONNECTING guest handles until a safe late open', () => {
+    installFakeWebSocket();
+    FakeWebSocket.stallCloseWhileConnecting = true;
+    const peer = new CloudflareSignalingPeer(null, {
+      provider: 'cloudflare',
+      signalingUrl: 'wss://signal.example.test/api/rooms',
+      config: { iceServers: [] },
+    });
+
+    const firstConn = peer.connect('123456');
+    const first = FakeWebSocket.instances[0];
+    firstConn.close();
+    expect(first.closeCount).toBe(0);
+    expect(first.readyState).toBe(FakeWebSocket.CONNECTING);
+
+    peer.connect('123456');
+    const replacement = FakeWebSocket.instances[1];
+    first.dispatch('error');
+    first.dispatch('open');
+    expect(first.closeCount).toBe(1);
+    expect(sentOfType(first, 'guest-auth')).toHaveLength(0);
+
+    peer.destroy();
+    expect(replacement.closeCount).toBe(0);
+    expect(replacement.readyState).toBe(FakeWebSocket.CONNECTING);
+    replacement.dispatch('open');
+    expect(replacement.closeCount).toBe(1);
+    expect(sentOfType(replacement, 'guest-auth')).toHaveLength(0);
   });
 
   it('does not charge the guest identity-assertion wait to the CONNECTING watchdog', async () => {

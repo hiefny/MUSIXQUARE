@@ -408,6 +408,37 @@ describe('shared service-maintenance control', () => {
     ]);
   });
 
+  it('does not charge the shared primary bucket when only one secondary identity is exhausted', async () => {
+    const control = createAtomicRateControlBinding();
+    const env = { MUSIXQUARE_SERVICE_CONTROL: control.binding };
+    const consume = (secondaryIdentity: string) =>
+      consumeAbuseRateLimitPair(env, {
+        scope: 'app-turn-config',
+        identity: 'shared-private-relay-ip',
+        limit: 2,
+        windowMs: 60_000,
+        secondary: { identity: secondaryIdentity, limit: 1 },
+      });
+
+    await expect(consume('browser-a')).resolves.toMatchObject({
+      status: 'ok',
+      allowed: true,
+      primary: { remaining: 1 },
+      secondary: { remaining: 0 },
+    });
+    await expect(consume('browser-a')).resolves.toMatchObject({
+      status: 'ok',
+      allowed: false,
+      deniedBy: 'secondary',
+      primary: { remaining: 1 },
+    });
+    await expect(consume('browser-b')).resolves.toMatchObject({
+      status: 'ok',
+      allowed: true,
+      primary: { remaining: 0 },
+    });
+  });
+
   it('validates a primary denial without requiring a secondary projection', async () => {
     const { env } = serviceControlEnv(() =>
       Response.json({

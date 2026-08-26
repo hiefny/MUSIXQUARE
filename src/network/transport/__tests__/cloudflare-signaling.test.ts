@@ -463,6 +463,7 @@ afterEach(() => {
   __cloudflareSignalingForTests.resetPageSignalingSocketHandles();
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   Object.defineProperty(globalThis, 'WebSocket', {
     configurable: true,
     value: originalWebSocket,
@@ -2384,6 +2385,7 @@ describe('Cloudflare PRO signaling client contract', () => {
         ticketSequence: 1,
       },
     });
+    expect(peer.recommendedPeerOpenTimeoutMs).toBeUndefined();
     await Promise.resolve();
 
     const socket = FakeWebSocket.instances[0];
@@ -4368,6 +4370,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     installFakeWebSocket();
     const peer = createGuestPeer();
     const conn = peer.connect('123456');
+    expect(peer.recommendedPeerOpenTimeoutMs).toBeUndefined();
     expect(conn.recommendedPreOpenTimeoutMs).toBeUndefined();
     const socket = FakeWebSocket.instances[0];
     const onError = vi.fn();
@@ -4378,9 +4381,57 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(onError).toHaveBeenCalledTimes(1);
   });
 
-  it('retries one setup guest socket behind the route barrier with the same join proof', async () => {
+  it('falls back from primary and alternate WSS to the HTTPS bridge with the same join proof', async () => {
     installFakeWebSocket();
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    const bridgeRequests: Array<{ url: string; body: Record<string, unknown> | null }> = [];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      const url = String(input);
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
+      bridgeRequests.push({ url, body });
+      if (url.endsWith('/api/security-config')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ capabilityRequired: false }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      if (url.endsWith('/bridge/open')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ sessionToken: `session.${'a'.repeat(48)}` }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      if (url.endsWith('/bridge/send')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ v: 1, ack: body?.cseq }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      if (url.endsWith('/bridge/poll')) {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          const abort = () => reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+          signal?.addEventListener('abort', abort, { once: true });
+          if (signal?.aborted) abort();
+        });
+      }
+      if (url.endsWith('/bridge/close')) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        );
+      }
+      throw new Error(`Unexpected HTTP bridge URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
     const routeReady = deferred<RTCConfiguration | null>();
     const prepareNetworkRouteRetry = vi.fn(
       (_signal: AbortSignal, _retrySignalingUrl: string) => routeReady.promise,
@@ -4393,7 +4444,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       prepareNetworkRouteRetry,
     });
     const conn = peer.connect('123456', { roomPassword: '12345678' });
-    expect(conn.recommendedPreOpenTimeoutMs).toBe(15_000);
+    expect(peer.recommendedPeerOpenTimeoutMs).toBe(25_000);
+    expect(conn.recommendedPreOpenTimeoutMs).toBe(20_000);
     const onError = vi.fn(() => conn.close());
     conn.on('error', onError);
     const first = FakeWebSocket.instances[0];
@@ -4429,14 +4481,35 @@ describe('Cloudflare signaling/data-channel boundary', () => {
       reconnectSecret: firstAuth.reconnectSecret,
     });
 
-    // The single retry is terminal on its own generic pre-open failure. The
-    // app's connection error owner closes the conn, fencing queued duplicates.
+    // A second generic pre-admission WSS failure moves to the same-origin HTTP
+    // bridge. It reuses the exact guest proof rather than starting a new join.
     replacement.dispatch('error');
     replacement.dispatch('error');
-    expect(onError).toHaveBeenCalledOnce();
+    await vi.waitFor(() =>
+      expect(
+        bridgeRequests.some(
+          (request) =>
+            request.url.endsWith('/bridge/send') &&
+            typeof request.body?.frame === 'string' &&
+            (JSON.parse(request.body.frame) as Record<string, unknown>).type === 'guest-auth',
+        ),
+      ).toBe(true),
+    );
+    const bridgeAuthRequest = bridgeRequests.find(
+      (request) =>
+        request.url.endsWith('/bridge/send') &&
+        typeof request.body?.frame === 'string' &&
+        (JSON.parse(request.body.frame) as Record<string, unknown>).type === 'guest-auth',
+    );
+    expect(JSON.parse(String(bridgeAuthRequest?.body?.frame))).toMatchObject({
+      password: firstAuth.password,
+      reconnectSecret: firstAuth.reconnectSecret,
+    });
+    expect(onError).not.toHaveBeenCalled();
     expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(__cloudflareSignalingForTests.pageSignalingSocketHandleCount()).toBe(1);
     expect(warn).toHaveBeenCalledWith(
-      '[Transport] Guest signaling socket error before admission',
+      '[Transport] Guest alternate signaling failed before admission; activating HTTPS bridge fallback',
       expect.objectContaining({
         route: 'fallback',
         everOpened: true,
@@ -4444,15 +4517,8 @@ describe('Cloudflare signaling/data-channel boundary', () => {
         admitted: false,
       }),
     );
-    expect(warn).toHaveBeenCalledWith(
-      '[Transport] Signaling socket reached terminal close after pre-admission retirement',
-      expect.objectContaining({
-        route: 'fallback',
-        closeCode: 1000,
-        closeClean: true,
-      }),
-    );
     peer.destroy();
+    expect(__cloudflareSignalingForTests.pageSignalingSocketHandleCount()).toBe(0);
   });
 
   it('retries one setup host socket with the same room claim and ignores the retired generation', async () => {
@@ -4513,6 +4579,82 @@ describe('Cloudflare signaling/data-channel boundary', () => {
 
     expect(onOpen).toHaveBeenCalledOnce();
     expect(onError).not.toHaveBeenCalled();
+    peer.destroy();
+  });
+
+  it('carries the host claim from alternate WSS into the HTTPS bridge', async () => {
+    installFakeWebSocket();
+    const bridgeRequests: Array<{ url: string; body: Record<string, unknown> | null }> = [];
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation((input, init) => {
+      const url = String(input);
+      const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
+      bridgeRequests.push({ url, body });
+      if (url.endsWith('/api/security-config')) {
+        return Promise.resolve(Response.json({ capabilityRequired: false }));
+      }
+      if (url.endsWith('/bridge/open')) {
+        return Promise.resolve(Response.json({ sessionToken: `session.${'b'.repeat(48)}` }));
+      }
+      if (url.endsWith('/bridge/send')) {
+        return Promise.resolve(Response.json({ v: 1, ack: body?.cseq }));
+      }
+      if (url.endsWith('/bridge/poll')) {
+        return new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          const abort = () => reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+          signal?.addEventListener('abort', abort, { once: true });
+          if (signal?.aborted) abort();
+        });
+      }
+      if (url.endsWith('/bridge/close')) return Promise.resolve(Response.json({ ok: true }));
+      throw new Error(`Unexpected HTTP bridge URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const peer = new CloudflareSignalingPeer('123456', {
+      provider: 'cloudflare',
+      signalingUrl: PRIMARY_SIGNALING_URL,
+      signalingFallbackUrl: FALLBACK_SIGNALING_URL,
+      config: { iceServers: [] },
+      prepareNetworkRouteRetry: async () => null,
+    });
+    peer.setRoomPassword('12345678');
+    await Promise.resolve();
+    const primary = FakeWebSocket.instances[0];
+    primary.dispatch('open');
+    const primaryAuth = sentOfType(primary, 'host-auth')[0]!;
+
+    primary.dispatch('error');
+    await flushAsync();
+    const alternate = FakeWebSocket.instances[1];
+    alternate.dispatch('open');
+    expect(sentOfType(alternate, 'host-auth')[0]).toMatchObject({
+      secret: primaryAuth.secret,
+      desiredRoomPassword: primaryAuth.desiredRoomPassword,
+      pinMutationId: primaryAuth.pinMutationId,
+    });
+
+    alternate.dispatch('error');
+    await vi.waitFor(() =>
+      expect(
+        bridgeRequests.some(
+          (request) =>
+            request.url.endsWith('/bridge/send') &&
+            typeof request.body?.frame === 'string' &&
+            (JSON.parse(request.body.frame) as Record<string, unknown>).type === 'host-auth',
+        ),
+      ).toBe(true),
+    );
+    const bridgeAuth = bridgeRequests.find(
+      (request) =>
+        request.url.endsWith('/bridge/send') &&
+        typeof request.body?.frame === 'string' &&
+        (JSON.parse(request.body.frame) as Record<string, unknown>).type === 'host-auth',
+    );
+    expect(JSON.parse(String(bridgeAuth?.body?.frame))).toMatchObject({
+      secret: primaryAuth.secret,
+      desiredRoomPassword: primaryAuth.desiredRoomPassword,
+      pinMutationId: primaryAuth.pinMutationId,
+    });
     peer.destroy();
   });
 

@@ -171,7 +171,6 @@ function settleWithAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<
 }
 
 async function requestTurnCredentials(
-  routeGeneration: number,
   controller: AbortController,
 ): Promise<StandardRoomTurnCredentials | null> {
   if (import.meta.env.MODE === 'e2e') return null;
@@ -214,10 +213,10 @@ async function requestTurnCredentials(
           source,
           iceServers,
         };
-        // A cellular -> Wi-Fi hand-off can leave the old fetch resolving after
-        // its consumers have already moved to a new route generation. Never
-        // publish or cache that superseded result for the replacement setup.
-        if (routeGeneration !== networkRouteGeneration) throw new Error('NETWORK_ROUTE_CHANGED');
+        // TURN credentials are route-independent. A cellular -> Wi-Fi hand-off
+        // can retire the caller after the paid endpoint already committed its
+        // response; preserving that valid result prevents the replacement WSS
+        // attempts from spending the same capability quota again.
         if (controller.signal.aborted) {
           throw createAbortError(controller.signal);
         }
@@ -282,9 +281,8 @@ async function getStandardRoomTurnCredentialsForRoute(
     // The page-scoped fetch is shared. A cancelled setup abandons only its
     // wait; it must not tear down useful warmup work for a successor attempt.
     const controller = new AbortController();
-    const routeGeneration = networkRouteGeneration;
     turnCredentialsRequestController = controller;
-    request = requestTurnCredentials(routeGeneration, controller).finally(() => {
+    request = requestTurnCredentials(controller).finally(() => {
       if (turnCredentialsRequest === request) {
         turnCredentialsRequest = null;
         turnCredentialsRequestController = null;
@@ -348,17 +346,14 @@ function removeSignalingPreconnect(): void {
 
 /**
  * Retire page-scoped work that may still belong to a previous physical route.
- * Valid TURN credentials remain reusable because they are route-independent;
- * only an in-flight fetch and the browser's stale speculative preconnect are
- * reset. Do not immediately preconnect again: the bounded route probe below
- * must establish the replacement path before signaling is used.
+ * TURN credentials and their paid in-flight fetch are route-independent. Keep
+ * the single shared request alive across a hand-off: aborting after the server
+ * has committed a response can consume the per-capability budget without ever
+ * publishing the credential. Only the speculative signaling preconnect is
+ * retired here.
  */
 function invalidateStandardRoomNetworkRoute(): void {
   networkRouteGeneration += 1;
-  const requestController = turnCredentialsRequestController;
-  turnCredentialsRequest = null;
-  turnCredentialsRequestController = null;
-  requestController?.abort(new Error('NETWORK_ROUTE_CHANGED'));
   capabilityWarmupRequest = null;
   removeSignalingPreconnect();
 }

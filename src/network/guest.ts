@@ -52,7 +52,7 @@ const PRE_OPEN_INBOUND_MAX_DEPTH = 24;
 const PRE_OPEN_INBOUND_MAX_NODES = 16_384;
 const _preOpenTextEncoder = new TextEncoder();
 const DEFAULT_GUEST_PRE_OPEN_TIMEOUT_MS = 10_000;
-const MAX_GUEST_PRE_OPEN_TIMEOUT_MS = 15_000;
+const MAX_GUEST_PRE_OPEN_TIMEOUT_MS = 20_000;
 
 function guestPreOpenTimeoutMs(conn: DataConnection): number {
   const recommendation = conn.recommendedPreOpenTimeoutMs;

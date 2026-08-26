@@ -414,6 +414,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'scripts/ui-kit-asset.ts',
     'scripts/materialize-app-static-headers.mts',
     'cloudflare/app-worker.ts',
+    'cloudflare/signaling-protocol.ts',
     'cloudflare/service-maintenance.ts',
     'cloudflare/pro-bot.ts',
     'cloudflare/pro-room-claims.ts',

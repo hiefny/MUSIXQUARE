@@ -96,6 +96,8 @@ const SYSTEM_AUDIO_CALL_TYPES = new Set<string>([
   'system-audio-stereo',
   'system-audio-synced',
 ]);
+const DEFAULT_PEER_OPEN_TIMEOUT_MS = 15_000;
+const MAX_PEER_OPEN_TIMEOUT_MS = 25_000;
 
 function isSystemAudioCallType(type: unknown): type is SystemAudioCallType {
   return typeof type === 'string' && SYSTEM_AUDIO_CALL_TYPES.has(type);
@@ -356,7 +358,15 @@ function waitForPeerOpen(peer: PeerInstance, owner: NetworkInitOwner): Promise<s
       return;
     }
 
-    setManagedTimer('peer-open-timeout', () => onError(new Error('PEER_OPEN_TIMEOUT')), 15000);
+    const recommendation = peer.recommendedPeerOpenTimeoutMs;
+    const timeoutMs =
+      typeof recommendation === 'number' && Number.isFinite(recommendation)
+        ? Math.min(
+            MAX_PEER_OPEN_TIMEOUT_MS,
+            Math.max(DEFAULT_PEER_OPEN_TIMEOUT_MS, Math.trunc(recommendation)),
+          )
+        : DEFAULT_PEER_OPEN_TIMEOUT_MS;
+    setManagedTimer('peer-open-timeout', () => onError(new Error('PEER_OPEN_TIMEOUT')), timeoutMs);
   });
 }
 

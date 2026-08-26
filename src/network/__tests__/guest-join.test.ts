@@ -678,7 +678,7 @@ describe('joinSession reconnect racing', () => {
 
   it('reserves bounded ICE time for a fallback-capable transport before timing out', () => {
     vi.useFakeTimers();
-    const { peer, conns } = makeFakePeer(15_000);
+    const { peer, conns } = makeFakePeer(20_000);
     mocks.getPeer.mockReturnValue(peer);
     const errors = vi.fn();
     bus.on('network:error', errors);
@@ -690,7 +690,7 @@ describe('joinSession reconnect racing', () => {
     expect(errors).not.toHaveBeenCalled();
     expect(getState('network.isConnecting')).toBe(true);
 
-    vi.advanceTimersByTime(4_999);
+    vi.advanceTimersByTime(9_999);
     expect(errors).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(1);
@@ -698,7 +698,7 @@ describe('joinSession reconnect racing', () => {
     expect(errors).toHaveBeenCalledOnce();
     expect((errors.mock.calls[0][0] as Error).message).toBe('HOST_UNREACHABLE');
     expect(mocks.logWarn).toHaveBeenCalledWith(
-      '[Join] Connection timeout — data channel did not open in 15000ms',
+      '[Join] Connection timeout — data channel did not open in 20000ms',
     );
   });
 
@@ -710,14 +710,14 @@ describe('joinSession reconnect racing', () => {
     bus.on('network:error', errors);
 
     joinSession('HOST01');
-    vi.advanceTimersByTime(14_999);
+    vi.advanceTimersByTime(19_999);
     expect(errors).not.toHaveBeenCalled();
 
     vi.advanceTimersByTime(1);
     expect(conns[0].close).toHaveBeenCalledOnce();
     expect(errors).toHaveBeenCalledOnce();
     expect(mocks.logWarn).toHaveBeenCalledWith(
-      '[Join] Connection timeout — data channel did not open in 15000ms',
+      '[Join] Connection timeout — data channel did not open in 20000ms',
     );
   });
 

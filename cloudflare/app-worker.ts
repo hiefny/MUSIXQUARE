@@ -24,6 +24,7 @@ import {
   proRoomObjectName,
 } from './pro-room-generation.ts';
 import { issueProRoomOwnerTransferRevocationReceipt } from './pro-room-claims.ts';
+import { isValidPeerId } from './signaling-protocol.ts';
 import {
   consumeAbuseRateLimit,
   consumeAbuseRateLimitPair,
@@ -267,7 +268,13 @@ const CAPABILITY_POW_DIFFICULTY_DEFAULT = 12;
 const CAPABILITY_TOKEN_TTL_DEFAULT = 10 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MIN = 3 * SECONDS_PER_MINUTE;
 const CAPABILITY_TOKEN_TTL_MAX = 30 * SECONDS_PER_MINUTE;
-const CAPABILITY_SCOPES = new Set(['turn', 'realtime', 'youtube-search', 'remote-share']);
+const CAPABILITY_SCOPES = new Set([
+  'turn',
+  'realtime',
+  'youtube-search',
+  'remote-share',
+  'standard-signaling',
+]);
 const CAPABILITY_TOKEN_MAX_LENGTH = 512;
 const CAPABILITY_TOKEN_PAYLOAD_RE = /^[A-Za-z0-9_-]+$/;
 const CAPABILITY_TOKEN_SIGNATURE_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -294,6 +301,21 @@ const ROOM_BURST_REALTIME_MUTATION_LIMIT = 650;
 const REALTIME_NEW_SESSION_PER_CAPABILITY_LIMIT = 4;
 const REALTIME_MUTATION_PER_CAPABILITY_LIMIT = 12;
 const REALTIME_MUTATION_PER_SESSION_LIMIT = 8;
+// Private Relay/NAT egress is shared, so this is intentionally above the
+// direct WebSocket ceiling. Keep it far below the service-control pair maximum
+// to bound per-window secondary state and fallback Durable Object creation.
+const STANDARD_SIGNALING_BRIDGE_OPEN_BURST_LIMIT = 300;
+const STANDARD_SIGNALING_BRIDGE_OPEN_PER_CAPABILITY_LIMIT = 8;
+const STANDARD_SIGNALING_BRIDGE_SESSION_REQUEST_LIMIT = 240;
+const STANDARD_SIGNALING_BRIDGE_SESSION_TTL_SECONDS = 12 * MINUTES_PER_HOUR * SECONDS_PER_MINUTE;
+const STANDARD_SIGNALING_BRIDGE_TOKEN_MAX_LENGTH = 1_024;
+const STANDARD_SIGNALING_BRIDGE_BODY_MAX_BYTES = 96 * 1024;
+const STANDARD_SIGNALING_BRIDGE_PREFIX = '/api/standard-signaling/v1/bridge';
+const STANDARD_SIGNALING_BRIDGE_OBJECT_PREFIX = 'mxqr-standard-http-bridge-v1:';
+const STANDARD_SIGNALING_BRIDGE_INTERNAL_PREFIX = '/internal/standard-http-bridge/v1';
+const STANDARD_SIGNALING_BRIDGE_SESSION_ID_RE = /^[A-Za-z0-9_-]{32}$/;
+const STANDARD_SIGNALING_BRIDGE_GENERATION_RE = /^[A-Za-z0-9_-]{22}$/;
+const STANDARD_SIGNALING_ROOM_ID_RE = /^[1-9]\d{5}$/;
 // Realtime session ownership is a separate, least-privilege capability. The
 // general `realtime` capability only permits creating an SFU session; it must
 // never be enough to mutate an arbitrary session ID learned from a peer.
@@ -311,7 +333,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.4.21';
+const ADMIN_ASSET_VERSION = '8.4.22';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -1999,6 +2021,110 @@ async function verifyRealtimeSessionCapability(
     typeof payload.nonce === 'string' &&
     payload.nonce.length > 0
   );
+}
+
+interface StandardSignalingBridgeCapability {
+  readonly sessionId: string;
+  readonly generation: string;
+  readonly roomId: string;
+  readonly role: 'host' | 'guest';
+  readonly peerId: string;
+  readonly expiresAt: number;
+}
+
+async function createStandardSignalingBridgeCapability(
+  input: Omit<StandardSignalingBridgeCapability, 'expiresAt'>,
+  env: AppEnv,
+): Promise<{ token: string; expiresAt: number }> {
+  const secret = getCapabilitySecret(env);
+  if (!secret) throw new Error('STANDARD_SIGNALING_BRIDGE_SECRET_UNAVAILABLE');
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const expiresAt = issuedAt + STANDARD_SIGNALING_BRIDGE_SESSION_TTL_SECONDS;
+  const payload = {
+    v: 1,
+    kind: 'standard-http-bridge',
+    sid: input.sessionId,
+    gen: input.generation,
+    room: input.roomId,
+    role: input.role,
+    peer: input.peerId,
+    iat: issuedAt,
+    exp: expiresAt,
+  };
+  const payloadPart = stringToBase64Url(JSON.stringify(payload));
+  const signature = await hmacSha256(secret, `standard-http-bridge:${payloadPart}`);
+  return { token: `${payloadPart}.${signature}`, expiresAt };
+}
+
+async function verifyStandardSignalingBridgeCapability(
+  token: string,
+  env: AppEnv,
+): Promise<StandardSignalingBridgeCapability | null> {
+  const secret = getCapabilitySecret(env);
+  if (
+    !secret ||
+    typeof token !== 'string' ||
+    token.length === 0 ||
+    token.length > STANDARD_SIGNALING_BRIDGE_TOKEN_MAX_LENGTH
+  ) {
+    return null;
+  }
+  const parts = token.split('.');
+  if (
+    parts.length !== 2 ||
+    !parts[0] ||
+    !parts[1] ||
+    !CAPABILITY_TOKEN_PAYLOAD_RE.test(parts[0]) ||
+    !CAPABILITY_TOKEN_SIGNATURE_RE.test(parts[1])
+  ) {
+    return null;
+  }
+  const expectedSignature = await hmacSha256(secret, `standard-http-bridge:${parts[0]}`);
+  if (!constantTimeEqual(expectedSignature, parts[1])) return null;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(base64UrlToString(parts[0]));
+  } catch {
+    return null;
+  }
+  if (!isJsonObject(payload)) return null;
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    payload.v !== 1 ||
+    payload.kind !== 'standard-http-bridge' ||
+    typeof payload.sid !== 'string' ||
+    !STANDARD_SIGNALING_BRIDGE_SESSION_ID_RE.test(payload.sid) ||
+    typeof payload.gen !== 'string' ||
+    !STANDARD_SIGNALING_BRIDGE_GENERATION_RE.test(payload.gen) ||
+    typeof payload.room !== 'string' ||
+    !STANDARD_SIGNALING_ROOM_ID_RE.test(payload.room) ||
+    (payload.role !== 'host' && payload.role !== 'guest') ||
+    !isValidPeerId(payload.peer) ||
+    typeof payload.iat !== 'number' ||
+    !Number.isSafeInteger(payload.iat) ||
+    payload.iat > now + 60 ||
+    typeof payload.exp !== 'number' ||
+    !Number.isSafeInteger(payload.exp) ||
+    payload.exp <= now ||
+    payload.exp - payload.iat !== STANDARD_SIGNALING_BRIDGE_SESSION_TTL_SECONDS
+  ) {
+    return null;
+  }
+  return {
+    sessionId: payload.sid,
+    generation: payload.gen,
+    roomId: payload.room,
+    role: payload.role,
+    peerId: payload.peer,
+    expiresAt: payload.exp,
+  };
+}
+
+function readBearerToken(request: Request): string {
+  const value = request.headers.get('Authorization') || '';
+  const match = value.match(/^Bearer ([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)$/);
+  return match?.[1] ?? '';
 }
 
 function getAdminPassword(env: AppEnv) {
@@ -11425,22 +11551,26 @@ async function guardSensitiveRequest(
   if (options.combinePerCapabilityRateLimit === true && perCapabilityLimit !== null) {
     const token = readCapabilityToken(request);
     const capabilityVerified = await verifyCapabilityToken(token, request, env, capabilityScope);
-    const tokenIdentity = capabilityVerified
-      ? (await hmacSha256(getCapabilitySecret(env), `rate:${token}`)).slice(0, 32)
-      : null;
+    // Invalid/stale bearer traffic is not a paid-resource admission and must
+    // not consume a shared Private Relay/NAT primary bucket. The capability
+    // challenge/token endpoints retain their own abuse controls.
+    if (!capabilityVerified) {
+      return json({ error: 'CAPABILITY_REQUIRED' }, 401, trust.headers);
+    }
+    const tokenIdentity = (await hmacSha256(getCapabilitySecret(env), `rate:${token}`)).slice(
+      0,
+      32,
+    );
     const rate = await checkPaidRateLimitPair(
       request,
       env,
       rateLimitKey,
       authenticatedRateLimit,
       60,
-      tokenIdentity ? { identity: tokenIdentity, limit: perCapabilityLimit, cost: 1 } : null,
+      { identity: tokenIdentity, limit: perCapabilityLimit, cost: 1 },
     );
     if (rate.status !== 'ok') return rateLimitUnavailableResponse(trust.headers);
     if (!rate.allowed) return rateLimitResponse(trust.headers, rate.retryAfterSeconds);
-    if (!capabilityVerified) {
-      return json({ error: 'CAPABILITY_REQUIRED' }, 401, trust.headers);
-    }
     return null;
   }
 
@@ -12162,7 +12292,10 @@ async function handleTurnConfig(request: Request, env: AppEnv) {
   if (request.method !== 'GET') return json({ error: 'Method not allowed' }, 405, headers);
   const guard = await guardSensitiveRequest(request, env, trust, 'turn', 'turn-config', 60, {
     authenticatedRateLimit: ROOM_BURST_TURN_LIMIT,
-    perCapabilityLimit: 4,
+    // A route hand-off may leave one paid request committed after its browser
+    // consumer was cancelled. Keep a bounded recovery allowance without
+    // turning the shared Private Relay egress IP into the per-user authority.
+    perCapabilityLimit: 8,
     combinePerCapabilityRateLimit: true,
   });
   if (guard) return guard;
@@ -12177,6 +12310,220 @@ async function handleTurnConfig(request: Request, env: AppEnv) {
     );
   }
   return json({ error: 'TURN_CONFIG_UNAVAILABLE' }, 503, headers);
+}
+
+function hasExactObjectKeys(value: JsonObject, expected: readonly string[]): boolean {
+  const actual = Object.keys(value).sort();
+  const normalizedExpected = [...expected].sort();
+  return (
+    actual.length === normalizedExpected.length &&
+    actual.every((key, index) => key === normalizedExpected[index])
+  );
+}
+
+function standardSignalingBridgeNamespace(env: AppEnv): AppDurableObjectNamespace | null {
+  const namespace = env?.PRO_SIGNALING_ROOMS;
+  return namespace &&
+    typeof namespace.idFromName === 'function' &&
+    typeof namespace.get === 'function'
+    ? namespace
+    : null;
+}
+
+function standardSignalingBridgeStub(
+  namespace: AppDurableObjectNamespace,
+  sessionId: string,
+): AppDurableObjectStub {
+  return namespace.get(
+    namespace.idFromName(`${STANDARD_SIGNALING_BRIDGE_OBJECT_PREFIX}${sessionId}`),
+  );
+}
+
+function standardSignalingBridgeHeaders(corsHeaders: HeadersInit): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Cache-Control': 'no-store, max-age=0, must-revalidate',
+    'Content-Type': 'application/json; charset=utf-8',
+  };
+  new Headers(corsHeaders).forEach((value, name) => {
+    headers[name] = value;
+  });
+  return headers;
+}
+
+async function callStandardSignalingBridge(
+  stub: AppDurableObjectStub,
+  operation: 'open' | 'send' | 'poll' | 'close',
+  body: JsonObject,
+  timeoutMs: number,
+): Promise<{ response: Response; bytes: Uint8Array } | null> {
+  return fetchServiceBindingResponse(
+    (request) => stub.fetch(request),
+    new Request(
+      `https://signaling.internal${STANDARD_SIGNALING_BRIDGE_INTERNAL_PREFIX}/${operation}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-MXQR-Standard-HTTP-Bridge': 'v1',
+        },
+        body: JSON.stringify(body),
+      },
+    ),
+    STANDARD_SIGNALING_BRIDGE_BODY_MAX_BYTES,
+    timeoutMs,
+  );
+}
+
+function standardSignalingBridgeUpstreamResponse(
+  upstream: { response: Response; bytes: Uint8Array } | null,
+  corsHeaders: HeadersInit,
+): Response {
+  const headers = standardSignalingBridgeHeaders(corsHeaders);
+  if (!upstream || !isValidUtf8(upstream.bytes)) {
+    return json({ error: 'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE' }, 502, headers);
+  }
+  const contentType = upstream.response.headers.get('Content-Type') || '';
+  if (!/^application\/json(?:\s*;|$)/i.test(contentType)) {
+    return json({ error: 'STANDARD_SIGNALING_BRIDGE_INVALID_RESPONSE' }, 502, headers);
+  }
+  return withSecurityHeaders(
+    new Response(upstream.bytes.byteLength > 0 ? new Uint8Array(upstream.bytes).buffer : null, {
+      status: upstream.response.status,
+      headers,
+    }),
+  );
+}
+
+async function handleStandardSignalingBridge(request: Request, env: AppEnv, url: URL) {
+  const trust = trustedCors(request, 'POST, OPTIONS', env);
+  const headers = standardSignalingBridgeHeaders(trust.headers);
+  if (request.method === 'OPTIONS') {
+    return withSecurityHeaders(new Response(null, { status: 204, headers: trust.headers }));
+  }
+  if (request.method !== 'POST' || url.search || url.hash) {
+    return json({ error: 'Method not allowed' }, 405, headers);
+  }
+  if (!trust.isTrusted) return json({ error: 'Forbidden' }, 403, headers);
+  if (hasInvalidCapabilitySecret(env) || !isCapabilityAuthEnabled(env)) {
+    return json({ error: 'CAPABILITY_NOT_CONFIGURED' }, 503, headers);
+  }
+  const namespace = standardSignalingBridgeNamespace(env);
+  if (!namespace) {
+    return json({ error: 'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE' }, 503, headers);
+  }
+
+  if (url.pathname === `${STANDARD_SIGNALING_BRIDGE_PREFIX}/open`) {
+    const parsed = await readJsonBodyLimited(request, STANDARD_SIGNALING_BRIDGE_BODY_MAX_BYTES);
+    if (!('value' in parsed)) return jsonBodyError(parsed, headers);
+    const body = parsed.value;
+    if (
+      !isJsonObject(body) ||
+      !hasExactObjectKeys(body, ['roomId', 'role', 'peerId']) ||
+      typeof body.roomId !== 'string' ||
+      !STANDARD_SIGNALING_ROOM_ID_RE.test(body.roomId) ||
+      (body.role !== 'host' && body.role !== 'guest') ||
+      !isValidPeerId(body.peerId)
+    ) {
+      return json({ error: 'INVALID_STANDARD_SIGNALING_BRIDGE_REQUEST' }, 400, headers);
+    }
+    const guard = await guardSensitiveRequest(
+      request,
+      env,
+      trust,
+      'standard-signaling',
+      'standard-http-bridge-open',
+      STANDARD_SIGNALING_BRIDGE_OPEN_BURST_LIMIT,
+      {
+        authenticatedRateLimit: STANDARD_SIGNALING_BRIDGE_OPEN_BURST_LIMIT,
+        perCapabilityLimit: STANDARD_SIGNALING_BRIDGE_OPEN_PER_CAPABILITY_LIMIT,
+        combinePerCapabilityRateLimit: true,
+      },
+    );
+    if (guard) return guard;
+
+    const sessionId = randomNonce(24);
+    const generation = randomNonce(16);
+    const capability = await createStandardSignalingBridgeCapability(
+      {
+        sessionId,
+        generation,
+        roomId: body.roomId,
+        role: body.role,
+        peerId: body.peerId,
+      },
+      env,
+    );
+    const upstream = await callStandardSignalingBridge(
+      standardSignalingBridgeStub(namespace, sessionId),
+      'open',
+      {
+        v: 1,
+        sessionId,
+        generation,
+        roomId: body.roomId,
+        role: body.role,
+        peerId: body.peerId,
+      },
+      5_000,
+    );
+    const payload = upstream ? parseServiceJsonBytes(upstream.bytes) : null;
+    if (!upstream?.response.ok || !isJsonObject(payload) || payload.ok !== true) {
+      return standardSignalingBridgeUpstreamResponse(upstream, trust.headers);
+    }
+    return json({ sessionToken: capability.token }, 200, headers);
+  }
+
+  const operation =
+    url.pathname === `${STANDARD_SIGNALING_BRIDGE_PREFIX}/send`
+      ? 'send'
+      : url.pathname === `${STANDARD_SIGNALING_BRIDGE_PREFIX}/poll`
+        ? 'poll'
+        : url.pathname === `${STANDARD_SIGNALING_BRIDGE_PREFIX}/close`
+          ? 'close'
+          : null;
+  if (!operation) return json({ error: 'NOT_FOUND' }, 404, headers);
+
+  const token = readBearerToken(request);
+  const capability = await verifyStandardSignalingBridgeCapability(token, env);
+  if (!capability) {
+    return json({ error: 'STANDARD_SIGNALING_BRIDGE_SESSION_REQUIRED' }, 401, headers);
+  }
+  const rateIdentity = (
+    await hmacSha256(getCapabilitySecret(env), `standard-http-bridge-rate:${token}`)
+  ).slice(0, 43);
+  const rate = await checkPaidRateLimit(
+    request,
+    env,
+    'standard-http-bridge-session',
+    STANDARD_SIGNALING_BRIDGE_SESSION_REQUEST_LIMIT,
+    60,
+    rateIdentity,
+    { identityIsPseudonymous: true },
+  );
+  if (rate.status !== 'ok') return rateLimitUnavailableResponse(headers);
+  if (!rate.allowed) return rateLimitResponse(headers, rate.retryAfterSeconds);
+
+  let clientBody: unknown = null;
+  if (operation === 'send' || operation === 'poll') {
+    const parsed = await readJsonBodyLimited(request, STANDARD_SIGNALING_BRIDGE_BODY_MAX_BYTES);
+    if (!('value' in parsed)) return jsonBodyError(parsed, headers);
+    clientBody = parsed.value;
+  }
+  const upstream = await callStandardSignalingBridge(
+    standardSignalingBridgeStub(namespace, capability.sessionId),
+    operation,
+    {
+      v: 1,
+      sessionId: capability.sessionId,
+      generation: capability.generation,
+      roomId: capability.roomId,
+      role: capability.role,
+      peerId: capability.peerId,
+      ...(operation === 'send' || operation === 'poll' ? { request: clientBody } : {}),
+    },
+    operation === 'poll' ? 18_000 : 5_000,
+  );
+  return standardSignalingBridgeUpstreamResponse(upstream, trust.headers);
 }
 
 function getRealtimeEnv(env: AppEnv) {
@@ -14687,6 +15034,10 @@ export default {
 
     if (url.pathname.startsWith(`${PRO_ROOM_FACADE_PREFIX}/`)) {
       return handleProRoomFacade(request, env, url);
+    }
+
+    if (url.pathname.startsWith(`${STANDARD_SIGNALING_BRIDGE_PREFIX}/`)) {
+      return handleStandardSignalingBridge(request, env, url);
     }
 
     if (

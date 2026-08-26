@@ -87,6 +87,60 @@ describe('capability proof-of-work client', () => {
     expect(document.querySelector('#mxqr-turnstile-container')).toBeNull();
   });
 
+  it('isolates signaling rollout tokens and remints that exact scope after a route-bound 401', async () => {
+    const mintedScopes: string[][] = [];
+    const bridgeTokens: string[] = [];
+    let tokenSerial = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/api/security-config')) {
+        return Response.json({
+          capabilityRequired: true,
+          turnstileSiteKey: '',
+          turnstileRequired: false,
+          proofOfWorkRequired: false,
+          proofOfWorkDifficulty: 0,
+          proofOfWorkTtl: 0,
+          ttl: 600,
+        });
+      }
+      if (url.endsWith('/api/capability-token')) {
+        const body = JSON.parse(String(init?.body)) as { scopes: string[] };
+        mintedScopes.push(body.scopes);
+        tokenSerial += 1;
+        return Response.json({
+          token: `capability-${tokenSerial}`,
+          expiresAt: Date.now() / 1000 + 600,
+        });
+      }
+      if (url.endsWith('/api/standard-signaling/v1/bridge/open')) {
+        bridgeTokens.push(new Headers(init?.headers).get('X-MXQR-Capability') ?? '');
+        return bridgeTokens.length === 1
+          ? new Response(null, { status: 401 })
+          : Response.json({ sessionToken: 'bridge-session' });
+      }
+      return new Response('not found', { status: 404 });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { fetchWithCapability, getCapabilityHeaders } = await import('../capability.ts');
+    await expect(
+      fetchWithCapability('/api/standard-signaling/v1/bridge/open', 'standard-signaling', {
+        method: 'POST',
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+    await expect(getCapabilityHeaders('/api/remote-share', ['remote-share'])).resolves.toEqual({
+      'X-MXQR-Capability': 'capability-3',
+    });
+
+    expect(bridgeTokens).toEqual(['capability-1', 'capability-2']);
+    expect(mintedScopes).toEqual([
+      ['standard-signaling'],
+      ['standard-signaling'],
+      ['realtime', 'remote-share', 'turn', 'youtube-search'],
+    ]);
+  });
+
   it('accepts a signed challenge inside the advertised adaptive difficulty envelope', async () => {
     const challenge = 'adaptive-stateless-challenge.signature';
     const baselineDifficulty = 8;

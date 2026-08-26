@@ -4,7 +4,12 @@ import {
   withRequestDeadline,
 } from './request-lifetime.ts';
 
-export type CapabilityScope = 'turn' | 'realtime' | 'youtube-search' | 'remote-share';
+export type CapabilityScope =
+  | 'turn'
+  | 'realtime'
+  | 'youtube-search'
+  | 'remote-share'
+  | 'standard-signaling';
 
 interface SecurityConfig {
   capabilityRequired: boolean;
@@ -72,12 +77,12 @@ const VALID_SCOPES = new Set<CapabilityScope>([
   'realtime',
   'youtube-search',
   'remote-share',
+  'standard-signaling',
 ]);
-// Bundle every paid scope into a single mint so, when human verification is
-// enabled, it normally runs once per cached token lifetime (10 minutes by
-// default) rather than once per scope. Any scope request uses the same bundle
-// cache entry. The broader token is constrained by IP binding, the server's
-// short configurable TTL, and per-endpoint rate limits.
+// Keep the established four-scope bundle compatible with the previous App
+// Worker. A cached new document can outlive an automatic server rollback; if
+// the new signaling scope were present in every mint, all existing paid
+// features would fail against that rolled-back Worker.
 const BUNDLE_SCOPES: CapabilityScope[] = ['realtime', 'remote-share', 'turn', 'youtube-search'];
 
 const configCache = new Map<string, { expiresAt: number; value: SecurityConfig }>();
@@ -87,6 +92,7 @@ const tokenRequestCache = new Map<string, Promise<string>>();
 function getOrCreateSharedTokenRequest(
   cacheKey: string,
   apiBase: string,
+  scopes: CapabilityScope[],
   config: SecurityConfig,
 ): Promise<string> {
   const existing = tokenRequestCache.get(cacheKey);
@@ -94,7 +100,7 @@ function getOrCreateSharedTokenRequest(
   // Shared work is intentionally ownerless. Individual caller/warmup aborts
   // race only their own wait and must never cancel another upload or SFU
   // request that adopted the same mint.
-  const request = requestCapabilityToken(apiBase, BUNDLE_SCOPES, config).finally(() => {
+  const request = requestCapabilityToken(apiBase, scopes, config).finally(() => {
     if (tokenRequestCache.get(cacheKey) === request) tokenRequestCache.delete(cacheKey);
   });
   tokenRequestCache.set(cacheKey, request);
@@ -162,6 +168,12 @@ function normalizeScopes(scopes: CapabilityScope[]): CapabilityScope[] {
     if (VALID_SCOPES.has(scope) && !result.includes(scope)) result.push(scope);
   }
   return result.sort();
+}
+
+function tokenScopesForRequest(scopes: CapabilityScope[]): CapabilityScope[] {
+  // `standard-signaling` is rollout-isolated. Ordinary callers retain the
+  // backward-compatible bundle; the new fallback mints only what it needs.
+  return scopes.includes('standard-signaling') ? scopes : BUNDLE_SCOPES;
 }
 
 function requestUrl(input: RequestInfo | URL): URL {
@@ -791,7 +803,8 @@ export async function getCapabilityHeaders(
   throwIfAborted(signal);
   if (!config.capabilityRequired) return {};
 
-  const cacheKey = tokenCacheKey(apiBase, BUNDLE_SCOPES);
+  const tokenScopes = tokenScopesForRequest(normalizedScopes);
+  const cacheKey = tokenCacheKey(apiBase, tokenScopes);
   const cached = tokenCache.get(cacheKey);
   const nowSeconds = Date.now() / 1000;
   if (cached && cached.expiresAt > nowSeconds + TOKEN_REFRESH_SKEW_SECONDS) {
@@ -802,7 +815,6 @@ export async function getCapabilityHeaders(
     // Always mint the bundle even if the caller asked for a subset — see
     // BUNDLE_SCOPES comment. normalizedScopes is kept above only as an
     // argument-validation gate (empty -> no-op).
-    void normalizedScopes;
     let request: Promise<string>;
     const sharedRequest = tokenRequestCache.get(cacheKey);
     if (sharedRequest) {
@@ -810,9 +822,9 @@ export async function getCapabilityHeaders(
     } else if (signal) {
       // An abortable caller owns its mint request. Sharing it would let one
       // upload cancel another caller's challenge/token fetch.
-      request = requestCapabilityToken(apiBase, BUNDLE_SCOPES, config, signal);
+      request = requestCapabilityToken(apiBase, tokenScopes, config, signal);
     } else {
-      request = getOrCreateSharedTokenRequest(cacheKey, apiBase, config);
+      request = getOrCreateSharedTokenRequest(cacheKey, apiBase, tokenScopes, config);
     }
     const token = await request;
     throwIfAborted(signal);
@@ -848,11 +860,12 @@ export async function warmCapabilitySilently(
     if (!config.capabilityRequired) return true;
     if (config.turnstileRequired || config.turnstileSiteKey) return false;
 
-    const cacheKey = tokenCacheKey(apiBase, BUNDLE_SCOPES);
+    const tokenScopes = tokenScopesForRequest(normalizedScopes);
+    const cacheKey = tokenCacheKey(apiBase, tokenScopes);
     const cached = tokenCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now() / 1000 + TOKEN_REFRESH_SKEW_SECONDS) return true;
 
-    const request = getOrCreateSharedTokenRequest(cacheKey, apiBase, config);
+    const request = getOrCreateSharedTokenRequest(cacheKey, apiBase, tokenScopes, config);
     await settleWithAbort(request, controller.signal);
     return true;
   } catch (error) {
@@ -892,7 +905,7 @@ export async function fetchWithCapability(
   // never reaches here (it won't 401), and the server still rejects a truly
   // invalid token — this widens recovery, not access.
   invalidateSecurityConfig(apiBase);
-  tokenCache.delete(tokenCacheKey(apiBase, BUNDLE_SCOPES));
+  tokenCache.delete(tokenCacheKey(apiBase, tokenScopesForRequest(scopes)));
   const retryHeaders = new Headers(init.headers);
   const retryCapabilityHeaders = await getCapabilityHeaders(
     input,

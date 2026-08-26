@@ -78,13 +78,18 @@ type FiringPeer = PeerInstance & {
   setRtcConfiguration: ReturnType<typeof vi.fn>;
 };
 
-function makePeer(id: string, initiallyOpen: boolean): FiringPeer {
+function makePeer(
+  id: string,
+  initiallyOpen: boolean,
+  recommendedPeerOpenTimeoutMs?: number,
+): FiringPeer {
   const handlers = new Map<string, Set<(...args: never[]) => void>>();
   const peer = {
     id,
     open: initiallyOpen,
     destroyed: false,
     disconnected: false,
+    ...(recommendedPeerOpenTimeoutMs === undefined ? {} : { recommendedPeerOpenTimeoutMs }),
     connect: vi.fn(),
     reconnect: vi.fn(),
     recoverAfterBackground: vi.fn(() => ({ status: 'not-applicable' as const })),
@@ -150,6 +155,50 @@ afterEach(() => {
 });
 
 describe('network initialization ownership', () => {
+  it('honors a bounded transport peer-open recommendation for Standard HTTP fallback', async () => {
+    vi.useFakeTimers();
+    const peer = makePeer('HTTP-FALLBACK-HOST', false, 25_000);
+    mocks.createTransportPeer.mockResolvedValueOnce(peer);
+
+    const session = createHostSessionWithShortCode(1);
+    const sessionResult = session.catch((error: unknown) => error);
+    await waitForTransportCalls(1);
+
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(peer.destroy).not.toHaveBeenCalled();
+    expect(getManagedTimer('peer-open-timeout')).not.toBeNull();
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(peer.destroy).not.toHaveBeenCalled();
+    peer.fire('open', peer.id);
+
+    await expect(sessionResult).resolves.toMatch(/^\d{6}$/);
+    expect(getManagedTimer('peer-open-timeout')).toBeNull();
+  });
+
+  it('clamps peer-open recommendations and leaves ordinary setup at 15 seconds', async () => {
+    vi.useFakeTimers();
+    const ordinaryPeer = makePeer('ORDINARY-HOST', false);
+    const oversizedPeer = makePeer('OVERSIZED-HINT-HOST', false, 60_000);
+    mocks.createTransportPeer
+      .mockResolvedValueOnce(ordinaryPeer)
+      .mockResolvedValueOnce(oversizedPeer);
+
+    const ordinary = createHostSessionWithShortCode(1);
+    const ordinaryResult = ordinary.catch((error: unknown) => error);
+    await waitForTransportCalls(1);
+    await vi.advanceTimersByTimeAsync(15_000);
+    await expect(ordinaryResult).resolves.toMatchObject({ message: 'PEER_OPEN_TIMEOUT' });
+
+    const oversized = createHostSessionWithShortCode(1);
+    const oversizedResult = oversized.catch((error: unknown) => error);
+    await waitForTransportCalls(2);
+    await vi.advanceTimersByTimeAsync(24_000);
+    expect(oversizedPeer.destroy).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(oversizedResult).resolves.toMatchObject({ message: 'PEER_OPEN_TIMEOUT' });
+  });
+
   it('waits for the room listener graph before creating a signaling transport', async () => {
     const roomFeaturesReady = deferred<void>();
     mocks.prepareRoomSessionFeatures.mockReturnValueOnce(roomFeaturesReady.promise);

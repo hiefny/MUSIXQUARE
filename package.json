@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.4.21",
+  "version": "8.4.22",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -72,6 +72,7 @@
     "smoke:live:remote-share": "tsx scripts/live-remote-share-smoke.ts",
     "smoke:live:app-generation": "node scripts/live-app-generation-smoke.mts",
     "smoke:live:app-public-boundary": "node scripts/live-app-public-boundary-smoke.mts",
+    "smoke:live:standard-http-signaling": "node scripts/live-standard-http-signaling-smoke.mts",
     "smoke:live": "npm run smoke:live:remote-share && npm run smoke:live:signaling && npm run smoke:live:pro-room && npm run smoke:live:pro-media-cors && npm run smoke:live:app-generation && npm run smoke:live:app-public-boundary",
     "wrangler": "wrangler",
     "release:manifest": "node scripts/release-manifest.mts create",

@@ -90,8 +90,8 @@ function createCloudflareApi(initial: ApiDomain[]) {
       messages: [],
       result,
       result_info: {
-        page,
-        per_page: perPage,
+        page: page || 1,
+        per_page: perPage || Math.max(1, result.length),
         count: result.length,
         total_count: result.length,
         total_pages: 1,
@@ -158,7 +158,7 @@ afterEach(() => {
 });
 
 describe('release signaling Custom Domain recovery', () => {
-  it('paginates the unfiltered account inventory before applying exact local filters', async () => {
+  it('reads the official single-page account inventory before applying exact local filters', async () => {
     const accountDomains = [
       domain(PRIMARY_ID, PRIMARY_SIGNALING_DOMAIN),
       domain('4'.repeat(40), 'musixquare.com', 'musixquare-app'),
@@ -176,13 +176,6 @@ describe('release signaling Custom Domain recovery', () => {
         errors: [],
         messages: [],
         result: accountDomains,
-        result_info: {
-          page: 1,
-          per_page: 100,
-          count: 6,
-          total_count: 6,
-          total_pages: 1,
-        },
       });
     };
 
@@ -199,10 +192,37 @@ describe('release signaling Custom Domain recovery', () => {
       },
     ]);
     expect(queries).toHaveLength(1);
-    expect(queries[0]?.searchParams.get('page')).toBe('1');
-    expect(queries[0]?.searchParams.get('per_page')).toBe('100');
+    expect(queries[0]?.search).toBe('');
     expect(queries[0]?.searchParams.has('hostname')).toBe(false);
     expect(queries[0]?.searchParams.has('service')).toBe(false);
+  });
+
+  it('accepts individually omitted optional result_info fields', async () => {
+    const fetcher = async (): Promise<Response> =>
+      Response.json({
+        success: true,
+        errors: [],
+        messages: [],
+        result: [domain(PRIMARY_ID, PRIMARY_SIGNALING_DOMAIN)],
+        result_info: { count: 1 },
+      });
+
+    await expect(listWorkerDomains(options(fetcher))).resolves.toHaveLength(1);
+  });
+
+  it('fails closed when optional metadata implies a partial single-page inventory', async () => {
+    const fetcher = async (): Promise<Response> =>
+      Response.json({
+        success: true,
+        errors: [],
+        messages: [],
+        result: [domain(PRIMARY_ID, PRIMARY_SIGNALING_DOMAIN)],
+        result_info: { total_count: 6 },
+      });
+
+    await expect(listWorkerDomains(options(fetcher))).rejects.toThrow(
+      'inconsistent pagination metadata',
+    );
   });
 
   it('detaches only the recorded candidate alias and verifies the primary-only baseline', async () => {

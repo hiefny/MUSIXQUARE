@@ -135,6 +135,42 @@ jobs:
           name: production-recovery-checkpoint-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: release-artifacts/recovery-checkpoint
 
+      - name: Download recorded signaling Custom Domain attempt evidence
+        id: signaling_domain_attempt
+        if: >-
+          steps.production_commit_state.outputs.state == 'absent' &&
+          (inputs.target == 'all' || inputs.target == 'signaling')
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-signaling-domain-attempt-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint
+
+      - name: Recover signaling Custom Domain deployment-start evidence
+        id: signaling_domain_start
+        if: >-
+          steps.production_commit_state.outputs.state == 'absent' &&
+          (inputs.target == 'all' || inputs.target == 'signaling') &&
+          steps.signaling_domain_attempt.outcome != 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-signaling-domain-start-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint
+
+      - name: Recover pre-deploy signaling Custom Domain authorization
+        id: signaling_domain_authorization
+        if: >-
+          steps.production_commit_state.outputs.state == 'absent' &&
+          (inputs.target == 'all' || inputs.target == 'signaling') &&
+          steps.signaling_domain_attempt.outcome != 'success' &&
+          steps.signaling_domain_start.outcome != 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: production-signaling-domain-authorization-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-artifacts/recovery-checkpoint
+
       - name: Classify immutable recovery checkpoint availability
         id: recovery_checkpoint_ready
         if: always() && steps.production_commit_state.outputs.state == 'absent'
@@ -156,6 +192,10 @@ jobs:
           done
           if [[ "$RELEASE_TARGET" != 'remote-share' &&
                 ! -f "${checkpoint_root}/worker-floor-checkpoint.json" ]]; then
+            evidence_complete=false
+          fi
+          if [[ ("$RELEASE_TARGET" == 'all' || "$RELEASE_TARGET" == 'signaling') &&
+                ! -f "${checkpoint_root}/signaling-domain-checkpoint.json" ]]; then
             evidence_complete=false
           fi
           if [[ -f "$deployment_checkpoint" ]]; then
@@ -324,6 +364,20 @@ jobs:
           forward_targets="$(node scripts/release-worker-floor-state.mts targets release-artifacts/recovery-checkpoint)"
           echo "forward_targets=${forward_targets}" >> "$GITHUB_OUTPUT"
 
+      - name: Restore signaling Custom Domain baseline before Worker rollback
+        id: fallback_signaling_domain_recovery
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          (inputs.target == 'all' || inputs.target == 'signaling')
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/release-signaling-domain-state.mts \
+            restore "$RELEASE_TARGET" release-artifacts/recovery-checkpoint
+
       - name: Restore release-owned Workers or record a forward-repair boundary
         id: fallback_worker_recovery
         if: >-
@@ -351,12 +405,20 @@ jobs:
             node scripts/release-deployment-state.mts \
               standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
+          signaling_domain_recovery_outcome="${{ steps.fallback_signaling_domain_recovery.outcome }}"
+          if [[ "$RELEASE_TARGET" == 'all' || "$RELEASE_TARGET" == 'signaling' ]]; then
+            if ! node scripts/release-signaling-domain-state.mts \
+              verify "$RELEASE_TARGET" release-artifacts/recovery-checkpoint; then
+              signaling_domain_recovery_outcome='failure'
+            fi
+          fi
           skip_targets="$(
             MXQR_R2_POLICY_OUTCOME="${{ steps.fallback_r2_policy_assessment.outcome }}" \
             MXQR_R2_FORWARD_TARGETS="${{ steps.fallback_r2_policy_assessment.outputs.forward_targets }}" \
             MXQR_GENERATION_FENCE_OUTCOME="${{ steps.fallback_generation_fence.outcome }}" \
             MXQR_WORKER_FLOOR_OUTCOME="${{ steps.fallback_worker_floor_assessment.outcome }}" \
             MXQR_WORKER_FLOOR_TARGETS="${{ steps.fallback_worker_floor_assessment.outputs.forward_targets }}" \
+            MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME="$signaling_domain_recovery_outcome" \
             MXQR_APPLY_DEVELOPER_API_D1="${{ inputs.apply_developer_api_d1 }}" \
             MXQR_SERVICE_CONTROL_FORWARD_FLOOR="$service_control_forward_floor" \
             MXQR_REMOTE_SHARE_FORWARD_FLOOR="$remote_share_forward_floor" \
@@ -368,6 +430,22 @@ jobs:
           MXQR_ROLLBACK_SKIP_TARGETS="$skip_targets" \
             node scripts/release-deployment-state.mts \
               rollback release-artifacts/recovery-checkpoint
+
+      - name: Freshly verify signaling Custom Domain baseline
+        id: fallback_signaling_domain_verification
+        if: >-
+          inputs.mutation_authorized == 'true' &&
+          steps.recovery_checkpoint_ready.outputs.available == 'true' &&
+          (inputs.target == 'all' || inputs.target == 'signaling') &&
+          always()
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node scripts/release-signaling-domain-state.mts \
+            verify "$RELEASE_TARGET" release-artifacts/recovery-checkpoint
+
       - name: Reconcile persisted R2 policy with recovered Workers
         id: fallback_r2_policy_reconciliation
         if: >-
@@ -444,6 +522,8 @@ jobs:
           printf '%s\n' '- R2 recovery assessment: `${{ steps.fallback_r2_policy_assessment.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' '- PRO generation fence: `${{ steps.fallback_generation_fence.outcome || 'not-requested' }}`' >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' '- Worker floor assessment: `${{ steps.fallback_worker_floor_assessment.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- Signaling Custom Domain recovery: `${{ steps.fallback_signaling_domain_recovery.outcome || 'not-requested' }}`' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' '- Final signaling Custom Domain verification: `${{ steps.fallback_signaling_domain_verification.outcome || 'not-requested' }}`' >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' '- Worker ownership/forward-repair report: `${{ steps.fallback_worker_recovery.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' '- Paired R2 policy reconciliation: `${{ steps.fallback_r2_policy_reconciliation.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' '- Fresh paired R2/Worker recovery verification: `${{ steps.fallback_final_verification.outcome }}`' >> "$GITHUB_STEP_SUMMARY"
@@ -462,6 +542,13 @@ jobs:
            steps.fallback_generation_fence.outcome == 'cancelled' ||
            steps.fallback_worker_floor_assessment.outcome == 'failure' ||
            steps.fallback_worker_floor_assessment.outcome == 'cancelled' ||
+           ((inputs.target == 'all' || inputs.target == 'signaling') &&
+            (steps.fallback_signaling_domain_recovery.outcome == 'failure' ||
+             steps.fallback_signaling_domain_recovery.outcome == 'cancelled' ||
+             steps.fallback_signaling_domain_recovery.outcome == 'skipped' ||
+             steps.fallback_signaling_domain_verification.outcome == 'failure' ||
+             steps.fallback_signaling_domain_verification.outcome == 'cancelled' ||
+             steps.fallback_signaling_domain_verification.outcome == 'skipped')) ||
            steps.fallback_worker_recovery.outcome == 'failure' ||
            steps.fallback_worker_recovery.outcome == 'cancelled' ||
            steps.fallback_r2_policy_reconciliation.outcome == 'failure' ||

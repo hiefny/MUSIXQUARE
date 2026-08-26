@@ -8,6 +8,7 @@ const BASE_ENV = {
   MXQR_GENERATION_FENCE_OUTCOME: 'success',
   MXQR_WORKER_FLOOR_OUTCOME: 'success',
   MXQR_WORKER_FLOOR_TARGETS: '',
+  MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME: 'success',
   MXQR_APPLY_DEVELOPER_API_D1: 'false',
   MXQR_SERVICE_CONTROL_FORWARD_FLOOR: 'false',
   MXQR_REMOTE_SHARE_FORWARD_FLOOR: 'false',
@@ -77,11 +78,30 @@ describe('release recovery target plan', () => {
     expect(new Set(result.stdout.split(','))).toEqual(new Set(expected));
   });
 
+  it.each(['failure', 'cancelled', 'skipped'] as const)(
+    'keeps the hardened signaling candidate when domain recovery is %s',
+    (recoveryOutcome) => {
+      const result = plan({ MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME: recoveryOutcome });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.split(',')).toContain('signaling');
+    },
+  );
+
+  it('ignores a skipped signaling-domain recovery for an app-only release', () => {
+    const result = plan({
+      RELEASE_TARGET: 'app',
+      MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME: 'skipped',
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toBe('');
+  });
+
   it('rejects malformed outcomes, booleans, and Worker names', () => {
     expect(plan({ MXQR_R2_POLICY_OUTCOME: 'unknown' }).status).toBe(1);
     expect(plan({ MXQR_APPLY_DEVELOPER_API_D1: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR: 'yes' }).status).toBe(1);
     expect(plan({ MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR: 'yes' }).status).toBe(1);
+    expect(plan({ MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME: 'unknown' }).status).toBe(1);
     expect(plan({ MXQR_R2_FORWARD_TARGETS: 'not-a-worker' }).status).toBe(1);
   });
 });

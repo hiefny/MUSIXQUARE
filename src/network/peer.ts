@@ -425,6 +425,7 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
         debug: 2,
         provider: transportConfig.provider,
         signalingUrl: transportConfig.signalingUrl,
+        signalingFallbackUrl: transportConfig.signalingFallbackUrl,
         peerJsServer: transportConfig.peerJsServer,
         config: {
           iceServers: [...iceServers],
@@ -504,7 +505,10 @@ async function initNetwork(requestedId: string | null = null): Promise<string> {
         bundlePolicy: 'max-bundle',
       },
       ...(transportConfig.provider === 'cloudflare'
-        ? { prepareNetworkRouteRetry: prepareStandardRoomNetworkRouteRetry }
+        ? {
+            signalingFallbackUrl: transportConfig.signalingFallbackUrl,
+            prepareNetworkRouteRetry: prepareStandardRoomNetworkRouteRetry,
+          }
         : {}),
       standardRoomAssertionProvider: requestStandardRoomAccountAssertion,
     };

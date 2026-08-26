@@ -6,10 +6,46 @@ import { pathToFileURL } from 'node:url';
 import WebSocket from 'ws';
 
 const APP_ORIGIN = 'https://musixquare.com';
-const SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
+export const PRIMARY_SIGNALING_ORIGIN = 'wss://signal.musixquare.com/api/rooms';
+export const ALTERNATE_SIGNALING_ORIGIN = 'wss://signal-alt.musixquare.com/api/rooms';
+export const ALTERNATE_SIGNALING_HTTP_ORIGIN = 'https://signal-alt.musixquare.com';
+export const ALTERNATE_PRO_SIGNALING_PROBE_URL =
+  'wss://signal-alt.musixquare.com/api/pro-rooms/000001/ws';
+export const SIGNALING_SMOKE_ROOM_ROUTES = Object.freeze({
+  unprotected: Object.freeze({
+    hostOrigin: ALTERNATE_SIGNALING_ORIGIN,
+    guestOrigin: PRIMARY_SIGNALING_ORIGIN,
+  }),
+  protected: Object.freeze({
+    hostOrigin: PRIMARY_SIGNALING_ORIGIN,
+    guestOrigin: ALTERNATE_SIGNALING_ORIGIN,
+  }),
+});
 export const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
-const MESSAGE_TIMEOUT_MS = 10_000;
+export const MESSAGE_TIMEOUT_MS = 10_000;
 export const STALE_VERSION_RETRY_DELAYS_MS = Object.freeze([1_000, 2_000, 4_000, 8_000, 8_000]);
+// A newly attached Custom Domain may need longer than an ordinary Worker
+// version rollout for DNS and certificate readiness. This budget is used only
+// by the first alternate-origin host handshake. The classifier below still
+// fails policy/protocol HTTP responses immediately; only stale deployment,
+// initial HTTP 404/5xx, guest stale-version, and pre-frame transport convergence
+// errors consume this budget. The expanded HTTP and guest classifiers are
+// enabled only for this first cross-host room.
+export const ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS = Object.freeze([
+  1_000, 2_000, 4_000, 8_000, 15_000, 30_000, 30_000,
+]);
+export const SIGNALING_SMOKE_ROOM_READINESS = Object.freeze({
+  unprotected: Object.freeze({
+    retryDelaysMs: ALTERNATE_SIGNALING_READINESS_RETRY_DELAYS_MS,
+    retryInitialHostDeploymentConvergence: true,
+    retryGuestVersionConvergence: true,
+  }),
+  protected: Object.freeze({
+    retryDelaysMs: STALE_VERSION_RETRY_DELAYS_MS,
+    retryInitialHostDeploymentConvergence: false,
+    retryGuestVersionConvergence: false,
+  }),
+});
 
 type JsonObject = Record<string, unknown>;
 
@@ -50,6 +86,7 @@ export interface SocketInbox<TSocket extends SocketLifecyclePort = WebSocket> {
 
 interface SocketInboxOptions<TSocket extends SocketLifecyclePort> {
   expectedInitialHostVersion?: string;
+  retryInitialHostDeploymentConvergence?: boolean;
   createWebSocket: (target: string, options: WebSocket.ClientOptions) => TSocket;
 }
 
@@ -61,10 +98,25 @@ export interface SignalingOriginBoundaryResult {
   unrelatedTossOriginRejected: true;
 }
 
+export interface AlternateSignalingSurfaceRead {
+  readonly rootStatusCode: number;
+  readonly rootBody: unknown;
+  readonly internalStatusCode: number;
+  readonly proWebSocketStatusCode: number;
+}
+
+export interface AlternateSignalingSurfaceResult {
+  readonly standardWebSocketAdvertised: true;
+  readonly proWebSocketHidden: true;
+  readonly internalPathHidden: true;
+  readonly proWebSocketRejected: true;
+}
+
 type ReadinessError =
   | StaleSignalingVersionError
   | InitialHostDeploymentConvergenceError
-  | InitialHostSocketConvergenceError;
+  | InitialHostSocketConvergenceError
+  | InitialHostOpenTimeoutConvergenceError;
 
 interface ReadinessRetryOptions {
   retryDelaysMs?: readonly number[];
@@ -114,13 +166,28 @@ export class InitialHostSocketConvergenceError extends Error {
   }
 }
 
+export class InitialHostOpenTimeoutConvergenceError extends Error {
+  constructor() {
+    super(
+      'initial host WebSocket open timed out before the expected signaling deployment became ready',
+    );
+    this.name = 'InitialHostOpenTimeoutConvergenceError';
+  }
+}
+
 export function initialHostHandshakeError(
   statusCode: unknown,
   expectedVersion: string,
   label: string,
+  retryDeploymentConvergence = false,
 ): Error {
-  const normalizedStatus = Number.isInteger(statusCode) ? statusCode : 0;
-  if (expectedVersion && normalizedStatus === 500) {
+  const normalizedStatus =
+    typeof statusCode === 'number' && Number.isInteger(statusCode) ? statusCode : 0;
+  if (
+    expectedVersion &&
+    retryDeploymentConvergence &&
+    (normalizedStatus === 404 || (normalizedStatus >= 500 && normalizedStatus <= 599))
+  ) {
     return new InitialHostDeploymentConvergenceError(normalizedStatus);
   }
   return new Error(`${label} WebSocket upgrade returned HTTP ${normalizedStatus || '<missing>'}`);
@@ -155,8 +222,14 @@ export function settleUnexpectedInitialHostResponse(
   response: { statusCode?: number | undefined; resume(): void },
   expectedVersion: string,
   label: string,
+  retryDeploymentConvergence = false,
 ): Error {
-  const error = initialHostHandshakeError(response.statusCode, expectedVersion, label);
+  const error = initialHostHandshakeError(
+    response.statusCode,
+    expectedVersion,
+    label,
+    retryDeploymentConvergence,
+  );
   // Registering an `unexpected-response` listener suppresses ws's default
   // abortHandshake path. Discard the response and explicitly close the still-
   // CONNECTING client so a readiness retry never leaks a socket.
@@ -183,8 +256,13 @@ export function assertPeerOpenVersion(
   );
 }
 
-function socketUrl(roomId: string, role: 'host' | 'guest', peerId: string): string {
-  const url = new URL(`${SIGNALING_ORIGIN}/${roomId}/ws`);
+export function signalingSocketUrl(
+  roomId: string,
+  role: 'host' | 'guest',
+  peerId: string,
+  signalingOrigin = PRIMARY_SIGNALING_ORIGIN,
+): string {
+  const url = new URL(`${signalingOrigin.replace(/\/+$/, '')}/${roomId}/ws`);
   url.searchParams.set('role', role);
   url.searchParams.set('peerId', peerId);
   return url.toString();
@@ -200,7 +278,7 @@ export async function readSignalingOriginBoundary({
 } = {}): Promise<SignalingOriginBoundaryRead> {
   const roomId = String(randomInt(100_000, 1_000_000));
   const peerId = `origin-boundary-${randomUUID().replaceAll('-', '').slice(0, 12)}`;
-  const socket = createWebSocket(socketUrl(roomId, 'host', peerId), {
+  const socket = createWebSocket(signalingSocketUrl(roomId, 'host', peerId), {
     origin: UNRELATED_TOSS_ORIGIN,
   });
 
@@ -260,10 +338,133 @@ export async function verifySignalingOriginBoundary({
   return { unrelatedTossOriginRejected: true };
 }
 
+async function readWebSocketRejectionStatus(
+  target: string,
+  label: string,
+  {
+    createWebSocket = (url: string, options: WebSocket.ClientOptions) =>
+      new WebSocket(url, options),
+    timeoutMs = MESSAGE_TIMEOUT_MS,
+  }: {
+    createWebSocket?: (target: string, options: WebSocket.ClientOptions) => SocketLifecyclePort;
+    timeoutMs?: number;
+  } = {},
+): Promise<number> {
+  const socket = createWebSocket(target, { origin: APP_ORIGIN });
+  return new Promise<number>((resolveStatus, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.terminate();
+      reject(new Error(`${label} HTTP rejection timed out`));
+    }, timeoutMs);
+    const settle = (operation: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      operation();
+    };
+    socket.once('unexpected-response', (_request, response) => {
+      const statusCode = Number.isInteger(response.statusCode) ? response.statusCode || 0 : 0;
+      response.resume();
+      settle(() => {
+        socket.terminate();
+        resolveStatus(statusCode);
+      });
+    });
+    socket.once('open', () => {
+      settle(() => {
+        socket.close(1000, `${label} unexpectedly accepted`);
+        reject(new Error(`${label} unexpectedly accepted a WebSocket upgrade`));
+      });
+    });
+    socket.once('error', (error) => settle(() => reject(error)));
+    socket.once('close', (code, reason) => {
+      settle(() =>
+        reject(
+          new Error(`${label} closed ${code}/${reason.toString() || 'without HTTP rejection'}`),
+        ),
+      );
+    });
+  });
+}
+
+export async function readAlternateSignalingSurface({
+  fetcher = globalThis.fetch,
+  readProWebSocketStatus = () =>
+    readWebSocketRejectionStatus(
+      ALTERNATE_PRO_SIGNALING_PROBE_URL,
+      'alternate signaling PRO surface',
+    ),
+}: {
+  fetcher?: typeof fetch;
+  readProWebSocketStatus?: () => Promise<number>;
+} = {}): Promise<AlternateSignalingSurfaceRead> {
+  const [rootResponse, internalResponse, proWebSocketStatusCode] = await Promise.all([
+    fetcher(`${ALTERNATE_SIGNALING_HTTP_ORIGIN}/`, {
+      headers: { Accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(MESSAGE_TIMEOUT_MS),
+    }),
+    fetcher(`${ALTERNATE_SIGNALING_HTTP_ORIGIN}/internal/developer/v1/dispatch`, {
+      headers: { Accept: 'application/json' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(MESSAGE_TIMEOUT_MS),
+    }),
+    readProWebSocketStatus(),
+  ]);
+  let rootBody: unknown = null;
+  try {
+    rootBody = await rootResponse.json();
+  } catch {
+    throw new Error('Alternate signaling root did not return JSON.');
+  }
+  return {
+    rootStatusCode: rootResponse.status,
+    rootBody,
+    internalStatusCode: internalResponse.status,
+    proWebSocketStatusCode,
+  };
+}
+
+export async function verifyAlternateSignalingSurface({
+  read = readAlternateSignalingSurface,
+}: {
+  read?: () => Promise<AlternateSignalingSurfaceRead>;
+} = {}): Promise<AlternateSignalingSurfaceResult> {
+  const result = await read();
+  if (
+    result.rootStatusCode !== 200 ||
+    !isJsonObject(result.rootBody) ||
+    result.rootBody.ok !== true ||
+    result.rootBody.service !== 'musixquare-signaling' ||
+    result.rootBody.websocket !== '/api/rooms/:roomId/ws' ||
+    Object.hasOwn(result.rootBody, 'proWebsocket')
+  ) {
+    throw new Error('Alternate signaling root exposed an unexpected public surface.');
+  }
+  if (result.internalStatusCode !== 404) {
+    throw new Error('Alternate signaling internal path was not hidden with HTTP 404.');
+  }
+  if (result.proWebSocketStatusCode !== 404) {
+    throw new Error('Alternate signaling PRO WebSocket was not hidden with HTTP 404.');
+  }
+  return {
+    standardWebSocketAdvertised: true,
+    proWebSocketHidden: true,
+    internalPathHidden: true,
+    proWebSocketRejected: true,
+  };
+}
+
 export function createSocketInbox(
   url: string,
   label: string,
-  options?: { expectedInitialHostVersion?: string },
+  options?: {
+    expectedInitialHostVersion?: string;
+    retryInitialHostDeploymentConvergence?: boolean;
+  },
 ): SocketInbox<WebSocket>;
 export function createSocketInbox<TSocket extends SocketLifecyclePort>(
   url: string,
@@ -275,6 +476,7 @@ export function createSocketInbox(
   label: string,
   options: {
     expectedInitialHostVersion?: string;
+    retryInitialHostDeploymentConvergence?: boolean;
     createWebSocket?: (
       target: string,
       clientOptions: WebSocket.ClientOptions,
@@ -282,6 +484,8 @@ export function createSocketInbox(
   } = {},
 ): SocketInbox<SocketLifecyclePort> {
   const expectedInitialHostVersion = options.expectedInitialHostVersion ?? '';
+  const retryInitialHostDeploymentConvergence =
+    options.retryInitialHostDeploymentConvergence === true;
   const socket: SocketLifecyclePort = options.createWebSocket
     ? options.createWebSocket(url, { origin: APP_ORIGIN })
     : new WebSocket(url, { origin: APP_ORIGIN });
@@ -297,18 +501,40 @@ export function createSocketInbox(
   });
 
   const opened = new Promise<void>((resolveOpen, reject) => {
-    const timer = setTimeout(() => reject(new Error(`${label} open timeout`)), MESSAGE_TIMEOUT_MS);
+    let settled = false;
+    const settle = (operation: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      operation();
+    };
+    const timer = setTimeout(() => {
+      if (expectedInitialHostVersion && !receivedFrame) {
+        settle(() => {
+          socket.terminate();
+          reject(new InitialHostOpenTimeoutConvergenceError());
+        });
+        return;
+      }
+      settle(() => reject(new Error(`${label} open timeout`)));
+    }, MESSAGE_TIMEOUT_MS);
     if (expectedInitialHostVersion) {
       socket.once('unexpected-response', (_request, response) => {
-        clearTimeout(timer);
-        reject(
-          settleUnexpectedInitialHostResponse(socket, response, expectedInitialHostVersion, label),
+        settle(() =>
+          reject(
+            settleUnexpectedInitialHostResponse(
+              socket,
+              response,
+              expectedInitialHostVersion,
+              label,
+              retryInitialHostDeploymentConvergence,
+            ),
+          ),
         );
       });
     }
     socket.once('open', () => {
-      clearTimeout(timer);
-      resolveOpen();
+      settle(resolveOpen);
     });
     socket.once('error', (error) => {
       const terminalError = initialHostSocketError(
@@ -317,18 +543,18 @@ export function createSocketInbox(
         receivedFrame,
       );
       if (!terminalError) return;
-      clearTimeout(timer);
-      reject(terminalError);
+      settle(() => reject(terminalError));
     });
     socket.once('close', (code, reason) => {
-      clearTimeout(timer);
-      reject(
-        initialHostSocketCloseError(
-          code,
-          reason.toString(),
-          expectedInitialHostVersion,
-          receivedFrame,
-          label,
+      settle(() =>
+        reject(
+          initialHostSocketCloseError(
+            code,
+            reason.toString(),
+            expectedInitialHostVersion,
+            receivedFrame,
+            label,
+          ),
         ),
       );
     });
@@ -433,7 +659,8 @@ export async function withSignalingReadinessRetry<Result>(
       if (
         !(error instanceof StaleSignalingVersionError) &&
         !(error instanceof InitialHostDeploymentConvergenceError) &&
-        !(error instanceof InitialHostSocketConvergenceError)
+        !(error instanceof InitialHostSocketConvergenceError) &&
+        !(error instanceof InitialHostOpenTimeoutConvergenceError)
       ) {
         throw error;
       }
@@ -502,6 +729,8 @@ async function closeSocket(socket: WebSocket): Promise<void> {
 
 interface RoomSmokeResult {
   roomId: string;
+  hostOrigin: string;
+  guestOrigin: string;
   passwordProtected: boolean;
   wrongPasswordRejected: true | null;
   missingReconnectSecretRejected: true;
@@ -521,6 +750,17 @@ interface LegacyCompatibilitySmokeResult {
   postConfigurationGuestAdmitted: true;
 }
 
+interface SignalingRoomRoutes {
+  readonly hostOrigin: string;
+  readonly guestOrigin: string;
+}
+
+interface RoomReadinessOptions {
+  readonly retryDelaysMs?: readonly number[];
+  readonly retryInitialHostDeploymentConvergence?: boolean;
+  readonly retryGuestVersionConvergence?: boolean;
+}
+
 async function runLegacyCompatibilityAttempt(
   expectedVersion: string,
 ): Promise<LegacyCompatibilitySmokeResult> {
@@ -528,13 +768,13 @@ async function runLegacyCompatibilityAttempt(
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
   const password = '13572468';
   const host = createSocketInbox(
-    socketUrl(roomId, 'host', `legacy-host-${suffix}`),
+    signalingSocketUrl(roomId, 'host', `legacy-host-${suffix}`),
     'legacy compatibility host',
     { expectedInitialHostVersion: expectedVersion },
   );
   const guests = new Set<SocketInbox>();
   const createGuest = (peerId: string, label: string): SocketInbox => {
-    const inbox = createSocketInbox(socketUrl(roomId, 'guest', peerId), label);
+    const inbox = createSocketInbox(signalingSocketUrl(roomId, 'guest', peerId), label);
     guests.add(inbox);
     return inbox;
   };
@@ -610,7 +850,12 @@ async function runLegacyCompatibilityAttempt(
   }
 }
 
-async function runRoomAttempt(password: string, expectedVersion: string): Promise<RoomSmokeResult> {
+async function runRoomAttempt(
+  password: string,
+  expectedVersion: string,
+  routes: SignalingRoomRoutes,
+  readiness: RoomReadinessOptions = {},
+): Promise<RoomSmokeResult> {
   if (password && !/^\d{8}$/.test(password)) {
     throw new Error('protected-room smoke password must be exactly eight digits');
   }
@@ -624,13 +869,20 @@ async function runRoomAttempt(password: string, expectedVersion: string): Promis
   const wrongReconnectSecret = randomBytes(32).toString('base64url');
   const negotiationId = `live-smoke-${suffix}`;
   const host = createSocketInbox(
-    socketUrl(roomId, 'host', hostPeerId),
+    signalingSocketUrl(roomId, 'host', hostPeerId, routes.hostOrigin),
     `${password ? 'protected' : 'passwordless'} host`,
-    { expectedInitialHostVersion: expectedVersion },
+    {
+      expectedInitialHostVersion: expectedVersion,
+      retryInitialHostDeploymentConvergence:
+        readiness.retryInitialHostDeploymentConvergence === true,
+    },
   );
   const guestSockets = new Set<SocketInbox>();
   const createGuest = (peerId: string, label: string): SocketInbox => {
-    const inbox = createSocketInbox(socketUrl(roomId, 'guest', peerId), label);
+    const inbox = createSocketInbox(
+      signalingSocketUrl(roomId, 'guest', peerId, routes.guestOrigin),
+      label,
+    );
     guestSockets.add(inbox);
     return inbox;
   };
@@ -690,7 +942,12 @@ async function runRoomAttempt(password: string, expectedVersion: string): Promis
     // to the reconnect secret.
     originalGuest.socket.send(JSON.stringify({ type: 'guest-auth', password, reconnectSecret }));
     const guestOpen = await waitForType(originalGuest, 'peer-open');
-    assertPeerOpenVersion(guestOpen, expectedVersion, 'guest peer-open');
+    assertPeerOpenVersion(
+      guestOpen,
+      expectedVersion,
+      'guest peer-open',
+      readiness.retryGuestVersionConvergence,
+    );
     if (guestOpen.roomId !== roomId || guestOpen.peerId !== guestPeerId) {
       throw new Error('guest room or peer mismatch');
     }
@@ -784,7 +1041,7 @@ async function runRoomAttempt(password: string, expectedVersion: string): Promis
     }
 
     reconnectedHost = createSocketInbox(
-      socketUrl(roomId, 'host', hostPeerId),
+      signalingSocketUrl(roomId, 'host', hostPeerId, routes.hostOrigin),
       `${password ? 'protected' : 'passwordless'} reconnect host`,
     );
     await reconnectedHost.opened;
@@ -867,6 +1124,8 @@ async function runRoomAttempt(password: string, expectedVersion: string): Promis
 
     return {
       roomId,
+      hostOrigin: routes.hostOrigin,
+      guestOrigin: routes.guestOrigin,
       passwordProtected: Boolean(password),
       wrongPasswordRejected: password ? true : null,
       missingReconnectSecretRejected: true,
@@ -885,8 +1144,16 @@ async function runRoomAttempt(password: string, expectedVersion: string): Promis
   }
 }
 
-async function runRoom(password: string, expectedVersion: string): Promise<RoomSmokeResult> {
-  return withSignalingReadinessRetry(() => runRoomAttempt(password, expectedVersion));
+async function runRoom(
+  password: string,
+  expectedVersion: string,
+  routes: SignalingRoomRoutes,
+  readiness: RoomReadinessOptions = {},
+): Promise<RoomSmokeResult> {
+  return withSignalingReadinessRetry(
+    () => runRoomAttempt(password, expectedVersion, routes, readiness),
+    { retryDelaysMs: readiness.retryDelaysMs ?? STALE_VERSION_RETRY_DELAYS_MS },
+  );
 }
 
 async function runLegacyCompatibility(
@@ -898,18 +1165,44 @@ async function runLegacyCompatibility(
 export async function main(): Promise<void> {
   const expectedVersion = process.env.MXQR_EXPECTED_SIGNALING_VERSION?.trim() || '';
   const rooms: RoomSmokeResult[] = [];
-  rooms.push(await runRoom('', expectedVersion));
-  // The first room has already converged on MXQR_EXPECTED_SIGNALING_VERSION,
-  // so this negative request checks the newly deployed origin boundary rather
-  // than racing the prior traffic version during propagation.
+  // The first room claims through the cold alias and joins through primary.
+  // A successful bidirectional relay proves DNS/TLS/WebSocket readiness and
+  // that both custom domains reach the same deployment and DO namespace.
+  rooms.push(
+    await runRoom(
+      '',
+      expectedVersion,
+      SIGNALING_SMOKE_ROOM_ROUTES.unprotected,
+      SIGNALING_SMOKE_ROOM_READINESS.unprotected,
+    ),
+  );
+  // Both aliases have now admitted the exact expected deployment, so this
+  // negative request checks the newly deployed origin boundary rather than
+  // racing the prior traffic version during propagation.
   const originBoundary = await verifySignalingOriginBoundary();
-  rooms.push(await runRoom('24681357', expectedVersion));
+  const alternateSurface = await verifyAlternateSignalingSurface();
+  // Reverse the aliases for the protected room so the fallback's guest path,
+  // PIN rejection, reconnect proof, offer, and answer paths are all live-gated.
+  rooms.push(
+    await runRoom(
+      '24681357',
+      expectedVersion,
+      SIGNALING_SMOKE_ROOM_ROUTES.protected,
+      SIGNALING_SMOKE_ROOM_READINESS.protected,
+    ),
+  );
   const legacyCompatibility = await runLegacyCompatibility(expectedVersion);
   console.log(
     JSON.stringify({
       ok: true,
       expectedVersion: expectedVersion || null,
+      signalingOrigins: {
+        primary: PRIMARY_SIGNALING_ORIGIN,
+        alternate: ALTERNATE_SIGNALING_ORIGIN,
+        crossHostAdmissionAndRelay: true,
+      },
       originBoundary,
+      alternateSurface,
       rooms,
       legacyCompatibility,
     }),

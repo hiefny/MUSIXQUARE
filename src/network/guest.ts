@@ -51,6 +51,21 @@ const PRE_OPEN_INBOUND_BYTE_LIMIT = 512 * 1024;
 const PRE_OPEN_INBOUND_MAX_DEPTH = 24;
 const PRE_OPEN_INBOUND_MAX_NODES = 16_384;
 const _preOpenTextEncoder = new TextEncoder();
+const DEFAULT_GUEST_PRE_OPEN_TIMEOUT_MS = 10_000;
+const MAX_GUEST_PRE_OPEN_TIMEOUT_MS = 15_000;
+
+function guestPreOpenTimeoutMs(conn: DataConnection): number {
+  const recommendation = conn.recommendedPreOpenTimeoutMs;
+  if (typeof recommendation !== 'number' || !Number.isFinite(recommendation)) {
+    return DEFAULT_GUEST_PRE_OPEN_TIMEOUT_MS;
+  }
+  // A provider may reserve bounded recovery time, but it cannot shorten the
+  // ordinary UX or turn this application-owned deadline into an open wait.
+  return Math.min(
+    MAX_GUEST_PRE_OPEN_TIMEOUT_MS,
+    Math.max(DEFAULT_GUEST_PRE_OPEN_TIMEOUT_MS, Math.trunc(recommendation)),
+  );
+}
 
 interface PendingGuestInboundFrame {
   frame: Readonly<Record<string, unknown>>;
@@ -551,8 +566,9 @@ export function joinSession(
   });
   conn.on('error', handlePreOpenError);
 
-  // Timeout if host is unreachable (10s — beyond this, the network is too
-  // unstable for a real-time sync session anyway).
+  // Timeout if the host is unreachable. Only a transport with a bounded
+  // fallback route may recommend extra time for its pre-open recovery stages.
+  const preOpenTimeoutMs = guestPreOpenTimeoutMs(conn);
   setManagedTimer(
     'join-timeout',
     () => {
@@ -560,7 +576,7 @@ export function joinSession(
         return;
       }
       if (!terminateGuestJoin(joinEpoch)) return;
-      log.warn('[Join] Connection timeout — data channel did not open in 10s');
+      log.warn(`[Join] Connection timeout — data channel did not open in ${preOpenTimeoutMs}ms`);
       try {
         conn.close();
       } catch {
@@ -569,7 +585,7 @@ export function joinSession(
       setState('network.isConnecting', false);
       reportGuestConnectionFailure(new Error('HOST_UNREACHABLE'));
     },
-    10000,
+    preOpenTimeoutMs,
   );
 
   conn.on('open', () => {

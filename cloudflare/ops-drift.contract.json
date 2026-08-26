@@ -148,7 +148,7 @@
       "environment": "production",
       "workersDev": false,
       "previewUrls": false,
-      "customDomains": ["signal.musixquare.com"]
+      "customDomains": ["signal-alt.musixquare.com", "signal.musixquare.com"]
     }
   ],
   "workerRoutes": {

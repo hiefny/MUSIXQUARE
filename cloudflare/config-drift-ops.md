@@ -219,15 +219,66 @@ stored values: confirm a backup or accept re-issuance before running
 The exact public surface is intentionally small. Every checked-in Worker surface
 declares `environment: production`. App owns `musixquare.com` and
 `www.musixquare.com`; Developer API owns `api.musixquare.com`; Remote Share owns
-`share.musixquare.com`; and Signaling owns `signal.musixquare.com`. Developer API
-facade and PRO room must have zero custom domains, zero project zone routes, no
-workers.dev endpoint, and no Preview URLs. All six Workers keep workers.dev and
+`share.musixquare.com`; and Signaling owns both `signal.musixquare.com` and the
+cold route-retry alias `signal-alt.musixquare.com`. The alias reaches the same
+Worker and Durable Object namespace but is intentionally not preconnected by the
+browser: it must remain a fresh hostname/TLS path until a Standard-room setup
+fails before admission. Developer API facade and PRO room must have zero custom
+domains, zero project zone routes, no workers.dev endpoint, and no Preview URLs.
+All six Workers keep workers.dev and
 Preview URLs disabled. A new hostname, route, or alternate Worker endpoint is a
 contract change requiring the same security review as a new public API.
 Cloudflare may omit the deprecated custom-domain `environment` field; the audit
 treats omission as `production` for API compatibility. Any explicit non-production
 value, including `staging`, differs from the production contract and fails as
 drift.
+
+The signaling hostname cutover uses two reviewed stages. Stage A is a distinct
+restriction-only commit: deploy the signaling Worker code that denies alternate-
+host PRO/private surfaces while the alternate Custom Domain and client fallback
+are still absent. Verify that hardened Worker before proceeding, so the rollback
+baseline is itself safe if a later edge detach is delayed. Stage B is a new
+candidate containing the alias, client fallback, and recovery contract and uses
+one release with target `all`. Inside that coherent run, signaling deploys first;
+the live gate then admits primary/alternate cross-host rooms in both directions,
+relays offer/answer frames, and verifies the alternate root, private paths, and
+PRO rejection before the App Worker may deploy. Two partial targets from the
+same Stage B SHA are not the rollout procedure because the compatibility guard
+intentionally rejects that boundary when both runtimes changed.
+
+Custom Domain recovery is independent of Worker version recovery. Before any
+mutation, release captures and persists the exact primary/alternate domain IDs,
+owner, production environment, and zone. Immediately before Wrangler it also
+persists deployment-start evidence, and after Wrangler it records the exact
+candidate inventory together with the exact live signaling deployment ID,
+version ID, and message (either the captured baseline or this release). After all
+selected live gates, final Worker ownership verification, and generation-
+readiness restoration, a commit fence immediately before the coherent-production
+marker takes two fresh account-wide Custom Domain inventory reads and two fresh
+active signaling deployment reads. Both inventories must exactly match the
+recorded candidate fingerprint, and both deployment reads must exactly match its
+recorded deployment ID, version ID, and message. A missing, foreign, or drifted
+domain or a newer active deployment fails closed before production is marked
+coherent. On an uncommitted failure, recovery first compares fresh Cloudflare
+inventory with those artifacts. Immediately before any DELETE it also reads the
+live signaling deployment twice and requires both reads to match that recorded
+identity. It may use the official exact-ID
+Custom Domain DELETE only when the baseline lacked the alternate alias and the
+current alternate is the same recorded candidate identity; pre-existing aliases
+are never deleted. API absence is not sufficient: after DELETE, a cache-busted,
+credential-free alternate-host internal probe must observe two consecutive
+responses that do not carry the signaling Worker's exact JSON 404 fingerprint.
+Timeouts, transient policy/rate-limit/server responses, and other ambiguous edge
+states fail closed. Domain restore and a second fresh API verification happen
+after the edge probe, the rollback shell rechecks the baseline immediately
+before choosing its signaling skip set, and final verification runs again after
+generic Worker recovery. Missing evidence,
+duplicate or foreign ownership, deployment/domain identity drift, an unrecorded
+started deployment, DELETE failure, ambiguous edge propagation, or final
+verification failure keeps the hardened signaling candidate forward, skips
+signaling version rollback, and marks recovery incomplete for manual repair.
+This ordering prevents a late alias attachment or stale edge binding from
+exposing an older unrestricted Worker version.
 
 The following is an orientation summary, not an exhaustive binding list. The
 production Wrangler TOML and `cloudflare/ops-drift.contract.json` remain the

@@ -89,6 +89,22 @@ describe('release deployment rollback state', () => {
       'developer-api',
       'app',
     ]) {
+      if (target === 'signaling') {
+        const preflight = workflowStepSource(
+          workflow,
+          'Preflight signaling Worker and Custom Domain mutation',
+        );
+        expect(preflight).toContain(
+          'release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"',
+        );
+        expect(preflight).toContain('preflight signaling release-artifacts/recovery-checkpoint');
+        expect(preflight).toContain('release-signaling-domain-state.mts \\');
+        expect(preflight).toContain(
+          'preflight "$RELEASE_TARGET" release-artifacts/recovery-checkpoint',
+        );
+        expect(preflight).toContain('release-deployment-state.mts attempt signaling');
+        continue;
+      }
       expect(workflow).toMatch(
         new RegExp(
           `if \\[\\[ "\\$RELEASE_TARGET" != 'all' \\]\\]; then` +
@@ -1835,6 +1851,8 @@ describe('release deployment rollback state', () => {
       'Record current remote-share deployment',
       'Deploy and record remote-share Worker',
       'Record current signaling deployment',
+      'Preflight signaling Worker and Custom Domain mutation',
+      'Mark signaling Custom Domain deployment started',
       'Deploy and record signaling Worker',
       'Record current PRO room deployment',
       'Deploy and record PRO room Worker',
@@ -1871,14 +1889,19 @@ describe('release deployment rollback state', () => {
     const workerFloorAssessment = workflow.indexOf(
       'Assess captured Worker compatibility floors before failed-release rollback',
     );
+    const signalingDomainRecovery = workflow.indexOf(
+      'Restore signaling Custom Domain baseline before Worker rollback',
+    );
     const workerRollback = workflow.indexOf('Restore release-owned Workers after a failed release');
     expect(finalVerification).toBeGreaterThan(lastSmoke);
     expect(generationFence).toBeGreaterThan(finalVerification);
     expect(workerFloorAssessment).toBeGreaterThan(generationFence);
-    expect(workerRollback).toBeGreaterThan(workerFloorAssessment);
+    expect(signalingDomainRecovery).toBeGreaterThan(workerFloorAssessment);
+    expect(workerRollback).toBeGreaterThan(signalingDomainRecovery);
     expect(workflow).toContain("steps.final_verification.outcome || 'not-run'");
 
-    const generationFenceStep = workflow.slice(generationFence, workerRollback);
+    const generationFenceStep = workflow.slice(generationFence, signalingDomainRecovery);
+    const signalingDomainStep = workflow.slice(signalingDomainRecovery, workerRollback);
     const workerStepEnd = workflow.indexOf('\n      - name:', workerRollback + 1);
     const workerStep = workflow.slice(workerRollback, workerStepEnd);
     expect(generationFenceStep).toContain(
@@ -1889,6 +1912,10 @@ describe('release deployment rollback state', () => {
     expect(generationFenceStep).toContain('entitlement.backfill');
     expect(generationFenceStep).toContain('release-worker-floor-state.mts');
     expect(generationFenceStep).toContain('entitlement_floor');
+    expect(signalingDomainStep).toContain(
+      'CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}',
+    );
+    expect(signalingDomainStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
     expect(workerStep).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}');
     expect(workerStep).not.toContain('secrets.CLOUDFLARE_D1_API_TOKEN');
     expect(workerStep).toContain('inputs.apply_developer_api_d1');
@@ -2167,6 +2194,26 @@ describe('release deployment rollback state', () => {
       'node scripts/release-deployment-state.mts compatibility-recheck "$RELEASE_TARGET" "$GITHUB_SHA"';
 
     for (const [stepName, target] of deployments) {
+      if (target === 'signaling') {
+        const preflightStart = workflow.indexOf(
+          '- name: Preflight signaling Worker and Custom Domain mutation',
+        );
+        const startEvidence = workflow.indexOf(
+          '- name: Persist signaling Custom Domain deployment-start evidence',
+        );
+        const deployStart = workflow.indexOf(`- name: ${stepName}`);
+        const preflightStep = workflowStepSource(
+          workflow,
+          'Preflight signaling Worker and Custom Domain mutation',
+        );
+        expect(preflightStep).toContain(`if [[ "$RELEASE_TARGET" != 'all' ]]`);
+        expect(preflightStep).toContain(recheckCommand);
+        expect(preflightStep).toContain(`preflight ${target}`);
+        expect(preflightStep).toContain(`attempt ${target}`);
+        expect(preflightStart).toBeLessThan(startEvidence);
+        expect(startEvidence).toBeLessThan(deployStart);
+        continue;
+      }
       const start = workflow.indexOf(`- name: ${stepName}`);
       const end = workflow.indexOf('\n      - name:', start + 1);
       const step = workflow.slice(start, end);
@@ -2598,7 +2645,7 @@ describe('release deployment rollback state', () => {
       .filter((line) => line.includes('`${{ steps.fallback_'));
 
     expect(recoverySummaryStart).toBeGreaterThan(-1);
-    expect(markdownLines).toHaveLength(7);
+    expect(markdownLines).toHaveLength(9);
     for (const line of markdownLines) {
       expect(line).toMatch(/^\s+printf '%s\\n' '- .*`' >> "\$GITHUB_STEP_SUMMARY"$/u);
       expect(line).not.toMatch(/^\s+echo\s+"[^"\n]*`\$\{\{/u);

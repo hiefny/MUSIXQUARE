@@ -130,6 +130,7 @@ beforeEach(() => {
   mocks.getRuntimeTransportConfig.mockReturnValue({
     provider: 'cloudflare' as const,
     signalingUrl: 'https://signal.example.test/api/rooms',
+    signalingFallbackUrl: 'wss://signal-alt.example.test/api/rooms',
   });
   mocks.fetchWithCapability.mockResolvedValue(
     Response.json({
@@ -200,6 +201,7 @@ describe('network initialization ownership', () => {
     expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
     expect(mocks.createTransportPeer.mock.calls[0]?.[1]).toMatchObject({
       provider: 'cloudflare',
+      signalingFallbackUrl: 'wss://signal-alt.example.test/api/rooms',
       deferRtcUntilConfigured: true,
     });
 
@@ -468,6 +470,7 @@ describe('network initialization ownership', () => {
     expect(mocks.createTransportPeer.mock.calls[0]?.[1]).not.toHaveProperty(
       'deferRtcUntilConfigured',
     );
+    expect(mocks.createTransportPeer.mock.calls[0]?.[1]).not.toHaveProperty('signalingFallbackUrl');
     expect(peer.setRtcConfiguration).not.toHaveBeenCalled();
   });
 
@@ -491,6 +494,9 @@ describe('network initialization ownership', () => {
     await waitForTransportCalls(1);
 
     expect(mocks.createTransportPeer.mock.calls[0]?.[0]).toBeNull();
+    expect(mocks.createTransportPeer.mock.calls[0]?.[1]).toMatchObject({
+      signalingFallbackUrl: 'wss://signal-alt.example.test/api/rooms',
+    });
     expect(mocks.createTransportPeer.mock.calls[0]?.[1]).not.toHaveProperty(
       'deferRtcUntilConfigured',
     );

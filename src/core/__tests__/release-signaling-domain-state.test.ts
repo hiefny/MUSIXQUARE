@@ -74,7 +74,7 @@ function createCloudflareApi(initial: ApiDomain[]) {
       if (malformedDelete) return Response.json({ success: true, result: null });
       return Response.json({ success: true, errors: [], messages: [], result: null });
     }
-    if (malformedList) return Response.json({ success: true, result: [] });
+    if (malformedList) return Response.json({ success: true, result: null });
     const hostname = url.searchParams.get('hostname');
     const service = url.searchParams.get('service');
     const result = domains.filter(
@@ -173,9 +173,10 @@ describe('release signaling Custom Domain recovery', () => {
       queries.push(url);
       return Response.json({
         success: true,
-        errors: [],
-        messages: [],
+        errors: null,
+        messages: null,
         result: accountDomains,
+        result_info: null,
       });
     };
 
@@ -195,6 +196,24 @@ describe('release signaling Custom Domain recovery', () => {
     expect(queries[0]?.search).toBe('');
     expect(queries[0]?.searchParams.has('hostname')).toBe(false);
     expect(queries[0]?.searchParams.has('service')).toBe(false);
+  });
+
+  it.each([
+    ['omitted optional fields', {}],
+    ['explicit null optional fields', { errors: null, messages: null, result_info: null }],
+    [
+      'array and object optional fields',
+      { errors: [], messages: [{ code: 1000, message: 'informational' }], result_info: {} },
+    ],
+  ])('accepts the live list envelope with %s', async (_label, optionalFields) => {
+    const fetcher = async (): Promise<Response> =>
+      Response.json({
+        success: true,
+        result: [domain(PRIMARY_ID, PRIMARY_SIGNALING_DOMAIN)],
+        ...optionalFields,
+      });
+
+    await expect(listWorkerDomains(options(fetcher))).resolves.toHaveLength(1);
   });
 
   it('accepts individually omitted optional result_info fields', async () => {
@@ -223,6 +242,64 @@ describe('release signaling Custom Domain recovery', () => {
     await expect(listWorkerDomains(options(fetcher))).rejects.toThrow(
       'inconsistent pagination metadata',
     );
+  });
+
+  it.each([
+    [
+      'non-true success',
+      { success: false, result: [] },
+      'success=non-true(boolean); result=array(length=0); errors=missing',
+    ],
+    [
+      'non-array result',
+      { success: true, result: null },
+      'success=true; result=null; errors=missing',
+    ],
+    [
+      'non-array errors',
+      { success: true, result: [], errors: {} },
+      'result=array(length=0); errors=object; messages=missing',
+    ],
+    [
+      'non-empty errors',
+      { success: true, result: [], errors: [{ message: 'sensitive-cloudflare-detail' }] },
+      'result=array(length=0); errors=array(length=1); messages=missing',
+    ],
+    [
+      'non-array messages',
+      { success: true, result: [], messages: 'sensitive-cloudflare-message' },
+      'errors=missing; messages=string; result_info=missing',
+    ],
+    [
+      'non-object result_info',
+      { success: true, result: [], result_info: [] },
+      'messages=missing; result_info=array(length=0)',
+    ],
+  ])('rejects %s with only a safe envelope-shape diagnostic', async (_label, payload, shape) => {
+    const fetcher = async (): Promise<Response> => Response.json(payload);
+
+    const error = await listWorkerDomains(options(fetcher)).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('invalid API envelope');
+    expect((error as Error).message).toContain(shape);
+    expect((error as Error).message).not.toContain('sensitive-cloudflare');
+  });
+
+  it('rejects null result_info members as malformed metadata with a shape-only diagnostic', async () => {
+    const fetcher = async (): Promise<Response> =>
+      Response.json({
+        success: true,
+        result: [domain(PRIMARY_ID, PRIMARY_SIGNALING_DOMAIN)],
+        result_info: { count: null },
+      });
+
+    const error = await listWorkerDomains(options(fetcher)).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('invalid page count');
+    expect((error as Error).message).toContain(
+      'result_info=object(count=null,page=missing,per_page=missing,total_count=missing,total_pages=missing)',
+    );
+    expect((error as Error).message).not.toContain(PRIMARY_SIGNALING_DOMAIN);
   });
 
   it('detaches only the recorded candidate alias and verifies the primary-only baseline', async () => {

@@ -272,27 +272,83 @@ function optionalInteger(
   label: string,
 ): number | undefined {
   const candidate = value[key];
-  return candidate === undefined || candidate === null ? undefined : integer(candidate, label);
+  return candidate === undefined ? undefined : integer(candidate, label);
+}
+
+function valueShape(value: unknown): string {
+  if (value === undefined) return 'missing';
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return `array(length=${value.length})`;
+  return typeof value === 'object' ? 'object' : typeof value;
+}
+
+function resultInfoShape(value: unknown): string {
+  if (!isRecord(value)) return valueShape(value);
+  return [
+    'object(',
+    `count=${valueShape(value.count)},`,
+    `page=${valueShape(value.page)},`,
+    `per_page=${valueShape(value.per_page)},`,
+    `total_count=${valueShape(value.total_count)},`,
+    `total_pages=${valueShape(value.total_pages)}`,
+    ')',
+  ].join('');
+}
+
+function listEnvelopeShape(value: unknown): string {
+  if (!isRecord(value)) return `root=${valueShape(value)}`;
+  const successShape = value.success === true ? 'true' : `non-true(${valueShape(value.success)})`;
+  return [
+    'root=object',
+    `success=${successShape}`,
+    `result=${valueShape(value.result)}`,
+    `errors=${valueShape(value.errors)}`,
+    `messages=${valueShape(value.messages)}`,
+    `result_info=${resultInfoShape(value.result_info)}`,
+  ].join('; ');
+}
+
+function invalidListEnvelope(value: unknown): never {
+  throw new Error(
+    `Cloudflare domain list returned an invalid API envelope (shape: ${listEnvelopeShape(value)}).`,
+  );
 }
 
 function parseListEnvelope(value: unknown): WorkerDomainIdentity[] {
+  if (!isRecord(value)) invalidListEnvelope(value);
+  const errorsValid =
+    value.errors === undefined ||
+    value.errors === null ||
+    (Array.isArray(value.errors) && value.errors.length === 0);
+  const messagesValid =
+    value.messages === undefined || value.messages === null || Array.isArray(value.messages);
+  const resultInfoValid =
+    value.result_info === undefined || value.result_info === null || isRecord(value.result_info);
   if (
-    !isRecord(value) ||
     value.success !== true ||
-    !Array.isArray(value.errors) ||
-    value.errors.length !== 0 ||
-    !Array.isArray(value.messages) ||
     !Array.isArray(value.result) ||
-    (value.result_info !== undefined && !isRecord(value.result_info))
+    !errorsValid ||
+    !messagesValid ||
+    !resultInfoValid
   ) {
-    throw new Error('Cloudflare domain list returned an invalid API envelope.');
+    invalidListEnvelope(value);
   }
   if (isRecord(value.result_info)) {
-    const page = optionalInteger(value.result_info, 'page', 'page');
-    const perPage = optionalInteger(value.result_info, 'per_page', 'per-page count');
-    const count = optionalInteger(value.result_info, 'count', 'page count');
-    const totalCount = optionalInteger(value.result_info, 'total_count', 'total count');
-    const totalPages = optionalInteger(value.result_info, 'total_pages', 'total pages');
+    let page: number | undefined;
+    let perPage: number | undefined;
+    let count: number | undefined;
+    let totalCount: number | undefined;
+    let totalPages: number | undefined;
+    try {
+      page = optionalInteger(value.result_info, 'page', 'page');
+      perPage = optionalInteger(value.result_info, 'per_page', 'per-page count');
+      count = optionalInteger(value.result_info, 'count', 'page count');
+      totalCount = optionalInteger(value.result_info, 'total_count', 'total count');
+      totalPages = optionalInteger(value.result_info, 'total_pages', 'total pages');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Invalid pagination metadata.';
+      throw new Error(`${message} (shape: ${listEnvelopeShape(value)}).`);
+    }
     if (
       (page !== undefined && page !== 1) ||
       (perPage !== undefined && (perPage < 1 || value.result.length > perPage)) ||
@@ -300,7 +356,9 @@ function parseListEnvelope(value: unknown): WorkerDomainIdentity[] {
       (totalCount !== undefined && totalCount !== value.result.length) ||
       (totalPages !== undefined && totalPages !== 1)
     ) {
-      throw new Error('Cloudflare domain list returned inconsistent pagination metadata.');
+      throw new Error(
+        `Cloudflare domain list returned inconsistent pagination metadata (shape: ${listEnvelopeShape(value)}).`,
+      );
     }
   }
   return value.result.map(parseDomain);

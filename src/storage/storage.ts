@@ -709,7 +709,7 @@ export function cleanupStoredFile(
   setManagedTimer(
     watchdogName,
     () => {
-      log.warn(`[Storage] Cleanup watchdog: no response for "${filename}" after 10s — moving on`);
+      log.warn(`[Storage] Cleanup watchdog: no response for "${filename}" after 10s. Moving on`);
       unsub();
     },
     10_000,
@@ -815,7 +815,7 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
         if (!isPreload) {
           if (data.code === 'INTEGRITY_FAIL') {
             // File finalization failed — trigger recovery to re-fetch the file
-            log.warn('[Storage] Integrity fail — requesting recovery');
+            log.warn('[Storage] Integrity fail. Requesting recovery');
             bus.emit('storage:request-recovery');
           } else if (data.code === 'START_FAILED' || data.code === 'LOCKED') {
             // Lock acquisition failed — reset transfer state to prevent stuck loader.
@@ -826,7 +826,7 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
               transferState === TRANSFER_STATE.RECEIVING ||
               transferState === TRANSFER_STATE.PROCESSING
             ) {
-              log.warn(`[Storage] Start/lock failed — resetting stuck ${transferState} state`);
+              log.warn(`[Storage] Start/lock failed. Resetting stuck ${transferState} state`);
               setPlaybackTransferState(TRANSFER_STATE.IDLE);
               showLoader(false);
             }
@@ -849,7 +849,7 @@ function handleStorageResponse(e: MessageEvent<StorageEvent>): void {
           if (data.command === 'STORAGE_END') {
             const transferState = getState('transfer.state');
             if (transferState === TRANSFER_STATE.PROCESSING) {
-              log.warn('[Storage] STORAGE_END dropped — resetting stuck PROCESSING state');
+              log.warn('[Storage] STORAGE_END dropped. Resetting stuck PROCESSING state');
               setPlaybackTransferState(TRANSFER_STATE.IDLE);
               showLoader(false);
             }

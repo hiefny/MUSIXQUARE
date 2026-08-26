@@ -69,7 +69,7 @@ export function initTransfer(): void {
       info.queueItemId === meta?.queueItemId &&
       Number(info.sessionId) === Number(meta?.sessionId)
     ) {
-      log.warn('[Transfer] Storage write failed — requesting recovery');
+      log.warn('[Transfer] Storage write failed. Requesting recovery');
       bus.emit('storage:request-recovery');
     }
   });

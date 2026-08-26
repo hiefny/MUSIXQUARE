@@ -183,7 +183,7 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
           }
           if (Date.now() - waitStart > stallTimeoutMs) {
             log.warn(
-              `[ChunkPump] Backpressure timeout for peer ${p.label || p.id} — excluding from remaining stream`,
+              `[ChunkPump] Backpressure timeout for peer ${p.label || p.id}. Excluding from remaining stream`,
             );
             exclude(p);
             return;

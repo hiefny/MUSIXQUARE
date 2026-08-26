@@ -243,7 +243,7 @@ function beginPreloadActivation(
 ): PreloadActivation {
   if (_activePreloadActivation && _activePreloadActivation.epoch === epoch) {
     log.warn(
-      '[Preload] Two activations share one load epoch — a caller skipped its entry-point epoch allocation',
+      '[Preload] Two activations share one load epoch. A caller skipped its entry-point epoch allocation',
     );
   }
   const owner: PreloadActivation = { epoch, queueItemId, sessionId };
@@ -411,7 +411,7 @@ export async function loadAndBroadcastFile(
     // Failure side effects target shared state for the current track. A stale
     // load must not clear, fail, or auto-advance its successor.
     if (!isCurrentOwner()) {
-      log.debug('[Load] Decode failed for a superseded load — skipping failure side effects.');
+      log.debug('[Load] Decode failed for a superseded load. Skipping failure side effects.');
       return false;
     }
 

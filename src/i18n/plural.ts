@@ -216,14 +216,14 @@ export const PLURAL_MESSAGES = {
       many: 'Poczekaj {{sec}} sekund przed wysłaniem kolejnej wiadomości',
     },
     'chat.tracks_added': {
-      one: '{{name}} — dodano {{count}} materiał',
-      few: '{{name}} — dodano {{count}} materiały',
-      many: '{{name}} — dodano {{count}} materiałów',
+      one: '{{name}}: dodano {{count}} materiał',
+      few: '{{name}}: dodano {{count}} materiały',
+      many: '{{name}}: dodano {{count}} materiałów',
     },
     'chat.tracks_added_named': {
-      one: '{{name}} — dodano {{count}} materiał, w tym {{title}}',
-      few: '{{name}} — dodano {{count}} materiały, w tym {{title}}',
-      many: '{{name}} — dodano {{count}} materiałów, w tym {{title}}',
+      one: '{{name}}: dodano {{count}} materiał, w tym {{title}}',
+      few: '{{name}}: dodano {{count}} materiały, w tym {{title}}',
+      many: '{{name}}: dodano {{count}} materiałów, w tym {{title}}',
     },
     'toast.added_tracks': {
       one: 'Dodano {{count}} materiał',

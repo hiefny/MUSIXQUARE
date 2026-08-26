@@ -809,9 +809,9 @@ const pl: Record<I18nKey, string> = {
   'help.need_help_html':
     '<ul class="help-list"><li><strong>Nie można połączyć się po wpisaniu kodu:</strong> sprawdź kod i spróbuj ponownie za chwilę. Sieci firmowe, szkolne lub VPN mogą ograniczać połączenie.</li><li><strong>Niestabilne połączenie:</strong> uczestnicy lokalni powinni znajdować się bliżej routera, a zdalni uczestnicy korzystać ze stabilnego połączenia internetowego.</li><li><strong>Inne problemy:</strong> sprawdź stan sieci i uruchom ponownie aplikację na wszystkich urządzeniach. W razie pytań zajrzyj do <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> lub napisz na adres e-mail podany na samym dole.</li></ul>',
   'chat.peer_connected': 'Do pokoju dołącza {{name}}',
-  'chat.tracks_added': '{{name}} — dodano {{count}} materiałów',
-  'chat.track_added_named': '{{name}} — dodano 1 materiał: {{title}}',
-  'chat.tracks_added_named': '{{name}} — dodano {{count}} materiałów, w tym {{title}}',
+  'chat.tracks_added': '{{name}}: dodano {{count}} materiałów',
+  'chat.track_added_named': '{{name}}: dodano 1 materiał: {{title}}',
+  'chat.tracks_added_named': '{{name}}: dodano {{count}} materiałów, w tym {{title}}',
   'chat.peer_disconnected': 'Pokój opuszcza {{name}}',
   'chat.participant_connection_unstable_recovering':
     'Połączenie użytkownika {{name}} jest niestabilne. Trwa próba przywrócenia.',

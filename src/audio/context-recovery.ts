@@ -1045,7 +1045,7 @@ export function bindAudioContextInterruptionRecovery(context: AudioContext): () 
         recovery = createRecovery(context, identity, bindingToken, 'state-interruption');
       }
 
-      log.info(`[Audio] AudioContext ${state} — auto-resuming`);
+      log.info(`[Audio] AudioContext ${state}: auto-resuming`);
       if (recovery) {
         // An active local-file output is allowed to keep its native audio
         // session alive while iOS moves the page to the background. Calling

@@ -125,9 +125,9 @@ describe('count-sensitive translations', () => {
     expect(t('toast.added_tracks', { count: 22 })).toBe('Dodano 22 materiały');
     expect(t('toast.added_tracks', { count: 25 })).toBe('Dodano 25 materiałów');
 
-    expect(t('chat.tracks_added', { name: 'Alex', count: 1 })).toBe('Alex — dodano 1 materiał');
-    expect(t('chat.tracks_added', { name: 'Alex', count: 2 })).toBe('Alex — dodano 2 materiały');
-    expect(t('chat.tracks_added', { name: 'Alex', count: 12 })).toBe('Alex — dodano 12 materiałów');
+    expect(t('chat.tracks_added', { name: 'Alex', count: 1 })).toBe('Alex: dodano 1 materiał');
+    expect(t('chat.tracks_added', { name: 'Alex', count: 2 })).toBe('Alex: dodano 2 materiały');
+    expect(t('chat.tracks_added', { name: 'Alex', count: 12 })).toBe('Alex: dodano 12 materiałów');
     expect(t('dialog.file_drop.unsupported_notice', { count: 21 })).toBe(
       '21 nieobsługiwanych plików nie zostanie dodanych.',
     );

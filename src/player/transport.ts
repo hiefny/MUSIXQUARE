@@ -642,7 +642,7 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
     // is called multiple times in the same frame (seek bar, sync, broadcast).
     if (repairOutOfRangeOffset && Math.abs(manualOffset) > 30 && !_offsetResetQueued) {
       _offsetResetQueued = true;
-      log.warn(`[Sync] Offset divergence detected: local=${manualOffset.toFixed(3)}s — resetting`);
+      log.warn(`[Sync] Offset divergence detected: local=${manualOffset.toFixed(3)}s. Resetting`);
       queueMicrotask(() => {
         _offsetResetQueued = false;
         const lo = getState('sync.localOffset') || 0;
@@ -1015,7 +1015,7 @@ export async function play(
   // resident buffer belongs to the previous track, so queue the requested time
   // for the pipeline-completion path instead of starting stale audio.
   if (isFilePipelineBusyForPlay()) {
-    log.warn('[Play] Deferred: file pipeline busy — queuing as pendingPlayTime');
+    log.warn('[Play] Deferred: file pipeline busy. Queuing as pendingPlayTime');
     // Decode/fetch completion owns this legacy cross-module mailbox. It cannot
     // preserve callable authority predicates, so keep it separate from the
     // play-lock mailbox and let the pipeline's queue/session fences decide
@@ -1256,7 +1256,7 @@ async function _internalPlay(
   }
 
   if (!isCurrentLoadEpoch(myLoadEpoch)) {
-    log.warn('[Play] Aborted — load epoch superseded during ensureRunning');
+    log.warn('[Play] Aborted: load epoch superseded during ensureRunning');
     return false;
   }
 
@@ -1354,7 +1354,7 @@ async function _internalPlay(
   }
 
   if (!isCurrentLoadEpoch(myLoadEpoch)) {
-    log.warn('[Play] Aborted — load epoch superseded during initAudio');
+    log.warn('[Play] Aborted: load epoch superseded during initAudio');
     return false;
   }
 

@@ -2042,7 +2042,7 @@ describe('shared service-maintenance control', () => {
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(response.headers.get('Content-Language')).toBe('ko');
     expect(body).toContain('<html lang="ko">');
-    expect(body).toContain('<title lang="en">MUSIXQUARE — Service check</title>');
+    expect(body).toContain('<title lang="en">MUSIXQUARE: Service check</title>');
     expect(body).toContain('<h1 lang="en">');
     expect(body).toContain('<span class="sr-only">MUSIXQUARE is temporarily unavailable.</span>');
     expect(body).toContain('<span class="headline" aria-hidden="true">');

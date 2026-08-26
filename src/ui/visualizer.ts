@@ -776,7 +776,7 @@ export function startVisualizer(): void {
 
       _animationId = requestAnimationFrame(draw);
     } catch (e) {
-      log.warn('[Visualizer] draw() error — stopping animation loop:', e);
+      log.warn('[Visualizer] draw() error. Stopping animation loop:', e);
       _animationId = null;
       _visualizerLoopState = 'idle';
     }

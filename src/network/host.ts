@@ -800,7 +800,7 @@ export function handleHostIncomingConnection(conn: DataConnection): void {
         (p) => p.id === peerId && p.conn === conn && p.status === 'connecting',
       );
       if (!stale) return;
-      log.warn(`[Host] Connection open timeout for ${deviceName} — cleaning up stale peer`);
+      log.warn(`[Host] Connection open timeout for ${deviceName}: cleaning up stale peer`);
       const departure = detachHostPeerConnection(peerId, conn);
       if (!departure) return;
       try {
@@ -1068,7 +1068,7 @@ bus.on('network:toggle-operator', (peerId) => {
     // target never receives OPERATOR_GRANT while every other peer's UI shows
     // them as OP, leaving badge state and command authorization out of sync.
     if (!conn || !conn.open) {
-      log.warn(`[OP] Cannot toggle operator for ${peerId} — connection not open`);
+      log.warn(`[OP] Cannot toggle operator for ${peerId}: connection not open`);
       return;
     }
     const key = standardRoomAuthorityKey(target);

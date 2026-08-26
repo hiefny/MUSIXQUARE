@@ -2622,13 +2622,13 @@ export function initYouTube(): void {
     const needsIndex = !!playlistIdStr && !hasIndexedManifest;
 
     if (needsIndex) {
-      log.info(`[YouTube] Deferred playlist navigation — indexing ${playlistIdStr} before play`);
+      log.info(`[YouTube] Deferred playlist navigation. Indexing ${playlistIdStr} before play`);
       const indexingCallback = (ids: string[]): void => {
         if (queueItemId !== getCurrentQueueItemId() || !getQueueItemById(queueItemId)) return;
         showLoader(false);
         if (!ids || ids.length === 0) {
           log.warn(
-            `[YouTube] Deferred indexing returned no IDs for ${playlistIdStr} — falling back to entry-point video`,
+            `[YouTube] Deferred indexing returned no IDs for ${playlistIdStr}. Falling back to entry-point video`,
           );
           showToast(t('youtube.fetch_failed'));
           // Fallback: load the entry-point videoId in single-video mode so

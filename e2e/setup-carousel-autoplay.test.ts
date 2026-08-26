@@ -49,8 +49,8 @@ async function expectStickyStop(page: Page, expectedIndex: number): Promise<void
 
 async function expectAutoplayDotLabel(dot: Locator, position: string): Promise<void> {
   const label = await dot.getAttribute('aria-label');
-  expect(label?.startsWith(`${position} `)).toBe(true);
-  expect(label?.codePointAt(position.length + 1)).toBe(0x2014);
+  expect(label?.startsWith(`${position}, `)).toBe(true);
+  expect(label?.codePointAt(position.length)).toBe(0x2c);
   expect(label?.slice(position.length + 2).trim()).toBeTruthy();
 }
 

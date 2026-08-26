@@ -835,7 +835,7 @@ async function preloadNextTrack(): Promise<void> {
   // Both fields are written only after the await as one coherent snapshot.
   const prevTransfer = _inFlightBackgroundTransfer;
   if (prevTransfer) {
-    log.debug('[Preload] Serializing — awaiting prior backgroundTransfer');
+    log.debug('[Preload] Serializing: awaiting prior backgroundTransfer');
     try {
       await prevTransfer;
     } catch {
@@ -846,7 +846,7 @@ async function preloadNextTrack(): Promise<void> {
   // Re-check generation: a newer schedulePreload or cancelPreloadTransfer
   // may have fired while we were awaiting the prior transfer.
   if (_preloadGeneration !== myGeneration) {
-    log.debug('[Preload] Aborted — superseded during serialization wait');
+    log.debug('[Preload] Aborted: superseded during serialization wait');
     return;
   }
 
@@ -858,7 +858,7 @@ async function preloadNextTrack(): Promise<void> {
     (candidate) => candidate.queueItemId === queueItemId && candidate.file === file,
   );
   if (currentIndexHint < 0) {
-    log.debug('[Preload] Aborted — playlist changed during serialization wait');
+    log.debug('[Preload] Aborted: playlist changed during serialization wait');
     return;
   }
 
@@ -1097,7 +1097,7 @@ export async function unicastPreload(
     // Transport guard: block remote/unknown peers. Revalidate the frozen
     // source and connection after the await before emitting PRELOAD_START.
     if (!(await canSendFileTo(conn, sessionId))) {
-      log.info('[Preload Unicast] Skipped — remote/unknown peer');
+      log.info('[Preload Unicast] Skipped: remote/unknown peer');
       return;
     }
     if (!canContinue()) return;
@@ -1688,7 +1688,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
       // Some chunks still missing — let future handlePreloadChunk → drain finalize it.
       // This prevents premature STORAGE_END when network reordering causes late chunk arrival.
       log.debug(
-        `[Preload] END received but ${freshSession.progress}/${freshSession.total} — deferring STORAGE_END`,
+        `[Preload] END received but ${freshSession.progress}/${freshSession.total}. Deferring STORAGE_END`,
       );
 
       // Bound the deferred state. Preload broadcasts are one-way (no per-chunk
@@ -1705,7 +1705,7 @@ function handlePreloadEnd(data: Record<string, unknown>, conn?: DataConnection):
           const cur = getState('preload.sessionState').get(sidLocal);
           if (!cur || cur.finalized || cur.skipped) return;
           log.warn(
-            `[Preload] Deferred END for session ${sidLocal} timed out (${cur.progress}/${cur.total}) — marking skipped.`,
+            `[Preload] Deferred END for session ${sidLocal} timed out (${cur.progress}/${cur.total}). Marking skipped.`,
           );
           abandonStalledPreloadSession(sidLocal, 'deferred END watchdog');
         },
@@ -1760,7 +1760,7 @@ function handlePreloadAbort(data: Record<string, unknown>, conn?: DataConnection
 
   if (!session || session.finalized || session.skipped) {
     log.debug(
-      `[Preload] Abort received for sid ${sid} — session ${
+      `[Preload] Abort received for sid ${sid}: session ${
         !session ? 'absent' : session.finalized ? 'finalized' : 'skipped'
       }, no teardown needed`,
     );
@@ -1897,7 +1897,7 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   // the serialized transfer finalizes.
   if (downloadingIdentity) {
     _awaitedPreloadIdentity = downloadingIdentity;
-    log.debug('[Guest] Preload in progress — delegating to waiter (storage:use-preloaded)');
+    log.debug('[Guest] Preload in progress. Delegating to waiter (storage:use-preloaded)');
     // Lifecycle: enter AWAITING_PRELOAD. A subsequent
     // PLAY arrival in this state must NOT fire stale-audio-recovery — that
     // logic is gated in playback.ts::handlePlay on the lifecycle check.
@@ -1934,17 +1934,17 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
         name || ((playlist[indexHint]?.name as string) ?? ''),
         localSid > 0 ? localSid : currentSid,
       );
-      log.info('[Guest] Remote guest — waiting for remote share descriptor (play-preloaded)');
+      log.info('[Guest] Remote guest: waiting for remote share descriptor (play-preloaded)');
       return;
     }
     showLoader(false);
     showToast(t('share.remote.unavailable'));
-    log.info('[Guest] Remote guest — remote share unavailable (play-preloaded)');
+    log.info('[Guest] Remote guest: remote share unavailable (play-preloaded)');
     return;
   }
 
   // Fallback: no preloaded file available — request from host
-  log.warn('[Guest] No preloaded file for queue item', queueItemId, '— requesting from Host');
+  log.warn(`[Guest] No preloaded file for queue item ${queueItemId}. Requesting from Host.`);
   // No preload session exists for this track. Enter DOWNLOADING (fresh) via
   // the recovery fallback. shouldSkipIncomingFile() returns false naturally
   // once lifecycle = DOWNLOADING. The actual REQUEST_DATA_RECOVERY fires

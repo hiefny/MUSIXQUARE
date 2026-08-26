@@ -432,7 +432,7 @@ export async function unicastFile(
   // Transport guard: require this connection's frozen direct assignment.
   // Internal recovery callers can opt out after validating the same policy.
   if (!options.skipTransportGuard && !(await canSendFileTo(conn, effectiveSessionId))) {
-    log.info('[Unicast] Skipped — connection has no frozen direct assignment');
+    log.info('[Unicast] Skipped: connection has no frozen direct assignment');
     return;
   }
 

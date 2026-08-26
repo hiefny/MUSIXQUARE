@@ -491,7 +491,7 @@ function showRemoteUnavailableUI(data: Record<string, unknown>): void {
   setPlaybackTrackMeta(createFileTrackMeta((data.name as string) || ''));
   showLoader(false);
   showToast(t('share.remote.unavailable'));
-  log.info('[Transfer] Remote guest — file transfer skipped');
+  log.info('[Transfer] Remote guest: file transfer skipped');
 }
 
 // ─── File Receive Handlers ───────────────────────────────────────────
@@ -733,7 +733,7 @@ export async function handleFilePrepare(
   }
 
   if (isYouTubeOwner()) {
-    log.debug('[Transfer] Ignoring FILE_PREPARE — YouTube mode active');
+    log.debug('[Transfer] Ignoring FILE_PREPARE: YouTube mode active');
     return;
   }
 
@@ -817,7 +817,7 @@ export async function handleFilePrepare(
     let confirmedRemote = true;
     const connType = getState('network.connectionType');
     if (connType === 'unknown') {
-      log.info('[Transfer] connectionType unknown — waiting for ICE detection...');
+      log.info('[Transfer] connectionType unknown. Waiting for ICE detection...');
       showLoader(true, t('transfer.check_conn_type'));
       const resolved = await waitForGuestConnectionType(3000);
       if (!isFilePrepareOwnerCurrent(ownerSnapshot, queueItemId, incomingSid, conn)) {
@@ -825,7 +825,7 @@ export async function handleFilePrepare(
         return;
       }
       if (resolved === 'local') {
-        log.info(`[Transfer] connectionType resolved: local — proceeding`);
+        log.info(`[Transfer] connectionType resolved: local. Proceeding`);
         showLoader(false);
         confirmedRemote = false;
       }
@@ -868,7 +868,7 @@ export async function handleFilePrepare(
   // watchdog time, and transfer state before accepting its chunks.
   if (isNewSession) {
     log.debug(
-      `[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid}) — resetting receive pipeline`,
+      `[file-prepare] New session: ${incomingSid} (prev: ${prevLocalSid}). Resetting receive pipeline`,
     );
     setState('transfer.localSessionId', incomingSid);
     setState('transfer.receivedCount', 0);
@@ -1439,7 +1439,7 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
   // different session must start fresh.
   const finalizedBlob = ramReadBlob(queueItemId, false, incomingSid);
   if (resumeIdentityMatches && finalizedBlob && finalizedBlob.size === Number(data.size)) {
-    log.debug(`[file-resume] "${data.name}" already finalized in store — dropping stale resume`);
+    log.debug(`[file-resume] "${data.name}" already finalized in store. Dropping stale resume`);
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     return;
@@ -1636,7 +1636,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
       const rc = getState('transfer.receivedCount');
       if (burstDuration > 3000 && newCount >= 20 && rc === 0) {
         log.warn(
-          `[file-chunk] Stale-session burst detected (${newCount} rejects over ${burstDuration}ms) — requesting early recovery`,
+          `[file-chunk] Stale-session burst detected (${newCount} rejects over ${burstDuration}ms). Requesting early recovery`,
         );
         setState('transfer.staleChunkBurstStart', 0);
         setState('transfer.staleChunkBurstCount', 0);
@@ -1699,7 +1699,7 @@ function applyFileChunk(data: Record<string, unknown>): void {
   const MAX_REORDER_BUFFER = 500;
   if (sessionBuffer.size > MAX_REORDER_BUFFER) {
     log.warn(
-      `[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries — clearing and requesting recovery`,
+      `[Transfer] Reorder buffer exceeded ${MAX_REORDER_BUFFER} entries. Clearing and requesting recovery`,
     );
     sessionBuffer.clear();
     // Do not fast-forward across missing chunks. Recovery must restart from
@@ -1861,7 +1861,7 @@ export function handleFileEnd(data: Record<string, unknown>, conn?: DataConnecti
     const total = (getState('transfer.meta')?.total as number) || 0;
     const receivedCount = getState('transfer.receivedCount') || 0;
     if (total > 0 && receivedCount < total) {
-      log.warn(`[file-end] ${receivedCount}/${total} chunks — triggering immediate recovery`);
+      log.warn(`[file-end] ${receivedCount}/${total} chunks. Triggering immediate recovery`);
       clearManagedTimer('chunkWatchdog');
       bus.emit('storage:request-recovery');
     }
@@ -1873,7 +1873,7 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
   const requestOwner = matchFileWaitResponse(conn, data);
   if (!requestOwner) return;
 
-  log.debug('[Guest] FILE_WAIT received — host has no data ready yet');
+  log.debug('[Guest] FILE_WAIT received: host has no data ready yet');
   showToast(t('transfer.file_wait'));
 
   // playback.ts owns bounded retries for identity repair. Falling through to
@@ -1906,7 +1906,7 @@ export function handleFileWait(data: Record<string, unknown>, conn?: DataConnect
         // remote-share descriptor and may enter its unavailable UI.
         const isProDirect = isProRoomPersistentPlaylistFile(requestOwner.queueItemId);
         if (isRemoteGuest() && !isProDirect) {
-          log.info('[file-wait timeout] Remote guest — remote share unavailable');
+          log.info('[file-wait timeout] Remote guest: remote share unavailable');
           showRemoteUnavailableUI({
             queueItemId: requestOwner.queueItemId,
             name: queueItem.name,

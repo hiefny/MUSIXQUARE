@@ -684,7 +684,7 @@ async function collectMemorySnapshot(): Promise<MemSnapshot> {
         `[Heap] ${used.toFixed(1)}MB used / ${total.toFixed(0)}MB total / ${limit.toFixed(0)}MB limit (${pct}%)`,
       );
     } else {
-      lines.push('[Heap] performance.memory unavailable (Safari/iOS) — see [Tracked]');
+      lines.push('[Heap] performance.memory unavailable (Safari/iOS). See [Tracked]');
     }
   } catch {
     /* ignore */

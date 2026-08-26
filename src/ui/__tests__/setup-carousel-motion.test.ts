@@ -265,7 +265,7 @@ describe('onboarding carousel motion preference', () => {
     const track = document.getElementById('ob-slider-track') as HTMLElement;
     const firstDot = document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="0"]');
 
-    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4 \u2014 setup.carousel_pause');
+    expect(firstDot?.getAttribute('aria-label')).toBe('1 / 4, setup.carousel_pause');
 
     document.querySelector<HTMLButtonElement>('.ob-dot[data-idx="2"]')?.click();
     expect(track.getAttribute('aria-live')).toBe('polite');

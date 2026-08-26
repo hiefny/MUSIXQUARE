@@ -615,7 +615,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         return;
       }
       clearPendingManualRendezvous();
-      log.info('[YouTube Sync] Received manual sync request — triggering precision rendezvous');
+      log.info('[YouTube Sync] Received manual sync request. Triggering precision rendezvous');
       guestRendezvousSync();
       return;
     }
@@ -638,7 +638,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
             _rt.hostAdPauseActive = true;
             if (player.pauseVideo) player.pauseVideo();
             showToast(t('toast.host_ad'));
-            log.debug('[YouTube Sync] Host ad detected — pausing guest');
+            log.debug('[YouTube Sync] Host ad detected. Pausing guest');
           }
           _rt.lastHostSyncTime = hostTime;
           return; // Skip drift correction while ad is playing
@@ -648,7 +648,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         if (_rt.hostAdPauseActive) {
           _rt.hostAdPauseActive = false;
           if (player.playVideo) player.playVideo();
-          log.debug('[YouTube Sync] Host ad ended — resuming guest');
+          log.debug('[YouTube Sync] Host ad ended. Resuming guest');
         }
         _rt.hostTimeStaleCount = 0;
       }
@@ -671,7 +671,7 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
       const guestVideoId = player.getVideoData()?.video_id || '';
       if (guestVideoId && hostVideoId !== guestVideoId) {
         log.info(
-          `[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`,
+          `[YouTube Sync] Video mismatch: guest=${guestVideoId}, host=${hostVideoId}. Loading by video ID`,
         );
         if (player.loadVideoById) {
           updatePlaybackTrackDetails({ artist: null });
@@ -800,12 +800,12 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
   // Debounce: cooldown prevents rapid-fire calls that crash YouTube iframe
   const now = Date.now();
   if (_rt.rendezvousInProgress) {
-    log.debug('[Rendezvous] Debounced — in progress');
+    log.debug('[Rendezvous] Debounced: in progress');
     return { status: 'busy', retryAfterMs: 250 };
   }
   const cooldownRemaining = RENDEZVOUS_COOLDOWN_MS - (now - _rt.lastRendezvousAt);
   if (cooldownRemaining > 0) {
-    log.debug('[Rendezvous] Debounced — cooldown');
+    log.debug('[Rendezvous] Debounced: cooldown');
     return { status: 'busy', retryAfterMs: cooldownRemaining + 10 };
   }
 
@@ -908,7 +908,7 @@ export function guestRendezvousSync(opts: GuestRendezvousOptions = {}): GuestRen
     }
 
     if (outOfTime || bufferChecks > RENDEZVOUS_BUFFER_MAX_CHECKS) {
-      log.warn(`[Rendezvous] Buffer gate timeout after ${bufferChecks} checks — aborting`);
+      log.warn(`[Rendezvous] Buffer gate timeout after ${bufferChecks} checks. Aborting`);
       // If the host is playing, fall back to a plain playVideo() so the
       // guest doesn't sit paused for up to one heartbeat (≤3s) waiting for
       // drift-correction to unpause it. Position will converge on the next
@@ -986,18 +986,18 @@ function scheduleRendezvousPlay(
           // rejoins). Each guard catches a distinct trigger; any one is enough
           // to skip a corrupting update.
           if (!getState('network.hostConn')) {
-            log.debug('[Rendezvous] Calibration skipped — host connection lost');
+            log.debug('[Rendezvous] Calibration skipped: host connection lost');
             return;
           }
           const snapshotAge = getHostNow() - snapshot.hostClockAt;
           if (snapshotAge > RENDEZVOUS_SNAPSHOT_MAX_AGE_MS) {
             log.debug(
-              `[Rendezvous] Calibration skipped — snapshot ${snapshotAge.toFixed(0)}ms stale`,
+              `[Rendezvous] Calibration skipped: snapshot ${snapshotAge.toFixed(0)}ms stale`,
             );
             return;
           }
           if (typeof document !== 'undefined' && document.hidden) {
-            log.debug('[Rendezvous] Calibration skipped — page hidden (mobile background)');
+            log.debug('[Rendezvous] Calibration skipped: page hidden (mobile background)');
             return;
           }
 
@@ -1015,11 +1015,11 @@ function scheduleRendezvousPlay(
             // host hasn't moved to a different video, so skip rather than risk
             // poisoning the EMA on a cross-timeline drift sample.
             if (!snapshotVideoId) {
-              log.debug('[Rendezvous] Calibration skipped — snapshot has no videoId (late-join)');
+              log.debug('[Rendezvous] Calibration skipped: snapshot has no videoId (late-join)');
               return;
             }
             if (currentVideoId !== snapshotVideoId) {
-              log.debug('[Rendezvous] Calibration skipped — video changed during rendezvous');
+              log.debug('[Rendezvous] Calibration skipped: video changed during rendezvous');
               return;
             }
 
@@ -1037,7 +1037,7 @@ function scheduleRendezvousPlay(
             // attempts. Skip silently.
             if (Math.abs(driftMs) > LATENCY_OUTLIER_REJECT_MS) {
               log.debug(
-                `[Rendezvous] Calibration skipped — drift ${driftMs.toFixed(0)}ms exceeds outlier threshold`,
+                `[Rendezvous] Calibration skipped: drift ${driftMs.toFixed(0)}ms exceeds outlier threshold`,
               );
               return;
             }
@@ -1232,7 +1232,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
         // Single-video mode: loadVideoById directly. No playlist engine,
         // no escalation tiers — one videoId at a time.
         log.info(
-          `[YouTube State] Video mismatch — guest=${guestVideoId}, host=${hostVideoId} — loadVideoById`,
+          `[YouTube State] Video mismatch: guest=${guestVideoId}, host=${hostVideoId}. Loading by video ID`,
         );
         if (player.loadVideoById) {
           updatePlaybackTrackDetails({ artist: null });
@@ -1403,7 +1403,7 @@ function handleYouTubeState(data: Record<string, unknown>, conn?: DataConnection
       // periodic sync pong (1s interval) will calibrate and correct drift shortly after.
       if (hostPlayAt > 0) {
         log.warn(
-          '[YouTube State] SharedClock uncalibrated — ignoring hostPlayAt, executing immediately',
+          '[YouTube State] SharedClock uncalibrated. Ignoring hostPlayAt, executing immediately',
         );
       }
       executeImmediate(player, state, time, duration, subIndexChanged);

@@ -1084,7 +1084,7 @@ bus.on('audio:reset-eq', () => {
 });
 
 bus.on('audio:ready', () => {
-  log.info('[Effects] Audio ready — applying default settings');
+  log.info('[Effects] Audio ready: applying default settings');
   applySettingsAsync();
 });
 

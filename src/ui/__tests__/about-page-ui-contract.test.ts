@@ -84,7 +84,15 @@ describe('About page current UI contract', () => {
   });
 
   it('keeps invite and footer geometry aligned with the current editorial shell', () => {
+    const cta = aboutDocument.querySelector('.lp-cta');
+    const ctaDivider = cta?.previousElementSibling;
+
     expect(aboutStyles).toMatch(/\.lp-copy-link\s*\{[^}]*border-radius:\s*999px;/su);
+    expect(ctaDivider?.matches('hr.lp-divider.lp-divider--full')).toBe(true);
+    expect(aboutDocument.querySelectorAll('.lp-divider--full')).toHaveLength(1);
+    expect(aboutStyles).toMatch(
+      /\.lp-divider--full\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*border-top-color:\s*var\(--divider\);/su,
+    );
     expect(aboutStyles).toMatch(
       /\.lp-footer\s*\{[^}]*max-width:\s*var\(--max-w\);[^}]*margin-inline:\s*auto;/su,
     );

@@ -200,7 +200,7 @@ export function registerServiceWorker(): void {
       // prompt.
       if (getState('network.appRole') !== 'idle') {
         if (!notifyActiveRoom) return false;
-        log.info('[SW] Update activated elsewhere — deferring reload (session active)');
+        log.info('[SW] Update activated elsewhere. Deferring reload (session active)');
         showToast(t('dialog.sw_update_msg'));
         return true;
       }
@@ -343,7 +343,7 @@ export function registerServiceWorker(): void {
                 /* the cache-status message can still identify this generation */
               });
           }
-          log.debug('[SW] Controller claimed page for the first time — skipping reload');
+          log.debug('[SW] Controller claimed page for the first time. Skipping reload');
           return;
         }
 
@@ -402,7 +402,7 @@ export function registerServiceWorker(): void {
         const lastUpdate = Number(readSessionMarker(SW_UPDATE_KEY) || '0');
         const inCooldown = Date.now() - lastUpdate < SW_COOLDOWN_MS;
         if (inCooldown) {
-          log.debug('[SW] Update found during cooldown — silently activating');
+          log.debug('[SW] Update found during cooldown. Silently activating');
           worker.postMessage({ type: 'SKIP_WAITING' });
           return;
         }
@@ -519,7 +519,7 @@ export function registerServiceWorker(): void {
         activationState = 'passive';
         if (result?.action === 'secondary') updateLedger.rememberDismissal(generation);
         else updateLedger.rememberPresentationFailure(generation);
-        log.debug('[SW] Update dialog dismissed — skipping local activation');
+        log.debug('[SW] Update dialog dismissed. Skipping local activation');
         if (controllerChangedWhilePrompting) {
           controllerChangedWhilePrompting = false;
           handlePassiveControllerChange();

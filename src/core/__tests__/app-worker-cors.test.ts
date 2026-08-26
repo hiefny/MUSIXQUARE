@@ -1123,7 +1123,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(await response.json()).toEqual({ error: 'CAPABILITY_REQUIRED' });
   });
 
-  it('uses one atomic pair request for both TURN limits and keeps invalid tokens on the same IP bucket', async () => {
+  it('uses one atomic pair for valid TURN limits without charging invalid tokens to a shared IP bucket', async () => {
     const control = createAtomicRateControlBinding();
     const ip = '203.0.113.121';
     const env = {
@@ -1160,7 +1160,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
         env,
       );
 
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 8; index += 1) {
       expect((await request(token)).status).toBe(200);
     }
     const capabilityLimited = await request(token);
@@ -1170,7 +1170,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     const invalid = await request('invalid-capability-token');
     expect(invalid.status).toBe(401);
     await expect(invalid.json()).resolves.toEqual({ error: 'CAPABILITY_REQUIRED' });
-    expect(control.rateFetchCount()).toBe(6);
+    expect(control.rateFetchCount()).toBe(9);
     const pairObjects = control
       .objectNames()
       .filter((name) => name.startsWith('musixquare-abuse-rate-pair-v1:'));
@@ -1178,7 +1178,184 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
     expect(pairObjects[0]).toMatch(
       /^musixquare-abuse-rate-pair-v1:app-turn-config:[A-Za-z0-9_-]+$/,
     );
-    expect(upstream).toHaveBeenCalledTimes(4);
+    expect(upstream).toHaveBeenCalledTimes(8);
+  });
+
+  it('routes a capability-authorized Standard signaling bridge without binding its session to a relay IP', async () => {
+    const control = createAtomicRateControlBinding();
+    const openedFromIp = '203.0.113.210';
+    const resumedFromIp = '203.0.113.211';
+    const internalRequests: Array<{ objectName: string; request: Request; body: unknown }> = [];
+    const signalingRooms = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn((objectName: string) => ({
+        fetch: vi.fn(async (request: Request) => {
+          const body = await request.json();
+          internalRequests.push({ objectName, request, body });
+          const pathname = new URL(request.url).pathname;
+          if (pathname.endsWith('/open')) return Response.json({ ok: true });
+          if (pathname.endsWith('/send')) return Response.json({ v: 1, ack: 1 });
+          if (pathname.endsWith('/poll')) return Response.json({ v: 1, events: [] });
+          if (pathname.endsWith('/close')) return Response.json({ ok: true });
+          return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+        }),
+      })),
+    };
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'standard-bridge-capability-secret-at-least-32',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      PRO_SIGNALING_ROOMS: signalingRooms,
+    };
+    const mint = await mintWithProofOfWork(env, ['standard-signaling'], openedFromIp);
+    const capabilityToken = ((await mint.json()) as { token: string }).token;
+
+    const open = await appWorker.fetch(
+      new Request('https://musixquare.com/api/standard-signaling/v1/bridge/open', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': openedFromIp,
+          'X-MXQR-Capability': capabilityToken,
+        },
+        body: JSON.stringify({ roomId: '654321', role: 'guest', peerId: 'mx-peer_1' }),
+      }),
+      env,
+    );
+    expect(open.status, await open.clone().text()).toBe(200);
+    const openPayload = (await open.json()) as { sessionToken: string };
+    expect(openPayload).toMatchObject({
+      sessionToken: expect.stringMatching(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/),
+    });
+    expect(signalingRooms.idFromName).toHaveBeenCalledWith(
+      expect.stringMatching(/^mxqr-standard-http-bridge-v1:[A-Za-z0-9_-]{32}$/),
+    );
+    const opened = internalRequests[0];
+    expect(opened?.request.headers.get('x-mxqr-standard-http-bridge')).toBe('v1');
+    expect(opened?.body).toMatchObject({
+      v: 1,
+      roomId: '654321',
+      role: 'guest',
+      peerId: 'mx-peer_1',
+      sessionId: expect.stringMatching(/^[A-Za-z0-9_-]{32}$/),
+      generation: expect.stringMatching(/^[A-Za-z0-9_-]{22}$/),
+    });
+
+    const send = await appWorker.fetch(
+      new Request('https://musixquare.com/api/standard-signaling/v1/bridge/send', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': resumedFromIp,
+          Authorization: `Bearer ${openPayload.sessionToken}`,
+        },
+        body: JSON.stringify({
+          v: 1,
+          cseq: 1,
+          frame: JSON.stringify({ type: 'guest-auth', reconnectSecret: 'ram-only' }),
+        }),
+      }),
+      env,
+    );
+    expect(send.status).toBe(200);
+    await expect(send.json()).resolves.toEqual({ v: 1, ack: 1 });
+    const sent = internalRequests[1];
+    expect(sent?.objectName).toBe(opened?.objectName);
+    expect(JSON.stringify(sent?.body)).not.toContain(openPayload.sessionToken);
+    expect(sent?.body).toMatchObject({
+      v: 1,
+      roomId: '654321',
+      role: 'guest',
+      peerId: 'mx-peer_1',
+      request: {
+        v: 1,
+        cseq: 1,
+      },
+    });
+
+    const poll = await appWorker.fetch(
+      new Request('https://musixquare.com/api/standard-signaling/v1/bridge/poll', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': resumedFromIp,
+          Authorization: `Bearer ${openPayload.sessionToken}`,
+        },
+        body: JSON.stringify({ v: 1, requestEpoch: 1, ack: 0, waitMs: 0 }),
+      }),
+      env,
+    );
+    expect(poll.status).toBe(200);
+    await expect(poll.json()).resolves.toEqual({ v: 1, events: [] });
+
+    const close = await appWorker.fetch(
+      new Request('https://musixquare.com/api/standard-signaling/v1/bridge/close', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'CF-Connecting-IP': resumedFromIp,
+          Authorization: `Bearer ${openPayload.sessionToken}`,
+        },
+      }),
+      env,
+    );
+    expect(close.status).toBe(200);
+    expect(internalRequests[3]?.objectName).toBe(opened?.objectName);
+  });
+
+  it('fails closed before bridge lookup for untrusted, reserved, and forged sessions', async () => {
+    const control = createAtomicRateControlBinding();
+    const ip = '203.0.113.212';
+    const signalingRooms = {
+      idFromName: vi.fn((name: string) => name),
+      get: vi.fn(() => ({ fetch: vi.fn() })),
+    };
+    const env = {
+      MXQR_CAPABILITY_SECRET: 'standard-bridge-rejection-secret-at-least-32',
+      MXQR_TURNSTILE_DISABLED: 'true',
+      MXQR_CAPABILITY_POW_DIFFICULTY: '8',
+      MUSIXQUARE_SERVICE_CONTROL: control.binding,
+      PRO_SIGNALING_ROOMS: signalingRooms,
+    };
+    const mint = await mintWithProofOfWork(env, ['standard-signaling'], ip);
+    const capabilityToken = ((await mint.json()) as { token: string }).token;
+    const openRequest = (origin: string, roomId: string) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/standard-signaling/v1/bridge/open', {
+          method: 'POST',
+          headers: {
+            Origin: origin,
+            'Content-Type': 'application/json',
+            'CF-Connecting-IP': ip,
+            'X-MXQR-Capability': capabilityToken,
+          },
+          body: JSON.stringify({ roomId, role: 'host', peerId: 'mx-host' }),
+        }),
+        env,
+      );
+
+    expect((await openRequest('https://evil.example', '654321')).status).toBe(403);
+    expect((await openRequest('https://musixquare.com', '012345')).status).toBe(400);
+    const forged = await appWorker.fetch(
+      new Request('https://musixquare.com/api/standard-signaling/v1/bridge/send', {
+        method: 'POST',
+        headers: {
+          Origin: 'https://musixquare.com',
+          'Content-Type': 'application/json',
+          'CF-Connecting-IP': ip,
+          Authorization: `Bearer ${'A'.repeat(64)}.${'B'.repeat(43)}`,
+        },
+        body: JSON.stringify({ v: 1, cseq: 1, frame: '{}' }),
+      }),
+      env,
+    );
+    expect(forged.status).toBe(401);
+    expect(signalingRooms.idFromName).not.toHaveBeenCalled();
+    expect(signalingRooms.get).not.toHaveBeenCalled();
   });
 
   it('bounds capability tokens before WebCrypto while preserving normal and boundary behavior', async () => {
@@ -1252,7 +1429,7 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
       expect(malformed.status).toBe(401);
       expect(signedByteLengths()).not.toContain(malformedPayload.length);
 
-      expect(control.rateFetchCount()).toBe(4);
+      expect(control.rateFetchCount()).toBe(1);
       expect(upstream).toHaveBeenCalledTimes(1);
     } finally {
       signSpy.mockRestore();
@@ -5811,11 +5988,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.21');
-    expect(html).toContain('/clearable-editors.js?v=8.4.21');
-    expect(html).toContain('/admin.js?v=8.4.21');
+    expect(html).toContain('/admin.css?v=8.4.22');
+    expect(html).toContain('/clearable-editors.js?v=8.4.22');
+    expect(html).toContain('/admin.js?v=8.4.22');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.21"');
+    expect(html).toContain('data-admin-asset-version="8.4.22"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -5836,9 +6013,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.21',
-      '/admin.css?v=8.4.21',
-      '/clearable-editors.js?v=8.4.21',
+      '/admin.js?v=8.4.22',
+      '/admin.css?v=8.4.22',
+      '/clearable-editors.js?v=8.4.22',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);

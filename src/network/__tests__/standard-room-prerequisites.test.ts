@@ -125,19 +125,17 @@ describe('standard-room prerequisite cache', () => {
     expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
   });
 
-  it('re-adopts a fresh TURN generation at a route boundary and fences the late result', async () => {
-    const stale = deferred<Response>();
-    mocks.fetchWithCapability
-      .mockReturnValueOnce(stale.promise)
-      .mockResolvedValueOnce(turnResponse());
+  it('preserves one paid TURN request across a route boundary and publishes its route-independent result', async () => {
+    const pending = deferred<Response>();
+    mocks.fetchWithCapability.mockReturnValueOnce(pending.promise);
 
     const firstRoute = getStandardRoomTurnCredentials();
     __standardRoomPrerequisitesForTests.invalidateNetworkRoute();
     const replacementRoute = getStandardRoomTurnCredentials();
-    stale.resolve(turnResponse(600));
+    pending.resolve(turnResponse(600));
     await expect(firstRoute).resolves.toMatchObject({ provider: 'cloudflare' });
     await expect(replacementRoute).resolves.toMatchObject({ provider: 'cloudflare' });
-    expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(2);
+    expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
   });
 
   it('proves an uncached signaling route before returning refreshed TURN configuration', async () => {

@@ -403,6 +403,12 @@ export interface TransportPeer {
   open: boolean;
   destroyed: boolean;
   disconnected: boolean;
+  /**
+   * Provider recommendation for the application-owned signaling admission
+   * deadline. Consumers must clamp this additive hint; providers cannot
+   * shorten the ordinary peer-open timeout or make it unbounded.
+   */
+  readonly recommendedPeerOpenTimeoutMs?: number;
 
   connect(peerId: string, options?: TransportConnectOptions): TransportDataConnection;
   call?(

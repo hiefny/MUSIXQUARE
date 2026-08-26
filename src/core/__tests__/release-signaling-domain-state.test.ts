@@ -848,6 +848,7 @@ describe('release signaling Custom Domain recovery', () => {
       'Verify release still owns current production deployments',
     );
     const lastAppSmoke = release.indexOf('Smoke current PRO public boundary after app deployment');
+    const httpSignalingSmoke = release.indexOf('Smoke Standard HTTPS signaling fallback');
     const readinessRestore = release.indexOf('Restore PRO room generation readiness');
     const candidateVerification = release.indexOf(
       'Freshly verify signaling Custom Domain candidate',
@@ -871,6 +872,8 @@ describe('release signaling Custom Domain recovery', () => {
     expect(release).toContain('MXQR_SIGNALING_DOMAIN_RECOVERY_OUTCOME=');
     expect(candidateVerification).toBeGreaterThan(finalWorkerOwnership);
     expect(candidateVerification).toBeGreaterThan(lastAppSmoke);
+    expect(httpSignalingSmoke).toBeGreaterThan(lastAppSmoke);
+    expect(candidateVerification).toBeGreaterThan(httpSignalingSmoke);
     expect(candidateVerification).toBeGreaterThan(readinessRestore);
     expect(candidateVerification).toBeLessThan(productionCommit);
     const candidateVerificationEnd = release.indexOf('\n      - name:', candidateVerification + 1);

@@ -600,7 +600,7 @@ describe('MusixquareServiceControl', () => {
     });
   });
 
-  it('charges the IP once when a capability is denied and never advances that capability', async () => {
+  it('does not charge the shared IP when a capability is denied', async () => {
     const objectName = 'musixquare-abuse-rate-pair-v1:app-turn-config:secondary-denial';
     const { control, storage } = setup(new ServiceControlStorage(), objectName);
 
@@ -614,11 +614,11 @@ describe('MusixquareServiceControl', () => {
     await expect(payload(denied)).resolves.toMatchObject({
       allowed: false,
       deniedBy: 'secondary',
-      primary: { allowed: true, remaining: 8 },
+      primary: { allowed: true, remaining: 9 },
       secondary: { allowed: false, remaining: 0 },
     });
     expect(storage.data.get('abuse-rate-pair-state-v1')).toMatchObject({
-      primary: { count: 2 },
+      primary: { count: 1 },
       secondaries: [{ identity: 'token-a', count: 1 }],
     });
   });

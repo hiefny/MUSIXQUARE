@@ -1172,6 +1172,14 @@ jobs:
         timeout-minutes: 8
         run: npm run smoke:live:pro-room
 
+      - name: Smoke Standard HTTPS signaling fallback
+        id: standard_http_signaling_smoke
+        if: inputs.target == 'all'
+        timeout-minutes: 5
+        env:
+          MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}
+        run: npm run smoke:live:standard-http-signaling
+
       - name: Verify release still owns current production deployments
         timeout-minutes: 10
         id: final_verification
@@ -1460,6 +1468,7 @@ jobs:
           echo "- Candidate source: run \`${RELEASE_SOURCE_RUN_ID}\`, attempt \`${RELEASE_SOURCE_RUN_ATTEMPT}\`." >> "$GITHUB_STEP_SUMMARY"
           echo "- Developer API D1 changes requested: \`${{ inputs.apply_developer_api_d1 }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- PRO generation readiness restore: \`${{ steps.pro_room_generation_cutover.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Standard HTTPS signaling fallback smoke: \`${{ steps.standard_http_signaling_smoke.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Final signaling Custom Domain candidate verification: \`${{ steps.signaling_domain_candidate_verification.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery PRO generation fence: \`${{ steps.pro_room_generation_cutover_disable.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "- Recovery Worker floor assessment: \`${{ steps.worker_floor_assessment.outcome || 'not-requested' }}\`" >> "$GITHUB_STEP_SUMMARY"

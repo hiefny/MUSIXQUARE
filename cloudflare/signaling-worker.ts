@@ -77,6 +77,17 @@ interface SocketPort {
   deserializeAttachment?(): unknown;
 }
 
+interface OutboundWebSocketPort {
+  readonly readyState?: number;
+  accept(): void;
+  send(message: string): void;
+  close(code?: number, reason?: string): void;
+  readonly addEventListener: (
+    type: 'message' | 'close' | 'error',
+    listener: (event: unknown) => void,
+  ) => void;
+}
+
 interface DurableObjectStoragePort {
   get(key: string): Promise<unknown>;
   put(key: string, value: unknown): Promise<void>;
@@ -115,6 +126,40 @@ interface SignalingEnvPort {
 
 interface SignalingWorkerEnvPort extends SignalingEnvPort {
   readonly MUSIXQUARE_ROOMS: AddressableDurableObjectNamespacePort;
+}
+
+interface StandardHttpBridgeMeta extends JsonRecord {
+  v: 1;
+  sessionId: string;
+  generation: string;
+  roomId: string;
+  role: 'host' | 'guest';
+  peerId: string;
+  lastClientSeq: number;
+  lastServerSeq: number;
+  lastServerAck: number;
+  requestEpoch: number;
+  leaseExpiresAt: number;
+}
+
+interface StandardHttpBridgeEvent {
+  readonly sseq: number;
+  readonly data: string;
+  readonly bytes: number;
+}
+
+interface StandardHttpBridgeTerminal {
+  readonly code: number;
+  readonly reason: string;
+}
+
+type StandardHttpBridgeWaitOutcome = 'ready' | 'superseded' | 'aborted' | 'timeout';
+
+interface StandardHttpBridgeWaiter {
+  readonly generation: string;
+  readonly requestEpoch: number;
+  readonly promise: Promise<StandardHttpBridgeWaitOutcome>;
+  resolve(outcome: StandardHttpBridgeWaitOutcome): void;
 }
 
 interface ProSignalingTicket extends JsonRecord {
@@ -458,6 +503,25 @@ const STANDARD_WS_RATE_OBJECT_PREFIX = 'musixquare-standard-ws-open-rate-v1:';
 const STANDARD_WS_RATE_OBJECT_NAME_RE = /^musixquare-standard-ws-open-rate-v1:[A-Za-z0-9_-]{43}$/;
 const STANDARD_WS_RATE_CONSUME_PATH = '/internal/standard-ws-open-rate/v1/consume';
 const STANDARD_WS_RATE_FETCH_TIMEOUT_MS = 2_000;
+const STANDARD_HTTP_BRIDGE_OBJECT_PREFIX = 'mxqr-standard-http-bridge-v1:';
+const STANDARD_HTTP_BRIDGE_OBJECT_NAME_RE = /^mxqr-standard-http-bridge-v1:([A-Za-z0-9_-]{32})$/;
+const STANDARD_HTTP_BRIDGE_SESSION_ID_RE = /^[A-Za-z0-9_-]{32}$/;
+const STANDARD_HTTP_BRIDGE_GENERATION_RE = /^[A-Za-z0-9_-]{22}$/;
+const STANDARD_HTTP_BRIDGE_ROOM_ID_RE = /^[1-9]\d{5}$/;
+const STANDARD_HTTP_BRIDGE_HEADER = 'x-mxqr-standard-http-bridge';
+const STANDARD_HTTP_BRIDGE_HEADER_VALUE = 'v1';
+const STANDARD_HTTP_BRIDGE_OPEN_PATH = '/internal/standard-http-bridge/v1/open';
+const STANDARD_HTTP_BRIDGE_SEND_PATH = '/internal/standard-http-bridge/v1/send';
+const STANDARD_HTTP_BRIDGE_POLL_PATH = '/internal/standard-http-bridge/v1/poll';
+const STANDARD_HTTP_BRIDGE_CLOSE_PATH = '/internal/standard-http-bridge/v1/close';
+const STANDARD_HTTP_BRIDGE_META_KEY = 'standard-http-bridge-meta-v1';
+const STANDARD_HTTP_BRIDGE_BODY_MAX_BYTES = 96 * 1024;
+const STANDARD_HTTP_BRIDGE_LEASE_MS = 45_000;
+const STANDARD_HTTP_BRIDGE_MAX_WAIT_MS = 15_000;
+const STANDARD_HTTP_BRIDGE_QUEUE_MAX_MESSAGES = 256;
+const STANDARD_HTTP_BRIDGE_QUEUE_MAX_BYTES = 1024 * 1024;
+const STANDARD_HTTP_BRIDGE_POLL_MAX_MESSAGES = 128;
+const STANDARD_HTTP_BRIDGE_POLL_MAX_BYTES = 80 * 1024;
 const REMOTE_SHARE_UPLOAD_ASSERTION_SECRET_MIN_LENGTH = 32;
 const STANDARD_ROOM_PIN_PEPPER_MIN_BYTES = 32;
 const STANDARD_ROOM_PIN_HMAC_PURPOSE = 'MUSIXQUARE:standard-room-pin:v1';
@@ -2251,9 +2315,132 @@ function closeSocket(ws: SocketPort, code: number, reason: string): void {
   }
 }
 
+function createWebSocketPairPorts(): [SocketPort, SocketPort] {
+  const pairConstructor = (
+    globalThis as typeof globalThis & {
+      WebSocketPair?: new () => unknown;
+    }
+  ).WebSocketPair;
+  if (typeof pairConstructor !== 'function') throw new Error('WEBSOCKET_PAIR_UNAVAILABLE');
+  const pair = new pairConstructor();
+  const sockets =
+    typeof pair === 'object' && pair !== null ? Object.values(pair as Record<string, unknown>) : [];
+  const [client, server] = sockets;
+  const isSocket = (value: unknown): value is SocketPort =>
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as Partial<SocketPort>).send === 'function' &&
+    typeof (value as Partial<SocketPort>).close === 'function' &&
+    typeof (value as Partial<SocketPort>).serializeAttachment === 'function';
+  if (!isSocket(client) || !isSocket(server)) throw new Error('WEBSOCKET_PAIR_UNAVAILABLE');
+  return [client, server];
+}
+
+function webSocketUpgradeResponse(client: SocketPort, headers?: HeaderRecord): Response {
+  const init: ResponseInit = {
+    status: 101,
+    ...(headers ? { headers } : {}),
+  };
+  Object.defineProperty(init, 'webSocket', {
+    value: client,
+    enumerable: true,
+  });
+  return new Response(null, init);
+}
+
+function normalizeStandardHttpBridgeMeta(value: unknown): StandardHttpBridgeMeta | null {
+  if (
+    !hasExactKeys(value, [
+      'v',
+      'sessionId',
+      'generation',
+      'roomId',
+      'role',
+      'peerId',
+      'lastClientSeq',
+      'lastServerSeq',
+      'lastServerAck',
+      'requestEpoch',
+      'leaseExpiresAt',
+    ]) ||
+    value.v !== 1 ||
+    typeof value.sessionId !== 'string' ||
+    !STANDARD_HTTP_BRIDGE_SESSION_ID_RE.test(value.sessionId) ||
+    typeof value.generation !== 'string' ||
+    !STANDARD_HTTP_BRIDGE_GENERATION_RE.test(value.generation) ||
+    typeof value.roomId !== 'string' ||
+    !STANDARD_HTTP_BRIDGE_ROOM_ID_RE.test(value.roomId) ||
+    (value.role !== 'host' && value.role !== 'guest') ||
+    !isValidPeerId(value.peerId) ||
+    !isSafeInteger(value.lastClientSeq) ||
+    value.lastClientSeq < 0 ||
+    !isSafeInteger(value.lastServerSeq) ||
+    value.lastServerSeq < 0 ||
+    !isSafeInteger(value.lastServerAck) ||
+    value.lastServerAck < 0 ||
+    value.lastServerAck > value.lastServerSeq ||
+    !isSafeInteger(value.requestEpoch) ||
+    value.requestEpoch < 0 ||
+    !isFiniteNumber(value.leaseExpiresAt) ||
+    value.leaseExpiresAt < 0
+  ) {
+    return null;
+  }
+  return {
+    v: 1,
+    sessionId: value.sessionId,
+    generation: value.generation,
+    roomId: value.roomId,
+    role: value.role,
+    peerId: value.peerId,
+    lastClientSeq: value.lastClientSeq,
+    lastServerSeq: value.lastServerSeq,
+    lastServerAck: value.lastServerAck,
+    requestEpoch: value.requestEpoch,
+    leaseExpiresAt: value.leaseExpiresAt,
+  };
+}
+
+async function standardHttpBridgeFrameDigest(frame: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(frame));
+  return bytesToBase64Url(new Uint8Array(digest));
+}
+
+function standardHttpBridgeMessageData(event: unknown): unknown {
+  return typeof event === 'object' && event !== null && 'data' in event
+    ? (event as { readonly data?: unknown }).data
+    : undefined;
+}
+
+function standardHttpBridgeCloseTerminal(event: unknown): StandardHttpBridgeTerminal {
+  const record =
+    typeof event === 'object' && event !== null
+      ? (event as { readonly code?: unknown; readonly reason?: unknown })
+      : {};
+  const code =
+    isSafeInteger(record.code) && record.code >= 1000 && record.code <= 4999 ? record.code : 1006;
+  const reason =
+    typeof record.reason === 'string' && new TextEncoder().encode(record.reason).byteLength <= 123
+      ? record.reason
+      : '';
+  return { code, reason };
+}
+
 export class MusixquareRoom {
   private readonly state: DurableObjectStatePort;
   private readonly env: SignalingEnvPort;
+  private readonly standardHttpBridgeOnly: boolean;
+  private readonly standardHttpBridgeSessionId: string | null;
+  private standardHttpBridgeReady: Promise<unknown>;
+  private standardHttpBridgeMeta: StandardHttpBridgeMeta | null;
+  private standardHttpBridgeSocket: OutboundWebSocketPort | null;
+  private standardHttpBridgeSocketFence: number;
+  private standardHttpBridgeLastClientDigest: string | null;
+  private readonly standardHttpBridgeQueue: StandardHttpBridgeEvent[];
+  private standardHttpBridgeQueueBytes: number;
+  private standardHttpBridgeTerminal: StandardHttpBridgeTerminal | null;
+  private standardHttpBridgeWaiter: StandardHttpBridgeWaiter | null;
+  private standardHttpBridgeMutationSync: Promise<unknown>;
   private readonly standardRateOnly: boolean;
   private standardRateState: StandardWsRateState | null;
   private standardRateStateInvalid: boolean;
@@ -2299,12 +2486,20 @@ export class MusixquareRoom {
   constructor(state: DurableObjectStatePort, env: SignalingEnvPort = {}) {
     this.state = state;
     this.env = env;
+    const objectName = String(state.id?.name || '');
+    const standardHttpBridgeMatch = objectName.match(STANDARD_HTTP_BRIDGE_OBJECT_NAME_RE);
+    this.standardHttpBridgeOnly = objectName.startsWith(STANDARD_HTTP_BRIDGE_OBJECT_PREFIX);
+    this.standardHttpBridgeSessionId = standardHttpBridgeMatch?.[1] || null;
     const requestResponsePair = (
       globalThis as typeof globalThis & {
         WebSocketRequestResponsePair?: new (request: string, response: string) => unknown;
       }
     ).WebSocketRequestResponsePair;
-    if (typeof state.setWebSocketAutoResponse === 'function' && requestResponsePair) {
+    if (
+      !this.standardHttpBridgeOnly &&
+      typeof state.setWebSocketAutoResponse === 'function' &&
+      requestResponsePair
+    ) {
       try {
         state.setWebSocketAutoResponse(
           new requestResponsePair(SIGNALING_LIVENESS_PING, SIGNALING_LIVENESS_PONG),
@@ -2313,7 +2508,17 @@ export class MusixquareRoom {
         // Local/test runtimes use the explicit webSocketMessage fallback below.
       }
     }
-    this.standardRateOnly = STANDARD_WS_RATE_OBJECT_NAME_RE.test(String(state.id?.name || ''));
+    this.standardHttpBridgeReady = Promise.resolve();
+    this.standardHttpBridgeMeta = null;
+    this.standardHttpBridgeSocket = null;
+    this.standardHttpBridgeSocketFence = 0;
+    this.standardHttpBridgeLastClientDigest = null;
+    this.standardHttpBridgeQueue = [];
+    this.standardHttpBridgeQueueBytes = 0;
+    this.standardHttpBridgeTerminal = null;
+    this.standardHttpBridgeWaiter = null;
+    this.standardHttpBridgeMutationSync = Promise.resolve();
+    this.standardRateOnly = STANDARD_WS_RATE_OBJECT_NAME_RE.test(objectName);
     this.standardRateState = null;
     this.standardRateStateInvalid = false;
     this.standardRateAlarmAt = null;
@@ -2361,7 +2566,27 @@ export class MusixquareRoom {
     this.alarmSync = Promise.resolve();
     this.alarmMaintenanceRetryAttempt = 0;
     this.proSocketsValidated = false;
-    if (this.standardRateOnly) {
+    if (this.standardHttpBridgeOnly) {
+      const loadStandardHttpBridgeMeta = async () => {
+        const stored = await this.state.storage.get(STANDARD_HTTP_BRIDGE_META_KEY);
+        if (stored === undefined || stored === null) return;
+        const normalized = normalizeStandardHttpBridgeMeta(stored);
+        if (!normalized || normalized.sessionId !== this.standardHttpBridgeSessionId) {
+          await this.state.storage.delete(STANDARD_HTTP_BRIDGE_META_KEY);
+          await this.state.storage.deleteAlarm();
+          return;
+        }
+        // Outbound client WebSockets cannot hibernate. Only non-secret cursors
+        // survive in storage; a later request must re-authenticate by opening a
+        // new bridge rather than replaying either uplink or downlink payloads.
+        this.standardHttpBridgeMeta = normalized;
+      };
+      this.standardHttpBridgeReady =
+        typeof state.blockConcurrencyWhile === 'function'
+          ? state.blockConcurrencyWhile(loadStandardHttpBridgeMeta)
+          : loadStandardHttpBridgeMeta();
+      this.standardRateReady = Promise.resolve();
+    } else if (this.standardRateOnly) {
       const loadStandardRateState = async () => {
         const [stored, storedAlarmAt] = await Promise.all([
           this.state.storage.get(STANDARD_WS_RATE_STATE_KEY),
@@ -2383,6 +2608,657 @@ export class MusixquareRoom {
       this.standardRateReady = Promise.resolve();
       this.rehydrateSockets();
     }
+  }
+
+  private enqueueStandardHttpBridgeMutation<T>(callback: () => Promise<T>): Promise<T> {
+    const run = this.standardHttpBridgeMutationSync.then(callback, callback);
+    this.standardHttpBridgeMutationSync = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private parseStandardHttpBridgeEnvelope(
+    value: unknown,
+    withRequest: boolean,
+  ): {
+    sessionId: string;
+    generation: string;
+    roomId: string;
+    role: 'host' | 'guest';
+    peerId: string;
+    request?: unknown;
+  } | null {
+    const required = ['v', 'sessionId', 'generation', 'roomId', 'role', 'peerId'];
+    if (withRequest) required.push('request');
+    if (
+      !hasExactKeys(value, required) ||
+      value.v !== 1 ||
+      typeof value.sessionId !== 'string' ||
+      !STANDARD_HTTP_BRIDGE_SESSION_ID_RE.test(value.sessionId) ||
+      value.sessionId !== this.standardHttpBridgeSessionId ||
+      typeof value.generation !== 'string' ||
+      !STANDARD_HTTP_BRIDGE_GENERATION_RE.test(value.generation) ||
+      typeof value.roomId !== 'string' ||
+      !STANDARD_HTTP_BRIDGE_ROOM_ID_RE.test(value.roomId) ||
+      (value.role !== 'host' && value.role !== 'guest') ||
+      !isValidPeerId(value.peerId)
+    ) {
+      return null;
+    }
+    return {
+      sessionId: value.sessionId,
+      generation: value.generation,
+      roomId: value.roomId,
+      role: value.role,
+      peerId: value.peerId,
+      ...(withRequest ? { request: value.request } : {}),
+    };
+  }
+
+  private standardHttpBridgeAuthorityMatches(
+    envelope: {
+      sessionId: string;
+      generation: string;
+      roomId: string;
+      role: 'host' | 'guest';
+      peerId: string;
+    },
+    meta = this.standardHttpBridgeMeta,
+  ): boolean {
+    return Boolean(
+      meta &&
+      meta.sessionId === envelope.sessionId &&
+      meta.generation === envelope.generation &&
+      meta.roomId === envelope.roomId &&
+      meta.role === envelope.role &&
+      meta.peerId === envelope.peerId,
+    );
+  }
+
+  private async persistStandardHttpBridgeMeta(): Promise<void> {
+    const meta = this.standardHttpBridgeMeta;
+    if (!meta) return;
+    await this.state.storage.put(STANDARD_HTTP_BRIDGE_META_KEY, meta);
+    await this.state.storage.setAlarm(meta.leaseExpiresAt);
+  }
+
+  private async refreshStandardHttpBridgeLease(): Promise<void> {
+    const meta = this.standardHttpBridgeMeta;
+    if (!meta) return;
+    meta.leaseExpiresAt = Date.now() + STANDARD_HTTP_BRIDGE_LEASE_MS;
+    await this.persistStandardHttpBridgeMeta();
+  }
+
+  private resolveStandardHttpBridgeWaiter(outcome: StandardHttpBridgeWaitOutcome): void {
+    const waiter = this.standardHttpBridgeWaiter;
+    if (!waiter) return;
+    this.standardHttpBridgeWaiter = null;
+    waiter.resolve(outcome);
+  }
+
+  private createStandardHttpBridgeWaiter(
+    generation: string,
+    requestEpoch: number,
+  ): StandardHttpBridgeWaiter {
+    let settled = false;
+    let settle: (outcome: StandardHttpBridgeWaitOutcome) => void = () => undefined;
+    const promise = new Promise<StandardHttpBridgeWaitOutcome>((resolve) => {
+      settle = resolve;
+    });
+    return {
+      generation,
+      requestEpoch,
+      promise,
+      resolve(outcome) {
+        if (settled) return;
+        settled = true;
+        settle(outcome);
+      },
+    };
+  }
+
+  private async clearStandardHttpBridgeState(
+    code: number,
+    reason: string,
+    waiterOutcome: StandardHttpBridgeWaitOutcome,
+  ): Promise<void> {
+    const socket = this.standardHttpBridgeSocket;
+    this.standardHttpBridgeSocketFence += 1;
+    this.standardHttpBridgeSocket = null;
+    this.standardHttpBridgeMeta = null;
+    this.standardHttpBridgeLastClientDigest = null;
+    this.standardHttpBridgeQueue.length = 0;
+    this.standardHttpBridgeQueueBytes = 0;
+    this.standardHttpBridgeTerminal = null;
+    this.resolveStandardHttpBridgeWaiter(waiterOutcome);
+    // Revoke the live authority path before any fallible storage I/O. A slow
+    // or unavailable Durable Object storage backend must never leave the
+    // actual-room socket able to relay after close, expiry, or re-auth fencing.
+    if (socket) {
+      try {
+        socket.close(code, reason);
+      } catch {
+        /* already closed */
+      }
+    }
+    await this.state.storage.delete(STANDARD_HTTP_BRIDGE_META_KEY);
+    await this.state.storage.deleteAlarm();
+  }
+
+  private async requireLiveStandardHttpBridge(
+    envelope: {
+      sessionId: string;
+      generation: string;
+      roomId: string;
+      role: 'host' | 'guest';
+      peerId: string;
+    },
+    allowTerminal: boolean,
+  ): Promise<Response | null> {
+    if (!this.standardHttpBridgeMeta) {
+      return json({ error: 'STANDARD_HTTP_BRIDGE_REAUTH_REQUIRED' }, 409);
+    }
+    if (!this.standardHttpBridgeAuthorityMatches(envelope)) {
+      return json({ error: 'STANDARD_HTTP_BRIDGE_AUTHORITY_MISMATCH' }, 409);
+    }
+    if (this.standardHttpBridgeTerminal && allowTerminal) return null;
+    if (this.standardHttpBridgeTerminal) {
+      return json({ error: 'STANDARD_HTTP_BRIDGE_CLOSED' }, 410);
+    }
+    if (this.standardHttpBridgeSocket) return null;
+    // A persisted cursor without the non-hibernatable outbound socket means
+    // the isolate restarted. Never reconstruct or replay sensitive frames.
+    await this.clearStandardHttpBridgeState(
+      1012,
+      'HTTP bridge re-authentication required',
+      'aborted',
+    );
+    return json({ error: 'STANDARD_HTTP_BRIDGE_REAUTH_REQUIRED' }, 409);
+  }
+
+  private attachStandardHttpBridgeSocket(socket: OutboundWebSocketPort, fence: number): void {
+    const listen = socket.addEventListener.bind(socket);
+    listen('message', (event) => {
+      this.defer(
+        this.enqueueStandardHttpBridgeMutation(() =>
+          this.handleStandardHttpBridgeSocketMessage(socket, fence, event),
+        ),
+        'HTTP bridge outbound message',
+      );
+    });
+    listen('close', (event) => {
+      this.defer(
+        this.enqueueStandardHttpBridgeMutation(() =>
+          this.handleStandardHttpBridgeSocketTerminal(
+            socket,
+            fence,
+            standardHttpBridgeCloseTerminal(event),
+            false,
+          ),
+        ),
+        'HTTP bridge outbound close',
+      );
+    });
+    listen('error', () => {
+      this.defer(
+        this.enqueueStandardHttpBridgeMutation(() =>
+          this.handleStandardHttpBridgeSocketTerminal(
+            socket,
+            fence,
+            { code: 1011, reason: 'HTTP bridge outbound socket error' },
+            true,
+          ),
+        ),
+        'HTTP bridge outbound error',
+      );
+    });
+  }
+
+  private async handleStandardHttpBridgeSocketMessage(
+    socket: OutboundWebSocketPort,
+    fence: number,
+    event: unknown,
+  ): Promise<void> {
+    if (
+      socket !== this.standardHttpBridgeSocket ||
+      fence !== this.standardHttpBridgeSocketFence ||
+      !this.standardHttpBridgeMeta ||
+      this.standardHttpBridgeTerminal
+    ) {
+      return;
+    }
+    const data = standardHttpBridgeMessageData(event);
+    const bytes = typeof data === 'string' ? rawMessageByteLength(data) : null;
+    if (typeof data !== 'string' || bytes === null || bytes > WS_MESSAGE_MAX_BYTES) {
+      await this.handleStandardHttpBridgeSocketTerminal(
+        socket,
+        fence,
+        { code: 1009, reason: 'HTTP bridge received an invalid frame' },
+        true,
+      );
+      return;
+    }
+    if (
+      this.standardHttpBridgeQueue.length >= STANDARD_HTTP_BRIDGE_QUEUE_MAX_MESSAGES ||
+      this.standardHttpBridgeQueueBytes + bytes > STANDARD_HTTP_BRIDGE_QUEUE_MAX_BYTES
+    ) {
+      await this.handleStandardHttpBridgeSocketTerminal(
+        socket,
+        fence,
+        { code: 1013, reason: 'HTTP bridge receive queue overflow' },
+        true,
+      );
+      return;
+    }
+    const meta = this.standardHttpBridgeMeta;
+    meta.lastServerSeq += 1;
+    this.standardHttpBridgeQueue.push({ sseq: meta.lastServerSeq, data, bytes });
+    this.standardHttpBridgeQueueBytes += bytes;
+    await this.persistStandardHttpBridgeMeta();
+    this.resolveStandardHttpBridgeWaiter('ready');
+  }
+
+  private async handleStandardHttpBridgeSocketTerminal(
+    socket: OutboundWebSocketPort,
+    fence: number,
+    terminal: StandardHttpBridgeTerminal,
+    close: boolean,
+  ): Promise<void> {
+    if (
+      socket !== this.standardHttpBridgeSocket ||
+      fence !== this.standardHttpBridgeSocketFence ||
+      !this.standardHttpBridgeMeta ||
+      this.standardHttpBridgeTerminal
+    ) {
+      return;
+    }
+    this.standardHttpBridgeSocketFence += 1;
+    this.standardHttpBridgeSocket = null;
+    this.standardHttpBridgeTerminal = terminal;
+    if (close) {
+      try {
+        socket.close(terminal.code, terminal.reason);
+      } catch {
+        /* already closed */
+      }
+    }
+    await this.persistStandardHttpBridgeMeta();
+    this.resolveStandardHttpBridgeWaiter('ready');
+  }
+
+  private standardHttpBridgePollResponse(): Response {
+    const events: { sseq: number; data: string }[] = [];
+    let responseBytes = 0;
+    for (const event of this.standardHttpBridgeQueue) {
+      if (events.length >= STANDARD_HTTP_BRIDGE_POLL_MAX_MESSAGES) break;
+      const wire = { sseq: event.sseq, data: event.data };
+      const encodedBytes = new TextEncoder().encode(JSON.stringify(wire)).byteLength;
+      if (encodedBytes > STANDARD_HTTP_BRIDGE_POLL_MAX_BYTES && events.length === 0) {
+        const socket = this.standardHttpBridgeSocket;
+        const fence = this.standardHttpBridgeSocketFence;
+        if (socket) {
+          this.defer(
+            this.enqueueStandardHttpBridgeMutation(() =>
+              this.handleStandardHttpBridgeSocketTerminal(
+                socket,
+                fence,
+                { code: 1009, reason: 'HTTP bridge response frame too large' },
+                true,
+              ),
+            ),
+            'HTTP bridge oversized response cleanup',
+          );
+        }
+        return json({
+          v: 1,
+          events: [],
+          terminal: { code: 1009, reason: 'HTTP bridge response frame too large' },
+        });
+      }
+      if (responseBytes + encodedBytes > STANDARD_HTTP_BRIDGE_POLL_MAX_BYTES) break;
+      responseBytes += encodedBytes;
+      events.push(wire);
+    }
+    const hasMoreEvents = events.length < this.standardHttpBridgeQueue.length;
+    return json({
+      v: 1,
+      events,
+      ...(this.standardHttpBridgeTerminal && !hasMoreEvents
+        ? { terminal: this.standardHttpBridgeTerminal }
+        : {}),
+    });
+  }
+
+  private async handleStandardHttpBridgeOpen(value: unknown): Promise<Response> {
+    const envelope = this.parseStandardHttpBridgeEnvelope(value, false);
+    if (!envelope) return json({ error: 'INVALID_STANDARD_HTTP_BRIDGE_REQUEST' }, 400);
+    return this.enqueueStandardHttpBridgeMutation(async () => {
+      if (this.standardHttpBridgeMeta) {
+        if (!this.standardHttpBridgeAuthorityMatches(envelope)) {
+          return json({ error: 'STANDARD_HTTP_BRIDGE_AUTHORITY_MISMATCH' }, 409);
+        }
+        if (this.standardHttpBridgeTerminal) {
+          return json({ error: 'STANDARD_HTTP_BRIDGE_CLOSED' }, 410);
+        }
+        if (this.standardHttpBridgeSocket) {
+          await this.refreshStandardHttpBridgeLease();
+          return json({ ok: true });
+        }
+        // Persisted metadata with no socket is an isolate restart. Open is the
+        // only operation allowed to establish a fresh authority path; all
+        // cursors reset and the client must send the room auth frame again.
+        await this.clearStandardHttpBridgeState(1012, 'HTTP bridge re-open', 'superseded');
+      }
+      const namespace = this.env.MUSIXQUARE_ROOMS;
+      if (!isAddressableDurableObjectNamespace(namespace)) {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_UNAVAILABLE' }, 503);
+      }
+      const room = namespace.get(namespace.idFromName(envelope.roomId));
+      const url = new URL(`https://signaling.internal/api/rooms/${envelope.roomId}/ws`);
+      url.searchParams.set('role', envelope.role);
+      url.searchParams.set('peerId', envelope.peerId);
+      let response: Response;
+      try {
+        response = await room.fetch(
+          new Request(url.toString(), {
+            headers: { Upgrade: 'websocket' },
+          }),
+        );
+      } catch {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_UPSTREAM_UNAVAILABLE' }, 502);
+      }
+      const socket = (response as Response & { webSocket?: OutboundWebSocketPort | null })
+        .webSocket;
+      if (
+        response.status !== 101 ||
+        !socket ||
+        typeof socket.accept !== 'function' ||
+        typeof socket.send !== 'function' ||
+        typeof socket.close !== 'function' ||
+        typeof socket.addEventListener !== 'function'
+      ) {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_UPSTREAM_REJECTED' }, 502);
+      }
+      const now = Date.now();
+      this.standardHttpBridgeMeta = {
+        v: 1,
+        sessionId: envelope.sessionId,
+        generation: envelope.generation,
+        roomId: envelope.roomId,
+        role: envelope.role,
+        peerId: envelope.peerId,
+        lastClientSeq: 0,
+        lastServerSeq: 0,
+        lastServerAck: 0,
+        requestEpoch: 0,
+        leaseExpiresAt: now + STANDARD_HTTP_BRIDGE_LEASE_MS,
+      };
+      this.standardHttpBridgeLastClientDigest = null;
+      this.standardHttpBridgeQueue.length = 0;
+      this.standardHttpBridgeQueueBytes = 0;
+      this.standardHttpBridgeTerminal = null;
+      this.standardHttpBridgeSocketFence += 1;
+      const fence = this.standardHttpBridgeSocketFence;
+      this.standardHttpBridgeSocket = socket;
+      this.attachStandardHttpBridgeSocket(socket, fence);
+      try {
+        socket.accept();
+        await this.persistStandardHttpBridgeMeta();
+      } catch {
+        await this.clearStandardHttpBridgeState(
+          1011,
+          'HTTP bridge initialization failed',
+          'aborted',
+        );
+        return json({ error: 'STANDARD_HTTP_BRIDGE_UPSTREAM_UNAVAILABLE' }, 502);
+      }
+      return json({ ok: true });
+    });
+  }
+
+  private async handleStandardHttpBridgeSend(value: unknown): Promise<Response> {
+    const envelope = this.parseStandardHttpBridgeEnvelope(value, true);
+    if (!envelope || !hasExactKeys(envelope.request, ['v', 'cseq', 'frame'])) {
+      return json({ error: 'INVALID_STANDARD_HTTP_BRIDGE_REQUEST' }, 400);
+    }
+    const request = envelope.request;
+    const bytes = typeof request.frame === 'string' ? rawMessageByteLength(request.frame) : null;
+    if (
+      request.v !== 1 ||
+      !isSafeInteger(request.cseq) ||
+      request.cseq < 1 ||
+      typeof request.frame !== 'string' ||
+      bytes === null ||
+      bytes > WS_MESSAGE_MAX_BYTES
+    ) {
+      return json({ error: 'INVALID_STANDARD_HTTP_BRIDGE_REQUEST' }, 400);
+    }
+    const cseq = request.cseq as number;
+    const frame = request.frame as string;
+    return this.enqueueStandardHttpBridgeMutation(async () => {
+      const unavailable = await this.requireLiveStandardHttpBridge(envelope, false);
+      if (unavailable) return unavailable;
+      const meta = this.standardHttpBridgeMeta;
+      const socket = this.standardHttpBridgeSocket;
+      if (!meta || !socket) return json({ error: 'STANDARD_HTTP_BRIDGE_REAUTH_REQUIRED' }, 409);
+      const digest = await standardHttpBridgeFrameDigest(frame);
+      if (cseq === meta.lastClientSeq) {
+        if (!this.standardHttpBridgeLastClientDigest) {
+          await this.clearStandardHttpBridgeState(
+            1012,
+            'HTTP bridge replay state unavailable',
+            'aborted',
+          );
+          return json({ error: 'STANDARD_HTTP_BRIDGE_REAUTH_REQUIRED' }, 409);
+        }
+        if (digest !== this.standardHttpBridgeLastClientDigest) {
+          return json({ error: 'STANDARD_HTTP_BRIDGE_SEQUENCE_REPLAY_MISMATCH' }, 409);
+        }
+        await this.refreshStandardHttpBridgeLease();
+        return json({ v: 1, ack: cseq });
+      }
+      if (cseq !== meta.lastClientSeq + 1) {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_SEQUENCE_GAP' }, 409);
+      }
+      try {
+        socket.send(frame);
+      } catch {
+        await this.handleStandardHttpBridgeSocketTerminal(
+          socket,
+          this.standardHttpBridgeSocketFence,
+          { code: 1011, reason: 'HTTP bridge outbound send failed' },
+          true,
+        );
+        return json({ error: 'STANDARD_HTTP_BRIDGE_SEND_FAILED' }, 502);
+      }
+      // Publish the accepted sequence before yielding to persistence so a
+      // retry in this isolate cannot duplicate an authority-bearing auth frame.
+      meta.lastClientSeq = cseq;
+      this.standardHttpBridgeLastClientDigest = digest;
+      await this.refreshStandardHttpBridgeLease();
+      return json({ v: 1, ack: cseq });
+    });
+  }
+
+  private async waitForStandardHttpBridgePoll(
+    waiter: StandardHttpBridgeWaiter,
+    waitMs: number,
+    requestSignal: AbortSignal,
+  ): Promise<StandardHttpBridgeWaitOutcome> {
+    const timeoutSignal = AbortSignal.timeout(waitMs);
+    const onTimeout = () => waiter.resolve('timeout');
+    const onAbort = () => waiter.resolve('aborted');
+    const listenTimeout = timeoutSignal.addEventListener.bind(timeoutSignal);
+    const listenAbort = requestSignal.addEventListener.bind(requestSignal);
+    listenTimeout('abort', onTimeout, { once: true });
+    listenAbort('abort', onAbort, { once: true });
+    if (timeoutSignal.aborted) onTimeout();
+    if (requestSignal.aborted) onAbort();
+    try {
+      return await waiter.promise;
+    } finally {
+      timeoutSignal.removeEventListener('abort', onTimeout);
+      requestSignal.removeEventListener('abort', onAbort);
+    }
+  }
+
+  private async handleStandardHttpBridgePoll(
+    value: unknown,
+    requestSignal: AbortSignal,
+  ): Promise<Response> {
+    const envelope = this.parseStandardHttpBridgeEnvelope(value, true);
+    if (!envelope || !hasExactKeys(envelope.request, ['v', 'requestEpoch', 'ack', 'waitMs'])) {
+      return json({ error: 'INVALID_STANDARD_HTTP_BRIDGE_REQUEST' }, 400);
+    }
+    const request = envelope.request;
+    if (
+      request.v !== 1 ||
+      !isSafeInteger(request.requestEpoch) ||
+      request.requestEpoch < 1 ||
+      !isSafeInteger(request.ack) ||
+      request.ack < 0 ||
+      !isSafeInteger(request.waitMs) ||
+      request.waitMs < 0 ||
+      request.waitMs > STANDARD_HTTP_BRIDGE_MAX_WAIT_MS
+    ) {
+      return json({ error: 'INVALID_STANDARD_HTTP_BRIDGE_REQUEST' }, 400);
+    }
+    const requestEpoch = request.requestEpoch as number;
+    const ack = request.ack as number;
+    const waitMs = request.waitMs as number;
+    const prepared = await this.enqueueStandardHttpBridgeMutation(async () => {
+      const unavailable = await this.requireLiveStandardHttpBridge(envelope, true);
+      if (unavailable) return { response: unavailable, waiter: null };
+      const meta = this.standardHttpBridgeMeta;
+      if (!meta) {
+        return {
+          response: json({ error: 'STANDARD_HTTP_BRIDGE_REAUTH_REQUIRED' }, 409),
+          waiter: null,
+        };
+      }
+      if (ack > meta.lastServerSeq) {
+        return {
+          response: json({ error: 'STANDARD_HTTP_BRIDGE_ACK_AHEAD' }, 409),
+          waiter: null,
+        };
+      }
+      if (requestEpoch < meta.requestEpoch) {
+        return {
+          response: json({ error: 'STANDARD_HTTP_BRIDGE_REQUEST_EPOCH_STALE' }, 409),
+          waiter: null,
+        };
+      }
+      if (requestEpoch >= meta.requestEpoch && this.standardHttpBridgeWaiter) {
+        this.resolveStandardHttpBridgeWaiter('superseded');
+      }
+      meta.requestEpoch = requestEpoch;
+      meta.lastServerAck = Math.max(meta.lastServerAck, ack);
+      while (
+        this.standardHttpBridgeQueue.length > 0 &&
+        (this.standardHttpBridgeQueue[0]?.sseq || 0) <= meta.lastServerAck
+      ) {
+        const acknowledged = this.standardHttpBridgeQueue.shift();
+        if (acknowledged) this.standardHttpBridgeQueueBytes -= acknowledged.bytes;
+      }
+      await this.refreshStandardHttpBridgeLease();
+      if (
+        this.standardHttpBridgeQueue.length > 0 ||
+        this.standardHttpBridgeTerminal ||
+        waitMs === 0 ||
+        requestSignal.aborted
+      ) {
+        return { response: this.standardHttpBridgePollResponse(), waiter: null };
+      }
+      const waiter = this.createStandardHttpBridgeWaiter(envelope.generation, requestEpoch);
+      this.standardHttpBridgeWaiter = waiter;
+      return { response: null, waiter };
+    });
+    if (prepared.response) return prepared.response;
+    const waiter = prepared.waiter;
+    if (!waiter) return json({ error: 'STANDARD_HTTP_BRIDGE_UNAVAILABLE' }, 503);
+    const outcome = await this.waitForStandardHttpBridgePoll(waiter, waitMs, requestSignal);
+    return this.enqueueStandardHttpBridgeMutation(async () => {
+      if (this.standardHttpBridgeWaiter === waiter) this.standardHttpBridgeWaiter = null;
+      if (outcome === 'superseded') {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_POLL_SUPERSEDED' }, 409);
+      }
+      if (outcome === 'aborted') {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_POLL_ABORTED' }, 499);
+      }
+      if (
+        !this.standardHttpBridgeMeta ||
+        this.standardHttpBridgeMeta.generation !== waiter.generation
+      ) {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_REAUTH_REQUIRED' }, 409);
+      }
+      if (this.standardHttpBridgeMeta.requestEpoch > waiter.requestEpoch) {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_POLL_SUPERSEDED' }, 409);
+      }
+      return this.standardHttpBridgePollResponse();
+    });
+  }
+
+  private async handleStandardHttpBridgeClose(value: unknown): Promise<Response> {
+    const envelope = this.parseStandardHttpBridgeEnvelope(value, false);
+    if (!envelope) return json({ error: 'INVALID_STANDARD_HTTP_BRIDGE_REQUEST' }, 400);
+    return this.enqueueStandardHttpBridgeMutation(async () => {
+      if (this.standardHttpBridgeMeta && !this.standardHttpBridgeAuthorityMatches(envelope)) {
+        return json({ error: 'STANDARD_HTTP_BRIDGE_AUTHORITY_MISMATCH' }, 409);
+      }
+      await this.clearStandardHttpBridgeState(1000, 'HTTP bridge closed', 'aborted');
+      return json({ ok: true });
+    });
+  }
+
+  private async handleStandardHttpBridgeFetch(request: Request, url: URL): Promise<Response> {
+    await this.standardHttpBridgeReady;
+    if (
+      request.method !== 'POST' ||
+      url.search ||
+      url.hash ||
+      request.headers.get(STANDARD_HTTP_BRIDGE_HEADER) !== STANDARD_HTTP_BRIDGE_HEADER_VALUE
+    ) {
+      return json({ error: 'NOT_FOUND' }, 404);
+    }
+    if (
+      url.pathname !== STANDARD_HTTP_BRIDGE_OPEN_PATH &&
+      url.pathname !== STANDARD_HTTP_BRIDGE_SEND_PATH &&
+      url.pathname !== STANDARD_HTTP_BRIDGE_POLL_PATH &&
+      url.pathname !== STANDARD_HTTP_BRIDGE_CLOSE_PATH
+    ) {
+      return json({ error: 'NOT_FOUND' }, 404);
+    }
+    const value = await readBoundedJson(request, STANDARD_HTTP_BRIDGE_BODY_MAX_BYTES);
+    if (value === null) return json({ error: 'INVALID_STANDARD_HTTP_BRIDGE_REQUEST' }, 400);
+    if (url.pathname === STANDARD_HTTP_BRIDGE_OPEN_PATH) {
+      return this.handleStandardHttpBridgeOpen(value);
+    }
+    if (url.pathname === STANDARD_HTTP_BRIDGE_SEND_PATH) {
+      return this.handleStandardHttpBridgeSend(value);
+    }
+    if (url.pathname === STANDARD_HTTP_BRIDGE_POLL_PATH) {
+      return this.handleStandardHttpBridgePoll(value, request.signal);
+    }
+    return this.handleStandardHttpBridgeClose(value);
+  }
+
+  private async cleanupStandardHttpBridgeLease(): Promise<void> {
+    await this.standardHttpBridgeReady;
+    await this.enqueueStandardHttpBridgeMutation(async () => {
+      const meta = this.standardHttpBridgeMeta;
+      if (!meta) {
+        await this.state.storage.delete(STANDARD_HTTP_BRIDGE_META_KEY);
+        await this.state.storage.deleteAlarm();
+        return;
+      }
+      if (meta.leaseExpiresAt > Date.now()) {
+        await this.state.storage.setAlarm(meta.leaseExpiresAt);
+        return;
+      }
+      await this.clearStandardHttpBridgeState(1001, 'HTTP bridge lease expired', 'aborted');
+    });
   }
 
   private defer(task: Promise<unknown>, operation: string): void {
@@ -2738,17 +3614,6 @@ export class MusixquareRoom {
       this.proRoomMeta = normalizeProRoomMeta(stored);
     }
     return this.proRoomMeta;
-  }
-
-  private async saveProRoomMeta(meta: unknown): Promise<ProRoomMeta> {
-    const normalized = normalizeProRoomMeta(meta);
-    if (!normalized) throw new Error('INVALID_PRO_ROOM_META');
-    await this.state.storage.put(
-      PRO_ROOM_META_KEY,
-      persistedProGenerationRecord(normalized, normalized.roomGeneration),
-    );
-    this.proRoomMeta = normalized;
-    return normalized;
   }
 
   private async loadProOwnerAccountDeletionFence(): Promise<ProOwnerAccountDeletionFence | null> {
@@ -4268,6 +5133,9 @@ export class MusixquareRoom {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (this.standardHttpBridgeOnly) {
+      return this.handleStandardHttpBridgeFetch(request, url);
+    }
     if (this.standardRateOnly) {
       if (
         request.method !== 'POST' ||
@@ -4359,17 +5227,14 @@ export class MusixquareRoom {
           return json({ error: 'PRO_OWNER_ACCOUNT_DELETED' }, 423);
         }
         await this.validateRehydratedProSockets(ticket.roomGeneration);
-        const pair = new WebSocketPair();
-        const [client, server] = Object.values(pair);
-        if (!client || !server) throw new Error('WEBSOCKET_PAIR_UNAVAILABLE');
+        const [client, server] = createWebSocketPairPorts();
         await this.acceptProSocket(server, ticket);
-        return new Response(null, {
-          status: 101,
-          webSocket: client,
-          ...(credential.responseProtocol
-            ? { headers: { 'Sec-WebSocket-Protocol': credential.responseProtocol } }
-            : {}),
-        });
+        return webSocketUpgradeResponse(
+          client,
+          credential.responseProtocol
+            ? { 'Sec-WebSocket-Protocol': credential.responseProtocol }
+            : undefined,
+        );
       });
     }
 
@@ -4386,9 +5251,7 @@ export class MusixquareRoom {
       return json({ error: 'ROOM_STATE_INVALID' }, 409);
     }
 
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
-    if (!client || !server) throw new Error('WEBSOCKET_PAIR_UNAVAILABLE');
+    const [client, server] = createWebSocketPairPorts();
 
     if (role === 'host') {
       this.acceptPendingHost(server, roomId, peerId);
@@ -4399,7 +5262,7 @@ export class MusixquareRoom {
       closeWithError(server, 'invalid-id', 'INVALID_ROLE');
     }
 
-    return new Response(null, { status: 101, webSocket: client });
+    return webSocketUpgradeResponse(client);
   }
 
   private async handleInternalAdminDecommission(request: Request): Promise<Response> {
@@ -5305,6 +6168,10 @@ export class MusixquareRoom {
   }
 
   async alarm(): Promise<void> {
+    if (this.standardHttpBridgeOnly) {
+      await this.cleanupStandardHttpBridgeLease();
+      return;
+    }
     if (this.standardRateOnly) {
       await this.cleanupStandardWsOpenRate();
       return;
@@ -5581,6 +6448,7 @@ export class MusixquareRoom {
   }
 
   webSocketMessage(ws: SocketPort, raw: unknown): Promise<void> {
+    if (this.standardHttpBridgeOnly) return Promise.resolve();
     // Production Durable Objects answer this exact frame without waking the
     // object. Keep a fallback for local tests and runtimes without auto-response.
     if (raw === SIGNALING_LIVENESS_PING) {
@@ -6599,6 +7467,7 @@ export class MusixquareRoom {
   }
 
   async webSocketClose(ws: SocketPort): Promise<void> {
+    if (this.standardHttpBridgeOnly) return;
     const attachment = readAttachment(ws);
     if (!attachment) return;
 
@@ -6644,6 +7513,7 @@ export class MusixquareRoom {
   }
 
   async webSocketError(ws: SocketPort): Promise<void> {
+    if (this.standardHttpBridgeOnly) return;
     await this.webSocketClose(ws);
   }
 
@@ -6687,13 +7557,6 @@ export class MusixquareRoom {
     }
     await this.clearExpiredHostRelease();
     await this.scheduleMaintenanceAlarm();
-  }
-
-  private removeGuest(peerId: string, ws: SocketPort): Promise<void> {
-    // Serialize close-time binding refreshes with reconnect admissions. A late
-    // close from a replaced socket must not overwrite the replacement's newer
-    // ownership timestamp or remove its live guest index.
-    return this.enqueueGuestAdmission(() => this.finishRemoveGuest(peerId, ws));
   }
 
   private async finishRemoveGuest(peerId: string, ws: SocketPort): Promise<void> {

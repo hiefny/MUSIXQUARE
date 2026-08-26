@@ -1874,12 +1874,12 @@ describe('release deployment rollback state', () => {
     const liveSmokeSteps = workflow
       .split(/(?=^ {6}- name: )/gmu)
       .filter((step) => step.includes('npm run smoke:live:'));
-    expect(liveSmokeSteps).toHaveLength(9);
+    expect(liveSmokeSteps).toHaveLength(10);
     for (const step of liveSmokeSteps) {
       expect(step).not.toMatch(/CLOUDFLARE_(?:D1_)?API_TOKEN/u);
     }
 
-    const lastSmoke = workflow.indexOf('Smoke current PRO public boundary after app deployment');
+    const lastSmoke = workflow.indexOf('Smoke Standard HTTPS signaling fallback');
     const finalVerification = workflow.indexOf(
       'Verify release still owns current production deployments',
     );
@@ -2393,6 +2393,7 @@ describe('release deployment rollback state', () => {
       'Smoke Developer API Worker',
       'Smoke app generation endpoint',
       'Smoke anonymous app account boundary',
+      'Smoke Standard HTTPS signaling fallback',
     ]) {
       const stepStart = workflow.indexOf(`- name: ${stepName}`);
       const nextStep = workflow.indexOf('\n      - name:', stepStart + 1);
@@ -2432,6 +2433,17 @@ describe('release deployment rollback state', () => {
     const remoteSmoke = workflow.slice(remoteSmokeStart, remoteSmokeEnd);
     expect(remoteSmoke).toContain(
       'MXQR_EXPECTED_REMOTE_SHARE_VERSION: ${{ steps.remote_share_deployment.outputs.version_id }}',
+    );
+
+    const httpSignalingSmokeStart = workflow.indexOf(
+      '- name: Smoke Standard HTTPS signaling fallback',
+    );
+    const httpSignalingSmokeEnd = workflow.indexOf('\n      - name:', httpSignalingSmokeStart + 1);
+    const httpSignalingSmoke = workflow.slice(httpSignalingSmokeStart, httpSignalingSmokeEnd);
+    expect(httpSignalingSmoke).toContain("if: inputs.target == 'all'");
+    expect(httpSignalingSmoke).toContain('run: npm run smoke:live:standard-http-signaling');
+    expect(httpSignalingSmoke).toContain(
+      'MXQR_EXPECTED_SIGNALING_VERSION: ${{ steps.signaling_deployment.outputs.version_id }}',
     );
 
     const proRoomSmokeStepNames = [

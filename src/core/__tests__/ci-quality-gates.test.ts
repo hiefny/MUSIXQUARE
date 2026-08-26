@@ -150,6 +150,9 @@ describe('CI quality and supply-chain gates', () => {
     expect(workerCoverage).toContain("'cloudflare/app-worker.ts'");
     expect(workerCoverage).toContain("'cloudflare/pro-room-worker.ts'");
     expect(workerCoverage).toContain("'cloudflare/signaling-worker.ts'");
+    expect(workerCoverage).toContain(
+      "'src/core/__tests__/cloudflare-signaling-http-bridge.test.ts'",
+    );
   });
 
   it('keeps extracted PRO playback authority inside the critical coverage ratchet', () => {

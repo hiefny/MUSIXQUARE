@@ -1100,14 +1100,6 @@ export class MusixquareServiceControl {
           : null;
       const primaryCount = current?.primary.count || 0;
       const primaryAllowed = primaryCount + body.cost <= body.limit;
-      const nextPrimaryCount = primaryAllowed ? primaryCount + body.cost : primaryCount;
-      const primary = abuseRateProjection(
-        primaryAllowed,
-        body.limit,
-        nextPrimaryCount,
-        resetAtMs,
-        nowMs,
-      );
 
       let secondary = null;
       let secondaryAllowed = true;
@@ -1142,13 +1134,25 @@ export class MusixquareServiceControl {
         }
       }
 
-      if (primaryAllowed) {
+      const allowed = primaryAllowed && secondaryAllowed;
+      // The pair is one paid-resource authorization decision. A token that
+      // exhausted only its private secondary quota must not spend the shared
+      // Private Relay/NAT primary bucket and deny unrelated browsers.
+      const committedPrimaryCount = allowed ? primaryCount + body.cost : primaryCount;
+      const primary = abuseRateProjection(
+        primaryAllowed,
+        body.limit,
+        committedPrimaryCount,
+        resetAtMs,
+        nowMs,
+      );
+      if (allowed) {
         const next: AbuseRatePairState = {
           v: 1,
           windowMs: body.windowMs,
           windowStartMs,
           resetAtMs,
-          primary: { limit: body.limit, count: nextPrimaryCount },
+          primary: { limit: body.limit, count: committedPrimaryCount },
           secondaries: nextSecondaries,
         };
         await storagePut(this.storage, ABUSE_RATE_PAIR_STATE_KEY, next);
@@ -1159,7 +1163,6 @@ export class MusixquareServiceControl {
         await setAlarm(resetAtMs);
         this.abuseRateAlarmAt = resetAtMs;
       }
-      const allowed = primaryAllowed && secondaryAllowed;
       return abuseRateResponse(request, {
         allowed,
         deniedBy: !primaryAllowed ? 'primary' : !secondaryAllowed ? 'secondary' : null,

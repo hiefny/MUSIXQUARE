@@ -230,6 +230,11 @@ interface ProRoomSystemAudioStateBase {
   status: ProRoomSystemAudioStatus;
   ownerParticipantId: string | null;
   claimExpiresAt: number | null;
+  /**
+   * Fixed SFU media deadline. A live LAN-direct publication retains a numeric
+   * compatibility value for mixed-generation clients, but that value does not
+   * expire the direct route; owner presence and device-count authority do.
+   */
   liveExpiresAt: number | null;
   publication: ProRoomSystemAudioPublication | null;
 }

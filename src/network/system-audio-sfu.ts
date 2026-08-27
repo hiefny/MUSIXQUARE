@@ -45,12 +45,9 @@ import {
 } from './webrtc-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
 import { getRoomContext } from '../rooms/authority.ts';
-import {
-  cancelResponseBody,
-  readBoundedJsonResponse,
-  withRequestDeadline,
-} from '../core/request-lifetime.ts';
+import { readBoundedJsonResponse, withRequestDeadline } from '../core/request-lifetime.ts';
 import { localFirstApiEndpoints } from './api-endpoints.ts';
+import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
@@ -86,11 +83,6 @@ interface RealtimeResponse {
   sessionDescription?: RealtimeSessionDescription;
   requiresImmediateRenegotiation?: boolean;
   tracks?: RealtimeTrack[];
-}
-
-interface TurnConfigResponse {
-  provider?: unknown;
-  iceServers?: unknown;
 }
 
 interface SfuReadyTrack {
@@ -263,87 +255,11 @@ function getRealtimeEndpoints(): string[] {
   return localFirstApiEndpoints('/api/cloudflare-realtime');
 }
 
-function getTurnConfigEndpoints(): string[] {
-  return localFirstApiEndpoints('/api/get-turn-config');
-}
-
-function normalizeIceServerUrls(value: unknown): string[] {
-  const urls = Array.isArray(value) ? value : [value];
-  return urls.filter((url): url is string => {
-    return typeof url === 'string' && /^(stun|turn|turns):/i.test(url);
-  });
-}
-
-function normalizeRemoteIceServers(value: unknown): RTCIceServer[] {
-  if (!Array.isArray(value)) return [];
-
-  const result: RTCIceServer[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== 'object') continue;
-
-    const server = item as Record<string, unknown>;
-    const urls = normalizeIceServerUrls(server.urls);
-    if (urls.length === 0) continue;
-
-    const iceServer: RTCIceServer = {
-      urls: urls.length === 1 ? urls[0] : urls,
-    };
-    if (typeof server.username === 'string' && server.username) {
-      iceServer.username = server.username;
-    }
-    if (typeof server.credential === 'string' && server.credential) {
-      iceServer.credential = server.credential;
-    }
-
-    result.push(iceServer);
-  }
-
-  return result;
-}
-
 async function loadSfuRtcConfig(signal?: AbortSignal): Promise<RTCConfiguration> {
-  const iceServers = [...BASE_SFU_ICE_SERVERS];
-
-  for (const url of getTurnConfigEndpoints()) {
-    try {
-      const payload = await withRequestDeadline(
-        async (requestSignal) => {
-          const response = await fetchWithCapability(url, 'turn', { signal: requestSignal });
-          if (!response.ok) {
-            await cancelResponseBody(response);
-            return null;
-          }
-          return (await readBoundedJsonResponse(
-            response,
-            SFU_CONTROL_RESPONSE_MAX_BYTES,
-            requestSignal,
-          )) as TurnConfigResponse;
-        },
-        {
-          signal,
-          timeoutMs: SFU_CONTROL_REQUEST_TIMEOUT_MS,
-          timeoutReason: 'SFU_TURN_CONFIG_TIMEOUT',
-        },
-      );
-      if (!payload) continue;
-      if (payload.provider !== 'cloudflare') continue;
-
-      const cloudflareIceServers = normalizeRemoteIceServers(payload.iceServers);
-      if (cloudflareIceServers.length === 0) continue;
-
-      iceServers.push(...cloudflareIceServers);
-      break;
-    } catch (error) {
-      if (signal?.aborted) throw signal.reason ?? error;
-      // User-initiated Turnstile cancel must propagate; otherwise the next
-      // capability-protected fetch in the same flow re-prompts the widget.
-      if (isCapabilityChallengeCancelled(error)) throw error;
-      /* SFU can still try direct Cloudflare STUN */
-    }
-  }
+  const turnCredentials = await getStandardRoomTurnCredentials(signal);
 
   return {
-    iceServers,
+    iceServers: [...BASE_SFU_ICE_SERVERS, ...(turnCredentials?.iceServers ?? [])],
     bundlePolicy: 'max-bundle',
   };
 }

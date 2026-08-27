@@ -1044,25 +1044,74 @@ describe('initSettings effect slider fill sync', () => {
     expect(showToast).toHaveBeenLastCalledWith(t('toast.virtual_bass_off'));
   });
 
-  it('keeps per-effect feedback during system-audio sharing and its notice cooldown', () => {
+  it('shows only the two-line routing notice for every host virtual-effect action', () => {
     installEffectSettingsDom();
     setState('playback.mode', 'system-audio');
     setState('playback.activity', 'playing');
+    const restoreProbe = configureSystemAudioCaptureActivityProbe(() => true);
     bus.on('audio:update-effect', (type, _param, value) => {
       if (type === 'vbass') setState('audio.virtualBass', value / 100);
       if (type === 'exciter') setState('audio.exciter', value > 0);
+      if (type === 'stereo') setState('audio.stereoWidth', value / 100);
     });
-    vi.spyOn(Date, 'now').mockReturnValue(10_000_000_000);
-    initSettings();
 
-    document.querySelector<HTMLButtonElement>('[data-virtual-effect="bass"]')!.click();
-    document.querySelector<HTMLButtonElement>('[data-virtual-effect="treble"]')!.click();
+    try {
+      initSettings();
 
-    expect(showToast).toHaveBeenNthCalledWith(
-      1,
-      `${t('toast.virtual_bass_on')}\n${t('system_audio.effects_guest_only')}`,
-    );
-    expect(showToast).toHaveBeenNthCalledWith(2, t('toast.virtual_treble_on'));
+      document.querySelector<HTMLButtonElement>('[data-virtual-effect="bass"]')!.click();
+      document.querySelector<HTMLButtonElement>('[data-virtual-effect="treble"]')!.click();
+      document.querySelector<HTMLButtonElement>('[data-virtual-effect="surround"]')!.click();
+
+      expect(getState('audio.virtualBass')).toBeCloseTo(0.6);
+      expect(getState('audio.exciter')).toBe(true);
+      expect(getState('audio.stereoWidth')).toBeCloseTo(1.2);
+      expect(showToast).toHaveBeenCalledTimes(3);
+      for (const call of vi.mocked(showToast).mock.calls) {
+        expect(call).toEqual([t('system_audio.effects_guest_only')]);
+      }
+
+      // The policy is derived from current ownership, not a sticky suppression
+      // window: a later action outside system audio keeps its normal feedback.
+      setState('playback.mode', 'file');
+      document.querySelector<HTMLButtonElement>('[data-virtual-effect="bass"]')!.click();
+      expect(showToast).toHaveBeenLastCalledWith(t('toast.virtual_bass_off'));
+    } finally {
+      restoreProbe();
+    }
+  });
+
+  it('keeps local virtual-effect confirmations for a PRO system-audio receiver', () => {
+    installEffectSettingsDom();
+    setState('audio.settingsSyncEnabled', false);
+    setState('room.context', {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: [],
+    });
+    setState('network.hostConn', null);
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'playing');
+    setState('systemAudio.isReceiving', true);
+    const restoreProbe = configureSystemAudioCaptureActivityProbe(() => false);
+    bus.on('audio:update-effect', (type, _param, value) => {
+      if (type === 'vbass') setState('audio.virtualBass', value / 100);
+    });
+
+    try {
+      initSettings();
+
+      document.querySelector<HTMLButtonElement>('[data-virtual-effect="bass"]')!.click();
+
+      expect(getState('audio.virtualBass')).toBeCloseTo(0.6);
+      expect(showToast).toHaveBeenCalledOnce();
+      expect(showToast).toHaveBeenCalledWith(t('toast.virtual_bass_on'));
+    } finally {
+      restoreProbe();
+    }
   });
 
   it('turns every virtual effect off with one atomic event and one toast', () => {
@@ -1088,6 +1137,34 @@ describe('initSettings effect slider fill sync', () => {
     expect(showToast).toHaveBeenCalledWith(t('toast.virtual_effects_off'));
     expect(off.classList.contains('active')).toBe(true);
     expect(off.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('uses the two-line routing notice when a system-audio host turns every effect off', () => {
+    installEffectSettingsDom();
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'playing');
+    setState('audio.virtualBass', 0.6);
+    setState('audio.exciter', true);
+    setState('audio.stereoWidth', 1.2);
+    const restoreProbe = configureSystemAudioCaptureActivityProbe(() => true);
+    const setVirtualEffects = vi.fn();
+    bus.on('audio:set-virtual-effects', setVirtualEffects);
+
+    try {
+      initSettings();
+
+      document.querySelector<HTMLButtonElement>('[data-virtual-effect="off"]')!.click();
+
+      expect(setVirtualEffects).toHaveBeenCalledWith({
+        bass: false,
+        treble: false,
+        surround: false,
+      });
+      expect(showToast).toHaveBeenCalledOnce();
+      expect(showToast).toHaveBeenCalledWith(t('system_audio.effects_guest_only'));
+    } finally {
+      restoreProbe();
+    }
   });
 
   it('reflects remote virtual-effect sync without producing local action toasts', () => {

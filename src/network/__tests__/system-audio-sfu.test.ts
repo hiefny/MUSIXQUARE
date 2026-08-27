@@ -28,6 +28,10 @@ const systemAudioGuestMocks = vi.hoisted(() => ({
   awaitTrustedReceptionBoundary: vi.fn(async () => true),
 }));
 
+const standardRoomPrerequisiteMocks = vi.hoisted(() => ({
+  getTurnCredentials: vi.fn(),
+}));
+
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -75,6 +79,10 @@ vi.mock('../peer-state.ts', () => ({
   safeSend: vi.fn(),
 }));
 
+vi.mock('../standard-room-prerequisites.ts', () => ({
+  getStandardRoomTurnCredentials: standardRoomPrerequisiteMocks.getTurnCredentials,
+}));
+
 vi.mock('../system-audio-guest.ts', () => ({
   cleanupGuestSystemAudio: vi.fn(),
   awaitTrustedSystemAudioReceptionBoundary: systemAudioGuestMocks.awaitTrustedReceptionBoundary,
@@ -97,9 +105,10 @@ interface PendingRealtimeCall {
 }
 
 let pendingRealtimeCalls: PendingRealtimeCall[];
-let pcInstances: Array<{ close: ReturnType<typeof vi.fn> }>;
+let pcInstances: MockRTCPeerConnection[];
 
 class MockRTCPeerConnection {
+  readonly configuration: RTCConfiguration | undefined;
   close = vi.fn();
   // Record connectionstatechange listeners so tests can fire runtime states.
   _listeners: Record<string, Array<() => void>> = {};
@@ -127,18 +136,14 @@ class MockRTCPeerConnection {
   getTransceivers = vi.fn(() => [
     { mid: '0', receiver: { track: { kind: 'audio', id: 'g-track-L' } } },
   ]);
-  constructor() {
+  constructor(configuration?: RTCConfiguration) {
+    this.configuration = configuration;
     pcInstances.push(this);
   }
 }
 
 function installFetchRouting(): void {
-  fetchMock.mockImplementation((input, _capability, init) => {
-    const url = String(input);
-    if (url.includes('get-turn-config')) {
-      // Both TURN endpoints fail fast → base STUN config, no extra suspense.
-      return Promise.resolve(new Response(null, { status: 404 }));
-    }
+  fetchMock.mockImplementation((_input, _capability, init) => {
     const action = init?.body ? (JSON.parse(String(init.body)) as { action: string }).action : '?';
     return new Promise<Response>((resolve, reject) => {
       pendingRealtimeCalls.push({
@@ -241,6 +246,8 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
   systemAudioGuestMocks.awaitTrustedReceptionBoundary.mockResolvedValue(true);
+  standardRoomPrerequisiteMocks.getTurnCredentials.mockReset();
+  standardRoomPrerequisiteMocks.getTurnCredentials.mockResolvedValue(null);
   pendingRealtimeCalls = [];
   pcInstances = [];
   resetLocalSystemAudioSfuCapabilities();
@@ -257,6 +264,90 @@ afterEach(() => {
 });
 
 // ─── Tests ─────────────────────────────────────────────────────────────────
+
+describe('shared Standard-room TURN configuration', () => {
+  it('builds the host SFU peer connection from the page-scoped TURN credential owner', async () => {
+    standardRoomPrerequisiteMocks.getTurnCredentials.mockResolvedValue({
+      provider: 'cloudflare',
+      source: '/api/get-turn-config',
+      iceServers: [
+        {
+          urls: ['turn:turn.cloudflare.com:3478?transport=udp', 'turns:turn.cloudflare.com:5349'],
+          username: 'cached-user',
+          credential: 'cached-credential',
+        },
+      ],
+    });
+    await loadSfuModuleAsHostWithRemoteGuest();
+
+    bus.emit('system-audio:streams-ready');
+    await waitForNewSessionCalls(1);
+
+    expect(standardRoomPrerequisiteMocks.getTurnCredentials).toHaveBeenCalledTimes(1);
+    expect(standardRoomPrerequisiteMocks.getTurnCredentials.mock.calls[0]?.[0]).toBeInstanceOf(
+      AbortSignal,
+    );
+    expect(pcInstances[0]?.configuration).toEqual({
+      iceServers: [
+        { urls: 'stun:stun.cloudflare.com:3478' },
+        {
+          urls: ['turn:turn.cloudflare.com:3478?transport=udp', 'turns:turn.cloudflare.com:5349'],
+          username: 'cached-user',
+          credential: 'cached-credential',
+        },
+      ],
+      bundlePolicy: 'max-bundle',
+    });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/get-turn-config'))).toBe(
+      false,
+    );
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+  });
+
+  it('keeps Cloudflare STUN for a guest when the shared TURN owner has no credentials', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+    const { registerHandler } = await import('../protocol.ts');
+    const handler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      | ((data: unknown, conn?: unknown) => void)
+      | undefined;
+
+    handler!(
+      {
+        version: 1,
+        audience: 'remote',
+        sessionId: 'host-shared-turn-publication',
+        tracks: [{ trackName: 'audio-L-shared-turn', channel: 'L', mid: '0' }],
+      },
+      hostConn,
+    );
+    await waitForNewSessionCalls(1);
+
+    expect(standardRoomPrerequisiteMocks.getTurnCredentials).toHaveBeenCalledTimes(1);
+    expect(standardRoomPrerequisiteMocks.getTurnCredentials.mock.calls[0]?.[0]).toBeInstanceOf(
+      AbortSignal,
+    );
+    expect(pcInstances[0]?.configuration).toEqual({
+      iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }],
+      bundlePolicy: 'max-bundle',
+    });
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/get-turn-config'))).toBe(
+      false,
+    );
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+  });
+});
 
 describe('host publish failure × supersession (F-2403)', () => {
   it('a publish failing AFTER the share stopped must not poison hostSfuUnavailable or emit a stale fallback', async () => {
@@ -913,10 +1004,10 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     setState('network.connectionType', 'local');
 
     let releaseTurn: (() => void) | undefined;
-    fetchMock.mockImplementationOnce(
+    standardRoomPrerequisiteMocks.getTurnCredentials.mockImplementationOnce(
       () =>
-        new Promise<Response>((resolve) => {
-          releaseTurn = () => resolve(new Response(null, { status: 404 }));
+        new Promise<null>((resolve) => {
+          releaseTurn = () => resolve(null);
         }),
     );
     const { registerHandler } = await import('../protocol.ts');
@@ -940,6 +1031,8 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     bus.emit('system-audio:incoming-call', {} as never, 'L');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.shareRoute).toBe('sfu-all');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
+    expect(standardRoomPrerequisiteMocks.getTurnCredentials).toHaveBeenCalledTimes(1);
+    expect(countNewSessionCalls()).toBe(0);
 
     releaseTurn?.();
     await waitForNewSessionCalls(1);

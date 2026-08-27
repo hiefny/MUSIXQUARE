@@ -239,6 +239,25 @@ function startSystemAudioShareLimitTimer(
   );
 }
 
+function syncProSystemAudioShareLimitTimer(): void {
+  if (_captureRoomKind !== 'pro' || !_capturedStream) return;
+  const view = getProSystemAudioViewState();
+  const publication = view.publication;
+  if (
+    view.phase === 'live' &&
+    view.isLocalOwner &&
+    publication &&
+    'sessionId' in publication &&
+    view.liveExpiresAt !== null
+  ) {
+    startSystemAudioShareLimitTimer(view.liveExpiresAt);
+    return;
+  }
+  // PRO LAN-direct uses Cloudflare only for authority/signaling and carries
+  // no metered media packets, so it has no fixed sharing-duration timer.
+  clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
+}
+
 // ─── Public API ───────────────────────────────────────────────────
 
 export function isSystemAudioActive(): boolean {
@@ -354,7 +373,7 @@ async function performSystemAudioCaptureStart(
   startEpoch: number,
 ): Promise<void> {
   const isProRoom = startRoom.kind === 'pro';
-  let authoritativeLiveExpiresAt: number | null = null;
+  let authoritativeSfuLiveExpiresAt: number | null = null;
   // 1. Capture FIRST (user gesture must be synchronous call stack)
   let stream: MediaStream;
   try {
@@ -716,7 +735,10 @@ async function performSystemAudioCaptureStart(
         return;
       }
       trackEndLifecycleCommitted = true;
-      authoritativeLiveExpiresAt = liveState.status === 'live' ? liveState.liveExpiresAt : null;
+      authoritativeSfuLiveExpiresAt =
+        liveState.status === 'live' && 'sessionId' in liveState.publication
+          ? liveState.liveExpiresAt
+          : null;
     } catch (error) {
       if (startEpoch !== _captureStartEpoch) {
         releaseProLeaseAttempt(proLeaseAttempt);
@@ -752,7 +774,13 @@ async function performSystemAudioCaptureStart(
     bus.emit('system-audio:streams-ready');
     broadcastSystemMessage('chat.system_audio_started_system_message');
   }
-  startSystemAudioShareLimitTimer(authoritativeLiveExpiresAt ?? undefined);
+  if (!isProRoom) {
+    startSystemAudioShareLimitTimer();
+  } else if (authoritativeSfuLiveExpiresAt !== null) {
+    startSystemAudioShareLimitTimer(authoritativeSfuLiveExpiresAt);
+  } else {
+    clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
+  }
 
   // 10. Advisory toast — latency is unavoidable, and the host's
   // desktop speakers would otherwise drown out the distributed feed.
@@ -1027,6 +1055,10 @@ export function registerSystemCaptureListeners(): void {
   bus.on('state:room.context', stopAfterCoordinatorAuthorityLoss);
   bus.on('state:network.appRole', stopAfterCoordinatorAuthorityLoss);
   bus.on('state:network.hostConn', stopAfterCoordinatorAuthorityLoss);
+  // A live PRO publication can promote one-way from LAN-direct to SFU after a
+  // late/non-local participant arrives. Arm the two-hour host cutoff only
+  // from that authenticated route state, and disarm it for direct.
+  bus.on('pro-system-audio:state-changed', syncProSystemAudioShareLimitTimer);
   bus.on('pro-system-audio:lease-lost', (reason) => {
     if (_captureRoomKind !== 'pro' || !_capturedStream) return;
     log.info(`[SystemAudio] PRO lease lost (${reason}); stopping local capture`);

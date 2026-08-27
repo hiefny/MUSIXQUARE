@@ -425,9 +425,9 @@ describe('release deployment rollback state', () => {
     );
   });
 
-  it('requires a full release for the first PRO system-audio direct-delivery contract', () => {
+  it('requires a full release for the current PRO system-audio direct-delivery contract', () => {
     const marker = 'cloudflare/pro-system-audio-contract-version.txt';
-    expect(readFileSync(resolve(marker), 'utf8')).toBe('lan-direct-v1\n');
+    expect(readFileSync(resolve(marker), 'utf8')).toBe('lan-direct-unmetered-v2\n');
     expect(EMERGENCY_EXTERNAL_STATE_PATHS).toContain(marker);
     for (const target of ['pro-room', 'signaling', 'app']) {
       expect(runtimePathsForWorker(target)).toContain(marker);

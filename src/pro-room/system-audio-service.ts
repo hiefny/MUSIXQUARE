@@ -71,6 +71,10 @@ const PUBLISHER_RETRY_TIMER = 'pro-system-audio-publisher-retry';
 const DIRECT_PROMOTION_RETRY_TIMER = 'pro-system-audio-direct-promotion-retry';
 const SUBSCRIBER_DISCONNECT_TIMER = 'pro-system-audio-subscriber-disconnect';
 const LEASE_HEARTBEAT_MS = 15_000;
+// LAN-direct has no duration cap, so a lost Cloudflare authority plane must
+// not leave an orphaned local publication running forever. Four missed normal
+// heartbeat intervals allow brief edge/API recovery while remaining bounded.
+const DIRECT_AUTHORITY_LOSS_GRACE_MS = LEASE_HEARTBEAT_MS * 4;
 const RECOVERY_DELAY_MS = 2_500;
 const MAX_DIRECT_TARGETS = MAX_SYSTEM_AUDIO_DEVICES - 1;
 
@@ -95,6 +99,7 @@ let localPublishFlight: {
 let publisherRecoveryFlight: PublisherRecoveryFlight | null = null;
 let boundSessionKey: string | null = null;
 let leaseHeartbeatFailureNotified = false;
+let directAuthorityHeartbeatFailureStartedAt: number | null = null;
 let subscriberFailureGeneration: number | null = null;
 let localLeaseAttemptOwner: LocalLeaseAttemptOwner | null = null;
 let directPromotionFlight: Promise<void> | null = null;
@@ -439,6 +444,7 @@ function terminateOwnedPublisherRecovery(
   localTracks = null;
   localPublicationId = null;
   leaseHeartbeatFailureNotified = false;
+  directAuthorityHeartbeatFailureStartedAt = null;
   publisherRecoveryFlight = null;
   bus.emit('pro-system-audio:lease-lost', reason);
 }
@@ -711,6 +717,7 @@ function acceptPromotedSfuPublication(
   resetProSystemAudioDirectTransport({ notifyPeers: false });
   clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
   leaseHeartbeatFailureNotified = false;
+  directAuthorityHeartbeatFailureStartedAt = null;
   notifyMutation(state);
   log.info(
     `[PRO SystemAudio] Promoted LAN-direct publication to SFU (${reason}${
@@ -915,7 +922,6 @@ function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
     generation: lease.generation,
   };
   const publicationId = state.publication.publicationId;
-  const liveExpiresAt = state.liveExpiresAt;
   let attemptedPublication: ProRoomSystemAudioPublication | null = null;
   const flight = Promise.resolve().then(async () => {
     try {
@@ -923,7 +929,11 @@ function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
         leftTrack: tracks.left,
         rightTrack: tracks.right,
         generation: identity.generation,
-        expiresAt: liveExpiresAt,
+        // The direct state's numeric value is compatibility-only. Use a
+        // provisional future timer while creating the SFU session; the commit
+        // response below immediately replaces it with the server-owned
+        // promotion deadline through settleCanonicalSfuPublisher().
+        expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
         roomId: identity.roomCode,
       });
       const current = activeController.getCurrentState();
@@ -1064,10 +1074,19 @@ function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
   failedSfuPublisherSessionId = null;
   localPublishFlight = null;
   localPublicationId = null;
+  directAuthorityHeartbeatFailureStartedAt = null;
   if ((expectedLeaseTransitions.get(serviceSessionEpoch) ?? 0) > 0) return;
   localTracks = null;
   leaseHeartbeatFailureNotified = false;
   bus.emit('pro-system-audio:lease-lost', reason);
+}
+
+function onLocalLeaseAuthorityConfirmed(): void {
+  // A failed heartbeat POST may have lost only its response. The controller's
+  // fallback authenticated GET still proves the exact generation/owner lease,
+  // so that proof resets direct's bounded authority-loss window while the
+  // normal heartbeat retry continues.
+  directAuthorityHeartbeatFailureStartedAt = null;
 }
 
 export function configureProSystemAudioService(api: ProRoomApiClient): void {
@@ -1075,6 +1094,7 @@ export function configureProSystemAudioService(api: ProRoomApiClient): void {
   controller = new ProRoomSystemAudioController(api, {
     state: onControllerState,
     localLeaseLost: onLocalLeaseLost,
+    localLeaseAuthorityConfirmed: onLocalLeaseAuthorityConfirmed,
   });
   configureProSystemAudioBridge({
     beginLeaseAttempt: beginLocalProSystemAudioLeaseAttempt,
@@ -1127,6 +1147,7 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     localTracks = null;
     localPublicationId = null;
     leaseHeartbeatFailureNotified = false;
+    directAuthorityHeartbeatFailureStartedAt = null;
     cleanupCoordinatorGraph();
     subscriberFailureGeneration = null;
     if (hadLocalActivity && !controllerWillNotifyLeaseLoss) {
@@ -1174,6 +1195,7 @@ export function resetProSystemAudioService(): void {
   localPublishFlight = null;
   boundSessionKey = null;
   leaseHeartbeatFailureNotified = false;
+  directAuthorityHeartbeatFailureStartedAt = null;
   subscriberFailureGeneration = null;
 }
 
@@ -1326,6 +1348,7 @@ function scheduleLeaseHeartbeat(delayMs = LEASE_HEARTBEAT_MS): void {
         .then((state) => {
           if (!isLocalLeaseCurrent(identity)) return;
           leaseHeartbeatFailureNotified = false;
+          directAuthorityHeartbeatFailureStartedAt = null;
           notifyMutation(state);
           if (isLocalLeaseCurrent(identity) && controller?.getCurrentLease()?.status === 'live') {
             scheduleLeaseHeartbeat();
@@ -1334,6 +1357,30 @@ function scheduleLeaseHeartbeat(delayMs = LEASE_HEARTBEAT_MS): void {
         .catch((error) => {
           if (!isLocalLeaseCurrent(identity)) return;
           log.warn('[PRO SystemAudio] Lease heartbeat failed', error);
+          const current = activeController.getCurrentState();
+          const currentIsDirect = Boolean(
+            current?.status === 'live' &&
+            current.generation === identity.generation &&
+            isProRoomSystemAudioDirectPublication(current.publication),
+          );
+          if (currentIsDirect) {
+            const nowMs = Date.now();
+            directAuthorityHeartbeatFailureStartedAt ??= nowMs;
+            if (
+              nowMs - directAuthorityHeartbeatFailureStartedAt >=
+              DIRECT_AUTHORITY_LOSS_GRACE_MS
+            ) {
+              log.warn(
+                '[PRO SystemAudio] LAN-direct authority heartbeat grace elapsed; stopping publication',
+              );
+              onLocalLeaseLost('authoritative-revocation');
+              return;
+            }
+          } else {
+            // SFU still has its fixed authoritative media deadline. Do not
+            // carry a previous direct-route watchdog window across promotion.
+            directAuthorityHeartbeatFailureStartedAt = null;
+          }
           if (!leaseHeartbeatFailureNotified) {
             leaseHeartbeatFailureNotified = true;
             const name = ownerDisplayName(controller?.getCurrentState() ?? null) ?? 'Peer';
@@ -1454,6 +1501,7 @@ export async function publishLocalProSystemAudio(
     }
     clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
     leaseHeartbeatFailureNotified = false;
+    directAuthorityHeartbeatFailureStartedAt = null;
     scheduleLeaseHeartbeat();
     return state;
   } catch (error) {
@@ -1516,6 +1564,7 @@ async function releaseLocalProSystemAudioLeaseInternal(
   clearManagedTimer(PUBLISHER_RETRY_TIMER);
   clearManagedTimer(DIRECT_PROMOTION_RETRY_TIMER);
   leaseHeartbeatFailureNotified = false;
+  directAuthorityHeartbeatFailureStartedAt = null;
   directPromotionFlight = null;
   ambiguousDirectPromotionPublicationId = null;
   failedSfuPublisherSessionId = null;

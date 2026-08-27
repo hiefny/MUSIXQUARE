@@ -24,6 +24,7 @@ import {
   registerSystemCaptureListeners,
   startSystemAudioCapture,
 } from '../system-capture.ts';
+import type { ProRoomSystemAudioPublication } from '../../pro-room/contracts.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
 
 const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
@@ -84,7 +85,7 @@ const proAudio = vi.hoisted(() => ({
     canStop: false,
     claimExpiresAt: null as number | null,
     liveExpiresAt: null as number | null,
-    publication: null,
+    publication: null as ProRoomSystemAudioPublication | null,
   },
   ownerName: null as string | null,
   acquire: vi.fn(),
@@ -1488,6 +1489,88 @@ describe('system audio operating-cost limits', () => {
 
     expect(isSystemAudioActive()).toBe(false);
     expect(toastSpy).toHaveBeenCalledWith(t('system_audio.duration_limit_stopped'));
+  });
+
+  it('keeps a PRO LAN-direct share active past its compatibility timestamp', async () => {
+    vi.useFakeTimers();
+    setProRoom();
+    proAudio.publish.mockResolvedValueOnce({
+      generation: 1,
+      status: 'live',
+      ownerParticipantId: 'member-1',
+      claimExpiresAt: null,
+      liveExpiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+      publication: {
+        publicationId: 'publication-direct-1',
+        transport: 'lan-direct',
+        protocolVersion: 1,
+      },
+    });
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS + 60_000);
+
+    expect(isSystemAudioActive()).toBe(true);
+    expect(proAudio.release).not.toHaveBeenCalled();
+  });
+
+  it('starts the PRO two-hour host timer from authoritative SFU promotion state', async () => {
+    vi.useFakeTimers();
+    setProRoom();
+    proAudio.publish.mockResolvedValueOnce({
+      generation: 1,
+      status: 'live',
+      ownerParticipantId: 'member-1',
+      claimExpiresAt: null,
+      liveExpiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+      publication: {
+        publicationId: 'publication-promoted-1',
+        transport: 'lan-direct',
+        protocolVersion: 1,
+      },
+    });
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    vi.advanceTimersByTime(30 * 60_000);
+
+    const promotedExpiresAt = Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS;
+    Object.assign(proAudio.view, {
+      phase: 'live',
+      generation: 1,
+      ownerParticipantId: 'member-1',
+      isLocalOwner: true,
+      canStart: false,
+      canStop: true,
+      liveExpiresAt: promotedExpiresAt,
+      publication: {
+        publicationId: 'publication-promoted-1',
+        sessionId: 'session-promoted-1',
+        tracks: [],
+      },
+    });
+    bus.emit(
+      'pro-system-audio:state-changed',
+      {
+        roomCode: '000001',
+        initialized: true,
+        phase: 'live',
+        generation: 1,
+        ownerParticipantId: 'member-1',
+        isLocalOwner: true,
+        localRequestPending: false,
+        canStart: false,
+        canStop: true,
+        claimExpiresAt: null,
+        liveExpiresAt: promotedExpiresAt,
+      },
+      null,
+    );
+
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS - 1);
+    expect(isSystemAudioActive()).toBe(true);
+    vi.advanceTimersByTime(1);
+    expect(isSystemAudioActive()).toBe(false);
   });
 
   it('clears the two-hour timer when sharing stops earlier', async () => {

@@ -340,10 +340,16 @@ Durable Object serializes acquisition so only one owner incarnation can prepare
 or publish at a time. The private lease credential remains in the acquiring
 browser and the Durable Object. Public room state contains only the exact owner,
 generation, and one fenced publication descriptor. A 45-second preparing claim
-bounds abandoned native-picker attempts. Once committed, the live lease has a
-fixed two-hour deadline and cannot be extended by heartbeat.
+bounds abandoned native-picker attempts. An SFU publication receives a fixed
+two-hour deadline when it first commits and heartbeat cannot extend it. A
+LAN-direct publication carries a legacy numeric `liveExpiresAt` value for
+mixed-generation compatibility, but has no fixed duration cap because
+Cloudflare carries no media packets. Its exact owner presence, four-device
+fence, and bounded client authority-heartbeat watchdog still end orphaned or
+revoked shares.
 
-The preferred PRO media path is `lan-direct-v1`. System audio is limited to four
+The preferred PRO media path uses the protocol-v1 LAN-direct descriptor under
+the `lan-direct-unmetered-v2` matched-release contract. System audio is limited to four
 active devices total, so the publisher opens at most three
 `RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" })` routes and sends only targeted
 offer/answer/ICE frames over the authenticated PRO WebSocket. A route passes
@@ -394,6 +400,9 @@ same-generation mutation remain state conflicts. As soon as canonical live
 state is SFU, `system-audio.signal` authority is denied in both directions, so
 stale direct offer/answer/candidate/close frames cannot continue under the
 shared ID. Promotion is therefore one-way for the publication lifetime.
+The promotion atomically replaces direct's compatibility timestamp with server
+time plus two hours. A lost-response retry observes the same SFU publication
+without extending that deadline.
 
 Host candidates have a deliberate privacy boundary. The authenticated signaling
 relay carries only a small bounded set of component-1 UDP host candidates, and
@@ -406,7 +415,8 @@ isolation, VPN policy, an mDNS-incompatible browser, or an
 enterprise firewall may
 likewise prevent direct reachability. The product does not request TURN
 credentials to force that path and instead promotes the whole publication to
-SFU. Publisher exit, tab-incarnation replacement, lease expiry, or a fifth
+SFU. Publisher exit, tab-incarnation replacement, SFU lease expiry, bounded
+direct authority-heartbeat loss, or a fifth
 active device atomically fences the old generation and ends the share.
 
 The cost boundary is four active devices total. Acquisition is refused above
@@ -695,7 +705,7 @@ Also verify:
   path only with a valid PRO Worker-issued signed ticket offered after the
   stable `mxqr.pro-signaling.v1` WebSocket subprotocol marker;
 - `cloudflare/pro-system-audio-contract-version.txt` contains exactly
-  `lan-direct-v1`, and the PRO, signaling, and app runtime inventories all
+  `lan-direct-unmetered-v2`, and the PRO, signaling, and app runtime inventories all
   include that marker;
 - the `system-audio-signal` channel relays only exact, generation/publication/
   negotiation-fenced offer, answer, candidate, or close payloads to one current
@@ -771,9 +781,10 @@ mutating request. The App keeps maintenance refreshes off the public request
 path: a cold isolate may admit traffic before its first canonical snapshot, so
 the dashboard switch is not a strict global freeze.
 
-The current PRO system-audio contract marker is `lan-direct-v1`. Its first
-cutover is a matched `all` release because the PRO authority, signaling relay,
-and app/client must understand the descriptor and one-way promotion together.
+The current PRO system-audio contract marker is `lan-direct-unmetered-v2`. Its
+unmetered-direct cutover, like the original v1 direct-descriptor cutover, is a
+matched `all` release because the PRO authority, signaling relay, and app/client
+must agree on direct-expiry semantics and one-way promotion.
 Release recovery compares the marker between the immutable candidate and the
 captured production checkpoint. Once any marker-changing candidate component
 is live, an older or unverifiable baseline cannot be restored piecemeal: the
@@ -952,13 +963,14 @@ co-located announcement store instead of the dedicated instance. Use target
 `all` to repair forward when the release workflow reports that compatibility
 floor; do not improvise a partial rollback for that pair.
 
-`lan-direct-v1` adds a separate PRO system-audio rollback floor across the App,
-PRO, and signaling Workers. After any component of the marker-changing release
-has become live, do not restore one of those three below v1 or rely on an old
-client silently ignoring direct offers: that can strand a direct descriptor or
-split the media contract. Let the recovery workflow preserve all three and
-repair forward. Only an exact checkpoint proving that no cutover component
-became live may roll back below the marker.
+`lan-direct-unmetered-v2` is the current PRO system-audio rollback floor across
+the App, PRO, and signaling Workers. After any component of the marker-changing
+release has become live, do not restore one of those three below v2: an old PRO
+authority expires direct while a new app intentionally has no direct host timer,
+and an old app can stop a direct route from its compatibility timestamp. Let
+the recovery workflow preserve all three and repair forward. Only an exact
+checkpoint proving that no cutover component became live may roll back below
+the marker. The original v1 descriptor/promotion floor remains included in v2.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.

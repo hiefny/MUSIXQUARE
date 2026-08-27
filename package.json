@@ -158,7 +158,7 @@
     "lil-gui": "0.19.2",
     "peer": "^1.0.2",
     "postcss": "8.5.23",
-    "prettier": "^3.8.1",
+    "prettier": "^3.9.6",
     "satori": "^0.26.0",
     "serve": "14.2.6",
     "subset-font": "^2.5.0",

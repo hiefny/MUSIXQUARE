@@ -9,6 +9,7 @@ import { log } from '../core/log.ts';
 import { bus, createBusScope } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, PLAYBACK_STATE } from '../core/constants.ts';
+import { formatSystemAudioProfileLabel } from '../core/system-audio-profile.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
 import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
@@ -280,7 +281,9 @@ function getAverageBitrateLabel(item: TrackMeta): string {
 }
 
 function getTrackSubtitle(item: TrackMeta): string {
-  if (item.systemAudioMode || item.systemAudioPlaceholder) return '';
+  if (item.systemAudioMode || item.systemAudioPlaceholder) {
+    return formatSystemAudioProfileLabel(item.systemAudioSurface);
+  }
 
   if (item.type === 'youtube') return item.artist?.trim() || t('common.youtube_video');
 

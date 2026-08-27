@@ -1730,10 +1730,33 @@ describe('initPlayerControls track metadata subtitle', () => {
     expect(subtitle.textContent).toBe('MUSIXQUARE Live');
   });
 
-  it('keeps the row empty for system audio placeholders', () => {
+  it.each([
+    ['sharing', 'browser', '≤256 kbps · BROWSER'],
+    ['sharing', 'window', '≤256 kbps · WINDOW'],
+    ['sharing', 'display', '≤256 kbps · DISPLAY'],
+    ['receiving', 'browser', '≤256 kbps · BROWSER'],
+    ['receiving', 'window', '≤256 kbps · WINDOW'],
+    ['receiving', 'display', '≤256 kbps · DISPLAY'],
+  ] as const)('renders the %s system-audio %s profile', (mode, surface, expected) => {
     const subtitle = renderTrackMetadata();
 
-    setState('player.currentTrackMeta', createSystemAudioTrackMeta('sharing'));
+    setState('player.currentTrackMeta', createSystemAudioTrackMeta(mode, undefined, surface));
+
+    expect(subtitle.textContent).toBe(expected);
+    expect(subtitle.title).toBe(expected);
+
+    bus.emit('i18n:changed', 'en');
+    expect(subtitle.textContent).toBe(expected);
+  });
+
+  it('leaves an extensionless unresolved local file blank instead of inventing a format', () => {
+    const subtitle = renderTrackMetadata();
+
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'untagged-audio',
+      title: 'Untagged audio',
+    });
 
     expect(subtitle.textContent).toBe('');
     expect(subtitle.hasAttribute('title')).toBe(false);

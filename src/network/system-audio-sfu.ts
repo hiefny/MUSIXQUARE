@@ -19,6 +19,7 @@ import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-cap
 import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
+import { createSystemAudioStartFrame } from './system-audio-start.ts';
 import {
   awaitTrustedSystemAudioReceptionBoundary,
   cleanupGuestSystemAudio,
@@ -1293,7 +1294,7 @@ function handleSfuCapability(
     // The host may have already released this late peer as unsupported before
     // its feature frame arrived. Re-arm the room-wide receive placeholder;
     // current receivers treat duplicate START as an idempotent no-op.
-    safeSend(conn, { type: MSG.SYSTEM_AUDIO_START });
+    safeSend(conn, createSystemAudioStartFrame());
   }
   publishToEligiblePeer(conn.peer);
 }

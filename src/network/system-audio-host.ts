@@ -11,6 +11,7 @@ import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { getPeer, safeSend } from './peer-state.ts';
+import { createSystemAudioStartFrame } from './system-audio-start.ts';
 import {
   isSystemAudioActive,
   getStreamL,
@@ -335,7 +336,7 @@ function callRemoteGuestsForFallback(): void {
     if (!reserveSystemAudioFallbackDirect(p.id)) continue;
     _remoteFallbackPeerIds.add(p.id);
     if (p.conn?.open) {
-      safeSend(p.conn, { type: MSG.SYSTEM_AUDIO_START });
+      safeSend(p.conn, createSystemAudioStartFrame());
       pushDebugCall({
         peerId: p.id,
         peerLabel: p.label,
@@ -394,7 +395,7 @@ function sendActiveSystemAudioToPeer(peerId: string): void {
     return;
   }
   if (peer?.conn?.open) {
-    safeSend(peer.conn, { type: MSG.SYSTEM_AUDIO_START });
+    safeSend(peer.conn, createSystemAudioStartFrame());
     pushDebugCall({ ...debugBase, action: 'start-sent', reason: 'late-peer' });
   } else {
     pushDebugCall({ ...debugBase, action: 'late-skip', reason: 'no-data-conn' });

@@ -4457,6 +4457,24 @@
     fill: var(--primary);
   }
 
+  .help-question-icon-bg {
+    fill: var(--primary-filled);
+  }
+
+  .help-question-icon-mark {
+    fill: #fff;
+  }
+
+  @media (forced-colors: active) {
+    .help-question-icon-bg {
+      fill: Highlight;
+    }
+
+    .help-question-icon-mark {
+      fill: HighlightText;
+    }
+  }
+
   .help-desc {
     font-size: 14px;
     color: var(--text-sub);

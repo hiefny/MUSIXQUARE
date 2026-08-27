@@ -13,6 +13,9 @@ import type {
   PlaybackActivityValue,
 } from '../core/constants.ts';
 import type { RoomEffectsState } from '../core/room-effects.ts';
+import type { SystemAudioSurface } from '../core/system-audio-profile.ts';
+
+export type { SystemAudioSurface } from '../core/system-audio-profile.ts';
 
 // ─── Peer / Network ────────────────────────────────────────────────
 
@@ -219,6 +222,7 @@ export interface ResidentFile extends TransferIdentity {
 export interface TrackMeta extends Partial<PlaylistItem> {
   systemAudioPlaceholder?: boolean;
   systemAudioMode?: 'sharing' | 'receiving';
+  systemAudioSurface?: SystemAudioSurface;
 }
 
 // ─── Storage Commands & Events ─────────────────────────────────────
@@ -834,7 +838,7 @@ export interface ProtocolMap {
   'request-chat-command': { command: string; args: string[] };
 
   // ── System Audio Sharing ──────────────────────────────────────
-  'system-audio-start': NoPayload;
+  'system-audio-start': { surface?: SystemAudioSurface };
   'system-audio-sfu-capability': {
     version: 1;
     localAudience: true;

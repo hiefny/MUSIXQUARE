@@ -27,6 +27,7 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
+import { readSystemAudioStartSurface } from './system-audio-start.ts';
 import { claimGuestDirectSystemAudioRoute } from './system-audio-delivery.ts';
 import type { DataConnection, MediaConnection, TrackMeta } from '../types/index.ts';
 
@@ -834,13 +835,13 @@ export function cleanupGuestSystemAudio(): void {
  * frame. PRO rooms call this only after authenticating the server-owned
  * live-share lease.
  */
-export function beginTrustedSystemAudioReception(): boolean {
+export function beginTrustedSystemAudioReception(surface: unknown = 'display'): boolean {
   if (isSystemAudioPlaceholder() || _pendingTrustedReceptionGeneration !== null) {
     return false;
   }
   const generation = ++_trustedReceptionGeneration;
   _pendingTrustedReceptionGeneration = generation;
-  const committed = commitTrustedSystemAudioReception();
+  const committed = commitTrustedSystemAudioReception(surface);
   if (_pendingTrustedReceptionGeneration === generation) {
     _pendingTrustedReceptionGeneration = null;
   }
@@ -848,7 +849,7 @@ export function beginTrustedSystemAudioReception(): boolean {
   return committed;
 }
 
-function commitTrustedSystemAudioReception(): boolean {
+function commitTrustedSystemAudioReception(surface: unknown): boolean {
   if (isSystemAudioPlaceholder()) return false;
   _debugLastStartAt = Date.now();
   _debugLastStartIgnoredReason = '';
@@ -860,7 +861,7 @@ function commitTrustedSystemAudioReception(): boolean {
   clearManagedTimer('preloadUiWatchdog');
   claimPlaybackOwner('system-audio', {
     pending: true,
-    currentTrackMeta: createSystemAudioTrackMeta('receiving'),
+    currentTrackMeta: createSystemAudioTrackMeta('receiving', undefined, surface),
   });
   bus.emit('system-audio:host-started');
   armReceiveWatchdog();
@@ -886,7 +887,7 @@ export function registerSystemAudioGuestListeners(): void {
 
   registerHandler(
     MSG.SYSTEM_AUDIO_START,
-    (_data: Record<string, unknown>, conn?: DataConnection) => {
+    (data: Record<string, unknown>, conn?: DataConnection) => {
       if (!isHostBroadcast(conn)) {
         _debugLastStartIgnoredAt = Date.now();
         _debugLastStartIgnoredReason = conn ? 'non-host-connection' : 'missing-connection';
@@ -899,7 +900,7 @@ export function registerSystemAudioGuestListeners(): void {
         return;
       }
       log.info('[SysAudioGuest] Host started system audio sharing');
-      beginTrustedSystemAudioReception();
+      beginTrustedSystemAudioReception(readSystemAudioStartSurface(data));
     },
   );
 

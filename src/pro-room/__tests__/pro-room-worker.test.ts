@@ -17775,6 +17775,9 @@ describe('PRO room system-audio ownership lease', () => {
   });
 
   it('commits an exact LAN-direct publication and permits only its one-way SFU promotion', async () => {
+    vi.useFakeTimers();
+    const startedAtMs = new Date('2026-08-27T00:00:00.000Z').getTime();
+    vi.setSystemTime(startedAtMs);
     const context = await activatedRoom();
     const { worker, ownerCookie } = context;
     const acquired = await acquireSystemAudio(worker, ownerCookie);
@@ -17796,9 +17799,16 @@ describe('PRO room system-audio ownership lease', () => {
 
     const direct = await commit(directPublication);
     expect(direct.status).toBe(200);
-    await expect(responseJson(direct)).resolves.toMatchObject({
+    const directEnvelope = await responseJson(direct);
+    expect(directEnvelope).toMatchObject({
       systemAudio: { status: 'live', generation, publication: directPublication },
     });
+    // Keep the numeric v1 wire/storage shape during the matched rollout. It is
+    // a compatibility value for direct and must not be interpreted as a
+    // metered-media expiry by the v2 authority.
+    expect(directEnvelope.systemAudio.liveExpiresAt).toBe(
+      startedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+    );
     expect((await commit(directPublication)).status).toBe(200);
     expect(
       (
@@ -17818,6 +17828,13 @@ describe('PRO room system-audio ownership lease', () => {
     await expect(responseJson(restored)).resolves.toMatchObject({
       systemAudio: { status: 'live', generation, publication: directPublication },
     });
+    const restartedInternal = restarted as unknown as {
+      room: { systemAudio: { liveExpiresAt: number; status: string } };
+      alarm(): Promise<void>;
+    };
+    restartedInternal.room.systemAudio.liveExpiresAt = Date.now() - 1;
+    await restartedInternal.alarm();
+    expect(restartedInternal.room.systemAudio.status).toBe('live');
     const commitAfterRestart = (nextPublication: unknown) =>
       restarted.fetch(
         jsonRequest(
@@ -17828,12 +17845,22 @@ describe('PRO room system-audio ownership lease', () => {
         ),
       );
 
+    const promotedAtMs = Date.now();
     const promoted = await commitAfterRestart(publication);
     expect(promoted.status).toBe(200);
-    await expect(responseJson(promoted)).resolves.toMatchObject({
+    const promotedEnvelope = await responseJson(promoted);
+    expect(promotedEnvelope).toMatchObject({
       systemAudio: { status: 'live', generation, publication },
     });
-    expect((await commitAfterRestart(publication)).status).toBe(200);
+    expect(promotedEnvelope.systemAudio.liveExpiresAt).toBe(
+      promotedAtMs + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+    );
+    vi.setSystemTime(promotedAtMs + 10_000);
+    const promotionRetry = await commitAfterRestart(publication);
+    expect(promotionRetry.status).toBe(200);
+    expect((await responseJson(promotionRetry)).systemAudio.liveExpiresAt).toBe(
+      promotedEnvelope.systemAudio.liveExpiresAt,
+    );
     expect((await commitAfterRestart(directPublication)).status).toBe(409);
     expect(
       (await commitAfterRestart({ ...publication, sessionId: 'different_realtime_session_01' }))
@@ -18154,7 +18181,7 @@ describe('PRO room system-audio ownership lease', () => {
     expect(JSON.stringify(stored.systemAudio)).not.toContain('sessionOwnerToken');
   });
 
-  it('holds preparing for at most 45 seconds and live for at most two hours without heartbeat extension', async () => {
+  it('holds preparing for at most 45 seconds and an SFU publication for at most two hours without heartbeat extension', async () => {
     const { worker, state, ownerCookie } = await activatedRoom();
     const acquiredAt = Date.now();
     const acquired = await acquireSystemAudio(worker, ownerCookie);

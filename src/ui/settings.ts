@@ -317,27 +317,36 @@ function formatReverbValDisp(param: string, v: number): void {
 /**
  * During system-audio sharing the host's effect chain is only heard by the
  * guests (the host still hears raw system audio). Nudge the host with a
- * toast the first time they commit a change after a short cooldown.
- *
- * When a primary action message is supplied, keep that confirmation visible
- * on every action and append the guest-only note only when its cooldown opens.
- * Returns `true` when the host is in sharing mode so callers can avoid
- * stacking a second toast.
+ * toast the first time they commit a continuous-control change after a short
+ * cooldown.
  */
 const _GUEST_ONLY_TOAST_COOLDOWN_MS = 5000;
 let _guestOnlyToastLastAt = 0;
-function _notifyGuestOnlyEffects(primaryMessage?: string): boolean {
-  if (getState('network.hostConn')) return false; // this client is a guest
-  if (!isPlaybackModeSystemAudio()) return false;
+function _isSystemAudioSharingHost(): boolean {
+  return isPlaybackModeSystemAudio() && isSystemAudioCaptureActive();
+}
+
+function _notifyGuestOnlyEffects(): void {
+  if (!_isSystemAudioSharingHost()) return;
   const now = Date.now();
   if (now - _guestOnlyToastLastAt > _GUEST_ONLY_TOAST_COOLDOWN_MS) {
     _guestOnlyToastLastAt = now;
-    const guestOnlyMessage = t('system_audio.effects_guest_only');
-    showToast(primaryMessage ? `${primaryMessage}\n${guestOnlyMessage}` : guestOnlyMessage);
-  } else if (primaryMessage) {
-    showToast(primaryMessage);
+    showToast(t('system_audio.effects_guest_only'));
   }
-  return true;
+}
+
+/**
+ * Virtual-effect chips are discrete actions, so the host always gets the
+ * routing result instead of a misleading local "effect enabled" confirmation.
+ * Guests and every non-system-audio context retain their action confirmation.
+ */
+function showVirtualEffectActionToast(actionMessage: string): void {
+  if (_isSystemAudioSharingHost()) {
+    _guestOnlyToastLastAt = Date.now();
+    showToast(t('system_audio.effects_guest_only'));
+    return;
+  }
+  showToast(actionMessage);
 }
 
 function updateAudioEffect(type: string, param: string, value: number, isPreview = false): void {
@@ -617,17 +626,14 @@ function toggleVirtualEffect(effect: VirtualEffect): void {
   emitVirtualEffectChange(effect, on);
 
   const actionMessage = t(VIRTUAL_EFFECT_TOAST_KEYS[effect][on ? 'on' : 'off']);
-  // Keep the action confirmation visible while retaining the system-audio
-  // routing warning on its existing cooldown.
-  if (on && _notifyGuestOnlyEffects(actionMessage)) return;
-  showToast(actionMessage);
+  showVirtualEffectActionToast(actionMessage);
 }
 
 function disableAllVirtualEffects(): void {
   const offState: VirtualEffectsToggleState = { bass: false, treble: false, surround: false };
   syncVirtualEffectsControls(offState);
   bus.emit('audio:set-virtual-effects', offState);
-  showToast(t('toast.virtual_effects_off'));
+  showVirtualEffectActionToast(t('toast.virtual_effects_off'));
 }
 
 // ─── Device List ─────────────────────────────────────────────────

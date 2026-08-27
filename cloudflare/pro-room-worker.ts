@@ -5131,7 +5131,13 @@ export class MusixquareProRoom {
     }
     if (this.activeRoom.systemAudio.status === 'preparing') {
       candidates.push(this.activeRoom.systemAudio.claimExpiresAt);
-    } else if (this.activeRoom.systemAudio.status === 'live') {
+    } else if (
+      this.activeRoom.systemAudio.status === 'live' &&
+      this.activeRoom.systemAudio.publication &&
+      !('transport' in this.activeRoom.systemAudio.publication)
+    ) {
+      // A direct publication has no metered-media deadline. Do not wake the
+      // Durable Object for its compatibility-only liveExpiresAt value.
       candidates.push(this.activeRoom.systemAudio.liveExpiresAt);
     }
     for (const asset of Object.values(this.activeRoom.assets)) {
@@ -9670,6 +9676,16 @@ export class MusixquareProRoom {
       (state.status === 'preparing' &&
         (!isSafeInteger(state.claimExpiresAt) || state.claimExpiresAt <= nowMs)) ||
       (state.status === 'live' &&
+        // LAN-direct keeps the legacy numeric field for mixed-generation
+        // readers, but no Cloudflare media allocation exists to meter. Its
+        // authority is instead bounded by the exact owner presence and the
+        // four-device fence above. The first one-way SFU promotion replaces
+        // this compatibility timestamp with a fresh, authoritative deadline.
+        !(
+          state.publication &&
+          'transport' in state.publication &&
+          state.publication.transport === 'lan-direct'
+        ) &&
         (!isSafeInteger(state.liveExpiresAt) || state.liveExpiresAt <= nowMs));
     if (!ownerMissingOrSuperseded && !overDeviceLimit && !expired) return false;
     this.clearSystemAudioLease();
@@ -9787,8 +9803,14 @@ export class MusixquareProRoom {
         return errorResponse('SYSTEM_AUDIO_ALREADY_COMMITTED', 409);
       }
       if (isDirectToSfuPromotion) {
+        const nowMs = Date.now();
         this.activeRoom.systemAudio.publication = publication;
-        auth.participant.lastSeenAtMs = Date.now();
+        // Promotion is the first point at which this publication allocates
+        // Cloudflare media. Install its fixed server-owned budget atomically
+        // with the canonical route change. Idempotent commit retries take the
+        // already-SFU branch above and heartbeat never slides this deadline.
+        this.activeRoom.systemAudio.liveExpiresAt = nowMs + SYSTEM_AUDIO_LIVE_TTL_MS;
+        auth.participant.lastSeenAtMs = nowMs;
         await this.persist();
         await this.broadcastServerEvent(this.systemAudioInvalidationEvent());
       }

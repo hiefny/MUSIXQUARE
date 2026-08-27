@@ -585,13 +585,15 @@ A rollback cannot re-enable an old browser coordinator against server-authority
 state. Recovery must restore a matched Worker/client/data checkpoint or
 forward-fix the current protocol.
 
-The checked-in PRO system-audio contract marker is `lan-direct-v1`. Its first
-cutover requires one full PRO/signaling/app release. If any component of that
-marker-changing candidate became live, recovery treats v1 as a forward floor:
+The checked-in PRO system-audio contract marker is
+`lan-direct-unmetered-v2`. Its cutover requires one full PRO/signaling/app
+release. If any component of that marker-changing candidate became live,
+recovery treats v2 as a forward floor:
 it preserves all three components and repairs forward instead of restoring an
-older app that could ignore a direct descriptor or an older Worker that could
-mis-handle same-ID promotion. Only an immutable checkpoint proving that no
-cutover component landed may restore the pre-v1 set.
+older app that can stop direct at its compatibility timestamp or an older PRO
+Worker that still expires direct. Only an immutable checkpoint proving that no
+cutover component landed may restore the pre-v2 set. The original protocol-v1
+direct descriptor and same-ID promotion invariants remain part of this floor.
 
 ## Rejected alternatives
 

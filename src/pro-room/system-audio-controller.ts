@@ -61,6 +61,8 @@ export interface ProRoomSystemAudioViewState {
 interface ProRoomSystemAudioControllerObserver {
   state(state: ProRoomSystemAudioViewState): void;
   localLeaseLost?(reason: ProRoomSystemAudioLeaseLossReason): void;
+  /** A fallback authenticated GET proved the private lease is still canonical. */
+  localLeaseAuthorityConfirmed?(): void;
 }
 
 /** Explicit test seam for constructing controller observers. */
@@ -406,7 +408,10 @@ export class ProRoomSystemAudioController {
         accepted.status !== 'idle' &&
         this.#isLocalOwner(accepted) &&
         this.#lease?.generation === generation;
-      if (sameLeaseStillAuthoritative) throw heartbeatError;
+      if (sameLeaseStillAuthoritative) {
+        this.observer.localLeaseAuthorityConfirmed?.();
+        throw heartbeatError;
+      }
       return accepted;
     }
     this.#assertOperationCurrent(roomCode, epoch);

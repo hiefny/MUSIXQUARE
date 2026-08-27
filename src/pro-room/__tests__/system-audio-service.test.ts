@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../../core/constants.ts';
 import { bus } from '../../core/events.ts';
 import { getManagedTimer } from '../../core/timers.ts';
 import type {
@@ -952,6 +953,7 @@ describe('PRO system-audio service orchestration', () => {
       transport: 'lan-direct',
       protocolVersion: 1,
     });
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).not.toBeNull();
   });
 
   it('promotes one live direct publication to the SFU when a late join cannot reconcile', async () => {
@@ -983,6 +985,7 @@ describe('PRO system-audio service orchestration', () => {
     mocks.resetDirect.mockClear();
     api.commitSystemAudioPublication.mockClear();
     mocks.reconcileDirect.mockReset().mockResolvedValueOnce(false).mockResolvedValue(true);
+    const promotionStartedAt = Date.now();
     bindProSystemAudioSession(snapshotWithLateParticipant());
 
     await vi.waitFor(() => expect(mocks.publish).toHaveBeenCalledTimes(1));
@@ -991,6 +994,12 @@ describe('PRO system-audio service orchestration', () => {
       { participantId: REMOTE_ID, routeToken: 'joined-at:2' },
       { participantId: 'participant_late_0001', routeToken: 'joined-at:3' },
     ]);
+    expect(mocks.publish.mock.calls[0]?.[0].expiresAt).toBeGreaterThanOrEqual(
+      promotionStartedAt + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+    );
+    expect(mocks.publish.mock.calls[0]?.[0].expiresAt).toBeLessThanOrEqual(
+      Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+    );
     expect(api.commitSystemAudioPublication.mock.calls[0]?.[0]).toMatchObject({
       generation: 1,
       publication: {
@@ -2366,5 +2375,44 @@ describe('PRO system-audio service orchestration', () => {
 
     await vi.advanceTimersByTimeAsync(30_000);
     expect(api.heartbeatSystemAudioLease).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds an unmetered direct publisher when Cloudflare authority heartbeats stay unreachable', async () => {
+    vi.useFakeTimers();
+    const reasons: string[] = [];
+    bus.on('pro-system-audio:lease-lost', (reason) => reasons.push(reason));
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    api.getSystemAudioState.mockResolvedValueOnce(idle());
+    const heartbeatFailure = new Error('authority plane unreachable');
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      api.heartbeatSystemAudioLease.mockRejectedValueOnce(heartbeatFailure);
+      api.getSystemAudioState.mockRejectedValueOnce(heartbeatFailure);
+    }
+    api.acquireSystemAudioLease.mockResolvedValueOnce({
+      systemAudio: preparing(),
+      leaseId: LEASE_ID,
+    });
+    api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+      localLiveWithPublication(request.publication),
+    );
+
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    await publishLocalProSystemAudio({} as MediaStreamTrack, {} as MediaStreamTrack);
+    mocks.resetDirect.mockClear();
+
+    // The first normal heartbeat fails at 15 s. Brief recovery remains
+    // allowed, but four additional normal heartbeat intervals without an
+    // authoritative response must close the otherwise-unbounded direct route.
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(reasons).toEqual([]);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(reasons).toEqual(['authoritative-revocation']);
+    expect(mocks.resetDirect).toHaveBeenCalledWith({
+      notifyPeers: true,
+      reason: 'superseded',
+    });
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).toBeNull();
   });
 });

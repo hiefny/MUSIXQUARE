@@ -186,9 +186,11 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 function harness() {
   const views: ProRoomSystemAudioViewState[] = [];
   const lost: string[] = [];
+  const authorityConfirmations: true[] = [];
   const observer: ProRoomSystemAudioControllerObserverForTests = {
     state: (state) => views.push(state),
     localLeaseLost: (reason) => lost.push(reason),
+    localLeaseAuthorityConfirmed: () => authorityConfirmations.push(true),
   };
   const api = {
     getSystemAudioState: vi.fn<ProRoomSystemAudioApiForTests['getSystemAudioState']>(),
@@ -201,7 +203,7 @@ function harness() {
   const controller = new ProRoomSystemAudioController(api, observer);
   controller.bindSession(sessionSnapshot());
   controller.acceptProSystemAudioState(idle());
-  return { api, controller, views, lost };
+  return { api, controller, views, lost, authorityConfirmations };
 }
 
 describe('ProRoomSystemAudioController', () => {
@@ -348,7 +350,7 @@ describe('ProRoomSystemAudioController', () => {
   });
 
   it('preserves a heartbeat failure for retry while the authenticated state is unchanged', async () => {
-    const { api, controller, lost } = harness();
+    const { api, controller, lost, authorityConfirmations } = harness();
     const heartbeatError = new Error('heartbeat response lost');
     api.acquireSystemAudioLease.mockResolvedValue({ systemAudio: preparing(), leaseId: LEASE_ID });
     api.commitSystemAudioPublication.mockResolvedValue(live());
@@ -360,6 +362,7 @@ describe('ProRoomSystemAudioController', () => {
 
     await expect(controller.heartbeatProSystemAudioLease()).rejects.toBe(heartbeatError);
     expect(lost).toEqual([]);
+    expect(authorityConfirmations).toEqual([true]);
     expect(controller.getCurrentLease()).toMatchObject({ generation: 1, hasCredential: true });
   });
 

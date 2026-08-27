@@ -4450,6 +4450,8 @@
   }
 
   .help-title svg {
+    display: block;
+    flex: none;
     width: 22px;
     height: 22px;
     fill: var(--primary);
@@ -5988,7 +5990,7 @@
   }
 
   /* Setup sections use natural flow; their owning area controls overflow. */
-  .onboarding-card > div:not(.ob-actions, .cscroll-track) {
+  .onboarding-card > div:not(.ob-actions):not(.cscroll-track) {
     flex: none;
     padding: 0 28px;
     display: flex;
@@ -10283,7 +10285,7 @@
     }
 
     /* Content padding inside right panel */
-    .setup-mobile-view > div:not(.ob-actions, .setup-header-pill, .cscroll-track) {
+    .setup-mobile-view > div:not(.ob-actions):not(.setup-header-pill):not(.cscroll-track) {
       padding-left: var(--setup-px) !important;
       padding-right: var(--setup-px-end) !important;
     }
@@ -10563,6 +10565,13 @@
    reveal — style.css cannot be parsed without these rules existing,
    so the [opacity:0] default applies before first paint. */
 
+/* Chromium 79 treats the inert property as an expando. Keep pointer input
+   outside the active overlay disabled while the runtime focus guard supplies
+   the corresponding keyboard/remote fallback. */
+[inert] {
+  pointer-events: none !important;
+}
+
 body {
   opacity: 0;
   transition: opacity 0.15s ease-out;
@@ -10596,7 +10605,7 @@ body:has(> noscript .noscript-fallback) {
 /* This parser-owned fallback remains effective when a newly deployed HTML
    document is controlled by an older service worker/cache generation. Normal
    setup removes setup-boot-block and cancels both delayed zero-motion changes. */
-html.setup-boot-block body:not(:has(> noscript .noscript-fallback)) {
+html.setup-boot-block body {
   animation: setup-boot-body-fail-open 0s linear var(--setup-boot-failure-delay, 15s) forwards !important;
 }
 
@@ -10616,7 +10625,7 @@ html.setup-boot-block body:not(:has(> noscript .noscript-fallback)) {
   background: var(--bg);
 }
 
-html.setup-boot-block body:not(:has(> noscript .noscript-fallback)) > .bootstrap-failure {
+html.setup-boot-block body > .bootstrap-failure {
   display: flex;
   visibility: hidden;
   opacity: 0;

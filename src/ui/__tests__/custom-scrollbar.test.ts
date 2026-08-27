@@ -997,10 +997,10 @@ describe('compact-landscape scrollbar ownership contract', () => {
   it('does not style the setup scrollbar as an onboarding content section', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     expect(stylesheet).toMatch(
-      /\.onboarding-card\s*>\s*div:not\(\.ob-actions,\s*\.cscroll-track\)\s*\{/,
+      /\.onboarding-card\s*>\s*div:not\(\.ob-actions\):not\(\.cscroll-track\)\s*\{/,
     );
     expect(stylesheet).toMatch(
-      /\.setup-mobile-view\s*>\s*div:not\(\.ob-actions,\s*\.setup-header-pill,\s*\.cscroll-track\)\s*\{/,
+      /\.setup-mobile-view\s*>\s*div:not\(\.ob-actions\):not\(\.setup-header-pill\):not\(\.cscroll-track\)\s*\{/,
     );
   });
 
@@ -1046,7 +1046,7 @@ describe('compact-landscape scrollbar ownership contract', () => {
       /#media-source-overlay\s+\.setup-slot-list\s*>\s*\.file-select-btn\s*\{[^}]*flex-shrink:\s*0;[^}]*margin-top:\s*0;/s,
     );
     expect(desktopStylesheet).toMatch(
-      /#media-source-overlay\s+\.setup-card\.full-screen\s*>\s*div:not\(\.ob-actions,\s*\.cscroll-track\)/,
+      /#media-source-overlay\s+\.setup-card\.full-screen\s*>\s*div:not\(\.ob-actions\):not\(\.cscroll-track\)/,
     );
     expect(desktopStylesheet).toMatch(
       /#media-source-overlay\s+\.setup-card\.full-screen\s*>\s*\.setup-slot-list\s*\{[^}]*flex-shrink:\s*1;[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s,

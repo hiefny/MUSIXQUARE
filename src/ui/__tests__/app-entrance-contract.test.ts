@@ -77,6 +77,12 @@ describe('app entrance choreography contract', () => {
     expect(appStylesheet).toMatch(
       /body:has\(> noscript \.noscript-fallback\)\s*\{\s*opacity:\s*1;/u,
     );
+    expect(appMarkup).toContain(
+      '<noscript><link rel="stylesheet" href="/noscript.css" /></noscript>',
+    );
+    expect(readFileSync(resolve('public/noscript.css'), 'utf8')).toMatch(
+      /body\s*\{[\s\S]*?opacity:\s*1\s*!important;/u,
+    );
     expect(appMarkup).toMatch(
       /id="bootstrap-failure"[\s\S]*?role="alert"[\s\S]*?<form method="get">[\s\S]*?<button id="bootstrap-retry" type="submit">/u,
     );
@@ -84,10 +90,10 @@ describe('app entrance choreography contract', () => {
       /html\.setup-boot-failed \.bootstrap-failure\s*\{\s*display:\s*flex;/u,
     );
     expect(appStylesheet).toMatch(
-      /html\.setup-boot-block body:not\(:has\(> noscript \.noscript-fallback\)\)[\s\S]*?setup-boot-body-fail-open[\s\S]*?var\(--setup-boot-failure-delay, 15s\)/u,
+      /html\.setup-boot-block body\s*\{[\s\S]*?setup-boot-body-fail-open[\s\S]*?var\(--setup-boot-failure-delay, 15s\)/u,
     );
     expect(appStylesheet).toMatch(
-      /html\.setup-boot-block[\s\S]*?body:not\(:has\(> noscript \.noscript-fallback\)\)[\s\S]*?> \.bootstrap-failure[\s\S]*?setup-boot-failure-reveal[\s\S]*?var\(--setup-boot-failure-delay, 15s\)/u,
+      /html\.setup-boot-block body > \.bootstrap-failure[\s\S]*?setup-boot-failure-reveal[\s\S]*?var\(--setup-boot-failure-delay, 15s\)/u,
     );
     expect(showSetupBlock).toMatch(
       /hasTerminalSetupBootFailure\(\)[\s\S]*?animateTransition\([\s\S]*?hasTerminalSetupBootFailure\(\)[\s\S]*?classList\.add\('active'\)/u,

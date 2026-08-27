@@ -1184,16 +1184,17 @@ async function bootstrap(): Promise<void> {
         bus.emit('app:lazy-feature-load-failed', 'connect', loadFailure);
         return;
       }
-      loading ??= import('./ui/connect-session-runtime.ts')
-        .then(() => undefined)
-        .catch((error) => {
-          // A failed ESM evaluation may remain cached for this document. Keep
-          // this boundary terminal and offer a real reload instead of a fake
-          // same-specifier retry.
-          loadFailure = error;
-          loadFailed = true;
-          bus.emit('app:lazy-feature-load-failed', 'connect', error);
-        });
+      loading ??= (async () => {
+        const { connectSessionRuntimeReady } = await import('./ui/connect-session-runtime.ts');
+        await connectSessionRuntimeReady;
+      })().catch((error) => {
+        // A failed ESM evaluation may remain cached for this document. Keep
+        // this boundary terminal and offer a real reload instead of a fake
+        // same-specifier retry.
+        loadFailure = error;
+        loadFailed = true;
+        bus.emit('app:lazy-feature-load-failed', 'connect', error);
+      });
     };
     bus.on('state:network.appRole', (role) => {
       if (role === 'host' || role === 'guest') load();

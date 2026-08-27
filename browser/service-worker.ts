@@ -86,6 +86,7 @@ const APP_SHELL = [
   './account-complete.css',
   BOOTSTRAP_CACHE_KEY,
   './fouc-cleanup.js',
+  './noscript.css',
   './wordmark-anim.js',
   './dummy_audio.mp3',
   './icons/icon-512.png',

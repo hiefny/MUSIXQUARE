@@ -157,7 +157,7 @@ function _translationTemplate(key: I18nKey, params?: TranslationParams): string 
 function _interpolate(str: string, params?: TranslationParams): string {
   if (params) {
     for (const [k, v] of Object.entries(params)) {
-      str = str.replaceAll(`{{${k}}}`, String(v));
+      str = str.split(`{{${k}}}`).join(String(v));
     }
   }
   return str;
@@ -185,7 +185,7 @@ export function tHtml(key: I18nKey, params?: Record<string, string | number>): s
         /[&<>"']/g,
         (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] || c,
       );
-      str = str.replaceAll(`{{${k}}}`, escaped);
+      str = str.split(`{{${k}}}`).join(escaped);
     }
   }
   return str;

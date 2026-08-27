@@ -1615,7 +1615,7 @@ export function playPrevTrack(): void {
       }
     } else {
       if (repeatMode === 1 && playlist.length > 1) {
-        const lastQueueItemId = playlist.at(-1)?.queueItemId;
+        const lastQueueItemId = playlist[playlist.length - 1]?.queueItemId;
         if (lastQueueItemId) {
           observePlayTrack(playTrack(lastQueueItemId), 'wrap to the last YouTube track');
         }
@@ -1668,7 +1668,7 @@ export function playPrevTrack(): void {
   } else {
     // At first track: wrap to last if repeat-all, otherwise restart
     if (repeatMode === 1 && playlist.length > 1) {
-      const lastQueueItemId = playlist.at(-1)?.queueItemId;
+      const lastQueueItemId = playlist[playlist.length - 1]?.queueItemId;
       if (lastQueueItemId) {
         observePlayTrack(playTrack(lastQueueItemId), 'wrap to the last track');
       }

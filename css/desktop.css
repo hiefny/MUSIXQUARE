@@ -411,7 +411,7 @@
 
     /* Desktop: no backdrop, no drag handle */
     .chat-backdrop {
-      display: none !important;
+      display: none;
     }
 
     .chat-drawer-header {
@@ -455,7 +455,7 @@
        8b. Settings Sub-Tab Navigation (Desktop)
        --------------------------------------------------- */
     .settings-subtab-nav {
-      display: flex !important;
+      display: flex;
       gap: 4px;
       padding: 16px 20px 0;
       border-bottom: 1px solid var(--divider);
@@ -699,8 +699,8 @@
     }
 
     /* Padding for inner content (media/youtube overlays) */
-    #media-source-overlay .setup-card.full-screen > div:not(.ob-actions, .cscroll-track),
-    #youtube-url-overlay .setup-card.full-screen > div:not(.ob-actions, .cscroll-track) {
+    #media-source-overlay .setup-card.full-screen > div:not(.ob-actions):not(.cscroll-track),
+    #youtube-url-overlay .setup-card.full-screen > div:not(.ob-actions):not(.cscroll-track) {
       padding-left: 40px;
       padding-right: 40px;
     }
@@ -911,12 +911,8 @@
     .play-action-buttons .file-select-btn {
       min-height: 56px;
       height: auto;
-      width: 160px !important;
-      min-width: 160px !important;
       padding: 10px 16px;
       border-radius: 20px;
-      flex: none !important;
-      /* Override the shared flex utility used by mobile actions. */
       justify-content: center;
       align-items: center;
     }
@@ -940,6 +936,14 @@
    desktop dashboard is transformed, give them the same inverse viewport so
    dialogs and full-screen flows are enlarged exactly once. */
 @media (min-width: 1280px) {
+  /* This must remain unlayered so it can override the shared unlayered
+     `.flex-1` utility without relying on cross-layer !important semantics. */
+  .play-action-buttons .file-select-btn {
+    width: 160px;
+    min-width: 160px;
+    flex: none;
+  }
+
   .dialog.account-dialog,
   .dialog.administrator-permissions-dialog {
     max-height: calc(var(--desktop-viewport-height) - 48px);

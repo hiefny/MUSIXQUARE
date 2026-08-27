@@ -34,7 +34,8 @@ describe('Connect session runtime boundary', () => {
     runtimeMocks.getState.mockReturnValue(devices);
     runtimeMocks.getActiveProRoomAdministrators.mockReturnValue(administrators);
 
-    await import('../connect-session-runtime.ts');
+    const { connectSessionRuntimeReady } = await import('../connect-session-runtime.ts');
+    await connectSessionRuntimeReady;
 
     expect(runtimeMocks.initConnect).toHaveBeenCalledOnce();
     expect(runtimeMocks.emit).toHaveBeenCalledWith(

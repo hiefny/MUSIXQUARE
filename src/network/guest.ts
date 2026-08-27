@@ -15,6 +15,7 @@ import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
 import { isCapabilityChallengeCancelled } from '../core/capability.ts';
+import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
 import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { getDevicePlatform } from '../core/platform.ts';
 import { registerHandlers } from './protocol.ts';
@@ -346,7 +347,9 @@ export function joinSession(
         const typedTransportError =
           e && typeof e === 'object' && typeof (e as Record<string, unknown>).type === 'string';
         reportGuestConnectionFailure(
-          typedTransportError ? e : new Error('NETWORK_INIT_FAILED', { cause: e }),
+          typedTransportError || isLazyFeatureLoadError(e)
+            ? e
+            : new Error('NETWORK_INIT_FAILED', { cause: e }),
         );
       });
     return;

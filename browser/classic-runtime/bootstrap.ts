@@ -22,6 +22,182 @@
  * CSP omit `script-src 'unsafe-inline'`.
  */
 
+(function installLegacyBrowserCompatibility() {
+  // webOS TV 6.x ships Chromium 79. Its module loader is usable once the app
+  // bundle is downlevelled, but ParentNode.replaceChildren arrived later. The
+  // onboarding renderer calls it during every cold start, so install the
+  // standards-shaped primitive before the stylesheet or module graph loads.
+  function installReplaceChildren(prototype: object | undefined) {
+    if (!prototype || 'replaceChildren' in prototype) return;
+    try {
+      Object.defineProperty(prototype, 'replaceChildren', {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: function (this: ParentNode, ...nodes: Array<Node | string>) {
+          const fragment = document.createDocumentFragment();
+          for (let index = 0; index < nodes.length; index += 1) {
+            const node = nodes[index];
+            fragment.appendChild(typeof node === 'string' ? document.createTextNode(node) : node!);
+          }
+          while (this.firstChild) this.removeChild(this.firstChild);
+          this.appendChild(fragment);
+        },
+      });
+    } catch {
+      // A constrained host object must not prevent the remaining first-paint
+      // bootstrap or the app's explicit failure surface from running.
+    }
+  }
+
+  installReplaceChildren(window.Element?.prototype);
+  installReplaceChildren(window.Document?.prototype);
+  installReplaceChildren(window.DocumentFragment?.prototype);
+
+  // AbortSignal-owned DOM listeners arrived in Chromium 88. The application
+  // uses that ownership model pervasively to retire setup, chat, and player
+  // handlers; Chromium 79 otherwise accepts but ignores the signal member and
+  // silently accumulates duplicate listeners after every navigation cycle.
+  const eventTargetPrototype = window.EventTarget?.prototype;
+  const abortControllerConstructor = window.AbortController;
+  if (eventTargetPrototype && abortControllerConstructor) {
+    const nativeAddEventListener = eventTargetPrototype.addEventListener;
+    const nativeRemoveEventListener = eventTargetPrototype.removeEventListener;
+    let signalOptionWorks = false;
+    try {
+      const probeTarget = document.createDocumentFragment();
+      const probeController = new abortControllerConstructor();
+      let probeCalled = false;
+      const probeListener = function () {
+        probeCalled = true;
+      };
+      nativeAddEventListener.call(probeTarget, 'mxqr-signal-probe', probeListener, {
+        signal: probeController.signal,
+      });
+      probeController.abort();
+      probeTarget.dispatchEvent(new Event('mxqr-signal-probe'));
+      signalOptionWorks = !probeCalled;
+      nativeRemoveEventListener.call(probeTarget, 'mxqr-signal-probe', probeListener);
+    } catch {
+      signalOptionWorks = false;
+    }
+
+    if (!signalOptionWorks) {
+      try {
+        Object.defineProperty(eventTargetPrototype, 'addEventListener', {
+          configurable: true,
+          enumerable: false,
+          writable: true,
+          value: function (
+            this: EventTarget,
+            type: string,
+            listener: EventListenerOrEventListenerObject | null,
+            options?: boolean | AddEventListenerOptions,
+          ) {
+            const signal =
+              options && typeof options === 'object' ? (options.signal ?? undefined) : undefined;
+            if (signal?.aborted) return;
+            nativeAddEventListener.call(this, type, listener, options);
+            if (!signal || !listener) return;
+
+            const removeOnAbort = () => {
+              nativeRemoveEventListener.call(this, type, listener, options);
+              nativeRemoveEventListener.call(signal, 'abort', removeOnAbort);
+            };
+            nativeAddEventListener.call(signal, 'abort', removeOnAbort);
+          },
+        });
+      } catch {
+        // Continue to the existing app failure and diagnostics surfaces if a
+        // vendor shell exposes a non-configurable EventTarget prototype.
+      }
+    }
+  }
+
+  // Chromium 79 predates abort reasons and throwIfAborted(). Route changes,
+  // bounded HTTP signaling, and media transfers use the exact reason as a
+  // semantic fence, so retain it on native signals rather than collapsing
+  // every cancellation into an indistinguishable AbortError.
+  const abortSignalPrototype = window.AbortSignal?.prototype;
+  const abortControllerPrototype = window.AbortController?.prototype;
+  if (abortSignalPrototype && abortControllerPrototype && !('reason' in abortSignalPrototype)) {
+    const abortReasons = new WeakMap<AbortSignal, unknown>();
+    const nativeAbort = abortControllerPrototype.abort;
+    try {
+      Object.defineProperty(abortSignalPrototype, 'reason', {
+        configurable: true,
+        enumerable: false,
+        get: function (this: AbortSignal) {
+          return abortReasons.get(this);
+        },
+      });
+      Object.defineProperty(abortControllerPrototype, 'abort', {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: function (this: AbortController, reason?: unknown) {
+          if (!this.signal.aborted) {
+            abortReasons.set(
+              this.signal,
+              reason === undefined
+                ? new DOMException('This operation was aborted', 'AbortError')
+                : reason,
+            );
+          }
+          nativeAbort.call(this);
+        },
+      });
+    } catch {
+      // Keep the native cancellation primitive available even if a vendor
+      // shell exposes non-configurable AbortController prototypes.
+    }
+  }
+  if (abortSignalPrototype && !('throwIfAborted' in abortSignalPrototype)) {
+    try {
+      Object.defineProperty(abortSignalPrototype, 'throwIfAborted', {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: function (this: AbortSignal) {
+          if (this.aborted) throw this.reason;
+        },
+      });
+    } catch {
+      // SessionScope retains explicit signal.aborted checks at its boundaries.
+    }
+  }
+
+  // Crypto.randomUUID arrived after Chromium 79. A few optional PRO paths use
+  // it directly, so preserve secure IDs with getRandomValues instead of a
+  // timestamp or Math.random fallback.
+  const cryptoProvider = window.crypto;
+  if (
+    cryptoProvider &&
+    typeof cryptoProvider.randomUUID !== 'function' &&
+    typeof cryptoProvider.getRandomValues === 'function'
+  ) {
+    try {
+      Object.defineProperty(cryptoProvider, 'randomUUID', {
+        configurable: true,
+        enumerable: false,
+        writable: true,
+        value: function (): `${string}-${string}-${string}-${string}-${string}` {
+          const bytes = cryptoProvider.getRandomValues(new Uint8Array(16));
+          bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+          bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+          let hex = '';
+          for (let index = 0; index < bytes.length; index += 1) {
+            hex += (bytes[index] ?? 0).toString(16).padStart(2, '0');
+          }
+          return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+        },
+      });
+    } catch {
+      // Optional PRO paths retain their existing explicit failure semantics.
+    }
+  }
+})();
+
 (function () {
   type ClaimPurpose = 'activation' | 'recovery' | 'transfer';
 

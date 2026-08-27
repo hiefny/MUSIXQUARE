@@ -14,7 +14,13 @@ class LazyFeatureLoadError extends Error {
     readonly feature: LazyFeatureName,
     cause: unknown,
   ) {
-    super(FAILURE_MESSAGES[feature], { cause });
+    super(FAILURE_MESSAGES[feature]);
+    // Chromium 79 ignores ErrorOptions. Own the standard field explicitly so
+    // failure diagnostics and recursive classification retain the root cause.
+    Object.defineProperty(this, 'cause', {
+      configurable: true,
+      value: cause,
+    });
   }
 }
 

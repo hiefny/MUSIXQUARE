@@ -170,7 +170,7 @@ export function updateOverlayOpenClass(): void {
 // LIFO order: index 0 = oldest currently-shown modal, last index = top.
 // Module-scoped so successive open/close events preserve stack order
 // without re-deriving it from the DOM.
-const _modalStack: string[] = [];
+const _modalStack: OverlayId[] = [];
 const CENTERED_OVERLAY_Z_INDEX_BASE = 6000;
 const CENTERED_OVERLAY_Z_INDEX_STEP = 10;
 const OVERLAY_INERT_OWNER = 'overlay-stack';
@@ -178,6 +178,7 @@ const OVERLAY_INERT_OWNER = 'overlay-stack';
 interface ManagedInertState {
   readonly owners: Set<string>;
   readonly initiallyInert: boolean;
+  readonly initialAriaHidden: string | null;
 }
 
 const _managedInert = new WeakMap<HTMLElement, ManagedInertState>();
@@ -201,12 +202,14 @@ export function setElementInertForOwner(
       state = {
         owners: new Set<string>(),
         initiallyInert: Boolean(element.inert || element.hasAttribute('inert')),
+        initialAriaHidden: element.getAttribute('aria-hidden'),
       };
       _managedInert.set(element, state);
     }
     state.owners.add(owner);
     element.inert = true;
     element.setAttribute('inert', '');
+    element.setAttribute('aria-hidden', 'true');
     return;
   }
 
@@ -215,18 +218,91 @@ export function setElementInertForOwner(
   if (state.owners.size > 0) {
     element.inert = true;
     element.setAttribute('inert', '');
+    element.setAttribute('aria-hidden', 'true');
     return;
   }
 
   element.inert = state.initiallyInert;
   if (state.initiallyInert) element.setAttribute('inert', '');
   else element.removeAttribute('inert');
+  if (state.initialAriaHidden === null) element.removeAttribute('aria-hidden');
+  else element.setAttribute('aria-hidden', state.initialAriaHidden);
   _managedInert.delete(element);
+}
+
+const LEGACY_INERT_FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+let _topModalId: OverlayId | null = null;
+let _legacyInertGuardInstalled = false;
+
+function topModalElement(): HTMLElement | null {
+  return _topModalId ? document.getElementById(_topModalId) : null;
+}
+
+function focusTopModal(): void {
+  const overlay = topModalElement();
+  if (!overlay) return;
+  const focusTarget = [
+    ...overlay.querySelectorAll<HTMLElement>(LEGACY_INERT_FOCUSABLE_SELECTOR),
+  ].find((candidate) => {
+    if (candidate.hidden || candidate.tabIndex < 0) return false;
+    if ('disabled' in candidate && candidate.disabled === true) return false;
+    if (candidate.closest('[hidden], [aria-hidden="true"], [inert]')) return false;
+    for (let current: HTMLElement | null = candidate; current; current = current.parentElement) {
+      const style = getComputedStyle(current);
+      if (style.display === 'none' || style.visibility === 'hidden') return false;
+      if (current === overlay) break;
+    }
+    return true;
+  });
+  if (focusTarget) {
+    focusTarget.focus({ preventScroll: true });
+    return;
+  }
+  if (!overlay.hasAttribute('tabindex')) overlay.setAttribute('tabindex', '-1');
+  overlay.focus({ preventScroll: true });
+}
+
+function installLegacyInertInteractionGuard(): void {
+  if (_legacyInertGuardInstalled) return;
+  _legacyInertGuardInstalled = true;
+
+  document.addEventListener(
+    'focusin',
+    (event) => {
+      const target = event.target;
+      if (!(target instanceof Element) || !target.closest('[inert]')) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      focusTopModal();
+    },
+    true,
+  );
+  for (const eventName of ['pointerdown', 'click'] as const) {
+    document.addEventListener(
+      eventName,
+      (event) => {
+        const target = event.target;
+        if (!(target instanceof Element) || !target.closest('[inert]')) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      },
+      true,
+    );
+  }
 }
 
 /** @internal Test-only helper to reset stack between cases. */
 export function __resetModalStackForTests(): void {
   _modalStack.length = 0;
+  _topModalId = null;
   for (const child of Array.from(document.body?.children ?? [])) {
     if (child instanceof HTMLElement) {
       setElementInertForOwner(child, OVERLAY_INERT_OWNER, false);
@@ -286,6 +362,7 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
       const overlay = OVERLAYS.find((x) => x.id === id);
       return overlay && !overlay.fullscreen;
     }) ?? (_modalStack.length > 0 ? _modalStack[_modalStack.length - 1] : null);
+  _topModalId = top;
 
   applyCenteredOverlayZIndexes();
 
@@ -295,6 +372,8 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
     if (!(child instanceof HTMLElement)) continue;
     setElementInertForOwner(child, OVERLAY_INERT_OWNER, top !== null && child.id !== top);
   }
+  const activeElement = document.activeElement;
+  if (activeElement instanceof HTMLElement && activeElement.closest('[inert]')) focusTopModal();
 }
 
 export function syncOverlayState(preferredTopOverlayId?: OverlayId): void {
@@ -331,6 +410,7 @@ export function initOverlayObservers(): void {
   }
 
   try {
+    installLegacyInertInteractionGuard();
     _overlayObserver = new MutationObserver(() => {
       syncOverlayState();
     });

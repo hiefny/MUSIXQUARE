@@ -331,9 +331,9 @@ describe('initOverlayObservers — modal stack', () => {
 
   beforeEach(() => {
     document.body.innerHTML = `
-      <header id="hdr"></header>
+      <header id="hdr"><button id="background-action"><svg><path id="background-icon"></path></svg>Background</button></header>
       <div id="non-modal"></div>
-      <div id="setup-overlay"></div>
+      <div id="setup-overlay"><button id="setup-hidden" hidden>Hidden</button><button id="setup-action">Setup</button></div>
       <div id="demo-overlay"></div>
       <div id="media-source-overlay"></div>
       <div id="youtube-url-overlay"></div>
@@ -378,6 +378,30 @@ describe('initOverlayObservers — modal stack', () => {
     expect(isInert('demo-overlay')).toBe(true);
     expect(isInert('dialog-overlay')).toBe(true);
     expect(isInert('setup-overlay')).toBe(false);
+    expect(document.getElementById('hdr')?.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('contains focus and pointer input when native inert behavior is unavailable', () => {
+    const setup = document.getElementById('setup-overlay')!;
+    const setupAction = document.getElementById('setup-action') as HTMLButtonElement;
+    const backgroundAction = document.getElementById('background-action') as HTMLButtonElement;
+    const backgroundClick = vi.fn();
+    backgroundAction.addEventListener('click', backgroundClick);
+
+    setup.classList.add('active');
+    syncOverlayState('setup-overlay');
+    backgroundAction.focus();
+    expect(document.activeElement).toBe(setupAction);
+
+    const blockedClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    expect(document.getElementById('background-icon')?.dispatchEvent(blockedClick)).toBe(false);
+    expect(backgroundClick).not.toHaveBeenCalled();
+
+    setup.classList.remove('active');
+    syncOverlayState();
+    expect(document.getElementById('hdr')?.hasAttribute('aria-hidden')).toBe(false);
+    backgroundAction.focus();
+    expect(document.activeElement).toBe(backgroundAction);
   });
 
   it('moves dialog to top when shown over setup, inerting setup', async () => {

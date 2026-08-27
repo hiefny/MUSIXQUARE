@@ -15,7 +15,10 @@ if (devices) bus.emit('network:device-list-update', [...devices]);
 // A direct PRO claim/owner transfer publishes its authority directory before
 // network.appRole triggers this chunk. Replay that canonical snapshot after
 // Connect has subscribed so the administrator panel cannot open empty.
-if (getRoomContext().kind === 'pro') {
+async function replayProRoomAdministrators(): Promise<void> {
   const { getActiveProRoomAdministrators } = await import('../pro-room/runtime.ts');
   bus.emit('pro-room:administrators-updated', getActiveProRoomAdministrators());
 }
+
+export const connectSessionRuntimeReady: Promise<void> =
+  getRoomContext().kind === 'pro' ? replayProRoomAdministrators() : Promise.resolve();

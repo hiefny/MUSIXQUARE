@@ -25,6 +25,7 @@ export const CLASSIC_RUNTIME_ASSETS = [
   {
     sourcePath: 'browser/classic-runtime/account-complete.ts',
     outputPath: 'account-complete.js',
+    target: 'es2018',
   },
   {
     sourcePath: 'browser/classic-runtime/admin.ts',
@@ -63,6 +64,7 @@ export const CLASSIC_RUNTIME_ASSETS = [
   {
     sourcePath: 'browser/classic-runtime/fouc-cleanup.ts',
     outputPath: 'fouc-cleanup.js',
+    target: 'es2018',
   },
   {
     sourcePath: 'browser/classic-runtime/landing-bootstrap.ts',
@@ -79,6 +81,7 @@ export const CLASSIC_RUNTIME_ASSETS = [
   {
     sourcePath: 'browser/classic-runtime/primary-font-loader.ts',
     outputPath: 'primary-font-loader.js',
+    target: 'es2018',
   },
   {
     sourcePath: 'browser/classic-runtime/static-language.ts',
@@ -87,6 +90,7 @@ export const CLASSIC_RUNTIME_ASSETS = [
   {
     sourcePath: 'browser/classic-runtime/wordmark-anim.ts',
     outputPath: 'wordmark-anim.js',
+    target: 'es2018',
   },
 ] as const satisfies readonly ClassicRuntimeAsset[];
 

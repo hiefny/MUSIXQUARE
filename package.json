@@ -141,7 +141,7 @@
     "@csstools/postcss-cascade-layers": "6.0.0",
     "@csstools/postcss-is-pseudo-class": "6.0.0",
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.58.2",
+    "@playwright/test": "^1.62.1",
     "@resvg/resvg-wasm": "^2.6.2",
     "@types/jsdom": "^28.0.3",
     "@types/node": "24.13.3",

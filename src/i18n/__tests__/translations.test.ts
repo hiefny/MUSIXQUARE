@@ -132,7 +132,7 @@ describe('Translation key integrity', () => {
       );
     }
 
-    expect(ko['setup.hello_select_role']).toBe('뮤직스퀘어에서 방을 만들거나 참여해 주세요.');
+    expect(ko['setup.hello_select_role']).toBe('방을 만들거나 참여해 주세요.');
     expect(ko['setup.host_button']).toBe('방 만들기');
     expect(ko['setup.guest_button']).toBe('방 참여하기');
     expect(en['setup.hello_select_role']).toBe('Create a room or join one.');

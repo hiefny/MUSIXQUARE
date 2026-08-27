@@ -67,6 +67,13 @@ const TURNSTILE_OVERLAY_FADE_MS = 180;
 const SILENT_CAPABILITY_WARM_TIMEOUT_MS = 8_000;
 const CAPABILITY_HTTP_TIMEOUT_MS = 15_000;
 const CAPABILITY_RESPONSE_MAX_BYTES = 64 * 1024;
+const CAPABILITY_POW_EXPIRY_TOLERANCE_SECONDS = 5;
+const CAPABILITY_POW_TTL_MIN_SECONDS = 30;
+const CAPABILITY_POW_TTL_MAX_SECONDS = 5 * 60;
+// Same-origin responses expose the server-generated Date header, so ordinary
+// clients do not depend on their wall clock at all. Keep a bounded fallback
+// for development proxies and older WebViews that omit/hide Date.
+const CAPABILITY_POW_FALLBACK_CLOCK_SKEW_SECONDS = CAPABILITY_POW_TTL_MAX_SECONDS;
 const TURNSTILE_SCRIPT_SRC =
   'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
 const TURNSTILE_STYLE_ID = 'mxqr-turnstile-style';
@@ -604,7 +611,7 @@ function hasLeadingZeroBits(bytes: Uint8Array, difficulty: number): boolean {
 async function solveCapabilityProofOfWork(
   challenge: string,
   difficulty: number,
-  expiresAt: number,
+  deadlineMs: number,
   cancelGeneration: number,
   signal?: AbortSignal,
 ): Promise<string> {
@@ -619,7 +626,7 @@ async function solveCapabilityProofOfWork(
     if (cancelGeneration !== capabilityCancelGeneration) {
       throw createCapabilityChallengeCancelledError('Capability challenge cancelled');
     }
-    if (Date.now() / 1000 >= expiresAt) {
+    if (performance.now() >= deadlineMs) {
       throw new Error('Capability proof-of-work challenge expired');
     }
 
@@ -649,7 +656,8 @@ async function getCapabilityProofOfWork(
 ): Promise<{ challenge: string; solution: string }> {
   throwIfAborted(signal);
   const cancelGeneration = capabilityCancelGeneration;
-  const payload = await withRequestDeadline(
+  const requestStartedAtMs = performance.now();
+  const challengeResponse = await withRequestDeadline(
     async (requestSignal) => {
       const response = await fetch(`${apiBase}/api/capability-challenge`, {
         method: 'POST',
@@ -661,11 +669,16 @@ async function getCapabilityProofOfWork(
         await cancelResponseBody(response);
         throw new Error(`capability challenge HTTP ${response.status}`);
       }
-      return (await readBoundedJsonResponse(
+      const serverDateMs = Date.parse(response.headers.get('Date') || '');
+      const payload = (await readBoundedJsonResponse(
         response,
         CAPABILITY_RESPONSE_MAX_BYTES,
         requestSignal,
       )) as ProofOfWorkChallengeResponse;
+      return {
+        payload,
+        serverNowSeconds: Number.isFinite(serverDateMs) ? serverDateMs / 1000 : null,
+      };
     },
     {
       signal,
@@ -676,10 +689,25 @@ async function getCapabilityProofOfWork(
   if (cancelGeneration !== capabilityCancelGeneration) {
     throw createCapabilityChallengeCancelledError('Capability challenge cancelled');
   }
+  const { payload, serverNowSeconds } = challengeResponse;
+  const requestElapsedSeconds = Math.max(0, (performance.now() - requestStartedAtMs) / 1000);
   const nowSeconds = Date.now() / 1000;
   const challenge = payload.challenge;
   const difficulty = payload.difficulty;
   const expiresAt = payload.expiresAt;
+  const expiryInEnvelope =
+    typeof expiresAt === 'number' &&
+    Number.isSafeInteger(expiresAt) &&
+    (serverNowSeconds !== null
+      ? expiresAt > serverNowSeconds &&
+        expiresAt <=
+          serverNowSeconds + config.proofOfWorkTtl + CAPABILITY_POW_EXPIRY_TOLERANCE_SECONDS
+      : expiresAt > nowSeconds - CAPABILITY_POW_FALLBACK_CLOCK_SKEW_SECONDS &&
+        expiresAt <=
+          nowSeconds +
+            config.proofOfWorkTtl +
+            CAPABILITY_POW_FALLBACK_CLOCK_SKEW_SECONDS +
+            CAPABILITY_POW_EXPIRY_TOLERANCE_SECONDS);
   const responseShapeValid =
     typeof challenge === 'string' &&
     challenge.length > 0 &&
@@ -688,9 +716,10 @@ async function getCapabilityProofOfWork(
     Number.isInteger(difficulty) &&
     difficulty >= 8 &&
     difficulty <= 24 &&
-    typeof expiresAt === 'number' &&
-    expiresAt > nowSeconds &&
-    expiresAt <= nowSeconds + config.proofOfWorkTtl + 5;
+    Number.isFinite(config.proofOfWorkTtl) &&
+    config.proofOfWorkTtl >= CAPABILITY_POW_TTL_MIN_SECONDS &&
+    config.proofOfWorkTtl <= CAPABILITY_POW_TTL_MAX_SECONDS &&
+    expiryInEnvelope;
   const difficultyInEnvelope =
     typeof difficulty === 'number' &&
     difficulty >= config.proofOfWorkDifficulty &&
@@ -713,12 +742,20 @@ async function getCapabilityProofOfWork(
   ) {
     throw new Error('Invalid capability proof-of-work response');
   }
+  const solveBudgetSeconds =
+    Math.min(
+      config.proofOfWorkTtl,
+      serverNowSeconds === null ? config.proofOfWorkTtl : expiresAt - serverNowSeconds,
+    ) - requestElapsedSeconds;
+  if (solveBudgetSeconds <= 0) {
+    throw new Error('Capability proof-of-work challenge expired');
+  }
   return {
     challenge,
     solution: await solveCapabilityProofOfWork(
       challenge,
       difficulty,
-      expiresAt,
+      performance.now() + solveBudgetSeconds * 1000,
       cancelGeneration,
       signal,
     ),

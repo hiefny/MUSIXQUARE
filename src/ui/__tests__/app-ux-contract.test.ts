@@ -41,22 +41,41 @@ beforeAll(() => {
 });
 
 describe('app UX markup contract', () => {
-  it('uses a balanced vector question icon on both help surfaces', () => {
+  it('uses stable filled question icons on help titles without changing navigation icons', () => {
     const icons = [...appDocument.querySelectorAll<SVGElement>('.help-question-icon')];
-    const canonicalPath = appDocument.querySelector('#btn-help-compact path')?.getAttribute('d');
+    const compactNavPath = appDocument.querySelector('#btn-help-compact path')?.getAttribute('d');
+    const bottomNavPath = appDocument.querySelector('#nav-guide path')?.getAttribute('d');
+    const outlineNavPath =
+      'M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z';
+    const filledMarkPath =
+      'M11 18h2v-2h-2v2zm1-12c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z';
 
     expect(icons).toHaveLength(2);
-    expect(canonicalPath).toBeTruthy();
+    expect(compactNavPath).toBe(outlineNavPath);
+    expect(bottomNavPath).toBe(outlineNavPath);
+    expect(appDocument.querySelector('#btn-help-compact circle')).toBeNull();
+    expect(appDocument.querySelector('#nav-guide circle')).toBeNull();
     for (const icon of icons) {
       expect(icon.getAttribute('aria-hidden')).toBe('true');
       expect(icon.getAttribute('focusable')).toBe('false');
       expect(icon.getAttribute('viewBox')).toBe('0 0 24 24');
+      expect(icon.querySelectorAll('circle')).toHaveLength(1);
       expect(icon.querySelectorAll('path')).toHaveLength(1);
-      expect(icon.querySelector('path')?.getAttribute('d')).toBe(canonicalPath);
+      expect(icon.querySelector('circle')?.getAttribute('class')).toBe('help-question-icon-bg');
+      expect(icon.querySelector('circle')?.getAttribute('cx')).toBe('12');
+      expect(icon.querySelector('circle')?.getAttribute('cy')).toBe('12');
+      expect(icon.querySelector('circle')?.getAttribute('r')).toBe('10');
+      expect(icon.querySelector('path')?.getAttribute('class')).toBe('help-question-icon-mark');
+      expect(icon.querySelector('path')?.getAttribute('d')).toBe(filledMarkPath);
+      expect(icon.querySelector('path')?.getAttribute('d')).not.toBe(compactNavPath);
     }
     expect(appStylesheet).toMatch(
       /\.help-title svg\s*\{[^}]*display:\s*block;[^}]*flex:\s*none;[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*fill:\s*var\(--primary\);/u,
     );
+    expect(appStylesheet).toMatch(
+      /\.help-question-icon-bg\s*\{[^}]*fill:\s*var\(--primary-filled\);/u,
+    );
+    expect(appStylesheet).toMatch(/\.help-question-icon-mark\s*\{[^}]*fill:\s*#fff;/u);
   });
 
   it('expresses the intentional theme-specific play-action elevation through a semantic token', () => {

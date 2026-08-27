@@ -83,6 +83,7 @@ import {
   selectQueueItemById,
 } from './queue-model.ts';
 import { hasSystemAudioDeviceCapacity } from '../audio/system-audio-policy.ts';
+import { createSystemAudioStartFrame } from '../network/system-audio-start.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { loadPlaylistModule } from './playlist-loader.ts';
 import { isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
@@ -1149,7 +1150,7 @@ export function initPlayback(): void {
         // The fifth device causes the active share to stop. Do not briefly
         // bootstrap its placeholder before the capture listener sends STOP.
         if (hasSystemAudioDeviceCapacity()) {
-          conn.send({ type: MSG.SYSTEM_AUDIO_START });
+          conn.send(createSystemAudioStartFrame());
         }
       } else if (isYouTubeActive) {
         // YouTube publishes its own late-join state.

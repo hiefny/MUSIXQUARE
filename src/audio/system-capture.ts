@@ -17,6 +17,11 @@ import {
   type PlaybackModeValue,
 } from '../core/constants.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import {
+  DEFAULT_SYSTEM_AUDIO_SURFACE,
+  normalizeSystemAudioSurface,
+  type SystemAudioSurface,
+} from '../core/system-audio-profile.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from './context.ts';
 import { initAudio, getWidener, getMasterGain } from './engine.ts';
@@ -30,6 +35,7 @@ import {
   setPlaybackTrackMeta,
 } from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
+import { createSystemAudioStartFrame } from '../network/system-audio-start.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
@@ -81,6 +87,7 @@ interface PreSystemAudioState {
   };
   positionSeconds: number;
   currentTrackMeta: TrackMeta | null;
+  claimedSystemAudioTrackMeta: TrackMeta | null;
   channelMode: number;
   queueItemId: QueueItemId | null;
   subIndex: number;
@@ -383,9 +390,30 @@ async function performSystemAudioCaptureStart(
     return;
   }
 
+  // Read only the coarse, standardized surface class before stopping video.
+  // Never retain the track label, device id, window title, or picker text.
+  const videoTracks = stream.getVideoTracks();
+  let selectedSurface: SystemAudioSurface = DEFAULT_SYSTEM_AUDIO_SURFACE;
+  try {
+    const settings = videoTracks[0]?.getSettings() as
+      | (MediaTrackSettings & { displaySurface?: unknown })
+      | undefined;
+    selectedSurface = normalizeSystemAudioSurface(settings?.displaySurface);
+  } catch (error) {
+    // Legacy engines and test doubles may reject getSettings(). Surface
+    // metadata is optional, but ending every video track is not.
+    log.debug('[SystemAudio] Display surface class unavailable:', error);
+  }
   // Discard video as soon as the native picker completes. Only the captured
-  // audio track belongs in the product graph.
-  for (const vt of stream.getVideoTracks()) vt.stop();
+  // audio track belongs in the product graph. One broken track must not leave
+  // another capture indicator alive.
+  for (const videoTrack of videoTracks) {
+    try {
+      videoTrack.stop();
+    } catch (error) {
+      log.debug('[SystemAudio] Failed to stop discarded video track:', error);
+    }
+  }
 
   const audioTracks = stream.getAudioTracks();
   if (audioTracks.length === 0) {
@@ -521,6 +549,7 @@ async function performSystemAudioCaptureStart(
     playback,
     positionSeconds: Number.isFinite(rawPositionSeconds) ? Math.max(0, rawPositionSeconds) : 0,
     currentTrackMeta: getState('player.currentTrackMeta'),
+    claimedSystemAudioTrackMeta: null,
     channelMode: getState('audio.channelMode'),
     queueItemId: getState('playlist.currentQueueItemId'),
     subIndex: getState('youtube.currentSubIndex'),
@@ -645,9 +674,9 @@ async function performSystemAudioCaptureStart(
   // started, later playlist clicks should behave like post-first-use actions
   // instead of falling back to the initial "ready, press Play" cue flow.
   setState('player.isFirstTrackLoad', false);
-  claimPlaybackOwner('system-audio', {
-    currentTrackMeta: createSystemAudioTrackMeta('sharing'),
-  });
+  const systemAudioTrackMeta = createSystemAudioTrackMeta('sharing', undefined, selectedSurface);
+  preSysAudioState.claimedSystemAudioTrackMeta = systemAudioTrackMeta;
+  claimPlaybackOwner('system-audio', { currentTrackMeta: systemAudioTrackMeta });
 
   // No dead native track may become observable as an active room share. This
   // is the final common check after graph preparation and immediately before
@@ -718,7 +747,7 @@ async function performSystemAudioCaptureStart(
     }
     trackEndLifecycleCommitted = true;
     _debugLastStartBroadcastAt = Date.now();
-    broadcast({ type: MSG.SYSTEM_AUDIO_START });
+    broadcast(createSystemAudioStartFrame(selectedSurface));
     _debugLastStreamsReadyAt = Date.now();
     bus.emit('system-audio:streams-ready');
     broadcastSystemMessage('chat.system_audio_started_system_message');
@@ -939,7 +968,12 @@ function abortPreparedCapture(snapshot: Readonly<PreSystemAudioState>): void {
       // has committed, a local-only rollback (file or YouTube) would
       // fork this device from the room. Until an authoritative PRO resume
       // command exists, publication/setup aborts must remain fail-closed.
-      setPlaybackIdle();
+      const attemptOwnedMeta =
+        snapshot.claimedSystemAudioTrackMeta ?? snapshot.currentTrackMeta ?? null;
+      if (getState('player.currentTrackMeta') === attemptOwnedMeta) {
+        setPlaybackTrackMeta(null);
+        setPlaybackIdle();
+      }
     } else {
       restorePreSystemAudioPlaybackState(snapshot);
     }

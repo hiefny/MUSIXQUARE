@@ -208,9 +208,22 @@ describe('playback ownership view', () => {
       currentTrackMeta: {
         name: 'system-audio',
         title: 'System Audio Sharing',
+        systemAudioSurface: 'display',
       },
     });
     expectPlaybackModeActivitySlots('system-audio', 'playing');
+  });
+
+  it('normalizes system-audio surface metadata without exposing raw picker text', () => {
+    expect(createSystemAudioTrackMeta('sharing', undefined, 'browser')).toMatchObject({
+      systemAudioSurface: 'browser',
+    });
+    expect(createSystemAudioTrackMeta('receiving', undefined, 'application')).toMatchObject({
+      systemAudioSurface: 'window',
+    });
+    expect(createSystemAudioTrackMeta('sharing', undefined, 'Secret YouTube tab')).toMatchObject({
+      systemAudioSurface: 'display',
+    });
   });
 
   it('claims pending system-audio ownership through placeholder mode/activity', () => {

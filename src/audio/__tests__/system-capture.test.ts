@@ -12,7 +12,11 @@ type Snapshot = Parameters<typeof restorePreSystemAudioPlaybackState>[0];
 const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
 function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
-  const { playback: playbackOverride, ...rest } = overrides;
+  const {
+    playback: playbackOverride,
+    claimedSystemAudioTrackMeta: claimedSystemAudioTrackMetaOverride,
+    ...rest
+  } = overrides;
   return {
     room: {
       kind: 'standard',
@@ -26,6 +30,7 @@ function makeSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     queueItemId: null,
     subIndex: 0,
     ...rest,
+    claimedSystemAudioTrackMeta: claimedSystemAudioTrackMetaOverride ?? null,
     playback: {
       mode: playbackOverride?.mode ?? null,
       activity: playbackOverride?.activity ?? 'idle',

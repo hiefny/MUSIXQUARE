@@ -38,6 +38,7 @@ import { bus } from '../core/events.ts';
 import { batchSetState, getState, setState } from '../core/state.ts';
 import { stripRecognizedAudioFileExtension } from '../media/audio-file.ts';
 import type { TrackMeta } from '../types/index.ts';
+import { normalizeSystemAudioSurface } from '../core/system-audio-profile.ts';
 
 type PlaybackOwner = 'none' | 'file' | 'youtube' | 'system-audio';
 type PlaybackMode = PlaybackModeValue;
@@ -133,7 +134,9 @@ export function createYouTubeTrackMetaForTests({
 export function createSystemAudioTrackMeta(
   mode: 'sharing' | 'receiving',
   title?: string,
+  surface: unknown = 'display',
 ): TrackMeta {
+  const systemAudioSurface = normalizeSystemAudioSurface(surface);
   if (mode === 'receiving') {
     return {
       type: 'file',
@@ -141,6 +144,7 @@ export function createSystemAudioTrackMeta(
       title: title || 'Receiving System Audio',
       systemAudioPlaceholder: true,
       systemAudioMode: 'receiving',
+      systemAudioSurface,
     };
   }
 
@@ -149,6 +153,7 @@ export function createSystemAudioTrackMeta(
     name: 'system-audio',
     title: title || 'System Audio Sharing',
     systemAudioMode: 'sharing',
+    systemAudioSurface,
   };
 }
 

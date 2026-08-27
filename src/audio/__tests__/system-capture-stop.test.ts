@@ -178,11 +178,16 @@ function setProRoom(epoch = 1): void {
 
 let lastDisplayCapture: {
   track: MediaStreamTrack;
+  videoTrack: MediaStreamTrack | null;
+  videoGetSettings: ReturnType<typeof vi.fn> | null;
+  videoStop: ReturnType<typeof vi.fn> | null;
+  videoLabelRead: ReturnType<typeof vi.fn> | null;
   dispatchEnded: () => void;
 } | null = null;
 
 function stubDisplayMedia(
   implementation?: (stream: MediaStream) => Promise<MediaStream>,
+  videoOptions?: { displaySurface?: unknown; settingsError?: Error; label?: string },
 ): ReturnType<typeof vi.fn> {
   const endedListeners = new Set<() => void>();
   let readyState: MediaStreamTrackState = 'live';
@@ -205,13 +210,33 @@ function stubDisplayMedia(
       if (type === 'ended') endedListeners.delete(listener);
     }),
   } as unknown as MediaStreamTrack;
+  const videoGetSettings = videoOptions
+    ? vi.fn(() => {
+        if (videoOptions.settingsError) throw videoOptions.settingsError;
+        return { displaySurface: videoOptions.displaySurface } as MediaTrackSettings;
+      })
+    : null;
+  const videoStop = videoOptions ? vi.fn() : null;
+  const videoLabelRead = videoOptions ? vi.fn(() => videoOptions.label ?? 'private surface') : null;
+  const videoTrack = videoOptions
+    ? ({
+        id: 'discarded-video-track',
+        kind: 'video',
+        readyState: 'live',
+        get label() {
+          return videoLabelRead!();
+        },
+        getSettings: videoGetSettings,
+        stop: videoStop,
+      } as unknown as MediaStreamTrack)
+    : null;
   const stream = {
     get active() {
       return readyState === 'live';
     },
-    getVideoTracks: () => [],
+    getVideoTracks: () => (videoTrack ? [videoTrack] : []),
     getAudioTracks: () => [track],
-    getTracks: () => [track],
+    getTracks: () => (videoTrack ? [track, videoTrack] : [track]),
   } as unknown as MediaStream;
   const getDisplayMedia = vi.fn(() =>
     implementation ? implementation(stream) : Promise.resolve(stream),
@@ -222,6 +247,10 @@ function stubDisplayMedia(
   });
   lastDisplayCapture = {
     track,
+    videoTrack,
+    videoGetSettings,
+    videoStop,
+    videoLabelRead,
     dispatchEnded: () => {
       readyState = 'ended';
       for (const listener of [...endedListeners]) listener();
@@ -336,11 +365,51 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  bus.emit('system-audio:force-stop');
   clearAllManagedTimers();
   vi.useRealTimers();
 });
 
 describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
+  it('publishes the allowlisted surface after reading settings before video teardown', async () => {
+    const peers = setConnectedGuests(1);
+    stubDisplayMedia(undefined, {
+      displaySurface: 'browser',
+      label: 'Hearts2Hearts YouTube tab',
+    });
+
+    await startSystemAudioCapture();
+
+    expect(lastDisplayCapture?.videoGetSettings).toHaveBeenCalledOnce();
+    expect(lastDisplayCapture?.videoStop).toHaveBeenCalled();
+    expect(lastDisplayCapture?.videoGetSettings?.mock.invocationCallOrder[0]).toBeLessThan(
+      lastDisplayCapture?.videoStop?.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(lastDisplayCapture?.videoLabelRead).not.toHaveBeenCalled();
+    expect(getState('player.currentTrackMeta')).toMatchObject({
+      systemAudioMode: 'sharing',
+      systemAudioSurface: 'browser',
+    });
+    expect(peers[0]?.conn?.send).toHaveBeenCalledWith({
+      type: 'system-audio-start',
+      surface: 'browser',
+    });
+  });
+
+  it('still stops discarded video and uses DISPLAY when getSettings throws', async () => {
+    const peers = setConnectedGuests(1);
+    stubDisplayMedia(undefined, { settingsError: new Error('legacy getter failed') });
+
+    await startSystemAudioCapture();
+
+    expect(lastDisplayCapture?.videoStop).toHaveBeenCalled();
+    expect(getState('player.currentTrackMeta')?.systemAudioSurface).toBe('display');
+    expect(peers[0]?.conn?.send).toHaveBeenCalledWith({
+      type: 'system-audio-start',
+      surface: 'display',
+    });
+  });
+
   it('keeps the visual and announced role selection aligned during sharing and restore', async () => {
     document.body.innerHTML = `
       <div id="grid-standard">
@@ -657,7 +726,36 @@ describe('stopSystemAudioCapture restore semantics (SA-02)', () => {
     expect(proAudio.release).toHaveBeenCalledOnce();
     expect(capture.track.removeEventListener).toHaveBeenCalledWith('ended', expect.any(Function));
     expect(getState('playback.activity')).toBe('idle');
+    expect(getState('player.currentTrackMeta')).toBeNull();
     expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('does not clear an authoritative replacement meta when PRO publication fails late', async () => {
+    setProRoom();
+    let rejectPublication!: (error: Error) => void;
+    proAudio.publish.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectPublication = reject;
+        }),
+    );
+    stubDisplayMedia();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(proAudio.publish).toHaveBeenCalledOnce());
+    const authoritativeReplacement: TrackMeta = {
+      type: 'file',
+      name: 'system-audio-receiving',
+      systemAudioMode: 'receiving',
+      systemAudioPlaceholder: true,
+      systemAudioSurface: 'window',
+    };
+    setPlaybackTrackMeta(authoritativeReplacement);
+    rejectPublication(new Error('publication failed'));
+    await startPromise;
+
+    expect(getState('player.currentTrackMeta')).toBe(authoritativeReplacement);
+    expect(getState('playback.mode')).toBe('system-audio');
   });
 
   it.each(['resolve', 'reject'] as const)(

@@ -239,6 +239,7 @@ describe('system audio guest receive watchdog', () => {
     expect(stopAllMedia).toHaveBeenCalledWith({ silent: true, cancelInFlight: true });
     expect(getState('player.currentTrackMeta')?.name).toBe('system-audio-receiving');
     expect(getState('player.currentTrackMeta')?.systemAudioPlaceholder).toBe(true);
+    expect(getState('player.currentTrackMeta')?.systemAudioSurface).toBe('display');
     expect(timerMocks.delays.get(watchdogName)).toBe(30_000);
 
     timerMocks.timers.get(watchdogName)?.();
@@ -257,6 +258,32 @@ describe('system audio guest receive watchdog', () => {
     await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
 
     expect(hostStarted).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['browser', 'browser'],
+    ['window', 'window'],
+    ['application', 'window'],
+    ['monitor', 'display'],
+    ['future-surface', 'display'],
+  ] as const)('accepts trusted %s surface metadata as %s', async (surface, expected) => {
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface }, hostConn);
+
+    expect(getState('player.currentTrackMeta')).toMatchObject({
+      name: 'system-audio-receiving',
+      systemAudioPlaceholder: true,
+      systemAudioSurface: expected,
+    });
+  });
+
+  it('drops an unbounded surface token before it can replace playback', async () => {
+    const previousMeta: TrackMeta = { type: 'file', name: 'previous-track.mp3' };
+    setState('player.currentTrackMeta', previousMeta);
+
+    await handleData({ type: MSG.SYSTEM_AUDIO_START, surface: 'x'.repeat(17) }, hostConn);
+
+    expect(stopAllMedia).not.toHaveBeenCalled();
+    expect(getState('player.currentTrackMeta')).toBe(previousMeta);
   });
 
   it('does not connect an early media stream before the trusted START boundary', async () => {

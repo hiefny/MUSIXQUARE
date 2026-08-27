@@ -441,6 +441,10 @@ function isValidSettingsSyncState(value: unknown): boolean {
 }
 
 const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown>) => boolean>> = {
+  // Optional for rolling compatibility. Unknown bounded strings reach the
+  // consumer and normalize to DISPLAY rather than becoming user-visible.
+  [MSG.SYSTEM_AUDIO_START]: (d) =>
+    d.surface === undefined || (typeof d.surface === 'string' && d.surface.length <= 16),
   [MSG.JOIN_BOOTSTRAP_HELLO]: isJoinBootstrapHello,
   [MSG.JOIN_BOOTSTRAP_APPLIED]: isJoinBootstrapApplied,
   [MSG.SETTINGS_SYNC_SNAPSHOT]: (d) =>

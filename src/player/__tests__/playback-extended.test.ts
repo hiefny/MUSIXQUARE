@@ -841,12 +841,18 @@ describe('late-join playback bootstrap', () => {
 
   it('sends system audio bootstrap without file playback payloads', () => {
     initPlayback();
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'system-audio',
+      systemAudioMode: 'sharing',
+      systemAudioSurface: 'window',
+    });
     setPlaybackSystemAudioPlaying();
 
     const send = emitPeerConnected();
 
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith({ type: MSG.SYSTEM_AUDIO_START });
+    expect(send).toHaveBeenCalledWith({ type: MSG.SYSTEM_AUDIO_START, surface: 'window' });
   });
 
   it('does not bootstrap system audio to the fifth device', () => {

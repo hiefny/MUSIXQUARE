@@ -95,6 +95,7 @@ describe('service worker cache policy', () => {
 
   it('precaches both stable first-paint scripts with the navigation shell', () => {
     expect(APP_SHELL_SOURCE).toContain('./fouc-cleanup.js');
+    expect(APP_SHELL_SOURCE).toContain('./noscript.css');
     expect(APP_SHELL_SOURCE).toContain('./wordmark-anim.js');
   });
 

@@ -41,6 +41,24 @@ beforeAll(() => {
 });
 
 describe('app UX markup contract', () => {
+  it('uses a balanced vector question icon on both help surfaces', () => {
+    const icons = [...appDocument.querySelectorAll<SVGElement>('.help-question-icon')];
+    const canonicalPath = appDocument.querySelector('#btn-help-compact path')?.getAttribute('d');
+
+    expect(icons).toHaveLength(2);
+    expect(canonicalPath).toBeTruthy();
+    for (const icon of icons) {
+      expect(icon.getAttribute('aria-hidden')).toBe('true');
+      expect(icon.getAttribute('focusable')).toBe('false');
+      expect(icon.getAttribute('viewBox')).toBe('0 0 24 24');
+      expect(icon.querySelectorAll('path')).toHaveLength(1);
+      expect(icon.querySelector('path')?.getAttribute('d')).toBe(canonicalPath);
+    }
+    expect(appStylesheet).toMatch(
+      /\.help-title svg\s*\{[^}]*display:\s*block;[^}]*flex:\s*none;[^}]*width:\s*22px;[^}]*height:\s*22px;[^}]*fill:\s*var\(--primary\);/u,
+    );
+  });
+
   it('expresses the intentional theme-specific play-action elevation through a semantic token', () => {
     expect(appStylesheet).toMatch(/:root\s*\{[^}]*--play-action-surface:\s*var\(--surface-2\);/u);
     expect(appStylesheet).toMatch(
@@ -152,6 +170,9 @@ describe('app UX markup contract', () => {
     );
     expect(appStylesheet).toMatch(
       /#btn-sync,\s*\n\s*#btn-media-source\s*\{[\s\S]*?min-height:\s*56px;[\s\S]*?height:\s*auto;[\s\S]*?padding:\s*10px 14px;/u,
+    );
+    expect(desktopStylesheet).toMatch(
+      /@media \(min-width:\s*1280px\)\s*\{[\s\S]*?\.play-action-buttons \.file-select-btn\s*\{[\s\S]*?width:\s*160px;[\s\S]*?min-width:\s*160px;[\s\S]*?flex:\s*none;/u,
     );
   });
 

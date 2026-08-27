@@ -3,6 +3,7 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
+import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
 import type { DataConnection, PeerInstance } from '../../types/index.ts';
 import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
 import { resetProRoomTransportRecovery } from '../../pro-room/transport-recovery.ts';
@@ -795,6 +796,20 @@ describe('joinSession reconnect racing', () => {
 });
 
 describe('joinSession capability-challenge cancel (F-2401)', () => {
+  it('preserves a terminal lazy-runtime error without relying on ErrorOptions.cause', async () => {
+    const terminal = createLazyFeatureLoadError('room-session', new TypeError('chunk unavailable'));
+    mocks.getPeer.mockReturnValue(null);
+    setInitNetwork(() => Promise.reject(terminal));
+    const errors = vi.fn();
+    bus.on('network:error', errors);
+
+    joinSession('HOST01');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(errors).toHaveBeenCalledOnce();
+    expect(errors).toHaveBeenCalledWith(terminal);
+  });
+
   it('routes a cancelled init to a silent join-UI restore, not a network:error toast', async () => {
     mocks.getPeer.mockReturnValue(null);
     setInitNetwork(() => Promise.reject(new Error('NETWORK_INIT_CANCELLED')));

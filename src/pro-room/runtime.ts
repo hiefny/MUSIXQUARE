@@ -1463,7 +1463,8 @@ async function acceptPlaylistSnapshot(snapshot: ProRoomSnapshot): Promise<void> 
 }
 
 function queueAdditionOrder(frame: ProQueueAdditionFrame): number {
-  const revision = Number(frame.eventId.split('_').at(-1));
+  const eventIdParts = frame.eventId.split('_');
+  const revision = Number(eventIdParts[eventIdParts.length - 1]);
   return Number.isSafeInteger(revision) ? revision : frame.playlistRevision;
 }
 

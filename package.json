@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.4.27",
+  "version": "8.4.28",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && node scripts/materialize-app-static-headers.mts",
-    "build:checked": "npm run guard:authored-js-inventory && npm run guard:authored-inline-js && npm run guard:typescript-project-coverage && npm run guard:classic-runtime && npm run guard:auxiliary-browser && npm run guard:service-worker && npm run guard:ui-kit && npm run guard:release-identity && npm run guard:brand-capitalization && npm run guard:declaration-ownership && npm run guard:source-complexity && npm run guard:room-authority-boundaries && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:service-worker-build && npm run guard:ui-kit-build && npm run guard:initial-transfer-budget && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build && npm run guard:sw-app-shell",
+    "build:checked": "npm run guard:authored-js-inventory && npm run guard:authored-inline-js && npm run guard:typescript-project-coverage && npm run guard:classic-runtime && npm run guard:auxiliary-browser && npm run guard:service-worker && npm run guard:ui-kit && npm run guard:release-identity && npm run guard:brand-capitalization && npm run guard:declaration-ownership && npm run guard:source-complexity && npm run guard:room-authority-boundaries && npm run guard:sw-cache-version && npm run guard:profanity-patterns && npm run build && npm run guard:legacy-tv-build && npm run guard:service-worker-build && npm run guard:ui-kit-build && npm run guard:initial-transfer-budget && npm run guard:prod-hooks && npm run guard:prod-security && npm run guard:font-build && npm run guard:sw-app-shell",
     "build:e2e": "vite build --mode e2e",
     "preview": "vite preview",
     "promo:render": "tsx .workshop/promo/render.ts",
@@ -38,6 +38,7 @@
     "guard:dead-exports": "node scripts/check-dead-exports.mts",
     "guard:font-assets": "node scripts/check-app-font.mts",
     "guard:font-build": "node scripts/check-app-font.mts --dist",
+    "guard:legacy-tv-build": "node scripts/check-legacy-tv-build.mts",
     "guard:initial-transfer-budget": "node scripts/check-initial-transfer-budget.mts",
     "guard:sw-app-shell": "node scripts/check-service-worker-app-shell.mts",
     "guard:release-identity": "node scripts/release-identity.mts",
@@ -137,6 +138,8 @@
     "test:all": "vitest run && npm run build:checked && npm run test:e2e"
   },
   "devDependencies": {
+    "@csstools/postcss-cascade-layers": "6.0.0",
+    "@csstools/postcss-is-pseudo-class": "6.0.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.58.2",
     "@resvg/resvg-wasm": "^2.6.2",
@@ -154,6 +157,7 @@
     "jsdom": "^28.1.0",
     "lil-gui": "0.19.2",
     "peer": "^1.0.2",
+    "postcss": "8.5.23",
     "prettier": "^3.8.1",
     "satori": "^0.26.0",
     "serve": "14.2.6",

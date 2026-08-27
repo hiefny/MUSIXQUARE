@@ -1,0 +1,7 @@
+/*
+ * Keep the app cascade in one PostCSS input. The build lowers cascade layers
+ * only after both files have been imported, preserving base < desktop <
+ * unlayered normal precedence and the inverse order for !important rules.
+ */
+@import './style.css';
+@import './desktop.css';

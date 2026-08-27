@@ -588,8 +588,10 @@ describe('initSettings language controls', () => {
     trigger.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 }));
 
     const active = document.querySelector<HTMLElement>('.language-option[data-lang="ko"]')!;
-    await vi.waitFor(() => expect(document.activeElement).toBe(active));
-    expect(active.classList).toContain('language-option-initial-pointer-focus');
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(active);
+      expect(active.classList).toContain('language-option-initial-pointer-focus');
+    });
 
     active.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' }));
     expect(active.classList).not.toContain('language-option-initial-pointer-focus');
@@ -761,8 +763,10 @@ describe('initSettings language controls', () => {
       true,
     );
     const active = document.querySelector<HTMLElement>('.language-option.active')!;
-    await vi.waitFor(() => expect(document.activeElement).toBe(active));
-    expect(active.classList).toContain('language-option-initial-pointer-focus');
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(active);
+      expect(active.classList).toContain('language-option-initial-pointer-focus');
+    });
 
     document.getElementById('btn-language-dialog-done')?.click();
     expect(document.activeElement).toBe(setupTrigger);

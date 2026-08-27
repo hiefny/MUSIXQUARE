@@ -1,5 +1,8 @@
 import { defineConfig, loadEnv, type Plugin, type UserConfig } from 'vite';
 import { resolve } from 'path';
+import postcss, { type Plugin as PostCssPlugin } from 'postcss';
+import postcssCascadeLayers from '@csstools/postcss-cascade-layers';
+import postcssIsPseudoClass from '@csstools/postcss-is-pseudo-class';
 import { INITIAL_TRANSFER_BUDGET } from './scripts/initial-transfer-budget-config.mts';
 import { collectRenderedWorkerAssets } from './scripts/service-worker-app-shell-guard-lib.mts';
 import { classicRuntimeAssets } from './scripts/classic-runtime-assets.ts';
@@ -15,6 +18,82 @@ import { auxiliaryBrowserAssets } from './scripts/auxiliary-browser-assets.ts';
 import { useAsyncConnectMiddleware } from './scripts/async-connect-middleware.ts';
 
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
+export const LEGACY_APP_BROWSER_TARGET = 'chrome79';
+
+const LEGACY_CSS_OPTIONS = {
+  onRevertLayerKeyword: 'warn',
+  onConditionalRulesChangingLayerOrder: 'warn',
+  onImportLayerRule: 'warn',
+} as const;
+
+function legacyCssPlugins() {
+  return [
+    {
+      postcssPlugin: 'musixquare-guard-legacy-layer-contract',
+      Once(root) {
+        root.walkAtRules('layer', (layer) => {
+          if (layer.params.trim() !== 'desktop') return;
+          layer.walkDecls((declaration) => {
+            if (declaration.important) {
+              throw new Error(
+                `Legacy CSS desktop layer cannot contain !important: ${declaration.prop}`,
+              );
+            }
+          });
+        });
+      },
+    } satisfies PostCssPlugin,
+    postcssCascadeLayers(LEGACY_CSS_OPTIONS),
+    postcssIsPseudoClass({ preserve: false }),
+    {
+      postcssPlugin: 'musixquare-fail-closed-legacy-css',
+      OnceExit(root, { result }) {
+        const warnings = result.warnings();
+        if (warnings.length > 0) {
+          throw new Error(
+            `Legacy CSS transform warning(s): ${warnings.map((warning) => warning.toString()).join('; ')}`,
+          );
+        }
+        let hasLayerRule = false;
+        let hasIsSelector = false;
+        root.walkAtRules('layer', () => {
+          hasLayerRule = true;
+        });
+        root.walkRules((rule) => {
+          if (/:is\(/u.test(rule.selector)) hasIsSelector = true;
+        });
+        if (hasLayerRule || hasIsSelector) {
+          throw new Error('Legacy CSS transform left an unsupported construct in the app bundle.');
+        }
+      },
+    } satisfies PostCssPlugin,
+  ];
+}
+
+export async function transformAppCssForLegacyBrowsers(css: string): Promise<string> {
+  const result = await postcss(legacyCssPlugins()).process(css, {
+    from: undefined,
+  });
+
+  const warnings = result.warnings();
+  if (warnings.length > 0) {
+    throw new Error(
+      `Legacy CSS transform warning(s): ${warnings.map((warning) => warning.toString()).join('; ')}`,
+    );
+  }
+  let hasLayerRule = false;
+  let hasIsSelector = false;
+  result.root.walkAtRules('layer', () => {
+    hasLayerRule = true;
+  });
+  result.root.walkRules((rule) => {
+    if (/:is\(/u.test(rule.selector)) hasIsSelector = true;
+  });
+  if (hasLayerRule || hasIsSelector) {
+    throw new Error('Legacy CSS transform left an unsupported construct in the app bundle.');
+  }
+  return result.css;
+}
 
 interface JavaScriptChunkSize {
   readonly fileName: string;
@@ -230,26 +309,44 @@ const devPageAliases = (): Plugin => ({
   },
 });
 
+export function prioritizeActiveStylesheetsInHtml(html: string): string {
+  const inertBlocks: string[] = [];
+  const inertBlockPattern = /<(noscript|template)\b[^>]*>[\s\S]*?<\/\1>/giu;
+  const maskedHtml = html.replace(inertBlockPattern, (block) => {
+    const placeholder = `<!--__MUSIXQUARE_INERT_BLOCK_${inertBlocks.length}__-->`;
+    inertBlocks.push(block);
+    return placeholder;
+  });
+  const restoreInertBlocks = (value: string): string =>
+    value.replace(/<!--__MUSIXQUARE_INERT_BLOCK_(\d+)__-->/gu, (_match, index: string) => {
+      const block = inertBlocks[Number(index)];
+      if (block === undefined) throw new Error(`Missing inert HTML block ${index}.`);
+      return block;
+    });
+
+  const stylesheetPattern = /\s*<link\b[^>]*\brel=(["'])stylesheet\1[^>]*>\s*/gi;
+  const stylesheets = maskedHtml.match(stylesheetPattern);
+  if (!stylesheets?.length) return html;
+
+  const firstModuleScript = maskedHtml.search(/<script\b[^>]*\btype=(["'])module\1[^>]*>/i);
+  if (firstModuleScript === -1) return html;
+
+  const withoutStylesheets = maskedHtml.replace(stylesheetPattern, '\n');
+  const insertAt = withoutStylesheets.search(/<script\b[^>]*\btype=(["'])module\1[^>]*>/i);
+  if (insertAt === -1) return html;
+
+  const block = stylesheets.map((tag) => tag.trim()).join('\n    ');
+  return restoreInertBlocks(
+    `${withoutStylesheets.slice(0, insertAt)}${block}\n    ${withoutStylesheets.slice(insertAt)}`,
+  );
+}
+
 const prioritizeStylesheetsInHtml = (): Plugin => ({
   name: 'prioritize-stylesheets-in-html',
   apply: 'build',
   transformIndexHtml: {
     order: 'post',
-    handler(html) {
-      const stylesheetPattern = /\s*<link\b[^>]*\brel=(["'])stylesheet\1[^>]*>\s*/gi;
-      const stylesheets = html.match(stylesheetPattern);
-      if (!stylesheets?.length) return html;
-
-      const firstModuleScript = html.search(/<script\b[^>]*\btype=(["'])module\1[^>]*>/i);
-      if (firstModuleScript === -1) return html;
-
-      const withoutStylesheets = html.replace(stylesheetPattern, '\n');
-      const insertAt = withoutStylesheets.search(/<script\b[^>]*\btype=(["'])module\1[^>]*>/i);
-      if (insertAt === -1) return html;
-
-      const block = stylesheets.map((tag) => tag.trim()).join('\n    ');
-      return `${withoutStylesheets.slice(0, insertAt)}${block}\n    ${withoutStylesheets.slice(insertAt)}`;
-    },
+    handler: prioritizeActiveStylesheetsInHtml,
   },
 });
 
@@ -591,9 +688,18 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       guardInitialAppBundleGraph(),
       guardSecondaryJavaScriptChunkSizes(),
     ],
+    css: {
+      // css/app.css imports the complete base + desktop cascade. Vite runs its
+      // internal postcss-import pass before this plugin, so layer lowering sees
+      // the whole ordered cascade before Rollup computes the immutable asset hash.
+      postcss: {
+        plugins: legacyCssPlugins(),
+      },
+    },
     build: {
       outDir: 'dist',
-      target: 'es2022',
+      target: LEGACY_APP_BROWSER_TARGET,
+      cssTarget: LEGACY_APP_BROWSER_TARGET,
       sourcemap: false,
       // Vite's built-in threshold is global. Suppress the known main-entry
       // warning at its architectural ceiling; the build plugin above retains a

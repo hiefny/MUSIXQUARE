@@ -4,7 +4,7 @@ import { transformWithEsbuild } from 'vite';
 
 export const SERVICE_WORKER_SOURCE_PATH = 'browser/service-worker.ts';
 export const SERVICE_WORKER_OUTPUT_PATH = 'service-worker.js';
-export const SERVICE_WORKER_CACHE_VERSION = 'v503';
+export const SERVICE_WORKER_CACHE_VERSION = 'v504';
 export const SERVICE_WORKER_CACHE_VERSION_SENTINEL = '__MUSIXQUARE_CACHE_VERSION__';
 export const BUILD_ENTRY_ASSETS_MARKER = '/* __MUSIXQUARE_BUILD_ENTRY_ASSETS__ */';
 export const OPTIONAL_PRIMARY_FONT_ASSETS_MARKER =
@@ -147,7 +147,7 @@ export async function compileServiceWorkerAsset(
   const transformed = await transformWithEsbuild(injectedSource, SERVICE_WORKER_SOURCE_PATH, {
     loader: 'ts',
     format: 'iife',
-    target: 'es2022',
+    target: 'chrome79',
     sourcemap: false,
     minify: false,
     legalComments: 'inline',

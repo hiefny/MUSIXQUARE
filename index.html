@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v503"></script>
+    <script src="/bootstrap.js?cache=v504"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -69,8 +69,8 @@
          and gets revealed by adding body.fouc-loaded once the stylesheet
          parses. No inline <style> needed → CSP can drop style-src
          'unsafe-inline'. -->
-    <link rel="stylesheet" href="css/style.css" />
-    <link rel="stylesheet" href="css/desktop.css" />
+    <link rel="stylesheet" href="css/app.css" />
+    <noscript><link rel="stylesheet" href="/noscript.css" /></noscript>
 
     <!-- Reveal body (toggles body.fouc-loaded) once style.css has parsed.
          Source: browser/classic-runtime/fouc-cleanup.ts -->
@@ -713,9 +713,14 @@
 
         <div class="help-block">
           <div class="help-title">
-            <svg viewBox="0 0 24 24">
+            <svg
+              class="help-question-icon"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
               <path
-                d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"
+                d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
               />
             </svg>
             <span data-i18n="help.need_help"></span>
@@ -1724,9 +1729,14 @@
 
             <div class="help-block">
               <div class="help-title">
-                <svg viewBox="0 0 24 24">
+                <svg
+                  class="help-question-icon"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
                   <path
-                    d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-.83.45-1.54 1.17-2.25l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"
+                    d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
                   />
                 </svg>
                 <span data-i18n="help.need_help"></span>

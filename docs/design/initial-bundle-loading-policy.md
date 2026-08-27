@@ -117,6 +117,35 @@ entry moved from 1,334.19 kB raw / 390.13 kB gzip to 1,243.94 kB raw /
 | Eager total gzip      |      429,901 |        460,000 |       506,000 |     480,700 |           15.04% |
 | Eager fonts           |            0 |              0 |             0 |           0 |       fixed zero |
 
+### 2026-08-27 Chromium 79 compatibility addendum
+
+The 2026-08-15 one-time re-baseline above remains the rule for ordinary
+feature work. This addendum explicitly supersedes only its numeric ceilings to
+restore the supported-browser floor on 2021 LG webOS televisions. It is not a
+silent feature-budget increase: no session-only boundary became eager.
+
+The compatibility build lowers the application JavaScript from ES2022 to the
+Chromium 79 syntax floor and expands cascade layers and `:is()` selectors into
+equivalent legacy selectors before asset hashing. Those transformations trade
+raw parse bytes for compatibility and account for the measured increase. The
+same post-build guard still reserves 5% of every positive limit, the secondary
+chunk ceiling remains unchanged, and eager fonts remain a strict zero-byte
+contract.
+
+The final checked production build for this addendum measured:
+
+| Metric                | Actual bytes | Prior limit | Compatibility limit | 95% ceiling | Headroom |
+| --------------------- | -----------: | ----------: | ------------------: | ----------: | -------: |
+| Entry script raw      |    1,446,225 |   1,468,500 |           1,525,000 |   1,448,750 |    5.17% |
+| Entry script gzip     |      418,616 |     440,000 |             442,000 |     419,900 |    5.29% |
+| Eager JavaScript gzip |      424,235 |     440,000 |             448,000 |     425,600 |    5.30% |
+| Eager total raw       |    1,858,184 |   1,870,000 |           1,965,000 |   1,866,750 |    5.44% |
+| Eager total gzip      |      491,802 |     506,000 |             520,000 |     494,000 |    5.42% |
+| Eager fonts           |            0 |           0 |                   0 |           0 |    fixed |
+
+Future compatibility or feature changes must update this decision again with
+fresh measurements; the new ceilings are not spendable targets.
+
 ## Consequences
 
 Setup, local/offline recovery, demo protocol/UI, visualizer, file-drop, and

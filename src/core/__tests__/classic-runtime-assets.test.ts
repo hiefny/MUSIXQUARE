@@ -75,6 +75,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       {
         sourcePath: 'browser/classic-runtime/account-complete.ts',
         outputPath: 'account-complete.js',
+        target: 'es2018',
       },
       {
         sourcePath: 'browser/classic-runtime/admin.ts',
@@ -113,6 +114,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       {
         sourcePath: 'browser/classic-runtime/fouc-cleanup.ts',
         outputPath: 'fouc-cleanup.js',
+        target: 'es2018',
       },
       {
         sourcePath: 'browser/classic-runtime/landing-bootstrap.ts',
@@ -129,6 +131,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       {
         sourcePath: 'browser/classic-runtime/primary-font-loader.ts',
         outputPath: 'primary-font-loader.js',
+        target: 'es2018',
       },
       {
         sourcePath: 'browser/classic-runtime/static-language.ts',
@@ -137,6 +140,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       {
         sourcePath: 'browser/classic-runtime/wordmark-anim.ts',
         outputPath: 'wordmark-anim.js',
+        target: 'es2018',
       },
     ]);
     await expect(assertClassicRuntimeSourceCompleteness(REPO_ROOT)).resolves.toBeUndefined();

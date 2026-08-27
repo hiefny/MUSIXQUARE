@@ -15,11 +15,14 @@ export const INITIAL_TRANSFER_BUDGET: Readonly<InitialTransferBudget> = Object.f
   // These are architectural ceilings, not spendable targets. The assertion
   // reserves a fixed percentage of every positive limit so ordinary
   // maintenance cannot silently consume all remaining capacity.
-  entryScriptRawBytes: 1_468_500,
-  entryScriptGzipBytes: 440_000,
-  eagerJavaScriptGzipBytes: 440_000,
-  eagerTotalRawBytes: 1_870_000,
-  eagerTotalGzipBytes: 506_000,
+  // The Chromium 79 execution floor deliberately spends raw bytes on syntax
+  // lowering and exact cascade-layer specificity. Compressed growth is small;
+  // these ceilings re-establish the same mandatory 5% maintenance reserve.
+  entryScriptRawBytes: 1_525_000,
+  entryScriptGzipBytes: 442_000,
+  eagerJavaScriptGzipBytes: 448_000,
+  eagerTotalRawBytes: 1_965_000,
+  eagerTotalGzipBytes: 520_000,
   eagerFontBytes: 0,
 });
 

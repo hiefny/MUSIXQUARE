@@ -87,6 +87,119 @@ describe('capability proof-of-work client', () => {
     expect(document.querySelector('#mxqr-turnstile-container')).toBeNull();
   });
 
+  it.each([
+    { label: 'behind the server', clientOffsetSeconds: -62, exposeServerDate: true },
+    { label: 'ahead of the server', clientOffsetSeconds: 180, exposeServerDate: true },
+    { label: 'behind with Date hidden', clientOffsetSeconds: -62, exposeServerDate: false },
+  ])(
+    'mints a PoW token when the client clock is $label',
+    async ({ clientOffsetSeconds, exposeServerDate }) => {
+      const serverNowSeconds = 1_800_000_000;
+      const clientNowSeconds = serverNowSeconds + clientOffsetSeconds;
+      const challenge = `clock-skew-${clientOffsetSeconds}.signature`;
+      const difficulty = 8;
+      let tokenRequests = 0;
+      vi.spyOn(Date, 'now').mockReturnValue(clientNowSeconds * 1000);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const url = String(input);
+          if (url.endsWith('/api/security-config')) {
+            return Response.json({
+              capabilityRequired: true,
+              turnstileSiteKey: '',
+              turnstileRequired: false,
+              proofOfWorkRequired: true,
+              proofOfWorkDifficulty: difficulty,
+              proofOfWorkTtl: 120,
+              ttl: 600,
+            });
+          }
+          if (url.endsWith('/api/capability-challenge')) {
+            return Response.json(
+              {
+                challenge,
+                difficulty,
+                expiresAt: serverNowSeconds + 120,
+                algorithm: 'sha256-leading-zero-bits',
+              },
+              exposeServerDate
+                ? { headers: { Date: new Date(serverNowSeconds * 1000).toUTCString() } }
+                : undefined,
+            );
+          }
+          if (url.endsWith('/api/capability-token')) {
+            tokenRequests += 1;
+            const body = JSON.parse(String(init?.body)) as {
+              proofOfWork?: { challenge?: string; solution?: string };
+            };
+            expect(body.proofOfWork?.challenge).toBe(challenge);
+            const digest = new Uint8Array(
+              await crypto.subtle.digest(
+                'SHA-256',
+                new TextEncoder().encode(
+                  `mxqr-pow-v1:${challenge}:${body.proofOfWork?.solution || ''}`,
+                ),
+              ),
+            );
+            expect(hasLeadingZeroBits(digest, difficulty)).toBe(true);
+            return Response.json({
+              token: 'clock-safe-capability',
+              expiresAt: serverNowSeconds + 600,
+            });
+          }
+          return new Response('not found', { status: 404 });
+        }),
+      );
+
+      const { getCapabilityHeaders } = await import('../capability.ts');
+      await expect(getCapabilityHeaders('/api/get-turn-config', ['turn'])).resolves.toEqual({
+        'X-MXQR-Capability': 'clock-safe-capability',
+      });
+      expect(tokenRequests).toBe(1);
+    },
+  );
+
+  it('rejects a challenge expiry outside the server Date TTL envelope', async () => {
+    const serverNowSeconds = 1_800_000_000;
+    let tokenRequests = 0;
+    vi.spyOn(Date, 'now').mockReturnValue((serverNowSeconds - 62) * 1000);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/api/security-config')) {
+          return Response.json({
+            capabilityRequired: true,
+            turnstileSiteKey: '',
+            turnstileRequired: false,
+            proofOfWorkRequired: true,
+            proofOfWorkDifficulty: 8,
+            proofOfWorkTtl: 120,
+            ttl: 600,
+          });
+        }
+        if (url.endsWith('/api/capability-challenge')) {
+          return Response.json(
+            {
+              challenge: 'overlong-clock-skew-challenge.signature',
+              difficulty: 8,
+              expiresAt: serverNowSeconds + 126,
+              algorithm: 'sha256-leading-zero-bits',
+            },
+            { headers: { Date: new Date(serverNowSeconds * 1000).toUTCString() } },
+          );
+        }
+        if (url.endsWith('/api/capability-token')) tokenRequests += 1;
+        return new Response('unexpected', { status: 500 });
+      }),
+    );
+
+    const { getCapabilityHeaders } = await import('../capability.ts');
+    await expect(getCapabilityHeaders('/api/get-turn-config', ['turn'])).resolves.toEqual({});
+    expect(tokenRequests).toBe(0);
+  });
+
   it('isolates signaling rollout tokens and remints that exact scope after a route-bound 401', async () => {
     const mintedScopes: string[][] = [];
     const bridgeTokens: string[] = [];

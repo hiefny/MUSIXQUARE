@@ -167,7 +167,7 @@
     "tsx": "^4.20.6",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
-    "vite": "^6.4.3",
+    "vite": "^8.2.2",
     "vitest": "^4.0.18",
     "wrangler": "4.114.0",
     "ws": "^8.21.0"

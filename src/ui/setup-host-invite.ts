@@ -1,4 +1,4 @@
-/** Host setup invitation QR crossfade. */
+/** Host setup invitation QR pixel morph. */
 
 import { log } from '../core/log.ts';
 
@@ -22,35 +22,6 @@ function hostInviteElements(): {
   return { stage, placeholderQr, roomQr };
 }
 
-async function encodeHostInviteQr(payload: string): Promise<string> {
-  const { default: QRCode } = await import('qrcode');
-  return QRCode.toString(payload, {
-    type: 'svg',
-    margin: 2,
-    errorCorrectionLevel: 'L',
-    color: {
-      dark: '#000000',
-      light: '#00000000',
-    },
-  });
-}
-
-function mountQrSvg(container: HTMLElement, svgString: string): boolean {
-  container.innerHTML = svgString;
-  const svg = container.querySelector('svg');
-  if (!svg) {
-    container.replaceChildren();
-    return false;
-  }
-
-  svg.classList.add('qr-svg');
-  svg.removeAttribute('width');
-  svg.removeAttribute('height');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.setAttribute('focusable', 'false');
-  return true;
-}
-
 function setHostInviteLoading(elements: { stage: HTMLElement }, loading: boolean): void {
   elements.stage.classList.toggle('is-room-qr-loading', loading);
   elements.stage.setAttribute('aria-busy', String(loading));
@@ -66,7 +37,7 @@ export function resetHostInviteVisual(): void {
   const elements = hostInviteElements();
   if (!elements) return;
 
-  elements.stage.classList.remove('is-room-qr-visible');
+  elements.stage.classList.remove('is-room-qr-visible', 'is-room-qr-morphing');
   setHostInviteLoading(elements, true);
   elements.roomQr.setAttribute('aria-hidden', 'true');
   elements.roomQr.replaceChildren();
@@ -82,10 +53,13 @@ export async function revealHostInviteQr(code: string, isCurrent: () => boolean)
   setHostInviteLoading(elements, true);
 
   try {
-    const svgString = await encodeHostInviteQr(`${HOST_INVITE_ROOT}/${code}`);
+    const { createHostInviteQrMatrices, mountHostInviteQr } =
+      await import('./setup-host-invite-renderer.ts');
+    const matrices = createHostInviteQrMatrices(HOST_INVITE_ROOT, `${HOST_INVITE_ROOT}/${code}`);
 
     if (generation !== hostInviteRenderGeneration || !isCurrent()) return false;
-    if (!mountQrSvg(elements.roomQr, svgString)) {
+    const renderMode = mountHostInviteQr(elements.roomQr, matrices);
+    if (!renderMode) {
       setHostInviteLoading(elements, false);
       return false;
     }
@@ -93,6 +67,7 @@ export async function revealHostInviteQr(code: string, isCurrent: () => boolean)
     elements.roomQr.setAttribute('aria-hidden', 'false');
     void elements.stage.offsetWidth;
     elements.stage.classList.add('is-room-qr-visible');
+    if (renderMode === true) elements.stage.classList.add('is-room-qr-morphing');
     setHostInviteLoading(elements, false);
     return true;
   } catch (error) {

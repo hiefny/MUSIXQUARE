@@ -401,6 +401,48 @@ jobs:
             exit 1
           }
 
+      - name: Apply and verify cumulative analytics D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'app'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/admin-metrics.lifetime-analytics.migration.sql
+
+          verify_file='release-artifacts/deployments/admin-lifetime-analytics-verified.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_lifetime_metric_days' AND instr(lower(sql), 'primary key (day_epoch, event)') > 0 AND instr(lower(sql), '''room_opened''') > 0 AND instr(lower(sql), '''guest_joined''') > 0) AS day_table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_lifetime_guest_joined_insert', 'mxqr_lifetime_guest_joined_increment', 'mxqr_lifetime_metric_day_insert', 'mxqr_lifetime_metric_day_increment')) AS trigger_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_lifetime_guest_joined_insert', 'mxqr_lifetime_guest_joined_increment') AND instr(lower(sql), 'mxqr_lifetime_metric_totals') > 0 AND instr(lower(sql), '''guest_joined''') > 0) AS guest_total_trigger_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name IN ('mxqr_lifetime_metric_day_insert', 'mxqr_lifetime_metric_day_increment') AND instr(lower(sql), 'mxqr_lifetime_metric_days') > 0 AND instr(lower(sql), '''room_opened''') > 0 AND instr(lower(sql), '''guest_joined''') > 0) AS day_trigger_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'mxqr_lifetime_guest_joined_insert' AND instr(lower(sql), 'new.count > 0') > 0) AS guest_insert_guard_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'mxqr_lifetime_guest_joined_increment' AND instr(lower(sql), 'new.count > old.count') > 0 AND instr(lower(sql), 'new.count - old.count') > 0) AS guest_increment_guard_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'mxqr_lifetime_metric_day_insert' AND instr(lower(sql), 'new.count > 0') > 0) AS day_insert_guard_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND name = 'mxqr_lifetime_metric_day_increment' AND instr(lower(sql), 'new.count > old.count') > 0 AND instr(lower(sql), 'new.count - old.count') > 0) AS day_increment_guard_count, (SELECT COUNT(*) FROM mxqr_lifetime_metric_totals WHERE event IN ('room_opened', 'guest_joined') AND typeof(count) = 'integer' AND count >= 0) AS total_row_count, (SELECT count FROM mxqr_lifetime_metric_totals WHERE event = 'room_opened') AS rooms_opened, (SELECT count FROM mxqr_lifetime_metric_totals WHERE event = 'guest_joined') AS guest_joins, (SELECT COALESCE(SUM(count), 0) FROM mxqr_metric_buckets WHERE event = 'room_opened') AS retained_rooms_opened, (SELECT COALESCE(SUM(count), 0) FROM mxqr_metric_buckets WHERE event = 'guest_joined') AS retained_guest_joins, (SELECT COALESCE(SUM(count), 0) FROM mxqr_lifetime_metric_days WHERE event = 'room_opened') AS daily_rooms_opened, (SELECT COALESCE(SUM(count), 0) FROM mxqr_lifetime_metric_days WHERE event = 'guest_joined') AS daily_guest_joins, (SELECT COUNT(*) FROM mxqr_lifetime_metric_days WHERE day_epoch < 0 OR event NOT IN ('room_opened', 'guest_joined') OR typeof(count) <> 'integer' OR count < 0) AS invalid_day_count" \
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
+          jq -e '
+            .[0].results[0]
+            | (.day_table_count | tonumber) == 1
+              and (.trigger_count | tonumber) == 4
+              and (.guest_total_trigger_count | tonumber) == 2
+              and (.day_trigger_count | tonumber) == 2
+              and (.guest_insert_guard_count | tonumber) == 1
+              and (.guest_increment_guard_count | tonumber) == 1
+              and (.day_insert_guard_count | tonumber) == 1
+              and (.day_increment_guard_count | tonumber) == 1
+              and (.total_row_count | tonumber) == 2
+              and (.rooms_opened | tonumber) >= (.retained_rooms_opened | tonumber)
+              and (.guest_joins | tonumber) >= (.retained_guest_joins | tonumber)
+              and (.daily_rooms_opened | tonumber) >= (.retained_rooms_opened | tonumber)
+              and (.daily_guest_joins | tonumber) >= (.retained_guest_joins | tonumber)
+              and (.invalid_day_count | tonumber) == 0
+          ' "$verify_file" >/dev/null || {
+            echo '::error::The production cumulative analytics schema/backfill contract is incomplete.'
+            jq '.[0].results[0]' "$verify_file"
+            exit 1
+          }
+
       - name: Apply and verify generic PRO grant D1 contract
         timeout-minutes: 10
         if: inputs.target == 'all' || inputs.target == 'app' || inputs.target == 'pro-room'

@@ -1987,6 +1987,39 @@ describe('release deployment rollback state', () => {
     expect(step).toContain('capture-wrangler-d1-json.mts');
   });
 
+  it('backfills and verifies cumulative room and guest analytics before the app rollout', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const migrationStep = workflow.indexOf('Apply and verify cumulative analytics D1 contract');
+    const nextStep = workflow.indexOf('\n      - name:', migrationStep + 1);
+    const step = workflow.slice(migrationStep, nextStep);
+
+    expect(migrationStep).toBeGreaterThan(-1);
+    expect(migrationStep).toBeGreaterThan(
+      workflow.indexOf('Apply and verify lifetime room-count D1 contract'),
+    );
+    expect(migrationStep).toBeLessThan(
+      workflow.indexOf('Deploy and record app Worker with immutable dist'),
+    );
+    expect(step).toContain("if: inputs.target == 'all' || inputs.target == 'app'");
+    expect(step).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
+    expect(step).not.toContain('secrets.CLOUDFLARE_API_TOKEN');
+    expect(step).toContain('admin-metrics.lifetime-analytics.migration.sql');
+    expect(step).toContain('mxqr_lifetime_metric_days');
+    expect(step).toContain('mxqr_lifetime_guest_joined_insert');
+    expect(step).toContain('mxqr_lifetime_metric_day_increment');
+    expect(step).toContain('guest_insert_guard_count');
+    expect(step).toContain('guest_increment_guard_count');
+    expect(step).toContain('day_insert_guard_count');
+    expect(step).toContain('day_increment_guard_count');
+    expect(step).toContain('new.count > 0');
+    expect(step).toContain('new.count > old.count');
+    expect(step).toContain('new.count - old.count');
+    expect(step).toContain('retained_guest_joins');
+    expect(step).toContain('daily_guest_joins');
+    expect(step).toContain('invalid_day_count');
+    expect(step).toContain('capture-wrangler-d1-json.mts');
+  });
+
   it('installs and verifies the secret-free generic PRO grant ledger before app rollouts', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const migrationStep = workflow.indexOf('Apply and verify generic PRO grant D1 contract');

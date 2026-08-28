@@ -115,6 +115,12 @@ vi.mock('../sync.ts', () => ({
   resetYouTubeSyncState: vi.fn(),
 }));
 
+vi.mock('../standard-host-manual-offset-gate.ts', () => ({
+  afterStandardHostManualOffsetTransaction: vi.fn(() => true),
+  cancelStandardHostManualOffsetTransaction: vi.fn(() => false),
+  isStandardHostManualOffsetTransactionPending: vi.fn(() => false),
+}));
+
 vi.mock('../../ui/toast.ts', () => ({
   showToast: vi.fn(),
   showLoader: vi.fn(),
@@ -537,6 +543,53 @@ describe('YouTube Player', () => {
   });
 
   describe('synchronized pause ownership', () => {
+    it('keeps Standard-host room controls fail-closed while a local edit is unverified', async () => {
+      const syncMod = await import('../standard-host-manual-offset-gate.ts');
+      const stateMod = await import('../_state.ts');
+      const { broadcast } = await import('../../network/peer.ts');
+      const { initYouTube, scheduleYtAutoSync } = await import('../player.ts');
+      vi.mocked(syncMod.isStandardHostManualOffsetTransactionPending).mockReturnValue(true);
+      (window as unknown as { YT: unknown }).YT = { PlayerState: { PLAYING: 1, PAUSED: 2 } };
+      (globalThis as unknown as { YT: unknown }).YT = (window as unknown as { YT: unknown }).YT;
+      const player = {
+        seekTo: vi.fn(),
+        playVideo: vi.fn(),
+        pauseVideo: vi.fn(),
+        getCurrentTime: vi.fn(() => 12),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 1),
+        getVideoData: vi.fn(() => ({ video_id: 'VIDEO_ID_01', title: 'Video' })),
+      } as unknown as YouTubePlayerInstance;
+      stateMod.setYouTubePlayer(player);
+      setPlaybackYouTubePlaying();
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'VIDEO_ID_01',
+          playlistId: null,
+          name: 'Video',
+        },
+      ] satisfies PlaylistItem[]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      initYouTube();
+      const playTrack = vi.fn();
+      bus.on('playlist:play-track', playTrack);
+
+      scheduleYtAutoSync(20);
+      bus.emit('youtube:toggle-play');
+      bus.emit('youtube:skip-time', 5);
+      bus.emit('youtube:seek-to', 30);
+      bus.emit('youtube:sub-seek', QUEUE_ITEM_ID, 0, true);
+
+      expect(player.seekTo).not.toHaveBeenCalled();
+      expect(player.playVideo).not.toHaveBeenCalled();
+      expect(player.pauseVideo).not.toHaveBeenCalled();
+      expect(broadcast).not.toHaveBeenCalled();
+      expect(playTrack).not.toHaveBeenCalled();
+      vi.mocked(syncMod.isStandardHostManualOffsetTransactionPending).mockReturnValue(false);
+    });
+
     it('cancels an older delayed PLAY rendezvous before broadcasting PAUSE', async () => {
       const stateMod = await import('../_state.ts');
       const timers = await import('../../core/timers.ts');
@@ -1527,6 +1580,100 @@ describe('YouTube Player', () => {
         }),
       );
       expect(seekSpy).not.toHaveBeenCalled();
+    });
+
+    it('defers one ended repeat until a Standard-host manual edit settles', async () => {
+      const { loadYouTubeVideo } = await import('../player.ts');
+      const { setYouTubePlayer } = await import('../_state.ts');
+      const {
+        afterStandardHostManualOffsetTransaction,
+        isStandardHostManualOffsetTransactionPending,
+      } = await import('../standard-host-manual-offset-gate.ts');
+      setYouTubePlayer(null);
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'video-wrapper';
+      document.body.appendChild(wrapper);
+
+      let onStateChange:
+        | ((event: { data: number; target: YouTubePlayerInstance }) => void)
+        | undefined;
+      const player: YouTubePlayerInstance = {
+        loadVideoById: vi.fn(),
+        loadPlaylist: vi.fn(),
+        cuePlaylist: vi.fn(),
+        pauseVideo: vi.fn(),
+        playVideo: vi.fn(),
+        stopVideo: vi.fn(),
+        destroy: vi.fn(),
+        seekTo: vi.fn(),
+        getCurrentTime: vi.fn(() => 120),
+        getDuration: vi.fn(() => 120),
+        getPlayerState: vi.fn(() => 0),
+        getPlaylistIndex: vi.fn(() => -1),
+        getVideoData: vi.fn(() => ({ video_id: 'repeatVideo', title: 'Repeat Video' })),
+        getPlaylist: vi.fn(() => []),
+        setVolume: vi.fn(),
+      };
+
+      (window as unknown as { YT: unknown }).YT = {
+        Player: vi.fn(function (
+          _target: string,
+          options: { events: { onStateChange: typeof onStateChange } },
+        ) {
+          onStateChange = options.events.onStateChange;
+          return player;
+        }),
+        PlayerState: {
+          UNSTARTED: -1,
+          ENDED: 0,
+          PLAYING: 1,
+          PAUSED: 2,
+          BUFFERING: 3,
+          CUED: 5,
+        },
+      };
+
+      const autoPlaySpy = vi.fn();
+      bus.on('youtube:auto-play', autoPlaySpy);
+      setPlaybackYouTubePlaying();
+      setState('playlist.repeatMode', 2);
+      setState('playlist.items', [
+        {
+          queueItemId: QUEUE_ITEM_ID,
+          type: 'youtube',
+          videoId: 'repeatVideo',
+          playlistId: null,
+          name: 'Repeat Video',
+        },
+      ]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+
+      loadYouTubeVideo('repeatVideo', null, true, 0);
+      vi.mocked(isStandardHostManualOffsetTransactionPending).mockReturnValue(true);
+      onStateChange?.({ data: 0, target: player });
+
+      expect(autoPlaySpy).not.toHaveBeenCalled();
+      const deferredRepeat = vi
+        .mocked(afterStandardHostManualOffsetTransaction)
+        .mock.calls.at(-1)?.[0];
+      expect(deferredRepeat).toBeTypeOf('function');
+
+      vi.mocked(isStandardHostManualOffsetTransactionPending).mockReturnValue(false);
+      deferredRepeat?.();
+      expect(autoPlaySpy).toHaveBeenCalledTimes(1);
+      expect(autoPlaySpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetTime: 0,
+          skipSeek: false,
+          isTrackTransition: false,
+          zeroStart: true,
+        }),
+      );
+
+      // A stale duplicate timer callback cannot replay the same ENDED intent.
+      deferredRepeat?.();
+      expect(autoPlaySpy).toHaveBeenCalledTimes(1);
     });
   });
 

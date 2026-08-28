@@ -52,6 +52,137 @@ afterEach(() => {
 });
 
 describe('admin PRO room claim lifecycle', () => {
+  it('filters registered rooms by room code or administrator label', async () => {
+    installAdminDom();
+    const listStatus = document.querySelector('[data-pro-room-list-status]');
+    const search = document.createElement('input');
+    search.type = 'search';
+    search.dataset.proRoomSearch = '';
+    listStatus?.before(search);
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+      if (url.pathname === '/api/admin/session') {
+        return Response.json({ authenticated: true, configured: true });
+      }
+      if (url.pathname === '/api/admin/metrics') {
+        return Response.json({
+          generatedAt: new Date().toISOString(),
+          cards: [],
+          summary: { hourly: [], daily: [], daily30: [], last24: {} },
+        });
+      }
+      if (url.pathname === '/api/admin/pro-rooms') {
+        return Response.json({
+          rooms: [
+            {
+              roomCode: '000101',
+              roomGeneration: 0,
+              label: 'Spring campaign',
+              status: 'registered',
+              activationState: 'unactivated',
+            },
+            {
+              roomCode: '000202',
+              roomGeneration: 0,
+              label: 'Partner index B',
+              status: 'registered',
+              activationState: 'unactivated',
+            },
+          ],
+        });
+      }
+      if (url.pathname === '/api/admin/pro-grants/campaigns') {
+        return Response.json({ campaigns: [] });
+      }
+      return Response.json({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    window.eval(adminScript);
+    await vi.waitFor(() => {
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+    });
+    document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Spring campaign'));
+
+    search.value = 'partner';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.waitFor(() => {
+      expect(document.querySelector('[data-pro-room-list-status]')?.textContent).toBe(
+        '1 of 2 rooms',
+      );
+    });
+    expect(document.body.textContent).not.toContain('Spring campaign');
+    expect(document.body.textContent).toContain('Partner index B');
+
+    search.value = '0101';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.waitFor(() => expect(document.body.textContent).toContain('Spring campaign'));
+    expect(document.body.textContent).not.toContain('Partner index B');
+
+    search.value = 'missing';
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(document.body.textContent).toContain('No rooms match “missing”.'),
+    );
+  });
+
+  it('renders account totals and accessible cumulative room and guest-join lines', async () => {
+    installAdminDom();
+    const operations = document.querySelector('[data-admin-view="operations"]');
+    const accounts = document.createElement('div');
+    accounts.dataset.accountMetrics = '';
+    const lifetimeMetrics = document.createElement('div');
+    lifetimeMetrics.dataset.lifetimeMetrics = '';
+    const lifetimeChart = document.createElement('div');
+    lifetimeChart.dataset.lifetimeChart = '';
+    operations?.prepend(accounts);
+    operations?.append(lifetimeMetrics, lifetimeChart);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(typeof input === 'string' ? input : input.toString(), location.origin);
+        if (url.pathname === '/api/admin/session') {
+          return Response.json({ authenticated: true, configured: true });
+        }
+        if (url.pathname === '/api/admin/metrics') {
+          return Response.json({
+            generatedAt: '2026-08-28T00:00:00.000Z',
+            accounts: {
+              totalAccounts: 321,
+              nicknameCompleteAccounts: 210,
+              inactiveAccounts: 45,
+              inactiveDays: 30,
+            },
+            lifetime: {
+              startedAt: '2026-06-18T00:00:00.000Z',
+              totals: { roomsOpened: 1_600, guestJoins: 3_250 },
+              points: [
+                { start: '2026-06-18T00:00:00.000Z', roomsOpened: 10, guestJoins: 25 },
+                { start: '2026-08-28T00:00:00.000Z', roomsOpened: 1_600, guestJoins: 3_250 },
+              ],
+            },
+            cards: [],
+            summary: { hourly: [], daily: [], daily30: [], last24: {} },
+          });
+        }
+        return Response.json({ ok: true });
+      }),
+    );
+
+    window.eval(adminScript);
+    await vi.waitFor(() => expect(accounts.textContent).toContain('321'));
+    expect(accounts.textContent).toContain('Active accounts');
+    expect(accounts.textContent).toContain('210');
+    expect(accounts.textContent).toContain('45');
+    expect(lifetimeMetrics.textContent).toContain('1,600');
+    expect(lifetimeMetrics.textContent).toContain('3,250');
+    expect(lifetimeMetrics.textContent).toContain('repeats included');
+    expect(lifetimeChart.querySelectorAll('path.lifetime-line')).toHaveLength(2);
+    expect(lifetimeChart.getAttribute('role')).toBe('img');
+    expect(lifetimeChart.getAttribute('aria-label')).toContain('repeat connections included');
+  });
+
   it('fails closed when an admin response exceeds the bounded body size', async () => {
     installAdminDom();
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

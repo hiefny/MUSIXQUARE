@@ -1558,6 +1558,7 @@ interface BaseEventMap {
   // ── Sync ──────────────────────────────────────────────────────────
   'sync:display-update': [];
   'sync:nudge': [ms: number];
+  'sync:set-manual-offset': [ms: number];
   'sync:auto-sync': [];
   'sync:arm-initial': [];
   'sync:close-manual': [];

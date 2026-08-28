@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { resetState, setState } from '../../core/state.ts';
-import { resolveProCoordinatorYouTubeTarget, toCanonicalYouTubeTime } from '../local-offset.ts';
+import {
+  isCanonicalYouTubeManualOffsetEndpoint,
+  resolveProCoordinatorYouTubeTarget,
+  shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
+  toCanonicalYouTubeTime,
+} from '../local-offset.ts';
 
 function setProCoordinator(): void {
   setState('room.context', {
@@ -12,6 +17,12 @@ function setProCoordinator(): void {
     snapshotRevision: 1,
     capabilities: ['playback.control'],
   });
+}
+
+function setActiveStandardHost(): void {
+  setState('network.appRole', 'host');
+  setState('network.sessionCode', '123456');
+  setState('setup.sessionStarted', true);
 }
 
 describe('PRO coordinator YouTube local offset', () => {
@@ -38,6 +49,30 @@ describe('PRO coordinator YouTube local offset', () => {
     setState('sync.youtubeLocalOffset', 0.25);
     setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
     expect(toCanonicalYouTubeTime(42.5, 120)).toBe(42.25);
+  });
+
+  it('removes an active standard host offset from its canonical wire time', () => {
+    setActiveStandardHost();
+    setState('sync.youtubeLocalOffset', 0.25);
+    setState('sync.youtubeCoordinatorAppliedOffset', 0.25);
+
+    expect(isCanonicalYouTubeManualOffsetEndpoint()).toBe(true);
+    expect(toCanonicalYouTubeTime(42.5, 120)).toBe(42.25);
+
+    setState('network.appRole', 'guest');
+    expect(isCanonicalYouTubeManualOffsetEndpoint()).toBe(false);
+    expect(toCanonicalYouTubeTime(42.5, 120)).toBe(42.5);
+  });
+
+  it('neutralizes only an active standard host offset near either end clock', () => {
+    setActiveStandardHost();
+
+    expect(shouldNeutralizeStandardHostYouTubeOffsetAtEnd(100, 90, 120, 10)).toBe(false);
+    expect(shouldNeutralizeStandardHostYouTubeOffsetAtEnd(119, 109, 120, 10)).toBe(true);
+    expect(shouldNeutralizeStandardHostYouTubeOffsetAtEnd(109, 119, 120, -10)).toBe(true);
+
+    setState('network.appRole', 'guest');
+    expect(shouldNeutralizeStandardHostYouTubeOffsetAtEnd(119, 109, 120, 10)).toBe(false);
   });
 
   it('stores the achievable lower-bound offset instead of the requested one', () => {

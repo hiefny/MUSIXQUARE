@@ -12,6 +12,7 @@ import { t } from '../i18n/index.ts';
 import { getState, setState } from '../core/state.ts';
 import {
   MSG,
+  MANUAL_SYNC_OFFSET_LIMIT_MS,
   MANUAL_SYNC_OFFSET_LIMIT_SEC,
   PLAYBACK_STATE,
   type PlaybackActivityValue,
@@ -118,19 +119,18 @@ function hasManualSyncEndpoint(): boolean {
   return room.kind === 'pro' || isActiveStandardRoomCoordinator();
 }
 
-function isProCoordinatorManualSyncEndpoint(): boolean {
+function isCanonicalTimelineManualSyncEndpoint(): boolean {
   const room = getRoomContext();
-  return room.kind === 'pro';
+  return room.kind === 'pro' || isActiveStandardRoomCoordinator();
 }
 
 function canApplyManualSyncAction(): boolean {
   if (!hasManualSyncEndpoint()) return false;
   if (isPlaybackModeYouTube()) {
-    // A standard host owns the canonical YouTube timeline. Moving only its
-    // iframe changes the native end boundary (including playlist transitions
-    // that do not emit ENDED), so keep the local nudge surface fail-closed.
-    // The main Sync button still performs the existing room-wide rendezvous.
-    if (getRoomContext().kind === 'standard' && isActiveStandardRoomCoordinator()) return false;
+    // The zero-start prepare/commit sequence temporarily owns the iframe.
+    // Outside it, guests use their host snapshot and canonical timeline
+    // endpoints (PRO plus an active standard host) remove the local offset
+    // again before projecting any time to the room.
     return !isYouTubeZeroStartProtocolActive();
   }
   return isPlaybackModeFile() && !!getCurrentAudioBuffer();
@@ -158,30 +158,66 @@ function scheduleYouTubeManualSyncApply(): void {
   );
 }
 
-function adjustYouTubeSync(val: number): void {
-  const localOffset = getState('sync.youtubeLocalOffset') || 0;
-  const nextOffset = clampManualSyncOffset(localOffset + val);
-  if (isProCoordinatorManualSyncEndpoint()) {
+function setYouTubeManualSyncOffset(nextOffset: number, applyImmediately: boolean): void {
+  const next = clampManualSyncOffset(nextOffset);
+  if (isCanonicalTimelineManualSyncEndpoint()) {
     clearManagedTimer('sync-youtube-nudge-apply');
     // The iframe handler stores the offset that was actually achievable at
     // 0/duration boundaries. Do not pre-write the requested value here.
-    bus.emit('youtube:set-coordinator-manual-offset', nextOffset);
+    bus.emit('youtube:set-coordinator-manual-offset', next);
     return;
   }
-  setState('sync.youtubeLocalOffset', nextOffset);
+  setState('sync.youtubeLocalOffset', next);
   bus.emit('sync:display-update');
-  scheduleYouTubeManualSyncApply();
+  if (applyImmediately) {
+    clearManagedTimer('sync-youtube-nudge-apply');
+    bus.emit('youtube:apply-manual-sync');
+  } else {
+    scheduleYouTubeManualSyncApply();
+  }
+}
+
+function adjustYouTubeSync(val: number): void {
+  const localOffset = getState('sync.youtubeLocalOffset') || 0;
+  setYouTubeManualSyncOffset(localOffset + val, false);
+}
+
+function setManualSyncOffsetMs(ms: number): void {
+  // The editor is intentionally integer-only. Normalize again at this trust
+  // boundary so synthetic bus callers cannot store fractional milliseconds.
+  const boundedMs = Math.max(
+    -MANUAL_SYNC_OFFSET_LIMIT_MS,
+    Math.min(MANUAL_SYNC_OFFSET_LIMIT_MS, Math.round(ms)),
+  );
+  const nextOffset = boundedMs / 1000;
+
+  if (isPlaybackModeYouTube()) {
+    setYouTubeManualSyncOffset(nextOffset, true);
+    return;
+  }
+
+  const previousOffset = getState('sync.localOffset') || 0;
+  setLocalManualSyncOffset(nextOffset);
+  bus.emit('sync:display-update');
+  clearManagedTimer('sync-nudge-replay');
+
+  // A committed absolute value is one completed edit, not a click burst: a
+  // playing local file should rebuild its AudioBufferSourceNode immediately.
+  if (previousOffset === nextOffset || !isPlaybackPlayingFile()) return;
+  void play(getTrackPosition()).catch((error) =>
+    log.warn('[Sync] Failed to apply the entered local file offset:', error),
+  );
 }
 
 // ─── Auto Sync ──────────────────────────────────────────────────────
 
 export function handleAutoSync(): void {
   const offsetPath = getActiveManualOffsetPath();
-  const isProCoordinatorYouTubeReset =
+  const isCanonicalTimelineYouTubeReset =
     offsetPath === 'sync.youtubeLocalOffset' &&
-    isProCoordinatorManualSyncEndpoint() &&
+    isCanonicalTimelineManualSyncEndpoint() &&
     isPlaybackModeYouTube();
-  if (isProCoordinatorYouTubeReset) {
+  if (isCanonicalTimelineYouTubeReset) {
     clearManagedTimer('sync-youtube-nudge-apply');
     bus.emit('youtube:set-coordinator-manual-offset', 0);
     showToast(t('toast.sync_reset'));
@@ -801,6 +837,15 @@ export function initSync(): void {
       return;
     }
     adjustSync(ms / 1000);
+  });
+
+  bus.on('sync:set-manual-offset', (ms) => {
+    if (!Number.isFinite(ms)) return;
+    if (!canApplyManualSyncAction()) {
+      rejectManualSyncAction();
+      return;
+    }
+    setManualSyncOffsetMs(ms);
   });
 
   bus.on('sync:auto-sync', () => {

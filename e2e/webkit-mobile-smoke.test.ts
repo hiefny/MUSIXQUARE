@@ -132,6 +132,82 @@ test.describe('iPhone WebKit compatibility smoke', () => {
     }
   });
 
+  test('keeps all five labelled sidebar tabs on an iPhone landscape viewport', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== 'webkit', 'This regression targets iPhone landscape geometry');
+    await page.setViewportSize({ width: 750, height: 342 });
+    await openReadyApp(page);
+    await page.locator('#main-header, .bottom-nav').evaluateAll((elements) => {
+      for (const element of elements) element.classList.add('app-entered');
+    });
+
+    const regularCompact = await page.evaluate(() => {
+      const nav = document.querySelector<HTMLElement>('.bottom-nav')!;
+      const navRect = nav.getBoundingClientRect();
+      const roleRect = document.getElementById('role-badge')!.getBoundingClientRect();
+      return {
+        logoDisplay: getComputedStyle(document.getElementById('app-logo')!).display,
+        navDirection: getComputedStyle(nav).flexDirection,
+        visibleLabels: Array.from(nav.querySelectorAll('span')).filter(
+          (label) => getComputedStyle(label).display !== 'none',
+        ).length,
+        guideDisplay: getComputedStyle(document.getElementById('nav-guide')!).display,
+        compactHelpDisplay: getComputedStyle(document.getElementById('btn-help-compact')!).display,
+        navTop: navRect.top,
+        navBottom: navRect.bottom,
+        roleTop: roleRect.top,
+      };
+    });
+
+    expect(regularCompact.logoDisplay).toBe('none');
+    expect(regularCompact.navDirection).toBe('column');
+    expect(regularCompact.visibleLabels).toBe(5);
+    expect(regularCompact.guideDisplay).not.toBe('none');
+    expect(regularCompact.compactHelpDisplay).toBe('none');
+    expect(regularCompact.navTop).toBeGreaterThanOrEqual(0);
+    expect(regularCompact.navBottom).toBeLessThanOrEqual(regularCompact.roleTop);
+
+    await page.setViewportSize({ width: 750, height: 300 });
+    await expect
+      .poll(() =>
+        page.locator('.bottom-nav').evaluate((element) => getComputedStyle(element).flexDirection),
+      )
+      .toBe('row');
+    await expect(page.locator('#app-logo')).toBeVisible();
+    await expect(page.locator('#nav-guide')).not.toBeVisible();
+    await expect(page.locator('#btn-help-compact')).toBeVisible();
+
+    await page.setViewportSize({ width: 750, height: 220 });
+    await expect(page.locator('#app-logo')).toBeVisible();
+
+    await page.setViewportSize({ width: 750, height: 180 });
+    await expect(page.locator('#app-logo')).not.toBeVisible();
+    const finalCompactGeometry = await page.evaluate(() => {
+      const navRect = document.querySelector<HTMLElement>('.bottom-nav')!.getBoundingClientRect();
+      return {
+        navCenter: navRect.top + navRect.height / 2,
+        availableCenter: (window.innerHeight - 54) / 2,
+      };
+    });
+    expect(finalCompactGeometry.navCenter).toBeCloseTo(finalCompactGeometry.availableCenter, 0);
+  });
+
+  test('keeps track metadata visible on a narrow landscape viewport', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== 'webkit', 'This regression targets mobile landscape geometry');
+    await page.setViewportSize({ width: 700, height: 400 });
+    await openReadyApp(page);
+
+    await expect(page.locator('#track-artist')).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 700 });
+    await expect(page.locator('#track-artist')).not.toBeVisible();
+  });
+
   test('keeps the shared language dialog seamless for pointer and keyboard input', async ({
     page,
   }) => {

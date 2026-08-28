@@ -13,6 +13,7 @@ import { MANUAL_SYNC_OFFSET_LIMIT_SEC, MSG } from '../core/constants.ts';
 import { IS_ANDROID } from '../core/platform.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
+import { getRoomContext, subscribeRoomAuthorityLifecycle } from '../rooms/authority.ts';
 import { fmtTime } from '../player/transport.ts';
 import {
   getPlaybackSelectionTrackMeta,
@@ -45,9 +46,12 @@ import type { DataConnection } from '../types/index.ts';
 import {
   beginProCoordinatorYouTubeNudge,
   clearProCoordinatorYouTubeNudgeAnchor,
+  isCanonicalYouTubeManualOffsetEndpoint,
   isProCoordinatorYouTubeEndpoint,
+  isStandardHostYouTubeManualOffsetEndpoint,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
   resolveProCoordinatorYouTubeTarget,
+  shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
   toCanonicalYouTubeTime,
 } from './local-offset.ts';
 import {
@@ -77,6 +81,15 @@ import {
   LATENCY_OUTLIER_REJECT_MS,
 } from './constants.ts';
 import { isYouTubeZeroStartProtocolActive } from './zero-start.ts';
+import {
+  cancelStandardHostManualOffsetTransaction,
+  isStandardHostManualOffsetTransactionPending,
+  repairStandardHostManualOffsetTransaction,
+  requestStandardHostManualOffsetTransaction,
+  resetStandardHostManualOffsetTransaction,
+} from './standard-host-manual-offset-gate.ts';
+
+export { cancelStandardHostManualOffsetTransaction, isStandardHostManualOffsetTransactionPending };
 
 // ─── Broadcast YouTube Sync (Host) ────────────────────────────────
 
@@ -91,7 +104,8 @@ const MANUAL_BROADCAST_DEDUP_MS = 500;
 const RENDEZVOUS_LOADING_OWNER = 'rendezvous' as const;
 const CLOCK_ACTION_LOADING_OWNER = 'clock-action' as const;
 let _lastManualBroadcastAt = 0;
-let _wasProCoordinatorYouTubeEndpoint = false;
+type ManualOffsetEndpointIdentity = 'pro' | `standard-host:${string}` | null;
+let _manualOffsetEndpointIdentity: ManualOffsetEndpointIdentity = null;
 
 /**
  * A scheduled host-clock action owns only its own loading projection. Releasing
@@ -144,10 +158,36 @@ function getPromotedCoordinatorAppliedOffset(requestedOffset: number): number {
   }
 }
 
-function reconcileProCoordinatorAppliedOffset(): void {
-  const isCoordinator = isProCoordinatorYouTubeEndpoint();
-  if (isCoordinator && !_wasProCoordinatorYouTubeEndpoint) {
-    clearProCoordinatorYouTubeNudgeAnchor();
+function getManualOffsetEndpointIdentity(): ManualOffsetEndpointIdentity {
+  if (isProCoordinatorYouTubeEndpoint()) return 'pro';
+  if (isCanonicalYouTubeManualOffsetEndpoint()) {
+    const room = getRoomContext();
+    return `standard-host:${getState('network.sessionCode')}:${room.roomId ?? ''}:${room.epoch}`;
+  }
+  return null;
+}
+
+function reconcileCanonicalManualOffsetEndpoint(): void {
+  const nextIdentity = getManualOffsetEndpointIdentity();
+  const previousIdentity = _manualOffsetEndpointIdentity;
+  if (nextIdentity === previousIdentity) {
+    // Page-wide timer cleanup can briefly remove the gate before lifecycle
+    // reconciliation. Re-arm the exact transaction; clearing its applied
+    // boundary here could expose a fire-and-forget iframe command later.
+    if (
+      isStandardHostManualOffsetTransactionPending() &&
+      !getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)
+    ) {
+      repairStandardHostManualOffsetTransaction();
+    }
+    return;
+  }
+  const nextIsStandardHost = nextIdentity?.startsWith('standard-host:') === true;
+  const previousWasStandardHost = previousIdentity?.startsWith('standard-host:') === true;
+
+  resetStandardHostManualOffsetTransaction();
+
+  if (nextIdentity === 'pro') {
     // An endpoint entering PRO may already carry its personal iframe offset.
     // Prefer the actual local-vs-canonical delta from the last trusted snapshot:
     // near the start/end of a video the requested offset may have been
@@ -158,11 +198,22 @@ function reconcileProCoordinatorAppliedOffset(): void {
       'sync.youtubeCoordinatorAppliedOffset',
       getPromotedCoordinatorAppliedOffset(requestedOffset),
     );
-  } else if (!isCoordinator) {
-    clearProCoordinatorYouTubeNudgeAnchor();
+  } else if (nextIsStandardHost) {
+    // A standard host begins a new authority boundary. Do not inherit a guest
+    // iframe offset as room-owner state before it has been explicitly applied
+    // through the host-local setter.
+    setState('sync.youtubeLocalOffset', 0);
+    setState('sync.youtubeCoordinatorAppliedOffset', 0);
+  } else {
+    if (previousWasStandardHost) {
+      // A host-only local seek must not follow this browser across a room-end
+      // or role transition. Session teardown also resets both fields; doing it
+      // here closes the earlier lifecycle window before teardown completes.
+      setState('sync.youtubeLocalOffset', 0);
+    }
     setState('sync.youtubeCoordinatorAppliedOffset', 0);
   }
-  _wasProCoordinatorYouTubeEndpoint = isCoordinator;
+  _manualOffsetEndpointIdentity = nextIdentity;
 }
 
 function clampYouTubeTime(time: number, duration: number): number {
@@ -201,6 +252,11 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   // longer in flight.
   if (isYouTubeZeroStartProtocolActive()) return;
 
+  // A Standard-host local seek is not authoritative until the iframe reports
+  // the exact target (and, for playlists, confirms native auto-advance is
+  // detached). Manual Sync clicks must not bypass this gate either.
+  if (isStandardHostManualOffsetTransactionPending()) return;
+
   // Dedup heartbeats that immediately follow a manual broadcast. Manual
   // broadcasts always pass through (the caller explicitly asked for a
   // fresh sync).
@@ -209,6 +265,12 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
   // A still-settling local nudge can make the iframe report transient BUFFERING
   // and PLAYING states. Neither those states nor the settling heartbeat are
   // room actions, so keep them local until the iframe has stabilized.
+  if (
+    isStandardHostYouTubeManualOffsetEndpoint() &&
+    getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)
+  ) {
+    return;
+  }
   if (!isManual && getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;
 
   // Suppress heartbeat while the 2-stage rendezvous is in-flight.
@@ -226,7 +288,23 @@ export function broadcastYouTubeSync(isManual = false, stateOverride?: number): 
 
   try {
     const currentTime = player.getCurrentTime();
-    const canonicalTime = toCanonicalYouTubeTime(currentTime, player.getDuration?.() || 0);
+    const duration = player.getDuration?.() || 0;
+    const canonicalTime = toCanonicalYouTubeTime(currentTime, duration);
+    if (
+      shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
+        currentTime,
+        canonicalTime,
+        duration,
+        getState('sync.youtubeCoordinatorAppliedOffset') || 0,
+      )
+    ) {
+      // The 500ms UI poll is the primary boundary guard. Repeat it here so a
+      // throttled/background UI loop still cannot publish a host-local end as
+      // the room timeline. The setter is synchronous; the next heartbeat will
+      // read the neutralized canonical iframe position.
+      bus.emit('youtube:set-coordinator-manual-offset', 0);
+      return;
+    }
     // Prefer caller-supplied INTENT state when provided. scheduleYtAutoSync's
     // Stage 2 callback uses this so a transient BUFFERING (3) state on slow
     // networks doesn't poison guests' lastHostSnapshot.hostState and trip
@@ -493,7 +571,7 @@ function runManualOffsetApplyRendezvous(): void {
 function setCoordinatorManualYouTubeOffset(requestedOffsetSeconds: number): void {
   if (
     isYouTubeZeroStartProtocolActive() ||
-    !isProCoordinatorYouTubeEndpoint() ||
+    !isCanonicalYouTubeManualOffsetEndpoint() ||
     !Number.isFinite(requestedOffsetSeconds) ||
     !isPlaybackModeYouTube()
   ) {
@@ -501,6 +579,10 @@ function setCoordinatorManualYouTubeOffset(requestedOffsetSeconds: number): void
   }
   const player = getYouTubePlayer();
   if (!player?.getCurrentTime || !player.seekTo) return;
+  if (isStandardHostYouTubeManualOffsetEndpoint()) {
+    requestStandardHostManualOffsetTransaction(player, requestedOffsetSeconds);
+    return;
+  }
   try {
     const duration = player.getDuration?.() || 0;
     const canonicalTime = beginProCoordinatorYouTubeNudge(
@@ -508,11 +590,12 @@ function setCoordinatorManualYouTubeOffset(requestedOffsetSeconds: number): void
       duration,
       player.getPlayerState?.() === 1,
     );
-    const target = resolveProCoordinatorYouTubeTarget(
+    const requestedTarget = resolveProCoordinatorYouTubeTarget(
       canonicalTime,
       requestedOffsetSeconds,
       duration,
     );
+    const target = requestedTarget;
 
     // Arm the gate before seekTo: some iframe implementations synchronously
     // enter BUFFERING while the call is still on the stack.
@@ -1112,6 +1195,7 @@ export function resetYouTubeSyncState(): void {
   _rt.lastHostSnapshot = null;
   _rt.pendingManualRendezvousUntil = 0;
   _pendingManualOffsetApplyUntil = 0;
+  resetStandardHostManualOffsetTransaction();
   setState('sync.youtubeCoordinatorAppliedOffset', 0);
   setLocalYouTubePaused(false);
   resetAdDetection();
@@ -1571,8 +1655,8 @@ export function initYouTubeSync(): void {
   bus.on('youtube:player-ready', runPendingManualRendezvous);
   bus.on('youtube:apply-manual-sync', runManualOffsetApplyRendezvous);
   bus.on('youtube:set-coordinator-manual-offset', setCoordinatorManualYouTubeOffset);
-  bus.on('state:room.context', reconcileProCoordinatorAppliedOffset);
-  reconcileProCoordinatorAppliedOffset();
+  subscribeRoomAuthorityLifecycle(reconcileCanonicalManualOffsetEndpoint);
+  reconcileCanonicalManualOffsetEndpoint();
 
   log.info('[YouTube Sync] Initialized');
 }

@@ -26,6 +26,10 @@ const adminMetricsSchema = await readFile(
   new URL('../../../cloudflare/admin-metrics.schema.sql', import.meta.url),
   'utf8',
 );
+const authSchema = await readFile(
+  new URL('../../../cloudflare/auth.schema.sql', import.meta.url),
+  'utf8',
+);
 const sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 const centralEntitlementDatabases = new Set<DatabaseSync>();
 const CENTRAL_ENTITLEMENT_SQL_RE =
@@ -3405,6 +3409,139 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(payload.cards?.find((card) => card.key === 'guest_per_room')?.value).toBe(2.33);
   });
 
+  it('serves active-account status and permanent cumulative room and guest-join history', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-28T12:00:00.000Z'));
+    const nowMs = Date.now();
+    const nowMinute = Math.floor(nowMs / 60_000);
+    const adminDatabase = new sqlite.DatabaseSync(':memory:');
+    const authDatabase = new sqlite.DatabaseSync(':memory:');
+    centralEntitlementDatabases.add(adminDatabase);
+    centralEntitlementDatabases.add(authDatabase);
+    adminDatabase.exec(adminMetricsSchema);
+    authDatabase.exec(authSchema);
+    const increment = adminDatabase.prepare(
+      `INSERT INTO mxqr_metric_buckets (bucket_minute, event, count)
+       VALUES (?, ?, ?)
+       ON CONFLICT(bucket_minute, event)
+       DO UPDATE SET count = mxqr_metric_buckets.count + excluded.count`,
+    );
+    increment.run(nowMinute - 2 * 24 * 60, 'room_opened', 3);
+    increment.run(nowMinute - 2 * 24 * 60, 'guest_joined', 5);
+    increment.run(nowMinute, 'room_opened', 2);
+    increment.run(nowMinute, 'guest_joined', 7);
+
+    const insertAccount = authDatabase.prepare(
+      `INSERT INTO mxqr_accounts
+        (account_id, google_subject_hash, nickname, profile_complete, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const activeWithSession = 'acct_aaaaaaaaaaaaaaaaaaaaaa';
+    const inactive = 'acct_bbbbbbbbbbbbbbbbbbbbbb';
+    const recentNoNickname = 'acct_cccccccccccccccccccccc';
+    const disabled = 'acct_dddddddddddddddddddddd';
+    insertAccount.run(
+      activeWithSession,
+      'a'.repeat(43),
+      'Alpha',
+      1,
+      'active',
+      nowMs - 60 * 86_400_000,
+      nowMs - 40 * 86_400_000,
+    );
+    insertAccount.run(
+      inactive,
+      'b'.repeat(43),
+      'Beta',
+      1,
+      'active',
+      nowMs - 60 * 86_400_000,
+      nowMs - 40 * 86_400_000,
+    );
+    insertAccount.run(
+      recentNoNickname,
+      'c'.repeat(43),
+      null,
+      0,
+      'active',
+      nowMs - 5 * 86_400_000,
+      nowMs - 5 * 86_400_000,
+    );
+    insertAccount.run(
+      disabled,
+      'd'.repeat(43),
+      'Disabled',
+      1,
+      'disabled',
+      nowMs - 60 * 86_400_000,
+      nowMs - 40 * 86_400_000,
+    );
+    authDatabase
+      .prepare(
+        `INSERT INTO mxqr_account_sessions
+          (session_hash, account_id, created_at, last_seen_at, expires_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        's'.repeat(43),
+        activeWithSession,
+        nowMs - 20 * 86_400_000,
+        nowMs - 86_400_000,
+        nowMs + 10 * 86_400_000,
+      );
+
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_ADMIN_DB: {
+        prepare: (sql: string) => new CentralEntitlementStatement(adminDatabase.prepare(sql)),
+      },
+      MUSIXQUARE_AUTH_DB: {
+        prepare: (sql: string) => new CentralEntitlementStatement(authDatabase.prepare(sql)),
+      },
+    };
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders({ 'CF-Connecting-IP': '203.0.113.82' }),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/metrics', {
+        headers: { Cookie: cookie },
+      }),
+      env,
+    );
+    const payload = (await response.json()) as {
+      accounts: {
+        totalAccounts: number;
+        nicknameCompleteAccounts: number;
+        inactiveAccounts: number;
+        inactiveDays: number;
+      };
+      lifetime: {
+        totals: { roomsOpened: number; guestJoins: number };
+        points: Array<{ start: string; roomsOpened: number; guestJoins: number }>;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.accounts).toEqual({
+      totalAccounts: 3,
+      nicknameCompleteAccounts: 2,
+      inactiveAccounts: 1,
+      inactiveDays: 30,
+    });
+    expect(payload.lifetime.totals).toEqual({ roomsOpened: 5, guestJoins: 12 });
+    expect(payload.lifetime.points).toHaveLength(3);
+    expect(payload.lifetime.points[0]).toMatchObject({ roomsOpened: 3, guestJoins: 5 });
+    expect(payload.lifetime.points[1]).toMatchObject({ roomsOpened: 3, guestJoins: 5 });
+    expect(payload.lifetime.points.at(-1)).toMatchObject({ roomsOpened: 5, guestJoins: 12 });
+  });
+
   it('lets admins hide Soro articles without mutating the RSS backup', async () => {
     vi.stubGlobal(
       'fetch',
@@ -5988,11 +6125,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.34');
-    expect(html).toContain('/clearable-editors.js?v=8.4.34');
-    expect(html).toContain('/admin.js?v=8.4.34');
+    expect(html).toContain('/admin.css?v=8.4.35');
+    expect(html).toContain('/clearable-editors.js?v=8.4.35');
+    expect(html).toContain('/admin.js?v=8.4.35');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.34"');
+    expect(html).toContain('data-admin-asset-version="8.4.35"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6013,9 +6150,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.34',
-      '/admin.css?v=8.4.34',
-      '/clearable-editors.js?v=8.4.34',
+      '/admin.js?v=8.4.35',
+      '/admin.css?v=8.4.35',
+      '/clearable-editors.js?v=8.4.35',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);

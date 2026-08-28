@@ -439,6 +439,17 @@ class FakeAuthDb {
       this.sessionTouchChanges += 1;
       return changed(1);
     }
+    if (normalized.startsWith('update mxqr_accounts set updated_at = max(updated_at, ?1)')) {
+      const [updatedAt, sessionHash] = values as [number, string];
+      const session = this.sessions.get(sessionHash);
+      if (!session || session.last_seen_at !== updatedAt) return changed(0);
+      const account = this.accounts.get(session.account_id);
+      if (!account || account.status !== 'active' || account.updated_at >= updatedAt) {
+        return changed(0);
+      }
+      account.updated_at = updatedAt;
+      return changed(1);
+    }
     if (normalized.startsWith("update mxqr_accounts set status = 'disabled'")) {
       const [accountId, updatedAt] = values as [string, number];
       const account = this.accounts.get(accountId);
@@ -1594,6 +1605,36 @@ describe('Google Authorization Code + PKCE account flow', () => {
 });
 
 describe('account session read reliability', () => {
+  it('retains recent account activity after the touched session is cleaned up', async () => {
+    const db = new FakeAuthDb();
+    const env = authEnv(db);
+    const login = await completeLogin(env);
+    vi.unstubAllGlobals();
+    const account = [...db.accounts.values()][0]!;
+    const storedSession = [...db.sessions.values()][0]!;
+    account.updated_at = 1;
+    storedSession.last_seen_at = 1;
+
+    const response = await handleAccountAuthRequest(
+      new Request('https://musixquare.com/api/auth/session', {
+        headers: { Cookie: login.sessionCookie! },
+      }),
+      env,
+    );
+
+    expect(response?.status).toBe(200);
+    const durableLastActiveAt = storedSession.last_seen_at;
+    expect(durableLastActiveAt).toBeGreaterThan(1);
+    expect(account.updated_at).toBe(durableLastActiveAt);
+
+    storedSession.expires_at = durableLastActiveAt;
+    await expect(
+      cleanupExpiredAccountSessions({ MUSIXQUARE_AUTH_DB: db }, durableLastActiveAt),
+    ).resolves.toEqual({ configured: true, deleted: true });
+    expect(db.sessions.size).toBe(0);
+    expect(account.updated_at).toBe(durableLastActiveAt);
+  });
+
   it('returns an authenticated session when the best-effort last-seen touch fails', async () => {
     const db = new FakeAuthDb();
     const env = authEnv(db);

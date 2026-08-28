@@ -83,6 +83,24 @@ The App Worker injects a cached daily snapshot into `/about` as the validated
 `data-mxqr-rooms-opened` attribute on the document element; the browser makes
 no additional metrics request.
 
+The administrator's cumulative chart uses the same event definitions. The
+additive `mxqr_lifetime_metric_days` table stores UTC-day aggregate increments
+for `room_opened` and `guest_joined`, while `mxqr_lifetime_metric_totals` keeps
+their monotonic totals. The initial backfill is complete from the first
+analytics event on 2026-06-18 because the migration is applied before that
+history leaves the 90-day bucket window. A “guest join” is a successful
+Standard-room connection event, not a unique person; reconnecting or returning
+can contribute another event. Neither table stores a room code, account,
+visitor, request, or network identifier.
+
+The account cards read the Auth D1 binding but expose aggregate counts only.
+“Active accounts” excludes disabled deletion jobs, “Nickname complete” requires
+both the completed-profile flag and a retained nickname, and “Inactive 30+
+days” means no sign-in or authenticated session activity inside the window.
+Hourly session touches monotonically advance the account's durable
+`updated_at`, so later session-retention cleanup cannot make a recently active
+account appear inactive.
+
 ## First-Frame-Only Host Authentication
 
 As of 2026-07-22, standard-room hosts authenticate only by sending their random
@@ -244,9 +262,9 @@ https://musixquare.com/admin
   scheduled task retains 90 days of aggregate history and removes older rows
   independently from the Soro refresh, so a D1 cleanup failure cannot block
   blog maintenance or user traffic.
-- `mxqr_lifetime_metric_totals` is outside that deletion path. Its
-  `room_opened` row is permanent and is seeded from retained buckets when the
-  lifetime-counter migration is first applied.
+- `mxqr_lifetime_metric_totals` and `mxqr_lifetime_metric_days` are outside that
+  deletion path. Their room/guest aggregates are permanent and are seeded from
+  retained buckets when the cumulative-analytics migration is first applied.
 - The same scheduled event independently retains 365 days of PRO admin audit
   metadata. Audit cleanup failure does not cancel metrics cleanup or Soro
   refresh and never weakens claim issuance auditing.
@@ -286,10 +304,11 @@ Inspect table names and aggregate row ages without exposing user data:
 npm run wrangler -- d1 execute musixquare-admin-metrics --remote --json --command "SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name; SELECT MIN(bucket_minute) AS oldest_minute, MAX(bucket_minute) AS newest_minute, COUNT(*) AS rows FROM mxqr_metric_buckets;"
 ```
 
-The declarative baseline currently defines these 18 application tables; `_cf_KV`
+The declarative baseline currently defines these 19 application tables; `_cf_KV`
 is managed by Cloudflare:
 
-- metrics: `mxqr_metric_buckets`, `mxqr_lifetime_metric_totals`;
+- metrics: `mxqr_metric_buckets`, `mxqr_lifetime_metric_totals`,
+  `mxqr_lifetime_metric_days`;
 - registry and generation: `mxqr_pro_room_registry`,
   `mxqr_pro_room_generation_history`,
   `mxqr_pro_room_generation_allocations`,

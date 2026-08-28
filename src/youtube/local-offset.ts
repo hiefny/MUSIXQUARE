@@ -9,7 +9,8 @@
 import { MANUAL_SYNC_OFFSET_LIMIT_SEC } from '../core/constants.ts';
 import { getState } from '../core/state.ts';
 import { getManagedTimer } from '../core/timers.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
+import { STANDARD_HOST_MANUAL_OFFSET_END_GUARD_SEC } from './constants.ts';
 
 export const PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER = 'yt-pro-coordinator-local-nudge';
 
@@ -46,8 +47,44 @@ export function isProCoordinatorYouTubeEndpoint(): boolean {
   return room.kind === 'pro';
 }
 
+export function isStandardHostYouTubeManualOffsetEndpoint(): boolean {
+  return getRoomContext().kind === 'standard' && isActiveStandardRoomCoordinator();
+}
+
+/**
+ * Whether this browser has a room timeline that is independent from its local
+ * iframe position. PRO always uses the server timeline; an active standard
+ * host owns the legacy room timeline itself. In both cases a manual offset
+ * must be removed again before any position is projected to the room.
+ */
+export function isCanonicalYouTubeManualOffsetEndpoint(): boolean {
+  return isProCoordinatorYouTubeEndpoint() || isStandardHostYouTubeManualOffsetEndpoint();
+}
+
+/**
+ * A standard host's iframe still owns native ENDED and playlist transitions.
+ * Neutralize its local delta before either the physical iframe or canonical
+ * room clock reaches that boundary, keeping the two end owners coincident.
+ */
+export function shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
+  localTime: number,
+  canonicalTime: number,
+  duration: number,
+  effectiveOffset: number,
+): boolean {
+  if (!isStandardHostYouTubeManualOffsetEndpoint()) return false;
+  if (!Number.isFinite(duration) || duration <= 0) return false;
+  if (!Number.isFinite(effectiveOffset) || Math.abs(effectiveOffset) < 0.0005) return false;
+  const localRemaining = duration - clampTime(localTime, duration);
+  const canonicalRemaining = duration - clampTime(canonicalTime, duration);
+  return (
+    localRemaining <= STANDARD_HOST_MANUAL_OFFSET_END_GUARD_SEC ||
+    canonicalRemaining <= STANDARD_HOST_MANUAL_OFFSET_END_GUARD_SEC
+  );
+}
+
 function getEffectiveProCoordinatorYouTubeOffset(): number {
-  if (!isProCoordinatorYouTubeEndpoint()) return 0;
+  if (!isCanonicalYouTubeManualOffsetEndpoint()) return 0;
   return clampOffset(getState('sync.youtubeCoordinatorAppliedOffset') || 0);
 }
 
@@ -97,7 +134,7 @@ export function rebaseProCoordinatorYouTubeNudgeAnchor(
   duration: number,
   playing: boolean,
 ): void {
-  if (!isProCoordinatorYouTubeEndpoint()) return;
+  if (!isCanonicalYouTubeManualOffsetEndpoint()) return;
   if (!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER)) return;
   _nudgeAnchor = {
     canonicalTime: clampTime(canonicalTime, duration),
@@ -108,7 +145,7 @@ export function rebaseProCoordinatorYouTubeNudgeAnchor(
 
 /** Convert an iframe-local position to the room timeline. */
 export function toCanonicalYouTubeTime(localTime: number, duration = 0): number {
-  if (!isProCoordinatorYouTubeEndpoint()) return localTime;
+  if (!isCanonicalYouTubeManualOffsetEndpoint()) return localTime;
   const anchoredTime = readActiveNudgeAnchor(duration);
   if (anchoredTime !== null) return anchoredTime;
   return clampTime(localTime - getEffectiveProCoordinatorYouTubeOffset(), duration);

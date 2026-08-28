@@ -189,6 +189,25 @@ test.describe('Sync Controls', () => {
     expect(offset).toBeCloseTo(0.021, 4); // 10 + 10 + 1 = 21ms = 0.021s
   });
 
+  test('entered signed offset applies when the edit is completed', async () => {
+    await prepareGuestManualSync();
+    await openSyncOverlay(pair.guestPage);
+
+    const editor = pair.guestPage.locator('#manual-sync-value');
+    await expect(editor).toHaveAttribute('contenteditable', 'true');
+    await expect(editor).toHaveAttribute('role', 'textbox');
+    await expect(editor).toHaveAttribute('inputmode', 'text');
+    await expect(editor).toHaveAttribute('aria-describedby', 'manual-sync-range-hint');
+    await expect(pair.guestPage.locator('#manual-sync-range-hint')).toContainText(
+      '-9999 … +9999 ms',
+    );
+    await editor.fill('-1234');
+    await editor.press('Enter');
+
+    await waitForSyncOffset(pair.guestPage, -1.234);
+    await expect(editor).toHaveText('-1234');
+  });
+
   test('sync display shows current offset value', async () => {
     await prepareGuestManualSync();
 

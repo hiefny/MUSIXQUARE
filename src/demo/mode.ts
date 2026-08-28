@@ -1662,16 +1662,45 @@ function maybeShowFirstRunPrompt(): void {
     });
 }
 
-export function initDemoMode(): void {
+export function reconcileDemoFirstRunPrompt(): void {
+  if (!getState('setup.sessionStarted') || getState('network.appRole') !== 'host') return;
+  clearManagedTimer('demo-first-run-prompt');
+  setManagedTimer('demo-first-run-prompt', maybeShowFirstRunPrompt, 700);
+}
+
+export function handleDemoProtocolMessage(
+  data: Record<string, unknown>,
+  conn: DataConnection,
+): void {
+  switch (data.type) {
+    case MSG.DEMO_ENTER:
+      handleDemoEnterMessage(data, conn);
+      return;
+    case MSG.DEMO_PLAY:
+      handleDemoPlayMessage(data, conn);
+      return;
+    case MSG.DEMO_PAUSE:
+      handleDemoPauseMessage(data, conn);
+      return;
+    case MSG.DEMO_EXIT:
+      handleDemoExitMessage(data, conn);
+  }
+}
+
+export function initDemoMode(
+  options: { protocolHandlersRegistered?: boolean; suppressFirstRunPrompt?: boolean } = {},
+): void {
   _busScope.dispose();
   bindDemoDom();
-  registerHandlers({
-    [MSG.DEMO_ENTER]: handleDemoEnterMessage,
-    [MSG.DEMO_PLAY]: handleDemoPlayMessage,
-    [MSG.DEMO_PAUSE]: handleDemoPauseMessage,
-    [MSG.DEMO_EXIT]: handleDemoExitMessage,
-  });
-  _suppressFirstRunPrompt = hasAppUseRecord();
+  if (!options.protocolHandlersRegistered) {
+    registerHandlers({
+      [MSG.DEMO_ENTER]: handleDemoEnterMessage,
+      [MSG.DEMO_PLAY]: handleDemoPlayMessage,
+      [MSG.DEMO_PAUSE]: handleDemoPauseMessage,
+      [MSG.DEMO_EXIT]: handleDemoExitMessage,
+    });
+  }
+  _suppressFirstRunPrompt = options.suppressFirstRunPrompt ?? hasAppUseRecord();
 
   _busScope.on('demo:enter', () => {
     observeDemoOperation(
@@ -1747,9 +1776,7 @@ export function initDemoMode(): void {
   _busScope.on('state:room.context', enforceDemoRoomBoundary);
   _busScope.on('state:network.sessionCode', enforceDemoRoomBoundary);
   _busScope.on('state:setup.sessionStarted', (started) => {
-    if (!started || getState('network.appRole') !== 'host') return;
-    clearManagedTimer('demo-first-run-prompt');
-    setManagedTimer('demo-first-run-prompt', maybeShowFirstRunPrompt, 700);
+    if (started) reconcileDemoFirstRunPrompt();
   });
 
   try {

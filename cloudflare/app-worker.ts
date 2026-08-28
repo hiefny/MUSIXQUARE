@@ -333,7 +333,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.4.34';
+const ADMIN_ASSET_VERSION = '8.4.35';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -443,6 +443,7 @@ const INITIAL_ADMIN_PRO_ROOMS = Object.freeze([
 ]);
 const ADMIN_METRICS_TABLE = 'mxqr_metric_buckets';
 const LIFETIME_METRICS_TABLE = 'mxqr_lifetime_metric_totals';
+const LIFETIME_METRIC_DAYS_TABLE = 'mxqr_lifetime_metric_days';
 const ADMIN_METRICS_RETENTION_DAYS = 90;
 const ADMIN_PRO_ROOM_AUDIT_RETENTION_DAYS = 365;
 const MINUTES_PER_DAY = 24 * 60;
@@ -10419,6 +10420,154 @@ async function cleanupExpiredAdminMetrics(env: AppEnv, nowMs: number = Date.now(
   }
 }
 
+interface AdminLifetimeMetricPoint {
+  start: string;
+  roomsOpened: number;
+  guestJoins: number;
+}
+
+interface AdminLifetimeMetrics {
+  startedAt: string | null;
+  totals: {
+    roomsOpened: number;
+    guestJoins: number;
+  };
+  points: AdminLifetimeMetricPoint[];
+}
+
+async function readAdminLifetimeMetrics(
+  db: D1Database,
+  nowMs: number,
+): Promise<AdminLifetimeMetrics | null> {
+  let result;
+  try {
+    result = await db
+      .prepare(
+        `SELECT 'total' AS row_kind, NULL AS day_epoch, event, count
+           FROM ${LIFETIME_METRICS_TABLE}
+          WHERE event IN ('room_opened', 'guest_joined')
+          UNION ALL
+         SELECT 'day' AS row_kind, day_epoch, event, count
+           FROM ${LIFETIME_METRIC_DAYS_TABLE}
+          WHERE event IN ('room_opened', 'guest_joined')
+          ORDER BY row_kind DESC, day_epoch ASC, event ASC`,
+      )
+      .all<Record<string, unknown>>();
+  } catch {
+    // Analytics remains available during a forward migration retry. The UI
+    // renders an explicit unavailable state instead of taking down the current
+    // 24-hour/30-day dashboard.
+    return null;
+  }
+
+  const totals = { room_opened: 0, guest_joined: 0 };
+  const increments = new Map<number, { room_opened: number; guest_joined: number }>();
+  const today = Math.floor(nowMs / 86_400_000);
+  for (const row of result?.results || []) {
+    const event = row?.event;
+    const count = Number(row?.count);
+    if (
+      (event !== 'room_opened' && event !== 'guest_joined') ||
+      !Number.isSafeInteger(count) ||
+      count < 0
+    ) {
+      continue;
+    }
+    if (row.row_kind === 'total') {
+      totals[event] = Math.max(totals[event], count);
+      continue;
+    }
+    const dayEpoch = Number(row?.day_epoch);
+    if (!Number.isSafeInteger(dayEpoch) || dayEpoch < 0 || dayEpoch > today) continue;
+    const current = increments.get(dayEpoch) || { room_opened: 0, guest_joined: 0 };
+    current[event] += count;
+    increments.set(dayEpoch, current);
+  }
+
+  const days = [...increments.keys()].sort((left, right) => left - right);
+  const retained = [...increments.values()].reduce(
+    (sum, day) => ({
+      room_opened: sum.room_opened + day.room_opened,
+      guest_joined: sum.guest_joined + day.guest_joined,
+    }),
+    { room_opened: 0, guest_joined: 0 },
+  );
+  totals.room_opened = Math.max(totals.room_opened, retained.room_opened);
+  totals.guest_joined = Math.max(totals.guest_joined, retained.guest_joined);
+  let roomsOpened = totals.room_opened - retained.room_opened;
+  let guestJoins = totals.guest_joined - retained.guest_joined;
+  const firstDay = days[0] ?? today;
+  const points: AdminLifetimeMetricPoint[] = [];
+  for (let dayEpoch = firstDay; dayEpoch <= today; dayEpoch += 1) {
+    const day = increments.get(dayEpoch) || { room_opened: 0, guest_joined: 0 };
+    roomsOpened += day.room_opened;
+    guestJoins += day.guest_joined;
+    points.push({
+      start: new Date(dayEpoch * 86_400_000).toISOString(),
+      roomsOpened,
+      guestJoins,
+    });
+  }
+  return {
+    startedAt: points[0]?.start || null,
+    totals: {
+      roomsOpened: totals.room_opened,
+      guestJoins: totals.guest_joined,
+    },
+    points,
+  };
+}
+
+async function readAdminAccountSummary(env: AppEnv, nowMs: number) {
+  const db = env.MUSIXQUARE_AUTH_DB;
+  if (!db?.prepare) return null;
+  const inactiveBeforeMs = nowMs - 30 * 86_400_000;
+  try {
+    const statement = db
+      .prepare(
+        `WITH account_activity AS (
+           SELECT account.account_id,
+                  account.profile_complete,
+                  account.nickname,
+                  MAX(account.updated_at, COALESCE(MAX(session.last_seen_at), 0)) AS last_active_at
+             FROM mxqr_accounts AS account
+             LEFT JOIN mxqr_account_sessions AS session
+               ON session.account_id = account.account_id
+            WHERE account.status = 'active'
+            GROUP BY account.account_id, account.profile_complete,
+                     account.nickname, account.updated_at
+         )
+         SELECT COUNT(*) AS total_accounts,
+                COALESCE(SUM(CASE
+                  WHEN profile_complete = 1 AND nickname IS NOT NULL THEN 1 ELSE 0
+                END), 0) AS nickname_complete_accounts,
+                COALESCE(SUM(CASE WHEN last_active_at <= ?1 THEN 1 ELSE 0 END), 0)
+                  AS inactive_accounts
+           FROM account_activity`,
+      )
+      .bind(inactiveBeforeMs);
+    const row =
+      typeof statement.first === 'function'
+        ? await statement.first<Record<string, unknown>>()
+        : (await statement.all<Record<string, unknown>>())?.results?.[0] || null;
+    const totalAccounts = Number(row?.total_accounts);
+    const nicknameCompleteAccounts = Number(row?.nickname_complete_accounts);
+    const inactiveAccounts = Number(row?.inactive_accounts);
+    if (
+      ![totalAccounts, nicknameCompleteAccounts, inactiveAccounts].every(
+        (value) => Number.isSafeInteger(value) && value >= 0,
+      ) ||
+      nicknameCompleteAccounts > totalAccounts ||
+      inactiveAccounts > totalAccounts
+    ) {
+      return null;
+    }
+    return { totalAccounts, nicknameCompleteAccounts, inactiveAccounts, inactiveDays: 30 };
+  } catch {
+    return null;
+  }
+}
+
 async function cleanupExpiredProRoomAdminAudit(env: AppEnv, nowMs: number = Date.now()) {
   const db = getAdminDb(env);
   if (!db?.prepare) return 'unconfigured';
@@ -10495,6 +10644,10 @@ async function readAdminMetrics(env: AppEnv) {
 
   const rows = Array.isArray(result?.results) ? result.results : [];
   const buckets = buildAdminMetricBuckets(rows, nowMs);
+  const [accounts, lifetime] = await Promise.all([
+    readAdminAccountSummary(env, nowMs),
+    readAdminLifetimeMetrics(db, nowMs),
+  ]);
   const roomCount = buckets.last24.room_opened || 0;
   const guestCount = buckets.last24.guest_joined || 0;
   const authFailures =
@@ -10537,6 +10690,8 @@ async function readAdminMetrics(env: AppEnv) {
           (buckets.previous24.guest_auth_timeout || 0),
       },
     ],
+    accounts,
+    lifetime,
     summary: buckets,
   };
 }
@@ -11334,6 +11489,15 @@ function renderAdminPage(request: Request, env: AppEnv) {
         <button type="button" data-admin-tab="announcements">Announcements</button>
       </nav>
       <section class="admin-view is-active" data-admin-view="operations">
+        <section class="panel account-overview-panel" aria-labelledby="admin-account-overview-title">
+          <div class="panel-head account-overview-head">
+            <div>
+              <h2 id="admin-account-overview-title">Accounts</h2>
+              <p>Current active accounts and 30-day activity status.</p>
+            </div>
+          </div>
+          <div class="account-metric-grid" data-account-metrics></div>
+        </section>
         <section class="metric-grid" data-metric-cards></section>
         <section class="panel">
           <div class="panel-head">
@@ -11358,6 +11522,20 @@ function renderAdminPage(request: Request, env: AppEnv) {
             <h2>Signals</h2>
           </div>
           <div class="signal-grid" data-signal-grid></div>
+        </section>
+        <section class="panel lifetime-panel" aria-labelledby="admin-lifetime-title">
+          <div class="panel-head lifetime-panel-head">
+            <div>
+              <h2 id="admin-lifetime-title">Cumulative usage</h2>
+              <p>Measured from the first analytics event on June 18, 2026.</p>
+            </div>
+            <div class="lifetime-legend" aria-label="Chart legend">
+              <span class="is-rooms">Rooms opened</span>
+              <span class="is-guests">Guest joins</span>
+            </div>
+          </div>
+          <div class="lifetime-metric-grid" data-lifetime-metrics></div>
+          <div class="lifetime-chart" data-lifetime-chart></div>
         </section>
       </section>
       <section class="admin-view" data-admin-view="pro-rooms" hidden>
@@ -11404,10 +11582,14 @@ function renderAdminPage(request: Request, env: AppEnv) {
               <div>
                 <h2>Registered rooms</h2>
                 <p>Expand a room to manage access, lifecycle, and API keys.</p>
-                <p data-pro-room-list-status>Loading PRO rooms...</p>
+                <p role="status" aria-live="polite" data-pro-room-list-status>Loading PRO rooms...</p>
               </div>
+              <label class="pro-room-search-field">
+                <span>Search rooms</span>
+                <input id="pro-room-search" type="search" autocomplete="off" maxlength="64" placeholder="Room code or label" aria-controls="pro-room-list" data-pro-room-search>
+              </label>
             </div>
-            <div class="pro-room-list" data-pro-room-list></div>
+            <div class="pro-room-list" id="pro-room-list" data-pro-room-list></div>
           </section>
         </section>
       </section>

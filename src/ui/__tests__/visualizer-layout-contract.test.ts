@@ -47,7 +47,7 @@ describe('visualizer layout contract', () => {
       /\.track-box,\s*\.play-secondary-area\s*\{[\s\S]*?margin-top:\s*auto;/u,
     );
     expect(stylesheet).toMatch(
-      /@media \(max-width: 1279px\) and \(max-height: 720px\)\s*\{\s*\.track-artist\s*\{\s*display:\s*none !important;/u,
+      /@media \(max-width: 1279px\) and \(max-height: 720px\) and \(orientation: portrait\)\s*\{\s*\.track-artist\s*\{\s*display:\s*none !important;/u,
     );
     expect(stylesheet).toMatch(/\.controls-area\s*\{\s*padding-top:\s*12px;/u);
     expect(stylesheet).toMatch(

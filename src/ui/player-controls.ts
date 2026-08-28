@@ -11,7 +11,7 @@ import { getState } from '../core/state.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, PLAYBACK_STATE } from '../core/constants.ts';
 import { formatSystemAudioProfileLabel } from '../core/system-audio-profile.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
-import { getClockOffset, getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
+import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
@@ -39,7 +39,6 @@ import {
 } from '../youtube/search.ts';
 import { primeYouTubePlayer, waitForPendingYouTubePrimeBounce } from '../youtube/iframe.ts';
 import { YOUTUBE_PRIME_BOUNCE_TIMEOUT_MS } from '../youtube/constants.ts';
-import { broadcastYouTubeSync, guestRendezvousSync } from '../youtube/sync.ts';
 import { getYouTubePlayer } from '../youtube/_state.ts';
 import { isYouTubeZeroStartProtocolActive } from '../youtube/zero-start.ts';
 import { initSeekBar } from './seekbar.ts';
@@ -112,7 +111,6 @@ let _proPlaybackControlLoading = false;
 let _proPlaybackTransitionLoading = false;
 let _proPlaybackControlToken: number | null = null;
 let _proPlaybackControlKind: ProPlaybackUiControlKind | null = null;
-let _manualSyncPreviousFocus: HTMLElement | null = null;
 let _mediaSourcePreviousFocus: HTMLElement | null = null;
 let _youtubePopupPreviousFocus: HTMLElement | null = null;
 let _playButtonMediaEnabled = false;
@@ -922,99 +920,27 @@ function openFileSelector(): void {
 
 // ─── Sync Button ─────────────────────────────────────────────────
 
-function openManualSyncOverlay(): void {
-  if (!canUseManualSyncPanel()) {
-    showToast(t('toast.sync_not_ready'));
-    closeManualSyncOverlay();
-    return;
-  }
+type ManualSyncOverlayRuntime = typeof import('./manual-sync-overlay-runtime.ts');
+let _manualSyncOverlayRuntime: ManualSyncOverlayRuntime | null = null;
+let _manualSyncOverlayLoad: Promise<ManualSyncOverlayRuntime> | null = null;
+let _manualSyncOverlayRequest = 0;
 
-  bus.emit('sync:display-update');
-  const overlay = document.getElementById('manual-sync-overlay');
-  if (!overlay) return;
-
-  if (!overlay.classList.contains('show')) {
-    _manualSyncPreviousFocus =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : document.getElementById('btn-sync');
-  }
-
-  overlay.classList.add('show');
-  overlay.setAttribute('aria-hidden', 'false');
-  syncOverlayState('manual-sync-overlay');
-  setManagedTimer(
-    'manual-sync-focus',
-    () => {
-      if (!overlay.classList.contains('show')) return;
-      document.getElementById('btn-sync-done')?.focus();
-    },
-    0,
-  );
+function loadManualSyncOverlayRuntime(): Promise<ManualSyncOverlayRuntime> {
+  _manualSyncOverlayLoad ??= import('./manual-sync-overlay-runtime.ts')
+    .then((runtime) => {
+      _manualSyncOverlayRuntime = runtime;
+      return runtime;
+    })
+    .catch((error: unknown) => {
+      _manualSyncOverlayLoad = null;
+      throw error;
+    });
+  return _manualSyncOverlayLoad;
 }
 
 function closeManualSyncOverlay(): void {
-  const overlay = document.getElementById('manual-sync-overlay');
-  if (!overlay) return;
-  const wasShown = overlay.classList.contains('show');
-  clearManagedTimer('manual-sync-focus');
-  overlay.classList.remove('show');
-  overlay.setAttribute('aria-hidden', 'true');
-  syncOverlayState();
-
-  const previousFocus = _manualSyncPreviousFocus;
-  _manualSyncPreviousFocus = null;
-  if (!wasShown) return;
-
-  const fallback = document.getElementById('btn-sync');
-  const target = previousFocus?.isConnected ? previousFocus : fallback;
-  target?.focus();
-}
-
-function handleManualSyncOverlayKeydown(event: KeyboardEvent): void {
-  const overlay = document.getElementById('manual-sync-overlay');
-  if (!overlay?.classList.contains('show')) return;
-
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    event.stopPropagation();
-    closeManualSyncOverlay();
-    return;
-  }
-
-  if (event.key !== 'Tab') return;
-  const focusables = Array.from(
-    overlay.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
-  if (focusables.length === 0) return;
-
-  const first = focusables[0]!;
-  const last = focusables[focusables.length - 1]!;
-  const active = document.activeElement;
-  if (event.shiftKey) {
-    if (active === first || !overlay.contains(active)) {
-      event.preventDefault();
-      last.focus();
-    }
-  } else if (active === last || !overlay.contains(active)) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-function canUseManualSyncPanel(): boolean {
-  const hostConn = getState('network.hostConn');
-  const room = getRoomContext();
-  const isProRoom = room.kind === 'pro';
-  if (!hostConn?.open && !isProRoom && !isActiveStandardRoomCoordinator()) return false;
-  if (isPlaybackModeSystemAudio()) return false;
-  if (isPlaybackModeYouTube()) {
-    if (!hostConn && !isProRoom && isActiveStandardRoomCoordinator()) return false;
-    return !isYouTubeZeroStartProtocolActive();
-  }
-  return isPlaybackModeFile() && !!getCurrentAudioBuffer();
+  _manualSyncOverlayRequest += 1;
+  _manualSyncOverlayRuntime?.closeManualSyncOverlayRuntime();
 }
 
 type MainSyncUnavailableReason = 'no-media' | 'not-ready' | 'system-audio';
@@ -1084,129 +1010,29 @@ function finishMainSyncRequest(token: number): void {
 }
 
 function handleMainSyncBtn(): void {
-  // aria-disabled is advisory for custom-styled controls; synthetic clicks,
-  // keyboard activation, and a state change between paint and dispatch can
-  // still reach this handler. Re-evaluate the same predicate used to render
-  // the button and fail closed with the matching user-facing reason.
   const unavailableReason = getMainSyncUnavailableReason();
   if (unavailableReason) {
     closeManualSyncOverlay();
     showToast(getMainSyncUnavailableMessage(unavailableReason));
     return;
   }
-
-  if (_mainSyncPending) {
-    showToast(t('toast.sync_not_ready'));
-    return;
-  }
-
-  // System Audio sharing: nudge sync still not meaningful (WebRTC realtime stream)
-  if (isPlaybackModeSystemAudio()) {
-    showToast(t('toast.sync_not_in_system_audio'));
-    return;
-  }
-
-  // Manual Sync publishes a new room rendezvous. Keep it fenced through the
-  // post-release timeline calibration as well as iframe preparation: the
-  // underlying broadcaster intentionally rejects while the protocol identity
-  // is active, so enabling this surface earlier would create a bright no-op.
-  if (isPlaybackModeYouTube() && isYouTubeZeroStartProtocolActive()) {
-    closeManualSyncOverlay();
-    showToast(t('toast.sync_not_ready'));
-    return;
-  }
-
-  const hostConn = getState('network.hostConn');
-  const room = getRoomContext();
-  const isProRoom = room.kind === 'pro';
-  if (!hostConn && !isPlaybackModeFile() && !isPlaybackModeYouTube()) {
-    showToast(t('toast.sync_no_media'));
-    return;
-  }
-
-  // Every PRO participant is a local playback endpoint, regardless of whether
-  // it may issue room commands. Sync is therefore a participant-local server
-  // reconciliation followed by a speaker nudge, never a command sent to
-  // another browser.
-  if (isProRoom) {
-    const roomId = room.roomId;
-    const requestToken = beginMainSyncRequest();
-    void import('../pro-room/runtime.ts')
-      .then(({ requestActiveProRoomPlaybackReconciliation }) =>
-        requestActiveProRoomPlaybackReconciliation(),
-      )
-      .then((reconciled) => {
-        const currentRoom = getRoomContext();
-        if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
-        if (!reconciled) {
-          showToast(t('toast.sync_not_ready'));
-          return;
-        }
-        openManualSyncOverlay();
-      })
-      .catch((error) => {
-        const currentRoom = getRoomContext();
-        if (currentRoom.kind !== 'pro' || currentRoom.roomId !== roomId) return;
-        log.warn('[PRO Playback] Manual synchronization failed', error);
-        showToast(t('toast.sync_not_ready'));
-      })
-      .finally(() => {
-        finishMainSyncRequest(requestToken);
+  const request = ++_manualSyncOverlayRequest;
+  void loadManualSyncOverlayRuntime().then(
+    (runtime) => {
+      if (request !== _manualSyncOverlayRequest) return;
+      runtime.handleMainSyncButtonRuntime({
+        getUnavailableReason: getMainSyncUnavailableReason,
+        getUnavailableMessage: getMainSyncUnavailableMessage,
+        beginRequest: beginMainSyncRequest,
+        finishRequest: finishMainSyncRequest,
       });
-    return;
-  }
-
-  if (isPlaybackModeYouTube()) {
-    if (!hostConn) {
-      broadcastYouTubeSync(true);
-      showToast(t('toast.host_sync_requested'));
-      return;
-    }
-    if (!hostConn.open) {
+    },
+    (error: unknown) => {
+      if (request !== _manualSyncOverlayRequest) return;
+      log.warn('[UI] Manual-sync controls failed to load', error);
       showToast(t('toast.sync_not_ready'));
-      return;
-    }
-
-    guestRendezvousSync({
-      suppressProgressToast: true,
-      onComplete: () => {
-        openManualSyncOverlay();
-        if (canUseManualSyncPanel()) showToast(t('toast.yt_manual_sync_prompt'));
-      },
-    });
-    return;
-  }
-
-  if (!hostConn) {
-    // During track prep (DOWNLOADING/AWAITING_PRELOAD/
-    // DECODING) getTrackPosition() reads 0 and the resident buffer is the
-    // previous track's — broadcasting PLAY/PAUSE(time 0, new index) would
-    // bounce ready guests to 0:00 while the host is still preparing.
-    if (isFilePipelineBusyForPlay()) {
-      showToast(t('toast.sync_not_ready'));
-      return;
-    }
-    if (!getCurrentQueueItemId() || !getCurrentAudioBuffer()) {
-      showToast(t('toast.sync_not_ready'));
-      return;
-    }
-    // transport.ts keeps getTrackPosition() canonical while applying the
-    // manual offset only to the local AudioBuffer source.
-    openManualSyncOverlay();
-    return;
-  }
-  if (!hostConn.open) {
-    showToast(t('toast.sync_not_ready'));
-    return;
-  }
-
-  if (!canUseManualSyncPanel()) {
-    openManualSyncOverlay();
-    return;
-  }
-
-  bus.emit('sync:force-resync');
-  openManualSyncOverlay();
+    },
+  );
 }
 
 // ─── Logo Return to Main ─────────────────────────────────────────
@@ -1340,14 +1166,6 @@ export function initPlayerControls(): void {
     const el = document.getElementById(id);
     if (el) el.addEventListener(evt, fn, { signal: domSignal });
   };
-
-  // These overlay handlers are intentionally one-shot DOM bindings. Their
-  // dataset guards must outlive the replaceable listener scope above.
-  const manualSyncOverlay = document.getElementById('manual-sync-overlay');
-  if (manualSyncOverlay && manualSyncOverlay.dataset.keyboardBound !== '1') {
-    manualSyncOverlay.dataset.keyboardBound = '1';
-    manualSyncOverlay.addEventListener('keydown', handleManualSyncOverlayKeydown);
-  }
 
   const mediaSourceOverlay = document.getElementById('media-source-overlay');
   if (mediaSourceOverlay && mediaSourceOverlay.dataset.keyboardBound !== '1') {
@@ -1670,16 +1488,11 @@ export function initPlayerControls(): void {
     updateRoleBadge();
   });
 
-  // Latency update → refresh role badge + clock offset display
+  // Latency update → refresh role badge. Automatic clock correction remains
+  // active but is intentionally no longer exposed as a second panel column.
   _busScope.on('sync:latency-update', () => {
     updateRoleBadge();
     scheduleRoleClockPulse(true);
-    const autoEl = document.getElementById('auto-sync-value');
-    if (autoEl) {
-      const offset = getClockOffset();
-      const ms = Math.round(offset);
-      autoEl.innerText = ms > 0 ? `+${ms}` : `${ms}`;
-    }
   });
 
   // Connection type updated (e.g. ICE resolved) → Re-trigger title update to check for Wi-Fi warning
@@ -2002,26 +1815,21 @@ export function initPlayerControls(): void {
   });
   _busScope.on('state:files.current', refreshTrackTitle);
 
-  // Sync display update (dual: auto + manual)
-  // Unit ("ms") is shown in the column label, not appended to the value,
-  // so 4-digit offsets (e.g. +1022) don't visually crowd the small tile.
-  const fmtMs = (ms: number) => (ms > 0 ? `+${ms}` : `${ms}`);
-
+  // Sync display update. Automatic clock correction continues internally;
+  // this surface intentionally exposes only the participant's manual offset.
   _busScope.on('sync:display-update', () => {
-    const localOffset = isPlaybackModeYouTube()
-      ? getState('sync.youtubeLocalOffset') || 0
-      : getState('sync.localOffset') || 0;
-    const manualEl = document.getElementById('manual-sync-value');
-    const autoEl = document.getElementById('auto-sync-value');
-    if (manualEl) manualEl.innerText = fmtMs(Math.round(localOffset * 1000));
-    if (autoEl) autoEl.innerText = fmtMs(Math.round(getClockOffset()));
+    _manualSyncOverlayRuntime?.refreshManualSyncOverlayRuntime();
   });
   _busScope.on('sync:close-manual', closeManualSyncOverlay);
 
   const closeManualSyncIfInvalid = () => {
-    const overlay = document.getElementById('manual-sync-overlay');
-    if (!overlay?.classList.contains('show')) return;
-    if (!canUseManualSyncPanel()) closeManualSyncOverlay();
+    if (
+      _manualSyncOverlayRuntime
+        ? !_manualSyncOverlayRuntime.canUseManualSyncPanelRuntime()
+        : getMainSyncUnavailableReason() !== null
+    ) {
+      closeManualSyncOverlay();
+    }
   };
   const reconcileStandardRoomSyncAvailability = () => {
     closeManualSyncIfInvalid();

@@ -129,6 +129,9 @@ const EVENT_ALLOWLIST = new Map<string, EventAllowance>([
   ['src/network/operator-file-uplink.ts', { appRole: 1, isOperator: 1 }],
   ['src/network/queue-mutation-authority.ts', { appRole: 1, isOperator: 1 }],
   ['src/network/sync.ts', { appRole: 1, isOperator: 0 }],
+  // Canonical adapter: feature modules subscribe to the combined room
+  // lifecycle seam instead of binding the legacy standard-role event.
+  ['src/rooms/authority.ts', { appRole: 1, isOperator: 0 }],
   ['src/ui/announcement.ts', { appRole: 1, isOperator: 0 }],
   ['src/ui/connect.ts', { appRole: 1, isOperator: 0 }],
   ['src/ui/player-controls.ts', { appRole: 2, isOperator: 1 }],
@@ -218,7 +221,7 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
     'src/demo/mode.ts',
     [
       'event:appRole @ function:initDemoMode :: _busScope.on("state:network.appRole", (role) => { if (role === \'guest\') _suppressFirstRunPrompt = true; })',
-      "read:appRole @ callback-call:_busScope.on(\"state:setup.sessionStarted\")#1 :: if (!started || getState('network.appRole') !== 'host')",
+      "read:appRole @ function:reconcileDemoFirstRunPrompt :: if (!getState('setup.sessionStarted') || getState('network.appRole') !== 'host')",
       "read:appRole @ function:isDemoHost :: return (!isProRoomDemoBlocked() && !getState('network.hostConn') && getState('network.appRole') === 'host')",
       "read:appRole @ function:shouldShowFirstRunDemoPrompt :: if (getState('network.appRole') !== 'host')",
     ],
@@ -372,6 +375,7 @@ const CALLSITE_FINGERPRINTS = new Map<string, readonly string[]>([
   [
     'src/rooms/authority.ts',
     [
+      'event:appRole @ function:subscribeRoomAuthorityLifecycle :: bus.on("state:network.appRole", listener)',
       "read:appRole @ function:hasRoomCapability :: if (getState('network.appRole') === 'guest' && hostConn?.open === true && getState('network.isOperator'))",
       "read:appRole @ function:hasRoomCapability :: if (getState('network.appRole') === 'host' && !getState('network.hostConn'))",
       "read:appRole @ function:isCoordinator :: return getState('network.appRole') === 'host' && !getState('network.hostConn')",

@@ -52,6 +52,77 @@ WHERE event = 'room_opened'
 ON CONFLICT(event) DO UPDATE SET
   count = MAX(mxqr_lifetime_metric_totals.count, excluded.count);
 
+-- Permanent daily increments for the administrator's service-lifetime chart.
+-- A day is the UTC Unix-day number. Keeping aggregate increments instead of
+-- visitor, room, or request identities preserves the existing metrics privacy
+-- boundary while allowing the minute buckets to retain their 90-day horizon.
+CREATE TABLE IF NOT EXISTS mxqr_lifetime_metric_days (
+  day_epoch INTEGER NOT NULL CHECK (day_epoch >= 0),
+  event TEXT NOT NULL CHECK (event IN ('room_opened', 'guest_joined')),
+  count INTEGER NOT NULL DEFAULT 0 CHECK (count >= 0),
+  PRIMARY KEY (day_epoch, event)
+);
+
+CREATE TRIGGER IF NOT EXISTS mxqr_lifetime_guest_joined_insert
+AFTER INSERT ON mxqr_metric_buckets
+WHEN NEW.event = 'guest_joined' AND NEW.count > 0
+BEGIN
+  INSERT INTO mxqr_lifetime_metric_totals (event, count)
+  VALUES ('guest_joined', NEW.count)
+  ON CONFLICT(event) DO UPDATE SET count = count + excluded.count;
+END;
+
+CREATE TRIGGER IF NOT EXISTS mxqr_lifetime_guest_joined_increment
+AFTER UPDATE OF count ON mxqr_metric_buckets
+WHEN NEW.event = 'guest_joined' AND NEW.count > OLD.count
+BEGIN
+  INSERT INTO mxqr_lifetime_metric_totals (event, count)
+  VALUES ('guest_joined', NEW.count - OLD.count)
+  ON CONFLICT(event) DO UPDATE SET count = count + excluded.count;
+END;
+
+CREATE TRIGGER IF NOT EXISTS mxqr_lifetime_metric_day_insert
+AFTER INSERT ON mxqr_metric_buckets
+WHEN NEW.event IN ('room_opened', 'guest_joined') AND NEW.count > 0
+BEGIN
+  INSERT INTO mxqr_lifetime_metric_days (day_epoch, event, count)
+  VALUES (NEW.bucket_minute / 1440, NEW.event, NEW.count)
+  ON CONFLICT(day_epoch, event) DO UPDATE SET count = count + excluded.count;
+END;
+
+CREATE TRIGGER IF NOT EXISTS mxqr_lifetime_metric_day_increment
+AFTER UPDATE OF count ON mxqr_metric_buckets
+WHEN NEW.event IN ('room_opened', 'guest_joined') AND NEW.count > OLD.count
+BEGIN
+  INSERT INTO mxqr_lifetime_metric_days (day_epoch, event, count)
+  VALUES (NEW.bucket_minute / 1440, NEW.event, NEW.count - OLD.count)
+  ON CONFLICT(day_epoch, event) DO UPDATE SET count = count + excluded.count;
+END;
+
+-- Analytics collection began on 2026-06-18 and the first application of this
+-- contract is still within the 90-day minute-bucket horizon, so this seeds the
+-- complete measured history. MAX keeps later baseline repairs monotonic after
+-- old minute buckets have expired.
+INSERT INTO mxqr_lifetime_metric_days (day_epoch, event, count)
+SELECT bucket_minute / 1440, event, SUM(count)
+FROM mxqr_metric_buckets
+WHERE event IN ('room_opened', 'guest_joined')
+GROUP BY bucket_minute / 1440, event
+ON CONFLICT(day_epoch, event) DO UPDATE SET
+  count = MAX(mxqr_lifetime_metric_days.count, excluded.count);
+
+INSERT INTO mxqr_lifetime_metric_totals (event, count)
+SELECT event, COALESCE(SUM(count), 0)
+FROM mxqr_metric_buckets
+WHERE event IN ('room_opened', 'guest_joined')
+GROUP BY event
+ON CONFLICT(event) DO UPDATE SET
+  count = MAX(mxqr_lifetime_metric_totals.count, excluded.count);
+
+INSERT INTO mxqr_lifetime_metric_totals (event, count)
+VALUES ('guest_joined', 0)
+ON CONFLICT(event) DO NOTHING;
+
 -- Access-gated PRO room registry. Playback state and media metadata remain in
 -- each room's Durable Object; raw activation claims are never stored here.
 CREATE TABLE IF NOT EXISTS mxqr_pro_room_registry (

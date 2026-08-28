@@ -368,6 +368,57 @@ p {
   gap: 12px;
 }
 
+.account-overview-head > div,
+.lifetime-panel-head > div {
+  display: grid;
+  gap: 5px;
+}
+
+.account-overview-head p,
+.lifetime-panel-head p {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.account-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.account-metric,
+.lifetime-metric {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  border-radius: var(--radius);
+  padding: 14px;
+  background: var(--surface-2);
+}
+
+.account-metric span,
+.lifetime-metric span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.account-metric strong,
+.lifetime-metric strong {
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.account-metric small,
+.lifetime-metric small,
+.admin-metric-unavailable {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
 .metric-card,
 .panel {
   border-radius: var(--radius);
@@ -1026,6 +1077,33 @@ p {
 .pro-room-list-head h2 {
   font-size: 15px;
   font-weight: 800;
+}
+
+.pro-room-search-field {
+  display: grid;
+  width: min(320px, 42vw);
+  gap: 7px;
+}
+
+.pro-room-search-field > span {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.pro-room-search-field input {
+  width: 100%;
+  height: 42px;
+  border: 0;
+  border-radius: var(--radius);
+  padding: 0 13px;
+  background: var(--surface-1);
+  color: var(--text-main);
+  outline: none;
+}
+
+.pro-room-search-field input:focus {
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.5);
 }
 
 .pro-room-list {
@@ -2559,6 +2637,95 @@ p {
   font-variant-numeric: tabular-nums;
 }
 
+.lifetime-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.lifetime-panel .panel-head {
+  margin-bottom: 0;
+}
+
+.lifetime-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lifetime-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lifetime-legend span::before {
+  width: 18px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  content: '';
+}
+
+.lifetime-legend .is-rooms {
+  color: var(--primary);
+}
+
+.lifetime-legend .is-guests {
+  color: var(--pass);
+}
+
+.lifetime-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lifetime-chart {
+  display: grid;
+  min-height: 250px;
+  gap: 8px;
+}
+
+.lifetime-chart-svg {
+  display: block;
+  width: 100%;
+  height: 220px;
+  overflow: visible;
+}
+
+.lifetime-grid-line {
+  stroke: var(--divider);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.lifetime-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.lifetime-line.is-rooms {
+  stroke: var(--primary);
+}
+
+.lifetime-line.is-guests {
+  stroke: var(--pass);
+}
+
+.lifetime-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -2624,6 +2791,7 @@ p {
   }
 
   .metric-grid,
+  .account-metric-grid,
   .trend-list,
   .signal-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2678,6 +2846,8 @@ p {
   }
 
   .metric-grid,
+  .account-metric-grid,
+  .lifetime-metric-grid,
   .trend-list,
   .signal-grid {
     grid-template-columns: 1fr;
@@ -2686,6 +2856,15 @@ p {
   .panel-head {
     align-items: start;
     flex-direction: column;
+  }
+
+  .pro-room-list-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .pro-room-search-field {
+    width: 100%;
   }
 
   .pro-room-form,

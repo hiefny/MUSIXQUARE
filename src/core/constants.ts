@@ -71,9 +71,11 @@ export const DELAY = {
   RETRY: 200, // Retry / reconnection pause
 } as const;
 
-/** Manual per-device sync nudge clamp. Large offsets usually mean the
- *  panel is being used in the wrong state, and can fight drift correction. */
-export const MANUAL_SYNC_OFFSET_LIMIT_SEC = 3;
+/** Manual per-device sync offset clamp. The public editor is expressed in
+ *  whole milliseconds, so keep one exact integer boundary and derive the
+ *  transport-facing seconds value from it. */
+export const MANUAL_SYNC_OFFSET_LIMIT_MS = 9999;
+export const MANUAL_SYNC_OFFSET_LIMIT_SEC = MANUAL_SYNC_OFFSET_LIMIT_MS / 1000;
 
 // ─── Network ───────────────────────────────────────────────────────
 /** Absolute room capacity. The host occupies device 0; guests use slots 1–99. */

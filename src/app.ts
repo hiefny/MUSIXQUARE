@@ -128,7 +128,7 @@ import { initAllCustomScrollbars } from './ui/custom-scrollbar.ts';
 import { initSettings } from './ui/settings.ts';
 import { initSetup } from './ui/setup.ts';
 import { failOpenSetupBootGuard } from './ui/setup-boot-guard.ts';
-import { initDemoMode } from './demo/mode.ts';
+import { initDemoModeLoader } from './demo/loader.ts';
 import { initAnnouncementPolling } from './ui/announcement.ts';
 import { initProRoomBranding } from './pro-room/branding.ts';
 import { initUiSounds } from './audio/ui-sounds.ts';
@@ -1215,7 +1215,7 @@ async function bootstrap(): Promise<void> {
       throw error;
     }
   });
-  safeInit('DemoMode', initDemoMode);
+  safeInit('DemoMode', initDemoModeLoader);
   safeInit('AnnouncementPolling', initAnnouncementPolling);
   safeInit('ProRoomBranding', initProRoomBranding);
 

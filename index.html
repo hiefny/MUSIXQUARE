@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v510"></script>
+    <script src="/bootstrap.js?cache=v511"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
@@ -462,7 +462,6 @@
               <span data-i18n="player.play_media_compact"></span>
             </button>
           </div>
-
         </div>
       </div>
     </div>
@@ -3174,14 +3173,27 @@
         aria-label=""
         data-i18n-aria-label="common.sync"
       >
-        <div class="sync-dual-display">
-          <div class="sync-col">
-            <span class="sync-col-label" data-i18n="player.auto_sync_label"></span>
-            <span class="sync-col-value" id="auto-sync-value">0</span>
-          </div>
-          <div class="sync-col">
-            <span class="sync-col-label" data-i18n="player.manual_sync_label"></span>
-            <span class="sync-col-value" id="manual-sync-value">0</span>
+        <div class="sync-manual-display">
+          <span class="sync-col-label" data-i18n="player.manual_sync_label"></span>
+          <div class="chat-input-wrapper sync-manual-input-wrapper">
+            <div
+              class="chat-input sync-col-value sync-manual-input"
+              id="manual-sync-value"
+              contenteditable="true"
+              tabindex="0"
+              role="textbox"
+              aria-label=""
+              data-i18n-aria-label="player.manual_sync_label"
+              aria-describedby="manual-sync-range-hint"
+              data-placeholder="0"
+              inputmode="text"
+              enterkeyhint="done"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+            ></div>
+            <span id="manual-sync-range-hint" class="sr-only">-9999 … +9999 ms</span>
           </div>
         </div>
         <div class="sync-nudge-row">

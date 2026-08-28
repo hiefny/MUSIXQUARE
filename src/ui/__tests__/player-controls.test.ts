@@ -1837,6 +1837,17 @@ describe('initPlayerControls sync button', () => {
       <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
       <div id="manual-sync-overlay" aria-hidden="true">
         <div role="dialog" aria-modal="true" aria-label="Sync">
+          <div class="chat-input-wrapper">
+            <div
+              id="manual-sync-value"
+              contenteditable="true"
+              role="textbox"
+              tabindex="0"
+              aria-describedby="manual-sync-range-hint"
+              inputmode="text"
+            >0</div>
+            <span id="manual-sync-range-hint" class="sr-only">-9999 … +9999 ms</span>
+          </div>
           <button id="btn-nudge-minus10">-10</button>
           <button id="btn-nudge-minus1">-1</button>
           <button id="btn-nudge-plus1">+1</button>
@@ -1845,9 +1856,24 @@ describe('initPlayerControls sync button', () => {
           <button id="btn-sync-done">Done</button>
         </div>
       </div>
-      <span id="manual-sync-value"></span>
-      <span id="auto-sync-value"></span>
     `;
+  }
+
+  async function settleManualSyncOverlayOpen(): Promise<void> {
+    await vi.dynamicImportSettled();
+    await Promise.resolve();
+  }
+
+  async function openEditableFileSyncControls(): Promise<HTMLElement> {
+    renderSyncControls();
+    setState('network.hostConn', makeConnection('host-1'));
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+    initPlayerControls();
+    document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
+    return document.getElementById('manual-sync-value') as HTMLElement;
   }
 
   it('tells a fresh host to select media instead of suggesting a passive retry', () => {
@@ -1878,7 +1904,7 @@ describe('initPlayerControls sync button', () => {
     expect(button.hasAttribute('title')).toBe(false);
   });
 
-  it('repaints restored host sync readiness when room activation settles after YouTube', () => {
+  it('repaints restored host sync readiness when room activation settles after YouTube', async () => {
     renderSyncControls();
     setState('network.appRole', 'host');
     setState('playback.mode', 'youtube');
@@ -1896,7 +1922,9 @@ describe('initPlayerControls sync button', () => {
     expect(button.getAttribute('aria-disabled')).toBe('false');
     expect(button.hasAttribute('title')).toBe(false);
     button.click();
+    await settleManualSyncOverlayOpen();
     expect(broadcastYouTubeSync).toHaveBeenCalledWith(true);
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
   });
 
   it('keeps the transient not-ready message for a guest waiting on the host', () => {
@@ -1909,7 +1937,7 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('runs guest YouTube rendezvous before opening the manual sync panel', () => {
+  it('runs guest YouTube rendezvous before opening the manual sync panel', async () => {
     renderSyncControls();
     setState('network.hostConn', makeConnection('host-1'));
     setState('playback.mode', 'youtube');
@@ -1918,6 +1946,7 @@ describe('initPlayerControls sync button', () => {
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
 
     const guestSync = vi.mocked(guestRendezvousSync);
     expect(guestSync).toHaveBeenCalledTimes(1);
@@ -1926,14 +1955,117 @@ describe('initPlayerControls sync button', () => {
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
 
     opts?.onComplete?.();
+    await settleManualSyncOverlayOpen();
 
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
-    expect((document.getElementById('manual-sync-value') as HTMLElement | null)?.innerText).toBe(
+    expect((document.getElementById('manual-sync-value') as HTMLElement | null)?.textContent).toBe(
       '+250',
     );
     expect(showToast).toHaveBeenCalledWith(
       'Automatic sync was just attempted.\nIf it still feels delayed, adjust the value now',
     );
+  });
+
+  it('commits a signed manual value on Enter and clamps it to -9999ms', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+
+    editor.focus();
+    editor.textContent = '−１２３４５';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(commits).toHaveBeenCalledTimes(1);
+    expect(commits).toHaveBeenCalledWith(-9999);
+    expect(editor.textContent).toBe('-9999');
+    expect(editor.getAttribute('aria-invalid')).toBe('false');
+  });
+
+  it('commits a sanitized positive value on blur', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+
+    editor.focus();
+    editor.textContent = '+42ms';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    expect(editor.textContent).toBe('+42');
+    editor.blur();
+
+    expect(commits).toHaveBeenCalledTimes(1);
+    expect(commits).toHaveBeenCalledWith(42);
+    expect(editor.textContent).toBe('+42');
+  });
+
+  it('commits and dismisses the mobile editor from beforeinput Done', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+
+    editor.focus();
+    editor.textContent = '-321';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    const done = new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertParagraph',
+    });
+    editor.dispatchEvent(done);
+
+    expect(done.defaultPrevented).toBe(true);
+    expect(commits).toHaveBeenCalledTimes(1);
+    expect(commits).toHaveBeenCalledWith(-321);
+    expect(document.activeElement).not.toBe(editor);
+  });
+
+  it('keeps an incomplete sign editable without committing an invalid value', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+
+    editor.focus();
+    editor.textContent = '+';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    editor.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    expect(commits).not.toHaveBeenCalled();
+    expect(editor.getAttribute('aria-invalid')).toBe('true');
+    expect(document.activeElement).toBe(editor);
+  });
+
+  it('waits for IME composition before normalizing and committing', async () => {
+    const editor = await openEditableFileSyncControls();
+    const commits = vi.fn();
+    bus.on('sync:set-manual-offset', commits);
+
+    editor.focus();
+    editor.dispatchEvent(new Event('compositionstart', { bubbles: true }));
+    editor.textContent = '＋１２３';
+    editor.dispatchEvent(new Event('input', { bubbles: true }));
+    const composingDone = new InputEvent('beforeinput', {
+      bubbles: true,
+      cancelable: true,
+      inputType: 'insertLineBreak',
+      isComposing: true,
+    });
+    editor.dispatchEvent(composingDone);
+    expect(composingDone.defaultPrevented).toBe(true);
+    expect(commits).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(editor);
+
+    editor.dispatchEvent(new Event('compositionend', { bubbles: true }));
+    expect(editor.textContent).toBe('+123');
+    editor.dispatchEvent(
+      new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertLineBreak',
+      }),
+    );
+
+    expect(commits).toHaveBeenCalledTimes(1);
+    expect(commits).toHaveBeenCalledWith(123);
   });
 
   it('blocks guest YouTube sync while zero-start owns the iframe', () => {
@@ -1952,7 +2084,7 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('keeps the standard-host YouTube button on room-wide authoritative sync', () => {
+  it('preserves the standard-host canonical rendezvous before opening local controls', async () => {
     renderSyncControls();
     setActiveStandardHost();
     setState('playback.mode', 'youtube');
@@ -1960,13 +2092,12 @@ describe('initPlayerControls sync button', () => {
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
 
     expect(broadcastYouTubeSync).toHaveBeenCalledWith(true);
     expect(guestRendezvousSync).not.toHaveBeenCalled();
-    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
-    expect(showToast).toHaveBeenCalledWith(
-      'Precision sync requested.\nAdjust manual sync on a guest device.',
-    );
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
+    expect(showToast).not.toHaveBeenCalled();
   });
 
   it('does not expose host nudge controls while a stale setup host has no active room', () => {
@@ -2001,7 +2132,7 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('keeps host Sync fenced through calibration, then repaints at protocol idle', () => {
+  it('keeps host Sync fenced through calibration, then repaints at protocol idle', async () => {
     renderSyncControls();
     document.body.insertAdjacentHTML(
       'beforeend',
@@ -2033,6 +2164,7 @@ describe('initPlayerControls sync button', () => {
     expect(seekSlider.getAttribute('aria-disabled')).toBe('false');
     expect(button.getAttribute('aria-disabled')).toBe('true');
     button.click();
+    await settleManualSyncOverlayOpen();
     expect(broadcastYouTubeSync).not.toHaveBeenCalled();
 
     zeroStartFacade.active = false;
@@ -2040,7 +2172,9 @@ describe('initPlayerControls sync button', () => {
 
     expect(button.getAttribute('aria-disabled')).toBe('false');
     button.click();
+    await settleManualSyncOverlayOpen();
     expect(broadcastYouTubeSync).toHaveBeenCalledWith(true);
+    expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
   });
 
   it('reconciles an equal PRO participant before opening the local YouTube nudge panel', async () => {
@@ -2216,7 +2350,7 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('opens a local-file nudge panel without broadcasting when the playing host presses sync', () => {
+  it('opens a local-file nudge panel without broadcasting when the playing host presses sync', async () => {
     renderSyncControls();
     setActiveStandardHost();
     setState('playback.mode', 'file');
@@ -2229,6 +2363,7 @@ describe('initPlayerControls sync button', () => {
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
 
     expect(broadcastSpy).not.toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
@@ -2283,7 +2418,7 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).not.toHaveBeenCalled();
   });
 
-  it('keeps a paused host nudge local instead of rebasing the room position', () => {
+  it('keeps a paused host nudge local instead of rebasing the room position', async () => {
     renderSyncControls();
     setActiveStandardHost();
     setState('playback.mode', 'file');
@@ -2296,12 +2431,13 @@ describe('initPlayerControls sync button', () => {
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
 
     expect(broadcastSpy).not.toHaveBeenCalled();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
   });
 
-  it('runs one local-file resync before opening the guest manual sync panel', () => {
+  it('runs one local-file resync before opening the guest manual sync panel', async () => {
     renderSyncControls();
     setState('network.hostConn', makeConnection('host-1'));
     setState('playback.mode', 'file');
@@ -2313,6 +2449,7 @@ describe('initPlayerControls sync button', () => {
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
 
     expect(forceResyncSpy).toHaveBeenCalledTimes(1);
     expect(getState('sync.localOffset')).toBe(0.12);
@@ -2335,7 +2472,7 @@ describe('initPlayerControls sync button', () => {
     expect(showToast).toHaveBeenCalledWith('Not ready yet.\nTry again in a moment');
   });
 
-  it('closes the local-file manual panel if the decoded buffer is cleared', () => {
+  it('closes the local-file manual panel if the decoded buffer is cleared', async () => {
     renderSyncControls();
     setState('network.hostConn', makeConnection('host-1'));
     setState('playback.mode', 'file');
@@ -2344,6 +2481,7 @@ describe('initPlayerControls sync button', () => {
 
     initPlayerControls();
     document.getElementById('btn-sync')?.click();
+    await settleManualSyncOverlayOpen();
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(true);
 
     setCurrentAudioBuffer(null);
@@ -2360,12 +2498,13 @@ describe('initPlayerControls sync button', () => {
 
     const trigger = document.getElementById('btn-sync') as HTMLButtonElement;
     const overlay = document.getElementById('manual-sync-overlay')!;
-    const first = document.getElementById('btn-nudge-minus10') as HTMLButtonElement;
+    const first = document.getElementById('manual-sync-value') as HTMLElement;
     const done = document.getElementById('btn-sync-done') as HTMLButtonElement;
     trigger.focus();
 
     initPlayerControls();
     trigger.click();
+    await settleManualSyncOverlayOpen();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     expect(overlay.classList.contains('show')).toBe(true);
@@ -2388,7 +2527,7 @@ describe('initPlayerControls sync button', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it('routes the Done event through the shared manual-overlay close path', () => {
+  it('routes the Done event through the shared manual-overlay close path', async () => {
     renderSyncControls();
     setState('network.hostConn', makeConnection('host-1'));
     setState('playback.mode', 'file');
@@ -2400,6 +2539,7 @@ describe('initPlayerControls sync button', () => {
     trigger.focus();
     initPlayerControls();
     trigger.click();
+    await settleManualSyncOverlayOpen();
 
     bus.emit('sync:close-manual');
 

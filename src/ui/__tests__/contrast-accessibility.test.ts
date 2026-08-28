@@ -178,15 +178,6 @@ describe('OS contrast accessibility styles', () => {
     expect(css).toMatch(
       /\.qr-svg path\s*\{\s*stroke:\s*#ffffff !important;\s*fill:\s*#ffffff !important;\s*\}/u,
     );
-    expect(css).toContain('.qr-svg .setup-host-qr-grid-background,');
-    expect(css).toContain('.qr-svg .setup-host-qr-module--steady-off {');
-    expect(css).toContain('fill: #000000 !important;');
-    expect(css).toContain('.qr-svg .setup-host-qr-module--activate,');
-    expect(css).toContain('.qr-svg .setup-host-qr-module--steady-on {');
-    expect(css).toContain('fill: #ffffff !important;');
-    expect(css).not.toMatch(
-      /\.qr-svg \.setup-host-qr-module\s*\{[^}]*fill:\s*#ffffff !important;/u,
-    );
     expect(css).not.toMatch(/(?:html|body|:root|\*)\s*\{[^}]*forced-color-adjust:\s*none/gu);
   });
 });

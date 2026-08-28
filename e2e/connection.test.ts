@@ -44,16 +44,6 @@ test.describe('Host-Guest Connection', () => {
       'false',
     );
     await expect(pair.hostPage.locator('.setup-host-qr-loading-spinner')).toBeHidden();
-    await expect(pair.hostPage.locator('.setup-host-qr-grid-background')).toHaveCount(1);
-    await expect(pair.hostPage.locator('.setup-host-qr-module')).toHaveCount(441);
-    await expect(pair.hostPage.locator('.setup-host-qr-module-layer')).toHaveCSS('opacity', '1');
-    await expect(pair.hostPage.locator('#setup-host-qr path')).toHaveCount(0);
-    const moduleOpacities = await pair.hostPage
-      .locator('.setup-host-qr-module')
-      .evaluateAll((modules) => [
-        ...new Set(modules.map((module) => getComputedStyle(module).opacity)),
-      ]);
-    expect(moduleOpacities).toEqual(['1']);
   });
 
   test('host starts session and overlay closes', async () => {

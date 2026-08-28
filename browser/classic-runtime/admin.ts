@@ -144,6 +144,7 @@ interface AdminFetchOptions extends Omit<RequestInit, 'headers' | 'method' | 'si
 }
 
 interface AdminApiPayload {
+  readonly accounts?: AdminAccountSummary | null;
   readonly active?: boolean;
   readonly activationUrl?: string;
   readonly announcement?: AdminAnnouncement;
@@ -164,6 +165,7 @@ interface AdminApiPayload {
   readonly keys?: readonly DeveloperApiKey[];
   readonly key?: DeveloperApiKey;
   readonly label?: string;
+  readonly lifetime?: AdminLifetimeMetrics | null;
   readonly mappings?: readonly ProGrantVoucherMapping[];
   readonly message?: string;
   readonly maxActiveKeys?: number;
@@ -226,6 +228,28 @@ interface AdminMetricsSummary {
   readonly daily30?: readonly AdminMetricBucket[];
   readonly hourly?: readonly AdminMetricBucket[];
   readonly last24?: Readonly<Record<string, number>>;
+}
+
+interface AdminAccountSummary {
+  readonly inactiveAccounts: number;
+  readonly inactiveDays: number;
+  readonly nicknameCompleteAccounts: number;
+  readonly totalAccounts: number;
+}
+
+interface AdminLifetimeMetricPoint {
+  readonly guestJoins: number;
+  readonly roomsOpened: number;
+  readonly start: string;
+}
+
+interface AdminLifetimeMetrics {
+  readonly points: readonly AdminLifetimeMetricPoint[];
+  readonly startedAt: AdminTimestamp;
+  readonly totals: {
+    readonly guestJoins: number;
+    readonly roomsOpened: number;
+  };
 }
 
 interface DeveloperApiKey {
@@ -293,7 +317,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.4.34';
+const ADMIN_SCRIPT_VERSION = '8.4.35';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -317,10 +341,13 @@ const dashboardTitle = document.querySelector<HTMLElement>('[data-dashboard-titl
 const loginForm = document.querySelector<HTMLFormElement>('[data-login-form]');
 const loginStatus = document.querySelector<HTMLElement>('[data-login-status]');
 const cardsEl = document.querySelector<HTMLElement>('[data-metric-cards]');
+const accountMetricsEl = document.querySelector<HTMLElement>('[data-account-metrics]');
 const hourlyEl = document.querySelector<HTMLElement>('[data-hourly-chart]');
 const dailyEl = document.querySelector<HTMLElement>('[data-daily-list]');
 const monthlyEl = document.querySelector<HTMLElement>('[data-monthly-chart]');
 const signalEl = document.querySelector<HTMLElement>('[data-signal-grid]');
+const lifetimeMetricsEl = document.querySelector<HTMLElement>('[data-lifetime-metrics]');
+const lifetimeChartEl = document.querySelector<HTMLElement>('[data-lifetime-chart]');
 const adminTabs = [...document.querySelectorAll<HTMLButtonElement>('[data-admin-tab]')];
 const adminViews = [...document.querySelectorAll<HTMLElement>('[data-admin-view]')];
 const proRoomForm = document.querySelector<HTMLFormElement>('[data-pro-room-form]');
@@ -330,6 +357,7 @@ const proRoomRegisterBtn = document.querySelector<HTMLButtonElement>('[data-pro-
 const proRoomStatusEl = document.querySelector<HTMLElement>('[data-pro-room-status]');
 const proRoomListStatusEl = document.querySelector<HTMLElement>('[data-pro-room-list-status]');
 const proRoomListEl = document.querySelector<HTMLElement>('[data-pro-room-list]');
+const proRoomSearchEl = document.querySelector<HTMLInputElement>('[data-pro-room-search]');
 const proRoomClaimEl = document.querySelector<HTMLElement>('[data-pro-room-claim]');
 const proRoomClaimTitleEl = document.querySelector<HTMLElement>('[data-pro-room-claim-title]');
 const proRoomClaimExpiryEl = document.querySelector<HTMLElement>('[data-pro-room-claim-expiry]');
@@ -401,6 +429,8 @@ const ADMIN_REQUEST_TIMEOUT_MS = 20_000;
 const ADMIN_RESPONSE_MAX_BYTES = 1_048_576;
 let currentAdminTab: string = 'operations';
 let proRoomsLoaded = false;
+let proRoomsSnapshot: readonly ProRoomRecord[] = [];
+let proRoomSearchTimer: number | null = null;
 let articlesLoaded = false;
 let announcementLoaded = false;
 let currentAnnouncementRevision: number | null = null;
@@ -1466,6 +1496,8 @@ function showLogin(
   proRoomApiCache.clear();
   proRoomApiRequestGenerations.clear();
   proRoomsLoaded = false;
+  proRoomsSnapshot = [];
+  if (proRoomSearchEl) proRoomSearchEl.value = '';
   proGrantCampaignLoaded = false;
   proGrantCampaignState = null;
   proGrantCampaigns = [];
@@ -4072,9 +4104,20 @@ function renderProRoomRow(room: ProRoomRecord): HTMLDetailsElement | null {
 }
 
 function renderProRooms(payload: AdminApiPayload): void {
-  const rooms = Array.isArray(payload?.rooms) ? payload.rooms : [];
+  const allRooms = Array.isArray(payload?.rooms) ? payload.rooms : [];
+  proRoomsSnapshot = allRooms;
+  const query = String(proRoomSearchEl?.value || '')
+    .trim()
+    .toLocaleLowerCase('en-US');
+  const rooms = query
+    ? allRooms.filter((room) => {
+        const roomCode = String(room?.roomCode || '').toLocaleLowerCase('en-US');
+        const label = String(room?.label || '').toLocaleLowerCase('en-US');
+        return roomCode.includes(query) || label.includes(query);
+      })
+    : allRooms;
   const currentIncarnations = new Set(
-    rooms
+    allRooms
       .map((room) => proRoomIncarnationKey(room?.roomCode, room?.roomGeneration))
       .filter((incarnationKey): incarnationKey is string => incarnationKey !== null),
   );
@@ -4094,7 +4137,9 @@ function renderProRooms(payload: AdminApiPayload): void {
     dismissProRoomClaim();
   }
   if (proRoomListStatusEl) {
-    proRoomListStatusEl.textContent = `${formatter.format(rooms.length)} rooms`;
+    proRoomListStatusEl.textContent = query
+      ? `${formatter.format(rooms.length)} of ${formatter.format(allRooms.length)} rooms`
+      : `${formatter.format(allRooms.length)} rooms`;
   }
   if (!proRoomListEl) return;
   const rows = rooms.map(renderProRoomRow).filter((row): row is HTMLDetailsElement => row !== null);
@@ -4121,7 +4166,9 @@ function renderProRooms(payload: AdminApiPayload): void {
   }
   const empty = document.createElement('p');
   empty.className = 'pro-room-empty';
-  empty.textContent = 'No PRO rooms registered yet.';
+  empty.textContent = query
+    ? `No rooms match “${String(proRoomSearchEl?.value || '').trim()}”.`
+    : 'No PRO rooms registered yet.';
   proRoomListEl.replaceChildren(empty);
 }
 
@@ -4949,6 +4996,172 @@ function setActiveTab(tab: string): void {
   if (dashboardTitle) dashboardTitle.textContent = announcementTitle(tab);
 }
 
+function renderAccountMetrics(accounts: AdminAccountSummary | null | undefined): void {
+  if (!accountMetricsEl) return;
+  if (!accounts) {
+    const unavailable = document.createElement('p');
+    unavailable.className = 'admin-metric-unavailable';
+    unavailable.textContent = 'Account metrics are temporarily unavailable.';
+    accountMetricsEl.replaceChildren(unavailable);
+    return;
+  }
+  const metrics: readonly (readonly [string, number, string])[] = [
+    ['Active accounts', accounts.totalAccounts, 'Current active account records'],
+    [
+      'Nickname complete',
+      accounts.nicknameCompleteAccounts,
+      'Accounts that completed nickname setup',
+    ],
+    [
+      `Inactive ${accounts.inactiveDays}+ days`,
+      accounts.inactiveAccounts,
+      'No sign-in or authenticated activity in the period',
+    ],
+  ];
+  accountMetricsEl.replaceChildren(
+    ...metrics.map(([label, value, description]) => {
+      const item = document.createElement('article');
+      item.className = 'account-metric';
+      const labelEl = document.createElement('span');
+      labelEl.textContent = label;
+      const valueEl = document.createElement('strong');
+      valueEl.textContent = formatter.format(value);
+      const descriptionEl = document.createElement('small');
+      descriptionEl.textContent = description;
+      item.append(labelEl, valueEl, descriptionEl);
+      return item;
+    }),
+  );
+}
+
+function appendSvgElement<K extends keyof SVGElementTagNameMap>(
+  parent: SVGElement,
+  name: K,
+  attributes: Readonly<Record<string, string>>,
+): SVGElementTagNameMap[K] {
+  const element = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+  parent.appendChild(element);
+  return element;
+}
+
+function lifetimeLinePath(
+  points: readonly AdminLifetimeMetricPoint[],
+  value: (point: AdminLifetimeMetricPoint) => number,
+  maxValue: number,
+): string {
+  const width = 1_000;
+  const height = 220;
+  const timestamps = points.map((point) => Date.parse(point.start));
+  const minTime = Math.min(...timestamps);
+  const maxTime = Math.max(...timestamps);
+  const span = Math.max(1, maxTime - minTime);
+  if (points.length === 1) {
+    const y =
+      height - (Math.max(0, value(points[0] as AdminLifetimeMetricPoint)) / maxValue) * height;
+    return `M0 ${y.toFixed(2)} L${width} ${y.toFixed(2)}`;
+  }
+  return points
+    .map((point, index) => {
+      const timestamp = timestamps[index] ?? minTime;
+      const x = ((timestamp - minTime) / span) * width;
+      const y = height - (Math.max(0, value(point)) / maxValue) * height;
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(' ');
+}
+
+function renderLifetimeMetrics(lifetime: AdminLifetimeMetrics | null | undefined): void {
+  if (!lifetimeMetricsEl || !lifetimeChartEl) return;
+  if (!lifetime || !Array.isArray(lifetime.points) || lifetime.points.length === 0) {
+    lifetimeMetricsEl.replaceChildren();
+    const unavailable = document.createElement('p');
+    unavailable.className = 'admin-metric-unavailable';
+    unavailable.textContent = 'Cumulative metrics are temporarily unavailable.';
+    lifetimeChartEl.replaceChildren(unavailable);
+    lifetimeChartEl.removeAttribute('role');
+    lifetimeChartEl.removeAttribute('aria-label');
+    return;
+  }
+
+  const totalRooms = Math.max(0, Number(lifetime.totals?.roomsOpened) || 0);
+  const totalGuests = Math.max(0, Number(lifetime.totals?.guestJoins) || 0);
+  const totals: readonly (readonly [string, number, string])[] = [
+    ['Cumulative rooms opened', totalRooms, 'Fresh Standard rooms; PRO and reconnects excluded'],
+    [
+      'Cumulative guest joins',
+      totalGuests,
+      'Successful Standard-room guest connections; repeats included',
+    ],
+  ];
+  lifetimeMetricsEl.replaceChildren(
+    ...totals.map(([label, value, description]) => {
+      const item = document.createElement('article');
+      item.className = 'lifetime-metric';
+      const labelEl = document.createElement('span');
+      labelEl.textContent = label;
+      const valueEl = document.createElement('strong');
+      valueEl.textContent = formatter.format(value);
+      const descriptionEl = document.createElement('small');
+      descriptionEl.textContent = description;
+      item.append(labelEl, valueEl, descriptionEl);
+      return item;
+    }),
+  );
+
+  const points = lifetime.points.filter(
+    (point) =>
+      Number.isFinite(Date.parse(point.start)) &&
+      Number.isFinite(point.roomsOpened) &&
+      Number.isFinite(point.guestJoins),
+  );
+  if (points.length === 0) {
+    const unavailable = document.createElement('p');
+    unavailable.className = 'admin-metric-unavailable';
+    unavailable.textContent = 'Cumulative chart data is unavailable.';
+    lifetimeChartEl.replaceChildren(unavailable);
+    return;
+  }
+  const maxValue = Math.max(1, ...points.flatMap((point) => [point.roomsOpened, point.guestJoins]));
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.classList.add('lifetime-chart-svg');
+  svg.setAttribute('viewBox', '0 0 1000 220');
+  svg.setAttribute('preserveAspectRatio', 'none');
+  svg.setAttribute('aria-hidden', 'true');
+  for (const ratio of [0, 0.25, 0.5, 0.75, 1]) {
+    appendSvgElement(svg, 'line', {
+      class: 'lifetime-grid-line',
+      x1: '0',
+      x2: '1000',
+      y1: String(220 * ratio),
+      y2: String(220 * ratio),
+    });
+  }
+  appendSvgElement(svg, 'path', {
+    class: 'lifetime-line is-rooms',
+    d: lifetimeLinePath(points, (point) => point.roomsOpened, maxValue),
+  });
+  appendSvgElement(svg, 'path', {
+    class: 'lifetime-line is-guests',
+    d: lifetimeLinePath(points, (point) => point.guestJoins, maxValue),
+  });
+
+  const axis = document.createElement('div');
+  axis.className = 'lifetime-chart-axis';
+  const sampleIndexes = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])];
+  for (const index of sampleIndexes) {
+    const label = document.createElement('span');
+    label.textContent = dayLabel(points[index]?.start || '');
+    axis.appendChild(label);
+  }
+  lifetimeChartEl.setAttribute('role', 'img');
+  lifetimeChartEl.setAttribute(
+    'aria-label',
+    `Cumulative usage: ${formatter.format(totalRooms)} Standard rooms opened and ${formatter.format(totalGuests)} successful Standard-room guest joins, repeat connections included.`,
+  );
+  lifetimeChartEl.replaceChildren(svg, axis);
+}
+
 function renderCards(cards: readonly AdminMetricCard[]): void {
   if (!cardsEl) return;
   cardsEl.replaceChildren(
@@ -5117,11 +5330,13 @@ async function loadMetrics(
     throwIfAdminLoadStale(load);
     showDashboard();
     if (options.activateOperations) setActiveTab('operations');
+    renderAccountMetrics(metrics.accounts);
     renderCards(metrics.cards || []);
     renderHourlyChart(metrics.summary?.hourly || []);
     renderDailyList(metrics.summary?.daily || []);
     renderMonthlyChart(metrics.summary?.daily30 || []);
     renderSignals(metrics.summary || {});
+    renderLifetimeMetrics(metrics.lifetime);
     if (options.updateTimestamp !== false && updatedAtEl) {
       updatedAtEl.textContent = `Updated ${formatAdminDateTime(metrics.generatedAt)}`;
     }
@@ -5859,6 +6074,22 @@ proRoomCodeEl?.addEventListener('input', () => {
   );
 });
 
+proRoomSearchEl?.addEventListener('input', () => {
+  if (proRoomSearchTimer !== null) window.clearTimeout(proRoomSearchTimer);
+  proRoomSearchTimer = window.setTimeout(() => {
+    proRoomSearchTimer = null;
+    renderProRooms({ rooms: proRoomsSnapshot });
+  }, 100);
+});
+
+proRoomSearchEl?.addEventListener('search', () => {
+  if (proRoomSearchTimer !== null) {
+    window.clearTimeout(proRoomSearchTimer);
+    proRoomSearchTimer = null;
+  }
+  renderProRooms({ rooms: proRoomsSnapshot });
+});
+
 proRoomForm?.addEventListener('submit', (event) => {
   event.preventDefault();
   registerProRoom().catch((error) => {
@@ -5875,6 +6106,7 @@ proRoomClaimCopyBtn?.addEventListener('click', () => {
 
 proRoomClaimDismissBtn?.addEventListener('click', dismissProRoomClaim);
 window.addEventListener('pagehide', () => {
+  if (proRoomSearchTimer !== null) window.clearTimeout(proRoomSearchTimer);
   clearAnnouncementExpiryTimer();
   clearServiceStatusSettleTimer();
   closeServiceStatusDialog({ restoreFocus: false, force: true });

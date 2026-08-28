@@ -290,6 +290,37 @@ describe('app UX markup contract', () => {
     expect(appStylesheet).toMatch(/\.chat-send-btn\s*\{[\s\S]*?margin-bottom:\s*2px;/u);
   });
 
+  it('uses the official centered contenteditable for manual sync without an auto column', () => {
+    const overlay = appDocument.getElementById('manual-sync-overlay');
+    const editor = appDocument.getElementById('manual-sync-value');
+
+    expect(overlay?.querySelector('#auto-sync-value')).toBeNull();
+    expect(overlay?.querySelector('[data-i18n="player.auto_sync_label"]')).toBeNull();
+    expect(editor?.tagName).toBe('DIV');
+    expect(editor?.getAttribute('contenteditable')).toBe('true');
+    expect(editor?.getAttribute('role')).toBe('textbox');
+    expect(editor?.getAttribute('inputmode')).toBe('text');
+    expect(editor?.getAttribute('enterkeyhint')).toBe('done');
+    expect(editor?.getAttribute('aria-describedby')).toBe('manual-sync-range-hint');
+    expect(appDocument.getElementById('manual-sync-range-hint')?.textContent).toContain(
+      '-9999 … +9999 ms',
+    );
+    expect(
+      appDocument.getElementById('manual-sync-range-hint')?.classList.contains('sr-only'),
+    ).toBe(true);
+    expect(editor?.classList.contains('chat-input')).toBe(true);
+    expect(editor?.parentElement?.classList.contains('chat-input-wrapper')).toBe(true);
+    expect(appStylesheet).toMatch(
+      /\.sync-manual-display\s*\{[\s\S]*?align-items:\s*center;[\s\S]*?gap:\s*6px;/u,
+    );
+    expect(appStylesheet).toMatch(
+      /\.sync-manual-display\s*\{[\s\S]*?margin:\s*12px 0 20px;[\s\S]*?padding:\s*0;/u,
+    );
+    expect(appStylesheet).toMatch(/\.sync-manual-input-wrapper\s*\{[\s\S]*?padding-bottom:\s*0;/u);
+    expect(appStylesheet).toMatch(/\.sync-manual-input\s*\{[\s\S]*?text-align:\s*center;/u);
+    expect(appStylesheet).toMatch(/\.sync-manual-input\s*\{[\s\S]*?padding-block:\s*8px;/u);
+  });
+
   it('keeps the intentional contenteditable URL field and fixed-scale app surface', () => {
     const youtubeField = appDocument.getElementById('youtube-url-input');
     const youtubeSearch = appDocument.getElementById('youtube-search-btn');

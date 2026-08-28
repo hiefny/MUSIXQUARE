@@ -1215,15 +1215,34 @@ async function touchStoredSession(
   touchedAtMs: number,
 ): Promise<void> {
   const staleBeforeMs = touchedAtMs - ACCOUNT_SESSION_TOUCH_INTERVAL_MS;
-  await d1Run(
-    config.db,
-    `UPDATE ${SESSION_TABLE}
-        SET last_seen_at = ?1
-      WHERE session_hash = ?2
-        AND (last_seen_at IS NULL OR last_seen_at <= ?3)
-        AND (last_seen_at IS NULL OR last_seen_at < ?1)`,
-    [touchedAtMs, sessionHash, staleBeforeMs],
-  );
+  await d1Batch(config.db, [
+    {
+      sql: `UPDATE ${SESSION_TABLE}
+              SET last_seen_at = ?1
+            WHERE session_hash = ?2
+              AND (last_seen_at IS NULL OR last_seen_at <= ?3)
+              AND (last_seen_at IS NULL OR last_seen_at < ?1)`,
+      values: [touchedAtMs, sessionHash, staleBeforeMs],
+    },
+    {
+      // Persist successful session activity on the account itself. Session
+      // rows are retention data and may later be deleted, while updated_at is
+      // the durable source used by the admin dashboard's 30-day inactivity
+      // count. Requiring the exact touch timestamp keeps a skipped or raced
+      // session update from manufacturing account activity.
+      sql: `UPDATE ${ACCOUNT_TABLE}
+              SET updated_at = MAX(updated_at, ?1)
+            WHERE status = 'active'
+              AND updated_at < ?1
+              AND account_id = (
+                SELECT account_id
+                  FROM ${SESSION_TABLE}
+                 WHERE session_hash = ?2 AND last_seen_at = ?1
+                 LIMIT 1
+              )`,
+      values: [touchedAtMs, sessionHash],
+    },
+  ]);
 }
 
 async function settleBestEffortSessionTouch(

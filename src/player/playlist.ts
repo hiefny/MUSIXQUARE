@@ -64,6 +64,10 @@ import {
   setPendingAutoSyncOnReady,
 } from '../youtube/player.ts';
 import {
+  afterStandardHostManualOffsetTransaction,
+  isStandardHostManualOffsetTransactionPending,
+} from '../youtube/standard-host-manual-offset-gate.ts';
+import {
   cancelYouTubeAuthorityPreparation,
   handoffSameVideoOccurrenceRestart,
   prepareYouTubeAuthorityOccurrence,
@@ -137,6 +141,76 @@ import {
 } from './queue-model.ts';
 
 const LOCAL_FILE_PLAY_SCHEDULE_AHEAD_MS = 200;
+
+interface DeferredStandardHostManualNavigation {
+  token: number;
+  sourceQueueItemId: QueueItemId | null;
+  sourceSubIndex: number;
+  context: string;
+  action: () => void | Promise<void>;
+}
+
+let _deferredStandardHostManualNavigation: DeferredStandardHostManualNavigation | null = null;
+let _deferredStandardHostManualNavigationToken = 0;
+
+function isDeferredStandardHostManualNavigationSourceCurrent(
+  navigation: DeferredStandardHostManualNavigation,
+): boolean {
+  return (
+    getCurrentQueueItemId() === navigation.sourceQueueItemId &&
+    (getState('youtube.currentSubIndex') ?? -1) === navigation.sourceSubIndex
+  );
+}
+
+function runDeferredStandardHostManualNavigation(token: number): void {
+  const navigation = _deferredStandardHostManualNavigation;
+  if (!navigation || navigation.token !== token) return;
+
+  if (!isDeferredStandardHostManualNavigationSourceCurrent(navigation)) {
+    _deferredStandardHostManualNavigation = null;
+    log.debug(`[Playlist] Dropping deferred ${navigation.context}: source media identity changed`);
+    return;
+  }
+
+  // Clear ownership before invoking the action so an action that starts a new
+  // transaction cannot be mistaken for (or overwrite) this settled intent.
+  _deferredStandardHostManualNavigation = null;
+  try {
+    const result = navigation.action();
+    if (result && typeof result.then === 'function') {
+      void result.catch((error) => {
+        log.warn(`[Playlist] Failed to run deferred ${navigation.context}:`, error);
+      });
+    }
+  } catch (error) {
+    log.warn(`[Playlist] Failed to run deferred ${navigation.context}:`, error);
+  }
+}
+
+/**
+ * A Standard host's YouTube offset edit can have a fire-and-forget iframe
+ * seek/load in flight. Keep every media-identity mutation out of that window,
+ * but retain the latest navigation intent so a one-shot natural ENDED or
+ * unavailable-video recovery is not lost. The captured source occurrence
+ * fences the replay against room/queue/sub-video changes.
+ */
+function deferStandardHostManualNavigation(
+  context: string,
+  action: () => void | Promise<void>,
+): boolean {
+  if (!isStandardHostManualOffsetTransactionPending()) return false;
+
+  const token = ++_deferredStandardHostManualNavigationToken;
+  _deferredStandardHostManualNavigation = {
+    token,
+    sourceQueueItemId: getCurrentQueueItemId(),
+    sourceSubIndex: getState('youtube.currentSubIndex') ?? -1,
+    context,
+    action,
+  };
+  afterStandardHostManualOffsetTransaction(() => runDeferredStandardHostManualNavigation(token));
+  return true;
+}
 
 interface PlayTrackOptions {
   navigateToPlay?: boolean;
@@ -625,6 +699,13 @@ export async function playTrack(
   subIndex?: number,
   options: PlayTrackOptions = {},
 ): Promise<void> {
+  if (
+    deferStandardHostManualNavigation('track selection', () =>
+      playTrack(queueItemId, subIndex, options),
+    )
+  ) {
+    return;
+  }
   const playlist = getState('playlist.items') || [];
   const indexHint = findQueueItemIndex(queueItemId, playlist);
   const item = indexHint >= 0 ? playlist[indexHint] : null;
@@ -1458,6 +1539,7 @@ function handleEndOfPlaylist(reason: string): void {
 
 export function playNextTrack(): void {
   if (isGuestBlocked()) return;
+  if (deferStandardHostManualNavigation('next-track navigation', () => playNextTrack())) return;
 
   if (
     routeProPlaybackCommand({
@@ -1565,6 +1647,7 @@ function restartCurrentTrackFromStart(queueItemId: QueueItemId): void {
 
 export function playPrevTrack(): void {
   if (isGuestBlocked()) return;
+  if (deferStandardHostManualNavigation('previous-track navigation', () => playPrevTrack())) return;
 
   if (
     routeProPlaybackCommand({
@@ -2314,13 +2397,21 @@ function removeQueueItems(queueItemIds: readonly QueueItemId[]): void {
   const requestedIds = new Set(queueItemIds);
   if (requestedIds.size === 0) return;
 
+  const currentQueueItemId = getCurrentQueueItemId();
+  if (
+    currentQueueItemId &&
+    requestedIds.has(currentQueueItemId) &&
+    isStandardHostManualOffsetTransactionPending()
+  ) {
+    return;
+  }
+
   const removedQueueItemIds = new Set<QueueItemId>();
   for (const item of previousItems) {
     if (requestedIds.has(item.queueItemId)) removedQueueItemIds.add(item.queueItemId);
   }
   if (removedQueueItemIds.size === 0) return;
 
-  const currentQueueItemId = getCurrentQueueItemId();
   const currentIndex = findQueueItemIndex(currentQueueItemId, previousItems);
   const wasCurrent = !!currentQueueItemId && removedQueueItemIds.has(currentQueueItemId);
   const previousShuffleOrder = [..._shuffleOrder];

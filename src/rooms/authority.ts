@@ -1,4 +1,5 @@
 import { getState, setState } from '../core/state.ts';
+import { bus } from '../core/events.ts';
 import type { DataConnection, RoomCapability, RoomContext } from '../types/index.ts';
 
 const STANDARD_HOST_CAPABILITIES = new Set<RoomCapability>([
@@ -46,6 +47,29 @@ export function setRoomContext(context: RoomContext): void {
 
 export function resetRoomContext(): void {
   setState('room.context', createIdleRoomContext());
+}
+
+/**
+ * Subscribe to changes that can move this browser across a room-authority
+ * lifecycle boundary.
+ *
+ * Consumers deliberately receive only a signal: authority must be re-read
+ * through this module after every notification. Keeping the legacy standard
+ * room role/connection projection behind this seam prevents feature modules
+ * from treating those transport fields as authority grants of their own.
+ */
+export function subscribeRoomAuthorityLifecycle(listener: () => void): () => void {
+  const unsubscribe = [
+    bus.on('state:room.context', listener),
+    bus.on('state:network.appRole', listener),
+    bus.on('state:network.hostConn', listener),
+    bus.on('state:network.sessionCode', listener),
+    bus.on('state:setup.sessionStarted', listener),
+  ];
+
+  return () => {
+    for (const dispose of unsubscribe) dispose();
+  };
 }
 
 export function isCoordinator(): boolean {

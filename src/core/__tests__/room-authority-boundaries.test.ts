@@ -16,7 +16,7 @@ describe('room-authority static boundary', { timeout: 30_000 }, () => {
   it('freezes every production legacy access and keeps PRO reads at zero', () => {
     expect(assertRoomAuthorityBoundaries(sources())).toMatchObject({
       directReads: 86,
-      stateEvents: 21,
+      stateEvents: 22,
       writes: 16,
       proDirectReads: 0,
       snapshotLegacyReads: 0,

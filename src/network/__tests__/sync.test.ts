@@ -162,9 +162,37 @@ describe('manual sync nudge routing', () => {
     setPlaybackYouTubePlaying();
     setState('network.hostConn', { open: true } as DataConnection);
 
-    bus.emit('sync:nudge', 5000);
+    bus.emit('sync:nudge', 50_000);
 
-    expect(getState('sync.youtubeLocalOffset')).toBe(3);
+    expect(getState('sync.youtubeLocalOffset')).toBe(9.999);
+  });
+
+  it('applies an entered YouTube offset through the rendezvous path immediately', () => {
+    vi.useFakeTimers();
+    initSync();
+    const applySpy = vi.fn();
+    bus.on('youtube:apply-manual-sync', applySpy);
+    setPlaybackYouTubePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+
+    bus.emit('sync:set-manual-offset', 1234);
+
+    expect(getState('sync.youtubeLocalOffset')).toBe(1.234);
+    expect(applySpy).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('sync-youtube-nudge-apply')).toBeNull();
+  });
+
+  it('applies an entered local-file offset immediately and clamps whole milliseconds', () => {
+    initSync();
+    setPlaybackFilePlaying();
+    setState('network.hostConn', { open: true } as DataConnection);
+    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+
+    bus.emit('sync:set-manual-offset', -50_000);
+
+    expect(getState('sync.localOffset')).toBe(-9.999);
+    expect(transportMocks.play).toHaveBeenCalledTimes(1);
+    expect(getManagedTimer('sync-nudge-replay')).toBeNull();
   });
 
   it('debounces YouTube nudges and applies them through rendezvous once', () => {
@@ -247,7 +275,7 @@ describe('manual sync nudge routing', () => {
     expect(getState('sync.localOffset')).toBe(0);
   });
 
-  it('keeps standard-host YouTube local nudge fail-closed at the canonical boundary', () => {
+  it('routes an active standard-host YouTube nudge only to its canonical-local endpoint', () => {
     initSync();
     const localApply = vi.fn();
     const guestApply = vi.fn();
@@ -258,7 +286,27 @@ describe('manual sync nudge routing', () => {
 
     bus.emit('sync:nudge', 10);
 
-    expect(localApply).not.toHaveBeenCalled();
+    expect(localApply).toHaveBeenCalledTimes(1);
+    expect(localApply).toHaveBeenLastCalledWith(0.01);
+    expect(guestApply).not.toHaveBeenCalled();
+    // The iframe-side handler owns the actual state write after applying media
+    // boundary clamps; the routing layer must not pre-write a host offset.
+    expect(getState('sync.youtubeLocalOffset')).toBe(0);
+  });
+
+  it('clamps an entered standard-host YouTube offset before the local-only endpoint', () => {
+    initSync();
+    const localApply = vi.fn();
+    const guestApply = vi.fn();
+    bus.on('youtube:set-coordinator-manual-offset', localApply);
+    bus.on('youtube:apply-manual-sync', guestApply);
+    setActiveStandardHost();
+    setPlaybackYouTubePlaying();
+
+    bus.emit('sync:set-manual-offset', 50_000);
+
+    expect(localApply).toHaveBeenCalledTimes(1);
+    expect(localApply).toHaveBeenLastCalledWith(9.999);
     expect(guestApply).not.toHaveBeenCalled();
     expect(getState('sync.youtubeLocalOffset')).toBe(0);
   });

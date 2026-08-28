@@ -69,6 +69,28 @@ const decodeMocks = vi.hoisted(() => ({
   loadPreloadedTrack: vi.fn<(queueItemId: QueueItemId, epoch?: number) => Promise<boolean>>(),
   loadAndBroadcastFile: vi.fn(),
 }));
+const standardHostManualOffsetFacade = vi.hoisted(() => {
+  const facade = {
+    pending: false,
+    listeners: [] as Array<() => void>,
+    settle() {
+      facade.pending = false;
+      const listeners = facade.listeners.splice(0);
+      for (const listener of listeners) listener();
+    },
+  };
+  return facade;
+});
+
+vi.mock('../../youtube/standard-host-manual-offset-gate.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../youtube/standard-host-manual-offset-gate.ts')>()),
+  isStandardHostManualOffsetTransactionPending: vi.fn(() => standardHostManualOffsetFacade.pending),
+  afterStandardHostManualOffsetTransaction: vi.fn((listener: () => void) => {
+    if (!standardHostManualOffsetFacade.pending) return false;
+    standardHostManualOffsetFacade.listeners.push(listener);
+    return true;
+  }),
+}));
 
 vi.mock('../decode.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../decode.ts')>();
@@ -84,6 +106,8 @@ beforeEach(() => {
   decodeMocks.loadPreloadedTrack.mockReset();
   decodeMocks.loadPreloadedTrack.mockResolvedValue(false);
   decodeMocks.loadAndBroadcastFile.mockReset();
+  standardHostManualOffsetFacade.pending = false;
+  standardHostManualOffsetFacade.listeners.length = 0;
   resetState();
   bus.clear();
   setPendingAutoSyncOnReady(false);
@@ -541,6 +565,90 @@ describe('media-manager queue mode', () => {
 });
 
 describe('playlist navigation context', () => {
+  it('keeps the current queue identity immutable while a Standard-host edit is pending', async () => {
+    const first = fileItem('first.mp3');
+    const second = fileItem('second.mp3');
+    setState('playlist.items', [first, second]);
+    setState('playlist.currentQueueItemId', first.queueItemId);
+    standardHostManualOffsetFacade.pending = true;
+    initPlaylist();
+
+    playNextTrack();
+    await playTrack(second.queueItemId);
+    bus.emit('playlist:remove-tracks', [first.queueItemId]);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(first.queueItemId);
+    expect(getState('playlist.items').map((item) => item.queueItemId)).toEqual([
+      first.queueItemId,
+      second.queueItemId,
+    ]);
+  });
+
+  it('replays one natural next intent exactly once after the Standard-host edit settles', async () => {
+    vi.useFakeTimers();
+    const first = youtubeItem('First video', 'FIRST_VIDEO_01');
+    const second = youtubeItem('Second video', 'SECOND_VIDEO_02');
+    setState('network.appRole', 'host');
+    setState('playlist.items', [first, second]);
+    setState('playlist.currentQueueItemId', first.queueItemId);
+    setState('youtube.currentSubIndex', 0);
+    setPlaybackYouTubePlaying();
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+    bus.on('youtube:try-next-internal', (done: (success: boolean) => void) => done(false));
+    initPlaylist();
+
+    standardHostManualOffsetFacade.pending = true;
+    bus.emit('playlist:next-track');
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(first.queueItemId);
+    expect(load).not.toHaveBeenCalled();
+
+    standardHostManualOffsetFacade.settle();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(second.queueItemId);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith('SECOND_VIDEO_02', null, second.queueItemId, false, 0);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps only the latest deferred selection and drops it if the source identity changes', async () => {
+    vi.useFakeTimers();
+    const first = youtubeItem('First video', 'FIRST_VIDEO_01');
+    const second = youtubeItem('Second video', 'SECOND_VIDEO_02');
+    const third = youtubeItem('Third video', 'THIRD_VIDEO_03');
+    setState('network.appRole', 'host');
+    setState('playlist.items', [first, second, third]);
+    setState('playlist.currentQueueItemId', first.queueItemId);
+    setState('youtube.currentSubIndex', 0);
+    setPlaybackYouTubePlaying();
+    const load = vi.fn();
+    bus.on('youtube:load', load);
+
+    standardHostManualOffsetFacade.pending = true;
+    await playTrack(second.queueItemId);
+    await playTrack(third.queueItemId);
+    standardHostManualOffsetFacade.settle();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(third.queueItemId);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledWith('THIRD_VIDEO_03', null, third.queueItemId, false, 0);
+
+    standardHostManualOffsetFacade.pending = true;
+    await playTrack(second.queueItemId);
+    setState('youtube.currentSubIndex', 1);
+    standardHostManualOffsetFacade.settle();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(getState('playlist.currentQueueItemId')).toBe(third.queueItemId);
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
   it('does not force a Play-tab switch when advancing to the next track', () => {
     const first = fileItem('first.mp3');
     const second = fileItem('second.mp3');

@@ -217,8 +217,8 @@ describe('setLocalManualSyncOffset', () => {
   it('clamps manual file offsets to the supported nudge range', () => {
     const next = setLocalManualSyncOffset(99);
 
-    expect(next).toBe(3);
-    expect(getState('sync.localOffset')).toBe(3);
+    expect(next).toBe(9.999);
+    expect(getState('sync.localOffset')).toBe(9.999);
   });
 });
 

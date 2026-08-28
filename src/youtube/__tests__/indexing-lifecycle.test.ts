@@ -103,6 +103,11 @@ vi.mock('../sync.ts', () => ({
   suppressDriftUntil: vi.fn(),
 }));
 
+vi.mock('../standard-host-manual-offset-gate.ts', () => ({
+  cancelStandardHostManualOffsetTransaction: vi.fn(() => false),
+  isStandardHostManualOffsetTransactionPending: vi.fn(() => false),
+}));
+
 vi.mock('../../ui/toast.ts', () => ({
   showToast: vi.fn(),
   showLoader: vi.fn(),

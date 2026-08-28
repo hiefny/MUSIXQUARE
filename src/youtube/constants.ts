@@ -42,6 +42,15 @@ export const BROADCAST_SYNC_MIN_INTERVAL_MS = 500;
 /** UI poll interval (updateYouTubeUI — seekbar, title, crash detection). */
 export const UI_LOOP_INTERVAL_MS = 500;
 
+/**
+ * Standard-room hosts own the legacy room end boundary through their iframe.
+ * A local manual offset is neutralized this far before either the physical or
+ * canonical end so native ENDED/playlist transitions cannot move the room by
+ * that offset. Four UI-loop ticks leave enough room for the normal poll even
+ * at the maximum allowed local delta.
+ */
+export const STANDARD_HOST_MANUAL_OFFSET_END_GUARD_SEC = 2;
+
 /** Duplicate-broadcast suppression window for onStateChange. Same state
  *  fired within this gap is treated as noise (PAUSED→BUFFERING→PLAYING). */
 export const STATE_BROADCAST_DEDUP_MS = 300;

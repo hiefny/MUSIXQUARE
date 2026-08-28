@@ -16,6 +16,7 @@ import { getYouTubePlayer, setLocalYouTubePaused, setYouTubeSubIndex } from './_
 import { loadYouTubeVideo } from './iframe.ts';
 import { toCanonicalYouTubeTime } from './local-offset.ts';
 import { TRACK_TRANSITION_RENDEZVOUS_MS } from './constants.ts';
+import { isStandardHostManualOffsetTransactionPending } from './standard-host-manual-offset-gate.ts';
 import { cancelIncomingFileTransfer } from '../storage/transfer-receive.ts';
 import { cancelRemoteShareWait } from '../share/remote-share.ts';
 import {
@@ -253,6 +254,7 @@ export function handleRequestYouTubeSubSeek(
   conn: DataConnection,
 ): void {
   if (!guardHostRequest(data, conn, 'request-youtube-sub-seek', false)) return;
+  if (isStandardHostManualOffsetTransactionPending()) return;
 
   const subIdx = data.subIdx as number;
   const queueItemId = data.queueItemId as QueueItemId;

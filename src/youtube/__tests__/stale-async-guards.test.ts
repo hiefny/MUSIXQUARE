@@ -131,6 +131,11 @@ vi.mock('../sync.ts', () => ({
   suppressDriftUntil: vi.fn(),
 }));
 
+vi.mock('../standard-host-manual-offset-gate.ts', () => ({
+  cancelStandardHostManualOffsetTransaction: vi.fn(() => false),
+  isStandardHostManualOffsetTransactionPending: vi.fn(() => false),
+}));
+
 vi.mock('../zero-start.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../zero-start.ts')>()),
   handleYouTubeZeroStartPlayerState: zeroStartFacade.handlePlayerState,

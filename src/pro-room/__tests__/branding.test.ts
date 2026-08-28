@@ -153,7 +153,7 @@ describe('PRO room branding', () => {
     expect(suffixTranslationOffsets).toEqual([-45, -13.5, 9, 100]);
   });
 
-  it('keeps the PRO wordmark on one line before the truly short super-compact breakpoint', async () => {
+  it('yields either wordmark before collapsing the compact sidebar labels', async () => {
     const stylesheet = await readFile('css/style.css', 'utf8');
     const compactStart = stylesheet.indexOf('@media (min-width: 720px) and (max-width: 1279px) {');
     const compactEnd = stylesheet.indexOf('/* iPad PWA portrait', compactStart);
@@ -167,8 +167,13 @@ describe('PRO room branding', () => {
     expect(compactSidebarStyles).toMatch(
       /html\[data-pro-room\]\s+#app-logo\s*\{\s*align-self:\s*flex-start;\s*margin-left:\s*13px;/,
     );
-    expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*350px\)/);
-    expect(compactSidebarStyles).not.toMatch(/@media\s*\(max-height:\s*400px\)/);
+    expect(compactSidebarStyles).toMatch(
+      /@media\s*\(max-height:\s*370px\)[\s\S]*?html:not\(\.keyboard-open\) #app-logo\s*\{\s*display:\s*none\s*!important;/,
+    );
+    expect(compactSidebarStyles).toMatch(/@media\s*\(max-height:\s*300px\)/);
+    expect(compactSidebarStyles.indexOf('@media (max-height: 370px)')).toBeLessThan(
+      compactSidebarStyles.indexOf('@media (max-height: 300px)'),
+    );
   });
 
   it('removes the standard-room guided demo affordance from PRO rooms', async () => {

@@ -33,9 +33,9 @@ describe('D1 migration contract', () => {
     expect(assertD1MigrationContract()).toEqual({
       schemaVersion: 1,
       databaseCount: 3,
-      migrationCount: 14,
+      migrationCount: 15,
       pairedMigrationCount: 1,
-      forwardOnlyMigrationCount: 13,
+      forwardOnlyMigrationCount: 14,
     });
   });
 
@@ -48,6 +48,7 @@ describe('D1 migration contract', () => {
       'cloudflare/admin-metrics.owner-transfer-saga.migration.sql',
       'cloudflare/admin-metrics.lifetime-room-count.migration.sql',
       'cloudflare/admin-metrics.pro-grants.migration.sql',
+      'cloudflare/admin-metrics.lifetime-analytics.migration.sql',
     ]);
     expect(trackedD1PathsForDatabase(manifest, 'musixquare-developer-api')).toEqual([
       'cloudflare/developer-api.schema.sql',

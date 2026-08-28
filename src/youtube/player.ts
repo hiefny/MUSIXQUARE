@@ -344,11 +344,16 @@ import {
 } from './handlers.ts';
 import { broadcastYouTubeSync, cancelGuestRendezvous, resetYouTubeSyncState } from './sync.ts';
 import {
+  cancelStandardHostManualOffsetTransaction,
+  isStandardHostManualOffsetTransactionPending,
+} from './standard-host-manual-offset-gate.ts';
+import {
   clearProCoordinatorYouTubeNudgeAnchor,
-  isProCoordinatorYouTubeEndpoint,
+  isCanonicalYouTubeManualOffsetEndpoint,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
   rebaseProCoordinatorYouTubeNudgeAnchor,
   resolveProCoordinatorYouTubeTarget,
+  shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
   toCanonicalYouTubeTime,
 } from './local-offset.ts';
 import { showToast } from '../ui/toast.ts';
@@ -426,18 +431,32 @@ function resolveCoordinatorLocalTarget(
   player: YouTubePlayerInstance,
   canonicalTime: number,
 ): { canonicalTime: number; localTime: number } {
-  if (!isProCoordinatorYouTubeEndpoint()) {
+  if (!isCanonicalYouTubeManualOffsetEndpoint()) {
     return { canonicalTime, localTime: canonicalTime };
   }
 
   // A room-level play/pause/seek supersedes a still-settling local nudge.
   // Its explicit canonical target is now the source of truth.
   clearProCoordinatorYouTubeNudgeAnchor();
-  const target = resolveProCoordinatorYouTubeTarget(
+  const duration = getYouTubeDuration(player);
+  const requestedTarget = resolveProCoordinatorYouTubeTarget(
     canonicalTime,
     getState('sync.youtubeLocalOffset') || 0,
-    getYouTubeDuration(player),
+    duration,
   );
+  const shouldNeutralize = shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
+    requestedTarget.localTime,
+    requestedTarget.canonicalTime,
+    duration,
+    requestedTarget.effectiveOffset,
+  );
+  const target = shouldNeutralize
+    ? resolveProCoordinatorYouTubeTarget(canonicalTime, 0, duration)
+    : requestedTarget;
+  if (shouldNeutralize) {
+    setState('sync.youtubeLocalOffset', 0);
+    bus.emit('sync:display-update');
+  }
   setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
   return target;
 }
@@ -514,6 +533,9 @@ function clampZeroStartTarget(seconds: number, duration: number): number {
 function tryBeginYouTubeZeroStart(videoId: string, subIndex: number | null): boolean {
   const queueItemId = getCurrentQueueItemId();
   if (!queueItemId || !videoId || getYouTubeZeroStartRole() !== 'host') return false;
+  // Let the ordinary scheduleYtAutoSync fallback below supersede an
+  // unverified local edit; zero-start must never inherit its iframe command.
+  if (isStandardHostManualOffsetTransactionPending()) return false;
   if (!canUseYouTubeZeroStart()) return false;
 
   clearManagedTimer('yt-auto-sync');
@@ -552,6 +574,9 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
     clearManagedTimer('yt-auto-sync');
     return;
   }
+  // An unverified Standard-host local command may still arrive late from the
+  // iframe. Keep room actions fail-closed for this bounded settle window.
+  if (isStandardHostManualOffsetTransactionPending()) return;
   invalidateYouTubeZeroStartPendingIntegration();
   // Any ordinary play/pause/seek supersedes a zero-start barrier or its short
   // post-release calibration window. The legacy rendezvous then remains the
@@ -571,7 +596,7 @@ export function scheduleYtAutoSync(targetTime: number, overrides?: YouTubeAutoSy
 
   // 1. Host: Execute action immediately
   const localOffsetRequiresSeek =
-    isProCoordinatorYouTubeEndpoint() &&
+    isCanonicalYouTubeManualOffsetEndpoint() &&
     Math.abs(localTargetTime - canonicalTargetTime) > Number.EPSILON;
   if ((!overrides?.skipSeek || localOffsetRequiresSeek) && canonicalTargetTime >= 0) {
     player.seekTo(localTargetTime, true);
@@ -1215,6 +1240,10 @@ export function stopYouTubeMode(opts?: { silent?: boolean }): void {
  * background snapshot/fetcher fires.
  */
 function navigateSubVideo(direction: 1 | -1, callback: (success: boolean) => void): void {
+  if (isStandardHostManualOffsetTransactionPending()) {
+    callback(false);
+    return;
+  }
   const player = getYouTubePlayer();
 
   try {
@@ -1598,12 +1627,25 @@ export function initYouTube(): void {
   ): number => {
     const player = getYouTubePlayer();
     const duration = player ? getYouTubeDuration(player) : 0;
-    if (context.role === 'host' && isProCoordinatorYouTubeEndpoint()) {
-      const target = resolveProCoordinatorYouTubeTarget(
+    if (context.role === 'host' && isCanonicalYouTubeManualOffsetEndpoint()) {
+      const requestedTarget = resolveProCoordinatorYouTubeTarget(
         canonicalPositionSec,
         getState('sync.youtubeLocalOffset') || 0,
         duration,
       );
+      const shouldNeutralize = shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
+        requestedTarget.localTime,
+        requestedTarget.canonicalTime,
+        duration,
+        requestedTarget.effectiveOffset,
+      );
+      const target = shouldNeutralize
+        ? resolveProCoordinatorYouTubeTarget(canonicalPositionSec, 0, duration)
+        : requestedTarget;
+      if (shouldNeutralize) {
+        setState('sync.youtubeLocalOffset', 0);
+        bus.emit('sync:display-update');
+      }
       setState('sync.youtubeCoordinatorAppliedOffset', target.effectiveOffset);
       return target.localTime;
     }
@@ -1634,7 +1676,7 @@ export function initYouTube(): void {
     toCanonicalPositionSec: (localPositionSec, context) => {
       const player = getYouTubePlayer();
       const duration = player ? getYouTubeDuration(player) : 0;
-      if (context.role === 'host' && isProCoordinatorYouTubeEndpoint()) {
+      if (context.role === 'host' && isCanonicalYouTubeManualOffsetEndpoint()) {
         return toCanonicalYouTubeTime(localPositionSec, duration);
       }
       if (context.role === 'guest') {
@@ -2735,11 +2777,12 @@ export function initYouTube(): void {
     // Host direct
     const player = getYouTubePlayer();
     if (!player) return;
+    if (isStandardHostManualOffsetTransactionPending()) return;
     try {
       const state = player.getPlayerState();
       const currentTime = readCanonicalYouTubeTime(player);
       const settlingCoordinatorStillPlaying =
-        isProCoordinatorYouTubeEndpoint() &&
+        isCanonicalYouTubeManualOffsetEndpoint() &&
         !!getManagedTimer(PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER) &&
         isPlaybackPlayingYouTube();
       if (state === YT.PlayerState.PLAYING || settlingCoordinatorStillPlaying) {
@@ -2892,7 +2935,8 @@ export function initYouTube(): void {
     // The previous video's settling anchor/applied boundary cannot describe
     // this new video; start from the raw new-video position and re-resolve the
     // participant's requested local offset below.
-    if (isProCoordinatorYouTubeEndpoint()) {
+    if (isCanonicalYouTubeManualOffsetEndpoint()) {
+      cancelStandardHostManualOffsetTransaction();
       clearProCoordinatorYouTubeNudgeAnchor();
       setState('sync.youtubeCoordinatorAppliedOffset', 0);
     }
@@ -3035,12 +3079,16 @@ export function initYouTube(): void {
         // yt-auto-sync stage-2 delay keeps the player PAUSED while logically
         // we are still in a play session, so a bare seek during that window
         // would skip re-syncing and let the stale target's playVideo fire.
-        const midSync = isYouTubeZeroStartProtocolActive() || !!getManagedTimer('yt-auto-sync');
+        const midSync =
+          isYouTubeZeroStartProtocolActive() ||
+          !!getManagedTimer('yt-auto-sync') ||
+          isStandardHostManualOffsetTransactionPending();
         if (state === 1 || midSync) {
           // Playing (or mid-rendezvous) → (re)schedule auto-sync
           scheduleYtAutoSync(target);
         } else {
           // Actually paused by user → seek immediately, no delay
+          const resolvedTarget = resolveCoordinatorLocalTarget(player, target);
           markYtStateBroadcast();
           const queueItemId = getCurrentQueueItemId();
           if (queueItemId) {
@@ -3048,13 +3096,13 @@ export function initYouTube(): void {
               type: MSG.YOUTUBE_STATE,
               queueItemId,
               state: 2,
-              time: target,
+              time: resolvedTarget.canonicalTime,
               subIndex: getState('youtube.currentSubIndex') ?? -1,
               videoId: player.getVideoData?.()?.video_id || '',
               hostClock: getHostNow(),
             });
           }
-          player.seekTo(resolveCoordinatorLocalTarget(player, target).localTime, true);
+          player.seekTo(resolvedTarget.localTime, true);
           markYtStateBroadcast();
         }
       } else {
@@ -3077,7 +3125,10 @@ export function initYouTube(): void {
         // before playVideo(). A seek landing in that window (re)schedules a
         // fresh sync instead of slipping through as a bare seek+state=2
         // while the player's reported state is still lying about being PAUSED.
-        const midSync = isYouTubeZeroStartProtocolActive() || !!getManagedTimer('yt-auto-sync');
+        const midSync =
+          isYouTubeZeroStartProtocolActive() ||
+          !!getManagedTimer('yt-auto-sync') ||
+          isStandardHostManualOffsetTransactionPending();
         if (state === 1 || midSync) {
           // Playing (or mid-sync) → (re)schedule auto-sync. scheduleYtAutoSync
           // clears any pending yt-auto-sync up-front, so the old one is
@@ -3085,6 +3136,7 @@ export function initYouTube(): void {
           scheduleYtAutoSync(seconds);
         } else {
           // Actually paused by user → seek immediately, no delay
+          const resolvedTarget = resolveCoordinatorLocalTarget(player, seconds);
           markYtStateBroadcast();
           const queueItemId = getCurrentQueueItemId();
           if (queueItemId) {
@@ -3092,13 +3144,13 @@ export function initYouTube(): void {
               type: MSG.YOUTUBE_STATE,
               queueItemId,
               state: 2,
-              time: seconds,
+              time: resolvedTarget.canonicalTime,
               subIndex: getState('youtube.currentSubIndex') ?? -1,
               videoId: player.getVideoData?.()?.video_id || '',
               hostClock: getHostNow(),
             });
           }
-          player.seekTo(resolveCoordinatorLocalTarget(player, seconds).localTime, true);
+          player.seekTo(resolvedTarget.localTime, true);
           markYtStateBroadcast();
         }
       } else {
@@ -3829,6 +3881,7 @@ export function initYouTube(): void {
     ) {
       return;
     }
+    if (isStandardHostManualOffsetTransactionPending()) return;
     const isCurrentNow = queueItemId === getCurrentQueueItemId();
     // Route both same-playlist and cross-media selections through playTrack.
     // The old player guard made a YouTube sub-row a no-op while a local file

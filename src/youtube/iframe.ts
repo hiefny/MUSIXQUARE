@@ -69,10 +69,16 @@ import {
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
 import { configureYouTubeIframeRuntimeHooks } from './iframe-runtime-bridge.ts';
-import { resetYouTubeSyncState, suppressDriftUntil, guestRendezvousSync } from './sync.ts';
+import { guestRendezvousSync, resetYouTubeSyncState, suppressDriftUntil } from './sync.ts';
 import {
+  afterStandardHostManualOffsetTransaction,
+  isStandardHostManualOffsetTransactionPending,
+} from './standard-host-manual-offset-gate.ts';
+import {
+  isStandardHostYouTubeManualOffsetEndpoint,
   PRO_COORDINATOR_YOUTUBE_NUDGE_TIMER,
   resolveProCoordinatorYouTubeTarget,
+  shouldNeutralizeStandardHostYouTubeOffsetAtEnd,
   toCanonicalYouTubeTime,
 } from './local-offset.ts';
 import {
@@ -140,6 +146,102 @@ const PRO_TITLE_PERSIST_MAX_ATTEMPTS = 3;
 const SAME_VIDEO_OCCURRENCE_HANDOFF_TIMER = 'yt-same-video-occurrence-handoff';
 const SAME_VIDEO_OCCURRENCE_PAUSE_POLL_MS = 20;
 const SAME_VIDEO_OCCURRENCE_PAUSE_TIMEOUT_MS = 500;
+const STANDARD_HOST_MANUAL_REPEAT_ONE_TIMER = 'yt-standard-host-manual-repeat-one';
+const STANDARD_HOST_MANUAL_REPEAT_ONE_POLL_MS = 100;
+
+interface DeferredStandardHostRepeatOne {
+  token: number;
+  player: YouTubePlayerInstance;
+  queueItemId: QueueItemId;
+  subIndex: number;
+  videoId: string;
+}
+
+let deferredStandardHostRepeatOne: DeferredStandardHostRepeatOne | null = null;
+let deferredStandardHostRepeatOneToken = 0;
+
+function getExpectedYouTubeVideoId(queueItemId: QueueItemId, subIndex: number): string {
+  const item = getQueueItemById(queueItemId);
+  if (!item || item.type !== 'youtube') return '';
+  if (item.playlistId) {
+    const indexedVideoId = getState('youtube.subItemsMap')[item.playlistId]?.ids?.[subIndex];
+    if (indexedVideoId) return indexedVideoId;
+  }
+  return item.videoId || '';
+}
+
+function emitRepeatOneAutoPlay(): void {
+  bus.emit('youtube:auto-play', {
+    targetTime: 0,
+    skipSeek: false,
+    isTrackTransition: false,
+    zeroStart: true,
+  });
+}
+
+function pollDeferredStandardHostRepeatOne(token: number): void {
+  const deferred = deferredStandardHostRepeatOne;
+  if (!deferred || deferred.token !== token) return;
+
+  if (isStandardHostManualOffsetTransactionPending()) {
+    afterStandardHostManualOffsetTransaction(() => pollDeferredStandardHostRepeatOne(token));
+    return;
+  }
+
+  const hardIdentityMatches =
+    getYouTubePlayer() === deferred.player &&
+    getCurrentQueueItemId() === deferred.queueItemId &&
+    (getState('youtube.currentSubIndex') ?? -1) === deferred.subIndex &&
+    getExpectedYouTubeVideoId(deferred.queueItemId, deferred.subIndex) === deferred.videoId;
+  if (!hardIdentityMatches) {
+    deferredStandardHostRepeatOne = null;
+    log.debug('[YouTube] Dropping deferred repeat-one: source media identity changed');
+    return;
+  }
+
+  let liveVideoId = '';
+  try {
+    liveVideoId = deferred.player.getVideoData?.()?.video_id || '';
+  } catch {
+    // A transient iframe metadata gap stays behind the transaction fence.
+  }
+
+  if (liveVideoId && liveVideoId !== deferred.videoId) {
+    deferredStandardHostRepeatOne = null;
+    log.debug('[YouTube] Dropping deferred repeat-one: live video identity changed');
+    return;
+  }
+
+  if (!liveVideoId) {
+    setManagedTimer(
+      STANDARD_HOST_MANUAL_REPEAT_ONE_TIMER,
+      () => pollDeferredStandardHostRepeatOne(token),
+      STANDARD_HOST_MANUAL_REPEAT_ONE_POLL_MS,
+    );
+    return;
+  }
+
+  deferredStandardHostRepeatOne = null;
+  emitRepeatOneAutoPlay();
+}
+
+function restartRepeatOneAfterStandardHostManualOffsetSettles(player: YouTubePlayerInstance): void {
+  if (!isStandardHostManualOffsetTransactionPending()) {
+    deferredStandardHostRepeatOne = null;
+    clearManagedTimer(STANDARD_HOST_MANUAL_REPEAT_ONE_TIMER);
+    emitRepeatOneAutoPlay();
+    return;
+  }
+
+  const queueItemId = getCurrentQueueItemId();
+  const subIndex = getState('youtube.currentSubIndex') ?? -1;
+  const videoId = queueItemId ? getExpectedYouTubeVideoId(queueItemId, subIndex) : '';
+  if (!queueItemId || !videoId) return;
+
+  const token = ++deferredStandardHostRepeatOneToken;
+  deferredStandardHostRepeatOne = { token, player, queueItemId, subIndex, videoId };
+  afterStandardHostManualOffsetTransaction(() => pollDeferredStandardHostRepeatOne(token));
+}
 /**
  * A persistent iframe cannot distinguish two queue occurrences that point to
  * the same YouTube video: cueVideoById(sameId) may be coalesced and any late
@@ -2528,6 +2630,31 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
     return;
   } else if (state === YT.PlayerState.ENDED) {
     if (routeCurrentProYouTubeObservation('ended')) return;
+    if (isStandardHostYouTubeManualOffsetEndpoint()) {
+      const duration = player.getDuration?.() || 0;
+      const localTime = player.getCurrentTime?.() || 0;
+      const canonicalTime = toCanonicalYouTubeTime(localTime, duration);
+      const appliedOffset = getState('sync.youtubeCoordinatorAppliedOffset') || 0;
+      if (
+        canonicalTime < duration - 0.05 &&
+        shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
+          localTime,
+          canonicalTime,
+          duration,
+          appliedOffset,
+        )
+      ) {
+        // A positive host-local offset can make the physical iframe end before
+        // the room timeline. Remove that offset, resume from the unchanged
+        // canonical position, and consume this early ENDED callback so it can
+        // never advance guests or the queue.
+        bus.emit('youtube:set-coordinator-manual-offset', 0);
+        setYtAutoplayIntent(true);
+        player.playVideo?.();
+        log.debug('[YouTube] Neutralized early standard-host local end');
+        return;
+      }
+    }
     // Host: advance through sub-videos or fall through to next queue track.
     // Guest: keep youtubeUILoop alive — the iframe may auto-advance to the
     // next sub-video in a playlist, and updateYouTubeUI's guest auto-advance
@@ -2555,12 +2682,7 @@ function onYouTubePlayerStateChange(event: { data: number; target: YouTubePlayer
       const repeatMode = getState('playlist.repeatMode') || 0;
       if (repeatMode === 2) {
         log.debug('[YouTube] Ended with repeat-one, restarting current video...');
-        bus.emit('youtube:auto-play', {
-          targetTime: 0,
-          skipSeek: false,
-          isTrackTransition: false,
-          zeroStart: true,
-        });
+        restartRepeatOneAfterStandardHostManualOffsetSettles(player);
         return;
       }
 
@@ -2764,6 +2886,24 @@ function updateYouTubeUI(): void {
     const rawDuration = player.getDuration?.() || 0;
     const playlistIdx = player.getPlaylistIndex?.() ?? -1;
     const state = player.getPlayerState?.() ?? -1;
+
+    const canonicalTime = toCanonicalYouTubeTime(currentTime, rawDuration);
+    const appliedHostOffset = getState('sync.youtubeCoordinatorAppliedOffset') || 0;
+    if (
+      shouldNeutralizeStandardHostYouTubeOffsetAtEnd(
+        currentTime,
+        canonicalTime,
+        rawDuration,
+        appliedHostOffset,
+      )
+    ) {
+      // Standard rooms still derive natural end and native playlist advance
+      // from the host iframe. Bring the physical and canonical clocks back
+      // together before either reaches that boundary; the offset remains
+      // participant-local everywhere else in the track.
+      bus.emit('youtube:set-coordinator-manual-offset', 0);
+      return;
+    }
 
     // iOS fallback for older/quirky iframe builds that do not deliver
     // onAutoplayBlocked. CUED is normally healthy, but if a synchronized play

@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import type { ConnectedPeer, DataConnection, RoomContext } from '../../types/index.ts';
 import {
@@ -10,6 +11,7 @@ import {
   isStandardRoomMember,
   isStandardRoomRole,
   setRoomContext,
+  subscribeRoomAuthorityLifecycle,
   verifyPeerCapability,
 } from '../authority.ts';
 
@@ -50,9 +52,35 @@ function proContext(overrides: Partial<RoomContext> = {}): RoomContext {
   };
 }
 
-beforeEach(() => resetState());
+beforeEach(() => {
+  resetState();
+  bus.clear();
+});
 
 describe('room authority compatibility layer', () => {
+  it('centralizes every standard and PRO authority lifecycle signal', () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeRoomAuthorityLifecycle(listener);
+
+    setState('network.appRole', 'host');
+    setState('network.hostConn', connection('host'));
+    setState('network.sessionCode', '123456');
+    setState('setup.sessionStarted', true);
+    setRoomContext(proContext());
+    setState('playback.mode', 'youtube');
+
+    expect(listener).toHaveBeenCalledTimes(5);
+
+    unsubscribe();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', null);
+    setState('network.sessionCode', '654321');
+    setState('setup.sessionStarted', false);
+    setRoomContext({ ...proContext(), epoch: 2 });
+
+    expect(listener).toHaveBeenCalledTimes(5);
+  });
+
   it('projects setup-side roles only for standard rooms', () => {
     expect(isStandardRoomRole('host')).toBe(false);
     expect(isStandardRoomRole('guest')).toBe(false);

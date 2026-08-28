@@ -4,9 +4,9 @@
     {
       "database": "musixquare-admin-metrics",
       "baseline": "cloudflare/admin-metrics.schema.sql",
-      "baselineRevision": 5,
-      "baselineSha256": "b3263852d6e3636a74ee9f4e546f420978c714560731a2051e5100c2c7b01cee",
-      "baselineMigration": "admin-pro-grants-v1",
+      "baselineRevision": 6,
+      "baselineSha256": "ab5e9377084c9d586da5a6a8a89e8f91ed61a819baa4797828d9ab27d0c793aa",
+      "baselineMigration": "admin-lifetime-analytics-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/admin-dashboard-ops.md",
@@ -76,6 +76,19 @@
             "strategy": "matched-worker-floor-and-roll-forward-or-provider-restore",
             "runbook": "cloudflare/admin-dashboard-ops.md",
             "note": "The secret-free entitlement ledger, exact room allocations, account-deletion fences and append-only audit trail are required by the matched App and PRO Worker floor; recovery rolls forward or restores the provider database without reissuing plaintext vouchers."
+          }
+        },
+        {
+          "id": "admin-lifetime-analytics-v1",
+          "forward": "cloudflare/admin-metrics.lifetime-analytics.migration.sql",
+          "forwardSha256": "a0e766c23b0e6b2948d5cdb944e058ead16fe7ce41f8a6efcfaed18a4e623e1f",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "Permanent aggregate-only UTC-day room-open and guest-join increments are backfilled while the complete measured history remains inside retention; recovery preserves the monotonic table and triggers, rolls forward, or restores the provider database."
           }
         }
       ]

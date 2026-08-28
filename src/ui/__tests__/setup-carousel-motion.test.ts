@@ -1,7 +1,6 @@
 /** @vitest-environment jsdom */
 
 import { readFile } from 'node:fs/promises';
-import QRCode from 'qrcode';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -506,69 +505,24 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toContain('animation: none !important;');
   });
 
-  it('replaces the onboarding QR ghost modules diagonally with the room QR', async () => {
+  it('reuses the welcome crossfade timing when the host guide becomes an invitation QR', async () => {
     const markup = await readFile('index.html', 'utf8');
     const stylesheet = await readFile('css/style.css', 'utf8');
     const setupShared = await readFile('src/ui/setup-shared.ts', 'utf8');
-    const parsedMarkup = new DOMParser().parseFromString(markup, 'text/html');
-    const encodedGhost = await QRCode.toString('MUSIXQUARE.COM', {
-      type: 'svg',
-      margin: 2,
-      errorCorrectionLevel: 'L',
-      color: { dark: '#000000', light: '#00000000' },
-    });
-    const parsedGhost = new DOMParser().parseFromString(encodedGhost, 'image/svg+xml');
 
     expect(markup).toContain('id="setup-host-invite-stage"');
     expect(markup).toContain('id="setup-host-qr-placeholder"');
     expect(markup).toContain('id="setup-host-qr"');
     expect(markup).toContain('class="material-elastic-spinner setup-host-qr-loading-spinner"');
     expect(markup).toContain('class="material-elastic-spinner setup-qr-join-spinner"');
-    expect(
-      parsedMarkup.querySelector('#setup-host-qr-placeholder svg')?.getAttribute('viewBox'),
-    ).toBe('0 0 25 25');
-    expect(parsedMarkup.querySelector('#setup-host-qr-placeholder path')?.getAttribute('d')).toBe(
-      parsedGhost.querySelector('path')?.getAttribute('d'),
-    );
-    for (const code of ['000000', '123456', '999999']) {
-      expect(
-        QRCode.create(`MUSIXQUARE.COM/${code}`, { errorCorrectionLevel: 'L' }).modules.size,
-      ).toBe(21);
-    }
     expect(stylesheet).toContain(
       '.setup-host-invite-stage.is-room-qr-visible > .setup-host-qr-placeholder',
     );
     expect(stylesheet).toContain(
       '.setup-host-invite-stage.is-room-qr-visible > .setup-host-qr-room',
     );
-    expect(stylesheet).toContain(
-      '.setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module--activate',
-    );
-    expect(stylesheet).toContain(
-      '.setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module--brighten',
-    );
-    expect(stylesheet).toContain(
-      '.setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module--clear',
-    );
-    expect(stylesheet).toContain(
-      'animation: setup-host-qr-module-activate 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;',
-    );
-    expect(stylesheet).toContain(
-      'animation: setup-host-qr-module-brighten 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;',
-    );
-    expect(stylesheet).toContain(
-      'animation: setup-host-qr-module-clear 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;',
-    );
-    expect(stylesheet).toContain('@keyframes setup-host-qr-module-activate');
-    expect(stylesheet).toContain('@keyframes setup-host-qr-module-brighten');
-    expect(stylesheet).toContain('@keyframes setup-host-qr-module-clear');
-    expect(stylesheet).toContain('.setup-host-qr-grid-background');
-    expect(stylesheet).toContain('.setup-host-qr-module-layer');
-    expect(stylesheet).toContain('--setup-host-qr-off: var(--bg);');
-    expect(stylesheet).toContain('--setup-host-qr-ghost: #5d5d5d;');
-    expect(stylesheet).toContain('--setup-host-qr-ghost: #b4b6bb;');
-    expect(stylesheet).not.toContain('.setup-host-qr-final-path');
-    expect(stylesheet).not.toContain('setup-host-qr-module-layer-settle');
+    expect(stylesheet).toContain('opacity 0.36s ease-in');
+    expect(stylesheet).toContain('opacity 0.48s ease-out');
     expect(stylesheet).toContain('.setup-host-qr {');
     expect(stylesheet).toContain(
       '.setup-host-invite-stage.is-room-qr-loading > .setup-host-qr-loading-spinner',
@@ -580,10 +534,6 @@ describe('setup greeting reveal', () => {
     expect(stylesheet).toMatch(/\.setup-qr-join-spinner\s*{[^}]*color:\s*var\(--text-main\);/s);
     expect(stylesheet).toContain(".setup-qr-scan-button[aria-busy='true'] .setup-qr-join-spinner");
     expect(stylesheet).toContain('transition: none !important;');
-    expect(stylesheet).toContain(
-      '.setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module',
-    );
-    expect(stylesheet).toContain('animation: none !important;');
     expect(stylesheet).toContain('@media (max-width: 719px) and (orientation: portrait)');
     expect(
       stylesheet.indexOf('@media (max-width: 719px) and (orientation: portrait)'),

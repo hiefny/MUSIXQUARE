@@ -29,7 +29,6 @@
     --text-main: #eeeeee;
     --text-sub: #a1a1aa;
     --text-muted: #71717a;
-    --setup-host-qr-ghost: #5d5d5d;
     --range-fill-idle: rgba(238, 238, 238, 0.75);
     --range-fill-active: var(--text-main);
     --play-fab-bg-idle: rgba(238, 238, 238, 0.9);
@@ -134,7 +133,6 @@
     --text-sub: #495057;
     /* Darker grey for legibility */
     --text-muted: #868e96;
-    --setup-host-qr-ghost: #b4b6bb;
     /* Darker grey for legibility */
     --range-fill-idle: rgba(48, 53, 64, 0.75);
     --range-fill-active: var(--text-main);
@@ -6486,7 +6484,6 @@
   }
 
   .setup-host-qr {
-    --setup-host-qr-off: var(--bg);
     width: min(272px, 56vw, 36vh);
     width: min(272px, 56vw, 36dvh);
     aspect-ratio: 1;
@@ -6505,92 +6502,39 @@
   .setup-host-qr-placeholder {
     opacity: 0.34;
     visibility: visible;
+    transition:
+      opacity 0.36s ease-in,
+      visibility 0s linear 0s;
   }
 
   .setup-host-qr-room {
     opacity: 0;
     visibility: hidden;
+    transition:
+      opacity 0.48s ease-out,
+      visibility 0s linear 0.48s;
   }
 
   .setup-host-invite-stage.is-room-qr-visible > .setup-host-qr-placeholder {
     opacity: 0;
     visibility: hidden;
+    transition:
+      opacity 0.36s ease-in,
+      visibility 0s linear 0.36s;
   }
 
   .setup-host-invite-stage.is-room-qr-visible > .setup-host-qr-room {
     opacity: 1;
     visibility: visible;
-  }
-
-  .setup-host-qr-grid-background,
-  .setup-host-qr-module--clear,
-  .setup-host-qr-module--idle,
-  .setup-host-qr-module--steady-off {
-    fill: var(--setup-host-qr-off);
-  }
-
-  .setup-host-qr-module--activate,
-  .setup-host-qr-module--brighten,
-  .setup-host-qr-module--steady-on {
-    fill: currentColor;
-  }
-
-  .setup-host-qr-module {
-    opacity: 1;
-    stroke: none;
-  }
-
-  .setup-host-qr-module-layer {
-    opacity: 1;
-  }
-
-  .setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module--activate {
-    animation: setup-host-qr-module-activate 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  .setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module--brighten {
-    animation: setup-host-qr-module-brighten 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  .setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module--clear {
-    animation: setup-host-qr-module-clear 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
-
-  @keyframes setup-host-qr-module-activate {
-    from {
-      fill: var(--setup-host-qr-off);
-    }
-    to {
-      fill: currentColor;
-    }
-  }
-
-  @keyframes setup-host-qr-module-brighten {
-    from {
-      fill: var(--setup-host-qr-ghost);
-    }
-    to {
-      fill: currentColor;
-    }
-  }
-
-  @keyframes setup-host-qr-module-clear {
-    from {
-      fill: var(--setup-host-qr-ghost);
-    }
-    to {
-      fill: var(--setup-host-qr-off);
-    }
+    transition:
+      opacity 0.48s ease-out,
+      visibility 0s linear 0s;
   }
 
   @media (prefers-reduced-motion: reduce) {
     .setup-host-qr,
     .setup-host-qr-loading-spinner {
       transition: none !important;
-    }
-
-    .setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module {
-      animation: none !important;
     }
   }
 
@@ -11517,7 +11461,6 @@ html[data-contrast='more'] {
   --text-main: #ffffff;
   --text-sub: #f2f2f2;
   --text-muted: #d0d0d0;
-  --setup-host-qr-ghost: #575757;
   --range-fill-idle: rgba(255, 255, 255, 0.9);
   --range-fill-active: #ffffff;
   --play-fab-bg-idle: rgba(255, 255, 255, 0.96);
@@ -11544,7 +11487,6 @@ html[data-theme='light'][data-contrast='more'] {
   --text-main: #000000;
   --text-sub: #111111;
   --text-muted: #333333;
-  --setup-host-qr-ghost: #a0a0a0;
   --range-fill-idle: rgba(0, 0, 0, 0.88);
   --range-fill-active: #000000;
   --play-fab-bg-idle: rgba(0, 0, 0, 0.94);
@@ -11596,7 +11538,6 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     --text-main: #ffffff;
     --text-sub: #f2f2f2;
     --text-muted: #d0d0d0;
-    --setup-host-qr-ghost: #575757;
     --range-fill-idle: rgba(255, 255, 255, 0.9);
     --range-fill-active: #ffffff;
     --play-fab-bg-idle: rgba(255, 255, 255, 0.96);
@@ -11623,7 +11564,6 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
     --text-main: #000000;
     --text-sub: #111111;
     --text-muted: #333333;
-    --setup-host-qr-ghost: #a0a0a0;
     --range-fill-idle: rgba(0, 0, 0, 0.88);
     --range-fill-active: #000000;
     --play-fab-bg-idle: rgba(0, 0, 0, 0.94);
@@ -11868,24 +11808,5 @@ html[data-contrast='more'] .tab-action-btn.active-one::after {
   .qr-svg path {
     stroke: #ffffff !important;
     fill: #ffffff !important;
-  }
-
-  .qr-svg .setup-host-qr-grid-background,
-  .qr-svg .setup-host-qr-module--clear,
-  .qr-svg .setup-host-qr-module--idle,
-  .qr-svg .setup-host-qr-module--steady-off {
-    stroke: none !important;
-    fill: #000000 !important;
-  }
-
-  .qr-svg .setup-host-qr-module--activate,
-  .qr-svg .setup-host-qr-module--brighten,
-  .qr-svg .setup-host-qr-module--steady-on {
-    stroke: none !important;
-    fill: #ffffff !important;
-  }
-
-  .setup-host-invite-stage.is-room-qr-morphing .setup-host-qr-module {
-    animation: none !important;
   }
 }

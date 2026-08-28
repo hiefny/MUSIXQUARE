@@ -25,6 +25,33 @@ async function openReadyApp(page: Page): Promise<void> {
 }
 
 test.describe('iPhone WebKit compatibility smoke', () => {
+  test('opens the native file picker from the active media-source dialog', async ({
+    page,
+    browserName,
+  }) => {
+    test.skip(browserName !== 'webkit', 'This regression targets the iPhone WebKit picker path');
+    await openReadyApp(page);
+    await page.evaluate(() => {
+      const setState = (
+        window as unknown as Record<string, ((path: string, value: unknown) => void) | undefined>
+      ).__MUSIXQUARE_SET_STATE__;
+      setState?.('network.appRole', 'host');
+    });
+
+    const mediaSourceButton = page.locator('#btn-media-source');
+    await expect(mediaSourceButton).toHaveAttribute('aria-disabled', 'false');
+    await mediaSourceButton.focus();
+    await mediaSourceButton.press('Enter');
+    await expect(page.locator('#media-source-overlay')).toHaveClass(/active/);
+    await expect(page.locator('#media-source-overlay #file-input')).toHaveCount(1);
+
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.locator('#btn-local-file').click();
+    const chooser = await chooserPromise;
+
+    expect(chooser.isMultiple()).toBe(true);
+  });
+
   test('covers a cold standalone landscape shell and keeps the side navigation reachable', async ({
     page,
     browserName,

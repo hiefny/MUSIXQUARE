@@ -680,9 +680,10 @@ describe('PRO room media-source capabilities', () => {
     document.body.innerHTML = `
       <button id="btn-add-media"></button>
       <button id="btn-media-source"><span data-i18n="player.play_media_compact">Media</span></button>
-      <div id="media-source-overlay"></div>
-      <button id="btn-local-file"></button>
-      <input id="file-input" type="file" />
+      <div id="media-source-overlay">
+        <button id="btn-local-file"></button>
+        <input id="file-input" type="file" hidden />
+      </div>
       <button id="btn-youtube-source"></button>
       <div id="youtube-url-overlay"></div>
       <div id="youtube-url-input"></div>
@@ -731,9 +732,9 @@ describe('PRO room media-source capabilities', () => {
       <button id="btn-media-source"></button>
       <div id="media-source-overlay" role="dialog" aria-modal="true" tabindex="-1">
         <button id="btn-local-file"></button>
+        <input id="file-input" type="file" hidden />
         <button id="btn-close-media-popup"></button>
       </div>
-      <input id="file-input" type="file" />
     `;
     setState('network.appRole', 'host');
     setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);
@@ -761,9 +762,9 @@ describe('PRO room media-source capabilities', () => {
       <button id="btn-media-source"></button>
       <div id="media-source-overlay" role="dialog" aria-modal="true" tabindex="-1">
         <button id="btn-local-file"></button>
+        <input id="file-input" type="file" hidden />
         <button id="btn-close-media-popup"></button>
       </div>
-      <input id="file-input" type="file" />
     `;
     setState('network.appRole', 'host');
     setState('network.standardRoomCapabilities', ['media.add', 'asset.upload']);

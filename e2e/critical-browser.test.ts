@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { E2E_APP_ORIGIN } from './config.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
+import { setupHostAndStart } from './helpers/setup-flow.ts';
 
 const PRO_ROOM_CODE = '000001';
 const OWNER_RECOVERY_CLAIM = `${'a'.repeat(32)}.${'b'.repeat(43)}`;
@@ -122,6 +123,22 @@ async function fulfillProJson(
 }
 
 test.describe('Critical browser release gate', () => {
+  test('opens the native file picker from the active media-source dialog', async ({ page }) => {
+    await injectPeerServer(page);
+    await setupHostAndStart(page);
+
+    await page.locator('#btn-media-source').click();
+    await expect(page.locator('#media-source-overlay')).toHaveClass(/active/u);
+    await expect(page.locator('#file-input')).toHaveCount(1);
+    await expect(page.locator('#media-source-overlay #file-input')).toHaveCount(1);
+
+    const chooserPromise = page.waitForEvent('filechooser');
+    await page.locator('#btn-local-file').click();
+    const chooser = await chooserPromise;
+
+    expect(chooser.isMultiple()).toBe(true);
+  });
+
   test('consumes an owner-recovery link, joins PRO, and restores server permissions', async ({
     page,
   }) => {

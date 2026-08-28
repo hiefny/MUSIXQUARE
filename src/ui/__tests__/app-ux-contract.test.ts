@@ -157,6 +157,8 @@ describe('app UX markup contract', () => {
   it('keeps setup and media actions on the compact pre-audit surface', () => {
     const joinInput = appDocument.getElementById('setup-join-code');
     const localFile = appDocument.getElementById('btn-local-file');
+    const fileInput = appDocument.getElementById('file-input') as HTMLInputElement | null;
+    const mediaSourceOverlay = appDocument.getElementById('media-source-overlay');
     const systemAudio = appDocument.getElementById('btn-system-audio');
     const mainSync = appDocument.getElementById('btn-sync');
     const mainMedia = appDocument.getElementById('btn-media-source');
@@ -172,6 +174,8 @@ describe('app UX markup contract', () => {
     expect(appDocument.getElementById('media-local-file-description')).toBeNull();
     expect(appDocument.getElementById('media-system-audio-limits')).toBeNull();
     expect(localFile?.hasAttribute('aria-describedby')).toBe(false);
+    expect(fileInput?.hidden).toBe(true);
+    expect(mediaSourceOverlay?.contains(fileInput)).toBe(true);
     expect(systemAudio?.hasAttribute('aria-describedby')).toBe(false);
     expect(mainSync?.querySelector('span')?.getAttribute('data-i18n')).toBe('player.sync_compact');
     expect(mainSync?.getAttribute('data-i18n-aria-label')).toBe('common.sync');

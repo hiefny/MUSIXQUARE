@@ -21,7 +21,7 @@ import { getHostNow, getClockOffset, getClockBestRtt } from '../network/shared-c
 import { cleanupStoredFile, readStoredFile } from '../storage/storage.ts';
 import { sendFileDeliveryUnavailable, unicastFile } from '../storage/transfer.ts';
 import { unicastPreload } from '../storage/preload.ts';
-import { broadcast, isRemoteGuest, safeSend } from '../network/peer.ts';
+import { broadcast, isRemoteGuest, safeSend, waitForGuestConnectionType } from '../network/peer.ts';
 import { prepareRemoteShareWait, shouldWaitForRemoteShare } from '../share/remote-share.ts';
 import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { beginFileRequest, sendFileRequest } from '../network/file-request-authority.ts';
@@ -91,6 +91,18 @@ import { isActiveStandardRoomCoordinator } from '../rooms/authority.ts';
 /** Must match SCHEDULE_AHEAD_MS in transport.ts */
 const SCHEDULE_AHEAD_MS = 200;
 const SAME_TRACK_REPLAY_RESYNC_DELAY_MS = 1000;
+// The shared ICE classifier polls for up to 10 seconds. Keep PLAY neutral for
+// one extra second so its safety timeout does not race the final poll.
+const GUEST_FILE_ROUTE_WAIT_TIMEOUT_MS = 11000;
+let _guestPlayIntentEpoch = 0;
+let _activeGuestFileRouteLoaderId: string | null = null;
+
+function releaseActiveGuestFileRouteLoader(): void {
+  const loaderId = _activeGuestFileRouteLoaderId;
+  if (!loaderId) return;
+  _activeGuestFileRouteLoaderId = null;
+  showLoader(false, undefined, loaderId);
+}
 
 function canonicalizeRequestedSeekTime(value: unknown): number {
   const parsed = Number(value);
@@ -231,7 +243,11 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
   // Ignore PLAY during system audio mode (live stream, not file-based).
   // The helper also covers the guest's pending placeholder window between
   // SYSTEM_AUDIO_START and the first WebRTC stream.
-  if (isSystemAudioOwner()) return;
+  if (isSystemAudioOwner()) {
+    _guestPlayIntentEpoch += 1;
+    releaseActiveGuestFileRouteLoader();
+    return;
+  }
 
   const rawTime = Number(data.time);
   const time = Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : 0;
@@ -243,6 +259,12 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     return;
   }
 
+  // Every valid host PLAY is a newer intent, including a track this device
+  // previously failed to decode. Advance before that early return so an older
+  // PLAY suspended on ICE classification cannot resume behind the new one.
+  const playIntentEpoch = ++_guestPlayIntentEpoch;
+  releaseActiveGuestFileRouteLoader();
+
   // A decoder failure on this device does not advance or interrupt the room.
   // Ignore repeat/seek/recovery commands for the same unsupported occurrence
   // and rejoin automatically when the host selects another queue item.
@@ -251,6 +273,62 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
     showLoader(false);
     log.debug(`[Guest] PLAY ignored for locally unsupported ${incomingQueueItemId}`);
     return;
+  }
+
+  const routeOwnedByActivePipeline =
+    isFilePipelineBusyForPlay() &&
+    (getState('transfer.meta')?.queueItemId === incomingQueueItemId ||
+      getState('preload.activeTarget')?.queueItemId === incomingQueueItemId);
+  const routeAlreadyOwned =
+    isGuestR2FileDelivery(incomingQueueItemId) ||
+    isProRoomPersistentPlaylistFile(incomingQueueItemId) ||
+    getState('preload.ready')?.queueItemId === incomingQueueItemId ||
+    hasOwnedAudioBuffer(incomingQueueItemId) ||
+    routeOwnedByActivePipeline;
+
+  // PLAY can arrive before ICE classification on a freshly joined LAN guest.
+  // `isRemoteGuest()` deliberately treats unknown as remote everywhere else,
+  // but entering the R2 wait UI here would briefly claim that a local file is
+  // remote and can also request the wrong delivery route. Keep this one PLAY
+  // intent pending under the neutral connection-check UI, then re-enter the
+  // normal local/remote branches with the resolved authoritative state.
+  let awaitedGuestConnectionType: 'local' | 'remote' | null = null;
+  if (!routeAlreadyOwned && getState('network.connectionType') === 'unknown') {
+    setPendingPlayTime(time);
+    const routeLoaderId = `guest-file-route-check-${playIntentEpoch}`;
+    _activeGuestFileRouteLoaderId = routeLoaderId;
+    showLoader(true, t('transfer.check_conn_type'), routeLoaderId);
+    try {
+      awaitedGuestConnectionType = await waitForGuestConnectionType(
+        GUEST_FILE_ROUTE_WAIT_TIMEOUT_MS,
+      );
+    } finally {
+      // The named holder belongs only to this PLAY. A stale continuation can
+      // release it without hiding a newer transfer/default loader.
+      showLoader(false, undefined, routeLoaderId);
+      if (_activeGuestFileRouteLoaderId === routeLoaderId) {
+        _activeGuestFileRouteLoaderId = null;
+      }
+    }
+    if (
+      playIntentEpoch !== _guestPlayIntentEpoch ||
+      getState('network.hostConn') !== hostConn ||
+      !hostConn.open ||
+      !getQueueItemById(incomingQueueItemId) ||
+      isSystemAudioOwner() ||
+      isYouTubeOwner()
+    ) {
+      return;
+    }
+    const confirmedConnectionType = getState('network.connectionType');
+    if (confirmedConnectionType === 'unknown') {
+      // A hung/unsupported stats implementation must not strand playback.
+      // The waiter returns remote as its bounded safety default; use it for
+      // this file decision only, without claiming global ICE authority.
+      log.info('[Guest] PLAY route check timed out; using the remote safety route');
+    } else {
+      awaitedGuestConnectionType = confirmedConnectionType;
+    }
   }
 
   // Only a validated, live queue occurrence may release local pause state or
@@ -300,7 +378,11 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
 
     // Remote guest: orchestrator won't unicast the file. Queue files always
     // use remote share; bundled demo playback has a separate DEMO_* protocol.
-    if (isRemoteGuest() || isGuestR2FileDelivery(incomingQueueItemId)) {
+    if (
+      awaitedGuestConnectionType === 'remote' ||
+      (awaitedGuestConnectionType === null && isRemoteGuest()) ||
+      isGuestR2FileDelivery(incomingQueueItemId)
+    ) {
       if (shouldWaitForRemoteShare()) {
         const waitName = (typeof data.name === 'string' && data.name) || incomingItem.name || '';
         // Dedup mirror of prepareRemoteShareWait's alreadyWaiting check —
@@ -558,6 +640,11 @@ function handlePauseMsg(data: Record<string, unknown>, conn?: DataConnection): v
     return;
   }
 
+  // A PAUSE ordered after a PLAY supersedes any copy of that PLAY currently
+  // suspended on connection-route classification.
+  _guestPlayIntentEpoch += 1;
+  releaseActiveGuestFileRouteLoader();
+
   // Authoritative host command — release any local lock-screen pause. Both
   // ends end up paused here; a later host PLAY then resumes this guest.
   setLocalFilePaused(false);
@@ -800,7 +887,14 @@ export function initPlayback(): void {
 
   // Stop all media (called from youtube player before loading)
   bus.on('player:stop-all-media', (options) => {
+    _guestPlayIntentEpoch += 1;
+    releaseActiveGuestFileRouteLoader();
     stopAllMedia(options);
+  });
+
+  bus.on('system-audio:host-started', () => {
+    _guestPlayIntentEpoch += 1;
+    releaseActiveGuestFileRouteLoader();
   });
 
   // Replay current track from start (repeat-one: guest already has file).

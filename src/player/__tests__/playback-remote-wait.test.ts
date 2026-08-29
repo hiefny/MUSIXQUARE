@@ -10,7 +10,7 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import { setCurrentAudioBuffer } from '../_state.ts';
+import { markTrackFailed, setCurrentAudioBuffer } from '../_state.ts';
 import { initPlayback } from '../playback.ts';
 import { handleData } from '../../network/protocol.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
@@ -25,9 +25,13 @@ const mocks = vi.hoisted(() => ({
   exactHostSend: vi.fn(),
   sendToHost: vi.fn(),
   isRemoteGuest: vi.fn(() => true),
+  waitForGuestConnectionType: vi.fn(() => Promise.resolve<'local' | 'remote'>('remote')),
   shouldWaitForRemoteShare: vi.fn(() => true),
   prepareRemoteShareWait: vi.fn(),
   cancelRemoteShareWait: vi.fn(),
+  showLoader: vi.fn(),
+  updateLoader: vi.fn(),
+  showToast: vi.fn(),
 }));
 
 function expectCorrelatedRequest(
@@ -52,12 +56,19 @@ vi.mock('../../network/peer.ts', () => ({
   broadcast: mocks.broadcast,
   sendToHost: mocks.sendToHost,
   isRemoteGuest: mocks.isRemoteGuest,
+  waitForGuestConnectionType: mocks.waitForGuestConnectionType,
 }));
 
 vi.mock('../../share/remote-share.ts', () => ({
   shouldWaitForRemoteShare: mocks.shouldWaitForRemoteShare,
   prepareRemoteShareWait: mocks.prepareRemoteShareWait,
   cancelRemoteShareWait: mocks.cancelRemoteShareWait,
+}));
+
+vi.mock('../../ui/toast.ts', () => ({
+  showLoader: mocks.showLoader,
+  updateLoader: mocks.updateLoader,
+  showToast: mocks.showToast,
 }));
 
 describe('remote guest PLAY → remote-share wait escalation (DV-2)', () => {
@@ -75,6 +86,7 @@ describe('remote guest PLAY → remote-share wait escalation (DV-2)', () => {
     clearAllManagedTimers();
     vi.clearAllMocks();
     mocks.isRemoteGuest.mockReturnValue(true);
+    mocks.waitForGuestConnectionType.mockResolvedValue('remote');
     mocks.shouldWaitForRemoteShare.mockReturnValue(true);
     setCurrentAudioBuffer(null);
     setState('network.hostConn', hostConn);
@@ -187,5 +199,143 @@ describe('remote guest PLAY → remote-share wait escalation (DV-2)', () => {
     );
     // The repeat PLAY is absorbed (deferred by the lifecycle gate).
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.AWAITING_PRELOAD);
+  });
+
+  it('keeps unknown routing in connection-check UI until it resolves local', async () => {
+    let resolveRoute!: (value: 'local' | 'remote') => void;
+    mocks.waitForGuestConnectionType.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRoute = resolve)),
+    );
+    mocks.isRemoteGuest.mockImplementation(() => getState('network.connectionType') !== 'local');
+    setState('network.connectionType', 'unknown');
+    setState('playlist.currentQueueItemId', QID_A);
+
+    const handling = handleData({ type: MSG.PLAY, time: 5, queueItemId: QID_C }, hostConn);
+    await Promise.resolve();
+
+    expect(mocks.showLoader).toHaveBeenCalledWith(true, expect.any(String), expect.any(String));
+    expect(mocks.prepareRemoteShareWait).not.toHaveBeenCalled();
+    expect(mocks.exactHostSend).not.toHaveBeenCalled();
+
+    setState('network.connectionType', 'local');
+    resolveRoute('local');
+    await handling;
+
+    expect(mocks.prepareRemoteShareWait).not.toHaveBeenCalled();
+    expectCorrelatedRequest(mocks.exactHostSend, {
+      type: MSG.REQUEST_CURRENT_FILE,
+      queueItemId: QID_C,
+      name: 'c.mp3',
+      reason: 'queue_item_mismatch',
+    });
+  });
+
+  it('enters remote-share wait only after unknown routing resolves remote', async () => {
+    let resolveRoute!: (value: 'local' | 'remote') => void;
+    mocks.waitForGuestConnectionType.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRoute = resolve)),
+    );
+    setState('network.connectionType', 'unknown');
+    setState('playlist.currentQueueItemId', QID_A);
+
+    const handling = handleData({ type: MSG.PLAY, time: 5, queueItemId: QID_C }, hostConn);
+    await Promise.resolve();
+
+    expect(mocks.prepareRemoteShareWait).not.toHaveBeenCalled();
+    expect(mocks.exactHostSend).not.toHaveBeenCalled();
+
+    setState('network.connectionType', 'remote');
+    resolveRoute('remote');
+    await handling;
+
+    expect(mocks.prepareRemoteShareWait).toHaveBeenCalledWith(QID_C, 'c.mp3', expect.any(Number));
+    expectCorrelatedRequest(mocks.exactHostSend, {
+      type: MSG.REQUEST_CURRENT_FILE,
+      queueItemId: QID_C,
+      name: 'c.mp3',
+      reason: 'remote_share_wait',
+    });
+  });
+
+  it('uses the bounded remote safety route if ICE classification itself never settles', async () => {
+    setState('network.connectionType', 'unknown');
+    setState('playlist.currentQueueItemId', QID_A);
+
+    await handleData({ type: MSG.PLAY, time: 5, queueItemId: QID_C }, hostConn);
+
+    expect(getState('network.connectionType')).toBe('unknown');
+    expect(mocks.showLoader).toHaveBeenCalledWith(false, undefined, expect.any(String));
+    expect(mocks.prepareRemoteShareWait).toHaveBeenCalledWith(QID_C, 'c.mp3', expect.any(Number));
+    expectCorrelatedRequest(mocks.exactHostSend, {
+      type: MSG.REQUEST_CURRENT_FILE,
+      queueItemId: QID_C,
+      name: 'c.mp3',
+      reason: 'remote_share_wait',
+    });
+  });
+
+  it('discards a route-waiting PLAY when a later PAUSE supersedes it', async () => {
+    let resolveRoute!: (value: 'local' | 'remote') => void;
+    mocks.waitForGuestConnectionType.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRoute = resolve)),
+    );
+    setState('network.connectionType', 'unknown');
+    setState('playlist.currentQueueItemId', QID_C);
+
+    const playing = handleData({ type: MSG.PLAY, time: 5, queueItemId: QID_C }, hostConn);
+    await Promise.resolve();
+    await handleData({ type: MSG.PAUSE, time: 6, queueItemId: QID_C, reason: 'pause' }, hostConn);
+    expect(mocks.showLoader).toHaveBeenCalledWith(false, undefined, expect.any(String));
+
+    setState('network.connectionType', 'remote');
+    resolveRoute('remote');
+    await playing;
+
+    expect(mocks.prepareRemoteShareWait).not.toHaveBeenCalled();
+    expect(mocks.exactHostSend).not.toHaveBeenCalled();
+  });
+
+  it('lets a newer failed-track PLAY supersede an older PLAY waiting on ICE', async () => {
+    let resolveRoute!: (value: 'local' | 'remote') => void;
+    mocks.waitForGuestConnectionType.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRoute = resolve)),
+    );
+    setState('network.connectionType', 'unknown');
+    setState('playlist.currentQueueItemId', QID_A);
+
+    const olderPlay = handleData({ type: MSG.PLAY, time: 5, queueItemId: QID_C }, hostConn);
+    await Promise.resolve();
+    markTrackFailed(`queue:${QID_B}`);
+    await handleData({ type: MSG.PLAY, time: 6, queueItemId: QID_B }, hostConn);
+    expect(mocks.showLoader).toHaveBeenCalledWith(false, undefined, expect.any(String));
+
+    setState('network.connectionType', 'remote');
+    resolveRoute('remote');
+    await olderPlay;
+
+    expect(getState('playlist.currentQueueItemId')).toBe(QID_A);
+    expect(mocks.prepareRemoteShareWait).not.toHaveBeenCalled();
+    expect(mocks.exactHostSend).not.toHaveBeenCalled();
+  });
+
+  it('releases the route loader immediately when system audio takes ownership', async () => {
+    let resolveRoute!: (value: 'local' | 'remote') => void;
+    mocks.waitForGuestConnectionType.mockImplementationOnce(
+      () => new Promise((resolve) => (resolveRoute = resolve)),
+    );
+    setState('network.connectionType', 'unknown');
+    setState('playlist.currentQueueItemId', QID_C);
+
+    const playing = handleData({ type: MSG.PLAY, time: 5, queueItemId: QID_C }, hostConn);
+    await Promise.resolve();
+    bus.emit('system-audio:host-started');
+
+    expect(mocks.showLoader).toHaveBeenCalledWith(false, undefined, expect.any(String));
+    setState('network.connectionType', 'remote');
+    resolveRoute('remote');
+    await playing;
+
+    expect(mocks.prepareRemoteShareWait).not.toHaveBeenCalled();
+    expect(mocks.exactHostSend).not.toHaveBeenCalled();
   });
 });

@@ -17,7 +17,7 @@ import {
 } from '../pro-room/network-bridge.ts';
 import { forceStereoSdp } from './peer.ts';
 
-const DIRECT_NEGOTIATION_TIMEOUT_MS = 5_000;
+const DIRECT_NEGOTIATION_TIMEOUT_MS = 2_000;
 const DIRECT_PAIR_POLL_MS = 25;
 const SIGNAL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{15,127}$/;
 const PARTICIPANT_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;

@@ -126,6 +126,7 @@ vi.mock('../../network/peer.ts', () => ({
   broadcast: vi.fn(),
   sendToHost: vi.fn(),
   isRemoteGuest: vi.fn(() => false),
+  waitForGuestConnectionType: vi.fn(async () => 'local' as const),
 }));
 
 vi.mock('../playlist-loader.ts', () => ({

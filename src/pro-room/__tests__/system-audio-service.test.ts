@@ -41,6 +41,10 @@ const mocks = vi.hoisted(() => ({
   stopPublisher: vi.fn(),
   stopSubscriber: vi.fn(),
   updatePublisherExpiry: vi.fn(),
+  beginPublisherPreflight: vi.fn(() => ({
+    kind: 'pro-system-audio-sfu-publisher-preflight' as const,
+  })),
+  cancelPublisherPreflight: vi.fn(),
   cleanupLegacySubscriber: vi.fn(),
   directCallbacks: null as ProSystemAudioDirectTransportCallbacks | null,
   configureDirect: vi.fn<(callbacks: ProSystemAudioDirectTransportCallbacks) => void>(),
@@ -88,6 +92,8 @@ vi.mock('../../network/peer-state.ts', () => ({
   sendToHost: mocks.sendToHost,
 }));
 vi.mock('../../network/pro-system-audio-sfu.ts', () => ({
+  beginProSystemAudioSfuPublisherPreflight: mocks.beginPublisherPreflight,
+  cancelProSystemAudioSfuPublisherPreflight: mocks.cancelPublisherPreflight,
   onProSystemAudioSfuEvent: vi.fn((listener: (event: Record<string, unknown>) => void) => {
     mocks.sfuListener = listener;
   }),
@@ -706,6 +712,10 @@ describe('PRO system-audio service orchestration', () => {
       targets: [{ participantId: REMOTE_ID, routeToken: 'joined-at:2' }],
     });
     expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.beginPublisherPreflight).toHaveBeenCalledTimes(1);
+    expect(mocks.cancelPublisherPreflight).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'pro-system-audio-sfu-publisher-preflight' }),
+    );
     expect(api.commitSystemAudioPublication).toHaveBeenCalledWith(
       expect.objectContaining({
         generation: 1,
@@ -801,6 +811,11 @@ describe('PRO system-audio service orchestration', () => {
 
     expect(mocks.attemptDirect).toHaveBeenCalledTimes(1);
     expect(mocks.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.publish).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ kind: 'pro-system-audio-sfu-publisher-preflight' }),
+    );
+    expect(mocks.cancelPublisherPreflight).not.toHaveBeenCalled();
     expect(api.commitSystemAudioPublication.mock.calls[0]?.[0]).toMatchObject({
       publication: {
         sessionId: 'realtime_session_01',
@@ -911,6 +926,7 @@ describe('PRO system-audio service orchestration', () => {
 
     expect(mocks.attemptDirect.mock.calls[0]?.[0].targets).toEqual([]);
     expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.beginPublisherPreflight).not.toHaveBeenCalled();
     expect(mocks.subscribe).not.toHaveBeenCalled();
     expect(api.commitSystemAudioPublication.mock.calls[0]?.[0].publication).toMatchObject({
       transport: 'lan-direct',

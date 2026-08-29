@@ -76,6 +76,7 @@ vi.mock('../../network/peer.ts', () => ({
   broadcast: mocks.broadcast,
   sendToHost: mocks.sendToHost,
   isRemoteGuest: vi.fn(() => false),
+  waitForGuestConnectionType: vi.fn(async () => 'local' as const),
 }));
 
 const { initPlayback } = await import('../playback.ts');

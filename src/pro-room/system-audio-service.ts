@@ -8,6 +8,8 @@ import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import {
+  beginProSystemAudioSfuPublisherPreflight,
+  cancelProSystemAudioSfuPublisherPreflight,
   onProSystemAudioSfuEvent,
   publishProSystemAudioSfu,
   stopProSystemAudioSfuPublisher,
@@ -15,6 +17,7 @@ import {
   subscribeProSystemAudioSfu,
   updateProSystemAudioSfuPublisherExpiry,
   type ProSystemAudioSfuPublicationDescriptor,
+  type ProSystemAudioSfuPublisherPreflight,
 } from '../network/pro-system-audio-sfu.ts';
 import {
   activateProSystemAudioDirectPublication,
@@ -1383,6 +1386,8 @@ export async function publishLocalProSystemAudio(
   localPublicationId = publicationId;
   try {
     const directTargets = currentDirectTargets();
+    let sfuPreflight: ProSystemAudioSfuPublisherPreflight | null =
+      directTargets.length > 0 ? beginProSystemAudioSfuPublisherPreflight() : null;
     activeLocalDirectPublicationKey = null;
     let publication: ProRoomSystemAudioPublication | null = null;
     try {
@@ -1398,20 +1403,29 @@ export async function publishLocalProSystemAudio(
       log.debug('[PRO SystemAudio] LAN-direct probe unavailable; using SFU', error);
     }
     if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
+      cancelProSystemAudioSfuPublisherPreflight(sfuPreflight);
       throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
     }
     if (!publication) {
-      const descriptor = await publishProSystemAudioSfu({
-        track,
-        generation: lease.generation,
-        expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
-        roomId: lease.roomCode,
-      });
+      const fallbackPreflight = sfuPreflight;
+      sfuPreflight = null;
+      const descriptor = await publishProSystemAudioSfu(
+        {
+          track,
+          generation: lease.generation,
+          expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
+          roomId: lease.roomCode,
+        },
+        fallbackPreflight ?? undefined,
+      );
       publication = {
         publicationId,
         sessionId: descriptor.sessionId,
         track: { ...descriptor.track },
       };
+    } else {
+      cancelProSystemAudioSfuPublisherPreflight(sfuPreflight);
+      sfuPreflight = null;
     }
     if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
       throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');

@@ -304,7 +304,6 @@ async function callRealtime(
             ? String((payload as { error: string }).error)
             : `HTTP ${response.status}`;
       lastError = new Error(message);
-      if (response.status === 503) break;
     } catch (error) {
       if (options.signal?.aborted) throw options.signal.reason ?? error;
       // User-initiated Turnstile cancel must propagate; otherwise the retry
@@ -479,6 +478,17 @@ async function publishHostTracks(
   const capturedTrack = capturedStream?.getAudioTracks()[0];
   if (!capturedStream || !capturedTrack) return null;
 
+  // TURN minting and the independent Realtime session allocation used to run
+  // serially. Starting them together removes one full edge round trip from
+  // every remote publication while the shared AbortSignal still retires both
+  // when the share is stopped or superseded.
+  const sessionPromise = callRealtime('new-session', {
+    correlationId: buildCorrelationId('host-system-audio'),
+    signal,
+  });
+  // Mark the concurrently-started branch handled while RTC config is pending;
+  // awaiting the original promise below still propagates its exact failure.
+  void sessionPromise.catch(() => undefined);
   const pc = new RTCPeerConnection(await loadSfuRtcConfig(signal));
   if (publishEpoch !== hostPublishEpoch) {
     // Superseded while the RTC config was loading (share stopped/restarted —
@@ -505,10 +515,16 @@ async function publishHostTracks(
     }
   });
 
-  const session = await callRealtime('new-session', {
-    correlationId: buildCorrelationId('host-system-audio'),
-    signal,
-  });
+  const session = await sessionPromise;
+  if (publishEpoch !== hostPublishEpoch) {
+    try {
+      pc.close();
+    } catch {
+      /* already closed by supersession cleanup */
+    }
+    if (hostPc === pc) hostPc = null;
+    return null;
+  }
   assertRealtimeOk(session);
   if (!session.sessionId) throw new Error('Realtime API did not return a sessionId');
   if (!session.sessionOwnerToken) {
@@ -923,6 +939,14 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
   if (guestSubscriptionKey === subscriptionKey && guestPc) return;
   const subscriptionEpoch = guestSubscriptionEpoch;
 
+  // The subscriber session does not depend on TURN credentials. Resolve both
+  // prerequisites concurrently so the receiver can build its PC as soon as
+  // the slower of the two is ready instead of paying both waits in sequence.
+  const sessionPromise = callRealtime('new-session', {
+    correlationId: buildCorrelationId('guest-system-audio'),
+    signal,
+  });
+  void sessionPromise.catch(() => undefined);
   const rtcConfig = await loadSfuRtcConfig(signal);
   if (subscriptionEpoch !== guestSubscriptionEpoch) return;
   const pc = new RTCPeerConnection(rtcConfig);
@@ -977,11 +1001,20 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
     attachReceivedTrack(event.track, event.receiver, 'event', mid);
   };
 
-  const session = await callRealtime('new-session', {
-    correlationId: buildCorrelationId('guest-system-audio'),
-    signal,
-  });
-  if (subscriptionEpoch !== guestSubscriptionEpoch) return;
+  const session = await sessionPromise;
+  if (subscriptionEpoch !== guestSubscriptionEpoch) {
+    try {
+      pc.close();
+    } catch {
+      /* already closed by supersession cleanup */
+    }
+    if (guestPc === pc) {
+      guestPc = null;
+      guestSubscriptionKey = null;
+      guestAllowsLocalAudience = false;
+    }
+    return;
+  }
   assertRealtimeOk(session);
   if (!session.sessionId) throw new Error('Realtime API did not return a guest sessionId');
   if (!session.sessionOwnerToken) {

@@ -49,7 +49,7 @@ afterEach(() => {
 });
 
 type ConnectionOverrides = Omit<Partial<DataConnection>, 'peerConnection'> & {
-  peerConnection?: Pick<RTCPeerConnection, 'getStats'>;
+  peerConnection?: Pick<RTCPeerConnection, 'getStats'> & Partial<Pick<RTCPeerConnection, 'sctp'>>;
 };
 
 function makeConnection(overrides: ConnectionOverrides): DataConnection {
@@ -110,6 +110,27 @@ function makeIceStats(
   }
 
   return new Map(entries) as unknown as RTCStatsReport;
+}
+
+function makeSelectedPairPeerConnection(
+  localType: RTCIceCandidateType | null,
+  remoteType: RTCIceCandidateType | null,
+  getStats = vi.fn<RTCPeerConnection['getStats']>(),
+): Pick<RTCPeerConnection, 'getStats'> & Partial<Pick<RTCPeerConnection, 'sctp'>> {
+  const selectedPair = {
+    local: { type: localType },
+    remote: { type: remoteType },
+  } as RTCIceCandidatePair;
+  return {
+    getStats,
+    sctp: {
+      transport: {
+        iceTransport: {
+          getSelectedCandidatePair: vi.fn(() => selectedPair),
+        },
+      },
+    } as unknown as RTCSctpTransport,
+  };
 }
 
 describe('safeSend', () => {
@@ -286,6 +307,81 @@ describe('cancelPendingSessionSetup', () => {
 });
 
 describe('detectConnectionType', () => {
+  it('uses the authoritative ICE transport selected pair before getStats', async () => {
+    const getStats = vi.fn<RTCPeerConnection['getStats']>();
+    const conn = makeConnection({
+      open: true,
+      peerConnection: makeSelectedPairPeerConnection('host', 'host', getStats),
+    });
+
+    await expect(detectConnectionType(conn)).resolves.toBe('local');
+    expect(getStats).not.toHaveBeenCalled();
+  });
+
+  it('does not replace an exact non-local selected pair with an unselected host-host stats pair', async () => {
+    vi.useFakeTimers();
+    const stats = makeIceStats([{ id: 'pair-host', localType: 'host', remoteType: 'host' }]);
+    const getStats = vi.fn().mockResolvedValue(stats);
+    const conn = makeConnection({
+      open: true,
+      peerConnection: makeSelectedPairPeerConnection('relay', 'srflx', getStats),
+    });
+
+    const result = detectConnectionType(conn);
+    await vi.advanceTimersByTimeAsync(2500);
+
+    await expect(result).resolves.toBe('remote');
+    expect(getStats).not.toHaveBeenCalled();
+  });
+
+  it('falls back to selected getStats metadata when the ICE transport API has no pair', async () => {
+    const stats = makeIceStats([
+      { id: 'pair-host', localType: 'host', remoteType: 'host', selected: true },
+    ]);
+    const getStats = vi.fn().mockResolvedValue(stats);
+    const conn = makeConnection({
+      open: true,
+      peerConnection: {
+        getStats,
+        sctp: {
+          transport: {
+            iceTransport: {
+              getSelectedCandidatePair: vi.fn(() => null),
+            },
+          },
+        } as unknown as RTCSctpTransport,
+      },
+    });
+
+    await expect(detectConnectionType(conn)).resolves.toBe('local');
+    expect(getStats).toHaveBeenCalledOnce();
+  });
+
+  it('falls back to selected getStats metadata when the ICE transport API throws', async () => {
+    const stats = makeIceStats([
+      { id: 'pair-host', localType: 'host', remoteType: 'host', selected: true },
+    ]);
+    const getStats = vi.fn().mockResolvedValue(stats);
+    const conn = makeConnection({
+      open: true,
+      peerConnection: {
+        getStats,
+        sctp: {
+          transport: {
+            iceTransport: {
+              getSelectedCandidatePair: vi.fn(() => {
+                throw new Error('unsupported');
+              }),
+            },
+          },
+        } as unknown as RTCSctpTransport,
+      },
+    });
+
+    await expect(detectConnectionType(conn)).resolves.toBe('local');
+    expect(getStats).toHaveBeenCalledOnce();
+  });
+
   it('classifies the selected host-host ICE pair as local', async () => {
     const stats = makeIceStats([
       { id: 'pair-host', localType: 'host', remoteType: 'host', selected: true },

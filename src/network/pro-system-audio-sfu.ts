@@ -55,6 +55,30 @@ interface PublishProSystemAudioSfuOptions {
   roomId?: string;
 }
 
+/**
+ * Opaque, one-shot preparation for a possible SFU publisher fallback.
+ * This only fetches capability/TURN configuration; it never allocates a
+ * Cloudflare Realtime session, so a successful LAN-direct probe stays free of
+ * SFU session cost.
+ */
+export interface ProSystemAudioSfuPublisherPreflight {
+  readonly kind: 'pro-system-audio-sfu-publisher-preflight';
+}
+
+type PublisherPreflightResult =
+  | { ok: true; rtcConfig: RTCConfiguration }
+  | { ok: false; error: unknown };
+
+interface PublisherPreflightState {
+  controller: AbortController;
+  result: Promise<PublisherPreflightResult>;
+}
+
+const publisherPreflights = new WeakMap<
+  ProSystemAudioSfuPublisherPreflight,
+  PublisherPreflightState
+>();
+
 type ProSystemAudioSfuEvent =
   | {
       type: 'publisher-state';
@@ -226,6 +250,50 @@ async function loadSfuRtcConfig(signal?: AbortSignal): Promise<RTCConfiguration>
   return { iceServers, bundlePolicy: 'max-bundle' };
 }
 
+export function beginProSystemAudioSfuPublisherPreflight(): ProSystemAudioSfuPublisherPreflight {
+  const handle = Object.freeze({
+    kind: 'pro-system-audio-sfu-publisher-preflight' as const,
+  });
+  const controller = new AbortController();
+  // Convert rejection to data immediately: a direct success may cancel and
+  // discard this handle without ever awaiting the preflight.
+  const result = loadSfuRtcConfig(controller.signal).then(
+    (rtcConfig): PublisherPreflightResult => ({ ok: true, rtcConfig }),
+    (error): PublisherPreflightResult => ({ ok: false, error }),
+  );
+  publisherPreflights.set(handle, { controller, result });
+  return handle;
+}
+
+export function cancelProSystemAudioSfuPublisherPreflight(
+  handle: ProSystemAudioSfuPublisherPreflight | null | undefined,
+): void {
+  if (!handle) return;
+  const state = publisherPreflights.get(handle);
+  if (!state) return;
+  publisherPreflights.delete(handle);
+  state.controller.abort(new ProSystemAudioSfuSupersededError());
+}
+
+async function consumePublisherPreflight(
+  handle: ProSystemAudioSfuPublisherPreflight,
+  signal: AbortSignal,
+): Promise<RTCConfiguration> {
+  const state = publisherPreflights.get(handle);
+  if (!state) throw new ProSystemAudioSfuSupersededError();
+  publisherPreflights.delete(handle);
+  const abort = () => state.controller.abort(signal.reason);
+  if (signal.aborted) abort();
+  else signal.addEventListener('abort', abort, { once: true });
+  try {
+    const result = await state.result;
+    if (result.ok) return result.rtcConfig;
+    throw result.error;
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+}
+
 async function callRealtime(
   action: string,
   options: {
@@ -273,7 +341,6 @@ async function callRealtime(
             ? String((body as { error: string }).error)
             : `HTTP ${response.status}`),
       );
-      if (response.status === 503) break;
     } catch (error) {
       if (options.signal?.aborted) throw options.signal.reason ?? error;
       if (isCapabilityChallengeCancelled(error)) throw error;
@@ -565,8 +632,11 @@ async function performPublish(
   input: PublishProSystemAudioSfuOptions,
   epoch: number,
   signal: AbortSignal,
+  preflight?: ProSystemAudioSfuPublisherPreflight,
 ): Promise<ProSystemAudioSfuPublicationDescriptor> {
-  const rtcConfig = await loadSfuRtcConfig(signal);
+  const rtcConfig = preflight
+    ? await consumePublisherPreflight(preflight, signal)
+    : await loadSfuRtcConfig(signal);
   if (epoch !== publisherEpoch) throw new ProSystemAudioSfuSupersededError();
   const pc = new RTCPeerConnection(rtcConfig);
   publisherPc = pc;
@@ -671,6 +741,7 @@ async function performPublish(
 
 export function publishProSystemAudioSfu(
   input: PublishProSystemAudioSfuOptions,
+  preflight?: ProSystemAudioSfuPublisherPreflight,
 ): Promise<ProSystemAudioSfuPublicationDescriptor> {
   validateAudioTrack(input.track, 'track');
   if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
@@ -685,7 +756,7 @@ export function publishProSystemAudioSfu(
   const abortController = new AbortController();
   publisherAbortController = abortController;
   emitEvent({ type: 'publisher-state', state: 'publishing', descriptor: null });
-  const promise = performPublish(input, epoch, abortController.signal)
+  const promise = performPublish(input, epoch, abortController.signal, preflight)
     .catch((error) => {
       if (epoch === publisherEpoch && !(error instanceof ProSystemAudioSfuSupersededError)) {
         emitEvent({

@@ -85,6 +85,8 @@ vi.mock('../../network/peer.ts', () => ({
   broadcast: mocks.broadcast,
   safeSend: mocks.safeSend,
   sendToHost: mocks.sendToHost,
+  isRemoteGuest: vi.fn(() => false),
+  waitForGuestConnectionType: vi.fn(async () => 'local' as const),
 }));
 
 vi.mock('../../storage/recovery.ts', () => ({

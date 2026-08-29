@@ -93,6 +93,38 @@ function getSucceededCandidatePairs(stats: RTCStatsReport): IceCandidatePairInfo
   return pairs;
 }
 
+/**
+ * Read the browser's authoritative selected pair for this data channel.
+ *
+ * Some engines expose the live pair here before (or instead of) publishing
+ * transport.selectedCandidatePairId / candidate-pair.selected in getStats().
+ * This remains fail-closed: an absent, incomplete, or throwing API falls back
+ * to the existing selected/nominated stats proof and never treats an arbitrary
+ * succeeded pair as local.
+ */
+function getIceTransportSelectedPair(pc: RTCPeerConnection): IceCandidatePairInfo | null {
+  try {
+    const iceTransport = pc.sctp?.transport?.iceTransport;
+    if (!iceTransport || typeof iceTransport.getSelectedCandidatePair !== 'function') return null;
+
+    const pair = iceTransport.getSelectedCandidatePair();
+    const localType = pair?.local?.type || undefined;
+    const remoteType = pair?.remote?.type || undefined;
+    if (!localType || !remoteType) return null;
+
+    return {
+      id: 'ice-transport-selected',
+      localType,
+      remoteType,
+      selected: true,
+      nominated: true,
+    };
+  } catch (error) {
+    log.debug('[Peer] Selected ICE pair API unavailable or failed', error);
+    return null;
+  }
+}
+
 function getActiveCandidatePair(pairs: IceCandidatePairInfo[]): IceCandidatePairInfo | null {
   return pairs.find((pair) => pair.selected) || pairs.find((pair) => pair.nominated) || null;
 }
@@ -125,9 +157,11 @@ export async function detectConnectionType(conn: DataConnection): Promise<'local
     for (let i = 0; i < ICE_POLL_ATTEMPTS; i++) {
       if (!conn.open) return 'remote';
 
-      const stats = await pc.getStats();
-      const succeededPairs = getSucceededCandidatePairs(stats);
-      const activePair = getActiveCandidatePair(succeededPairs);
+      const selectedPair = getIceTransportSelectedPair(pc);
+      const succeededPairs = selectedPair
+        ? [selectedPair]
+        : getSucceededCandidatePairs(await pc.getStats());
+      const activePair = selectedPair || getActiveCandidatePair(succeededPairs);
 
       if (activePair) {
         lastActivePair = activePair;

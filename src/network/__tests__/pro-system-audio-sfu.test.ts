@@ -236,6 +236,48 @@ describe('PRO system-audio SFU public descriptor', () => {
 });
 
 describe('PRO system-audio SFU publisher', () => {
+  it('prepares TURN without allocating a Realtime session and reuses it on fallback', async () => {
+    let resolveTurn!: (value: Response) => void;
+    const turnResponse = new Promise<Response>((resolve) => {
+      resolveTurn = resolve;
+    });
+    installSuccessfulFetchRouting();
+    fetchMock.mockImplementationOnce(() => turnResponse);
+
+    const preflight = proSfu.beginProSystemAudioSfuPublisherPreflight();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(realtimeRequests).toHaveLength(0);
+
+    resolveTurn(
+      response({
+        provider: 'cloudflare',
+        iceServers: [{ urls: 'turn:example.test:3478', username: 'user', credential: 'secret' }],
+      }),
+    );
+    await proSfu.publishProSystemAudioSfu(
+      {
+        track: audioTrack('capture-stereo'),
+        generation: 11,
+        expiresAt: Date.now() + 60_000,
+      },
+      preflight,
+    );
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) => String(url).includes('get-turn-config')),
+    ).toHaveLength(1);
+    expect(realtimeRequests.some((request) => request.action === 'new-session')).toBe(true);
+  });
+
+  it('can cancel an unused publisher preflight without creating a Realtime session', async () => {
+    const preflight = proSfu.beginProSystemAudioSfuPublisherPreflight();
+    proSfu.cancelProSystemAudioSfuPublisherPreflight(preflight);
+    await Promise.resolve();
+
+    expect(realtimeRequests).toHaveLength(0);
+    expect(peerConnections).toHaveLength(0);
+  });
+
   it('publishes one original stereo track and returns only the controller-safe descriptor', async () => {
     const events: proSfu.ProSystemAudioSfuEventForTests[] = [];
     const unsubscribe = proSfu.onProSystemAudioSfuEvent((event) => events.push(event));

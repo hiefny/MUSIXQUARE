@@ -288,6 +288,33 @@ afterEach(() => {
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 describe('shared Standard-room TURN configuration', () => {
+  it('starts host session allocation while TURN credentials are still pending', async () => {
+    let releaseTurn: (() => void) | undefined;
+    standardRoomPrerequisiteMocks.getTurnCredentials.mockImplementationOnce(
+      () =>
+        new Promise<null>((resolve) => {
+          releaseTurn = () => resolve(null);
+        }),
+    );
+    await loadSfuModuleAsHostWithRemoteGuest();
+
+    bus.emit('system-audio:streams-ready');
+    await waitForNewSessionCalls(1);
+
+    expect(standardRoomPrerequisiteMocks.getTurnCredentials).toHaveBeenCalledTimes(1);
+    expect(pcInstances).toHaveLength(0);
+
+    releaseTurn?.();
+    await resolveRealtime('new-session', {
+      sessionId: 'parallel-host-session',
+      sessionOwnerToken: 'parallel-host-owner',
+    });
+    await vi.waitFor(() => expect(pcInstances).toHaveLength(1));
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+  });
+
   it('builds the host SFU peer connection from the page-scoped TURN credential owner', async () => {
     standardRoomPrerequisiteMocks.getTurnCredentials.mockResolvedValue({
       provider: 'cloudflare',
@@ -906,6 +933,45 @@ describe('bounded large-room SFU failure policy', () => {
 });
 
 describe('guest SFU teardown and successor ownership (F-2402)', () => {
+  it('does not let a late guest session response resurrect a stopped subscription', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+    const { registerHandler } = await import('../protocol.ts');
+    const handler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      | ((data: unknown, conn?: unknown) => void)
+      | undefined;
+
+    handler!(
+      {
+        version: 2,
+        audience: 'remote',
+        sessionId: 'stopped-host-publication',
+        track: { trackName: 'stopped-host-track', mid: '0' },
+      },
+      hostConn,
+    );
+    await waitForNewSessionCalls(1);
+    const stalePc = pcInstances[0];
+
+    bus.emit('system-audio:stop');
+    expect(stalePc.close).toHaveBeenCalled();
+    await resolveRealtime('new-session', {
+      sessionId: 'late-stopped-guest-session',
+      sessionOwnerToken: 'late-stopped-guest-owner',
+    });
+    await Promise.resolve();
+
+    expect(pendingRealtimeCalls.some((call) => call.action === 'tracks-new')).toBe(false);
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.sessionId).toBeNull();
+  });
+
   it('does not abort the successor request while replacing the previous guest subscription', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
@@ -1143,7 +1209,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     await rejectAllRealtimeCalls();
   });
 
-  it('freezes all-audience SFU before the async RTC-config await can be preempted', async () => {
+  it('freezes all-audience SFU while RTC config and the guest session start concurrently', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
@@ -1181,10 +1247,10 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.shareRoute).toBe('sfu-all');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
     expect(standardRoomPrerequisiteMocks.getTurnCredentials).toHaveBeenCalledTimes(1);
-    expect(countNewSessionCalls()).toBe(0);
+    // Session allocation is independent of TURN and now overlaps that wait.
+    expect(countNewSessionCalls()).toBe(1);
 
     releaseTurn?.();
-    await waitForNewSessionCalls(1);
     bus.emit('system-audio:stop');
     await rejectAllRealtimeCalls();
   });

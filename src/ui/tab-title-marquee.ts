@@ -9,7 +9,7 @@
 
 import { clearManagedTimer, getManagedTimer, setManagedTimer } from '../core/timers.ts';
 
-const DEFAULT_TAB_TITLE = 'MUSIXQUARE · 뮤직스퀘어';
+const DEFAULT_TAB_TITLE = 'MUSIXQUARE';
 
 const BRAND_TITLE = 'MUSIXQUARE';
 const TITLE_SUFFIX = ' · MUSIXQUARE';

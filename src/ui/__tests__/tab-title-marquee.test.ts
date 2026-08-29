@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { initTabTitleMarquee, setTabTitlePlaying, setTabTitleTrack } from '../tab-title-marquee.ts';
 
-const DEFAULT_TAB_TITLE = 'MUSIXQUARE · 뮤직스퀘어';
+const DEFAULT_TAB_TITLE = 'MUSIXQUARE';
 
 function setVisibility(value: DocumentVisibilityState): void {
   Object.defineProperty(document, 'visibilityState', {

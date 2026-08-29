@@ -288,5 +288,5 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      # Full Chromium E2E and the targeted WebKit smoke run monthly and remain
+      # Full Chromium E2E and the targeted WebKit smoke run weekly and remain
       # manually dispatchable in e2e.yml.

@@ -6,7 +6,7 @@ remote file; chunked streaming protocols are not part of the production
 service.
 
 Cloudflare plan limits were last checked against the official Workers, Durable
-Objects, R2, and WAF documentation on 2026-08-09. Recheck those sources before
+Objects, R2, and WAF documentation on 2026-08-30. Recheck those sources before
 making a cost or upgrade decision. R2 Standard currently includes 10 GB-month
 of storage per month in its free usage allowance; this is an allowance rather
 than a hard account storage cap.

@@ -16,8 +16,8 @@ npm run dev
 Vite serves the app at `http://localhost:3000`. Localhost selects the PeerJS
 transport unless you explicitly configure a local signaling Worker.
 
-Copy `.env.example` to `.env.local` only when you need an override. The safe
-default does **not** send these production-backed API calls to
+Copy `.env.example` to `.env.local` only when you need an override. By default,
+the Vite server does **not** forward these six relative API routes to
 `musixquare.com`:
 
 - `/api/security-config`
@@ -28,10 +28,21 @@ default does **not** send these production-backed API calls to
 - `/api/youtube-playlist-manifest`
 
 They return a non-cacheable `503 LOCAL_API_PROXY_DISABLED` response before
-Vite's SPA fallback. Other unconfigured `/api/*` paths return
-`503 LOCAL_API_NOT_CONFIGURED`; mock them in the browser/test harness when
-relevant.
-Production proxying is reserved for an intentional integration check: set
+Vite's SPA fallback. Other unconfigured relative `/api/*` paths return
+`503 LOCAL_API_NOT_CONFIGURED`.
+
+This Vite control is not a blanket production air gap. In every build mode, the
+PRO facade falls back to `https://musixquare.com/api/pro-room` when
+`VITE_PRO_ROOM_ENDPOINT` is absent or invalid. Outside E2E mode, TURN and
+Realtime calls try a relative endpoint and then the canonical production
+origin. Invoking those flows can therefore consume production quota or state
+even while Standard-room signaling uses local PeerJS. Mock the requests or
+configure validated local endpoints before exercising them. The complete
+boundary and variable inventory lives in
+[`docs/configuration-reference.md`](docs/configuration-reference.md).
+
+Forwarding the six routes above is reserved for an intentional integration
+check: set
 `MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` in untracked `.env.local`, restart
 Vite, and remove the override afterward. That mode can consume production
 quotas and must never be the default development setup.
@@ -66,13 +77,13 @@ Frontend work does not require a Worker. When a change crosses a Worker
 boundary, use only the configuration and runbook for that Worker; do not copy
 every repository environment identifier into one local file.
 
-| Boundary                                 | Binding and non-secret source of truth                                                                                                                                                        | Provisioning / contract guide                                                                                        |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| App, admin, account auth                 | [`cloudflare/wrangler.app.toml`](cloudflare/wrangler.app.toml)                                                                                                                                | [`docs/account-auth-operations.md`](docs/account-auth-operations.md), [`docs/admin-access.md`](docs/admin-access.md) |
-| Persistent PRO rooms and service control | [`cloudflare/wrangler.pro-room.toml`](cloudflare/wrangler.pro-room.toml)                                                                                                                      | [`docs/design/pro-room-architecture-and-operations.md`](docs/design/pro-room-architecture-and-operations.md)         |
-| Standard-room signaling                  | [`cloudflare/wrangler.signaling.toml`](cloudflare/wrangler.signaling.toml)                                                                                                                    | [`cloudflare/admin-dashboard-ops.md`](cloudflare/admin-dashboard-ops.md)                                             |
-| Remote file sharing                      | [`cloudflare/wrangler.remote-share.toml`](cloudflare/wrangler.remote-share.toml), [`cloudflare/wrangler.remote-share.example.toml`](cloudflare/wrangler.remote-share.example.toml) (prod ref) | [`cloudflare/remote-share-ops.md`](cloudflare/remote-share-ops.md)                                                   |
-| Developer API and private facade         | [`cloudflare/wrangler.developer-api.toml`](cloudflare/wrangler.developer-api.toml), [`cloudflare/wrangler.developer-api-facade.toml`](cloudflare/wrangler.developer-api-facade.toml)          | [`public/developers/openapi.yaml`](public/developers/openapi.yaml)                                                   |
+| Boundary                                 | Binding and non-secret source of truth                                                                                                                                                        | Provisioning / contract guides                                                                                                                                                                       |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App, admin, account auth                 | [`cloudflare/wrangler.app.toml`](cloudflare/wrangler.app.toml)                                                                                                                                | [Account auth](docs/account-auth-operations.md), [admin access](docs/admin-access.md), [admin dashboard](cloudflare/admin-dashboard-ops.md), [drift checks](cloudflare/config-drift-ops.md)          |
+| Persistent PRO rooms and service control | [`cloudflare/wrangler.pro-room.toml`](cloudflare/wrangler.pro-room.toml)                                                                                                                      | [PRO architecture and operations](docs/design/pro-room-architecture-and-operations.md), [server authority](docs/design/pro-room-server-authority.md), [drift checks](cloudflare/config-drift-ops.md) |
+| Standard-room signaling                  | [`cloudflare/wrangler.signaling.toml`](cloudflare/wrangler.signaling.toml)                                                                                                                    | [Signaling liveness](docs/design/signaling-liveness.md), [PIN operations](cloudflare/standard-room-pin-ops.md), [drift checks](cloudflare/config-drift-ops.md)                                       |
+| Remote file sharing                      | [`cloudflare/wrangler.remote-share.toml`](cloudflare/wrangler.remote-share.toml), [`cloudflare/wrangler.remote-share.example.toml`](cloudflare/wrangler.remote-share.example.toml) (prod ref) | [Remote Share operations](cloudflare/remote-share-ops.md), [drift checks](cloudflare/config-drift-ops.md)                                                                                            |
+| Developer API and private facade         | [`cloudflare/wrangler.developer-api.toml`](cloudflare/wrangler.developer-api.toml), [`cloudflare/wrangler.developer-api-facade.toml`](cloudflare/wrangler.developer-api-facade.toml)          | [OpenAPI contract](public/developers/openapi.yaml), [drift checks](cloudflare/config-drift-ops.md)                                                                                                   |
 
 The Remote Share example is a production reference mirror for review only; do
 not deploy it directly.
@@ -98,4 +109,7 @@ development or a pull request test.
 - Never commit `.env.local`, `.dev.vars`, credentials, account identifiers,
   production response bodies, or captured user media.
 - Update the owning runbook when a binding or cross-Worker contract changes.
+- Classify and maintain documentation according to the
+  [documentation governance policy](docs/documentation-governance.md); do not
+  rewrite a dated historical record as though it were the current contract.
 - Report security issues privately as described in [`SECURITY.md`](SECURITY.md).

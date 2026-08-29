@@ -1,18 +1,18 @@
 # Local Worker Integration and Environment Boundaries
 
 This guide is the public, non-secret map for local development. Production
-secret names remain canonical in
+Worker runtime secret-name expectations remain canonical in
 [`cloudflare/ops-drift.contract.json`](../cloudflare/ops-drift.contract.json),
 and live values must never be copied into a checkout.
 
 ## Choose the smallest boundary
 
-| Task                                              | Start                                               | Credentials                             | What it proves                                                           |
-| ------------------------------------------------- | --------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------ |
-| Browser UI, playback state, and ordinary P2P work | `npm run dev`                                       | None                                    | Vite UI and localhost PeerJS behavior                                    |
-| Deterministic Worker behavior                     | The focused Vitest file                             | None                                    | Request, binding, timeout, and failure contracts with in-memory fixtures |
-| One Worker in a local runtime                     | `npm run wrangler -- dev --local --config <config>` | Local-only values for that Worker       | Workerd compatibility and that Worker's standalone routes                |
-| Cross-Worker behavior                             | Relevant integration tests                          | Never production values in the checkout | Contract composition                                                     |
+| Task                                                            | Start                                               | Credentials                             | What it proves                                                           |
+| --------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------ |
+| Browser UI and playback/state work before protected setup flows | `npm run dev`                                       | None                                    | Vite UI and localhost PeerJS selection                                   |
+| Deterministic Worker behavior                                   | The focused Vitest file                             | None                                    | Request, binding, timeout, and failure contracts with in-memory fixtures |
+| One Worker in a local runtime                                   | `npm run wrangler -- dev --local --config <config>` | Local-only values for that Worker       | Workerd compatibility and that Worker's standalone routes                |
+| Cross-Worker behavior                                           | Relevant integration tests                          | Never production values in the checkout | Contract composition                                                     |
 
 A single `wrangler dev` process is not a complete MUSIXQUARE stack. App, PRO,
 signaling, remote-share, Developer API, and service-control paths use service,
@@ -20,17 +20,29 @@ Durable Object, D1, and R2 bindings owned by different deployments. Prefer the
 existing multi-boundary fixtures over silently replacing a missing binding
 with production.
 
-## Browser-only default
+## Browser-oriented default
 
 ```powershell
 corepack npm ci
 npm run dev
 ```
 
-The safe default is `MUSIXQUARE_DEV_PROXY_PRODUCTION_API=false`. Protected API
-routes return an explicit local `503`; Vite does not fall through to SPA HTML
-and does not send browser traffic to production. Copy `.env.example` to the
-ignored `.env.local` only for an intentional override.
+The safe Vite-server default is
+`MUSIXQUARE_DEV_PROXY_PRODUCTION_API=false`. Its six explicit production-proxy
+routes return `503 LOCAL_API_PROXY_DISABLED`; any other unconfigured relative
+`/api/*` route returns `503 LOCAL_API_NOT_CONFIGURED`. Vite does not fall
+through to SPA HTML for either case. Copy `.env.example` to ignored
+`.env.local` only for an intentional override.
+
+This protects Vite-relative routing; it does not make every browser feature
+offline. In every build mode, the PRO facade uses its canonical production
+endpoint when `VITE_PRO_ROOM_ENDPOINT` is absent or invalid. Outside E2E mode,
+TURN and Realtime paths try the local relative route first and then
+`https://musixquare.com`. Starting the UI alone does not require production
+credentials, but invoking those flows can consume production quota or mutate
+production state. For an isolated test, mock the path or provide a validated
+local endpoint before entering the flow. See the
+[configuration reference](configuration-reference.md) for the exact matrix.
 
 Localhost selects PeerJS automatically. To point the browser at a separately
 running local signaling Worker, set both values in `.env.local` and restart
@@ -81,6 +93,13 @@ inventory is authoritative in these files:
   Worker. Cross-Worker pairs must match only where the owning runbook says so.
 - `CLOUDFLARE_*`, `GITHUB_*`, release smoke values, and drift-audit tokens used
   by Actions belong in protected GitHub environments, not `.env.local`.
+
+The complete public variable catalog, accepted values, fallback behavior, and
+test/operator separation are maintained in
+[`configuration-reference.md`](configuration-reference.md). Worker runtime
+secret-name expectations remain single-sourced in
+`cloudflare/ops-drift.contract.json`; workflow/operator credentials remain owned
+by their workflows and runbooks rather than duplicated here.
 
 ## Verification routes
 

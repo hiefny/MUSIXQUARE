@@ -1,7 +1,7 @@
 # Runtime Scenario Verification - 2026-05-31
 
 > **Maintained checklist.** Originally added on 2026-05-31 and revalidated on
-> 2026-08-15. Exact-SHA automated CI is the ordinary production release gate.
+> 2026-08-30. Exact-SHA automated CI is the ordinary production release gate.
 
 ## Scope
 
@@ -13,7 +13,13 @@ release confidence. Automation cannot prove browser, audio-hardware, lifecycle,
 or network behavior on every device; reproduce an affected environment when
 diagnosing a device-specific report.
 
-## Optional Browser Automation Signal
+## Browser Automation Layers
+
+| Layer                               | Cadence / trigger                         | Release role                                                                                                        |
+| ----------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Critical Chromium subset            | Every pull request and `main` push        | Blocking exact-SHA CI gate for owner recovery, OAuth return, host/guest, background resume, and signed upload paths |
+| Full Chromium + iPhone WebKit smoke | Every Tuesday at 03:17 KST and on demand  | Weekly regression signal; intentionally outside the production release gate                                         |
+| Focused runtime group               | Manual `npm run test:e2e:runtime` command | Time-bounded investigation signal for late join, playback sync, YouTube sync, reconnection, and background resume   |
 
 The following focused group remains available when browser automation is useful
 and time-bounded:
@@ -39,9 +45,12 @@ device routing, or real WebRTC network transitions work on specific hardware.
 ### 0-2 hours: establish a safe baseline
 
 1. Install with `corepack npm ci`; do not add production credentials to the checkout.
-2. Start `npm run dev` with the default fail-closed local API boundary. Confirm
-   a production-backed API path returns `503 LOCAL_API_PROXY_DISABLED`, not the
-   SPA HTML and not a production response.
+2. Start `npm run dev` with the default Vite-relative API proxy disabled. Confirm
+   one of the six explicit proxy paths returns `503 LOCAL_API_PROXY_DISABLED`,
+   not SPA HTML and not a production response. Do not invoke PRO, TURN, or
+   Realtime flows unless production fallback is intentional or those endpoints
+   are explicitly redirected; see
+   [`configuration-reference.md`](configuration-reference.md).
 3. Run the smallest focused unit test for the touched area, then run
    `npm run typecheck` and `npm run check:workers` when Worker code is involved.
 4. Capture a fresh-load memory/debug baseline when the touched code affects

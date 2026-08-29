@@ -2,7 +2,7 @@
 
 This runbook records which Cloudflare settings live outside Worker source and
 how to compare them with the repository without printing secret values. The
-repository inventory was reconciled on 2026-08-15. A date here records the
+repository inventory was reconciled on 2026-08-30. A date here records the
 checked-in contract, not proof that the live dashboard was inspected that day.
 
 ## R2 CORS and lifecycle
@@ -341,12 +341,12 @@ Cloudflare's newer declarative `exports` lifecycle is a separate migration and
 must not be mixed into a legacy migration-array Worker without extending this
 contract and reviewing the provider transition.
 
-The tracked admin baseline currently defines 18 application tables covering
+The tracked admin baseline currently defines 19 application tables covering
 metrics, room generations, owner-transfer sagas, grants, entitlements, and
 their audits, and explicitly drops the retired `mxqr_api_rate_limits` table.
 `cloudflare/admin-metrics.schema.sql` is the exact schema source; the complete
 human inventory and read-only production query live in
-`admin-dashboard-ops.md`. The source contract was rechecked on 2026-08-17, but
+`admin-dashboard-ops.md`. The source contract was rechecked on 2026-08-30, but
 live table presence remains a separate provider check before maintenance.
 
 The independent `musixquare-auth` and `musixquare-developer-api` databases must
@@ -371,11 +371,19 @@ The manifest does not claim that a declarative baseline or arbitrary DDL can be
 reversed automatically. Any destructive future schema change still needs its
 own reviewed migration entry and recovery decision.
 
-Finally, verify the dashboard-only controls that source cannot enforce. They
-are listed as `manual-only` in `ops-drift.contract.json` so the automated audit
-reports the gap instead of silently claiming success:
-Cloudflare Access/MFA for `/admin`, WAF/rate-limit rules for session and paid
-API routes, Worker/R2/D1 spend notifications, and the absence of a second
-Git-triggered production deployment path. Record the review date without
-copying identities, tokens, rule expressions containing private data, or
-secret values into the repository.
+Finally, verify the four dashboard/policy controls that source cannot fully
+enforce. They are listed as `manual-only` in `ops-drift.contract.json` so the
+automated audit reports the gap instead of silently claiming success:
+
+1. Cloudflare Access/MFA protects `/admin`.
+2. WAF/rate-limit rules and Worker/R2/D1 spend notifications match operator
+   policy.
+3. No second Git-triggered production deployment path is enabled.
+4. The `main` review and named required-check policy matches the current
+   operator release policy.
+
+The automated GitHub audit proves only the minimum effective `deletion` and
+`non_fast_forward` history protections declared by the contract. It does not
+claim that pull-request review or any named check is mandatory; that remains a
+manual policy decision. Record the review date without copying identities,
+tokens, private rule expressions, or secret values into the repository.

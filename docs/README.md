@@ -1,125 +1,147 @@
-# Documentation Map
+# Documentation Hub
 
-Repository documentation has two different purposes: some files define the
-current operating contract, while others preserve the evidence and reasoning
-from a dated audit or completed migration. A dated audit is not a live backlog
-or a substitute for the current source and tests.
+| Field              | Value                                                                 |
+| ------------------ | --------------------------------------------------------------------- |
+| Status             | Maintained index                                                      |
+| Applies to         | Repository documentation and its lifecycle classification             |
+| Last source review | 2026-08-30                                                            |
+| Governance         | [Documentation governance](documentation-governance.md)               |
+| Latest audit       | [Documentation audit — 2026-08-30](documentation-audit-2026-08-30.md) |
 
-## Current References
+Use this hub to choose the current contract before following a dated audit or
+prototype. “Maintained” means the document is intended to describe the present
+repository boundary; it does not mean that a checked-in expectation proves the
+live provider dashboard matches it.
 
-- [Repository-wide TypeScript migration](typescript-migration/README.md) is the
-  completed execution record, zero-authored-JavaScript inventory, and permanent
-  guard/completion contract. Its phased roadmap is historical, not a current
-  Worker deployment order.
+## Start here
 
-- [Release versioning](release-versioning.md) defines the independent product
-  SemVer, PWA cache epoch, API/schema versions, document dates, and immutable
-  deployment identifiers.
+| Need                                      | Primary reference                                               | Then read                                                                                                                                   |
+| ----------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run or contribute locally                 | [Contributor guide](../CONTRIBUTING.md)                         | [Configuration reference](configuration-reference.md), [Local Worker integration](local-worker-integration.md)                              |
+| Understand the product architecture       | [Root overview](../README.md)                                   | [Account/room authority](design/account-identity-and-room-authority.md), [PRO architecture](design/pro-room-architecture-and-operations.md) |
+| Prepare or recover a production change    | [Production hotfix and rollback](hotfix-procedure.md)           | [Release versioning](release-versioning.md), [Runtime verification](runtime-scenario-verification-2026-05-31.md)                            |
+| Operate Cloudflare services               | [Configuration drift checks](../cloudflare/config-drift-ops.md) | Owning Worker runbook below                                                                                                                 |
+| Review intentional tradeoffs              | [Known and accepted risks](known-accepted.md)                   | Owning ADR and [security/performance policy](security-performance-tier-policy.md)                                                           |
+| Decide whether an old document is current | [Documentation governance](documentation-governance.md)         | [Latest documentation audit](documentation-audit-2026-08-30.md)                                                                             |
 
-- [Optional account identity and room authority](design/account-identity-and-room-authority.md)
-  and [account authentication provisioning](account-auth-operations.md) define
-  the account model, OAuth/D1 security boundary, and production setup.
+## Maintained architecture and accepted decisions
 
+These documents define current ownership or an accepted decision. Amend or
+supersede them explicitly when the product boundary changes.
+
+- [Account identity and room authority](design/account-identity-and-room-authority.md)
+- [PRO room architecture and operations](design/pro-room-architecture-and-operations.md)
+- [Coordinator-free PRO server authority](design/pro-room-server-authority.md)
+- [Realtime runtime ownership](design/realtime-runtime-ownership.md)
+- [Signaling liveness](design/signaling-liveness.md)
+- [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md)
+- [Initial bundle and lazy-loading policy](design/initial-bundle-loading-policy.md)
+- [Browser media storage policy](design/browser-media-storage-policy.md)
+- [Playback concurrency invariants](design/playback-concurrency-invariants.md)
+- [Queue item identity and reorder](design/queue-item-identity-and-reorder.md)
+- [Source complexity safety limits](design/source-complexity-ratchet.md)
+- [Mobile application zoom policy](mobile-app-zoom-policy.md)
 - [Security and hot-path performance policy](security-performance-tier-policy.md)
-  defines the standard/PRO/admin security tiers, the standard-room synchronous
-  dependency budget, and the evidence required before an audit may add latency.
+- [Known and accepted risks](known-accepted.md)
 
-- [Local Worker integration and environment boundaries](local-worker-integration.md)
-  maps browser, Vite, Worker, and CI namespaces; gives the fail-closed local
-  recipes; and points every Worker to its canonical binding/secret inventory.
+## Maintained operations and release runbooks
 
-- [Source complexity safety limits](design/source-complexity-ratchet.md) defines
-  generous accident thresholds for the largest runtime and release ownership
-  boundaries. File size alone must not force a new module boundary.
+| Boundary                        | Current runbooks                                                                                                                                                             |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Release, recovery, and identity | [Production hotfix and rollback](hotfix-procedure.md), [release versioning](release-versioning.md), [runtime verification](runtime-scenario-verification-2026-05-31.md)      |
+| Configuration and local routing | [Configuration reference](configuration-reference.md), [Local Worker integration](local-worker-integration.md), [Cloudflare drift checks](../cloudflare/config-drift-ops.md) |
+| App, accounts, and admin        | [Account authentication](account-auth-operations.md), [admin access](admin-access.md), [admin dashboard operations](../cloudflare/admin-dashboard-ops.md)                    |
+| Standard rooms                  | [Signaling liveness](design/signaling-liveness.md), [Standard-room PIN operations](../cloudflare/standard-room-pin-ops.md)                                                   |
+| PRO rooms                       | [PRO architecture and operations](design/pro-room-architecture-and-operations.md), [server authority](design/pro-room-server-authority.md)                                   |
+| Remote Share                    | [Remote Share operations](../cloudflare/remote-share-ops.md)                                                                                                                 |
+| Developer API                   | [OpenAPI contract](../public/developers/openapi.yaml), [Cloudflare drift checks](../cloudflare/config-drift-ops.md)                                                          |
 
-- [Mobile application zoom policy](mobile-app-zoom-policy.md) defines the
-  main SPA's fixed-scale viewport contract, its accessibility boundary, and the
-  evidence required before a future audit may change that product decision.
+The six production Worker Wrangler configs and checked-in manifests remain the
+decisive non-secret binding/schema inventories. Worker runtime secret-name
+expectations are single-sourced in
+[`cloudflare/ops-drift.contract.json`](../cloudflare/ops-drift.contract.json),
+while workflow and operator credentials remain owned by their workflows and
+runbooks. Neither belongs in a general setup document.
 
-- [Developer API OpenAPI contract](../public/developers/openapi.yaml) defines
-  the public server-to-server `/v1` route and payload surface.
+## Maintained engineering guides and contracts
 
-- [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — current
-  cross-domain audit method, confirmed corrections, and residual boundaries.
-- [PRO room architecture and operations](design/pro-room-architecture-and-operations.md) —
-  persistent-room ADR, Cloudflare runbook, offline activation, and rollback.
-- [Coordinator-free PRO room server authority](design/pro-room-server-authority.md) —
-  current canonical timeline, command, presence, and sleep/wake authority
-  contract that amends the original PRO-room baseline.
-- [Static asset delivery and PRO heartbeat persistence](design/static-assets-and-pro-heartbeat-optimization.md) —
-  accepted scope, rollback boundary, and the explicit decision to defer a
-  stable-core/presence schema split until production scale justifies it.
-- [Initial bundle and lazy-loading policy](design/initial-bundle-loading-policy.md) —
-  the accepted boundary for keeping the current eager/lazy graph stable, plus
-  the measured failure and SLO-change criteria required before another broad
-  bundle split.
-- [Browser media storage policy](design/browser-media-storage-policy.md) —
-  accepted RAM-only media-storage ADR and the gate for reconsidering OPFS.
-- [Playback state consumption contract](state-patterns.md) — current rules for
-  reading and reacting to playback mode/activity.
-- [Playback concurrency invariants](design/playback-concurrency-invariants.md) —
-  concurrency mechanisms and executable test/guard anchors. Exact site counts
-  in the prose are a review snapshot; the linked tests and guards are decisive.
-- [Queue item identity and reorder](design/queue-item-identity-and-reorder.md) —
-  stable queue-occurrence IDs, snapshot revisions, and the desktop/touch/keyboard
-  reorder interaction contract.
-- [AppState decomposition](appstate-decomposition.md) — completed migration
-  record plus the surviving mode/activity contract.
-- [Production hotfix and rollback](hotfix-procedure.md) — current release and
-  service-worker update procedure.
-- [Known and accepted risks](known-accepted.md) — intentional tradeoffs that
-  still require code-path verification before being reused.
-- [Runtime scenario verification](runtime-scenario-verification-2026-05-31.md) —
-  maintained automated verification order and browser-automation boundaries;
-  exact-SHA CI is the ordinary release gate despite the document's original
-  date.
-- [System sync compensation](system-sync-compensation.md) — current constants
-  and the distinction between platform compensation and shared WebRTC buffering.
-- [Translation guide](i18n-translation-guide.md) and
-  [migration audit prompt](migration-audit-prompt.md) — reusable contributor
-  references.
-
-## Adjacent Maintained Guides
-
-- [Admin dashboard operations](../cloudflare/admin-dashboard-ops.md) and
-  [remote-share operations](../cloudflare/remote-share-ops.md)
+- [Playback state consumption](state-patterns.md)
+- [AppState decomposition and surviving contract](appstate-decomposition.md)
+- [System sync compensation](system-sync-compensation.md)
+- [Repository-wide TypeScript migration](typescript-migration/README.md)
+- [Translation guide](i18n-translation-guide.md)
+- [Reusable migration audit prompt](migration-audit-prompt.md)
+- [Developer API OpenAPI contract](../public/developers/openapi.yaml)
 - [Font assets and verification](../fonts/README.md)
 - [Public design-system guide](../public/designsystem/README.md)
 - [Third-party runtime notices](../THIRD-PARTY-NOTICES.md)
 
-## Historical Records
+## Maintained evidence and completed records
 
-The following are intentionally retained as historical evidence. Their dates,
-commit references, test totals, line numbers, proposed phases, and statements
-such as “current” describe their audit baseline, not today's repository:
+These files contain dated measurements or completed work, while a clearly
+labeled portion still supports a current guard or operating interpretation:
+
+- [Full project audit — 2026-07-19](full-project-audit-2026-07-19.md) — dated
+  defect record with a maintained residual-boundary and verification addendum.
+- [Runtime scenario verification — 2026-05-31](runtime-scenario-verification-2026-05-31.md) —
+  dated origin with a maintained verification checklist.
+- [TypeScript migration roadmap](typescript-migration/ROADMAP.md) and
+  [status](typescript-migration/STATUS.md) — completed execution evidence; the
+  migration README and guards define the surviving contract.
+- [Runtime v2 prototype](design/runtime-v2-prototype.md) — partial-adoption
+  design evidence, not a claim that the whole prototype is current.
+- [PRO heartbeat benchmark](performance/pro-room-heartbeat-benchmark.md) —
+  reproducible evidence, not an uptime or latency SLO.
+
+## Historical archive
+
+The following files preserve a dated baseline. Their “current” wording, counts,
+line numbers, proposed phases, and test totals describe that baseline unless a
+clearly labeled maintained addendum says otherwise:
 
 - [Documentation truth audit — 2026-08-17](documentation-truth-audit-2026-08-17.md)
-  (completed maintained-document and public-copy correction ledger)
-- `project-analysis/2026-05-24/`
-- `css-cleanup-2026-05-30.md`
-- `large-file-split-design-2026-05-30.md` (large _source files_, not large media)
-- `perf-memory-audit-2026-05-30.md`
-- `type-safety-audit-2026-05-30.md`
-- `device-test-2026-06-10.md`
-- `domain-audit-2026-06-10.md`
-- `scenario-audit-2026-06-10.md`
-- `full-project-audit.md`
-- `design/manual-qa-checklist.md`
-- `design/playback-state-machine.md`
-- `../e2e/COVERAGE-NOTES-2026-05-30.md`
+- [Project analysis — 2026-05-24](project-analysis/2026-05-24/00-index.md)
+- [CSS cleanup — 2026-05-30](css-cleanup-2026-05-30.md)
+- [Large source-file split design — 2026-05-30](large-file-split-design-2026-05-30.md)
+- [Performance and memory audit — 2026-05-30](perf-memory-audit-2026-05-30.md)
+- [Type-safety audit — 2026-05-30](type-safety-audit-2026-05-30.md)
+- [Device test — 2026-06-10](device-test-2026-06-10.md)
+- [Domain audit — 2026-06-10](domain-audit-2026-06-10.md)
+- [Scenario audit — 2026-06-10](scenario-audit-2026-06-10.md)
+- [Earlier full-project audit](full-project-audit.md)
+- [Manual QA checklist](design/manual-qa-checklist.md)
+- [Playback state-machine design](design/playback-state-machine.md)
+- [E2E coverage notes — 2026-05-30](../e2e/COVERAGE-NOTES-2026-05-30.md)
 
-Each retained file carries its own historical notice. Use Git history when an
-exact old implementation is needed; do not revive a discarded plan merely
-because it remains documented.
+Use Git history when an exact old implementation is needed. Do not revive a
+discarded plan merely because its record remains in the repository.
 
-## Source Of Truth
+## Repository policy, legal, and public copy
 
-For runtime behavior, the precedence order is:
+- [Security policy](../SECURITY.md)
+- [Trademark policy](../TRADEMARKS.md), [brand/fork guide](../BRAND_POLICY.md),
+  and [AGPL additional terms](../ADDITIONAL_TERMS.md)
+- [Third-party notices](../THIRD-PARTY-NOTICES.md)
+- Hosted design-system material under
+  [`public/designsystem/`](../public/designsystem/README.md)
 
-1. production code and Cloudflare configuration;
-2. executable tests and repository guards;
-3. accepted/current reference documents above;
-4. dated historical records.
+Files under `public/**` and hosted `.workshop/**` trees are App artifact inputs,
+even when their content is documentation. Follow the App version/cache/release
+path rather than the repository-only publication path.
+
+## Source of truth and publication
+
+For behavior claims, precedence is: production source/configuration, executable
+tests/guards/manifests, maintained documents above, evidence, then historical
+records. Live provider state requires a live read; never infer it from a green
+source-only check.
+
+Repository-only documentation, example configuration, GitHub workflow, and
+test/guard changes that feed neither an App nor Worker bundle publish with a
+reviewed GitHub `main` merge. They do not require product SemVer, a PWA
+cache-epoch bump, or a Cloudflare Production Release. Hosted public copy and
+runtime inputs follow the separate exact-SHA path in the canonical
+[hotfix procedure](hotfix-procedure.md).
 
 Secret-bearing local operations notes live under ignored `docs/private/` and
 must never be added to Git.

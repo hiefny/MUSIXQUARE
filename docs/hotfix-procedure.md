@@ -1,10 +1,10 @@
 # Production Hotfix And Rollback Procedure
 
 Reviewed against `browser/service-worker.ts`, `scripts/service-worker-asset.ts`,
-`src/sw-register.ts`, the six Wrangler configs, the production release
-workflow, and the live-smoke scripts on 2026-08-17. Read the current
-`SERVICE_WORKER_CACHE_VERSION` from the compiler manifest rather than copying a
-number from this procedure.
+`src/sw-register.ts`, the six production Worker Wrangler configs, the
+production release workflow, and the live-smoke scripts on 2026-08-30. Read the
+current `SERVICE_WORKER_CACHE_VERSION` from the compiler manifest rather than
+copying a number from this procedure.
 
 This document is the canonical production hotfix note. Untracked workshop
 drafts are not release instructions.
@@ -53,11 +53,12 @@ checkout. The release still rechecks the manifest and hashes, time-sensitive
 production-security rules, and Worker bundles before running live smokes with
 an immutable recovery checkpoint and fail-closed forward-repair reporting.
 
-Documentation publication has two distinct paths:
+Repository publication has two distinct paths:
 
-- Changes limited to `README.md`, `CONTRIBUTING.md`, `docs/**`, or
-  `cloudflare/*ops.md` are published by merging to GitHub. They are not App
-  artifact inputs, so do not run a Cloudflare Production Release for them.
+- Changes limited to repository documentation (`README.md`, `CONTRIBUTING.md`,
+  `docs/**`, or `cloudflare/*ops.md`), `.env.example`, GitHub workflows, and
+  test/guard contracts that feed neither an App nor Worker bundle are published
+  by merging to GitHub. Do not run a Cloudflare Production Release for them.
 - Changes under `public/**` or the production
   `.workshop/{landing,privacy,terms,faq,developers}/**` trees are hosted App
   inputs. Advance the required product/cache identifiers, merge the change,
@@ -142,9 +143,8 @@ stack that omits the epoch and would reject valid active keys as stale.
 
 The complete serial Playwright suite is intentionally not a production deploy
 gate. The `Full E2E` workflow runs it together with the targeted iPhone WebKit
-smoke once a month, at 03:17 KST on the second day of each month, and remains
-manually dispatchable when a change warrants the extra coverage before the next
-scheduled run. A focused
+smoke every Tuesday at 03:17 KST and remains manually dispatchable when a change
+warrants the extra coverage before the next scheduled run. A focused
 deterministic Chromium subset is blocking in exact-SHA CI, so an approved
 release cannot select a candidate until the critical owner-recovery,
 OAuth-return, host/guest, background-resume, and signed-upload browser paths
@@ -200,6 +200,15 @@ The complete deploy job has a four-hour ceiling. A separate 90-minute
 `always()` recovery job consumes the persisted pre-mutation checkpoint, so a
 deploy-job timeout cannot remove the paired R2/Worker ownership assessment and
 forward-repair artifact.
+These durations are workflow execution ceilings, not uptime objectives, RTO, or
+RPO. The repository does not currently define formal uptime/latency SLOs, an
+on-call paging integration, or a recurring data-restore drill. The recovery
+checkpoint records Worker deployment identity and Git provenance, the signaling
+Custom Domain state, relevant R2 CORS/lifecycle policies, and compatibility
+floors. It is not a backup of D1 rows, Durable Object state, or R2 objects; a
+data incident requires a separately reviewed provider restore or roll-forward
+decision.
+
 After final Worker ownership and, for `all`, generation readiness are verified,
 the deploy job records a coherent-production output and artifact marker. A
 later artifact-upload or summary failure must not undo that healthy production

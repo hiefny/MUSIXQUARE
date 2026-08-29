@@ -17,6 +17,7 @@
   <a href="https://musixquare.com/about">About</a> &bull;
   <a href="https://musixquare.com/history">History</a> &bull;
   <a href="https://musixquare.com/designsystem">Design System</a> &bull;
+  <a href="./docs/README.md">Documentation</a> &bull;
   <a href="https://github.com/hiefny/MUSIXQUARE">GitHub</a>
 </p>
 
@@ -43,7 +44,8 @@ _Click the image above to watch the official MUSIXQUARE demonstration video on Y
 ## System Architecture
 
 The architecture map below is a point-in-time overview that groups MUSIXQUARE
-into **24 functional districts**. The source tree and tracked design documents
+into **24 functional districts**. The source tree, executable contracts, and
+maintained references classified in the [documentation hub](./docs/README.md)
 remain authoritative as module and dependency counts evolve.
 
 <p align="center">
@@ -127,12 +129,18 @@ npm run dev
 
 Open `http://localhost:3000` in your browser.
 
-Local development runs entirely on the browser-only PeerJS transport by default
-and requires no external Cloudflare credentials or API keys. Unconfigured
-`/api/*` routes fail closed instead of reaching production. Production API
-proxying requires the explicit
-`MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` opt-in and can consume real quotas;
-see [CONTRIBUTING.md](./CONTRIBUTING.md) before enabling it.
+Localhost selects PeerJS for Standard-room signaling and ordinary UI work needs
+no Cloudflare credentials. The Vite server returns local `503` responses for
+its six production-proxy routes and other unconfigured relative `/api/*` paths.
+That server boundary is not a blanket production air gap: the PRO client falls
+back to its canonical production facade in every build mode, while non-E2E TURN
+and Realtime flows retry against the canonical production origin. These paths
+can consume real quota or state when invoked. Mock or redirect them for isolated
+work. Enabling
+`MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` additionally forwards the six named
+Vite proxy routes. Read [CONTRIBUTING.md](./CONTRIBUTING.md) and the
+[configuration reference](./docs/configuration-reference.md) before exercising
+any production-backed flow.
 
 ### Test & Verification Pipeline
 

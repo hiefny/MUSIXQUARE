@@ -1,5 +1,10 @@
 # Runtime V2 Prototype
 
+> **Partial-adoption design evidence.** This records an isolated prototype and
+> the pieces later adopted incrementally. It does not declare the entire
+> prototype architecture to be the current runtime contract; use the
+> [documentation hub](../README.md) and executable source for current ownership.
+
 Status: adopted incrementally in the production runtime after validation on the isolated
 `mxqr_beta` worktree.
 

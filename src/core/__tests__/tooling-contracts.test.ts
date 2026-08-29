@@ -76,19 +76,38 @@ describe('tooling reproducibility contracts', () => {
     expect(packageManifest.scripts.typecheck).toContain('tsc -p tsconfig.tooling.json');
   });
 
-  it('keeps full browser E2E scheduled monthly and manually dispatchable', () => {
+  it('keeps full browser E2E scheduled weekly and manually dispatchable', () => {
     const workflow = readFileSync('.github/workflows/e2e.yml', 'utf8');
-    const maintainedAudit = readFileSync('docs/full-project-audit-2026-07-19.md', 'utf8');
+    const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+    const releaseWorkflow = readFileSync('.github/workflows/release.yml', 'utf8');
+    const releaseProcedure = readFileSync('docs/hotfix-procedure.md', 'utf8');
     const triggerBlock = workflow.slice(
       workflow.indexOf('on:'),
       workflow.indexOf('\npermissions:'),
     );
 
     expect(triggerBlock).toContain('schedule:');
-    expect(triggerBlock).toContain("- cron: '17 18 1 * *'");
+    expect(triggerBlock).toContain("- cron: '17 18 * * 1'");
     expect(triggerBlock).toContain('workflow_dispatch:');
-    expect(maintainedAudit).toContain('monthly cadence defined by `.github/workflows/e2e.yml`');
-    expect(maintainedAudit).not.toMatch(/\bnightly\b/iu);
+    expect(ciWorkflow).toContain('targeted WebKit smoke run weekly');
+    expect(releaseWorkflow).toContain('full E2E runs weekly');
+    expect(releaseProcedure).toContain('smoke every Tuesday at 03:17 KST');
+    expect(`${workflow}\n${releaseProcedure}`).not.toMatch(/\bnightly\b/iu);
+  });
+
+  it('keeps the maintained admin schema inventory aligned with executable SQL', () => {
+    const schema = readFileSync('cloudflare/admin-metrics.schema.sql', 'utf8');
+    const tableCount = schema.match(/^CREATE TABLE IF NOT EXISTS\b/gmu)?.length ?? 0;
+
+    expect(tableCount).toBe(19);
+    for (const runbookPath of [
+      'cloudflare/admin-dashboard-ops.md',
+      'cloudflare/config-drift-ops.md',
+    ]) {
+      expect(readFileSync(runbookPath, 'utf8'), runbookPath).toMatch(
+        new RegExp(`\\b${tableCount} application tables\\b`, 'u'),
+      );
+    }
   });
 
   it('runs the report viewer from the exact lockfile dependency', () => {

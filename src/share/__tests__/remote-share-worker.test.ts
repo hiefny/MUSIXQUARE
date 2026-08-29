@@ -93,6 +93,102 @@ const remoteShareContractVersion = (
   )
 ).trim();
 
+type SimpleTomlValue = boolean | number | string | SimpleTomlValue[];
+type SimpleTomlTable = Record<string, SimpleTomlValue>;
+
+interface SimpleTomlProjection {
+  root: SimpleTomlTable;
+  tables: Record<string, SimpleTomlTable[]>;
+}
+
+function stripTomlComment(line: string): string {
+  let quote: '"' | "'" | undefined;
+  let escaped = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote === '"') {
+      if (escaped) {
+        escaped = false;
+      } else if (character === '\\') {
+        escaped = true;
+      } else if (character === quote) {
+        quote = undefined;
+      }
+    } else if (quote === "'") {
+      if (character === quote) quote = undefined;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '#') {
+      return line.slice(0, index);
+    }
+  }
+
+  return line;
+}
+
+function isSimpleTomlValue(value: unknown): value is SimpleTomlValue {
+  return (
+    typeof value === 'boolean' ||
+    typeof value === 'number' ||
+    typeof value === 'string' ||
+    (Array.isArray(value) && value.every(isSimpleTomlValue))
+  );
+}
+
+function parseSimpleTomlValue(rawValue: string, label: string): SimpleTomlValue {
+  let value: unknown;
+  try {
+    value = JSON.parse(rawValue);
+  } catch {
+    throw new Error(`${label} uses unsupported TOML value syntax.`);
+  }
+  if (!isSimpleTomlValue(value)) {
+    throw new Error(`${label} uses an unsupported TOML value.`);
+  }
+  return value;
+}
+
+function parseSimpleTomlProjection(source: string, label: string): SimpleTomlProjection {
+  const root: SimpleTomlTable = {};
+  const tables: Record<string, SimpleTomlTable[]> = {};
+  let currentTable = root;
+  let currentTableName = 'root';
+
+  for (const [index, sourceLine] of source.split(/\r?\n/u).entries()) {
+    const line = stripTomlComment(sourceLine).trim();
+    if (!line) continue;
+
+    const arrayTableMatch = /^\[\[([A-Za-z0-9_.-]+)\]\]$/u.exec(line);
+    const tableMatch = /^\[([A-Za-z0-9_.-]+)\]$/u.exec(line);
+    const tableName = arrayTableMatch?.[1] ?? tableMatch?.[1];
+    if (tableName) {
+      currentTable = {};
+      (tables[tableName] ??= []).push(currentTable);
+      currentTableName = tableName;
+      continue;
+    }
+
+    const assignment = /^([A-Za-z0-9_-]+)\s*=\s*(.+)$/u.exec(line);
+    if (!assignment) {
+      throw new Error(`${label}:${index + 1} uses unsupported TOML syntax.`);
+    }
+    const [, key, rawValue] = assignment;
+    if (!key || rawValue === undefined) {
+      throw new Error(`${label}:${index + 1} has an invalid TOML assignment.`);
+    }
+    if (Object.prototype.hasOwnProperty.call(currentTable, key)) {
+      throw new Error(`${label}:${index + 1} repeats ${currentTableName}.${key}.`);
+    }
+    currentTable[key] = parseSimpleTomlValue(
+      rawValue,
+      `${label}:${index + 1} (${currentTableName}.${key})`,
+    );
+  }
+
+  return { root, tables };
+}
+
 function directPutCorsRule(): R2CorsRule | undefined {
   return r2CorsPolicy.rules.find((rule) =>
     rule.allowed.methods.some((method) => method.toUpperCase() === 'PUT'),
@@ -1225,6 +1321,34 @@ describe('remote-share Worker capability gate', () => {
     }
     expect(remoteShareWranglerSource).not.toContain('MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION');
     expect(productionSecurityGuardSource).toContain("'MXQR_ALLOW_STATELESS_REMOTE_SHARE_SESSION'");
+  });
+
+  it('keeps the non-deployable example aligned with production except for the public route', () => {
+    const productionConfig = parseSimpleTomlProjection(
+      remoteShareWranglerSource,
+      'wrangler.remote-share.toml',
+    );
+    const exampleConfig = parseSimpleTomlProjection(
+      remoteShareExampleWranglerSource,
+      'wrangler.remote-share.example.toml',
+    );
+    const { routes: productionRoutes, ...productionTables } = productionConfig.tables;
+    const { routes: exampleRoutes, ...exampleTables } = exampleConfig.tables;
+
+    expect(productionRoutes).toEqual([
+      {
+        pattern: 'share.musixquare.com',
+        custom_domain: true,
+      },
+    ]);
+    expect(exampleRoutes).toBeUndefined();
+    expect(exampleConfig.root).toEqual(productionConfig.root);
+    expect(exampleTables).toEqual(productionTables);
+    expect(remoteShareExampleWranglerSource).toContain(
+      'Production reference mirror only. Do not deploy this file directly.',
+    );
+    expect(remoteShareExampleWranglerSource).toContain('cloudflare/remote-share-ops.md');
+    expect(remoteShareExampleWranglerSource).not.toContain('secret put');
   });
 
   it('documents staged assertion rotation and the maintenance PUT drain boundary', () => {

@@ -71,8 +71,11 @@ every repository environment identifier into one local file.
 | App, admin, account auth                 | [`cloudflare/wrangler.app.toml`](cloudflare/wrangler.app.toml)                                                                                                                                | [`docs/account-auth-operations.md`](docs/account-auth-operations.md), [`docs/admin-access.md`](docs/admin-access.md) |
 | Persistent PRO rooms and service control | [`cloudflare/wrangler.pro-room.toml`](cloudflare/wrangler.pro-room.toml)                                                                                                                      | [`docs/design/pro-room-architecture-and-operations.md`](docs/design/pro-room-architecture-and-operations.md)         |
 | Standard-room signaling                  | [`cloudflare/wrangler.signaling.toml`](cloudflare/wrangler.signaling.toml)                                                                                                                    | [`cloudflare/admin-dashboard-ops.md`](cloudflare/admin-dashboard-ops.md)                                             |
-| Remote file sharing                      | [`cloudflare/wrangler.remote-share.toml`](cloudflare/wrangler.remote-share.toml), [`cloudflare/wrangler.remote-share.example.toml`](cloudflare/wrangler.remote-share.example.toml) (template) | [`cloudflare/remote-share-ops.md`](cloudflare/remote-share-ops.md)                                                   |
+| Remote file sharing                      | [`cloudflare/wrangler.remote-share.toml`](cloudflare/wrangler.remote-share.toml), [`cloudflare/wrangler.remote-share.example.toml`](cloudflare/wrangler.remote-share.example.toml) (prod ref) | [`cloudflare/remote-share-ops.md`](cloudflare/remote-share-ops.md)                                                   |
 | Developer API and private facade         | [`cloudflare/wrangler.developer-api.toml`](cloudflare/wrangler.developer-api.toml), [`cloudflare/wrangler.developer-api-facade.toml`](cloudflare/wrangler.developer-api-facade.toml)          | [`public/developers/openapi.yaml`](public/developers/openapi.yaml)                                                   |
+
+The Remote Share example is a production reference mirror for review only; do
+not deploy it directly.
 
 The Wrangler files declare the authoritative D1, Durable Object, R2, KV,
 service, and asset bindings and list baseline Worker secret names beside each

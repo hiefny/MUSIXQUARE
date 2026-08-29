@@ -8,7 +8,12 @@ import {
 } from './check-durable-object-migration-contract.mts';
 
 export const OPS_DRIFT_CONTRACT_PATH = 'cloudflare/ops-drift.contract.json';
+export const OPS_DRIFT_RUNBOOK_PATH = 'cloudflare/config-drift-ops.md';
 export const DEFAULT_OPS_DRIFT_REPORT_PATH = 'release-artifacts/ops-drift/report.json';
+
+export const WORKER_SECRET_INVENTORY_START_MARKER =
+  '<!-- BEGIN OPS DRIFT WORKER SECRET INVENTORY -->';
+export const WORKER_SECRET_INVENTORY_END_MARKER = '<!-- END OPS DRIFT WORKER SECRET INVENTORY -->';
 
 const CONTRACT_VERSION = 4;
 const CLOUDFLARE_API = 'https://api.cloudflare.com/client/v4';
@@ -88,6 +93,59 @@ export function loadOpsDriftContract(
     throw new Error('Operations drift contract must be a structurally valid JSON object.');
   }
   return value;
+}
+
+type WorkerSecretInventory = ReadonlyArray<{
+  readonly worker: string;
+  readonly expectedNames: readonly string[];
+}>;
+
+export function renderWorkerSecretInventoryMarkdown(workerSecrets: WorkerSecretInventory): string {
+  const lines = [WORKER_SECRET_INVENTORY_START_MARKER];
+  const sortedInventories = [...workerSecrets].sort((left, right) =>
+    left.worker < right.worker ? -1 : left.worker > right.worker ? 1 : 0,
+  );
+  for (const inventory of sortedInventories) {
+    const expectedNames = [...inventory.expectedNames].sort();
+    if (expectedNames.length === 0) {
+      lines.push(`- \`${inventory.worker}\`: intentionally no secrets.`);
+      continue;
+    }
+    lines.push(`- \`${inventory.worker}\`:`);
+    lines.push(...expectedNames.map((name) => `  - \`${name}\``));
+  }
+  lines.push(WORKER_SECRET_INVENTORY_END_MARKER);
+  return lines.join('\n');
+}
+
+function managedWorkerSecretInventoryBlock(source: string, label: string): string {
+  const startCount = source.split(WORKER_SECRET_INVENTORY_START_MARKER).length - 1;
+  const endCount = source.split(WORKER_SECRET_INVENTORY_END_MARKER).length - 1;
+  if (startCount !== 1 || endCount !== 1) {
+    throw new Error(
+      `${label} must contain exactly one Worker secret inventory start marker and end marker.`,
+    );
+  }
+  const start = source.indexOf(WORKER_SECRET_INVENTORY_START_MARKER);
+  const end = source.indexOf(WORKER_SECRET_INVENTORY_END_MARKER, start);
+  if (end < start) {
+    throw new Error(`${label} Worker secret inventory markers are out of order.`);
+  }
+  return source.slice(start, end + WORKER_SECRET_INVENTORY_END_MARKER.length);
+}
+
+export function assertWorkerSecretInventoryMarkdownParity(
+  source: string,
+  workerSecrets: WorkerSecretInventory,
+  label = OPS_DRIFT_RUNBOOK_PATH,
+): void {
+  const actual = managedWorkerSecretInventoryBlock(source, label);
+  const expected = renderWorkerSecretInventoryMarkdown(workerSecrets);
+  if (actual !== expected) {
+    throw new Error(
+      `${label} Worker secret inventory does not exactly match ${OPS_DRIFT_CONTRACT_PATH}.`,
+    );
+  }
 }
 
 export function assertOpsDriftContract({
@@ -417,6 +475,23 @@ export function assertOpsDriftContract({
     githubRuleCount: contract.github.requiredEffectiveRuleTypes.length,
     manualCheckCount: manualIds.size,
   };
+}
+
+export function assertOpsDriftRepositoryMirrors({
+  root = resolve(fileURLToPath(new URL('..', import.meta.url))),
+  contract = loadOpsDriftContract(root),
+}: OpsDriftContractOptions = {}) {
+  const result = assertOpsDriftContract({ root, contract });
+  if (!isOpsDriftContract(contract)) {
+    throw new Error('Operations drift contract failed structural validation.');
+  }
+  const runbook = readFileSync(resolve(root, OPS_DRIFT_RUNBOOK_PATH), 'utf8');
+  assertWorkerSecretInventoryMarkdownParity(
+    runbook,
+    contract.workerSecrets,
+    OPS_DRIFT_RUNBOOK_PATH,
+  );
+  return result;
 }
 
 interface ExactKeysOptions {
@@ -2349,7 +2424,7 @@ function writeReport(path: string, report: OpsDriftReport): void {
 async function main() {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   if (process.argv.includes('--source-only')) {
-    const result = assertOpsDriftContract({ root });
+    const result = assertOpsDriftRepositoryMirrors({ root });
     const durableObjects = assertDurableObjectMigrationContract({ root });
     const durableObjectHistory = assertDurableObjectMigrationRepositoryHistory({ root });
     process.stdout.write(
@@ -2359,6 +2434,7 @@ async function main() {
   }
 
   const reportPath = process.env.MXQR_OPS_DRIFT_REPORT || DEFAULT_OPS_DRIFT_REPORT_PATH;
+  assertOpsDriftRepositoryMirrors({ root });
   const report = await runOpsDriftAudit({ root });
   writeReport(reportPath, report);
   const markdown = renderOpsDriftMarkdown(report);

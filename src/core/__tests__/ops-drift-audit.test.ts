@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertOpsDriftContract,
+  assertOpsDriftRepositoryMirrors,
+  assertWorkerSecretInventoryMarkdownParity,
   loadOpsDriftContract,
   normalizeActiveDeploymentVersions,
   normalizeCorsPolicy,
@@ -13,6 +15,7 @@ import {
   normalizeWorkerSubdomain,
   normalizeWorkerSecretNames,
   renderOpsDriftMarkdown,
+  renderWorkerSecretInventoryMarkdown,
   runOpsDriftAudit,
   shortDeleteLifecycleRules,
   workerSurfaceFromToml,
@@ -359,6 +362,58 @@ describe('operations drift audit', () => {
       previewUrls: false,
       customDomains: [],
     });
+  });
+
+  it('renders the Worker secret inventory in deterministic worker and name order', () => {
+    expect(
+      renderWorkerSecretInventoryMarkdown([
+        { worker: 'worker-z', expectedNames: ['SECRET_Z', 'SECRET_A'] },
+        { worker: 'worker-a', expectedNames: ['SECRET_B'] },
+      ]),
+    ).toBe(
+      [
+        '<!-- BEGIN OPS DRIFT WORKER SECRET INVENTORY -->',
+        '- `worker-a`:',
+        '  - `SECRET_B`',
+        '- `worker-z`:',
+        '  - `SECRET_A`',
+        '  - `SECRET_Z`',
+        '<!-- END OPS DRIFT WORKER SECRET INVENTORY -->',
+      ].join('\n'),
+    );
+  });
+
+  it('keeps the checked-in runbook inventory identical to the canonical contract', () => {
+    expect(assertOpsDriftRepositoryMirrors()).toEqual(assertOpsDriftContract());
+  });
+
+  it('rejects missing and extra Worker secrets in the managed runbook inventory', () => {
+    const inventory = [{ worker: 'worker-a', expectedNames: ['SECRET_A'] }];
+    const rendered = renderWorkerSecretInventoryMarkdown(inventory);
+
+    expect(() =>
+      assertWorkerSecretInventoryMarkdownParity(rendered.replace('  - `SECRET_A`', ''), inventory),
+    ).toThrow('does not exactly match');
+    expect(() =>
+      assertWorkerSecretInventoryMarkdownParity(
+        rendered.replace('  - `SECRET_A`', '  - `SECRET_A`\n  - `SECRET_B`'),
+        inventory,
+      ),
+    ).toThrow('does not exactly match');
+  });
+
+  it('renders and accepts an explicitly empty Worker secret inventory', () => {
+    const inventory = [{ worker: 'worker-empty', expectedNames: [] }];
+    const rendered = renderWorkerSecretInventoryMarkdown(inventory);
+
+    expect(rendered).toBe(
+      [
+        '<!-- BEGIN OPS DRIFT WORKER SECRET INVENTORY -->',
+        '- `worker-empty`: intentionally no secrets.',
+        '<!-- END OPS DRIFT WORKER SECRET INVENTORY -->',
+      ].join('\n'),
+    );
+    expect(() => assertWorkerSecretInventoryMarkdownParity(rendered, inventory)).not.toThrow();
   });
 
   it('keeps the live workflow limited to the narrow read-only Cloudflare token', () => {

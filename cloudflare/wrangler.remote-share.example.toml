@@ -1,33 +1,48 @@
+# Production reference mirror only. Do not deploy this file directly.
+# cloudflare/wrangler.remote-share.toml is canonical. This mirror intentionally
+# omits only the public [[routes]] binding so it cannot claim the production host.
 name = "musixquare-remote-share"
 main = "remote-share-worker.ts"
 compatibility_date = "2026-05-03"
+workers_dev = false
+preview_urls = false
+upload_source_maps = true
 
 [version_metadata]
 binding = "CF_VERSION_METADATA"
 
+[observability]
+enabled = true
+
+# Keep automatic request-URL events disabled across the public Worker fleet;
+# sampled application logs use explicit credential-free fields.
+[observability.logs]
+enabled = true
+head_sampling_rate = 0.1
+invocation_logs = false
+
+[observability.traces]
+enabled = false
+
+# Intentional safety exception: unlike the canonical production config, this
+# reference mirror has no public [[routes]] block. Every other deploy-relevant
+# setting must remain semantically identical to the production config.
+
 [vars]
 R2_BUCKET_NAME = "musixquare-remote-share"
 OBJECT_TTL_SECONDS = "3600"
+UPLOAD_TOKEN_TTL_SECONDS = "600"
 RATE_LIMIT_WINDOW_SECONDS = "3600"
 IP_UPLOADS_PER_WINDOW = "60"
 ROOM_UPLOADS_PER_WINDOW = "120"
 ROOM_STORAGE_QUOTA_BYTES = "1073741824"
 ROOM_UPLOAD_ASSERTION_MODE = "required"
-ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,https://musixquare.apps.tossmini.com,https://musixquare.private-apps.tossmini.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+ALLOWED_ORIGINS = "https://musixquare.com,https://www.musixquare.com,https://musixquare.apps.tossmini.com,https://musixquare.private-apps.tossmini.com,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173"
 
-# Required secrets, set outside this file:
-# npm run wrangler -- secret put R2_ACCOUNT_ID
-# npm run wrangler -- secret put REMOTE_SHARE_SIGNING_SECRET
-# npm run wrangler -- secret put R2_ACCESS_KEY_ID
-# npm run wrangler -- secret put R2_SECRET_ACCESS_KEY
-# REMOTE_SHARE_SIGNING_SECRET must be an independent random value of at least 32 characters.
-# Required for capability gate (use the same random value of at least 32 characters as
-# the app Worker MXQR_CAPABILITY_SECRET so app-issued tokens verify here):
-# npm run wrangler -- secret put MXQR_CAPABILITY_SECRET
-# Shared only with the signaling Worker. Use the same independent random value
-# of at least 32 characters on both Workers. The optional prefixed JSON
-# current/previous rotation form is documented in cloudflare/remote-share-ops.md:
-# npm run wrangler -- secret put MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET
+# Exact production secret names live in cloudflare/ops-drift.contract.json;
+# provisioning commands, rotation procedure, and trust boundaries live in
+# cloudflare/remote-share-ops.md. Do not duplicate or execute them from this
+# non-deployable reference mirror.
 
 [[r2_buckets]]
 binding = "REMOTE_SHARE_BUCKET"

@@ -115,11 +115,12 @@ device-specific sync compensation intact.
 - Platform sync compensation, DSP tuning, and YouTube rendezvous behavior were
   left unchanged where tests/history showed intentional calibration rather than
   a code defect.
-- The full Chromium Playwright suite and targeted iPhone WebKit smoke run
-  nightly and remain manually dispatchable, but stay outside the production
-  release gate by product decision. The production release uses browser-free
-  generation/initial-asset-graph and HTTP boundary smokes. Optional physical
-  QA remains available when real iOS/Android/WebRTC/YouTube timing is needed.
+- The full Chromium Playwright suite and targeted iPhone WebKit smoke follow the
+  monthly cadence defined by `.github/workflows/e2e.yml` and remain manually
+  dispatchable, but stay outside the production release gate by product
+  decision. The production release uses browser-free generation,
+  initial-asset-graph, and HTTP boundary smokes. Optional physical QA remains
+  available when real iOS/Android/WebRTC/YouTube timing is needed.
 
 ## Residual, accepted boundaries
 

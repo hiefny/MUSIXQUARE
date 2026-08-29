@@ -78,6 +78,7 @@ describe('tooling reproducibility contracts', () => {
 
   it('keeps full browser E2E scheduled monthly and manually dispatchable', () => {
     const workflow = readFileSync('.github/workflows/e2e.yml', 'utf8');
+    const maintainedAudit = readFileSync('docs/full-project-audit-2026-07-19.md', 'utf8');
     const triggerBlock = workflow.slice(
       workflow.indexOf('on:'),
       workflow.indexOf('\npermissions:'),
@@ -86,6 +87,8 @@ describe('tooling reproducibility contracts', () => {
     expect(triggerBlock).toContain('schedule:');
     expect(triggerBlock).toContain("- cron: '17 18 1 * *'");
     expect(triggerBlock).toContain('workflow_dispatch:');
+    expect(maintainedAudit).toContain('monthly cadence defined by `.github/workflows/e2e.yml`');
+    expect(maintainedAudit).not.toMatch(/\bnightly\b/iu);
   });
 
   it('runs the report viewer from the exact lockfile dependency', () => {

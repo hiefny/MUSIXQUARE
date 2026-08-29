@@ -1255,9 +1255,7 @@ function beginLocalProSystemAudioLeaseAttempt(signal?: AbortSignal): ProSystemAu
     // The native display picker opens after this lease attempt begins. Warm
     // only capability/TURN configuration underneath that user-controlled
     // interval; no Cloudflare Realtime session is allocated on a LAN success.
-    publisherPreflight: activeController
-      ? beginProSystemAudioSfuPublisherPreflight()
-      : null,
+    publisherPreflight: activeController ? beginProSystemAudioSfuPublisherPreflight() : null,
     identity:
       existingLease?.hasCredential && isServiceSessionCurrent(epoch)
         ? {

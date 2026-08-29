@@ -99,6 +99,10 @@ describe('Dialog System', () => {
     expect(STYLE_SOURCE).not.toMatch(/\.adaptive-action-group\s*\{[^}]*column-reverse;/s);
   });
 
+  it('gives dialog copy one extra beat before the actions', () => {
+    expect(STYLE_SOURCE).toMatch(/\.dialog-message\s*\{[^}]*padding:\s*6px\s+32px\s+24px;/s);
+  });
+
   describe('showDialog()', () => {
     it('runs the primary activation hook synchronously before resolving', async () => {
       const { showDialog } = await import('../dialog.ts');

@@ -99,8 +99,9 @@ describe('Dialog System', () => {
     expect(STYLE_SOURCE).not.toMatch(/\.adaptive-action-group\s*\{[^}]*column-reverse;/s);
   });
 
-  it('gives dialog copy one extra beat before the actions', () => {
-    expect(STYLE_SOURCE).toMatch(/\.dialog-message\s*\{[^}]*padding:\s*6px\s+32px\s+24px;/s);
+  it('gives the dialog copy a clear beat on both sides', () => {
+    expect(STYLE_SOURCE).toMatch(/\.dialog-header\s*\{[^}]*padding:\s*30px\s+32px\s+8px;/s);
+    expect(STYLE_SOURCE).toMatch(/\.dialog-message\s*\{[^}]*padding:\s*8px\s+32px\s+24px;/s);
   });
 
   describe('showDialog()', () => {

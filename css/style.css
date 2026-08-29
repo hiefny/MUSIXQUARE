@@ -5450,7 +5450,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 30px 32px 6px;
+    padding: 30px 32px 8px;
   }
 
   .dialog-title {
@@ -5462,7 +5462,7 @@
   }
 
   .dialog-message {
-    padding: 6px 32px 24px;
+    padding: 8px 32px 24px;
     font-size: 15px;
     color: var(--text-sub);
     line-height: 1.58;

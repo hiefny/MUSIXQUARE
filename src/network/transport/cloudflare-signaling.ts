@@ -1134,6 +1134,7 @@ export class CloudflareDataConnection extends TinyEmitter implements TransportDa
 class CloudflareMediaConnection extends TinyEmitter implements TransportMediaConnection {
   peerConnection?: RTCPeerConnection;
   private closed = false;
+  private established = false;
   private remoteOffer: RTCSessionDescriptionInit | null = null;
   private readonly remoteStream = new MediaStream();
   private remoteStreamEmitted = false;
@@ -1193,6 +1194,12 @@ class CloudflareMediaConnection extends TinyEmitter implements TransportMediaCon
   answer(stream?: MediaStream): void {
     if (!this.answerHandler) return;
     this.answerHandler(this, stream).catch((error) => this.emit('error', error));
+  }
+
+  markOpen(): void {
+    if (this.closed || this.established) return;
+    this.established = true;
+    this.emit('open');
   }
 
   close(): void {
@@ -3981,6 +3988,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     await pc.setRemoteDescription(sdp);
     if (!(await this.flushRemoteCandidates(negotiation))) return;
     negotiation.settled = true;
+    mediaConn.markOpen();
   }
 
   private closeMediaCall(peerId: string, callId: string, notifyRemote: boolean): void {

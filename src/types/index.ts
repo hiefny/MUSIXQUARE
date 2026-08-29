@@ -846,6 +846,8 @@ export interface ProtocolMap {
     version: 2;
     /** `all` lets a LAN guest consume the publication instead of P2P. */
     audience?: 'remote' | 'all';
+    /** Authenticated recovery from a failed warm direct-media negotiation. */
+    handoffFromDirect?: true;
     sessionId: string;
     /** The original stereo capture track. */
     track: {
@@ -1627,6 +1629,7 @@ interface BaseEventMap {
   'system-audio:incoming-call': [mediaConn: unknown, channel: string];
   'system-audio:receive-timeout': [];
   'system-audio:sfu-fallback': [reason: string];
+  'system-audio:sfu-peer-needed': [peerId: string, reason: string];
   'system-audio:delivery-handoff': [];
   'system-audio:host-started': [];
   'system-audio:host-stopped': [];

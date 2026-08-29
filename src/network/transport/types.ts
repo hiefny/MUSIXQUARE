@@ -361,10 +361,13 @@ export interface TransportMediaConnection {
 
   answer(stream?: MediaStream): void;
   close(): void;
+  /** Emitted by transports when the outgoing media offer is acknowledged. */
+  on(event: 'open', callback: () => void): void;
   on(event: 'stream', callback: (stream: MediaStream) => void): void;
   on(event: 'close', callback: () => void): void;
   on(event: 'error', callback: (error: unknown) => void): void;
   off?(event: 'stream', callback: (stream: MediaStream) => void): void;
+  off?(event: 'open', callback: () => void): void;
   off?(event: 'close', callback: () => void): void;
   off?(event: 'error', callback: (error: unknown) => void): void;
 }

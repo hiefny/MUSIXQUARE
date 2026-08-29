@@ -1,8 +1,10 @@
 import type { ConnectedPeer } from '../types/index.ts';
 
 /**
- * A direct system-audio call costs the host one MediaConnection. Keep that
- * fanout bounded even when the room itself can contain many more devices.
+ * A direct system-audio call reuses the participant's already-connected
+ * RTCPeerConnection. Keep the legacy fanout ceiling as a final guard, while
+ * preferring that warm path for every currently supported system-audio room
+ * (the product limit is lower than this ceiling).
  */
 const MAX_DIRECT_SYSTEM_AUDIO_GUESTS = 8;
 
@@ -16,28 +18,36 @@ const directPeerIds = new Set<string>();
 const sfuPeerIds = new Set<string>();
 const sfuAudienceByPeerId = new Map<string, 'remote' | 'all'>();
 const fallbackDirectPeerIds = new Set<string>();
+const failedDirectPeerIds = new Set<string>();
 const localSfuCapablePeerIds = new Set<string>();
 let guestShareRoute: GuestSystemAudioShareRoute = 'unselected';
+let guestRejectLateDirectRoute = false;
 
 export function getGuestSystemAudioShareRoute(): GuestSystemAudioShareRoute {
   return guestShareRoute;
 }
 
-export function freezeGuestSystemAudioSfuRoute(audience: 'remote' | 'all'): boolean {
+export function freezeGuestSystemAudioSfuRoute(
+  audience: 'remote' | 'all',
+  rejectLateDirectRoute = false,
+): boolean {
   const requested: GuestSystemAudioShareRoute = audience === 'all' ? 'sfu-all' : 'sfu-remote';
   if (guestShareRoute === 'unselected') guestShareRoute = requested;
-  return guestShareRoute === requested;
+  const accepted = guestShareRoute === requested;
+  if (accepted && rejectLateDirectRoute) guestRejectLateDirectRoute = true;
+  return accepted;
 }
 
 /** False means an all-audience SFU route already won and direct must be closed. */
 export function claimGuestDirectSystemAudioRoute(): boolean {
-  if (guestShareRoute === 'sfu-all') return false;
+  if (guestShareRoute === 'sfu-all' || guestRejectLateDirectRoute) return false;
   guestShareRoute = 'direct';
   return true;
 }
 
 export function resetGuestSystemAudioShareRoute(): void {
   guestShareRoute = 'unselected';
+  guestRejectLateDirectRoute = false;
 }
 
 function isConnected(peer: ConnectedPeer): boolean {
@@ -82,6 +92,7 @@ export function beginSystemAudioShareDelivery(
   sfuPeerIds.clear();
   sfuAudienceByPeerId.clear();
   fallbackDirectPeerIds.clear();
+  failedDirectPeerIds.clear();
 
   const connected = peers.filter(isConnected);
   const localPeers = connected.filter((peer) => peer.connectionType === 'local');
@@ -116,7 +127,17 @@ export function beginSystemAudioShareDelivery(
       sfuAudienceByPeerId.set(peer.id, 'all');
     }
   }
+  // The system-audio product limit currently allows fewer listeners than the
+  // direct fanout ceiling. Remote and not-yet-classified peers already own a
+  // live RTCPeerConnection (including TURN when needed), so adding the audio
+  // track there avoids rebuilding a second five-request SFU control plane.
+  // Keep SFU as the overflow/failure route for a future larger room.
   for (const peer of connected) {
+    if (directPeerIds.has(peer.id)) continue;
+    if (hasDirectCapacity()) {
+      directPeerIds.add(peer.id);
+      continue;
+    }
     if (peer.connectionType === 'remote') {
       sfuPeerIds.add(peer.id);
       sfuAudienceByPeerId.set(peer.id, 'remote');
@@ -153,12 +174,18 @@ export function resolveSystemAudioPeerDelivery(
     return 'sfu';
   }
 
-  if (peer.connectionType === 'remote') {
-    sfuPeerIds.add(peer.id);
-    sfuAudienceByPeerId.set(peer.id, 'remote');
-    return 'sfu';
+  if (peer.connectionType !== 'local') {
+    if (hasDirectCapacity()) {
+      directPeerIds.add(peer.id);
+      return 'direct';
+    }
+    if (peer.connectionType === 'remote') {
+      sfuPeerIds.add(peer.id);
+      sfuAudienceByPeerId.set(peer.id, 'remote');
+      return 'sfu';
+    }
+    return 'pending';
   }
-  if (peer.connectionType !== 'local') return 'pending';
 
   if (shareDelivery === 'all-sfu') {
     if (!localSfuCapablePeerIds.has(peer.id)) {
@@ -196,6 +223,34 @@ export function releaseSystemAudioPeerDelivery(peerId: string): void {
   sfuPeerIds.delete(peerId);
   sfuAudienceByPeerId.delete(peerId);
   fallbackDirectPeerIds.delete(peerId);
+  failedDirectPeerIds.delete(peerId);
+}
+
+export function isSystemAudioDirectFailurePeer(peerId: string): boolean {
+  return failedDirectPeerIds.has(peerId);
+}
+
+/**
+ * Move one failed warm direct call onto the existing SFU recovery plane.
+ * The caller must then publish/send an authenticated SFU_READY handoff frame.
+ */
+export function promoteSystemAudioPeerDeliveryToSfu(peer: ConnectedPeer | undefined): boolean {
+  if (!peer || !shareActive || !isConnected(peer)) return false;
+  if (sfuPeerIds.has(peer.id)) {
+    fallbackDirectPeerIds.delete(peer.id);
+    failedDirectPeerIds.add(peer.id);
+    return true;
+  }
+
+  const audience = peer.connectionType === 'local' ? 'all' : 'remote';
+  if (audience === 'all' && !localSfuCapablePeerIds.has(peer.id)) return false;
+
+  directPeerIds.delete(peer.id);
+  fallbackDirectPeerIds.delete(peer.id);
+  failedDirectPeerIds.add(peer.id);
+  sfuPeerIds.add(peer.id);
+  sfuAudienceByPeerId.set(peer.id, audience);
+  return true;
 }
 
 /** Reserve one of the same eight direct calls for an SFU failure fallback. */
@@ -221,6 +276,7 @@ export function endSystemAudioShareDelivery(): void {
   sfuPeerIds.clear();
   sfuAudienceByPeerId.clear();
   fallbackDirectPeerIds.clear();
+  failedDirectPeerIds.clear();
 }
 
 export function getSystemAudioShareDeliverySnapshot() {

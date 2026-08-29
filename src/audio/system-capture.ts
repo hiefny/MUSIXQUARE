@@ -35,6 +35,7 @@ import {
 } from '../player/ownership.ts';
 import { broadcast } from '../network/peer.ts';
 import { createSystemAudioStartFrame } from '../network/system-audio-start.ts';
+import { getSystemAudioShareDeliverySnapshot } from '../network/system-audio-delivery.ts';
 import { broadcastSystemMessage } from '../chat/protocol.ts';
 import { getQueueItemById } from '../player/queue-model.ts';
 import { getRoomContext, isCoordinator } from '../rooms/authority.ts';
@@ -91,6 +92,7 @@ let _preSysAudioState: PreSystemAudioState | null = null;
 let _captureStartPromise: Promise<void> | null = null;
 let _captureStartEpoch = 0;
 let _captureRoomKind: 'standard' | 'pro' | null = null;
+let _standardMeteredRouteExpiresAt: number | null = null;
 let _captureTrackEndedCleanup: (() => void) | null = null;
 const SYSTEM_AUDIO_SHARE_LIMIT_TIMER = 'system-audio-host-share-limit';
 
@@ -249,6 +251,28 @@ function syncProSystemAudioShareLimitTimer(): void {
   }
   // PRO LAN-direct uses Cloudflare only for authority/signaling and carries
   // no metered media packets, so it has no fixed sharing-duration timer.
+  clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
+}
+
+function syncStandardSystemAudioShareLimitTimer(): void {
+  if (_captureRoomKind !== 'standard' || !_capturedStream) return;
+  const connectedPeers = getState('network.connectedPeers').filter(
+    (peer) => peer.status === 'connected' && peer.conn?.open === true,
+  );
+  const connectedPeerIds = new Set(connectedPeers.map((peer) => peer.id));
+  const hasMeteredOrUnresolvedRoute =
+    getSystemAudioShareDeliverySnapshot().sfuPeerIds.some((peerId) =>
+      connectedPeerIds.has(peerId),
+    ) || connectedPeers.some((peer) => peer.connectionType !== 'local');
+  if (hasMeteredOrUnresolvedRoute) {
+    _standardMeteredRouteExpiresAt ??= Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS;
+    startSystemAudioShareLimitTimer(_standardMeteredRouteExpiresAt);
+    return;
+  }
+  // A LAN-only direct share never sends media through Cloudflare. Keep the
+  // safety cutoff for remote/unknown routes, but do not stop an unmetered LAN
+  // session merely because the compatibility timestamp elapsed.
+  _standardMeteredRouteExpiresAt = null;
   clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
 }
 
@@ -627,6 +651,7 @@ async function performSystemAudioCaptureStart(
   // room-wide stop lifecycle is armed only after publication commits.
   _captureTrackEndedCleanup = detachTrackEndedListener;
   _captureRoomKind = isProRoom ? 'pro' : 'standard';
+  _standardMeteredRouteExpiresAt = null;
   _debugLastCaptureStartedAt = Date.now();
   _sourceNode = ctx.createMediaStreamSource(stream);
 
@@ -738,7 +763,7 @@ async function performSystemAudioCaptureStart(
     broadcastSystemMessage('chat.system_audio_started_system_message');
   }
   if (!isProRoom) {
-    startSystemAudioShareLimitTimer();
+    syncStandardSystemAudioShareLimitTimer();
   } else if (authoritativeSfuLiveExpiresAt !== null) {
     startSystemAudioShareLimitTimer(authoritativeSfuLiveExpiresAt);
   } else {
@@ -894,6 +919,7 @@ function muteLocalOutput(mute: boolean): void {
 // ─── Internals ────────────────────────────────────────────────────
 
 function cleanupCapture(): void {
+  _standardMeteredRouteExpiresAt = null;
   // Detach before stopping the native track so cleanup cannot recursively
   // re-enter the shared stop lifecycle in browsers that report stop as ended.
   const cleanupTrackEnded = _captureTrackEndedCleanup;
@@ -989,6 +1015,12 @@ export function registerSystemCaptureListeners(): void {
     log.info('[SystemAudio] Device limit exceeded; stopping active share');
     bus.emit('system-audio:stop', { reason: 'device-limit' });
   });
+  bus.on('network:peer-connected', syncStandardSystemAudioShareLimitTimer);
+  bus.on('network:peer-disconnected', syncStandardSystemAudioShareLimitTimer);
+  bus.on('state:network.connectedPeers', syncStandardSystemAudioShareLimitTimer);
+  bus.on('orchestrator:peer-joined', syncStandardSystemAudioShareLimitTimer);
+  bus.on('orchestrator:peer-evaluated', syncStandardSystemAudioShareLimitTimer);
+  bus.on('system-audio:sfu-peer-needed', syncStandardSystemAudioShareLimitTimer);
   bus.on('state:room.context', stopAfterCoordinatorAuthorityLoss);
   bus.on('state:network.appRole', stopAfterCoordinatorAuthorityLoss);
   bus.on('state:network.hostConn', stopAfterCoordinatorAuthorityLoss);

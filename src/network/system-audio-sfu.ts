@@ -23,6 +23,7 @@ import { safeSend } from './peer-state.ts';
 import { createSystemAudioStartFrame } from './system-audio-start.ts';
 import {
   awaitTrustedSystemAudioReceptionBoundary,
+  beginTrustedSystemAudioReception,
   cleanupGuestSystemAudio,
 } from './system-audio-guest.ts';
 import {
@@ -33,7 +34,9 @@ import {
   getFrozenSystemAudioSfuAudience,
   getGuestSystemAudioShareRoute,
   getSystemAudioShareDeliverySnapshot,
+  isSystemAudioDirectFailurePeer,
   markLocalSystemAudioSfuCapable,
+  releaseSystemAudioPeerDelivery,
   resolveSystemAudioPeerDelivery,
   resetGuestSystemAudioShareRoute,
   unmarkLocalSystemAudioSfuCapable,
@@ -45,7 +48,7 @@ import {
   type WebRtcAudioDecoderPrimer,
 } from './webrtc-audio-decoder-primer.ts';
 import type { DataConnection, ProtocolMsg } from '../types/index.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, isStandardRoomRole } from '../rooms/authority.ts';
 import { readBoundedJsonResponse, withRequestDeadline } from '../core/request-lifetime.ts';
 import { localFirstApiEndpoints } from './api-endpoints.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
@@ -131,6 +134,7 @@ let guestAllowsLocalAudience = false;
 let guestLimitTimerActive = false;
 let guestLimitBlockedHostConn: DataConnection | null = null;
 let guestDecoderPrimer: WebRtcAudioDecoderPrimer | null = null;
+const directFailureHandoffPeerIds = new Set<string>();
 
 export function getSystemAudioSfuDebugSnapshot() {
   return {
@@ -384,11 +388,18 @@ function applyAudioSenderTuning(sender: RTCRtpSender): void {
 function makeReadyMessage(
   publication: HostPublication,
   audience: 'remote' | 'all',
+  handoffFromDirect = false,
+  fenceFailedDirectRoute = false,
 ): ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY> {
   return {
     type: MSG.SYSTEM_AUDIO_SFU_READY,
     version: 2,
-    audience,
+    // `all` is also a rolling-release fence: older guests already reject a
+    // late direct call after an all-audience route freezes, while they do not
+    // understand the newer explicit handoff marker yet. The frame is still
+    // sent only to this failed-direct peer and uses the same publication.
+    audience: fenceFailedDirectRoute ? 'all' : audience,
+    ...(handoffFromDirect ? { handoffFromDirect: true as const } : {}),
     sessionId: publication.sessionId,
     track: publication.track,
   };
@@ -426,14 +437,32 @@ function hasLocalSfuHostPeers(): boolean {
 
 function broadcastSfuReady(publication: HostPublication): void {
   for (const peer of getSfuHostPeers()) {
-    safeSend(peer.conn, makeReadyMessage(publication, peer.audience));
+    const handoffFromDirect = directFailureHandoffPeerIds.has(peer.id);
+    const fenceFailedDirectRoute = isSystemAudioDirectFailurePeer(peer.id);
+    if (
+      safeSend(
+        peer.conn,
+        makeReadyMessage(publication, peer.audience, handoffFromDirect, fenceFailedDirectRoute),
+      )
+    ) {
+      directFailureHandoffPeerIds.delete(peer.id);
+    }
   }
 }
 
 function broadcastSfuReadyToLocalPeers(publication: HostPublication): void {
   for (const peer of getSfuHostPeers()) {
     if (peer.audience === 'all') {
-      safeSend(peer.conn, makeReadyMessage(publication, peer.audience));
+      const handoffFromDirect = directFailureHandoffPeerIds.has(peer.id);
+      const fenceFailedDirectRoute = isSystemAudioDirectFailurePeer(peer.id);
+      if (
+        safeSend(
+          peer.conn,
+          makeReadyMessage(publication, peer.audience, handoffFromDirect, fenceFailedDirectRoute),
+        )
+      ) {
+        directFailureHandoffPeerIds.delete(peer.id);
+      }
     }
   }
 }
@@ -449,7 +478,16 @@ function sendSfuReadyToPeer(peerId: string, publication: HostPublication): void 
   if (!audience) return;
   const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
   if (!peer) return;
-  safeSend(peer.conn, makeReadyMessage(publication, audience));
+  const handoffFromDirect = directFailureHandoffPeerIds.has(peerId);
+  const fenceFailedDirectRoute = isSystemAudioDirectFailurePeer(peerId);
+  if (
+    safeSend(
+      peer.conn,
+      makeReadyMessage(publication, audience, handoffFromDirect, fenceFailedDirectRoute),
+    )
+  ) {
+    directFailureHandoffPeerIds.delete(peerId);
+  }
 }
 
 function closeOwnedRealtimeTracks(
@@ -1153,14 +1191,27 @@ function handleSfuReady(
 
   const payload = normalizeSfuReadyPayload(data);
   if (!payload) return;
-  if (getGuestSystemAudioShareRoute() === 'direct') return;
+  const directFailureHandoff = data.handoffFromDirect === true;
+  if (getGuestSystemAudioShareRoute() === 'direct') {
+    if (!directFailureHandoff) return;
+    const surface = getState('player.currentTrackMeta')?.systemAudioSurface;
+    cleanupGuestSystemAudio();
+    resetGuestSystemAudioShareRoute();
+    beginTrustedSystemAudioReception(surface);
+  }
   if (getGuestSystemAudioShareRoute() === 'unselected') {
-    if (getState('network.connectionType') === 'local' && payload.audience !== 'all') return;
+    if (
+      getState('network.connectionType') === 'local' &&
+      payload.audience !== 'all' &&
+      !directFailureHandoff
+    ) {
+      return;
+    }
     // Freeze synchronously, before TURN config or RTCPeerConnection creation.
     // Otherwise a stale direct call can win the await window and cancel the
     // correct all-audience subscription.
   }
-  if (!freezeGuestSystemAudioSfuRoute(payload.audience)) {
+  if (!freezeGuestSystemAudioSfuRoute(payload.audience, directFailureHandoff)) {
     return;
   }
 
@@ -1250,6 +1301,14 @@ export function registerSystemAudioSfuListeners(): void {
     publishToEligiblePeer(peerId);
   });
 
+  bus.on('system-audio:sfu-peer-needed', (peerId: string, reason: string) => {
+    if (getRoomContext().kind === 'pro') return;
+    if (!isStandardRoomRole('host')) return;
+    directFailureHandoffPeerIds.add(peerId);
+    log.warn(`[SysAudioSFU] Direct route failed; handing ${peerId.slice(0, 8)} to SFU: ${reason}`);
+    publishToEligiblePeer(peerId);
+  });
+
   bus.on('network:peer-connected', (conn: DataConnection) => {
     if (getRoomContext().kind === 'pro') return;
     if (getState('network.appRole') !== 'guest') return;
@@ -1263,6 +1322,7 @@ export function registerSystemAudioSfuListeners(): void {
   });
 
   bus.on('network:peer-disconnected', (peerId: string) => {
+    directFailureHandoffPeerIds.delete(peerId);
     if (getState('network.appRole') === 'host') {
       unmarkLocalSystemAudioSfuCapable(peerId);
       if (!hasSfuHostPeers()) cleanupHostSfu();
@@ -1275,7 +1335,9 @@ export function registerSystemAudioSfuListeners(): void {
   });
 
   bus.on('network:peer-connection-replaced', (peerId: string) => {
+    directFailureHandoffPeerIds.delete(peerId);
     if (getState('network.appRole') !== 'host') return;
+    releaseSystemAudioPeerDelivery(peerId);
     unmarkLocalSystemAudioSfuCapable(peerId);
     if (!hasSfuHostPeers()) cleanupHostSfu();
   });
@@ -1301,12 +1363,14 @@ export function registerSystemAudioSfuListeners(): void {
     cleanupGuestSfu();
   });
   bus.on('system-audio:force-stop', () => {
+    directFailureHandoffPeerIds.clear();
     cleanupHostSfu();
     cleanupGuestSfu();
     resetGuestSystemAudioShareRoute();
     endSystemAudioShareDelivery();
   });
   bus.on('system-audio:stop', () => {
+    directFailureHandoffPeerIds.clear();
     cleanupHostSfu();
     cleanupGuestSfu();
     resetGuestSystemAudioShareRoute();

@@ -736,11 +736,13 @@ describe('system-audio SFU frame validation', () => {
     for (const audience of [undefined, 'remote', 'all']) {
       await handleData({ ...valid, audience }, conn);
     }
+    await handleData({ ...valid, audience: 'remote', handoffFromDirect: true }, conn);
     for (const audience of ['local', 'everyone', true]) {
       await handleData({ ...valid, audience }, conn);
     }
+    await handleData({ ...valid, audience: 'remote', handoffFromDirect: false }, conn);
 
-    expect(handler).toHaveBeenCalledTimes(3);
+    expect(handler).toHaveBeenCalledTimes(4);
   });
 
   it('requires exactly one original stereo publication track', async () => {

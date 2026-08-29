@@ -132,6 +132,13 @@ interface LocalLeaseAttemptOwner {
   epoch: number;
   controller: ProRoomSystemAudioController | null;
   identity: LocalLeaseIdentity | null;
+  publisherPreflight: ProSystemAudioSfuPublisherPreflight | null;
+}
+
+function cancelLeaseAttemptPublisherPreflight(owner: LocalLeaseAttemptOwner | null): void {
+  if (!owner?.publisherPreflight) return;
+  cancelProSystemAudioSfuPublisherPreflight(owner.publisherPreflight);
+  owner.publisherPreflight = null;
 }
 
 interface CoordinatorPublicationIdentity {
@@ -1020,6 +1027,7 @@ function onControllerState(view: ProRoomSystemAudioViewState): void {
 }
 
 function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
+  cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
   clearManagedTimer(LEASE_HEARTBEAT_TIMER);
   clearManagedTimer(LEASE_RELEASE_RETRY_TIMER);
   clearManagedTimer(PUBLISHER_RETRY_TIMER);
@@ -1088,6 +1096,7 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     queuedForcedRefresh = null;
     oversizedDirectRefreshFlight = null;
     serviceSessionEpoch += 1;
+    cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
     localLeaseAttemptOwner = null;
     expectedLeaseTransitions.clear();
     cancelPublisherRecovery();
@@ -1123,6 +1132,7 @@ export function resetProSystemAudioService(): void {
   const hadLocalActivity = Boolean(localTrack || localPublishFlight || publisherRecoveryFlight);
   const controllerWillNotifyLeaseLoss = Boolean(controller?.getCurrentLease());
   serviceSessionEpoch += 1;
+  cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
   localLeaseAttemptOwner = null;
   expectedLeaseTransitions.clear();
   cancelPublisherRecovery();
@@ -1237,10 +1247,17 @@ function beginLocalProSystemAudioLeaseAttempt(signal?: AbortSignal): ProSystemAu
   const epoch = serviceSessionEpoch;
   const token = Symbol('local-system-audio-lease-attempt');
   const existingLease = activeController?.getCurrentLease();
+  cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
   const owner: LocalLeaseAttemptOwner = {
     token,
     epoch,
     controller: activeController,
+    // The native display picker opens after this lease attempt begins. Warm
+    // only capability/TURN configuration underneath that user-controlled
+    // interval; no Cloudflare Realtime session is allocated on a LAN success.
+    publisherPreflight: activeController
+      ? beginProSystemAudioSfuPublisherPreflight()
+      : null,
     identity:
       existingLease?.hasCredential && isServiceSessionCurrent(epoch)
         ? {
@@ -1252,24 +1269,30 @@ function beginLocalProSystemAudioLeaseAttempt(signal?: AbortSignal): ProSystemAu
   };
   localLeaseAttemptOwner = owner;
 
-  const result = acquireLocalProSystemAudioLease(signal).then((state) => {
-    const lease = activeController?.getCurrentLease();
-    if (
-      controller === activeController &&
-      isServiceSessionCurrent(epoch) &&
-      lease?.hasCredential &&
-      state.status !== 'idle' &&
-      lease.roomCode === latestSnapshot?.roomCode &&
-      lease.generation === state.generation
-    ) {
-      owner.identity = {
-        epoch,
-        roomCode: lease.roomCode,
-        generation: lease.generation,
-      };
-    }
-    return state;
-  });
+  const result = acquireLocalProSystemAudioLease(signal).then(
+    (state) => {
+      const lease = activeController?.getCurrentLease();
+      if (
+        controller === activeController &&
+        isServiceSessionCurrent(epoch) &&
+        lease?.hasCredential &&
+        state.status !== 'idle' &&
+        lease.roomCode === latestSnapshot?.roomCode &&
+        lease.generation === state.generation
+      ) {
+        owner.identity = {
+          epoch,
+          roomCode: lease.roomCode,
+          generation: lease.generation,
+        };
+      }
+      return state;
+    },
+    (error) => {
+      cancelLeaseAttemptPublisherPreflight(owner);
+      throw error;
+    },
+  );
   let releaseFlight: Promise<ProRoomSystemAudioState | null> | null = null;
 
   return {
@@ -1386,8 +1409,23 @@ export async function publishLocalProSystemAudio(
   localPublicationId = publicationId;
   try {
     const directTargets = currentDirectTargets();
-    let sfuPreflight: ProSystemAudioSfuPublisherPreflight | null =
-      directTargets.length > 0 ? beginProSystemAudioSfuPublisherPreflight() : null;
+    const leaseAttemptOwner = localLeaseAttemptOwner;
+    let sfuPreflight: ProSystemAudioSfuPublisherPreflight | null = null;
+    if (
+      directTargets.length > 0 &&
+      leaseAttemptOwner &&
+      leaseAttemptOwner.controller === activeController &&
+      leaseAttemptOwner.epoch === epoch &&
+      leaseAttemptOwner.identity?.roomCode === lease.roomCode &&
+      leaseAttemptOwner.identity.generation === lease.generation
+    ) {
+      sfuPreflight = leaseAttemptOwner.publisherPreflight;
+      leaseAttemptOwner.publisherPreflight = null;
+    } else if (directTargets.length > 0) {
+      sfuPreflight = beginProSystemAudioSfuPublisherPreflight();
+    } else {
+      cancelLeaseAttemptPublisherPreflight(leaseAttemptOwner);
+    }
     activeLocalDirectPublicationKey = null;
     let publication: ProRoomSystemAudioPublication | null = null;
     try {
@@ -1492,6 +1530,7 @@ async function releaseLocalProSystemAudioLeaseInternal(
   scopedOwner: LocalLeaseAttemptOwner | null = null,
 ): Promise<ProRoomSystemAudioState | null> {
   if (scopedOwner) {
+    cancelLeaseAttemptPublisherPreflight(scopedOwner);
     const identity = scopedOwner.identity;
     if (
       localLeaseAttemptOwner !== scopedOwner ||
@@ -1577,6 +1616,7 @@ async function releaseLocalProSystemAudioLeaseInternal(
 export function releaseLocalProSystemAudioLease(): Promise<ProRoomSystemAudioState | null> {
   // Explicit stop owns the current live capture, including a generation that
   // publisher recovery may have rotated beyond its original acquire handle.
+  cancelLeaseAttemptPublisherPreflight(localLeaseAttemptOwner);
   localLeaseAttemptOwner = null;
   return releaseLocalProSystemAudioLeaseInternal(null);
 }

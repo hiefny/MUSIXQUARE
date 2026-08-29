@@ -2,13 +2,17 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { ConnectedPeer } from '../../types/index.ts';
 import {
   beginSystemAudioShareDelivery,
+  claimGuestDirectSystemAudioRoute,
   endSystemAudioShareDelivery,
+  freezeGuestSystemAudioSfuRoute,
   getFrozenSystemAudioSfuAudience,
   getRemainingDirectSystemAudioCapacity,
   getSystemAudioShareDeliverySnapshot,
+  isSystemAudioDirectFailurePeer,
   markLocalSystemAudioSfuCapable,
-  reserveSystemAudioFallbackDirect,
+  promoteSystemAudioPeerDeliveryToSfu,
   resetLocalSystemAudioSfuCapabilities,
+  resetGuestSystemAudioShareRoute,
   resolveSystemAudioPeerDelivery,
 } from '../system-audio-delivery.ts';
 
@@ -30,6 +34,7 @@ function peer(
 afterEach(() => {
   endSystemAudioShareDelivery();
   resetLocalSystemAudioSfuCapabilities();
+  resetGuestSystemAudioShareRoute();
 });
 
 describe('bounded system-audio delivery policy', () => {
@@ -101,20 +106,20 @@ describe('bounded system-audio delivery policy', () => {
     expect(getRemainingDirectSystemAudioCapacity(['fallback-a', 'fallback-b'])).toBe(0);
   });
 
-  it('never lets fallback reservations plus a late local route exceed eight direct calls', () => {
-    const remote = Array.from({ length: 8 }, (_, index) => peer(`remote-${index + 1}`, 'remote'));
+  it('keeps a ninth remote on SFU and never lets a late local route exceed eight direct calls', () => {
+    const remote = Array.from({ length: 9 }, (_, index) => peer(`remote-${index + 1}`, 'remote'));
     beginSystemAudioShareDelivery(remote);
-    remote.forEach((item) => {
-      expect(resolveSystemAudioPeerDelivery(item)).toBe('sfu');
-      expect(reserveSystemAudioFallbackDirect(item.id)).toBe(true);
+    remote.slice(0, 8).forEach((item) => {
       expect(resolveSystemAudioPeerDelivery(item)).toBe('direct');
     });
+    expect(resolveSystemAudioPeerDelivery(remote[8])).toBe('sfu');
 
     const lateLocal = peer('late-local');
     expect(resolveSystemAudioPeerDelivery(lateLocal)).toBe('unsupported');
     const snapshot = getSystemAudioShareDeliverySnapshot();
-    expect(snapshot.fallbackDirectPeerIds).toHaveLength(8);
-    expect(snapshot.directPeerIds).toHaveLength(0);
+    expect(snapshot.fallbackDirectPeerIds).toHaveLength(0);
+    expect(snapshot.directPeerIds).toHaveLength(8);
+    expect(snapshot.sfuPeerIds).toEqual([remote[8].id]);
     expect(getRemainingDirectSystemAudioCapacity()).toBe(0);
   });
 
@@ -138,9 +143,36 @@ describe('bounded system-audio delivery policy', () => {
     expect(getSystemAudioShareDeliverySnapshot().sfuPeerIds).not.toContain(local.id);
   });
 
-  it('keeps a live SFU route frozen when ICE relabels that peer as local', () => {
-    const remote = peer('moving-sfu', 'remote');
+  it('promotes a failed warm remote direct route to the SFU without duplicate delivery', () => {
+    const remote = peer('failed-direct-remote', 'remote');
     beginSystemAudioShareDelivery([remote]);
+    expect(resolveSystemAudioPeerDelivery(remote)).toBe('direct');
+
+    expect(promoteSystemAudioPeerDeliveryToSfu(remote)).toBe(true);
+    expect(isSystemAudioDirectFailurePeer(remote.id)).toBe(true);
+    expect(resolveSystemAudioPeerDelivery(remote)).toBe('sfu');
+    expect(getFrozenSystemAudioSfuAudience(remote.id)).toBe('remote');
+    expect(getSystemAudioShareDeliverySnapshot()).toMatchObject({
+      directPeerIds: [],
+      sfuPeerIds: [remote.id],
+    });
+  });
+
+  it('rejects a late direct call after explicit failure handoff while preserving ordinary fallback', () => {
+    expect(freezeGuestSystemAudioSfuRoute('remote', true)).toBe(true);
+    expect(claimGuestDirectSystemAudioRoute()).toBe(false);
+
+    resetGuestSystemAudioShareRoute();
+    expect(freezeGuestSystemAudioSfuRoute('remote')).toBe(true);
+    expect(claimGuestDirectSystemAudioRoute()).toBe(true);
+  });
+
+  it('keeps a live SFU route frozen when ICE relabels that peer as local', () => {
+    const remotes = Array.from({ length: 9 }, (_, index) =>
+      peer(`moving-sfu-${index + 1}`, 'remote'),
+    );
+    const remote = remotes[8];
+    beginSystemAudioShareDelivery(remotes);
     expect(resolveSystemAudioPeerDelivery(remote)).toBe('sfu');
     expect(getFrozenSystemAudioSfuAudience(remote.id)).toBe('remote');
 

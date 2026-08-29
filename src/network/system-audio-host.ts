@@ -9,7 +9,7 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { MSG } from '../core/constants.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { getPeer, safeSend } from './peer-state.ts';
 import { createSystemAudioStartFrame } from './system-audio-start.ts';
 import { isSystemAudioActive, getCapturedAudioStream } from '../audio/system-capture.ts';
@@ -20,13 +20,57 @@ import {
   getFrozenSystemAudioSfuAudience,
   getSystemAudioShareDeliverySnapshot,
   getRemainingDirectSystemAudioCapacity,
+  isSystemAudioDirectFailurePeer,
+  promoteSystemAudioPeerDeliveryToSfu,
   releaseSystemAudioPeerDelivery,
   reserveSystemAudioFallbackDirect,
   resolveSystemAudioPeerDelivery,
 } from './system-audio-delivery.ts';
 
 import { forceStereoSdp } from './peer.ts';
-import { getRoomContext } from '../rooms/authority.ts';
+import { getRoomContext, isStandardRoomRole } from '../rooms/authority.ts';
+
+const DIRECT_CALL_CONNECT_TIMEOUT_MS = 5_000;
+
+function directCallTimerName(peerId: string): string {
+  return `sys-audio-direct-connect:${peerId}`;
+}
+
+function directPeerConnectionIsReady(pc: RTCPeerConnection): boolean {
+  return (
+    pc.connectionState === 'connected' ||
+    pc.iceConnectionState === 'connected' ||
+    pc.iceConnectionState === 'completed'
+  );
+}
+
+function armDirectCallConnectTimeout(peerId: string, mediaConn: MediaConnection): void {
+  const pc = mediaConn.peerConnection;
+  if (!pc) return;
+  const reusedConnectedPeerConnection = directPeerConnectionIsReady(pc);
+  mediaConn.on('open', () => {
+    if (_mediaConns.get(peerId) !== mediaConn) return;
+    clearManagedTimer(directCallTimerName(peerId));
+  });
+  setManagedTimer(
+    directCallTimerName(peerId),
+    () => {
+      if (_mediaConns.get(peerId) !== mediaConn) return;
+      // PeerJS creates a fresh PC for media, so reaching connected proves the
+      // call opened. The Cloudflare adapter reuses an already-connected data
+      // PC and emits mediaConn.open only after the media answer is applied.
+      if (!reusedConnectedPeerConnection && directPeerConnectionIsReady(pc)) return;
+      _mediaConns.delete(peerId);
+      try {
+        mediaConn.close();
+      } catch {
+        /* noop */
+      }
+      handoffFailedDirectCall(peerId, 'connect-timeout');
+    },
+    DIRECT_CALL_CONNECT_TIMEOUT_MS,
+  );
+}
 
 // ─── SDP Munging & Track Constraints ──────────────────────────────
 
@@ -198,8 +242,8 @@ function callGuest(guestPeerId: string): void {
   const peer = getPeer();
   const capturedAudioStream = getCapturedAudioStream();
   if (!peer) {
-    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
-    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'no-peer' });
+    handoffFailedDirectCall(guestPeerId, 'no-peer');
+    pushDebugCall({ ...debugBase, action: 'error', reason: 'no-peer' });
     return;
   }
   if (!capturedAudioStream) {
@@ -209,8 +253,8 @@ function callGuest(guestPeerId: string): void {
   }
   if (!peer.call) {
     log.warn('[SysAudioHost] Current transport does not support direct media calls');
-    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
-    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'no-call-support' });
+    handoffFailedDirectCall(guestPeerId, 'no-call-support');
+    pushDebugCall({ ...debugBase, action: 'error', reason: 'no-call-support' });
     return;
   }
   if (_mediaConns.has(guestPeerId)) {
@@ -225,6 +269,7 @@ function callGuest(guestPeerId: string): void {
 
     applySdpMunge(mc);
     _mediaConns.set(guestPeerId, mc);
+    armDirectCallConnectTimeout(guestPeerId, mc);
     pushDebugCall({ ...debugBase, action: 'call', metadataType: 'system-audio-stereo' });
     mc.on('close', () => {
       pushDebugCall({
@@ -232,34 +277,63 @@ function callGuest(guestPeerId: string): void {
         action: 'close',
         metadataType: readMetadataType(mc.metadata),
       });
-      if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
+      if (_mediaConns.get(guestPeerId) !== mc) return;
+      clearManagedTimer(directCallTimerName(guestPeerId));
+      _mediaConns.delete(guestPeerId);
+      handoffFailedDirectCall(guestPeerId, 'media-connection-closed');
     });
     mc.on('error', (error: unknown) => {
+      if (_mediaConns.get(guestPeerId) !== mc) return;
+      clearManagedTimer(directCallTimerName(guestPeerId));
       pushDebugCall({
         ...debugBase,
         action: 'error',
         metadataType: readMetadataType(mc.metadata),
         error: errorToDebugString(error),
       });
+      _mediaConns.delete(guestPeerId);
       try {
         mc.close();
       } catch {
         /* noop */
       }
-      if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
+      handoffFailedDirectCall(guestPeerId, errorToDebugString(error));
     });
 
     log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: original stereo stream`);
   } catch (e) {
     log.warn(`[SysAudioHost] Call failed for ${guestPeerId}:`, e);
-    if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
+    handoffFailedDirectCall(guestPeerId, errorToDebugString(e));
     pushDebugCall({
       ...debugBase,
-      action: 'stop-sent',
+      action: 'error',
       reason: 'call-threw',
       error: errorToDebugString(e),
     });
   }
+}
+
+function handoffFailedDirectCall(peerId: string, reason: string): void {
+  if (!isSystemAudioActive() || !isStandardRoomRole('host')) return;
+  const peer = getState('network.connectedPeers').find((item) => item.id === peerId);
+  if (!peer?.conn?.open || !promoteSystemAudioPeerDeliveryToSfu(peer)) {
+    if (peer?.conn?.open) safeSend(peer.conn, { type: MSG.SYSTEM_AUDIO_STOP });
+    return;
+  }
+  _remoteFallbackPeerIds.delete(peerId);
+  // STOP -> START is deliberate rolling-release compatibility. Older guests
+  // do not understand the explicit handoff marker, but do reset their frozen
+  // direct route at this authenticated lifecycle boundary before SFU_READY.
+  safeSend(peer.conn, { type: MSG.SYSTEM_AUDIO_STOP });
+  safeSend(peer.conn, createSystemAudioStartFrame());
+  pushDebugCall({
+    peerId,
+    peerLabel: peer.label,
+    connectionType: peer.connectionType,
+    action: 'sfu-handoff',
+    reason,
+  });
+  bus.emit('system-audio:sfu-peer-needed', peerId, reason);
 }
 
 function callAllGuests(): void {
@@ -276,6 +350,7 @@ function callRemoteGuestsForFallback(): void {
     if (p.status !== 'connected' || !p.id || getFrozenSystemAudioSfuAudience(p.id) !== 'remote') {
       continue;
     }
+    if (isSystemAudioDirectFailurePeer(p.id)) continue;
     if (resolveSystemAudioPeerDelivery(p) !== 'sfu') continue;
     if (!reserveSystemAudioFallbackDirect(p.id)) continue;
     _remoteFallbackPeerIds.add(p.id);
@@ -294,26 +369,29 @@ function callRemoteGuestsForFallback(): void {
 }
 
 function closeAllMediaConns(): void {
-  for (const mc of _mediaConns.values()) {
+  const mediaConns = [..._mediaConns.entries()];
+  _mediaConns.clear();
+  _remoteFallbackPeerIds.clear();
+  for (const [peerId, mc] of mediaConns) {
+    clearManagedTimer(directCallTimerName(peerId));
     try {
       mc.close();
     } catch {
       /* noop */
     }
   }
-  _mediaConns.clear();
-  _remoteFallbackPeerIds.clear();
 }
 
 function cleanupPeerSystemAudioRoute(peerId: string): void {
   const mc = _mediaConns.get(peerId);
   if (mc) {
+    _mediaConns.delete(peerId);
+    clearManagedTimer(directCallTimerName(peerId));
     try {
       mc.close();
     } catch {
       /* noop */
     }
-    _mediaConns.delete(peerId);
   }
   _remoteFallbackPeerIds.delete(peerId);
   releaseSystemAudioPeerDelivery(peerId);

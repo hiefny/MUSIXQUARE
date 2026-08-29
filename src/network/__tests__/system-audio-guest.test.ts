@@ -23,6 +23,7 @@ import {
   freezeGuestSystemAudioSfuRoute,
   resetGuestSystemAudioShareRoute,
 } from '../system-audio-delivery.ts';
+import { primeWebRtcAudioDecoder } from '../webrtc-audio-decoder-primer.ts';
 
 const timerMocks = vi.hoisted(() => {
   const timers = new Map<string, () => void>();
@@ -317,6 +318,7 @@ describe('system audio guest receive watchdog', () => {
     incoming.emit('stream', muted.stream);
     await flushAsyncStreamHandler();
 
+    expect(primeWebRtcAudioDecoder).toHaveBeenCalledOnce();
     expect(initAudio).not.toHaveBeenCalled();
     expect(muted.listenerCount()).toBe(1);
 

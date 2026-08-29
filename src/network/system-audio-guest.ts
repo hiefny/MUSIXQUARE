@@ -478,6 +478,11 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     if (streamTracks.length === 0) {
       throw new Error('zero-audio-tracks');
     }
+    // Some Chromium builds leave a newly received WebRTC track muted until a
+    // playing media element asks the decoder to consume it. Prime immediately
+    // after validating the tracks so the bounded unmute wait below observes
+    // the decoder wake-up instead of timing out before the primer is attached.
+    primeGuestWindowsAudioDecoder(channel, streamTracks);
     const unmuteWaitAccepted = await waitForInitialUnmute(channel, streamTracks, mediaConn);
     if (!unmuteWaitAccepted || !isCurrentMediaConnection(channel, mediaConn)) return;
 
@@ -520,7 +525,6 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       throw new Error('audio-graph-not-ready');
     }
 
-    primeGuestWindowsAudioDecoder(channel, streamTracks);
     if (_sourceStereo) {
       try {
         _sourceStereo.disconnect();

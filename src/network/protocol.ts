@@ -948,6 +948,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.SYSTEM_AUDIO_SFU_READY]: (d) =>
     d.version === 2 &&
     (d.audience === undefined || d.audience === 'remote' || d.audience === 'all') &&
+    (d.handoffFromDirect === undefined || d.handoffFromDirect === true) &&
     typeof d.sessionId === 'string' &&
     d.sessionId.length > 0 &&
     d.sessionId.length <= 128 &&

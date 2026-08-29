@@ -839,10 +839,73 @@ function addressesProveSameLan(localAddress: string, remoteAddress: string): boo
   );
 }
 
+type SelectedPairLocality = 'same-subnet' | 'non-local' | 'pending';
+
+function authoritativePairLocality(
+  pair: RTCIceCandidatePair,
+  acceptedRemoteMdnsKeys: ReadonlySet<string>,
+): SelectedPairLocality | null {
+  const localCandidate = pair.local;
+  const remoteCandidate = pair.remote;
+  if (!localCandidate || !remoteCandidate) return null;
+
+  const localType = localCandidate.type;
+  const remoteType = remoteCandidate.type;
+  if ((localType && localType !== 'host') || (remoteType && remoteType !== 'host')) {
+    return 'non-local';
+  }
+  if (!localType || !remoteType) return null;
+
+  const remoteFoundation = remoteCandidate.foundation;
+  const remotePort = remoteCandidate.port;
+  const remoteProtocol = remoteCandidate.protocol;
+  if (
+    !remoteFoundation ||
+    !Number.isSafeInteger(remotePort) ||
+    (remotePort ?? 0) < 1 ||
+    (remotePort ?? 0) > 65_535 ||
+    !remoteProtocol
+  ) {
+    return null;
+  }
+  if (
+    remoteProtocol.toLowerCase() !== 'udp' ||
+    !acceptedRemoteMdnsKeys.has(`${remoteFoundation}:${remotePort}`)
+  ) {
+    return 'pending';
+  }
+
+  const localAddress = localCandidate.address;
+  const remoteAddress = remoteCandidate.address;
+  if (
+    localAddress &&
+    !isPrivateNumericAddress(localAddress) &&
+    !isUuidLikeMdnsAddress(localAddress)
+  ) {
+    return 'non-local';
+  }
+  if (remoteAddress && !isUuidLikeMdnsAddress(remoteAddress)) return 'non-local';
+  if (!remoteAddress || !localAddress) return 'same-subnet';
+  return addressesProveSameLan(localAddress, remoteAddress) ? 'same-subnet' : 'non-local';
+}
+
 async function selectedPairLocality(
   pc: RTCPeerConnection,
   acceptedRemoteMdnsKeys: ReadonlySet<string>,
-): Promise<'same-subnet' | 'non-local' | 'pending'> {
+): Promise<SelectedPairLocality> {
+  try {
+    const iceTransport = pc.sctp?.transport?.iceTransport;
+    if (typeof iceTransport?.getSelectedCandidatePair === 'function') {
+      const pair = iceTransport.getSelectedCandidatePair();
+      if (pair) {
+        const locality = authoritativePairLocality(pair, acceptedRemoteMdnsKeys);
+        if (locality) return locality;
+      }
+    }
+  } catch (error) {
+    log.debug('[ProSysAudioDirect] Selected ICE pair unavailable', error);
+  }
+
   try {
     const stats = await pc.getStats();
     const selectedPairIds = new Set<string>();

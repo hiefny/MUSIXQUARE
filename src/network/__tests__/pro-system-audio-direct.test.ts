@@ -39,6 +39,8 @@ type Locality =
   | 'ambiguous'
   | 'multiple-selected';
 
+type AuthoritativePairMode = 'lan' | 'relay' | 'srflx' | 'incomplete' | 'throw';
+
 interface Deferred<T> {
   promise: Promise<T>;
   resolve: (value: T) => void;
@@ -55,6 +57,7 @@ let localParticipantId: string;
 let failNextAddTrack: boolean;
 let nextStatsGates: Array<Promise<void>>;
 let nextEmbeddedCandidateAddresses: Array<string | null>;
+let nextAuthoritativePairModes: Array<AuthoritativePairMode | null>;
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
@@ -89,12 +92,46 @@ class MockRTCPeerConnection {
   addIceCandidate = vi.fn(async () => {});
   readonly probeChannel = { close: vi.fn() };
   readonly senders: RTCRtpSender[] = [];
+  readonly getSelectedCandidatePair = vi.fn<() => RTCIceCandidatePair | null>();
+  readonly sctp: RTCSctpTransport | null;
 
   constructor(configuration: RTCConfiguration) {
     this.configuration = configuration;
     this.locality = nextLocalities.shift() ?? 'host-host';
     this.statsGate = nextStatsGates.shift() ?? null;
     this.embeddedCandidateAddress = nextEmbeddedCandidateAddresses.shift() ?? null;
+    const authoritativePairMode = nextAuthoritativePairModes.shift() ?? null;
+    this.getSelectedCandidatePair.mockImplementation(() => {
+      if (authoritativePairMode === 'throw') throw new Error('mock selected pair failure');
+      if (!authoritativePairMode) return null;
+      const remoteType =
+        authoritativePairMode === 'relay' || authoritativePairMode === 'srflx'
+          ? authoritativePairMode
+          : 'host';
+      return {
+        local: {
+          type: 'host',
+          foundation: 'local',
+          port: 5000,
+          protocol: 'udp',
+          address: '192.168.1.10',
+        } as RTCIceCandidate,
+        remote: {
+          type: remoteType,
+          foundation: authoritativePairMode === 'incomplete' ? null : 'auto',
+          port: 5000,
+          protocol: 'udp',
+          address: '123e4567-e89b-42d3-a456-426614174000.local',
+        } as RTCIceCandidate,
+      };
+    });
+    this.sctp = authoritativePairMode
+      ? ({
+          transport: {
+            iceTransport: { getSelectedCandidatePair: this.getSelectedCandidatePair },
+          },
+        } as unknown as RTCSctpTransport)
+      : null;
     peerConnections.push(this);
   }
 
@@ -414,6 +451,7 @@ beforeEach(() => {
   failNextAddTrack = false;
   nextStatsGates = [];
   nextEmbeddedCandidateAddresses = [];
+  nextAuthoritativePairModes = [];
   bridgeMocks.sent.length = 0;
   bridgeMocks.send.mockReset();
   bridgeMocks.on.mockImplementation((listener) => {
@@ -535,6 +573,85 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
         { target: receiverB, reason: 'fallback' },
       ]),
     );
+  });
+
+  it('uses the authoritative selected LAN pair without waiting for stats', async () => {
+    configureCallbacks();
+    nextAuthoritativePairModes.push('lan');
+    nextStatsGates.push(deferred<void>().promise);
+
+    const descriptor = await direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 8,
+      publicationId,
+      targets: [target(receiverA)],
+      timeoutMs: 250,
+    });
+
+    expect(descriptor).not.toBeNull();
+    expect(peerConnections[0]?.getSelectedCandidatePair).toHaveBeenCalled();
+    expect(peerConnections[0]?.statsCallCount).toBe(0);
+    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it.each<AuthoritativePairMode>(['relay', 'srflx'])(
+    'rejects an authoritative %s pair without waiting for stats',
+    async (authoritativePairMode) => {
+      configureCallbacks();
+      nextAuthoritativePairModes.push(authoritativePairMode);
+      nextStatsGates.push(deferred<void>().promise);
+
+      const descriptor = await direct.attemptProSystemAudioDirectPublication({
+        track: audioTrack('capture-stereo'),
+        generation: 8,
+        publicationId,
+        targets: [target(receiverA)],
+        timeoutMs: 80,
+      });
+
+      expect(descriptor).toBeNull();
+      expect(peerConnections[0]?.getSelectedCandidatePair).toHaveBeenCalled();
+      expect(peerConnections[0]?.statsCallCount).toBe(0);
+      expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+    },
+  );
+
+  it('falls back to stats when the authoritative selected pair is incomplete', async () => {
+    configureCallbacks();
+    nextAuthoritativePairModes.push('incomplete');
+    nextLocalities.push('host-host');
+
+    const descriptor = await direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 8,
+      publicationId,
+      targets: [target(receiverA)],
+      timeoutMs: 250,
+    });
+
+    expect(descriptor).not.toBeNull();
+    expect(peerConnections[0]?.getSelectedCandidatePair).toHaveBeenCalled();
+    expect(peerConnections[0]?.statsCallCount).toBeGreaterThan(0);
+    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to stats when authoritative selected-pair access throws', async () => {
+    configureCallbacks();
+    nextAuthoritativePairModes.push('throw');
+    nextLocalities.push('host-host');
+
+    const descriptor = await direct.attemptProSystemAudioDirectPublication({
+      track: audioTrack('capture-stereo'),
+      generation: 8,
+      publicationId,
+      targets: [target(receiverA)],
+      timeoutMs: 250,
+    });
+
+    expect(descriptor).not.toBeNull();
+    expect(peerConnections[0]?.getSelectedCandidatePair).toHaveBeenCalled();
+    expect(peerConnections[0]?.statsCallCount).toBeGreaterThan(0);
+    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(1);
   });
 
   it.each<Locality>([

@@ -17,8 +17,11 @@ import { MSG } from '../../core/constants.ts';
 import { setManagedTimer } from '../../core/timers.ts';
 import type { ConnectedPeer, DataConnection } from '../../types/index.ts';
 import {
+  beginSystemAudioShareDelivery,
   getSystemAudioShareDeliverySnapshot,
+  isSystemAudioDirectFailurePeer,
   markLocalSystemAudioSfuCapable,
+  promoteSystemAudioPeerDeliveryToSfu,
   reserveSystemAudioFallbackDirect,
   resetGuestSystemAudioShareRoute,
   resetLocalSystemAudioSfuCapabilities,
@@ -26,6 +29,8 @@ import {
 
 const systemAudioGuestMocks = vi.hoisted(() => ({
   awaitTrustedReceptionBoundary: vi.fn(async () => true),
+  beginTrustedReception: vi.fn(),
+  cleanupGuestSystemAudio: vi.fn(),
 }));
 
 const standardRoomPrerequisiteMocks = vi.hoisted(() => ({
@@ -75,7 +80,7 @@ vi.mock('../protocol.ts', () => ({
 }));
 
 vi.mock('../peer-state.ts', () => ({
-  safeSend: vi.fn(),
+  safeSend: vi.fn(() => true),
 }));
 
 vi.mock('../standard-room-prerequisites.ts', () => ({
@@ -83,7 +88,8 @@ vi.mock('../standard-room-prerequisites.ts', () => ({
 }));
 
 vi.mock('../system-audio-guest.ts', () => ({
-  cleanupGuestSystemAudio: vi.fn(),
+  cleanupGuestSystemAudio: systemAudioGuestMocks.cleanupGuestSystemAudio,
+  beginTrustedSystemAudioReception: systemAudioGuestMocks.beginTrustedReception,
   awaitTrustedSystemAudioReceptionBoundary: systemAudioGuestMocks.awaitTrustedReceptionBoundary,
 }));
 
@@ -225,7 +231,13 @@ async function loadSfuModuleAsHostWithRemoteGuest() {
   vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
 
   setState('network.appRole', 'host');
-  setState('network.connectedPeers', [makeRemotePeer('remote-1')]);
+  // Current supported rooms stay on their already-connected P2P transport.
+  // Fill the legacy eight-call ceiling so this SFU transport harness exercises
+  // the remaining overflow route explicitly.
+  setState(
+    'network.connectedPeers',
+    Array.from({ length: 9 }, (_, index) => makeRemotePeer(`remote-${index + 1}`)),
+  );
   return mod;
 }
 
@@ -463,6 +475,67 @@ describe('single original stereo SFU contract', () => {
     bus.emit('system-audio:stop');
     await rejectAllRealtimeCalls();
     expect(mod.getSystemAudioSfuDebugSnapshot().host.publishedTrack).toBeNull();
+  });
+
+  it('retries the explicit direct-failure marker until a READY frame is sent', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const capture = await import('../../audio/system-capture.ts');
+    const fakeStream = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream;
+    vi.mocked(capture.getCapturedAudioStream).mockReturnValue(fakeStream);
+    vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
+    const remote = makeRemotePeer('direct-failure-peer');
+    setState('network.appRole', 'host');
+    setState('network.connectedPeers', [remote]);
+    beginSystemAudioShareDelivery([remote]);
+    expect(promoteSystemAudioPeerDeliveryToSfu(remote)).toBe(true);
+
+    const { safeSend } = await import('../peer-state.ts');
+    vi.mocked(safeSend).mockReturnValueOnce(false);
+    bus.emit('system-audio:sfu-peer-needed', remote.id, 'offer failed');
+    await resolveRealtime('new-session', {
+      sessionId: 'direct-failure-host-session',
+      sessionOwnerToken: 'direct-failure-host-owner',
+    });
+    await resolveRealtime('tracks-new', {
+      sessionDescription: { type: 'answer', sdp: OPUS_STEREO_SDP },
+      tracks: [{ trackName: 'audio-stereo-handoff', mid: '0' }],
+    });
+
+    await vi.waitFor(() => {
+      expect(
+        vi
+          .mocked(safeSend)
+          .mock.calls.filter(
+            ([, message]) => (message as { type?: string }).type === MSG.SYSTEM_AUDIO_SFU_READY,
+          ),
+      ).toHaveLength(1);
+    });
+    bus.emit('orchestrator:peer-evaluated', remote.id);
+    bus.emit('orchestrator:peer-evaluated', remote.id);
+
+    await vi.waitFor(() => {
+      expect(
+        vi
+          .mocked(safeSend)
+          .mock.calls.filter(
+            ([, message]) => (message as { type?: string }).type === MSG.SYSTEM_AUDIO_SFU_READY,
+          ),
+      ).toHaveLength(3);
+    });
+    const readyMessages = vi
+      .mocked(safeSend)
+      .mock.calls.map(([, message]) => message as Record<string, unknown>)
+      .filter((message) => message.type === MSG.SYSTEM_AUDIO_SFU_READY);
+    expect(readyMessages).toHaveLength(3);
+    expect(readyMessages[0]).toMatchObject({ audience: 'all', handoffFromDirect: true });
+    expect(readyMessages[1]).toMatchObject({ audience: 'all', handoffFromDirect: true });
+    expect(readyMessages[2]).toMatchObject({ audience: 'all' });
+    expect(readyMessages[2]).not.toHaveProperty('handoffFromDirect');
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
   });
 
   it('keeps the subscriber offer authoritative and returns a stereo client answer', async () => {
@@ -830,7 +903,7 @@ describe('bounded large-room SFU failure policy', () => {
     const fakeStream = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream;
     vi.mocked(capture.getCapturedAudioStream).mockReturnValue(fakeStream);
     vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
-    const remotePeers = Array.from({ length: 8 }, (_, index) =>
+    const remotePeers = Array.from({ length: 9 }, (_, index) =>
       makeRemotePeer(`remote-${index + 1}`),
     );
     setState('network.appRole', 'host');
@@ -882,7 +955,7 @@ describe('bounded large-room SFU failure policy', () => {
     const fakeStream = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream;
     vi.mocked(capture.getCapturedAudioStream).mockReturnValue(fakeStream);
     vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
-    const remotePeers = Array.from({ length: 8 }, (_, index) =>
+    const remotePeers = Array.from({ length: 9 }, (_, index) =>
       makeRemotePeer(`remote-${index + 1}`),
     );
     setState('network.appRole', 'host');
@@ -928,7 +1001,8 @@ describe('bounded large-room SFU failure policy', () => {
         ([, message]) => (message as { type?: string }).type === MSG.SYSTEM_AUDIO_STOP,
       )
       .map(([conn]) => conn);
-    expect(stoppedConnections).toEqual([localPeer.conn]);
+    expect(stoppedConnections).toContain(localPeer.conn);
+    expect(stoppedConnections.at(-1)).toBe(localPeer.conn);
   });
 });
 
@@ -1138,6 +1212,58 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     );
     await waitForNewSessionCalls(2);
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+  });
+
+  it('accepts an authenticated explicit direct-to-SFU failure handoff without overlapping routes', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    // The host can still see this peer as unknown/remote while the guest has
+    // already proved the LAN path. An explicit failed-direct handoff remains
+    // authoritative in that short classification gap.
+    setState('network.connectionType', 'local');
+    setState('player.currentTrackMeta', {
+      type: 'file',
+      name: 'system-audio-receiving',
+      systemAudioMode: 'receiving',
+      systemAudioSurface: 'window',
+    });
+
+    const { registerHandler } = await import('../protocol.ts');
+    const handler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      | ((data: unknown, conn?: unknown) => void)
+      | undefined;
+    expect(handler).toBeDefined();
+
+    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(true);
+
+    handler!(
+      {
+        version: 2,
+        audience: 'remote',
+        handoffFromDirect: true,
+        sessionId: 'direct-failure-publication',
+        track: { trackName: 'audio-stereo-handoff', mid: '0' },
+      },
+      hostConn,
+    );
+
+    expect(systemAudioGuestMocks.cleanupGuestSystemAudio).toHaveBeenCalledTimes(1);
+    expect(systemAudioGuestMocks.beginTrustedReception).toHaveBeenCalledWith('window');
+    await waitForNewSessionCalls(1);
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
+    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
+    expect(countNewSessionCalls()).toBe(1);
 
     bus.emit('system-audio:stop');
     await rejectAllRealtimeCalls();
@@ -1506,12 +1632,19 @@ describe('LAN SFU audience negotiation', () => {
     mod.registerSystemAudioSfuListeners();
     bus.emit('system-audio:stop');
     setState('network.appRole', 'host');
+    const replaced = makeRemotePeer('replaced-peer');
+    setState('network.connectedPeers', [replaced]);
+    beginSystemAudioShareDelivery([replaced]);
+    expect(promoteSystemAudioPeerDeliveryToSfu(replaced)).toBe(true);
     markLocalSystemAudioSfuCapable('replaced-peer');
     expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).toContain('replaced-peer');
+    expect(isSystemAudioDirectFailurePeer('replaced-peer')).toBe(true);
 
     bus.emit('network:peer-connection-replaced', 'replaced-peer');
 
     expect(getSystemAudioShareDeliverySnapshot().capablePeerIds).not.toContain('replaced-peer');
+    expect(isSystemAudioDirectFailurePeer('replaced-peer')).toBe(false);
+    expect(getSystemAudioShareDeliverySnapshot().sfuPeerIds).not.toContain('replaced-peer');
   });
 
   it('advertises local-audience support when a guest data connection opens', async () => {

@@ -26,6 +26,11 @@ import {
 } from '../system-capture.ts';
 import type { ProRoomSystemAudioPublication } from '../../pro-room/contracts.ts';
 import type { ConnectedPeer, DataConnection, PlaylistItem, TrackMeta } from '../../types/index.ts';
+import {
+  beginSystemAudioShareDelivery,
+  endSystemAudioShareDelivery,
+  promoteSystemAudioPeerDeliveryToSfu,
+} from '../../network/system-audio-delivery.ts';
 
 const YOUTUBE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -367,6 +372,7 @@ beforeEach(() => {
 
 afterEach(() => {
   bus.emit('system-audio:force-stop');
+  endSystemAudioShareDelivery();
   clearAllManagedTimers();
   vi.useRealTimers();
 });
@@ -1476,8 +1482,10 @@ describe('system audio operating-cost limits', () => {
     );
   });
 
-  it('ends the whole host share after two hours', async () => {
+  it('ends a remote standard-room host share after two hours', async () => {
     vi.useFakeTimers();
+    const [remote] = setConnectedGuests(1);
+    remote.connectionType = 'remote';
     stubDisplayMedia();
     const toastSpy = vi.fn();
     bus.on('ui:show-toast', toastSpy);
@@ -1488,6 +1496,65 @@ describe('system audio operating-cost limits', () => {
 
     expect(isSystemAudioActive()).toBe(false);
     expect(toastSpy).toHaveBeenCalledWith(t('system_audio.duration_limit_stopped'));
+  });
+
+  it('keeps a LAN-only standard-room share active past two hours', async () => {
+    vi.useFakeTimers();
+    setConnectedGuests(1);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS + 60_000);
+
+    expect(isSystemAudioActive()).toBe(true);
+  });
+
+  it('does not end an old LAN share while a late LAN peer is briefly unresolved', async () => {
+    vi.useFakeTimers();
+    const [peer] = setConnectedGuests(1);
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS + 60_000);
+
+    peer.connectionType = 'unknown';
+    bus.emit('network:peer-connected', peer.conn!);
+    peer.connectionType = 'local';
+    bus.emit('orchestrator:peer-evaluated', peer.id);
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS + 60_000);
+
+    expect(isSystemAudioActive()).toBe(true);
+  });
+
+  it('starts a fresh two-hour limit when an old LAN share gains a remote route', async () => {
+    vi.useFakeTimers();
+    const [peer] = setConnectedGuests(1);
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS + 60_000);
+
+    peer.connectionType = 'remote';
+    bus.emit('orchestrator:peer-evaluated', peer.id);
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS - 1);
+    expect(isSystemAudioActive()).toBe(true);
+
+    vi.advanceTimersByTime(1);
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('clears the metered timer after the last SFU peer disconnects even before route cleanup', async () => {
+    vi.useFakeTimers();
+    const [remote] = setConnectedGuests(1);
+    remote.connectionType = 'remote';
+    stubDisplayMedia();
+    await startSystemAudioCapture();
+    beginSystemAudioShareDelivery([remote]);
+    expect(promoteSystemAudioPeerDeliveryToSfu(remote)).toBe(true);
+
+    setState('network.connectedPeers', []);
+    bus.emit('network:peer-disconnected', remote.id);
+    vi.advanceTimersByTime(SYSTEM_AUDIO_SHARE_LIMIT_MS + 60_000);
+
+    expect(isSystemAudioActive()).toBe(true);
   });
 
   it('keeps a PRO LAN-direct share active past its compatibility timestamp', async () => {

@@ -16,7 +16,7 @@ vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('../../core/timers.ts', () => ({ setManagedTimer: vi.fn() }));
+vi.mock('../../core/timers.ts', () => ({ setManagedTimer: vi.fn(), clearManagedTimer: vi.fn() }));
 
 vi.mock('../peer-state.ts', () => ({
   getPeer: mocks.getPeer,
@@ -47,6 +47,10 @@ function makeLocalPeer(index: number): ConnectedPeer {
     joinOrder: index,
     conn: { open: true, peer: id, send: vi.fn() } as unknown as DataConnection,
   } as ConnectedPeer;
+}
+
+function makeRemotePeer(index: number): ConnectedPeer {
+  return { ...makeLocalPeer(index), connectionType: 'remote' } as ConnectedPeer;
 }
 
 function makeMediaConnection(peerConnection: RTCPeerConnection | null = null) {
@@ -111,12 +115,14 @@ describe('bounded direct system-audio host delivery', () => {
     expect(getSystemAudioShareDeliverySnapshot().directPeerIds).toEqual([]);
   });
 
-  it('uses the frozen remote audience for fallback after ICE relabels the peer local', () => {
+  it('keeps the warm direct route when a remote peer is later relabeled local', () => {
     const remote = {
       ...makeLocalPeer(1),
       id: 'remote-relabel',
       connectionType: 'remote' as const,
     } as ConnectedPeer;
+    mocks.getPeer.mockReturnValue({ call: vi.fn(() => makeMediaConnection().mediaConn) });
+    mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
     setState('network.connectedPeers', [remote]);
     bus.emit('system-audio:streams-ready');
 
@@ -125,13 +131,110 @@ describe('bounded direct system-audio host delivery', () => {
     ]);
     bus.emit('system-audio:sfu-fallback', 'test-outage');
 
-    expect(getSystemAudioShareDeliverySnapshot().fallbackDirectPeerIds).toEqual([remote.id]);
+    expect(getSystemAudioShareDeliverySnapshot().directPeerIds).toEqual([remote.id]);
+    expect(getSystemAudioShareDeliverySnapshot().fallbackDirectPeerIds).toEqual([]);
   });
 
-  it('does not let a replaced media call late-close delete its successor', () => {
+  it('hands an asynchronous remote direct negotiation failure to the SFU', () => {
+    const remote = makeRemotePeer(1);
+    const direct = makeMediaConnection();
+    const call = vi.fn(() => direct.mediaConn);
+    mocks.getPeer.mockReturnValue({ call });
+    mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
+    setState('network.connectedPeers', [remote]);
+    const handoff = vi.fn();
+    bus.on('system-audio:sfu-peer-needed', handoff);
+
+    bus.emit('system-audio:streams-ready');
+    direct.emit('error', new Error('offer failed'));
+
+    expect(handoff).toHaveBeenCalledWith(remote.id, 'offer failed');
+    expect(getSystemAudioShareDeliverySnapshot()).toMatchObject({
+      directPeerIds: [],
+      sfuPeerIds: [remote.id],
+    });
+    expect(mocks.safeSend).toHaveBeenCalledWith(
+      remote.conn,
+      expect.objectContaining({ type: MSG.SYSTEM_AUDIO_START }),
+    );
+    const handoffFrames = mocks.safeSend.mock.calls
+      .filter(([conn]) => conn === remote.conn)
+      .map(([, frame]) => frame);
+    expect(handoffFrames.slice(-2)).toEqual([
+      { type: MSG.SYSTEM_AUDIO_STOP },
+      expect.objectContaining({ type: MSG.SYSTEM_AUDIO_START }),
+    ]);
+    bus.emit('system-audio:sfu-fallback', 'sfu also failed');
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands an unexpected direct close to the SFU while the data peer remains live', () => {
+    const remote = makeRemotePeer(1);
+    const direct = makeMediaConnection();
+    mocks.getPeer.mockReturnValue({ call: vi.fn(() => direct.mediaConn) });
+    mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
+    setState('network.connectedPeers', [remote]);
+    const handoff = vi.fn();
+    bus.on('system-audio:sfu-peer-needed', handoff);
+
+    bus.emit('system-audio:streams-ready');
+    direct.emit('close');
+
+    expect(handoff).toHaveBeenCalledWith(remote.id, 'media-connection-closed');
+    expect(getSystemAudioShareDeliverySnapshot()).toMatchObject({
+      directPeerIds: [],
+      sfuPeerIds: [remote.id],
+    });
+  });
+
+  it('hands a stalled offer on an already-connected shared peer connection to the SFU', async () => {
+    const remote = makeRemotePeer(1);
+    const pc = {
+      connectionState: 'connected',
+      iceConnectionState: 'connected',
+      setLocalDescription: vi.fn(async () => {}),
+      getSenders: vi.fn(() => []),
+    } as unknown as RTCPeerConnection;
+    const direct = makeMediaConnection(pc);
+    mocks.getPeer.mockReturnValue({ call: vi.fn(() => direct.mediaConn) });
+    mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
+    setState('network.connectedPeers', [remote]);
+    const handoff = vi.fn();
+    bus.on('system-audio:sfu-peer-needed', handoff);
+
+    bus.emit('system-audio:streams-ready');
+    const { setManagedTimer } = await import('../../core/timers.ts');
+    const timeout = vi
+      .mocked(setManagedTimer)
+      .mock.calls.find(([name]) => name === `sys-audio-direct-connect:${remote.id}`)?.[1] as
+      | (() => void)
+      | undefined;
+    expect(timeout).toBeTypeOf('function');
+    timeout!();
+
+    expect(handoff).toHaveBeenCalledWith(remote.id, 'connect-timeout');
+    expect(getSystemAudioShareDeliverySnapshot()).toMatchObject({
+      directPeerIds: [],
+      sfuPeerIds: [remote.id],
+    });
+  });
+
+  it('does not let a replaced media call late-close delete its successor timer', async () => {
     const peer = makeLocalPeer(1);
-    const first = makeMediaConnection();
-    const replacement = makeMediaConnection();
+    const firstPc = {
+      connectionState: 'connected',
+      iceConnectionState: 'connected',
+      setLocalDescription: vi.fn(async () => {}),
+      getSenders: vi.fn(() => []),
+    } as unknown as RTCPeerConnection;
+    const replacementPc = {
+      connectionState: 'connected',
+      iceConnectionState: 'connected',
+      setLocalDescription: vi.fn(async () => {}),
+      getSenders: vi.fn(() => []),
+    } as unknown as RTCPeerConnection;
+    const first = makeMediaConnection(firstPc);
+    const replacement = makeMediaConnection(replacementPc);
     const call = vi
       .fn()
       .mockReturnValueOnce(first.mediaConn)
@@ -147,11 +250,21 @@ describe('bounded direct system-audio host delivery', () => {
     bus.emit('orchestrator:peer-data-target-ready', peer.id);
     expect(call).toHaveBeenCalledTimes(2);
 
+    const { clearManagedTimer } = await import('../../core/timers.ts');
+    const clearsBeforeStaleClose = vi
+      .mocked(clearManagedTimer)
+      .mock.calls.filter(([name]) => name === `sys-audio-direct-connect:${peer.id}`).length;
     first.emit('close');
+    first.emit('open');
     bus.emit('orchestrator:peer-data-target-ready', peer.id);
 
     expect(call).toHaveBeenCalledTimes(2);
     expect(replacement.mediaConn.close).not.toHaveBeenCalled();
+    expect(
+      vi
+        .mocked(clearManagedTimer)
+        .mock.calls.filter(([name]) => name === `sys-audio-direct-connect:${peer.id}`),
+    ).toHaveLength(clearsBeforeStaleClose);
   });
 
   it('keeps the former dual-mono aggregate budget on the one stereo sender', async () => {

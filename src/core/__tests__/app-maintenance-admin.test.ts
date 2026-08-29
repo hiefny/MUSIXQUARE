@@ -359,6 +359,7 @@ describe('app maintenance administration', () => {
     expect(adminBody).toContain('data-service-status-trigger');
     expect(adminBody).toContain('data-service-status-dialog');
     expect(adminBody).toContain('data-service-status-preview');
+    expect(adminBody).not.toContain('Global service status');
     expect(adminBody).toContain('data-admin-tab="operations">Analytics');
 
     const clearableAsset = await appWorker.fetch(

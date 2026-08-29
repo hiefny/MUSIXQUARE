@@ -667,12 +667,16 @@ p {
   background: var(--surface-2) !important;
   color: var(--text-main) !important;
   text-align: left;
+  transition: background 180ms ease;
   white-space: normal !important;
 }
 
-.pro-grant-campaign-item:hover,
+.pro-grant-campaign-item:hover {
+  background: rgba(var(--primary-rgb), 0.04) !important;
+}
+
 .pro-grant-campaign-item[aria-pressed='true'] {
-  box-shadow: inset 3px 0 0 var(--primary);
+  background: rgba(var(--primary-rgb), 0.08) !important;
 }
 
 .pro-grant-campaign-item > strong {
@@ -1934,7 +1938,7 @@ p {
   min-height: 68px;
   padding: 13px 14px;
   border-radius: var(--radius);
-  background: var(--surface-2);
+  background: var(--surface-1);
 }
 
 .article-item.is-hidden {
@@ -2018,7 +2022,7 @@ p {
   max-width: none;
   max-height: min(640px, calc(100dvh - 32px));
   margin: auto;
-  border: 1px solid var(--surface-3);
+  border: 0;
   border-radius: 16px;
   padding: 0;
   overflow: auto;
@@ -2065,7 +2069,6 @@ p {
   gap: 3px;
 }
 
-.service-status-heading > div > span,
 .service-status-preview > span {
   color: var(--text-muted);
   font-size: 10px;
@@ -2180,13 +2183,9 @@ p {
 }
 
 .service-status-dialog-actions {
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 8px;
-}
-
-[data-service-status-preview] {
-  margin-right: auto;
 }
 
 .service-status-dialog-actions button {
@@ -2197,6 +2196,17 @@ p {
   color: var(--text-main);
   font-size: 13px;
   font-weight: 800;
+}
+
+.service-status-dialog-actions [data-service-status-preview] {
+  margin-right: auto;
+  padding-inline: 4px;
+  background: transparent;
+  color: var(--text-sub);
+}
+
+.service-status-dialog-actions [data-service-status-preview]:hover {
+  color: var(--text-main);
 }
 
 [data-service-status-confirm][data-action='enter'] {
@@ -2826,7 +2836,7 @@ p {
     width: 100%;
     max-height: calc(100dvh - 12px);
     margin: 0;
-    border-width: 1px 0 0;
+    border: 0;
     border-radius: 20px 20px 0 0;
   }
 

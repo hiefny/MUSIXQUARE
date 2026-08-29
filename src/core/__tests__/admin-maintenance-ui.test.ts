@@ -21,11 +21,14 @@ function installDom(): void {
         <button data-refresh>Refresh</button><button data-logout>Logout</button>
         <dialog data-service-status-dialog>
           <h2 data-service-status-state></h2>
+          <button type="button" aria-label="Close service status" data-service-status-cancel>×</button>
           <p data-service-status-description></p><p data-service-status-updated></p>
           <p data-service-status-error></p>
-          <button type="button" data-service-status-preview>Preview page</button>
-          <button type="button" data-service-status-cancel>Cancel</button>
-          <button type="button" data-service-status-confirm>Change</button>
+          <div class="service-status-dialog-actions">
+            <button type="button" data-service-status-preview>Preview page</button>
+            <button type="button" data-service-status-cancel>Cancel</button>
+            <button type="button" data-service-status-confirm>Change</button>
+          </div>
         </dialog>
         <nav>
           <button data-admin-tab="operations">Analytics</button>
@@ -139,6 +142,13 @@ describe('admin maintenance status UI', () => {
       expect(
         document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')?.disabled,
       ).toBe(false);
+    });
+    await vi.waitFor(() => {
+      expect(document.activeElement).toBe(
+        document.querySelector<HTMLButtonElement>(
+          '.service-status-dialog-actions [data-service-status-cancel]',
+        ),
+      );
     });
     document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')?.click();
 

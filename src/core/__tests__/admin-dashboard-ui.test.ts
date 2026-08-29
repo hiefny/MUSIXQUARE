@@ -2000,7 +2000,9 @@ describe('admin PRO room operations dashboard', () => {
     await vi.waitFor(() => expect(verifyButton?.disabled).toBe(false));
     verifyButton?.click();
     await vi.waitFor(() => {
-      expect(campaignPanel?.textContent).toContain('50개 방은 적용 단계에서 새로 준비돼요');
+      expect(campaignPanel?.textContent).toContain(
+        '50 rooms will be provisioned during the apply step',
+      );
     });
     expect(voucherMutations).toHaveLength(0);
     expect(registeredEventRooms.size).toBe(0);
@@ -2034,7 +2036,7 @@ describe('admin PRO room operations dashboard', () => {
     window.dispatchEvent(new Event('pagehide'));
     campaignPanel?.querySelector<HTMLButtonElement>('[data-pro-grant-copy]')?.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(campaignPanel?.textContent).toContain('클립보드를 사용할 수 없어요');
+    expect(campaignPanel?.textContent).toContain('Clipboard access is unavailable');
   });
 
   it('lists campaigns and separates pause, terminal end, and unused-code revocation', async () => {
@@ -2166,8 +2168,10 @@ describe('admin PRO room operations dashboard', () => {
     document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
     const panel = document.querySelector<HTMLElement>('[data-pro-grant-campaign]')!;
     await vi.waitFor(() => {
-      expect(panel.textContent).toContain('10개 발급 · 8개 사용 가능 · 2개 사용 · 0개 폐기');
+      expect(panel.textContent).toContain('10 issued · 8 available · 2 redeemed · 0 revoked');
     });
+    expect(panel.textContent).toContain('MUSIXQUARE ASAMO Event');
+    expect(panel.textContent).not.toContain('MUSIXQUARE 아사모 이벤트');
     expect(panel.querySelector<HTMLAnchorElement>('[data-pro-grant-event-link] a')?.pathname).toBe(
       '/events/asamo/0/',
     );
@@ -2175,13 +2179,13 @@ describe('admin PRO room operations dashboard', () => {
     panel.querySelector<HTMLButtonElement>('[data-pro-grant-pause]')?.click();
     await vi.waitFor(() => expect(statusMutations).toEqual(['paused']));
     await vi.waitFor(() => {
-      expect(panel.querySelector('[data-pro-grant-state]')?.textContent).toBe('일시 중지');
+      expect(panel.querySelector('[data-pro-grant-state]')?.textContent).toBe('Paused');
     });
 
     panel.querySelector<HTMLButtonElement>('[data-pro-grant-pause]')?.click();
     await vi.waitFor(() => expect(statusMutations).toEqual(['paused', 'active']));
     await vi.waitFor(() => {
-      expect(panel.querySelector('[data-pro-grant-state]')?.textContent).toBe('진행 중');
+      expect(panel.querySelector('[data-pro-grant-state]')?.textContent).toBe('Active');
     });
 
     confirmSpy.mockReturnValueOnce(false);
@@ -2191,20 +2195,22 @@ describe('admin PRO room operations dashboard', () => {
 
     panel.querySelector<HTMLButtonElement>('[data-pro-grant-end]')?.click();
     await vi.waitFor(() => expect(statusMutations).toEqual(['paused', 'active', 'ended']));
-    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('남은 코드는 보존'));
+    expect(window.confirm).toHaveBeenCalledWith(
+      expect.stringContaining('Unused codes will be preserved'),
+    );
 
     const revokeButton = panel.querySelector<HTMLButtonElement>('[data-pro-grant-revoke]')!;
     await vi.waitFor(() => expect(revokeButton.disabled).toBe(false));
     revokeButton.click();
     await vi.waitFor(() => expect(revokeMutations).toBe(1));
-    expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining('영구 폐기'));
+    expect(window.confirm).toHaveBeenLastCalledWith(expect.stringContaining('Permanently revoke'));
     const newEventButton = panel.querySelector<HTMLButtonElement>('[data-pro-grant-new]')!;
     await vi.waitFor(() => expect(newEventButton.disabled).toBe(false));
 
     panel
       .querySelector<HTMLButtonElement>('[data-pro-grant-campaign-select="broken-pool"]')
       ?.click();
-    expect(panel.textContent).toContain('방 범위 정보 없음');
+    expect(panel.textContent).toContain('Room range unavailable');
     expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-verify]')?.disabled).toBe(true);
 
     const recoveryButton = panel.querySelector<HTMLButtonElement>(
@@ -2213,7 +2219,7 @@ describe('admin PRO room operations dashboard', () => {
     recoveryButton.focus();
     recoveryButton.click();
     expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-pause]')?.textContent).toBe(
-      '이벤트 시작',
+      'Start event',
     );
     expect((document.activeElement as HTMLElement)?.dataset.proGrantCampaignSelect).toBe(
       'recover-draft',
@@ -2244,7 +2250,7 @@ describe('admin PRO room operations dashboard', () => {
     fill('startsAt', '2026-08-10T10:00');
     createForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
-      '000105번 방이 MUSIXQUARE 아사모 이벤트와 겹쳐요',
+      'Room 000105 overlaps with “MUSIXQUARE ASAMO Event”.',
     );
     panel.querySelector<HTMLButtonElement>('[data-pro-grant-form-cancel]')?.click();
     newEventButton.click();
@@ -2263,6 +2269,14 @@ describe('admin PRO room operations dashboard', () => {
     expect(adminStyles).not.toMatch(
       /@media \(max-width: 560px\)[\s\S]*\.pro-grant-campaign-actions button,[\s\S]*width: 100%;/,
     );
+    expect(adminStyles).toMatch(
+      /\.pro-grant-campaign-item\[aria-pressed='true'\][\s\S]*?background: rgba\(var\(--primary-rgb\), 0\.08\) !important;/,
+    );
+    expect(adminStyles).not.toMatch(
+      /\.pro-grant-campaign-item\[aria-pressed='true'\][^{]*\{[^}]*box-shadow: inset/,
+    );
+    expect(adminStyles).toMatch(/\.article-item\s*\{[^}]*background: var\(--surface-1\);/);
+    expect(adminScript).not.toMatch(/[가-힣]/u);
   });
 
   it('creates a generic campaign through verify, local export, and exact apply', async () => {
@@ -2377,7 +2391,7 @@ describe('admin PRO room operations dashboard', () => {
     });
     document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')?.click();
     const panel = document.querySelector<HTMLElement>('[data-pro-grant-campaign]')!;
-    await vi.waitFor(() => expect(panel.textContent).toContain('아직 이벤트가 없어요'));
+    await vi.waitFor(() => expect(panel.textContent).toContain('No events yet'));
     panel.querySelector<HTMLButtonElement>('[data-pro-grant-new]')?.click();
     const createForm = panel.querySelector<HTMLFormElement>('[data-pro-grant-create-form]')!;
     const setValue = (name: string, value: string) => {
@@ -2422,7 +2436,7 @@ describe('admin PRO room operations dashboard', () => {
     newEventButton.click();
     expect(createForm.hidden).toBe(true);
     expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
-      '출시 기념 이벤트의 코드 파일이 적용 대기 중이에요',
+      'A code file for “출시 기념 이벤트” is waiting to be applied',
     );
     createForm.hidden = false;
     setValue('title', '덮어쓰기 시도');
@@ -2449,7 +2463,7 @@ describe('admin PRO room operations dashboard', () => {
     );
     expect(campaignMutations[1].dryRun).toBe(false);
     expect(panel.textContent).not.toContain(voucherMutations[0].vouchers[0].code);
-    expect(panel.textContent).toContain('3개 코드가 적용됐어요');
+    expect(panel.textContent).toContain('3 codes were applied');
     const nextEventButton = panel.querySelector<HTMLButtonElement>('[data-pro-grant-new]')!;
     expect(nextEventButton.disabled).toBe(false);
     nextEventButton.click();
@@ -2592,7 +2606,7 @@ describe('admin PRO room operations dashboard', () => {
     setImportFile({ ...artifact, applied: true });
     await vi.waitFor(() => {
       expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
-        '지원하지 않거나 손상된 코드 파일이에요',
+        'The code file is unsupported or corrupted',
       );
     });
     expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.disabled).toBe(true);
@@ -2603,7 +2617,7 @@ describe('admin PRO room operations dashboard', () => {
     });
     await vi.waitFor(() => {
       expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
-        '코드 파일의 이벤트 정보가 올바르지 않아요',
+        'The event details in the code file are invalid',
       );
     });
     expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.disabled).toBe(true);
@@ -2612,7 +2626,7 @@ describe('admin PRO room operations dashboard', () => {
     setImportFile(cliCompatibleArtifact);
     await vi.waitFor(() => {
       expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
-        '코드 2개를 메모리에 불러왔어요',
+        'Loaded 2 codes for “복구 이벤트” into memory',
       );
     });
     expect(panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.disabled).toBe(false);
@@ -2632,7 +2646,7 @@ describe('admin PRO room operations dashboard', () => {
     });
     await vi.waitFor(() => {
       expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
-        '예약어 이벤트의 코드 2개를 메모리에 불러왔어요',
+        'Loaded 2 codes for “예약어 이벤트” into memory',
       );
     });
     expect(panel.querySelector<HTMLAnchorElement>('[data-pro-grant-event-link] a')?.pathname).toBe(

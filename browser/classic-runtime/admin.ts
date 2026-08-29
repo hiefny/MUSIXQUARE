@@ -317,7 +317,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.4.41';
+const ADMIN_SCRIPT_VERSION = '8.4.42';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -494,7 +494,7 @@ let proGrantCampaignDownloadBtn: HTMLButtonElement | null = null;
 let proGrantCampaignCopyBtn: HTMLButtonElement | null = null;
 let proGrantCampaignLinkCopyBtn: HTMLButtonElement | null = null;
 const PRO_GRANT_ASAMO_SLUG = 'asamo-0';
-const PRO_GRANT_ASAMO_TITLE = 'MUSIXQUARE 아사모 이벤트';
+const PRO_GRANT_ASAMO_TITLE = 'MUSIXQUARE ASAMO Event';
 const PRO_GRANT_ASAMO_ROOM_CODES = Object.freeze(
   Array.from({ length: 50 }, (_, index) => String(100 + index).padStart(6, '0')),
 );
@@ -510,6 +510,13 @@ const PRO_GRANT_BUILTIN_CAMPAIGNS = Object.freeze({
 
 function proGrantBuiltinCampaign(slug: unknown) {
   return slug === PRO_GRANT_ASAMO_SLUG ? PRO_GRANT_BUILTIN_CAMPAIGNS[PRO_GRANT_ASAMO_SLUG] : null;
+}
+
+function proGrantCampaignDisplayTitle(
+  campaign: { slug?: unknown; title?: unknown } | null | undefined,
+): string {
+  if (campaign?.slug === PRO_GRANT_ASAMO_SLUG) return PRO_GRANT_ASAMO_TITLE;
+  return typeof campaign?.title === 'string' ? campaign.title : '';
 }
 const PRO_GRANT_CODE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 const PRO_GRANT_VOUCHER_CODE_RE = /^MXQ(?:-[0-9A-HJKMNP-TV-Z]{5}){4}$/;
@@ -590,11 +597,14 @@ function campaignRoomCodesFromRange(startCode: unknown, roomCount: unknown): rea
     normalizedCount < 1 ||
     normalizedCount > PRO_GRANT_MAX_CAMPAIGN_ROOMS
   ) {
-    throw new Error(`방 번호와 방 개수(최대 ${PRO_GRANT_MAX_CAMPAIGN_ROOMS}개)를 확인해 주세요.`);
+    throw new Error(
+      `Check the first room code and room count (max ${PRO_GRANT_MAX_CAMPAIGN_ROOMS}).`,
+    );
   }
   const first = Number(normalizedStart);
   const last = first + normalizedCount - 1;
-  if (last > 99_999) throw new Error('이 범위는 0으로 시작하는 6자리 PRO 방 번호를 벗어나요.');
+  if (last > 99_999)
+    throw new Error('The range exceeds six-digit PRO room codes beginning with 0.');
   return Object.freeze(
     Array.from({ length: normalizedCount }, (_, index) => String(first + index).padStart(6, '0')),
   );
@@ -625,7 +635,7 @@ function parseCampaignLocalDateTime(
   if (!normalized && !required) return null;
   const timestamp = new Date(normalized).getTime();
   if (!Number.isSafeInteger(timestamp) || timestamp < 0) {
-    throw new Error(required ? '시작 시간을 입력해 주세요.' : '종료 시간을 확인해 주세요.');
+    throw new Error(required ? 'Enter a start time.' : 'Check the end time.');
   }
   return timestamp;
 }
@@ -726,7 +736,7 @@ function createProGrantVoucherExport(
   config: ProGrantConfig | null = proGrantCampaignConfig(),
 ): ProGrantVoucherBatch {
   if (!config?.campaign?.slug || config.roomCodes.length === 0) {
-    throw new Error('먼저 이벤트와 방 범위를 확인해 주세요.');
+    throw new Error('Review the event and room range first.');
   }
   const requestId = createProGrantBatchRequestId();
   const seen = new Set<string>();
@@ -799,7 +809,7 @@ function parseProGrantVoucherExport(value: unknown): ProGrantVoucherBatch {
     typeof value.requestId !== 'string' ||
     !PRO_GRANT_BATCH_REQUEST_ID_RE.test(value.requestId)
   ) {
-    throw new Error('지원하지 않거나 손상된 코드 파일이에요.');
+    throw new Error('The code file is unsupported or corrupted.');
   }
   const campaign = value.campaign;
   if (
@@ -820,14 +830,14 @@ function parseProGrantVoucherExport(value: unknown): ProGrantVoucherBatch {
         campaign.endsAt <= campaign.startsAt)) ||
     campaign.perAccountLimit !== 1
   ) {
-    throw new Error('코드 파일의 이벤트 정보가 올바르지 않아요.');
+    throw new Error('The event details in the code file are invalid.');
   }
   if (
     !Array.isArray(value.vouchers) ||
     value.vouchers.length < 1 ||
     value.vouchers.length > PRO_GRANT_MAX_CAMPAIGN_ROOMS
   ) {
-    throw new Error('코드 파일의 리딤 코드 개수가 올바르지 않아요.');
+    throw new Error('The redemption-code count in the code file is invalid.');
   }
   const seenCodes = new Set<string>();
   const seenRooms = new Set<string>();
@@ -841,7 +851,7 @@ function parseProGrantVoucherExport(value: unknown): ProGrantVoucherBatch {
       !PRO_GRANT_VOUCHER_CODE_RE.test(voucher.code) ||
       seenCodes.has(voucher.code)
     ) {
-      throw new Error('코드 파일의 방 번호 또는 리딤 코드가 올바르지 않아요.');
+      throw new Error('A room code or redemption code in the file is invalid.');
     }
     seenRooms.add(voucher.roomCode);
     seenCodes.add(voucher.code);
@@ -851,7 +861,7 @@ function parseProGrantVoucherExport(value: unknown): ProGrantVoucherBatch {
   if (!firstVoucher) throw new Error('Voucher file contains no vouchers.');
   const roomCodes = campaignRoomCodesFromRange(firstVoucher.roomCode, vouchers.length);
   if (vouchers.some((voucher, index) => voucher.roomCode !== roomCodes[index])) {
-    throw new Error('코드 파일의 방 번호는 오름차순의 연속된 범위여야 해요.');
+    throw new Error('Room codes in the file must form a contiguous ascending range.');
   }
   if (value.pool !== undefined) {
     const pool = value.pool;
@@ -861,7 +871,7 @@ function parseProGrantVoucherExport(value: unknown): ProGrantVoucherBatch {
       pool.lastRoomCode !== roomCodes.at(-1) ||
       pool.roomCount !== roomCodes.length
     ) {
-      throw new Error('코드 파일의 방 범위가 서로 일치하지 않아요.');
+      throw new Error('The room ranges in the code file do not match.');
     }
   }
   const roomLabelPrefix =
@@ -871,7 +881,7 @@ function parseProGrantVoucherExport(value: unknown): ProGrantVoucherBatch {
     roomLabelPrefix.length > 100 ||
     roomLabelPrefix.trim() !== roomLabelPrefix
   ) {
-    throw new Error('코드 파일의 방 라벨이 올바르지 않아요.');
+    throw new Error('The room label in the code file is invalid.');
   }
   return {
     format: value.format,
@@ -919,13 +929,13 @@ async function importProGrantVoucherExport(file: File | null | undefined): Promi
       file.size < 1 ||
       file.size > PRO_GRANT_VOUCHER_FILE_MAX_BYTES
     ) {
-      throw new Error('코드 파일은 256KB 이하의 JSON 파일이어야 해요.');
+      throw new Error('The code file must be a JSON file no larger than 256 KB.');
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(await file.text());
     } catch {
-      throw new Error('코드 파일을 읽지 못했어요. 올바른 JSON 파일인지 확인해 주세요.');
+      throw new Error('The code file could not be read. Check that it is valid JSON.');
     }
     const batch = parseProGrantVoucherExport(parsed);
     if (pendingProGrantVoucherExport && pendingProGrantVoucherExport.applied !== true) {
@@ -935,7 +945,7 @@ async function importProGrantVoucherExport(file: File | null | undefined): Promi
         JSON.stringify(pendingBatch) !== JSON.stringify(batch)
       ) {
         throw new Error(
-          `${pendingProGrantVoucherExport.campaign.title}의 코드 파일이 이미 적용 대기 중이에요.`,
+          `A code file for “${proGrantCampaignDisplayTitle(pendingProGrantVoucherExport.campaign)}” is already waiting to be applied.`,
         );
       }
     }
@@ -945,10 +955,10 @@ async function importProGrantVoucherExport(file: File | null | undefined): Promi
     );
     const existingCampaign = existing?.campaign || existing;
     if (existingCampaign?.status && ['ended', 'revoked'].includes(existingCampaign.status)) {
-      throw new Error('이미 종료된 이벤트에는 코드 파일을 불러올 수 없어요.');
+      throw new Error('A code file cannot be imported into an event that has ended.');
     }
     if (!sameImportedCampaign(existing, batch.campaign)) {
-      throw new Error('서버에 저장된 이벤트 정보와 코드 파일이 일치하지 않아요.');
+      throw new Error('The event details stored on the server do not match the code file.');
     }
     const existingRoomCodes = proGrantCampaignRoomCodes(existing);
     if (
@@ -956,7 +966,7 @@ async function importProGrantVoucherExport(file: File | null | undefined): Promi
       (existingRoomCodes.length !== batch.vouchers.length ||
         existingRoomCodes.some((roomCode, index) => roomCode !== batch.vouchers[index]?.roomCode))
     ) {
-      throw new Error('서버에 저장된 방 범위와 코드 파일이 일치하지 않아요.');
+      throw new Error('The room range stored on the server does not match the code file.');
     }
     pendingProGrantVoucherExport = batch;
     proGrantCampaignDraft = {
@@ -978,7 +988,7 @@ async function importProGrantVoucherExport(file: File | null | undefined): Promi
     closeProGrantCampaignForm();
     renderProGrantCampaignState(proGrantCampaignDraft);
     setProGrantCampaignMessage(
-      `${batch.campaign.title}의 코드 ${formatter.format(batch.vouchers.length)}개를 메모리에 불러왔어요. 3단계에서 동일 배치를 안전하게 이어갈 수 있어요.`,
+      `Loaded ${formatter.format(batch.vouchers.length)} codes for “${proGrantCampaignDisplayTitle(batch.campaign)}” into memory. You can safely continue the same batch at step 3.`,
     );
   } finally {
     setProGrantCampaignBusy(false);
@@ -1118,7 +1128,7 @@ async function provisionProGrantRoomPool(config: ProGrantConfig) {
     after.needsProvisioning.length > 0 ||
     after.unavailable.length > 0
   ) {
-    throw new Error('이벤트 방 번호가 모두 안전한 미활성 상태로 준비되지 않았어요.');
+    throw new Error('Not every event room is safely prepared in an inactive state.');
   }
   return { replayOnly: false, inventory: after, rooms };
 }
@@ -1132,96 +1142,96 @@ function mountProGrantCampaignPanel(): void {
   panel.innerHTML = `
     <div class="panel-head pro-grant-campaign-head">
       <div>
-        <h2>PRO 이벤트</h2>
-        <p>이벤트를 만들고, 리딤 현황과 공개 상태를 한곳에서 관리해요.</p>
+        <h2>PRO Events</h2>
+        <p>Create events and manage redemption progress and publication status in one place.</p>
       </div>
       <div class="pro-grant-head-actions">
-        <button class="is-secondary" type="button" data-pro-grant-import>코드 파일 불러오기</button>
-        <button class="is-secondary" type="button" data-pro-grant-new>새 이벤트</button>
+        <button class="is-secondary" type="button" data-pro-grant-import>Import code file</button>
+        <button class="is-secondary" type="button" data-pro-grant-new>New event</button>
         <input data-pro-grant-import-input type="file" accept="application/json,.json" hidden>
       </div>
     </div>
     <form class="pro-grant-campaign-form" data-pro-grant-create-form hidden>
       <div class="pro-grant-form-heading">
         <div>
-          <h3>새 이벤트</h3>
-          <p>저장하기 전에 방 범위가 겹치지 않는지 안전하게 검사해요.</p>
+          <h3>New event</h3>
+          <p>Room ranges are checked for conflicts before anything is saved.</p>
         </div>
-        <button class="is-quiet" type="button" data-pro-grant-form-cancel>닫기</button>
+        <button class="is-quiet" type="button" data-pro-grant-form-cancel>Close</button>
       </div>
       <div class="pro-grant-form-grid">
         <label class="pro-room-field pro-grant-form-wide">
-          <span>이벤트 이름</span>
-          <input name="title" maxlength="80" autocomplete="off" placeholder="MUSIXQUARE 아사모 이벤트" required>
+          <span>Event name</span>
+          <input name="title" maxlength="80" autocomplete="off" placeholder="MUSIXQUARE ASAMO Event" required>
         </label>
         <label class="pro-room-field">
-          <span>URL 이름</span>
+          <span>URL slug</span>
           <input name="slug" maxlength="48" inputmode="url" autocomplete="off" placeholder="asamo-1" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" required>
           <small>musixquare.com/events/<b data-pro-grant-slug-preview>event</b>/</small>
         </label>
         <label class="pro-room-field">
-          <span>첫 방 번호</span>
+          <span>First room code</span>
           <input name="roomStartCode" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="000200" pattern="0[0-9]{5}" required>
         </label>
         <label class="pro-room-field">
-          <span>방 개수</span>
+          <span>Room count</span>
           <input name="roomCount" type="number" min="1" max="${PRO_GRANT_MAX_CAMPAIGN_ROOMS}" value="50" required>
         </label>
         <label class="pro-room-field">
-          <span>시작</span>
+          <span>Starts</span>
           <input name="startsAt" type="datetime-local" required>
         </label>
         <label class="pro-room-field">
-          <span>자동 종료 (선택)</span>
+          <span>Automatic end (optional)</span>
           <input name="endsAt" type="datetime-local">
         </label>
       </div>
-      <p class="pro-grant-range-preview" data-pro-grant-range-preview>첫 방 번호와 개수를 입력해 주세요.</p>
-      <button type="submit">이벤트 검토하기</button>
+      <p class="pro-grant-range-preview" data-pro-grant-range-preview>Enter a first room code and room count.</p>
+      <button type="submit">Review event</button>
     </form>
     <div class="pro-grant-campaign-layout">
-      <div class="pro-grant-campaign-list" data-pro-grant-list aria-label="이벤트 목록"></div>
+      <div class="pro-grant-campaign-list" data-pro-grant-list aria-label="Event list"></div>
       <section class="pro-grant-campaign-detail" data-pro-grant-detail>
         <div class="pro-grant-detail-head">
           <div>
-            <h3 data-pro-grant-title>이벤트를 선택해 주세요</h3>
-            <p data-pro-grant-meta>목록에서 이벤트를 선택하거나 새로 만들 수 있어요.</p>
+            <h3 data-pro-grant-title>Select an event</h3>
+            <p data-pro-grant-meta>Select an event from the list or create a new one.</p>
           </div>
-          <span class="pro-grant-campaign-state" data-pro-grant-state>불러오는 중</span>
+          <span class="pro-grant-campaign-state" data-pro-grant-state>Loading</span>
         </div>
         <div class="pro-grant-event-link" data-pro-grant-event-link hidden>
           <a target="_blank" rel="noopener"></a>
-          <button class="is-secondary" type="button" data-pro-grant-link-copy>주소 복사</button>
+          <button class="is-secondary" type="button" data-pro-grant-link-copy>Copy link</button>
         </div>
-        <div class="pro-grant-campaign-summary" data-pro-grant-counts>이벤트 상태를 불러오고 있어요.</div>
-        <ol class="pro-grant-workflow" aria-label="이벤트 생성 순서">
-          <li><strong>방 번호 확인</strong><span>다른 이벤트 또는 활성 방과 겹치지 않는지 검사해요.</span></li>
-          <li><strong>코드 보관</strong><span>원문 코드 파일을 먼저 안전한 곳에 저장해요.</span></li>
-          <li><strong>이벤트 시작</strong><span>저장한 코드 파일과 동일한 배치만 서버에 한 번 적용해요.</span></li>
+        <div class="pro-grant-campaign-summary" data-pro-grant-counts>Loading event status.</div>
+        <ol class="pro-grant-workflow" aria-label="Event creation steps">
+          <li><strong>Verify room codes</strong><span>Check for conflicts with other events or active rooms.</span></li>
+          <li><strong>Save the codes</strong><span>Store the plaintext code file somewhere secure first.</span></li>
+          <li><strong>Start the event</strong><span>Apply the exact saved batch to the server once.</span></li>
         </ol>
         <div class="pro-grant-campaign-actions pro-grant-workflow-actions">
-          <button class="is-secondary" type="button" data-pro-grant-verify>1. 방 번호 확인</button>
-          <button type="button" data-pro-grant-create disabled>2. 코드 파일 만들기</button>
-          <button type="button" data-pro-grant-apply disabled>3. 이벤트 시작</button>
+          <button class="is-secondary" type="button" data-pro-grant-verify>1. Verify room codes</button>
+          <button type="button" data-pro-grant-create disabled>2. Create code file</button>
+          <button type="button" data-pro-grant-apply disabled>3. Start event</button>
         </div>
         <div class="pro-grant-campaign-export" data-pro-grant-export hidden>
-          <strong>원문 코드가 이 브라우저 메모리에 있어요.</strong>
-          <p>서버에서는 코드 원문을 다시 보여주지 않아요. 페이지를 닫기 전에 다운로드 파일을 안전하게 보관해 주세요.</p>
+          <strong>Plaintext codes are held in this browser's memory.</strong>
+          <p>The server cannot reveal them again. Store the downloaded file securely before leaving this page.</p>
           <div>
-            <button class="is-secondary" type="button" data-pro-grant-download>파일 다시 받기</button>
-            <button class="is-secondary" type="button" data-pro-grant-copy>방 번호 + 코드 복사</button>
+            <button class="is-secondary" type="button" data-pro-grant-download>Download again</button>
+            <button class="is-secondary" type="button" data-pro-grant-copy>Copy room codes + codes</button>
           </div>
         </div>
         <div class="pro-grant-lifecycle">
           <div class="pro-grant-lifecycle-section">
-            <div><strong>공개 제어</strong><p>일시 중지는 나중에 다시 시작할 수 있어요.</p></div>
-            <button class="is-secondary" type="button" data-pro-grant-pause disabled>일시 중지</button>
+            <div><strong>Publication</strong><p>A paused event can be resumed later.</p></div>
+            <button class="is-secondary" type="button" data-pro-grant-pause disabled>Pause</button>
           </div>
           <div class="pro-grant-lifecycle-section is-danger-zone">
-            <div><strong>이벤트 종료</strong><p>종료는 미사용 코드를 보존하고, 폐기는 남은 코드를 영구 무효화해요. 이미 받은 PRO 방은 바뀌지 않아요.</p></div>
+            <div><strong>End event</strong><p>Ending preserves unused codes; revoking permanently invalidates them. Already granted PRO rooms are unchanged.</p></div>
             <div>
-              <button class="is-secondary" type="button" data-pro-grant-end disabled>이벤트 종료</button>
-              <button class="is-danger" type="button" data-pro-grant-revoke disabled>미사용 코드 폐기</button>
+              <button class="is-secondary" type="button" data-pro-grant-end disabled>End event</button>
+              <button class="is-danger" type="button" data-pro-grant-revoke disabled>Revoke unused codes</button>
             </div>
           </div>
         </div>
@@ -1826,9 +1836,11 @@ async function openServiceStatusDialog(
       serviceStatusErrorEl.hidden = false;
     }
   }
-  if (serviceStatusLoaded && serviceStatusConfirmBtn && !serviceStatusConfirmBtn.disabled) {
-    serviceStatusConfirmBtn.focus();
-  } else serviceStatusCancelBtns[0]?.focus();
+  const initialFocus =
+    serviceStatusDialog.querySelector<HTMLButtonElement>(
+      '.service-status-dialog-actions [data-service-status-cancel]',
+    ) || serviceStatusCancelBtns[0];
+  initialFocus?.focus();
 }
 
 function abortNonStatusDashboardLoads(): void {
@@ -4180,16 +4192,16 @@ function setProGrantCampaignMessage(message: string, isError = false): void {
 
 function proGrantCampaignStatusCopy(status: string): string {
   const labels: Readonly<Record<string, string>> = {
-    active: '진행 중',
-    paused: '일시 중지',
-    scheduled: '시작 전',
-    ended: '종료됨',
-    revoked: '미사용 코드 폐기됨',
-    draft: '초안',
-    review: '검토 중',
-    'not-created': '생성 전',
+    active: 'Active',
+    paused: 'Paused',
+    scheduled: 'Scheduled',
+    ended: 'Ended',
+    revoked: 'Unused codes revoked',
+    draft: 'Draft',
+    review: 'In review',
+    'not-created': 'Not created',
   };
-  return labels[status] || status || '알 수 없음';
+  return labels[status] || status || 'Unknown';
 }
 
 function proGrantCampaignPublicPath(slug: unknown): string {
@@ -4240,7 +4252,7 @@ function renderProGrantCampaignList(): void {
     const empty = document.createElement('div');
     empty.className = 'pro-grant-campaign-empty';
     empty.innerHTML =
-      '<strong>아직 이벤트가 없어요.</strong><span>새 이벤트를 눌러 시작해 보세요.</span>';
+      '<strong>No events yet.</strong><span>Select New event to get started.</span>';
     proGrantCampaignListEl.replaceChildren(empty);
     return;
   }
@@ -4255,9 +4267,9 @@ function renderProGrantCampaignList(): void {
     button.setAttribute('aria-pressed', String(campaign.slug === selectedProGrantCampaignSlug));
     button.disabled = proGrantCampaignBusy;
     const title = document.createElement('strong');
-    title.textContent = campaign.title || '';
+    title.textContent = proGrantCampaignDisplayTitle(campaign);
     const meta = document.createElement('span');
-    meta.textContent = `${campaign.slug} · ${formatter.format(counts.redeemed)}/${formatter.format(counts.total)} 사용`;
+    meta.textContent = `${campaign.slug} · ${formatter.format(counts.redeemed)}/${formatter.format(counts.total)} redeemed`;
     const status = document.createElement('span');
     status.className = 'pro-grant-campaign-item-state';
     status.dataset.state = state;
@@ -4269,7 +4281,7 @@ function renderProGrantCampaignList(): void {
     ) {
       const pending = document.createElement('span');
       pending.className = 'pro-grant-campaign-pending';
-      pending.textContent = '적용 대기 중인 코드 파일';
+      pending.textContent = 'Code file awaiting application';
       button.append(pending);
     }
     button.addEventListener('click', () => {
@@ -4363,22 +4375,23 @@ function renderProGrantCampaignState(payload: NormalizedProGrantCampaignEntry | 
   proGrantCampaignPanelEl.dataset.proGrantCampaign = campaign?.slug || '';
   proGrantCampaignDetailEl?.toggleAttribute('data-empty', !campaign);
   if (proGrantCampaignTitleEl) {
-    proGrantCampaignTitleEl.textContent = campaign?.title || '이벤트를 선택해 주세요';
+    proGrantCampaignTitleEl.textContent =
+      proGrantCampaignDisplayTitle(campaign) || 'Select an event';
   }
   if (proGrantCampaignMetaEl) {
     if (!campaign) {
-      proGrantCampaignMetaEl.textContent = '목록에서 이벤트를 선택하거나 새로 만들 수 있어요.';
+      proGrantCampaignMetaEl.textContent = 'Select an event from the list or create a new one.';
     } else {
       const rooms = config?.roomCodes || [];
       const roomRange =
         rooms.length > 0
-          ? `${rooms[0]}–${rooms.at(-1)} · ${formatter.format(rooms.length)}개 방`
-          : '방 범위 정보 없음';
+          ? `${rooms[0]}–${rooms.at(-1)} · ${formatter.format(rooms.length)} rooms`
+          : 'Room range unavailable';
       const starts = normalizeCampaignTimestamp(campaign.startsAt);
       const ends = normalizeCampaignTimestamp(campaign.endsAt);
-      proGrantCampaignMetaEl.textContent = `${campaign.slug} · ${roomRange} · 계정당 1개 · ${
-        starts ? formatAdminDateTime(starts) : '시작 시각 미정'
-      }${ends ? `–${formatAdminDateTime(ends)}` : '–직접 종료'}`;
+      proGrantCampaignMetaEl.textContent = `${campaign.slug} · ${roomRange} · 1 per account · ${
+        starts ? formatAdminDateTime(starts) : 'Start time unset'
+      }${ends ? `–${formatAdminDateTime(ends)}` : '–Manual end'}`;
     }
   }
   if (proGrantCampaignStateEl) {
@@ -4395,8 +4408,8 @@ function renderProGrantCampaignState(payload: NormalizedProGrantCampaignEntry | 
   }
   if (proGrantCampaignCountsEl) {
     proGrantCampaignCountsEl.textContent = campaign
-      ? `${formatter.format(counts.total)}개 발급 · ${formatter.format(counts.available)}개 사용 가능 · ${formatter.format(counts.redeemed)}개 사용 · ${formatter.format(counts.revoked)}개 폐기`
-      : '새 이벤트를 만들거나 목록에서 선택해 주세요.';
+      ? `${formatter.format(counts.total)} issued · ${formatter.format(counts.available)} available · ${formatter.format(counts.redeemed)} redeemed · ${formatter.format(counts.revoked)} revoked`
+      : 'Create a new event or select one from the list.';
   }
   const issuanceClosed =
     !campaign ||
@@ -4410,13 +4423,13 @@ function renderProGrantCampaignState(payload: NormalizedProGrantCampaignEntry | 
       !poolVerified ||
       Boolean(pendingProGrantVoucherExport && !hasExactPendingBatch);
     proGrantCampaignCreateBtn.textContent = hasExactPendingBatch
-      ? '2. 같은 코드 파일 다시 받기'
-      : '2. 코드 파일 만들기';
+      ? '2. Download the same code file again'
+      : '2. Create code file';
   }
   if (proGrantCampaignApplyBtn) {
     proGrantCampaignApplyBtn.disabled =
       proGrantCampaignBusy || !hasExactPendingBatch || pendingApplied;
-    proGrantCampaignApplyBtn.textContent = pendingApplied ? '3. 시작 완료' : '3. 이벤트 시작';
+    proGrantCampaignApplyBtn.textContent = pendingApplied ? '3. Event started' : '3. Start event';
   }
   if (proGrantCampaignVerifyBtn) {
     proGrantCampaignVerifyBtn.disabled = proGrantCampaignBusy || !campaign || issuanceClosed;
@@ -4428,10 +4441,10 @@ function renderProGrantCampaignState(payload: NormalizedProGrantCampaignEntry | 
       !campaign ||
       (!canRecoverIssuedDraft && !['active', 'paused', 'scheduled'].includes(state));
     proGrantCampaignPauseBtn.textContent = canRecoverIssuedDraft
-      ? '이벤트 시작'
+      ? 'Start event'
       : state === 'paused'
-        ? '다시 시작'
-        : '일시 중지';
+        ? 'Resume'
+        : 'Pause';
   }
   if (proGrantCampaignEndBtn) {
     proGrantCampaignEndBtn.disabled =
@@ -4550,18 +4563,23 @@ async function verifyProGrantCampaignPool(): Promise<void> {
   if (proGrantCampaignBusy) return;
   const config = proGrantCampaignConfig();
   if (!config || config.roomCodes.length === 0) {
-    setProGrantCampaignMessage('이 이벤트의 연속된 방 번호 범위 정보가 올바르지 않아요.', true);
+    setProGrantCampaignMessage(
+      'This event does not have a valid contiguous room-code range.',
+      true,
+    );
     return;
   }
   setProGrantCampaignBusy(true);
   setProGrantCampaignMessage(
-    `${config.roomCodes[0]}–${config.roomCodes.at(-1)} 범위를 변경 없이 검사하고 있어요...`,
+    `Checking ${config.roomCodes[0]}–${config.roomCodes.at(-1)} without making changes...`,
   );
   try {
     await loadProGrantCampaignStatus();
     const overlap = findProGrantCampaignOverlap(config);
     if (overlap) {
-      throw new Error(`${overlap.roomCode}번 방이 ${overlap.campaign.title}와 겹쳐요.`);
+      throw new Error(
+        `Room ${overlap.roomCode} overlaps with “${proGrantCampaignDisplayTitle(overlap.campaign)}”.`,
+      );
     }
     await fetchJson('/api/admin/pro-grants/campaigns', {
       method: 'POST',
@@ -4572,7 +4590,7 @@ async function verifyProGrantCampaignPool(): Promise<void> {
       const first = inventory.unavailable[0];
       if (!first) throw new Error('PRO room inventory is invalid.');
       setProGrantCampaignMessage(
-        `${formatter.format(inventory.unavailable.length)}개 방을 사용할 수 없어요. ${first.roomCode} 상태: ${first.status}/${first.activationState}.`,
+        `${formatter.format(inventory.unavailable.length)} rooms are unavailable. ${first.roomCode} state: ${first.status}/${first.activationState}.`,
         true,
       );
       return;
@@ -4584,13 +4602,13 @@ async function verifyProGrantCampaignPool(): Promise<void> {
     };
     setProGrantCampaignMessage(
       inventory.needsProvisioning.length > 0
-        ? `${formatter.format(inventory.needsProvisioning.length)}개 방은 적용 단계에서 새로 준비돼요. 먼저 코드 파일을 저장해 주세요.`
-        : `전체 ${formatter.format(config.roomCodes.length)}개 방이 미활성 상태로 준비됐어요.`,
+        ? `${formatter.format(inventory.needsProvisioning.length)} rooms will be provisioned during the apply step. Save the code file first.`
+        : `All ${formatter.format(config.roomCodes.length)} rooms are prepared and inactive.`,
     );
   } catch (error) {
     verifiedProGrantPool = null;
     setProGrantCampaignMessage(
-      adminErrorMessage(error, '이벤트 방 번호를 검증하지 못했어요.'),
+      adminErrorMessage(error, 'The event room codes could not be verified.'),
       true,
     );
     throw error;
@@ -4663,12 +4681,14 @@ async function applyPendingProGrantVoucherBatch(): Promise<void> {
   };
   setProGrantCampaignBusy(true);
   setProGrantCampaignMessage(
-    '저장한 코드 파일과 같은 방 번호를 다시 확인하고 이벤트를 시작하고 있어요...',
+    'Rechecking the saved code file against the room range and starting the event...',
   );
   try {
     const overlap = findProGrantCampaignOverlap(config);
     if (overlap) {
-      throw new Error(`${overlap.roomCode}번 방이 ${overlap.campaign.title}와 겹쳐요.`);
+      throw new Error(
+        `Room ${overlap.roomCode} overlaps with “${proGrantCampaignDisplayTitle(overlap.campaign)}”.`,
+      );
     }
     const provisioning = await provisionProGrantRoomPool(config);
     await fetchJson('/api/admin/pro-grants/campaigns', {
@@ -4704,14 +4724,14 @@ async function applyPendingProGrantVoucherBatch(): Promise<void> {
     batch.applied = true;
     setProGrantCampaignMessage(
       confirmation.replayed
-        ? '기존 배치와 정확히 일치해요. 새 코드는 만들지 않았어요.'
-        : `${formatter.format(batch.vouchers.length)}개 코드가 적용됐어요. 다운로드 파일을 안전하게 보관해 주세요.`,
+        ? 'The existing batch is an exact match. No new codes were created.'
+        : `${formatter.format(batch.vouchers.length)} codes were applied. Keep the downloaded file secure.`,
     );
     proGrantCampaignDraft = null;
     await loadProGrantCampaignStatus();
   } catch (error) {
     setProGrantCampaignMessage(
-      `${adminErrorMessage(error, '코드를 적용하지 못했어요.')} 같은 배치를 메모리에 보존했으니 상태를 확인한 뒤 다시 시도할 수 있어요.`,
+      `${adminErrorMessage(error, 'The codes could not be applied.')} The same batch remains in memory, so you can check the status and retry.`,
       true,
     );
     throw error;
@@ -4725,20 +4745,20 @@ async function createAndDownloadProGrantVouchers(): Promise<void> {
   if (pendingProGrantVoucherExport) {
     if (pendingProGrantVoucherExport.campaign.slug !== selectedProGrantCampaignSlug) {
       setProGrantCampaignMessage(
-        `${pendingProGrantVoucherExport.campaign.title}의 미적용 코드 파일이 메모리에 있어요. 먼저 해당 이벤트를 적용하거나 페이지를 나가 폐기해 주세요.`,
+        `An unapplied code file for “${proGrantCampaignDisplayTitle(pendingProGrantVoucherExport.campaign)}” is in memory. Apply that event first, or leave the page to discard it.`,
         true,
       );
       return;
     }
     downloadProGrantVoucherExport();
     setProGrantCampaignMessage(
-      '같은 코드 파일을 다시 받았어요. 파일을 확인한 뒤 이벤트를 시작해 주세요.',
+      'Downloaded the same code file again. Check the file before starting the event.',
     );
     return;
   }
   const config = proGrantCampaignConfig();
   if (!config || verifiedProGrantPool?.fingerprint !== proGrantPoolFingerprint(config)) {
-    setProGrantCampaignMessage('먼저 1단계에서 방 번호를 확인해 주세요.', true);
+    setProGrantCampaignMessage('Verify the room codes in step 1 first.', true);
     return;
   }
   pendingProGrantVoucherExport = createProGrantVoucherExport(config);
@@ -4746,7 +4766,9 @@ async function createAndDownloadProGrantVouchers(): Promise<void> {
   // This phase performs no remote mutation. The operator explicitly applies
   // only after confirming that the recoverable plaintext file was saved.
   downloadProGrantVoucherExport(pendingProGrantVoucherExport);
-  setProGrantCampaignMessage('코드 파일을 만들었어요. 다운로드를 확인한 뒤 3단계를 눌러 주세요.');
+  setProGrantCampaignMessage(
+    'The code file is ready. Confirm the download, then continue to step 3.',
+  );
 }
 
 async function setProGrantCampaignOperationalStatus(
@@ -4757,17 +4779,17 @@ async function setProGrantCampaignOperationalStatus(
   if (!campaign?.slug) return;
   if (status === 'ended') {
     const confirmed = window.confirm(
-      `${campaign.title} 이벤트를 종료할까요?\n\n남은 코드는 보존되지만 더 이상 등록할 수 없어요. 종료 후에는 다시 시작할 수 없습니다. 이미 받은 PRO 방은 유지됩니다.`,
+      `End “${proGrantCampaignDisplayTitle(campaign)}”?\n\nUnused codes will be preserved but can no longer be redeemed. An ended event cannot be restarted. Already granted PRO rooms remain active.`,
     );
     if (!confirmed) return;
   }
   setProGrantCampaignBusy(true);
   setProGrantCampaignMessage(
     status === 'paused'
-      ? '이벤트를 일시 중지하고 있어요...'
+      ? 'Pausing the event...'
       : status === 'ended'
-        ? '이벤트를 종료하고 있어요...'
-        : '이벤트를 다시 시작하고 있어요...',
+        ? 'Ending the event...'
+        : 'Resuming the event...',
   );
   try {
     await fetchJson(`/api/admin/pro-grants/campaigns/${encodeURIComponent(campaign.slug)}/status`, {
@@ -4777,10 +4799,10 @@ async function setProGrantCampaignOperationalStatus(
     await loadProGrantCampaignStatus();
     setProGrantCampaignMessage(
       status === 'paused'
-        ? '이벤트를 일시 중지했어요.'
+        ? 'The event is paused.'
         : status === 'ended'
-          ? '이벤트를 종료했어요. 미사용 코드는 보존돼요.'
-          : '이벤트를 다시 시작했어요.',
+          ? 'The event has ended. Unused codes are preserved.'
+          : 'The event has resumed.',
     );
   } finally {
     setProGrantCampaignBusy(false);
@@ -4794,11 +4816,11 @@ async function revokeProGrantCampaign(): Promise<void> {
   if (!campaign?.slug) return;
   const available = normalizedProGrantCounts(entry).available;
   const confirmed = window.confirm(
-    `${campaign.title}의 미사용 코드 ${formatter.format(available)}개를 영구 폐기할까요?\n\n이 작업은 되돌릴 수 없습니다. 이미 사용된 코드와 지급된 PRO 방은 유지됩니다.`,
+    `Permanently revoke ${formatter.format(available)} unused codes for “${proGrantCampaignDisplayTitle(campaign)}”?\n\nThis cannot be undone. Redeemed codes and granted PRO rooms are unchanged.`,
   );
   if (!confirmed) return;
   setProGrantCampaignBusy(true);
-  setProGrantCampaignMessage('미사용 코드를 영구 폐기하고 있어요...');
+  setProGrantCampaignMessage('Permanently revoking unused codes...');
   try {
     await fetchJson(`/api/admin/pro-grants/campaigns/${encodeURIComponent(campaign.slug)}/revoke`, {
       method: 'POST',
@@ -4808,7 +4830,9 @@ async function revokeProGrantCampaign(): Promise<void> {
       }),
     });
     await loadProGrantCampaignStatus();
-    setProGrantCampaignMessage('미사용 코드를 폐기했어요. 이미 지급된 PRO 방은 바뀌지 않았어요.');
+    setProGrantCampaignMessage(
+      'Unused codes were revoked. Already granted PRO rooms are unchanged.',
+    );
   } finally {
     setProGrantCampaignBusy(false);
   }
@@ -4836,10 +4860,10 @@ function updateProGrantCampaignFormPreview(): void {
       formControlValue(proGrantCampaignFormEl, 'roomStartCode'),
       Number(formControlValue(proGrantCampaignFormEl, 'roomCount')),
     );
-    rangePreview.textContent = `${roomCodes[0]}–${roomCodes.at(-1)} · ${formatter.format(roomCodes.length)}개 방 · 계정당 1개`;
+    rangePreview.textContent = `${roomCodes[0]}–${roomCodes.at(-1)} · ${formatter.format(roomCodes.length)} rooms · 1 per account`;
     rangePreview.classList.remove('is-error');
   } catch (error) {
-    rangePreview.textContent = adminErrorMessage(error, '?뺣낫瑜??뺤씤??二쇱꽭??');
+    rangePreview.textContent = adminErrorMessage(error, 'Check the room range.');
     rangePreview.classList.add('is-error');
   }
 }
@@ -4851,7 +4875,7 @@ function openProGrantCampaignForm(): void {
     proGrantCampaignState = selectedProGrantCampaign();
     renderProGrantCampaignState(proGrantCampaignState);
     setProGrantCampaignMessage(
-      `${pendingProGrantVoucherExport.campaign.title}의 코드 파일이 적용 대기 중이에요. 먼저 해당 이벤트를 시작하거나 페이지를 나가 폐기해 주세요.`,
+      `A code file for “${proGrantCampaignDisplayTitle(pendingProGrantVoucherExport.campaign)}” is waiting to be applied. Start that event first, or leave the page to discard it.`,
       true,
     );
     return;
@@ -4883,9 +4907,9 @@ function stageProGrantCampaignFromForm(): void {
   const slug = String(form.get('slug') || '')
     .trim()
     .toLowerCase();
-  if (!title || title.length > 80) throw new Error('이벤트 이름을 확인해 주세요.');
+  if (!title || title.length > 80) throw new Error('Check the event name.');
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(slug) || slug.length > 48) {
-    throw new Error('URL 이름은 영문 소문자, 숫자, 하이픈만 사용할 수 있어요.');
+    throw new Error('The URL slug may contain lowercase letters, numbers, and hyphens only.');
   }
   if (
     pendingProGrantVoucherExport &&
@@ -4893,11 +4917,11 @@ function stageProGrantCampaignFromForm(): void {
     pendingProGrantVoucherExport?.campaign?.slug !== slug
   ) {
     throw new Error(
-      `${pendingProGrantVoucherExport.campaign.title}의 코드 파일이 적용 대기 중이에요. 먼저 해당 이벤트를 시작하거나 페이지를 나가 폐기해 주세요.`,
+      `A code file for “${proGrantCampaignDisplayTitle(pendingProGrantVoucherExport.campaign)}” is waiting to be applied. Start that event first, or leave the page to discard it.`,
     );
   }
   if (proGrantCampaigns.some((entry) => (entry.campaign || entry).slug === slug)) {
-    throw new Error('이미 같은 URL 이름을 사용하는 이벤트가 있어요.');
+    throw new Error('Another event already uses this URL slug.');
   }
   const roomCodes = campaignRoomCodesFromRange(
     form.get('roomStartCode'),
@@ -4905,12 +4929,12 @@ function stageProGrantCampaignFromForm(): void {
   );
   const startsAt = parseCampaignLocalDateTime(form.get('startsAt'), { required: true });
   const endsAt = parseCampaignLocalDateTime(form.get('endsAt'));
-  if (startsAt === null) throw new Error('?쒖옉 ?쒓컙???낅젰??二쇱꽭??');
+  if (startsAt === null) throw new Error('Enter a start time.');
   if (endsAt !== null && endsAt <= startsAt) {
-    throw new Error('종료 시간은 시작 시간보다 뒤여야 해요.');
+    throw new Error('The end time must be later than the start time.');
   }
   const firstRoomCode = roomCodes[0];
-  if (!firstRoomCode) throw new Error('諛?踰붿쐞瑜??뺤씤??二쇱꽭??');
+  if (!firstRoomCode) throw new Error('Check the room range.');
   const draft: NormalizedProGrantCampaignEntry = {
     campaign: {
       slug,
@@ -4928,14 +4952,18 @@ function stageProGrantCampaignFromForm(): void {
     isDraft: true,
   };
   const overlap = findProGrantCampaignOverlap(proGrantCampaignConfig(draft));
-  if (overlap) throw new Error(`${overlap.roomCode}번 방이 ${overlap.campaign.title}와 겹쳐요.`);
+  if (overlap) {
+    throw new Error(
+      `Room ${overlap.roomCode} overlaps with “${proGrantCampaignDisplayTitle(overlap.campaign)}”.`,
+    );
+  }
   proGrantCampaignDraft = draft;
   selectedProGrantCampaignSlug = slug;
   proGrantCampaignState = draft;
   verifiedProGrantPool = null;
   closeProGrantCampaignForm();
   renderProGrantCampaignState(draft);
-  setProGrantCampaignMessage('이벤트 정보를 검토했어요. 이제 1단계에서 방 번호를 확인해 주세요.');
+  setProGrantCampaignMessage('Event details reviewed. Verify the room codes in step 1.');
 }
 
 async function loadProRooms(
@@ -5973,7 +6001,7 @@ function bindProGrantCampaignEvents(): void {
     importProGrantVoucherExport(file)
       .catch((error) => {
         setProGrantCampaignMessage(
-          adminErrorMessage(error, '코드 파일을 불러오지 못했어요.'),
+          adminErrorMessage(error, 'The code file could not be imported.'),
           true,
         );
       })
@@ -5998,7 +6026,7 @@ function bindProGrantCampaignEvents(): void {
     try {
       stageProGrantCampaignFromForm();
     } catch (error) {
-      setProGrantCampaignMessage(adminErrorMessage(error, '이벤트 정보를 확인해 주세요.'), true);
+      setProGrantCampaignMessage(adminErrorMessage(error, 'Check the event details.'), true);
     }
   });
   proGrantCampaignVerifyBtn?.addEventListener('click', () => {
@@ -6019,18 +6047,21 @@ function bindProGrantCampaignEvents(): void {
         ? 'active'
         : 'paused';
     setProGrantCampaignOperationalStatus(next).catch((error) => {
-      setProGrantCampaignMessage(adminErrorMessage(error, '이벤트 상태를 바꾸지 못했어요.'), true);
+      setProGrantCampaignMessage(
+        adminErrorMessage(error, 'The event status could not be changed.'),
+        true,
+      );
     });
   });
   proGrantCampaignEndBtn?.addEventListener('click', () => {
     setProGrantCampaignOperationalStatus('ended').catch((error) => {
-      setProGrantCampaignMessage(adminErrorMessage(error, '이벤트를 종료하지 못했어요.'), true);
+      setProGrantCampaignMessage(adminErrorMessage(error, 'The event could not be ended.'), true);
     });
   });
   proGrantCampaignRevokeBtn?.addEventListener('click', () => {
     revokeProGrantCampaign().catch((error) => {
       setProGrantCampaignMessage(
-        adminErrorMessage(error, '미사용 코드를 폐기하지 못했어요.'),
+        adminErrorMessage(error, 'Unused codes could not be revoked.'),
         true,
       );
     });
@@ -6042,23 +6073,23 @@ function bindProGrantCampaignEvents(): void {
     copyProGrantVoucherExport()
       .then((copied) =>
         setProGrantCampaignMessage(
-          copied ? '방 번호와 리딤 코드를 복사했어요.' : '클립보드를 사용할 수 없어요.',
+          copied ? 'Copied room codes and redemption codes.' : 'Clipboard access is unavailable.',
           !copied,
         ),
       )
-      .catch(() => setProGrantCampaignMessage('복사하지 못했어요.', true));
+      .catch(() => setProGrantCampaignMessage('The codes could not be copied.', true));
   });
   proGrantCampaignLinkCopyBtn?.addEventListener('click', () => {
     const campaign = selectedProGrantCampaign()?.campaign || selectedProGrantCampaign();
     const value = campaign?.slug ? proGrantCampaignPublicUrl(campaign.slug) : '';
     if (!value || !navigator.clipboard?.writeText) {
-      setProGrantCampaignMessage('클립보드를 사용할 수 없어요.', true);
+      setProGrantCampaignMessage('Clipboard access is unavailable.', true);
       return;
     }
     navigator.clipboard
       .writeText(value)
-      .then(() => setProGrantCampaignMessage('이벤트 페이지 주소를 복사했어요.'))
-      .catch(() => setProGrantCampaignMessage('주소를 복사하지 못했어요.', true));
+      .then(() => setProGrantCampaignMessage('Copied the event page address.'))
+      .catch(() => setProGrantCampaignMessage('The address could not be copied.', true));
   });
 }
 

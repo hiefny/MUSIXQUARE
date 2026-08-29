@@ -23,6 +23,7 @@ import {
   isTrustedSystemAudioMediaCall,
   leaveSession,
   safeSend,
+  sdpPrefersOpusStereo,
   waitForGuestConnectionType,
 } from '../peer.ts';
 import type { AnyProtocolMsg, DataConnection, PeerInstance } from '../../types/index.ts';
@@ -343,7 +344,7 @@ describe('forceStereoSdp', () => {
     const result = forceStereoSdp(sdp);
 
     expect(result).toContain(
-      'a=fmtp:111 minptime=10; stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1',
+      'a=fmtp:111 minptime=10; stereo=1; sprop-stereo=1; maxaveragebitrate=256000; useinbandfec=1',
     );
   });
 
@@ -355,8 +356,23 @@ describe('forceStereoSdp', () => {
     const result = forceStereoSdp(sdp);
 
     expect(result).toContain(
-      'a=fmtp:111 stereo=1; sprop-stereo=1; maxaveragebitrate=128000; useinbandfec=1',
+      'a=fmtp:111 stereo=1; sprop-stereo=1; maxaveragebitrate=256000; useinbandfec=1',
     );
+  });
+
+  it('recognizes only an explicit stereo preference on an Opus payload', () => {
+    const stereo = [
+      'v=0',
+      'a=rtpmap:111 opus/48000/2',
+      'a=fmtp:111 minptime=10; STEREO = 1; useinbandfec=1',
+      '',
+    ].join('\r\n');
+    const mono = stereo.replace('STEREO = 1', 'stereo=0');
+    const wrongPayload = stereo.replace('a=fmtp:111', 'a=fmtp:112');
+
+    expect(sdpPrefersOpusStereo(stereo)).toBe(true);
+    expect(sdpPrefersOpusStereo(mono)).toBe(false);
+    expect(sdpPrefersOpusStereo(wrongPayload)).toBe(false);
   });
 });
 
@@ -367,7 +383,7 @@ describe('isTrustedSystemAudioMediaCall', () => {
     expect(
       isTrustedSystemAudioMediaCall({
         peer: 'host-123',
-        metadata: { type: 'system-audio-synced' },
+        metadata: { type: 'system-audio-stereo' },
       }),
     ).toBe(true);
   });
@@ -378,7 +394,7 @@ describe('isTrustedSystemAudioMediaCall', () => {
     expect(
       isTrustedSystemAudioMediaCall({
         peer: 'guest-evil',
-        metadata: { type: 'system-audio-synced' },
+        metadata: { type: 'system-audio-stereo' },
       }),
     ).toBe(false);
   });
@@ -387,7 +403,7 @@ describe('isTrustedSystemAudioMediaCall', () => {
     expect(
       isTrustedSystemAudioMediaCall({
         peer: 'guest-evil',
-        metadata: { type: 'system-audio-synced' },
+        metadata: { type: 'system-audio-stereo' },
       }),
     ).toBe(false);
   });
@@ -402,4 +418,18 @@ describe('isTrustedSystemAudioMediaCall', () => {
       }),
     ).toBe(false);
   });
+
+  it.each(['system-audio', 'system-audio-dual', 'system-audio-synced'])(
+    'rejects the removed %s legacy media contract',
+    (type) => {
+      setState('network.hostConn', makeConnection({ peer: 'host-123' }));
+
+      expect(
+        isTrustedSystemAudioMediaCall({
+          peer: 'host-123',
+          metadata: { type },
+        }),
+      ).toBe(false);
+    },
+  );
 });

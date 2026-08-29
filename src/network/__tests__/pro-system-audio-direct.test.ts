@@ -50,7 +50,7 @@ interface MockTrack extends MediaStreamTrack {
 
 let peerConnections: MockRTCPeerConnection[];
 let nextLocalities: Locality[];
-let receiverTrackIds: { L: string; R: string } | null;
+let receiverTrackId: string | null;
 let localParticipantId: string;
 let failNextAddTrack: boolean;
 let nextStatsGates: Array<Promise<void>>;
@@ -88,7 +88,7 @@ class MockRTCPeerConnection {
   });
   addIceCandidate = vi.fn(async () => {});
   readonly probeChannel = { close: vi.fn() };
-  private readonly senders: RTCRtpSender[] = [];
+  readonly senders: RTCRtpSender[] = [];
 
   constructor(configuration: RTCConfiguration) {
     this.configuration = configuration;
@@ -119,7 +119,7 @@ class MockRTCPeerConnection {
   async createOffer(): Promise<RTCSessionDescriptionInit> {
     const media =
       this.senders.length > 0
-        ? 'm=audio 9 UDP/TLS/RTP/SAVPF 111'
+        ? 'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2'
         : 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel';
     const embeddedCandidate = this.embeddedCandidateAddress
       ? `\r\na=candidate:embedded 1 udp 1 ${this.embeddedCandidateAddress} 5000 typ host`
@@ -134,7 +134,7 @@ class MockRTCPeerConnection {
 
   async createAnswer(): Promise<RTCSessionDescriptionInit> {
     const media = this.remoteDescription?.sdp?.includes('m=audio')
-      ? 'm=audio 9 UDP/TLS/RTP/SAVPF 111'
+      ? 'm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2'
       : 'm=application 9 UDP/DTLS/SCTP webrtc-datachannel';
     return { type: 'answer', sdp: `v=0\r\n${media}\r\no=${peerConnections.indexOf(this)}` };
   }
@@ -166,9 +166,8 @@ class MockRTCPeerConnection {
 
   async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
     this.remoteDescription = description as RTCSessionDescription;
-    if (description.type === 'offer' && description.sdp?.includes('m=audio') && receiverTrackIds) {
-      this.ontrack?.({ track: audioTrack(receiverTrackIds.L) } as unknown as RTCTrackEvent);
-      this.ontrack?.({ track: audioTrack(receiverTrackIds.R) } as unknown as RTCTrackEvent);
+    if (description.type === 'offer' && description.sdp?.includes('m=audio') && receiverTrackId) {
+      this.ontrack?.({ track: audioTrack(receiverTrackId) } as unknown as RTCTrackEvent);
     }
     if (description.type === 'answer') this.emitConnected();
   }
@@ -360,7 +359,7 @@ function installAutomaticAnswers(options: { emitCandidate?: boolean } = {}): voi
             type: 'answer',
             sdp:
               payload.phase === 'media'
-                ? `v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\no=${remoteParticipantId}`
+                ? `v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\no=${remoteParticipantId}`
                 : `v=0\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\no=${remoteParticipantId}`,
           },
         });
@@ -383,18 +382,17 @@ function installAutomaticAnswers(options: { emitCandidate?: boolean } = {}): voi
 
 function configureCallbacks(
   overrides: Partial<
-    Omit<DirectTransportCallbacks, 'onReceiverTracksReady' | 'onLiveRouteFallback'>
+    Omit<DirectTransportCallbacks, 'onReceiverTrackReady' | 'onLiveRouteFallback'>
   > = {},
 ) {
-  const onReceiverTracksReady =
-    vi.fn<(event: direct.ProSystemAudioDirectTracksReadyEvent) => void>();
+  const onReceiverTrackReady = vi.fn<(event: direct.ProSystemAudioDirectTrackReadyEvent) => void>();
   const onLiveRouteFallback = vi.fn<(event: direct.ProSystemAudioDirectFallbackEvent) => void>();
   const callbacks = {
     getLocalIdentity: () => ({ participantId: localParticipantId }),
     authorizeInboundOffer: () => true,
     authorizeInboundSignal: () => true,
     ...overrides,
-    onReceiverTracksReady,
+    onReceiverTrackReady,
     onLiveRouteFallback,
   } satisfies DirectTransportCallbacks;
   direct.configureProSystemAudioDirectTransport(callbacks);
@@ -411,7 +409,7 @@ const publicationId = 'publication_000000000001';
 beforeEach(() => {
   peerConnections = [];
   nextLocalities = [];
-  receiverTrackIds = null;
+  receiverTrackId = null;
   localParticipantId = publisherId;
   failNextAddTrack = false;
   nextStatsGates = [];
@@ -442,21 +440,31 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     nextLocalities.push('host-host', 'host-host');
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 7,
       publicationId,
       targets: [target(receiverA), target(receiverB)],
       timeoutMs: 250,
     });
 
-    expect(descriptor).toEqual({ publicationId, transport: 'lan-direct', protocolVersion: 1 });
+    expect(descriptor).toEqual({ publicationId, transport: 'lan-direct', protocolVersion: 2 });
     expect(peerConnections).toHaveLength(2);
     expect(peerConnections.map((pc) => pc.configuration)).toEqual([
       { iceServers: [], bundlePolicy: 'max-bundle' },
       { iceServers: [], bundlePolicy: 'max-bundle' },
     ]);
-    expect(peerConnections.map((pc) => pc.addTrack.mock.calls.length)).toEqual([2, 2]);
+    expect(peerConnections.map((pc) => pc.addTrack.mock.calls.length)).toEqual([1, 1]);
+    expect(peerConnections.map((pc) => pc.addTrack.mock.calls[0]?.[0].id)).toEqual([
+      'capture-stereo',
+      'capture-stereo',
+    ]);
+    for (const pc of peerConnections) {
+      expect(pc.senders[0]?.setParameters).toHaveBeenCalledWith(
+        expect.objectContaining({
+          encodings: [expect.objectContaining({ maxBitrate: 256_000 })],
+        }),
+      );
+    }
     for (const targetParticipantId of [receiverA, receiverB]) {
       expect(
         bridgeMocks.sent
@@ -472,6 +480,18 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
           )
           .map((entry) => entry.payload.phase),
       ).toEqual(['probe', 'media']);
+      const mediaOffer = bridgeMocks.sent.find(
+        (entry) =>
+          entry.payload.targetParticipantId === targetParticipantId &&
+          entry.payload.kind === 'offer' &&
+          entry.payload.phase === 'media',
+      );
+      expect(mediaOffer?.payload).toEqual(expect.objectContaining({ trackId: 'capture-stereo' }));
+      expect(mediaOffer?.payload).not.toHaveProperty('trackIds');
+      const mediaSdp = (mediaOffer?.payload.description as RTCSessionDescriptionInit).sdp;
+      expect(mediaSdp).toContain('stereo=1');
+      expect(mediaSdp).toContain('sprop-stereo=1');
+      expect(mediaSdp).toContain('maxaveragebitrate=256000');
     }
     await expect(
       direct.activateProSystemAudioDirectPublication({
@@ -489,8 +509,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     nextLocalities.push('host-host', 'non-local');
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA), target(receiverB)],
@@ -526,13 +545,12 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     'local-mdns-remote-private',
     'ambiguous',
     'multiple-selected',
-  ])('rejects %s selected host pairs before adding either media track', async (locality) => {
+  ])('rejects %s selected host pairs before adding the media track', async (locality) => {
     configureCallbacks();
     nextLocalities.push(locality);
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA)],
@@ -553,8 +571,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     nextLocalities.push('mdns');
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA)],
@@ -562,7 +579,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     });
 
     expect(descriptor).not.toBeNull();
-    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(2);
+    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(1);
   });
 
   it('allows UUID-v4 mDNS addresses on both sides when the remote address is valid', async () => {
@@ -570,8 +587,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     nextLocalities.push('both-mdns');
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA)],
@@ -579,7 +595,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     });
 
     expect(descriptor).not.toBeNull();
-    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(2);
+    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(1);
   });
 
   it('accepts Chromium-redacted selected-pair addresses only with an added mDNS ledger match', async () => {
@@ -587,8 +603,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     nextLocalities.push('redacted-addresses');
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA)],
@@ -599,7 +614,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     expect(peerConnections[0]?.addIceCandidate).toHaveBeenCalledWith({
       candidate: safeCandidate('auto'),
     });
-    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(2);
+    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(1);
   });
 
   it('rejects Chromium-redacted selected-pair addresses without an added mDNS ledger match', async () => {
@@ -608,8 +623,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     nextLocalities.push('redacted-addresses');
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA)],
@@ -626,8 +640,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     nextLocalities.push('ledger-mismatch');
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA)],
@@ -646,8 +659,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     nextEmbeddedCandidateAddresses.push('2001:db8::10');
 
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 8,
       publicationId,
       targets: [target(receiverA)],
@@ -655,7 +667,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     });
 
     expect(descriptor).not.toBeNull();
-    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(2);
+    expect(peerConnections[0]?.addTrack).toHaveBeenCalledTimes(1);
     expect(
       bridgeMocks.sent
         .filter((entry) => entry.payload.kind === 'offer')
@@ -678,8 +690,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
 
     await expect(
       direct.attemptProSystemAudioDirectPublication({
-        leftTrack: audioTrack('capture-left'),
-        rightTrack: audioTrack('capture-right'),
+        track: audioTrack('capture-stereo'),
         generation: 9,
         publicationId,
         targets: [target(receiverA)],
@@ -699,21 +710,19 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
     configureCallbacks();
 
     const emptyDescriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 9,
       publicationId,
       targets: [],
     });
 
-    expect(emptyDescriptor).toEqual({ publicationId, transport: 'lan-direct', protocolVersion: 1 });
+    expect(emptyDescriptor).toEqual({ publicationId, transport: 'lan-direct', protocolVersion: 2 });
     expect(peerConnections).toHaveLength(0);
     expect(fetchSpy).not.toHaveBeenCalled();
 
     nextLocalities.push('host-host');
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left-2'),
-      rightTrack: audioTrack('capture-right-2'),
+      track: audioTrack('capture-stereo-2'),
       generation: 10,
       publicationId: 'publication_000000000002',
       targets: [target(receiverA)],
@@ -732,8 +741,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
 
     await expect(
       direct.attemptProSystemAudioDirectPublication({
-        leftTrack: audioTrack('capture-left'),
-        rightTrack: audioTrack('capture-right'),
+        track: audioTrack('capture-stereo'),
         generation: 10,
         publicationId,
         targets: [target(receiverA), target(receiverB), target(receiverC), target(attackerId)],
@@ -770,9 +778,9 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     expect(peerConnections).toHaveLength(65);
   });
 
-  it('rejects forged/stale frames and hands off exactly mapped L/R tracks only after activation', async () => {
+  it('rejects forged/stale frames and hands off the mapped stereo track only after activation', async () => {
     localParticipantId = receiverA;
-    receiverTrackIds = { L: 'remote-left-track', R: 'remote-right-track' };
+    receiverTrackId = 'remote-stereo-track';
     const callbacks = configureCallbacks({
       authorizeInboundOffer: (context) =>
         context.ownerParticipantId === publisherId &&
@@ -797,7 +805,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
       expect(bridgeMocks.sent.some((entry) => entry.payload.kind === 'answer')).toBe(true),
     );
     expect(peerConnections).toHaveLength(1);
-    expect(callbacks.onReceiverTracksReady).not.toHaveBeenCalled();
+    expect(callbacks.onReceiverTrackReady).not.toHaveBeenCalled();
 
     emitRelay(publisherId, {
       kind: 'candidate',
@@ -813,8 +821,27 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     emitRelay(publisherId, {
       ...validOffer,
       phase: 'media',
-      description: { type: 'offer', sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111' },
-      trackIds: receiverTrackIds,
+      description: {
+        type: 'offer',
+        sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2',
+      },
+      trackIds: { L: 'remote-left-track', R: 'remote-right-track' },
+    });
+    await Promise.resolve();
+    expect(
+      bridgeMocks.sent.filter(
+        (entry) => entry.payload.kind === 'answer' && entry.payload.phase === 'media',
+      ),
+    ).toHaveLength(0);
+
+    emitRelay(publisherId, {
+      ...validOffer,
+      phase: 'media',
+      description: {
+        type: 'offer',
+        sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2',
+      },
+      trackId: receiverTrackId,
     });
     await vi.waitFor(() =>
       expect(
@@ -823,6 +850,15 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
         ),
       ).toHaveLength(1),
     );
+    expect(peerConnections[0]?.remoteDescription?.sdp).toContain('stereo=1');
+    expect(peerConnections[0]?.remoteDescription?.sdp).toContain('sprop-stereo=1');
+    const mediaAnswer = bridgeMocks.sent.find(
+      (entry) => entry.payload.kind === 'answer' && entry.payload.phase === 'media',
+    );
+    const mediaAnswerSdp = (mediaAnswer?.payload.description as RTCSessionDescriptionInit).sdp;
+    expect(mediaAnswerSdp).toContain('stereo=1');
+    expect(mediaAnswerSdp).toContain('sprop-stereo=1');
+    expect(mediaAnswerSdp).toContain('maxaveragebitrate=256000');
 
     emitRelay(attackerId, {
       kind: 'candidate',
@@ -871,16 +907,15 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
         publicationId,
       }),
     ).resolves.toBe(true);
-    await vi.waitFor(() => expect(callbacks.onReceiverTracksReady).toHaveBeenCalledTimes(1));
-    const deliveredEvent = callbacks.onReceiverTracksReady.mock.calls[0]?.[0];
+    await vi.waitFor(() => expect(callbacks.onReceiverTrackReady).toHaveBeenCalledTimes(1));
+    const deliveredEvent = callbacks.onReceiverTrackReady.mock.calls[0]?.[0];
     expect(deliveredEvent?.isCurrent()).toBe(true);
-    expect(callbacks.onReceiverTracksReady).toHaveBeenCalledWith(
+    expect(callbacks.onReceiverTrackReady).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerParticipantId: publisherId,
         generation: 11,
         publicationId,
-        leftTrack: expect.objectContaining({ id: 'remote-left-track' }),
-        rightTrack: expect.objectContaining({ id: 'remote-right-track' }),
+        track: expect.objectContaining({ id: 'remote-stereo-track' }),
       }),
     );
 
@@ -1125,7 +1160,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     });
   });
 
-  it('requests fallback when an activated media route never receives both mapped tracks', async () => {
+  it('requests fallback when an activated media route never receives its mapped track', async () => {
     localParticipantId = receiverA;
     const callbacks = configureCallbacks();
     const negotiationId = 'negotiation_000000000013';
@@ -1168,8 +1203,11 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     emitRelay(publisherId, {
       ...probeOffer,
       phase: 'media',
-      description: { type: 'offer', sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111' },
-      trackIds: { L: 'remote-left-track', R: 'remote-right-track' },
+      description: {
+        type: 'offer',
+        sdp: 'v=0\r\nm=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2',
+      },
+      trackId: 'remote-stereo-track',
     });
     await vi.advanceTimersByTimeAsync(0);
     expect(
@@ -1184,7 +1222,7 @@ describe('PRO system-audio LAN-direct receiver fencing', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(callbacks.onLiveRouteFallback).toHaveBeenCalledWith({
       role: 'receiver',
-      reason: 'receiver-tracks-timeout',
+      reason: 'receiver-track-timeout',
       participantId: publisherId,
       generation: 11,
       publicationId,
@@ -1197,8 +1235,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
   it('negotiates a late join and emits one fenced fallback on a live disconnect', async () => {
     const callbacks = configureCallbacks();
     const descriptor = await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 12,
       publicationId,
       targets: [],
@@ -1239,8 +1276,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
   it('serializes overlapping presence reconciles and validates only the newest target set', async () => {
     const callbacks = configureCallbacks();
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 12,
       publicationId,
       targets: [],
@@ -1276,8 +1312,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
   it('closes a superseded negotiating route before locality proof can add media tracks', async () => {
     const callbacks = configureCallbacks();
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 12,
       publicationId,
       targets: [],
@@ -1309,8 +1344,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     const callbacks = configureCallbacks();
     nextLocalities.push('host-host');
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 12,
       publicationId,
       targets: [target(receiverA)],
@@ -1342,8 +1376,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     configureCallbacks();
     nextLocalities.push('host-host');
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 13,
       publicationId,
       targets: [target(receiverA)],
@@ -1396,8 +1429,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
   it('replaces a same-ID route when its participant incarnation token changes', async () => {
     configureCallbacks();
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 14,
       publicationId,
       targets: [],
@@ -1435,8 +1467,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     const callbacks = configureCallbacks();
     nextLocalities.push('host-host');
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 15,
       publicationId,
       targets: [target(receiverA)],
@@ -1460,8 +1491,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     const callbacks = configureCallbacks();
     nextLocalities.push('host-host');
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 15,
       publicationId,
       targets: [target(receiverA)],
@@ -1484,8 +1514,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     const callbacks = configureCallbacks();
     nextLocalities.push('host-host');
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 16,
       publicationId,
       targets: [target(receiverA)],
@@ -1510,8 +1539,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     const statsGate = deferred<void>();
     nextStatsGates.push(statsGate.promise);
     const attempt = direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 17,
       publicationId,
       targets: [target(receiverA)],
@@ -1529,8 +1557,7 @@ describe('PRO system-audio LAN-direct live lifecycle', () => {
     const callbacks = configureCallbacks();
     nextLocalities.push('host-host');
     await direct.attemptProSystemAudioDirectPublication({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       generation: 18,
       publicationId,
       targets: [target(receiverA)],

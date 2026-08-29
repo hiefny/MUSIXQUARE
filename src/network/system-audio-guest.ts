@@ -1,8 +1,8 @@
 /**
- * MUSIXQUARE — System Audio Guest (Dual-Stream WebRTC Receiver)
+ * MUSIXQUARE — System Audio Guest Receiver
  *
- * Receives L and R mono streams from host via separate MediaConnections,
- * merges them into stereo via ChannelMerger, connects to audio graph.
+ * Receives the original Standard-room stereo track and connects it as-is. The
+ * trust boundary and cleanup lifecycle are shared with SFU and PRO receivers.
  */
 
 import { log } from '../core/log.ts';
@@ -57,31 +57,19 @@ import {
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const SYSTEM_AUDIO_RECEIVE_WATCHDOG = 'sys-audio-guest-receive-watchdog';
 const SYSTEM_AUDIO_REPLACEMENT_WATCHDOG_PREFIX = 'sys-audio-guest-replacement-watchdog';
-const SYSTEM_AUDIO_CHANNELS = ['L', 'R', 'DUAL', 'STEREO', 'SYNCED'] as const;
+const SYSTEM_AUDIO_CHANNEL = 'STEREO';
 // A 9+ device share can require one bounded SFU publication retry before the
 // guest subscription is ready. Keep the watchdog finite, but leave enough
 // headroom for a busy venue/NAT so a healthy large-room join is not mistaken
 // for a failed receive.
 const SYSTEM_AUDIO_RECEIVE_TIMEOUT_MS = 30_000;
 
-type SystemAudioTrackMapping = Record<string, 'L' | 'R'>;
-
 // ─── Module State ─────────────────────────────────────────────────
 
-let _mediaConnL: MediaConnection | null = null;
-let _mediaConnR: MediaConnection | null = null;
-let _mediaConnDual: MediaConnection | null = null;
 let _mediaConnStereo: MediaConnection | null = null;
-let _mediaConnSynced: MediaConnection | null = null;
-let _sourceL: MediaStreamAudioSourceNode | null = null;
-let _sourceR: MediaStreamAudioSourceNode | null = null;
 let _sourceStereo: MediaStreamAudioSourceNode | null = null;
-let _merger: ChannelMergerNode | null = null;
 let _decoderPrimer: WebRtcAudioDecoderPrimer | null = null;
-let _gotL = false;
-let _gotR = false;
 let _gotStereo = false;
-let _gotSynced = false;
 
 let _prevTrackMeta: TrackMeta | null = null;
 let _trustedReceptionGeneration = 0;
@@ -137,12 +125,7 @@ function errorToDebugString(error: unknown): string {
 }
 
 function currentMediaConnection(channel: string): MediaConnection | null {
-  if (channel === 'L') return _mediaConnL;
-  if (channel === 'R') return _mediaConnR;
-  if (channel === 'DUAL') return _mediaConnDual;
-  if (channel === 'STEREO') return _mediaConnStereo;
-  if (channel === 'SYNCED') return _mediaConnSynced;
-  return null;
+  return channel === SYSTEM_AUDIO_CHANNEL ? _mediaConnStereo : null;
 }
 
 function settleTrustedReceptionWaiters(generation: number, ready: boolean): void {
@@ -195,12 +178,8 @@ export function awaitTrustedSystemAudioReceptionBoundary(channel: string): Promi
 }
 
 function setCurrentMediaConnection(channel: string, mediaConn: MediaConnection | null): boolean {
-  if (channel === 'L') _mediaConnL = mediaConn;
-  else if (channel === 'R') _mediaConnR = mediaConn;
-  else if (channel === 'DUAL') _mediaConnDual = mediaConn;
-  else if (channel === 'STEREO') _mediaConnStereo = mediaConn;
-  else if (channel === 'SYNCED') _mediaConnSynced = mediaConn;
-  else return false;
+  if (channel !== SYSTEM_AUDIO_CHANNEL) return false;
+  _mediaConnStereo = mediaConn;
   return true;
 }
 
@@ -250,19 +229,6 @@ function readMetadataType(metadata: MediaConnection['metadata']): string {
 function isSystemAudioPlaceholder(): boolean {
   const currentMeta = getState('player.currentTrackMeta') as TrackMeta | null;
   return isSystemAudioPlaceholderMeta(currentMeta);
-}
-
-function getSystemAudioTrackMapping(
-  metadata: MediaConnection['metadata'],
-): SystemAudioTrackMapping | null {
-  const mapping = metadata?.mapping;
-  if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) return null;
-
-  const typed: SystemAudioTrackMapping = {};
-  for (const [trackId, channel] of Object.entries(mapping)) {
-    if (channel === 'L' || channel === 'R') typed[trackId] = channel;
-  }
-  return Object.keys(typed).length > 0 ? typed : null;
 }
 
 function clearReceiveWatchdog(): void {
@@ -319,7 +285,7 @@ function armReplacementWatchdog(channel: string, mediaConn: MediaConnection): vo
 }
 
 function clearAllReplacementWatchdogs(): void {
-  for (const channel of SYSTEM_AUDIO_CHANNELS) clearReplacementWatchdog(channel);
+  clearReplacementWatchdog(SYSTEM_AUDIO_CHANNEL);
 }
 
 function describeAudioTracks(tracks: MediaStreamTrack[]): string {
@@ -439,14 +405,8 @@ export function getSystemAudioGuestDebugSnapshot() {
   return {
     systemReceiving: getState('systemAudio.isReceiving'),
     placeholder: isSystemAudioPlaceholder(),
-    gotL: _gotL,
-    gotR: _gotR,
     gotStereo: _gotStereo,
-    gotSynced: _gotSynced,
-    sourceL: !!_sourceL,
-    sourceR: !!_sourceR,
     sourceStereo: !!_sourceStereo,
-    merger: !!_merger,
     decoderPrimer: !!_decoderPrimer,
     lastStartAt: _debugLastStartAt,
     lastStartIgnoredAt: _debugLastStartIgnoredAt,
@@ -503,9 +463,7 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     armReplacementWatchdog(channel, mediaConn);
   }
 
-  if (channel === 'STEREO' || channel === 'DUAL' || channel === 'SYNCED') {
-    applySdpMunge(mediaConn);
-  }
+  applySdpMunge(mediaConn);
 
   const attachStream = async (remoteStream: MediaStream): Promise<void> => {
     if (!isCurrentMediaConnection(channel, mediaConn)) return;
@@ -562,121 +520,17 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
       throw new Error('audio-graph-not-ready');
     }
 
-    if (channel === 'STEREO') {
-      primeGuestWindowsAudioDecoder(channel, streamTracks);
-      if (_sourceStereo) {
-        try {
-          _sourceStereo.disconnect();
-        } catch {
-          /* noop */
-        }
-      }
-      _sourceStereo = ctx.createMediaStreamSource(remoteStream);
-      _sourceStereo.connect(widener.input);
-      _gotStereo = true;
-    } else {
-      // Merger-based dual-channel logic
-      if (!_merger) {
-        _merger = ctx.createChannelMerger(2);
-        _merger.connect(widener.input);
-      }
-
-      if (channel === 'DUAL' || channel === 'SYNCED') {
-        const tracks = remoteStream.getAudioTracks();
-
-        if (_sourceL) {
-          try {
-            _sourceL.disconnect();
-          } catch {
-            /* noop */
-          }
-        }
-        if (_sourceR) {
-          try {
-            _sourceR.disconnect();
-          } catch {
-            /* noop */
-          }
-        }
-
-        // Use ID-to-Channel mapping from host if available (synced mode)
-        const mapping = getSystemAudioTrackMapping(mediaConn.metadata);
-        const connectDualTracks = (
-          leftTrack: MediaStreamTrack,
-          rightTrack: MediaStreamTrack,
-          reason: string,
-        ): void => {
-          log.info(`[SysAudioGuest] ${reason}`);
-          primeGuestWindowsAudioDecoder(channel, [leftTrack, rightTrack]);
-          _sourceL = ctx.createMediaStreamSource(new MediaStream([leftTrack]));
-          _sourceL.connect(_merger!, 0, 0);
-          _gotL = true;
-          _sourceR = ctx.createMediaStreamSource(new MediaStream([rightTrack]));
-          _sourceR.connect(_merger!, 0, 1);
-          _gotR = true;
-        };
-
-        if (mapping && tracks.length >= 2) {
-          const mappedL = tracks.find((track) => mapping[track.id] === 'L');
-          const mappedR = tracks.find((track) => mapping[track.id] === 'R');
-          if (mappedL && mappedR) {
-            connectDualTracks(
-              mappedL,
-              mappedR,
-              'Using ID-based track mapping for crystal-clear stereo',
-            );
-          } else {
-            log.warn(
-              '[SysAudioGuest] Track ID mapping did not match remote IDs; falling back to track order',
-            );
-            connectDualTracks(tracks[0], tracks[1], 'Using track-order stereo fallback');
-          }
-        } else if (tracks.length >= 2) {
-          // Standard track order (default)
-          connectDualTracks(tracks[0], tracks[1], 'Using track-order stereo mapping');
-        } else {
-          // Failsafe: Upmix single track to center
-          log.info(
-            `[SysAudioGuest] ${channel} received with ONLY 1 track. Upmixing to mono-center.`,
-          );
-          primeGuestWindowsAudioDecoder(channel, [tracks[0]]);
-          const monoSource = ctx.createMediaStreamSource(new MediaStream([tracks[0]]));
-          monoSource.connect(_merger, 0, 0);
-          monoSource.connect(_merger, 0, 1);
-          _sourceL = monoSource;
-          _gotL = true;
-          _gotR = true;
-        }
-
-        if (channel === 'SYNCED') _gotSynced = true;
-      } else {
-        primeGuestWindowsAudioDecoder(channel, streamTracks);
-        const source = ctx.createMediaStreamSource(remoteStream);
-        if (channel === 'L') {
-          if (_sourceL) {
-            try {
-              _sourceL.disconnect();
-            } catch {
-              /* noop */
-            }
-          }
-          _sourceL = source;
-          source.connect(_merger, 0, 0);
-          _gotL = true;
-        } else {
-          if (_sourceR) {
-            try {
-              _sourceR.disconnect();
-            } catch {
-              /* noop */
-            }
-          }
-          _sourceR = source;
-          source.connect(_merger, 0, 1);
-          _gotR = true;
-        }
+    primeGuestWindowsAudioDecoder(channel, streamTracks);
+    if (_sourceStereo) {
+      try {
+        _sourceStereo.disconnect();
+      } catch {
+        /* noop */
       }
     }
+    _sourceStereo = ctx.createMediaStreamSource(remoteStream);
+    _sourceStereo.connect(widener.input);
+    _gotStereo = true;
 
     debug.graphAt = Date.now();
     debug.graphError = undefined;
@@ -711,18 +565,8 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     debug.closedAt = Date.now();
     clearReplacementWatchdog(channel, mediaConn);
     setCurrentMediaConnection(channel, null);
-    if (channel === 'DUAL' || channel === 'SYNCED') {
-      _gotL = false;
-      _gotR = false;
-      if (channel === 'SYNCED') _gotSynced = false;
-    } else if (channel === 'L') {
-      _gotL = false;
-    } else if (channel === 'R') {
-      _gotR = false;
-    } else if (channel === 'STEREO') {
-      _gotStereo = false;
-    }
-    if (!_gotL && !_gotR && !_gotStereo && !_gotSynced) cleanupGuestSystemAudio();
+    _gotStereo = false;
+    cleanupGuestSystemAudio();
   });
 
   mediaConn.on('error', (err: unknown) => {
@@ -761,22 +605,6 @@ export function cleanupGuestSystemAudio(): void {
   _prevTrackMeta = null;
   clearReceiveWatchdog();
   clearAllReplacementWatchdogs();
-  if (_sourceL) {
-    try {
-      _sourceL.disconnect();
-    } catch {
-      /* noop */
-    }
-    _sourceL = null;
-  }
-  if (_sourceR) {
-    try {
-      _sourceR.disconnect();
-    } catch {
-      /* noop */
-    }
-    _sourceR = null;
-  }
   if (_sourceStereo) {
     try {
       _sourceStereo.disconnect();
@@ -787,33 +615,12 @@ export function cleanupGuestSystemAudio(): void {
   }
   cleanupWebRtcAudioDecoderPrimer(_decoderPrimer);
   _decoderPrimer = null;
-  if (_merger) {
-    try {
-      _merger.disconnect();
-    } catch {
-      /* noop */
-    }
-    _merger = null;
-  }
   // Clear identities before close() so synchronous/stale close events cannot
   // recursively clean the graph or null a replacement connection.
-  const mediaConnections = new Set([
-    _mediaConnL,
-    _mediaConnR,
-    _mediaConnDual,
-    _mediaConnStereo,
-    _mediaConnSynced,
-  ]);
-  _mediaConnL = null;
-  _mediaConnR = null;
-  _mediaConnDual = null;
+  const mediaConnection = _mediaConnStereo;
   _mediaConnStereo = null;
-  _mediaConnSynced = null;
-  for (const mediaConn of mediaConnections) closeMediaConnection(mediaConn);
-  _gotL = false;
-  _gotR = false;
+  closeMediaConnection(mediaConnection);
   _gotStereo = false;
-  _gotSynced = false;
 
   setSystemAudioReceiving(false);
   if (!wasSystemAudioOwner && !wasSystemAudioPlaceholder) {
@@ -916,6 +723,11 @@ export function registerSystemAudioGuestListeners(): void {
   );
 
   bus.on('system-audio:incoming-call', (mediaConn: unknown, channel: string) => {
+    if (channel !== SYSTEM_AUDIO_CHANNEL) {
+      log.warn(`[SysAudioGuest] Rejected obsolete system-audio call type: ${channel}`);
+      closeMediaConnection(mediaConn as MediaConnection);
+      return;
+    }
     if (!claimGuestDirectSystemAudioRoute()) {
       log.info('[SysAudioGuest] Ignored stale direct call after all-audience SFU route froze');
       try {

@@ -7,8 +7,6 @@ import type { ConnectedPeer, DataConnection, MediaConnection } from '../../types
 
 const mocks = vi.hoisted(() => ({
   getPeer: vi.fn<() => { call: ReturnType<typeof vi.fn> } | null>(() => null),
-  getStreamL: vi.fn<() => MediaStream | null>(() => null),
-  getStreamR: vi.fn<() => MediaStream | null>(() => null),
   getCapturedAudioStream: vi.fn<() => MediaStream | null>(() => null),
   safeSend: vi.fn(),
   isSystemAudioActive: vi.fn(() => true),
@@ -27,8 +25,6 @@ vi.mock('../peer-state.ts', () => ({
 
 vi.mock('../../audio/system-capture.ts', () => ({
   isSystemAudioActive: mocks.isSystemAudioActive,
-  getStreamL: mocks.getStreamL,
-  getStreamR: mocks.getStreamR,
   getCapturedAudioStream: mocks.getCapturedAudioStream,
 }));
 
@@ -53,11 +49,11 @@ function makeLocalPeer(index: number): ConnectedPeer {
   } as ConnectedPeer;
 }
 
-function makeMediaConnection() {
+function makeMediaConnection(peerConnection: RTCPeerConnection | null = null) {
   const handlers = new Map<string, (...args: unknown[]) => void>();
   const mediaConn = {
     metadata: { type: 'system-audio-stereo' },
-    peerConnection: null,
+    peerConnection,
     close: vi.fn(),
     on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
       handlers.set(event, handler);
@@ -79,8 +75,6 @@ beforeEach(() => {
   resetLocalSystemAudioSfuCapabilities();
   setState('network.appRole', 'host');
   mocks.isSystemAudioActive.mockReturnValue(true);
-  mocks.getStreamL.mockReturnValue(null);
-  mocks.getStreamR.mockReturnValue(null);
   mocks.getCapturedAudioStream.mockReturnValue(null);
   registerSystemAudioHostListeners();
 });
@@ -143,8 +137,6 @@ describe('bounded direct system-audio host delivery', () => {
       .mockReturnValueOnce(first.mediaConn)
       .mockReturnValueOnce(replacement.mediaConn);
     mocks.getPeer.mockReturnValue({ call });
-    mocks.getStreamL.mockReturnValue({} as MediaStream);
-    mocks.getStreamR.mockReturnValue({} as MediaStream);
     mocks.getCapturedAudioStream.mockReturnValue({} as MediaStream);
     setState('network.connectedPeers', [peer]);
 
@@ -160,5 +152,45 @@ describe('bounded direct system-audio host delivery', () => {
 
     expect(call).toHaveBeenCalledTimes(2);
     expect(replacement.mediaConn.close).not.toHaveBeenCalled();
+  });
+
+  it('keeps the former dual-mono aggregate budget on the one stereo sender', async () => {
+    const peer = makeLocalPeer(1);
+    const senderParameters: RTCRtpSendParameters = {
+      codecs: [],
+      headerExtensions: [],
+      rtcp: {},
+      encodings: [{}],
+      transactionId: 'test',
+    };
+    const sender = {
+      track: {
+        kind: 'audio',
+        applyConstraints: vi.fn(async () => {}),
+      },
+      getParameters: vi.fn(() => senderParameters),
+      setParameters: vi.fn(async () => {}),
+    } as unknown as RTCRtpSender;
+    const originalSetLocalDescription = vi.fn(async () => {});
+    const pc = {
+      setLocalDescription: originalSetLocalDescription,
+      getSenders: vi.fn(() => [sender]),
+    } as unknown as RTCPeerConnection;
+    const direct = makeMediaConnection(pc);
+    const call = vi.fn(() => direct.mediaConn);
+    const capturedStream = {} as MediaStream;
+    mocks.getPeer.mockReturnValue({ call });
+    mocks.getCapturedAudioStream.mockReturnValue(capturedStream);
+    setState('network.connectedPeers', [peer]);
+
+    bus.emit('system-audio:streams-ready');
+    await pc.setLocalDescription({ type: 'offer', sdp: 'offer-sdp' });
+
+    expect(call).toHaveBeenCalledWith(peer.id, capturedStream, {
+      metadata: { type: 'system-audio-stereo' },
+    });
+    expect(sender.setParameters).toHaveBeenCalledWith(
+      expect.objectContaining({ encodings: [{ maxBitrate: 256000 }] }),
+    );
   });
 });

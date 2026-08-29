@@ -19,6 +19,7 @@ interface RealtimeRequest {
   sessionId?: string;
   sessionOwnerToken?: string;
   payload?: {
+    sessionDescription?: { type: 'offer' | 'answer'; sdp: string };
     tracks?: Array<{
       location?: 'local' | 'remote';
       sessionId?: string;
@@ -43,6 +44,21 @@ let realtimeRequests: RealtimeRequest[];
 let peerConnections: MockRTCPeerConnection[];
 let nextSessionNumber: number;
 let latestRemoteMids: string[];
+let publisherAnswerSdp: string;
+const OPUS_SDP = [
+  'v=0',
+  'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+  'a=rtpmap:111 opus/48000/2',
+  'a=fmtp:111 minptime=10;useinbandfec=1',
+  '',
+].join('\r\n');
+const OPUS_STEREO_SDP = [
+  'v=0',
+  'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+  'a=rtpmap:111 opus/48000/2',
+  'a=fmtp:111 minptime=10; stereo=1; sprop-stereo=1',
+  '',
+].join('\r\n');
 
 class MockRTCPeerConnection {
   connectionState: RTCPeerConnectionState = 'new';
@@ -50,8 +66,8 @@ class MockRTCPeerConnection {
   close = vi.fn(() => {
     this.connectionState = 'closed';
   });
-  createOffer = vi.fn(async () => ({ type: 'offer' as const, sdp: 'publisher-offer' }));
-  createAnswer = vi.fn(async () => ({ type: 'answer' as const, sdp: 'subscriber-answer' }));
+  createOffer = vi.fn(async () => ({ type: 'offer' as const, sdp: OPUS_SDP }));
+  createAnswer = vi.fn(async () => ({ type: 'answer' as const, sdp: OPUS_SDP }));
   setLocalDescription = vi.fn(async () => {});
   setRemoteDescription = vi.fn(async () => {});
   private listeners = new Map<string, Array<() => void>>();
@@ -138,8 +154,8 @@ function installSuccessfulFetchRouting(): void {
       return response({
         tracks,
         sessionDescription: isPublisher
-          ? { type: 'answer', sdp: 'publisher-answer' }
-          : { type: 'offer', sdp: 'subscriber-offer' },
+          ? { type: 'answer', sdp: publisherAnswerSdp }
+          : { type: 'offer', sdp: OPUS_SDP },
       });
     }
     if (request.action === 'renegotiate' || request.action === 'tracks-close') {
@@ -160,12 +176,9 @@ function audioTrack(id: string): MediaStreamTrack {
 
 function publication(generation = 1) {
   return {
-    version: 1 as const,
+    version: 2 as const,
     sessionId: `published-session-${generation}`,
-    tracks: [
-      { trackName: `published-left-${generation}`, channel: 'L' as const },
-      { trackName: `published-right-${generation}`, channel: 'R' as const },
-    ],
+    track: { trackName: `published-stereo-${generation}` },
     generation,
     expiresAt: Date.now() + 60_000,
   };
@@ -176,6 +189,7 @@ beforeEach(() => {
   peerConnections = [];
   nextSessionNumber = 0;
   latestRemoteMids = [];
+  publisherAnswerSdp = OPUS_STEREO_SDP;
   fetchMock.mockReset();
   installSuccessfulFetchRouting();
   vi.stubGlobal('RTCPeerConnection', MockRTCPeerConnection);
@@ -195,27 +209,23 @@ describe('PRO system-audio SFU public descriptor', () => {
     const parsed = proSfu.parseProSystemAudioSfuPublicationDescriptorForTests({
       ...source,
       sessionOwnerToken: 'must-not-cross-the-room-boundary',
-      tracks: source.tracks.map((track) => ({
-        ...track,
+      track: {
+        ...source.track,
         sessionOwnerToken: 'also-private',
-      })),
+      },
     });
 
     expect(parsed).toEqual(source);
     expect(JSON.stringify(parsed)).not.toContain('owner');
     expect(Object.isFrozen(parsed)).toBe(true);
-    expect(Object.isFrozen(parsed?.tracks)).toBe(true);
-    expect(Object.isFrozen(parsed?.tracks[0])).toBe(true);
+    expect(Object.isFrozen(parsed?.track)).toBe(true);
   });
 
-  it('rejects malformed, duplicate-channel, and expired publications before network I/O', () => {
+  it('rejects malformed and expired publications before network I/O', () => {
     expect(
       proSfu.parseProSystemAudioSfuPublicationDescriptorForTests({
         ...publication(),
-        tracks: [
-          { trackName: 'left-a', channel: 'L' },
-          { trackName: 'left-b', channel: 'L' },
-        ],
+        track: { trackName: '' },
       }),
     ).toBeNull();
     expect(() =>
@@ -226,25 +236,24 @@ describe('PRO system-audio SFU public descriptor', () => {
 });
 
 describe('PRO system-audio SFU publisher', () => {
-  it('publishes L/R tracks and returns only the controller-safe descriptor', async () => {
+  it('publishes one original stereo track and returns only the controller-safe descriptor', async () => {
     const events: proSfu.ProSystemAudioSfuEventForTests[] = [];
     const unsubscribe = proSfu.onProSystemAudioSfuEvent((event) => events.push(event));
     const expiresAt = Date.now() + 60_000;
 
     const descriptor = await proSfu.publishProSystemAudioSfu({
-      leftTrack: audioTrack('capture-left'),
-      rightTrack: audioTrack('capture-right'),
+      track: audioTrack('capture-stereo'),
       roomId: '000001',
       generation: 12,
       expiresAt,
     });
 
     expect(descriptor).toMatchObject({
-      version: 1,
+      version: 2,
       sessionId: 'owned-session-1',
       generation: 12,
       expiresAt,
-      tracks: [{ channel: 'L' }, { channel: 'R' }],
+      track: { trackName: expect.stringContaining('-stereo-') },
     });
     expect(JSON.stringify(descriptor)).not.toContain('private-owner-token');
     expect(Object.isFrozen(descriptor)).toBe(true);
@@ -258,10 +267,17 @@ describe('PRO system-audio SFU publisher', () => {
         request.action === 'tracks-new' && request.payload?.tracks?.[0]?.location === 'local',
     );
     expect(publishRequest?.sessionOwnerToken).toBe('private-owner-token-1');
-    expect(publishRequest?.payload?.tracks?.map((track) => track.location)).toEqual([
-      'local',
-      'local',
-    ]);
+    expect(publishRequest?.payload?.tracks?.map((track) => track.location)).toEqual(['local']);
+    expect(publishRequest?.payload?.sessionDescription?.sdp).toContain('stereo=1');
+    expect(JSON.stringify(publishRequest)).toContain('sprop-stereo=1');
+    expect(JSON.stringify(publishRequest)).toContain('maxaveragebitrate=256000');
+    expect(peerConnections[0].setRemoteDescription).toHaveBeenCalledWith({
+      type: 'answer',
+      sdp: OPUS_STEREO_SDP,
+    });
+    expect(peerConnections[0].getTransceivers()[0]?.sender.setParameters).toHaveBeenCalledWith(
+      expect.objectContaining({ encodings: [expect.objectContaining({ maxBitrate: 256_000 })] }),
+    );
 
     proSfu.stopProSystemAudioSfuPublisher();
     expect(realtimeRequests.at(-1)).toMatchObject({
@@ -277,16 +293,14 @@ describe('PRO system-audio SFU publisher', () => {
   it('validates captured tracks and controller generation synchronously', () => {
     expect(() =>
       proSfu.publishProSystemAudioSfu({
-        leftTrack: { ...audioTrack('video'), kind: 'video' } as MediaStreamTrack,
-        rightTrack: audioTrack('right'),
+        track: { ...audioTrack('video'), kind: 'video' } as MediaStreamTrack,
         generation: 1,
         expiresAt: Date.now() + 1_000,
       }),
     ).toThrow(/audio track/);
     expect(() =>
       proSfu.publishProSystemAudioSfu({
-        leftTrack: audioTrack('left'),
-        rightTrack: audioTrack('right'),
+        track: audioTrack('stereo'),
         generation: -1,
         expiresAt: Date.now() + 1_000,
       }),
@@ -294,11 +308,29 @@ describe('PRO system-audio SFU publisher', () => {
     expect(realtimeRequests).toHaveLength(0);
   });
 
+  it('fails closed when Cloudflare does not accept Opus stereo receive', async () => {
+    publisherAnswerSdp = OPUS_SDP;
+
+    await expect(
+      proSfu.publishProSystemAudioSfu({
+        track: audioTrack('capture-stereo'),
+        generation: 3,
+        expiresAt: Date.now() + 60_000,
+      }),
+    ).rejects.toThrow('SFU_STEREO_NOT_NEGOTIATED');
+
+    expect(peerConnections[0].setRemoteDescription).not.toHaveBeenCalled();
+    expect(realtimeRequests.at(-1)).toMatchObject({
+      action: 'tracks-close',
+      sessionId: 'owned-session-1',
+      sessionOwnerToken: 'private-owner-token-1',
+    });
+  });
+
   it('realigns publisher expiry to the authoritative committed lease', async () => {
     vi.useFakeTimers({ now: 1_900_000_000_000 });
     await proSfu.publishProSystemAudioSfu({
-      leftTrack: audioTrack('left'),
-      rightTrack: audioTrack('right'),
+      track: audioTrack('stereo'),
       generation: 2,
       expiresAt: Date.now() + 60_000,
     });
@@ -335,15 +367,17 @@ describe('PRO system-audio SFU subscriber', () => {
       {
         location: 'remote',
         sessionId: 'published-session-3',
-        trackName: 'published-left-3',
-      },
-      {
-        location: 'remote',
-        sessionId: 'published-session-3',
-        trackName: 'published-right-3',
+        trackName: 'published-stereo-3',
       },
     ]);
     expect(JSON.stringify(realtimeRequests)).not.toContain('publisher-token-must-be-ignored');
+    expect(peerConnections[0].setRemoteDescription).toHaveBeenCalledWith({
+      type: 'offer',
+      sdp: OPUS_SDP,
+    });
+    const renegotiateRequest = realtimeRequests.find((request) => request.action === 'renegotiate');
+    expect(renegotiateRequest?.payload?.sessionDescription?.sdp).toContain('stereo=1');
+    expect(renegotiateRequest?.payload?.sessionDescription?.sdp).toContain('sprop-stereo=1');
 
     const trackEvents = events.filter(
       (
@@ -351,7 +385,7 @@ describe('PRO system-audio SFU subscriber', () => {
       ): event is Extract<proSfu.ProSystemAudioSfuEventForTests, { type: 'subscriber-track' }> =>
         event.type === 'subscriber-track',
     );
-    expect(trackEvents.map((event) => event.channel)).toEqual(['L', 'R']);
+    expect(trackEvents).toHaveLength(1);
     expect(trackEvents.every((event) => event.track.kind === 'audio')).toBe(true);
     expect(events.at(-1)).toMatchObject({ type: 'subscriber-state', state: 'subscribed' });
 

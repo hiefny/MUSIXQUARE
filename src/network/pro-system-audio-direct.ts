@@ -15,6 +15,7 @@ import {
   type ProRealtimeRelayEnvelope,
   type ProServerEventEnvelope,
 } from '../pro-room/network-bridge.ts';
+import { forceStereoSdp } from './peer.ts';
 
 const DIRECT_NEGOTIATION_TIMEOUT_MS = 5_000;
 const DIRECT_PAIR_POLL_MS = 25;
@@ -64,7 +65,7 @@ interface DirectMediaOfferSignal extends DirectSignalBase {
   direction: 'publisher';
   phase: 'media';
   description: { type: 'offer'; sdp: string };
-  trackIds: { L: string; R: string };
+  trackId: string;
 }
 
 type DirectOfferSignal = DirectProbeOfferSignal | DirectMediaOfferSignal;
@@ -95,7 +96,7 @@ type DirectSignal =
 interface ProSystemAudioDirectPublicationDescriptor {
   publicationId: string;
   transport: 'lan-direct';
-  protocolVersion: 1;
+  protocolVersion: 2;
 }
 
 /** A participant incarnation fence used only by the local publisher. */
@@ -118,16 +119,15 @@ export interface ProSystemAudioDirectInboundOfferContext extends ProSystemAudioD
   kind: 'offer';
   ownerParticipantId: string;
   phase: DirectNegotiationPhase;
-  trackIds: { L: string; R: string } | null;
+  trackId: string | null;
 }
 
-export interface ProSystemAudioDirectTracksReadyEvent {
+export interface ProSystemAudioDirectTrackReadyEvent {
   ownerParticipantId: string;
   generation: number;
   publicationId: string;
   negotiationId: string;
-  leftTrack: MediaStreamTrack;
-  rightTrack: MediaStreamTrack;
+  track: MediaStreamTrack;
   /** False as soon as this negotiation is superseded, closed, or reset. */
   isCurrent: () => boolean;
 }
@@ -144,13 +144,12 @@ interface ProSystemAudioDirectTransportCallbacks {
   getLocalIdentity: () => { participantId: string } | null;
   authorizeInboundOffer: (context: ProSystemAudioDirectInboundOfferContext) => boolean;
   authorizeInboundSignal: (context: ProSystemAudioDirectInboundSignalContext) => boolean;
-  onReceiverTracksReady: (event: ProSystemAudioDirectTracksReadyEvent) => void | Promise<void>;
+  onReceiverTrackReady: (event: ProSystemAudioDirectTrackReadyEvent) => void | Promise<void>;
   onLiveRouteFallback: (event: ProSystemAudioDirectFallbackEvent) => void;
 }
 
 interface ProSystemAudioDirectAttemptOptions {
-  leftTrack: MediaStreamTrack;
-  rightTrack: MediaStreamTrack;
+  track: MediaStreamTrack;
   generation: number;
   publicationId: string;
   targets: readonly ProSystemAudioDirectTarget[];
@@ -193,15 +192,14 @@ interface PublisherRoute {
   reproofFlight: Promise<boolean> | null;
   probeAnswered: boolean;
   mediaAnswered: boolean;
-  mediaTracksAdded: boolean;
+  mediaTrackAdded: boolean;
   committed: boolean;
 }
 
 interface PublisherSession {
   generation: number;
   publicationId: string;
-  leftTrack: MediaStreamTrack;
-  rightTrack: MediaStreamTrack;
+  track: MediaStreamTrack;
   targets: Map<string, string>;
   routes: Map<string, PublisherRoute>;
   phase: 'probing' | 'live';
@@ -219,8 +217,8 @@ interface ReceiverRoute {
   publicationId: string;
   negotiationId: string;
   pc: RTCPeerConnection;
-  trackIds: { L: string; R: string } | null;
-  tracks: Partial<Record<'L' | 'R', MediaStreamTrack>>;
+  trackId: string | null;
+  track: MediaStreamTrack | null;
   queuedLocalCandidates: RTCIceCandidateInit[];
   queuedRemoteCandidates: RTCIceCandidateInit[];
   localCandidateTuples: Set<string>;
@@ -230,7 +228,7 @@ interface ReceiverRoute {
   remoteCandidateCount: number;
   answerSent: boolean;
   remoteDescriptionReady: boolean;
-  tracksDelivered: boolean;
+  trackDelivered: boolean;
   mediaAnswerSent: boolean;
   live: boolean;
   fallbackSent: boolean;
@@ -308,6 +306,10 @@ function sdpHasAudioMedia(sdp: string): boolean {
   return sdp.split(/\r?\n/).some((line) => /^m=audio(?:\s|$)/i.test(line.trim()));
 }
 
+function forceDirectStereoSdp(sdp: string): string {
+  return forceStereoSdp(sdp);
+}
+
 function parseCandidate(value: unknown): RTCIceCandidateInit | null {
   if (
     !hasExactKeys(value, ['candidate'], ['sdpMid', 'sdpMLineIndex', 'usernameFragment']) ||
@@ -367,7 +369,7 @@ function parseSignal(value: unknown): DirectSignal | null {
     const requiredKeys =
       value.phase === 'probe'
         ? [...commonKeys, 'phase', 'description']
-        : [...commonKeys, 'phase', 'description', 'trackIds'];
+        : [...commonKeys, 'phase', 'description', 'trackId'];
     if (!hasExactKeys(value, requiredKeys)) return null;
     const description = parseDescription(value.description, 'offer');
     if (!description) return null;
@@ -382,17 +384,14 @@ function parseSignal(value: unknown): DirectSignal | null {
       };
     }
     if (!sdpHasAudioMedia(description.sdp)) return null;
-    if (!hasExactKeys(value.trackIds, ['L', 'R'])) return null;
-    const leftId = value.trackIds.L;
-    const rightId = value.trackIds.R;
-    if (!validTrackId(leftId) || !validTrackId(rightId) || leftId === rightId) return null;
+    if (!validTrackId(value.trackId)) return null;
     return {
       ...base,
       kind: 'offer',
       direction: 'publisher',
       phase: 'media',
       description,
-      trackIds: { L: leftId, R: rightId },
+      trackId: value.trackId,
     };
   }
   if (value.kind === 'answer' && value.direction === 'subscriber') {
@@ -618,7 +617,7 @@ function publisherRouteTimerName(route: PublisherRoute): string {
 }
 
 function receiverTrackReadyTimerName(route: ReceiverRoute): string {
-  return `pro-system-audio-direct-tracks-ready:${route.negotiationId}`;
+  return `pro-system-audio-direct-track-ready:${route.negotiationId}`;
 }
 
 function publisherRouteIsCurrent(session: PublisherSession, route: PublisherRoute): boolean {
@@ -986,7 +985,7 @@ function closeReceiverRoute(
   route.localCandidateTuples.clear();
   route.remoteCandidateTuples.clear();
   route.acceptedRemoteMdnsKeys.clear();
-  route.tracks = {};
+  route.track = null;
 }
 
 function notifyPublisherSessionFallback(
@@ -1177,7 +1176,7 @@ function tuneAudioSender(sender: RTCRtpSender): void {
   try {
     const parameters = sender.getParameters();
     if (!parameters.encodings) parameters.encodings = [{}];
-    if (parameters.encodings[0]) parameters.encodings[0].maxBitrate = 128_000;
+    if (parameters.encodings[0]) parameters.encodings[0].maxBitrate = 256_000;
     void sender.setParameters(parameters).catch(() => undefined);
   } catch {
     // Sender tuning is best-effort and must not demote an otherwise local route.
@@ -1214,7 +1213,7 @@ function createPublisherRoute(
     reproofFlight: null,
     probeAnswered: false,
     mediaAnswered: false,
-    mediaTracksAdded: false,
+    mediaTrackAdded: false,
     committed: false,
   };
   session.routes.set(participantId, route);
@@ -1290,10 +1289,14 @@ async function sendPublisherOffer(
   if (!publisherRouteIsCurrent(session, route)) throw new Error('DIRECT_ROUTE_SUPERSEDED');
   const previousOfferSent = route.offerSent;
   route.offerSent = false;
-  await route.pc.setLocalDescription(offer);
+  const localOffer =
+    phase === 'media' && offer.sdp ? { ...offer, sdp: forceDirectStereoSdp(offer.sdp) } : offer;
+  await route.pc.setLocalDescription(localOffer);
   if (!publisherRouteIsCurrent(session, route)) throw new Error('DIRECT_ROUTE_SUPERSEDED');
-  const description = route.pc.localDescription ?? offer;
-  const sanitizedSdp = description.sdp ? sanitizeLanSdp(description.sdp) : '';
+  const description = route.pc.localDescription ?? localOffer;
+  const outboundSdp =
+    phase === 'media' && description.sdp ? forceDirectStereoSdp(description.sdp) : description.sdp;
+  const sanitizedSdp = outboundSdp ? sanitizeLanSdp(outboundSdp) : '';
   if (
     description.type !== 'offer' ||
     !sanitizedSdp ||
@@ -1323,7 +1326,7 @@ async function sendPublisherOffer(
           publicationId: session.publicationId,
           negotiationId: route.negotiationId,
           description: { type: 'offer', sdp: sanitizedSdp },
-          trackIds: { L: session.leftTrack.id, R: session.rightTrack.id },
+          trackId: session.track.id,
         });
   route.offerSent = previousOfferSent || sent;
   if (!sent) throw new Error('DIRECT_OFFER_SEND_FAILED');
@@ -1403,15 +1406,14 @@ async function negotiatePublisherRoute(
     if (!(await waitForLocalPair(session, route, remaining()))) return false;
     if (!publisherRouteIsCurrent(session, route)) return false;
 
-    const stream = new MediaStream([session.leftTrack, session.rightTrack]);
-    tuneAudioSender(route.pc.addTrack(session.leftTrack, stream));
-    tuneAudioSender(route.pc.addTrack(session.rightTrack, stream));
-    route.mediaTracksAdded = true;
+    const stream = new MediaStream([session.track]);
+    tuneAudioSender(route.pc.addTrack(session.track, stream));
+    route.mediaTrackAdded = true;
     route.remoteDescriptionReady = false;
     await sendPublisherOffer(session, route, 'media');
     if (!(await waitForPublisherAnswer(session, route, 'media', remaining()))) return false;
     const proven = await waitForLocalPair(session, route, remaining());
-    return proven && route.mediaTracksAdded;
+    return proven && route.mediaTrackAdded;
   } catch (error) {
     log.debug('[ProSysAudioDirect] Publisher negotiation failed', error);
     if (route) {
@@ -1431,12 +1433,11 @@ function receiverPublicationMatches(route: ReceiverRoute): boolean {
   );
 }
 
-function maybeDeliverReceiverTracks(route: ReceiverRoute): void {
-  const leftTrack = route.tracks.L;
-  const rightTrack = route.tracks.R;
+function maybeDeliverReceiverTrack(route: ReceiverRoute): void {
+  const track = route.track;
   if (
     route.closed ||
-    route.tracksDelivered ||
+    route.trackDelivered ||
     !route.live ||
     receiverRoute !== route ||
     !receiverPublicationMatches(route) ||
@@ -1444,7 +1445,7 @@ function maybeDeliverReceiverTracks(route: ReceiverRoute): void {
   ) {
     return;
   }
-  if (!route.mediaAnswerSent || !leftTrack || !rightTrack) {
+  if (!route.mediaAnswerSent || !track) {
     if (route.mediaAnswerSent) {
       setManagedTimer(
         receiverTrackReadyTimerName(route),
@@ -1454,10 +1455,10 @@ function maybeDeliverReceiverTracks(route: ReceiverRoute): void {
             !route.closed &&
             route.live &&
             route.mediaAnswerSent &&
-            !route.tracksDelivered &&
-            (!route.tracks.L || !route.tracks.R)
+            !route.trackDelivered &&
+            !route.track
           ) {
-            notifyReceiverFallback(route, 'receiver-tracks-timeout');
+            notifyReceiverFallback(route, 'receiver-track-timeout');
           }
         },
         RECEIVER_TRACK_READY_TIMEOUT_MS,
@@ -1466,16 +1467,15 @@ function maybeDeliverReceiverTracks(route: ReceiverRoute): void {
     return;
   }
   clearManagedTimer(receiverTrackReadyTimerName(route));
-  route.tracksDelivered = true;
+  route.trackDelivered = true;
   void Promise.resolve()
     .then(() =>
-      callbacks?.onReceiverTracksReady({
+      callbacks?.onReceiverTrackReady({
         ownerParticipantId: route.ownerParticipantId,
         generation: route.generation,
         publicationId: route.publicationId,
         negotiationId: route.negotiationId,
-        leftTrack,
-        rightTrack,
+        track,
         isCurrent: () =>
           receiverRoute === route &&
           !route.closed &&
@@ -1494,18 +1494,17 @@ function acceptReceiverTrack(route: ReceiverRoute, track: MediaStreamTrack): voi
     route.closed ||
     route.phase !== 'media' ||
     !route.provenLocal ||
-    !route.trackIds ||
+    !route.trackId ||
     track.kind !== 'audio'
   ) {
     return;
   }
-  const channel = track.id === route.trackIds.L ? 'L' : track.id === route.trackIds.R ? 'R' : null;
-  if (!channel || route.tracks[channel]) return;
-  route.tracks[channel] = track;
+  if (track.id !== route.trackId || route.track) return;
+  route.track = track;
   track.addEventListener('ended', () => {
-    if (receiverRoute === route && route.live) failReceiverRoute(route, `track-${channel}-ended`);
+    if (receiverRoute === route && route.live) failReceiverRoute(route, 'track-ended');
   });
-  maybeDeliverReceiverTracks(route);
+  maybeDeliverReceiverTrack(route);
 }
 
 function createReceiverRoute(
@@ -1519,8 +1518,8 @@ function createReceiverRoute(
     publicationId: signal.publicationId,
     negotiationId: signal.negotiationId,
     pc,
-    trackIds: null,
-    tracks: {},
+    trackId: null,
+    track: null,
     queuedLocalCandidates: [],
     queuedRemoteCandidates: [],
     localCandidateTuples: new Set(),
@@ -1530,7 +1529,7 @@ function createReceiverRoute(
     remoteCandidateCount: 0,
     answerSent: false,
     remoteDescriptionReady: false,
-    tracksDelivered: false,
+    trackDelivered: false,
     mediaAnswerSent: false,
     live: false,
     fallbackSent: false,
@@ -1595,7 +1594,9 @@ function sendReceiverAnswer(
   phase: DirectNegotiationPhase,
   description: RTCSessionDescriptionInit,
 ): boolean {
-  const sanitizedSdp = description.sdp ? sanitizeLanSdp(description.sdp) : '';
+  const outboundSdp =
+    phase === 'media' && description.sdp ? forceDirectStereoSdp(description.sdp) : description.sdp;
+  const sanitizedSdp = outboundSdp ? sanitizeLanSdp(outboundSdp) : '';
   return Boolean(
     description.type === 'answer' &&
     sanitizedSdp &&
@@ -1638,23 +1639,27 @@ async function acceptMediaOffer(
     if (receiverRoute !== route || route.closed || route.phase !== 'probe') return;
     route.provenLocal = true;
     route.phase = 'media';
-    route.trackIds = signal.trackIds;
+    route.trackId = signal.trackId;
     route.remoteDescriptionReady = false;
-    await route.pc.setRemoteDescription(signal.description);
+    await route.pc.setRemoteDescription({
+      ...signal.description,
+      sdp: forceDirectStereoSdp(signal.description.sdp),
+    });
     if (receiverRoute !== route || route.closed || route.phase !== 'media') return;
     route.remoteDescriptionReady = true;
     await flushReceiverRemoteCandidates(route);
     const answer = await route.pc.createAnswer();
     if (receiverRoute !== route || route.closed || route.phase !== 'media') return;
-    await route.pc.setLocalDescription(answer);
+    const localAnswer = answer.sdp ? { ...answer, sdp: forceDirectStereoSdp(answer.sdp) } : answer;
+    await route.pc.setLocalDescription(localAnswer);
     if (receiverRoute !== route || route.closed || route.phase !== 'media') return;
-    const description = route.pc.localDescription ?? answer;
+    const description = route.pc.localDescription ?? localAnswer;
     if (!sendReceiverAnswer(route, 'media', description)) {
       throw new Error('DIRECT_MEDIA_ANSWER_SEND_FAILED');
     }
     route.mediaAnswerSent = true;
     flushReceiverLocalCandidates(route);
-    maybeDeliverReceiverTracks(route);
+    maybeDeliverReceiverTrack(route);
   } catch (error) {
     log.debug('[ProSysAudioDirect] Receiver media negotiation failed', error);
     if (receiverRoute === route) failReceiverRoute(route, 'receiver-media-negotiation-failed');
@@ -1716,7 +1721,7 @@ async function acceptOffer(signal: DirectOfferSignal, ownerParticipantId: string
     route.answerSent = sendReceiverAnswer(route, 'probe', description);
     if (!route.answerSent) throw new Error('DIRECT_ANSWER_SEND_FAILED');
     flushReceiverLocalCandidates(route);
-    maybeDeliverReceiverTracks(route);
+    maybeDeliverReceiverTrack(route);
   } catch (error) {
     log.debug('[ProSysAudioDirect] Receiver negotiation failed', error);
     if (route && receiverRoute === route) failReceiverRoute(route, 'receiver-negotiation-failed');
@@ -1736,14 +1741,18 @@ async function acceptAnswer(
     signal.targetParticipantId !== callbacks?.getLocalIdentity()?.participantId ||
     !samePublication(route, signal.generation, signal.publicationId) ||
     route.negotiationId !== signal.negotiationId ||
-    (signal.phase === 'probe' && (route.probeAnswered || route.mediaTracksAdded)) ||
+    (signal.phase === 'probe' && (route.probeAnswered || route.mediaTrackAdded)) ||
     (signal.phase === 'media' &&
-      (!route.probeAnswered || !route.mediaTracksAdded || route.mediaAnswered))
+      (!route.probeAnswered || !route.mediaTrackAdded || route.mediaAnswered))
   ) {
     return;
   }
   try {
-    await route.pc.setRemoteDescription(signal.description);
+    const remoteDescription =
+      signal.phase === 'media'
+        ? { ...signal.description, sdp: forceDirectStereoSdp(signal.description.sdp) }
+        : signal.description;
+    await route.pc.setRemoteDescription(remoteDescription);
     if (!publisherRouteIsCurrent(session, route)) return;
     route.remoteDescriptionReady = true;
     await flushPublisherRemoteCandidates(route);
@@ -1886,7 +1895,7 @@ function handleRealtimeFrame(frame: ProServerEventEnvelope | ProRealtimeRelayEnv
         kind: 'offer',
         ownerParticipantId: senderParticipantId,
         phase: signal.phase,
-        trackIds: signal.phase === 'media' ? signal.trackIds : null,
+        trackId: signal.phase === 'media' ? signal.trackId : null,
       })
     ) {
       return;
@@ -1918,9 +1927,7 @@ export async function attemptProSystemAudioDirectPublication(
     !Number.isSafeInteger(options.generation) ||
     options.generation < 1 ||
     !validSignalId(options.publicationId) ||
-    !validTrackId(options.leftTrack.id) ||
-    !validTrackId(options.rightTrack.id) ||
-    options.leftTrack.id === options.rightTrack.id
+    !validTrackId(options.track.id)
   ) {
     throw new Error('PRO_SYSTEM_AUDIO_DIRECT_IDENTITY_INVALID');
   }
@@ -1934,8 +1941,7 @@ export async function attemptProSystemAudioDirectPublication(
   const session: PublisherSession = {
     generation: options.generation,
     publicationId: options.publicationId,
-    leftTrack: options.leftTrack,
-    rightTrack: options.rightTrack,
+    track: options.track,
     targets,
     routes: new Map(),
     phase: 'probing',
@@ -1968,7 +1974,7 @@ export async function attemptProSystemAudioDirectPublication(
   return {
     publicationId: options.publicationId,
     transport: 'lan-direct',
-    protocolVersion: 1,
+    protocolVersion: 2,
   };
 }
 
@@ -2088,7 +2094,7 @@ export async function activateProSystemAudioDirectPublication(
       notifyReceiverFallback(receiverRoute, 'activation-route-unavailable');
       return false;
     }
-    maybeDeliverReceiverTracks(receiverRoute);
+    maybeDeliverReceiverTrack(receiverRoute);
   }
   return true;
 }

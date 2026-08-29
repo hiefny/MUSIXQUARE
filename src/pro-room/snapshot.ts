@@ -196,17 +196,16 @@ function cloneOptionalMetadata(
 
 function parseSystemAudioTrack(value: unknown): ProRoomSystemAudioPublicationTrack | null {
   if (!isRecord(value)) return null;
-  if (!hasExactKeysWithOptionals(value, ['trackName', 'channel'], ['mid'])) return null;
+  if (!hasExactKeysWithOptionals(value, ['trackName'], ['mid'])) return null;
   const trackName = parseTrimmedString(value.trackName, MAX_SYSTEM_AUDIO_TRACK_NAME_LENGTH);
   const mid =
     value.mid === undefined
       ? undefined
       : parseTrimmedString(value.mid, MAX_SYSTEM_AUDIO_MID_LENGTH);
-  if (!trackName || (value.channel !== 'L' && value.channel !== 'R')) return null;
+  if (!trackName) return null;
   if (value.mid !== undefined && !mid) return null;
   return {
     trackName,
-    channel: value.channel,
     ...(typeof mid === 'string' ? { mid } : {}),
   };
 }
@@ -219,36 +218,30 @@ export function parseProRoomSystemAudioPublication(
     return typeof value.publicationId === 'string' &&
       SYSTEM_AUDIO_PUBLIC_ID_RE.test(value.publicationId) &&
       value.transport === 'lan-direct' &&
-      value.protocolVersion === 1
+      value.protocolVersion === 2
       ? {
           publicationId: value.publicationId,
           transport: 'lan-direct',
-          protocolVersion: 1,
+          protocolVersion: 2,
         }
       : null;
   }
-  if (!hasExactKeys(value, ['publicationId', 'sessionId', 'tracks'])) return null;
+  if (!hasExactKeys(value, ['publicationId', 'sessionId', 'track'])) return null;
   if (
     typeof value.publicationId !== 'string' ||
     !SYSTEM_AUDIO_PUBLIC_ID_RE.test(value.publicationId) ||
     typeof value.sessionId !== 'string' ||
-    !SYSTEM_AUDIO_PUBLIC_ID_RE.test(value.sessionId) ||
-    !Array.isArray(value.tracks) ||
-    value.tracks.length !== 2
+    !SYSTEM_AUDIO_PUBLIC_ID_RE.test(value.sessionId)
   ) {
     return null;
   }
-  const leftOrRight = parseSystemAudioTrack(value.tracks[0]);
-  const rightOrLeft = parseSystemAudioTrack(value.tracks[1]);
-  if (!leftOrRight || !rightOrLeft) return null;
-  if (leftOrRight.channel === rightOrLeft.channel) return null;
-  if (leftOrRight.trackName === rightOrLeft.trackName) return null;
-  if (leftOrRight.mid !== undefined && leftOrRight.mid === rightOrLeft.mid) return null;
+  const track = parseSystemAudioTrack(value.track);
+  if (!track) return null;
 
   return {
     publicationId: value.publicationId,
     sessionId: value.sessionId,
-    tracks: [leftOrRight, rightOrLeft],
+    track,
   };
 }
 

@@ -433,7 +433,7 @@ describe('system audio guest receive watchdog', () => {
     const mediaConn = { close: vi.fn() };
     freezeGuestSystemAudioSfuRoute('all');
 
-    bus.emit('system-audio:incoming-call', mediaConn, 'L');
+    bus.emit('system-audio:incoming-call', mediaConn, 'STEREO');
 
     expect(mediaConn.close).toHaveBeenCalledTimes(1);
   });

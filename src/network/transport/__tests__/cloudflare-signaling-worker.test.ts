@@ -1004,7 +1004,7 @@ describe('Cloudflare signaling protocol validation boundaries', () => {
     const offer = {
       ...probeOffer,
       phase: 'media',
-      trackIds: { L: 'captured-left-track', R: 'captured-right-track' },
+      trackId: 'captured-stereo-track',
     };
     const answer = {
       ...common,
@@ -1069,17 +1069,17 @@ describe('Cloudflare signaling protocol validation boundaries', () => {
     const invalidPayloads = [
       { ...offer, direction: 'subscriber' },
       { ...answer, direction: 'publisher' },
-      { ...probeOffer, trackIds: { L: 'left', R: 'right' } },
+      { ...probeOffer, trackId: 'stereo-track' },
       { ...offer, phase: 'probe' },
       { ...probeOffer, phase: 'media' },
       { ...offer, phase: 'unknown' },
       { ...answer, phase: 'unknown' },
       (({ phase: _phase, ...withoutPhase }) => withoutPhase)(offer),
       (({ phase: _phase, ...withoutPhase }) => withoutPhase)(answer),
-      { ...offer, trackIds: { L: 'same-track', R: 'same-track' } },
-      { ...offer, trackIds: { L: 'left', R: 'right', extra: true } },
-      { ...offer, trackIds: { L: 'x'.repeat(161), R: 'right' } },
-      { ...answer, trackIds: { L: 'left', R: 'right' } },
+      { ...offer, trackId: '' },
+      { ...offer, trackId: 'x'.repeat(161) },
+      { ...offer, trackIds: { L: 'left', R: 'right' } },
+      { ...answer, trackId: 'stereo-track' },
       {
         ...probeOffer,
         description: {
@@ -3317,7 +3317,7 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
         publicationId: 'system-audio-publication-0001',
         negotiationId: 'system-audio-negotiation-0001',
         description: { type: 'offer', sdp: `v=0\r\n${'a=x\r\n'.repeat(1_500)}` },
-        trackIds: { L: 'captured-left-track', R: 'captured-right-track' },
+        trackId: 'captured-stereo-track',
       },
     };
     const raw = JSON.stringify(signalFrame);

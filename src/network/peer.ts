@@ -78,11 +78,7 @@ export {
 
 export { joinSession } from './guest.ts';
 
-type SystemAudioCallType =
-  | 'system-audio'
-  | 'system-audio-dual'
-  | 'system-audio-stereo'
-  | 'system-audio-synced';
+type SystemAudioCallType = 'system-audio-stereo';
 
 type IncomingMediaConnection = {
   peer?: string;
@@ -90,17 +86,11 @@ type IncomingMediaConnection = {
   close: () => void;
 };
 
-const SYSTEM_AUDIO_CALL_TYPES = new Set<string>([
-  'system-audio',
-  'system-audio-dual',
-  'system-audio-stereo',
-  'system-audio-synced',
-]);
 const DEFAULT_PEER_OPEN_TIMEOUT_MS = 15_000;
 const MAX_PEER_OPEN_TIMEOUT_MS = 25_000;
 
 function isSystemAudioCallType(type: unknown): type is SystemAudioCallType {
-  return typeof type === 'string' && SYSTEM_AUDIO_CALL_TYPES.has(type);
+  return type === 'system-audio-stereo';
 }
 
 export function isTrustedSystemAudioMediaCall(mediaConn: {
@@ -121,16 +111,6 @@ function closeIncomingMediaCall(mediaConn: IncomingMediaConnection): void {
   }
 }
 
-function getSystemAudioCallChannel(
-  type: SystemAudioCallType,
-  metadata?: Record<string, unknown>,
-): string {
-  if (type === 'system-audio-dual') return 'DUAL';
-  if (type === 'system-audio-stereo') return 'STEREO';
-  if (type === 'system-audio-synced') return 'SYNCED';
-  return (metadata?.channel as string) || 'L';
-}
-
 // ─── SDP Utils ──────────────────────────────────────────────────────
 
 /**
@@ -139,7 +119,7 @@ function getSystemAudioCallChannel(
  */
 export function forceStereoSdp(sdp: string): string {
   let modified = sdp;
-  const stereoParams = ['stereo=1', 'sprop-stereo=1', 'maxaveragebitrate=128000', 'useinbandfec=1'];
+  const stereoParams = ['stereo=1', 'sprop-stereo=1', 'maxaveragebitrate=256000', 'useinbandfec=1'];
 
   // 1. Find opus payload types
   const opusPTs: string[] = [];
@@ -173,6 +153,34 @@ export function forceStereoSdp(sdp: string): string {
     }
   }
   return modified;
+}
+
+/**
+ * True only when the remote endpoint explicitly prefers Opus stereo receive.
+ * RFC 7587 makes `stereo` unidirectional, so a publisher must inspect the
+ * answer instead of assuming its own offer enabled stereo transmission.
+ */
+export function sdpPrefersOpusStereo(sdp: string): boolean {
+  const opusPayloadTypes = new Set<string>();
+  for (const match of sdp.matchAll(/^a=rtpmap:(\d+)\s+opus\/48000\/2\s*$/gim)) {
+    if (match[1]) opusPayloadTypes.add(match[1]);
+  }
+  if (opusPayloadTypes.size === 0) return false;
+
+  for (const match of sdp.matchAll(/^a=fmtp:(\d+)\s+([^\r\n]*)$/gim)) {
+    const payloadType = match[1];
+    const parameters = match[2];
+    if (!payloadType || !parameters || !opusPayloadTypes.has(payloadType)) continue;
+    if (
+      parameters
+        .split(';')
+        .map((parameter) => parameter.trim())
+        .some((parameter) => /^stereo\s*=\s*1$/i.test(parameter))
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // ─── TURN Config Helpers ────────────────────────────────────────────
@@ -968,11 +976,7 @@ function setupPeerEvents(peer: PeerInstance): void {
         return;
       }
 
-      bus.emit(
-        'system-audio:incoming-call',
-        mediaConn,
-        getSystemAudioCallChannel(type, mc.metadata),
-      );
+      bus.emit('system-audio:incoming-call', mediaConn, 'STEREO');
       return;
     }
 

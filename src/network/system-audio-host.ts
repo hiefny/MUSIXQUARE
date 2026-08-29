@@ -1,8 +1,8 @@
 /**
- * MUSIXQUARE — System Audio Host (Dual-Stream WebRTC)
+ * MUSIXQUARE — Standard-Room Direct System Audio Host
  *
- * Sends L and R channels as separate mono MediaConnections.
- * Each stream is mono Opus (Chrome's default) — two mono = true stereo.
+ * Sends the original captured stereo stream on the direct path. Standard SFU
+ * and PRO delivery live in separate modules.
  */
 
 import { log } from '../core/log.ts';
@@ -12,12 +12,7 @@ import { MSG } from '../core/constants.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { getPeer, safeSend } from './peer-state.ts';
 import { createSystemAudioStartFrame } from './system-audio-start.ts';
-import {
-  isSystemAudioActive,
-  getStreamL,
-  getStreamR,
-  getCapturedAudioStream,
-} from '../audio/system-capture.ts';
+import { isSystemAudioActive, getCapturedAudioStream } from '../audio/system-capture.ts';
 import type { MediaConnection } from '../types/index.ts';
 import {
   beginSystemAudioShareDelivery,
@@ -57,11 +52,12 @@ function boostAudioSenders(pc: RTCPeerConnection): void {
         /* noop */
       }
 
-      // Give each mono track an explicit 128 kbps ceiling.
+      // A single stereo track carries both channels, preserving the previous
+      // dual-mono aggregate budget on one sender.
       try {
         const params = sender.getParameters();
         if (!params.encodings) params.encodings = [{}];
-        params.encodings[0].maxBitrate = 128000;
+        params.encodings[0].maxBitrate = 256000;
         sender.setParameters(params).catch(() => {
           /* noop */
         });
@@ -200,16 +196,15 @@ function callGuest(guestPeerId: string): void {
   }
 
   const peer = getPeer();
-  const streamL = getStreamL();
-  const streamR = getStreamR();
+  const capturedAudioStream = getCapturedAudioStream();
   if (!peer) {
     if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
     pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'no-peer' });
     return;
   }
-  if (!streamL || !streamR) {
+  if (!capturedAudioStream) {
     if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
-    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'missing-lr-streams' });
+    pushDebugCall({ ...debugBase, action: 'stop-sent', reason: 'missing-captured-stream' });
     return;
   }
   if (!peer.call) {
@@ -224,62 +219,13 @@ function callGuest(guestPeerId: string): void {
   }
 
   try {
-    const capturedAudioStream = getCapturedAudioStream();
-    if (capturedAudioStream) {
-      const mc = peer.call(guestPeerId, capturedAudioStream, {
-        metadata: { type: 'system-audio-stereo' },
-      });
-
-      applySdpMunge(mc);
-      _mediaConns.set(guestPeerId, mc);
-      pushDebugCall({ ...debugBase, action: 'call', metadataType: 'system-audio-stereo' });
-      mc.on('close', () => {
-        pushDebugCall({
-          ...debugBase,
-          action: 'close',
-          metadataType: readMetadataType(mc.metadata),
-        });
-        if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
-      });
-      mc.on('error', (error: unknown) => {
-        pushDebugCall({
-          ...debugBase,
-          action: 'error',
-          metadataType: readMetadataType(mc.metadata),
-          error: errorToDebugString(error),
-        });
-        try {
-          mc.close();
-        } catch {
-          /* noop */
-        }
-        if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
-      });
-
-      log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: original stereo stream`);
-      return;
-    }
-
-    // Fallback: SYNCED DUAL-TRACK SINGLE-STREAM.
-    const trackL = streamL.getAudioTracks()[0];
-    const trackR = streamR.getAudioTracks()[0];
-
-    const syncedStream = new MediaStream([trackL, trackR]);
-
-    const mc = peer.call(guestPeerId, syncedStream, {
-      metadata: {
-        type: 'system-audio-synced',
-        // Track ID mapping allows guest to correctly route L and R regardless of track order
-        mapping: {
-          [trackL.id]: 'L',
-          [trackR.id]: 'R',
-        },
-      },
+    const mc = peer.call(guestPeerId, capturedAudioStream, {
+      metadata: { type: 'system-audio-stereo' },
     });
 
     applySdpMunge(mc);
     _mediaConns.set(guestPeerId, mc);
-    pushDebugCall({ ...debugBase, action: 'call', metadataType: 'system-audio-synced' });
+    pushDebugCall({ ...debugBase, action: 'call', metadataType: 'system-audio-stereo' });
     mc.on('close', () => {
       pushDebugCall({
         ...debugBase,
@@ -303,9 +249,7 @@ function callGuest(guestPeerId: string): void {
       if (_mediaConns.get(guestPeerId) === mc) _mediaConns.delete(guestPeerId);
     });
 
-    log.info(
-      `[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: single-stream, dual-track (synced)`,
-    );
+    log.info(`[SysAudioHost] Called guest ${guestPeerId.slice(0, 8)}: original stereo stream`);
   } catch (e) {
     log.warn(`[SysAudioHost] Call failed for ${guestPeerId}:`, e);
     if (peerObj?.conn?.open) safeSend(peerObj.conn, { type: MSG.SYSTEM_AUDIO_STOP });
@@ -406,7 +350,7 @@ function sendActiveSystemAudioToPeer(peerId: string): void {
 // ─── Bus Listeners ────────────────────────────────────────────────
 
 export function registerSystemAudioHostListeners(): void {
-  // L/R streams ready → call all connected guests
+  // Capture graph ready → call all connected guests.
   bus.on('system-audio:streams-ready', () => {
     if (getRoomContext().kind === 'pro') return;
     _remoteDirectFallbackEnabled = false;

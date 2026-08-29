@@ -708,11 +708,11 @@ describe('system-audio SFU frame validation', () => {
     registerHandler(MSG.SYSTEM_AUDIO_SFU_CAPABILITY, handler);
 
     await handleData(
-      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: true },
+      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 2, localAudience: true },
       conn,
     );
     for (const invalid of [
-      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 2, localAudience: true },
+      { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: true },
       { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: false },
       { type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY, version: 1, localAudience: 'true' },
     ]) {
@@ -728,9 +728,9 @@ describe('system-audio SFU frame validation', () => {
     registerHandler(MSG.SYSTEM_AUDIO_SFU_READY, handler);
     const valid = {
       type: MSG.SYSTEM_AUDIO_SFU_READY,
-      version: 1,
+      version: 2,
       sessionId: 'publication-session',
-      tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+      track: { trackName: 'audio-stereo', mid: '0' },
     };
 
     for (const audience of [undefined, 'remote', 'all']) {
@@ -742,20 +742,56 @@ describe('system-audio SFU frame validation', () => {
 
     expect(handler).toHaveBeenCalledTimes(3);
   });
+
+  it('requires exactly one original stereo publication track', async () => {
+    const handler = vi.fn();
+    const conn = makeConnection('peer-system-audio-single-stereo');
+    registerHandler(MSG.SYSTEM_AUDIO_SFU_READY, handler);
+
+    await handleData(
+      {
+        type: MSG.SYSTEM_AUDIO_SFU_READY,
+        version: 2,
+        sessionId: 'publication-session',
+        track: { trackName: 'audio-stereo', mid: '0' },
+      },
+      conn,
+    );
+    await handleData(
+      {
+        type: MSG.SYSTEM_AUDIO_SFU_READY,
+        version: 2,
+        sessionId: 'publication-session',
+        tracks: [
+          { trackName: 'audio-L', mid: '0' },
+          { trackName: 'audio-R', mid: '1' },
+        ],
+      },
+      conn,
+    );
+    await handleData(
+      {
+        type: MSG.SYSTEM_AUDIO_SFU_READY,
+        version: 1,
+        sessionId: 'legacy-publication-session',
+        tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+      },
+      conn,
+    );
+
+    expect(handler).toHaveBeenCalledOnce();
+  });
 });
 
 describe('PRO system-audio control-frame validation', () => {
   const publication = {
     publicationId: 'publication_00001',
     sessionId: 'realtime_session_01',
-    tracks: [
-      { trackName: 'audio-L', channel: 'L', mid: '0' },
-      { trackName: 'audio-R', channel: 'R', mid: '1' },
-    ],
+    track: { trackName: 'audio-stereo', mid: '0' },
   };
   const live = {
     type: MSG.PRO_SYSTEM_AUDIO_STATE,
-    version: 1,
+    version: 2,
     generation: 7,
     status: 'live',
     ownerParticipantId: 'participant_00001',
@@ -806,7 +842,7 @@ describe('PRO system-audio control-frame validation', () => {
 
     const invalidFrames = [
       { ...live, version: 0 },
-      { ...live, version: 2 },
+      { ...live, version: 1 },
       { ...live, leaseId: 'must-not-cross-peer-wire' },
       { ...live, ownerPresenceIncarnationId: 'must-not-cross-peer-wire' },
       { ...live, ownerParticipantId: 'short' },
@@ -817,31 +853,28 @@ describe('PRO system-audio control-frame validation', () => {
         ...live,
         publication: {
           ...publication,
-          tracks: [
-            { ...publication.tracks[0], transceiver: 'private-object' },
-            publication.tracks[1],
-          ],
+          track: { ...publication.track, transceiver: 'private-object' },
         },
       },
       {
         ...live,
         publication: {
           ...publication,
-          tracks: [{ ...publication.tracks[0], trackName: ' audio-L ' }, publication.tracks[1]],
+          track: { ...publication.track, trackName: ' audio-stereo ' },
         },
       },
       {
         ...live,
         publication: {
           ...publication,
-          tracks: [publication.tracks[0], { ...publication.tracks[1], mid: ' 1 ' }],
+          track: { ...publication.track, mid: ' 0 ' },
         },
       },
       {
         ...live,
         publication: {
           ...publication,
-          tracks: [publication.tracks[0], { ...publication.tracks[1], channel: 'L' }],
+          track: { ...publication.track, channel: 'L' },
         },
       },
     ];

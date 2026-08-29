@@ -61,8 +61,7 @@ vi.mock('../../audio/engine.ts', () => ({
 }));
 
 vi.mock('../../audio/system-capture.ts', () => ({
-  getStreamL: vi.fn(),
-  getStreamR: vi.fn(),
+  getCapturedAudioStream: vi.fn(),
   isSystemAudioActive: vi.fn(() => true),
 }));
 
@@ -106,6 +105,20 @@ interface PendingRealtimeCall {
 
 let pendingRealtimeCalls: PendingRealtimeCall[];
 let pcInstances: MockRTCPeerConnection[];
+const OPUS_SDP = [
+  'v=0',
+  'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+  'a=rtpmap:111 opus/48000/2',
+  'a=fmtp:111 minptime=10',
+  '',
+].join('\r\n');
+const OPUS_STEREO_SDP = [
+  'v=0',
+  'm=audio 9 UDP/TLS/RTP/SAVPF 111',
+  'a=rtpmap:111 opus/48000/2',
+  'a=fmtp:111 minptime=10; stereo=1; sprop-stereo=1; maxaveragebitrate=256000',
+  '',
+].join('\r\n');
 
 class MockRTCPeerConnection {
   readonly configuration: RTCConfiguration | undefined;
@@ -123,14 +136,24 @@ class MockRTCPeerConnection {
   signalingState = 'stable';
   ontrack: ((event: unknown) => void) | null = null;
   _nextTransceiverMid = 0;
-  addTransceiver = vi.fn(() => ({
+  senderGetParameters = vi.fn(() => ({ encodings: [{}] }));
+  senderSetParameters = vi.fn(async () => {});
+  addTransceiver = vi.fn((track: MediaStreamTrack) => ({
     mid: String(this._nextTransceiverMid++),
-    sender: { getParameters: () => ({ encodings: [{}] }), setParameters: async () => {} },
+    sender: {
+      track,
+      getParameters: this.senderGetParameters,
+      setParameters: this.senderSetParameters,
+    },
   }));
   createOffer = vi.fn(async () => ({ type: 'offer', sdp: 'sdp' }));
   createAnswer = vi.fn(async () => ({ type: 'answer', sdp: 'ans' }));
-  setLocalDescription = vi.fn(async () => {});
-  setRemoteDescription = vi.fn(async () => {});
+  setLocalDescription = vi.fn<(description: RTCSessionDescriptionInit) => Promise<void>>(
+    async () => {},
+  );
+  setRemoteDescription = vi.fn<(description: RTCSessionDescriptionInit) => Promise<void>>(
+    async () => {},
+  );
   // Guest subscribe reads receiver tracks off the transceivers after
   // setRemoteDescription; one audio transceiver drives a single connectGuestTrack.
   getTransceivers = vi.fn(() => [
@@ -198,8 +221,7 @@ async function loadSfuModuleAsHostWithRemoteGuest() {
 
   const capture = await import('../../audio/system-capture.ts');
   const fakeStream = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream;
-  vi.mocked(capture.getStreamL).mockReturnValue(fakeStream);
-  vi.mocked(capture.getStreamR).mockReturnValue(fakeStream);
+  vi.mocked(capture.getCapturedAudioStream).mockReturnValue(fakeStream);
   vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
 
   setState('network.appRole', 'host');
@@ -323,10 +345,10 @@ describe('shared Standard-room TURN configuration', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'host-shared-turn-publication',
-        tracks: [{ trackName: 'audio-L-shared-turn', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo-shared-turn', mid: '0' },
       },
       hostConn,
     );
@@ -346,6 +368,129 @@ describe('shared Standard-room TURN configuration', () => {
 
     bus.emit('system-audio:stop');
     await rejectAllRealtimeCalls();
+  });
+});
+
+describe('single original stereo SFU contract', () => {
+  it('publishes the original capture as one 256 kbps track with a stereo client offer', async () => {
+    const mod = await loadSfuModuleAsHostWithRemoteGuest();
+    bus.emit('system-audio:streams-ready');
+    await waitForNewSessionCalls(1);
+
+    const hostPc = pcInstances[pcInstances.length - 1];
+    hostPc.createOffer.mockResolvedValueOnce({ type: 'offer', sdp: OPUS_SDP });
+    await resolveRealtime('new-session', {
+      sessionId: 'single-stereo-host-session',
+      sessionOwnerToken: 'single-stereo-host-owner',
+    });
+
+    await vi.waitFor(() => {
+      expect(pendingRealtimeCalls.some((call) => call.action === 'tracks-new')).toBe(true);
+    });
+    const tracksNewBody = fetchMock.mock.calls
+      .map(([, , init]) => (init?.body ? JSON.parse(String(init.body)) : null))
+      .find((body) => body?.action === 'tracks-new');
+    expect(tracksNewBody.payload.tracks).toHaveLength(1);
+    expect(tracksNewBody.payload.sessionDescription.sdp).toContain('stereo=1');
+    expect(tracksNewBody.payload.sessionDescription.sdp).toContain('sprop-stereo=1');
+    expect(tracksNewBody.payload.sessionDescription.sdp).toContain('maxaveragebitrate=256000');
+
+    const capture = await import('../../audio/system-capture.ts');
+    const capturedStream = vi.mocked(capture.getCapturedAudioStream).mock.results.at(-1)?.value;
+    const capturedTrack = capturedStream?.getAudioTracks()[0];
+    expect(hostPc.addTransceiver).toHaveBeenCalledTimes(1);
+    expect(hostPc.addTransceiver).toHaveBeenCalledWith(capturedTrack, {
+      direction: 'sendonly',
+      streams: [capturedStream],
+    });
+    await vi.waitFor(() => {
+      expect(hostPc.senderSetParameters).toHaveBeenCalledWith({
+        encodings: [{ maxBitrate: 256000 }],
+      });
+    });
+
+    const trackName = tracksNewBody.payload.tracks[0].trackName as string;
+    await resolveRealtime('tracks-new', {
+      sessionDescription: { type: 'answer', sdp: OPUS_STEREO_SDP },
+      tracks: [{ trackName, mid: '0' }],
+    });
+    await vi.waitFor(() => {
+      expect(hostPc.setRemoteDescription).toHaveBeenCalledWith({
+        type: 'answer',
+        sdp: OPUS_STEREO_SDP,
+      });
+    });
+
+    const { safeSend } = await import('../peer-state.ts');
+    await vi.waitFor(() => {
+      expect(safeSend).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          type: MSG.SYSTEM_AUDIO_SFU_READY,
+          version: 2,
+          track: { trackName, mid: '0' },
+        }),
+      );
+    });
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+    expect(mod.getSystemAudioSfuDebugSnapshot().host.publishedTrack).toBeNull();
+  });
+
+  it('keeps the subscriber offer authoritative and returns a stereo client answer', async () => {
+    const mod = await import('../system-audio-sfu.ts');
+    mod.registerSystemAudioSfuListeners();
+    bus.emit('system-audio:stop');
+    const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', hostConn);
+    setState('network.connectionType', 'remote');
+
+    const { registerHandler } = await import('../protocol.ts');
+    const handler = vi
+      .mocked(registerHandler)
+      .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+      | ((data: unknown, conn?: unknown) => void)
+      | undefined;
+    handler!(
+      {
+        version: 2,
+        audience: 'remote',
+        sessionId: 'single-stereo-publication',
+        track: { trackName: 'single-stereo-track', mid: '0' },
+      },
+      hostConn,
+    );
+    await waitForNewSessionCalls(1);
+
+    const guestPc = pcInstances[pcInstances.length - 1];
+    guestPc.createAnswer.mockResolvedValueOnce({ type: 'answer', sdp: OPUS_SDP });
+    await resolveRealtime('new-session', {
+      sessionId: 'single-stereo-guest-session',
+      sessionOwnerToken: 'single-stereo-guest-owner',
+    });
+    await resolveRealtime('tracks-new', {
+      sessionDescription: { type: 'offer', sdp: OPUS_SDP },
+      tracks: [{ mid: '0', trackName: 'single-stereo-track' }],
+    });
+
+    await vi.waitFor(() => {
+      expect(pendingRealtimeCalls.some((call) => call.action === 'renegotiate')).toBe(true);
+    });
+    expect(guestPc.setRemoteDescription).toHaveBeenCalledWith({ type: 'offer', sdp: OPUS_SDP });
+    expect(guestPc.setLocalDescription.mock.calls[0]?.[0]?.sdp).toContain('stereo=1');
+    expect(guestPc.setLocalDescription.mock.calls[0]?.[0]?.sdp).toContain('sprop-stereo=1');
+
+    const renegotiateBody = fetchMock.mock.calls
+      .map(([, , init]) => (init?.body ? JSON.parse(String(init.body)) : null))
+      .find((body) => body?.action === 'renegotiate');
+    expect(renegotiateBody.payload.sessionDescription.sdp).toContain('maxaveragebitrate=256000');
+    await resolveRealtime('renegotiate', {});
+
+    bus.emit('system-audio:stop');
+    await rejectAllRealtimeCalls();
+    expect(mod.getSystemAudioSfuDebugSnapshot().guest.pcState).toBeNull();
   });
 });
 
@@ -400,6 +545,28 @@ describe('host publish failure × supersession (F-2403)', () => {
     expect(fallbackSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a Cloudflare publisher answer that did not negotiate Opus stereo', async () => {
+    const mod = await loadSfuModuleAsHostWithRemoteGuest();
+    const fallbackSpy = vi.fn();
+    bus.on('system-audio:sfu-fallback', fallbackSpy);
+
+    bus.emit('system-audio:streams-ready');
+    await resolveRealtime('new-session', {
+      sessionId: 'mono-answer-session',
+      sessionOwnerToken: 'mono-answer-owner',
+    });
+    const hostPc = pcInstances[pcInstances.length - 1] as unknown as MockRTCPeerConnection;
+    await resolveRealtime('tracks-new', {
+      sessionDescription: { type: 'answer', sdp: OPUS_SDP },
+      tracks: [{ trackName: 'audio-stereo', mid: '0' }],
+    });
+
+    await vi.waitFor(() => expect(fallbackSpy).toHaveBeenCalledTimes(1));
+    expect(hostPc.setRemoteDescription).not.toHaveBeenCalled();
+    expect(mod.getSystemAudioSfuDebugSnapshot().host.unavailable).toBe(true);
+    await rejectAllRealtimeCalls();
+  });
+
   it('closes accepted host tracks when local SDP adoption fails before publication commit', async () => {
     const mod = await loadSfuModuleAsHostWithRemoteGuest();
     const fallbackSpy = vi.fn();
@@ -416,11 +583,8 @@ describe('host publish failure × supersession (F-2403)', () => {
     const hostPc = pcInstances[pcInstances.length - 1] as unknown as MockRTCPeerConnection;
     hostPc.setRemoteDescription.mockRejectedValueOnce(new Error('LOCAL_SDP_REJECTED'));
     await resolveRealtime('tracks-new', {
-      sessionDescription: { type: 'answer', sdp: 'a' },
-      tracks: [
-        { trackName: 'audio-L', mid: '0' },
-        { trackName: 'audio-R', mid: '1' },
-      ],
+      sessionDescription: { type: 'answer', sdp: OPUS_STEREO_SDP },
+      tracks: [{ trackName: 'audio-stereo', mid: '0' }],
     });
 
     await vi.waitFor(() => {
@@ -430,7 +594,7 @@ describe('host publish failure × supersession (F-2403)', () => {
       expect(closeBody).toMatchObject({
         sessionId: 'orphan-host-session',
         sessionOwnerToken: 'orphan-host-owner',
-        payload: { tracks: [{ mid: '0' }, { mid: '1' }], force: true },
+        payload: { tracks: [{ mid: '0' }], force: true },
       });
     });
     expect(fallbackSpy).toHaveBeenCalledTimes(1);
@@ -441,22 +605,14 @@ describe('host publish failure × supersession (F-2403)', () => {
 
 describe('host SFU runtime connection failure (F-2403)', () => {
   async function publishHostSuccessfully(mod: typeof import('../system-audio-sfu.ts')) {
-    // publishHostTracks builds `new MediaStream([trackL, trackR])`; stub it for
-    // the node test env (the existing tests reject at new-session, before this).
-    (globalThis as Record<string, unknown>).MediaStream = class {
-      constructor(_tracks?: unknown) {}
-    };
     bus.emit('system-audio:streams-ready');
     await resolveRealtime('new-session', {
       sessionId: 'host-sess-1',
       sessionOwnerToken: 'host-owner-token',
     });
     await resolveRealtime('tracks-new', {
-      sessionDescription: { type: 'answer', sdp: 'a' },
-      tracks: [
-        { trackName: 'audio-L', mid: '0' },
-        { trackName: 'audio-R', mid: '1' },
-      ],
+      sessionDescription: { type: 'answer', sdp: OPUS_STEREO_SDP },
+      tracks: [{ trackName: 'audio-stereo', mid: '0' }],
     });
     await vi.waitFor(() => {
       expect(mod.getSystemAudioSfuDebugSnapshot().host.sessionId).toBe('host-sess-1');
@@ -500,7 +656,7 @@ describe('host SFU runtime connection failure (F-2403)', () => {
     expect(closeBody).toMatchObject({
       sessionId: 'host-sess-1',
       sessionOwnerToken: 'host-owner-token',
-      payload: { tracks: [{ mid: '0' }, { mid: '1' }], force: true },
+      payload: { tracks: [{ mid: '0' }], force: true },
     });
     await resolveRealtime('tracks-close', {});
 
@@ -544,8 +700,7 @@ describe('bounded large-room SFU failure policy', () => {
 
     const capture = await import('../../audio/system-capture.ts');
     const fakeStream = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream;
-    vi.mocked(capture.getStreamL).mockReturnValue(fakeStream);
-    vi.mocked(capture.getStreamR).mockReturnValue(fakeStream);
+    vi.mocked(capture.getCapturedAudioStream).mockReturnValue(fakeStream);
     vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
 
     const peers = Array.from({ length: count }, (_, index) => makeLocalPeer(`local-${index + 1}`));
@@ -616,8 +771,7 @@ describe('bounded large-room SFU failure policy', () => {
     bus.emit('system-audio:stop');
     const capture = await import('../../audio/system-capture.ts');
     const fakeStream = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream;
-    vi.mocked(capture.getStreamL).mockReturnValue(fakeStream);
-    vi.mocked(capture.getStreamR).mockReturnValue(fakeStream);
+    vi.mocked(capture.getCapturedAudioStream).mockReturnValue(fakeStream);
     vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
     const peers = Array.from({ length: 9 }, (_, index) => makeRemotePeer(`remote-${index + 1}`));
     setState('network.appRole', 'host');
@@ -647,8 +801,7 @@ describe('bounded large-room SFU failure policy', () => {
     bus.emit('system-audio:stop');
     const capture = await import('../../audio/system-capture.ts');
     const fakeStream = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream;
-    vi.mocked(capture.getStreamL).mockReturnValue(fakeStream);
-    vi.mocked(capture.getStreamR).mockReturnValue(fakeStream);
+    vi.mocked(capture.getCapturedAudioStream).mockReturnValue(fakeStream);
     vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
     const remotePeers = Array.from({ length: 8 }, (_, index) =>
       makeRemotePeer(`remote-${index + 1}`),
@@ -677,11 +830,8 @@ describe('bounded large-room SFU failure policy', () => {
       sessionOwnerToken: 'late-local-owner',
     });
     await resolveRealtime('tracks-new', {
-      sessionDescription: { type: 'answer', sdp: 'a' },
-      tracks: [
-        { trackName: 'audio-L', mid: '0' },
-        { trackName: 'audio-R', mid: '1' },
-      ],
+      sessionDescription: { type: 'answer', sdp: OPUS_STEREO_SDP },
+      tracks: [{ trackName: 'audio-stereo', mid: '0' }],
     });
 
     const { safeSend } = await import('../peer-state.ts');
@@ -703,8 +853,7 @@ describe('bounded large-room SFU failure policy', () => {
     bus.emit('system-audio:stop');
     const capture = await import('../../audio/system-capture.ts');
     const fakeStream = { getAudioTracks: () => [{ kind: 'audio' }] } as unknown as MediaStream;
-    vi.mocked(capture.getStreamL).mockReturnValue(fakeStream);
-    vi.mocked(capture.getStreamR).mockReturnValue(fakeStream);
+    vi.mocked(capture.getCapturedAudioStream).mockReturnValue(fakeStream);
     vi.mocked(capture.isSystemAudioActive).mockReturnValue(true);
     const remotePeers = Array.from({ length: 8 }, (_, index) =>
       makeRemotePeer(`remote-${index + 1}`),
@@ -733,7 +882,7 @@ describe('bounded large-room SFU failure policy', () => {
       | undefined;
     expect(capabilityHandler).toBeDefined();
 
-    capabilityHandler!({ version: 1, localAudience: true }, localPeer.conn as DataConnection);
+    capabilityHandler!({ version: 2, localAudience: true }, localPeer.conn as DataConnection);
     await waitForNewSessionCalls(2);
     await rejectAllRealtimeCalls();
 
@@ -774,10 +923,10 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
       | undefined;
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'host-successor-publication',
-        tracks: [{ trackName: 'audio-L-successor', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo-successor', mid: '0' },
       },
       hostConn,
     );
@@ -814,10 +963,10 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'host-partial-publication',
-        tracks: [{ trackName: 'audio-L-partial', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo-partial', mid: '0' },
       },
       hostConn,
     );
@@ -828,7 +977,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     await resolveRealtime('tracks-new', {
       errorCode: 'TRACKS_PARTIAL',
       errorDescription: 'one track was allocated before failure',
-      tracks: [{ mid: 'allocated-mid-0', trackName: 'audio-L-partial' }],
+      tracks: [{ mid: 'allocated-mid-0', trackName: 'audio-stereo-partial' }],
     });
 
     await vi.waitFor(() => {
@@ -864,10 +1013,10 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'host-publication-before-fallback',
-        tracks: [{ trackName: 'audio-L-before-fallback', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo-before-fallback', mid: '0' },
       },
       hostConn,
     );
@@ -876,17 +1025,17 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     bus.on('system-audio:delivery-handoff', deliveryHandoff);
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'queued-host-publication',
-        tracks: [{ trackName: 'queued-audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'queued-audio-stereo', mid: '0' },
       },
       hostConn,
     );
 
     // The direct fallback wins while the first subscribe is in flight. This
     // must cancel that attempt and discard its queued successor.
-    bus.emit('system-audio:incoming-call', {} as never, 'L');
+    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(true);
     expect(deliveryHandoff).toHaveBeenCalledTimes(1);
     await resolveRealtime('new-session', {
@@ -900,10 +1049,10 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     // share, so direct and SFU audio cannot play together.
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'late-host-publication',
-        tracks: [{ trackName: 'late-audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'late-audio-stereo', mid: '0' },
       },
       hostConn,
     );
@@ -914,10 +1063,10 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     bus.emit('system-audio:host-started');
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'next-share-publication',
-        tracks: [{ trackName: 'next-share-audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'next-share-audio-stereo', mid: '0' },
       },
       hostConn,
     );
@@ -949,20 +1098,20 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'failed-host-publication',
-        tracks: [{ trackName: 'failed-audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'failed-audio-stereo', mid: '0' },
       },
       hostConn,
     );
     await waitForNewSessionCalls(1);
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'retry-host-publication',
-        tracks: [{ trackName: 'retry-audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'retry-audio-stereo', mid: '0' },
       },
       hostConn,
     );
@@ -973,7 +1122,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
     await resolveRealtime('tracks-new', {
       errorCode: 'FIRST_SUBSCRIBE_FAILED',
-      tracks: [{ mid: 'failed-mid', trackName: 'failed-audio-L' }],
+      tracks: [{ mid: 'failed-mid', trackName: 'failed-audio-stereo' }],
     });
 
     await waitForNewSessionCalls(2);
@@ -1019,16 +1168,16 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'all',
         sessionId: 'all-audience-await',
-        tracks: [{ trackName: 'all-await-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'all-await-stereo', mid: '0' },
       },
       hostConn,
     );
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.shareRoute).toBe('sfu-all');
 
-    bus.emit('system-audio:incoming-call', {} as never, 'L');
+    bus.emit('system-audio:incoming-call', {} as never, 'STEREO');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.shareRoute).toBe('sfu-all');
     expect(mod.getSystemAudioSfuDebugSnapshot().guest.directRouteFrozen).toBe(false);
     expect(standardRoomPrerequisiteMocks.getTurnCredentials).toHaveBeenCalledTimes(1);
@@ -1062,20 +1211,20 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'host-publication-1',
-        tracks: [{ trackName: 'audio-L-1', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo-1', mid: '0' },
       },
       hostConn,
     );
     await waitForNewSessionCalls(1);
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'host-publication-2',
-        tracks: [{ trackName: 'audio-L-2', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo-2', mid: '0' },
       },
       hostConn,
     );
@@ -1086,7 +1235,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'offer', sdp: 'o' },
-      tracks: [{ mid: '0', trackName: 'audio-L-1' }],
+      tracks: [{ mid: '0', trackName: 'audio-stereo-1' }],
     });
     await resolveRealtime('renegotiate', {});
 
@@ -1121,7 +1270,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     setState('network.connectionType', 'remote');
 
     // Make the audio graph "ready" so that WITHOUT the recheck connectGuestTrack
-    // would recreate the merger + flip receiving=true (the resurrection this
+    // would recreate the source + flip receiving=true (the resurrection this
     // guards), so it must return before touching any of this.
     const engine = await import('../../audio/engine.ts');
     const ctxMod = await import('../../audio/context.ts');
@@ -1152,9 +1301,9 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     sfuReadyHandler!(
       {
-        version: 1,
+        version: 2,
         sessionId: 'host-sess',
-        tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo', mid: '0' },
       },
       hostConn,
     );
@@ -1165,7 +1314,7 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'offer', sdp: 'o' },
-      tracks: [{ mid: '0', trackName: 'audio-L' }],
+      tracks: [{ mid: '0', trackName: 'audio-stereo' }],
     });
     await resolveRealtime('renegotiate', {});
 
@@ -1212,9 +1361,8 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     const guest = mod.getSystemAudioSfuDebugSnapshot().guest;
-    expect(guest.merger).toBe(false);
     expect(guest.receiving).toBe(false);
-    expect(guest.sourceL).toBe(false);
+    expect(guest.sourceStereo).toBe(false);
 
     delete (globalThis as Record<string, unknown>).MediaStream;
   });
@@ -1253,9 +1401,9 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
 
     sfuReadyHandler!(
       {
-        version: 1,
+        version: 2,
         sessionId: 'trusted-boundary-host-session',
-        tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo', mid: '0' },
       },
       hostConn,
     );
@@ -1265,12 +1413,14 @@ describe('guest SFU teardown and successor ownership (F-2402)', () => {
     });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'offer', sdp: 'o' },
-      tracks: [{ mid: '0', trackName: 'audio-L' }],
+      tracks: [{ mid: '0', trackName: 'audio-stereo' }],
     });
     await resolveRealtime('renegotiate', {});
 
     await vi.waitFor(() => {
-      expect(systemAudioGuestMocks.awaitTrustedReceptionBoundary).toHaveBeenCalledWith('sfu-L');
+      expect(systemAudioGuestMocks.awaitTrustedReceptionBoundary).toHaveBeenCalledWith(
+        'sfu-stereo',
+      );
     });
     expect(engine.initAudio).not.toHaveBeenCalled();
 
@@ -1311,7 +1461,7 @@ describe('LAN SFU audience negotiation', () => {
     const { safeSend } = await import('../peer-state.ts');
     expect(safeSend).toHaveBeenCalledWith(hostConn, {
       type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY,
-      version: 1,
+      version: 2,
       localAudience: true,
     });
   });
@@ -1335,10 +1485,10 @@ describe('LAN SFU audience negotiation', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'remote-only',
-        tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo', mid: '0' },
       },
       hostConn,
     );
@@ -1346,10 +1496,10 @@ describe('LAN SFU audience negotiation', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'all',
         sessionId: 'all-audience',
-        tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo', mid: '0' },
       },
       hostConn,
     );
@@ -1378,10 +1528,10 @@ describe('LAN SFU audience negotiation', () => {
       | undefined;
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'remote',
         sessionId: 'frozen-host-publication',
-        tracks: [{ trackName: 'frozen-audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'frozen-audio-stereo', mid: '0' },
       },
       hostConn,
     );
@@ -1391,7 +1541,7 @@ describe('LAN SFU audience negotiation', () => {
     });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'offer', sdp: 'o' },
-      tracks: [{ mid: '0', trackName: 'frozen-audio-L' }],
+      tracks: [{ mid: '0', trackName: 'frozen-audio-stereo' }],
     });
     await resolveRealtime('renegotiate', {});
     await vi.waitFor(() => {
@@ -1443,10 +1593,10 @@ describe('guest SFU receive limit', () => {
 
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'all',
         sessionId: 'host-publication-lan-overflow',
-        tracks: [{ trackName: 'audio-L', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo', mid: '0' },
       },
       firstHostConn,
     );
@@ -1456,7 +1606,7 @@ describe('guest SFU receive limit', () => {
     });
     await resolveRealtime('tracks-new', {
       sessionDescription: { type: 'offer', sdp: 'o' },
-      tracks: [{ mid: '0', trackName: 'audio-L' }],
+      tracks: [{ mid: '0', trackName: 'audio-stereo' }],
     });
     await resolveRealtime('renegotiate', {});
 
@@ -1483,10 +1633,10 @@ describe('guest SFU receive limit', () => {
     const callsBeforeBlockedReady = countNewSessionCalls();
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'all',
         sessionId: 'same-host-retry',
-        tracks: [{ trackName: 'audio-L-retry', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo-retry', mid: '0' },
       },
       firstHostConn,
     );
@@ -1501,10 +1651,10 @@ describe('guest SFU receive limit', () => {
     setState('network.hostConn', replacementHostConn);
     handler!(
       {
-        version: 1,
+        version: 2,
         audience: 'all',
         sessionId: 'replacement-host-publication',
-        tracks: [{ trackName: 'audio-L-rejoined', channel: 'L', mid: '0' }],
+        track: { trackName: 'audio-stereo-rejoined', mid: '0' },
       },
       replacementHostConn,
     );

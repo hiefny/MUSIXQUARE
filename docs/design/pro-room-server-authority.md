@@ -136,7 +136,7 @@ stale, or unauthorized targets are dropped.
 A direct route is committed only after each target has exactly one unambiguous
 selected, succeeded `host`-to-`host` pair reached through a strict UUID-shaped
 remote `.local` mDNS candidate. The first negotiation is a data-channel-only locality probe;
-the publisher attaches the L/R audio tracks and performs the media negotiation
+the publisher attaches the original stereo audio track and performs the media negotiation
 only after that proof succeeds. Candidate-bearing SDP is rejected. The bounded
 trickle path accepts only component-1 UDP host candidates with that remote mDNS
 shape; numeric remote candidates are never relayed or added, even when they
@@ -145,8 +145,8 @@ global or otherwise hidden addresses, malformed hostnames, missing candidate-pai
 data, and ambiguous pair selection do not prove locality. A privacy-redacted
 candidate address is accepted only when its selected remote foundation and port
 match a strict mDNS candidate successfully added for that exact route and
-negotiation. The resulting v1 descriptor contains only
-`{ publicationId, transport: "lan-direct", protocolVersion: 1 }`. Cloudflare
+negotiation. The resulting v2 descriptor contains only
+`{ publicationId, transport: "lan-direct", protocolVersion: 2 }`. Cloudflare
 still carries authority mutations and targeted SDP/ICE, but it carries no RTP
 media and no TURN relay for that publication. “Cloudflare media 0” therefore
 does not mean “Cloudflare traffic 0.”
@@ -586,14 +586,14 @@ state. Recovery must restore a matched Worker/client/data checkpoint or
 forward-fix the current protocol.
 
 The checked-in PRO system-audio contract marker is
-`lan-direct-unmetered-v2`. Its cutover requires one full PRO/signaling/app
+`single-stereo-v3`. Its cutover requires one full PRO/signaling/app
 release. If any component of that marker-changing candidate became live,
-recovery treats v2 as a forward floor:
+recovery treats the v3 system-audio contract as a forward floor:
 it preserves all three components and repairs forward instead of restoring an
 older app that can stop direct at its compatibility timestamp or an older PRO
 Worker that still expires direct. Only an immutable checkpoint proving that no
-cutover component landed may restore the pre-v2 set. The original protocol-v1
-direct descriptor and same-ID promotion invariants remain part of this floor.
+cutover component landed may restore the pre-v3 set. The earlier protocol-v1
+direct cutover and same-ID promotion invariants remain subsumed by this floor.
 
 ## Rejected alternatives
 

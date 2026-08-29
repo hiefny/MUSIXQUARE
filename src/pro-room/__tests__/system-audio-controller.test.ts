@@ -154,10 +154,7 @@ function publication(): ProRoomSystemAudioPublication {
   return {
     publicationId: 'publication_00001',
     sessionId: 'realtime_session_01',
-    tracks: [
-      { trackName: 'audio-L', channel: 'L', mid: '0' },
-      { trackName: 'audio-R', channel: 'R', mid: '1' },
-    ],
+    track: { trackName: 'audio-stereo', mid: '0' },
   };
 }
 
@@ -273,7 +270,7 @@ describe('ProRoomSystemAudioController', () => {
     const directPublication = {
       publicationId: 'publication_00001',
       transport: 'lan-direct',
-      protocolVersion: 1,
+      protocolVersion: 2,
     } as const satisfies ProRoomSystemAudioPublication;
     api.acquireSystemAudioLease.mockResolvedValue({ systemAudio: preparing(), leaseId: LEASE_ID });
     api.commitSystemAudioPublication
@@ -456,7 +453,7 @@ describe('ProRoomSystemAudioController', () => {
       publication: {
         publicationId: 'publication_00001',
         transport: 'lan-direct',
-        protocolVersion: 1,
+        protocolVersion: 2,
       },
     };
     const promotedState: ProRoomSystemAudioState = {
@@ -480,7 +477,7 @@ describe('ProRoomSystemAudioController', () => {
       publication: {
         publicationId: 'publication_00001',
         transport: 'lan-direct',
-        protocolVersion: 1,
+        protocolVersion: 2,
       },
     };
     const promotedState: ProRoomSystemAudioState = {

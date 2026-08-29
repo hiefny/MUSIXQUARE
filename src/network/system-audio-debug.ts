@@ -145,10 +145,7 @@ export async function collectSystemAudioDebugText(): Promise<string> {
     `  started:${age(capture.lastCaptureStartedAt as number | undefined)} streamsReady:${age(capture.lastStreamsReadyAt as number | undefined)} startBroadcast:${age(capture.lastStartBroadcastAt as number | undefined)} stopBroadcast:${age(capture.lastStopBroadcastAt as number | undefined)} stopped:${age(capture.lastCaptureStoppedAt as number | undefined)}`,
   );
   lines.push(
-    `  graph source:${yn(capture.sourceNode)} splitter:${yn(capture.splitter)} upmix:${yn(capture.stereoUpmix)} destL:${yn(capture.destL)} destR:${yn(capture.destR)}`,
-  );
-  lines.push(
-    `  L active:${yn(capture.streamLActive)} tracks:${list(capture.streamLTracks)} | R active:${yn(capture.streamRActive)} tracks:${list(capture.streamRTracks)}`,
+    `  graph source:${yn(capture.sourceNode)} upmix:${yn(capture.stereoUpmix)} nativeStereoTrack:${list(capture.capturedTracks)}`,
   );
 
   lines.push(
@@ -168,7 +165,7 @@ export async function collectSystemAudioDebugText(): Promise<string> {
   }
 
   lines.push(
-    `[DirectGuest] receiving:${yn(guest.systemReceiving)} placeholder:${yn(guest.placeholder)} got L/R/S/Synced:${yn(guest.gotL)}/${yn(guest.gotR)}/${yn(guest.gotStereo)}/${yn(guest.gotSynced)}`,
+    `[DirectGuest] receiving:${yn(guest.systemReceiving)} placeholder:${yn(guest.placeholder)} gotStereo:${yn(guest.gotStereo)}`,
   );
   lines.push(
     `  start:${age(guest.lastStartAt)} ignored:${age(guest.lastStartIgnoredAt)}${guest.lastStartIgnoredReason ? `:${guest.lastStartIgnoredReason}` : ''} stop:${age(guest.lastStopAt)} cleanup:${age(guest.lastCleanupAt)}`,
@@ -176,9 +173,7 @@ export async function collectSystemAudioDebugText(): Promise<string> {
   lines.push(
     `  watchdog active:${yn(guest.watchdogActive)} armed:${age(guest.watchdogArmedAt)} timeout:${age(guest.watchdogTimedOutAt)}`,
   );
-  lines.push(
-    `  graph sourceL:${yn(guest.sourceL)} sourceR:${yn(guest.sourceR)} sourceStereo:${yn(guest.sourceStereo)} merger:${yn(guest.merger)} primer:${yn(guest.decoderPrimer)}`,
-  );
+  lines.push(`  graph sourceStereo:${yn(guest.sourceStereo)} primer:${yn(guest.decoderPrimer)}`);
   if (guest.channels.length === 0) lines.push('  channels:none');
   for (const channel of guest.channels) {
     const pc = channel.pcState
@@ -193,10 +188,10 @@ export async function collectSystemAudioDebugText(): Promise<string> {
   }
 
   lines.push(
-    `[SFUHost] session:${short(sfu.host.sessionId)} tracks:${sfu.host.publishedTracks.length} publishing:${yn(sfu.host.publishInFlight)} unavailable:${yn(sfu.host.unavailable)} pc:${sfu.host.pcState ? `${sfu.host.pcState.connectionState}/${sfu.host.pcState.iceConnectionState}` : 'none'}`,
+    `[SFUHost] session:${short(sfu.host.sessionId)} track:${yn(sfu.host.publishedTrack)} publishing:${yn(sfu.host.publishInFlight)} unavailable:${yn(sfu.host.unavailable)} pc:${sfu.host.pcState ? `${sfu.host.pcState.connectionState}/${sfu.host.pcState.iceConnectionState}` : 'none'}`,
   );
   lines.push(
-    `[SFUGuest] session:${short(sfu.guest.sessionId)} receiving:${yn(sfu.guest.receiving)} connecting:${yn(sfu.guest.connectInFlight)} sourceL:${yn(sfu.guest.sourceL)} sourceR:${yn(sfu.guest.sourceR)} pc:${sfu.guest.pcState ? `${sfu.guest.pcState.connectionState}/${sfu.guest.pcState.iceConnectionState}` : 'none'}`,
+    `[SFUGuest] session:${short(sfu.guest.sessionId)} receiving:${yn(sfu.guest.receiving)} connecting:${yn(sfu.guest.connectInFlight)} sourceStereo:${yn(sfu.guest.sourceStereo)} pc:${sfu.guest.pcState ? `${sfu.guest.pcState.connectionState}/${sfu.guest.pcState.iceConnectionState}` : 'none'}`,
   );
 
   const pcRefs: PeerConnectionRef[] = [

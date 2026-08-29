@@ -297,45 +297,29 @@ function isProSystemAudioPublication(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const publication = value as Record<string, unknown>;
   if (
-    !hasExactKeys(publication, ['publicationId', 'sessionId', 'tracks']) ||
+    !hasExactKeys(publication, ['publicationId', 'sessionId', 'track']) ||
     typeof publication.publicationId !== 'string' ||
     !PRO_SYSTEM_AUDIO_PUBLIC_ID_RE.test(publication.publicationId) ||
     typeof publication.sessionId !== 'string' ||
-    !PRO_SYSTEM_AUDIO_PUBLIC_ID_RE.test(publication.sessionId) ||
-    !Array.isArray(publication.tracks) ||
-    publication.tracks.length !== 2
+    !PRO_SYSTEM_AUDIO_PUBLIC_ID_RE.test(publication.sessionId)
   ) {
     return false;
   }
-  const channels = new Set<string>();
-  const names = new Set<string>();
-  const mids = new Set<string>();
-  for (const value of publication.tracks) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-    const track = value as Record<string, unknown>;
-    if (
-      !hasExactKeys(track, ['trackName', 'channel'], ['mid']) ||
-      typeof track.trackName !== 'string' ||
-      track.trackName.length === 0 ||
-      track.trackName.length > 160 ||
-      track.trackName.trim() !== track.trackName ||
-      (track.channel !== 'L' && track.channel !== 'R') ||
-      channels.has(track.channel) ||
-      names.has(track.trackName) ||
-      (track.mid !== undefined &&
-        (typeof track.mid !== 'string' ||
-          track.mid.length === 0 ||
-          track.mid.length > 64 ||
-          track.mid.trim() !== track.mid))
-    ) {
-      return false;
-    }
-    if (typeof track.mid === 'string' && mids.has(track.mid)) return false;
-    channels.add(track.channel);
-    names.add(track.trackName);
-    if (typeof track.mid === 'string') mids.add(track.mid);
-  }
-  return channels.has('L') && channels.has('R');
+  const trackValue = publication.track;
+  if (!trackValue || typeof trackValue !== 'object' || Array.isArray(trackValue)) return false;
+  const track = trackValue as Record<string, unknown>;
+  return (
+    hasExactKeys(track, ['trackName'], ['mid']) &&
+    typeof track.trackName === 'string' &&
+    track.trackName.length > 0 &&
+    track.trackName.length <= 160 &&
+    track.trackName.trim() === track.trackName &&
+    (track.mid === undefined ||
+      (typeof track.mid === 'string' &&
+        track.mid.length > 0 &&
+        track.mid.length <= 64 &&
+        track.mid.trim() === track.mid))
+  );
 }
 
 function isProSystemAudioState(data: Record<string, unknown>): boolean {
@@ -351,7 +335,7 @@ function isProSystemAudioState(data: Record<string, unknown>): boolean {
       'liveExpiresAt',
       'publication',
     ]) ||
-    data.version !== 1 ||
+    data.version !== 2 ||
     !isNonNegSafeInt(data.generation) ||
     (data.ownerDisplayName !== null &&
       (typeof data.ownerDisplayName !== 'string' || data.ownerDisplayName.length > 64))
@@ -962,26 +946,20 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.command === 'string' && Array.isArray(d.args) && (d.args as unknown[]).length <= 32,
 
   [MSG.SYSTEM_AUDIO_SFU_READY]: (d) =>
-    d.version === 1 &&
+    d.version === 2 &&
     (d.audience === undefined || d.audience === 'remote' || d.audience === 'all') &&
     typeof d.sessionId === 'string' &&
     d.sessionId.length > 0 &&
     d.sessionId.length <= 128 &&
-    Array.isArray(d.tracks) &&
-    d.tracks.length > 0 &&
-    d.tracks.length <= 4 &&
-    d.tracks.every((track) => {
-      if (!track || typeof track !== 'object') return false;
-      const item = track as Record<string, unknown>;
-      return (
-        typeof item.trackName === 'string' &&
-        item.trackName.length > 0 &&
-        item.trackName.length <= 160 &&
-        (item.channel === 'L' || item.channel === 'R') &&
-        (item.mid === undefined || typeof item.mid === 'string')
-      );
-    }),
-  [MSG.SYSTEM_AUDIO_SFU_CAPABILITY]: (d) => d.version === 1 && d.localAudience === true,
+    d.tracks === undefined &&
+    !!d.track &&
+    typeof d.track === 'object' &&
+    typeof (d.track as Record<string, unknown>).trackName === 'string' &&
+    ((d.track as Record<string, unknown>).trackName as string).length > 0 &&
+    ((d.track as Record<string, unknown>).trackName as string).length <= 160 &&
+    ((d.track as Record<string, unknown>).mid === undefined ||
+      typeof (d.track as Record<string, unknown>).mid === 'string'),
+  [MSG.SYSTEM_AUDIO_SFU_CAPABILITY]: (d) => d.version === 2 && d.localAudience === true,
 
   // Playlist snapshots are validated atomically, including unique IDs/current.
   [MSG.PLAYLIST_UPDATE]: (d) => parsePlaylistSnapshot(d) !== null,

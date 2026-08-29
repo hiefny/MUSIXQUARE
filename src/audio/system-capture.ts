@@ -1,9 +1,8 @@
 /**
  * MUSIXQUARE — System Audio Capture
  *
- * Host-side module for capturing system audio via getDisplayMedia.
- * Splits into L/R mono MediaStreams for WebRTC transmission
- * (bypasses Chrome Opus mono limitation via dual-stream approach).
+ * Captures host system audio via getDisplayMedia and exposes the original
+ * audio track for every Standard and PRO delivery transport.
  */
 
 import { log } from '../core/log.ts';
@@ -65,13 +64,8 @@ type SystemAudioRoomIdentity = Readonly<{
 
 let _capturedStream: MediaStream | null = null;
 let _sourceNode: MediaStreamAudioSourceNode | null = null;
-let _streamL: MediaStream | null = null;
-let _streamR: MediaStream | null = null;
-let _destL: MediaStreamAudioDestinationNode | null = null;
-let _destR: MediaStreamAudioDestinationNode | null = null;
 // Retain intermediate graph nodes so cleanupCapture can disconnect every
 // connection created by a capture session.
-let _splitter: ChannelSplitterNode | null = null;
 let _stereoUpmix: GainNode | null = null;
 let _debugLastCaptureStartedAt = 0;
 let _debugLastCaptureStoppedAt = 0;
@@ -268,20 +262,14 @@ export function isSystemAudioActive(): boolean {
 // exact predicate through the acyclic audio-policy boundary.
 configureSystemAudioCaptureActivityProbe(isSystemAudioActive);
 
-/** Get the L track stream */
-export function getStreamL(): MediaStream | null {
-  return _streamL;
-}
-/** Get the R track stream */
-export function getStreamR(): MediaStream | null {
-  return _streamR;
-}
-
-/** Get the original captured audio track as a stereo stream for local P2P fallback. */
+/** Return a stream containing the original captured audio track. */
 export function getCapturedAudioStream(): MediaStream | null {
-  const tracks = _capturedStream?.getAudioTracks() || [];
-  if (tracks.length === 0) return null;
-  return new MediaStream(tracks);
+  const track = _capturedStream?.getAudioTracks()[0];
+  if (!track) return null;
+  // Every network transport is a one-original-track contract. Keep that
+  // invariant even if a future browser unexpectedly exposes more than one
+  // audio track for a display-capture stream.
+  return new MediaStream([track]);
 }
 
 function describeTrack(track: MediaStreamTrack | undefined): string {
@@ -291,22 +279,13 @@ function describeTrack(track: MediaStreamTrack | undefined): string {
 
 export function getSystemAudioCaptureDebugSnapshot(): Record<string, unknown> {
   const capturedTracks = _capturedStream?.getAudioTracks() || [];
-  const leftTracks = _streamL?.getAudioTracks() || [];
-  const rightTracks = _streamR?.getAudioTracks() || [];
 
   return {
     active: isSystemAudioActive(),
     capturedStreamActive: _capturedStream?.active ?? false,
     capturedTracks: capturedTracks.map(describeTrack),
     sourceNode: !!_sourceNode,
-    splitter: !!_splitter,
     stereoUpmix: !!_stereoUpmix,
-    destL: !!_destL,
-    destR: !!_destR,
-    streamLActive: _streamL?.active ?? false,
-    streamRActive: _streamR?.active ?? false,
-    streamLTracks: leftTracks.map(describeTrack),
-    streamRTracks: rightTracks.map(describeTrack),
     lastCaptureStartedAt: _debugLastCaptureStartedAt,
     lastCaptureStoppedAt: _debugLastCaptureStoppedAt,
     lastStartBroadcastAt: _debugLastStartBroadcastAt,
@@ -444,6 +423,11 @@ async function performSystemAudioCaptureStart(
   }
 
   const audioTrack = audioTracks[0];
+  try {
+    audioTrack.contentHint = 'music';
+  } catch {
+    // Older capture implementations may expose contentHint as read-only.
+  }
   let captureTrackEnded = false;
   let trackEndLifecycleCommitted = false;
   let trackEndedListenerAttached = false;
@@ -646,28 +630,8 @@ async function performSystemAudioCaptureStart(
   _debugLastCaptureStartedAt = Date.now();
   _sourceNode = ctx.createMediaStreamSource(stream);
 
-  // 5. Connect to L and R mono MediaStream destinations for synced P2P
-  _splitter = ctx.createChannelSplitter(2);
-  const splitter = _splitter;
-  _sourceNode.connect(splitter);
-
-  _destL = ctx.createMediaStreamDestination();
-  _destL.channelCount = 1;
-  _destL.channelCountMode = 'explicit';
-  splitter.connect(_destL, 0);
-  _streamL = _destL.stream;
-
-  _destR = ctx.createMediaStreamDestination();
-  _destR.channelCount = 1;
-  _destR.channelCountMode = 'explicit';
-  splitter.connect(_destR, 1);
-  _streamR = _destR.stream;
-
-  log.info(
-    `[SystemAudio] L/R mono streams created for synced P2P: L=${_streamL.id.slice(0, 8)}, R=${_streamR.id.slice(0, 8)}`,
-  );
-
-  // 6. Local graph: upmix for safety
+  // 5. Local graph: upmix mono capture sources for effects while preserving
+  // the untouched native capture track for every network transport.
   _stereoUpmix = ctx.createGain();
   const stereoUpmix = _stereoUpmix;
   stereoUpmix.channelCount = 2;
@@ -685,10 +649,10 @@ async function performSystemAudioCaptureStart(
     return;
   }
 
-  // 7. Host mute local (always mute — avoid double audio)
+  // 6. Host mute local (always mute — avoid double audio)
   muteLocalOutput(true);
 
-  // 8. Update state
+  // 7. Update state
   // System audio is a real playback experience. Once it has successfully
   // started, later playlist clicks should behave like post-first-use actions
   // instead of falling back to the initial "ready, press Play" cue flow.
@@ -709,18 +673,17 @@ async function performSystemAudioCaptureStart(
     if (isProRoom) releaseProLeaseAttempt(proLeaseAttempt);
     return;
   }
-  // 9. Standard rooms keep their bounded direct/SFU hybrid. PRO rooms publish
-  // role-independently and only expose the public descriptor after the SFU
-  // session and the server-side lease have both committed.
+  // 8. Standard rooms keep their bounded direct/SFU hybrid. PRO rooms publish
+  // role-independently: prepare LAN-direct when eligible, otherwise SFU, and
+  // commit the selected route through the server-authoritative lease state.
   if (isProRoom) {
     try {
       if (!canPublishProSystemAudioWithCurrentCoordinator()) {
         throw new Error('PRO_SYSTEM_AUDIO_COORDINATOR_UPDATE_REQUIRED');
       }
-      const leftTrack = _streamL?.getAudioTracks()[0];
-      const rightTrack = _streamR?.getAudioTracks()[0];
-      if (!leftTrack || !rightTrack) throw new Error('PRO_SYSTEM_AUDIO_TRACKS_UNAVAILABLE');
-      const liveState = await publishLocalProSystemAudio(leftTrack, rightTrack);
+      const track = _capturedStream?.getAudioTracks()[0];
+      if (!track) throw new Error('PRO_SYSTEM_AUDIO_TRACK_UNAVAILABLE');
+      const liveState = await publishLocalProSystemAudio(track);
       if (startEpoch !== _captureStartEpoch) {
         releaseProLeaseAttempt(proLeaseAttempt);
         return;
@@ -782,11 +745,11 @@ async function performSystemAudioCaptureStart(
     clearManagedTimer(SYSTEM_AUDIO_SHARE_LIMIT_TIMER);
   }
 
-  // 10. Advisory toast — latency is unavoidable, and the host's
+  // 9. Advisory toast — latency is unavoidable, and the host's
   // desktop speakers would otherwise drown out the distributed feed.
   bus.emit('ui:show-toast', t('system_audio.started'));
 
-  // 11. Start visualizer
+  // 10. Start visualizer
   bus.emit('visualizer:start');
 
   log.info('[SystemAudio] Capture started (stereo-stream)');
@@ -945,14 +908,6 @@ function cleanupCapture(): void {
     _sourceNode = null;
   }
   // Disconnect every intermediate node retained for this capture session.
-  if (_splitter) {
-    try {
-      _splitter.disconnect();
-    } catch {
-      /* noop */
-    }
-    _splitter = null;
-  }
   if (_stereoUpmix) {
     try {
       _stereoUpmix.disconnect();
@@ -961,24 +916,6 @@ function cleanupCapture(): void {
     }
     _stereoUpmix = null;
   }
-  if (_destL) {
-    try {
-      _destL.disconnect();
-    } catch {
-      /* noop */
-    }
-    _destL = null;
-  }
-  if (_destR) {
-    try {
-      _destR.disconnect();
-    } catch {
-      /* noop */
-    }
-    _destR = null;
-  }
-  _streamL = null;
-  _streamR = null;
   if (_capturedStream) {
     for (const track of _capturedStream.getTracks()) track.stop();
     _capturedStream = null;

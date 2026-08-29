@@ -241,7 +241,7 @@ export type ProSystemAudioSignalPayload =
       direction: 'publisher';
       phase: 'media';
       description: { type: 'offer'; sdp: string };
-      trackIds: { L: string; R: string };
+      trackId: string;
     })
   | (ProSystemAudioSignalBase & {
       kind: 'answer';
@@ -489,20 +489,12 @@ function normalizeProSystemAudioSignalBase(
   };
 }
 
-function normalizeProSystemAudioTrackIds(value: unknown): { L: string; R: string } | null {
-  if (!hasExactObjectKeys(value, ['L', 'R'])) return null;
-  if (
-    typeof value.L !== 'string' ||
-    value.L.length < 1 ||
-    value.L.length > PRO_SYSTEM_AUDIO_TRACK_ID_MAX_LENGTH ||
-    typeof value.R !== 'string' ||
-    value.R.length < 1 ||
-    value.R.length > PRO_SYSTEM_AUDIO_TRACK_ID_MAX_LENGTH ||
-    value.L === value.R
-  ) {
-    return null;
-  }
-  return { L: value.L, R: value.R };
+function normalizeProSystemAudioTrackId(value: unknown): string | null {
+  return typeof value === 'string' &&
+    value.length >= 1 &&
+    value.length <= PRO_SYSTEM_AUDIO_TRACK_ID_MAX_LENGTH
+    ? value
+    : null;
 }
 
 function normalizeProSystemAudioCandidate(
@@ -601,20 +593,20 @@ function normalizeProSystemAudioSignalPayload(value: unknown): ProSystemAudioSig
         ...PRO_SYSTEM_AUDIO_SIGNAL_COMMON_KEYS,
         'phase',
         'description',
-        'trackIds',
+        'trackId',
       ])
     ) {
       return null;
     }
-    const trackIds = normalizeProSystemAudioTrackIds(value.trackIds);
-    if (!trackIds) return null;
+    const trackId = normalizeProSystemAudioTrackId(value.trackId);
+    if (!trackId) return null;
     return {
       ...base,
       kind: 'offer',
       direction: 'publisher',
       phase: 'media',
       description: { type: 'offer', sdp: value.description.sdp },
-      trackIds,
+      trackId,
     };
   }
 

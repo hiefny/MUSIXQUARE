@@ -26,7 +26,7 @@ import {
   type ProSystemAudioDirectInboundOfferContext,
   type ProSystemAudioDirectInboundSignalContext,
   type ProSystemAudioDirectTarget,
-  type ProSystemAudioDirectTracksReadyEvent,
+  type ProSystemAudioDirectTrackReadyEvent,
 } from '../network/pro-system-audio-direct.ts';
 import { cleanupSystemAudioSfuGuestRoute } from '../network/system-audio-sfu.ts';
 import {
@@ -46,7 +46,6 @@ import type {
   ProRoomSnapshot,
   ProRoomSystemAudioPublication,
   ProRoomSystemAudioPublicationTrack,
-  ProRoomSystemAudioPublicationTracks,
   ProRoomSystemAudioState,
 } from './contracts.ts';
 import {
@@ -87,7 +86,7 @@ let queuedForcedRefresh: Promise<ProRoomSystemAudioState> | null = null;
 let listenersRegistered = false;
 let serviceSessionEpoch = 0;
 const expectedLeaseTransitions = new Map<number, number>();
-let localTracks: { left: MediaStreamTrack; right: MediaStreamTrack } | null = null;
+let localTrack: MediaStreamTrack | null = null;
 let localPublicationId: string | null = null;
 let localPublishFlight: {
   epoch: number;
@@ -108,12 +107,10 @@ let oversizedDirectRefreshFlight: Promise<ProRoomSystemAudioState | void> | null
 let ambiguousDirectPromotionPublicationId: string | null = null;
 let failedSfuPublisherSessionId: string | null = null;
 
-let coordinatorSourceL: MediaStreamAudioSourceNode | null = null;
-let coordinatorSourceR: MediaStreamAudioSourceNode | null = null;
-let coordinatorMerger: ChannelMergerNode | null = null;
+let coordinatorSource: MediaStreamAudioSourceNode | null = null;
 let coordinatorSubscriptionKey: string | null = null;
 let coordinatorSubscriptionFlight: { key: string; promise: Promise<void> } | null = null;
-const coordinatorPrimers = new Map<'L' | 'R', WebRtcAudioDecoderPrimer>();
+let coordinatorPrimer: WebRtcAudioDecoderPrimer | null = null;
 
 function observeSystemAudioTask(operation: Promise<unknown>, context: string): void {
   operation.catch((error) => {
@@ -151,9 +148,7 @@ function clonePublication(
     ? {
         publicationId: publication.publicationId,
         sessionId: publication.sessionId,
-        tracks: publication.tracks.map((track) => ({
-          ...track,
-        })) as ProRoomSystemAudioPublicationTracks,
+        track: { ...publication.track },
       }
     : { ...publication };
 }
@@ -249,12 +244,10 @@ function descriptorMatchesPublication(
   ) {
     return false;
   }
-  return descriptor.tracks.every((expected) => {
-    const current = publication.tracks.find((track) => track.channel === expected.channel);
-    return (
-      current?.trackName === expected.trackName && (current.mid ?? null) === (expected.mid ?? null)
-    );
-  });
+  return (
+    publication.track.trackName === descriptor.track.trackName &&
+    (publication.track.mid ?? null) === (descriptor.track.mid ?? null)
+  );
 }
 
 function idleView(): ProRoomSystemAudioViewState {
@@ -421,13 +414,9 @@ function cancelPublisherRecovery(abort = true): void {
 
 function terminateOwnedPublisherRecovery(
   flight: PublisherRecoveryFlight,
-  tracks: { left: MediaStreamTrack; right: MediaStreamTrack },
+  track: MediaStreamTrack,
 ): void {
-  if (
-    !ownsPublisherRecovery(flight) ||
-    localTracks?.left !== tracks.left ||
-    localTracks.right !== tracks.right
-  ) {
+  if (!ownsPublisherRecovery(flight) || localTrack !== track) {
     return;
   }
   const state = flight.controller.getCurrentState();
@@ -441,7 +430,7 @@ function terminateOwnedPublisherRecovery(
   resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
   directPromotionFlight = null;
   localPublishFlight = null;
-  localTracks = null;
+  localTrack = null;
   localPublicationId = null;
   leaseHeartbeatFailureNotified = false;
   directAuthorityHeartbeatFailureStartedAt = null;
@@ -466,23 +455,15 @@ function notifyMutation(state: ProRoomSystemAudioState): void {
   reconcileCoordinatorState(state);
 }
 
-function clearCoordinatorPrimers(): void {
-  for (const primer of coordinatorPrimers.values()) cleanupWebRtcAudioDecoderPrimer(primer);
-  coordinatorPrimers.clear();
-}
-
 function cleanupCoordinatorAudioNodes(): void {
-  for (const node of [coordinatorSourceL, coordinatorSourceR, coordinatorMerger]) {
-    try {
-      node?.disconnect();
-    } catch {
-      /* already disconnected */
-    }
+  try {
+    coordinatorSource?.disconnect();
+  } catch {
+    /* already disconnected */
   }
-  coordinatorSourceL = null;
-  coordinatorSourceR = null;
-  coordinatorMerger = null;
-  clearCoordinatorPrimers();
+  coordinatorSource = null;
+  cleanupWebRtcAudioDecoderPrimer(coordinatorPrimer);
+  coordinatorPrimer = null;
 }
 
 function cleanupCoordinatorGraph(): void {
@@ -510,14 +491,11 @@ function cleanupCoordinatorSubscriptionForRetry(): void {
 async function attachCoordinatorTrack(
   identity: CoordinatorPublicationIdentity,
   descriptorTrack: ProRoomSystemAudioPublicationTrack | null,
-  channel: 'L' | 'R',
   track: MediaStreamTrack,
   isCurrent: () => boolean = () => true,
 ): Promise<void> {
   if (!isCurrent()) return;
-  const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary(
-    `pro-sfu-${channel}`,
-  );
+  const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary('pro-stereo');
   if (!trustedReceptionReady || !isCurrent() || !coordinatorPublicationMatches(identity)) {
     return;
   }
@@ -528,13 +506,8 @@ async function attachCoordinatorTrack(
     !coordinatorPublicationMatches(identity, state) ||
     (descriptorTrack !== null &&
       (!isProRoomSystemAudioSfuPublication(identity.publication) ||
-        descriptorTrack.channel !== channel ||
-        !identity.publication.tracks.some(
-          (current) =>
-            current.channel === descriptorTrack.channel &&
-            current.trackName === descriptorTrack.trackName &&
-            (current.mid ?? null) === (descriptorTrack.mid ?? null),
-        ))) ||
+        identity.publication.track.trackName !== descriptorTrack.trackName ||
+        (identity.publication.track.mid ?? null) !== (descriptorTrack.mid ?? null))) ||
     state.ownerParticipantId === localParticipantId() ||
     !isCurrent()
   ) {
@@ -543,37 +516,28 @@ async function attachCoordinatorTrack(
   const ctx = getAudioContext();
   const widener = getWidener();
   if (!widener) throw new Error('PRO_SYSTEM_AUDIO_GRAPH_UNAVAILABLE');
-  if (!coordinatorMerger) {
-    coordinatorMerger = ctx.createChannelMerger(2);
-    coordinatorMerger.connect(widener.input);
-  }
-  const previous = channel === 'L' ? coordinatorSourceL : coordinatorSourceR;
   try {
-    previous?.disconnect();
+    coordinatorSource?.disconnect();
   } catch {
     /* already disconnected */
   }
-  const primer = primeWebRtcAudioDecoder(
-    coordinatorPrimers.get(channel) ?? null,
+  coordinatorPrimer = primeWebRtcAudioDecoder(
+    coordinatorPrimer,
     [track],
-    getAudioTrackStreamKey(`pro-sfu:${channel}`, [track]),
-    channel,
+    getAudioTrackStreamKey('pro-stereo', [track]),
+    'stereo',
     '[ProSysAudio]',
   );
-  if (primer) coordinatorPrimers.set(channel, primer);
   const source = ctx.createMediaStreamSource(new MediaStream([track]));
-  source.connect(coordinatorMerger, 0, channel === 'L' ? 0 : 1);
-  if (channel === 'L') coordinatorSourceL = source;
-  else coordinatorSourceR = source;
-  if (coordinatorSourceL && coordinatorSourceR) {
-    setSystemAudioReceiving(true);
-    claimPlaybackOwner('system-audio');
-    bus.emit('visualizer:start');
-  }
+  source.connect(widener.input);
+  coordinatorSource = source;
+  setSystemAudioReceiving(true);
+  claimPlaybackOwner('system-audio');
+  bus.emit('visualizer:start');
 }
 
-async function attachDirectCoordinatorTracks(
-  event: ProSystemAudioDirectTracksReadyEvent,
+async function attachDirectCoordinatorTrack(
+  event: ProSystemAudioDirectTrackReadyEvent,
 ): Promise<void> {
   if (!event.isCurrent()) return;
   const state = controller?.getCurrentState();
@@ -588,9 +552,7 @@ async function attachDirectCoordinatorTracks(
   }
   const identity = captureCoordinatorPublicationIdentity(state);
   if (!identity || !event.isCurrent() || !coordinatorPublicationMatches(identity, state)) return;
-  await attachCoordinatorTrack(identity, null, 'L', event.leftTrack, event.isCurrent);
-  if (!event.isCurrent() || !coordinatorPublicationMatches(identity)) return;
-  await attachCoordinatorTrack(identity, null, 'R', event.rightTrack, event.isCurrent);
+  await attachCoordinatorTrack(identity, null, event.track, event.isCurrent);
 }
 
 function sfuDescriptor(
@@ -600,9 +562,9 @@ function sfuDescriptor(
     throw new Error('PRO_SYSTEM_AUDIO_SFU_PUBLICATION_REQUIRED');
   }
   return {
-    version: 1,
+    version: 2,
     sessionId: state.publication.sessionId,
-    tracks: state.publication.tracks.map((track) => ({ ...track })),
+    track: { ...state.publication.track },
     generation: state.generation,
     expiresAt: state.liveExpiresAt,
   };
@@ -618,18 +580,13 @@ function stateMatchesSfuPublication(
     !isProRoomSystemAudioSfuPublication(currentPublication) ||
     !isProRoomSystemAudioSfuPublication(publication) ||
     currentPublication.publicationId !== publication.publicationId ||
-    currentPublication.sessionId !== publication.sessionId ||
-    currentPublication.tracks.length !== publication.tracks.length
+    currentPublication.sessionId !== publication.sessionId
   ) {
     return false;
   }
-  return publication.tracks.every((expected) =>
-    currentPublication.tracks.some(
-      (current) =>
-        current.channel === expected.channel &&
-        current.trackName === expected.trackName &&
-        (current.mid ?? null) === (expected.mid ?? null),
-    ),
+  return (
+    currentPublication.track.trackName === publication.track.trackName &&
+    (currentPublication.track.mid ?? null) === (publication.track.mid ?? null)
   );
 }
 
@@ -901,7 +858,7 @@ function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
   const activeController = controller;
   const state = activeController?.getCurrentState();
   const lease = activeController?.getCurrentLease();
-  const tracks = localTracks;
+  const track = localTrack;
   const localId = localParticipantId();
   if (
     !activeController ||
@@ -911,7 +868,7 @@ function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
     lease.status !== 'live' ||
     lease.generation !== state.generation ||
     state.ownerParticipantId !== localId ||
-    !tracks
+    !track
   ) {
     return Promise.resolve();
   }
@@ -926,8 +883,7 @@ function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
   const flight = Promise.resolve().then(async () => {
     try {
       const descriptor = await publishProSystemAudioSfu({
-        leftTrack: tracks.left,
-        rightTrack: tracks.right,
+        track,
         generation: identity.generation,
         // The direct state's numeric value is compatibility-only. Use a
         // provisional future timer while creating the SFU session; the commit
@@ -952,9 +908,7 @@ function promoteLocalDirectPublicationToSfu(reason: string): Promise<void> {
       const publication: ProRoomSystemAudioPublication = {
         publicationId,
         sessionId: descriptor.sessionId,
-        tracks: descriptor.tracks.map((track) => ({
-          ...track,
-        })) as ProRoomSystemAudioPublicationTracks,
+        track: { ...descriptor.track },
       };
       attemptedPublication = publication;
       const promoted = await activeController.commitProSystemAudioPublication(publication);
@@ -1076,7 +1030,7 @@ function onLocalLeaseLost(reason: ProRoomSystemAudioLeaseLossReason): void {
   localPublicationId = null;
   directAuthorityHeartbeatFailureStartedAt = null;
   if ((expectedLeaseTransitions.get(serviceSessionEpoch) ?? 0) > 0) return;
-  localTracks = null;
+  localTrack = null;
   leaseHeartbeatFailureNotified = false;
   bus.emit('pro-system-audio:lease-lost', reason);
 }
@@ -1112,7 +1066,7 @@ export function configureProSystemAudioService(api: ProRoomApiClient): void {
     },
     authorizeInboundOffer: authorizeInboundDirectOffer,
     authorizeInboundSignal: authorizeInboundDirectSignal,
-    onReceiverTracksReady: attachDirectCoordinatorTracks,
+    onReceiverTrackReady: attachDirectCoordinatorTrack,
     onLiveRouteFallback: handleDirectRouteFallback,
   });
 }
@@ -1125,7 +1079,7 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
   if (boundSessionKey !== nextSessionKey) {
     // A request issued for the previous tab incarnation must never suppress
     // the first authoritative refresh for the newly bound incarnation.
-    const hadLocalActivity = Boolean(localTracks || localPublishFlight || publisherRecoveryFlight);
+    const hadLocalActivity = Boolean(localTrack || localPublishFlight || publisherRecoveryFlight);
     const controllerWillNotifyLeaseLoss = Boolean(controller?.getCurrentLease());
     refreshFlight = null;
     queuedForcedRefresh = null;
@@ -1144,7 +1098,7 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
     directPromotionFlight = null;
     ambiguousDirectPromotionPublicationId = null;
     failedSfuPublisherSessionId = null;
-    localTracks = null;
+    localTrack = null;
     localPublicationId = null;
     leaseHeartbeatFailureNotified = false;
     directAuthorityHeartbeatFailureStartedAt = null;
@@ -1163,7 +1117,7 @@ export function bindProSystemAudioSession(snapshot: ProRoomSnapshot): void {
 }
 
 export function resetProSystemAudioService(): void {
-  const hadLocalActivity = Boolean(localTracks || localPublishFlight || publisherRecoveryFlight);
+  const hadLocalActivity = Boolean(localTrack || localPublishFlight || publisherRecoveryFlight);
   const controllerWillNotifyLeaseLoss = Boolean(controller?.getCurrentLease());
   serviceSessionEpoch += 1;
   localLeaseAttemptOwner = null;
@@ -1190,7 +1144,7 @@ export function resetProSystemAudioService(): void {
   refreshFlight = null;
   queuedForcedRefresh = null;
   oversizedDirectRefreshFlight = null;
-  localTracks = null;
+  localTrack = null;
   localPublicationId = null;
   localPublishFlight = null;
   boundSessionKey = null;
@@ -1394,8 +1348,7 @@ function scheduleLeaseHeartbeat(delayMs = LEASE_HEARTBEAT_MS): void {
 }
 
 export async function publishLocalProSystemAudio(
-  leftTrack: MediaStreamTrack,
-  rightTrack: MediaStreamTrack,
+  track: MediaStreamTrack,
 ): Promise<ProRoomSystemAudioState> {
   const activeController = controller;
   if (!activeController) throw new Error('PRO_SYSTEM_AUDIO_NOT_CONFIGURED');
@@ -1426,7 +1379,7 @@ export async function publishLocalProSystemAudio(
         : null,
   };
   localPublishFlight = flight;
-  localTracks = { left: leftTrack, right: rightTrack };
+  localTrack = track;
   localPublicationId = publicationId;
   try {
     const directTargets = currentDirectTargets();
@@ -1434,8 +1387,7 @@ export async function publishLocalProSystemAudio(
     let publication: ProRoomSystemAudioPublication | null = null;
     try {
       publication = await attemptProSystemAudioDirectPublication({
-        leftTrack,
-        rightTrack,
+        track,
         generation: lease.generation,
         publicationId,
         targets: directTargets,
@@ -1450,8 +1402,7 @@ export async function publishLocalProSystemAudio(
     }
     if (!publication) {
       const descriptor = await publishProSystemAudioSfu({
-        leftTrack,
-        rightTrack,
+        track,
         generation: lease.generation,
         expiresAt: Date.now() + SYSTEM_AUDIO_SHARE_LIMIT_MS,
         roomId: lease.roomCode,
@@ -1459,9 +1410,7 @@ export async function publishLocalProSystemAudio(
       publication = {
         publicationId,
         sessionId: descriptor.sessionId,
-        tracks: descriptor.tracks.map((track) => ({
-          ...track,
-        })) as ProRoomSystemAudioPublicationTracks,
+        track: { ...descriptor.track },
       };
     }
     if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
@@ -1511,7 +1460,7 @@ export async function publishLocalProSystemAudio(
     if (ownsLocalPublishFlight(flight)) {
       resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'fallback' });
       stopProSystemAudioSfuPublisher();
-      localTracks = null;
+      localTrack = null;
       localPublicationId = null;
       localPublishFlight = null;
       if (isLocalLeaseCurrent(flight.identity)) {
@@ -1570,7 +1519,7 @@ async function releaseLocalProSystemAudioLeaseInternal(
   failedSfuPublisherSessionId = null;
   resetProSystemAudioDirectTransport({ notifyPeers: true, reason: 'stopped' });
   stopProSystemAudioSfuPublisher();
-  localTracks = null;
+  localTrack = null;
   localPublicationId = null;
   if (!identity) return controller?.getCurrentState() ?? null;
   const wasLive = controller?.getCurrentState()?.status === 'live';
@@ -1621,7 +1570,7 @@ export function releaseLocalProSystemAudioLease(): Promise<ProRoomSystemAudioSta
 async function recoverLocalPublisher(): Promise<void> {
   const activeController = controller;
   const lease = activeController?.getCurrentLease();
-  if (!activeController || publisherRecoveryFlight || !localTracks || !lease?.hasCredential) {
+  if (!activeController || publisherRecoveryFlight || !localTrack || !lease?.hasCredential) {
     return;
   }
   const epoch = serviceSessionEpoch;
@@ -1637,7 +1586,7 @@ async function recoverLocalPublisher(): Promise<void> {
     abortController: new AbortController(),
   };
   publisherRecoveryFlight = flight;
-  const tracks = localTracks;
+  const track = localTrack;
   const name = latestSnapshot?.viewer?.displayName ?? 'Peer';
   bus.emit('ui:show-toast', t('system_audio.connection_unstable', { name }));
   beginExpectedLeaseTransition(epoch);
@@ -1647,7 +1596,7 @@ async function recoverLocalPublisher(): Promise<void> {
     const idle = await activeController.releaseProSystemAudioLease(flight.abortController.signal);
     if (!ownsPublisherRecovery(flight)) return;
     if (idle.status !== 'idle' || idle.generation < flight.initialLease.generation) {
-      terminateOwnedPublisherRecovery(flight, tracks);
+      terminateOwnedPublisherRecovery(flight, track);
       return;
     }
     notifyMutation(idle);
@@ -1680,7 +1629,7 @@ async function recoverLocalPublisher(): Promise<void> {
       reacquired.roomCode !== flight.initialLease.roomCode ||
       reacquired.generation !== preparing.generation
     ) {
-      terminateOwnedPublisherRecovery(flight, tracks);
+      terminateOwnedPublisherRecovery(flight, track);
       return;
     }
     reacquiredIdentity = {
@@ -1691,8 +1640,8 @@ async function recoverLocalPublisher(): Promise<void> {
     if (!isLocalLeaseCurrent(reacquiredIdentity)) return;
     notifyMutation(preparing);
     localPublicationId = null;
-    localTracks = tracks;
-    await publishLocalProSystemAudio(tracks.left, tracks.right);
+    localTrack = track;
+    await publishLocalProSystemAudio(track);
   } catch (error) {
     if (!ownsPublisherRecovery(flight)) return;
     const current = activeController.getCurrentState();
@@ -1702,11 +1651,11 @@ async function recoverLocalPublisher(): Promise<void> {
       : isLocalLeaseCurrent(flight.initialLease) ||
         Boolean(current?.status === 'idle' && current.generation >= flight.initialLease.generation);
     if (!recoveryStateStillCurrent) {
-      terminateOwnedPublisherRecovery(flight, tracks);
+      terminateOwnedPublisherRecovery(flight, track);
       return;
     }
     log.warn('[PRO SystemAudio] Publisher recovery failed', error);
-    localTracks = null;
+    localTrack = null;
     localPublicationId = null;
     await releaseLocalProSystemAudioLeaseInternal(flight.token).catch((releaseError) =>
       log.warn('[PRO SystemAudio] Failed to release after publisher recovery', releaseError),
@@ -1751,12 +1700,10 @@ export function registerProSystemAudioServiceListeners(): void {
         return;
       }
       const identity = captureCoordinatorPublicationIdentity(state);
-      const descriptorTrack = event.descriptor.tracks.find(
-        (track) => track.channel === event.channel,
-      );
+      const descriptorTrack = event.descriptor.track;
       if (!identity || !descriptorTrack) return;
-      void attachCoordinatorTrack(identity, descriptorTrack, event.channel, event.track).catch(
-        (error) => log.warn('[PRO SystemAudio] Track attach failed', error),
+      void attachCoordinatorTrack(identity, descriptorTrack, event.track).catch((error) =>
+        log.warn('[PRO SystemAudio] Track attach failed', error),
       );
       return;
     }
@@ -1777,7 +1724,7 @@ export function registerProSystemAudioServiceListeners(): void {
       if (!identity || !coordinatorPublicationMatches(identity, state)) return;
       if (event.state === 'subscribed') {
         clearManagedTimer(SUBSCRIBER_DISCONNECT_TIMER);
-        if (coordinatorSourceL && coordinatorSourceR) {
+        if (coordinatorSource) {
           setSystemAudioReceiving(true);
           claimPlaybackOwner('system-audio');
           bus.emit('visualizer:start');

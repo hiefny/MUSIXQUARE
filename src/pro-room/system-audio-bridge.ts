@@ -13,10 +13,7 @@ export interface ProSystemAudioLeaseAttempt {
 
 interface ProSystemAudioBridgeAdapter {
   beginLeaseAttempt(signal?: AbortSignal): ProSystemAudioLeaseAttempt;
-  publish(
-    leftTrack: MediaStreamTrack,
-    rightTrack: MediaStreamTrack,
-  ): Promise<ProRoomSystemAudioState>;
+  publish(track: MediaStreamTrack): Promise<ProRoomSystemAudioState>;
   release(): Promise<ProRoomSystemAudioState | null>;
   view(): ProRoomSystemAudioViewState;
   ownerDisplayName(): string | null;
@@ -67,10 +64,9 @@ export function beginLocalProSystemAudioLeaseAttempt(
 }
 
 export function publishLocalProSystemAudio(
-  leftTrack: MediaStreamTrack,
-  rightTrack: MediaStreamTrack,
+  track: MediaStreamTrack,
 ): Promise<ProRoomSystemAudioState> {
-  return adapter.publish(leftTrack, rightTrack);
+  return adapter.publish(track);
 }
 
 export function releaseLocalProSystemAudioLease(): Promise<ProRoomSystemAudioState | null> {

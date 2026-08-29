@@ -1056,8 +1056,7 @@ describe('system audio operating-cost limits', () => {
     await startPromise;
 
     expect(proAudio.publish).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'dest-track-1' }),
-      expect.objectContaining({ id: 'dest-track-2' }),
+      expect.objectContaining({ id: 'cap-track-1', contentHint: 'music' }),
     );
     expect(streamsReadySpy).not.toHaveBeenCalled();
     expect(isSystemAudioActive()).toBe(true);
@@ -1503,7 +1502,7 @@ describe('system audio operating-cost limits', () => {
       publication: {
         publicationId: 'publication-direct-1',
         transport: 'lan-direct',
-        protocolVersion: 1,
+        protocolVersion: 2,
       },
     });
     stubDisplayMedia();
@@ -1527,7 +1526,7 @@ describe('system audio operating-cost limits', () => {
       publication: {
         publicationId: 'publication-promoted-1',
         transport: 'lan-direct',
-        protocolVersion: 1,
+        protocolVersion: 2,
       },
     });
     stubDisplayMedia();

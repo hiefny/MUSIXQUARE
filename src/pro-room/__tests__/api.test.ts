@@ -1730,10 +1730,7 @@ describe('PRO room system-audio lease API', () => {
   const publication: ProRoomSystemAudioPublication = {
     publicationId: 'publication_00001',
     sessionId: 'realtime_session_01',
-    tracks: [
-      { trackName: 'audio-L', channel: 'L', mid: '0' },
-      { trackName: 'audio-R', channel: 'R', mid: '1' },
-    ],
+    track: { trackName: 'audio-stereo', mid: '0' },
   };
   const idle = {
     generation: 0,

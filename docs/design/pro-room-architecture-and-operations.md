@@ -348,8 +348,8 @@ Cloudflare carries no media packets. Its exact owner presence, four-device
 fence, and bounded client authority-heartbeat watchdog still end orphaned or
 revoked shares.
 
-The preferred PRO media path uses the protocol-v1 LAN-direct descriptor under
-the `lan-direct-unmetered-v2` matched-release contract. System audio is limited to four
+The preferred PRO media path uses the protocol-v2 LAN-direct descriptor under
+the `single-stereo-v3` matched-release contract. System audio is limited to four
 active devices total, so the publisher opens at most three
 `RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" })` routes and sends only targeted
 offer/answer/ICE frames over the authenticated PRO WebSocket. A route passes
@@ -365,8 +365,8 @@ selected remote foundation and port exactly match a strict mDNS candidate that
 `addIceCandidate()` already accepted for the same live route and negotiation.
 If every target passes,
 the canonical descriptor is
-`{ publicationId, transport: "lan-direct", protocolVersion: 1 }`:
-the L/R audio packets then remain browser-to-browser and Cloudflare carries
+`{ publicationId, transport: "lan-direct", protocolVersion: 2 }`:
+the original stereo track's RTP packets then remain browser-to-browser and Cloudflare carries
 **zero media packets** for that publication. Cloudflare is still the authority
 and signaling plane; its PRO Durable Object owns the
 lease/generation/publication state and its signaling Durable Object relays
@@ -705,7 +705,7 @@ Also verify:
   path only with a valid PRO Worker-issued signed ticket offered after the
   stable `mxqr.pro-signaling.v1` WebSocket subprotocol marker;
 - `cloudflare/pro-system-audio-contract-version.txt` contains exactly
-  `lan-direct-unmetered-v2`, and the PRO, signaling, and app runtime inventories all
+  `single-stereo-v3`, and the PRO, signaling, and app runtime inventories all
   include that marker;
 - the `system-audio-signal` channel relays only exact, generation/publication/
   negotiation-fenced offer, answer, candidate, or close payloads to one current
@@ -781,8 +781,9 @@ mutating request. The App keeps maintenance refreshes off the public request
 path: a cold isolate may admit traffic before its first canonical snapshot, so
 the dashboard switch is not a strict global freeze.
 
-The current PRO system-audio contract marker is `lan-direct-unmetered-v2`. Its
-unmetered-direct cutover, like the original v1 direct-descriptor cutover, is a
+The current PRO system-audio contract marker is `single-stereo-v3`. Its
+single-original-track cutover, like the earlier direct-descriptor and
+unmetered-direct cutovers, is a
 matched `all` release because the PRO authority, signaling relay, and app/client
 must agree on direct-expiry semantics and one-way promotion.
 Release recovery compares the marker between the immutable candidate and the
@@ -963,14 +964,15 @@ co-located announcement store instead of the dedicated instance. Use target
 `all` to repair forward when the release workflow reports that compatibility
 floor; do not improvise a partial rollback for that pair.
 
-`lan-direct-unmetered-v2` is the current PRO system-audio rollback floor across
+`single-stereo-v3` is the current PRO system-audio rollback floor across
 the App, PRO, and signaling Workers. After any component of the marker-changing
-release has become live, do not restore one of those three below v2: an old PRO
-authority expires direct while a new app intentionally has no direct host timer,
-and an old app can stop a direct route from its compatibility timestamp. Let
-the recovery workflow preserve all three and repair forward. Only an exact
-checkpoint proving that no cutover component became live may roll back below
-the marker. The original v1 descriptor/promotion floor remains included in v2.
+release has become live, do not restore one of those three to a pre-v3
+system-audio contract: old clients publish or expect two channel tracks and old
+authorities accept the incompatible descriptor. Let the recovery workflow
+preserve all three and repair forward. Only an exact checkpoint proving that no
+cutover component became live may roll back below the marker. The earlier
+direct-descriptor, unmetered-direct, and same-ID promotion floors remain
+subsumed by v3.
 
 1. Stop the rollout and record the Worker versions and observed symptom. Do not
    delete the R2 bucket, Durable Object binding, class migration, or room data.

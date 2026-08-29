@@ -6,7 +6,6 @@ import type {
 import type {
   ProRoomSnapshot,
   ProRoomSystemAudioPublication,
-  ProRoomSystemAudioPublicationTracks,
   ProRoomSystemAudioState,
   ProRoomSystemAudioStatus,
 } from './contracts.ts';
@@ -102,9 +101,7 @@ function clonePublication(
   return {
     publicationId: publication.publicationId,
     sessionId: publication.sessionId,
-    tracks: publication.tracks.map((track) => ({
-      ...track,
-    })) as ProRoomSystemAudioPublicationTracks,
+    track: { ...publication.track },
   };
 }
 

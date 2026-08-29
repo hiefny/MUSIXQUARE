@@ -2,8 +2,9 @@
  * Cloudflare Realtime SFU bridge for remote and bounded-overflow system-audio guests.
  *
  * The active transport stays responsible for presence/control. This module only moves the
- * host's L/R system-audio MediaStreamTracks through Cloudflare Realtime. Small
- * LAN rooms keep direct calls; overflow LAN guests and large rooms use SFU.
+ * host's original stereo system-audio MediaStreamTrack through Cloudflare
+ * Realtime. Small LAN rooms keep direct calls; overflow LAN guests and large
+ * rooms use SFU.
  */
 
 import { log } from '../core/log.ts';
@@ -15,7 +16,7 @@ import { MSG, SYSTEM_AUDIO_SHARE_LIMIT_MS } from '../core/constants.ts';
 import { t } from '../i18n/index.ts';
 import { getAudioContext } from '../audio/context.ts';
 import { initAudio, getWidener } from '../audio/engine.ts';
-import { getStreamL, getStreamR, isSystemAudioActive } from '../audio/system-capture.ts';
+import { getCapturedAudioStream, isSystemAudioActive } from '../audio/system-capture.ts';
 import { claimPlaybackOwner, setSystemAudioReceiving } from '../player/ownership.ts';
 import { registerHandler } from './protocol.ts';
 import { safeSend } from './peer-state.ts';
@@ -48,6 +49,7 @@ import { getRoomContext } from '../rooms/authority.ts';
 import { readBoundedJsonResponse, withRequestDeadline } from '../core/request-lifetime.ts';
 import { localFirstApiEndpoints } from './api-endpoints.ts';
 import { getStandardRoomTurnCredentials } from './standard-room-prerequisites.ts';
+import { forceStereoSdp, sdpPrefersOpusStereo } from './peer.ts';
 
 const SYSTEM_AUDIO_PLAYOUT_DELAY_S = 0.5;
 const GUEST_SFU_RECEIVE_LIMIT_TIMER = 'system-audio-sfu-guest-limit';
@@ -57,8 +59,6 @@ const HOST_SFU_MAX_RETRIES = 1;
 const SFU_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
 const SFU_CONTROL_RESPONSE_MAX_BYTES = 1024 * 1024;
 const BASE_SFU_ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }];
-
-type Channel = 'L' | 'R';
 
 interface RealtimeSessionDescription {
   type: 'offer' | 'answer';
@@ -87,20 +87,19 @@ interface RealtimeResponse {
 
 interface SfuReadyTrack {
   trackName: string;
-  channel: Channel;
   mid?: string;
 }
 
 interface SfuReadyPayload {
-  version: 1;
+  version: 2;
   audience: 'remote' | 'all';
   sessionId: string;
-  tracks: SfuReadyTrack[];
+  track: SfuReadyTrack;
 }
 
 interface HostPublication {
   sessionId: string;
-  tracks: SfuReadyTrack[];
+  track: SfuReadyTrack;
 }
 
 let hostPc: RTCPeerConnection | null = null;
@@ -109,7 +108,7 @@ let hostSessionId: string | null = null;
 // SYSTEM_AUDIO_SFU_READY intentionally expose only the public subscription
 // coordinates, so a remote guest cannot mutate the host's SFU session.
 let hostSessionOwnerToken: string | null = null;
-let hostPublishedTracks: SfuReadyTrack[] = [];
+let hostPublishedTrack: SfuReadyTrack | null = null;
 let hostPublishPromise: Promise<HostPublication | null> | null = null;
 let hostPublishAbortController: AbortController | null = null;
 let hostSfuUnavailable = false;
@@ -126,14 +125,12 @@ let guestConnectAbortController: AbortController | null = null;
 let guestPendingReadyPayload: SfuReadyPayload | null = null;
 let guestSubscribedTrackMids: string[] = [];
 let guestSubscriptionEpoch = 0;
-let guestSourceL: MediaStreamAudioSourceNode | null = null;
-let guestSourceR: MediaStreamAudioSourceNode | null = null;
-let guestMerger: ChannelMergerNode | null = null;
+let guestSourceStereo: MediaStreamAudioSourceNode | null = null;
 let guestReceiving = false;
 let guestAllowsLocalAudience = false;
 let guestLimitTimerActive = false;
 let guestLimitBlockedHostConn: DataConnection | null = null;
-const guestDecoderPrimers = new Map<Channel, WebRtcAudioDecoderPrimer>();
+let guestDecoderPrimer: WebRtcAudioDecoderPrimer | null = null;
 
 export function getSystemAudioSfuDebugSnapshot() {
   return {
@@ -146,7 +143,7 @@ export function getSystemAudioSfuDebugSnapshot() {
           }
         : null,
       sessionId: hostSessionId,
-      publishedTracks: hostPublishedTracks,
+      publishedTrack: hostPublishedTrack,
       publishInFlight: !!hostPublishPromise,
       unavailable: hostSfuUnavailable,
       publishEpoch: hostPublishEpoch,
@@ -166,16 +163,14 @@ export function getSystemAudioSfuDebugSnapshot() {
       subscriptionKey: guestSubscriptionKey,
       subscribedTrackCount: guestSubscribedTrackMids.length,
       connectInFlight: !!guestConnectPromise,
-      sourceL: !!guestSourceL,
-      sourceR: !!guestSourceR,
-      merger: !!guestMerger,
+      sourceStereo: !!guestSourceStereo,
       receiving: guestReceiving,
       allowsLocalAudience: guestAllowsLocalAudience,
       limitTimerActive: guestLimitTimerActive,
       limitBlocked: !!guestLimitBlockedHostConn,
       shareRoute: getGuestSystemAudioShareRoute(),
       directRouteFrozen: getGuestSystemAudioShareRoute() === 'direct',
-      decoderPrimerCount: guestDecoderPrimers.size,
+      decoderPrimerCount: guestDecoderPrimer ? 1 : 0,
     },
     peerConnections: [
       ...(hostPc ? [{ label: 'sfu:host', pc: hostPc }] : []),
@@ -194,33 +189,27 @@ function buildCorrelationId(prefix: string): string {
   return `${prefix}-${room}-${id}`.slice(0, 128);
 }
 
-function buildTrackName(channel: Channel): string {
+function buildTrackName(): string {
   const room = getState('network.sessionCode') || 'session';
   const id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
-  return `mxqr-system-audio-${room}-${channel}-${id}`.slice(0, 160);
-}
-
-function cleanupGuestDecoderPrimer(channel: Channel): void {
-  cleanupWebRtcAudioDecoderPrimer(guestDecoderPrimers.get(channel) ?? null);
-  guestDecoderPrimers.delete(channel);
+  return `mxqr-system-audio-${room}-stereo-${id}`.slice(0, 160);
 }
 
 function cleanupGuestDecoderPrimers(): void {
-  cleanupGuestDecoderPrimer('L');
-  cleanupGuestDecoderPrimer('R');
+  cleanupWebRtcAudioDecoderPrimer(guestDecoderPrimer);
+  guestDecoderPrimer = null;
 }
 
-function primeWindowsSfuAudioDecoder(channel: Channel, track: MediaStreamTrack): void {
+function primeWindowsSfuAudioDecoder(track: MediaStreamTrack): void {
   const primer = primeWebRtcAudioDecoder(
-    guestDecoderPrimers.get(channel) ?? null,
+    guestDecoderPrimer,
     [track],
-    getAudioTrackStreamKey(`sfu:${channel}`, [track]),
-    channel,
+    getAudioTrackStreamKey('sfu:stereo', [track]),
+    'STEREO',
     '[SysAudioSFU]',
   );
 
-  if (primer) guestDecoderPrimers.set(channel, primer);
-  else guestDecoderPrimers.delete(channel);
+  guestDecoderPrimer = primer;
 }
 
 function clearGuestLimitTimer(): void {
@@ -353,7 +342,12 @@ function sessionDescriptionFromInit(desc: RTCSessionDescriptionInit): RealtimeSe
   if (!desc || !desc.sdp || (desc.type !== 'offer' && desc.type !== 'answer')) {
     throw new Error('Missing SDP');
   }
-  return { type: desc.type, sdp: desc.sdp };
+  // Opus advertises two channels in rtpmap even when the negotiated encoder is
+  // mono. Preserve the captured L/R image by explicitly requesting stereo in
+  // SDP created by this client. Cloudflare-returned SDP must stay byte-for-byte
+  // authoritative so setRemoteDescription observes the exact answer/offer the
+  // SFU generated.
+  return { type: desc.type, sdp: forceStereoSdp(desc.sdp) };
 }
 
 function applyAudioSenderTuning(sender: RTCRtpSender): void {
@@ -377,7 +371,9 @@ function applyAudioSenderTuning(sender: RTCRtpSender): void {
   try {
     const params = sender.getParameters();
     if (!params.encodings) params.encodings = [{}];
-    params.encodings[0].maxBitrate = 128000;
+    // The former L/R contract allocated 128 kbps to each mono sender. Keep the
+    // same aggregate quality budget on the single stereo Opus sender.
+    params.encodings[0].maxBitrate = 256000;
     sender.setParameters(params).catch(() => {
       /* noop */
     });
@@ -392,10 +388,10 @@ function makeReadyMessage(
 ): ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY> {
   return {
     type: MSG.SYSTEM_AUDIO_SFU_READY,
-    version: 1,
+    version: 2,
     audience,
     sessionId: publication.sessionId,
-    tracks: publication.tracks,
+    track: publication.track,
   };
 }
 
@@ -479,11 +475,9 @@ async function publishHostTracks(
   publishEpoch: number,
   signal: AbortSignal,
 ): Promise<HostPublication | null> {
-  const streamL = getStreamL();
-  const streamR = getStreamR();
-  const trackL = streamL?.getAudioTracks()[0];
-  const trackR = streamR?.getAudioTracks()[0];
-  if (!trackL || !trackR) return null;
+  const capturedStream = getCapturedAudioStream();
+  const capturedTrack = capturedStream?.getAudioTracks()[0];
+  if (!capturedStream || !capturedTrack) return null;
 
   const pc = new RTCPeerConnection(await loadSfuRtcConfig(signal));
   if (publishEpoch !== hostPublishEpoch) {
@@ -522,27 +516,19 @@ async function publishHostTracks(
   }
   const sessionOwnerToken = session.sessionOwnerToken;
 
-  const syncedStream = new MediaStream([trackL, trackR]);
-  const txL = pc.addTransceiver(trackL, {
+  const transceiver = pc.addTransceiver(capturedTrack, {
     direction: 'sendonly',
-    streams: [syncedStream],
+    streams: [capturedStream],
   });
-  const txR = pc.addTransceiver(trackR, {
-    direction: 'sendonly',
-    streams: [syncedStream],
-  });
-  applyAudioSenderTuning(txL.sender);
-  applyAudioSenderTuning(txR.sender);
+  applyAudioSenderTuning(transceiver.sender);
 
   const offer = await pc.createOffer();
   const offerDescription = sessionDescriptionFromInit(offer);
   await pc.setLocalDescription(offerDescription);
 
-  const trackNameL = buildTrackName('L');
-  const trackNameR = buildTrackName('R');
+  const trackName = buildTrackName();
   const requestedTracks: RealtimeTrack[] = [
-    { location: 'local', mid: txL.mid || '0', trackName: trackNameL },
-    { location: 'local', mid: txR.mid || '1', trackName: trackNameR },
+    { location: 'local', mid: transceiver.mid || '0', trackName },
   ];
 
   let tracksResponse: RealtimeResponse;
@@ -570,18 +556,11 @@ async function publishHostTracks(
   }
 
   const responseTracks = tracksResponse.tracks || [];
-  const publishedTracks: SfuReadyTrack[] = [
-    {
-      trackName: trackNameL,
-      channel: 'L',
-      mid: responseTracks.find((track) => track.trackName === trackNameL)?.mid || txL.mid || '0',
-    },
-    {
-      trackName: trackNameR,
-      channel: 'R',
-      mid: responseTracks.find((track) => track.trackName === trackNameR)?.mid || txR.mid || '1',
-    },
-  ];
+  const publishedTrack: SfuReadyTrack = {
+    trackName,
+    mid:
+      responseTracks.find((track) => track.trackName === trackName)?.mid || transceiver.mid || '0',
+  };
 
   try {
     assertRealtimeOk(tracksResponse, requestedTracks.length);
@@ -589,12 +568,15 @@ async function publishHostTracks(
     if (!answer || answer.type !== 'answer') {
       throw new Error('Realtime API did not return an answer');
     }
+    if (!sdpPrefersOpusStereo(answer.sdp)) {
+      throw new Error('SFU_STEREO_NOT_NEGOTIATED');
+    }
     await pc.setRemoteDescription(answer);
   } catch (error) {
     closeOwnedRealtimeTracks(
       session.sessionId,
       sessionOwnerToken,
-      publishedTracks.map((track) => track.mid),
+      [publishedTrack.mid],
       'Failed publish tracks-close failed',
     );
     throw error;
@@ -614,7 +596,7 @@ async function publishHostTracks(
     closeOwnedRealtimeTracks(
       session.sessionId,
       sessionOwnerToken,
-      publishedTracks.map((track) => track.mid),
+      [publishedTrack.mid],
       'Stale publish tracks-close failed',
     );
     return null;
@@ -622,9 +604,9 @@ async function publishHostTracks(
 
   hostSessionId = session.sessionId;
   hostSessionOwnerToken = sessionOwnerToken;
-  hostPublishedTracks = publishedTracks;
+  hostPublishedTrack = publishedTrack;
   log.info(`[SysAudioSFU] Published system audio to Cloudflare SFU (${hostSessionId})`);
-  return { sessionId: hostSessionId, tracks: publishedTracks };
+  return { sessionId: hostSessionId, track: publishedTrack };
 }
 
 async function ensureHostPublication(): Promise<HostPublication | null> {
@@ -636,8 +618,8 @@ async function ensureHostPublication(): Promise<HostPublication | null> {
     return null;
   }
   if (hostSfuUnavailable) return null;
-  if (hostSessionId && hostPublishedTracks.length > 0) {
-    return { sessionId: hostSessionId, tracks: hostPublishedTracks };
+  if (hostSessionId && hostPublishedTrack) {
+    return { sessionId: hostSessionId, track: hostPublishedTrack };
   }
   if (hostPublishPromise) return hostPublishPromise;
 
@@ -758,11 +740,11 @@ function cleanupHostSfu(
   hostPublishAbortController?.abort();
   hostPublishAbortController = null;
 
-  if (closeRemoteTracks && hostSessionId && hostPublishedTracks.length > 0) {
+  if (closeRemoteTracks && hostSessionId && hostPublishedTrack) {
     closeOwnedRealtimeTracks(
       hostSessionId,
       hostSessionOwnerToken,
-      hostPublishedTracks.map((track) => track.mid),
+      [hostPublishedTrack.mid],
       'Host tracks-close failed',
     );
   }
@@ -773,7 +755,7 @@ function cleanupHostSfu(
   }
   hostSessionId = null;
   hostSessionOwnerToken = null;
-  hostPublishedTracks = [];
+  hostPublishedTrack = null;
   hostPublishPromise = null;
   if (resetFailureState) {
     hostSfuUnavailable = false;
@@ -789,17 +771,13 @@ function setReceiverDelay(receiver: RTCRtpReceiver): void {
   delayedReceiver.playoutDelayHint = SYSTEM_AUDIO_PLAYOUT_DELAY_S;
 }
 
-async function connectGuestTrack(
-  channel: Channel,
-  track: MediaStreamTrack,
-  pc: RTCPeerConnection,
-): Promise<void> {
+async function connectGuestTrack(track: MediaStreamTrack, pc: RTCPeerConnection): Promise<void> {
   if (guestPc !== pc) return;
   // SYSTEM_AUDIO_START and the SFU descriptor share a reliable data channel,
   // but the remote media plane can become audible while the trusted start is
   // still waiting for the prior file renderer to stop. Join the same
   // physical-owner barrier used by the direct-call adapter.
-  const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary(`sfu-${channel}`);
+  const trustedReceptionReady = await awaitTrustedSystemAudioReceptionBoundary('sfu-stereo');
   if (!trustedReceptionReady || guestPc !== pc) {
     if (guestPc === pc) cleanupGuestSfu();
     return;
@@ -808,9 +786,9 @@ async function connectGuestTrack(
   // Re-check identity after the await: connectGuestTrack is
   // fire-and-forget, so a teardown (cleanupGuestSfu → guestPc=null) or a new
   // subscription (guestPc=newPc) landing during initAudio() would otherwise let
-  // this late attach recreate guestMerger + the source and flip
-  // guestReceiving=true — resurrecting a torn-down receive (leaked merger,
-  // double audio, masked playback mode). The host publisher guards the
+  // this late attach recreate the source and flip guestReceiving=true —
+  // resurrecting a torn-down receive (double audio, masked playback mode).
+  // The host publisher guards the
   // same window with an epoch; pc-identity is the right key here since each
   // subscription owns exactly one pc. Must run BEFORE any node is created.
   if (guestPc !== pc) {
@@ -828,25 +806,18 @@ async function connectGuestTrack(
     log.warn(`[SysAudioSFU] AudioContext is ${ctx.state}; user interaction may be required`);
   }
 
-  if (!guestMerger) {
-    guestMerger = ctx.createChannelMerger(2);
-    guestMerger.connect(widener.input);
-  }
-
-  const existing = channel === 'L' ? guestSourceL : guestSourceR;
-  if (existing) {
+  if (guestSourceStereo) {
     try {
-      existing.disconnect();
+      guestSourceStereo.disconnect();
     } catch {
       /* noop */
     }
   }
 
-  primeWindowsSfuAudioDecoder(channel, track);
+  primeWindowsSfuAudioDecoder(track);
   const source = ctx.createMediaStreamSource(new MediaStream([track]));
-  source.connect(guestMerger, 0, channel === 'L' ? 0 : 1);
-  if (channel === 'L') guestSourceL = source;
-  else guestSourceR = source;
+  source.connect(widener.input);
+  guestSourceStereo = source;
 
   if (!guestReceiving) {
     guestReceiving = true;
@@ -880,29 +851,13 @@ function cleanupGuestSfu(updateState = true): void {
   clearGuestLimitTimer();
   closeGuestSessionTracks(sessionId, sessionOwnerToken, subscribedTrackMids);
 
-  if (guestSourceL) {
+  if (guestSourceStereo) {
     try {
-      guestSourceL.disconnect();
+      guestSourceStereo.disconnect();
     } catch {
       /* noop */
     }
-    guestSourceL = null;
-  }
-  if (guestSourceR) {
-    try {
-      guestSourceR.disconnect();
-    } catch {
-      /* noop */
-    }
-    guestSourceR = null;
-  }
-  if (guestMerger) {
-    try {
-      guestMerger.disconnect();
-    } catch {
-      /* noop */
-    }
-    guestMerger = null;
+    guestSourceStereo = null;
   }
   cleanupGuestDecoderPrimers();
   if (pc) {
@@ -933,9 +888,7 @@ function closeGuestSessionTracks(
 }
 
 function buildSubscriptionKey(payload: SfuReadyPayload): string {
-  return `${payload.audience}:${payload.sessionId}:${payload.tracks
-    .map((track) => track.trackName)
-    .join(',')}`;
+  return `${payload.audience}:${payload.sessionId}:${payload.track.trackName}`;
 }
 
 function isPayloadOnFrozenGuestRoute(payload: SfuReadyPayload): boolean {
@@ -947,19 +900,20 @@ function isPayloadOnFrozenGuestRoute(payload: SfuReadyPayload): boolean {
 function normalizeSfuReadyPayload(
   data: ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY>,
 ): SfuReadyPayload | null {
-  if (data.version !== 1 || !data.sessionId || !Array.isArray(data.tracks)) return null;
-  const tracks = data.tracks.filter(
-    (track): track is SfuReadyTrack =>
-      !!track &&
-      typeof track.trackName === 'string' &&
-      (track.channel === 'L' || track.channel === 'R'),
-  );
-  if (tracks.length === 0) return null;
+  if (
+    data.version !== 2 ||
+    !data.sessionId ||
+    !data.track ||
+    typeof data.track.trackName !== 'string' ||
+    data.track.trackName.length === 0
+  ) {
+    return null;
+  }
   return {
-    version: 1,
+    version: 2,
     audience: data.audience === 'all' ? 'all' : 'remote',
     sessionId: data.sessionId,
-    tracks,
+    track: data.track,
   };
 }
 
@@ -976,12 +930,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
   guestAllowsLocalAudience = payload.audience === 'all';
   guestSubscriptionKey = subscriptionKey;
 
-  const channelByTrackName = new Map<string, Channel>();
-  const channelByMid = new Map<string, Channel>();
-  for (const track of payload.tracks) {
-    channelByTrackName.set(track.trackName, track.channel);
-    if (track.mid) channelByMid.set(track.mid, track.channel);
-  }
+  const publishedTrack = payload.track;
 
   pc.addEventListener('connectionstatechange', () => {
     log.info(`[SysAudioSFU] Guest SFU connection: ${pc.connectionState}`);
@@ -990,50 +939,42 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
     }
   });
 
-  const fallbackChannels = payload.tracks.map((track) => track.channel);
-  let fallbackChannelIndex = 0;
   const attachedTrackKeys = new Set<string>();
 
   const attachReceivedTrack = (
-    channel: Channel | null,
     track: MediaStreamTrack,
     receiver: RTCRtpReceiver,
     reason: string,
     mid?: string | null,
   ) => {
-    if (!channel) {
-      log.warn(`[SysAudioSFU] Received track with unknown mid: ${mid || 'none'}`);
-      return;
-    }
     if (track.kind !== 'audio') return;
 
-    const key = `${channel}:${track.id}`;
+    const key = track.id;
     if (attachedTrackKeys.has(key)) return;
     attachedTrackKeys.add(key);
 
     setReceiverDelay(receiver);
-    log.info(`[SysAudioSFU] Received ${channel} remote track (${reason}, mid=${mid || 'none'})`);
-    connectGuestTrack(channel, track, pc).catch((error) =>
+    log.info(`[SysAudioSFU] Received stereo remote track (${reason}, mid=${mid || 'none'})`);
+    connectGuestTrack(track, pc).catch((error) =>
       log.error('[SysAudioSFU] Failed to attach remote track:', error),
     );
   };
 
   const attachExistingReceiverTracks = (reason: string) => {
-    pc.getTransceivers().forEach((transceiver, index) => {
+    pc.getTransceivers().forEach((transceiver) => {
       const track = transceiver.receiver.track;
       if (!track || track.kind !== 'audio') return;
 
       const mid = transceiver.mid;
-      const channel = (mid && channelByMid.get(mid)) || fallbackChannels[index] || null;
-      attachReceivedTrack(channel, track, transceiver.receiver, reason, mid);
+      if (subscribedMid && mid && subscribedMid !== mid) return;
+      attachReceivedTrack(track, transceiver.receiver, reason, mid);
     });
   };
 
   pc.ontrack = (event) => {
     const mid = event.transceiver.mid;
-    const channel =
-      (mid && channelByMid.get(mid)) || fallbackChannels[fallbackChannelIndex++] || null;
-    attachReceivedTrack(channel, event.track, event.receiver, 'event', mid);
+    if (subscribedMid && mid && subscribedMid !== mid) return;
+    attachReceivedTrack(event.track, event.receiver, 'event', mid);
   };
 
   const session = await callRealtime('new-session', {
@@ -1051,11 +992,13 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
   guestSessionId = sessionId;
   guestSessionOwnerToken = sessionOwnerToken;
 
-  const trackRequests: RealtimeTrack[] = payload.tracks.map((track) => ({
-    location: 'remote',
-    sessionId: payload.sessionId,
-    trackName: track.trackName,
-  }));
+  const trackRequests: RealtimeTrack[] = [
+    {
+      location: 'remote',
+      sessionId: payload.sessionId,
+      trackName: publishedTrack.trackName,
+    },
+  ];
 
   const tracksResponse = await callRealtime('tracks-new', {
     sessionId,
@@ -1077,11 +1020,11 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
   guestSubscribedTrackMids = subscribedTrackMids;
   assertRealtimeOk(tracksResponse, trackRequests.length);
 
-  for (const track of tracksResponse.tracks || []) {
-    if (!track.mid || !track.trackName) continue;
-    const channel = channelByTrackName.get(track.trackName);
-    if (channel) channelByMid.set(track.mid, channel);
-  }
+  // Publication mids belong to the host PC. Cloudflare assigns a separate mid
+  // to this subscriber PC, so bind only to the tracks-new result.
+  const subscribedMid = (tracksResponse.tracks || []).find(
+    (track) => track.trackName === publishedTrack.trackName && !!track.mid,
+  )?.mid;
   const offer = tracksResponse.sessionDescription;
   if (!offer || offer.type !== 'offer') {
     throw new Error('Realtime API did not return a remote-track offer');
@@ -1199,7 +1142,7 @@ function handleSfuCapability(
   data: ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_CAPABILITY>,
   conn?: DataConnection,
 ): void {
-  if (data.version !== 1 || data.localAudience !== true) return;
+  if (data.version !== 2 || data.localAudience !== true) return;
   if (getState('network.appRole') !== 'host' || !conn?.peer) return;
   if (getState('network.activeHostConnByPeerId').get(conn.peer) !== conn) return;
 
@@ -1281,7 +1224,7 @@ export function registerSystemAudioSfuListeners(): void {
     if (!hostConn || conn !== hostConn) return;
     safeSend(hostConn, {
       type: MSG.SYSTEM_AUDIO_SFU_CAPABILITY,
-      version: 1,
+      version: 2,
       localAudience: true,
     });
   });

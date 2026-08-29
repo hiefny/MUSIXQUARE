@@ -182,7 +182,7 @@ export type ProRoomSystemAudioStatus = 'idle' | 'preparing' | 'live';
 interface ProRoomSystemAudioSfuPublication {
   publicationId: string;
   sessionId: string;
-  tracks: ProRoomSystemAudioPublicationTracks;
+  track: ProRoomSystemAudioPublicationTrack;
 }
 
 /**
@@ -194,7 +194,7 @@ interface ProRoomSystemAudioSfuPublication {
 interface ProRoomSystemAudioDirectPublication {
   publicationId: string;
   transport: 'lan-direct';
-  protocolVersion: 1;
+  protocolVersion: 2;
 }
 
 export type ProRoomSystemAudioPublication =
@@ -215,14 +215,8 @@ export function isProRoomSystemAudioDirectPublication(
 
 export interface ProRoomSystemAudioPublicationTrack {
   trackName: string;
-  channel: 'L' | 'R';
   mid?: string;
 }
-
-export type ProRoomSystemAudioPublicationTracks = [
-  ProRoomSystemAudioPublicationTrack,
-  ProRoomSystemAudioPublicationTrack,
-];
 
 interface ProRoomSystemAudioStateBase {
   /** Monotonic fencing generation advanced whenever ownership is revoked or replaced. */

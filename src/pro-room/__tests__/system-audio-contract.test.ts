@@ -8,10 +8,7 @@ function publication(): ProRoomSystemAudioPublication {
   return {
     publicationId: 'publication_00001',
     sessionId: 'realtime_session_01',
-    tracks: [
-      { trackName: 'audio-L', channel: 'L' as const, mid: '0' },
-      { trackName: 'audio-R', channel: 'R' as const, mid: '1' },
-    ],
+    track: { trackName: 'audio-stereo', mid: '0' },
   };
 }
 
@@ -49,53 +46,41 @@ describe('PRO system-audio wire contract', () => {
     expect(parseProRoomSystemAudioState(liveState())).toEqual(liveState());
   });
 
-  it('normalizes bounded track labels while requiring one unique L and R track', () => {
+  it('normalizes the bounded original stereo track label', () => {
     const parsed = parseProRoomSystemAudioPublication({
       ...publication(),
-      tracks: [
-        { trackName: ' audio-L ', channel: 'L', mid: ' 0 ' },
-        { trackName: ' audio-R ', channel: 'R', mid: ' 1 ' },
-      ],
+      track: { trackName: ' audio-stereo ', mid: ' 0 ' },
     });
-    expect(parsed && 'tracks' in parsed ? parsed.tracks : null).toEqual([
-      { trackName: 'audio-L', channel: 'L', mid: '0' },
-      { trackName: 'audio-R', channel: 'R', mid: '1' },
-    ]);
+    expect(parsed && 'track' in parsed ? parsed.track : null).toEqual({
+      trackName: 'audio-stereo',
+      mid: '0',
+    });
 
     expect(
       parseProRoomSystemAudioPublication({
         ...publication(),
-        tracks: [
-          { trackName: 'audio-L', channel: 'L', mid: '0' },
-          { trackName: 'audio-R', channel: 'L', mid: '1' },
-        ],
+        track: { trackName: '', mid: '0' },
       }),
     ).toBeNull();
     expect(
       parseProRoomSystemAudioPublication({
         ...publication(),
-        tracks: [
-          { trackName: 'same', channel: 'L', mid: '0' },
-          { trackName: 'same', channel: 'R', mid: '1' },
-        ],
+        track: { trackName: 'audio-stereo', mid: '' },
       }),
     ).toBeNull();
     expect(
       parseProRoomSystemAudioPublication({
         ...publication(),
-        tracks: [
-          { trackName: 'audio-L', channel: 'L', mid: '0' },
-          { trackName: 'audio-R', channel: 'R', mid: '0' },
-        ],
+        track: { trackName: 'audio-stereo', channel: 'L' },
       }),
     ).toBeNull();
   });
 
-  it('accepts the exact LAN-direct v1 publication and rejects additive ambiguity', () => {
+  it('accepts the exact LAN-direct v2 publication and rejects additive ambiguity', () => {
     const direct: ProRoomSystemAudioPublication = {
       publicationId: 'publication_direct_01',
       transport: 'lan-direct',
-      protocolVersion: 1,
+      protocolVersion: 2,
     };
     expect(parseProRoomSystemAudioPublication(direct)).toEqual(direct);
     expect(
@@ -107,7 +92,7 @@ describe('PRO system-audio wire contract', () => {
     expect(
       parseProRoomSystemAudioPublication({ ...direct, sessionId: 'not-a-direct-field' }),
     ).toBeNull();
-    expect(parseProRoomSystemAudioPublication({ ...direct, protocolVersion: 2 })).toBeNull();
+    expect(parseProRoomSystemAudioPublication({ ...direct, protocolVersion: 1 })).toBeNull();
   });
 
   it('rejects malformed lifecycle combinations and every private or unknown field', () => {

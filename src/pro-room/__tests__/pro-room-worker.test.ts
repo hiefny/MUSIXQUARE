@@ -17737,10 +17737,7 @@ describe('PRO room system-audio ownership lease', () => {
   const publication = {
     publicationId: 'publication_018f977e5df57c8f',
     sessionId: 'session_018f977e5df57c8fbb80',
-    tracks: [
-      { trackName: 'mxqr-system-audio-000001-L-track', channel: 'L' },
-      { trackName: 'mxqr-system-audio-000001-R-track', channel: 'R', mid: '1' },
-    ],
+    track: { trackName: 'mxqr-system-audio-000001-stereo-track', mid: '0' },
   } as const;
 
   async function acquireSystemAudio(
@@ -17785,7 +17782,7 @@ describe('PRO room system-audio ownership lease', () => {
     const directPublication = {
       publicationId: publication.publicationId,
       transport: 'lan-direct',
-      protocolVersion: 1,
+      protocolVersion: 2,
     } as const;
     const commit = (nextPublication: unknown) =>
       worker.fetch(
@@ -17803,7 +17800,7 @@ describe('PRO room system-audio ownership lease', () => {
     expect(directEnvelope).toMatchObject({
       systemAudio: { status: 'live', generation, publication: directPublication },
     });
-    // Keep the numeric v1 wire/storage shape during the matched rollout. It is
+    // Keep the numeric wire/storage shape during the matched rollout. It is
     // a compatibility value for direct and must not be interpreted as a
     // metered-media expiry by the v2 authority.
     expect(directEnvelope.systemAudio.liveExpiresAt).toBe(
@@ -17958,7 +17955,7 @@ describe('PRO room system-audio ownership lease', () => {
     const directPublication = {
       publicationId: publication.publicationId,
       transport: 'lan-direct',
-      protocolVersion: 1,
+      protocolVersion: 2,
     } as const;
     const committed = await context.worker.fetch(
       jsonRequest(

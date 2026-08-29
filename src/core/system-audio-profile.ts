@@ -4,7 +4,7 @@ export type SystemAudioSurface = 'browser' | 'window' | 'display';
 export const DEFAULT_SYSTEM_AUDIO_SURFACE: SystemAudioSurface = 'display';
 
 /**
- * Product profile for one logical L/R receive path. This is the aggregate
+ * Product profile for the single native stereo receive track. This is the
  * encoder target requested by MUSIXQUARE, not measured throughput or total
  * host upload; transport overhead and direct fan-out are deliberately absent.
  */

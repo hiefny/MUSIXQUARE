@@ -11,6 +11,7 @@
 import { fetchWithCapability, isCapabilityChallengeCancelled } from '../core/capability.ts';
 import { log } from '../core/log.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
+import { forceStereoSdp, sdpPrefersOpusStereo } from './peer.ts';
 import {
   cancelResponseBody,
   readBoundedJsonResponse,
@@ -28,27 +29,24 @@ const PUBLISHER_EXPIRY_TIMER = 'pro-system-audio-sfu:publisher-expiry';
 const SUBSCRIBER_EXPIRY_TIMER = 'pro-system-audio-sfu:subscriber-expiry';
 const SFU_CONTROL_REQUEST_TIMEOUT_MS = 15_000;
 const SFU_CONTROL_RESPONSE_MAX_BYTES = 1024 * 1024;
-
-type ProSystemAudioSfuChannel = 'L' | 'R';
+const SYSTEM_AUDIO_STEREO_MAX_BITRATE = 256_000;
 
 interface ProSystemAudioSfuTrackDescriptor {
   trackName: string;
-  channel: ProSystemAudioSfuChannel;
   mid?: string;
 }
 
 /** Safe to persist in PRO room state and broadcast to every participant. */
 export interface ProSystemAudioSfuPublicationDescriptor {
-  version: 1;
+  version: 2;
   sessionId: string;
-  tracks: ProSystemAudioSfuTrackDescriptor[];
+  track: ProSystemAudioSfuTrackDescriptor;
   generation: number;
   expiresAt: number;
 }
 
 interface PublishProSystemAudioSfuOptions {
-  leftTrack: MediaStreamTrack;
-  rightTrack: MediaStreamTrack;
+  track: MediaStreamTrack;
   /** Controller-issued publication generation. Must increase on replacement. */
   generation: number;
   /** Absolute Unix time in milliseconds after which the publication is invalid. */
@@ -73,7 +71,6 @@ type ProSystemAudioSfuEvent =
   | {
       type: 'subscriber-track';
       descriptor: ProSystemAudioSfuPublicationDescriptor;
-      channel: ProSystemAudioSfuChannel;
       track: MediaStreamTrack;
       receiver: RTCRtpReceiver;
     };
@@ -334,8 +331,8 @@ function buildCorrelationId(prefix: string, roomId?: string): string {
   return `${prefix}-${safeRoomFragment(roomId)}-${randomSuffix()}`.slice(0, 128);
 }
 
-function buildTrackName(channel: ProSystemAudioSfuChannel, roomId?: string): string {
-  return `mxqr-pro-system-audio-${safeRoomFragment(roomId)}-${channel}-${randomSuffix()}`.slice(
+function buildTrackName(roomId?: string): string {
+  return `mxqr-pro-system-audio-${safeRoomFragment(roomId)}-stereo-${randomSuffix()}`.slice(
     0,
     MAX_TRACK_NAME_LENGTH,
   );
@@ -358,7 +355,7 @@ function applyAudioSenderTuning(sender: RTCRtpSender): void {
   try {
     const parameters = sender.getParameters();
     if (!parameters.encodings) parameters.encodings = [{}];
-    parameters.encodings[0].maxBitrate = 128_000;
+    parameters.encodings[0].maxBitrate = SYSTEM_AUDIO_STEREO_MAX_BITRATE;
     void sender.setParameters(parameters).catch(() => {});
   } catch {
     /* optional sender tuning */
@@ -370,37 +367,22 @@ function validateAudioTrack(track: MediaStreamTrack, label: string): void {
   if (track.readyState === 'ended') throw new TypeError(`${label} has already ended`);
 }
 
-function normalizeTrackDescriptors(value: unknown): ProSystemAudioSfuTrackDescriptor[] | null {
-  if (!Array.isArray(value) || value.length !== 2) return null;
-  const tracks: ProSystemAudioSfuTrackDescriptor[] = [];
-  for (const item of value) {
-    if (!item || typeof item !== 'object') return null;
-    const track = item as Record<string, unknown>;
-    if (
-      typeof track.trackName !== 'string' ||
-      track.trackName.length === 0 ||
-      track.trackName.length > MAX_TRACK_NAME_LENGTH ||
-      (track.channel !== 'L' && track.channel !== 'R') ||
-      (track.mid !== undefined &&
-        (typeof track.mid !== 'string' || track.mid.length === 0 || track.mid.length > 64))
-    ) {
-      return null;
-    }
-    tracks.push(
-      Object.freeze({
-        trackName: track.trackName,
-        channel: track.channel,
-        ...(typeof track.mid === 'string' ? { mid: track.mid } : {}),
-      }),
-    );
-  }
+function normalizeTrackDescriptor(value: unknown): ProSystemAudioSfuTrackDescriptor | null {
+  if (!value || typeof value !== 'object') return null;
+  const track = value as Record<string, unknown>;
   if (
-    new Set(tracks.map((track) => track.channel)).size !== 2 ||
-    new Set(tracks.map((track) => track.trackName)).size !== 2
+    typeof track.trackName !== 'string' ||
+    track.trackName.length === 0 ||
+    track.trackName.length > MAX_TRACK_NAME_LENGTH ||
+    (track.mid !== undefined &&
+      (typeof track.mid !== 'string' || track.mid.length === 0 || track.mid.length > 64))
   ) {
     return null;
   }
-  return Object.freeze(tracks) as ProSystemAudioSfuTrackDescriptor[];
+  return Object.freeze({
+    trackName: track.trackName,
+    ...(typeof track.mid === 'string' ? { mid: track.mid } : {}),
+  });
 }
 
 /** Parse untrusted persisted/controller state into the public SFU contract. */
@@ -409,9 +391,9 @@ function parseProSystemAudioSfuPublicationDescriptor(
 ): ProSystemAudioSfuPublicationDescriptor | null {
   if (!value || typeof value !== 'object') return null;
   const candidate = value as Record<string, unknown>;
-  const tracks = normalizeTrackDescriptors(candidate.tracks);
+  const track = normalizeTrackDescriptor(candidate.track);
   if (
-    candidate.version !== 1 ||
+    candidate.version !== 2 ||
     typeof candidate.sessionId !== 'string' ||
     candidate.sessionId.length === 0 ||
     candidate.sessionId.length > MAX_SESSION_ID_LENGTH ||
@@ -420,14 +402,14 @@ function parseProSystemAudioSfuPublicationDescriptor(
     typeof candidate.expiresAt !== 'number' ||
     !Number.isFinite(candidate.expiresAt) ||
     candidate.expiresAt <= 0 ||
-    !tracks
+    !track
   ) {
     return null;
   }
   return Object.freeze({
-    version: 1,
+    version: 2,
     sessionId: candidate.sessionId,
-    tracks,
+    track,
     generation: Number(candidate.generation),
     expiresAt: candidate.expiresAt,
   });
@@ -444,9 +426,7 @@ function requireDescriptor(value: unknown): ProSystemAudioSfuPublicationDescript
 }
 
 function descriptorKey(descriptor: ProSystemAudioSfuPublicationDescriptor): string {
-  return `${descriptor.generation}:${descriptor.sessionId}:${descriptor.tracks
-    .map((track) => `${track.channel}:${track.trackName}`)
-    .join(',')}`;
+  return `${descriptor.generation}:${descriptor.sessionId}:${descriptor.track.trackName}`;
 }
 
 function closePeerConnection(pc: RTCPeerConnection | null): void {
@@ -615,27 +595,21 @@ async function performPublish(
       throw new Error('Cloudflare Realtime did not return publisher ownership credentials');
     }
 
-    const syncedStream = new MediaStream([input.leftTrack, input.rightTrack]);
-    const left = pc.addTransceiver(input.leftTrack, {
+    const sourceStream = new MediaStream([input.track]);
+    const transceiver = pc.addTransceiver(input.track, {
       direction: 'sendonly',
-      streams: [syncedStream],
+      streams: [sourceStream],
     });
-    const right = pc.addTransceiver(input.rightTrack, {
-      direction: 'sendonly',
-      streams: [syncedStream],
-    });
-    applyAudioSenderTuning(left.sender);
-    applyAudioSenderTuning(right.sender);
-    const offer = sessionDescriptionFromInit(await pc.createOffer());
+    applyAudioSenderTuning(transceiver.sender);
+    const rawOffer = sessionDescriptionFromInit(await pc.createOffer());
+    const offer = { ...rawOffer, sdp: forceStereoSdp(rawOffer.sdp) };
     ensurePublisherCurrent(epoch, pc);
     await pc.setLocalDescription(offer);
     ensurePublisherCurrent(epoch, pc);
 
-    const leftName = buildTrackName('L', input.roomId);
-    const rightName = buildTrackName('R', input.roomId);
+    const trackName = buildTrackName(input.roomId);
     const requested: RealtimeTrack[] = [
-      { location: 'local', mid: left.mid || '0', trackName: leftName },
-      { location: 'local', mid: right.mid || '1', trackName: rightName },
+      { location: 'local', mid: transceiver.mid || '0', trackName },
     ];
     localOwned = {
       sessionId: session.sessionId,
@@ -652,32 +626,32 @@ async function performPublish(
       signal,
     });
     const responseTracks = tracksResponse.tracks || [];
-    const tracks: ProSystemAudioSfuTrackDescriptor[] = Object.freeze([
-      Object.freeze({
-        trackName: leftName,
-        channel: 'L',
-        mid: responseTracks.find((track) => track.trackName === leftName)?.mid || left.mid || '0',
-      }),
-      Object.freeze({
-        trackName: rightName,
-        channel: 'R',
-        mid: responseTracks.find((track) => track.trackName === rightName)?.mid || right.mid || '1',
-      }),
-    ]) as ProSystemAudioSfuTrackDescriptor[];
-    localOwned.mids = tracks.map((track) => track.mid || '').filter(Boolean);
+    const track: ProSystemAudioSfuTrackDescriptor = Object.freeze({
+      trackName,
+      mid:
+        responseTracks.find((candidate) => candidate.trackName === trackName)?.mid ||
+        transceiver.mid ||
+        '0',
+    });
+    localOwned.mids = track.mid ? [track.mid] : [];
     ensurePublisherCurrent(epoch, pc);
     assertRealtimeOk(tracksResponse, requested.length);
     const answer = tracksResponse.sessionDescription;
     if (!answer || answer.type !== 'answer') {
       throw new Error('Cloudflare Realtime did not return a publisher answer');
     }
+    if (!sdpPrefersOpusStereo(answer.sdp)) {
+      throw new Error('SFU_STEREO_NOT_NEGOTIATED');
+    }
+    // Keep Cloudflare's answer authoritative. Only client-generated SDP is
+    // munged; rewriting the remote transcript can invalidate negotiation.
     await pc.setRemoteDescription(answer);
     ensurePublisherCurrent(epoch, pc);
 
     const descriptor: ProSystemAudioSfuPublicationDescriptor = Object.freeze({
-      version: 1,
+      version: 2,
       sessionId: session.sessionId,
-      tracks,
+      track,
       generation: input.generation,
       expiresAt: input.expiresAt,
     });
@@ -698,8 +672,7 @@ async function performPublish(
 export function publishProSystemAudioSfu(
   input: PublishProSystemAudioSfuOptions,
 ): Promise<ProSystemAudioSfuPublicationDescriptor> {
-  validateAudioTrack(input.leftTrack, 'leftTrack');
-  validateAudioTrack(input.rightTrack, 'rightTrack');
+  validateAudioTrack(input.track, 'track');
   if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
     throw new TypeError('generation must be a non-negative safe integer');
   }
@@ -790,51 +763,28 @@ async function performSubscribe(
     stopSubscriberInternal(false);
   });
 
-  const channelByTrackName = new Map(
-    descriptor.tracks.map((track) => [track.trackName, track.channel] as const),
-  );
-  const channelByMid = new Map<string, ProSystemAudioSfuChannel>();
-  const fallbackChannels = descriptor.tracks.map((track) => track.channel);
   const emittedTracks = new Set<string>();
-  let fallbackIndex = 0;
 
-  const emitTrack = (
-    channel: ProSystemAudioSfuChannel | null,
-    track: MediaStreamTrack,
-    receiver: RTCRtpReceiver,
-    mid?: string | null,
-  ) => {
-    if (!channel || track.kind !== 'audio' || subscriberPc !== pc) return;
-    const key = `${channel}:${track.id}`;
+  const emitTrack = (track: MediaStreamTrack, receiver: RTCRtpReceiver, mid?: string | null) => {
+    if (track.kind !== 'audio' || subscriberPc !== pc) return;
+    const key = track.id;
     if (emittedTracks.has(key)) return;
     emittedTracks.add(key);
     setReceiverDelay(receiver);
-    emitEvent({ type: 'subscriber-track', descriptor, channel, track, receiver });
-    log.info(`[ProSysAudioSFU] Received ${channel} track (mid=${mid || 'none'})`);
+    emitEvent({ type: 'subscriber-track', descriptor, track, receiver });
+    log.info(`[ProSysAudioSFU] Received stereo track (mid=${mid || 'none'})`);
   };
 
   const emitExistingTracks = () => {
-    pc.getTransceivers().forEach((transceiver, index) => {
+    pc.getTransceivers().forEach((transceiver) => {
       const track = transceiver.receiver.track;
       if (!track || track.kind !== 'audio') return;
-      const mid = transceiver.mid;
-      emitTrack(
-        (mid && channelByMid.get(mid)) || fallbackChannels[index] || null,
-        track,
-        transceiver.receiver,
-        mid,
-      );
+      emitTrack(track, transceiver.receiver, transceiver.mid);
     });
   };
 
   pc.ontrack = (event) => {
-    const mid = event.transceiver.mid;
-    emitTrack(
-      (mid && channelByMid.get(mid)) || fallbackChannels[fallbackIndex++] || null,
-      event.track,
-      event.receiver,
-      mid,
-    );
+    emitTrack(event.track, event.receiver, event.transceiver.mid);
   };
 
   let localOwned: OwnedRealtimeTracks | null = null;
@@ -849,11 +799,13 @@ async function performSubscribe(
       throw new Error('Cloudflare Realtime did not return subscriber ownership credentials');
     }
 
-    const requested: RealtimeTrack[] = descriptor.tracks.map((track) => ({
-      location: 'remote',
-      sessionId: descriptor.sessionId,
-      trackName: track.trackName,
-    }));
+    const requested: RealtimeTrack[] = [
+      {
+        location: 'remote',
+        sessionId: descriptor.sessionId,
+        trackName: descriptor.track.trackName,
+      },
+    ];
     const tracksResponse = await callRealtime('tracks-new', {
       sessionId: session.sessionId,
       sessionOwnerToken: session.sessionOwnerToken,
@@ -870,19 +822,17 @@ async function performSubscribe(
     };
     ensureSubscriberCurrent(epoch, pc);
     assertRealtimeOk(tracksResponse, requested.length);
-    for (const track of tracksResponse.tracks || []) {
-      if (!track.mid || !track.trackName) continue;
-      const channel = channelByTrackName.get(track.trackName);
-      if (channel) channelByMid.set(track.mid, channel);
-    }
     const offer = tracksResponse.sessionDescription;
     if (!offer || offer.type !== 'offer') {
       throw new Error('Cloudflare Realtime did not return a subscriber offer');
     }
+    // Keep Cloudflare's offer authoritative and advertise stereo in the local
+    // answer sent back below.
     await pc.setRemoteDescription(offer);
     ensureSubscriberCurrent(epoch, pc);
     emitExistingTracks();
-    const answer = sessionDescriptionFromInit(await pc.createAnswer());
+    const rawAnswer = sessionDescriptionFromInit(await pc.createAnswer());
+    const answer = { ...rawAnswer, sdp: forceStereoSdp(rawAnswer.sdp) };
     ensureSubscriberCurrent(epoch, pc);
     await pc.setLocalDescription(answer);
     ensureSubscriberCurrent(epoch, pc);

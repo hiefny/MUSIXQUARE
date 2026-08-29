@@ -453,7 +453,7 @@ export interface ProtocolMap {
   'pro-system-audio-hint': { generation: number };
   /** Legacy host fanout of an already server-validated PRO live-share state. */
   'pro-system-audio-state': {
-    version: 1;
+    version: 2;
     generation: number;
     status: 'idle' | 'preparing' | 'live';
     ownerParticipantId: string | null;
@@ -463,11 +463,10 @@ export interface ProtocolMap {
     publication: null | {
       publicationId: string;
       sessionId: string;
-      tracks: Array<{
+      track: {
         trackName: string;
-        channel: 'L' | 'R';
         mid?: string;
-      }>;
+      };
     };
   };
   // _bootstrap marks a re-baseline frame (join bootstrap / OPERATOR_REVOKE
@@ -840,19 +839,19 @@ export interface ProtocolMap {
   // ── System Audio Sharing ──────────────────────────────────────
   'system-audio-start': { surface?: SystemAudioSurface };
   'system-audio-sfu-capability': {
-    version: 1;
+    version: 2;
     localAudience: true;
   };
   'system-audio-sfu-ready': {
-    version: 1;
+    version: 2;
     /** `all` lets a LAN guest consume the publication instead of P2P. */
     audience?: 'remote' | 'all';
     sessionId: string;
-    tracks: Array<{
+    /** The original stereo capture track. */
+    track: {
       trackName: string;
-      channel: 'L' | 'R';
       mid?: string;
-    }>;
+    };
   };
   'system-audio-stop': NoPayload;
 }

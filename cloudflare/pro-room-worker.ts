@@ -338,17 +338,16 @@ interface PresenceState {
 interface SystemAudioSfuPublication {
   publicationId: string;
   sessionId: string;
-  tracks: Array<{
+  track: {
     trackName: string;
-    channel: 'L' | 'R';
     mid?: string;
-  }>;
+  };
 }
 
 interface SystemAudioDirectPublication {
   publicationId: string;
   transport: 'lan-direct';
-  protocolVersion: 1;
+  protocolVersion: 2;
 }
 
 type SystemAudioPublication = SystemAudioSfuPublication | SystemAudioDirectPublication;
@@ -1790,15 +1789,15 @@ function parseSystemAudioPublication(value: unknown): SystemAudioPublication | n
     return typeof value.publicationId === 'string' &&
       OPAQUE_ID_RE.test(value.publicationId) &&
       value.transport === 'lan-direct' &&
-      value.protocolVersion === 1
+      value.protocolVersion === 2
       ? {
           publicationId: value.publicationId,
           transport: 'lan-direct',
-          protocolVersion: 1,
+          protocolVersion: 2,
         }
       : null;
   }
-  if (!hasExactKeys(value, ['publicationId', 'sessionId', 'tracks'])) return null;
+  if (!hasExactKeys(value, ['publicationId', 'sessionId', 'track'])) return null;
   if (
     typeof value.publicationId !== 'string' ||
     !OPAQUE_ID_RE.test(value.publicationId) ||
@@ -1807,41 +1806,20 @@ function parseSystemAudioPublication(value: unknown): SystemAudioPublication | n
   ) {
     return null;
   }
-  if (!Array.isArray(value.tracks) || value.tracks.length !== 2) return null;
-  const channels = new Set<'L' | 'R'>();
-  const trackNames = new Set<string>();
-  const mids = new Set<string>();
-  const tracks: SystemAudioSfuPublication['tracks'] = [];
-  for (const rawTrack of value.tracks) {
-    if (!hasExactKeys(rawTrack, ['trackName', 'channel'], ['mid'])) return null;
-    const trackName = boundedString(rawTrack.trackName, SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH);
-    if (
-      !trackName ||
-      (rawTrack.channel !== 'L' && rawTrack.channel !== 'R') ||
-      channels.has(rawTrack.channel) ||
-      trackNames.has(trackName)
-    ) {
-      return null;
-    }
-    const mid: string | null | undefined =
-      rawTrack.mid === undefined
-        ? undefined
-        : boundedString(rawTrack.mid, SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH);
-    if (rawTrack.mid !== undefined && (!mid || mids.has(mid))) return null;
-    channels.add(rawTrack.channel);
-    trackNames.add(trackName);
-    if (mid) mids.add(mid);
-    tracks.push({
-      trackName,
-      channel: rawTrack.channel,
-      ...(typeof mid === 'string' ? { mid } : {}),
-    });
-  }
-  if (!channels.has('L') || !channels.has('R')) return null;
+  if (!hasExactKeys(value.track, ['trackName'], ['mid'])) return null;
+  const trackName = boundedString(value.track.trackName, SYSTEM_AUDIO_TRACK_NAME_MAX_LENGTH);
+  const mid: string | null | undefined =
+    value.track.mid === undefined
+      ? undefined
+      : boundedString(value.track.mid, SYSTEM_AUDIO_TRACK_MID_MAX_LENGTH);
+  if (!trackName || (value.track.mid !== undefined && !mid)) return null;
   return {
     publicationId: value.publicationId,
     sessionId: value.sessionId,
-    tracks,
+    track: {
+      trackName,
+      ...(typeof mid === 'string' ? { mid } : {}),
+    },
   };
 }
 

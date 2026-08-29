@@ -3,7 +3,7 @@
 Baseline: `e61408da` on `main` (`CACHE_VERSION` v181).
 
 > **Maintained operational addendum:** The residual boundaries and verification
-> contract below were revalidated against the repository on 2026-08-17. The
+> contract below were revalidated against the repository on 2026-08-30. The
 > baseline SHA, cache epoch, and original defect narrative remain the dated
 > audit snapshot.
 
@@ -116,7 +116,7 @@ device-specific sync compensation intact.
   left unchanged where tests/history showed intentional calibration rather than
   a code defect.
 - The full Chromium Playwright suite and targeted iPhone WebKit smoke follow the
-  monthly cadence defined by `.github/workflows/e2e.yml` and remain manually
+  weekly cadence defined by `.github/workflows/e2e.yml` and remain manually
   dispatchable, but stay outside the production release gate by product
   decision. The production release uses browser-free generation,
   initial-asset-graph, and HTTP boundary smokes. Optional physical QA remains

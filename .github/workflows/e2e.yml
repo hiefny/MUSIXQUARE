@@ -1,15 +1,15 @@
 name: Full E2E
 
 # The complete Playwright suite is intentionally separate from the production
-# release gate. It runs monthly at 03:17 KST on the second day of each month
-# and remains available on demand.
+# release gate. It runs weekly at 03:17 KST every Tuesday and remains available
+# on demand.
 # The Chromium suite runs serially because its tests share a signaling server.
 
 on:
   schedule:
-    # GitHub cron is UTC. 18:17 UTC on day 1 runs at 03:17 KST on day 2;
+    # GitHub cron is UTC. Monday 18:17 UTC runs at Tuesday 03:17 KST;
     # the off-minute start also avoids the busiest top-of-hour scheduling window.
-    - cron: '17 18 1 * *'
+    - cron: '17 18 * * 1'
   workflow_dispatch:
 
 permissions:

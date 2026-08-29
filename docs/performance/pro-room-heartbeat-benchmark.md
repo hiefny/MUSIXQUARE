@@ -1,5 +1,12 @@
 # PRO room heartbeat persistence benchmark
 
+> **Historical benchmark evidence.** Captured on 2026-07-19 from baseline
+> `8cedc0815456984a61929891a820ef85978bb5ae` plus an intentionally dirty
+> candidate working tree. “Current working-tree” below means the tree at capture
+> time, not the current repository. This evidence supports the accepted
+> [static-assets and heartbeat ADR](../design/static-assets-and-pro-heartbeat-optimization.md);
+> it is not an operational SLO or a reproducible clean candidate commit.
+
 This benchmark compares the pre-optimization Worker at
 `8cedc0815456984a61929891a820ef85978bb5ae` with the current working-tree
 hybrid scheduler. Both versions execute their real

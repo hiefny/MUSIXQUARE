@@ -750,6 +750,8 @@ const ja: Record<I18nKey, string> = {
     '一部のデバイスで再生できないため、次のトラックへスキップします。',
   'chat.large_local_track_system_message':
     'このトラックはファイルサイズが非常に大きいため、一部のデバイスでは再生できない場合があります。',
+  'chat.decode_memory_risk_system_message':
+    'このトラックはデコード時に約{{estimatedMiB}} MiBのメモリを使用する可能性があり、このデバイスでは再生できない場合があります。',
   'chat.device_track_unavailable_system_message':
     'このデバイスでは現在のトラックを再生できません。',
   'chat.system_audio_started_system_message':

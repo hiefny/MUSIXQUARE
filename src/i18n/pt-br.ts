@@ -762,6 +762,8 @@ const ptBr: Record<I18nKey, string> = {
     'Formato incompatível em alguns dispositivos. Pulando para a próxima faixa.',
   'chat.large_local_track_system_message':
     'O arquivo desta faixa é muito grande e pode não ser reproduzido em alguns dispositivos.',
+  'chat.decode_memory_risk_system_message':
+    'Esta faixa pode usar cerca de {{estimatedMiB}} MiB de memória durante a decodificação e talvez não seja reproduzida neste dispositivo.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo não consegue reproduzir a faixa atual.',
   'chat.system_audio_started_system_message':

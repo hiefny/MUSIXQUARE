@@ -408,6 +408,8 @@ const ko = {
   'chat.decode_skip_system_message': '일부 기기에서 재생할 수 없어 다음 트랙으로 넘어가요.',
   'chat.large_local_track_system_message':
     '현재 트랙의 용량이 매우 커 일부 기기에서는 재생되지 않을 수 있어요.',
+  'chat.decode_memory_risk_system_message':
+    '이 트랙은 디코딩할 때 약 {{estimatedMiB}} MiB의 메모리를 사용할 수 있어 이 기기에서 재생되지 않을 수 있어요.',
   'chat.device_track_unavailable_system_message': '이 기기에서는 현재 트랙을 재생할 수 없어요.',
   'chat.system_audio_started_system_message':
     '시스템 오디오 공유가 시작됐어요. 방장과 참여자 사이 지연은 필연적으로 발생하기 때문에 방장 기기의 볼륨은 최대한 낮춰주세요.',

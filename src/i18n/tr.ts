@@ -411,6 +411,8 @@ const tr: Record<I18nKey, string> = {
     'Bazı cihazlar medyayı çözemediğinden sonraki medyaya geçiliyor',
   'chat.large_local_track_system_message':
     'Bu medyanın boyutu çok büyük, bu yüzden bazı cihazlarda oynatılamayabilir.',
+  'chat.decode_memory_risk_system_message':
+    'Bu parça kod çözme sırasında yaklaşık {{estimatedMiB}} MiB bellek kullanabilir ve bu cihazda oynatılamayabilir.',
   'chat.device_track_unavailable_system_message': 'Bu cihaz mevcut medyayı oynatamıyor.',
   'chat.system_audio_started_system_message':
     'Sistem sesi paylaşımı başladı. Oda sahibinin cihazıyla katılımcı cihazları arasında hafif gecikme olması normaldir. Yankıyı önlemek için oda sahibi cihazının sesini kısmalıdır.',

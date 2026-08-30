@@ -28,13 +28,15 @@ const ENCODED_RECEIVE_PEAK_COPIES = 2;
 // Whole-object upload/download can overlap the source/response bytes with one
 // browser-owned request or File backing, so reserve two representations.
 const REMOTE_TRANSPORT_PEAK_COPIES = 2;
-const METADATA_TIMEOUT_MS = 4_000;
+const METADATA_TIMEOUT_MS = 2_000;
 // Effectively unbounded for every file a browser can materialize while keeping
 // the accounting arithmetic finite and its invalid-number guards meaningful.
 const UNBOUNDED_MEMORY_BYTES = Number.MAX_SAFE_INTEGER;
 
+type DecodeMemoryTier = 'ios' | 'constrained' | 'standard' | 'high-memory';
+
 interface DecodeMemoryBudget {
-  readonly tier: 'ios' | 'constrained' | 'standard' | 'high-memory';
+  readonly tier: DecodeMemoryTier;
   readonly maxDecodedPcmBytes: number;
   readonly maxDecodeWorkingSetBytes: number;
 }
@@ -44,6 +46,12 @@ interface DecodeRuntimeProfile {
   readonly deviceMemoryGiB?: number;
   readonly platform?: string;
   readonly maxTouchPoints?: number;
+}
+
+interface DecodeMemoryWarningThreshold {
+  readonly tier: DecodeMemoryTier;
+  readonly maxDecodedPcmBytes: number;
+  readonly maxDecodeWorkingSetBytes: number;
 }
 
 type DecodeAdmissionReason =
@@ -133,6 +141,35 @@ function hasPredictiveMemoryLimit(budget: DecodeMemoryBudget): boolean {
   );
 }
 
+function decodeMemoryWarningThresholdForTier(tier: DecodeMemoryTier): DecodeMemoryWarningThreshold {
+  switch (tier) {
+    case 'ios':
+      return {
+        tier,
+        maxDecodedPcmBytes: 192 * MIB,
+        maxDecodeWorkingSetBytes: 320 * MIB,
+      };
+    case 'constrained':
+      return {
+        tier,
+        maxDecodedPcmBytes: 256 * MIB,
+        maxDecodeWorkingSetBytes: 448 * MIB,
+      };
+    case 'high-memory':
+      return {
+        tier,
+        maxDecodedPcmBytes: 512 * MIB,
+        maxDecodeWorkingSetBytes: 1024 * MIB,
+      };
+    case 'standard':
+      return {
+        tier,
+        maxDecodedPcmBytes: 384 * MIB,
+        maxDecodeWorkingSetBytes: 768 * MIB,
+      };
+  }
+}
+
 export function estimateDecodedPcmBytes(
   durationSeconds: number,
   outputSampleRate = EXPECTED_SAMPLE_RATE,
@@ -156,7 +193,8 @@ export function estimateDecodedPcmBytes(
 
 function estimateUnknownDurationPcmBytes(encodedBytes: number): number {
   if (!Number.isFinite(encodedBytes) || encodedBytes <= 0) return 0;
-  return Math.ceil(encodedBytes * UNKNOWN_DURATION_EXPANSION);
+  const estimatedBytes = Math.ceil(encodedBytes * UNKNOWN_DURATION_EXPANSION);
+  return Number.isSafeInteger(estimatedBytes) ? estimatedBytes : 0;
 }
 
 function probeAudioDuration(blob: Blob): Promise<number | null> {
@@ -244,6 +282,10 @@ function getProbedChannelCount(blob: Blob): Promise<number | null> {
   if (cached) return cached;
   const pending = probeAudioChannelCount(blob);
   channelCountCache.set(blob, pending);
+  pending.catch((error) => {
+    if (channelCountCache.get(blob) === pending) channelCountCache.delete(blob);
+    log.warn('[DecodeAdmission] Channel-count probe failed', error);
+  });
   return pending;
 }
 
@@ -270,8 +312,11 @@ interface DecodeWorkingSetOptions extends Pick<
   readonly excludeEncodedReceiveReservationId?: number;
 }
 
-interface DecodeAdmission {
+export interface DecodeMemoryEstimate {
   readonly durationSeconds: number | null;
+  readonly probedChannelCount: number | null;
+  /** True when bounded metadata plus safe advisory defaults support the estimate. */
+  readonly hasReliableMetadata: boolean;
   readonly channelCount: number;
   readonly outputSampleRate: number;
   readonly estimatedPcmBytes: number;
@@ -279,6 +324,40 @@ interface DecodeAdmission {
   readonly estimatedWorkingSetBytes: number;
   readonly budget: DecodeMemoryBudget;
   readonly sourceEncodedReceiveReservationId?: number;
+}
+
+interface DecodeMemoryWarningEvaluation {
+  readonly reason: 'estimated-pcm' | 'working-set' | 'both';
+  /** Rounded-up projected total working set shown to the user. */
+  readonly estimatedMiB: number;
+  readonly threshold: DecodeMemoryWarningThreshold;
+}
+
+export function evaluateDecodeMemoryWarning(
+  estimate: DecodeMemoryEstimate,
+  threshold: DecodeMemoryWarningThreshold = decodeMemoryWarningThresholdForTier(
+    estimate.budget.tier,
+  ),
+): DecodeMemoryWarningEvaluation | null {
+  if (
+    !estimate.hasReliableMetadata ||
+    !Number.isSafeInteger(estimate.estimatedPcmBytes) ||
+    !Number.isSafeInteger(estimate.estimatedWorkingSetBytes) ||
+    estimate.estimatedPcmBytes <= 0 ||
+    estimate.estimatedWorkingSetBytes <= 0
+  ) {
+    return null;
+  }
+  const pcmExceeded = estimate.estimatedPcmBytes > threshold.maxDecodedPcmBytes;
+  const workingSetExceeded = estimate.estimatedWorkingSetBytes > threshold.maxDecodeWorkingSetBytes;
+  if (!pcmExceeded && !workingSetExceeded) return null;
+
+  return {
+    reason:
+      pcmExceeded && workingSetExceeded ? 'both' : pcmExceeded ? 'estimated-pcm' : 'working-set',
+    estimatedMiB: Math.ceil(estimate.estimatedWorkingSetBytes / MIB),
+    threshold,
+  };
 }
 
 interface DecodeMemoryReservation {
@@ -540,19 +619,27 @@ function reserveRemoteTransportMemory(encodedBytes: number): RemoteTransportMemo
   };
 }
 
-function assertDecodeWorkingSetWithinBudget(
+function projectedDecodeWorkingSetBytes(
   ownDecodeFootprintBytes: number,
   options: DecodeWorkingSetOptions = {},
 ): number {
-  const budget = options.budget ?? resolveDecodeMemoryBudget();
-  const estimatedWorkingSetBytes =
+  return (
     Math.max(0, options.retainedPcmBytes ?? 0) +
     inFlightDecodeReservationBytes(options.excludeDecodeReservationId) +
     inFlightRemoteTransportReservationBytes() +
     encodedReceiveReservationBytes(
       encodedReceiveExceptSet(options.excludeEncodedReceiveReservationId),
     ) +
-    Math.max(0, ownDecodeFootprintBytes);
+    Math.max(0, ownDecodeFootprintBytes)
+  );
+}
+
+function assertDecodeWorkingSetWithinBudget(
+  ownDecodeFootprintBytes: number,
+  options: DecodeWorkingSetOptions = {},
+): number {
+  const budget = options.budget ?? resolveDecodeMemoryBudget();
+  const estimatedWorkingSetBytes = projectedDecodeWorkingSetBytes(ownDecodeFootprintBytes, options);
   if (
     !Number.isFinite(estimatedWorkingSetBytes) ||
     estimatedWorkingSetBytes > budget.maxDecodeWorkingSetBytes
@@ -575,31 +662,80 @@ export function reserveDecodeMemoryWithinBudget(
   // This synchronous check owns global-ledger accounting. Callers pass only
   // non-ledger memory (retained PCM); accepting a second "in-flight" value
   // here would make it easy to count the same decode lease twice.
-  assertDecodeWorkingSetWithinBudget(ownDecodeFootprintBytes, options);
+  const budget = options.budget ?? resolveDecodeMemoryBudget();
+  if (hasPredictiveMemoryLimit(budget)) {
+    assertDecodeWorkingSetWithinBudget(ownDecodeFootprintBytes, { ...options, budget });
+  }
   return reserveDecodeMemory(ownDecodeFootprintBytes);
 }
 
-export async function assertBlobCanDecodeToAudioBuffer(
+/**
+ * Inspect one Blob before it is copied into an ArrayBuffer or handed to the
+ * native decoder. This is deliberately non-throwing for memory policy: callers
+ * can use the result for advisory UI while production admission stays
+ * unbounded. Metadata/parser failures resolve to the conservative fallback.
+ */
+async function estimateBlobDecodeMemory(
   blob: Blob,
   options: DecodeAdmissionOptions = {},
-): Promise<DecodeAdmission> {
+): Promise<DecodeMemoryEstimate> {
   const budget = options.budget ?? resolveDecodeMemoryBudget();
-  const fileName =
-    options.fileName ?? (typeof File !== 'undefined' && blob instanceof File ? blob.name : '');
   const retainedPcmBytes = Math.max(0, options.retainedPcmBytes ?? 0);
   const sourceEncodedReceiveReservationId = encodedReceiveReservationByBlob.get(blob);
-  // The production policy is unbounded, so avoid delaying every load on
-  // metadata probes whose only purpose is predictive rejection. Explicit
-  // finite budgets retain the probe path for validation callers.
-  const [duration, probedChannels] = hasPredictiveMemoryLimit(budget)
-    ? await Promise.all([
-        options.durationProbe ? options.durationProbe(blob) : getProbedDuration(blob),
-        options.channelCountProbe ? options.channelCountProbe(blob) : getProbedChannelCount(blob),
-      ])
-    : [null, null];
-  const channelCount =
-    typeof probedChannels === 'number' && Number.isInteger(probedChannels) && probedChannels > 0
-      ? probedChannels
+  const settleProbe = async (
+    label: 'duration' | 'channel-count',
+    start: () => Promise<number | null>,
+  ): Promise<number | null> => {
+    return await new Promise((resolve) => {
+      let settled = false;
+      const finish = (value: number | null): void => {
+        if (settled) return;
+        settled = true;
+        globalThis.clearTimeout(timeoutId);
+        resolve(value);
+      };
+      const timeoutId = globalThis.setTimeout(() => {
+        log.debug(`[DecodeAdmission] ${label} warning probe timed out`);
+        finish(null);
+      }, METADATA_TIMEOUT_MS);
+
+      let pending: Promise<number | null>;
+      try {
+        pending = start();
+      } catch (error) {
+        log.warn(`[DecodeAdmission] ${label} warning probe failed`, error);
+        finish(null);
+        return;
+      }
+      pending.then(finish, (error: unknown) => {
+        // Metadata is advisory. A platform parser failure must not prevent
+        // the native decoder from trying the original Blob.
+        log.warn(`[DecodeAdmission] ${label} warning probe failed`, error);
+        finish(null);
+      });
+    });
+  };
+  const [duration, probedChannels] = await Promise.all([
+    settleProbe('duration', () =>
+      options.durationProbe ? options.durationProbe(blob) : getProbedDuration(blob),
+    ),
+    settleProbe('channel-count', () =>
+      options.channelCountProbe ? options.channelCountProbe(blob) : getProbedChannelCount(blob),
+    ),
+  ]);
+  const hasProbedDuration =
+    typeof duration === 'number' && Number.isFinite(duration) && duration > 0;
+  const hasProbedChannelCount =
+    typeof probedChannels === 'number' && Number.isInteger(probedChannels) && probedChannels > 0;
+  // Production warnings may use the overwhelmingly common stereo layout when
+  // a supported container (for example WebM) has duration metadata but no
+  // bounded channel parser. Explicit finite admission budgets retain the
+  // conservative 32-channel fallback used by validation callers.
+  const usesAdvisoryChannelFallback = !hasProbedChannelCount && !hasPredictiveMemoryLimit(budget);
+  const channelCount = hasProbedChannelCount
+    ? (probedChannels as number)
+    : usesAdvisoryChannelFallback
+      ? EXPECTED_CHANNELS
       : UNKNOWN_CHANNELS;
   const outputSampleRate =
     typeof options.outputSampleRate === 'number' &&
@@ -608,33 +744,33 @@ export async function assertBlobCanDecodeToAudioBuffer(
       ? Math.max(EXPECTED_SAMPLE_RATE, options.outputSampleRate)
       : EXPECTED_SAMPLE_RATE;
 
-  const estimatedPcmBytes = hasPredictiveMemoryLimit(budget)
-    ? typeof duration === 'number' && Number.isFinite(duration) && duration > 0
-      ? estimateDecodedPcmBytes(duration, outputSampleRate, channelCount)
-      : estimateUnknownDurationPcmBytes(blob.size)
+  const metadataEstimatedPcmBytes = hasProbedDuration
+    ? estimateDecodedPcmBytes(duration as number, outputSampleRate, channelCount)
     : 0;
-
-  if (estimatedPcmBytes > budget.maxDecodedPcmBytes) {
-    throw new AudioDecodeAdmissionError(
-      'estimated-pcm',
-      estimatedPcmBytes,
-      budget.maxDecodedPcmBytes,
-      fileName,
-    );
-  }
+  const hasSafeMetadataEstimate =
+    hasProbedDuration &&
+    Number.isSafeInteger(metadataEstimatedPcmBytes) &&
+    metadataEstimatedPcmBytes > 0;
+  const estimatedPcmBytes = hasSafeMetadataEstimate
+    ? metadataEstimatedPcmBytes
+    : estimateUnknownDurationPcmBytes(blob.size);
 
   // During decode, a RAM-backed Blob, its ArrayBuffer copy, decoded PCM, and
   // any native buffers WebKit has not reclaimed can coexist.
   const ownDecodeFootprintBytes = estimatedPcmBytes + blob.size * ENCODED_PEAK_COPIES;
-  const estimatedWorkingSetBytes = assertDecodeWorkingSetWithinBudget(ownDecodeFootprintBytes, {
-    budget,
-    fileName,
+  const estimatedWorkingSetBytes = projectedDecodeWorkingSetBytes(ownDecodeFootprintBytes, {
     retainedPcmBytes,
     excludeEncodedReceiveReservationId: sourceEncodedReceiveReservationId,
   });
 
   return {
     durationSeconds: duration,
+    probedChannelCount: hasProbedChannelCount ? (probedChannels as number) : null,
+    hasReliableMetadata:
+      hasSafeMetadataEstimate &&
+      (hasProbedChannelCount || usesAdvisoryChannelFallback) &&
+      Number.isSafeInteger(ownDecodeFootprintBytes) &&
+      Number.isSafeInteger(estimatedWorkingSetBytes),
     channelCount,
     outputSampleRate,
     estimatedPcmBytes,
@@ -643,6 +779,39 @@ export async function assertBlobCanDecodeToAudioBuffer(
     budget,
     sourceEncodedReceiveReservationId,
   };
+}
+
+export async function assertBlobCanDecodeToAudioBuffer(
+  blob: Blob,
+  options: DecodeAdmissionOptions = {},
+): Promise<DecodeMemoryEstimate> {
+  const budget = options.budget ?? resolveDecodeMemoryBudget();
+  const fileName =
+    options.fileName ?? (typeof File !== 'undefined' && blob instanceof File ? blob.name : '');
+  const estimate = await estimateBlobDecodeMemory(blob, { ...options, budget });
+
+  if (!hasPredictiveMemoryLimit(budget)) return estimate;
+
+  if (estimate.estimatedPcmBytes > budget.maxDecodedPcmBytes) {
+    throw new AudioDecodeAdmissionError(
+      'estimated-pcm',
+      estimate.estimatedPcmBytes,
+      budget.maxDecodedPcmBytes,
+      fileName,
+    );
+  }
+
+  const estimatedWorkingSetBytes = assertDecodeWorkingSetWithinBudget(
+    estimate.ownDecodeFootprintBytes,
+    {
+      budget,
+      fileName,
+      retainedPcmBytes: options.retainedPcmBytes,
+      excludeEncodedReceiveReservationId: estimate.sourceEncodedReceiveReservationId,
+    },
+  );
+
+  return { ...estimate, estimatedWorkingSetBytes };
 }
 
 export function assertDecodedAudioBufferWithinBudget(

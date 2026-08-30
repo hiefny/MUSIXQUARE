@@ -421,6 +421,8 @@ const pl: Record<I18nKey, string> = {
     'Pomijanie materiału: ten format nie jest obsługiwany na niektórych urządzeniach.',
   'chat.large_local_track_system_message':
     'Plik tego materiału jest bardzo duży i może nie zostać odtworzony na niektórych urządzeniach.',
+  'chat.decode_memory_risk_system_message':
+    'Podczas dekodowania ten utwór może zużyć około {{estimatedMiB}} MiB pamięci i może nie zostać odtworzony na tym urządzeniu.',
   'chat.device_track_unavailable_system_message':
     'To urządzenie nie może odtworzyć bieżącego materiału.',
   'chat.system_audio_started_system_message':

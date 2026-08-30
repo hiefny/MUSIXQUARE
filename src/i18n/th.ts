@@ -408,6 +408,8 @@ const th: Record<I18nKey, string> = {
   'chat.decode_skip_system_message': 'บางอุปกรณ์เล่นรายการนี้ไม่ได้ กำลังข้ามไปรายการถัดไป',
   'chat.large_local_track_system_message':
     'รายการนี้มีไฟล์ขนาดใหญ่มาก จึงอาจเล่นไม่ได้บนอุปกรณ์บางเครื่อง',
+  'chat.decode_memory_risk_system_message':
+    'แทร็กนี้อาจใช้หน่วยความจำประมาณ {{estimatedMiB}} MiB ขณะถอดรหัส จึงอาจเล่นบนอุปกรณ์นี้ไม่ได้',
   'chat.device_track_unavailable_system_message': 'อุปกรณ์นี้เล่นรายการปัจจุบันไม่ได้',
   'chat.system_audio_started_system_message':
     'เริ่มแชร์เสียงระบบแล้ว ความหน่วงเล็กน้อยระหว่างอุปกรณ์ของเจ้าของห้องกับผู้เข้าร่วมเป็นเรื่องปกติ แนะนำให้ลดระดับเสียงของอุปกรณ์เจ้าของห้องเพื่อเลี่ยงเสียงก้อง',

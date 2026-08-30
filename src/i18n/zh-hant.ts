@@ -703,6 +703,8 @@ const zhHant: Record<I18nKey, string> = {
   'chat.bot_rate_limited': '已達 BOT 請求上限，請在 {{duration}} 後再試',
   'chat.decode_skip_system_message': '跳過此項目：部分裝置不支援該格式。',
   'chat.large_local_track_system_message': '目前項目的檔案很大，部分裝置可能無法播放。',
+  'chat.decode_memory_risk_system_message':
+    '此曲目在解碼時可能會使用約 {{estimatedMiB}} MiB 的記憶體，因此可能無法在此裝置上播放。',
   'chat.device_track_unavailable_system_message': '此裝置無法播放目前的項目。',
   'chat.system_audio_started_system_message':
     '系統音訊分享已啟動。房主與參與者裝置之間有些微延遲是正常現象。為避免回音，建議盡量降低房主裝置的音量。',

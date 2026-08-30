@@ -764,6 +764,8 @@ const es: Record<I18nKey, string> = {
     'Pista omitida: formato no compatible en algunos dispositivos.',
   'chat.large_local_track_system_message':
     'El archivo de esta pista es muy grande y puede que no se reproduzca en algunos dispositivos.',
+  'chat.decode_memory_risk_system_message':
+    'Esta pista puede usar aproximadamente {{estimatedMiB}} MiB de memoria durante la decodificación y es posible que no se reproduzca en este dispositivo.',
   'chat.device_track_unavailable_system_message':
     'Este dispositivo no puede reproducir la pista actual.',
   'chat.system_audio_started_system_message':

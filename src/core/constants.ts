@@ -54,10 +54,8 @@ export const WATCHDOG_TIMEOUT = 12000; // 12s chunk watchdog
 export const REMOTE_SHARE_MAX_BYTES = 200 * 1024 * 1024;
 
 /**
- * Local files remain uncapped, but files above this encoded-size threshold
- * receive a compatibility warning before decode. This is intentionally a UX
- * threshold rather than an admission limit: decoded memory use depends on
- * duration, channel count, codec, and the receiving device.
+ * Standard-room fallback when reliable decode-memory metadata is unavailable.
+ * Local files remain uncapped; this encoded-size threshold is advisory only.
  */
 export const LOCAL_LARGE_TRACK_WARNING_BYTES = 200 * 1024 * 1024;
 

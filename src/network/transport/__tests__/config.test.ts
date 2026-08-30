@@ -34,12 +34,21 @@ describe('transport config', () => {
     );
   });
 
-  it('keeps localhost available for PeerJS development', () => {
-    expect(isLocalTransportHost('localhost')).toBe(true);
-    expect(isLocalTransportHost('127.0.0.1')).toBe(true);
-    expect(isLocalTransportHost('::1')).toBe(true);
-    expect(getPublicSignalingUrlForHost('localhost')).toBeUndefined();
-    expect(getRuntimeTransportConfig('localhost').signalingFallbackUrl).toBeUndefined();
+  it.each([
+    'localhost',
+    'localhost.',
+    'app.localhost',
+    'nested.app.localhost.',
+    '127.0.0.1',
+    '127.0.0.2',
+    '::1',
+    '[::1]',
+    '::ffff:127.0.0.1',
+    '[::ffff:7f00:1]',
+  ])('keeps the loopback host %s available for PeerJS development', (hostname) => {
+    expect(isLocalTransportHost(hostname)).toBe(true);
+    expect(getPublicSignalingUrlForHost(hostname)).toBeUndefined();
+    expect(getRuntimeTransportConfig(hostname).signalingFallbackUrl).toBeUndefined();
   });
 
   it('defaults the fallback only for the exact public signaling route', () => {

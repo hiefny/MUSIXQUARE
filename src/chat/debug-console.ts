@@ -30,6 +30,11 @@ import {
 import type { ConnectedPeer } from '../types/index.ts';
 import { parseDebugBrowser } from './debug-user-agent.ts';
 import {
+  appendDebugMemoryGraphSample,
+  createDebugMemoryGraphHistory,
+  type DebugMemoryGraphHistory,
+} from './debug-memory-history.ts';
+import {
   getContrastStatus,
   setContrastPreference,
   type ContrastPreference,
@@ -920,9 +925,10 @@ interface DebugSession {
   pre: HTMLPreElement;
   heapCanvas: HTMLCanvasElement;
   storageCanvas: HTMLCanvasElement;
-  /** Append-only — never trimmed. Graph remaps the X axis to fit them all. */
-  heapHistory: number[];
-  storageHistory: number[];
+  /** Bounded cumulative histories retain the complete session time span. */
+  heapHistory: DebugMemoryGraphHistory;
+  storageHistory: DebugMemoryGraphHistory;
+  pollInFlight: boolean;
   cleanup: () => void;
 }
 
@@ -984,8 +990,9 @@ function startDebugMemorySession(initial: MemSnapshot): void {
     pre,
     heapCanvas,
     storageCanvas,
-    heapHistory: initial.heapMB !== null ? [initial.heapMB] : [],
-    storageHistory: [initial.storageMB],
+    heapHistory: createDebugMemoryGraphHistory(initial.heapMB),
+    storageHistory: createDebugMemoryGraphHistory(initial.storageMB),
+    pollInFlight: false,
     cleanup: () => {
       /* replaced below */
     },
@@ -996,13 +1003,22 @@ function startDebugMemorySession(initial: MemSnapshot): void {
   setManagedTimer(
     DEBUG_POLL_TIMER,
     () => {
+      // A callback already queued before replacement must not tear down or
+      // sample the newer session that now owns the shared timer name.
+      if (_activeDebugSession !== session) return;
       if (!document.body.contains(overlay)) {
         stopDebugMemorySession();
         return;
       }
-      tickDebugMemorySession(session).catch((error) => {
-        log.warn('[Debug] Memory polling failed', error);
-      });
+      if (session.pollInFlight) return;
+      session.pollInFlight = true;
+      tickDebugMemorySession(session)
+        .catch((error) => {
+          log.warn('[Debug] Memory polling failed', error);
+        })
+        .finally(() => {
+          session.pollInFlight = false;
+        });
     },
     DEBUG_POLL_INTERVAL_MS,
     { interval: true },
@@ -1017,7 +1033,7 @@ function startDebugMemorySession(initial: MemSnapshot): void {
       heapCanvas,
       session.heapHistory,
       '#ffb454',
-      session.heapHistory.length === 0,
+      session.heapHistory.sampleCount === 0,
     );
     drawAccumulatingGraph(storageCanvas, session.storageHistory, '#5fc8ff', false);
   };
@@ -1047,7 +1063,7 @@ function startDebugMemorySession(initial: MemSnapshot): void {
     heapCanvas,
     session.heapHistory,
     '#ffb454',
-    session.heapHistory.length === 0,
+    session.heapHistory.sampleCount === 0,
   );
   drawAccumulatingGraph(storageCanvas, session.storageHistory, '#5fc8ff', false);
 
@@ -1060,14 +1076,14 @@ async function tickDebugMemorySession(session: DebugSession): Promise<void> {
   if (_activeDebugSession !== session) return;
 
   session.pre.textContent = next.lines.join('\n');
-  if (next.heapMB !== null) session.heapHistory.push(next.heapMB);
-  session.storageHistory.push(next.storageMB);
+  appendDebugMemoryGraphSample(session.heapHistory, next.heapMB);
+  appendDebugMemoryGraphSample(session.storageHistory, next.storageMB);
 
   drawAccumulatingGraph(
     session.heapCanvas,
     session.heapHistory,
     '#ffb454',
-    session.heapHistory.length === 0,
+    session.heapHistory.sampleCount === 0,
   );
   drawAccumulatingGraph(session.storageCanvas, session.storageHistory, '#5fc8ff', false);
 }
@@ -1107,14 +1123,12 @@ function syncCanvasSize(canvas: HTMLCanvasElement): void {
   if (canvas.height !== h) canvas.height = h;
 }
 
-// Cumulative-since-start renderer: every sample collected during the
-// session is mapped to the canvas width by even spacing. The X axis
-// effectively zooms out as more samples come in — old data never falls
-// off the left, which is what was explicitly requested over a sliding
-// window. Y autoscales with 10% headroom against the running max.
+// Cumulative-since-start renderer. Bounded min/max downsampling keeps the
+// complete session time span, and original sample indexes keep the X axis
+// truthful after compaction. Y autoscales against the exact running max.
 function drawAccumulatingGraph(
   canvas: HTMLCanvasElement,
-  history: number[],
+  history: DebugMemoryGraphHistory,
   color: string,
   unavailable: boolean,
 ): void {
@@ -1141,23 +1155,26 @@ function drawAccumulatingGraph(
     ctx.fillText('N/A (Safari/iOS)', w / 2, h / 2);
     return;
   }
-  if (history.length === 0) return;
+  const points = history.points;
+  if (points.length === 0 || history.currentValue === null) return;
 
-  const maxRaw = Math.max(...history);
   // Y headroom + minimum scale so a flat-zero series doesn't divide by zero.
-  const max = Math.max(maxRaw * 1.1, 1);
-  const dx = history.length > 1 ? w / (history.length - 1) : 0;
-  const xOf = (i: number): number => (history.length === 1 ? w / 2 : i * dx);
+  const max = Math.max((history.maxValue ?? 0) * 1.1, 1);
+  const sampleSpan = Math.max(1, history.sampleCount - 1);
+  const xOf = (point: DebugMemoryGraphHistory['points'][number]): number =>
+    history.sampleCount === 1 ? w / 2 : (point.sampleIndex / sampleSpan) * w;
 
   // Filled area beneath the line for visual weight.
   ctx.fillStyle = color + '33';
   ctx.beginPath();
   ctx.moveTo(0, h);
-  for (let i = 0; i < history.length; i++) {
-    const y = h - (history[i] / max) * h;
-    ctx.lineTo(xOf(i), y);
+  for (const point of points) {
+    const y = h - (point.value / max) * h;
+    ctx.lineTo(xOf(point), y);
   }
-  ctx.lineTo(xOf(history.length - 1), h);
+  const latest = points[points.length - 1];
+  if (!latest) return;
+  ctx.lineTo(xOf(latest), h);
   ctx.closePath();
   ctx.fill();
 
@@ -1165,19 +1182,24 @@ function drawAccumulatingGraph(
   ctx.strokeStyle = color;
   ctx.lineWidth = Math.max(1, 1.2 * dpr);
   ctx.beginPath();
-  for (let i = 0; i < history.length; i++) {
-    const x = xOf(i);
-    const y = h - (history[i] / max) * h;
+  for (let i = 0; i < points.length; i++) {
+    const point = points[i];
+    if (!point) continue;
+    const x = xOf(point);
+    const y = h - (point.value / max) * h;
     if (i === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
   }
   ctx.stroke();
 
   // Current value + sample count, top-right corner.
-  const current = history[history.length - 1];
   ctx.fillStyle = color;
   ctx.font = `${10 * dpr}px ui-monospace, monospace`;
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
-  ctx.fillText(`${current.toFixed(1)} (n=${history.length})`, w - 4 * dpr, 2 * dpr);
+  ctx.fillText(
+    `${history.currentValue.toFixed(1)} (n=${history.sampleCount})`,
+    w - 4 * dpr,
+    2 * dpr,
+  );
 }

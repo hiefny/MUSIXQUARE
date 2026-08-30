@@ -440,8 +440,26 @@ describe('custom-scrollbar compositor hot path', () => {
       expect(track.dataset.scrollDriver).toBe('timeline');
       expect(animate).toHaveBeenCalledTimes(2);
 
+      // A faded track's first scroll queues an intrinsic layout refresh. If
+      // the user grabs the freshly revealed thumb in that same task, the
+      // queued rAF must not restore ScrollTimeline beneath the held gesture.
+      vi.advanceTimersByTime(1_200);
+      expect(track.style.pointerEvents).toBe('none');
+      box.container.dispatchEvent(new Event('scroll'));
+      thumb.dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientY: 0 }),
+      );
+      expect(track.dataset.scrollDriver).toBe('script');
+      flushAnimationFrame();
+      expect(track.dataset.scrollDriver).toBe('script');
+      expect(animate).toHaveBeenCalledTimes(2);
+
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      expect(track.dataset.scrollDriver).toBe('timeline');
+      expect(animate).toHaveBeenCalledTimes(3);
+
       destroyCustomScrollbar(box.container);
-      expect(animations[1].cancel).toHaveBeenCalledOnce();
+      expect(animations[2].cancel).toHaveBeenCalledOnce();
     } finally {
       if (originalTimeline) Object.defineProperty(globalThis, 'ScrollTimeline', originalTimeline);
       else Reflect.deleteProperty(globalThis, 'ScrollTimeline');

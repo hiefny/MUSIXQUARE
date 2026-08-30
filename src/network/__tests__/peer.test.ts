@@ -15,7 +15,7 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer, setManagedTimer } from '../../core/timers.ts';
-import { detectConnectionType, getPeer, setPeer } from '../peer-state.ts';
+import { broadcastDeviceList, detectConnectionType, getPeer, setPeer } from '../peer-state.ts';
 import {
   cancelPendingSessionSetup,
   forceStereoSdp,
@@ -153,6 +153,49 @@ describe('safeSend', () => {
     const msg = makeMessage();
     expect(safeSend(conn, msg)).toBe(true);
     expect(conn.send).toHaveBeenCalledWith(msg);
+  });
+});
+
+describe('broadcastDeviceList', () => {
+  it('omits absent optional properties instead of serializing them as PeerJS nil values', () => {
+    const send = vi.fn();
+    const conn = makeConnection({ open: true, send });
+    setState('network.myId', '123456');
+    setState('network.connectedPeers', [
+      {
+        id: 'guest-1',
+        slot: 1,
+        label: 'Peer 1',
+        conn,
+        isOp: false,
+        preloadedQueueItemIds: new Set(),
+        status: 'connected',
+        isDataTarget: true,
+        joinOrder: 1,
+        connectionType: 'local',
+        devicePlatform: 'windows',
+        lastHeartbeat: Date.now(),
+      },
+    ]);
+
+    broadcastDeviceList();
+
+    expect(send).toHaveBeenCalledOnce();
+    const frame = send.mock.calls[0]?.[0] as {
+      type: string;
+      list: Array<Record<string, unknown>>;
+    };
+    expect(frame.type).toBe(MSG.DEVICE_LIST_UPDATE);
+    expect(frame.list).toHaveLength(2);
+    for (const device of frame.list) {
+      expect(Object.values(device)).not.toContain(undefined);
+    }
+    expect(frame.list[0]).not.toHaveProperty('memberId');
+    expect(frame.list[0]).not.toHaveProperty('memberDisplayNumber');
+    expect(frame.list[1]).not.toHaveProperty('memberId');
+    expect(frame.list[1]).not.toHaveProperty('memberDisplayNumber');
+    expect(frame.list[1]).not.toHaveProperty('isAuthenticated');
+    expect(frame.list[1]).not.toHaveProperty('capabilities');
   });
 });
 

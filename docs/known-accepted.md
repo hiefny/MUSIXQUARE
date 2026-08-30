@@ -3,7 +3,7 @@
 Originally opened on 2026-05-12 after the app-state decomposition and playback
 ownership refactor; later entries carry their own acceptance dates. Paths and
 the continued reachability of the listed tradeoffs were statically rechecked on
-2026-08-17. Static review does not replace the real-browser checks called out
+2026-08-30. Static review does not replace the real-browser checks called out
 below.
 
 This document prevents future audits from repeatedly reporting intentional tradeoffs. It is not a bug backlog. Anything here should still be revisited if MUSIXQUARE becomes a larger public multi-tenant service, adds discoverable public rooms, or introduces a new app bootstrap lifecycle.
@@ -41,7 +41,11 @@ This is accepted only while host/session/current-track guards remain in place. D
 
 ### 5. Partial Standard-Room P2P Schema Validation
 
-Standard-room P2P and browser transport messages are not all validated through a full schema library. The code instead treats session participants as untrusted at sensitive handlers and uses targeted connection/session/current-track checks plus numeric guards on high-risk fields.
+Standard-room P2P and browser transport messages are not all validated through
+a full schema library. Every declared message type is now inventory-guarded as
+either a lightweight bounded validator or an explicit handler-authority
+compatibility case. Sensitive handlers still treat session participants as
+untrusted and apply connection/session/current-track checks.
 
 This is accepted only for the current temporary, invite-code standard-room threat model. PRO persistence and Worker HTTP/WebSocket boundaries have separate runtime validators, bounds, and authority checks and are outside this standard-room P2P exception; this statement does not claim that every stored envelope uses exact-key validation. Reopen this item before exposing discoverable public standard rooms, feeding partially validated standard-room messages into persistence, or changing the standard-room trust boundary.
 
@@ -78,28 +82,25 @@ magnification to OS display zoom or the OS magnifier. Do not reopen this as a
 generic accessibility finding without the product/design and physical-device
 conditions in `docs/mobile-app-zoom-policy.md`.
 
-### 9. System-Audio Entry Does Not Cancel A Debounce-Parked File Broadcast
-
-`startSystemAudioCapture` (`src/audio/system-capture.ts`) awaits `stopAllMediaAsync({silent, cancelInFlight})` but does not call `cancelPendingBroadcast()`, unlike the local→YouTube switch (`playlist.ts` playTrack YouTube branch). A broadcast parked in the 300ms send debounce when the user confirms the screen-share picker therefore fires during system-audio mode; guests drop every frame (`isExternalOwner` gates in `transfer-receive.ts`), so the cost is one wasted full-file send to local guests, repaired after restore by the normal `REQUEST_CURRENT_FILE` recovery.
-
-This is accepted (2026-06-13 deep-dive; async call shape revalidated 2026-08-17). The window is a sub-300ms sliver: most overlap is already closed by the load's own external-owner abort (`decode.ts` post-decode check), and the strictly larger in-flight variant — a broadcast already pumping when system-audio starts — is itself accepted by design (SA-08: "chunks we discard anyway"). Cancelling only the parked sliver would not change the switch's waste profile. If revisited (system-audio becoming a high-frequency flow, or rooms growing past the current warn thresholds), the verified fix is a single `cancelPendingBroadcast()` after the awaited `stopAllMediaAsync` call in `startSystemAudioCapture` — pending-only, NOT `cancelOutgoingFileTransfers` (which would also abort in-flight transfers that can still finalize on guests before SYSTEM_AUDIO_START processes), and NOT inside `stopAllMediaAsync` (HET-6).
-
 ## Retired Risks
 
 These older draft findings and subsequently resolved risks should no longer be
 carried forward as accepted risks:
 
-| Old item                                                               | Current status                                                                                                                                                                                                                  |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cleanupOPFSInWorker` listener leak                                    | Retired. Current storage is RAM-backed; `src/storage/storage.ts` explicitly avoids `navigator.storage.getDirectory()` writes.                                                                                                   |
-| PeerJS vendor/type escape warnings                                     | Retired. PeerJS is npm-backed and production `src` is pinned by `src/core/__tests__/type-escape-holdouts.test.ts`.                                                                                                              |
-| Broad `Peer: any` / `as any` holdouts                                  | Retired. Current YouTube globals use local typed declarations; broad type escapes are covered by tests.                                                                                                                         |
-| Peer label/slot direct mutation as accepted reactive gap               | Retired as a blanket item. Critical peer maps now use `setState` with copied `Map`/object values in active paths.                                                                                                               |
-| Tone.js cleanup/tree-shaking notes                                     | Retired. The audio layer now uses direct Web Audio helpers.                                                                                                                                                                     |
-| OPFS browser API coverage                                              | Retired as written. The remaining browser-only test gaps are Media Session, service worker, YouTube iframe, WebRTC, and real mobile audio policy.                                                                               |
-| Blanket secondary-control accessibility gaps                           | Retired 2026-08-09. Concrete selection, carousel, dialog, chat-autocomplete, focus, and pointer contracts were audited and fixed; future exceptions must be documented individually.                                            |
-| System-audio media close handlers keyed only by channel/peer ID        | Retired 2026-07-19. Host and guest handlers now require exact `MediaConnection` identity, and a silent same-channel replacement has its own identity-fenced watchdog.                                                           |
-| `startSystemAudioCapture` mid-init failure leaves a silent-stop shadow | Retired 2026-07-16. `initAudio()` now completes before the prior playback snapshot is stopped, and a missing widener calls `abortPreparedCapture()` to restore that snapshot. Direct regression tests cover both failure paths. |
+| Old item                                                               | Current status                                                                                                                                                                                                                                                                     |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cleanupOPFSInWorker` listener leak                                    | Retired. Current storage is RAM-backed; `src/storage/storage.ts` explicitly avoids `navigator.storage.getDirectory()` writes.                                                                                                                                                      |
+| PeerJS vendor/type escape warnings                                     | Retired. PeerJS is npm-backed and production `src` is pinned by `src/core/__tests__/type-escape-holdouts.test.ts`.                                                                                                                                                                 |
+| Broad `Peer: any` / `as any` holdouts                                  | Retired. Current YouTube globals use local typed declarations; broad type escapes are covered by tests.                                                                                                                                                                            |
+| Peer label/slot direct mutation as accepted reactive gap               | Retired as a blanket item. Critical peer maps now use `setState` with copied `Map`/object values in active paths.                                                                                                                                                                  |
+| Tone.js cleanup/tree-shaking notes                                     | Retired. The audio layer now uses direct Web Audio helpers.                                                                                                                                                                                                                        |
+| OPFS browser API coverage                                              | Retired as written. The remaining browser-only test gaps are Media Session, service worker, YouTube iframe, WebRTC, and real mobile audio policy.                                                                                                                                  |
+| Blanket secondary-control accessibility gaps                           | Retired 2026-08-09. Concrete selection, carousel, dialog, chat-autocomplete, focus, and pointer contracts were audited and fixed; future exceptions must be documented individually.                                                                                               |
+| System-audio media close handlers keyed only by channel/peer ID        | Retired 2026-07-19. Host and guest handlers now require exact `MediaConnection` identity, and a silent same-channel replacement has its own identity-fenced watchdog.                                                                                                              |
+| `startSystemAudioCapture` mid-init failure leaves a silent-stop shadow | Retired 2026-07-16. `initAudio()` now completes before the prior playback snapshot is stopped, and a missing widener calls `abortPreparedCapture()` to restore that snapshot. Direct regression tests cover both failure paths.                                                    |
+| System-audio entry does not cancel a debounce-parked file broadcast    | Retired 2026-08-30. After `stopAllMediaAsync` succeeds, `startSystemAudioCapture` now calls only `cancelPendingBroadcast()`. A failed teardown preserves the pending broadcast, while already in-flight outgoing transfers remain untouched. Regression tests pin both boundaries. |
+| `/debug memory` retained and rendered every sample forever             | Retired 2026-08-30. Cumulative history now compacts to a bounded min/max envelope while preserving the full time span, endpoints, extrema, exact sample count, and running maximum; polling is single-flight.                                                                      |
+| Loopback browser API clients implicitly retried production             | Retired 2026-08-30. Local PRO, TURN, and Realtime calls now fail closed on the same origin unless the explicit local-production fallback flag or a validated PRO endpoint override is configured.                                                                                  |
 
 ## Rule For Future Audits
 

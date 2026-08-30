@@ -1,4 +1,5 @@
 import type { PeerJsServerConfig, TransportProvider } from './types.ts';
+import { isLoopbackHostname } from '../api-endpoints.ts';
 
 type RuntimeTransportConfig = {
   provider?: TransportProvider | 'auto';
@@ -16,13 +17,7 @@ const PUBLIC_SIGNALING_URL = 'wss://signal.musixquare.com/api/rooms';
 const PUBLIC_SIGNALING_FALLBACK_URL = 'wss://signal-alt.musixquare.com/api/rooms';
 
 export function isLocalTransportHost(hostname = location.hostname): boolean {
-  const normalized = hostname.trim().toLowerCase();
-  return (
-    normalized === 'localhost' ||
-    normalized === '127.0.0.1' ||
-    normalized === '::1' ||
-    normalized === '[::1]'
-  );
+  return isLoopbackHostname(hostname);
 }
 
 export function getPublicSignalingUrlForHost(hostname = location.hostname): string | undefined {

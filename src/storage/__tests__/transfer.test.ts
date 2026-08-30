@@ -751,6 +751,187 @@ describe('debounced broadcast cancellation', () => {
     return send;
   }
 
+  it('parks the latest payload beyond 300 ms and sends it only after resume', async () => {
+    vi.useFakeTimers();
+    const {
+      beginPendingBroadcastSuspension,
+      broadcastFileDebounced,
+      cancelOutgoingFileTransfers,
+      resumePendingBroadcastSuspension,
+    } = await import('../transfer.ts');
+    try {
+      cancelOutgoingFileTransfers();
+      const send = installHealthyPeer('peer-slow-picker');
+      const first = new File(['first'], 'first.mp3', { type: 'audio/mpeg' });
+      const latest = new File(['latest'], 'latest.mp3', { type: 'audio/mpeg' });
+      publishHostFile(first, Q0, 101);
+      broadcastFileDebounced(first, Q0, 101, {
+        type: MSG.FILE_PREPARE,
+        name: first.name,
+        queueItemId: Q0,
+        sessionId: 101,
+        mime: first.type,
+      });
+
+      const suspension = beginPendingBroadcastSuspension();
+      publishHostFile(latest, Q1, 102);
+      broadcastFileDebounced(latest, Q1, 102, {
+        type: MSG.FILE_PREPARE,
+        name: latest.name,
+        queueItemId: Q1,
+        sessionId: 102,
+        mime: latest.type,
+      });
+
+      // A native display picker can remain open far beyond the normal
+      // debounce. Neither metadata nor bytes may escape while it is open.
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+
+      resumePendingBroadcastSuspension(suspension);
+      await vi.advanceTimersByTimeAsync(301);
+      await vi.advanceTimersByTimeAsync(20);
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.FILE_PREPARE,
+          name: latest.name,
+          queueItemId: Q1,
+          sessionId: 102,
+        }),
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.FILE_START,
+          name: latest.name,
+          queueItemId: Q1,
+          sessionId: 102,
+        }),
+      );
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_PREPARE, name: first.name }),
+      );
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_START, name: first.name }),
+      );
+    } finally {
+      cancelOutgoingFileTransfers();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('drops a parked payload when its suspension is committed', async () => {
+    vi.useFakeTimers();
+    const {
+      beginPendingBroadcastSuspension,
+      broadcastFileDebounced,
+      cancelOutgoingFileTransfers,
+      discardPendingBroadcastSuspension,
+    } = await import('../transfer.ts');
+    try {
+      cancelOutgoingFileTransfers();
+      const send = installHealthyPeer('peer-picker-commit');
+      const file = new File(['discarded'], 'discarded.mp3', { type: 'audio/mpeg' });
+      publishHostFile(file, Q0, 103);
+      broadcastFileDebounced(file, Q0, 103, {
+        type: MSG.FILE_PREPARE,
+        name: file.name,
+        queueItemId: Q0,
+        sessionId: 103,
+        mime: file.type,
+      });
+
+      const suspension = beginPendingBroadcastSuspension();
+      await vi.advanceTimersByTimeAsync(1_000);
+      discardPendingBroadcastSuspension(suspension);
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
+      expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_START }));
+      expect(getState('transfer.activeBroadcastSession')).toBeNull();
+    } finally {
+      cancelOutgoingFileTransfers();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let a stale suspension resume or discard a newer parked payload', async () => {
+    vi.useFakeTimers();
+    const {
+      beginPendingBroadcastSuspension,
+      broadcastFileDebounced,
+      cancelOutgoingFileTransfers,
+      discardPendingBroadcastSuspension,
+      resumePendingBroadcastSuspension,
+    } = await import('../transfer.ts');
+    try {
+      cancelOutgoingFileTransfers();
+      const send = installHealthyPeer('peer-stale-suspension');
+      const first = new File(['first'], 'stale.mp3', { type: 'audio/mpeg' });
+      const latest = new File(['latest'], 'current.mp3', { type: 'audio/mpeg' });
+      publishHostFile(first, Q0, 104);
+      broadcastFileDebounced(first, Q0, 104, {
+        type: MSG.FILE_PREPARE,
+        name: first.name,
+        queueItemId: Q0,
+        sessionId: 104,
+        mime: first.type,
+      });
+      const staleSuspension = beginPendingBroadcastSuspension();
+
+      publishHostFile(latest, Q1, 105);
+      broadcastFileDebounced(latest, Q1, 105, {
+        type: MSG.FILE_PREPARE,
+        name: latest.name,
+        queueItemId: Q1,
+        sessionId: 105,
+        mime: latest.type,
+      });
+      const currentSuspension = beginPendingBroadcastSuspension();
+
+      resumePendingBroadcastSuspension(staleSuspension);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(send).not.toHaveBeenCalled();
+
+      resumePendingBroadcastSuspension(currentSuspension);
+      // The stale attempt may finish after the successor resumes. It must not
+      // cancel the successor's newly armed timer.
+      discardPendingBroadcastSuspension(staleSuspension);
+      await vi.advanceTimersByTimeAsync(301);
+      await vi.advanceTimersByTimeAsync(20);
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.FILE_PREPARE,
+          name: latest.name,
+          queueItemId: Q1,
+          sessionId: 105,
+        }),
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.FILE_START,
+          name: latest.name,
+          queueItemId: Q1,
+          sessionId: 105,
+        }),
+      );
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_PREPARE, name: first.name }),
+      );
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_START, name: first.name }),
+      );
+    } finally {
+      cancelOutgoingFileTransfers();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('cancelOutgoingFileTransfers also drops a broadcast parked in the debounce window', async () => {
     // Playlist teardown and demo entry depend on cancellation covering work
     // that is still queued in the debounce window.
@@ -849,33 +1030,84 @@ describe('debounced broadcast cancellation', () => {
     }
   });
 
-  it('treats a direct room-code switch as a full transfer boundary', async () => {
+  it('invalidates an old-room suspension before a new-room payload is armed', async () => {
     vi.useFakeTimers();
+    const {
+      beginPendingBroadcastSuspension,
+      broadcastFileDebounced,
+      cancelOutgoingFileTransfers,
+      discardPendingBroadcastSuspension,
+      initTransfer,
+      resumePendingBroadcastSuspension,
+    } = await import('../transfer.ts');
     try {
-      const { broadcastFileDebounced, initTransfer } = await import('../transfer.ts');
+      cancelOutgoingFileTransfers();
       initTransfer();
       setState('network.sessionCode', '111111');
-      const send = installHealthyPeer('room-a-peer');
-      const file = new File(['abc'], 'room-a.mp3', { type: 'audio/mpeg' });
-      publishHostFile(file, Q0, 77);
-      setState('transfer.localSessionId', 77);
-      setState('transfer.currentSessionId', 77);
+      const send = installHealthyPeer('new-room-peer');
 
-      broadcastFileDebounced(file, Q0, 77, {
+      const oldFile = new File(['old'], 'old-room.mp3', { type: 'audio/mpeg' });
+      publishHostFile(oldFile, Q0, 78);
+      setState('transfer.localSessionId', 78);
+      setState('transfer.currentSessionId', 78);
+      broadcastFileDebounced(oldFile, Q0, 78, {
         type: MSG.FILE_PREPARE,
-        name: file.name,
+        name: oldFile.name,
         queueItemId: Q0,
-        sessionId: 77,
-        mime: file.type,
+        sessionId: 78,
+        mime: oldFile.type,
       });
-      setState('network.sessionCode', '222222');
-      await vi.advanceTimersByTimeAsync(301);
+      const oldRoomSuspension = beginPendingBroadcastSuspension();
 
-      expect(send).not.toHaveBeenCalled();
+      // leaveSession() publishes the same session-code boundary synchronously.
+      // It must invalidate the unresolved native picker's old-room token.
+      setState('network.sessionCode', '');
       expect(getState('transfer.localSessionId')).toBe(0);
       expect(getState('transfer.currentSessionId')).toBe(0);
       expect(getState('transfer.activeBroadcastSession')).toBeNull();
+      setState('network.sessionCode', '222222');
+
+      const newFile = new File(['new'], 'new-room.mp3', { type: 'audio/mpeg' });
+      publishHostFile(newFile, Q1, 79);
+      broadcastFileDebounced(newFile, Q1, 79, {
+        type: MSG.FILE_PREPARE,
+        name: newFile.name,
+        queueItemId: Q1,
+        sessionId: 79,
+        mime: newFile.type,
+      });
+
+      // The abandoned picker may settle either way after the new room starts.
+      // Neither stale continuation may release or cancel new-room work.
+      resumePendingBroadcastSuspension(oldRoomSuspension);
+      discardPendingBroadcastSuspension(oldRoomSuspension);
+      await vi.advanceTimersByTimeAsync(301);
+      await vi.advanceTimersByTimeAsync(20);
+
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.FILE_PREPARE,
+          name: newFile.name,
+          queueItemId: Q1,
+          sessionId: 79,
+        }),
+      );
+      expect(send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.FILE_START,
+          name: newFile.name,
+          queueItemId: Q1,
+          sessionId: 79,
+        }),
+      );
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_PREPARE, name: oldFile.name }),
+      );
+      expect(send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_START, name: oldFile.name }),
+      );
     } finally {
+      cancelOutgoingFileTransfers();
       clearAllManagedTimers();
       vi.useRealTimers();
     }

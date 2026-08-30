@@ -11,7 +11,6 @@ export default defineConfig({
   retries: 0,
   workers: 1, // Sequential — shared PeerJS signaling server
   globalSetup: './e2e/global-setup.ts',
-  globalTeardown: './e2e/global-teardown.ts',
   use: {
     baseURL: E2E_APP_ORIGIN,
     headless: true,

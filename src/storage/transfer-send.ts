@@ -117,20 +117,14 @@ let _pendingBroadcast: {
   prepareMsg?: AnyProtocolMsg;
 } | null = null;
 
-/**
- * Coalesce rapid track selections so only the latest settled file and its
- * optional FILE_PREPARE announcement enter the ordered data channel. The
- * name-keyed timer and `_pendingBroadcast` must always describe the same call.
- */
-export function broadcastFileDebounced(
-  file: File,
-  queueItemId: string,
-  sessionId: number | null,
-  prepareMsg?: AnyProtocolMsg,
-): void {
-  if (!queueItemId) return;
-  if (sessionId !== null) freezeFileDeliveryMode(sessionId);
-  _pendingBroadcast = { file, queueItemId, sessionId, prepareMsg };
+interface PendingBroadcastSuspension {
+  readonly id: number;
+}
+
+let _nextPendingBroadcastSuspensionId = 0;
+let _activePendingBroadcastSuspension: PendingBroadcastSuspension | null = null;
+
+function armPendingBroadcastTimer(): void {
   setManagedTimer(
     BROADCAST_DEBOUNCE_KEY,
     () => {
@@ -150,6 +144,63 @@ export function broadcastFileDebounced(
     },
     BROADCAST_DEBOUNCE_MS,
   );
+}
+
+/**
+ * Coalesce rapid track selections so only the latest settled file and its
+ * optional FILE_PREPARE announcement enter the ordered data channel. The
+ * name-keyed timer and `_pendingBroadcast` must always describe the same call.
+ */
+export function broadcastFileDebounced(
+  file: File,
+  queueItemId: string,
+  sessionId: number | null,
+  prepareMsg?: AnyProtocolMsg,
+): void {
+  if (!queueItemId) return;
+  if (sessionId !== null) freezeFileDeliveryMode(sessionId);
+  _pendingBroadcast = { file, queueItemId, sessionId, prepareMsg };
+  if (_activePendingBroadcastSuspension) {
+    clearManagedTimer(BROADCAST_DEBOUNCE_KEY);
+    return;
+  }
+  armPendingBroadcastTimer();
+}
+
+/**
+ * Park the current debounce and any successor scheduled while an async media
+ * transition is unresolved. A newer suspension supersedes the older token,
+ * so a stale continuation cannot resume or discard its successor's payload.
+ */
+export function beginPendingBroadcastSuspension(): PendingBroadcastSuspension {
+  const suspension = Object.freeze({ id: ++_nextPendingBroadcastSuspensionId });
+  _activePendingBroadcastSuspension = suspension;
+  clearManagedTimer(BROADCAST_DEBOUNCE_KEY);
+  return suspension;
+}
+
+/** Resume only the latest still-current payload after a rejected transition. */
+export function resumePendingBroadcastSuspension(suspension: PendingBroadcastSuspension): void {
+  if (_activePendingBroadcastSuspension !== suspension) return;
+  _activePendingBroadcastSuspension = null;
+  if (!_pendingBroadcast) return;
+
+  const { file, queueItemId } = _pendingBroadcast;
+  if (
+    getState('playlist.currentQueueItemId') !== queueItemId ||
+    getState('files.current')?.blob !== file
+  ) {
+    _pendingBroadcast = null;
+    return;
+  }
+  armPendingBroadcastTimer();
+}
+
+/** Discard the parked payload after the replacement media teardown commits. */
+export function discardPendingBroadcastSuspension(suspension: PendingBroadcastSuspension): void {
+  if (_activePendingBroadcastSuspension !== suspension) return;
+  _activePendingBroadcastSuspension = null;
+  cancelPendingBroadcast();
 }
 
 /**
@@ -597,6 +648,7 @@ export function cancelOutgoingFileTransfers(): void {
   // A broadcast still parked in the debounce window is an outgoing transfer
   // too — drop it first so it can't fire after this teardown and resurrect
   // a chunk stream for a file the caller just discarded.
+  _activePendingBroadcastSuspension = null;
   cancelPendingBroadcast();
 
   if (_broadcastScope) {

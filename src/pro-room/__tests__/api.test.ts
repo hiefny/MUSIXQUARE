@@ -225,8 +225,14 @@ describe('PRO room endpoint boundary', () => {
     await rejected;
   });
 
-  it('uses production by default and only accepts trusted HTTPS or loopback overrides', () => {
+  it('uses production off loopback and only accepts trusted HTTPS or loopback overrides', () => {
     expect(resolveProRoomEndpoint(undefined)).toBe(PRO_ROOM_PRODUCTION_ENDPOINT);
+    expect(resolveProRoomEndpoint(undefined, 'https://musixquare.com/room/000001', 'false')).toBe(
+      PRO_ROOM_PRODUCTION_ENDPOINT,
+    );
+    expect(
+      resolveProRoomEndpoint(undefined, 'https://preview.musixquare.com/room/000001', 'false'),
+    ).toBe(PRO_ROOM_PRODUCTION_ENDPOINT);
     expect(resolveProRoomEndpoint('https://pro-staging.musixquare.com/')).toBe(
       'https://pro-staging.musixquare.com',
     );
@@ -238,6 +244,10 @@ describe('PRO room endpoint boundary', () => {
     );
     expect(resolveProRoomEndpoint('http://127.0.0.1:8789')).toBe('http://127.0.0.1:8789');
     expect(resolveProRoomEndpoint('https://localhost:8789')).toBe('https://localhost:8789');
+    expect(resolveProRoomEndpoint('http://[::1]:8789')).toBe('http://[::1]:8789');
+    expect(resolveProRoomEndpoint('http://localhost:3000/api/pro-room')).toBe(
+      'http://localhost:3000/api/pro-room',
+    );
 
     expect(resolveProRoomEndpoint('http://pro.musixquare.com')).toBe(PRO_ROOM_PRODUCTION_ENDPOINT);
     expect(resolveProRoomEndpoint('https://musixquare.com')).toBe(PRO_ROOM_PRODUCTION_ENDPOINT);
@@ -251,6 +261,51 @@ describe('PRO room endpoint boundary', () => {
       PRO_ROOM_PRODUCTION_ENDPOINT,
     );
     expect(resolveProRoomEndpoint('javascript:alert(1)')).toBe(PRO_ROOM_PRODUCTION_ENDPOINT);
+  });
+
+  it('fails closed to the same-origin PRO facade on loopback unless explicitly opted in', () => {
+    expect(resolveProRoomEndpoint(undefined, 'http://localhost:3000/app', 'false')).toBe(
+      'http://localhost:3000/api/pro-room',
+    );
+    expect(resolveProRoomEndpoint('invalid', 'http://127.0.0.1:4173/', '1')).toBe(
+      'http://127.0.0.1:4173/api/pro-room',
+    );
+    expect(resolveProRoomEndpoint(undefined, 'http://[::1]:4183/', undefined)).toBe(
+      'http://[::1]:4183/api/pro-room',
+    );
+    expect(resolveProRoomEndpoint(undefined, 'http://localhost:3000/app', ' TRUE ')).toBe(
+      PRO_ROOM_PRODUCTION_ENDPOINT,
+    );
+    expect(resolveProRoomEndpoint(undefined, 'http://localhost:3000/app', 'true', 'e2e')).toBe(
+      'http://localhost:3000/api/pro-room',
+    );
+
+    // A validated endpoint remains an intentional routing decision rather
+    // than an implicit fallback, including when the app shell is on loopback.
+    expect(
+      resolveProRoomEndpoint(
+        'https://pro-staging.musixquare.com/',
+        'http://localhost:3000/app',
+        'false',
+      ),
+    ).toBe('https://pro-staging.musixquare.com');
+  });
+
+  it('keeps a default loopback PRO request on the Vite same-origin boundary', async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse({ roomCode: ROOM_CODE, status: 'activation_required' }));
+    const endpoint = resolveProRoomEndpoint(undefined, 'http://localhost:3000/app', 'false');
+    const client = new ProRoomApiClient({ endpoint, fetch: fetchMock });
+
+    await expect(client.getBootstrap(ROOM_CODE)).resolves.toEqual({
+      roomCode: ROOM_CODE,
+      status: 'activation_required',
+    });
+
+    const { url } = requestParts(fetchMock);
+    expect(url.toString()).toBe('http://localhost:3000/api/pro-room/v1/rooms/000001/bootstrap');
+    expect(url.origin).not.toBe(new URL(PRO_ROOM_PRODUCTION_ENDPOINT).origin);
   });
 
   it('bootstraps with cookies, no bearer, no query, and a bounded exact response', async () => {

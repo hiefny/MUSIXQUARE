@@ -288,17 +288,52 @@ test.describe('custom scrollbar scroll-timeline driver', () => {
     // scrolling back to the browser-driven timeline.
     await scrollToRatio(fixture, 0);
     await expectThumbAtRatio(fixture, 0);
+    // The endpoint assertion can legitimately outlive the 1.2 s idle fade on
+    // a busy CI worker. Re-expose and hit-test the real pointer target, then
+    // dispatch the gesture to that proven target so cumulative suite load
+    // cannot make this driver-handoff test race the unrelated fade timer.
+    await fixture.owner.evaluate((element) => element.dispatchEvent(new Event('scroll')));
+    await expect(fixture.track).toHaveCSS('pointer-events', 'auto');
     const box = await fixture.thumb.boundingBox();
     expect(box).not.toBeNull();
-    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2);
-    await page.mouse.down();
+    const dragPoint = {
+      x: box!.x + box!.width / 2,
+      y: box!.y + box!.height / 2,
+    };
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ({ x, y }) => document.elementFromPoint(x, y)?.classList.contains('cscroll-thumb'),
+          dragPoint,
+        ),
+      )
+      .toBe(true);
+    await fixture.thumb.dispatchEvent('mousedown', {
+      button: 0,
+      buttons: 1,
+      clientX: dragPoint.x,
+      clientY: dragPoint.y,
+    });
     await waitForDriver(fixture, 'script');
     await expectVisualFillsOuter(fixture);
-    await page.mouse.move(box!.x + box!.width / 2, box!.y + box!.height / 2 + 40);
+    await page.evaluate(
+      ({ x, y }) =>
+        window.dispatchEvent(
+          new MouseEvent('mousemove', {
+            bubbles: true,
+            buttons: 1,
+            clientX: x,
+            clientY: y + 40,
+          }),
+        ),
+      dragPoint,
+    );
     await expect
       .poll(() => fixture.owner.evaluate((element) => element.scrollTop))
       .toBeGreaterThan(0);
-    await page.mouse.up();
+    await page.evaluate(() =>
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 })),
+    );
     await waitForDriver(fixture, 'timeline');
     await expectVisualFillsOuter(fixture);
   });

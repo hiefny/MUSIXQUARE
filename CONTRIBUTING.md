@@ -31,21 +31,33 @@ They return a non-cacheable `503 LOCAL_API_PROXY_DISABLED` response before
 Vite's SPA fallback. Other unconfigured relative `/api/*` paths return
 `503 LOCAL_API_NOT_CONFIGURED`.
 
-This Vite control is not a blanket production air gap. In every build mode, the
-PRO facade falls back to `https://musixquare.com/api/pro-room` when
-`VITE_PRO_ROOM_ENDPOINT` is absent or invalid. Outside E2E mode, TURN and
-Realtime calls try a relative endpoint and then the canonical production
-origin. Invoking those flows can therefore consume production quota or state
-even while Standard-room signaling uses local PeerJS. Mock the requests or
-configure validated local endpoints before exercising them. The complete
-boundary and variable inventory lives in
+Loopback app origins (`localhost` and its subdomains, `127.0.0.0/8`, and IPv6
+loopback) also fail closed for PRO, TURN, and Realtime by default. TURN and
+Realtime stop after their relative request receives
+`503 LOCAL_API_NOT_CONFIGURED`; a missing or invalid PRO override resolves to
+the same-origin `/api/pro-room` boundary and receives the same response. The
+boundary is installed on both Vite dev and preview. No implicit retry reaches
+`musixquare.com` from loopback. Production and public staging origins retain
+the canonical production fallback.
+
+For one intentional production integration run, set
+`VITE_MUSIXQUARE_ALLOW_LOCAL_PRODUCTION_API_FALLBACK=true` in untracked
+`.env.local`, restart the dev server (or rebuild before preview), and remove the
+override afterward. Only the exact `true` string after trim/case normalization
+enables it. E2E builds ignore this implicit fallback flag for PRO, TURN, and
+Realtime. A validated
+`VITE_PRO_ROOM_ENDPOINT` is an explicit route and takes precedence, so prefer a
+localhost endpoint backed by the complete local PRO services. Either an
+external endpoint or the fallback opt-in can consume production quota or state.
+The complete boundary and variable inventory lives in
 [`docs/configuration-reference.md`](docs/configuration-reference.md).
 
 Forwarding the six routes above is reserved for an intentional integration
 check: set
 `MUSIXQUARE_DEV_PROXY_PRODUCTION_API=true` in untracked `.env.local`, restart
-Vite, and remove the override afterward. That mode can consume production
-quotas and must never be the default development setup.
+the dev server, and remove the override afterward. Preview never installs this
+dev-only proxy and remains fail-closed. That mode can consume production quotas
+and must never be the default development setup.
 
 ## Verification ladder
 

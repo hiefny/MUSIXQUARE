@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv, type Plugin, type UserConfig } from 'vite';
+import { defineConfig, loadEnv, type Connect, type Plugin, type UserConfig } from 'vite';
 import { resolve } from 'path';
 import postcss, { type Plugin as PostCssPlugin } from 'postcss';
 import postcssCascadeLayers from '@csstools/postcss-cascade-layers';
@@ -179,36 +179,44 @@ export function productionApiProxyEnabled(env: DevEnvironment): boolean {
 function failClosedDevApi(proxyEnabled: boolean): Plugin {
   const matchesProductionProxy = (pathname: string) =>
     PRODUCTION_API_PROXY_PATHS.some((candidate) => pathname === candidate);
+  const middleware =
+    (productionProxyAvailable: boolean): Connect.NextHandleFunction =>
+    (req, res, next) => {
+      let pathname = '';
+      try {
+        pathname = new URL(req.url || '/', 'http://localhost').pathname;
+      } catch {
+        next();
+        return;
+      }
+      const isApiPath = pathname === '/api' || pathname.startsWith('/api/');
+      if (!isApiPath || (productionProxyAvailable && matchesProductionProxy(pathname))) {
+        next();
+        return;
+      }
+
+      const productionProxyDisabled = matchesProductionProxy(pathname);
+      const body = JSON.stringify({
+        error: productionProxyDisabled ? 'LOCAL_API_PROXY_DISABLED' : 'LOCAL_API_NOT_CONFIGURED',
+        message: productionProxyDisabled
+          ? 'Local Vite does not proxy MUSIXQUARE production APIs unless explicitly enabled.'
+          : 'This API route needs an explicit local mock or Worker backend.',
+      });
+      res.statusCode = 503;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.end(req.method === 'HEAD' ? undefined : body);
+    };
   return {
     name: 'fail-closed-dev-api',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        let pathname = '';
-        try {
-          pathname = new URL(req.url || '/', 'http://localhost').pathname;
-        } catch {
-          next();
-          return;
-        }
-        const isApiPath = pathname === '/api' || pathname.startsWith('/api/');
-        if (!isApiPath || (proxyEnabled && matchesProductionProxy(pathname))) {
-          next();
-          return;
-        }
-
-        const productionProxyDisabled = matchesProductionProxy(pathname);
-        const body = JSON.stringify({
-          error: productionProxyDisabled ? 'LOCAL_API_PROXY_DISABLED' : 'LOCAL_API_NOT_CONFIGURED',
-          message: productionProxyDisabled
-            ? 'Local Vite does not proxy MUSIXQUARE production APIs unless explicitly enabled.'
-            : 'This API route needs an explicit local mock or Worker backend.',
-        });
-        res.statusCode = 503;
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.setHeader('Cache-Control', 'no-store');
-        res.end(req.method === 'HEAD' ? undefined : body);
-      });
+      server.middlewares.use(middleware(proxyEnabled));
+    },
+    configurePreviewServer(server) {
+      // `server.proxy` is a dev-server facility. Preview must stay fail-closed
+      // even if the dev-only proxy flag is present in the shell environment.
+      server.middlewares.use(middleware(false));
     },
   };
 }

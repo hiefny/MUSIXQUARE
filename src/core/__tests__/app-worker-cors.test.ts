@@ -6125,11 +6125,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.42');
-    expect(html).toContain('/clearable-editors.js?v=8.4.42');
-    expect(html).toContain('/admin.js?v=8.4.42');
+    expect(html).toContain('/admin.css?v=8.4.43');
+    expect(html).toContain('/clearable-editors.js?v=8.4.43');
+    expect(html).toContain('/admin.js?v=8.4.43');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.42"');
+    expect(html).toContain('data-admin-asset-version="8.4.43"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6150,9 +6150,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.42',
-      '/admin.css?v=8.4.42',
-      '/clearable-editors.js?v=8.4.42',
+      '/admin.js?v=8.4.43',
+      '/admin.css?v=8.4.43',
+      '/clearable-editors.js?v=8.4.43',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);

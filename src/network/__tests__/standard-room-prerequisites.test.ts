@@ -71,7 +71,7 @@ afterEach(() => {
 });
 
 describe('standard-room prerequisite cache', () => {
-  it('deduplicates the production-relative TURN retry while preserving local fallback', () => {
+  it('deduplicates production and keeps loopback TURN requests same-origin', () => {
     expect(
       __standardRoomPrerequisitesForTests.requestEndpoints(
         'https://musixquare.com/setup?source=landing',
@@ -79,7 +79,6 @@ describe('standard-room prerequisite cache', () => {
     ).toEqual(['/api/get-turn-config']);
     expect(__standardRoomPrerequisitesForTests.requestEndpoints('http://localhost:5173/')).toEqual([
       '/api/get-turn-config',
-      'https://musixquare.com/api/get-turn-config',
     ]);
   });
 
@@ -180,14 +179,13 @@ describe('standard-room prerequisite cache', () => {
   it('retries normally after an opportunistic warmup failure', async () => {
     mocks.fetchWithCapability
       .mockRejectedValueOnce(new Error('offline'))
-      .mockRejectedValueOnce(new Error('offline'))
       .mockResolvedValueOnce(turnResponse());
 
     await expect(getStandardRoomTurnCredentials()).resolves.toBeNull();
     await expect(getStandardRoomTurnCredentials()).resolves.toMatchObject({
       provider: 'cloudflare',
     });
-    expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(3);
+    expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(2);
   });
 
   it('bounds a hung shared request and lets the next setup retry', async () => {
@@ -223,8 +221,8 @@ describe('standard-room prerequisite cache', () => {
     );
 
     await expect(getStandardRoomTurnCredentials()).resolves.toBeNull();
-    expect(mocks.fetchWithCapability).toHaveBeenCalledTimes(2);
-    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(mocks.fetchWithCapability).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledOnce();
   });
 
   it('preconnects signaling but skips TURN when capability cannot warm silently', async () => {

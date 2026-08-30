@@ -1,5 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
+import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart } from './helpers/setup-flow.ts';
+import { navigateToTab } from './helpers/wait.ts';
 
 const MOBILE_WIDTHS = [360, 390, 430] as const;
 const MAX_LAYOUT_DRIFT_PX = 0.5;
@@ -127,6 +129,10 @@ async function readVariableGaps(page: Page): Promise<VariableGapGeometry> {
 }
 
 test.describe('mobile visualizer layout', () => {
+  test.beforeEach(async ({ page }) => {
+    await injectPeerServer(page);
+  });
+
   test('matches bottom clearance to the edge-to-edge nav without crowding feedback', async ({
     page,
   }) => {
@@ -213,7 +219,7 @@ test.describe('mobile visualizer layout', () => {
     await expect(subtitle).toHaveText(initialHint!);
   });
 
-  test('hides the track subtitle only on short mobile UI tiers', async ({ page }) => {
+  test('hides the track subtitle only on short portrait mobile UI tiers', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await setupHostAndStart(page);
 
@@ -226,8 +232,8 @@ test.describe('mobile visualizer layout', () => {
     for (const viewport of [
       { width: 390, height: 721, hidden: false },
       { width: 390, height: 720, hidden: true },
-      { width: 844, height: 390, hidden: true },
-      { width: 1279, height: 720, hidden: true },
+      { width: 844, height: 390, hidden: false },
+      { width: 1279, height: 720, hidden: false },
       { width: 1280, height: 720, hidden: false },
       { width: 1280, height: 600, hidden: false },
     ]) {
@@ -245,6 +251,7 @@ test.describe('mobile visualizer layout', () => {
   test('keeps the stage height and track title stable while modes change', async ({ page }) => {
     await page.setViewportSize({ width: MOBILE_WIDTHS[0], height: 844 });
     await setupHostAndStart(page);
+    await navigateToTab(page, 'play');
     await expect(page.locator('.track-title-wrapper')).not.toHaveClass(/app-entrance/, {
       timeout: 5_000,
     });
@@ -253,14 +260,12 @@ test.describe('mobile visualizer layout', () => {
       await page.setViewportSize({ width, height: 844 });
 
       if (await page.locator('body').evaluate((body) => body.classList.contains('viz-spectrum'))) {
-        await page
-          .locator('#visualizerCanvas')
-          .evaluate((canvas) => (canvas as HTMLElement).click());
+        await page.locator('#visualizerCanvas').click();
       }
       await expect(page.locator('body')).not.toHaveClass(/viz-spectrum/);
 
       const circular = await readVisualizerGeometry(page);
-      await page.locator('#visualizerCanvas').evaluate((canvas) => (canvas as HTMLElement).click());
+      await page.locator('#visualizerCanvas').click();
       await expect(page.locator('body')).toHaveClass(/viz-spectrum/);
       const spectrum = await readVisualizerGeometry(page);
 

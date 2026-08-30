@@ -23,7 +23,6 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   globalSetup: './e2e/global-setup.ts',
-  globalTeardown: './e2e/global-teardown.ts',
   use: {
     ...devices['iPhone 13'],
     baseURL: E2E_APP_ORIGIN,

@@ -1352,7 +1352,7 @@ function applyReverbType(type: string, notify = true): void {
 function handleReverbTypeMsg(data: Record<string, unknown>, conn?: DataConnection): void {
   if (!shouldApplyLegacySettingsFrame(conn)) return;
   if (data.value == null) return;
-  applyReverbType(String(data.value));
+  applyReverbType(String(data.value), !data._bootstrap);
 }
 
 function handleReverbDecayMsg(data: Record<string, unknown>, conn?: DataConnection): void {

@@ -481,9 +481,10 @@ function updateLayout(state: ScrollbarState): void {
 
   // Rebuild only when the endpoint changed; the once-per-scroll-session
   // intrinsic layout refresh therefore does not restart a healthy animation.
-  // ensureScrollTimeline seeds a clamped inline state before replacing the
-  // animation, while the proven script fallback retains rubber-band squash.
-  if (!ensureScrollTimeline(state)) updateScroll(state);
+  // A drag can begin after that refresh is queued but before its rAF runs.
+  // Keep script ownership until mouseup/touchend instead of resurrecting a
+  // compositor animation underneath the active gesture.
+  if (state.isDragging || !ensureScrollTimeline(state)) updateScroll(state);
   else updateTimelineElasticity(state);
 
   if (state.revealAfterLayout) {

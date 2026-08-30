@@ -155,6 +155,7 @@ test.describe('Critical browser release gate', () => {
     let signalingSocketUrl = '';
     const pageErrors: string[] = [];
     const proRequests: string[] = [];
+    const proRequestOrigins = new Set<string>();
     page.on('pageerror', (error) => pageErrors.push(String(error)));
 
     await page.routeWebSocket(
@@ -179,9 +180,11 @@ test.describe('Critical browser release gate', () => {
     );
 
     const snapshot = ownerSnapshot();
-    await page.route('https://musixquare.com/api/pro-room/**', async (route) => {
+    await page.route('**/api/pro-room/**', async (route) => {
       const request = route.request();
-      const pathname = new URL(request.url()).pathname;
+      const requestUrl = new URL(request.url());
+      const pathname = requestUrl.pathname;
+      proRequestOrigins.add(requestUrl.origin);
       proRequests.push(`${request.method()} ${pathname}`);
       if (request.method() === 'OPTIONS') {
         await route.fulfill({ status: 204, headers: proCorsHeaders(page), body: '' });
@@ -259,6 +262,7 @@ test.describe('Critical browser release gate', () => {
           recoveryRequests,
           signalingSocketUrl,
           proRequests,
+          proRequestOrigins: [...proRequestOrigins],
           diagnostic,
           pageErrors,
         })}`,
@@ -274,6 +278,7 @@ test.describe('Critical browser release gate', () => {
           recoveryRequests,
           signalingSocketUrl,
           proRequests,
+          proRequestOrigins: [...proRequestOrigins],
           pageErrors,
         })}`,
       );
@@ -282,6 +287,7 @@ test.describe('Critical browser release gate', () => {
     expect(recoveryRequests).toBe(1);
     expect(recoveredBody).toEqual({ claimToken: OWNER_RECOVERY_CLAIM });
     expect(signalingSocketUrl).toBe(`${PRO_SIGNALING_ORIGIN}/api/pro-rooms/${PRO_ROOM_CODE}/ws`);
+    expect([...proRequestOrigins]).toEqual([E2E_APP_ORIGIN]);
     expect(pageErrors).toEqual([]);
   });
 

@@ -4,8 +4,6 @@
  */
 (function installStandaloneAnalytics() {
   const ANALYTICS_SRC = 'https://static.cloudflareinsights.com/beacon.min.js';
-  const ANALYTICS_INTEGRITY =
-    'sha384-RPC48PglHYv6iOCN3mmnZnP3gNOZVwfDZ7lX5wedb4S/ZijsfoDPi/hoEMk+9Nyw';
   const ANALYTICS_TOKEN = '80608f4cdc3849d589d14bdcf48f19f9';
 
   try {
@@ -29,8 +27,8 @@
     const script = document.createElement('script');
     script.async = true;
     script.src = ANALYTICS_SRC;
-    script.integrity = ANALYTICS_INTEGRITY;
-    script.crossOrigin = 'anonymous';
+    // Cloudflare serves this unversioned URL as a mutable asset. Pinning its
+    // bytes with SRI makes analytics fail whenever Cloudflare updates it.
     script.setAttribute('data-cf-beacon', JSON.stringify({ token: ANALYTICS_TOKEN, spa: false }));
     document.head.appendChild(script);
   } catch {

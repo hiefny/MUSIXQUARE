@@ -8,8 +8,6 @@ import {
 } from '../../../scripts/classic-runtime-assets.ts';
 
 const ANALYTICS_SRC = 'https://static.cloudflareinsights.com/beacon.min.js';
-const ANALYTICS_INTEGRITY =
-  'sha384-RPC48PglHYv6iOCN3mmnZnP3gNOZVwfDZ7lX5wedb4S/ZijsfoDPi/hoEMk+9Nyw';
 const SOURCE_ROOTS = ['public', '.workshop', 'browser/classic-runtime'];
 const STATIC_ANALYTICS_PAGES = [
   '.workshop/developers/developers.html',
@@ -86,7 +84,7 @@ async function runStandaloneAnalyticsLoader({
   return appendedScripts;
 }
 
-describe('Cloudflare Web Analytics supply-chain boundary', () => {
+describe('Cloudflare Web Analytics loading boundary', () => {
   const repositoryRoot = resolve('.');
   const files = SOURCE_ROOTS.flatMap((root) => sourceFiles(resolve(root)));
   const analyticsFiles = files.filter((path) => readFileSync(path, 'utf8').includes(ANALYTICS_SRC));
@@ -114,7 +112,7 @@ describe('Cloudflare Web Analytics supply-chain boundary', () => {
     expect(accountComplete).not.toContain('/analytics-bootstrap.js');
   });
 
-  it('allows only the two guarded first-party loaders to inject the pinned script', async () => {
+  it('allows only the guarded first-party loader to inject the approved script', async () => {
     const runtimeSourceFiles = analyticsFiles
       .filter((path) => ['.js', '.ts'].includes(extname(path)))
       .map((path) => portablePath(relative(repositoryRoot, path)))
@@ -123,9 +121,8 @@ describe('Cloudflare Web Analytics supply-chain boundary', () => {
 
     for (const path of runtimeSourceFiles) {
       const source = readFileSync(resolve(path), 'utf8');
-      expect(source).toContain(`'${ANALYTICS_INTEGRITY}'`);
-      expect(source).toContain('script.integrity = ANALYTICS_INTEGRITY;');
-      expect(source).toContain("script.crossOrigin = 'anonymous';");
+      expect(source).not.toContain('script.integrity');
+      expect(source).not.toContain('script.crossOrigin');
       expect(source).toContain('JSON.stringify({ token: ANALYTICS_TOKEN, spa: false })');
     }
 
@@ -147,10 +144,10 @@ describe('Cloudflare Web Analytics supply-chain boundary', () => {
     expect(scripts).toHaveLength(1);
     expect(scripts[0]).toMatchObject({
       async: true,
-      crossOrigin: 'anonymous',
-      integrity: ANALYTICS_INTEGRITY,
       src: ANALYTICS_SRC,
     });
+    expect(scripts[0]?.crossOrigin).toBeUndefined();
+    expect(scripts[0]?.integrity).toBeUndefined();
     expect(JSON.parse(scripts[0]?.attributes['data-cf-beacon'] || '{}')).toEqual({
       token: '80608f4cdc3849d589d14bdcf48f19f9',
       spa: false,

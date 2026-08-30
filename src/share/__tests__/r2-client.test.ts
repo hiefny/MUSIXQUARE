@@ -713,7 +713,7 @@ describe('R2 canonical whole-object upload', () => {
 
   it('defaults localhost to the canonical account host shared with PRO', async () => {
     Reflect.deleteProperty(window, '__MUSIXQUARE_REMOTE_SHARE_UPLOAD_HOST__');
-    const { PRO_ROOM_R2_HOST } = await import('../../pro-room/api.ts');
+    const { proRoomR2HostForTests: PRO_ROOM_R2_HOST } = await import('../../pro-room/api.ts');
     expect(PRO_ROOM_R2_HOST).toBe('01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com');
     const expiresAt = Date.now() + 86_400_000;
     const cleanupToken = `${'c'.repeat(40)}.${'t'.repeat(43)}`;

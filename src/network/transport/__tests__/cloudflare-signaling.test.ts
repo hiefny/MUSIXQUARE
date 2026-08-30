@@ -169,6 +169,7 @@ interface FakeLocalDescription {
  */
 class FakeRTCPeerConnection {
   static instances: FakeRTCPeerConnection[] = [];
+  static modelSignalingState = false;
 
   connectionState: RTCPeerConnectionState = 'connected';
   signalingState: RTCSignalingState = 'stable';
@@ -176,6 +177,11 @@ class FakeRTCPeerConnection {
   remoteDescription: RTCSessionDescriptionInit | null = null;
   readonly channels: FakeDataChannel[] = [];
   readonly addedCandidates: RTCIceCandidateInit[] = [];
+  readonly localDescriptionHistory: RTCSessionDescriptionInit[] = [];
+  readonly remoteDescriptionHistory: RTCSessionDescriptionInit[] = [];
+  readonly removedSenders: RTCRtpSender[] = [];
+  rollbackCount = 0;
+  private readonly senders: RTCRtpSender[] = [];
   private listeners = new Map<string, Set<FakeRTCListener>>();
 
   constructor(readonly configuration?: RTCConfiguration) {
@@ -190,6 +196,10 @@ class FakeRTCPeerConnection {
 
   removeEventListener(event: string, listener: FakeRTCListener): void {
     this.listeners.get(event)?.delete(listener);
+  }
+
+  listenerCount(event: string): number {
+    return this.listeners.get(event)?.size ?? 0;
   }
 
   createDataChannel(label: string): FakeDataChannel {
@@ -207,26 +217,73 @@ class FakeRTCPeerConnection {
   }
 
   async setLocalDescription(description: RTCSessionDescriptionInit): Promise<void> {
+    this.localDescriptionHistory.push({ ...description });
+    if (description.type === 'rollback') {
+      this.rollbackCount++;
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.setSignalingState('stable');
+      return;
+    }
     const type = description.type ?? 'offer';
     const sdp = description.sdp ?? '';
     this.localDescription = { type, sdp, toJSON: () => ({ type, sdp }) };
+    if (FakeRTCPeerConnection.modelSignalingState) {
+      if (type === 'offer') this.setSignalingState('have-local-offer');
+      else if (type === 'answer') this.setSignalingState('stable');
+    }
   }
 
   async setRemoteDescription(description: RTCSessionDescriptionInit): Promise<void> {
+    this.remoteDescriptionHistory.push({ ...description });
+    if (description.type === 'rollback') {
+      this.rollbackCount++;
+      this.localDescription = null;
+      this.remoteDescription = null;
+      this.setSignalingState('stable');
+      return;
+    }
     this.remoteDescription = description;
+    if (FakeRTCPeerConnection.modelSignalingState) {
+      if (description.type === 'offer') this.setSignalingState('have-remote-offer');
+      else if (description.type === 'answer') this.setSignalingState('stable');
+    }
   }
 
   async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     this.addedCandidates.push(candidate);
   }
 
+  addTrack(track: MediaStreamTrack): RTCRtpSender {
+    const sender = { track } as RTCRtpSender;
+    this.senders.push(sender);
+    return sender;
+  }
+
+  removeTrack(sender: RTCRtpSender): void {
+    const index = this.senders.indexOf(sender);
+    if (index >= 0) this.senders.splice(index, 1);
+    this.removedSenders.push(sender);
+  }
+
   getSenders(): RTCRtpSender[] {
-    return [];
+    return [...this.senders];
+  }
+
+  forceSignalingState(state: RTCSignalingState): void {
+    this.setSignalingState(state);
   }
 
   close(): void {
     this.connectionState = 'closed';
+    this.setSignalingState('closed');
     this.dispatch('connectionstatechange', {});
+  }
+
+  private setSignalingState(state: RTCSignalingState): void {
+    if (this.signalingState === state) return;
+    this.signalingState = state;
+    this.dispatch('signalingstatechange', {});
   }
 
   dispatch(event: string, payload: unknown): void {
@@ -332,7 +389,7 @@ class FakeMediaStream {
   }
 
   getAudioTracks(): MediaStreamTrack[] {
-    return [...this.tracks];
+    return this.tracks.filter((track) => track.kind === 'audio');
   }
 
   addTrack(track: MediaStreamTrack): void {
@@ -340,8 +397,9 @@ class FakeMediaStream {
   }
 }
 
-function installFakeRTCPeerConnection(): void {
+function installFakeRTCPeerConnection(options: { modelSignalingState?: boolean } = {}): void {
   FakeRTCPeerConnection.instances = [];
+  FakeRTCPeerConnection.modelSignalingState = options.modelSignalingState === true;
   Object.defineProperty(globalThis, 'RTCPeerConnection', {
     configurable: true,
     value: FakeRTCPeerConnection as unknown as typeof RTCPeerConnection,
@@ -575,6 +633,81 @@ async function establishGuest(roomPassword = ''): Promise<{
   return { peer, conn, socket, pc: FakeRTCPeerConnection.instances[0] };
 }
 
+async function establishGuestWithSignalingState(): Promise<{
+  peer: CloudflareSignalingPeer;
+  conn: TransportDataConnection;
+  socket: FakeWebSocket;
+  pc: FakeRTCPeerConnection;
+}> {
+  installFakeWebSocket();
+  installFakeRTCPeerConnection({ modelSignalingState: true });
+  const peer = createGuestPeer();
+  const conn = peer.connect('123456');
+  const socket = FakeWebSocket.instances[0];
+  socket.dispatch('open');
+  await flushAsync();
+  socket.dispatch(
+    'message',
+    JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+  );
+  await flushAsync();
+  const pc = FakeRTCPeerConnection.instances[0];
+  const dataOffer = sentOfType(socket, 'signal-offer')[0];
+  socket.dispatch(
+    'message',
+    JSON.stringify({
+      type: 'signal-answer',
+      from: 'host',
+      negotiationId: dataOffer?.negotiationId,
+      sdp: { type: 'answer', sdp: 'data-answer' },
+    }),
+  );
+  await vi.waitFor(() => expect(pc.signalingState).toBe('stable'));
+  return { peer, conn, socket, pc };
+}
+
+async function establishHostWithSignalingState(peerId = 'guest-media'): Promise<{
+  peer: CloudflareSignalingPeer;
+  conn: TransportDataConnection;
+  socket: FakeWebSocket;
+  pc: FakeRTCPeerConnection;
+}> {
+  installFakeWebSocket();
+  installFakeRTCPeerConnection({ modelSignalingState: true });
+  const peer = createHostPeer();
+  await Promise.resolve();
+  const socket = FakeWebSocket.instances[0];
+  socket.dispatch('open');
+  socket.dispatch(
+    'message',
+    JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+  );
+  await flushAsync();
+  socket.dispatch(
+    'message',
+    JSON.stringify({
+      type: 'signal-offer',
+      from: peerId,
+      negotiationId: NEGOTIATION_ID,
+      sdp: { type: 'offer', sdp: 'guest-data-offer' },
+    }),
+  );
+  await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(1));
+  const pc = FakeRTCPeerConnection.instances[0];
+  pc.dispatch('datachannel', { channel: new FakeDataChannel('musixquare-data') });
+  pc.dispatch('datachannel', { channel: new FakeDataChannel('musixquare-control') });
+  await new Promise<void>((resolve) => queueMicrotask(resolve));
+  const conn = privateMaps(peer).connections.get(peerId);
+  if (!conn) throw new Error('HOST_DATA_CONNECTION_NOT_ESTABLISHED');
+  return { peer, conn, socket, pc };
+}
+
+function fakeAudioStream(id: string): MediaStream {
+  const stream = new FakeMediaStream();
+  stream.addTrack({ id, kind: 'audio' } as MediaStreamTrack);
+  return stream as unknown as MediaStream;
+}
+
 afterEach(() => {
   clearAllManagedTimers();
   __cloudflareSignalingForTests.resetPageSignalingSocketHandles();
@@ -780,6 +913,15 @@ describe('deferred RTC configuration', () => {
     );
   }
 
+  async function admitDeferredHost(socket: FakeWebSocket): Promise<void> {
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+  }
+
   function releaseWithTurn(peer: CloudflareSignalingPeer): RTCConfiguration {
     const configuration: RTCConfiguration = {
       iceServers: [
@@ -798,7 +940,7 @@ describe('deferred RTC configuration', () => {
 
   it('blocks a guessed-code offer until the final TURN configuration is installed', async () => {
     const { peer, socket } = await createDeferredHost();
-    socket.dispatch('open');
+    await admitDeferredHost(socket);
     dispatchOffer(socket);
     await flushAsync();
 
@@ -816,7 +958,7 @@ describe('deferred RTC configuration', () => {
 
   it('drops a gated offer when a newer peer-left arrives before TURN is ready', async () => {
     const { peer, socket } = await createDeferredHost();
-    socket.dispatch('open');
+    await admitDeferredHost(socket);
     dispatchOffer(socket);
     socket.dispatch(
       'message',
@@ -834,7 +976,7 @@ describe('deferred RTC configuration', () => {
 
   it('negotiates only the newest replacement offer queued behind the TURN gate', async () => {
     const { peer, socket } = await createDeferredHost();
-    socket.dispatch('open');
+    await admitDeferredHost(socket);
     dispatchOffer(socket, NEGOTIATION_ID, 'guest-replacement');
     dispatchOffer(socket, NEXT_NEGOTIATION_ID, 'guest-replacement');
     await flushAsync();
@@ -851,7 +993,7 @@ describe('deferred RTC configuration', () => {
 
   it('does not forward an old socket offer through its replacement after TURN becomes ready', async () => {
     const { peer, socket: oldSocket } = await createDeferredHost();
-    oldSocket.dispatch('open');
+    await admitDeferredHost(oldSocket);
     dispatchOffer(oldSocket);
     await flushAsync();
 
@@ -4706,6 +4848,7 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     secondPc.dispatch('icecandidate', {
       candidate: { toJSON: () => ({ candidate: 'candidate:current-second' }) },
     });
+    await vi.waitFor(() => expect(sentOfType(socket, 'signal-candidate')).toHaveLength(1));
     const sentCandidates = sentOfType(socket, 'signal-candidate');
     expect(sentCandidates).toHaveLength(1);
     expect(sentCandidates[0]).toMatchObject({
@@ -4787,6 +4930,395 @@ describe('Cloudflare signaling/data-channel boundary', () => {
     expect(pc.remoteDescription).toEqual({ type: 'offer', sdp: 'current-media-offer' });
 
     peer.destroy();
+  });
+
+  describe('shared media negotiation lifecycle', () => {
+    it('waits for reopened host admission before sending an in-flight media offer', async () => {
+      const { peer, socket, pc } = await establishHostWithSignalingState();
+      const pendingOffer = deferred<RTCSessionDescriptionInit>();
+      const createOffer = vi.spyOn(pc, 'createOffer').mockReturnValueOnce(pendingOffer.promise);
+
+      const mediaConn = peer.call('guest-media', fakeAudioStream('reconnected-media-offer'));
+      const onError = vi.fn();
+      mediaConn.on('error', onError);
+      await vi.waitFor(() => expect(createOffer).toHaveBeenCalledTimes(1));
+
+      socket.close();
+      expect(peer.disconnected).toBe(true);
+      peer.reconnect();
+      const reopened = FakeWebSocket.instances.at(-1)!;
+      expect(reopened).not.toBe(socket);
+      reopened.dispatch('open');
+
+      pendingOffer.resolve({ type: 'offer', sdp: 'reconnected-media-offer' });
+      await vi.waitFor(() => expect(pc.localDescription?.sdp).toBe('reconnected-media-offer'));
+      expect(sentOfType(reopened, 'media-offer')).toHaveLength(0);
+      expect(sentOfType(socket, 'media-offer')).toHaveLength(0);
+      expect(onError).not.toHaveBeenCalled();
+
+      reopened.dispatch(
+        'message',
+        JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+      );
+      await vi.waitFor(() => expect(sentOfType(reopened, 'media-offer')).toHaveLength(1));
+
+      expect(sentOfType(reopened, 'media-offer')[0]).toMatchObject({
+        to: 'guest-media',
+        sdp: { type: 'offer', sdp: 'reconnected-media-offer' },
+      });
+      expect(sentOfType(socket, 'media-offer')).toHaveLength(0);
+      expect(onError).not.toHaveBeenCalled();
+      expect(pc.connectionState).toBe('connected');
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+      peer.destroy();
+    });
+
+    it('applies outgoing transform and sender tuning once per call without patching the shared pc', async () => {
+      const { peer, socket, pc } = await establishHostWithSignalingState();
+      const originalSetLocalDescription = pc.setLocalDescription;
+      const transform = vi.fn((sdp: string) => `${sdp}|stereo`);
+      const tuneSender = vi.fn();
+
+      const first = peer.call('guest-media', fakeAudioStream('audio-1'), {
+        sdpTransform: transform,
+        senderTuning: tuneSender,
+      });
+      const firstOpen = vi.fn();
+      first.on('open', firstOpen);
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+      const firstOffer = sentOfType(socket, 'media-offer')[0]!;
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-answer',
+          from: 'guest-media',
+          callId: firstOffer.callId,
+          negotiationId: firstOffer.negotiationId,
+          sdp: { type: 'answer', sdp: 'first-media-answer' },
+        }),
+      );
+      await vi.waitFor(() => expect(firstOpen).toHaveBeenCalledTimes(1));
+      first.close();
+      await flushAsync();
+
+      const second = peer.call('guest-media', fakeAudioStream('audio-2'), {
+        sdpTransform: transform,
+        senderTuning: tuneSender,
+      });
+      const secondOpen = vi.fn();
+      second.on('open', secondOpen);
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(2));
+      const secondOffer = sentOfType(socket, 'media-offer')[1]!;
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-answer',
+          from: 'guest-media',
+          callId: secondOffer.callId,
+          negotiationId: secondOffer.negotiationId,
+          sdp: { type: 'answer', sdp: 'second-media-answer' },
+        }),
+      );
+      await vi.waitFor(() => expect(secondOpen).toHaveBeenCalledTimes(1));
+
+      expect(firstOffer.sdp).toEqual({ type: 'offer', sdp: 'fake-offer|stereo' });
+      expect(secondOffer.sdp).toEqual({ type: 'offer', sdp: 'fake-offer|stereo' });
+      expect(transform).toHaveBeenCalledTimes(2);
+      expect(tuneSender).toHaveBeenCalledTimes(2);
+      expect(pc.setLocalDescription).toBe(originalSetLocalDescription);
+      expect(pc.rollbackCount).toBe(0);
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+      peer.destroy();
+    });
+
+    it('releases partially-added senders when outgoing call setup fails', async () => {
+      const { peer, socket, pc } = await establishHostWithSignalingState();
+      const stream = new FakeMediaStream();
+      stream.addTrack({ id: 'partial-audio-1', kind: 'audio' } as MediaStreamTrack);
+      stream.addTrack({ id: 'partial-audio-2', kind: 'audio' } as MediaStreamTrack);
+      const nativeAddTrack = pc.addTrack.bind(pc);
+      vi.spyOn(pc, 'addTrack')
+        .mockImplementationOnce((track) => nativeAddTrack(track))
+        .mockImplementationOnce(() => {
+          throw new Error('second addTrack failed');
+        });
+
+      const mediaConn = peer.call('guest-media', stream as unknown as MediaStream);
+      const onError = vi.fn();
+      mediaConn.on('error', onError);
+      await vi.waitFor(() =>
+        expect(onError).toHaveBeenCalledWith(new Error('second addTrack failed')),
+      );
+
+      expect(pc.getSenders()).toEqual([]);
+      expect(pc.removedSenders).toHaveLength(1);
+      expect(pc.listenerCount('track')).toBe(0);
+      expect(sentOfType(socket, 'media-offer')).toHaveLength(0);
+      peer.destroy();
+    });
+
+    it('does not run a queued media offer after the exact call closes synchronously', async () => {
+      const { peer, socket, pc } = await establishHostWithSignalingState();
+      const mediaConn = peer.call('guest-media', fakeAudioStream('cancelled-before-offer'));
+
+      mediaConn.close();
+      await flushAsync();
+
+      expect(sentOfType(socket, 'media-offer')).toHaveLength(0);
+      expect(pc.getSenders()).toEqual([]);
+      expect(pc.listenerCount('track')).toBe(0);
+      expect(pc.signalingState).toBe('stable');
+      peer.destroy();
+    });
+
+    it('applies incoming answer transform once per call without patching the shared pc', async () => {
+      const { peer, socket, pc } = await establishGuestWithSignalingState();
+      const originalSetLocalDescription = pc.setLocalDescription;
+      const originalSetRemoteDescription = pc.setRemoteDescription;
+      const transform = vi.fn((sdp: string) => `${sdp}|stereo`);
+      const onCall = vi.fn();
+      peer.on('call', onCall);
+
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-offer',
+          from: 'host',
+          negotiationId: NEGOTIATION_ID,
+          callId: 'incoming-transform-1',
+          sdp: { type: 'offer', sdp: 'first-host-media-offer' },
+          audioTrackCount: 1,
+        }),
+      );
+      await vi.waitFor(() => expect(onCall).toHaveBeenCalledTimes(1));
+      const first = onCall.mock.calls[0]?.[0] as TransportMediaConnection;
+      first.answer(undefined, { sdpTransform: transform });
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-answer')).toHaveLength(1));
+      first.close();
+      await flushAsync();
+
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-offer',
+          from: 'host',
+          negotiationId: NEXT_NEGOTIATION_ID,
+          callId: 'incoming-transform-2',
+          sdp: { type: 'offer', sdp: 'second-host-media-offer' },
+          audioTrackCount: 1,
+        }),
+      );
+      await vi.waitFor(() => expect(onCall).toHaveBeenCalledTimes(2));
+      const second = onCall.mock.calls[1]?.[0] as TransportMediaConnection;
+      second.answer(undefined, { sdpTransform: transform });
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-answer')).toHaveLength(2));
+
+      const answers = sentOfType(socket, 'media-answer');
+      expect(answers[0]?.sdp).toEqual({ type: 'answer', sdp: 'fake-answer|stereo' });
+      expect(answers[1]?.sdp).toEqual({ type: 'answer', sdp: 'fake-answer|stereo' });
+      expect(transform).toHaveBeenCalledTimes(2);
+      expect(pc.setLocalDescription).toBe(originalSetLocalDescription);
+      expect(pc.setRemoteDescription).toBe(originalSetRemoteDescription);
+      expect(pc.rollbackCount).toBe(0);
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+      peer.destroy();
+    });
+
+    it('rolls back a failed host media answer before retrying on the same data pc', async () => {
+      const { peer, socket, pc } = await establishHostWithSignalingState();
+      const nativeSetRemoteDescription = pc.setRemoteDescription.bind(pc);
+      vi.spyOn(pc, 'setRemoteDescription').mockImplementation(async (description) => {
+        if (description.sdp === 'failed-media-answer') throw new Error('set remote failed');
+        await nativeSetRemoteDescription(description);
+      });
+
+      const first = peer.call('guest-media', fakeAudioStream('failed-audio'));
+      const firstError = vi.fn();
+      first.on('error', firstError);
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+      const firstOffer = sentOfType(socket, 'media-offer')[0]!;
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-answer',
+          from: 'guest-media',
+          callId: firstOffer.callId,
+          negotiationId: firstOffer.negotiationId,
+          sdp: { type: 'answer', sdp: 'failed-media-answer' },
+        }),
+      );
+      await vi.waitFor(() => {
+        expect(firstError).toHaveBeenCalledTimes(1);
+        expect(pc.rollbackCount).toBe(1);
+        expect(pc.signalingState).toBe('stable');
+      });
+
+      const second = peer.call('guest-media', fakeAudioStream('retry-audio'));
+      const secondOpen = vi.fn();
+      second.on('open', secondOpen);
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(2));
+      const secondOffer = sentOfType(socket, 'media-offer')[1]!;
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-answer',
+          from: 'guest-media',
+          callId: secondOffer.callId,
+          negotiationId: secondOffer.negotiationId,
+          sdp: { type: 'answer', sdp: 'retry-media-answer' },
+        }),
+      );
+      await vi.waitFor(() => expect(secondOpen).toHaveBeenCalledTimes(1));
+      expect(pc.signalingState).toBe('stable');
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+      peer.destroy();
+    });
+
+    it('rolls back a failed guest answer before answering the next offer', async () => {
+      const { peer, socket, pc } = await establishGuestWithSignalingState();
+      vi.spyOn(pc, 'createAnswer').mockRejectedValueOnce(new Error('create answer failed'));
+      const onCall = vi.fn();
+      peer.on('call', onCall);
+
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-offer',
+          from: 'host',
+          negotiationId: NEGOTIATION_ID,
+          callId: 'failed-incoming-answer',
+          sdp: { type: 'offer', sdp: 'failed-host-offer' },
+          audioTrackCount: 1,
+        }),
+      );
+      await vi.waitFor(() => expect(onCall).toHaveBeenCalledTimes(1));
+      const failed = onCall.mock.calls[0]?.[0] as TransportMediaConnection;
+      const failedError = vi.fn();
+      failed.on('error', failedError);
+      failed.answer();
+      await vi.waitFor(() => {
+        expect(failedError).toHaveBeenCalledTimes(1);
+        expect(pc.rollbackCount).toBe(1);
+        expect(pc.signalingState).toBe('stable');
+        expect(pc.listenerCount('signalingstatechange')).toBe(0);
+      });
+
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-offer',
+          from: 'host',
+          negotiationId: NEXT_NEGOTIATION_ID,
+          callId: 'retry-incoming-answer',
+          sdp: { type: 'offer', sdp: 'retry-host-offer' },
+          audioTrackCount: 1,
+        }),
+      );
+      await vi.waitFor(() => expect(onCall).toHaveBeenCalledTimes(2));
+      const retry = onCall.mock.calls[1]?.[0] as TransportMediaConnection;
+      retry.answer();
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-answer')).toHaveLength(1));
+      expect(sentOfType(socket, 'media-answer')[0]?.callId).toBe('retry-incoming-answer');
+      expect(pc.signalingState).toBe('stable');
+      expect(pc.listenerCount('track')).toBe(1);
+      peer.destroy();
+    });
+
+    it("does not let a settled call's stale close roll back its successor offer", async () => {
+      const { peer, socket, pc } = await establishHostWithSignalingState();
+      const first = peer.call('guest-media', fakeAudioStream('first-audio'));
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+      const firstOffer = sentOfType(socket, 'media-offer')[0]!;
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-answer',
+          from: 'guest-media',
+          callId: firstOffer.callId,
+          negotiationId: firstOffer.negotiationId,
+          sdp: { type: 'answer', sdp: 'first-answer' },
+        }),
+      );
+      await vi.waitFor(() => expect(pc.signalingState).toBe('stable'));
+
+      const second = peer.call('guest-media', fakeAudioStream('second-audio'));
+      const secondOpen = vi.fn();
+      second.on('open', secondOpen);
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(2));
+      const secondOffer = sentOfType(socket, 'media-offer')[1]!;
+      expect(pc.signalingState).toBe('have-local-offer');
+
+      first.close();
+      await flushAsync();
+      expect(pc.signalingState).toBe('have-local-offer');
+      expect(pc.rollbackCount).toBe(0);
+
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-answer',
+          from: 'guest-media',
+          callId: secondOffer.callId,
+          negotiationId: secondOffer.negotiationId,
+          sdp: { type: 'answer', sdp: 'second-answer' },
+        }),
+      );
+      await vi.waitFor(() => expect(secondOpen).toHaveBeenCalledTimes(1));
+      expect(pc.signalingState).toBe('stable');
+      peer.destroy();
+    });
+
+    it('retires the exact shared data connection when owned rollback fails', async () => {
+      const { peer, conn, socket, pc } = await establishHostWithSignalingState();
+      const mediaConn = peer.call('guest-media', fakeAudioStream('rollback-failure-audio'));
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+      vi.spyOn(pc, 'setLocalDescription').mockRejectedValueOnce(new Error('rollback failed'));
+
+      mediaConn.close();
+
+      await vi.waitFor(() => expect(pc.connectionState).toBe('closed'));
+      expect(conn.open).toBe(false);
+      expect(privateMaps(peer).connections.has('guest-media')).toBe(false);
+      peer.destroy();
+    });
+
+    it('removes stable-wait listeners after both settlement and timeout', async () => {
+      vi.useFakeTimers();
+      installFakeRTCPeerConnection({ modelSignalingState: true });
+      const peer = createGuestPeer();
+      const pc = new FakeRTCPeerConnection();
+      const internalPeer = peer as unknown as {
+        waitForStableSignaling(target: RTCPeerConnection, signal?: AbortSignal): Promise<void>;
+      };
+
+      pc.forceSignalingState('have-local-offer');
+      const settledWait = internalPeer.waitForStableSignaling(pc as unknown as RTCPeerConnection);
+      expect(pc.listenerCount('signalingstatechange')).toBe(1);
+      pc.forceSignalingState('stable');
+      await settledWait;
+      expect(pc.listenerCount('signalingstatechange')).toBe(0);
+
+      pc.forceSignalingState('have-local-offer');
+      const controller = new AbortController();
+      const abortedWait = internalPeer.waitForStableSignaling(
+        pc as unknown as RTCPeerConnection,
+        controller.signal,
+      );
+      const abortedRejection = expect(abortedWait).rejects.toThrow('MEDIA_NEGOTIATION_CANCELLED');
+      expect(pc.listenerCount('signalingstatechange')).toBe(1);
+      controller.abort();
+      await abortedRejection;
+      expect(pc.listenerCount('signalingstatechange')).toBe(0);
+
+      pc.forceSignalingState('have-local-offer');
+      const timedWait = internalPeer.waitForStableSignaling(pc as unknown as RTCPeerConnection);
+      const rejection = expect(timedWait).rejects.toThrow('SIGNALING_NOT_STABLE:have-local-offer');
+      expect(pc.listenerCount('signalingstatechange')).toBe(1);
+      await vi.advanceTimersByTimeAsync(3000);
+      await rejection;
+      expect(pc.listenerCount('signalingstatechange')).toBe(0);
+      peer.destroy();
+    });
   });
 
   it('keeps a live guest data channel when only the signaling socket errors', () => {
@@ -5708,20 +6240,17 @@ describe('Cloudflare guest signaling reconnect', () => {
     expect(sentOfType(rejoined, 'guest-auth')[0]?.password).toBe('87654321');
   });
 
-  it('sends ICE candidates over the current socket after a reopen', async () => {
+  it('holds guest ICE candidates for the exact admitted socket after a reopen', async () => {
     const { peer, socket, pc } = await establishGuest();
     const onPeerError = vi.fn();
     peer.on('error', onPeerError);
 
     socket.close();
 
-    // During the outage the send-time resolver finds no socket and throws
-    // the same transport error type the captured-socket path produced.
     pc.dispatch('icecandidate', {
       candidate: { toJSON: () => ({ candidate: 'cand-during-outage' }) },
     });
-    expect(onPeerError).toHaveBeenCalledTimes(1);
-    expect(onPeerError).toHaveBeenCalledWith(expect.objectContaining({ type: 'socket-closed' }));
+    expect(onPeerError).not.toHaveBeenCalled();
 
     peer.reconnect();
     const reopened = FakeWebSocket.instances[1];
@@ -5731,11 +6260,21 @@ describe('Cloudflare guest signaling reconnect', () => {
       candidate: { toJSON: () => ({ candidate: 'cand-after-reopen' }) },
     });
 
+    expect(sentOfType(reopened, 'signal-candidate')).toHaveLength(0);
+    reopened.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await vi.waitFor(() => expect(sentOfType(reopened, 'signal-candidate')).toHaveLength(2));
+
     const candidates = sentOfType(reopened, 'signal-candidate');
-    expect(candidates).toHaveLength(1);
-    expect(candidates[0]?.to).toBe('host');
-    expect(candidates[0]?.candidate).toEqual({ candidate: 'cand-after-reopen' });
+    expect(candidates.map((candidate) => candidate.candidate)).toEqual([
+      { candidate: 'cand-during-outage' },
+      { candidate: 'cand-after-reopen' },
+    ]);
+    expect(candidates.every((candidate) => candidate.to === 'host')).toBe(true);
     expect(sentOfType(socket, 'signal-candidate')).toHaveLength(0);
+    expect(onPeerError).not.toHaveBeenCalled();
   });
 
   it('answers a pre-blip media offer over the reopened socket', async () => {
@@ -5757,6 +6296,8 @@ describe('Cloudflare guest signaling reconnect', () => {
     await flushAsync();
     expect(onCall).toHaveBeenCalledTimes(1);
     const mediaConn = onCall.mock.calls[0]?.[0] as TransportMediaConnection;
+    const onError = vi.fn();
+    mediaConn.on('error', onError);
 
     socket.close();
     peer.reconnect();
@@ -5766,13 +6307,118 @@ describe('Cloudflare guest signaling reconnect', () => {
     mediaConn.answer();
     await flushAsync();
 
+    expect(sentOfType(reopened, 'media-answer')).toHaveLength(0);
+    expect(sentOfType(socket, 'media-answer')).toHaveLength(0);
+    expect(onError).not.toHaveBeenCalled();
+
+    reopened.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: 'mx-guest', roomId: '123456' }),
+    );
+    await vi.waitFor(() => expect(sentOfType(reopened, 'media-answer')).toHaveLength(1));
+
     const answers = sentOfType(reopened, 'media-answer');
     expect(answers).toHaveLength(1);
     expect(answers[0]?.callId).toBe('call-1');
     expect(sentOfType(socket, 'media-answer')).toHaveLength(0);
+    expect(onError).not.toHaveBeenCalled();
   });
 
-  it('sends host ICE candidates over the recreated host socket', async () => {
+  it('does not send media-close before a reopened guest socket is admitted', async () => {
+    const { peer, socket } = await establishGuest();
+    const onCall = vi.fn();
+    peer.on('call', onCall);
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'media-offer',
+        from: 'host',
+        negotiationId: NEGOTIATION_ID,
+        callId: 'call-close-before-admission',
+        sdp: { type: 'offer', sdp: 'host-media-offer' },
+        audioTrackCount: 1,
+      }),
+    );
+    await vi.waitFor(() => expect(onCall).toHaveBeenCalledTimes(1));
+    const mediaConn = onCall.mock.calls[0]?.[0] as TransportMediaConnection;
+
+    socket.close();
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+    await vi.waitFor(() => expect(sentOfType(reopened, 'guest-auth')).toHaveLength(1));
+
+    mediaConn.close();
+    await flushAsync();
+
+    expect(sentOfType(reopened, 'media-close')).toHaveLength(0);
+    expect(sentOfType(socket, 'media-close')).toHaveLength(0);
+    expect(reopened.sent.map((raw) => JSON.parse(raw).type)).toEqual(['guest-auth']);
+    peer.destroy();
+  });
+
+  it('sends an in-flight host data answer only after the recreated socket is admitted', async () => {
+    installFakeWebSocket();
+    installFakeRTCPeerConnection();
+    const pendingAnswer = deferred<RTCSessionDescriptionInit>();
+    const createAnswer = vi
+      .spyOn(FakeRTCPeerConnection.prototype, 'createAnswer')
+      .mockReturnValueOnce(pendingAnswer.promise);
+    const peer = createHostPeer();
+    const onError = vi.fn();
+    peer.on('error', onError);
+    await Promise.resolve();
+    const socket = FakeWebSocket.instances[0];
+    socket.dispatch('open');
+    socket.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await flushAsync();
+
+    socket.dispatch(
+      'message',
+      JSON.stringify({
+        type: 'signal-offer',
+        from: 'guest-answer-reconnect',
+        negotiationId: NEGOTIATION_ID,
+        sdp: { type: 'offer', sdp: 'guest-data-offer' },
+      }),
+    );
+    await vi.waitFor(() => expect(createAnswer).toHaveBeenCalledTimes(1));
+
+    socket.close();
+    peer.reconnect();
+    const reopened = FakeWebSocket.instances[1];
+    reopened.dispatch('open');
+    pendingAnswer.resolve({ type: 'answer', sdp: 'host-data-answer-after-reconnect' });
+    await vi.waitFor(() =>
+      expect(FakeRTCPeerConnection.instances[0]?.localDescription?.sdp).toBe(
+        'host-data-answer-after-reconnect',
+      ),
+    );
+
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(0);
+    expect(sentOfType(reopened, 'signal-answer')).toHaveLength(0);
+    expect(onError).not.toHaveBeenCalled();
+
+    reopened.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.waitFor(() => expect(sentOfType(reopened, 'signal-answer')).toHaveLength(1));
+
+    expect(sentOfType(reopened, 'signal-answer')[0]).toMatchObject({
+      to: 'guest-answer-reconnect',
+      negotiationId: NEGOTIATION_ID,
+      sdp: { type: 'answer', sdp: 'host-data-answer-after-reconnect' },
+    });
+    expect(sentOfType(socket, 'signal-answer')).toHaveLength(0);
+    expect(onError).not.toHaveBeenCalled();
+    peer.destroy();
+  });
+
+  it('holds host ICE candidates for the exact admitted recreated socket', async () => {
     installFakeWebSocket();
     installFakeRTCPeerConnection();
     const peer = createHostPeer();
@@ -5806,6 +6452,13 @@ describe('Cloudflare guest signaling reconnect', () => {
     pc.dispatch('icecandidate', {
       candidate: { toJSON: () => ({ candidate: 'host-cand' }) },
     });
+
+    expect(sentOfType(reopened, 'signal-candidate')).toHaveLength(0);
+    reopened.dispatch(
+      'message',
+      JSON.stringify({ type: 'peer-open', peerId: '123456', roomId: '123456' }),
+    );
+    await vi.waitFor(() => expect(sentOfType(reopened, 'signal-candidate')).toHaveLength(1));
 
     const candidates = sentOfType(reopened, 'signal-candidate');
     expect(candidates).toHaveLength(1);

@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.4.44",
+  "version": "8.4.45",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -126,6 +126,7 @@
     "test:e2e": "playwright test",
     "pretest:e2e:critical": "npm run build:e2e",
     "test:e2e:critical": "playwright test e2e/critical-browser.test.ts e2e/release-smoke.test.ts e2e/remote-upload-browser.test.ts e2e/background-resume.test.ts --project=chromium --reporter=line",
+    "test:e2e:candidate": "playwright test --config=playwright.candidate.config.ts --reporter=line",
     "pretest:e2e:release": "npm run build:e2e",
     "test:e2e:release": "playwright test e2e/release-smoke.test.ts --project=chromium --reporter=line",
     "pretest:e2e:report": "npm run build:e2e",
@@ -134,6 +135,8 @@
     "test:e2e:runtime": "playwright test e2e/late-join.test.ts e2e/playback-sync.test.ts e2e/youtube-sync.test.ts e2e/reconnection.test.ts e2e/background-resume.test.ts",
     "pretest:e2e:webkit": "npm run build:e2e",
     "test:e2e:webkit": "playwright test --config=playwright.webkit.config.ts",
+    "pretest:e2e:webkit-service-worker": "npm run build",
+    "test:e2e:webkit-service-worker": "playwright test --config=playwright.webkit-service-worker.config.ts --reporter=line",
     "test:report-viewer": "node scripts/materialize-auxiliary-browser-assets.mts && serve . -p 3333 -s",
     "test:all": "vitest run && npm run build:checked && npm run test:e2e"
   },

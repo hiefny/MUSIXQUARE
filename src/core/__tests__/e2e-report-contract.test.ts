@@ -7,6 +7,29 @@ import {
   compileAuxiliaryBrowserAsset,
 } from '../../../scripts/auxiliary-browser-assets.ts';
 
+function expectTimeoutBudget(
+  job: string,
+  expectedJobCap: number,
+  expectedSteps: ReadonlyArray<readonly [name: string, timeoutMinutes: number]>,
+): void {
+  const jobCap = job.match(/^ {4}timeout-minutes: (\d+)$/mu);
+  expect(jobCap).not.toBeNull();
+  expect(Number(jobCap?.[1])).toBe(expectedJobCap);
+
+  const stepDeclarations = [...job.matchAll(/^ {6}-[ \t]*(.*)$/gmu)].map((match) => match[1]);
+  const allStepNames = [...job.matchAll(/^ {6}- name: (.+)$/gmu)].map((match) => match[1]);
+  const boundedSteps = [
+    ...job.matchAll(/^ {6}- name: (.+)\r?\n {8}timeout-minutes: (\d+)$/gmu),
+  ].map((match) => [match[1], Number(match[2])] as const);
+
+  expect(stepDeclarations).toEqual(expectedSteps.map(([name]) => `name: ${name}`));
+  expect(allStepNames).toEqual(expectedSteps.map(([name]) => name));
+  expect(boundedSteps).toEqual(expectedSteps);
+
+  const totalStepBudget = boundedSteps.reduce((total, [, timeout]) => total + timeout, 0);
+  expect(expectedJobCap - totalStepBudget).toBeGreaterThanOrEqual(5);
+}
+
 describe('local E2E report contract', () => {
   it('clears stale output before opening the viewer and preserves the test exit code', () => {
     const batch = readFileSync(resolve('e2e/run-tests.bat'), 'utf8');
@@ -46,10 +69,45 @@ describe('local E2E report contract', () => {
   it('keeps device-specific WebKit tests out of desktop Chromium and preserves timeout artifacts', () => {
     const playwrightConfig = readFileSync(resolve('playwright.config.ts'), 'utf8');
     const workflow = readFileSync(resolve('.github/workflows/e2e.yml'), 'utf8');
+    const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
 
-    expect(playwrightConfig).toContain("testIgnore: ['webkit-mobile-smoke.test.ts']");
-    expect(workflow).toContain('timeout-minutes: 180');
-    expect(workflow).toContain('timeout-minutes: 165');
+    expect(playwrightConfig).toContain("'webkit-mobile-smoke.test.ts'");
+    expect(playwrightConfig).toContain("'production-candidate-smoke.test.ts'");
     expect(workflow).toContain('if: failure() || cancelled()');
+
+    const webkitStart = workflow.indexOf('\n  webkit-mobile:');
+    const fullE2eJob = workflow.slice(workflow.indexOf('\n  e2e:'), webkitStart);
+    const webkitJob = workflow.slice(webkitStart);
+    const browserGateJob = ciWorkflow.slice(ciWorkflow.indexOf('\n  browser-gate:'));
+
+    expectTimeoutBudget(fullE2eJob, 220, [
+      ['Checkout', 3],
+      ['Setup Node.js', 3],
+      ['Install dependencies with pinned npm', 10],
+      ['Build E2E bundle', 10],
+      ['Install Playwright Browsers', 15],
+      ['Full E2E tests', 165],
+      ['Upload failure artifacts', 5],
+    ]);
+    expectTimeoutBudget(webkitJob, 80, [
+      ['Checkout', 3],
+      ['Setup Node.js', 3],
+      ['Install dependencies with pinned npm', 8],
+      ['Build E2E bundle', 10],
+      ['Install WebKit', 15],
+      ['Targeted iPhone WebKit smoke', 20],
+      ['Production WebKit Service Worker lifecycle smoke', 10],
+      ['Upload WebKit failure artifacts', 5],
+    ]);
+    expectTimeoutBudget(browserGateJob, 55, [
+      ['Checkout exact candidate', 3],
+      ['Setup Node.js', 3],
+      ['Install dependencies with pinned npm', 8],
+      ['Install Chromium', 7],
+      ['Download exact production candidate', 3],
+      ['Run production candidate browser and Service Worker smoke', 6],
+      ['Run critical browser paths', 12],
+      ['Upload critical browser failure artifacts', 5],
+    ]);
   });
 });

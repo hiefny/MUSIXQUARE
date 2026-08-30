@@ -4,6 +4,7 @@
  * Also provides runtime error tracking for all pages.
  */
 import type { Browser, BrowserContext, Page } from '@playwright/test';
+import { isBenignPageError } from './page-errors.ts';
 import { injectPeerServer } from './peer-server.ts';
 
 export interface HostGuestPair {
@@ -50,16 +51,11 @@ export function trackPageErrors(page: Page): void {
 
 /**
  * Returns all uncaught JS errors collected since trackPageErrors() was called.
- * Filters out known non-critical errors (e.g., service worker issues).
+ * Only exact browser-authored benign diagnostics are excluded.
  */
 export function getPageErrors(page: Page): Error[] {
   const errors = _pageErrors.get(page) || [];
-  return errors.filter(
-    (e) =>
-      !e.message.includes('service-worker') &&
-      !e.message.includes('ServiceWorker') &&
-      !e.message.includes('ResizeObserver'),
-  );
+  return errors.filter((error) => !isBenignPageError(error));
 }
 
 export async function createHostGuestContexts(browser: Browser): Promise<HostGuestPair> {

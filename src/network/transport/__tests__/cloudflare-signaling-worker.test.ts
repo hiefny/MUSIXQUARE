@@ -6234,6 +6234,42 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(replacement.closed).toBe(false);
   });
 
+  it('promotes a replacement host attachment only after peer-open is sent', async () => {
+    const { room, host } = await createHostRoom();
+    await room.fetch(wsRequest('123456', 'host', 'attachment-order-host'));
+    const candidate = lastServer();
+    let attachmentDuringPeerOpen: unknown = null;
+    vi.spyOn(candidate, 'send').mockImplementation((data) => {
+      if ((JSON.parse(data) as { type?: unknown }).type === 'peer-open') {
+        attachmentDuringPeerOpen = candidate.deserializeAttachment();
+      }
+      candidate.sent.push(data);
+    });
+
+    await room.webSocketMessage(
+      candidate,
+      JSON.stringify({
+        type: 'host-auth',
+        secret: 'secret-a',
+        desiredRoomPassword: '',
+        pinMutationId: TEST_PIN_MUTATION_ID,
+      }),
+    );
+
+    expect(attachmentDuringPeerOpen).toMatchObject({
+      role: 'host',
+      peerId: 'attachment-order-host',
+      auth: 'pending',
+      authStarted: true,
+    });
+    expect(candidate.deserializeAttachment()).toMatchObject({
+      role: 'host',
+      peerId: 'attachment-order-host',
+      auth: 'ok',
+    });
+    expect(host.closeEvents.at(-1)?.reason).toBe('HOST_REPLACED');
+  });
+
   it('restores the prior PIN fence when replacement identity persistence fails', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, {
@@ -8467,6 +8503,104 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     const legitimateGuest = await joinGuest(room, 'legitimate-after-close-race');
     expect(legitimateGuest.closed).toBe(false);
     expect(sent(legitimateGuest)[0]).toMatchObject({ type: 'peer-open' });
+  });
+
+  it('keeps the live guest when a reconnect candidate closes during its binding write', async () => {
+    const { room, state, host } = await createHostRoom();
+    const original = await joinGuest(room, 'stable-guest');
+    const originalPut = state.storage.put.bind(state.storage);
+    let releaseBindingWrite!: () => void;
+    let markBindingWriteEntered!: () => void;
+    const bindingWriteEntered = new Promise<void>((resolve) => {
+      markBindingWriteEntered = resolve;
+    });
+    const bindingWriteGate = new Promise<void>((resolve) => {
+      releaseBindingWrite = resolve;
+    });
+    state.storage.put = vi.fn(async (key: string, value: unknown) => {
+      if (key === 'guestReconnectBindings') {
+        markBindingWriteEntered();
+        await bindingWriteGate;
+      }
+      await originalPut(key, value);
+    });
+
+    await room.fetch(wsRequest('123456', 'guest', 'stable-guest'));
+    const candidate = lastServer();
+    const authenticate = room.webSocketMessage(
+      candidate,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+      }),
+    );
+    await bindingWriteEntered;
+    candidate.close(1000, 'candidate disconnected');
+    const close = room.webSocketClose(candidate);
+
+    releaseBindingWrite();
+    await Promise.all([authenticate, close]);
+
+    const internals = room as unknown as { guests: Map<string, FakeSocket> };
+    expect(internals.guests.get('stable-guest')).toBe(original);
+    expect(original.closed).toBe(false);
+    expect(sent(candidate)).not.toContainEqual(expect.objectContaining({ type: 'peer-open' }));
+
+    const hostFrameCount = sent(host).length;
+    await room.webSocketMessage(
+      original,
+      JSON.stringify({
+        type: 'media-answer',
+        to: 'host',
+        callId: 'call-still-live',
+        sdp: { type: 'answer', sdp: 'stable-answer-sdp' },
+        negotiationId: NEGOTIATION_ID,
+      }),
+    );
+    expect(sent(host).slice(hostFrameCount)).toContainEqual({
+      type: 'media-answer',
+      from: 'stable-guest',
+      callId: 'call-still-live',
+      sdp: { type: 'answer', sdp: 'stable-answer-sdp' },
+      negotiationId: NEGOTIATION_ID,
+    });
+  });
+
+  it('promotes a replacement guest attachment only after peer-open is sent', async () => {
+    const { room } = await createHostRoom();
+    const original = await joinGuest(room, 'attachment-order-guest');
+    await room.fetch(wsRequest('123456', 'guest', 'attachment-order-guest'));
+    const candidate = lastServer();
+    let attachmentDuringPeerOpen: unknown = null;
+    vi.spyOn(candidate, 'send').mockImplementation((data) => {
+      if ((JSON.parse(data) as { type?: unknown }).type === 'peer-open') {
+        attachmentDuringPeerOpen = candidate.deserializeAttachment();
+      }
+      candidate.sent.push(data);
+    });
+
+    await room.webSocketMessage(
+      candidate,
+      JSON.stringify({
+        type: 'guest-auth',
+        password: '',
+        reconnectSecret: DEFAULT_RECONNECT_SECRET,
+      }),
+    );
+
+    expect(attachmentDuringPeerOpen).toMatchObject({
+      role: 'guest',
+      peerId: 'attachment-order-guest',
+      auth: 'pending',
+      authStarted: true,
+    });
+    expect(candidate.deserializeAttachment()).toMatchObject({
+      role: 'guest',
+      peerId: 'attachment-order-guest',
+      auth: 'ok',
+    });
+    expect(original.closeEvents.at(-1)?.reason).toBe('GUEST_REPLACED');
   });
 
   it('fails closed when the reconnect binding cannot be persisted', async () => {

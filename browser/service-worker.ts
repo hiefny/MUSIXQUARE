@@ -37,6 +37,8 @@ const BOOTSTRAP_CACHE_KEY = `./bootstrap.js?cache=${CACHE_VERSION}`;
 // neither succeeds nor rejects for a long time. A navigation must reach the
 // active cached shell instead of leaving WebKit on its blank provisional page.
 const NAVIGATION_NETWORK_TIMEOUT_MS = 3_000;
+const NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS = 2_000;
+const NAVIGATION_STATE_PATH_PREFIX = '/.mxqr-navigation-fallback/';
 // The optional full font is useful after an interrupted reopen, but it must
 // never keep a new worker in `installing` indefinitely on a half-open radio.
 const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = 6_000;
@@ -52,7 +54,24 @@ const cacheReadyClientIds = new Set<string>();
 const cacheStatusClientIds = new Set<string>();
 const retainedCacheVersionsByClientId = new Map<string, string>();
 const cachedNavigationClientIds = new Set<string>();
-const clearedNavigationClientIds = new Set<string>();
+
+interface CacheMutationState {
+  nextRequestSequence: number;
+  latestNoStoreSequence: number;
+  latestCommittedCacheSequence: number;
+  activeTickets: number;
+  pendingMutations: number;
+  tail: Promise<void>;
+}
+
+interface CacheMutationTicket {
+  readonly key: string;
+  readonly sequence: number;
+  readonly state: CacheMutationState;
+  finished: boolean;
+}
+
+const cacheMutationStatesByUrl = new Map<string, CacheMutationState>();
 
 // CacheStorage keys retain the full query string. Authentication completion
 // markers, client correlation IDs, and credential-like values are one-time or
@@ -118,8 +137,11 @@ serviceWorker.addEventListener('install', (event) => {
     (async () => {
       const cache = await caches.open(STATIC_CACHE);
 
-      // A partial core shell must never activate. Cache.addAll is the
-      // fail-closed boundary for the functional generation.
+      // APP_SHELL is a build-owned allowlist of public boot assets, not a
+      // response-discovered runtime cache. Its atomic snapshot deliberately
+      // survives the origin's no-store HTTP policy for index.html so an
+      // installed generation can boot offline; dynamic responses still honor
+      // no-store below before entering CacheStorage.
       await cache.addAll(APP_SHELL);
 
       // Font CSS + body are staged behind a readiness marker in their own
@@ -162,7 +184,18 @@ async function stageOptionalPrimaryFontAssets(): Promise<void> {
       const response = controller
         ? await fetch(request, { signal: controller.signal })
         : await fetch(request);
-      if (!response || response.status === 206 || !response.ok) {
+      if (
+        !response ||
+        response.status === 206 ||
+        !response.ok ||
+        !responseAllowsCacheStorage(response)
+      ) {
+        if (response && !responseAllowsCacheStorage(response)) {
+          // An installing worker does not control the origin yet. Clean only
+          // its incomplete staging generation; mutating an older controller's
+          // ready optional group would break live/offline tabs if install fails.
+          await optionalCache.delete(request, { ignoreVary: true });
+        }
         throw new Error(`OPTIONAL_ASSET_FETCH_FAILED:${request.url}`);
       }
       await optionalCache.put(request, response);
@@ -188,6 +221,17 @@ async function stageOptionalPrimaryFontAssets(): Promise<void> {
       /* already settled */
     }
   }
+}
+
+/** Honor an origin's explicit prohibition before writing into CacheStorage. */
+function responseAllowsCacheStorage(response: Response): boolean {
+  const cacheControl = response.headers.get('cache-control');
+  if (!cacheControl) return true;
+
+  return !cacheControl.split(',').some((rawDirective) => {
+    const [rawName] = rawDirective.trim().split('=', 1);
+    return rawName?.trim().toLowerCase() === 'no-store';
+  });
 }
 
 // The page may opt into immediate activation after presenting its update UI.
@@ -229,6 +273,7 @@ serviceWorker.addEventListener('message', (event) => {
       } catch (_) {
         /* the probing page disappeared */
       }
+      await scrubOrphanedCachedNavigationStates(clientId);
     })();
     if (typeof event.waitUntil === 'function') event.waitUntil(work);
     return;
@@ -284,10 +329,15 @@ async function deleteRetiredCaches(
   preservedVersions: ReadonlySet<string> = new Set(),
 ): Promise<void> {
   const keys = await caches.keys();
+  const currentEpoch = cacheVersionEpoch(CACHE_VERSION);
   await Promise.all(
     keys
       .filter((key) => {
         const keyVersion = cacheVersionFromName(key);
+        const identity = ownedCacheIdentity(key);
+        // A controlling worker must never mutate a newer generation that is
+        // installing or waiting in the same origin-wide CacheStorage.
+        if (identity && (currentEpoch === null || identity.epoch > currentEpoch)) return false;
         return (
           key.startsWith('musixquare-') && // brand-capitalization: allow-technical
           ![STATIC_CACHE, RUNTIME_CACHE, OPTIONAL_CACHE].includes(key) &&
@@ -301,14 +351,13 @@ async function deleteRetiredCaches(
 function cachedNavigationStateRequest(clientId: string): Request {
   const encodedClientId = encodeURIComponent(String(clientId));
   return new Request(
-    new URL(`/.mxqr-navigation-fallback/${encodedClientId}`, serviceWorker.location.origin),
+    new URL(`${NAVIGATION_STATE_PATH_PREFIX}${encodedClientId}`, serviceWorker.location.origin),
   );
 }
 
 async function recordCachedNavigationState(clientId: string): Promise<void> {
   if (!clientId) return;
   // Set memory first so an immediate page probe cannot race CacheStorage.
-  clearedNavigationClientIds.delete(clientId);
   cachedNavigationClientIds.add(clientId);
   try {
     const cache = await caches.open(RUNTIME_CACHE);
@@ -324,23 +373,8 @@ async function recordCachedNavigationState(clientId: string): Promise<void> {
   }
 }
 
-async function clearCachedNavigationState(clientId: string): Promise<void> {
-  if (!clientId) return;
-  // Tombstone memory first so a page probe cannot observe the old persistent
-  // marker while its deletion is still queued under waitUntil.
-  cachedNavigationClientIds.delete(clientId);
-  clearedNavigationClientIds.add(clientId);
-  try {
-    const cache = await caches.open(RUNTIME_CACHE);
-    await cache.delete(cachedNavigationStateRequest(clientId));
-  } catch (_) {
-    // The in-memory tombstone remains authoritative for this worker lifetime.
-  }
-}
-
 async function readCachedNavigationState(clientId: string): Promise<boolean> {
   if (!clientId) return false;
-  if (clearedNavigationClientIds.has(clientId)) return false;
   const stateRequest = cachedNavigationStateRequest(clientId);
   let found = cachedNavigationClientIds.has(clientId);
   try {
@@ -352,15 +386,87 @@ async function readCachedNavigationState(clientId: string): Promise<boolean> {
   return found;
 }
 
+function cachedNavigationStateClientId(request: Request): string | null {
+  try {
+    const url = new URL(request.url);
+    if (
+      url.origin !== serviceWorker.location.origin ||
+      !url.pathname.startsWith(NAVIGATION_STATE_PATH_PREFIX)
+    ) {
+      return null;
+    }
+    const encodedClientId = url.pathname.slice(NAVIGATION_STATE_PATH_PREFIX.length);
+    if (!encodedClientId || encodedClientId.includes('/') || url.search) return null;
+    return decodeURIComponent(encodedClientId) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function lookupNavigationClient(clientId: string): Promise<Client | null | undefined> {
+  if (!serviceWorker.clients || typeof serviceWorker.clients.get !== 'function') return null;
+  let timeoutId: number | undefined;
+  try {
+    return await Promise.race([
+      serviceWorker.clients.get(clientId),
+      new Promise<null>((resolve) => {
+        timeoutId = setTimeout(() => resolve(null), NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (_) {
+    return null;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
+async function scrubOrphanedCachedNavigationStates(protectedClientId: string): Promise<void> {
+  let cache: Cache;
+  let requests: readonly Request[];
+  try {
+    cache = await caches.open(RUNTIME_CACHE);
+    requests = await cache.keys();
+  } catch (_) {
+    return;
+  }
+
+  await Promise.all(
+    requests.map(async (request) => {
+      const clientId = cachedNavigationStateClientId(request);
+      if (!clientId || clientId === protectedClientId) return;
+      const client = await lookupNavigationClient(clientId);
+      // null means the lookup was unavailable, rejected, or timed out. Preserve
+      // the marker and retry on a later probe; only undefined proves an orphan.
+      if (client !== undefined) {
+        if (client) cachedNavigationClientIds.add(clientId);
+        return;
+      }
+      try {
+        const deleted = await cache.delete(request);
+        if (!deleted) return;
+        cachedNavigationClientIds.delete(clientId);
+      } catch (_) {
+        // A failed delete is fail-closed: retain in-memory state for a retry.
+      }
+    }),
+  );
+}
+
 async function scrubSensitiveRetiredRuntimeEntries(): Promise<void> {
   const keys = await caches.keys();
+  const currentEpoch = cacheVersionEpoch(CACHE_VERSION);
   await Promise.all(
     keys
-      .filter(
-        (key) =>
-          key.startsWith('musixquare-runtime-') && // brand-capitalization: allow-technical
-          key !== RUNTIME_CACHE,
-      )
+      .filter((key) => {
+        if (
+          !key.startsWith('musixquare-runtime-') || // brand-capitalization: allow-technical
+          key === RUNTIME_CACHE
+        ) {
+          return false;
+        }
+        const identity = ownedCacheIdentity(key);
+        return !identity || (currentEpoch !== null && identity.epoch < currentEpoch);
+      })
       .map(async (key) => {
         try {
           const cache = await caches.open(key);
@@ -447,6 +553,13 @@ serviceWorker.addEventListener('activate', (event) => {
 
 function isCacheableRequest(request: Request): boolean {
   if (request.method !== 'GET') return false;
+
+  // Callers use Request.cache=no-store for private/capability-backed media
+  // whose URL shape is not guaranteed to live under /api/ or carry a media
+  // extension. Bypass the Service Worker entirely so neither an incumbent
+  // CacheStorage body nor a new write can weaken that freshness contract.
+  if (request.cache === 'no-store') return false;
+
   const url = new URL(request.url);
 
   // Range responses are not safe Cache.put candidates across Safari and
@@ -693,27 +806,270 @@ async function matchRetiredAsset(request: Request): Promise<Response | null> {
     }
   }
   try {
-    return (await caches.match(request)) || null;
+    const currentMatch = /^v(\d+)$/.exec(CACHE_VERSION);
+    if (!currentMatch) return null;
+    const currentEpoch = Number(currentMatch[1]);
+    const keys = await caches.keys();
+    for (const key of keys) {
+      const retiredMatch = /^musixquare-(?:static|runtime)-v(\d+)$/.exec(key); // brand-capitalization: allow-technical
+      if (!retiredMatch || Number(retiredMatch[1]) >= currentEpoch) continue;
+      const cached = await caches.match(request, { cacheName: key });
+      if (cached) return cached;
+    }
+    return null;
   } catch (_) {
     return null;
   }
+}
+
+function beginCacheMutation(request: Request): CacheMutationTicket {
+  const url = new URL(request.url);
+  url.hash = '';
+  const key = `GET ${url.href}`;
+  let state = cacheMutationStatesByUrl.get(key);
+  if (!state) {
+    state = {
+      nextRequestSequence: 1,
+      latestNoStoreSequence: 0,
+      latestCommittedCacheSequence: 0,
+      activeTickets: 0,
+      pendingMutations: 0,
+      tail: Promise.resolve(),
+    };
+    cacheMutationStatesByUrl.set(key, state);
+  }
+  const ticket: CacheMutationTicket = {
+    key,
+    sequence: state.nextRequestSequence,
+    state,
+    finished: false,
+  };
+  state.nextRequestSequence += 1;
+  state.activeTickets += 1;
+  return ticket;
+}
+
+function queueCacheMutation(
+  ticket: CacheMutationTicket,
+  mutation: () => Promise<void>,
+): Promise<void> {
+  let mutationResult: Promise<void>;
+  if (ticket.state.pendingMutations === 0) {
+    // Preserve the existing eager first-write behavior: invoking an async
+    // mutation directly lets CacheStorage.open() start before the page begins
+    // consuming the returned response. Later mutations still join the lane.
+    try {
+      mutationResult = mutation();
+    } catch (error) {
+      mutationResult = Promise.reject(error);
+    }
+  } else {
+    mutationResult = ticket.state.tail.then(mutation);
+  }
+  ticket.state.pendingMutations += 1;
+  // A failed best-effort cache operation must not poison later mutations for
+  // this URL. The caller still observes the original result at its existing
+  // error boundary, while subsequent work follows a fulfilled lane tail.
+  ticket.state.tail = mutationResult
+    .catch(() => undefined)
+    .then(() => {
+      ticket.state.pendingMutations = Math.max(0, ticket.state.pendingMutations - 1);
+    });
+  return mutationResult;
+}
+
+function finishCacheMutation(ticket: CacheMutationTicket): void {
+  if (ticket.finished) return;
+  ticket.finished = true;
+  ticket.state.activeTickets = Math.max(0, ticket.state.activeTickets - 1);
+  if (ticket.state.activeTickets !== 0) return;
+
+  const settledTail = ticket.state.tail;
+  void settledTail.then(
+    () => {
+      if (
+        ticket.state.activeTickets === 0 &&
+        ticket.state.tail === settledTail &&
+        cacheMutationStatesByUrl.get(ticket.key) === ticket.state
+      ) {
+        cacheMutationStatesByUrl.delete(ticket.key);
+      }
+    },
+    () => undefined,
+  );
 }
 
 async function cacheResponse(
   cacheName: string,
   request: Request,
   response: Response,
+  ticket: CacheMutationTicket,
 ): Promise<void> {
   try {
+    const allowsStorage = responseAllowsCacheStorage(response);
     // Clone before the first await. The response may be returned to and
     // consumed by the page while CacheStorage.open() is still pending.
-    const cacheCopy = response.clone();
-    const cache = await caches.open(cacheName);
-    await cache.put(request, cacheCopy);
+    const cacheCopy = allowsStorage ? response.clone() : null;
+    if (!allowsStorage) {
+      ticket.state.latestNoStoreSequence = Math.max(
+        ticket.state.latestNoStoreSequence,
+        ticket.sequence,
+      );
+    }
+    await queueCacheMutation(ticket, async () => {
+      if (!allowsStorage) {
+        // A newer request may already have committed a cacheable replacement
+        // while this older no-store response was still in flight. Preserve
+        // request order: the older revocation must not delete newer state.
+        // Failed cache puts never advance this fence, so no-store remains the
+        // fail-closed winner when the newer response was not persisted.
+        if (ticket.sequence < ticket.state.latestCommittedCacheSequence) return;
+        // A URL can change from cacheable to no-store without changing its
+        // identity. Retire the prior body so cache-first assets and offline
+        // navigation fallback cannot keep exposing the superseded response.
+        await deleteCachedResponseEverywhere(cacheName, request);
+        return;
+      }
+      // A later request for this URL has already observed a revoking no-store
+      // response. An older response that arrived late must not resurrect it.
+      if (ticket.sequence <= ticket.state.latestNoStoreSequence) return;
+      const cache = await caches.open(cacheName);
+      await cache.put(request, cacheCopy!);
+      ticket.state.latestCommittedCacheSequence = Math.max(
+        ticket.state.latestCommittedCacheSequence,
+        ticket.sequence,
+      );
+    });
   } catch (_) {
     // Cache writes are best-effort, but the promise is still kept alive by
     // the fetch event so a successful write cannot be abandoned mid-flight.
   }
+}
+
+async function updateCacheFromNetworkResponse(
+  cacheName: string,
+  request: Request,
+  response: Response | null,
+  ticket: CacheMutationTicket,
+): Promise<void> {
+  try {
+    // Partial responses must never replace a complete cached body.
+    if (!response || response.status === 206) return;
+
+    // A denial/removal response can carry no-store as the origin revokes a URL.
+    // Purge the former body before the normal success/cacheability gate so a
+    // cached 200 cannot survive a fresh 401/404/410 response.
+    if (!responseAllowsCacheStorage(response)) {
+      await cacheResponse(cacheName, request, response, ticket);
+      return;
+    }
+
+    if (!response.ok && response.type !== 'opaque') return;
+    await cacheResponse(cacheName, request, response, ticket);
+  } finally {
+    finishCacheMutation(ticket);
+  }
+}
+
+function scheduleNetworkCacheUpdate(
+  cacheName: string,
+  request: Request,
+  networkResponse: Promise<Response | null>,
+): Promise<void> {
+  // Reserve the sequence synchronously, before the network settles, so a late
+  // response from an older request cannot be mistaken for newer cache state.
+  const ticket = beginCacheMutation(request);
+  return networkResponse.then(
+    (response) => updateCacheFromNetworkResponse(cacheName, request, response, ticket),
+    () => updateCacheFromNetworkResponse(cacheName, request, null, ticket),
+  );
+}
+
+async function deleteCachedResponseEverywhere(
+  primaryCacheName: string,
+  request: Request,
+): Promise<void> {
+  let knownCacheNames: string[] = [];
+  try {
+    knownCacheNames = await caches.keys();
+  } catch (_) {
+    // Still attempt the active cache below.
+  }
+
+  const primaryFamily = ownedCacheFamily(primaryCacheName);
+  if (!primaryFamily) return;
+  const currentEpoch = cacheVersionEpoch(CACHE_VERSION);
+  if (currentEpoch === null) return;
+
+  const installOwned = isInstallOwnedAppShellRequest(request);
+  const optionalAsset = isOptionalPrimaryFontAsset(request);
+  const families = new Set<'static' | 'runtime' | 'optional'>(
+    installOwned
+      ? ['runtime']
+      : primaryFamily === 'optional' || optionalAsset
+        ? ['static', 'runtime', 'optional']
+        : ['static', 'runtime'],
+  );
+  const currentCacheNames = [STATIC_CACHE, RUNTIME_CACHE, OPTIONAL_CACHE];
+  const cacheNames = new Set(
+    [...currentCacheNames, ...knownCacheNames].filter((cacheName) => {
+      const identity = ownedCacheIdentity(cacheName);
+      return identity !== null && identity.epoch <= currentEpoch && families.has(identity.family);
+    }),
+  );
+  await Promise.all(
+    [...cacheNames].map(async (cacheName) => {
+      try {
+        const cache = await caches.open(cacheName);
+        // A revocation applies to every stored Vary variant of this URL, not
+        // only the request headers that happened to receive the no-store reply.
+        await cache.delete(request, { ignoreVary: true });
+        if (primaryFamily === 'optional' || optionalAsset) {
+          const readyKey = optionalCacheReadyKey(cacheName);
+          if (readyKey) await cache.delete(readyKey);
+        }
+      } catch (_) {
+        // Try every generation even if one retired cache is unavailable.
+      }
+    }),
+  );
+}
+
+type OwnedCacheFamily = 'static' | 'runtime' | 'optional';
+
+function cacheVersionEpoch(version: string): number | null {
+  const match = /^v(\d+)$/u.exec(version);
+  if (!match) return null;
+  const epoch = Number(match[1]);
+  return Number.isSafeInteger(epoch) ? epoch : null;
+}
+
+function ownedCacheIdentity(cacheName: string): { family: OwnedCacheFamily; epoch: number } | null {
+  const match = /^musixquare-(static|runtime|optional)-(v\d+)$/u.exec(cacheName); // brand-capitalization: allow-technical
+  if (!match) return null;
+  const epoch = cacheVersionEpoch(match[2]!);
+  if (epoch === null) return null;
+  return { family: match[1] as OwnedCacheFamily, epoch };
+}
+
+function ownedCacheFamily(cacheName: string): OwnedCacheFamily | null {
+  return ownedCacheIdentity(cacheName)?.family ?? null;
+}
+
+function optionalCacheReadyKey(cacheName: string): string | null {
+  const match = /^musixquare-optional-(v\d+)$/u.exec(cacheName); // brand-capitalization: allow-technical
+  return match ? `./.mxqr-optional-ready?cache=${match[1]}` : null;
+}
+
+function isInstallOwnedAppShellRequest(request: Request): boolean {
+  const requestUrl = new URL(request.url).href;
+  return APP_SHELL.some((asset) => {
+    try {
+      return new URL(asset, serviceWorker.location.href).href === requestUrl;
+    } catch (_) {
+      return false;
+    }
+  });
 }
 
 function fetchNavigationWithTimeout(request: Request): Promise<Response> {
@@ -804,25 +1160,17 @@ serviceWorker.addEventListener('fetch', (event) => {
             () => undefined,
             () => undefined,
           )
-        : networkResponse
-            .then((fresh) => {
-              if (!fresh.ok || fresh.status === 206) return undefined;
-              return cacheResponse(RUNTIME_CACHE, request, fresh);
-            })
-            .catch(() => undefined);
+        : scheduleNetworkCacheUpdate(RUNTIME_CACHE, request, networkResponse);
 
     // Register background work while the fetch event is still dispatching.
     // Calling waitUntil only after an awaited cache/network lookup is not
     // portable, and leaving Cache.put unchained lets the worker be suspended
     // before the offline fallback is actually written.
     const navigationStateUpdate = networkResponse.then(
-      async () => {
-        const resultingClientId = event.resultingClientId || event.clientId;
-        if (resultingClientId) await clearCachedNavigationState(resultingClientId);
-      },
+      () => undefined,
       async () => {
         const fallback = await cachedShell;
-        const resultingClientId = event.resultingClientId || event.clientId;
+        const resultingClientId = event.resultingClientId;
         if (fallback && resultingClientId) {
           await recordCachedNavigationState(resultingClientId);
         }
@@ -863,12 +1211,7 @@ serviceWorker.addEventListener('fetch', (event) => {
       if (cached) return null;
       return fetch(request).catch(() => null);
     });
-    const cacheUpdate = networkResponse.then((response) => {
-      if (!response || response.status === 206 || (!response.ok && response.type !== 'opaque')) {
-        return undefined;
-      }
-      return cacheResponse(STATIC_CACHE, request, response);
-    });
+    const cacheUpdate = scheduleNetworkCacheUpdate(STATIC_CACHE, request, networkResponse);
     event.waitUntil(cacheUpdate);
     event.respondWith(
       (async () => {
@@ -902,12 +1245,7 @@ serviceWorker.addEventListener('fetch', (event) => {
       if (cached) return null;
       return fetch(request).catch(() => null);
     });
-    const cacheUpdate = networkResponse.then((response) => {
-      if (!response || response.status === 206 || (!response.ok && response.type !== 'opaque')) {
-        return undefined;
-      }
-      return cacheResponse(STATIC_CACHE, request, response);
-    });
+    const cacheUpdate = scheduleNetworkCacheUpdate(STATIC_CACHE, request, networkResponse);
     event.waitUntil(cacheUpdate);
     event.respondWith(
       (async () => {
@@ -925,13 +1263,7 @@ serviceWorker.addEventListener('fetch', (event) => {
   // normal cache miss response: otherwise the first request after an update
   // can combine the new HTML/JS generation with an old stable CSS or icon.
   const networkResponse = fetch(request).catch(() => null);
-  const cacheUpdate = networkResponse.then((response) => {
-    // Partial responses must never enter the static cache.
-    if (!response || response.status === 206 || (!response.ok && response.type !== 'opaque')) {
-      return undefined;
-    }
-    return cacheResponse(STATIC_CACHE, request, response);
-  });
+  const cacheUpdate = scheduleNetworkCacheUpdate(STATIC_CACHE, request, networkResponse);
   event.waitUntil(cacheUpdate);
   event.respondWith(
     (async () => {
@@ -946,8 +1278,8 @@ serviceWorker.addEventListener('fetch', (event) => {
       if (fresh) return fresh;
 
       // A live tab that deliberately deferred reload may still need a stable
-      // asset from its retired generation while truly offline. Restrict this
-      // unrestricted lookup to network failure so it cannot win online.
+      // asset from its retired generation while truly offline. The helper
+      // restricts lookup to owned generations older than this worker.
       return (
         (await matchRetiredAsset(request)) ||
         new Response('Offline', { status: 503, statusText: 'Offline' })

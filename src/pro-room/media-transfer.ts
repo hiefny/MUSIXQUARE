@@ -6,7 +6,7 @@ import type {
   ProRoomMediaDownload,
   ProRoomMediaReservation,
 } from './api.ts';
-import { PRO_ROOM_R2_HOST } from './api.ts';
+import { parseProRoomMediaTransferUrl } from './api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   type ProRoomQuotaSnapshot,
@@ -24,6 +24,7 @@ import {
 export type ProRoomMediaProgress = (fraction: number) => void;
 
 interface ProRoomMediaApi {
+  readonly endpoint?: string;
   createMediaReservation(
     input: CreateProRoomMediaReservationInput,
     signal?: AbortSignal,
@@ -194,34 +195,10 @@ function sameAsset(left: ProRoomR2Source, right: ProRoomR2Source): boolean {
   );
 }
 
-function assertPresignedR2Url(rawUrl: string): URL {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch (error) {
-    throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_URL_INVALID', { cause: error });
-  }
-  const requiredSignatureFields = [
-    'X-Amz-Algorithm',
-    'X-Amz-Credential',
-    'X-Amz-Date',
-    'X-Amz-Expires',
-    'X-Amz-SignedHeaders',
-    'X-Amz-Signature',
-  ];
-  if (
-    url.protocol !== 'https:' ||
-    url.hostname !== PRO_ROOM_R2_HOST ||
-    url.port !== '' ||
-    url.username !== '' ||
-    url.password !== '' ||
-    url.hash !== '' ||
-    url.searchParams.get('X-Amz-Algorithm') !== 'AWS4-HMAC-SHA256' ||
-    requiredSignatureFields.some((field) => url.searchParams.getAll(field).length !== 1)
-  ) {
-    throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_URL_INVALID');
-  }
-  return url;
+function assertMediaTransferUrl(rawUrl: string, endpoint?: string): URL {
+  const parsed = parseProRoomMediaTransferUrl(rawUrl, endpoint);
+  if (!parsed) throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_URL_INVALID');
+  return new URL(parsed);
 }
 
 function sameUrl(left: string, right: string): boolean {
@@ -236,10 +213,11 @@ function directPut(
   reservation: ProRoomMediaReservation,
   file: File,
   xhrFactory: XhrFactory,
+  endpoint?: string,
   onProgress?: ProRoomMediaProgress,
   signal?: AbortSignal,
 ): Promise<void> {
-  const requestUrl = assertPresignedR2Url(reservation.upload.url).toString();
+  const requestUrl = assertMediaTransferUrl(reservation.upload.url, endpoint).toString();
   return new Promise((resolve, reject) => {
     let settled = false;
     let lastLoaded = 0;
@@ -484,7 +462,14 @@ export class ProRoomMediaTransfer {
 
     try {
       throwIfAborted(input.signal);
-      await directPut(reservation, input.file, this.#xhrFactory, report, input.signal);
+      await directPut(
+        reservation,
+        input.file,
+        this.#xhrFactory,
+        this.#api.endpoint,
+        report,
+        input.signal,
+      );
     } catch (error) {
       // A failed PUT cannot have a trusted completed asset. Ask the server to
       // release the reservation, without delaying the caller's cancellation.
@@ -544,7 +529,7 @@ export class ProRoomMediaTransfer {
     if (!sameAsset(descriptor.asset, input.source)) {
       throw new ProRoomMediaTransferError('PRO_ROOM_MEDIA_DOWNLOAD_ASSET_MISMATCH');
     }
-    const url = assertPresignedR2Url(descriptor.url).toString();
+    const url = assertMediaTransferUrl(descriptor.url, this.#api.endpoint).toString();
 
     const transferScope = createLinkedAbortScope(input.signal, 0);
     let idleExpired = false;

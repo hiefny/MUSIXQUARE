@@ -13,7 +13,7 @@ import { E2E_PEER_PORT } from './config.ts';
 const moduleRequire = createRequire(import.meta.url);
 
 const PEER_HOST = '127.0.0.1';
-const PEER_READY_TIMEOUT_MS = 5_000;
+const PEER_READY_TIMEOUT_MS = 30_000;
 const PEER_TERMINATE_TIMEOUT_MS = 2_000;
 const PEER_KILL_TIMEOUT_MS = 2_000;
 const PEER_CLI_PATH = resolve(dirname(moduleRequire.resolve('peer')), 'bin', 'peerjs.js');

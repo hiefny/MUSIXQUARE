@@ -52,11 +52,13 @@ import {
 import { isSafeVisibleDisplayName } from '../../cloudflare/display-name-policy.ts';
 import {
   isLoopbackBrowserHref,
+  isLoopbackHostname,
   localProductionApiFallbackEnabled,
 } from '../network/api-endpoints.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
-export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
+const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
+export const proRoomR2HostForTests = PRO_ROOM_R2_HOST;
 
 const MAX_REQUEST_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_RESPONSE_JSON_BYTES = 4 * 1024 * 1024;
@@ -972,7 +974,7 @@ function isValidPresignedR2Url(url: URL): boolean {
   );
 }
 
-function parseReturnedUrl(value: unknown, endpoint: string): string | null {
+export function parseProRoomMediaTransferUrl(value: unknown, endpoint?: string): string | null {
   if (typeof value !== 'string' || value.length > MAX_URL_LENGTH) return null;
   let url: URL;
   try {
@@ -981,14 +983,21 @@ function parseReturnedUrl(value: unknown, endpoint: string): string | null {
     return null;
   }
   if (url.username || url.password || url.hash) return null;
-  const endpointUrl = new URL(endpoint);
-  if (
-    url.origin === endpointUrl.origin &&
-    (url.protocol === 'https:' ||
-      endpointUrl.hostname === 'localhost' ||
-      endpointUrl.hostname === '127.0.0.1')
-  ) {
-    return url.toString();
+  if (endpoint !== undefined) {
+    let endpointUrl: URL | null = null;
+    try {
+      endpointUrl = new URL(endpoint);
+    } catch {
+      // An invalid endpoint cannot authorize a returned same-origin URL.
+    }
+    if (endpointUrl) {
+      const exactLoopbackOrigin =
+        (endpointUrl.protocol === 'http:' || endpointUrl.protocol === 'https:') &&
+        url.protocol === endpointUrl.protocol &&
+        isLoopbackHostname(endpointUrl.hostname) &&
+        url.origin === endpointUrl.origin;
+      if (exactLoopbackOrigin) return url.toString();
+    }
   }
   return isValidPresignedR2Url(url) ? url.toString() : null;
 }
@@ -2140,7 +2149,7 @@ export class ProRoomApiClient {
         ) {
           return null;
         }
-        const url = parseReturnedUrl(reservation.upload.url, this.endpoint);
+        const url = parseProRoomMediaTransferUrl(reservation.upload.url, this.endpoint);
         const headers = parseUploadHeaders(reservation.upload.headers);
         if (!url || !headers) return null;
         return {
@@ -2196,7 +2205,7 @@ export class ProRoomApiClient {
         ) {
           return null;
         }
-        const url = parseReturnedUrl(value.download.url, this.endpoint);
+        const url = parseProRoomMediaTransferUrl(value.download.url, this.endpoint);
         return url ? { asset, url, expiresAtMs: value.download.expiresAtMs } : null;
       },
     });

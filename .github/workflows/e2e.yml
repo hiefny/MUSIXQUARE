@@ -22,27 +22,32 @@ concurrency:
 jobs:
   e2e:
     runs-on: ubuntu-latest
-    # The serial suite has exceeded two hours on a throttled Windows host.
-    # Preserve explicit bounds while leaving artifact-upload headroom on slow CI.
-    timeout-minutes: 180
+    # Every step has its own diagnostic bound. The 211-minute step budget
+    # leaves nine minutes for runner transitions and cancellation cleanup.
+    timeout-minutes: 220
 
     steps:
       - name: Checkout
+        timeout-minutes: 3
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
+        timeout-minutes: 3
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
           cache: npm
 
       - name: Install dependencies with pinned npm
+        timeout-minutes: 10
         run: corepack npm ci
 
       - name: Build E2E bundle
+        timeout-minutes: 10
         run: npm run build:e2e
 
       - name: Install Playwright Browsers
+        timeout-minutes: 15
         run: npx playwright install --with-deps chromium
 
       - name: Full E2E tests
@@ -50,6 +55,7 @@ jobs:
         run: npx playwright test --reporter=line,html
 
       - name: Upload failure artifacts
+        timeout-minutes: 5
         if: failure() || cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -62,32 +68,45 @@ jobs:
 
   webkit-mobile:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The explicit 74-minute step budget leaves six minutes for runner
+    # transitions and cancellation cleanup.
+    timeout-minutes: 80
 
     steps:
       - name: Checkout
+        timeout-minutes: 3
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
+        timeout-minutes: 3
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
           cache: npm
 
       - name: Install dependencies with pinned npm
+        timeout-minutes: 8
         run: corepack npm ci
 
       - name: Build E2E bundle
+        timeout-minutes: 10
         run: npm run build:e2e
 
       - name: Install WebKit
+        timeout-minutes: 15
         run: npx playwright install --with-deps webkit
 
       - name: Targeted iPhone WebKit smoke
+        timeout-minutes: 20
         run: npx playwright test --config=playwright.webkit.config.ts --reporter=line
 
+      - name: Production WebKit Service Worker lifecycle smoke
+        timeout-minutes: 10
+        run: npm run test:e2e:webkit-service-worker
+
       - name: Upload WebKit failure artifacts
-        if: failure()
+        timeout-minutes: 5
+        if: failure() || cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: webkit-mobile-failure-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}

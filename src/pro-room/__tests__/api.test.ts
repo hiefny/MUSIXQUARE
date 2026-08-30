@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   proRoomProductionEndpointForTests as PRO_ROOM_PRODUCTION_ENDPOINT,
-  PRO_ROOM_R2_HOST,
+  proRoomR2HostForTests as PRO_ROOM_R2_HOST,
   ProRoomApiClient,
   ProRoomApiError,
   resolveProRoomEndpointForTests as resolveProRoomEndpoint,
@@ -1895,6 +1895,157 @@ describe('PRO room system-audio lease API', () => {
 });
 
 describe('PRO room private media API', () => {
+  it.each([
+    ['IPv6 loopback', 'http://[::1]:8789'],
+    ['127/8 loopback', 'http://127.23.45.67:8789'],
+    ['localhost subdomain', 'http://worker.localhost:8789'],
+    ['IPv4-mapped IPv6 loopback', 'http://[::ffff:127.0.0.1]:8789'],
+  ])('accepts same-origin HTTP upload and download URLs for %s', async (_label, endpoint) => {
+    const asset = {
+      kind: 'pro-r2' as const,
+      assetId: ASSET_ID,
+      version: 1,
+      byteLength: 1024,
+      mime: 'audio/flac',
+      sha256: 'a'.repeat(64),
+    };
+    const uploadUrl = new URL('/local-upload', endpoint).href;
+    const downloadUrl = new URL('/local-download', endpoint).href;
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ endpoint, fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock
+      .mockResolvedValueOnce(
+        jsonResponse({
+          reservation: {
+            assetId: ASSET_ID,
+            version: 1,
+            byteLength: 1024,
+            expiresAtMs: 1_900_000_000_000,
+            upload: { method: 'PUT', url: uploadUrl, headers: {} },
+          },
+          quota: quota(1024),
+        }),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          asset,
+          download: { url: downloadUrl, expiresAtMs: 1_900_000_000_000 },
+        }),
+      );
+
+    await expect(
+      client.createMediaReservation({
+        code: ROOM_CODE,
+        byteLength: 1024,
+        name: 'track.flac',
+        mime: 'audio/flac',
+        idempotencyKey: IDEMPOTENCY_KEY,
+      }),
+    ).resolves.toMatchObject({ upload: { url: uploadUrl } });
+    await expect(client.getMediaDownload(ROOM_CODE, ASSET_ID)).resolves.toMatchObject({
+      url: downloadUrl,
+    });
+  });
+
+  it('rejects same-origin blob upload and download URLs from a loopback endpoint', async () => {
+    const endpoint = 'http://127.0.0.1:8789';
+    const blobUrl = `blob:${endpoint}/local-media`;
+    const asset = {
+      kind: 'pro-r2' as const,
+      assetId: ASSET_ID,
+      version: 1,
+      byteLength: 1024,
+      mime: 'audio/flac',
+      sha256: 'a'.repeat(64),
+    };
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ endpoint, fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        reservation: {
+          assetId: ASSET_ID,
+          version: 1,
+          byteLength: 1024,
+          expiresAtMs: 1_900_000_000_000,
+          upload: { method: 'PUT', url: blobUrl, headers: {} },
+        },
+        quota: quota(1024),
+      }),
+    );
+    await expect(
+      client.createMediaReservation({
+        code: ROOM_CODE,
+        byteLength: 1024,
+        name: 'track.flac',
+        mime: 'audio/flac',
+        idempotencyKey: IDEMPOTENCY_KEY,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        asset,
+        download: { url: blobUrl, expiresAtMs: 1_900_000_000_000 },
+      }),
+    );
+    await expect(client.getMediaDownload(ROOM_CODE, ASSET_ID)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+
+  it('rejects unsigned same-origin media URLs from a production API endpoint', async () => {
+    const unsignedUrl = new URL('/api/admin/private-media', PRO_ROOM_PRODUCTION_ENDPOINT).href;
+    const asset = {
+      kind: 'pro-r2' as const,
+      assetId: ASSET_ID,
+      version: 1,
+      byteLength: 1024,
+      mime: 'audio/flac',
+      sha256: 'a'.repeat(64),
+    };
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({
+      endpoint: PRO_ROOM_PRODUCTION_ENDPOINT,
+      fetch: fetchMock,
+    });
+    await establishPresence(client, fetchMock);
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        reservation: {
+          assetId: ASSET_ID,
+          version: 1,
+          byteLength: 1024,
+          expiresAtMs: 1_900_000_000_000,
+          upload: { method: 'PUT', url: unsignedUrl, headers: {} },
+        },
+        quota: quota(1024),
+      }),
+    );
+    await expect(
+      client.createMediaReservation({
+        code: ROOM_CODE,
+        byteLength: 1024,
+        name: 'track.flac',
+        mime: 'audio/flac',
+        idempotencyKey: IDEMPOTENCY_KEY,
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({
+        asset,
+        download: { url: unsignedUrl, expiresAtMs: 1_900_000_000_000 },
+      }),
+    );
+    await expect(client.getMediaDownload(ROOM_CODE, ASSET_ID)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+
   it('accepts only a bounded reservation and exact R2 presigned upload URL', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });

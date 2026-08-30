@@ -15,6 +15,7 @@ export default defineConfig({
       'src/core/__tests__/emergency-deploy-orchestrator.test.ts',
       'src/core/__tests__/ops-drift-audit.test.ts',
       'src/core/__tests__/release-deployment-state.test.ts',
+      'src/core/__tests__/release-evidence.test.ts',
       'src/core/__tests__/release-identity.test.ts',
       'src/core/__tests__/release-manifest.test.ts',
       'src/core/__tests__/release-r2-policy-state.test.ts',
@@ -35,6 +36,7 @@ export default defineConfig({
         'scripts/emergency-deploy.mts',
         'scripts/guard-emergency-deploy.mts',
         'scripts/release-deployment-state.mts',
+        'scripts/release-evidence.mts',
         'scripts/release-identity.mts',
         'scripts/release-manifest.mts',
         'scripts/release-r2-policy-state.mts',
@@ -85,6 +87,15 @@ export default defineConfig({
           branches: 60,
           functions: 83,
           lines: 71,
+        },
+        // Node 24 baseline (2026-08-30): statements 79.66, branches 63.43,
+        // functions 85.71, lines 79.64. This includes paginated GitHub API
+        // responses through GITHUB_OUTPUT and partial-rerun attempt provenance.
+        'scripts/release-evidence.mts': {
+          statements: 78,
+          branches: 62,
+          functions: 84,
+          lines: 78,
         },
         'scripts/release-identity.mts': {
           statements: 77,

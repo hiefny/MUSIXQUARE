@@ -309,8 +309,20 @@ export interface StandardRoomIdentityAssertions {
   readonly deletionAssertion: string | null;
 }
 
-interface TransportCallOptions {
+export type TransportSdpTransform = (sdp: string) => string;
+export type TransportSenderTuning = (sender: RTCRtpSender) => void;
+
+export interface TransportCallOptions {
   metadata?: Record<string, unknown>;
+  /** Applied exactly once by the transport to the locally-created offer. */
+  sdpTransform?: TransportSdpTransform;
+  /** Applied exactly once to each sender created for this outgoing call. */
+  senderTuning?: TransportSenderTuning;
+}
+
+export interface TransportAnswerOptions {
+  /** Applied exactly once by the transport to the locally-created answer. */
+  sdpTransform?: TransportSdpTransform;
 }
 
 export interface TransportDataConnection {
@@ -359,7 +371,7 @@ export interface TransportMediaConnection {
   metadata?: Record<string, unknown>;
   peerConnection?: RTCPeerConnection;
 
-  answer(stream?: MediaStream): void;
+  answer(stream?: MediaStream, options?: TransportAnswerOptions): void;
   close(): void;
   /** Emitted by transports when the outgoing media offer is acknowledged. */
   on(event: 'open', callback: () => void): void;

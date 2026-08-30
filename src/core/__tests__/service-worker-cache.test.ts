@@ -35,6 +35,11 @@ const NAVIGATION_NETWORK_TIMEOUT_MS = Number(
     .exec(SERVICE_WORKER_SOURCE)?.[1]
     ?.replaceAll('_', ''),
 );
+const NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS = Number(
+  /^\s*const NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS = ([\de_+.]+);$/mu
+    .exec(SERVICE_WORKER_SOURCE)?.[1]
+    ?.replaceAll('_', ''),
+);
 const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = Number(
   /^\s*const OPTIONAL_ASSET_GROUP_TIMEOUT_MS = ([\de_+.]+);$/mu
     .exec(SERVICE_WORKER_SOURCE)?.[1]
@@ -45,6 +50,9 @@ if (!Number.isFinite(OPTIONAL_ASSET_GROUP_TIMEOUT_MS)) {
 }
 if (!Number.isFinite(NAVIGATION_NETWORK_TIMEOUT_MS)) {
   throw new Error('Unable to resolve the service worker navigation timeout');
+}
+if (!Number.isFinite(NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS)) {
+  throw new Error('Unable to resolve the service worker navigation-client lookup timeout');
 }
 const APP_SHELL_SOURCE = /\bconst\s+APP_SHELL\s*=\s*\[([\s\S]*?)\]\s*;/u.exec(
   SERVICE_WORKER_SOURCE,
@@ -74,6 +82,8 @@ type CacheMatchMock = Mock<
   (request: Request, options?: { cacheName?: string }) => Promise<Response | undefined>
 >;
 type FetchMock = Mock<(request: Request, init?: RequestInit) => Promise<Response>>;
+type TestClient = { id: string; postMessage: ReturnType<typeof vi.fn> };
+type ClientsGetMock = Mock<(clientId: string) => Promise<TestClient | undefined>>;
 
 describe('service worker cache policy', () => {
   let fetchListener: FetchListener;
@@ -90,8 +100,9 @@ describe('service worker cache policy', () => {
   let cacheDelete: ReturnType<typeof vi.fn>;
   let fetchMock: FetchMock;
   let clientsClaim: ReturnType<typeof vi.fn>;
+  let clientsGet: ClientsGetMock;
   let skipWaiting: ReturnType<typeof vi.fn>;
-  let windowClients: Array<{ id: string; postMessage: ReturnType<typeof vi.fn> }>;
+  let windowClients: TestClient[];
 
   it('precaches both stable first-paint scripts with the navigation shell', () => {
     expect(APP_SHELL_SOURCE).toContain('./fouc-cleanup.js');
@@ -137,6 +148,9 @@ describe('service worker cache policy', () => {
     cacheDelete = vi.fn(async () => true);
     fetchMock = vi.fn<(request: Request, init?: RequestInit) => Promise<Response>>();
     clientsClaim = vi.fn(async () => undefined);
+    clientsGet = vi.fn(async (clientId: string) =>
+      windowClients.find((client) => client.id === clientId),
+    );
     skipWaiting = vi.fn(async () => undefined);
     windowClients = [];
 
@@ -152,6 +166,7 @@ describe('service worker cache policy', () => {
       registration: {},
       clients: {
         claim: clientsClaim,
+        get: clientsGet,
         matchAll: vi.fn(async () => windowClients),
       },
     };
@@ -291,6 +306,34 @@ describe('service worker cache policy', () => {
     expect(cachePut).not.toHaveBeenCalled();
   });
 
+  it('does not stage no-store optional assets or purge another worker generation', async () => {
+    const retiredOptionalCache = `musixquare-optional-${RETIRED_CACHE_VERSION}`;
+    const futureOptionalCache = `musixquare-optional-v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`;
+    cacheKeys.mockResolvedValue([retiredOptionalCache, futureOptionalCache]);
+    fetchMock.mockResolvedValue(
+      new Response('private optional asset', {
+        status: 200,
+        headers: { 'Cache-Control': 'public, no-store' },
+      }),
+    );
+
+    await dispatchExtendable(installListener);
+
+    expect(cacheAddAll).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(cachePut).not.toHaveBeenCalled();
+    expect(cacheKeys).not.toHaveBeenCalled();
+    expect(cacheOpen).not.toHaveBeenCalledWith(retiredOptionalCache);
+    expect(cacheOpen).not.toHaveBeenCalledWith(futureOptionalCache);
+    expect(cacheEntryDelete).toHaveBeenCalledTimes(2);
+    expect(cacheEntryDelete.mock.calls[1]?.[0]).toEqual(
+      expect.objectContaining({
+        url: 'https://musixquare.com/primary-font-loader.js',
+      }),
+    );
+    expect(cacheEntryDelete.mock.calls[1]?.[1]).toEqual({ ignoreVary: true });
+  });
+
   it('streams optional font assets into CacheStorage sequentially', async () => {
     let finishFirstWrite: (() => void) | undefined;
     const firstWrite = new Promise<void>((resolve) => {
@@ -393,6 +436,72 @@ describe('service worker cache policy', () => {
 
     expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${ACTIVE_CACHE_VERSION}`);
     expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it.each(['no-store', 'public, NO-STORE, max-age=0'])(
+    'returns but never persists a navigation forbidden by Cache-Control: %s',
+    async (cacheControl) => {
+      const request = new Request('https://musixquare.com/admin', {
+        headers: { accept: 'text/html' },
+      });
+      fetchMock.mockResolvedValueOnce(
+        new Response('<!doctype html><title>Admin</title>', {
+          status: 200,
+          headers: { 'Cache-Control': cacheControl },
+        }),
+      );
+
+      const online = await dispatch(request);
+
+      expect(online.status).toBe(200);
+      expect(await online.text()).toContain('Admin');
+      expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${ACTIVE_CACHE_VERSION}`);
+      expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+      expect(cachePut).not.toHaveBeenCalled();
+
+      fetchMock.mockRejectedValueOnce(new Error('offline'));
+      const offline = await dispatch(request);
+      expect(offline.status).toBe(503);
+    },
+  );
+
+  it('preserves the install-owned index shell while purging no-store runtime variants', async () => {
+    const request = new Request('https://musixquare.com/index.html', {
+      headers: { accept: 'text/html' },
+    });
+    cacheKeys.mockResolvedValue([
+      `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-runtime-${ACTIVE_CACHE_VERSION}`,
+      'unrelated-product-cache-v1',
+    ]);
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url =
+          typeof candidate === 'string'
+            ? new URL(candidate, 'https://musixquare.com/service-worker.js').href
+            : candidate.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          url === request.url
+          ? new Response('installed public app shell', { status: 200 })
+          : undefined;
+      },
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response('fresh public app shell', {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+
+    const online = await dispatch(request);
+    expect(await online.text()).toBe('fresh public app shell');
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${ACTIVE_CACHE_VERSION}`);
+    expect(cacheOpen).not.toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
+    expect(cacheOpen).not.toHaveBeenCalledWith('unrelated-product-cache-v1');
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(await offline.text()).toBe('installed public app shell');
   });
 
   it.each([
@@ -520,6 +629,498 @@ describe('service worker cache policy', () => {
     expect(cachePut).toHaveBeenCalledOnce();
   });
 
+  it('does not intercept an extensionless same-origin no-store request for CacheStorage', () => {
+    const request = new Request('https://musixquare.com/runtime-config', {
+      cache: 'no-store',
+    });
+    cacheMatch.mockResolvedValue(new Response('stale cached configuration', { status: 200 }));
+    fetchMock.mockResolvedValue(new Response('fresh network configuration', { status: 200 }));
+
+    expectIgnored(request);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(cacheMatch).not.toHaveBeenCalled();
+    expect(cacheOpen).not.toHaveBeenCalled();
+    expect(cachePut).not.toHaveBeenCalled();
+  });
+
+  it('returns but never persists a no-store stable asset', async () => {
+    const request = new Request('https://musixquare.com/admin.js?v=release');
+    fetchMock.mockResolvedValueOnce(
+      new Response('window.__ADMIN__ = true;', {
+        status: 200,
+        headers: { 'Cache-Control': 'max-age=0, No-Store, must-revalidate' },
+      }),
+    );
+
+    const online = await dispatch(request);
+
+    expect(online.status).toBe(200);
+    expect(await online.text()).toContain('__ADMIN__');
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${ACTIVE_CACHE_VERSION}`);
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cachePut).not.toHaveBeenCalled();
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(503);
+  });
+
+  it('does not let an older delayed cache put resurrect after a newer no-store response', async () => {
+    const request = new Request('https://musixquare.com/runtime-config');
+    let cachedBody: string | null = null;
+    let finishOlderPut: (() => void) | undefined;
+
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        return cachedBody !== null &&
+          url === request.url &&
+          (options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` ||
+            options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}`)
+          ? new Response(cachedBody, { status: 200 })
+          : undefined;
+      },
+    );
+    const delayedOlderPut = new Promise<void>((resolve) => {
+      finishOlderPut = () => {
+        cachedBody = 'older cacheable configuration';
+        resolve();
+      };
+    });
+    cachePut.mockReturnValue(delayedOlderPut);
+    cacheEntryDelete.mockImplementation(() => {
+      cachedBody = null;
+      return true;
+    });
+    fetchMock
+      .mockResolvedValueOnce(new Response('older cacheable configuration', { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response('newer private configuration', {
+          status: 200,
+          headers: { 'Cache-Control': 'no-store' },
+        }),
+      );
+
+    const older = await dispatchWithWork(request);
+    expect(await older.response.text()).toBe('older cacheable configuration');
+    expect(cachePut).toHaveBeenCalledOnce();
+    expect(finishOlderPut).toBeTypeOf('function');
+
+    const newer = await dispatchWithWork(request);
+    expect(await newer.response.text()).toBe('newer private configuration');
+
+    // Let both fetch-event lifetimes settle only after the newer revocation has
+    // raced the already-started older write. The final state must follow the
+    // newer response regardless of whether the worker serializes or invalidates
+    // the in-flight write.
+    finishOlderPut?.();
+    await Promise.all([...older.work, ...newer.work]);
+
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(503);
+    expect(await offline.text()).toBe('Offline');
+  });
+
+  it('does not cache an older response that arrives after a newer no-store invalidation', async () => {
+    const request = new Request('https://musixquare.com/runtime-config');
+    let resolveOlderNetwork: ((response: Response) => void) | undefined;
+    const olderNetwork = new Promise<Response>((resolve) => {
+      resolveOlderNetwork = resolve;
+    });
+    fetchMock.mockReturnValueOnce(olderNetwork).mockResolvedValueOnce(
+      new Response('newer private configuration', {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+
+    let olderResponse: Promise<Response> | undefined;
+    const olderWork: Array<Promise<unknown>> = [];
+    fetchListener({
+      request,
+      respondWith: (response) => {
+        olderResponse = response;
+      },
+      waitUntil: (work) => olderWork.push(work),
+    });
+    expect(olderResponse).toBeDefined();
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    const newer = await dispatchWithWork(request);
+    expect(await newer.response.text()).toBe('newer private configuration');
+    await Promise.all(newer.work);
+
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cachePut).not.toHaveBeenCalled();
+
+    resolveOlderNetwork?.(new Response('older cacheable configuration', { status: 200 }));
+    expect(await olderResponse!.then((response) => response.text())).toBe(
+      'older cacheable configuration',
+    );
+    await Promise.all(olderWork);
+
+    expect(cachePut).not.toHaveBeenCalled();
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(503);
+    expect(await offline.text()).toBe('Offline');
+  });
+
+  it('does not let an older delayed no-store response delete a newer cached response', async () => {
+    const request = new Request('https://musixquare.com/runtime-config');
+    let cachedBody: string | null = null;
+    let resolveOlderNetwork: ((response: Response) => void) | undefined;
+    const olderNetwork = new Promise<Response>((resolve) => {
+      resolveOlderNetwork = resolve;
+    });
+
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        return cachedBody !== null &&
+          url === request.url &&
+          (options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` ||
+            options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}`)
+          ? new Response(cachedBody, { status: 200 })
+          : undefined;
+      },
+    );
+    cachePut.mockImplementation(() => {
+      cachedBody = 'newer cacheable configuration';
+    });
+    cacheEntryDelete.mockImplementation(() => {
+      cachedBody = null;
+      return true;
+    });
+    fetchMock
+      .mockReturnValueOnce(olderNetwork)
+      .mockResolvedValueOnce(new Response('newer cacheable configuration', { status: 200 }));
+
+    let olderResponse: Promise<Response> | undefined;
+    const olderWork: Array<Promise<unknown>> = [];
+    fetchListener({
+      request,
+      respondWith: (response) => {
+        olderResponse = response;
+      },
+      waitUntil: (work) => olderWork.push(work),
+    });
+    expect(olderResponse).toBeDefined();
+    expect(fetchMock).toHaveBeenCalledOnce();
+
+    const newer = await dispatchWithWork(request);
+    expect(await newer.response.text()).toBe('newer cacheable configuration');
+    await Promise.all(newer.work);
+    expect(cachedBody).toBe('newer cacheable configuration');
+
+    resolveOlderNetwork?.(
+      new Response('older private configuration', {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+    expect(await olderResponse!.then((response) => response.text())).toBe(
+      'older private configuration',
+    );
+    await Promise.all(olderWork);
+
+    expect(cacheEntryDelete).not.toHaveBeenCalled();
+    expect(cachedBody).toBe('newer cacheable configuration');
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(200);
+    expect(await offline.text()).toBe('newer cacheable configuration');
+  });
+
+  it('keeps an older no-store revocation authoritative when the newer cache put fails', async () => {
+    const request = new Request('https://musixquare.com/runtime-config');
+    let cachedBody: string | null = 'stale cached configuration';
+    let resolveOlderNetwork: ((response: Response) => void) | undefined;
+    const olderNetwork = new Promise<Response>((resolve) => {
+      resolveOlderNetwork = resolve;
+    });
+
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        return cachedBody !== null &&
+          url === request.url &&
+          (options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` ||
+            options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}`)
+          ? new Response(cachedBody, { status: 200 })
+          : undefined;
+      },
+    );
+    cachePut.mockRejectedValueOnce(new Error('quota exceeded'));
+    cacheEntryDelete.mockImplementation(() => {
+      cachedBody = null;
+      return true;
+    });
+    fetchMock
+      .mockReturnValueOnce(olderNetwork)
+      .mockResolvedValueOnce(new Response('newer cacheable configuration', { status: 200 }));
+
+    let olderResponse: Promise<Response> | undefined;
+    const olderWork: Array<Promise<unknown>> = [];
+    fetchListener({
+      request,
+      respondWith: (response) => {
+        olderResponse = response;
+      },
+      waitUntil: (work) => olderWork.push(work),
+    });
+
+    const newer = await dispatchWithWork(request);
+    expect(await newer.response.text()).toBe('stale cached configuration');
+    await Promise.all(newer.work);
+    expect(cachedBody).toBe('stale cached configuration');
+
+    resolveOlderNetwork?.(
+      new Response('older private configuration', {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+    expect(await olderResponse!.then((response) => response.text())).toBe(
+      'stale cached configuration',
+    );
+    await Promise.all(olderWork);
+
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cachedBody).toBeNull();
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(503);
+  });
+
+  it('caches a cacheable response requested after a no-store invalidation', async () => {
+    const request = new Request('https://musixquare.com/runtime-config');
+    fetchMock.mockResolvedValueOnce(
+      new Response('private configuration', {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+
+    const invalidating = await dispatch(request);
+    expect(await invalidating.text()).toBe('private configuration');
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cachePut).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce(new Response('new cacheable configuration', { status: 200 }));
+    const refreshed = await dispatch(request);
+    expect(await refreshed.text()).toBe('new cacheable configuration');
+    expect(cachePut).toHaveBeenCalledOnce();
+
+    const cachedCopy = cachePut.mock.calls[0]?.[1] as Response | undefined;
+    expect(cachedCopy).toBeDefined();
+    expect(await cachedCopy!.text()).toBe('new cacheable configuration');
+
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        return url === request.url &&
+          options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}`
+          ? new Response('new cacheable configuration', { status: 200 })
+          : undefined;
+      },
+    );
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(200);
+    expect(await offline.text()).toBe('new cacheable configuration');
+  });
+
+  it('purges every Vary variant only from Musixquare-owned cache families', async () => {
+    const request = new Request('https://musixquare.com/admin.js?v=release', {
+      headers: { 'accept-language': 'ko-KR' },
+    });
+    const futureEpoch = Number(ACTIVE_CACHE_VERSION.slice(1)) + 1;
+    const futureStaticCache = `musixquare-static-v${futureEpoch}`;
+    const futureRuntimeCache = `musixquare-runtime-v${futureEpoch}`;
+    cacheKeys.mockResolvedValue([
+      `musixquare-static-${RETIRED_CACHE_VERSION}`,
+      `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
+      futureStaticCache,
+      futureRuntimeCache,
+      'unrelated-product-cache-v1',
+    ]);
+    fetchMock.mockResolvedValueOnce(
+      new Response('asset removed', {
+        status: 410,
+        headers: { 'Cache-Control': 'no-store', Vary: 'Accept-Language' },
+      }),
+    );
+
+    const response = await dispatch(request);
+
+    expect(response.status).toBe(410);
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${RETIRED_CACHE_VERSION}`);
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${RETIRED_CACHE_VERSION}`);
+    expect(cacheOpen).not.toHaveBeenCalledWith(futureStaticCache);
+    expect(cacheOpen).not.toHaveBeenCalledWith(futureRuntimeCache);
+    expect(cacheOpen).not.toHaveBeenCalledWith('unrelated-product-cache-v1');
+  });
+
+  it('evicts a previously cached navigation when its fresh response becomes no-store', async () => {
+    const request = new Request('https://musixquare.com/admin', {
+      headers: { accept: 'text/html' },
+    });
+    let staleEntryExists = true;
+    cacheEntryDelete.mockImplementation(() => {
+      staleEntryExists = false;
+      return true;
+    });
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        return staleEntryExists &&
+          options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}` &&
+          url === request.url
+          ? new Response('stale admin shell', { status: 200 })
+          : undefined;
+      },
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response('fresh private admin shell', {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+
+    const online = await dispatch(request);
+    expect(await online.text()).toBe('fresh private admin shell');
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(503);
+  });
+
+  it('evicts a cached navigation when a fresh denial response forbids storage', async () => {
+    const request = new Request('https://musixquare.com/admin', {
+      headers: { accept: 'text/html' },
+    });
+    let staleEntryExists = true;
+    cacheEntryDelete.mockImplementation(() => {
+      staleEntryExists = false;
+      return true;
+    });
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        return staleEntryExists &&
+          options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}` &&
+          url === request.url
+          ? new Response('stale privileged shell', { status: 200 })
+          : undefined;
+      },
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response('authorization required', {
+        status: 401,
+        headers: { 'Cache-Control': 'private, no-store' },
+      }),
+    );
+
+    const online = await dispatch(request);
+    expect(online.status).toBe(401);
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cachePut).not.toHaveBeenCalled();
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(503);
+  });
+
+  it('evicts a previously cached stable asset after a no-store revalidation', async () => {
+    const request = new Request('https://musixquare.com/admin.js?v=release');
+    let staleEntryExists = true;
+    cacheEntryDelete.mockImplementation(() => {
+      staleEntryExists = false;
+      return true;
+    });
+    cacheKeys.mockResolvedValue([
+      `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-static-${RETIRED_CACHE_VERSION}`,
+      `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
+    ]);
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        return staleEntryExists &&
+          options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          url === request.url
+          ? new Response('stale admin asset', { status: 200 })
+          : undefined;
+      },
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response('fresh private admin asset', {
+        status: 200,
+        headers: { 'Cache-Control': 'NO-STORE, max-age=0' },
+      }),
+    );
+
+    // The cache-first request may finish with its incumbent body, but the
+    // background revalidation must retire it before any later request.
+    const online = await dispatch(request);
+    expect(await online.text()).toBe('stale admin asset');
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${RETIRED_CACHE_VERSION}`);
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-runtime-${RETIRED_CACHE_VERSION}`);
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(503);
+  });
+
+  it('evicts a cached stable asset when a fresh removal response forbids storage', async () => {
+    const request = new Request('https://musixquare.com/admin.js?v=release');
+    let staleEntryExists = true;
+    cacheEntryDelete.mockImplementation(() => {
+      staleEntryExists = false;
+      return true;
+    });
+    cacheKeys.mockResolvedValue([
+      `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+      `musixquare-static-${RETIRED_CACHE_VERSION}`,
+    ]);
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        return staleEntryExists &&
+          options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          url === request.url
+          ? new Response('stale privileged asset', { status: 200 })
+          : undefined;
+      },
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response('asset removed', {
+        status: 410,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+
+    const online = await dispatch(request);
+    expect(await online.text()).toBe('stale privileged asset');
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cacheOpen).toHaveBeenCalledWith(`musixquare-static-${RETIRED_CACHE_VERSION}`);
+    expect(cachePut).not.toHaveBeenCalled();
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(request);
+    expect(offline.status).toBe(503);
+  });
+
   it('serves the precached wordmark timing script during a cold-offline launch', async () => {
     fetchMock.mockRejectedValue(new Error('offline'));
     cacheMatch.mockImplementation(async (request: Request, options?: { cacheName?: string }) => {
@@ -588,6 +1189,59 @@ describe('service worker cache policy', () => {
     expect(await response.text()).toBe('recovered network font');
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(cachePut).toHaveBeenCalledOnce();
+  });
+
+  it('purges a complete retired optional group after a no-store network response', async () => {
+    const request = new Request(
+      'https://musixquare.com/designsystem/fonts/PretendardVariable.woff2',
+    );
+    const retiredOptionalCache = `musixquare-optional-${RETIRED_CACHE_VERSION}`;
+    const futureOptionalCache = `musixquare-optional-v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`;
+    const retiredReadyKey = `./.mxqr-optional-ready?cache=${RETIRED_CACHE_VERSION}`;
+    let retiredMarkerExists = true;
+    let retiredFontExists = true;
+    let retiredCssExists = true;
+    cacheKeys.mockResolvedValue([retiredOptionalCache, futureOptionalCache]);
+    cacheEntryDelete.mockImplementation((candidate: RequestInfo) => {
+      const url = typeof candidate === 'string' ? candidate : candidate.url;
+      if (url.endsWith('PretendardVariable.woff2')) retiredFontExists = false;
+      if (url.includes(retiredReadyKey)) retiredMarkerExists = false;
+      return true;
+    });
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        if (options?.cacheName !== retiredOptionalCache) return undefined;
+        const url = typeof candidate === 'string' ? candidate : candidate.url;
+        if (url.includes(retiredReadyKey) && retiredMarkerExists) {
+          return new Response(RETIRED_CACHE_VERSION, { status: 200 });
+        }
+        if (url.endsWith('PretendardVariable.woff2') && retiredFontExists) {
+          return new Response('retired optional font', { status: 200 });
+        }
+        if (url.endsWith('primary-font.css') && retiredCssExists) {
+          return new Response('retired optional css', { status: 200 });
+        }
+        return undefined;
+      },
+    );
+    fetchMock.mockResolvedValueOnce(
+      new Response('font revoked', {
+        status: 200,
+        headers: { 'Cache-Control': 'no-store' },
+      }),
+    );
+
+    const online = await dispatch(request);
+    expect(await online.text()).toBe('font revoked');
+    expect(cacheOpen).toHaveBeenCalledWith(retiredOptionalCache);
+    expect(cacheOpen).not.toHaveBeenCalledWith(futureOptionalCache);
+    expect(cacheEntryDelete).toHaveBeenCalledWith(request, { ignoreVary: true });
+    expect(cacheEntryDelete).toHaveBeenCalledWith(retiredReadyKey);
+
+    fetchMock.mockRejectedValueOnce(new Error('offline'));
+    const offline = await dispatch(new Request('https://musixquare.com/primary-font.css'));
+    expect(offline.status).toBe(503);
+    expect(retiredCssExists).toBe(true);
   });
 
   it('rejects markerless retired optional and static font fragments while offline', async () => {
@@ -921,38 +1575,263 @@ describe('service worker cache policy', () => {
     expect(cacheEntryDelete).not.toHaveBeenCalled();
   });
 
-  it('clears a previous degraded marker after a successful navigation', async () => {
+  it('preserves a fallback marker when a redirect hop succeeds before the final navigation fails', async () => {
     cacheMatch.mockImplementation(
       async (request: RequestInfo, options?: { cacheName?: string }) => {
         const requestUrl = typeof request === 'string' ? request : request.url;
         if (
-          options?.cacheName === `musixquare-runtime-${ACTIVE_CACHE_VERSION}` &&
-          requestUrl.includes('.mxqr-navigation-fallback/client-reopen')
+          options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('index.html')
         ) {
-          return new Response(ACTIVE_CACHE_VERSION, { status: 200 });
+          return new Response('cached shell', { status: 200 });
         }
         return undefined;
       },
     );
-    fetchMock.mockResolvedValue(new Response('<!doctype html>', { status: 200 }));
-
-    await dispatch(new Request('https://musixquare.com/', { headers: { accept: 'text/html' } }), {
-      clientId: 'client-reopen',
+    const navigationRequest = new Request('https://musixquare.com/start', {
+      headers: { accept: 'text/html' },
     });
-
-    expect(cacheEntryDelete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: 'https://musixquare.com/.mxqr-navigation-fallback/client-reopen',
+    fetchMock.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: 'https://musixquare.com/final' },
       }),
     );
-    const client = { id: 'client-reopen', postMessage: vi.fn() };
+
+    await dispatch(navigationRequest, {
+      resultingClientId: 'redirect-client',
+    });
+    expect(cacheEntryDelete).not.toHaveBeenCalled();
+
+    fetchMock.mockRejectedValueOnce(new Error('final redirect hop interrupted'));
+    const response = await dispatch(
+      new Request('https://musixquare.com/final', { headers: { accept: 'text/html' } }),
+      { resultingClientId: 'redirect-client' },
+    );
+    expect(await response.text()).toBe('cached shell');
+    expect(cachePut).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'https://musixquare.com/.mxqr-navigation-fallback/redirect-client',
+      }),
+      expect.any(Response),
+    );
+
+    const client = { id: 'redirect-client', postMessage: vi.fn() };
     await dispatchMessage(client, { type: 'MXQR_CACHE_STATUS_PROBE' });
     expect(client.postMessage).toHaveBeenCalledWith({
       type: 'MXQR_CACHE_STATUS_REQUEST',
       cacheVersion: ACTIVE_CACHE_VERSION,
       proactive: true,
+      navigationFallback: true,
+    });
+    expect(cacheEntryDelete).not.toHaveBeenCalled();
+  });
+
+  it('scrubs only a proven orphan marker and preserves the current and another live tab', async () => {
+    const currentMarker = new Request(
+      'https://musixquare.com/.mxqr-navigation-fallback/current-client',
+    );
+    const liveMarker = new Request(
+      'https://musixquare.com/.mxqr-navigation-fallback/other-live-client',
+    );
+    const orphanMarker = new Request(
+      'https://musixquare.com/.mxqr-navigation-fallback/orphan-client',
+    );
+    const ordinaryRuntimeEntry = new Request('https://musixquare.com/session');
+    cacheEntryKeys.mockResolvedValue([
+      currentMarker,
+      liveMarker,
+      orphanMarker,
+      ordinaryRuntimeEntry,
+    ]);
+    const liveClient = { id: 'other-live-client', postMessage: vi.fn() };
+    clientsGet.mockImplementation(async (clientId: string) =>
+      clientId === liveClient.id ? liveClient : undefined,
+    );
+
+    const currentClient = { id: 'current-client', postMessage: vi.fn() };
+    await dispatchMessage(currentClient, { type: 'MXQR_CACHE_STATUS_PROBE' });
+
+    expect(currentClient.postMessage).toHaveBeenCalledWith({
+      type: 'MXQR_CACHE_STATUS_REQUEST',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+      proactive: true,
       navigationFallback: false,
     });
+    expect(clientsGet.mock.calls.map(([clientId]) => clientId).sort()).toEqual([
+      'orphan-client',
+      'other-live-client',
+    ]);
+    expect(cacheEntryDelete).toHaveBeenCalledOnce();
+    expect(cacheEntryDelete).toHaveBeenCalledWith(orphanMarker);
+  });
+
+  it('preserves a fallback marker when the client lookup rejects', async () => {
+    const uncertainMarker = new Request(
+      'https://musixquare.com/.mxqr-navigation-fallback/uncertain-client',
+    );
+    cacheEntryKeys.mockResolvedValue([uncertainMarker]);
+    clientsGet.mockRejectedValueOnce(new Error('client registry unavailable'));
+
+    await dispatchMessage(
+      { id: 'current-client', postMessage: vi.fn() },
+      { type: 'MXQR_CACHE_STATUS_PROBE' },
+    );
+
+    expect(cacheEntryDelete).not.toHaveBeenCalled();
+  });
+
+  it('preserves in-memory fallback state when orphan-marker deletion is not confirmed', async () => {
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof candidate === 'string' ? candidate : candidate.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('index.html')
+          ? new Response('cached shell', { status: 200 })
+          : undefined;
+      },
+    );
+    fetchMock.mockRejectedValueOnce(new Error('radio path interrupted'));
+    await dispatch(new Request('https://musixquare.com/', { headers: { accept: 'text/html' } }), {
+      resultingClientId: 'orphan-client',
+    });
+
+    const orphanMarker = new Request(
+      'https://musixquare.com/.mxqr-navigation-fallback/orphan-client',
+    );
+    cacheEntryKeys.mockResolvedValue([orphanMarker]);
+    cacheEntryDelete.mockResolvedValueOnce(false);
+    clientsGet.mockResolvedValueOnce(undefined);
+
+    const currentClient = { id: 'current-client', postMessage: vi.fn() };
+    await dispatchMessage(currentClient, { type: 'MXQR_CACHE_STATUS_PROBE' });
+    expect(cacheEntryDelete).toHaveBeenCalledWith(orphanMarker);
+
+    cacheEntryKeys.mockResolvedValue([]);
+    cacheMatch.mockResolvedValue(undefined);
+    const orphanClient = { id: 'orphan-client', postMessage: vi.fn() };
+    await dispatchMessage(orphanClient, { type: 'MXQR_CACHE_STATUS_PROBE' });
+    expect(orphanClient.postMessage).toHaveBeenCalledWith({
+      type: 'MXQR_CACHE_STATUS_REQUEST',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+      proactive: true,
+      navigationFallback: true,
+    });
+  });
+
+  it('preserves a provisional fallback marker when the client lookup times out', async () => {
+    vi.useFakeTimers();
+    const provisionalMarker = new Request(
+      'https://musixquare.com/.mxqr-navigation-fallback/provisional-client',
+    );
+    cacheEntryKeys.mockResolvedValue([provisionalMarker]);
+    clientsGet.mockImplementation(() => new Promise(() => undefined));
+
+    try {
+      const probe = dispatchMessage(
+        { id: 'current-client', postMessage: vi.fn() },
+        { type: 'MXQR_CACHE_STATUS_PROBE' },
+      );
+      await vi.advanceTimersByTimeAsync(NAVIGATION_STATE_CLIENT_LOOKUP_TIMEOUT_MS);
+      await probe;
+
+      expect(cacheEntryDelete).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves a provisional fallback marker when the client becomes ready before timeout', async () => {
+    vi.useFakeTimers();
+    const provisionalMarker = new Request(
+      'https://musixquare.com/.mxqr-navigation-fallback/provisional-client',
+    );
+    cacheEntryKeys.mockResolvedValue([provisionalMarker]);
+    const provisionalClient = { id: 'provisional-client', postMessage: vi.fn() };
+    clientsGet.mockImplementation(
+      async () =>
+        new Promise<TestClient>((resolve) => {
+          setTimeout(() => resolve(provisionalClient), 1_000);
+        }),
+    );
+
+    try {
+      const probe = dispatchMessage(
+        { id: 'current-client', postMessage: vi.fn() },
+        { type: 'MXQR_CACHE_STATUS_PROBE' },
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      await probe;
+
+      expect(cacheEntryDelete).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('never transfers navigation state from an initiating client to the resulting document', async () => {
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof candidate === 'string' ? candidate : candidate.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('index.html')
+          ? new Response('cached shell', { status: 200 })
+          : undefined;
+      },
+    );
+    fetchMock.mockRejectedValueOnce(new Error('radio path interrupted'));
+    const navigationRequest = new Request('https://musixquare.com/', {
+      headers: { accept: 'text/html' },
+    });
+    await dispatch(navigationRequest, { resultingClientId: 'opener-client' });
+
+    cacheEntryDelete.mockClear();
+    fetchMock.mockResolvedValueOnce(new Response('<!doctype html>', { status: 200 }));
+    await dispatch(navigationRequest, {
+      clientId: 'opener-client',
+      resultingClientId: 'new-document',
+    });
+
+    expect(cacheEntryDelete).not.toHaveBeenCalled();
+    const opener = { id: 'opener-client', postMessage: vi.fn() };
+    await dispatchMessage(opener, { type: 'MXQR_CACHE_STATUS_PROBE' });
+    expect(opener.postMessage).toHaveBeenCalledWith({
+      type: 'MXQR_CACHE_STATUS_REQUEST',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+      proactive: true,
+      navigationFallback: true,
+    });
+
+    const resultingDocument = { id: 'new-document', postMessage: vi.fn() };
+    await dispatchMessage(resultingDocument, { type: 'MXQR_CACHE_STATUS_PROBE' });
+    expect(resultingDocument.postMessage).toHaveBeenCalledWith({
+      type: 'MXQR_CACHE_STATUS_REQUEST',
+      cacheVersion: ACTIVE_CACHE_VERSION,
+      proactive: true,
+      navigationFallback: false,
+    });
+  });
+
+  it('does not infer navigation-state ownership when resultingClientId is absent', async () => {
+    cacheMatch.mockImplementation(
+      async (candidate: RequestInfo, options?: { cacheName?: string }) => {
+        const requestUrl = typeof candidate === 'string' ? candidate : candidate.url;
+        return options?.cacheName === `musixquare-static-${ACTIVE_CACHE_VERSION}` &&
+          requestUrl.endsWith('index.html')
+          ? new Response('cached shell', { status: 200 })
+          : undefined;
+      },
+    );
+    const navigationRequest = new Request('https://musixquare.com/', {
+      headers: { accept: 'text/html' },
+    });
+    fetchMock.mockRejectedValueOnce(new Error('radio path interrupted'));
+    await dispatch(navigationRequest, { clientId: 'initiating-client' });
+    expect(cachePut).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValueOnce(new Response('<!doctype html>', { status: 200 }));
+    await dispatch(navigationRequest, { clientId: 'initiating-client' });
+    expect(cacheEntryDelete).not.toHaveBeenCalled();
   });
 
   it('bounds a stalled navigation and falls back only to the active canonical shell', async () => {
@@ -1116,12 +1995,19 @@ describe('service worker cache policy', () => {
   it('retires old caches only after every live tab approves the active generation', async () => {
     const first = { id: 'first', postMessage: vi.fn() };
     const second = { id: 'second', postMessage: vi.fn() };
+    const futureVersion = `v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`;
+    const futureCaches = [
+      `musixquare-static-${futureVersion}`,
+      `musixquare-runtime-${futureVersion}`,
+      `musixquare-optional-${futureVersion}`,
+    ];
     windowClients = [first, second];
     cacheKeys.mockResolvedValue([
       `musixquare-static-${RETIRED_CACHE_VERSION}`,
       `musixquare-runtime-${RETIRED_CACHE_VERSION}`,
       `musixquare-static-${ACTIVE_CACHE_VERSION}`,
       `musixquare-runtime-${ACTIVE_CACHE_VERSION}`,
+      ...futureCaches,
       'unrelated-cache',
     ]);
 
@@ -1142,6 +2028,10 @@ describe('service worker cache policy', () => {
     expect(cacheDelete).toHaveBeenCalledTimes(2);
     expect(cacheDelete).toHaveBeenCalledWith(`musixquare-static-${RETIRED_CACHE_VERSION}`);
     expect(cacheDelete).toHaveBeenCalledWith(`musixquare-runtime-${RETIRED_CACHE_VERSION}`);
+    for (const futureCache of futureCaches) {
+      expect(cacheDelete).not.toHaveBeenCalledWith(futureCache);
+    }
+    expect(cacheOpen).not.toHaveBeenCalledWith(`musixquare-runtime-${futureVersion}`);
     expect(cacheDelete).not.toHaveBeenCalledWith('unrelated-cache');
   });
 
@@ -1180,11 +2070,20 @@ describe('service worker cache policy', () => {
   });
 
   it('serves an old hashed lazy chunk while a live tab defers reload', async () => {
+    const retiredStaticCache = `musixquare-static-${RETIRED_CACHE_VERSION}`;
+    cacheKeys.mockResolvedValue([
+      'unrelated-product-cache-v999',
+      `musixquare-static-v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`,
+      retiredStaticCache,
+    ]);
     cacheMatch.mockImplementation(async (request: Request, options?: { cacheName?: string }) => {
-      if (options?.cacheName) return undefined;
-      return String(request.url).endsWith('/assets/locale-OldHash1.js')
-        ? new Response('old lazy chunk', { status: 200 })
-        : undefined;
+      if (
+        options?.cacheName === retiredStaticCache &&
+        String(request.url).endsWith('/assets/locale-OldHash1.js')
+      ) {
+        return new Response('old lazy chunk', { status: 200 });
+      }
+      return undefined;
     });
     fetchMock.mockResolvedValue(new Response('not found', { status: 404 }));
 
@@ -1196,6 +2095,12 @@ describe('service worker cache policy', () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(cacheMatch).toHaveBeenNthCalledWith(1, expect.any(Request), {
       cacheName: `musixquare-static-${ACTIVE_CACHE_VERSION}`,
+    });
+    expect(cacheMatch).toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: retiredStaticCache,
+    });
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: 'unrelated-product-cache-v999',
     });
   });
 
@@ -1228,9 +2133,27 @@ describe('service worker cache policy', () => {
   });
 
   it('falls back to a retired stable asset only when the network fails', async () => {
+    const retiredRuntimeCache = `musixquare-runtime-${RETIRED_CACHE_VERSION}`;
+    const futureStaticCache = `musixquare-static-v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`;
+    cacheKeys.mockResolvedValue([
+      'unrelated-product-cache-v999',
+      futureStaticCache,
+      retiredRuntimeCache,
+    ]);
     cacheMatch.mockImplementation(async (_request: Request, options?: { cacheName?: string }) => {
-      if (options?.cacheName) return undefined;
-      return new Response('retired offline asset', { status: 200 });
+      if (!options?.cacheName) {
+        return new Response('untrusted cache asset', { status: 200 });
+      }
+      if (options?.cacheName === retiredRuntimeCache) {
+        return new Response('retired offline asset', { status: 200 });
+      }
+      if (
+        options?.cacheName === 'unrelated-product-cache-v999' ||
+        options?.cacheName === futureStaticCache
+      ) {
+        return new Response('untrusted cache asset', { status: 200 });
+      }
+      return undefined;
     });
     fetchMock.mockRejectedValue(new Error('offline'));
 
@@ -1238,6 +2161,43 @@ describe('service worker cache policy', () => {
 
     expect(await response.text()).toBe('retired offline asset');
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(cacheMatch).toHaveBeenNthCalledWith(3, expect.any(Request));
+    expect(cacheMatch).toHaveBeenNthCalledWith(3, expect.any(Request), {
+      cacheName: retiredRuntimeCache,
+    });
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: 'unrelated-product-cache-v999',
+    });
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: futureStaticCache,
+    });
+  });
+
+  it('does not use unrelated or future caches as an offline stable-asset fallback', async () => {
+    const futureRuntimeCache = `musixquare-runtime-v${Number(ACTIVE_CACHE_VERSION.slice(1)) + 1}`;
+    cacheKeys.mockResolvedValue(['unrelated-product-cache-v999', futureRuntimeCache]);
+    cacheMatch.mockImplementation(async (_request: Request, options?: { cacheName?: string }) => {
+      if (!options?.cacheName) {
+        return new Response('untrusted cache asset', { status: 200 });
+      }
+      if (
+        options?.cacheName === 'unrelated-product-cache-v999' ||
+        options?.cacheName === futureRuntimeCache
+      ) {
+        return new Response('untrusted cache asset', { status: 200 });
+      }
+      return undefined;
+    });
+    fetchMock.mockRejectedValue(new Error('offline'));
+
+    const response = await dispatch(new Request('https://musixquare.com/css/style.css'));
+
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe('Offline');
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: 'unrelated-product-cache-v999',
+    });
+    expect(cacheMatch).not.toHaveBeenCalledWith(expect.any(Request), {
+      cacheName: futureRuntimeCache,
+    });
   });
 });

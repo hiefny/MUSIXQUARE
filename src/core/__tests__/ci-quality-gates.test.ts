@@ -14,8 +14,63 @@ const toolingTsconfig = JSON.parse(readFileSync(resolve('tsconfig.tooling.json')
   include?: string[];
 };
 const ciWorkflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8');
+const e2eWorkflow = readFileSync(resolve('.github/workflows/e2e.yml'), 'utf8');
 
 describe('CI quality and supply-chain gates', () => {
+  it('runs browser smoke against the exact production candidate before rebuilding for deep E2E', () => {
+    expect(packageJson.scripts['test:e2e:candidate']).toContain(
+      '--config=playwright.candidate.config.ts',
+    );
+    expect(packageJson.scripts['pretest:e2e:candidate']).toBeUndefined();
+    expect(packageJson.scripts.prepreview).toBeUndefined();
+    expect(ciWorkflow).toContain('name: Upload production bundle for browser verification');
+    expect(ciWorkflow).toContain('name: Download exact production candidate');
+    expect(ciWorkflow).toContain('needs: candidate');
+    expect(ciWorkflow).toContain('run: npm run test:e2e:candidate');
+    expect(ciWorkflow).toMatch(
+      /browser-gate:\s*[\s\S]*?timeout-minutes: 55[\s\S]*?name: Run production candidate browser and Service Worker smoke\s*[\s\S]*?timeout-minutes: 6\s*[\s\S]*?run: npm run test:e2e:candidate[\s\S]*?name: Run critical browser paths\s*[\s\S]*?timeout-minutes: 12\s*[\s\S]*?run: npm run test:e2e:critical/,
+    );
+
+    const candidateJobStart = ciWorkflow.indexOf('\n  candidate:');
+    const browserJobStart = ciWorkflow.indexOf('\n  browser-gate:');
+    expect(candidateJobStart).toBeGreaterThan(-1);
+    expect(browserJobStart).toBeGreaterThan(candidateJobStart);
+    const candidateJob = ciWorkflow.slice(candidateJobStart, browserJobStart);
+    const browserJob = ciWorkflow.slice(browserJobStart);
+    const artifactName = 'browser-production-candidate-${{ github.sha }}-${{ github.run_id }}';
+    expect(candidateJob).toContain(`name: ${artifactName}`);
+    expect(candidateJob).toContain('path: dist/');
+    expect(candidateJob).toContain('include-hidden-files: true');
+    expect(candidateJob).toMatch(
+      /name: browser-production-candidate-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}\s*[\s\S]*?retention-days: 30\s*[\s\S]*?overwrite: true/,
+    );
+    expect(candidateJob).not.toContain(
+      'browser-production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
+    );
+    expect(candidateJob).toMatch(
+      /name: production-candidate-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}[\s\S]*?retention-days: 30/u,
+    );
+    expect(browserJob).toContain(`name: ${artifactName}`);
+    expect(browserJob).toContain('path: dist');
+
+    const candidateSmokeIndex = ciWorkflow.indexOf('run: npm run test:e2e:candidate');
+    const deepE2eIndex = ciWorkflow.indexOf('run: npm run test:e2e:critical');
+    expect(candidateSmokeIndex).toBeGreaterThan(-1);
+    expect(deepE2eIndex).toBeGreaterThan(candidateSmokeIndex);
+
+    const e2eTsconfig = readFileSync(resolve('tsconfig.e2e.json'), 'utf8');
+    expect(e2eTsconfig).toContain('"playwright*.config.ts"');
+  });
+
+  it('keeps a real WebKit Service Worker lifecycle lane enabled', () => {
+    expect(packageJson.scripts['pretest:e2e:webkit-service-worker']).toBe('npm run build');
+    expect(packageJson.scripts['test:e2e:webkit-service-worker']).toContain(
+      '--config=playwright.webkit-service-worker.config.ts',
+    );
+    expect(e2eWorkflow).toContain('name: Production WebKit Service Worker lifecycle smoke');
+    expect(e2eWorkflow).toContain('run: npm run test:e2e:webkit-service-worker');
+  });
+
   it('fails both application and tooling lint on the first warning', () => {
     expect(packageJson.scripts['lint:app']).toBe('eslint src/ --max-warnings=0');
     expect(packageJson.scripts['lint:tooling']).toBe(
@@ -202,6 +257,7 @@ describe('CI quality and supply-chain gates', () => {
       'src/core/__tests__/emergency-deploy-orchestrator.test.ts',
       'src/core/__tests__/ops-drift-audit.test.ts',
       'src/core/__tests__/release-deployment-state.test.ts',
+      'src/core/__tests__/release-evidence.test.ts',
       'src/core/__tests__/release-identity.test.ts',
       'src/core/__tests__/release-manifest.test.ts',
       'src/core/__tests__/release-r2-policy-state.test.ts',
@@ -222,6 +278,7 @@ describe('CI quality and supply-chain gates', () => {
       'scripts/emergency-deploy.mts',
       'scripts/guard-emergency-deploy.mts',
       'scripts/release-deployment-state.mts',
+      'scripts/release-evidence.mts',
       'scripts/release-identity.mts',
       'scripts/release-manifest.mts',
       'scripts/release-r2-policy-state.mts',
@@ -269,6 +326,12 @@ describe('CI quality and supply-chain gates', () => {
         branches: 60,
         functions: 83,
         lines: 71,
+      },
+      'scripts/release-evidence.mts': {
+        statements: 78,
+        branches: 62,
+        functions: 84,
+        lines: 78,
       },
       'scripts/release-identity.mts': {
         statements: 77,

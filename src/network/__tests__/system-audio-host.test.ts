@@ -4,6 +4,7 @@ import { bus } from '../../core/events.ts';
 import { resetState, setState } from '../../core/state.ts';
 import { MSG } from '../../core/constants.ts';
 import type { ConnectedPeer, DataConnection, MediaConnection } from '../../types/index.ts';
+import type { TransportCallOptions } from '../transport/types.ts';
 
 const mocks = vi.hoisted(() => ({
   getPeer: vi.fn<() => { call: ReturnType<typeof vi.fn> } | null>(() => null),
@@ -297,10 +298,25 @@ describe('bounded direct system-audio host delivery', () => {
     setState('network.connectedPeers', [peer]);
 
     bus.emit('system-audio:streams-ready');
-    await pc.setLocalDescription({ type: 'offer', sdp: 'offer-sdp' });
+    const callOptions = (
+      call.mock.calls[0] as unknown as [string, MediaStream, TransportCallOptions]
+    )[2];
+    callOptions?.senderTuning?.(sender);
 
-    expect(call).toHaveBeenCalledWith(peer.id, capturedStream, {
-      metadata: { type: 'system-audio-stereo' },
+    expect(call).toHaveBeenCalledWith(
+      peer.id,
+      capturedStream,
+      expect.objectContaining({
+        metadata: { type: 'system-audio-stereo' },
+        sdpTransform: expect.any(Function),
+        senderTuning: expect.any(Function),
+      }),
+    );
+    expect(pc.setLocalDescription).toBe(originalSetLocalDescription);
+    expect(sender.track?.applyConstraints).toHaveBeenCalledWith({
+      echoCancellation: false,
+      noiseSuppression: false,
+      autoGainControl: false,
     });
     expect(sender.setParameters).toHaveBeenCalledWith(
       expect.objectContaining({ encodings: [{ maxBitrate: 256000 }] }),

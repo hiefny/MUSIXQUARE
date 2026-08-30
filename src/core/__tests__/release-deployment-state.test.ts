@@ -2279,6 +2279,9 @@ describe('release deployment rollback state', () => {
     expect(ciWorkflow).toContain(
       'production-candidate-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}',
     );
+    expect(ciWorkflow).toMatch(
+      /name: production-candidate-\$\{\{ github\.sha \}\}-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}[\s\S]*?retention-days: 30/u,
+    );
 
     expect(workflow).toContain('actions: read');
     expect(workflow).toContain('Select exact-SHA validated candidate');
@@ -2288,8 +2291,14 @@ describe('release deployment rollback state', () => {
     expect(evidenceTool).toContain("prefix: 'production-candidate-'");
     expect(evidenceTool).toContain('head_sha: sha');
     expect(evidenceTool).toContain("run.conclusion === 'success'");
-    expect(evidenceTool).toContain('/actions/runs/${run.id}/artifacts?per_page=100');
-    expect(evidenceTool).toContain('artifact.name === `${prefix}${expected.runAttempt}`');
+    expect(evidenceTool).toContain(
+      '`/repos/${repository}/actions/runs/${runId}/artifacts?${query}`',
+    );
+    expect(evidenceTool).toContain('await allRunArtifacts(repository, run.id, token)');
+    expect(evidenceTool).toContain('const suffix = artifact.name.slice(prefix.length)');
+    expect(evidenceTool).toContain('/^[1-9][0-9]*$/u.test(suffix)');
+    expect(evidenceTool).toContain('runAttempt > expected.runAttempt');
+    expect(evidenceTool).toContain('[`${outputPrefix}run_attempt`]: artifact.runAttempt');
     expect(workflow).toContain('RELEASE_SOURCE_RUN_ID');
     expect(workflow).toContain('RELEASE_SOURCE_RUN_ATTEMPT');
     expect(workflow).toContain('run-id: ${{ needs.validate.outputs.candidate_run_id }}');

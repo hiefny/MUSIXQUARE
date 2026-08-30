@@ -19,3 +19,15 @@ export const E2E_PEER_PORT = readPort('MXQR_E2E_PEER_PORT', DEFAULT_PEER_PORT);
 
 export const E2E_PREVIEW_COMMAND =
   `npm run preview -- --mode e2e --host ${E2E_APP_HOST} ` + `--port ${E2E_APP_PORT} --strictPort`;
+
+// Serves the already-built production candidate without rebuilding it or
+// injecting the E2E-only browser hooks into the artifact under test.
+export const E2E_PRODUCTION_PREVIEW_COMMAND =
+  `npm run preview -- --mode production --host ${E2E_APP_HOST} ` +
+  `--port ${E2E_APP_PORT} --strictPort`;
+
+// WebKit's offline emulation rejects navigations before Service Worker
+// dispatch. This preview can stall only a uniquely tagged HTML navigation so
+// the real worker timeout/fallback remains testable without mutating the app.
+export const E2E_CONTROLLED_PRODUCTION_PREVIEW_COMMAND =
+  'node e2e/controlled-production-preview.ts';

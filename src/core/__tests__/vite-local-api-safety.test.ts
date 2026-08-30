@@ -77,6 +77,28 @@ function invoke(middleware: DevMiddleware, url: string, method = 'GET') {
 }
 
 describe('Vite local API safety', () => {
+  it('keeps the local Worker guide aligned with the loopback fail-closed contract', async () => {
+    const guide = (await readFile(resolve('docs/local-worker-integration.md'), 'utf8')).replace(
+      /\s+/g,
+      ' ',
+    );
+
+    expect(guide).toContain('browser API clients also fail closed on loopback by default');
+    expect(guide).toContain(
+      'VITE_MUSIXQUARE_ALLOW_LOCAL_PRODUCTION_API_FALLBACK` resolves to the exact `true` string after trim/case normalization',
+    );
+    expect(guide).toContain('E2E builds ignore that implicit fallback flag');
+    expect(guide).toContain(
+      'Public production and staging origins retain their canonical fallback',
+    );
+    expect(guide).not.toContain(
+      'In every build mode, the PRO facade uses its canonical production endpoint',
+    );
+    expect(guide).not.toContain(
+      'TURN and Realtime paths try the local relative route first and then',
+    );
+  });
+
   it('keeps production API proxying disabled unless the exact opt-in is true', () => {
     expect(productionApiProxyEnabled({})).toBe(false);
     expect(productionApiProxyEnabled({ MUSIXQUARE_DEV_PROXY_PRODUCTION_API: 'false' })).toBe(false);

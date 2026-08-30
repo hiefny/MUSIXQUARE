@@ -34,13 +34,20 @@ routes return `503 LOCAL_API_PROXY_DISABLED`; any other unconfigured relative
 through to SPA HTML for either case. Copy `.env.example` to ignored
 `.env.local` only for an intentional override.
 
-This protects Vite-relative routing; it does not make every browser feature
-offline. In every build mode, the PRO facade uses its canonical production
-endpoint when `VITE_PRO_ROOM_ENDPOINT` is absent or invalid. Outside E2E mode,
-TURN and Realtime paths try the local relative route first and then
-`https://musixquare.com`. Starting the UI alone does not require production
-credentials, but invoking those flows can consume production quota or mutate
-production state. For an isolated test, mock the path or provide a validated
+This protects Vite-relative routing, and the browser API clients also fail
+closed on loopback by default. When `VITE_PRO_ROOM_ENDPOINT` is absent or
+invalid, PRO resolves to the same-origin `/api/pro-room` facade; TURN and
+Realtime try only their relative same-origin routes. With an ordinary local
+Vite server, those unconfigured requests therefore receive the local `503`
+boundary instead of retrying `https://musixquare.com`.
+
+A non-E2E loopback build reaches the canonical production APIs only when
+`VITE_MUSIXQUARE_ALLOW_LOCAL_PRODUCTION_API_FALLBACK` resolves to the exact
+`true` string after trim/case normalization. E2E builds ignore that implicit
+fallback flag, while a separately validated
+`VITE_PRO_ROOM_ENDPOINT` remains an explicit routing decision and takes
+precedence. Public production and staging origins retain their canonical
+fallback. For an isolated test, mock the relative path or provide a validated
 local endpoint before entering the flow. See the
 [configuration reference](configuration-reference.md) for the exact matrix.
 

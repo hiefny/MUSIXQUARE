@@ -10,5 +10,5 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false
   },
-  "include": ["e2e/**/*.ts", "playwright.config.ts", "playwright.webkit.config.ts"]
+  "include": ["e2e/**/*.ts", "playwright*.config.ts"]
 }

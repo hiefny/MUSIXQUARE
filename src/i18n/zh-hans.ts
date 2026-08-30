@@ -702,6 +702,8 @@ const zhHans: Record<I18nKey, string> = {
   'chat.bot_rate_limited': '已达到 BOT 请求上限，请在 {{duration}} 后重试',
   'chat.decode_skip_system_message': '已跳过当前媒体：部分设备不支持该格式。',
   'chat.large_local_track_system_message': '当前媒体文件很大，部分设备可能无法播放。',
+  'chat.decode_memory_risk_system_message':
+    '此曲目在解码时可能会占用约 {{estimatedMiB}} MiB 内存，因此可能无法在此设备上播放。',
   'chat.device_track_unavailable_system_message': '此设备无法播放当前媒体。',
   'chat.system_audio_started_system_message':
     '系统音频共享已开始。房主设备与参与者设备之间出现轻微延迟属于正常现象。为避免回声，建议尽量调低房主设备的音量。',

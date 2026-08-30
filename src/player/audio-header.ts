@@ -3,8 +3,8 @@
  *
  * Only bounded header windows at validated random-access offsets are read. The
  * probe never decodes audio, never persists bytes, and returns null on malformed
- * or unfamiliar input. Production playback skips this probe under its unbounded
- * policy; it remains available to explicit finite-budget callers.
+ * or unfamiliar input. Production playback uses the result for advisory decode
+ * memory warnings; admission remains independent and unbounded.
  */
 
 const HEADER_WINDOW_BYTES = 256 * 1024;

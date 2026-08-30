@@ -58,12 +58,24 @@ per-device RAM ceiling. Local decode, P2P receive/preload, and whole-file remote
 upload/download proceed on a best-effort basis and rely on the browser's actual
 allocation and `decodeAudioData` outcome.
 
-**Implementation note (2026-07-15):** the shared memory ledger remains for
-ownership, cleanup, diagnostics, and future policy review, but production
-budgets are effectively unbounded for every file a browser can materialize.
-Metadata duration/channel probes are skipped because their only production use
-was conservative pre-rejection. A successful AudioBuffer is measured after
-decode for accounting only; it is not discarded for crossing a device tier.
+**Implementation note (2026-07-15, partially superseded on 2026-08-31):** the
+shared memory ledger remains for ownership, cleanup, diagnostics, and future
+policy review, but production budgets are effectively unbounded for every file
+a browser can materialize. At the time of this note, metadata duration/channel
+probes were skipped because their only production use was conservative
+pre-rejection.
+
+**Advisory amendment (2026-08-31):** admission remains unbounded. Before every
+`AudioBuffer` decode, bounded duration and channel probes now estimate decoded
+PCM plus the projected live decode working set. The client shows a local system
+message at most once per queue occurrence and room session when either estimate
+crosses the current device tier's advisory boundary: 192/320 MiB for iOS,
+256/448 MiB for constrained devices, 384/768 MiB for standard devices, and
+512/1024 MiB for high-memory desktops (decoded PCM / working set). The message
+is neither broadcast nor an admission gate. If reliable metadata is unavailable,
+a Standard-room encoded file above 200 MiB uses the previous generic size
+warning as a fallback. A successful `AudioBuffer` is still measured after decode
+for accounting only and is not discarded for crossing a tier.
 
 Remote sharing retains its fixed 200 MiB protocol/storage ceiling. P2P also
 retains integrity limits for positive safe sizes, exact chunk totals, 64 KiB

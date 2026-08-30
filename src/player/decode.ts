@@ -82,7 +82,10 @@ import { showToast, showLoader } from '../ui/toast.ts';
 import { isProRoomPersistentPlaylistFile } from '../pro-room/media-hooks.ts';
 import { transition } from './lifecycle.ts';
 import { hasRoomCapability } from '../rooms/authority.ts';
-import { maybeAnnounceLargeLocalTrackWarning } from './large-local-track-warning.ts';
+import {
+  maybeAnnounceDecodeMemoryRiskWarning,
+  maybeAnnounceLargeLocalTrackWarning,
+} from './large-local-track-warning.ts';
 import {
   assertBlobCanDecodeToAudioBuffer,
   assertDecodedAudioBufferWithinBudget,
@@ -139,6 +142,7 @@ async function decodeBlobToAudioBuffer(
   blob: Blob,
   label: string,
   fileName: string,
+  queueItemId: QueueItemId | null,
   isCurrent: () => boolean,
 ): Promise<DecodeAdmissionLease> {
   if (!isCurrent()) throw new DecodeSupersededError(label);
@@ -162,6 +166,25 @@ async function decodeBlobToAudioBuffer(
       });
 
       if (!isCurrent()) throw new DecodeSupersededError(label);
+      try {
+        if (queueItemId) {
+          let announcedMemoryRisk = false;
+          if (admission.hasReliableMetadata) {
+            announcedMemoryRisk = maybeAnnounceDecodeMemoryRiskWarning(queueItemId, admission);
+          }
+          if (
+            !announcedMemoryRisk &&
+            (!admission.hasReliableMetadata || admission.probedChannelCount === null)
+          ) {
+            // Metadata/header support is best-effort. Preserve the established
+            // encoded-size warning if the partial estimate was inconclusive.
+            maybeAnnounceLargeLocalTrackWarning(queueItemId, blob.size);
+          }
+        }
+      } catch (warningError) {
+        // Advisory UI must never turn a playable file into a decode failure.
+        log.warn('[DecodeMemoryWarning] Could not announce memory risk', warningError);
+      }
       // Reserve synchronously after the async accounting boundary so ownership
       // and diagnostics cannot omit overlapping native decodes. Production
       // policy does not use this ledger as a finite admission ceiling.
@@ -285,7 +308,6 @@ export async function loadAndBroadcastFile(
   showLoader(true, t('toast.preparing', { name: file.name }));
   stopAllMedia({ silent: true });
   if (!isCurrentOwner()) return false;
-  maybeAnnounceLargeLocalTrackWarning(queueItemId, file.size);
 
   // Lifecycle: host has the file locally (no download phase). Transition
   // straight into DECODING so the subsequent transition(DECODE_SUCCESS)
@@ -312,7 +334,13 @@ export async function loadAndBroadcastFile(
     // The previous track is already stopped. Drop the app-owned PCM reference
     // before admission so the next decode does not guarantee a two-buffer peak.
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
-    const decoded = await decodeBlobToAudioBuffer(file, 'host-load', file.name, isCurrentOwner);
+    const decoded = await decodeBlobToAudioBuffer(
+      file,
+      'host-load',
+      file.name,
+      queueItemId,
+      isCurrentOwner,
+    );
     const audioBuffer = decoded.audioBuffer;
     try {
       // Re-verify after async decode. The native decode reservation remains
@@ -486,6 +514,7 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
       file,
       'demo-load',
       file.name,
+      null,
       () =>
         myLoadId === getActiveLoadSessionId() &&
         (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
@@ -891,8 +920,6 @@ export async function loadPreloadedTrack(
       return false;
     }
 
-    maybeAnnounceLargeLocalTrackWarning(queueItemId, localBlob.size);
-
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
 
     const priorResident = getState('files.current');
@@ -904,7 +931,13 @@ export async function loadPreloadedTrack(
     log.debug('[Preload] Decoding audio for Buffer Mode...');
     showToast(t('toast.decoding_audio'));
 
-    const decoded = await decodeBlobToAudioBuffer(localBlob, 'preload', ready.name, ownsTarget);
+    const decoded = await decodeBlobToAudioBuffer(
+      localBlob,
+      'preload',
+      ready.name,
+      queueItemId,
+      ownsTarget,
+    );
     const audioBuffer = decoded.audioBuffer;
     try {
       if (!ownsTarget()) {
@@ -1242,7 +1275,6 @@ export async function finalizeGuestFile(
   };
 
   showLoader(true, t('error.audio_memory'));
-  maybeAnnounceLargeLocalTrackWarning(queueItemId, file.size);
 
   try {
     await initAudio();
@@ -1260,7 +1292,13 @@ export async function finalizeGuestFile(
       liveMeta?.name ||
       itemAtEntry.name;
 
-    const decoded = await decodeBlobToAudioBuffer(file, 'guest-finalize', fileName, ownsTarget);
+    const decoded = await decodeBlobToAudioBuffer(
+      file,
+      'guest-finalize',
+      fileName,
+      queueItemId,
+      ownsTarget,
+    );
     const audioBuffer = decoded.audioBuffer;
     try {
       if (!ownsTarget()) {

@@ -70,7 +70,6 @@ import {
   resolveProRoomPlaylistFile,
 } from '../pro-room/media-hooks.ts';
 import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
-import { maybeAnnounceLargeLocalTrackWarning } from '../player/large-local-track-warning.ts';
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
@@ -737,8 +736,6 @@ export async function handleFilePrepare(
     return;
   }
 
-  maybeAnnounceLargeLocalTrackWarning(queueItemId, data.size);
-
   // A decoder rejection is local to this device. Once this queue occurrence
   // has definitively failed here, ignore host retries/seeks for the same bytes;
   // the next queue occurrence will enter through the normal path.
@@ -1314,7 +1311,6 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     log.info('[file-start] Accepting same-session recovery resend');
   }
 
-  maybeAnnounceLargeLocalTrackWarning(queueItemId, data.size);
   resetDecodeFailureCountForNewOccurrence(queueItemId);
 
   // RAM-only storage must own a bounded encoded lease before any state change
@@ -1445,7 +1441,6 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     return;
   }
 
-  maybeAnnounceLargeLocalTrackWarning(queueItemId, data.size);
   resetDecodeFailureCountForNewOccurrence(queueItemId);
 
   if (!tryAdmitMainReceive(data)) return;
@@ -1563,7 +1558,6 @@ function applyFileChunk(data: Record<string, unknown>): void {
   if (incomingSid > localSid) {
     const chunkName = (data.name as string) || '';
     if (chunkName) {
-      maybeAnnounceLargeLocalTrackWarning(queueItemId, data.size);
       resetDecodeFailureCountForNewOccurrence(queueItemId);
       adoptIncomingTrackTarget(data);
       if (getState('playback.lifecycle') !== PLAYBACK_STATE.DOWNLOADING) {

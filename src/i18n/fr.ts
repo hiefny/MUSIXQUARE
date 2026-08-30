@@ -759,6 +759,8 @@ const fr: Record<I18nKey, string> = {
     'Piste ignorée : format non pris en charge sur certains appareils.',
   'chat.large_local_track_system_message':
     'Cette piste est très volumineuse et risque de ne pas être lue sur certains appareils.',
+  'chat.decode_memory_risk_system_message':
+    'Cette piste peut utiliser environ {{estimatedMiB}} MiB de mémoire lors du décodage et risque de ne pas être lue sur cet appareil.',
   'chat.device_track_unavailable_system_message':
     'Cet appareil ne peut pas lire la piste en cours.',
   'chat.system_audio_started_system_message':

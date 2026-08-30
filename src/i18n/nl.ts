@@ -418,6 +418,8 @@ const nl: Record<I18nKey, string> = {
   'chat.decode_skip_system_message': 'Track overgeslagen: niet ondersteund op sommige apparaten.',
   'chat.large_local_track_system_message':
     'Deze track neemt erg veel ruimte in en kan mogelijk niet op alle apparaten worden afgespeeld.',
+  'chat.decode_memory_risk_system_message':
+    'Deze track kan tijdens het decoderen ongeveer {{estimatedMiB}} MiB geheugen gebruiken, waardoor hij mogelijk niet op dit apparaat kan worden afgespeeld.',
   'chat.device_track_unavailable_system_message':
     'Dit apparaat kan de huidige track niet afspelen.',
   'chat.system_audio_started_system_message':

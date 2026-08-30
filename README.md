@@ -81,6 +81,7 @@ remain authoritative as module and dependency counts evolve.
   - PRO rooms use verified LAN-direct WebRTC when available; if any route is unavailable or fails, all listeners are routed together through Cloudflare Realtime SFU. See the [PRO room architecture](./docs/design/pro-room-architecture-and-operations.md#live-system-audio-ownership) for route and privacy details.
 - **Private Media & Queue Management**:
   - In-memory browser playback for Standard Rooms, temporary private R2 fallback for remote file delivery, and persistent private R2 object storage for PRO Rooms.
+  - Before `AudioBuffer` decode, each device estimates decoded PCM and the projected working set and shows a local, non-blocking warning when that device tier may be at risk. If metadata cannot be read, Standard Rooms retain the legacy warning for encoded files above 200 MiB; remote-share and PRO storage limits remain hard limits.
 - **Localized UI**:
   - Built-in support for 17 languages without a runtime translation service.
 

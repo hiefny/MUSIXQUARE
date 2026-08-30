@@ -762,6 +762,8 @@ const de: Record<I18nKey, string> = {
     'Titel wird übersprungen: Das Format wird auf einigen Geräten nicht unterstützt.',
   'chat.large_local_track_system_message':
     'Die Datei dieses Titels ist sehr groß und lässt sich möglicherweise nicht auf allen Geräten abspielen.',
+  'chat.decode_memory_risk_system_message':
+    'Dieser Titel kann beim Dekodieren etwa {{estimatedMiB}} MiB Arbeitsspeicher benötigen und lässt sich auf diesem Gerät möglicherweise nicht abspielen.',
   'chat.device_track_unavailable_system_message':
     'Dieses Gerät kann den aktuellen Titel nicht abspielen.',
   'chat.system_audio_started_system_message':

@@ -1,13 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
-import {
-  LOAD_SOURCE,
-  LOCAL_LARGE_TRACK_WARNING_BYTES,
-  MSG,
-  PLAYBACK_STATE,
-  TRANSFER_STATE,
-} from '../../core/constants.ts';
+import { LOAD_SOURCE, MSG, PLAYBACK_STATE, TRANSFER_STATE } from '../../core/constants.ts';
 import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { setPlaybackYouTubePlaying } from '../../player/ownership.ts';
 import type { DataConnection } from '../../types/index.ts';
@@ -42,11 +36,7 @@ vi.mock('../../core/log.ts', () => ({
 vi.mock('../../core/timers.ts', () => ({ setManagedTimer: vi.fn(), clearManagedTimer: vi.fn() }));
 
 const warningMocks = vi.hoisted(() => ({
-  maybeAnnounceLargeLocalTrackWarning: vi.fn(),
   announceSystemMessageLocally: vi.fn(),
-}));
-vi.mock('../../player/large-local-track-warning.ts', () => ({
-  maybeAnnounceLargeLocalTrackWarning: warningMocks.maybeAnnounceLargeLocalTrackWarning,
 }));
 vi.mock('../../chat/protocol.ts', () => ({
   announceSystemMessageLocally: warningMocks.announceSystemMessageLocally,
@@ -188,24 +178,6 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(lifecycleBefore);
     expect(getState('playlist.currentQueueItemId')).toBe(Q0);
     expect(postCommand).not.toHaveBeenCalled();
-    expect(warningMocks.maybeAnnounceLargeLocalTrackWarning).not.toHaveBeenCalled();
-  });
-
-  it('checks a trusted current FILE_PREPARE for the local large-track warning', async () => {
-    const { handleFilePrepare } = await import('../transfer-receive.ts');
-
-    await handleFilePrepare(
-      {
-        ...prepareFrame(Q0, 12),
-        size: LOCAL_LARGE_TRACK_WARNING_BYTES + 1,
-      },
-      conn,
-    );
-
-    expect(warningMocks.maybeAnnounceLargeLocalTrackWarning).toHaveBeenCalledWith(
-      Q0,
-      LOCAL_LARGE_TRACK_WARNING_BYTES + 1,
-    );
   });
 
   it('preserves a first decode failure across same-occurrence recovery prepare', async () => {

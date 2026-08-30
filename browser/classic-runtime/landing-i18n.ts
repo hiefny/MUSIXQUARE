@@ -1652,15 +1652,14 @@
       const metaElement = document.querySelector(selector);
       if (metaElement) metaElement.setAttribute('content', t(lang, translationKey));
     }
-    // Locale meta swap (primary + alternate).
+    // The primary locale follows the rendered content. Alternate locale tags describe
+    // the complete set of localized documents and must remain exactly as materialized.
     const ogLocale = document.querySelector('meta[property="og:locale"]');
-    const ogAlt = document.querySelector('meta[property="og:locale:alternate"]');
     if (ogLocale)
       ogLocale.setAttribute(
         'content',
         staticLang ? staticLang.locale(lang) : fallbackOgLocales[lang] || 'en_US',
       );
-    if (ogAlt) ogAlt.setAttribute('content', lang === 'en' ? 'ko_KR' : 'en_US');
 
     if (staticLang) staticLang.update(selected);
   }

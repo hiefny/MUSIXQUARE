@@ -3,11 +3,84 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   APP_PUBLIC_BOUNDARY_TIMEOUT_MS,
   verifyAnonymousAccountSessionBoundary,
+  verifyLocalizedSeoBoundary,
   verifyProductionCapabilityBoundary,
   verifyProductionOriginBoundary,
 } from '../../../scripts/live-app-public-boundary-smoke.mts';
 
 describe('live app public boundary smoke', () => {
+  it('accepts the representative localized SEO matrix only with canonical metadata and cache policy', async () => {
+    const records = [
+      ['/', 'en', 'MUSIXQUARE', 'https://musixquare.com/', 'no-store'],
+      ['/ko/', 'ko', '뮤직스퀘어 | MUSIXQUARE', 'https://musixquare.com/ko/', 'no-store'],
+      ['/ja/', 'ja', 'ミュージックスクエア | MUSIXQUARE', 'https://musixquare.com/ja/', 'no-store'],
+      [
+        '/zh-hans/about',
+        'zh-Hans',
+        '关于 MUSIXQUARE',
+        'https://musixquare.com/zh-hans/about',
+        'public, s-maxage=86400',
+      ],
+      [
+        '/pt-br/about',
+        'pt-BR',
+        'Sobre o MUSIXQUARE',
+        'https://musixquare.com/pt-br/about',
+        'public, s-maxage=86400',
+      ],
+      [
+        '/th/about',
+        'th',
+        'เกี่ยวกับ MUSIXQUARE',
+        'https://musixquare.com/th/about',
+        'public, s-maxage=86400',
+      ],
+    ] as const;
+    const read = vi.fn(async () =>
+      records.map(([path, lang, title, canonical, cacheControl]) => ({
+        path,
+        status: 200,
+        cacheControl,
+        lang,
+        title,
+        canonical,
+        description: 'Localized product description',
+        openGraphUrl: canonical,
+        alternateCount: 18,
+        xDefault: path.includes('/about')
+          ? 'https://musixquare.com/about'
+          : 'https://musixquare.com/',
+      })),
+    );
+
+    await expect(verifyLocalizedSeoBoundary({ read })).resolves.toEqual({
+      localizedSeoReady: true,
+      pages: 6,
+    });
+    expect(read).toHaveBeenCalledOnce();
+  });
+
+  it('rejects localized SEO metadata drift', async () => {
+    await expect(
+      verifyLocalizedSeoBoundary({
+        read: async () => [
+          {
+            path: '/ko/',
+            status: 200,
+            cacheControl: 'no-store',
+            lang: 'ko',
+            title: 'MUSIXQUARE',
+            canonical: 'https://musixquare.com/',
+            description: '',
+            openGraphUrl: 'https://musixquare.com/',
+            alternateCount: 0,
+            xDefault: '',
+          },
+        ],
+      }),
+    ).rejects.toThrow('incomplete page matrix');
+  });
+
   it('accepts only the no-store anonymous account-session projection', async () => {
     const read = vi.fn(async () => ({
       status: 200,

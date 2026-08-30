@@ -9,6 +9,7 @@ import {
   createViteConfig,
   injectBuildEntryAssets,
   isExpectedPlaylistImportOverlapWarning,
+  pageAliasTarget,
   productionApiProxyEnabled,
 } from '../../../vite.config.ts';
 import {
@@ -77,6 +78,19 @@ function invoke(middleware: DevMiddleware, url: string, method = 'GET') {
 }
 
 describe('Vite local API safety', () => {
+  it('maps localized app and About routes to source and built counterparts', () => {
+    expect(pageAliasTarget('/ko/?campaign=launch')).toBe('/index.html?campaign=launch');
+    expect(pageAliasTarget('/ko/about?campaign=launch')).toBe(
+      '/.workshop/landing/landing.html?campaign=launch',
+    );
+    expect(pageAliasTarget('/ko/?campaign=launch', true)).toBe('/ko/index.html?campaign=launch');
+    expect(pageAliasTarget('/ko/about?campaign=launch', true)).toBe(
+      '/ko/about.html?campaign=launch',
+    );
+    expect(pageAliasTarget('/about', true)).toBe('/about.html');
+    expect(pageAliasTarget('/123456')).toBeNull();
+  });
+
   it('keeps the local Worker guide aligned with the loopback fail-closed contract', async () => {
     const guide = (await readFile(resolve('docs/local-worker-integration.md'), 'utf8')).replace(
       /\s+/g,

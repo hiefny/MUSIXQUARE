@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md. -->
-<html lang="ko" class="setup-boot-block">
+<html lang="en" class="setup-boot-block">
   <head>
     <meta charset="UTF-8" />
     <!-- MUSIXQUARE is a fixed-scale application surface, not a reflowing
@@ -17,9 +17,27 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v522"></script>
+    <script src="/bootstrap.js?cache=v523"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
+    <link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
     <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
@@ -33,32 +51,43 @@
     <meta name="google-site-verification" content="7fu3Buf9PDMn-9nYRnTCz5-Xx14d4gQAM90ZY5wdfQE" />
     <meta name="google-site-verification" content="coyQjmtD4yeX5jE4nThOTTJ0QUkAkAFNPeR-8QR2H2k" />
     <meta name="naver-site-verification" content="34352e8940f2fd7c67d54d6641555dbcc89ba39f" />
-    <meta property="og:title" content="MUSIXQUARE · 뮤직스퀘어" />
+    <meta property="og:title" content="MUSIXQUARE" />
     <meta
       property="og:description"
-      content="Multi-device synchronized audio, no install. 여러 기기로 만드는 서라운드 사운드."
+      content="Every device, one system. Multi-device synchronized audio, no install."
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="MUSIXQUARE" />
-    <meta property="og:locale" content="ko_KR" />
-    <meta property="og:locale:alternate" content="en_US" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="ko_KR" />
     <meta property="og:url" content="https://musixquare.com/" />
     <meta property="og:image" content="https://musixquare.com/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="MUSIXQUARE: Play Together, Watch Together" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="MUSIXQUARE · 뮤직스퀘어" />
+    <meta name="twitter:title" content="MUSIXQUARE" />
     <meta
       name="twitter:description"
-      content="Multi-device synchronized audio, no install. 여러 기기로 만드는 서라운드 사운드."
+      content="Every device, one system."
     />
     <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
     <title>MUSIXQUARE</title>
     <meta
       name="description"
-      content="Turn phones, tablets, desktops into a synchronized wireless audio system. 여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요."
+      content="Turn phones, tablets, desktops into a synchronized wireless audio system."
     />
+    <script type="application/ld+json" data-mxqr-website-schema>
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "@id": "https://musixquare.com/#website",
+        "url": "https://musixquare.com/",
+        "name": "MUSIXQUARE",
+        "alternateName": ["뮤직스퀘어", "ミュージックスクエア", "musixquare.com"],
+        "inLanguage": "en"
+      }
+    </script>
     <link rel="icon" href="/icons/icon-48.png" sizes="48x48" type="image/png" />
     <link rel="icon" href="/favicon.ico" sizes="any" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -86,7 +115,7 @@
 
     <noscript>
       <div class="noscript-fallback">
-        MUSIXQUARE는 JavaScript가 필요해요. 브라우저 설정에서 JavaScript를 켠 뒤 다시 시도해 주세요.
+        MUSIXQUARE requires JavaScript. Enable JavaScript in your browser settings and try again.
       </div>
     </noscript>
 
@@ -97,9 +126,9 @@
       aria-labelledby="bootstrap-failure-title"
     >
       <strong id="bootstrap-failure-title">MUSIXQUARE</strong>
-      <p>앱을 시작하지 못했어요.<br /><span lang="en">The app could not start.</span></p>
+      <p>The app could not start.</p>
       <form method="get">
-        <button id="bootstrap-retry" type="submit">다시 시도 / Retry</button>
+        <button id="bootstrap-retry" type="submit">Retry</button>
       </form>
     </section>
 
@@ -111,7 +140,7 @@
           class="app-logo header-default-content"
           id="app-logo"
           type="button"
-          aria-label=""
+          aria-label="Go to Home"
           data-i18n-aria-label="nav.go_home"
         >
           <svg
@@ -221,7 +250,7 @@
         <button
           class="header-help-btn"
           id="btn-help-compact"
-          aria-label=""
+          aria-label="Help"
           data-i18n-aria-label="common.help"
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
@@ -242,7 +271,7 @@
       data-custom-scroll
     >
       <div class="tab-header play-header-desktop">
-        <span class="tab-title" data-i18n="nav.home">메인</span>
+        <span class="tab-title" data-i18n="nav.home">Home</span>
       </div>
       <div class="tab-body" data-custom-scroll>
         <div class="playback-stage">
@@ -256,16 +285,16 @@
               aria-describedby="visualizer-mode-hint"
             ></canvas>
             <span id="visualizer-accessible-label" class="sr-only" data-i18n="player.visualizer"
-              >오디오 비주얼라이저</span
+              >Audio visualizer</span
             >
             <span
               id="visualizer-current-mode"
               class="sr-only"
               data-i18n="player.visualizer_circular"
-              >원형</span
+              >Circular</span
             >
             <span id="visualizer-mode-hint" class="sr-only" data-i18n="player.visualizer_mode_hint"
-              >음향 시각화 방식을 선택할 수 있어요.</span
+              >Choose how sound is visualized.</span
             >
           </div>
 
@@ -288,12 +317,12 @@
                   <circle cx="22" cy="22" r="18" pathLength="100"></circle>
                 </svg>
               </span>
-              <span data-i18n="toast.yt_sync_start">동기화 중...</span>
+              <span data-i18n="toast.yt_sync_start">Syncing...</span>
             </div>
             <button
               class="fullscreen-btn"
               id="btn-fullscreen"
-              aria-label=""
+              aria-label="Toggle fullscreen"
               data-i18n-aria-label="player.fullscreen"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -307,13 +336,9 @@
 
         <div class="track-box">
           <div class="track-title-wrapper">
-            <div class="track-title" id="track-title" data-i18n="player.no_media">
-              재생 중인 미디어 없음
-            </div>
+            <div class="track-title" id="track-title" data-i18n="player.no_media">No media playing</div>
           </div>
-          <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">
-            파일을 선택하거나 플레이리스트를 확인하세요
-          </div>
+          <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">Select a file or check the playlist</div>
         </div>
 
         <div class="controls-area">
@@ -326,8 +351,8 @@
               value="0"
               step="0.1"
               aria-disabled="true"
-              aria-valuetext="재생 중인 미디어 없음"
-              aria-label="재생 위치 조절"
+              aria-valuetext="No media playing"
+              aria-label="Seek"
               data-i18n-aria-label="player.seek"
             />
             <div class="time-info">
@@ -341,7 +366,7 @@
               <button
                 class="ctrl-btn"
                 id="btn-prev"
-                aria-label=""
+                aria-label="Previous track"
                 data-i18n-aria-label="player.prev_track"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -351,7 +376,7 @@
               <button
                 class="play-fab"
                 id="play-btn"
-                aria-label=""
+                aria-label="Play/Pause"
                 data-i18n-aria-label="player.play_pause"
                 aria-disabled="true"
               >
@@ -370,7 +395,7 @@
               <button
                 class="ctrl-btn"
                 id="btn-next"
-                aria-label=""
+                aria-label="Next track"
                 data-i18n-aria-label="player.next_track"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -383,7 +408,7 @@
               <button
                 id="vol-icon-btn"
                 type="button"
-                aria-label="음소거 전환"
+                aria-label="Toggle mute"
                 data-i18n-aria-label="player.toggle_mute"
               >
                 <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -406,7 +431,7 @@
                 min="0"
                 max="100"
                 value="100"
-                aria-label=""
+                aria-label="Adjust volume"
                 data-i18n-aria-label="player.volume"
               />
             </div>
@@ -418,7 +443,7 @@
             type="button"
             class="chat-preview-btn"
             id="chat-preview-btn"
-            aria-label=""
+            aria-label="Open chat"
             data-i18n-aria-label="chat.open"
           >
             <div class="chat-preview-left">
@@ -430,7 +455,7 @@
                 </svg>
                 <span class="chat-preview-badge" id="chat-preview-badge"></span>
               </div>
-              <span class="chat-preview-text" id="chat-preview-text" data-i18n="chat.start"></span>
+              <span class="chat-preview-text" id="chat-preview-text" data-i18n="chat.start">Send a message to start!</span>
             </div>
           </button>
 
@@ -438,7 +463,7 @@
             <button
               class="file-select-btn file-select-btn-large flex-1"
               id="btn-sync"
-              aria-label="동기화"
+              aria-label="Sync"
               data-i18n-aria-label="common.sync"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -446,12 +471,12 @@
                   d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"
                 />
               </svg>
-              <span data-i18n="player.sync_compact"></span>
+              <span data-i18n="player.sync_compact">Sync</span>
             </button>
             <button
               class="file-select-btn file-select-btn-large flex-1"
               id="btn-media-source"
-              aria-label="미디어 재생"
+              aria-label="Play media"
               data-i18n-aria-label="player.play_media"
             >
               <svg viewBox="0 -960 960 960" aria-hidden="true">
@@ -459,7 +484,7 @@
                   d="m431-341 184-122q9-6 9-17t-9-17L431-619q-10-7-20.5-1.5T400-603v246q0 12 10.5 17.5T431-341Zm49 261q-83 0-156-31.5T197-197q-54-54-85.5-127T80-480q0-32 5-64t15-63q5-16 20.5-21.5T150-626q15 8 21.5 23.5T173-570q-6 22-9.5 44.5T160-480q0 134 93 227t227 93q134 0 227-93t93-227q0-134-93-227t-227-93q-24 0-47.5 3.5T386-786q-17 5-32-1t-22-21q-7-15-.5-30.5T354-859q30-11 62-16t64-5q83 0 156 31.5T763-763q54 54 85.5 127T880-480q0 83-31.5 156T763-197q-54 54-127 85.5T480-80ZM177.5-697.5Q160-715 160-740t17.5-42.5Q195-800 220-800t42.5 17.5Q280-765 280-740t-17.5 42.5Q245-680 220-680t-42.5-17.5ZM480-480Z"
                 />
               </svg>
-              <span data-i18n="player.play_media_compact"></span>
+              <span data-i18n="player.play_media_compact">Media</span>
             </button>
           </div>
         </div>
@@ -475,13 +500,13 @@
       data-custom-scroll
     >
       <div class="tab-header">
-        <span class="tab-title" data-i18n="nav.playlist">재생목록</span>
+        <span class="tab-title" data-i18n="nav.playlist">Playlist</span>
         <div class="playlist-title-area">
           <button
             class="tab-action-btn"
             id="btn-repeat"
             aria-pressed="false"
-            aria-label=""
+            aria-label="Change repeat mode"
             data-i18n-aria-label="player.repeat_mode"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -492,7 +517,7 @@
             class="tab-action-btn"
             id="btn-shuffle"
             aria-pressed="false"
-            aria-label=""
+            aria-label="Change shuffle mode"
             data-i18n-aria-label="player.shuffle_mode"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -504,7 +529,7 @@
           <button
             class="tab-action-btn"
             id="btn-add-media"
-            aria-label=""
+            aria-label="Add media"
             data-i18n-aria-label="player.add_media"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -515,10 +540,10 @@
       </div>
       <div class="tab-body tab-body-anchor" data-custom-scroll>
         <div class="system-audio-playlist-note" id="system-audio-playlist-note">
-          <span data-i18n="system_audio.sharing"></span>
+          <span data-i18n="system_audio.sharing">Sharing System Audio</span>
         </div>
         <ul class="playlist-ul playlist-list" id="playlist-ui">
-          <li class="list-empty-state" data-i18n="playlist.empty_hint"></li>
+          <li class="list-empty-state" data-i18n="playlist.empty_hint">No media yet.</li>
         </ul>
       </div>
     </div>
@@ -532,38 +557,38 @@
       data-custom-scroll
     >
       <div class="tab-header tab-header-spread">
-        <span class="tab-title" data-i18n="nav.connect">연결</span>
+        <span class="tab-title" data-i18n="nav.connect">Connect</span>
         <button
           type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
-          title=""
+          title="Click to copy invite code"
           data-i18n-title="toast.click_copy_invite"
         >
-          <span class="invite-meta-label" data-i18n="settings.invite_code"></span>
+          <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
           <span class="invite-code-value invite-meta-value">------</span>
         </button>
       </div>
       <div class="tab-body" data-custom-scroll>
         <div class="section-group">
           <div class="section-header-row">
-            <span class="section-title" data-i18n="connect.qr_title">QR 또는 링크로 초대</span>
+            <span class="section-title" data-i18n="connect.qr_title">Invite via QR or Link</span>
           </div>
           <div id="qr-container" class="qr-container">
-            <p class="qr-placeholder" data-i18n="connect.no_session">세션을 먼저 시작하세요</p>
+            <p class="qr-placeholder" data-i18n="connect.no_session">Start a session first</p>
           </div>
         </div>
 
         <div class="section-group room-password-section">
           <div class="section-header-row">
             <span class="section-title" data-i18n="connect.room_password_title"
-              >방 참여시 암호 요구</span
+              >Require password to join</span
             >
             <button
               type="button"
               class="room-password-toggle"
               id="room-password-toggle"
               aria-pressed="false"
-              aria-label=""
+              aria-label="Toggle room password requirement"
               data-i18n-aria-label="connect.room_password_toggle_aria"
             >
               <span class="room-password-toggle-knob" aria-hidden="true"></span>
@@ -575,7 +600,7 @@
               type="button"
               class="room-password-refresh"
               id="room-password-refresh"
-              aria-label=""
+              aria-label="Generate a new room password"
               data-i18n-aria-label="connect.room_password_refresh_aria"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -596,7 +621,7 @@
 
         <div class="section-group">
           <div class="section-header-row">
-            <span class="section-title" id="connect-device-title">연결된 기기 0대</span>
+            <span class="section-title" id="connect-device-title">0 Connected Devices</span>
           </div>
           <div id="connect-device-list" class="device-list"></div>
           <button class="accent-action-btn" id="btn-change-nickname">
@@ -605,7 +630,7 @@
                 d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
               />
             </svg>
-            <span data-i18n="account.change_nickname">닉네임 바꾸기</span>
+            <span data-i18n="account.change_nickname">Change nickname</span>
           </button>
           <button class="leave-session-btn" id="btn-leave-session">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -613,7 +638,7 @@
                 d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
               />
             </svg>
-            <span data-i18n="settings.leave_session">이 세션 나가기</span>
+            <span data-i18n="settings.leave_session">Leave Session</span>
           </button>
         </div>
       </div>
@@ -629,15 +654,15 @@
     >
       <div class="tab-header tab-header-spread-pad">
         <div class="flex-row-gap-8">
-          <span class="tab-title" data-i18n="nav.help"></span>
+          <span class="tab-title" data-i18n="nav.help">Help</span>
         </div>
         <button
           type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
-          title=""
+          title="Click to copy invite code"
           data-i18n-title="toast.click_copy_invite"
         >
-          <span class="invite-meta-label" data-i18n="settings.invite_code"></span>
+          <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
           <span class="invite-code-value invite-meta-value">------</span>
         </button>
       </div>
@@ -650,9 +675,9 @@
                 d="M17 1.01L7 1c-1.1 0-1.99.9-1.99 2L5 21c0 1.1.89 2 1.99 2H17c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zm-1-6h-3V8h-2v5H8l4 4 4-4z"
               />
             </svg>
-            <span data-i18n="help.install_app"></span>
+            <span data-i18n="help.install_app">Install Web App</span>
           </div>
-          <div class="help-desc" data-i18n-html="help.install_app_html"></div>
+          <div class="help-desc" data-i18n-html="help.install_app_html">Like MUSIXQUARE? You can install it as an app.<ul class="help-list"><li><strong>iOS:</strong> Share → Add to Home Screen</li><li><strong>Android:</strong> Menu → Install app</li><li><strong>Windows:</strong> Install icon in the address bar</li><li><strong>macOS:</strong> Share → Add to Dock</li></ul></div>
         </div>
 
         <div class="help-block">
@@ -662,9 +687,9 @@
                 d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"
               />
             </svg>
-            <span data-i18n="help.local_recommended"></span>
+            <span data-i18n="help.local_recommended">Local network recommended</span>
           </div>
-          <div class="help-desc" data-i18n-html="help.local_recommended_html"></div>
+          <div class="help-desc" data-i18n-html="help.local_recommended_html">Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul></div>
         </div>
 
         <div class="help-block">
@@ -674,9 +699,9 @@
                 d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
               />
             </svg>
-            <span data-i18n="setup.how_to_connect"></span>
+            <span data-i18n="setup.how_to_connect">How to connect</span>
           </div>
-          <div class="help-desc" data-i18n-html="setup.how_to_connect_html"></div>
+          <div class="help-desc" data-i18n-html="setup.how_to_connect_html">Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I'll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul></div>
         </div>
 
         <div class="help-block">
@@ -686,9 +711,9 @@
                 d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
               />
             </svg>
-            <span data-i18n="player.play_speakers"></span>
+            <span data-i18n="player.play_speakers">Use as Speaker</span>
           </div>
-          <div class="help-desc" data-i18n-html="player.play_speakers_html"></div>
+          <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
         </div>
 
         <div class="help-block">
@@ -696,9 +721,9 @@
             <svg viewBox="0 0 24 24">
               <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
             </svg>
-            <span data-i18n="player.play_media_action"></span>
+            <span data-i18n="player.play_media_action">Play media</span>
           </div>
-          <div class="help-desc" data-i18n-html="player.play_media_action_html"></div>
+          <div class="help-desc" data-i18n-html="player.play_media_action_html">The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul></div>
         </div>
 
         <div class="help-block">
@@ -715,9 +740,9 @@
                 d="M11 18h2v-2h-2v2zm1-12c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
               />
             </svg>
-            <span data-i18n="help.need_help"></span>
+            <span data-i18n="help.need_help">Need help?</span>
           </div>
-          <div class="help-desc" data-i18n-html="help.need_help_html"></div>
+          <div class="help-desc" data-i18n-html="help.need_help_html"><ul class="help-list"><li><strong>Entered the code but can't connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul></div>
         </div>
 
         <button class="accent-action-btn divider-narrower" id="btn-demo-media-mobile">
@@ -726,14 +751,14 @@
               d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"
             />
           </svg>
-          <span data-i18n="setup.demo_button"></span>
+          <span data-i18n="setup.demo_button">Take a Tour</span>
         </button>
 
         <div class="help-block legal-block">
           <div class="help-title">
-            <span data-i18n="legal.title"></span>
+            <span data-i18n="legal.title">Service notes</span>
           </div>
-          <div class="help-desc legal-desc" data-i18n-html="legal.content_html"></div>
+          <div class="help-desc legal-desc" data-i18n-html="legal.content_html"><strong>Privacy Policy</strong><br><span data-legal-standard-storage>On the same network, most session content goes directly between devices. The signaling server only briefly processes room operation, authentication and reconnection data; some remote or large-session data goes via Cloudflare. Remote files are held for up to 24 hours in private Cloudflare storage; only room participants get temporary download access. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span><span data-legal-pro-storage>PRO rooms store on Cloudflare the session, member, playlist, playback, and upload state needed for operation. Original playlist files stay in private Cloudflare storage; only room participants can download them via short-lived URLs. Files are erased when a room administrator removes them from the playlist or the operator deletes the room data. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service's policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a></div>
         </div>
       </div>
     </div>
@@ -747,14 +772,14 @@
       data-custom-scroll
     >
       <div class="tab-header tab-header-spread">
-        <span class="tab-title" data-i18n="nav.settings"></span>
+        <span class="tab-title" data-i18n="nav.settings">Settings</span>
         <button
           type="button"
           class="settings-invite-wrapper invite-code-container invite-meta-cluster"
-          title=""
+          title="Click to copy invite code"
           data-i18n-title="toast.click_copy_invite"
         >
-          <span class="invite-meta-label" data-i18n="settings.invite_code"></span>
+          <span class="invite-meta-label" data-i18n="settings.invite_code">Invite code</span>
           <span class="invite-code-value invite-meta-value">------</span>
         </button>
       </div>
@@ -768,9 +793,7 @@
           aria-controls="settings-subtab-panel-general"
           aria-pressed="true"
           data-i18n="settings.subtab.general"
-        >
-          일반
-        </button>
+        >General</button>
         <button
           type="button"
           id="settings-subtab-audio"
@@ -779,9 +802,7 @@
           aria-controls="settings-subtab-panel-audio"
           aria-pressed="false"
           data-i18n="settings.subtab.audio"
-        >
-          오디오
-        </button>
+        >Audio</button>
         <button
           type="button"
           id="settings-subtab-connect"
@@ -790,9 +811,7 @@
           aria-controls="settings-subtab-panel-connect"
           aria-pressed="false"
           data-i18n="settings.subtab.connect"
-        >
-          연결
-        </button>
+        >Connect</button>
         <button
           type="button"
           id="settings-subtab-help"
@@ -801,9 +820,7 @@
           aria-controls="settings-subtab-panel-help"
           aria-pressed="false"
           data-i18n="settings.subtab.help"
-        >
-          도움말
-        </button>
+        >Help</button>
       </div>
 
       <div class="tab-body" data-custom-scroll>
@@ -818,13 +835,13 @@
                 class="section-title"
                 id="settings-language-title"
                 data-i18n="settings.language"
-              ></span>
+              >Language Settings</span>
             </div>
             <p
               class="settings-option-description"
               id="settings-language-description"
               data-i18n="settings.language_desc"
-            ></p>
+            >Choose a language or follow your system language.</p>
             <div
               class="channel-grid language-mode-grid"
               id="grid-lang"
@@ -839,6 +856,7 @@
                 data-lang-action="select"
                 aria-pressed="false"
                 data-i18n-aria-label="settings.language_select_aria"
+                aria-label="Open language list"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle
@@ -857,7 +875,7 @@
                     stroke-width="1.8"
                   />
                 </svg>
-                <span data-i18n="settings.language_select"></span>
+                <span data-i18n="settings.language_select">Select</span>
               </button>
               <button
                 type="button"
@@ -866,6 +884,7 @@
                 data-lang-action="system"
                 aria-pressed="false"
                 data-i18n-aria-label="settings.language_system_aria"
+                aria-label="Use system language"
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <rect
@@ -886,7 +905,7 @@
                     stroke-width="1.8"
                   />
                 </svg>
-                <span data-i18n="settings.language_system"></span>
+                <span data-i18n="settings.language_system">System</span>
               </button>
             </div>
           </div>
@@ -897,13 +916,13 @@
                 class="section-title"
                 id="settings-theme-title"
                 data-i18n="settings.theme"
-              ></span>
+              >Theme</span>
             </div>
             <p
               class="settings-option-description"
               id="settings-theme-description"
               data-i18n="settings.theme_desc"
-            ></p>
+            >Choose a light or dark theme.</p>
             <div
               class="channel-grid"
               id="grid-theme"
@@ -917,7 +936,7 @@
                     d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37a.996.996 0 00-1.41 0 .996.996 0 000 1.41l1.06 1.06c.39.39 1.03.39 1.41 0a.996.996 0 000-1.41l-1.06-1.06zm1.06-10.96a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36a.996.996 0 000-1.41.996.996 0 00-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"
                   />
                 </svg>
-                <span data-i18n="settings.light">라이트</span>
+                <span data-i18n="settings.light">Light</span>
               </button>
               <button type="button" class="ch-opt" data-theme="dark" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -925,7 +944,7 @@
                     d="M12 3a9 9 0 109 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 01-4.4 2.26 5.403 5.403 0 01-3.14-9.8c-.44-.06-.9-.1-1.36-.1z"
                   />
                 </svg>
-                <span data-i18n="settings.dark">다크</span>
+                <span data-i18n="settings.dark">Dark</span>
               </button>
             </div>
           </div>
@@ -936,13 +955,13 @@
                 class="section-title"
                 id="settings-ui-sounds-title"
                 data-i18n="settings.ui_sounds"
-              ></span>
+              >UI Sounds</span>
             </div>
             <p
               class="settings-option-description"
               id="settings-ui-sounds-description"
               data-i18n="settings.ui_sounds_desc"
-            ></p>
+            >Turn notification, join and leave, and touch sounds on or off.</p>
             <div
               class="channel-grid"
               id="grid-ui-sounds"
@@ -962,7 +981,7 @@
                     d="m882-292-56-56q26-26 40-60.5t14-71.5q0-37-14-71.5T826-612l56-56q38 38 58 86t20 102q0 54-20 102t-58 86Zm-107-80-57-56q11-11 16.5-24t5.5-28q0-15-5.5-28T718-532l57-56q22 22 33.5 49.5T820-480q0 31-11.5 58.5T775-372ZM338.5-138.5Q280-197 280-280v-400q0-83 58.5-141.5T480-880q83 0 141.5 58.5T680-680v400q0 83-58.5 141.5T480-80q-83 0-141.5-58.5ZM565-195q35-35 35-85v-400q0-50-35-85t-85-35q-50 0-85 35t-35 85v400q0 50 35 85t85 35q50 0 85-35Zm-28.5-68.5Q560-287 560-320t-23.5-56.5Q513-400 480-400t-56.5 23.5Q400-353 400-320t23.5 56.5Q447-240 480-240t56.5-23.5Zm-85-28Q440-303 440-320t11.5-28.5Q463-360 480-360t28.5 11.5Q520-337 520-320t-11.5 28.5Q497-280 480-280t-28.5-11.5Zm85-292Q560-607 560-640t-23.5-56.5Q513-720 480-720t-56.5 23.5Q400-673 400-640t23.5 56.5Q447-560 480-560t56.5-23.5ZM480-480Z"
                   />
                 </svg>
-                <span data-i18n="common.on"></span>
+                <span data-i18n="common.on">On</span>
               </button>
               <button
                 type="button"
@@ -976,7 +995,7 @@
                     d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
                   />
                 </svg>
-                <span data-i18n="common.off"></span>
+                <span data-i18n="common.off">Off</span>
               </button>
             </div>
           </div>
@@ -987,13 +1006,13 @@
                 class="section-title"
                 id="settings-sync-title"
                 data-i18n="settings.sync_settings"
-              ></span>
+              >Settings sync</span>
             </div>
             <p
               class="settings-option-description"
               id="settings-sync-description"
               data-i18n="settings.sync_settings_desc"
-            ></p>
+            >Devices with this setting on sync their volume and audio effects.</p>
             <div
               class="channel-grid"
               id="grid-settings-sync"
@@ -1012,7 +1031,7 @@
                     d="M120-160v-80h110l-16-14q-52-46-73-105t-21-119q0-111 66.5-197.5T360-790v84q-72 26-116 88.5T200-478q0 45 17 87.5t53 78.5l10 10v-98h80v240H120Zm717-360h-81q-5-35-21.5-67T690-648l-10-10v98h-80v-240h240v80H730l16 14q41 42 63 89t28 97ZM680-40l-12-60q-12-5-22.5-10.5T624-124l-58 18-40-68 46-40q-2-14-2-26t2-26l-46-40 40-68 58 18q11-8 21.5-13.5T668-380l12-60h80l12 60q12 5 22.5 11t21.5 15l58-20 40 70-46 40q2 12 2 25t-2 25l46 40-40 68-58-18q-11 8-21.5 13.5T772-100l-12 60h-80Zm40-120q33 0 56.5-23.5T800-240q0-33-23.5-56.5T720-320q-33 0-56.5 23.5T640-240q0 33 23.5 56.5T720-160Z"
                   />
                 </svg>
-                <span data-i18n="common.on"></span>
+                <span data-i18n="common.on">On</span>
               </button>
               <button type="button" class="ch-opt" data-settings-sync="off" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1020,7 +1039,7 @@
                     d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
                   />
                 </svg>
-                <span data-i18n="common.off"></span>
+                <span data-i18n="common.off">Off</span>
               </button>
             </div>
           </div>
@@ -1033,7 +1052,7 @@
             id="youtube-settings-note"
             role="note"
             data-i18n="help.youtube_no_effects"
-          ></div>
+          >In YouTube mode, role settings and audio effects are unavailable.</div>
 
           <!-- File-only role/effect controls are disabled while YouTube owns playback. -->
           <div id="youtube-settings-disabled-wrap" class="youtube-settings-disabled-wrap">
@@ -1043,7 +1062,7 @@
                   class="section-title"
                   id="settings-role-title"
                   data-i18n="setup.set_role"
-                ></span>
+                >Set this device's role</span>
               </div>
 
               <p
@@ -1052,7 +1071,8 @@
                 data-i18n="settings.role_center_desc"
                 aria-live="polite"
                 aria-atomic="true"
-              ></p>
+              >This device is acting as the center speaker.
+Place it in the center.</p>
 
               <div
                 class="setup-graphic-container settings-role-diagram"
@@ -1129,12 +1149,12 @@
                 <button type="button" class="ch-opt" data-ch="-1" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg
-                  ><span data-i18n="role.left"></span>
+                  ><span data-i18n="role.left">Left Speaker</span>
                 </button>
                 <button type="button" class="ch-opt" data-ch="1" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg
-                  ><span data-i18n="role.right"></span>
+                  ><span data-i18n="role.right">Right Speaker</span>
                 </button>
                 <button type="button" class="ch-opt" data-ch="2" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1142,20 +1162,20 @@
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"
                     />
                     <circle cx="12" cy="12" r="3" /></svg
-                  ><span data-i18n="role.subwoofer"></span>
+                  ><span data-i18n="role.subwoofer">Subwoofer</span>
                 </button>
                 <button type="button" class="ch-opt" data-ch="0" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
                     /></svg
-                  ><span data-i18n="role.center"></span>
+                  ><span data-i18n="role.center">Center Speaker</span>
                 </button>
               </div>
               <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
                 <div class="slider-wrap">
                   <div class="slider-header">
-                    <span data-i18n="settings.subwoofer_adjust"></span>
+                    <span data-i18n="settings.subwoofer_adjust">Subwoofer Cutoff</span>
                     <span class="val-disp" id="val-cutoff">120 Hz</span>
                   </div>
                   <input
@@ -1164,7 +1184,7 @@
                     min="60"
                     max="200"
                     value="120"
-                    aria-label=""
+                    aria-label="Subwoofer Cutoff Frequency"
                     data-i18n-aria-label="settings.subwoofer_cutoff"
                   />
                 </div>
@@ -1176,13 +1196,13 @@
                   class="section-title"
                   id="settings-reverb-title"
                   data-i18n="settings.reverb_title"
-                ></span>
+                >Reverb</span>
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
                     class="settings-sync-indicator"
                     data-settings-sync-indicator
-                    aria-label="설정 동기화가 켜져 있어요"
+                    aria-label="Settings sync is on"
                     data-i18n-aria-label="toast.settings_sync_enabled"
                     hidden
                   >
@@ -1198,7 +1218,7 @@
                 class="settings-option-description"
                 id="settings-reverb-description"
                 data-i18n="settings.reverb_desc"
-              ></p>
+              >Adjust the sound's reverb and resonance.</p>
               <div
                 class="channel-grid"
                 id="grid-reverb"
@@ -1211,36 +1231,36 @@
                     <path
                       d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2z"
                     /></svg
-                  ><span data-i18n="settings.rvb_studio">스튜디오</span>
+                  ><span data-i18n="settings.rvb_studio">Studio</span>
                 </button>
                 <button type="button" class="ch-opt" data-rvb-type="arena" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2zm8 2c0 2.21-.9 4.21-2.35 5.65l1.42 1.42C20.88 17.26 22 14.76 22 12s-1.12-5.26-2.93-7.07l-1.42 1.42A7.94 7.94 0 0 1 20 12zM6.35 6.35L4.93 4.93C3.12 6.74 2 9.24 2 12s1.12 5.26 2.93 7.07l1.42-1.42C4.9 16.21 4 14.21 4 12s.9-4.21 2.35-5.65z"
                     /></svg
-                  ><span data-i18n="settings.rvb_arena">공연장</span>
+                  ><span data-i18n="settings.rvb_arena">Arena</span>
                 </button>
                 <button type="button" class="ch-opt" data-rvb-type="advanced" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
                     /></svg
-                  ><span data-i18n="settings.rvb_advanced">고급</span>
+                  ><span data-i18n="settings.rvb_advanced">Advanced</span>
                 </button>
                 <button type="button" class="ch-opt active" data-rvb-type="off" aria-pressed="true">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
                     /></svg
-                  ><span data-i18n="settings.rvb_off">끄기</span>
+                  ><span data-i18n="settings.rvb_off">Off</span>
                 </button>
               </div>
               <div id="reverb-sliders-area" class="reverb-sliders-area collapsed">
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
-                      ><span data-i18n="common.mix"></span>
-                      <span class="role-hint-label" data-i18n="settings.default_0pct"></span
+                      ><span data-i18n="common.mix">Mix</span>
+                      <span class="role-hint-label" data-i18n="settings.default_0pct">Default 0%</span
                     ></span>
                     <span class="val-disp" id="val-reverb">0%</span>
                   </div>
@@ -1250,7 +1270,7 @@
                     min="0"
                     max="100"
                     value="0"
-                    aria-label=""
+                    aria-label="Reverb mix"
                     data-i18n-aria-label="settings.reverb_mix"
                   />
                 </div>
@@ -1258,8 +1278,8 @@
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
-                      ><span data-i18n="settings.decay_time"></span>
-                      <span class="role-hint-label" data-i18n="settings.default_5s"></span
+                      ><span data-i18n="settings.decay_time">Decay time</span>
+                      <span class="role-hint-label" data-i18n="settings.default_5s">Default 5.0s</span
                     ></span>
                     <span class="val-disp" id="val-rvb-decay">5.0s</span>
                   </div>
@@ -1270,7 +1290,7 @@
                     max="10.0"
                     step="0.1"
                     value="5.0"
-                    aria-label=""
+                    aria-label="Reverb decay"
                     data-i18n-aria-label="settings.reverb_decay"
                   />
                 </div>
@@ -1278,8 +1298,8 @@
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
-                      ><span data-i18n="settings.predelay"></span>
-                      <span class="role-hint-label" data-i18n="settings.default_01s"></span
+                      ><span data-i18n="settings.predelay">Pre-delay</span>
+                      <span class="role-hint-label" data-i18n="settings.default_01s">Default 0.1s</span
                     ></span>
                     <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                   </div>
@@ -1290,7 +1310,7 @@
                     max="0.5"
                     step="0.01"
                     value="0.1"
-                    aria-label=""
+                    aria-label="Reverb pre-delay"
                     data-i18n-aria-label="settings.reverb_predelay"
                   />
                 </div>
@@ -1298,8 +1318,8 @@
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
-                      ><span data-i18n="settings.highpass"></span>
-                      <span class="role-hint-label" data-i18n="settings.default_20hz"></span
+                      ><span data-i18n="settings.highpass">High-pass</span>
+                      <span class="role-hint-label" data-i18n="settings.default_20hz">Default 20Hz</span
                     ></span>
                     <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                   </div>
@@ -1310,7 +1330,7 @@
                     max="100"
                     step="1"
                     value="0"
-                    aria-label=""
+                    aria-label="Reverb low-cut"
                     data-i18n-aria-label="settings.reverb_lowcut"
                   />
                 </div>
@@ -1318,8 +1338,8 @@
                 <div class="slider-wrap">
                   <div class="slider-header">
                     <span
-                      ><span data-i18n="settings.lowpass"></span>
-                      <span class="role-hint-label" data-i18n="settings.default_20khz"></span
+                      ><span data-i18n="settings.lowpass">Low-pass</span>
+                      <span class="role-hint-label" data-i18n="settings.default_20khz">Default 20.0kHz</span
                     ></span>
                     <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
                   </div>
@@ -1330,7 +1350,7 @@
                     max="100"
                     step="1"
                     value="0"
-                    aria-label=""
+                    aria-label="Reverb high-cut"
                     data-i18n-aria-label="settings.reverb_highcut"
                   />
                 </div>
@@ -1343,13 +1363,13 @@
                   class="section-title"
                   id="settings-eq-title"
                   data-i18n="settings.eq_title"
-                ></span>
+                >Equalizer</span>
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
                     class="settings-sync-indicator"
                     data-settings-sync-indicator
-                    aria-label="설정 동기화가 켜져 있어요"
+                    aria-label="Settings sync is on"
                     data-i18n-aria-label="toast.settings_sync_enabled"
                     hidden
                   >
@@ -1365,7 +1385,7 @@
                 class="settings-option-description"
                 id="settings-eq-description"
                 data-i18n="settings.eq_desc"
-              ></p>
+              >Adjust the tone of the sound. Use it together with the volume control.</p>
               <div
                 class="channel-grid"
                 id="grid-eq"
@@ -1378,28 +1398,28 @@
                     <path
                       d="M160-420v300h160v-300H160ZM400-580v460h160v-460H400ZM640-740v620h160v-620H640Z"
                     /></svg
-                  ><span data-i18n="settings.eq_bright">선명함</span>
+                  ><span data-i18n="settings.eq_bright">Bright</span>
                 </button>
                 <button type="button" class="ch-opt" data-eq-type="warm" aria-pressed="false">
                   <svg viewBox="0 -960 960 960" aria-hidden="true">
                     <path
                       d="M160-740v620h160v-620H160ZM400-580v460h160v-460H400ZM640-420v300h160v-300H640Z"
                     /></svg
-                  ><span data-i18n="settings.eq_warm">따뜻함</span>
+                  ><span data-i18n="settings.eq_warm">Warm</span>
                 </button>
                 <button type="button" class="ch-opt" data-eq-type="advanced" aria-pressed="false">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"
                     /></svg
-                  ><span data-i18n="settings.eq_advanced">고급</span>
+                  ><span data-i18n="settings.eq_advanced">Advanced</span>
                 </button>
                 <button type="button" class="ch-opt active" data-eq-type="off" aria-pressed="true">
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <path
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
                     /></svg
-                  ><span data-i18n="settings.eq_off">끄기</span>
+                  ><span data-i18n="settings.eq_off">Off</span>
                 </button>
               </div>
               <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
@@ -1479,13 +1499,13 @@
                   class="section-title"
                   id="settings-virtual-effects-title"
                   data-i18n="settings.virtual_effects_title"
-                ></span>
+                >Virtual effects</span>
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
                     class="settings-sync-indicator"
                     data-settings-sync-indicator
-                    aria-label="설정 동기화가 켜져 있어요"
+                    aria-label="Settings sync is on"
                     data-i18n-aria-label="toast.settings_sync_enabled"
                     hidden
                   >
@@ -1501,7 +1521,7 @@
                 class="settings-option-description"
                 id="settings-virtual-effects-description"
                 data-i18n="settings.virtual_effects_desc"
-              ></p>
+              >Apply synthesized effects to the audio. This may cause heavy distortion.</p>
               <div
                 class="channel-grid virtual-effects-grid"
                 id="grid-virtual-effects"
@@ -1520,7 +1540,7 @@
                       d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z"
                     />
                   </svg>
-                  <span data-i18n="settings.virtual_effect_bass">베이스</span>
+                  <span data-i18n="settings.virtual_effect_bass">Bass</span>
                 </button>
                 <button
                   type="button"
@@ -1534,7 +1554,7 @@
                       d="M211.5-371.5Q200-383 200-400t11.5-28.5Q223-440 240-440t28.5 11.5Q280-417 280-400t-11.5 28.5Q257-360 240-360t-28.5-11.5Zm0 160Q200-223 200-240t11.5-28.5Q223-280 240-280t28.5 11.5Q280-257 280-240t-11.5 28.5Q257-200 240-200t-28.5-11.5Zm0-320Q200-543 200-560t11.5-28.5Q223-600 240-600t28.5 11.5Q280-577 280-560t-11.5 28.5Q257-520 240-520t-28.5-11.5ZM106-546q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm105.5-145.5Q200-703 200-720t11.5-28.5Q223-760 240-760t28.5 11.5Q280-737 280-720t-11.5 28.5Q257-680 240-680t-28.5-11.5ZM106-386q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm280 280q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm0-720q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm-14.5 134.5Q360-703 360-720t11.5-28.5Q383-760 400-760t28.5 11.5Q440-737 440-720t-11.5 28.5Q417-680 400-680t-28.5-11.5Zm-14 334Q340-375 340-400t17.5-42.5Q375-460 400-460t42.5 17.5Q460-425 460-400t-17.5 42.5Q425-340 400-340t-42.5-17.5Zm0-160Q340-535 340-560t17.5-42.5Q375-620 400-620t42.5 17.5Q460-585 460-560t-17.5 42.5Q425-500 400-500t-42.5-17.5Zm14 306Q360-223 360-240t11.5-28.5Q383-280 400-280t28.5 11.5Q440-257 440-240t-11.5 28.5Q417-200 400-200t-28.5-11.5ZM480-120v-80q116 0 198-82t82-198q0-116-82-198t-198-82v-80q74 0 139.5 28.5T734-734q49 49 77.5 114.5T840-480q0 74-28.5 139.5T734-226q-49 49-114.5 77.5T480-120Zm0-360Z"
                     />
                   </svg>
-                  <span data-i18n="settings.virtual_effect_treble">트레블</span>
+                  <span data-i18n="settings.virtual_effect_treble">Treble</span>
                 </button>
                 <button
                   type="button"
@@ -1547,7 +1567,7 @@
                       d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z"
                     />
                   </svg>
-                  <span data-i18n="settings.virtual_effect_surround">서라운드</span>
+                  <span data-i18n="settings.virtual_effect_surround">Surround</span>
                 </button>
                 <button
                   type="button"
@@ -1560,7 +1580,7 @@
                       d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4 12c0-4.42 3.58-8 8-8 1.85 0 3.55.63 4.9 1.69L5.69 16.9C4.63 15.55 4 13.85 4 12zm8 8c-1.85 0-3.55-.63-4.9-1.69L18.31 7.1C19.37 8.45 20 10.15 20 12c0 4.42-3.58 8-8 8z"
                     />
                   </svg>
-                  <span data-i18n="common.off">끄기</span>
+                  <span data-i18n="common.off">Off</span>
                 </button>
               </div>
             </div>
@@ -1568,7 +1588,7 @@
             <!-- Desktop mirrors the mobile connection list rendered in #tab-connect. -->
             <div class="section-group settings-device-section">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="settings.devices_title"></span>
+                <span class="section-title" data-i18n="settings.devices_title">Connected Devices</span>
               </div>
               <div id="device-list"></div>
             </div>
@@ -1580,24 +1600,24 @@
           <div id="desktop-connect-content">
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="connect.qr_title">QR 또는 링크로 초대</span>
+                <span class="section-title" data-i18n="connect.qr_title">Invite via QR or Link</span>
               </div>
               <div id="desktop-qr-container" class="qr-container">
-                <p class="qr-placeholder" data-i18n="connect.no_session">세션을 먼저 시작하세요</p>
+                <p class="qr-placeholder" data-i18n="connect.no_session">Start a session first</p>
               </div>
             </div>
 
             <div class="section-group room-password-section">
               <div class="section-header-row">
                 <span class="section-title" data-i18n="connect.room_password_title"
-                  >방 참여시 암호 요구</span
+                  >Require password to join</span
                 >
                 <button
                   type="button"
                   class="room-password-toggle"
                   id="desktop-room-password-toggle"
                   aria-pressed="false"
-                  aria-label=""
+                  aria-label="Toggle room password requirement"
                   data-i18n-aria-label="connect.room_password_toggle_aria"
                 >
                   <span class="room-password-toggle-knob" aria-hidden="true"></span>
@@ -1611,7 +1631,7 @@
                   type="button"
                   class="room-password-refresh"
                   id="desktop-room-password-refresh"
-                  aria-label=""
+                  aria-label="Generate a new room password"
                   data-i18n-aria-label="connect.room_password_refresh_aria"
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1636,7 +1656,7 @@
 
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" id="desktop-device-title">연결된 기기 0대</span>
+                <span class="section-title" id="desktop-device-title">0 Connected Devices</span>
               </div>
               <div id="desktop-device-list" class="device-list"></div>
               <button class="accent-action-btn" id="desktop-btn-change-nickname">
@@ -1645,7 +1665,7 @@
                     d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"
                   />
                 </svg>
-                <span data-i18n="account.change_nickname">닉네임 바꾸기</span>
+                <span data-i18n="account.change_nickname">Change nickname</span>
               </button>
               <button class="leave-session-btn" id="desktop-btn-leave-session">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1653,7 +1673,7 @@
                     d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
                   />
                 </svg>
-                <span data-i18n="settings.leave_session">이 세션 나가기</span>
+                <span data-i18n="settings.leave_session">Leave Session</span>
               </button>
             </div>
           </div>
@@ -1668,9 +1688,9 @@
                     d="M17 1.01L7 1c-1.1 0-1.99.9-1.99 2L5 21c0 1.1.89 2 1.99 2H17c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14zm-1-6h-3V8h-2v5H8l4 4 4-4z"
                   />
                 </svg>
-                <span data-i18n="help.install_app"></span>
+                <span data-i18n="help.install_app">Install Web App</span>
               </div>
-              <div class="help-desc" data-i18n-html="help.install_app_html"></div>
+              <div class="help-desc" data-i18n-html="help.install_app_html">Like MUSIXQUARE? You can install it as an app.<ul class="help-list"><li><strong>iOS:</strong> Share → Add to Home Screen</li><li><strong>Android:</strong> Menu → Install app</li><li><strong>Windows:</strong> Install icon in the address bar</li><li><strong>macOS:</strong> Share → Add to Dock</li></ul></div>
             </div>
 
             <div class="help-block">
@@ -1680,9 +1700,9 @@
                     d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"
                   />
                 </svg>
-                <span data-i18n="help.local_recommended"></span>
+                <span data-i18n="help.local_recommended">Local network recommended</span>
               </div>
-              <div class="help-desc" data-i18n-html="help.local_recommended_html"></div>
+              <div class="help-desc" data-i18n-html="help.local_recommended_html">Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul></div>
             </div>
 
             <div class="help-block">
@@ -1692,9 +1712,9 @@
                     d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
                   />
                 </svg>
-                <span data-i18n="setup.how_to_connect"></span>
+                <span data-i18n="setup.how_to_connect">How to connect</span>
               </div>
-              <div class="help-desc" data-i18n-html="setup.how_to_connect_html"></div>
+              <div class="help-desc" data-i18n-html="setup.how_to_connect_html">Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I'll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul></div>
             </div>
 
             <div class="help-block">
@@ -1704,9 +1724,9 @@
                     d="M17 2H7c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-5 2c1.1 0 2 .9 2 2s-.9 2-2 2-2-.9-2-2 .9-2 2-2zm0 16c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"
                   />
                 </svg>
-                <span data-i18n="player.play_speakers"></span>
+                <span data-i18n="player.play_speakers">Use as Speaker</span>
               </div>
-              <div class="help-desc" data-i18n-html="player.play_speakers_html"></div>
+              <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
             </div>
 
             <div class="help-block">
@@ -1714,9 +1734,9 @@
                 <svg viewBox="0 0 24 24">
                   <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
                 </svg>
-                <span data-i18n="player.play_media_action"></span>
+                <span data-i18n="player.play_media_action">Play media</span>
               </div>
-              <div class="help-desc" data-i18n-html="player.play_media_action_html"></div>
+              <div class="help-desc" data-i18n-html="player.play_media_action_html">The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul></div>
             </div>
 
             <div class="help-block">
@@ -1733,9 +1753,9 @@
                     d="M11 18h2v-2h-2v2zm1-12c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
                   />
                 </svg>
-                <span data-i18n="help.need_help"></span>
+                <span data-i18n="help.need_help">Need help?</span>
               </div>
-              <div class="help-desc" data-i18n-html="help.need_help_html"></div>
+              <div class="help-desc" data-i18n-html="help.need_help_html"><ul class="help-list"><li><strong>Entered the code but can't connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul></div>
             </div>
 
             <button class="accent-action-btn divider-narrow" id="btn-demo-media">
@@ -1744,14 +1764,14 @@
                   d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8 12.5v-9l6 4.5-6 4.5z"
                 />
               </svg>
-              <span data-i18n="setup.demo_button"></span>
+              <span data-i18n="setup.demo_button">Take a Tour</span>
             </button>
 
             <div class="help-block legal-block">
               <div class="help-title">
-                <span data-i18n="legal.title"></span>
+                <span data-i18n="legal.title">Service notes</span>
               </div>
-              <div class="help-desc legal-desc" data-i18n-html="legal.content_html"></div>
+              <div class="help-desc legal-desc" data-i18n-html="legal.content_html"><strong>Privacy Policy</strong><br><span data-legal-standard-storage>On the same network, most session content goes directly between devices. The signaling server only briefly processes room operation, authentication and reconnection data; some remote or large-session data goes via Cloudflare. Remote files are held for up to 24 hours in private Cloudflare storage; only room participants get temporary download access. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span><span data-legal-pro-storage>PRO rooms store on Cloudflare the session, member, playlist, playback, and upload state needed for operation. Original playlist files stay in private Cloudflare storage; only room participants can download them via short-lived URLs. Files are erased when a room administrator removes them from the playlist or the operator deletes the room data. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service's policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a></div>
             </div>
           </div>
         </div>
@@ -1762,11 +1782,11 @@
 
     <div class="chat-drawer" id="chat-drawer" data-chat-snap="half" tabindex="-1">
       <div class="chat-drawer-header">
-        <span class="chat-drawer-title" data-i18n="chat.title"></span>
+        <span class="chat-drawer-title" data-i18n="chat.title">Chat</span>
         <button
           class="chat-drawer-close"
           id="btn-chat-close"
-          aria-label=""
+          aria-label="Close chat"
           data-i18n-aria-label="chat.close"
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1781,7 +1801,7 @@
         id="chat-pinned-notice"
         role="button"
         tabindex="0"
-        aria-label=""
+        aria-label="Dismiss notice"
         data-i18n-aria-label="chat.pinned_close"
         hidden
       >
@@ -1807,7 +1827,7 @@
         </div>
       </div>
       <div class="chat-scroll-wrapper">
-        <span id="chat-copy-hint" class="sr-only" data-i18n="chat.copy_hint"></span>
+        <span id="chat-copy-hint" class="sr-only" data-i18n="chat.copy_hint">Press Enter to copy this chat message</span>
         <div
           class="chat-drawer-messages"
           id="chat-messages"
@@ -1816,13 +1836,13 @@
           tabindex="-1"
           data-custom-scroll
         >
-          <div class="chat-empty" data-i18n-html="chat.empty_html"></div>
+          <div class="chat-empty" data-i18n-html="chat.empty_html">No messages yet.<br>Send the first message!</div>
         </div>
         <button
           class="chat-scroll-down-btn"
           id="btn-chat-scroll-down"
           type="button"
-          aria-label=""
+          aria-label="Scroll to bottom"
           aria-controls="chat-messages"
           aria-hidden="true"
           tabindex="-1"
@@ -1861,9 +1881,9 @@
             aria-haspopup="listbox"
             aria-expanded="false"
             aria-controls="chat-command-suggestions"
-            aria-label=""
+            aria-label="Message input"
             data-i18n-aria-label="chat.input_label"
-            data-placeholder="메시지 또는 / 명령어"
+            data-placeholder="Message or '/' for commands..."
             data-i18n-data-placeholder="chat.placeholder"
             autocomplete="off"
             autocorrect="off"
@@ -1874,7 +1894,7 @@
           <button
             class="chat-send-btn"
             id="btn-chat-send"
-            aria-label=""
+            aria-label="Send message"
             data-i18n-aria-label="chat.send"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1902,7 +1922,7 @@
             d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
           />
         </svg>
-        <span data-i18n="nav.home"></span>
+        <span data-i18n="nav.home">Home</span>
       </button>
       <button
         class="nav-item"
@@ -1911,7 +1931,7 @@
         role="tab"
         aria-selected="false"
         aria-controls="tab-playlist"
-        aria-label="재생목록"
+        aria-label="Playlist"
         data-i18n-aria-label="nav.playlist"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1919,7 +1939,7 @@
             d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"
           />
         </svg>
-        <span data-i18n="nav.playlist_compact"></span>
+        <span data-i18n="nav.playlist_compact">Playlist</span>
       </button>
       <button
         class="nav-item"
@@ -1928,7 +1948,7 @@
         role="tab"
         aria-selected="false"
         aria-controls="tab-connect"
-        aria-label="연결"
+        aria-label="Connect"
         data-i18n-aria-label="nav.connect"
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1936,7 +1956,7 @@
             d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"
           />
         </svg>
-        <span data-i18n="nav.connect_compact"></span>
+        <span data-i18n="nav.connect_compact">Connect</span>
       </button>
       <button
         class="nav-item"
@@ -1945,7 +1965,7 @@
         role="tab"
         aria-selected="false"
         aria-controls="tab-settings"
-        aria-label="설정"
+        aria-label="Settings"
         data-i18n-aria-label="nav.settings"
       >
         <svg viewBox="0 -960 960 960" aria-hidden="true">
@@ -1953,7 +1973,7 @@
             d="M433-80q-27 0-46.5-18T363-142l-9-66q-13-5-24.5-12T307-235l-62 26q-25 11-50 2t-39-32l-47-82q-14-23-8-49t27-43l53-40q-1-7-1-13.5v-27q0-6.5 1-13.5l-53-40q-21-17-27-43t8-49l47-82q14-23 39-32t50 2l62 26q11-8 23-15t24-12l9-66q4-26 23.5-44t46.5-18h94q27 0 46.5 18t23.5 44l9 66q13 5 24.5 12t22.5 15l62-26q25-11 50-2t39 32l47 82q14 23 8 49t-27 43l-53 40q1 7 1 13.5v27q0 6.5-2 13.5l53 40q21 17 27 43t-8 49l-48 82q-14 23-39 32t-50-2l-60-26q-11 8-23 15t-24 12l-9 66q-4 26-23.5 44T527-80h-94Zm7-80h79l14-106q31-8 57.5-23.5T639-327l99 41 39-68-86-65q5-14 7-29.5t2-31.5q0-16-2-31.5t-7-29.5l86-65-39-68-99 42q-22-23-48.5-38.5T533-694l-13-106h-79l-14 106q-31 8-57.5 23.5T321-633l-99-41-39 68 86 64q-5 15-7 30t-2 32q0 16 2 31t7 30l-86 65 39 68 99-42q22 23 48.5 38.5T427-266l13 106Zm42-180q58 0 99-41t41-99q0-58-41-99t-99-41q-59 0-99.5 41T342-480q0 58 40.5 99t99.5 41Zm-2-140Z"
           />
         </svg>
-        <span data-i18n="nav.settings_compact"></span>
+        <span data-i18n="nav.settings_compact">Settings</span>
       </button>
       <button
         class="nav-item"
@@ -1968,7 +1988,7 @@
             d="M11 18h2v-2h-2v2zm1-16C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-2.21 0-4 1.79-4 4h2c0-1.1.9-2 2-2s2 .9 2 2c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5 0-2.21-1.79-4-4-4z"
           />
         </svg>
-        <span data-i18n="nav.help"></span>
+        <span data-i18n="nav.help">Help</span>
       </button>
     </nav>
 
@@ -2013,7 +2033,7 @@
               <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
               <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
             </svg>
-            <p class="brand-tagline" data-i18n-html="setup.brand_tagline_html"></p>
+            <p class="brand-tagline" data-i18n-html="setup.brand_tagline_html">Listen together, anywhere<br>The perfect sound experience</p>
           </div>
           <!-- JS mirrors the active setup step into the desktop presentation panel. -->
           <div id="desktop-step-header" class="desktop-step-header"></div>
@@ -2408,8 +2428,9 @@
                       aria-haspopup="dialog"
                       aria-controls="language-dialog-overlay"
                       data-i18n-aria-label="settings.language_select_aria"
+                      aria-label="Open language list"
                     >
-                      <span class="setup-greeting-text" data-i18n="setup.greeting"></span>
+                      <span class="setup-greeting-text" data-i18n="setup.greeting">Hello!</span>
                       <svg viewBox="0 0 24 24" aria-hidden="true">
                         <circle cx="12" cy="12" r="9"></circle>
                         <path
@@ -2420,7 +2441,7 @@
                   </h2>
                 </div>
               </div>
-              <p class="setup-role-prompt" data-i18n="setup.hello_select_role"></p>
+              <p class="setup-role-prompt" data-i18n="setup.hello_select_role">Create a room or join one.</p>
             </div>
 
             <div id="ob-slider-area" class="ob-slider-block">
@@ -2435,8 +2456,8 @@
                         />
                       </svg>
                     </div>
-                    <div class="ob-title" data-i18n="settings.invite_share"></div>
-                    <div class="ob-desc" data-i18n-html="setup.invite_share_desc_html"></div>
+                    <div class="ob-title" data-i18n="settings.invite_share">Invite &amp; Share</div>
+                    <div class="ob-desc" data-i18n-html="setup.invite_share_desc_html">Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit invitation code to connect.</div>
                   </div>
                   <!-- Slide 2: Sync -->
                   <div class="ob-slide" aria-hidden="true" inert>
@@ -2447,8 +2468,8 @@
                         />
                       </svg>
                     </div>
-                    <div class="ob-title" data-i18n="player.play_together"></div>
-                    <div class="ob-desc" data-i18n-html="setup.play_together_desc_html"></div>
+                    <div class="ob-title" data-i18n="player.play_together">Play in Sync</div>
+                    <div class="ob-desc" data-i18n-html="setup.play_together_desc_html">When the host plays media,<br>all connected devices play in sync.<br>Press the sync button to align.</div>
                   </div>
                   <!-- Slide 3: Surround -->
                   <div class="ob-slide" aria-hidden="true" inert>
@@ -2460,8 +2481,8 @@
                         <circle cx="12" cy="12" r="3" />
                       </svg>
                     </div>
-                    <div class="ob-title" data-i18n="settings.spatial_audio"></div>
-                    <div class="ob-desc" data-i18n-html="setup.spatial_audio_desc_html"></div>
+                    <div class="ob-title" data-i18n="settings.spatial_audio">Spatial audio</div>
+                    <div class="ob-desc" data-i18n-html="setup.spatial_audio_desc_html">Set the role for each device.<br>Play left and right audio separately<br>and feel deep bass from the woofer.</div>
                   </div>
                   <!-- Slide 4: Advanced Audio -->
                   <div class="ob-slide" aria-hidden="true" inert>
@@ -2470,8 +2491,8 @@
                         <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zM16 9v11h4V9h-4z" />
                       </svg>
                     </div>
-                    <div class="ob-title" data-i18n="settings.advanced_audio"></div>
-                    <div class="ob-desc" data-i18n-html="setup.advanced_audio_desc_html"></div>
+                    <div class="ob-title" data-i18n="settings.advanced_audio">Advanced audio</div>
+                    <div class="ob-desc" data-i18n-html="setup.advanced_audio_desc_html">Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.</div>
                   </div>
                 </div>
               </div>
@@ -2481,7 +2502,7 @@
                   type="button"
                   class="ob-nav-arrow ob-nav-prev"
                   id="ob-prev"
-                  aria-label=""
+                  aria-label="Previous"
                   data-i18n-aria-label="common.previous"
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -2511,7 +2532,7 @@
                   type="button"
                   class="ob-nav-arrow ob-nav-next"
                   id="ob-next"
-                  aria-label=""
+                  aria-label="Next"
                   data-i18n-aria-label="common.next_desc"
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
@@ -2537,8 +2558,8 @@
             hidden
           >
             <div class="setup-header-text">
-              <h2 data-i18n="setup.last_step"></h2>
-              <p data-i18n="setup.connect_devices"></p>
+              <h2 data-i18n="setup.last_step">Let's get started!</h2>
+              <p data-i18n="setup.connect_devices">Connect your other devices to begin.</p>
             </div>
             <div id="setup-host-invite-stage" class="setup-host-invite-stage" aria-busy="false">
               <div
@@ -2564,6 +2585,7 @@
                 role="img"
                 aria-hidden="true"
                 data-i18n-aria-label="connect.qr_title"
+                aria-label="Invite via QR or Link"
               ></div>
               <span
                 class="material-elastic-spinner setup-host-qr-loading-spinner"
@@ -2580,7 +2602,7 @@
                 class="setup-code-label"
                 id="setup-host-code-label"
                 data-i18n="setup.enter_code_connect"
-              ></div>
+              >Invitation code</div>
               <input
                 type="text"
                 class="setup-join-input code-input-active"
@@ -2607,8 +2629,8 @@
             hidden
           >
             <div class="setup-header-text">
-              <h2 data-i18n="setup.last_step"></h2>
-              <p data-i18n="setup.enter_host_code_alt"></p>
+              <h2 data-i18n="setup.last_step">Let's get started!</h2>
+              <p data-i18n="setup.enter_host_code_alt">Scan the QR code or enter the code.</p>
             </div>
             <div id="setup-guest-qr-stage" class="setup-guest-qr-stage">
               <button
@@ -2617,6 +2639,7 @@
                 type="button"
                 aria-busy="false"
                 data-i18n-aria-label="setup.scan_qr"
+                aria-label="Tap to scan"
               >
                 <svg class="setup-qr-scan-symbol" viewBox="0 -960 960 960" aria-hidden="true">
                   <path
@@ -2643,11 +2666,12 @@
                   class="setup-qr-close"
                   type="button"
                   data-i18n-aria-label="common.close"
+                  aria-label="Close"
                 ></button>
               </div>
             </div>
             <div class="setup-code-area-bottom">
-              <div class="setup-code-label" data-i18n="setup.enter_host_code"></div>
+              <div class="setup-code-label" data-i18n="setup.enter_host_code">Enter invitation code</div>
               <input
                 type="text"
                 class="setup-join-input"
@@ -2661,7 +2685,7 @@
                 autocapitalize="off"
                 autocorrect="off"
                 spellcheck="false"
-                aria-label=""
+                aria-label="Enter 6-digit invitation code"
                 data-i18n-aria-label="setup.enter_code"
                 aria-describedby="setup-guest-error"
               />
@@ -2683,7 +2707,7 @@
             hidden
           >
             <div class="setup-header-text">
-              <h2 data-i18n="setup.welcome_title"></h2>
+              <h2 data-i18n="setup.welcome_title">Welcome</h2>
               <p id="setup-auto-join-subtitle"></p>
             </div>
             <p
@@ -2704,8 +2728,8 @@
             hidden
           >
             <div class="setup-header-text">
-              <h2 data-i18n="setup.what_sound"></h2>
-              <p data-i18n="setup.change_later"></p>
+              <h2 data-i18n="setup.what_sound">What should this device play?</h2>
+              <p data-i18n="setup.change_later">You can adjust this anytime in Settings.</p>
             </div>
 
             <div class="setup-graphic-container wordmark-decor">
@@ -2780,13 +2804,13 @@
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
                 </svg>
-                <span data-i18n="role.left"></span>
+                <span data-i18n="role.left">Left Speaker</span>
               </button>
               <button type="button" class="ch-opt" data-join-ch="1" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
                 </svg>
-                <span data-i18n="role.right"></span>
+                <span data-i18n="role.right">Right Speaker</span>
               </button>
               <button type="button" class="ch-opt" data-join-ch="2" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2795,7 +2819,7 @@
                   />
                   <circle cx="12" cy="12" r="3" />
                 </svg>
-                <span data-i18n="role.subwoofer"></span>
+                <span data-i18n="role.subwoofer">Subwoofer</span>
               </button>
               <button type="button" class="ch-opt" data-join-ch="0" aria-pressed="false">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2803,7 +2827,7 @@
                     d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
                   />
                 </svg>
-                <span data-i18n="role.center"></span>
+                <span data-i18n="role.center">Center Speaker</span>
               </button>
             </div>
           </div>
@@ -2839,7 +2863,7 @@
         aria-describedby="dialog-message"
       >
         <div class="dialog-header">
-          <span class="dialog-title" id="dialog-title" data-i18n="common.info"></span>
+          <span class="dialog-title" id="dialog-title" data-i18n="common.info">Info</span>
         </div>
         <div class="dialog-message" id="dialog-message"></div>
         <div class="dialog-actions adaptive-action-group">
@@ -2849,13 +2873,13 @@
             id="btn-dialog-secondary"
             hidden
             data-i18n="common.cancel"
-          ></button>
+          >Cancel</button>
           <button
             type="button"
             class="dialog-primary"
             id="btn-dialog-ok"
             data-i18n="common.ok"
-          ></button>
+          >OK</button>
         </div>
       </div>
     </div>
@@ -2978,14 +3002,14 @@
               target="_blank"
               rel="noopener noreferrer"
               data-i18n="account.terms"
-            ></a>
+            >Terms</a>
             <span aria-hidden="true">·</span>
             <a
               href="/privacy"
               target="_blank"
               rel="noopener noreferrer"
               data-i18n="account.privacy"
-            ></a>
+            >Privacy</a>
           </nav>
         </div>
         <dl
@@ -2996,15 +3020,15 @@
           hidden
         >
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-sessions-label" data-i18n="account.stats_sessions_label"></dt>
+            <dt id="account-stats-sessions-label" data-i18n="account.stats_sessions_label">Sessions joined</dt>
             <dd id="account-stats-session-count">-</dd>
           </div>
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-listening-label" data-i18n="account.stats_listening_label"></dt>
+            <dt id="account-stats-listening-label" data-i18n="account.stats_listening_label">Listening time</dt>
             <dd id="account-stats-listening-time">-</dd>
           </div>
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-tracks-label" data-i18n="account.stats_tracks_label"></dt>
+            <dt id="account-stats-tracks-label" data-i18n="account.stats_tracks_label">Media played</dt>
             <dd id="account-stats-track-count">-</dd>
           </div>
         </dl>
@@ -3048,7 +3072,7 @@
             role="switch"
             aria-checked="false"
           >
-            <span data-i18n="connect.permission_media_add"></span>
+            <span data-i18n="connect.permission_media_add">Manage media</span>
             <span class="administrator-permission-toggle" aria-hidden="true">
               <span class="administrator-permission-toggle-knob"></span>
             </span>
@@ -3061,12 +3085,12 @@
             aria-checked="false"
           >
             <span class="administrator-permission-label">
-              <span data-i18n="connect.permission_playback_control"></span>
+              <span data-i18n="connect.permission_playback_control">Playback control</span>
               <small
                 class="administrator-permission-inherited"
                 hidden
                 data-i18n="connect.permission_inherited"
-              ></small>
+              >Included</small>
             </span>
             <span class="administrator-permission-toggle" aria-hidden="true">
               <span class="administrator-permission-toggle-knob"></span>
@@ -3079,7 +3103,7 @@
             role="switch"
             aria-checked="false"
           >
-            <span data-i18n="connect.permission_members_kick"></span>
+            <span data-i18n="connect.permission_members_kick">Kick members</span>
             <span class="administrator-permission-toggle" aria-hidden="true">
               <span class="administrator-permission-toggle-knob"></span>
             </span>
@@ -3091,7 +3115,7 @@
             role="switch"
             aria-checked="false"
           >
-            <span data-i18n="connect.permission_chat_notice"></span>
+            <span data-i18n="connect.permission_chat_notice">Post chat notices</span>
             <span class="administrator-permission-toggle" aria-hidden="true">
               <span class="administrator-permission-toggle-knob"></span>
             </span>
@@ -3103,13 +3127,13 @@
             class="dialog-secondary"
             id="btn-administrator-permissions-cancel"
             data-i18n="common.cancel"
-          ></button>
+          >Cancel</button>
           <button
             type="button"
             class="dialog-primary"
             id="btn-administrator-permissions-save"
             data-i18n="common.done"
-          ></button>
+          >Done</button>
         </div>
       </div>
     </div>
@@ -3130,7 +3154,7 @@
             class="dialog-title"
             id="language-dialog-title"
             data-i18n="settings.language_dialog_title"
-          ></span>
+          >Select Language</span>
           <span
             class="feature-badge media-source-beta-badge language-dialog-beta-badge"
             aria-label="Beta"
@@ -3156,7 +3180,7 @@
             class="dialog-primary"
             id="btn-language-dialog-done"
             data-i18n="common.done"
-          ></button>
+          >Done</button>
         </div>
       </div>
     </div>
@@ -3170,11 +3194,11 @@
         class="sync-glass-panel"
         role="dialog"
         aria-modal="true"
-        aria-label=""
+        aria-label="Sync"
         data-i18n-aria-label="common.sync"
       >
         <div class="sync-manual-display">
-          <span class="sync-col-label" data-i18n="player.manual_sync_label"></span>
+          <span class="sync-col-label" data-i18n="player.manual_sync_label">Manual (ms)</span>
           <div class="chat-input-wrapper sync-manual-input-wrapper">
             <div
               class="chat-input sync-col-value sync-manual-input"
@@ -3182,7 +3206,7 @@
               contenteditable="true"
               tabindex="0"
               role="textbox"
-              aria-label=""
+              aria-label="Manual (ms)"
               data-i18n-aria-label="player.manual_sync_label"
               aria-describedby="manual-sync-range-hint"
               data-placeholder="0"
@@ -3203,22 +3227,22 @@
           <button class="sync-nudge-btn" id="btn-nudge-plus10">+10</button>
         </div>
         <div class="sync-bottom-row">
-          <button class="sync-reset-btn" id="btn-auto-sync" data-i18n="common.reset"></button>
-          <button class="sync-done-btn" id="btn-sync-done" data-i18n="common.done"></button>
+          <button class="sync-reset-btn" id="btn-auto-sync" data-i18n="common.reset">Reset</button>
+          <button class="sync-done-btn" id="btn-sync-done" data-i18n="common.done">Done</button>
         </div>
       </div>
     </div>
 
     <div id="demo-overlay" class="demo-overlay" aria-hidden="true" data-nosnippet>
       <div class="demo-mobile-shell">
-        <section class="demo-visual-stage" aria-label="" data-i18n-aria-label="player.visualizer">
+        <section class="demo-visual-stage" aria-label="Audio visualizer" data-i18n-aria-label="player.visualizer">
           <div id="demo-visualizer-slot" class="demo-visualizer-slot"></div>
           <div class="demo-track-header">
             <button
               type="button"
               class="demo-play-button"
               data-demo-play
-              aria-label=""
+              aria-label="Play/Pause"
               data-i18n-aria-label="player.play_pause"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3235,27 +3259,27 @@
               <div class="demo-track-artist">© Brett Taylor</div>
             </div>
           </div>
-          <div class="demo-step-nav" aria-label="" data-i18n-aria-label="demo.step_nav_label">
+          <div class="demo-step-nav" aria-label="Demo steps" data-i18n-aria-label="demo.step_nav_label">
             <button type="button" class="active" data-demo-step="1" aria-pressed="true">
-              <span data-i18n="demo.step_connect"></span>
+              <span data-i18n="demo.step_connect">1. Connect</span>
             </button>
             <button type="button" data-demo-step="2" aria-pressed="false">
-              <span data-i18n="demo.step_role"></span>
+              <span data-i18n="demo.step_role">2. Set role</span>
             </button>
             <button type="button" data-demo-step="3" aria-pressed="false">
-              <span data-i18n="demo.step_effects"></span>
+              <span data-i18n="demo.step_effects">3. Audio effects</span>
             </button>
             <button
               type="button"
               class="demo-step-next"
               data-demo-next
-              aria-label=""
+              aria-label="Next"
               data-i18n-aria-label="common.next"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M10 6 8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6-6-6z" />
               </svg>
-              <span data-i18n="demo.step_finish"></span>
+              <span data-i18n="demo.step_finish">4. Quit demo</span>
             </button>
           </div>
         </section>
@@ -3275,8 +3299,8 @@
 
             <article class="demo-step-panel" data-demo-panel="2">
               <div class="demo-step-copy">
-                <h2 data-i18n="setup.what_sound"></h2>
-                <p data-i18n="setup.change_later"></p>
+                <h2 data-i18n="setup.what_sound">What should this device play?</h2>
+                <p data-i18n="setup.change_later">You can adjust this anytime in Settings.</p>
               </div>
               <div class="demo-step-content demo-role-content">
                 <div class="setup-graphic-container demo-role-diagram" data-role-diagram="demo">
@@ -3344,14 +3368,14 @@
                 <div
                   class="demo-role-segmented"
                   role="group"
-                  aria-label=""
+                  aria-label="Set this device's role"
                   data-i18n-aria-label="setup.set_role"
                 >
                   <button type="button" data-demo-role="-1" aria-pressed="false">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" />
                     </svg>
-                    <span data-i18n="common.left"></span>
+                    <span data-i18n="common.left">Left</span>
                   </button>
                   <button type="button" data-demo-role="2" aria-pressed="false">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3360,7 +3384,7 @@
                       />
                       <circle cx="12" cy="12" r="3" />
                     </svg>
-                    <span data-i18n="demo.role_bass_short"></span>
+                    <span data-i18n="demo.role_bass_short">Bass</span>
                   </button>
                   <button type="button" data-demo-role="0" aria-pressed="false">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3368,13 +3392,13 @@
                         d="M12 3v9.28c-.47-.17-.97-.28-1.5-.28C8.01 12 6 14.01 6 16.5S8.01 21 10.5 21c2.31 0 4.16-1.75 4.45-4H15V6h4V3h-7z"
                       />
                     </svg>
-                    <span data-i18n="demo.role_center_short"></span>
+                    <span data-i18n="demo.role_center_short">Center</span>
                   </button>
                   <button type="button" data-demo-role="1" aria-pressed="false">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" />
                     </svg>
-                    <span data-i18n="common.right"></span>
+                    <span data-i18n="common.right">Right</span>
                   </button>
                 </div>
               </div>
@@ -3382,8 +3406,8 @@
 
             <article class="demo-step-panel" data-demo-panel="3">
               <div class="demo-step-copy">
-                <h2 data-i18n="demo.effects_step_title"></h2>
-                <p data-i18n="demo.effects_step_subtitle"></p>
+                <h2 data-i18n="demo.effects_step_title">Craft your premium sound.</h2>
+                <p data-i18n="demo.effects_step_subtitle">You can fine-tune these advanced acoustics anytime in Settings.</p>
               </div>
               <div class="demo-step-content demo-effects-content">
                 <div class="demo-large-actions">
@@ -3398,7 +3422,7 @@
                         d="M361-80q-14 0-24.5-7.5T322-108L220-440H80v-80h170q13 0 23.5 7.5T288-492l66 215 127-571q3-14 14-23t25-9q14 0 25 8.5t14 22.5l87 376 56-179q4-13 14.5-20.5T740-680q13 0 23 7t15 19l50 134h52v80h-80q-13 0-23-7t-15-19l-19-51-65 209q-4 13-15 21t-25 7q-14-1-24-9.5T601-311l-81-348-121 548q-3 14-13.5 22T361-80Z"
                       />
                     </svg>
-                    <span data-i18n="demo.bass_boost"></span>
+                    <span data-i18n="demo.bass_boost">Bass Boost</span>
                   </button>
                   <button
                     type="button"
@@ -3412,7 +3436,7 @@
                         d="M211.5-371.5Q200-383 200-400t11.5-28.5Q223-440 240-440t28.5 11.5Q280-417 280-400t-11.5 28.5Q257-360 240-360t-28.5-11.5Zm0 160Q200-223 200-240t11.5-28.5Q223-280 240-280t28.5 11.5Q280-257 280-240t-11.5 28.5Q257-200 240-200t-28.5-11.5Zm0-320Q200-543 200-560t11.5-28.5Q223-600 240-600t28.5 11.5Q280-577 280-560t-11.5 28.5Q257-520 240-520t-28.5-11.5ZM106-546q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm105.5-145.5Q200-703 200-720t11.5-28.5Q223-760 240-760t28.5 11.5Q280-737 280-720t-11.5 28.5Q257-680 240-680t-28.5-11.5ZM106-386q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm280 280q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm0-720q-6-6-6-14t6-14q6-6 14-6t14 6q6 6 6 14t-6 14q-6 6-14 6t-14-6Zm-14.5 134.5Q360-703 360-720t11.5-28.5Q383-760 400-760t28.5 11.5Q440-737 440-720t-11.5 28.5Q417-680 400-680t-28.5-11.5Zm-14 334Q340-375 340-400t17.5-42.5Q375-460 400-460t42.5 17.5Q460-425 460-400t-17.5 42.5Q425-340 400-340t-42.5-17.5Zm0-160Q340-535 340-560t17.5-42.5Q375-620 400-620t42.5 17.5Q460-585 460-560t-17.5 42.5Q425-500 400-500t-42.5-17.5Zm14 306Q360-223 360-240t11.5-28.5Q383-280 400-280t28.5 11.5Q440-257 440-240t-11.5 28.5Q417-200 400-200t-28.5-11.5ZM480-120v-80q116 0 198-82t82-198q0-116-82-198t-198-82v-80q74 0 139.5 28.5T734-734q49 49 77.5 114.5T840-480q0 74-28.5 139.5T734-226q-49 49-114.5 77.5T480-120Zm0-360Z"
                       />
                     </svg>
-                    <span data-i18n="demo.treble_boost"></span>
+                    <span data-i18n="demo.treble_boost">Treble Boost</span>
                   </button>
                   <button
                     type="button"
@@ -3425,7 +3449,7 @@
                         d="M7.76 16.24C6.67 15.16 6 13.66 6 12s.67-3.16 1.76-4.24l1.42 1.42C8.45 9.9 8 10.9 8 12c0 1.1.45 2.1 1.17 2.83l-1.41 1.41zm8.48 0C17.33 15.16 18 13.66 18 12s-.67-3.16-1.76-4.24l-1.42 1.42C15.55 9.9 16 10.9 16 12c0 1.1-.45 2.1-1.17 2.83l1.41 1.41zM12 10c-1.1 0-2 .9-2 2s.9 2 2 2s2-.9 2-2s-.9-2-2-2zm8 2c0 2.21-.9 4.21-2.35 5.65l1.42 1.42C20.88 17.26 22 14.76 22 12s-1.12-5.26-2.93-7.07l-1.42 1.42A7.94 7.94 0 0 1 20 12zM6.35 6.35L4.93 4.93C3.12 6.74 2 9.24 2 12s1.12 5.26 2.93 7.07l1.42-1.42C4.9 16.21 4 14.21 4 12s.9-4.21 2.35-5.65z"
                       />
                     </svg>
-                    <span data-i18n="demo.reverb"></span>
+                    <span data-i18n="demo.reverb">Reverb</span>
                   </button>
                   <button
                     type="button"
@@ -3438,7 +3462,7 @@
                         d="M240-80 80-240l160-160 57 56-64 64h494l-63-64 56-56 160 160L720-80l-57-56 64-64H233l63 64-56 56Zm200-360v-480h80v480h-80Zm-160-80v-320h80v320h-80Zm320 0v-320h80v320h-80ZM120-620v-120h80v120h-80Zm640 0v-120h80v120h-80Z"
                       />
                     </svg>
-                    <span data-i18n="demo.surround"></span>
+                    <span data-i18n="demo.surround">Surround</span>
                   </button>
                 </div>
               </div>
@@ -3446,13 +3470,13 @@
 
             <article class="demo-step-panel" data-demo-panel="4">
               <div class="demo-step-copy">
-                <h2 data-i18n="demo.finish_step_title"></h2>
-                <p data-i18n="demo.finish_step_subtitle"></p>
+                <h2 data-i18n="demo.finish_step_title">You're all set!</h2>
+                <p data-i18n="demo.finish_step_subtitle">Jump right in and start playing together.</p>
               </div>
               <div class="demo-step-content demo-finish-content">
                 <div
                   class="demo-track-list"
-                  aria-label=""
+                  aria-label="Demo track list"
                   data-i18n-aria-label="demo.track_list_label"
                 >
                   <div class="demo-track-row" data-demo-track-index="0">
@@ -3479,7 +3503,7 @@
                         d="M14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7zM19 19H5V5h5V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-5h-2v5z"
                       />
                     </svg>
-                    <span data-i18n="demo.track_info"></span>
+                    <span data-i18n="demo.track_info">Track info</span>
                   </button>
                   <button type="button" class="leave-session-btn demo-exit-button" data-demo-exit>
                     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -3487,7 +3511,7 @@
                         d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
                       />
                     </svg>
-                    <span data-i18n="demo.exit"></span>
+                    <span data-i18n="demo.exit">Exit Demo</span>
                   </button>
                 </div>
               </div>
@@ -3508,8 +3532,8 @@
     >
       <div class="onboarding-card setup-card full-screen">
         <div class="setup-header-text">
-          <h2 id="media-source-dialog-title" data-i18n="player.select_media"></h2>
-          <p data-i18n="help.media_synced_detail"></p>
+          <h2 id="media-source-dialog-title" data-i18n="player.select_media">Select media to play</h2>
+          <p data-i18n="help.media_synced_detail">The selected media plays simultaneously on all connected devices.</p>
         </div>
 
         <div class="setup-slot-list" data-custom-scroll data-custom-scroll-contained>
@@ -3519,13 +3543,13 @@
                 <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z" />
               </svg>
             </div>
-            <span data-i18n="help.load_local"></span>
+            <span data-i18n="help.load_local">Load local file</span>
           </button>
           <input
             type="file"
             id="file-input"
             multiple
-            aria-label=""
+            aria-label="Choose local file"
             data-i18n-aria-label="help.local_file"
             accept=".mp3,.wav,.flac,.m4a,.aac,.ogg,.aif,.aiff,.caf,audio/*"
             hidden
@@ -3538,7 +3562,7 @@
                 />
               </svg>
             </div>
-            <span data-i18n="help.youtube_compat"></span>
+            <span data-i18n="help.youtube_compat">YouTube (Compatibility Mode)</span>
           </button>
           <button class="file-select-btn" id="btn-system-audio">
             <div class="btn-icon-bg">
@@ -3557,7 +3581,7 @@
               </span>
             </div>
             <span class="media-source-label-row">
-              <span class="media-source-label-text" data-i18n="system_audio.button"></span>
+              <span class="media-source-label-text" data-i18n="system_audio.button">System Audio</span>
               <span class="feature-badge media-source-beta-badge" aria-label="Beta">BETA</span>
             </span>
           </button>
@@ -3568,7 +3592,7 @@
             class="btn-ob-secondary flex-1"
             id="btn-close-media-popup"
             data-i18n="common.close"
-          ></button>
+          >Close</button>
         </div>
       </div>
     </div>
@@ -3583,8 +3607,8 @@
     >
       <div class="onboarding-card setup-card full-screen">
         <div class="setup-header-text">
-          <h2 id="youtube-url-dialog-title" data-i18n="youtube.watch_together"></h2>
-          <p data-i18n-html="youtube.enter_link_desc_html"></p>
+          <h2 id="youtube-url-dialog-title" data-i18n="youtube.watch_together">Watch YouTube together</h2>
+          <p data-i18n-html="youtube.enter_link_desc_html">Only public videos or playlists can be played.</p>
         </div>
 
         <div class="setup-join-area setup-mt-0" data-custom-scroll data-custom-scroll-contained>
@@ -3594,17 +3618,17 @@
               id="youtube-url-input"
               class="setup-join-input yt-intro-text"
               role="textbox"
-              aria-label=""
+              aria-label="Enter YouTube link or search"
               aria-describedby="youtube-preview-status"
               data-i18n-aria-label="youtube.enter_source"
-              data-placeholder="검색어 또는 https://youtube.com/"
+              data-placeholder="Search term or https://youtube.com/"
               data-i18n-data-placeholder="youtube.enter_source_placeholder"
             ></div>
             <button
               type="button"
               id="youtube-search-btn"
               class="yt-search-submit-btn"
-              aria-label=""
+              aria-label="Search"
               aria-controls="youtube-search-results"
               data-i18n-aria-label="youtube.search_button"
               disabled
@@ -3620,7 +3644,7 @@
           <div id="youtube-preview" class="yt-preview-card" hidden>
             <img
               id="youtube-preview-thumb"
-              alt=""
+              alt="YouTube preview thumbnail"
               data-i18n-alt="youtube.thumbnail"
               class="yt-preview-thumb"
             />
@@ -3637,6 +3661,7 @@
             data-custom-scroll
             data-i18n-aria-label="youtube.search_results"
             hidden
+            aria-label="YouTube search results"
           ></div>
 
           <p
@@ -3646,7 +3671,7 @@
             aria-live="polite"
             aria-atomic="true"
             data-i18n="youtube.enter_link_prompt"
-          ></p>
+          >Enter a YouTube search term or link</p>
         </div>
 
         <div class="ob-actions setup-card-mt-8-row">
@@ -3654,13 +3679,13 @@
             class="btn-ob-secondary flex-1"
             id="btn-yt-cancel"
             data-i18n="common.cancel"
-          ></button>
+          >Cancel</button>
           <button
             id="youtube-play-btn"
             class="btn-ob-primary yt-play-btn-flex15"
             disabled
             data-i18n="player.play_start"
-          ></button>
+          >Add to Queue</button>
         </div>
       </div>
     </div>

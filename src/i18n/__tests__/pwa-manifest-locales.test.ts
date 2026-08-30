@@ -57,10 +57,11 @@ function bootstrapDom(
   savedLanguage: string,
   systemLanguages: readonly string[],
   failures: BootstrapSurfaceFailures = {},
+  pathname = '/',
 ): JSDOM {
   const dom = new JSDOM(
     '<!doctype html><html lang="ko"><head><link id="app-manifest" rel="manifest"></head><body></body></html>',
-    { runScripts: 'outside-only', url: 'https://musixquare.com/' },
+    { runScripts: 'outside-only', url: `https://musixquare.com${pathname}` },
   );
   openDoms.push(dom);
   if (failures.storage) {
@@ -163,6 +164,28 @@ describe('localized PWA install metadata', () => {
     restricted.window.document.documentElement.lang = 'ja';
     await new Promise<void>((resolveMutation) => restricted.window.setTimeout(resolveMutation, 0));
     expect(restrictedLink?.getAttribute('href')).toBe('/manifests/ja.webmanifest');
+  });
+
+  it('lets only a supported non-English app pathname own bootstrap language selection', () => {
+    const localized = bootstrapDom('en', ['ko-KR'], {}, '/ja/');
+    expect(localized.window.document.documentElement.lang).toBe('ja');
+    expect(
+      localized.window.document
+        .querySelector<HTMLLinkElement>('#app-manifest')
+        ?.getAttribute('href'),
+    ).toBe('/manifests/ja.webmanifest');
+
+    const room = bootstrapDom('en', ['ko-KR'], {}, '/123456');
+    expect(room.window.document.documentElement.lang).toBe('en');
+    expect(
+      room.window.document.querySelector<HTMLLinkElement>('#app-manifest')?.getAttribute('href'),
+    ).toBe('/manifests/en.webmanifest');
+
+    const root = bootstrapDom('system', ['ko-KR']);
+    expect(root.window.document.documentElement.lang).toBe('ko');
+    expect(
+      root.window.document.querySelector<HTMLLinkElement>('#app-manifest')?.getAttribute('href'),
+    ).toBe('/manifests/ko.webmanifest');
   });
 
   it('isolates navigator getter failures and always keeps manifest observation alive', async () => {

@@ -599,6 +599,17 @@
       }
     }
 
+    function appPathLanguage(): AppLanguageCode | null {
+      try {
+        const pathname = String(location.pathname || '/').toLowerCase();
+        const match = /^\/([^/]+)\/?(?:index\.html)?$/.exec(pathname);
+        const candidate = match && match[1];
+        return candidate && isAppLanguageCode(candidate) && candidate !== 'en' ? candidate : null;
+      } catch {
+        return null;
+      }
+    }
+
     // Storage can be denied independently of navigator/DOM access (private
     // browsing, embedded contexts, or hardened browser policies). Treat that
     // as an unsaved `system` preference instead of abandoning locale
@@ -609,7 +620,8 @@
     } catch {
       /* continue with the browser language */
     }
-    let resolvedLang = savedLang === 'system' ? null : matchLanguage(savedLang);
+    let resolvedLang = appPathLanguage();
+    if (!resolvedLang) resolvedLang = savedLang === 'system' ? null : matchLanguage(savedLang);
 
     if (!resolvedLang) {
       const languages = browserLanguageCandidates();

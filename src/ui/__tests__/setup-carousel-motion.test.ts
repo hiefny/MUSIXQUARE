@@ -474,7 +474,7 @@ describe('setup greeting reveal', () => {
     expect(header).toContain('class="setup-greeting-row" aria-hidden="true"');
     expect(header).toContain('<h2 class="setup-greeting-heading">');
     expect(header).toContain(
-      '<span class="setup-greeting-text" data-i18n="setup.greeting"></span>',
+      '<span class="setup-greeting-text" data-i18n="setup.greeting">Hello!</span>',
     );
     expect(header).toContain('data-i18n="setup.greeting"');
     expect(header).toContain('data-setup-language-trigger');

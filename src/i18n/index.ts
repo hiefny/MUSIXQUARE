@@ -20,46 +20,19 @@ import {
 
 import type { I18nKey } from './ko.ts';
 import { hasLocaleFont, loadLocaleFont } from './locale-fonts.ts';
+import {
+  appLanguageFromPathname,
+  LANGUAGE_OPTIONS,
+  localizedAboutPath,
+  localizedAppPath,
+  type LanguageCode,
+} from './locales.ts';
 export type { I18nKey };
+export { LANGUAGE_OPTIONS } from './locales.ts';
+export type { LanguageCode } from './locales.ts';
 
 // ─── Language State ──────────────────────────────────────────────
 
-export const LANGUAGE_OPTIONS = [
-  { code: 'en', htmlLang: 'en', nativeName: 'English', englishName: 'Default' },
-  { code: 'ko', htmlLang: 'ko', nativeName: '한국어', englishName: 'Korean' },
-  { code: 'ja', htmlLang: 'ja', nativeName: '日本語', englishName: 'Japanese' },
-  {
-    code: 'zh-hans',
-    htmlLang: 'zh-Hans',
-    nativeName: '简体中文',
-    englishName: 'Chinese (Simplified)',
-  },
-  {
-    code: 'zh-hant',
-    htmlLang: 'zh-Hant',
-    nativeName: '繁體中文',
-    englishName: 'Chinese (Traditional)',
-  },
-  { code: 'es', htmlLang: 'es', nativeName: 'Español', englishName: 'Spanish' },
-  {
-    code: 'pt-br',
-    htmlLang: 'pt-BR',
-    nativeName: 'Português (Brasil)',
-    englishName: 'Portuguese (Brazil)',
-  },
-  { code: 'fr', htmlLang: 'fr', nativeName: 'Français', englishName: 'French' },
-  { code: 'de', htmlLang: 'de', nativeName: 'Deutsch', englishName: 'German' },
-  { code: 'nl', htmlLang: 'nl', nativeName: 'Nederlands', englishName: 'Dutch' },
-  { code: 'it', htmlLang: 'it', nativeName: 'Italiano', englishName: 'Italian' },
-  { code: 'pl', htmlLang: 'pl', nativeName: 'Polski', englishName: 'Polish' },
-  { code: 'ru', htmlLang: 'ru', nativeName: 'Русский', englishName: 'Russian' },
-  { code: 'tr', htmlLang: 'tr', nativeName: 'Türkçe', englishName: 'Turkish' },
-  { code: 'id', htmlLang: 'id', nativeName: 'Bahasa Indonesia', englishName: 'Indonesian' },
-  { code: 'vi', htmlLang: 'vi', nativeName: 'Tiếng Việt', englishName: 'Vietnamese' },
-  { code: 'th', htmlLang: 'th', nativeName: 'ไทย', englishName: 'Thai' },
-] as const;
-
-export type LanguageCode = (typeof LANGUAGE_OPTIONS)[number]['code'];
 type LanguageMode = LanguageCode | 'system';
 
 let _mode: LanguageMode = 'system';
@@ -196,7 +169,7 @@ export function getResolvedLanguage(): LanguageCode {
   return _resolved;
 }
 
-/** Current preference mode. `system` means the effective language follows the browser. */
+/** Current document mode. A localized URL may override the durable preference for this visit. */
 export function getLanguageMode(): LanguageMode {
   return _mode;
 }
@@ -220,7 +193,46 @@ async function _setLanguageMode(mode: string): Promise<void> {
     /* ignore */
   }
 
+  if (_navigateLocalizedAppPath(resolved)) return;
   await _applyLanguage(resolved);
+}
+
+function _currentAppPathLanguage(): LanguageCode | null {
+  try {
+    return appLanguageFromPathname(window.location.pathname);
+  } catch {
+    return null;
+  }
+}
+
+function _navigateLocalizedAppPath(resolved: LanguageCode): boolean {
+  if (_currentAppPathLanguage() === null) return false;
+  const nextPath = localizedAppPath(resolved);
+  if (window.location.pathname === nextPath) return false;
+  const href = `${nextPath}${window.location.search}${window.location.hash}`;
+
+  try {
+    const navigationRequest = new CustomEvent<{ href: string }>('mxqr:locale-navigation-request', {
+      cancelable: true,
+      detail: { href },
+    });
+    if (!window.dispatchEvent(navigationRequest)) return true;
+  } catch {
+    /* CustomEvent may be unavailable in restricted or embedded contexts. */
+  }
+
+  try {
+    window.location.assign(href);
+    return true;
+  } catch {
+    // If full-document navigation is unavailable, retain the established
+    // in-place translation fallback instead of leaving the picker inert.
+    return false;
+  }
+}
+
+function _initialLanguageMode(saved: string | null): LanguageMode {
+  return _normalizeLanguageMode(saved || 'system');
 }
 
 /** Bootstrap — call once from app.ts. */
@@ -232,7 +244,17 @@ export async function initI18n(): Promise<void> {
     /* ignore */
   }
 
-  await _setLanguageMode(saved || 'system');
+  const pathLanguage = _currentAppPathLanguage();
+  const savedMode = _initialLanguageMode(saved);
+  if (pathLanguage) {
+    // A localized URL owns this document's presentation without rewriting the
+    // durable PWA preference, so returning to `/` still uses the saved choice.
+    _mode = pathLanguage;
+    _updateSelector(pathLanguage);
+    await _applyLanguage(pathLanguage);
+  } else {
+    await _setLanguageMode(savedMode);
+  }
 
   try {
     window.addEventListener('languagechange', () => {
@@ -266,7 +288,13 @@ const I18N_ATTRS = ['placeholder', 'aria-label', 'title', 'alt', 'data-placehold
 function _translateElement(el: Element): void {
   // innerHTML (help blocks) — use tHtml for safe interpolation
   const htmlKey = el.getAttribute('data-i18n-html');
-  if (htmlKey) el.innerHTML = tHtml(htmlKey as I18nKey);
+  if (htmlKey) {
+    el.innerHTML = tHtml(htmlKey as I18nKey);
+    const aboutPath = localizedAboutPath(_resolved);
+    el.querySelectorAll<HTMLAnchorElement>('a[href="/about"]').forEach((link) => {
+      link.setAttribute('href', aboutPath);
+    });
+  }
 
   // textContent (skip if innerHTML already set — avoids overwrite)
   const textKey = el.getAttribute('data-i18n');

@@ -1,4 +1,4 @@
-import type { LanguageCode } from './index.ts';
+import type { LanguageCode } from './locales.ts';
 import type { I18nKey } from './ko.ts';
 
 export type PluralCategory = 'zero' | 'one' | 'two' | 'few' | 'many' | 'other';

@@ -132,7 +132,41 @@
     }
   }
 
+  function aboutPathLanguage(): string | null {
+    try {
+      const pathname =
+        String(location.pathname || '/')
+          .toLowerCase()
+          .replace(/\/+$/gu, '') || '/';
+      if (pathname === '/about' || pathname === '/about.html') return 'en';
+      const match = /^\/([^/]+)\/about(?:\.html)?$/u.exec(pathname);
+      const code = normalize(match?.[1]);
+      return code && code !== 'en' ? code : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function localizedAboutPath(code: string): string {
+    return code === 'en' ? '/about' : '/' + code + '/about';
+  }
+
+  function localizedAboutHref(code: string): string {
+    const fallback = localizedAboutPath(code);
+    try {
+      const url = new URL(location.href);
+      url.pathname = fallback;
+      url.searchParams.delete('lang');
+      return url.pathname + url.search + url.hash;
+    } catch {
+      return fallback;
+    }
+  }
+
   function resolve(fallback: unknown): string {
+    const fromPath = aboutPathLanguage();
+    if (fromPath) return fromPath;
+
     let qLang = null;
     try {
       qLang = new URLSearchParams(location.search).get('lang');
@@ -180,22 +214,10 @@
     return option(code).locale;
   }
 
-  function setUrlLanguage(code: string): void {
-    try {
-      const url = new URL(location.href);
-      if (code === 'en') url.searchParams.delete('lang');
-      else url.searchParams.set('lang', code);
-      history.replaceState(null, '', url.pathname + url.search + url.hash);
-    } catch {
-      /* URL/history APIs may be unavailable in embedded browsers. */
-    }
-  }
-
   function persist(code: unknown): string {
     const normalized = normalize(code) || 'en';
     writeStore(STATIC_STORE_KEY, normalized);
     writeStore(APP_STORE_KEY, normalized);
-    setUrlLanguage(normalized);
     return normalized;
   }
 
@@ -322,9 +344,9 @@
     for (let i = 0; i < OPTIONS.length; i++) {
       const lang = OPTIONS[i];
       if (!lang) continue;
-      const item = document.createElement('button');
-      item.type = 'button';
+      const item = document.createElement('a');
       item.className = 'static-lang-option';
+      item.href = localizedAboutHref(lang.code);
       item.setAttribute('role', 'option');
       item.setAttribute('data-lang-set', lang.code);
       item.innerHTML =
@@ -358,13 +380,9 @@
           ? event.target.closest<HTMLElement>('[data-lang-set]')
           : null;
       if (!target) return;
-      const next = persist(target.getAttribute('data-lang-set'));
-      update(next);
+      persist(target.getAttribute('data-lang-set'));
       closePicker(picker);
       trigger.focus({ preventScroll: true });
-      window.dispatchEvent(
-        new CustomEvent('mxqr:static-language-change', { detail: { lang: next } }),
-      );
     });
 
     menu.addEventListener('keydown', function (event) {
@@ -376,7 +394,7 @@
       ) {
         return;
       }
-      const options = menu.querySelectorAll<HTMLButtonElement>('[data-lang-set]');
+      const options = menu.querySelectorAll<HTMLAnchorElement>('[data-lang-set]');
       if (!options.length) return;
       event.preventDefault();
 

@@ -38,6 +38,7 @@ import {
   updateServiceMaintenance,
 } from './service-maintenance.ts';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.ts';
+import { LANGUAGE_OPTIONS, localizedAboutPath, type LanguageCode } from '../src/i18n/locales.ts';
 import {
   abortProRoomOwnershipTransferEntitlement,
   authorizeProGrantActivation,
@@ -344,6 +345,7 @@ const APP_SHELL_FRESH_CACHE_HEADERS = Object.freeze({
   'Cloudflare-CDN-Cache-Control': 'no-store',
   Pragma: 'no-cache',
 });
+const APP_LANGUAGE_CODES = new Set<string>(LANGUAGE_OPTIONS.map(({ code }) => code));
 const EVENT_CAMPAIGN_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const EVENT_PAGE_ASSET_PATH = '/events/index.html';
 const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -14705,7 +14707,12 @@ function dynamicAboutHeaders(sourceHeaders: HeadersInit | undefined) {
   return headers;
 }
 
-async function serveAboutPage(request: Request, env: AppEnv, ctx: AppExecutionContext | undefined) {
+async function serveAboutPage(
+  request: Request,
+  env: AppEnv,
+  ctx: AppExecutionContext | undefined,
+  assetPathname = '/about.html',
+) {
   // `/about` is a dynamic representation even though its shell comes from the
   // asset binding. Ignore validators/ranges that target the unmodified asset,
   // otherwise a static 304 or partial body could bypass the daily snapshot.
@@ -14717,10 +14724,10 @@ async function serveAboutPage(request: Request, env: AppEnv, ctx: AppExecutionCo
   const response = await fetchAsset(
     env,
     new Request(request, { headers: assetHeaders }),
-    '/about.html',
+    assetPathname,
   );
   const contentType = response.headers.get('content-type') || '';
-  const pageHeaders = cacheHeadersForPath(new URL(request.url).pathname, '/about.html');
+  const pageHeaders = cacheHeadersForPath(new URL(request.url).pathname, assetPathname);
   if (!contentType.includes('text/html')) {
     return withSecurityHeaders(response, pageHeaders);
   }
@@ -14766,8 +14773,73 @@ async function serveInvitePage(request: Request, env: AppEnv, code: string) {
   );
 }
 
+interface LocalizedStaticRoute {
+  assetPathname: string;
+  canonicalPathname: string;
+  kind: 'app' | 'about';
+  language: string;
+}
+
+function localizedStaticRoute(pathname: string): LocalizedStaticRoute | null {
+  const path = String(pathname || '').toLowerCase();
+  const aboutMatch = /^\/([^/]+)\/about(?:\.html)?\/*$/.exec(path);
+  if (aboutMatch) {
+    const language = aboutMatch[1] || '';
+    if (!APP_LANGUAGE_CODES.has(language)) return null;
+    return {
+      language,
+      kind: 'about',
+      canonicalPathname: language === 'en' ? '/about' : `/${language}/about`,
+      assetPathname: language === 'en' ? '/about.html' : `/${language}/about.html`,
+    };
+  }
+
+  const appMatch = /^\/([^/]+)(?:\/index\.html)?\/*$/.exec(path);
+  if (!appMatch) return null;
+  const language = appMatch[1] || '';
+  if (!APP_LANGUAGE_CODES.has(language)) return null;
+  return {
+    language,
+    kind: 'app',
+    canonicalPathname: language === 'en' ? '/' : `/${language}/`,
+    assetPathname: language === 'en' ? '/index.html' : `/${language}/index.html`,
+  };
+}
+
+function normalizeLegacyAboutLanguage(value: unknown): LanguageCode | null {
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/_/gu, '-')
+    .toLowerCase();
+  return APP_LANGUAGE_CODES.has(normalized) ? (normalized as LanguageCode) : null;
+}
+
+function legacyAboutLanguageRedirect(url: URL): URL | null {
+  const language = normalizeLegacyAboutLanguage(url.searchParams.get('lang'));
+  if (!language) return null;
+  const pathname = url.pathname.toLowerCase();
+  if (!/^\/(?:about(?:\.html)?|landing)\/*$/.test(pathname)) {
+    return null;
+  }
+
+  const target = new URL(url.href);
+  target.pathname = localizedAboutPath(language);
+  target.search = '';
+  for (const [key, value] of url.searchParams) {
+    if (key.toLowerCase() !== 'lang') target.searchParams.append(key, value);
+  }
+  return target;
+}
+
 function redirectTarget(pathname: string) {
   const lower = pathname.toLowerCase();
+  const localizedRoute = localizedStaticRoute(pathname);
+  if (localizedRoute && pathname !== localizedRoute.canonicalPathname) {
+    return localizedRoute.canonicalPathname;
+  }
+  if (/^\/about(?:\.html)?\/*$/.test(lower) && pathname !== '/about') {
+    return '/about';
+  }
   if (['/landing', '/landing/'].includes(lower)) return '/about';
   if (['/changelog', '/changelog/', '/roadmap', '/roadmap/'].includes(lower)) return '/history';
   const canonical = new Map([
@@ -14822,6 +14894,8 @@ function eventCampaignSlugFromPath(pathname: string) {
 
 function routeStaticPath(pathname: string) {
   const path = pathname.toLowerCase();
+  const localizedRoute = localizedStaticRoute(pathname);
+  if (localizedRoute) return localizedRoute.assetPathname;
   if (path === '/about' || path === '/about/') return '/about.html';
   if (path === '/blog' || path === '/blog/') return '/blog/index.html';
   if (path === '/privacy' || path === '/privacy/') return '/privacy.html';
@@ -14862,6 +14936,7 @@ function cacheHeadersForPath(pathname: string, assetPathname = pathname): Record
     return { 'Cache-Control': 'public, max-age=31536000, immutable' };
   }
   if (
+    localizedStaticRoute(pathname)?.kind === 'about' ||
     [
       '/about',
       '/blog',
@@ -14898,9 +14973,21 @@ function isLocalHttpRequest(request: Request, url: URL) {
 
 async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionContext | undefined) {
   const url = new URL(request.url);
+  const legacyLanguageRedirect = legacyAboutLanguageRedirect(url);
+  if (legacyLanguageRedirect) return Response.redirect(legacyLanguageRedirect.href, 301);
+  const localizedRoute = localizedStaticRoute(url.pathname);
   const assetPathname = routeStaticPath(url.pathname);
   const redirect = redirectTarget(url.pathname);
-  if (redirect) return Response.redirect(new URL(redirect, url).href, 301);
+  if (redirect) {
+    const preserveUrlState =
+      localizedRoute !== null || /^\/about(?:\.html)?\/*$/i.test(url.pathname);
+    const target = new URL(redirect, url);
+    if (preserveUrlState) {
+      target.search = url.search;
+      target.hash = url.hash;
+    }
+    return Response.redirect(target.href, 301);
+  }
 
   if (url.pathname === '/' && (request.method === 'GET' || request.method === 'HEAD')) {
     return withSecurityHeaders(
@@ -14914,6 +15001,31 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
       await fetchAsset(env, request, '/index.html'),
       APP_SHELL_FRESH_CACHE_HEADERS,
     );
+  }
+
+  // Locale entry points are finite, generated assets rather than SPA fallbacks.
+  // Resolve them before the Soro article checks so a supported language code can
+  // never be mistaken for a legacy root-level article slug.
+  if (
+    localizedRoute &&
+    localizedRoute.language !== 'en' &&
+    (request.method === 'GET' || request.method === 'HEAD')
+  ) {
+    if (localizedRoute.kind === 'about') {
+      return serveAboutPage(request, env, ctx, localizedRoute.assetPathname);
+    }
+    const response = await fetchAsset(env, request, localizedRoute.assetPathname);
+    if (request.method === 'HEAD') {
+      return withSecurityHeaders(
+        new Response(null, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: response.headers,
+        }),
+        APP_SHELL_FRESH_CACHE_HEADERS,
+      );
+    }
+    return withSecurityHeaders(response, APP_SHELL_FRESH_CACHE_HEADERS);
   }
 
   const inviteMatch = url.pathname.match(/^\/(\d{6})$/);

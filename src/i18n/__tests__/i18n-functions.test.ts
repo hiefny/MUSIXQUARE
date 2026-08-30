@@ -11,6 +11,7 @@ describe('i18n functions', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
+    window.history.replaceState(null, '', '/');
     localStorage.clear();
     document.body.innerHTML = '';
     document.documentElement.removeAttribute('lang');
@@ -196,6 +197,68 @@ describe('i18n functions', () => {
       expect(document.documentElement.getAttribute('lang')).toBe('ko');
     });
 
+    it('requests a full-document locale counterpart when a localized app path owns the URL', async () => {
+      window.history.replaceState(null, '', '/ko/?campaign=launch#player');
+      localStorage.setItem('musixquare-lang', 'en');
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      const { setLanguageMode, initI18n } = await import('../index.ts');
+      await initI18n();
+      expect(localStorage.getItem('musixquare-lang')).toBe('en');
+
+      const navigationRequests: string[] = [];
+      window.addEventListener(
+        'mxqr:locale-navigation-request',
+        (event) => {
+          navigationRequests.push((event as CustomEvent<{ href: string }>).detail.href);
+          event.preventDefault();
+        },
+        { once: true },
+      );
+      const replaceState = vi.spyOn(window.history, 'replaceState');
+
+      setLanguageMode('ja');
+
+      expect(navigationRequests).toEqual(['/ja/?campaign=launch#player']);
+      expect(localStorage.getItem('musixquare-lang')).toBe('ja');
+      expect(replaceState).not.toHaveBeenCalled();
+      // The cancelable request is a test seam. An uncancelled browser event
+      // continues to Location.assign(), replacing the whole document/head.
+      expect(window.location.pathname).toBe('/ko/');
+      expect(window.location.search).toBe('?campaign=launch');
+      expect(window.location.hash).toBe('#player');
+    });
+
+    it('does not move the root app or a six-digit room URL when the UI language changes', async () => {
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      const navigationRequest = vi.fn((event: Event) => event.preventDefault());
+      window.addEventListener('mxqr:locale-navigation-request', navigationRequest);
+      const rootI18n = await import('../index.ts');
+      await rootI18n.initI18n();
+      rootI18n.setLanguageMode('ko');
+      expect(window.location.pathname).toBe('/');
+      expect(rootI18n.getResolvedLanguage()).toBe('ko');
+
+      vi.resetModules();
+      window.history.replaceState(null, '', '/123456?source=invite#queue');
+      localStorage.setItem('musixquare-lang', 'en');
+      const roomI18n = await import('../index.ts');
+      await roomI18n.initI18n();
+      roomI18n.setLanguageMode('ko');
+
+      expect(window.location.pathname).toBe('/123456');
+      expect(window.location.search).toBe('?source=invite');
+      expect(window.location.hash).toBe('#queue');
+      expect(roomI18n.getResolvedLanguage()).toBe('ko');
+      expect(navigationRequest).not.toHaveBeenCalled();
+      window.removeEventListener('mxqr:locale-navigation-request', navigationRequest);
+    });
+
     it('re-projects a live YouTube iframe accessibility title without component listeners', async () => {
       localStorage.setItem('musixquare-lang', 'en');
       Object.defineProperty(navigator, 'languages', {
@@ -295,6 +358,40 @@ describe('i18n functions', () => {
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
       await initI18n();
       expect(getResolvedLanguage()).toBe('ko');
+    });
+
+    it.each(['system', 'ko'])(
+      'lets a non-English pathname control this document without replacing the saved %s preference',
+      async (savedPreference) => {
+        window.history.replaceState(null, '', '/ja/');
+        localStorage.setItem('musixquare-lang', savedPreference);
+        Object.defineProperty(navigator, 'languages', {
+          value: ['en-US'],
+          configurable: true,
+        });
+        const { getLanguageMode, getResolvedLanguage, initI18n } = await import('../index.ts');
+
+        await initI18n();
+
+        expect(getLanguageMode()).toBe('ja');
+        expect(getResolvedLanguage()).toBe('ja');
+        expect(localStorage.getItem('musixquare-lang')).toBe(savedPreference);
+      },
+    );
+
+    it('keeps a six-digit room pathname outside locale ownership', async () => {
+      window.history.replaceState(null, '', '/123456');
+      localStorage.setItem('musixquare-lang', 'ko');
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      const { getResolvedLanguage, initI18n } = await import('../index.ts');
+
+      await initI18n();
+
+      expect(getResolvedLanguage()).toBe('ko');
+      expect(window.location.pathname).toBe('/123456');
     });
 
     it('loads a saved lazy language before resolving initial DOM translation', async () => {

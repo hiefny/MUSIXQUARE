@@ -1,14 +1,818 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
   <url>
     <loc>https://musixquare.com/</loc>
-    <lastmod>2026-07-19</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/ko/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/ja/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/zh-hans/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/zh-hant/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/es/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/pt-br/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/fr/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/de/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/nl/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/it/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/pl/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/ru/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/tr/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/id/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/vi/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/th/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/" />
+    <lastmod>2026-08-31</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
     <loc>https://musixquare.com/about</loc>
-    <lastmod>2026-08-17</lastmod>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/ko/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/ja/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/zh-hans/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/zh-hant/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/es/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/pt-br/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/fr/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/de/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/nl/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/it/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/pl/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/ru/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/tr/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/id/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/vi/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://musixquare.com/th/about</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://musixquare.com/about" />
+    <xhtml:link rel="alternate" hreflang="ko" href="https://musixquare.com/ko/about" />
+    <xhtml:link rel="alternate" hreflang="ja" href="https://musixquare.com/ja/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://musixquare.com/zh-hans/about" />
+    <xhtml:link rel="alternate" hreflang="zh-Hant" href="https://musixquare.com/zh-hant/about" />
+    <xhtml:link rel="alternate" hreflang="es" href="https://musixquare.com/es/about" />
+    <xhtml:link rel="alternate" hreflang="pt-BR" href="https://musixquare.com/pt-br/about" />
+    <xhtml:link rel="alternate" hreflang="fr" href="https://musixquare.com/fr/about" />
+    <xhtml:link rel="alternate" hreflang="de" href="https://musixquare.com/de/about" />
+    <xhtml:link rel="alternate" hreflang="nl" href="https://musixquare.com/nl/about" />
+    <xhtml:link rel="alternate" hreflang="it" href="https://musixquare.com/it/about" />
+    <xhtml:link rel="alternate" hreflang="pl" href="https://musixquare.com/pl/about" />
+    <xhtml:link rel="alternate" hreflang="ru" href="https://musixquare.com/ru/about" />
+    <xhtml:link rel="alternate" hreflang="tr" href="https://musixquare.com/tr/about" />
+    <xhtml:link rel="alternate" hreflang="id" href="https://musixquare.com/id/about" />
+    <xhtml:link rel="alternate" hreflang="vi" href="https://musixquare.com/vi/about" />
+    <xhtml:link rel="alternate" hreflang="th" href="https://musixquare.com/th/about" />
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://musixquare.com/about" />
+    <lastmod>2026-08-31</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>

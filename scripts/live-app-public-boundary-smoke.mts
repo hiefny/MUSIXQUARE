@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { pathToFileURL } from 'node:url';
+import { JSDOM } from 'jsdom';
 
 const AUTH_SESSION_URL = 'https://musixquare.com/api/auth/session';
 const SECURITY_CONFIG_URL = 'https://musixquare.com/api/security-config';
@@ -41,6 +42,63 @@ export interface ProductionOriginBoundaryRead {
 export interface ProductionOriginBoundaryResult {
   unrelatedTossOriginRejected: true;
 }
+
+export interface LocalizedSeoBoundaryRead {
+  path: string;
+  status: number;
+  cacheControl: string;
+  lang: string;
+  title: string;
+  canonical: string;
+  description: string;
+  openGraphUrl: string;
+  alternateCount: number;
+  xDefault: string;
+}
+
+export interface LocalizedSeoBoundaryResult {
+  localizedSeoReady: true;
+  pages: number;
+}
+
+const LOCALIZED_SEO_EXPECTATIONS = [
+  { path: '/', lang: 'en', title: 'MUSIXQUARE', canonical: 'https://musixquare.com/', page: 'app' },
+  {
+    path: '/ko/',
+    lang: 'ko',
+    title: '뮤직스퀘어 | MUSIXQUARE',
+    canonical: 'https://musixquare.com/ko/',
+    page: 'app',
+  },
+  {
+    path: '/ja/',
+    lang: 'ja',
+    title: 'ミュージックスクエア | MUSIXQUARE',
+    canonical: 'https://musixquare.com/ja/',
+    page: 'app',
+  },
+  {
+    path: '/zh-hans/about',
+    lang: 'zh-Hans',
+    title: '关于 MUSIXQUARE',
+    canonical: 'https://musixquare.com/zh-hans/about',
+    page: 'about',
+  },
+  {
+    path: '/pt-br/about',
+    lang: 'pt-BR',
+    title: 'Sobre o MUSIXQUARE',
+    canonical: 'https://musixquare.com/pt-br/about',
+    page: 'about',
+  },
+  {
+    path: '/th/about',
+    lang: 'th',
+    title: 'เกี่ยวกับ MUSIXQUARE',
+    canonical: 'https://musixquare.com/th/about',
+    page: 'about',
+  },
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -136,6 +194,44 @@ async function readOriginBoundary(): Promise<ProductionOriginBoundaryRead> {
   }
 }
 
+async function readLocalizedSeoBoundary(): Promise<LocalizedSeoBoundaryRead[]> {
+  return Promise.all(
+    LOCALIZED_SEO_EXPECTATIONS.map(async ({ path }) => {
+      let response: Response;
+      let html: string;
+      try {
+        response = await fetch(`https://musixquare.com${path}`, {
+          cache: 'no-store',
+          headers: { Accept: 'text/html' },
+          signal: AbortSignal.timeout(APP_PUBLIC_BOUNDARY_TIMEOUT_MS),
+        });
+        html = await response.text();
+      } catch {
+        throw new Error(`Localized SEO boundary request failed: ${path}`);
+      }
+
+      const dom = new JSDOM(html);
+      const document = dom.window.document;
+      const result = {
+        path,
+        status: response.status,
+        cacheControl: response.headers.get('Cache-Control') || '',
+        lang: document.documentElement.lang,
+        title: document.title,
+        canonical: document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href || '',
+        description:
+          document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content || '',
+        openGraphUrl:
+          document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.content || '',
+        alternateCount: document.querySelectorAll('link[rel="alternate"][hreflang]').length,
+        xDefault: document.querySelector<HTMLLinkElement>('link[hreflang="x-default"]')?.href || '',
+      };
+      dom.window.close();
+      return result;
+    }),
+  );
+}
+
 export async function verifyAnonymousAccountSessionBoundary({
   read = readAnonymousSession,
 }: {
@@ -208,13 +304,59 @@ export async function verifyProductionOriginBoundary({
   return { unrelatedTossOriginRejected: true };
 }
 
+export async function verifyLocalizedSeoBoundary({
+  read = readLocalizedSeoBoundary,
+}: {
+  read?: () => Promise<LocalizedSeoBoundaryRead[]>;
+} = {}): Promise<LocalizedSeoBoundaryResult> {
+  const pages = await read();
+  if (pages.length !== LOCALIZED_SEO_EXPECTATIONS.length) {
+    throw new Error('Localized SEO boundary returned an incomplete page matrix');
+  }
+
+  for (const expectation of LOCALIZED_SEO_EXPECTATIONS) {
+    const page = pages.find(({ path }) => path === expectation.path);
+    const expectedXDefault =
+      expectation.page === 'app' ? 'https://musixquare.com/' : 'https://musixquare.com/about';
+    const cacheControl = String(page?.cacheControl || '').toLowerCase();
+    if (
+      !page ||
+      page.status !== 200 ||
+      page.lang !== expectation.lang ||
+      page.title !== expectation.title ||
+      page.canonical !== expectation.canonical ||
+      page.openGraphUrl !== expectation.canonical ||
+      page.description.trim().length === 0 ||
+      page.alternateCount !== 18 ||
+      page.xDefault !== expectedXDefault ||
+      (expectation.page === 'app'
+        ? !cacheControl.includes('no-store')
+        : !cacheControl.includes('s-maxage=86400'))
+    ) {
+      throw new Error(`Localized SEO boundary is invalid: ${expectation.path}`);
+    }
+  }
+
+  return { localizedSeoReady: true, pages: pages.length };
+}
+
 export async function main(): Promise<void> {
-  const [accountBoundary, capabilityBoundary, originBoundary] = await Promise.all([
-    verifyAnonymousAccountSessionBoundary(),
-    verifyProductionCapabilityBoundary(),
-    verifyProductionOriginBoundary(),
-  ]);
-  console.log(JSON.stringify({ ok: true, accountBoundary, capabilityBoundary, originBoundary }));
+  const [accountBoundary, capabilityBoundary, originBoundary, localizedSeoBoundary] =
+    await Promise.all([
+      verifyAnonymousAccountSessionBoundary(),
+      verifyProductionCapabilityBoundary(),
+      verifyProductionOriginBoundary(),
+      verifyLocalizedSeoBoundary(),
+    ]);
+  console.log(
+    JSON.stringify({
+      ok: true,
+      accountBoundary,
+      capabilityBoundary,
+      originBoundary,
+      localizedSeoBoundary,
+    }),
+  );
 }
 
 const entryPath = process.argv[1];

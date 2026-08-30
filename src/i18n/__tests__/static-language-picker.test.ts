@@ -25,6 +25,8 @@ type StaticLanguageApi = {
   htmlLang(code: string): string;
   locale(code: string): string;
   normalize(code: string): string | null;
+  persist(code: string): string;
+  resolve(fallback: string): string;
   options: Array<{ code: string; htmlLang: string }>;
 };
 
@@ -32,13 +34,16 @@ function languageApi(dom: JSDOM): StaticLanguageApi {
   return (dom.window as unknown as { MXQRStaticLang: StaticLanguageApi }).MXQRStaticLang;
 }
 
-async function createPickerHarness(mobile: boolean): Promise<PickerHarness> {
+async function createPickerHarness(
+  mobile: boolean,
+  url = 'https://musixquare.com/about',
+): Promise<PickerHarness> {
   const dom = new JSDOM(
     '<!doctype html><html><body><div data-static-lang-picker></div></body></html>',
     {
       pretendToBeVisual: true,
       runScripts: 'outside-only',
-      url: 'https://musixquare.com/about',
+      url,
     },
   );
   const scrollTo = vi.fn();
@@ -141,6 +146,51 @@ describe('static page language picker', () => {
     dom.window.close();
   });
 
+  it('lets the About pathname own the language ahead of legacy query and storage hints', async () => {
+    const english = await createPickerHarness(false, 'https://musixquare.com/about?lang=ko');
+    english.dom.window.localStorage.setItem('mxqr-landing-lang', 'ja');
+    expect(languageApi(english.dom).resolve('ko')).toBe('en');
+    english.dom.window.close();
+
+    const japanese = await createPickerHarness(false, 'https://musixquare.com/ja/about?lang=en');
+    japanese.dom.window.localStorage.setItem('mxqr-landing-lang', 'ko');
+    expect(languageApi(japanese.dom).resolve('en')).toBe('ja');
+    japanese.dom.window.close();
+  });
+
+  it('renders locale counterparts as real links without carrying the legacy lang query', async () => {
+    const { dom } = await createPickerHarness(
+      false,
+      'https://musixquare.com/ja/about?lang=ko&campaign=launch#features',
+    );
+    const options = [...dom.window.document.querySelectorAll<HTMLAnchorElement>('[data-lang-set]')];
+    const english = options.find((option) => option.dataset.langSet === 'en');
+    const korean = options.find((option) => option.dataset.langSet === 'ko');
+
+    expect(options.every((option) => option.tagName === 'A')).toBe(true);
+    expect(english?.getAttribute('href')).toBe('/about?campaign=launch#features');
+    expect(korean?.getAttribute('href')).toBe('/ko/about?campaign=launch#features');
+
+    dom.window.close();
+  });
+
+  it('persists the choice for the app without performing a soft URL rewrite', async () => {
+    const { dom } = await createPickerHarness(false);
+    const replaceState = vi.spyOn(dom.window.history, 'replaceState');
+    const softChange = vi.fn();
+    dom.window.addEventListener('mxqr:static-language-change', softChange);
+
+    languageApi(dom).persist('ko');
+
+    expect(dom.window.localStorage.getItem('mxqr-landing-lang')).toBe('ko');
+    expect(dom.window.localStorage.getItem('musixquare-lang')).toBe('ko');
+    expect(replaceState).not.toHaveBeenCalled();
+    expect(softChange).not.toHaveBeenCalled();
+    expect(dom.window.location.pathname).toBe('/about');
+
+    dom.window.close();
+  });
+
   it('normalizes script-first Chinese and regional Portuguese and Dutch tags', async () => {
     const { dom } = await createPickerHarness(false);
     const api = languageApi(dom);
@@ -159,7 +209,7 @@ describe('static page language picker', () => {
   it('supports listbox arrow, Home, and End navigation without changing the selection', async () => {
     const { dom } = await createPickerHarness(false);
     const { document } = dom.window;
-    const options = [...document.querySelectorAll<HTMLButtonElement>('[data-lang-set]')];
+    const options = [...document.querySelectorAll<HTMLAnchorElement>('[data-lang-set]')];
 
     options[0].focus();
     options[0].dispatchEvent(

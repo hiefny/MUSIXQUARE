@@ -16,6 +16,7 @@ import {
 import { uiKitAsset } from './scripts/ui-kit-asset.ts';
 import { auxiliaryBrowserAssets } from './scripts/auxiliary-browser-assets.ts';
 import { useAsyncConnectMiddleware } from './scripts/async-connect-middleware.ts';
+import { LANGUAGE_OPTIONS } from './src/i18n/locales.ts';
 
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
 export const LEGACY_APP_BROWSER_TARGET = 'chrome79';
@@ -259,21 +260,35 @@ const flattenWorkshopHtml = (): Plugin => ({
   },
 });
 
-function pageAliasTarget(rawUrl: string): string | null {
+const LOCALIZED_PAGE_CODES = new Set<string>(LANGUAGE_OPTIONS.map(({ code }) => code));
+
+export function pageAliasTarget(rawUrl: string, built = false): string | null {
   const queryStart = rawUrl.indexOf('?');
   const pathname = queryStart === -1 ? rawUrl : rawUrl.slice(0, queryStart);
   const query = queryStart === -1 ? '' : rawUrl.slice(queryStart);
   const normalizedPath = (pathname.replace(/\/+$/, '') || '/').toLowerCase();
+  const localizedAboutMatch = /^\/([^/]+)\/about(?:\.html)?$/u.exec(normalizedPath);
+  const localizedAppMatch = /^\/([^/]+)(?:\/index\.html)?$/u.exec(normalizedPath);
 
   let target: string | null = null;
-  if (eventCampaignSlugFromPath(normalizedPath)) {
+  if (localizedAboutMatch && LOCALIZED_PAGE_CODES.has(localizedAboutMatch[1] || '')) {
+    const code = localizedAboutMatch[1] || 'en';
+    target = built
+      ? code === 'en'
+        ? '/about.html'
+        : `/${code}/about.html`
+      : '/.workshop/landing/landing.html';
+  } else if (localizedAppMatch && LOCALIZED_PAGE_CODES.has(localizedAppMatch[1] || '')) {
+    const code = localizedAppMatch[1] || 'en';
+    target = built && code !== 'en' ? `/${code}/index.html` : '/index.html';
+  } else if (eventCampaignSlugFromPath(normalizedPath)) {
     target = '/events/index.html';
   } else if (
     normalizedPath === '/about' ||
     normalizedPath === '/about.html' ||
     normalizedPath === '/landing'
   ) {
-    target = '/.workshop/landing/landing.html';
+    target = built ? '/about.html' : '/.workshop/landing/landing.html';
   } else if (normalizedPath === '/privacy' || normalizedPath === '/privacy.html') {
     target = '/.workshop/privacy/privacy.html';
   } else if (normalizedPath === '/terms' || normalizedPath === '/terms.html') {
@@ -310,7 +325,7 @@ const devPageAliases = (): Plugin => ({
   },
   configurePreviewServer(server) {
     server.middlewares.use((req, _res, next) => {
-      const target = pageAliasTarget(req.url ?? '');
+      const target = pageAliasTarget(req.url ?? '', true);
       if (target) req.url = target;
       next();
     });

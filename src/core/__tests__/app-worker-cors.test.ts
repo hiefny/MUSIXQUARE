@@ -10838,6 +10838,31 @@ describe('Cloudflare app worker invite route', () => {
       ASSETS: {
         fetch: vi.fn(async (request: Request) => {
           const url = new URL(request.url);
+          const localizedPage =
+            /^\/(ko|ja|zh-hans|zh-hant|es|pt-br|fr|de|nl|it|pl|ru|tr|id|vi|th)\/(index|about)\.html$/.exec(
+              url.pathname,
+            );
+          if (url.pathname === '/about.html' || localizedPage?.[2] === 'about') {
+            return new Response(
+              `<html data-mxqr-rooms-opened=""><body>${url.pathname}</body></html>`,
+              {
+                status: 200,
+                headers: {
+                  'Content-Type': 'text/html',
+                  'Cache-Control': 'public, max-age=999',
+                },
+              },
+            );
+          }
+          if (localizedPage?.[2] === 'index') {
+            return new Response(`<!doctype html><title>${localizedPage[1]} app</title>`, {
+              status: 200,
+              headers: {
+                'Content-Type': 'text/html',
+                'Cache-Control': 'public, max-age=999',
+              },
+            });
+          }
           if (url.pathname === '/developers.html') {
             return new Response('<!doctype html><title>Developer API · MUSIXQUARE</title>', {
               status: 200,
@@ -10951,6 +10976,158 @@ describe('Cloudflare app worker invite route', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('Pragma')).toBe('no-cache');
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+  });
+
+  it('serves every supported non-English locale from its generated app and About assets', async () => {
+    const localeCodes = [
+      'ko',
+      'ja',
+      'zh-hans',
+      'zh-hant',
+      'es',
+      'pt-br',
+      'fr',
+      'de',
+      'nl',
+      'it',
+      'pl',
+      'ru',
+      'tr',
+      'id',
+      'vi',
+      'th',
+    ];
+
+    for (const locale of localeCodes) {
+      const appEnv = createAssetEnv();
+      const appResponse = await appWorker.fetch(
+        new Request(`https://musixquare.com/${locale}/`),
+        appEnv,
+      );
+      expect(appResponse.status).toBe(200);
+      expect(appResponse.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+      expect(await appResponse.text()).toContain(`<title>${locale} app</title>`);
+      const appAssetRequest = appEnv.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+      expect(new URL(appAssetRequest.url).pathname).toBe(`/${locale}/index.html`);
+
+      const aboutEnv = createAssetEnv();
+      const aboutResponse = await appWorker.fetch(
+        new Request(`https://musixquare.com/${locale}/about`),
+        aboutEnv,
+      );
+      expect(aboutResponse.status).toBe(200);
+      expect(aboutResponse.headers.get('Cache-Control')).toBe(
+        'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+      );
+      expect(await aboutResponse.text()).toContain(`/${locale}/about.html`);
+      const aboutAssetRequest = aboutEnv.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+      expect(new URL(aboutAssetRequest.url).pathname).toBe(`/${locale}/about.html`);
+    }
+  });
+
+  it('serves localized app and About pages for HEAD with the same cache boundaries', async () => {
+    const appEnv = createAssetEnv();
+    const appResponse = await appWorker.fetch(
+      new Request('https://musixquare.com/ko/', { method: 'HEAD' }),
+      appEnv,
+    );
+    expect(appResponse.status).toBe(200);
+    expect(appResponse.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+    expect(await appResponse.text()).toBe('');
+
+    const aboutEnv = createAssetEnv();
+    const aboutResponse = await appWorker.fetch(
+      new Request('https://musixquare.com/ko/about', { method: 'HEAD' }),
+      aboutEnv,
+    );
+    expect(aboutResponse.status).toBe(200);
+    expect(aboutResponse.headers.get('Cache-Control')).toBe(
+      'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+    );
+    expect(await aboutResponse.text()).toBe('');
+  });
+
+  it.each([
+    ['/en', '/'],
+    ['/en/', '/'],
+    ['/EN/INDEX.HTML', '/'],
+    ['/en/about', '/about'],
+    ['/EN/About/', '/about'],
+    ['/en/about.html', '/about'],
+    ['/KO', '/ko/'],
+    ['/KO/', '/ko/'],
+    ['/KO///', '/ko/'],
+    ['/ko/index.html', '/ko/'],
+    ['/ko/index.html/', '/ko/'],
+    ['/ko/index.html///', '/ko/'],
+    ['/PT-BR/About', '/pt-br/about'],
+    ['/pt-br/about/', '/pt-br/about'],
+    ['/pt-br/about///', '/pt-br/about'],
+    ['/pt-br/about.html', '/pt-br/about'],
+    ['/pt-br/about.html///', '/pt-br/about'],
+    ['/about/', '/about'],
+    ['/about///', '/about'],
+    ['/ABOUT', '/about'],
+    ['/about.html', '/about'],
+    ['/about.html///', '/about'],
+  ])('redirects locale alias %s to canonical path %s', async (sourcePath, canonicalPath) => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request(`https://musixquare.com${sourcePath}`), env);
+
+    expect(response.status).toBe(301);
+    expect(response.headers.get('Location')).toBe(`https://musixquare.com${canonicalPath}`);
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('preserves query and fragment state while canonicalizing locale aliases', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/KO//?campaign=launch&panel=connect#settings'),
+      env,
+    );
+
+    expect(response.status).toBe(301);
+    expect(response.headers.get('Location')).toBe(
+      'https://musixquare.com/ko/?campaign=launch&panel=connect#settings',
+    );
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('redirects legacy About lang queries to canonical locale paths and preserves other queries', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/about?campaign=launch&lang=pt_BR&source=legacy#pricing'),
+      env,
+    );
+
+    expect(response.status).toBe(301);
+    expect(response.headers.get('Location')).toBe(
+      'https://musixquare.com/pt-br/about?campaign=launch&source=legacy#pricing',
+    );
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+  });
+
+  it('leaves unsupported legacy About lang queries on the ordinary About route', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/about?lang=hi'),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+    const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+    expect(new URL(assetRequest.url).pathname).toBe('/about.html');
+  });
+
+  it('does not reinterpret unsupported locale-shaped paths as generated locale pages', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('https://musixquare.com/xx/about//'), env);
+
+    expect(response.status).toBe(404);
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+    const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+    expect(new URL(assetRequest.url).pathname).toBe('/xx/about//');
   });
 
   it('serves the canonical Developer API document with static-page cache policy', async () => {

@@ -11025,15 +11025,28 @@ describe('Cloudflare app worker invite route', () => {
     }
   });
 
+  it('serves the explicit English app alias from the root shell without changing its SEO canonical', async () => {
+    const env = createAssetEnv();
+    const response = await appWorker.fetch(new Request('https://musixquare.com/en/'), env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+    expect(await response.text()).toContain('content="https://musixquare.com/"');
+    const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+    expect(new URL(assetRequest.url).pathname).toBe('/index.html');
+  });
+
   it('serves localized app and About pages for HEAD with the same cache boundaries', async () => {
-    const appEnv = createAssetEnv();
-    const appResponse = await appWorker.fetch(
-      new Request('https://musixquare.com/ko/', { method: 'HEAD' }),
-      appEnv,
-    );
-    expect(appResponse.status).toBe(200);
-    expect(appResponse.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
-    expect(await appResponse.text()).toBe('');
+    for (const path of ['/en/', '/ko/']) {
+      const appEnv = createAssetEnv();
+      const appResponse = await appWorker.fetch(
+        new Request(`https://musixquare.com${path}`, { method: 'HEAD' }),
+        appEnv,
+      );
+      expect(appResponse.status).toBe(200);
+      expect(appResponse.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+      expect(await appResponse.text()).toBe('');
+    }
 
     const aboutEnv = createAssetEnv();
     const aboutResponse = await appWorker.fetch(
@@ -11048,9 +11061,10 @@ describe('Cloudflare app worker invite route', () => {
   });
 
   it.each([
-    ['/en', '/'],
-    ['/en/', '/'],
-    ['/EN/INDEX.HTML', '/'],
+    ['/en', '/en/'],
+    ['/EN/', '/en/'],
+    ['/en///', '/en/'],
+    ['/EN/INDEX.HTML', '/en/'],
     ['/en/about', '/about'],
     ['/EN/About/', '/about'],
     ['/en/about.html', '/about'],
@@ -11079,19 +11093,25 @@ describe('Cloudflare app worker invite route', () => {
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
 
-  it('preserves query and fragment state while canonicalizing locale aliases', async () => {
-    const env = createAssetEnv();
-    const response = await appWorker.fetch(
-      new Request('https://musixquare.com/KO//?campaign=launch&panel=connect#settings'),
-      env,
-    );
+  it.each([
+    ['/KO//', '/ko/'],
+    ['/EN//', '/en/'],
+  ])(
+    'preserves query and fragment state while canonicalizing locale alias %s',
+    async (sourcePath, canonicalPath) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request(`https://musixquare.com${sourcePath}?campaign=launch&panel=connect#settings`),
+        env,
+      );
 
-    expect(response.status).toBe(301);
-    expect(response.headers.get('Location')).toBe(
-      'https://musixquare.com/ko/?campaign=launch&panel=connect#settings',
-    );
-    expect(env.ASSETS.fetch).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(301);
+      expect(response.headers.get('Location')).toBe(
+        `https://musixquare.com${canonicalPath}?campaign=launch&panel=connect#settings`,
+      );
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    },
+  );
 
   it('redirects legacy About lang queries to canonical locale paths and preserves other queries', async () => {
     const env = createAssetEnv();

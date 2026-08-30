@@ -20,6 +20,7 @@ import zhHant from '../src/i18n/zh-hant.ts';
 import {
   LANGUAGE_OPTIONS,
   localizedAboutPath,
+  localizedAppEntryPath,
   localizedAppPath,
   type LanguageCode,
 } from '../src/i18n/locales.ts';
@@ -240,7 +241,7 @@ export function localizeAboutDocument(document: Document, code: LanguageCode): A
   for (const link of document.querySelectorAll<HTMLAnchorElement>(
     'a[href="https://musixquare.com"]',
   )) {
-    link.setAttribute('href', localizedAppPath(code));
+    link.setAttribute('href', localizedAppEntryPath(code));
   }
 
   return {

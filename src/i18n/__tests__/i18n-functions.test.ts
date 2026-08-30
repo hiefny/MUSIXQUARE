@@ -231,6 +231,28 @@ describe('i18n functions', () => {
       expect(window.location.hash).toBe('#player');
     });
 
+    it('uses the explicit English entry when switching from another localized app path', async () => {
+      window.history.replaceState(null, '', '/ko/?campaign=launch#player');
+      localStorage.setItem('musixquare-lang', 'ko');
+      const navigationRequests: string[] = [];
+      window.addEventListener(
+        'mxqr:locale-navigation-request',
+        (event) => {
+          navigationRequests.push((event as CustomEvent<{ href: string }>).detail.href);
+          event.preventDefault();
+        },
+        { once: true },
+      );
+
+      const { initI18n, setLanguageMode } = await import('../index.ts');
+      await initI18n();
+      setLanguageMode('en');
+
+      expect(navigationRequests).toEqual(['/en/?campaign=launch#player']);
+      expect(localStorage.getItem('musixquare-lang')).toBe('en');
+      expect(window.location.pathname).toBe('/ko/');
+    });
+
     it('does not move the root app or a six-digit room URL when the UI language changes', async () => {
       Object.defineProperty(navigator, 'languages', {
         value: ['en-US'],
@@ -257,6 +279,31 @@ describe('i18n functions', () => {
       expect(roomI18n.getResolvedLanguage()).toBe('ko');
       expect(navigationRequest).not.toHaveBeenCalled();
       window.removeEventListener('mxqr:locale-navigation-request', navigationRequest);
+    });
+
+    it('treats the English app alias as URL-owned when selecting another locale', async () => {
+      window.history.replaceState(null, '', '/en/?campaign=launch#player');
+      localStorage.setItem('musixquare-lang', 'ja');
+      const navigationRequests: string[] = [];
+      window.addEventListener(
+        'mxqr:locale-navigation-request',
+        (event) => {
+          navigationRequests.push((event as CustomEvent<{ href: string }>).detail.href);
+          event.preventDefault();
+        },
+        { once: true },
+      );
+
+      const { getResolvedLanguage, initI18n, setLanguageMode } = await import('../index.ts');
+      await initI18n();
+      expect(getResolvedLanguage()).toBe('en');
+      expect(localStorage.getItem('musixquare-lang')).toBe('ja');
+
+      setLanguageMode('ko');
+
+      expect(navigationRequests).toEqual(['/ko/?campaign=launch#player']);
+      expect(localStorage.getItem('musixquare-lang')).toBe('ko');
+      expect(window.location.pathname).toBe('/en/');
     });
 
     it('re-projects a live YouTube iframe accessibility title without component listeners', async () => {
@@ -375,6 +422,25 @@ describe('i18n functions', () => {
 
         expect(getLanguageMode()).toBe('ja');
         expect(getResolvedLanguage()).toBe('ja');
+        expect(localStorage.getItem('musixquare-lang')).toBe(savedPreference);
+      },
+    );
+
+    it.each(['system', 'ja'])(
+      'lets the English alias control this document without replacing the saved %s preference',
+      async (savedPreference) => {
+        window.history.replaceState(null, '', '/en/');
+        localStorage.setItem('musixquare-lang', savedPreference);
+        Object.defineProperty(navigator, 'languages', {
+          value: ['ko-KR'],
+          configurable: true,
+        });
+        const { getLanguageMode, getResolvedLanguage, initI18n } = await import('../index.ts');
+
+        await initI18n();
+
+        expect(getLanguageMode()).toBe('en');
+        expect(getResolvedLanguage()).toBe('en');
         expect(localStorage.getItem('musixquare-lang')).toBe(savedPreference);
       },
     );

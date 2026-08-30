@@ -604,7 +604,7 @@
         const pathname = String(location.pathname || '/').toLowerCase();
         const match = /^\/([^/]+)\/?(?:index\.html)?$/.exec(pathname);
         const candidate = match && match[1];
-        return candidate && isAppLanguageCode(candidate) && candidate !== 'en' ? candidate : null;
+        return candidate && isAppLanguageCode(candidate) ? candidate : null;
       } catch {
         return null;
       }

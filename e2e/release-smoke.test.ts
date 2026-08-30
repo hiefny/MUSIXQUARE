@@ -22,6 +22,28 @@ test.describe('Production release smoke', () => {
     pair = undefined;
   });
 
+  test('forces English on the explicit alias without overwriting the saved app language', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('musixquare-lang', 'ko');
+    });
+
+    await page.goto('/en/');
+    await waitForBootstrapReady(page);
+
+    await expect(page).toHaveURL(/\/en\/$/u);
+    await expect(page.locator('html')).toHaveAttribute('lang', 'en');
+    await expect(page.locator('#btn-setup-host')).toHaveText('Create a Room');
+    await expect(page.locator('#app-manifest')).toHaveAttribute(
+      'href',
+      '/manifests/en.webmanifest',
+    );
+    await expect
+      .poll(() => page.evaluate(() => localStorage.getItem('musixquare-lang')))
+      .toBe('ko');
+  });
+
   test('boots, joins a host and guest, and exchanges chat both ways', async ({ browser }) => {
     pair = await createHostGuestContexts(browser);
 

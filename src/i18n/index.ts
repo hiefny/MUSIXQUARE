@@ -24,7 +24,7 @@ import {
   appLanguageFromPathname,
   LANGUAGE_OPTIONS,
   localizedAboutPath,
-  localizedAppPath,
+  localizedAppEntryPath,
   type LanguageCode,
 } from './locales.ts';
 export type { I18nKey };
@@ -207,7 +207,7 @@ function _currentAppPathLanguage(): LanguageCode | null {
 
 function _navigateLocalizedAppPath(resolved: LanguageCode): boolean {
   if (_currentAppPathLanguage() === null) return false;
-  const nextPath = localizedAppPath(resolved);
+  const nextPath = localizedAppEntryPath(resolved);
   if (window.location.pathname === nextPath) return false;
   const href = `${nextPath}${window.location.search}${window.location.hash}`;
 

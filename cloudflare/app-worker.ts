@@ -14801,7 +14801,11 @@ function localizedStaticRoute(pathname: string): LocalizedStaticRoute | null {
   return {
     language,
     kind: 'app',
-    canonicalPathname: language === 'en' ? '/' : `/${language}/`,
+    // English keeps `/` as its search canonical, but `/en/` is a real,
+    // user-facing language intent. Normalizing the alias here lets the app
+    // force English without changing the saved language used by `/` and PWA
+    // launches.
+    canonicalPathname: `/${language}/`,
     assetPathname: language === 'en' ? '/index.html' : `/${language}/index.html`,
   };
 }
@@ -15006,11 +15010,7 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
   // Locale entry points are finite, generated assets rather than SPA fallbacks.
   // Resolve them before the Soro article checks so a supported language code can
   // never be mistaken for a legacy root-level article slug.
-  if (
-    localizedRoute &&
-    localizedRoute.language !== 'en' &&
-    (request.method === 'GET' || request.method === 'HEAD')
-  ) {
+  if (localizedRoute && (request.method === 'GET' || request.method === 'HEAD')) {
     if (localizedRoute.kind === 'about') {
       return serveAboutPage(request, env, ctx, localizedRoute.assetPathname);
     }

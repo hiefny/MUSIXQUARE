@@ -166,7 +166,13 @@ describe('localized PWA install metadata', () => {
     expect(restrictedLink?.getAttribute('href')).toBe('/manifests/ja.webmanifest');
   });
 
-  it('lets only a supported non-English app pathname own bootstrap language selection', () => {
+  it('lets supported locale app pathnames own bootstrap language selection', () => {
+    const english = bootstrapDom('ja', ['ko-KR'], {}, '/en/');
+    expect(english.window.document.documentElement.lang).toBe('en');
+    expect(
+      english.window.document.querySelector<HTMLLinkElement>('#app-manifest')?.getAttribute('href'),
+    ).toBe('/manifests/en.webmanifest');
+
     const localized = bootstrapDom('en', ['ko-KR'], {}, '/ja/');
     expect(localized.window.document.documentElement.lang).toBe('ja');
     expect(

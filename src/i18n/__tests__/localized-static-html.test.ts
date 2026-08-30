@@ -137,4 +137,19 @@ describe('localized static HTML materialization', () => {
     );
     expect(koreanApp.querySelectorAll('[data-mxqr-website-schema]')).toHaveLength(0);
   });
+
+  it('links each About locale to its explicit app-language entry without changing SEO paths', () => {
+    for (const option of LANGUAGE_OPTIONS) {
+      const about = documentFor(
+        renderLocalizedAbout(aboutHtml, landingI18nJavaScript, option.code).html,
+      );
+      const appLinks = about.querySelectorAll<HTMLAnchorElement>(`a[href="/${option.code}/"]`);
+
+      expect(appLinks.length, option.code).toBeGreaterThan(0);
+      expect(
+        about.querySelector<HTMLLinkElement>('link[hreflang="en"]')?.href,
+        `${option.code} English hreflang`,
+      ).toBe(`${SITE_ORIGIN}${localizedAboutPath('en')}`);
+    }
+  });
 });

@@ -12,6 +12,7 @@ describe('live app public boundary smoke', () => {
   it('accepts the representative localized SEO matrix only with canonical metadata and cache policy', async () => {
     const records = [
       ['/', 'en', 'MUSIXQUARE', 'https://musixquare.com/', 'no-store'],
+      ['/en/', 'en', 'MUSIXQUARE', 'https://musixquare.com/', 'no-store'],
       ['/ko/', 'ko', '뮤직스퀘어 | MUSIXQUARE', 'https://musixquare.com/ko/', 'no-store'],
       ['/ja/', 'ja', 'ミュージックスクエア | MUSIXQUARE', 'https://musixquare.com/ja/', 'no-store'],
       [
@@ -55,7 +56,7 @@ describe('live app public boundary smoke', () => {
 
     await expect(verifyLocalizedSeoBoundary({ read })).resolves.toEqual({
       localizedSeoReady: true,
-      pages: 6,
+      pages: 7,
     });
     expect(read).toHaveBeenCalledOnce();
   });

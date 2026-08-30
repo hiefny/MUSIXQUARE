@@ -64,6 +64,13 @@ export interface LocalizedSeoBoundaryResult {
 const LOCALIZED_SEO_EXPECTATIONS = [
   { path: '/', lang: 'en', title: 'MUSIXQUARE', canonical: 'https://musixquare.com/', page: 'app' },
   {
+    path: '/en/',
+    lang: 'en',
+    title: 'MUSIXQUARE',
+    canonical: 'https://musixquare.com/',
+    page: 'app',
+  },
+  {
     path: '/ko/',
     lang: 'ko',
     title: '뮤직스퀘어 | MUSIXQUARE',

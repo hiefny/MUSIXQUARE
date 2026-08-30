@@ -159,6 +159,11 @@ export function localizedAppPath(code: LanguageCode): string {
   return code === DEFAULT_LANGUAGE ? '/' : `/${code}/`;
 }
 
+/** User-facing locale entry. English uses `/en/` while its SEO canonical remains `/`. */
+export function localizedAppEntryPath(code: LanguageCode): string {
+  return `/${code}/`;
+}
+
 export function localizedAboutPath(code: LanguageCode): string {
   return code === DEFAULT_LANGUAGE ? '/about' : `/${code}/about`;
 }
@@ -166,6 +171,5 @@ export function localizedAboutPath(code: LanguageCode): string {
 export function appLanguageFromPathname(pathname: string): LanguageCode | null {
   const normalized = String(pathname || '/').toLowerCase();
   const match = /^\/([^/]+)(?:\/|\/index\.html)$/u.exec(normalized);
-  const code = normalizeLanguageCode(match?.[1]);
-  return code && code !== DEFAULT_LANGUAGE ? code : null;
+  return normalizeLanguageCode(match?.[1]);
 }

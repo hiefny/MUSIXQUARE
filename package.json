@@ -152,7 +152,7 @@
     "@types/three": "0.184.0",
     "@vitest/coverage-v8": "^4.0.18",
     "content-shield": "^0.1.1",
-    "esbuild": "^0.25.12",
+    "esbuild": "^0.28.2",
     "eslint": "^10.0.2",
     "eslint-config-prettier": "^10.1.8",
     "globals": "17.9.0",

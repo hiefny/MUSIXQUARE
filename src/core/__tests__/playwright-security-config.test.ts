@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -19,5 +19,25 @@ describe('Playwright browser security profile', () => {
     const globalSetup = readFileSync(resolve('e2e/global-setup.ts'), 'utf8');
     expect(globalSetup).toContain('refusing to reuse an unverified listener');
     expect(globalSetup).not.toContain('reusing existing PeerJS server');
+  });
+
+  it('owns the PeerJS child process through bounded Playwright cleanup', () => {
+    const globalSetup = readFileSync(resolve('e2e/global-setup.ts'), 'utf8');
+
+    expect(globalSetup).toContain('spawn(');
+    expect(globalSetup).toContain('process.execPath');
+    expect(globalSetup).toContain('shell: false');
+    expect(globalSetup).toContain('windowsHide: true');
+    expect(globalSetup).toContain('return cleanup;');
+    expect(globalSetup).toContain('PEER_TERMINATE_TIMEOUT_MS');
+    expect(globalSetup).toContain("peerProcess.kill('SIGKILL')");
+    expect(globalSetup).not.toContain("require('peer')");
+    expect(globalSetup).not.toContain('__PEER_APP__');
+
+    for (const file of ['playwright.config.ts', 'playwright.webkit.config.ts']) {
+      const config = readFileSync(resolve(file), 'utf8');
+      expect(config).not.toContain('globalTeardown');
+    }
+    expect(existsSync(resolve('e2e/global-teardown.ts'))).toBe(false);
   });
 });

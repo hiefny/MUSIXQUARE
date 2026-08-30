@@ -105,10 +105,29 @@ const transport = vi.hoisted(() => ({
   getTrackPosition: vi.fn(() => 0),
 }));
 
+const transfer = vi.hoisted(() => {
+  const suspension = Object.freeze({ id: 101 });
+  return {
+    suspension,
+    beginPendingBroadcastSuspension: vi.fn(() => suspension),
+    resumePendingBroadcastSuspension: vi.fn(),
+    discardPendingBroadcastSuspension: vi.fn(),
+    cancelOutgoingFileTransfers: vi.fn(),
+  };
+});
+
 vi.mock('../../player/transport.ts', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../player/transport.ts')>()),
   stopAllMediaAsync: transport.stopAllMediaAsync,
   getTrackPosition: transport.getTrackPosition,
+}));
+
+vi.mock('../../storage/transfer.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../storage/transfer.ts')>()),
+  beginPendingBroadcastSuspension: transfer.beginPendingBroadcastSuspension,
+  resumePendingBroadcastSuspension: transfer.resumePendingBroadcastSuspension,
+  discardPendingBroadcastSuspension: transfer.discardPendingBroadcastSuspension,
+  cancelOutgoingFileTransfers: transfer.cancelOutgoingFileTransfers,
 }));
 
 vi.mock('../engine.ts', () => ({
@@ -366,6 +385,7 @@ beforeEach(() => {
   proAudio.release.mockResolvedValue(null);
   transport.stopAllMediaAsync.mockResolvedValue(true);
   transport.getTrackPosition.mockReturnValue(0);
+  transfer.beginPendingBroadcastSuspension.mockReturnValue(transfer.suspension);
   setState('network.appRole', 'host');
   registerSystemCaptureListeners();
 });
@@ -869,6 +889,43 @@ describe('system audio start failure rollback', () => {
     expect(isSystemAudioActive()).toBe(false);
   });
 
+  it('releases standard capture and resumes the parked broadcast when STOP rejects', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    const error = new Error('media stop failed');
+    transport.stopAllMediaAsync.mockRejectedValueOnce(error);
+    stubDisplayMedia();
+
+    await expect(startSystemAudioCapture()).rejects.toBe(error);
+
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBe('youtube');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('releases a PRO preparing lease and resumes the parked broadcast when STOP rejects', async () => {
+    setProRoom();
+    const restoreSpy = preparePriorYouTubePlayback();
+    const error = new Error('media stop failed');
+    transport.stopAllMediaAsync.mockRejectedValueOnce(error);
+    stubDisplayMedia();
+
+    await expect(startSystemAudioCapture()).rejects.toBe(error);
+
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBe('youtube');
+    expect(getState('playback.activity')).toBe('playing');
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(proAudio.publish).not.toHaveBeenCalled();
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
   it('restores the prior snapshot when the prepared graph has no widener', async () => {
     const restoreSpy = preparePriorYouTubePlayback();
     vi.mocked(getWidener).mockReturnValueOnce(null);
@@ -884,6 +941,31 @@ describe('system audio start failure rollback', () => {
       }),
     );
     expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('restores standard playback when WebAudio graph construction throws after STOP', async () => {
+    const restoreSpy = preparePriorYouTubePlayback();
+    const error = new Error('media source construction failed');
+    vi.spyOn(h.ctx, 'createMediaStreamSource').mockImplementationOnce(() => {
+      throw error;
+    });
+    stubDisplayMedia();
+
+    await expect(startSystemAudioCapture()).rejects.toBe(error);
+
+    expect(restoreSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoId: 'video-1',
+        queueItemId: YOUTUBE_QUEUE_ITEM_ID,
+        autoplay: true,
+      }),
+    );
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
     expect(isSystemAudioActive()).toBe(false);
   });
 
@@ -908,6 +990,30 @@ describe('system audio start failure rollback', () => {
     expect(getState('playback.activity')).toBe('idle');
     expect(proAudio.publish).not.toHaveBeenCalled();
     expect(proAudio.release).toHaveBeenCalledTimes(1);
+    expect(transfer.discardPendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.resumePendingBroadcastSuspension).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('keeps PRO fail-closed when WebAudio graph construction throws after STOP', async () => {
+    setProRoom();
+    const restoreSpy = preparePriorYouTubePlayback();
+    const error = new Error('media source construction failed');
+    vi.spyOn(h.ctx, 'createMediaStreamSource').mockImplementationOnce(() => {
+      throw error;
+    });
+    stubDisplayMedia();
+
+    await expect(startSystemAudioCapture()).rejects.toBe(error);
+
+    expect(restoreSpy).not.toHaveBeenCalled();
+    expect(getState('playback.mode')).toBeNull();
+    expect(getState('playback.activity')).toBe('idle');
+    expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
+    expect(proAudio.publish).not.toHaveBeenCalled();
+    expect(proAudio.release).toHaveBeenCalledTimes(1);
+    expect(transfer.discardPendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.resumePendingBroadcastSuspension).not.toHaveBeenCalled();
     expect(isSystemAudioActive()).toBe(false);
   });
 
@@ -999,6 +1105,33 @@ describe('system audio operating-cost limits', () => {
 
     expect(lastDisplayCapture?.track.stop).toHaveBeenCalledTimes(1);
     expect(streamsReadySpy).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
+  it('does not resume a parked file after coordinator authority is lost in the picker', async () => {
+    let resolvePicker!: (stream: MediaStream) => void;
+    const pickerResult = new Promise<MediaStream>((resolve) => {
+      resolvePicker = resolve;
+    });
+    let selectedStream: MediaStream | null = null;
+    stubDisplayMedia((stream) => {
+      selectedStream = stream;
+      return pickerResult;
+    });
+
+    const startPromise = startSystemAudioCapture();
+    await Promise.resolve();
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', {
+      peer: 'successor-host',
+      open: true,
+    } as DataConnection);
+    resolvePicker(selectedStream!);
+    await startPromise;
+
+    expect(transport.stopAllMediaAsync).not.toHaveBeenCalled();
+    expect(transfer.discardPendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.resumePendingBroadcastSuspension).not.toHaveBeenCalled();
     expect(isSystemAudioActive()).toBe(false);
   });
 
@@ -1214,6 +1347,73 @@ describe('system audio operating-cost limits', () => {
     expect(isSystemAudioActive()).toBe(false);
   });
 
+  it('suspends a pending file broadcast before the native picker and resumes it on denial', async () => {
+    let rejectPicker!: (error: Error) => void;
+    const getDisplayMedia = stubDisplayMedia(
+      () =>
+        new Promise<MediaStream>((_resolve, reject) => {
+          rejectPicker = reject;
+        }),
+    );
+
+    const startPromise = startSystemAudioCapture();
+
+    expect(transfer.beginPendingBroadcastSuspension).toHaveBeenCalledTimes(1);
+    expect(
+      transfer.beginPendingBroadcastSuspension.mock.invocationCallOrder[0] ??
+        Number.MAX_SAFE_INTEGER,
+    ).toBeLessThan(getDisplayMedia.mock.invocationCallOrder[0] ?? 0);
+    expect(transfer.resumePendingBroadcastSuspension).not.toHaveBeenCalled();
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
+
+    rejectPicker(new DOMException('Permission denied', 'NotAllowedError'));
+    await startPromise;
+
+    expect(transport.stopAllMediaAsync).not.toHaveBeenCalled();
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledOnce();
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
+  });
+
+  it('discards the suspended broadcast only after previous media teardown commits', async () => {
+    let settleStop!: (stopped: boolean) => void;
+    transport.stopAllMediaAsync.mockImplementationOnce(
+      () =>
+        new Promise<boolean>((resolve) => {
+          settleStop = resolve;
+        }),
+    );
+    stubDisplayMedia();
+
+    const startPromise = startSystemAudioCapture();
+    await vi.waitFor(() => expect(transport.stopAllMediaAsync).toHaveBeenCalledTimes(1));
+    expect(transfer.beginPendingBroadcastSuspension).toHaveBeenCalledTimes(1);
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
+    expect(transfer.resumePendingBroadcastSuspension).not.toHaveBeenCalled();
+
+    settleStop(true);
+    await startPromise;
+
+    expect(transfer.discardPendingBroadcastSuspension).toHaveBeenCalledOnce();
+    expect(transfer.discardPendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.resumePendingBroadcastSuspension).not.toHaveBeenCalled();
+    expect(transfer.cancelOutgoingFileTransfers).not.toHaveBeenCalled();
+  });
+
+  it('resumes the suspended broadcast when previous media teardown cannot commit', async () => {
+    transport.stopAllMediaAsync.mockResolvedValueOnce(false);
+    stubDisplayMedia();
+
+    await startSystemAudioCapture();
+
+    expect(transfer.beginPendingBroadcastSuspension).toHaveBeenCalledTimes(1);
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledOnce();
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
+    expect(transfer.cancelOutgoingFileTransfers).not.toHaveBeenCalled();
+    expect(isSystemAudioActive()).toBe(false);
+  });
+
   it('does not resurrect a capture cancelled while previous media teardown is pending', async () => {
     let settleStop!: (stopped: boolean) => void;
     transport.stopAllMediaAsync.mockImplementationOnce(
@@ -1266,6 +1466,8 @@ describe('system audio operating-cost limits', () => {
     expect(restoreSpy).not.toHaveBeenCalled();
     expect(getState('playback.mode')).toBeNull();
     expect(getState('playback.activity')).toBe('idle');
+    expect(transfer.discardPendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.resumePendingBroadcastSuspension).not.toHaveBeenCalled();
     expect(isSystemAudioActive()).toBe(false);
   });
 
@@ -1384,6 +1586,8 @@ describe('system audio operating-cost limits', () => {
     expect(getState('player.pausedAt')).toBe(28.25);
     expect(getState('playback.mode')).toBe('file');
     expect(getState('playback.activity')).toBe('paused');
+    expect(transfer.resumePendingBroadcastSuspension).toHaveBeenCalledWith(transfer.suspension);
+    expect(transfer.discardPendingBroadcastSuspension).not.toHaveBeenCalled();
     for (const peer of peers) {
       expect(peer.conn?.send).toHaveBeenCalledWith({
         type: 'pause',

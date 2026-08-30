@@ -34,6 +34,8 @@ beforeEach(() => {
 
 afterEach(() => {
   clearAllManagedTimers();
+  vi.useRealTimers();
+  document.body.replaceChildren();
 });
 
 function makeConnection(peer: string): DataConnection {
@@ -198,6 +200,23 @@ describe('standard-room virtual treble synchronization', () => {
 
     expect(getState('audio.exciter')).toBe(true);
     expect(syncExciter).toHaveBeenCalledWith(true);
+  });
+
+  it('suppresses the host-changed toast only for a reverb bootstrap frame', async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '<div id="toast"><span id="toast-msg"></span></div>';
+    const toast = document.getElementById('toast');
+    const host = makeConnection('host-reverb-bootstrap');
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', host);
+
+    await handleData({ type: MSG.REVERB_TYPE, value: 'studio', _bootstrap: true }, host);
+    await vi.advanceTimersByTimeAsync(301);
+    expect(toast?.classList.contains('show')).toBe(false);
+
+    await handleData({ type: MSG.REVERB_TYPE, value: 'arena' }, host);
+    await vi.advanceTimersByTimeAsync(301);
+    expect(toast?.classList.contains('show')).toBe(true);
   });
 });
 

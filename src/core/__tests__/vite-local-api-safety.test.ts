@@ -32,7 +32,10 @@ type DevMiddleware = (
   next: () => void,
 ) => void;
 
-function failClosedMiddleware(env: Record<string, string | undefined>): DevMiddleware | null {
+function failClosedMiddleware(
+  env: Record<string, string | undefined>,
+  surface: 'dev' | 'preview' = 'dev',
+): DevMiddleware | null {
   const config = createViteConfig(env);
   const plugin = (config.plugins || []).find(
     (candidate) =>
@@ -41,13 +44,15 @@ function failClosedMiddleware(env: Record<string, string | undefined>): DevMiddl
       !Array.isArray(candidate) &&
       'name' in candidate &&
       candidate.name === 'fail-closed-dev-api',
-  ) as { configureServer?: unknown } | undefined;
+  ) as { configureServer?: unknown; configurePreviewServer?: unknown } | undefined;
   if (!plugin) {
     throw new Error('fail-closed-dev-api plugin is missing');
   }
 
   let middleware: DevMiddleware | null = null;
-  const configure = plugin.configureServer as unknown as (server: {
+  const configure = (surface === 'preview'
+    ? plugin.configurePreviewServer
+    : plugin.configureServer) as unknown as (server: {
     middlewares: { use(value: DevMiddleware): void };
   }) => void;
   configure({ middlewares: { use: (value) => (middleware = value) } });
@@ -113,6 +118,47 @@ describe('Vite local API safety', () => {
     expect(result.response.statusCode).toBe(503);
     expect(JSON.parse(result.body || '{}')).toMatchObject({
       error: 'LOCAL_API_NOT_CONFIGURED',
+    });
+  });
+
+  it.each([
+    '/api/get-turn-config',
+    '/api/cloudflare-realtime',
+    '/api/pro-room/v1/rooms/000001/bootstrap',
+  ])('keeps the loopback network fallback boundary on a same-origin 503 for %s', (pathname) => {
+    const middleware = failClosedMiddleware({});
+    expect(middleware).not.toBeNull();
+    const result = invoke(middleware!, `${pathname}?local-safety=1`);
+
+    expect(result.next).not.toHaveBeenCalled();
+    expect(result.response.statusCode).toBe(503);
+    expect(result.headers.get('content-type')).toBe('application/json; charset=utf-8');
+    expect(result.headers.get('cache-control')).toBe('no-store');
+    expect(JSON.parse(result.body || '{}')).toEqual({
+      error: 'LOCAL_API_NOT_CONFIGURED',
+      message: 'This API route needs an explicit local mock or Worker backend.',
+    });
+  });
+
+  it('installs the same fail-closed API boundary on Vite preview', () => {
+    const middleware = failClosedMiddleware(
+      { MUSIXQUARE_DEV_PROXY_PRODUCTION_API: 'true' },
+      'preview',
+    );
+    expect(middleware).not.toBeNull();
+
+    const unconfigured = invoke(middleware!, '/api/pro-room/v1/rooms/000001/bootstrap');
+    expect(unconfigured.next).not.toHaveBeenCalled();
+    expect(unconfigured.response.statusCode).toBe(503);
+    expect(JSON.parse(unconfigured.body || '{}')).toMatchObject({
+      error: 'LOCAL_API_NOT_CONFIGURED',
+    });
+
+    const devProxyOnly = invoke(middleware!, '/api/security-config');
+    expect(devProxyOnly.next).not.toHaveBeenCalled();
+    expect(devProxyOnly.response.statusCode).toBe(503);
+    expect(JSON.parse(devProxyOnly.body || '{}')).toMatchObject({
+      error: 'LOCAL_API_PROXY_DISABLED',
     });
   });
 

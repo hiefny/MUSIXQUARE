@@ -315,6 +315,8 @@ export function broadcastExcept(
 export function broadcastDeviceList(): void {
   const myId = getState('network.myId');
   const connectedPeers = getState('network.connectedPeers');
+  const myMemberId = getState('network.myMemberId');
+  const myMemberDisplayNumber = getState('network.myMemberDisplayNumber');
 
   const list = [
     {
@@ -324,8 +326,8 @@ export function broadcastDeviceList(): void {
       isHost: true,
       isOp: true,
       joinOrder: 0,
-      memberId: getState('network.myMemberId') ?? undefined,
-      memberDisplayNumber: getState('network.myMemberDisplayNumber') ?? undefined,
+      ...(myMemberId == null ? {} : { memberId: myMemberId }),
+      ...(myMemberDisplayNumber == null ? {} : { memberDisplayNumber: myMemberDisplayNumber }),
       isAuthenticated: getState('network.myMemberAuthenticated'),
       devicePlatform: getDevicePlatform(),
     },
@@ -343,10 +345,10 @@ export function broadcastDeviceList(): void {
         connectionType: (p.connectionType as string) || 'unknown',
         devicePlatform: p.devicePlatform ?? 'other',
         joinOrder: p.joinOrder,
-        memberId: p.memberId,
-        memberDisplayNumber: p.memberDisplayNumber,
-        isAuthenticated: p.isAuthenticated,
-        capabilities: p.roomCapabilities ? [...p.roomCapabilities] : undefined,
+        ...(p.memberId == null ? {} : { memberId: p.memberId }),
+        ...(p.memberDisplayNumber == null ? {} : { memberDisplayNumber: p.memberDisplayNumber }),
+        ...(p.isAuthenticated == null ? {} : { isAuthenticated: p.isAuthenticated }),
+        ...(p.roomCapabilities == null ? {} : { capabilities: [...p.roomCapabilities] }),
       })),
   ];
 

@@ -353,7 +353,7 @@ export interface ProtocolMap {
     slowmodeSeconds?: number;
     filterEnabled?: boolean;
   };
-  'session-full': { message: string };
+  'session-full': { message: string; i18nKey?: string };
   'force-close-duplicate': NoPayload;
   'join-bootstrap-hello': { version: 1; bootstrapId: string };
   'join-bootstrap-applied': { version: 1; bootstrapId: string };
@@ -374,7 +374,7 @@ export interface ProtocolMap {
   };
 
   // ── Audio Control ────────────────────────────────────────────────
-  volume: { value: number };
+  volume: { value: number; _bootstrap?: boolean };
   /** Atomic coordinator-sequenced volume + DSP authority snapshot. */
   'settings-sync-snapshot': {
     version: 1;
@@ -387,18 +387,18 @@ export interface ProtocolMap {
   'request-settings-sync-snapshot': { version: 1 };
   /** Only an effects controller may replace the canonical snapshot. */
   'publish-settings-sync-snapshot': { version: 1; settings: RoomSettingsSyncState };
-  'eq-update': { band: number; value: number };
+  'eq-update': { band: number; value: number; _bootstrap?: boolean };
   'eq-reset': NoPayload;
-  preamp: { value: number };
-  reverb: { value: number };
-  'reverb-type': { value: string };
-  'reverb-decay': { value: number };
-  'reverb-predelay': { value: number };
-  'reverb-lowcut': { value: number };
-  'reverb-highcut': { value: number };
-  'stereo-width': { value: number };
-  vbass: { value: number };
-  exciter: { value: number };
+  preamp: { value: number; _bootstrap?: boolean };
+  reverb: { value: number; _bootstrap?: boolean };
+  'reverb-type': { value: string; _bootstrap?: boolean };
+  'reverb-decay': { value: number; _bootstrap?: boolean };
+  'reverb-predelay': { value: number; _bootstrap?: boolean };
+  'reverb-lowcut': { value: number; _bootstrap?: boolean };
+  'reverb-highcut': { value: number; _bootstrap?: boolean };
+  'stereo-width': { value: number; _bootstrap?: boolean };
+  vbass: { value: number; _bootstrap?: boolean };
+  exciter: { value: number; _bootstrap?: boolean };
 
   // ── Playback ─────────────────────────────────────────────────────
   play: {

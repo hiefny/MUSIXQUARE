@@ -27,11 +27,11 @@ The namespace identifies ownership; it does not make a value secret.
   workflows and runbooks. This reference intentionally duplicates no inventory
   or value.
 
-## Local Vite server controls
+## Local Vite dev/preview controls
 
 | Variable                                 | Accepted value / default                                  | Effect                                                                                                                         |
 | ---------------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `MUSIXQUARE_DEV_PROXY_PRODUCTION_API`    | Exact `true` after trim/case normalization; default false | Enables forwarding only for the six routes listed below. False returns `503 LOCAL_API_PROXY_DISABLED` for them.                |
+| `MUSIXQUARE_DEV_PROXY_PRODUCTION_API`    | Exact `true` after trim/case normalization; default false | Enables dev-server forwarding only for the six routes listed below. Preview never forwards them and returns `503`.             |
 | `__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS` | Exact trusted hostname                                    | Lets Vite accept a one-off trusted tunnel hostname without disabling DNS-rebinding protection globally. Do not use a wildcard. |
 
 The opt-in proxy route set is:
@@ -44,18 +44,20 @@ The opt-in proxy route set is:
 - `/api/youtube-playlist-manifest`
 
 With the flag disabled, other unconfigured relative `/api/*` requests receive
-`503 LOCAL_API_NOT_CONFIGURED`. Both responses are non-cacheable and take
-precedence over the SPA fallback.
+`503 LOCAL_API_NOT_CONFIGURED`. Preview applies the same fail-closed responses
+regardless of the dev-only proxy flag. Both responses are non-cacheable and
+take precedence over the SPA fallback.
 
 ## Public browser build and routing inputs
 
-| Variable                                 | Values / validation                                                                                              | Fallback and ownership                                                                                                                                                   |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `VITE_MUSIXQUARE_TRANSPORT`              | `auto`, `peerjs`, or `cloudflare`; other values normalize to `auto`                                              | Localhost chooses PeerJS when no signaling URL is configured. Public hosts always choose Cloudflare.                                                                     |
-| `VITE_MUSIXQUARE_SIGNALING_URL`          | Non-empty primary base; configure an absolute credential/query/hash-free `ws:`, `wss:`, `http:`, or `https:` URL | The primary value is not prevalidated like the fallback. Socket construction converts HTTP schemes to WebSocket schemes; public hosts use the canonical URL when absent. |
-| `VITE_MUSIXQUARE_SIGNALING_FALLBACK_URL` | Same protocol and path as the primary URL, but a genuinely different origin                                      | Invalid or same-origin values are ignored. It is the bounded iOS route-handoff escape path, not a general retry alias.                                                   |
-| `VITE_PRO_ROOM_ENDPOINT`                 | Canonical production facade, root of an HTTPS `*.musixquare.com` service, or localhost origin                    | Missing or invalid values fall back to `https://musixquare.com/api/pro-room`. This can reach production from local development.                                          |
-| `VITE_MUSIXQUARE_LOG_LEVEL`              | `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT` (case-insensitive)                                                 | Resolution order is build input, query parameter, local storage, then default. Production defaults to WARN; localhost development defaults to DEBUG.                     |
+| Variable                                              | Values / validation                                                                                              | Fallback and ownership                                                                                                                                                   |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `VITE_MUSIXQUARE_TRANSPORT`                           | `auto`, `peerjs`, or `cloudflare`; other values normalize to `auto`                                              | Localhost chooses PeerJS when no signaling URL is configured. Public hosts always choose Cloudflare.                                                                     |
+| `VITE_MUSIXQUARE_SIGNALING_URL`                       | Non-empty primary base; configure an absolute credential/query/hash-free `ws:`, `wss:`, `http:`, or `https:` URL | The primary value is not prevalidated like the fallback. Socket construction converts HTTP schemes to WebSocket schemes; public hosts use the canonical URL when absent. |
+| `VITE_MUSIXQUARE_SIGNALING_FALLBACK_URL`              | Same protocol and path as the primary URL, but a genuinely different origin                                      | Invalid or same-origin values are ignored. It is the bounded iOS route-handoff escape path, not a general retry alias.                                                   |
+| `VITE_MUSIXQUARE_ALLOW_LOCAL_PRODUCTION_API_FALLBACK` | Exact `true` after trim/case normalization; default false                                                        | Lets a non-E2E loopback app origin retry canonical production for PRO, TURN, and Realtime. Public production/staging fallback is unchanged.                              |
+| `VITE_PRO_ROOM_ENDPOINT`                              | Canonical production facade, root of an HTTPS `*.musixquare.com` service, or loopback origin                     | A valid override is explicit. Without one, loopback uses same-origin `/api/pro-room`; public origins fall back to the production facade.                                 |
+| `VITE_MUSIXQUARE_LOG_LEVEL`                           | `DEBUG`, `INFO`, `WARN`, `ERROR`, or `SILENT` (case-insensitive)                                                 | Resolution order is build input, query parameter, local storage, then default. Production defaults to WARN; localhost development defaults to DEBUG.                     |
 
 Runtime-injected `window.__MUSIXQUARE_TRANSPORT__` and
 `window.__MUSIXQUARE_PEER_SERVER__` settings can override browser transport
@@ -64,19 +66,26 @@ rule.
 
 ## Local isolation matrix
 
-| Path or flow                           | Default local behavior                                                 | Isolation action                                                                           |
-| -------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| Ordinary UI, playback, and state work  | No Cloudflare credential is required                                   | Avoid entering protected network flows                                                     |
-| Six Vite production-proxy routes       | Local `503` while the proxy flag is false                              | Keep the flag false and mock the route if needed                                           |
-| Other relative `/api/*` routes         | Local `503 LOCAL_API_NOT_CONFIGURED`                                   | Add a local mock/Worker rather than relying on SPA fallback                                |
-| Standard-room signaling                | Localhost selects PeerJS                                               | Remember that setup intent can still request TURN through the API fallback below           |
-| TURN and Realtime/SFU API              | Non-E2E builds try the relative route, then `https://musixquare.com`   | Mock fetches or provide a complete local boundary before invoking the flow                 |
-| PRO facade                             | Missing or invalid override resolves directly to the production facade | Set a validated localhost endpoint backed by the required local services, or mock the flow |
-| E2E `localFirstApiEndpoints` consumers | E2E mode removes the canonical-production retry                        | Keep E2E mocks/servers local; separately mock or override the PRO facade                   |
+| Path or flow                          | Default local behavior                                              | Isolation action                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Ordinary UI, playback, and state work | No Cloudflare credential is required                                | Avoid entering protected network flows                                                          |
+| Six Vite production-proxy routes      | Local `503`; dev can explicitly proxy, preview cannot               | Keep the flag false and mock the route if needed                                                |
+| Other relative `/api/*` routes        | Local `503 LOCAL_API_NOT_CONFIGURED`                                | Add a local mock/Worker rather than relying on SPA fallback                                     |
+| Standard-room signaling               | Loopback selects PeerJS                                             | Setup intent may request TURN, but its unconfigured same-origin API boundary returns `503`      |
+| TURN and Realtime/SFU API             | Loopback tries only the relative route, which returns local `503`   | Mock the route, provide a complete local boundary, or explicitly enable the production fallback |
+| PRO facade                            | Missing or invalid override resolves to same-origin `/api/pro-room` | Set a validated loopback endpoint backed by the required local services, or mock the flow       |
+| E2E browser clients                   | E2E ignores the implicit fallback flag for PRO, TURN, and Realtime  | Keep E2E mocks/servers local; only a validated explicit PRO endpoint override takes precedence  |
 
-The Vite proxy flag therefore controls forwarding, not every client-authored
-absolute fallback. Treat PRO, TURN, and Realtime integration checks as
-production-affecting unless local routing is proven before the flow starts.
+The Vite proxy flag controls only its six named routes. The browser fallback
+flag independently permits loopback PRO, TURN, and Realtime clients to retry
+the canonical production origin; it does not install a Vite proxy. A validated
+external `VITE_PRO_ROOM_ENDPOINT` is also explicit and bypasses the default
+loopback same-origin route. Treat either choice as production-affecting and
+remove it after the integration run. Public production and staging origins
+retain their canonical fallback without this local-only opt-in.
+
+All `VITE_*` values are compiled into the browser bundle. Restart the dev
+server after changing one, and rebuild before testing a preview bundle.
 
 ## Test-only inputs
 

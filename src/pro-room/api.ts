@@ -50,6 +50,10 @@ import {
   withRequestDeadline,
 } from '../core/request-lifetime.ts';
 import { isSafeVisibleDisplayName } from '../../cloudflare/display-name-policy.ts';
+import {
+  isLoopbackBrowserHref,
+  localProductionApiFallbackEnabled,
+} from '../network/api-endpoints.ts';
 
 const PRO_ROOM_PRODUCTION_ENDPOINT = 'https://musixquare.com/api/pro-room';
 export const PRO_ROOM_R2_HOST = '01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com';
@@ -429,11 +433,10 @@ function parseEndpoint(value: unknown): string | null {
     (url.hostname === 'musixquare.com' || url.hostname === 'www.musixquare.com') &&
     normalizedPath === '/api/pro-room';
   const isLocal =
-    (url.protocol === 'http:' || url.protocol === 'https:') &&
-    (url.hostname === 'localhost' || url.hostname === '127.0.0.1');
+    (url.protocol === 'http:' || url.protocol === 'https:') && isLoopbackBrowserHref(url.href);
   if (!isMusixquareService && !isProductionFacade && !isLocal) return null;
   if (url.username || url.password || url.search || url.hash) return null;
-  if (isLocal && normalizedPath !== '/') return null;
+  if (isLocal && normalizedPath !== '/' && normalizedPath !== '/api/pro-room') return null;
   return normalizedPath === '/' ? url.origin : `${url.origin}${normalizedPath}`;
 }
 
@@ -441,9 +444,37 @@ function readEndpointOverride(): unknown {
   return import.meta.env?.VITE_PRO_ROOM_ENDPOINT;
 }
 
+function readLocalProductionApiFallbackOverride(): unknown {
+  return import.meta.env?.VITE_MUSIXQUARE_ALLOW_LOCAL_PRODUCTION_API_FALLBACK;
+}
+
+function readBrowserHref(): string | undefined {
+  return typeof window === 'undefined' ? undefined : window.location.href;
+}
+
+function resolveLoopbackProRoomEndpoint(baseHref: unknown): string | null {
+  if (!isLoopbackBrowserHref(baseHref)) return null;
+  return new URL('/api/pro-room', baseHref).href;
+}
+
 /** Resolve a build-time override without permitting arbitrary credential exfiltration origins. */
-function resolveProRoomEndpoint(override: unknown = readEndpointOverride()): string {
-  return parseEndpoint(override) ?? PRO_ROOM_PRODUCTION_ENDPOINT;
+function resolveProRoomEndpoint(
+  override: unknown = readEndpointOverride(),
+  baseHref: unknown = readBrowserHref(),
+  localProductionFallback: unknown = readLocalProductionApiFallbackOverride(),
+  mode = import.meta.env.MODE,
+): string {
+  const configured = parseEndpoint(override);
+  if (configured) return configured;
+
+  const loopbackEndpoint = resolveLoopbackProRoomEndpoint(baseHref);
+  if (
+    loopbackEndpoint &&
+    (mode === 'e2e' || !localProductionApiFallbackEnabled(localProductionFallback))
+  ) {
+    return loopbackEndpoint;
+  }
+  return PRO_ROOM_PRODUCTION_ENDPOINT;
 }
 
 export {

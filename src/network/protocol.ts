@@ -12,6 +12,8 @@ import {
   CHUNK_SIZE,
   REMOTE_SHARE_MAX_BYTES,
   BOT_RATE_LIMIT_MAX_RETRY_SECONDS,
+  MAX_GUEST_SLOTS,
+  MAX_SENDER_LABEL_LENGTH,
 } from '../core/constants.ts';
 import type { MsgType } from '../core/constants.ts';
 import { isQueueItemId, parsePlaylistSnapshot } from '../player/queue-model.ts';
@@ -50,8 +52,9 @@ export function validateMessage(
 }
 
 // ─── Lightweight Protocol Validators ─────────────────────────────────
-// 3.0: Validate high-risk message payloads before dispatch.
-// Only critical messages need validators — not all 40+ types.
+// Validate bounded/high-risk payloads before dispatch. Every declared type is
+// classified below, while authority-guarded no-payload frames remain rolling
+// compatible instead of requiring one monolithic exact schema.
 
 const isArrayBufferLike = (v: unknown): boolean =>
   v instanceof ArrayBuffer ||
@@ -70,6 +73,7 @@ const DOWNLOAD_TOKEN_MAX_LENGTH = 2048;
 // cannot smuggle a connection object or other coordinator-owned state.
 const PRO_PEER_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
 const STANDARD_ROOM_MEMBER_ID_RE = /^member_[A-Za-z0-9_-]{22}$/;
+const ROOM_MEMBER_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 // Shared with the authenticated PRO API idempotency-key contract. BOT chat
 // correlation ids are opaque, bounded tokens; they never contain a room or
 // participant identity.
@@ -262,6 +266,115 @@ const isBoundedNumber = (v: unknown, min: number, max: number): boolean =>
   isFiniteNumber(v) && v >= min && v <= max;
 const isReverbPreset = (v: unknown): boolean => v === 'off' || v === 'studio' || v === 'arena';
 const isRepeatMode = (v: unknown): boolean => v === 0 || v === 1 || v === 2;
+const hasValidBootstrapFlag = (data: Record<string, unknown>): boolean =>
+  data._bootstrap === undefined || typeof data._bootstrap === 'boolean';
+
+const ROOM_WIRE_CAPABILITIES: ReadonlySet<RoomCapability> = new Set([
+  'media.add',
+  'queue.mutate',
+  'playback.control',
+  'effects.control',
+  'asset.upload',
+  'system-audio.publish',
+  'members.manage',
+  'chat.notice',
+  'room.configure',
+  'coordinator.eligible',
+]);
+const DEVICE_CONNECTION_TYPES = new Set(['local', 'remote', 'unknown']);
+const DEVICE_PLATFORMS = new Set(['ios', 'android', 'windows', 'macos', 'linux', 'other']);
+const isWireAbsent = (value: unknown): value is null | undefined => value == null;
+
+function isBoundedWireString(
+  value: unknown,
+  maxLength: number,
+  allowEmpty = false,
+): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= maxLength &&
+    (allowEmpty || value.length > 0) &&
+    ![...value].some((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 31 || codePoint === 127;
+    })
+  );
+}
+
+function isKnownRoomCapabilityList(value: unknown): value is RoomCapability[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= ROOM_WIRE_CAPABILITIES.size &&
+    value.every(
+      (capability) =>
+        typeof capability === 'string' && ROOM_WIRE_CAPABILITIES.has(capability as RoomCapability),
+    ) &&
+    new Set(value).size === value.length
+  );
+}
+
+function isDeviceListUpdate(data: Record<string, unknown>): boolean {
+  // Standard-room wire projection only. PRO presence is parsed from its
+  // server snapshot and projected locally without traversing handleData().
+  if (
+    !Array.isArray(data.list) ||
+    data.list.length === 0 ||
+    data.list.length > MAX_GUEST_SLOTS + 1
+  ) {
+    return false;
+  }
+
+  const ids = new Set<string>();
+  let hostCount = 0;
+  for (const value of data.list) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const device = value as Record<string, unknown>;
+    if (
+      (device.id !== null && !isBoundedWireString(device.id, 128)) ||
+      !isBoundedWireString(device.label, 64) ||
+      device.status !== 'connected' ||
+      typeof device.isHost !== 'boolean' ||
+      (!isWireAbsent(device.isOp) && typeof device.isOp !== 'boolean') ||
+      (!isWireAbsent(device.connectionType) &&
+        (typeof device.connectionType !== 'string' ||
+          !DEVICE_CONNECTION_TYPES.has(device.connectionType))) ||
+      (!isWireAbsent(device.devicePlatform) &&
+        (typeof device.devicePlatform !== 'string' ||
+          !DEVICE_PLATFORMS.has(device.devicePlatform))) ||
+      (!isWireAbsent(device.joinOrder) &&
+        (!isNonNegSafeInt(device.joinOrder) || (device.joinOrder as number) > MAX_GUEST_SLOTS)) ||
+      (!isWireAbsent(device.memberId) &&
+        (typeof device.memberId !== 'string' || !ROOM_MEMBER_ID_RE.test(device.memberId))) ||
+      (!isWireAbsent(device.memberDisplayNumber) &&
+        (!isNonNegSafeInt(device.memberDisplayNumber) ||
+          (device.memberDisplayNumber as number) > MAX_GUEST_SLOTS + 1)) ||
+      (!isWireAbsent(device.isAuthenticated) && typeof device.isAuthenticated !== 'boolean') ||
+      (!isWireAbsent(device.capabilities) && !isKnownRoomCapabilityList(device.capabilities))
+    ) {
+      return false;
+    }
+
+    if (device.isHost) {
+      hostCount += 1;
+      if (!isWireAbsent(device.joinOrder) && device.joinOrder !== 0) return false;
+    } else if (device.id === null) {
+      return false;
+    }
+
+    if (typeof device.id === 'string') {
+      if (ids.has(device.id)) return false;
+      ids.add(device.id);
+    }
+  }
+  return hostCount === 1;
+}
+
+function isChatModerationTarget(data: Record<string, unknown>): boolean {
+  return (
+    isBoundedWireString(data.targetId, 128) &&
+    isBoundedWireString(data.targetLabel, MAX_SENDER_LABEL_LENGTH)
+  );
+}
 
 const isYouTubeZeroStartPlatform = (value: unknown): boolean =>
   value === 'ios' || value === 'android' || value === 'other';
@@ -469,8 +582,37 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.name === 'string' &&
     d.name.length > 0 &&
     (d.mime === undefined || typeof d.mime === 'string'),
-  [MSG.VOLUME]: (d) =>
-    isFiniteNumber(d.value) && (d.value as number) >= 0 && (d.value as number) <= 1,
+  [MSG.VOLUME]: (d) => isBoundedNumber(d.value, 0, 1) && hasValidBootstrapFlag(d),
+  [MSG.DEVICE_LIST_UPDATE]: isDeviceListUpdate,
+  [MSG.SESSION_FULL]: (d) =>
+    isBoundedWireString(d.message, 512) &&
+    (d.i18nKey === undefined || isBoundedWireString(d.i18nKey, 127)),
+  [MSG.KICK_DEVICE]: (d) => d.reason === undefined || isBoundedWireString(d.reason, 256),
+  [MSG.OPERATOR_GRANT]: (d) =>
+    // Rolling hosts may include transport-only roles. The guest handler owns
+    // the standard-room subset projection and strips those roles before state.
+    (d.capabilities === undefined || isKnownRoomCapabilityList(d.capabilities)) &&
+    (d.silent === undefined || typeof d.silent === 'boolean'),
+  [MSG.OPERATOR_REVOKE]: (d) => d.silent === undefined || typeof d.silent === 'boolean',
+  [MSG.SYNC_PING]: (d) =>
+    isNonNegSafeInt(d.pingId) &&
+    (d.guestTime === undefined || isNonNegFiniteSafeNumber(d.guestTime)),
+  [MSG.REPEAT_MODE]: (d) => isRepeatMode(d.value) && hasValidBootstrapFlag(d),
+  [MSG.SHUFFLE_MODE]: (d) => typeof d.value === 'boolean' && hasValidBootstrapFlag(d),
+  [MSG.PREAMP]: (d) => isBoundedNumber(d.value, -48, 12) && hasValidBootstrapFlag(d),
+  [MSG.VBASS]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
+  [MSG.REVERB]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
+  [MSG.EXCITER]: (d) => (d.value === 0 || d.value === 1) && hasValidBootstrapFlag(d),
+  [MSG.STEREO_WIDTH]: (d) => isBoundedNumber(d.value, 0, 200) && hasValidBootstrapFlag(d),
+  [MSG.REVERB_TYPE]: (d) => isReverbPreset(d.value) && hasValidBootstrapFlag(d),
+  [MSG.REVERB_DECAY]: (d) => isBoundedNumber(d.value, 0.1, 30) && hasValidBootstrapFlag(d),
+  [MSG.REVERB_PREDELAY]: (d) => isBoundedNumber(d.value, 0, 1) && hasValidBootstrapFlag(d),
+  [MSG.REVERB_LOWCUT]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
+  [MSG.REVERB_HIGHCUT]: (d) => isBoundedNumber(d.value, 0, 100) && hasValidBootstrapFlag(d),
+  [MSG.CHAT_MUTE]: isChatModerationTarget,
+  [MSG.CHAT_UNMUTE]: isChatModerationTarget,
+  [MSG.CHAT_SLOWMODE]: (d) => isNonNegSafeInt(d.seconds) && (d.seconds as number) <= 60,
+  [MSG.CHAT_FILTER]: (d) => typeof d.on === 'boolean',
   [MSG.FILE_CHUNK]: (d) =>
     isBoundedChunk(d.chunk) &&
     isNonNegInt(d.chunkIndex) &&
@@ -593,10 +735,10 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.PRELOAD_ABORT]: (d) => isQueueItemId(d.queueItemId) && isPositiveSafeInt(d.sessionId),
   [MSG.WELCOME]: (d) => typeof d.label === 'string',
   [MSG.EQ_UPDATE]: (d) =>
-    isFiniteNumber(d.band) &&
-    (d.band as number) >= 0 &&
-    (d.band as number) < 16 &&
-    isFiniteNumber(d.value),
+    isNonNegInt(d.band) &&
+    (d.band as number) < 5 &&
+    isBoundedNumber(d.value, -12, 12) &&
+    hasValidBootstrapFlag(d),
 
   // YouTube messages — validate numeric fields that flow into player APIs / state
   [MSG.YOUTUBE_PLAY]: (d) =>
@@ -982,6 +1124,36 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
   [MSG.DEMO_PAUSE]: (d) => isFiniteNumber(d.time),
   [MSG.DEMO_EXIT]: () => true,
 };
+
+/**
+ * Payload-free messages whose handlers enforce the exact live authority
+ * connection and intentionally ignore any rolling-compatible extra fields.
+ * Keeping this list separate makes every new MSG constant fail closed in the
+ * coverage guard below until it receives either a validator or a documented
+ * handler-owned compatibility classification.
+ */
+const PROTOCOL_HANDLER_GUARDED_COMPAT_TYPES: ReadonlySet<MsgType> = new Set([
+  MSG.EQ_RESET,
+  MSG.FORCE_CLOSE_DUPLICATE,
+  MSG.REQUEST_EQ_RESET,
+  MSG.SYSTEM_AUDIO_STOP,
+  MSG.CHAT_FREEZE,
+  MSG.CHAT_UNFREEZE,
+  MSG.CHAT_CLEAR,
+]);
+
+function getUnclassifiedProtocolTypes(): MsgType[] {
+  return (Object.values(MSG) as MsgType[]).filter(
+    (type) => !PROTOCOL_VALIDATORS[type] && !PROTOCOL_HANDLER_GUARDED_COMPAT_TYPES.has(type),
+  );
+}
+
+const UNCLASSIFIED_PROTOCOL_TYPES = getUnclassifiedProtocolTypes();
+if (UNCLASSIFIED_PROTOCOL_TYPES.length > 0) {
+  throw new Error(
+    `[Protocol] Missing payload validation classification: ${UNCLASSIFIED_PROTOCOL_TYPES.join(', ')}`,
+  );
+}
 
 // ─── Generic Inbound Rate-Limit (per peer) ──────────────────────────
 //

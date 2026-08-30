@@ -576,6 +576,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
   });
 
   it('uses the authoritative selected LAN pair without waiting for stats', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
     configureCallbacks();
     nextAuthoritativePairModes.push('lan');
     nextStatsGates.push(deferred<void>().promise);
@@ -597,6 +598,7 @@ describe('PRO system-audio LAN-direct publisher probe', () => {
   it.each<AuthoritativePairMode>(['relay', 'srflx'])(
     'rejects an authoritative %s pair without waiting for stats',
     async (authoritativePairMode) => {
+      vi.useFakeTimers({ toFake: ['Date'] });
       configureCallbacks();
       nextAuthoritativePairModes.push(authoritativePairMode);
       nextStatsGates.push(deferred<void>().promise);

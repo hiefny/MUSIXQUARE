@@ -357,26 +357,6 @@ async function waitForInitialUnmute(
   });
 }
 
-// ─── SDP Munging ──────────────────────────────────────────────────
-
-function applySdpMunge(mc: MediaConnection): void {
-  const pc = mc.peerConnection;
-  if (!pc) return;
-
-  // Guest munges both local/remote to be safe
-  const originalSetLocal = pc.setLocalDescription.bind(pc);
-  pc.setLocalDescription = async (desc: RTCSessionDescriptionInit) => {
-    if (desc && desc.sdp) desc.sdp = forceStereoSdp(desc.sdp);
-    return originalSetLocal(desc);
-  };
-
-  const originalSetRemote = pc.setRemoteDescription.bind(pc);
-  pc.setRemoteDescription = async (desc: RTCSessionDescriptionInit) => {
-    if (desc && desc.sdp) desc.sdp = forceStereoSdp(desc.sdp);
-    return originalSetRemote(desc);
-  };
-}
-
 // ─── Public API ───────────────────────────────────────────────────
 
 export function getSystemAudioGuestDebugSnapshot() {
@@ -462,8 +442,6 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     // receiving=true / no-audio state.
     armReplacementWatchdog(channel, mediaConn);
   }
-
-  applySdpMunge(mediaConn);
 
   const attachStream = async (remoteStream: MediaStream): Promise<void> => {
     if (!isCurrentMediaConnection(channel, mediaConn)) return;
@@ -577,17 +555,22 @@ async function handleIncomingCall(mediaConn: MediaConnection, channel: string): 
     if (!isCurrentMediaConnection(channel, mediaConn)) return;
     log.warn(`[SysAudioGuest] ${channel} error:`, err);
     debug.error = errorToDebugString(err);
+    // Cloudflare media calls share the data RTCPeerConnection. Closing the
+    // exact failed call lets the transport serialize an identity-fenced SDP
+    // rollback before a later system-audio call reuses that connection.
+    closeMediaConnection(mediaConn);
   });
 
   // Register stream/close/error handlers before answer(). Fast local desktop
   // peers can emit the stream event immediately after answering.
   try {
-    mediaConn.answer();
+    mediaConn.answer(undefined, { sdpTransform: forceStereoSdp });
     debug.answerAt = Date.now();
     debug.answerError = undefined;
   } catch (err) {
     log.warn(`[SysAudioGuest] ${channel} answer failed:`, err);
     debug.answerError = errorToDebugString(err);
+    closeMediaConnection(mediaConn);
   }
 }
 

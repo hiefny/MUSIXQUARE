@@ -3,7 +3,7 @@ import type { Page } from '@playwright/test';
 // src/app.ts records 49 eager wiring initializers, I18n, and SyncWorker.
 // Room-session implementations are deliberately absent: their readiness is
 // gated at transport creation instead of being counted as bootstrap work.
-const EXPECTED_BOOTSTRAP_STEP_COUNT = '51';
+const EXPECTED_BOOTSTRAP_STEP_COUNT = 51;
 
 interface BootstrapObservation {
   state: string | null;
@@ -37,8 +37,7 @@ function formatBootstrapObservation(observation: BootstrapObservation): string {
   );
 }
 
-/** Wait for an explicit terminal bootstrap observation and require a clean baseline. */
-export async function waitForBootstrapReady(page: Page, timeout = 15_000): Promise<void> {
+async function waitForBootstrapTerminal(page: Page, timeout: number): Promise<void> {
   try {
     await page
       .locator(
@@ -54,17 +53,43 @@ export async function waitForBootstrapReady(page: Page, timeout = 15_000): Promi
         (observation ? `: ${formatBootstrapObservation(observation)}` : ''),
     );
   }
+}
+
+/** Wait for an explicit terminal bootstrap observation and require a clean baseline. */
+export async function waitForBootstrapReady(page: Page, timeout = 15_000): Promise<void> {
+  await waitForBootstrapTerminal(page, timeout);
 
   const observation = await readBootstrapObservation(page);
 
   if (
     observation.state !== 'ready' ||
-    observation.stepCount !== EXPECTED_BOOTSTRAP_STEP_COUNT ||
+    observation.stepCount !== String(EXPECTED_BOOTSTRAP_STEP_COUNT) ||
     observation.failureCount !== '0' ||
     observation.fallbackCount !== '0'
   ) {
     throw new BootstrapReadinessError(
       `Bootstrap baseline was not ready: ${formatBootstrapObservation(observation)}`,
+    );
+  }
+}
+
+/** Require the single degraded bootstrap state expected from an offline SW navigation. */
+export async function waitForBootstrapCachedNavigationFallback(
+  page: Page,
+  timeout = 15_000,
+): Promise<void> {
+  await waitForBootstrapTerminal(page, timeout);
+
+  const observation = await readBootstrapObservation(page);
+  if (
+    observation.state !== 'degraded' ||
+    observation.stepCount !== String(EXPECTED_BOOTSTRAP_STEP_COUNT + 1) ||
+    observation.failureCount !== '0' ||
+    observation.fallbackCount !== '1' ||
+    observation.fallbacks !== 'CachedNavigation'
+  ) {
+    throw new BootstrapReadinessError(
+      `Bootstrap cached-navigation fallback was not isolated: ${formatBootstrapObservation(observation)}`,
     );
   }
 }

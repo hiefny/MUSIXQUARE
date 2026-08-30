@@ -20,6 +20,7 @@ export default defineConfig({
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },
+  forbidOnly: Boolean(process.env.CI),
   retries: 0,
   workers: 1,
   globalSetup: './e2e/global-setup.ts',

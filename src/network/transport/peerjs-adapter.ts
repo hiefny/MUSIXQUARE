@@ -1,4 +1,9 @@
-import type { TransportPeer, TransportPeerOptions } from './types.ts';
+import type {
+  TransportCallOptions,
+  TransportMediaConnection,
+  TransportPeer,
+  TransportPeerOptions,
+} from './types.ts';
 
 type PeerJsOptions = {
   debug?: number;
@@ -33,5 +38,31 @@ export async function createPeerJsPeer(
     if (customServer.key) peerOptions.key = customServer.key;
   }
 
-  return requestedId ? new Peer(requestedId, peerOptions) : new Peer(peerOptions);
+  const peer = requestedId ? new Peer(requestedId, peerOptions) : new Peer(peerOptions);
+  const nativeCall = peer.call?.bind(peer);
+  if (nativeCall) {
+    peer.call = (
+      peerId: string,
+      stream: MediaStream,
+      options?: TransportCallOptions,
+    ): TransportMediaConnection => {
+      // PeerJS natively owns the one-shot offer transform. Sender tuning is a
+      // MUSIXQUARE transport extension, so keep it out of PeerJS's retained
+      // connection options and apply it once after PeerJS synchronously adds
+      // the stream's tracks to its fresh media RTCPeerConnection.
+      const { senderTuning, ...nativeOptions } = options ?? {};
+      const mediaConnection = nativeCall(peerId, stream, nativeOptions);
+      if (senderTuning) {
+        for (const sender of mediaConnection.peerConnection?.getSenders() ?? []) {
+          try {
+            senderTuning(sender);
+          } catch {
+            // Tuning is advisory; it cannot invalidate an otherwise healthy call.
+          }
+        }
+      }
+      return mediaConnection;
+    };
+  }
+  return peer;
 }

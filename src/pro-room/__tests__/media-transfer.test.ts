@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearAllManagedTimers } from '../../core/timers.ts';
-import { PRO_ROOM_R2_HOST, type ProRoomMediaReservation } from '../api.ts';
+import { proRoomR2HostForTests as PRO_ROOM_R2_HOST, type ProRoomMediaReservation } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
   PRO_ROOM_QUOTA_BYTES,
@@ -68,12 +68,13 @@ function reservation(): ProRoomMediaReservation {
   };
 }
 
-function apiHarness() {
+function apiHarness(endpoint?: string) {
   const createMediaReservation = vi.fn<ProRoomMediaApi['createMediaReservation']>();
   const completeMedia = vi.fn<ProRoomMediaApi['completeMedia']>();
   const getMediaDownload = vi.fn<ProRoomMediaApi['getMediaDownload']>();
   const deleteMedia = vi.fn<ProRoomMediaApi['deleteMedia']>();
   const api: ProRoomMediaApi = {
+    ...(endpoint === undefined ? {} : { endpoint }),
     createMediaReservation,
     completeMedia,
     getMediaDownload,
@@ -199,6 +200,32 @@ describe('PRO room direct R2 upload orchestration', () => {
     );
     expect(progress).toEqual([0.5, 1]);
     expect(transfer.cache.get(source(), 'orchestra.flac')).not.toBeNull();
+  });
+
+  it('uploads to the exact HTTP origin of an explicit loopback API endpoint', async () => {
+    const endpoint = 'http://127.23.45.67:8789/api/pro-room';
+    const uploadUrl = 'http://127.23.45.67:8789/local-upload';
+    const harness = apiHarness(endpoint);
+    const localReservation = reservation();
+    harness.createMediaReservation.mockResolvedValue({
+      ...localReservation,
+      upload: { ...localReservation.upload, url: uploadUrl },
+    });
+    harness.completeMedia.mockResolvedValue({ asset: source(), quota });
+    const xhr = new FakeXhr();
+    const keys = ['reserve-key-0001', 'complete-key-0002'];
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      xhrFactory: () => xhr as unknown as XMLHttpRequest,
+      createIdempotencyKey: () => keys.shift()!,
+    });
+
+    const pending = transfer.upload({ code: ROOM_CODE, file: new File(['data'], 'local.flac') });
+    await waitForSend(xhr);
+    expect(xhr.url).toBe(uploadUrl);
+    finishPut(xhr);
+
+    await expect(pending).resolves.toEqual({ asset: source(), quota });
   });
 
   it('best-effort releases a reservation after a failed PUT', async () => {
@@ -394,6 +421,76 @@ describe('PRO room signed R2 download orchestration', () => {
     const init = fetchMock.mock.calls[0]?.[1];
     expect(new Headers(init?.headers).get('authorization')).toBeNull();
     expect(new Headers(init?.headers).get('accept')).toBe('application/octet-stream');
+  });
+
+  it('downloads from the exact HTTP origin of an explicit loopback API endpoint', async () => {
+    const endpoint = 'http://worker.localhost:8789/api/pro-room';
+    const downloadUrl = 'http://worker.localhost:8789/local-download';
+    const harness = apiHarness(endpoint);
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: downloadUrl,
+      expiresAtMs: 1_900_000_000_000,
+    });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(makeDownloadResponse([new Uint8Array([1, 2, 3, 4])]));
+    const transfer = new ProRoomMediaTransfer({ api: harness.api, fetch: fetchMock });
+
+    await expect(
+      transfer.download({ code: ROOM_CODE, name: 'local.flac', source: source() }),
+    ).resolves.toBeInstanceOf(File);
+    expect(fetchMock).toHaveBeenCalledWith(downloadUrl, expect.any(Object));
+  });
+
+  it('does not trust a different loopback origin than the configured API endpoint', async () => {
+    const harness = apiHarness('http://127.0.0.1:8789/api/pro-room');
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: 'http://127.0.0.2:8789/local-download',
+      expiresAtMs: 1_900_000_000_000,
+    });
+    const fetchMock = vi.fn<typeof fetch>();
+    const transfer = new ProRoomMediaTransfer({ api: harness.api, fetch: fetchMock });
+
+    await expect(
+      transfer.download({ code: ROOM_CODE, name: 'local.flac', source: source() }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_URL_INVALID' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not widen a production API origin into unsigned media authority', async () => {
+    const endpoint = 'https://musixquare.com/api/pro-room';
+    const unsignedUrl = 'https://musixquare.com/api/admin/private-media';
+    const harness = apiHarness(endpoint);
+    const unsignedReservation = reservation();
+    harness.createMediaReservation.mockResolvedValue({
+      ...unsignedReservation,
+      upload: { ...unsignedReservation.upload, url: unsignedUrl },
+    });
+    harness.deleteMedia.mockResolvedValue({ assetId: ASSET_ID, quota });
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: unsignedUrl,
+      expiresAtMs: 1_900_000_000_000,
+    });
+    const xhr = new FakeXhr();
+    const fetchMock = vi.fn<typeof fetch>();
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      xhrFactory: () => xhr as unknown as XMLHttpRequest,
+      fetch: fetchMock,
+      createIdempotencyKey: () => 'media-authority-test-key',
+    });
+
+    await expect(
+      transfer.upload({ code: ROOM_CODE, file: new File(['data'], 'private.flac') }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_URL_INVALID' });
+    expect(xhr.url).toBe('');
+    await expect(
+      transfer.download({ code: ROOM_CODE, name: 'private.flac', source: source() }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_URL_INVALID' });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('serves subsequent names from the versioned RAM cache without another network request', async () => {

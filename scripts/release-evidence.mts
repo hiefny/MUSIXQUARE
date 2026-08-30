@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 
 const SHA_RE = /^[0-9a-f]{40}$/u;
 const REPOSITORY_RE = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
+const ARTIFACTS_PER_PAGE = 100;
 
 interface RunSelection {
   sha: string;
@@ -30,6 +31,15 @@ interface ArtifactSelection {
 interface WorkflowArtifact extends Record<string, unknown> {
   name: string;
   expired: false;
+}
+
+interface SelectedWorkflowArtifact extends WorkflowArtifact {
+  runAttempt: number;
+}
+
+interface ArtifactPage {
+  totalCount: number;
+  artifacts: unknown[];
 }
 
 interface WaitForArtifactOptions {
@@ -67,6 +77,20 @@ function canonicalWorkflowRuns(value: unknown): Record<string, unknown>[] {
   return value.workflow_runs.filter(isRecord);
 }
 
+function canonicalArtifactPage(value: unknown): ArtifactPage {
+  if (
+    !isRecord(value) ||
+    !isSafeInteger(value.total_count) ||
+    value.total_count < 0 ||
+    !Array.isArray(value.artifacts) ||
+    value.artifacts.length > ARTIFACTS_PER_PAGE ||
+    value.artifacts.length > value.total_count
+  ) {
+    throw new Error('GitHub returned an invalid artifacts response.');
+  }
+  return { totalCount: value.total_count, artifacts: value.artifacts };
+}
+
 function successfulRunsNewestFirst(
   payload: unknown,
   expected: RunSelection,
@@ -101,23 +125,38 @@ export function selectLatestSuccessfulRun(
   return successfulRunsNewestFirst(payload, expected, excludedRunIds)[0] ?? null;
 }
 
-export function selectExactArtifact(
+export function selectLatestArtifactAttempt(
   payload: unknown,
   expected: ArtifactSelection,
-): WorkflowArtifact | null {
+): SelectedWorkflowArtifact | null {
   if (!isRecord(payload) || !Array.isArray(payload.artifacts)) {
     throw new Error('GitHub returned an invalid artifacts response.');
   }
   const prefix = `${expected.prefix}${expected.sha}-${expected.runId}-`;
-  const matches = payload.artifacts.filter(
-    (artifact): artifact is WorkflowArtifact =>
-      isRecord(artifact) &&
-      artifact.expired === false &&
-      typeof artifact.name === 'string' &&
-      artifact.name.startsWith(prefix) &&
-      artifact.name === `${prefix}${expected.runAttempt}`,
-  );
-  matches.sort((left, right) => String(left.created_at).localeCompare(String(right.created_at)));
+  const matches = payload.artifacts.flatMap((artifact): SelectedWorkflowArtifact[] => {
+    if (
+      !isRecord(artifact) ||
+      artifact.expired !== false ||
+      typeof artifact.name !== 'string' ||
+      !artifact.name.startsWith(prefix)
+    ) {
+      return [];
+    }
+    const suffix = artifact.name.slice(prefix.length);
+    if (!/^[1-9][0-9]*$/u.test(suffix)) return [];
+    const runAttempt = Number(suffix);
+    if (!Number.isSafeInteger(runAttempt) || runAttempt > expected.runAttempt) return [];
+    return [{ ...artifact, name: artifact.name, expired: false, runAttempt }];
+  });
+  matches.sort((left, right) => {
+    const leftCreatedAt = dateValue(left.created_at);
+    const rightCreatedAt = dateValue(right.created_at);
+    return (
+      left.runAttempt - right.runAttempt ||
+      (Number.isFinite(leftCreatedAt) ? leftCreatedAt : 0) -
+        (Number.isFinite(rightCreatedAt) ? rightCreatedAt : 0)
+    );
+  });
   return matches.at(-1) ?? null;
 }
 
@@ -133,6 +172,40 @@ async function githubApi(path: string, token: string): Promise<unknown> {
   if (!response.ok) throw new Error(`GitHub API request failed with HTTP ${response.status}.`);
   const payload: unknown = await response.json();
   return payload;
+}
+
+function runArtifactsPath(repository: string, runId: number, page: number): string {
+  const query = new URLSearchParams({
+    per_page: String(ARTIFACTS_PER_PAGE),
+    direction: 'asc',
+    page: String(page),
+  });
+  return `/repos/${repository}/actions/runs/${runId}/artifacts?${query}`;
+}
+
+async function allRunArtifacts(
+  repository: string,
+  runId: number,
+  token: string,
+): Promise<{ artifacts: unknown[] }> {
+  const firstPage = canonicalArtifactPage(
+    await githubApi(runArtifactsPath(repository, runId, 1), token),
+  );
+  const artifacts = [...firstPage.artifacts];
+  const pageCount = Math.max(1, Math.ceil(firstPage.totalCount / ARTIFACTS_PER_PAGE));
+  for (let page = 2; page <= pageCount; page += 1) {
+    const nextPage = canonicalArtifactPage(
+      await githubApi(runArtifactsPath(repository, runId, page), token),
+    );
+    if (nextPage.totalCount !== firstPage.totalCount) {
+      throw new Error('GitHub artifact pagination changed during release evidence collection.');
+    }
+    artifacts.push(...nextPage.artifacts);
+  }
+  if (artifacts.length !== firstPage.totalCount) {
+    throw new Error('GitHub returned an incomplete artifacts response.');
+  }
+  return { artifacts };
 }
 
 function workflowRunsPath(
@@ -201,7 +274,7 @@ function appendGithubOutputs(
   writeFileSync(path, `${lines.join('\n')}\n`, { encoding: 'utf8', flag: 'a' });
 }
 
-async function waitForArtifact({
+export async function waitForArtifact({
   workflow,
   event,
   prefix,
@@ -222,11 +295,8 @@ async function waitForArtifact({
     const skippedRunIds = new Set<number>();
     let run = selectLatestSuccessfulRun(runs, { sha, event }, skippedRunIds);
     while (run) {
-      const artifacts = await githubApi(
-        `/repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`,
-        token,
-      );
-      const artifact = selectExactArtifact(artifacts, {
+      const artifacts = await allRunArtifacts(repository, run.id, token);
+      const artifact = selectLatestArtifactAttempt(artifacts, {
         prefix,
         sha,
         runId: run.id,
@@ -235,7 +305,7 @@ async function waitForArtifact({
       if (artifact) {
         appendGithubOutputs(output, {
           [`${outputPrefix}run_id`]: run.id,
-          [`${outputPrefix}run_attempt`]: run.run_attempt,
+          [`${outputPrefix}run_attempt`]: artifact.runAttempt,
           [`${outputPrefix}artifact_name`]: artifact.name,
           ...(outputPrefix === '' ? { validation_profile: 'main-ci' } : {}),
         });
@@ -249,7 +319,7 @@ async function waitForArtifact({
     if (!hasActiveExactRun(runs, sha, event) && hasCompletedRun) {
       if (skippedRunIds.size > 0) {
         throw new Error(
-          `No successful ${workflow} run for the exact main commit has an unexpired exact-attempt artifact.`,
+          `No successful ${workflow} run for the exact main commit has an unexpired run-scoped artifact.`,
         );
       }
       throw new Error(`The exact main commit did not pass ${workflow}.`);

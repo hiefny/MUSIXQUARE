@@ -21,9 +21,13 @@ import type {
   TransportDataConnection,
   TransportBackgroundRecoveryResult,
   TransportBackgroundRecoveryStatus,
+  TransportAnswerOptions,
+  TransportCallOptions,
   TransportMediaConnection,
   TransportPeer,
   TransportPeerOptions,
+  TransportSdpTransform,
+  TransportSenderTuning,
   StandardRoomIdentityAssertions,
   StandardRoomIdentityClearReason,
   StandardRoomMemberIdentity,
@@ -381,6 +385,32 @@ interface IceNegotiationOwner {
   bytes: number;
   createdAt: number;
   settled: boolean;
+  readonly abortController: AbortController;
+}
+
+interface MediaNegotiationOwner {
+  readonly generation: number;
+  readonly peerId: string;
+  readonly callId: string;
+  readonly pc: RTCPeerConnection;
+  readonly abortController: AbortController;
+  iceOwner: IceNegotiationOwner | null;
+  rollbackTarget: 'local' | 'remote' | null;
+  settled: boolean;
+}
+
+interface MediaNegotiationLane {
+  tail: Promise<void>;
+  owner: MediaNegotiationOwner | null;
+}
+
+function transformLocalDescription(
+  description: RTCSessionDescriptionInit,
+  transform?: TransportSdpTransform,
+): RTCSessionDescriptionInit {
+  if (!transform || !description.sdp) return description;
+  const transformed = transform(description.sdp);
+  return transformed ? { type: description.type, sdp: transformed } : description;
 }
 
 // ICE candidates are small signaling records, unrelated to media/file size.
@@ -1135,14 +1165,20 @@ class CloudflareMediaConnection extends TinyEmitter implements TransportMediaCon
   peerConnection?: RTCPeerConnection;
   private closed = false;
   private established = false;
+  private answered = false;
   private remoteOffer: RTCSessionDescriptionInit | null = null;
   private readonly remoteStream = new MediaStream();
   private remoteStreamEmitted = false;
   private remoteStreamTimerActive = false;
   private readonly localSenders: RTCRtpSender[] = [];
+  private negotiationOwner: MediaNegotiationOwner | null = null;
   private trackListener: ((event: RTCTrackEvent) => void) | null = null;
   private answerHandler:
-    | ((mediaConn: CloudflareMediaConnection, stream?: MediaStream) => Promise<void>)
+    | ((
+        mediaConn: CloudflareMediaConnection,
+        stream?: MediaStream,
+        options?: TransportAnswerOptions,
+      ) => Promise<void>)
     | null = null;
   private closeHandler:
     | ((mediaConn: CloudflareMediaConnection, notifyRemote: boolean) => void)
@@ -1153,6 +1189,7 @@ class CloudflareMediaConnection extends TinyEmitter implements TransportMediaCon
     readonly callId: string,
     readonly metadata: Record<string, unknown> | undefined,
     private readonly expectedAudioTrackCount: number,
+    readonly offerSdpTransform?: TransportSdpTransform,
   ) {
     super();
   }
@@ -1172,7 +1209,11 @@ class CloudflareMediaConnection extends TinyEmitter implements TransportMediaCon
   }
 
   setAnswerHandler(
-    handler: (mediaConn: CloudflareMediaConnection, stream?: MediaStream) => Promise<void>,
+    handler: (
+      mediaConn: CloudflareMediaConnection,
+      stream?: MediaStream,
+      options?: TransportAnswerOptions,
+    ) => Promise<void>,
   ): void {
     this.answerHandler = handler;
   }
@@ -1183,17 +1224,60 @@ class CloudflareMediaConnection extends TinyEmitter implements TransportMediaCon
     this.closeHandler = handler;
   }
 
-  addLocalStream(stream: MediaStream): void {
+  addLocalStream(stream: MediaStream, senderTuning?: TransportSenderTuning): void {
     const pc = this.peerConnection;
     if (!pc) throw createTransportError('webrtc', 'MEDIA_PEER_CONNECTION_MISSING');
     for (const track of stream.getTracks()) {
-      this.localSenders.push(pc.addTrack(track, stream));
+      const sender = pc.addTrack(track, stream);
+      this.localSenders.push(sender);
+      if (senderTuning) {
+        try {
+          senderTuning(sender);
+        } catch {
+          // Sender tuning is advisory and cannot own call establishment.
+        }
+      }
     }
   }
 
-  answer(stream?: MediaStream): void {
-    if (!this.answerHandler) return;
-    this.answerHandler(this, stream).catch((error) => this.emit('error', error));
+  answer(stream?: MediaStream, options?: TransportAnswerOptions): void {
+    if (this.closed || this.answered || !this.answerHandler) return;
+    this.answered = true;
+    this.answerHandler(this, stream, options).catch((error) => this.failNegotiation(error));
+  }
+
+  failNegotiation(error: unknown): void {
+    if (this.closed) return;
+    try {
+      this.emit('error', error);
+    } catch (listenerError) {
+      log.warn('[Transport] Media error listener threw during negotiation cleanup', listenerError);
+    } finally {
+      // Failed media SDP is transport-owned state on a shared PC. Always close
+      // the exact call so rollback is not contingent on an application listener.
+      if (!this.closed) {
+        try {
+          this.closeInternal(true);
+        } catch (listenerError) {
+          log.warn(
+            '[Transport] Media close listener threw during negotiation cleanup',
+            listenerError,
+          );
+        }
+      }
+    }
+  }
+
+  setNegotiationOwner(owner: MediaNegotiationOwner): void {
+    this.negotiationOwner = owner;
+  }
+
+  getNegotiationOwner(): MediaNegotiationOwner | null {
+    return this.negotiationOwner;
+  }
+
+  clearNegotiationOwner(owner: MediaNegotiationOwner): void {
+    if (this.negotiationOwner === owner) this.negotiationOwner = null;
   }
 
   markOpen(): void {
@@ -1300,7 +1384,9 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   // Early candidates are isolated by both peer and mandatory negotiation ID.
   private readonly pendingCandidates = new Map<string, Map<string, PendingIceBucket>>();
   private readonly iceNegotiations = new Map<string, IceNegotiationOwner>();
+  private readonly mediaNegotiationLanes = new WeakMap<RTCPeerConnection, MediaNegotiationLane>();
   private iceNegotiationGeneration = 0;
+  private mediaNegotiationGeneration = 0;
   private lastIceQueuePruneAt = 0;
   private readonly roomSockets = new Map<string, StandardSignalingSocket>();
   private readonly guestRooms = new Map<string, GuestRoomRecord>();
@@ -1353,6 +1439,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private readonly standardRoomIdentityAdmittedHostSockets = new WeakSet<StandardSignalingSocket>();
   private readonly standardRoomIdentityAdmittedGuestSockets =
     new WeakSet<StandardSignalingSocket>();
+  private readonly signalingAdmissionWaiters = new Set<() => void>();
   private readonly standardRoomIdentityRefreshAfterGuestAdmission =
     new WeakSet<StandardSignalingSocket>();
   private readonly standardRoomIdentityActiveRefreshGenerations = new Set<number>();
@@ -1795,7 +1882,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   call(
     peerId: string,
     stream: MediaStream,
-    options?: { metadata?: Record<string, unknown> },
+    options?: TransportCallOptions,
   ): TransportMediaConnection {
     if (this.destroyed) throw createTransportError('disconnected', 'PEER_DESTROYED');
     const conn = this.connections.get(peerId);
@@ -1807,16 +1894,23 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       randomBase64Url(12),
       options?.metadata,
       stream.getAudioTracks().length,
+      options?.sdpTransform,
     );
-    mediaConn.attachPeerConnection(pc);
     mediaConn.setCloseHandler((closedConn, notifyRemote) =>
-      this.closeMediaCall(peerId, closedConn.callId, notifyRemote),
+      this.closeMediaCall(peerId, closedConn, notifyRemote),
     );
-    mediaConn.addLocalStream(stream);
-    this.mediaCalls.set(mediaConn.callId, mediaConn);
+    try {
+      mediaConn.attachPeerConnection(pc);
+      this.mediaCalls.set(mediaConn.callId, mediaConn);
+    } catch (error) {
+      mediaConn.closeFromRemote();
+      throw error;
+    }
 
     queueMicrotask(() => {
-      this.startMediaOffer(peerId, mediaConn).catch((error) => mediaConn.emit('error', error));
+      this.startMediaOffer(peerId, mediaConn, stream, options?.senderTuning).catch((error) =>
+        mediaConn.failNegotiation(error),
+      );
     });
 
     return mediaConn;
@@ -2228,6 +2322,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   private noteSignalingSocketAdmitted(socket: StandardSignalingSocket): void {
     const lifecycle = this.signalingSocketLifecycles.get(socket);
     if (lifecycle) lifecycle.admitted = true;
+    for (const notify of [...this.signalingAdmissionWaiters]) notify();
   }
 
   private noteSignalingSocketSemanticFailure(socket: StandardSignalingSocket): void {
@@ -3253,7 +3348,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-open') {
-      if (sourceSocket) this.noteSignalingSocketAdmitted(sourceSocket);
+      if (sourceSocket) {
+        this.standardRoomIdentityAdmittedHostSockets.add(sourceSocket);
+        this.noteSignalingSocketAdmitted(sourceSocket);
+      }
       if (sourceSocket && isStandardHttpSignalingSocket(sourceSocket)) {
         this.hostUseHttpSignaling = true;
         promoteStandardHttpPreference();
@@ -3276,7 +3374,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
           ? 'unavailable'
           : 'unsupported';
       }
-      if (sourceSocket) this.standardRoomIdentityAdmittedHostSockets.add(sourceSocket);
       if (message.memberIdentity) this.applyStandardRoomIdentity(message.memberIdentity);
       if (this.hostRoomId && this.hostSocket) {
         this.sendPendingStandardRoomDeletion(this.hostRoomId, 'host', this.hostSocket);
@@ -3431,6 +3528,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       throw createTransportError('server-error', 'UNEXPECTED_DEVELOPER_QUEUE_ADDITION');
     }
     if (message.type === 'peer-open') {
+      this.standardRoomIdentityAdmittedGuestSockets.add(socket);
       this.noteSignalingSocketAdmitted(socket);
       if (isStandardHttpSignalingSocket(socket)) {
         const currentRecord = this.guestRooms.get(roomId);
@@ -3443,7 +3541,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       // this exact socket. Before this point guest-auth must remain the sole
       // first frame; background identity mutations would either close the
       // socket or be discarded while its asynchronous auth is in progress.
-      this.standardRoomIdentityAdmittedGuestSockets.add(socket);
       const admittedRecord = this.guestRooms.get(roomId);
       if (admittedRecord?.conn === conn) {
         this.clearGuestSetupAdmissionTimeout(admittedRecord);
@@ -3545,24 +3642,46 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         log.debug(`[Transport] Ignoring ICE candidate from superseded connection for ${peerId}`);
         return;
       }
-      // This listener outlives any individual signaling socket (candidates
-      // can trickle after a socket blip + reopen), so resolve the CURRENT
-      // socket at send time instead of capturing one. On the guest side the
-      // peer ID is the room ID and therefore the roomSockets key. A missing
-      // current socket fails with SIGNALING_SOCKET_NOT_OPEN.
-      const socket = this.hostRoomId ? this.hostSocket : this.roomSockets.get(peerId);
-      try {
-        this.send(socket, {
-          type: 'signal-candidate',
-          to: this.hostRoomId ? peerId : 'host',
-          candidate: event.candidate.toJSON(),
-          negotiationId: negotiation.negotiationId,
-        });
-      } catch (error) {
+      void this.sendLocalIceCandidateWhenAdmitted(
+        peerId,
+        pc,
+        negotiation,
+        event.candidate.toJSON(),
+      ).catch((error) => {
+        if (
+          negotiation.abortController.signal.aborted ||
+          !this.isIceNegotiationCurrent(negotiation)
+        ) {
+          return;
+        }
         this.emit('error', error);
-      }
+      });
     });
     return pc;
+  }
+
+  private async sendLocalIceCandidateWhenAdmitted(
+    peerId: string,
+    pc: RTCPeerConnection,
+    negotiation: IceNegotiationOwner,
+    candidate: RTCIceCandidateInit,
+  ): Promise<void> {
+    const socket = this.hostRoomId
+      ? await this.waitForCurrentHostSocketAdmission(negotiation.abortController.signal)
+      : await this.waitForCurrentGuestSocketAdmission(peerId, negotiation.abortController.signal);
+    if (
+      negotiation.pc !== pc ||
+      negotiation.abortController.signal.aborted ||
+      !this.isIceNegotiationCurrent(negotiation)
+    ) {
+      return;
+    }
+    this.send(socket, {
+      type: 'signal-candidate',
+      to: this.hostRoomId ? peerId : 'host',
+      candidate,
+      negotiationId: negotiation.negotiationId,
+    });
   }
 
   private async handleHostOffer(
@@ -3586,8 +3705,6 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     ) {
       return;
     }
-    const socket = sourceSocket;
-
     // Keep the established connection alive until the replacement has a data
     // channel and has synchronously reached the host lifecycle owner. Closing
     // it here lets Chromium's synchronous close/error event tear down the peer
@@ -3653,10 +3770,17 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
         return;
       }
       if (!pc.localDescription) throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
-      if (socket !== this.hostSocket || socket.readyState !== WebSocket.OPEN) {
-        throw createTransportError('socket-closed', 'SIGNALING_SOCKET_NOT_OPEN');
+      const signalingSocket = await this.waitForCurrentHostSocketAdmission(
+        negotiation.abortController.signal,
+      );
+      if (
+        !this.isIceNegotiationCurrent(negotiation) ||
+        (this.peerDepartureSequences.get(peerId) ?? -1) >= offerSequence
+      ) {
+        conn.close();
+        return;
       }
-      this.send(socket, {
+      this.send(signalingSocket, {
         type: 'signal-answer',
         to: peerId,
         sdp: pc.localDescription.toJSON(),
@@ -3707,6 +3831,10 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     await pc.setLocalDescription(offer);
     if (!this.isIceNegotiationCurrent(negotiation)) return;
     if (!pc.localDescription) throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
+    // An initial guest data offer cannot survive a signaling blip yet: until
+    // its data channel opens, reconnect() deliberately leaves the join-timeout
+    // owner in charge. Do not strand this setup behind an admission waiter for
+    // a replacement socket that the session is not eligible to create.
     if (socket !== this.roomSockets.get(roomId) || socket.readyState !== WebSocket.OPEN) return;
     this.send(socket, {
       type: 'signal-offer',
@@ -3872,37 +4000,310 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     );
   }
 
+  private mediaNegotiationLane(pc: RTCPeerConnection): MediaNegotiationLane {
+    const existing = this.mediaNegotiationLanes.get(pc);
+    if (existing) return existing;
+    const lane: MediaNegotiationLane = { tail: Promise.resolve(), owner: null };
+    this.mediaNegotiationLanes.set(pc, lane);
+    return lane;
+  }
+
+  private runSerializedMediaNegotiation<T>(
+    pc: RTCPeerConnection,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const lane = this.mediaNegotiationLane(pc);
+    const result = lane.tail.then(operation);
+    lane.tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  private beginMediaNegotiationOwner(
+    peerId: string,
+    mediaConn: CloudflareMediaConnection,
+    pc: RTCPeerConnection,
+  ): MediaNegotiationOwner {
+    const lane = this.mediaNegotiationLane(pc);
+    if (lane.owner && !lane.owner.settled) {
+      throw createTransportError('webrtc', 'MEDIA_NEGOTIATION_BUSY');
+    }
+    const owner: MediaNegotiationOwner = {
+      generation: ++this.mediaNegotiationGeneration,
+      peerId,
+      callId: mediaConn.callId,
+      pc,
+      abortController: new AbortController(),
+      iceOwner: null,
+      rollbackTarget: null,
+      settled: false,
+    };
+    lane.owner = owner;
+    mediaConn.setNegotiationOwner(owner);
+    return owner;
+  }
+
+  private isMediaNegotiationCurrent(
+    mediaConn: CloudflareMediaConnection,
+    owner: MediaNegotiationOwner,
+  ): boolean {
+    return (
+      mediaConn.getNegotiationOwner() === owner &&
+      this.mediaNegotiationLane(owner.pc).owner === owner &&
+      this.mediaCalls.get(owner.callId) === mediaConn &&
+      this.connections.get(owner.peerId)?.peerConnection === owner.pc &&
+      owner.pc.connectionState !== 'closed'
+    );
+  }
+
+  private assignMediaIceOwner(
+    mediaConn: CloudflareMediaConnection,
+    owner: MediaNegotiationOwner,
+    iceOwner: IceNegotiationOwner,
+  ): boolean {
+    if (!this.isMediaNegotiationCurrent(mediaConn, owner)) return false;
+    owner.iceOwner = iceOwner;
+    if (owner.abortController.signal.aborted) {
+      iceOwner.abortController.abort(owner.abortController.signal.reason);
+    } else {
+      owner.abortController.signal.addEventListener(
+        'abort',
+        () => iceOwner.abortController.abort(owner.abortController.signal.reason),
+        { once: true },
+      );
+    }
+    return true;
+  }
+
+  private markMediaNegotiationSettled(
+    mediaConn: CloudflareMediaConnection,
+    owner: MediaNegotiationOwner,
+  ): boolean {
+    if (!this.isMediaNegotiationCurrent(mediaConn, owner)) return false;
+    const iceOwner = owner.iceOwner;
+    if (!iceOwner || this.iceNegotiations.get(owner.peerId) !== iceOwner) return false;
+    iceOwner.settled = true;
+    owner.settled = true;
+    return true;
+  }
+
+  private clearExactIceNegotiation(owner: IceNegotiationOwner): void {
+    if (this.iceNegotiations.get(owner.peerId) !== owner) return;
+    owner.abortController.abort();
+    owner.candidates = [];
+    owner.bytes = 0;
+    this.iceNegotiations.delete(owner.peerId);
+  }
+
+  private settleClosedMediaNegotiation(mediaConn: CloudflareMediaConnection): void {
+    const owner = mediaConn.getNegotiationOwner();
+    if (!owner) return;
+    owner.abortController.abort();
+    this.runSerializedMediaNegotiation(owner.pc, async () => {
+      const lane = this.mediaNegotiationLane(owner.pc);
+      if (lane.owner !== owner || mediaConn.getNegotiationOwner() !== owner) {
+        mediaConn.clearNegotiationOwner(owner);
+        return;
+      }
+
+      const releaseOwner = (): void => {
+        if (lane.owner === owner) lane.owner = null;
+        mediaConn.clearNegotiationOwner(owner);
+      };
+      const iceOwner = owner.iceOwner;
+      const currentConnection = this.connections.get(owner.peerId);
+      if (currentConnection?.peerConnection !== owner.pc) {
+        releaseOwner();
+        return;
+      }
+
+      try {
+        const signalingState = owner.pc.signalingState as RTCSignalingState;
+        if (signalingState !== 'stable' && signalingState !== 'closed') {
+          if (
+            owner.settled ||
+            !iceOwner ||
+            this.iceNegotiations.get(owner.peerId) !== iceOwner ||
+            iceOwner.callId !== owner.callId
+          ) {
+            throw createTransportError(
+              'webrtc',
+              `MEDIA_SIGNALING_STATE_NOT_OWNED:${signalingState}`,
+            );
+          }
+          if (owner.rollbackTarget === 'local') {
+            await owner.pc.setLocalDescription({ type: 'rollback' });
+          } else if (owner.rollbackTarget === 'remote') {
+            await owner.pc.setRemoteDescription({ type: 'rollback' });
+          } else {
+            throw createTransportError('webrtc', `MEDIA_ROLLBACK_TARGET_UNKNOWN:${signalingState}`);
+          }
+          const rolledBackState = owner.pc.signalingState as RTCSignalingState;
+          if (rolledBackState !== 'stable') {
+            throw createTransportError('webrtc', `MEDIA_ROLLBACK_NOT_STABLE:${rolledBackState}`);
+          }
+        }
+        if (iceOwner) this.clearExactIceNegotiation(iceOwner);
+        releaseOwner();
+      } catch (error) {
+        if (iceOwner) this.clearExactIceNegotiation(iceOwner);
+        releaseOwner();
+        log.warn(
+          `[Transport] Media negotiation rollback failed for ${owner.peerId}; retiring shared RTC connection`,
+          error,
+        );
+        // A shared data PC whose SDP authority cannot be proven or restored is
+        // no longer safe for either media or control. Retire only the exact
+        // still-current connection; its normal close lifecycle owns recovery.
+        if (this.connections.get(owner.peerId) === currentConnection) {
+          for (const sibling of [...this.mediaCalls.values()]) {
+            if (sibling.peerConnection !== owner.pc) continue;
+            try {
+              sibling.closeFromRemote();
+            } catch (closeError) {
+              log.warn('[Transport] Media close listener threw during RTC retirement', closeError);
+            }
+          }
+          try {
+            currentConnection.close();
+          } catch (closeError) {
+            log.warn('[Transport] Data close listener threw during RTC retirement', closeError);
+          }
+        }
+      }
+    }).catch((error) => {
+      log.warn('[Transport] Serialized media cleanup failed', error);
+    });
+  }
+
   private async startMediaOffer(
     peerId: string,
     mediaConn: CloudflareMediaConnection,
+    stream: MediaStream,
+    senderTuning?: TransportSenderTuning,
   ): Promise<void> {
     const socket = this.hostSocket;
     const pc = mediaConn.peerConnection;
     if (!socket || socket.readyState !== WebSocket.OPEN || !pc) {
       throw createTransportError('socket-closed', 'SIGNALING_SOCKET_NOT_OPEN');
     }
-    await this.waitForStableSignaling(pc);
-    const negotiation = this.beginIceNegotiation(
-      peerId,
-      pc,
-      undefined,
-      undefined,
-      'media',
-      mediaConn.callId,
-    );
-    const offer = await pc.createOffer();
-    if (!this.isIceNegotiationCurrent(negotiation)) return;
-    await pc.setLocalDescription(offer);
-    if (!this.isIceNegotiationCurrent(negotiation)) return;
-    if (!pc.localDescription) throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
-    this.send(socket, {
-      type: 'media-offer',
-      to: peerId,
-      callId: mediaConn.callId,
-      sdp: pc.localDescription.toJSON(),
-      negotiationId: negotiation.negotiationId!,
-      metadata: mediaConn.metadata,
-      audioTrackCount: Math.max(1, pc.getSenders().filter((s) => s.track?.kind === 'audio').length),
+    await this.runSerializedMediaNegotiation(pc, async () => {
+      if (this.mediaCalls.get(mediaConn.callId) !== mediaConn) return;
+      const owner = this.beginMediaNegotiationOwner(peerId, mediaConn, pc);
+      await this.waitForStableSignaling(pc, owner.abortController.signal);
+      if (!this.isMediaNegotiationCurrent(mediaConn, owner)) return;
+      mediaConn.addLocalStream(stream, senderTuning);
+      const negotiation = this.beginIceNegotiation(
+        peerId,
+        pc,
+        undefined,
+        undefined,
+        'media',
+        mediaConn.callId,
+      );
+      if (!this.assignMediaIceOwner(mediaConn, owner, negotiation)) {
+        this.clearExactIceNegotiation(negotiation);
+        return;
+      }
+      const offer = transformLocalDescription(await pc.createOffer(), mediaConn.offerSdpTransform);
+      if (
+        !this.isMediaNegotiationCurrent(mediaConn, owner) ||
+        !this.isIceNegotiationCurrent(negotiation)
+      ) {
+        return;
+      }
+      owner.rollbackTarget = 'local';
+      await pc.setLocalDescription(offer);
+      if (
+        !this.isMediaNegotiationCurrent(mediaConn, owner) ||
+        !this.isIceNegotiationCurrent(negotiation)
+      ) {
+        return;
+      }
+      if (!pc.localDescription) throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
+      const signalingSocket = await this.waitForCurrentHostSocketAdmission(
+        owner.abortController.signal,
+      );
+      if (
+        !this.isMediaNegotiationCurrent(mediaConn, owner) ||
+        !this.isIceNegotiationCurrent(negotiation)
+      ) {
+        return;
+      }
+      this.send(signalingSocket, {
+        type: 'media-offer',
+        to: peerId,
+        callId: mediaConn.callId,
+        sdp: pc.localDescription.toJSON(),
+        negotiationId: negotiation.negotiationId,
+        metadata: mediaConn.metadata,
+        audioTrackCount: Math.max(
+          1,
+          pc.getSenders().filter((sender) => sender.track?.kind === 'audio').length,
+        ),
+      });
+    });
+  }
+
+  private waitForCurrentHostSocketAdmission(signal: AbortSignal): Promise<StandardSignalingSocket> {
+    return this.waitForCurrentSignalingSocketAdmission(() => {
+      const current = this.hostSocket;
+      return !this.destroyed &&
+        current?.readyState === WebSocket.OPEN &&
+        this.standardRoomIdentityAdmittedHostSockets.has(current)
+        ? current
+        : null;
+    }, signal);
+  }
+
+  private waitForCurrentGuestSocketAdmission(
+    roomId: string,
+    signal: AbortSignal,
+  ): Promise<StandardSignalingSocket> {
+    return this.waitForCurrentSignalingSocketAdmission(() => {
+      const current = this.roomSockets.get(roomId);
+      return !this.destroyed &&
+        current?.readyState === WebSocket.OPEN &&
+        this.standardRoomIdentityAdmittedGuestSockets.has(current)
+        ? current
+        : null;
+    }, signal);
+  }
+
+  private waitForCurrentSignalingSocketAdmission(
+    currentAdmittedSocket: () => StandardSignalingSocket | null,
+    signal: AbortSignal,
+  ): Promise<StandardSignalingSocket> {
+    if (signal.aborted) {
+      return Promise.reject(createTransportError('webrtc', 'MEDIA_NEGOTIATION_CANCELLED'));
+    }
+    const admitted = currentAdmittedSocket();
+    if (admitted) return Promise.resolve(admitted);
+
+    return new Promise<StandardSignalingSocket>((resolve, reject) => {
+      let settled = false;
+      const finish = (socket: StandardSignalingSocket | null, error?: Error): void => {
+        if (settled) return;
+        settled = true;
+        this.signalingAdmissionWaiters.delete(onAdmission);
+        signal.removeEventListener('abort', onAbort);
+        if (socket) resolve(socket);
+        else reject(error ?? createTransportError('webrtc', 'MEDIA_NEGOTIATION_CANCELLED'));
+      };
+      const onAdmission = (): void => {
+        const socket = currentAdmittedSocket();
+        if (socket) finish(socket);
+      };
+      const onAbort = (): void => {
+        finish(null, createTransportError('webrtc', 'MEDIA_NEGOTIATION_CANCELLED'));
+      };
+
+      this.signalingAdmissionWaiters.add(onAdmission);
+      signal.addEventListener('abort', onAbort, { once: true });
+      onAdmission();
+      if (signal.aborted) onAbort();
     });
   }
 
@@ -3916,8 +4317,12 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const pc = conn?.peerConnection;
     if (!pc) throw createTransportError('webrtc', 'MEDIA_PEER_CONNECTION_MISSING');
 
-    const existing = this.mediaCalls.get(message.callId);
-    if (existing) existing.closeFromRemote();
+    // The shared data PC can own only one in-flight media SDP transaction.
+    // Retire any predecessor for this peer before exposing the successor; its
+    // exact-owner rollback is serialized ahead of answer().
+    for (const existing of [...this.mediaCalls.values()]) {
+      if (existing.peer === roomId) existing.closeFromRemote();
+    }
 
     const mediaConn = new CloudflareMediaConnection(
       roomId,
@@ -3925,47 +4330,90 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       message.metadata,
       message.audioTrackCount ?? 1,
     );
-    mediaConn.attachPeerConnection(pc);
-    mediaConn.setRemoteOffer(message.sdp);
-    mediaConn.setAnswerHandler(async (incomingConn, stream) => {
-      if (stream) incomingConn.addLocalStream(stream);
+    mediaConn.setCloseHandler((closedConn, notifyRemote) =>
+      this.closeMediaCall(roomId, closedConn, notifyRemote),
+    );
+    mediaConn.setAnswerHandler(async (incomingConn, stream, options) => {
       const offer = incomingConn.getRemoteOffer();
       if (!offer) throw createTransportError('webrtc', 'MEDIA_OFFER_MISSING');
-      await this.waitForStableSignaling(pc);
-      if (this.mediaCalls.get(incomingConn.callId) !== incomingConn) return;
-      const negotiation = this.beginIceNegotiation(
-        roomId,
-        pc,
-        offer,
-        parsedNegotiationId,
-        'media',
-        incomingConn.callId,
-      );
-      await pc.setRemoteDescription(offer);
-      if (!(await this.flushRemoteCandidates(negotiation))) return;
-      const answer = await pc.createAnswer();
-      if (!this.isIceNegotiationCurrent(negotiation)) return;
-      await pc.setLocalDescription(answer);
-      if (!this.isIceNegotiationCurrent(negotiation)) return;
-      if (!pc.localDescription) throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
-      negotiation.settled = true;
-      // answer() may run long after the socket that delivered the offer died
-      // (signaling blip + reopen mid system-audio handshake), so resolve the
-      // current room socket at send time. A missing current socket fails with
-      // SIGNALING_SOCKET_NOT_OPEN.
-      this.send(this.roomSockets.get(roomId), {
-        type: 'media-answer',
-        to: 'host',
-        callId: incomingConn.callId,
-        sdp: pc.localDescription.toJSON(),
-        negotiationId: negotiation.negotiationId,
+      await this.runSerializedMediaNegotiation(pc, async () => {
+        if (this.mediaCalls.get(incomingConn.callId) !== incomingConn) return;
+        const owner = this.beginMediaNegotiationOwner(roomId, incomingConn, pc);
+        await this.waitForStableSignaling(pc, owner.abortController.signal);
+        if (!this.isMediaNegotiationCurrent(incomingConn, owner)) return;
+        const negotiation = this.beginIceNegotiation(
+          roomId,
+          pc,
+          offer,
+          parsedNegotiationId,
+          'media',
+          incomingConn.callId,
+        );
+        if (!this.assignMediaIceOwner(incomingConn, owner, negotiation)) {
+          this.clearExactIceNegotiation(negotiation);
+          return;
+        }
+        if (stream) incomingConn.addLocalStream(stream);
+        owner.rollbackTarget = 'remote';
+        await pc.setRemoteDescription(offer);
+        if (
+          !this.isMediaNegotiationCurrent(incomingConn, owner) ||
+          !(await this.flushRemoteCandidates(negotiation))
+        ) {
+          return;
+        }
+        const answer = transformLocalDescription(await pc.createAnswer(), options?.sdpTransform);
+        if (
+          !this.isMediaNegotiationCurrent(incomingConn, owner) ||
+          !this.isIceNegotiationCurrent(negotiation)
+        ) {
+          return;
+        }
+        await pc.setLocalDescription(answer);
+        owner.rollbackTarget = null;
+        if (
+          !this.isMediaNegotiationCurrent(incomingConn, owner) ||
+          !this.isIceNegotiationCurrent(negotiation)
+        ) {
+          return;
+        }
+        if (!pc.localDescription) {
+          throw createTransportError('webrtc', 'MISSING_LOCAL_DESCRIPTION');
+        }
+        const signalingSocket = await this.waitForCurrentGuestSocketAdmission(
+          roomId,
+          owner.abortController.signal,
+        );
+        if (
+          !this.isMediaNegotiationCurrent(incomingConn, owner) ||
+          !this.isIceNegotiationCurrent(negotiation)
+        ) {
+          return;
+        }
+        if (!this.markMediaNegotiationSettled(incomingConn, owner)) return;
+        this.send(signalingSocket, {
+          type: 'media-answer',
+          to: 'host',
+          callId: incomingConn.callId,
+          sdp: pc.localDescription.toJSON(),
+          negotiationId: negotiation.negotiationId,
+        });
       });
     });
-    mediaConn.setCloseHandler((closedConn, notifyRemote) =>
-      this.closeMediaCall(roomId, closedConn.callId, notifyRemote),
-    );
-    this.mediaCalls.set(message.callId, mediaConn);
-    this.emit('call', mediaConn);
+    try {
+      mediaConn.attachPeerConnection(pc);
+      mediaConn.setRemoteOffer(message.sdp);
+      this.mediaCalls.set(message.callId, mediaConn);
+    } catch (error) {
+      mediaConn.closeFromRemote();
+      throw error;
+    }
+    try {
+      this.emit('call', mediaConn);
+    } catch (error) {
+      mediaConn.failNegotiation(error);
+      throw error;
+    }
   }
 
   private async handleMediaAnswer(
@@ -3976,55 +4424,107 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     const mediaConn = this.mediaCalls.get(callId);
     const pc = mediaConn?.peerConnection;
     if (!mediaConn || !pc) return;
-    const negotiation = this.iceNegotiations.get(mediaConn.peer);
-    if (!negotiation || negotiation.pc !== pc) return;
-    if (negotiation.purpose !== 'media' || negotiation.callId !== callId) return;
-    if (!this.confirmRemoteNegotiationId(negotiation, negotiationId)) return;
-    negotiation.remoteUfrag = remoteIceUfrag(sdp);
-    negotiation.candidates = negotiation.candidates.filter((entry) =>
-      this.candidateMatchesNegotiation(entry, negotiation),
-    );
-    negotiation.bytes = negotiation.candidates.reduce((total, entry) => total + entry.bytes, 0);
-    await pc.setRemoteDescription(sdp);
-    if (!(await this.flushRemoteCandidates(negotiation))) return;
-    negotiation.settled = true;
-    mediaConn.markOpen();
+    try {
+      await this.runSerializedMediaNegotiation(pc, async () => {
+        if (this.mediaCalls.get(callId) !== mediaConn) return;
+        const owner = mediaConn.getNegotiationOwner();
+        const negotiation = owner?.iceOwner;
+        if (!owner || !negotiation || !this.isMediaNegotiationCurrent(mediaConn, owner)) return;
+        if (
+          negotiation.pc !== pc ||
+          negotiation.purpose !== 'media' ||
+          negotiation.callId !== callId
+        ) {
+          return;
+        }
+        if (!this.confirmRemoteNegotiationId(negotiation, negotiationId)) return;
+        negotiation.remoteUfrag = remoteIceUfrag(sdp);
+        negotiation.candidates = negotiation.candidates.filter((entry) =>
+          this.candidateMatchesNegotiation(entry, negotiation),
+        );
+        negotiation.bytes = negotiation.candidates.reduce((total, entry) => total + entry.bytes, 0);
+        await pc.setRemoteDescription(sdp);
+        owner.rollbackTarget = null;
+        if (
+          !this.isMediaNegotiationCurrent(mediaConn, owner) ||
+          !(await this.flushRemoteCandidates(negotiation))
+        ) {
+          return;
+        }
+        if (!this.markMediaNegotiationSettled(mediaConn, owner)) return;
+        mediaConn.markOpen();
+      });
+    } catch (error) {
+      mediaConn.failNegotiation(error);
+    }
   }
 
-  private closeMediaCall(peerId: string, callId: string, notifyRemote: boolean): void {
-    this.mediaCalls.delete(callId);
+  private closeMediaCall(
+    peerId: string,
+    mediaConn: CloudflareMediaConnection,
+    notifyRemote: boolean,
+  ): void {
+    if (this.mediaCalls.get(mediaConn.callId) === mediaConn) {
+      this.mediaCalls.delete(mediaConn.callId);
+    }
+    this.settleClosedMediaNegotiation(mediaConn);
     if (!notifyRemote) return;
 
     const socket = this.hostRoomId ? this.hostSocket : this.roomSockets.get(peerId);
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const admitted = this.hostRoomId
+      ? !!socket && this.standardRoomIdentityAdmittedHostSockets.has(socket)
+      : !!socket && this.standardRoomIdentityAdmittedGuestSockets.has(socket);
+    if (!socket || socket.readyState !== WebSocket.OPEN || !admitted) return;
     try {
       this.send(socket, {
         type: 'media-close',
         to: this.hostRoomId ? peerId : 'host',
-        callId,
+        callId: mediaConn.callId,
       });
     } catch {
       /* noop */
     }
   }
 
-  private async waitForStableSignaling(pc: RTCPeerConnection): Promise<void> {
+  private async waitForStableSignaling(pc: RTCPeerConnection, signal?: AbortSignal): Promise<void> {
     if (pc.signalingState === 'stable') return;
-    await Promise.race([
-      new Promise<void>((resolve) => {
-        const onChange = (): void => {
-          if (pc.signalingState !== 'stable') return;
-          pc.removeEventListener('signalingstatechange', onChange);
-          resolve();
-        };
-        pc.addEventListener('signalingstatechange', onChange);
-      }),
-      delay(3000),
-    ]);
-    const finalState = pc.signalingState as RTCSignalingState;
-    if (finalState !== 'stable') {
-      throw createTransportError('webrtc', `SIGNALING_NOT_STABLE:${finalState}`);
+    if (signal?.aborted) {
+      throw createTransportError('webrtc', 'MEDIA_NEGOTIATION_CANCELLED');
     }
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+      const finish = (error?: Error): void => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
+        pc.removeEventListener('signalingstatechange', onChange);
+        signal?.removeEventListener('abort', onAbort);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onChange = (): void => {
+        const state = pc.signalingState as RTCSignalingState;
+        if (state === 'stable') finish();
+        else if (state === 'closed') {
+          finish(createTransportError('webrtc', 'SIGNALING_NOT_STABLE:closed'));
+        }
+      };
+      const onAbort = (): void => {
+        finish(createTransportError('webrtc', 'MEDIA_NEGOTIATION_CANCELLED'));
+      };
+      timeoutId = globalThis.setTimeout(() => {
+        finish(
+          createTransportError(
+            'webrtc',
+            `SIGNALING_NOT_STABLE:${pc.signalingState as RTCSignalingState}`,
+          ),
+        );
+      }, 3000);
+      pc.addEventListener('signalingstatechange', onChange);
+      signal?.addEventListener('abort', onAbort, { once: true });
+      onChange();
+    });
   }
 
   private isIceNegotiationCurrent(owner: IceNegotiationOwner): boolean {
@@ -4164,6 +4664,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
   ): IceNegotiationOwner {
     this.pruneIceQueues(Date.now(), true);
     const prior = this.iceNegotiations.get(peerId);
+    prior?.abortController.abort();
     const establishedPc = this.connections.get(peerId)?.peerConnection;
     if (prior && prior.pc !== pc && prior.pc !== establishedPc) {
       // A superseded incomplete offer has no lifecycle owner. Closing it
@@ -4194,6 +4695,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       bytes: 0,
       createdAt: Date.now(),
       settled: false,
+      abortController: new AbortController(),
     };
     if (answeringRemoteOffer) {
       const peerBuckets = this.pendingCandidates.get(peerId);
@@ -4214,6 +4716,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
     this.pendingCandidates.delete(peerId);
     const owner = this.iceNegotiations.get(peerId);
     if (!owner || (pc && owner.pc !== pc)) return;
+    owner.abortController.abort();
     owner.candidates = [];
     owner.bytes = 0;
     this.iceNegotiations.delete(peerId);
@@ -4221,6 +4724,7 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
 
   private clearAllIceState(): void {
     this.pendingCandidates.clear();
+    for (const owner of this.iceNegotiations.values()) owner.abortController.abort();
     this.iceNegotiations.clear();
     this.lastIceQueuePruneAt = 0;
   }

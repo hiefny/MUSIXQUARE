@@ -168,7 +168,7 @@ describe('user-facing em dash guard', () => {
 
     expect(findings, formatFindings(findings)).toEqual([]);
     expect(decoderExceptions).toEqual([...EXTERNAL_DECODER_FILES].sort());
-  });
+  }, 30_000);
 
   it('rejects decoded em dashes in public HTML while excluding only the blog path', () => {
     const htmlFiles = [

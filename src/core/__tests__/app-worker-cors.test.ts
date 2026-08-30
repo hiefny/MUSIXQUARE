@@ -195,11 +195,93 @@ function withCentralEntitlementLedger(
   };
 }
 
-afterEach(() => {
+const activeBulkTestControllers = new Set<AbortController>();
+const activeBulkTestWork = new Set<Promise<unknown>>();
+
+async function runTrackedBulkTestWork<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  activeBulkTestControllers.add(controller);
+  const pending = work(controller.signal);
+  activeBulkTestWork.add(pending);
+  try {
+    return await pending;
+  } finally {
+    activeBulkTestControllers.delete(controller);
+    activeBulkTestWork.delete(pending);
+  }
+}
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  signal: AbortSignal,
+  operation: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < values.length) {
+      if (signal.aborted) throw signal.reason;
+      const index = cursor;
+      cursor += 1;
+      results[index] = await operation(values[index]!, index);
+    }
+  };
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, () => worker());
+  try {
+    await Promise.all(workers);
+  } catch (error) {
+    // Promise.all rejects as soon as one worker fails, but its siblings may
+    // still be inside a request. Stop assigning new values and drain every
+    // in-flight worker before the tracked outer promise leaves the cleanup set.
+    cursor = values.length;
+    await Promise.allSettled(workers);
+    throw error;
+  }
+  return results;
+}
+
+afterEach(async () => {
+  for (const controller of activeBulkTestControllers) {
+    controller.abort(new Error('TEST_CLEANUP'));
+  }
+  await Promise.allSettled([...activeBulkTestWork]);
+  activeBulkTestControllers.clear();
+  activeBulkTestWork.clear();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   for (const database of centralEntitlementDatabases) database.close();
   centralEntitlementDatabases.clear();
+});
+
+describe('app worker bulk-test harness', () => {
+  it('drains sibling workers before surfacing the first failure', async () => {
+    const firstError = new Error('FIRST_WORKER_FAILED');
+    let releaseSibling!: () => void;
+    let markSiblingStarted!: () => void;
+    const siblingGate = new Promise<void>((resolve) => {
+      releaseSibling = resolve;
+    });
+    const siblingStarted = new Promise<void>((resolve) => {
+      markSiblingStarted = resolve;
+    });
+
+    const outcome = mapWithConcurrency([0, 1], 2, new AbortController().signal, async (value) => {
+      if (value === 0) throw firstError;
+      markSiblingStarted();
+      await siblingGate;
+      return value;
+    }).then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+
+    await siblingStarted;
+    await expect(Promise.race([outcome, Promise.resolve('pending')])).resolves.toBe('pending');
+
+    releaseSibling();
+    await expect(outcome).resolves.toEqual({ error: firstError });
+  });
 });
 
 function createAdminRegistryTelemetryDb(options: { failFirstRun?: boolean } = {}) {
@@ -2169,17 +2251,19 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
         env,
       );
 
-    for (const [index, token] of capabilityTokens.entries()) {
-      const response = await request('https://musixquare.com/api/get-turn-config', token);
-      expect(response.status, `TURN request ${index}: ${await response.clone().text()}`).toBe(200);
-    }
+    await runTrackedBulkTestWork(async (signal) => {
+      await mapWithConcurrency(capabilityTokens, 8, signal, async (token, index) => {
+        const response = await request('https://musixquare.com/api/get-turn-config', token);
+        expect(response.status, `TURN request ${index}: ${await response.clone().text()}`).toBe(
+          200,
+        );
+      });
 
-    const sessions: Array<{ token: string; sessionId: string; sessionOwnerToken: string }> = [];
-    // Every browser creates an initial subscription/publication session and
-    // one successor for the single bounded host retry: 200 sessions behind
-    // the same venue IP, still individually bounded by capability.
-    for (let generation = 0; generation < 2; generation += 1) {
-      for (const token of capabilityTokens) {
+      // Every browser creates an initial subscription/publication session and
+      // one successor for the single bounded host retry: 200 sessions behind
+      // the same venue IP, still individually bounded by capability.
+      const sessionTokens = [...capabilityTokens, ...capabilityTokens];
+      const sessions = await mapWithConcurrency(sessionTokens, 8, signal, async (token) => {
         const response = await request('https://musixquare.com/api/cloudflare-realtime', token, {
           action: 'new-session',
         });
@@ -2188,15 +2272,14 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
           sessionId: string;
           sessionOwnerToken: string;
         };
-        sessions.push({ token, ...session });
-      }
-    }
+        return { token, ...session };
+      });
 
-    // Each initial/successor session performs tracks-new, renegotiate, and
-    // explicit tracks-close. 600 mutations leave deliberate operating
-    // headroom below the 650/IP recovery ceiling.
-    for (let round = 0; round < 3; round += 1) {
-      for (const session of sessions) {
+      // Each initial/successor session performs tracks-new, renegotiate, and
+      // explicit tracks-close. 600 mutations leave deliberate operating
+      // headroom below the 650/IP recovery ceiling.
+      const mutations = [...sessions, ...sessions, ...sessions];
+      await mapWithConcurrency(mutations, 8, signal, async (session) => {
         const response = await request(
           'https://musixquare.com/api/cloudflare-realtime',
           session.token,
@@ -2208,8 +2291,8 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
           },
         );
         expect(response.status).toBe(200);
-      }
-    }
+      });
+    });
     // This deliberately executes 900 independently authenticated Worker
     // requests. WebCrypto shares a finite worker pool with Vitest, so a full
     // file-parallel run can take materially longer than the same spec in
@@ -6125,11 +6208,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.44');
-    expect(html).toContain('/clearable-editors.js?v=8.4.44');
-    expect(html).toContain('/admin.js?v=8.4.44');
+    expect(html).toContain('/admin.css?v=8.4.45');
+    expect(html).toContain('/clearable-editors.js?v=8.4.45');
+    expect(html).toContain('/admin.js?v=8.4.45');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.44"');
+    expect(html).toContain('data-admin-asset-version="8.4.45"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6150,9 +6233,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.44',
-      '/admin.css?v=8.4.44',
-      '/clearable-editors.js?v=8.4.44',
+      '/admin.js?v=8.4.45',
+      '/admin.css?v=8.4.45',
+      '/clearable-editors.js?v=8.4.45',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);

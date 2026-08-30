@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
+import { isBenignPageError } from './helpers/page-errors.ts';
 import { navigateToTab } from './helpers/wait.ts';
 
 /** Wait for the app to fully initialize, then dismiss the setup overlay if present. */
@@ -55,10 +56,7 @@ test.describe('MUSIXQUARE Smoke Test', () => {
       timeout: 5_000,
     });
 
-    // Filter out known non-critical errors (e.g. service worker in preview mode)
-    const critical = errors.filter(
-      (e) => !e.includes('service-worker') && !e.includes('ServiceWorker'),
-    );
+    const critical = errors.filter((error) => !isBenignPageError(error));
     expect(critical).toHaveLength(0);
   });
 

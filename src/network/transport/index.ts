@@ -15,9 +15,13 @@ export async function createTransportPeer(
 export type {
   PeerJsServerConfig,
   ProSignalingOptions,
+  TransportAnswerOptions,
+  TransportCallOptions,
   TransportDataConnection,
   TransportMediaConnection,
   TransportPeer,
   TransportPeerOptions,
   TransportProvider,
+  TransportSdpTransform,
+  TransportSenderTuning,
 } from './types.ts';

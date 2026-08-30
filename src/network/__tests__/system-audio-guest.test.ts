@@ -102,12 +102,12 @@ vi.mock('../webrtc-audio-decoder-primer.ts', () => ({
   primeWebRtcAudioDecoder: vi.fn(() => null),
 }));
 
-function createMediaConnection(peer = 'host') {
+function createMediaConnection(peer = 'host', peerConnection: RTCPeerConnection | null = null) {
   const handlers = new Map<string, (...args: unknown[]) => unknown>();
   const mediaConn = {
     peer,
     metadata: { type: 'system-audio' },
-    peerConnection: null,
+    peerConnection,
     answer: vi.fn(),
     close: vi.fn(),
     on: vi.fn((event: string, handler: (...args: unknown[]) => unknown) => {
@@ -228,6 +228,39 @@ describe('system audio guest receive watchdog', () => {
     setState('network.hostConn', hostConn);
     markQueueAuthorityReady(hostConn);
     registerSystemAudioGuestListeners();
+  });
+
+  it('passes a one-shot answer transform without patching a reused peer connection', async () => {
+    const setLocalDescription = vi.fn(async () => {});
+    const setRemoteDescription = vi.fn(async () => {});
+    const pc = { setLocalDescription, setRemoteDescription } as unknown as RTCPeerConnection;
+    const originalSetLocalDescription = pc.setLocalDescription;
+    const originalSetRemoteDescription = pc.setRemoteDescription;
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+
+    const incoming = createMediaConnection('host', pc);
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+
+    expect(incoming.mediaConn.answer).toHaveBeenCalledWith(undefined, {
+      sdpTransform: expect.any(Function),
+    });
+    expect(pc.setLocalDescription).toBe(originalSetLocalDescription);
+    expect(pc.setRemoteDescription).toBe(originalSetRemoteDescription);
+
+    incoming.emit('error', new Error('negotiation failed'));
+    expect(incoming.mediaConn.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the exact incoming call when the transport answer throws synchronously', async () => {
+    await handleData({ type: MSG.SYSTEM_AUDIO_START }, hostConn);
+    const incoming = createMediaConnection();
+    vi.mocked(incoming.mediaConn.answer).mockImplementation(() => {
+      throw new Error('answer setup failed');
+    });
+
+    bus.emit('system-audio:incoming-call', incoming.mediaConn, 'STEREO');
+
+    expect(incoming.mediaConn.close).toHaveBeenCalledTimes(1);
   });
 
   it('restores previous meta if SYSTEM_AUDIO_START never produces a stream', async () => {

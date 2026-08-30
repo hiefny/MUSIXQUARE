@@ -219,6 +219,19 @@ jobs:
       - name: Build and verify production bundle
         run: npm run build:checked
 
+      - name: Upload production bundle for browser verification
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          # Stable across GitHub's 30-day rerun window so a failed browser job
+          # can reuse the successful candidate from the original attempt. A
+          # full rerun replaces that run-scoped artifact with a fresh candidate.
+          name: browser-production-candidate-${{ github.sha }}-${{ github.run_id }}
+          path: dist/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
       - name: Bundle every production Worker without deploying
         run: npm run check:worker-bundles
 
@@ -239,32 +252,54 @@ jobs:
             release-artifacts/release-manifest.json
           include-hidden-files: true
           if-no-files-found: error
-          retention-days: 7
+          # Match GitHub's rerun window so a successful candidate job can be
+          # reused when only a later failed browser job is rerun.
+          retention-days: 30
 
   browser-gate:
     name: Critical browser gate
+    needs: candidate
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The explicit 47-minute step budget leaves eight minutes for runner
+    # transitions and cancellation cleanup.
+    timeout-minutes: 55
 
     steps:
       - name: Checkout exact candidate
+        timeout-minutes: 3
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Node.js
+        timeout-minutes: 3
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
           cache: npm
 
       - name: Install dependencies with pinned npm
+        timeout-minutes: 8
         run: corepack npm ci
 
       - name: Install Chromium
+        timeout-minutes: 7
         # Azure's Ubuntu mirrors occasionally take several minutes to deliver
         # Playwright's font dependencies. Bound setup independently so mirror
         # slowness cannot consume the browser-test timeout or hang indefinitely.
-        timeout-minutes: 7
         run: npx playwright install --with-deps chromium
+
+      - name: Download exact production candidate
+        timeout-minutes: 3
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-production-candidate-${{ github.sha }}-${{ github.run_id }}
+          path: dist
+
+      - name: Run production candidate browser and Service Worker smoke
+        timeout-minutes: 6
+        # Playwright owns a 120-second server-start bound, a 30-second PeerJS
+        # readiness bound, and two serial 60-second test bounds. Leave teardown
+        # and reporter headroom so Actions never masks the actionable failure.
+        run: npm run test:e2e:candidate
 
       # This deterministic gate covers PRO owner recovery, OAuth callback
       # scrubbing, an actual browser WebSocket session, and Remote Share's
@@ -272,14 +307,15 @@ jobs:
       # secret-backed host assertion remains the strict live smoke in
       # release.yml so CI never needs production secrets.
       - name: Run critical browser paths
-        # background-resume owns a 90-second diagnostic timeout. Leave enough
-        # room for Playwright to emit its trace instead of killing the process
-        # first. Setup remains bounded above, the tests keep this strict
-        # two-minute cap, and the whole browser gate remains capped at ten minutes.
-        timeout-minutes: 2
+        timeout-minutes: 12
+        # This step includes the E2E rebuild, a 120-second preview-start bound,
+        # a 30-second PeerJS readiness bound, five serial 60-second tests, one
+        # 90-second background-resume test, and teardown/reporter headroom.
+        # Keep the outer Actions bound above every nested diagnostic path.
         run: npm run test:e2e:critical
 
       - name: Upload critical browser failure artifacts
+        timeout-minutes: 5
         if: failure() || cancelled()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

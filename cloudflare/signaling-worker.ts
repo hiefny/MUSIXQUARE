@@ -5994,11 +5994,10 @@ export class MusixquareRoom {
       );
       throw error;
     }
-    serializeSocketAttachment(ws, attachment);
-
     // A socket can close while the Durable Object storage write is awaited.
-    // Prove the accepted candidate is still reachable before replacing the
-    // live host; otherwise restore the prior metadata inside the same queue.
+    // Prove the accepted candidate is still reachable before promoting its
+    // hibernation attachment or replacing the live host. A reset before
+    // peer-open must rehydrate it as pending, never as server-only admitted.
     if (
       !this.pendingHosts.has(ws) ||
       !sendChecked(ws, {
@@ -6037,6 +6036,7 @@ export class MusixquareRoom {
       return false;
     }
 
+    serializeSocketAttachment(ws, attachment);
     this.pendingHosts.delete(ws);
     const previous = this.host;
     this.host = ws;
@@ -6250,16 +6250,6 @@ export class MusixquareRoom {
     const bucketAttachment = isFiniteNumber(previousAttachment?.guestMessageTokens)
       ? previousAttachment
       : currentAttachment;
-    if (previous && previous !== ws) {
-      closeSocket(previous, 1012, 'GUEST_REPLACED');
-    }
-    for (const pending of [...this.pendingGuests]) {
-      if (pending === ws) continue;
-      const pendingAttachment = readAttachment(pending);
-      if (pendingAttachment?.peerId !== peerId) continue;
-      this.pendingGuests.delete(pending);
-      closeSocket(pending, 1012, 'GUEST_REPLACED');
-    }
 
     const attachment: StandardGuestOkAttachment = {
       v: ATTACHMENT_VERSION,
@@ -6276,19 +6266,41 @@ export class MusixquareRoom {
           }
         : {}),
     };
-    serializeSocketAttachment(ws, attachment);
+    // Persistence and identity resolution above may yield while a reconnect
+    // candidate closes. Prove peer-open can reach this exact socket before its
+    // hibernation attachment is promoted or it evicts the live predecessor.
+    if (
+      !this.pendingGuests.has(ws) ||
+      !sendChecked(ws, {
+        type: 'peer-open',
+        peerId,
+        roomId,
+        ...(identity
+          ? { memberIdentity: standardRoomMemberIdentityFromAttachment(attachment) }
+          : {}),
+        ...workerVersionFields(this.env),
+      })
+    ) {
+      this.pendingGuests.delete(ws);
+      closeSocket(ws, 1001, 'GUEST_AUTH_SOCKET_CLOSED');
+      return;
+    }
 
+    serializeSocketAttachment(ws, attachment);
     this.pendingGuests.delete(ws);
     this.guests.set(peerId, ws);
+    if (previous && previous !== ws) {
+      closeSocket(previous, 1012, 'GUEST_REPLACED');
+    }
+    for (const pending of [...this.pendingGuests]) {
+      if (pending === ws) continue;
+      const pendingAttachment = readAttachment(pending);
+      if (pendingAttachment?.peerId !== peerId) continue;
+      this.pendingGuests.delete(pending);
+      closeSocket(pending, 1012, 'GUEST_REPLACED');
+    }
     this.requestMaintenanceAlarm();
     this.recordMetric('guest_joined');
-    send(ws, {
-      type: 'peer-open',
-      peerId,
-      roomId,
-      ...(identity ? { memberIdentity: standardRoomMemberIdentityFromAttachment(attachment) } : {}),
-      ...workerVersionFields(this.env),
-    });
     if (identity) await this.scheduleMaintenanceAlarm();
   }
 

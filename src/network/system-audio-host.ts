@@ -74,59 +74,37 @@ function armDirectCallConnectTimeout(peerId: string, mediaConn: MediaConnection)
 
 // ─── SDP Munging & Track Constraints ──────────────────────────────
 
-/**
- * Boost bitrate and disable DSP for all audio senders in the PeerConnection.
- */
-function boostAudioSenders(pc: RTCPeerConnection): void {
-  pc.getSenders().forEach((sender) => {
-    if (sender.track?.kind === 'audio') {
-      const track = sender.track;
-      // Preserve music dynamics instead of applying microphone-oriented DSP.
-      try {
-        track
-          .applyConstraints({
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          })
-          .catch(() => {
-            /* noop */
-          });
-      } catch {
+/** Boost bitrate and disable microphone DSP once for one media-call sender. */
+function tuneSystemAudioSender(sender: RTCRtpSender): void {
+  if (sender.track?.kind !== 'audio') return;
+  const track = sender.track;
+  // Preserve music dynamics instead of applying microphone-oriented DSP.
+  try {
+    track
+      .applyConstraints({
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      })
+      .catch(() => {
         /* noop */
-      }
+      });
+  } catch {
+    /* noop */
+  }
 
-      // A single stereo track carries both channels, preserving the previous
-      // dual-mono aggregate budget on one sender.
-      try {
-        const params = sender.getParameters();
-        if (!params.encodings) params.encodings = [{}];
-        params.encodings[0].maxBitrate = 256000;
-        sender.setParameters(params).catch(() => {
-          /* noop */
-        });
-      } catch {
-        /* noop */
-      }
-    }
-  });
-}
-
-function applySdpMunge(mc: MediaConnection): void {
-  const pc = mc.peerConnection;
-  if (!pc) return;
-
-  // The media-call adapter owns offer creation, so patch this seam to apply the
-  // product SDP contract before the browser accepts the local description.
-  const originalSetLocal = pc.setLocalDescription.bind(pc);
-  pc.setLocalDescription = async (desc: RTCSessionDescriptionInit) => {
-    if (desc && desc.sdp) {
-      desc.sdp = forceStereoSdp(desc.sdp);
-    }
-    const result = await originalSetLocal(desc);
-    boostAudioSenders(pc);
-    return result;
-  };
+  // A single stereo track carries both channels, preserving the previous
+  // dual-mono aggregate budget on one sender.
+  try {
+    const params = sender.getParameters();
+    if (!params.encodings) params.encodings = [{}];
+    params.encodings[0].maxBitrate = 256000;
+    sender.setParameters(params).catch(() => {
+      /* noop */
+    });
+  } catch {
+    /* noop */
+  }
 }
 
 // ─── Module State ─────────────────────────────────────────────────
@@ -265,9 +243,10 @@ function callGuest(guestPeerId: string): void {
   try {
     const mc = peer.call(guestPeerId, capturedAudioStream, {
       metadata: { type: 'system-audio-stereo' },
+      sdpTransform: forceStereoSdp,
+      senderTuning: tuneSystemAudioSender,
     });
 
-    applySdpMunge(mc);
     _mediaConns.set(guestPeerId, mc);
     armDirectCallConnectTimeout(guestPeerId, mc);
     pushDebugCall({ ...debugBase, action: 'call', metadataType: 'system-audio-stereo' });

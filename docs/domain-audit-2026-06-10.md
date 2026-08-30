@@ -1,361 +1,419 @@
-# 22차 도메인 오디트 — 2026-06-10 (멀티에이전트 전도메인 스윕)
+# Domain Audit 22 - 2026-06-10 (Cross-Domain Review)
 
-> **역사적 감사 기록.** 이 문서의 상태, 수치, 경로, 라인 번호와 “현재”라는
-> 표현은 2026-06-10 및 문서 안에 명시된 후속 커밋 시점을 기준으로 한다.
-> 현재 미해결 이슈 목록으로 간주하지 말고, 실제 코드는 최신 소스와 테스트로
-> 다시 확인한다.
+> **Historical audit record.** Statuses, counts, paths, line numbers, and references to "current" behavior reflect the code as of 2026-06-10 or the later commits named in this document. Do not treat this as the current open-issue list. Recheck the latest source and tests.
 
-> **방법론**: 사용자 지정 15개 관점(방 암호·역할 간 오해·UI 렌더·채팅/스케일·원격/로컬 혼재·YT/파일 혼재·비효율 경로·언어/테마/스펙트럼·효과 충돌·카피 불일치·QR/초대코드·기기 수·연결탭 비밀번호·데모 복구·보안)을 7개 도메인으로 묶어 **Fable 5 에이전트 7기 병렬 투입**. 각 에이전트가 담당 도메인 소스를 전수 정독 후 발견/통과를 보고. 이후 픽스 대상 20건(🟠+🟡)에 **건당 1명 적대적 검증자**를 재투입해 실재 확인(워크플로우 wf_efea3c77).
+> **Methodology:** The audit covered fifteen review areas across seven domains: room passwords; role misunderstandings; UI rendering; chat and scale; mixed remote and local operation; mixed YouTube and file playback; inefficient paths; language, themes, and spectrum rendering; effect conflicts; copy inconsistencies; QR and invite codes; device limits; the Connect-tab password flow; demo recovery; and security. The review recorded both findings and verified behaviors. Twenty findings selected for correction then underwent independent validation (workflow `wf_efea3c77`).
 >
-> **집계**: 🔴 0 / 🟠 1 / 🟡 19 / 🔵 17 — 총 37건 (+P4 관찰 다수). **보안 도메인은 신규 발견 0건 클린 패스.**
+> **Classification note:** The original audit used Red, Orange, Yellow, and Blue labels without defining a separate severity rubric. This translation preserves those labels as plain text.
 >
-> 21차(시나리오 오디트, `scenario-audit-2026-06-10.md`)와 같은 날 진행. SA-01~13과 ID 체계 독립.
+> **Summary:** Red 0 / Orange 1 / Yellow 19 / Blue 17, for 37 findings in the initial review, plus several P4 observations. **The security review produced no new Red-, Orange-, or Yellow-classified findings.**
+>
+> This audit ran on the same day as Audit 21, the scenario audit in `scenario-audit-2026-06-10.md`. Its IDs are independent of SA-01 through SA-13.
 
-## 검증(페이즈 ①) + 픽스 결과 — 같은 날 완료
+## Validation (Phase 1) and Fix Results
 
-- **적대적 검증 20건**: confirmed 18 / partial 2 / refuted 0. partial 2건은 ① UI-1 — 증상 실재하나 rAF 분기가 정식 진입 경로에서 죽어 있어 `state:playback.mode` 리스너(진입 zeroing + 파일 복귀 duration repaint)가 진짜 픽스 ② UI-2 — 해당 설정탭 기기 목록이 전 플랫폼 `display:none`(죽은 UI 속 잠복 결함, P4 강등, 소스만 교정).
-- **검증자가 차단한 원안 함정 4건**: ROLE-1 스냅샷 재전송에 VOLUME 포함 금지(게스트 개인 볼륨 스톰프) / HET-1 대안픽스(원격경로 localSessionId 기록)는 복구 churn 루프 유발 — same-file 단락만 안전 / HET-3 게스트측 가드는 기존 핀 테스트와 모순(descriptor 단발성) — 호스트측만 / DEMO-1(b) SYNC_PONG 가드는 demo-스코프 필수(글로벌이면 원격 첫 로드 부트스트랩 회귀).
-- **수정 30건 / 기록만 5건**(CONN-2·ROLE-4·SEC-1·SEC-2·UI-10 — 자가치유/이론상/카피후속). 페이즈 ④(대규모 리팩터링) 해당 없음.
-- **검증**: 1061 tests(+10 신규 핀: HET-1 ×2, CHAT-1 ×3, CONN-1 ×2, DEMO-1/4 ×3) / typecheck / lint / bus-pairing 149:149(신규 `effects:resync-peer` 포함) 전부 그린. 1051개 기존 테스트 무손상.
+- **20 independent validations:** confirmed 18 / partial 2 / refuted 0. The two partial findings were: (1) UI-1, where the symptom was real but the rAF branch was unreachable through the normal entry path, so the actual fix was a `state:playback.mode` listener that clears the duration on entry and repaints it when returning to file playback; and (2) UI-2, where the Settings-tab device list was `display:none` on every platform, making this a latent defect in dead UI. UI-2 was downgraded to P4, but its source was still corrected.
+- **Four unsafe initial fixes rejected by validators:** ROLE-1 snapshot resends must not include VOLUME because that would overwrite each guest's personal volume; the HET-1 alternative of recording `localSessionId` on the remote path would create a recovery churn loop, so only the same-file short-circuit is safe; a guest-side HET-3 guard conflicts with an existing regression test because descriptors are one-shot, so the fix must be host-side only; and the DEMO-1(b) SYNC_PONG guard must be scoped to demo mode, because a global guard would regress initial remote-load bootstrap.
+- **30 fixes / 5 record-only items:** CONN-2, ROLE-4, SEC-1, SEC-2, and UI-10 were initially recorded only because they were self-healing, theoretical, or copy follow-up items. No Phase 4 large-scale refactoring was required.
+- **Verification:** 1061 tests, including 10 new regression pins (HET-1 x2, CHAT-1 x3, CONN-1 x2, DEMO-1/4 x3), plus typecheck, lint, and bus pairing 149:149, including the new `effects:resync-peer` event. All passed, with the 1051 existing tests intact.
 
-## 픽스 그룹 계획
+## Fix Groups
 
-| 그룹 | 대상 | 성격 |
-|---|---|---|
-| **A. UI/i18n/시각화** | UI-1~10 | 대부분 1~5줄 픽스, 저위험 |
-| **B. 역할/연결/채팅 정합성** | CONN-1, ROLE-1~4, CHAT-1~2 | 프로토콜·UI 동기화 |
-| **C. 혼재 세션 (R2 cancel-parity)** | HET-1~6, CATCH-2 | 원격 게스트 모듈로컬 상태 가시화 |
-| **D. 데모 복구 경로** | DEMO-1~4, CATCH-3, PERF-2 | 스냅샷 불변식 + 큐잉 |
-| **E. 시스템/성능** | CATCH-1, PERF-1 | SW 정책 + 구독자 스톰 |
-| **기록만 (최종 확정)** | CONN-2, ROLE-4, SEC-1~2 | 자가치유/이론상 — ROLE-5(ratchet)·ROLE-6(배선)·HET-5는 검토 후 수정으로 승격, UI-10은 후속 62f21211(16로케일 폴리시)에서 해소 |
-
----
-
-## 1. 연결/인증 (CONN) — 방 암호·QR·초대코드·기기 수
-
-### CONN-1 🟡 — max-guests 축소가 "인원 수"가 아니라 "슬롯 인덱스"로 강퇴
-- **시나리오**: max=4, 게스트 4명(슬롯 1~4) → 슬롯 2 게스트 퇴장(희소 슬롯: 1,3,4) → 호스트가 4→3으로 축소. UI 가드(`connect.ts:136-142`)는 `새값 < peers.length`만 검사라 통과 → enforcement(`host.ts:511-528`)는 슬롯 배열을 길이로 자르며 **슬롯 4 게스트를 강퇴** (3명 ≤ 3인데도).
-- **원인**: 가드는 count 기반, 집행은 slot-index 기반 — 두 기준 불일치.
-- **픽스 방향**: 축소 전 점유 슬롯을 최저 인덱스로 압축(remap) 후 자르기 (불변식: "점유 슬롯은 항상 1..count").
-- 상태: ✅ 수정 완료
-
-### CONN-2 🔵 — 암호 해제 직전에 진입한 게스트에게 혼란스러운 추가 암호 프롬프트 1회
-- pending 인증 중 호스트가 암호 해제 → 게스트의 auth가 INVALID/REQUIRED로 실패, 8자리 프롬프트 재표시. **다음 제출 시 새 소켓으로 무암호 입장되므로 자가치유.** UX 흠집뿐, 보안 영향 없음.
-- 상태: 기록만 (자가치유)
-
-### CHECKED & SOLID (연결/인증)
-- max-device 입장 race 없음 (host 핸들러 동기 구간에서 카운트+추가, 이벤트루프 직렬화). 슬롯 수학 off-by-one 없음(0번 호스트 예약, 1..max).
-- 동일 peerId 재접속은 sticky slot 재사용, 한도에서 신규만 SESSION_FULL. 거절 동시조인 슬롯 누수는 기수정 확인.
-- **암호는 서버(DO worker) 집행** — 클라 신뢰 없음. 8자리 포맷이 전 레이어 일관(`/^\d{8}$/`). 시그널링 블립에도 최신값 재전송(latest-write-wins). 게스트의 암호 토글 3중 차단.
-- QR/초대링크/클립보드에 암호 미포함 (6자리 코드만). 만료 코드는 HOST_NOT_AVAILABLE, 60초 release grace 후 메타 소거, 호스트 리로드 시 새 코드(hostSecret 휘발). QR 생성 race는 generation 카운터로 방어.
-- worker pending-guest 슬롯은 alarm sweep으로 회수. rename은 서버측 전체 검증(트림/20자/예약어/욕설/중복).
-- 참고: worker 자체에는 기기 수 상한 없음(호스트측 집행 + IP당 120/min WS rate limit로 수용) / 암호 비교 non-constant-time + 평문 저장은 위협모델상 무시 가능.
+| Group                                    | Scope                                                | Character                                                                                                                                                                                          |
+| ---------------------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A. UI/i18n/visualization**             | UI-1 through UI-10                                   | Mostly one- to five-line, low-risk fixes                                                                                                                                                           |
+| **B. Role/connection/chat consistency**  | CONN-1, ROLE-1 through ROLE-4, CHAT-1 through CHAT-2 | Protocol and UI synchronization                                                                                                                                                                    |
+| **C. Mixed sessions (R2 cancel parity)** | HET-1 through HET-6, CATCH-2                         | Make remote-guest module-local state visible                                                                                                                                                       |
+| **D. Demo recovery paths**               | DEMO-1 through DEMO-4, CATCH-3, PERF-2               | Snapshot invariants and queuing                                                                                                                                                                    |
+| **E. System/performance**                | CATCH-1, PERF-1                                      | Service-worker policy and subscriber storms                                                                                                                                                        |
+| **Record only (final disposition)**      | CONN-2, ROLE-4, SEC-1 through SEC-2                  | Self-healing or theoretical. ROLE-5 (ratchet), ROLE-6 (wiring), and HET-5 were promoted to fixes after review. UI-10 was resolved in follow-up commit `62f21211` with the 16-locale policy update. |
 
 ---
 
-## 2. 역할/오디오 효과 (ROLE) — host·op·게스트 상호 오해
+## 1. Connection and Authentication (CONN)
 
-### ROLE-1 🟡 — 낙관적 로컬 적용 + 무응답 거절 = 강등된 OP의 이펙트 영구 desync
-- **시나리오**: ⓐ OP가 리버브 슬라이더 드래그 중(preview는 실제 오디오 상태에 적용) 호스트가 권한 회수 → 릴리즈 시 `_isGuestLocked`로 차단되어 전송도 롤백도 없음. ⓑ OP가 VBass 클릭 → 로컬 적용 후 REQUEST_SETTING 전송(`effects.ts:343-395→309-323`) → 호스트는 이미 revoke 처리 → `verifyOperator` 실패로 **무응답 드랍**(`playlist.ts:1043-1053`, NACK 없음) → 게스트만 ON.
-- **원인**: 요청/응답에 NACK 부재 + revoke가 설정 재베이스라인을 트리거하지 않음. repeat/shuffle도 같은 패밀리.
-- **픽스 방향**: 호스트가 OPERATOR_REVOKE 시(또는 거절 시) 기존 설정 부트스트랩 블록(`effects.ts:427-477`, 완전한 스냅샷 직렬화기)을 해당 conn에 재전송.
-- 상태: ✅ 수정 완료
+### CONN-1 [Yellow] - Reducing the guest limit evicts guests by slot index rather than guest count
 
-### ROLE-2 🟡 — OP의 REQUEST_SETTING 적용 시 호스트 자신의 설정 UI가 stale + surround 죽은 클릭
-- **시나리오**: OP가 Surround ON → 호스트 적용+브로드캐스트 → 게스트들은 `ui:sync-surround`로 동기화되는데 **호스트 본인 UI는 아무것도 안 함**(`handleRequestSetting`은 setter만 호출, `playlist.ts:1085-1147`). 호스트가 칩 OFF 상태로 Surround 클릭 → `setSurroundOn`이 멱등 early-return(`settings.ts:476-478`)을 **칩 갱신 전에** 타서 완전 무반응. 리버브 5종/VBass/Exciter 슬라이더·칩 동일 staleness.
-- **증거**: eq·REVERB_TYPE 경로는 setter가 emit해서 정상 — 누락이 의도 아님.
-- **픽스 방향**: `handleRequestSetting`에서 게스트 핸들러와 동일한 `ui:sync-*` emit (또는 emit을 setter로 이동) + 칩 갱신을 early-return 앞으로.
-- 상태: ✅ 수정 완료
+- **Scenario:** Start with max=4 and four guests in slots 1 through 4. The guest in slot 2 leaves, producing sparse occupancy at 1, 3, and 4. The host then reduces the limit from 4 to 3. The UI guard (`connect.ts:136-142`) checks only `newValue < peers.length`, so it allows the change. Enforcement (`host.ts:511-528`) truncates the slot array and **evicts the guest in slot 4**, even though there are only three guests for three slots.
+- **Cause:** The guard is count-based, while enforcement is slot-index-based.
+- **Fix direction:** Remap occupied slots to the lowest available indices before truncation. Invariant: occupied slots are always `1..count`.
+- Status: Fixed
 
-### ROLE-3 🔵 — 게스트 입장마다 "호스트가 설정을 변경했어요" 허위 토스트 1회
-- 부트스트랩 ~13프레임 중 VOLUME만 `_bootstrap: true`로 토스트 억제, 나머지 12개가 `_notifyHostChanged()` 디바운스 토스트 발화. 픽스: 전 부트스트랩 전송에 `_bootstrap` 플래그 + 게이트.
-- 상태: ✅ 수정 완료
+### CONN-2 [Blue] - One extra password prompt when the password is removed during entry
 
-### ROLE-4 🔵 — OP의 변경이 모두에게 "호스트가 변경"으로 표기 + 본인에게 셀프 토스트
-- 브로드캐스트 에코가 암묵 ACK 역할(제거 금지). origin 라벨/`_echo` 플래그로 발신자 토스트 억제·문구 보정.
-- 상태: 기록만 (게스트 자기-ID 식별 경로 미검증 — requesterId 설계가 선행돼야 함, 🔵 토스트 문구 nit)
+- If the host removes the password while a guest is pending authentication, that authentication attempt fails with INVALID/REQUIRED and the eight-digit prompt appears again. **The next submission opens a new socket and joins without a password, so the flow self-heals.** This is a UX defect with no security impact.
+- Status: Recorded only (self-healing)
 
-### ROLE-5 🔵 — `network.isOperator` 리셋이 leaveSession에만 존재 (현재는 전 경로 풀리로드라 도달 불가)
-- 미래에 in-place 재접속이 생기면 stale OP UI가 영구화. ratchet: `handleWelcome`에서 false 리셋(호스트가 GRANT로 재부여하므로 안전) 또는 DEVICE_LIST_UPDATE의 자기 entry `isOp` 동기화.
-- 상태: ✅ handleWelcome 리셋 ratchet 적용
+### Verified Behaviors (Connection and Authentication)
 
-### ROLE-6 🔵 — `SYNC_PONG.trackIndex` dead field
-- 생성(`sync.ts:223`)만 있고 reader 없음. **DEMO-1 픽스(b)가 이 필드를 사용하므로 그쪽에서 자연 해소.**
-- 상태: ✅ DEMO-1(b)에서 배선됨 (handleSyncPong demo-스코프 trackIndex 비교)
-
-### CHECKED & SOLID (역할/효과)
-- 역할 게이팅 양면 완비: 호스트측 전 REQUEST_* 핸들러 `verifyOperator`/demo subset 검증, 클라측 pre-gate 일치. 14개 이펙트 브로드캐스트 핸들러 전부 `isHostBroadcast` 가드 — 게스트의 호스트 오디오 오염/위장 불가.
-- 호스트+OP 동시 변경은 절대값 wire + 호스트 단일 직렬화 + 에코로 수렴, ping-pong 루프 없음.
-- validator 범위 = UI 범위 정확 일치(정당한 슬라이더 값이 드랍될 일 없음). audio:ready 이전 설정은 setState 경유라 안전(전체 재적용).
-- control/bulk 채널 모두 ordered+reliable, 역할·설정 메시지는 control 고정 → GRANT/REVOKE와 후속 설정의 FIFO 보장.
-- GRANT/REVOKE는 채널 open+send 성공 확인 후 상태 변경. rate limit는 정당한 커밋 버스트(데모 토글 7프레임)에 여유.
-- P4 관찰: PREAMP REQUEST_SETTING 허용은 dead allowance(클라 발신 없음) / 데모 버튼 낙관 플립은 자가치유 / OP repeat·shuffle 이중 토스트.
+- There is no max-device admission race. Counting and insertion occur synchronously in the host handler, and the event loop serializes them. Slot arithmetic has no off-by-one error: slot 0 is reserved for the host and guests use slots `1..max`.
+- Reconnecting with the same peerId reuses its sticky slot. At capacity, only new peers receive SESSION_FULL. The previously fixed concurrent-rejection slot leak remains fixed.
+- **Passwords are enforced by the server-side Durable Object worker; no client trust is involved.** The eight-digit format (`/^\d{8}$/`) is consistent at every layer. The latest value is resent after signaling interruptions with latest-write-wins behavior. Guests are blocked from toggling passwords at three separate layers.
+- QR codes, invite links, and clipboard data contain only the six-digit room code, never the password. Expired codes return HOST_NOT_AVAILABLE. Metadata is removed after the 60-second release grace period, and a host reload creates a new code because hostSecret is ephemeral. A generation counter prevents QR-generation races.
+- The worker reclaims pending-guest slots with an alarm sweep. Rename requests are fully validated server-side for trimming, a 20-character limit, reserved terms, profanity, and duplicates.
+- Note: the worker itself has no device-count cap. Host-side enforcement plus the per-IP WebSocket rate limit of 120/minute is considered sufficient. Non-constant-time password comparison and plaintext storage are acceptable under the threat model.
 
 ---
 
-## 3. UI/i18n/테마/시각화 (UI)
+## 2. Roles and Audio Effects (ROLE)
 
-### UI-1 🟡 — 시스템오디오 진입 시 총 재생시간이 안 지워짐 (죽은 ID `time-total`)
-- `seekbar.ts:115`의 zeroing 분기가 `getElementById('time-total')`을 쓰는데 실제 id는 `time-dur`(index.html). 다른 writer는 전부 `time-dur`. 공유 내내 `0:00 / 이전곡길이` 표시.
-- **픽스**: `'time-total'`→`'time-dur'` 1줄 (+모드 진입 시 1회 zeroing 고려).
-- 상태: ✅ 수정 완료
+### ROLE-1 [Yellow] - Optimistic local application plus silent rejection leaves a revoked operator permanently out of sync
 
-### UI-2 🟡 — 언어 전환이 설정 탭 기기 목록을 비움 (잘못된 상태 소스)
-- `settings.ts:1007-1012`의 `i18n:changed` 핸들러가 `network.connectedPeers`(호스트 전용 raw, 게스트에선 빈 배열, 호스트 자신 row 없음)로 재렌더. 정본은 `network.lastKnownDeviceList`. connect.ts는 `_lastDeviceList` 캐시로 올바르게 처리 — settings.ts만 버그.
-- **픽스**: `lastKnownDeviceList`로 소스 교체 1줄.
-- 상태: ✅ 수정 완료
+- **Scenario (a):** An operator is dragging the reverb slider, whose preview changes the actual audio state, when the host revokes the role. On release, `_isGuestLocked` blocks the action, so there is neither a send nor a rollback. **Scenario (b):** An operator clicks VBass, applies it locally, and sends REQUEST_SETTING (`effects.ts:343-395 -> 309-323`). The host has already processed the revocation, so `verifyOperator` fails and the request is **silently dropped** (`playlist.ts:1043-1053`) without a NACK. VBass remains enabled only for that guest.
+- **Cause:** The request/response protocol has no NACK, and revocation does not rebaseline settings. Repeat and shuffle have the same failure mode.
+- **Fix direction:** On OPERATOR_REVOKE, or on rejection, the host should resend the existing settings bootstrap block (`effects.ts:427-477`), which is the complete snapshot serializer, to that connection.
+- Status: Fixed
 
-### UI-3 🟡 — SESSION_FULL이 호스트 로케일로 번역되어 전송 (교차 로케일 누출 + 청자 오류 카피)
-- `host.ts`가 `message: t('network.session_full_detail')` 전송 → 게스트가 그대로 렌더. 한국어 호스트+영어 게스트 = 혼합 언어 다이얼로그. EN 카피는 거절당한 게스트에게 "Connect 탭에서 한도 설정" 안내(게스트에겐 그 컨트롤이 없음).
-- **픽스**: wire에 `i18nKey` 실어 수신측 `t()` (기존 패턴 재사용) + EN 카피 "호스트에게 요청" 프레이밍으로 수정.
-- 상태: ✅ 수정 완료
+### ROLE-2 [Yellow] - Operator REQUEST_SETTING leaves the host settings UI stale, and Surround has a dead click path
 
-### UI-4 🟡 — 시각화 rAF 루프에 paused/idle 종료 없음 — 3개 진입점이 영구 공회전 (배터리)
-- 드로 루프는 YT 모드/토큰/에러로만 종료. 우회 진입점: ① resize(정지 프레임도 파괴 — `_isHoldingPauseFrame` 클리어) ② `ui:visualizer-check`(idle은 `isPlaybackPaused()` false라 시작 분기) ③ `visualizer:set-type`(무조건 start). 활동 게이트는 `scopePlaybackModeActivity` 구독자에만 존재.
-- **픽스**: `startVisualizer`를 activity==='playing'으로 게이트 + resize-while-held는 보존 프레임 재드로.
-- 상태: ✅ 수정 완료
+- **Scenario:** An operator enables Surround. The host applies and broadcasts it, and guests update through `ui:sync-surround`, but **the host's own UI does nothing** because `handleRequestSetting` only calls the setter (`playlist.ts:1085-1147`). If the host clicks Surround while its chip is visually off, `setSurroundOn` takes its idempotent early return (`settings.ts:476-478`) **before updating the chip**, so the click appears to do nothing. The five reverb types and the VBass and Exciter sliders and chips have the same stale-UI behavior.
+- **Evidence:** The eq and REVERB_TYPE paths work because their setters emit events, confirming that the omission was not intentional.
+- **Fix direction:** Emit the same `ui:sync-*` events used by the guest handlers from `handleRequestSetting`, or move those emissions into the setters, and update the chip before the early return.
+- Status: Fixed
 
-### UI-5 🟡 — 단수형 기기 수 타이틀이 영어 전용 분기 — 7개 로케일의 단수형이 dead
-- `connect.ts:362-367` `count===1 && lang==='en'`일 때만 `device_list_one`. fr/de/es/it/pl/pt-br/ru의 문법적 단수형이 사용 불가(프랑스어 UI에서 `1 appareils connectés`).
-- **픽스**: `'en'` 체크 삭제 — count===1이면 무조건 단수 키 (전 로케일 키 존재 스크립트 검증됨).
-- 상태: ✅ 수정 완료
+### ROLE-3 [Blue] - False "the host changed settings" toast on every guest join
 
-### UI-6 🔵 — 뮤트 placeholder가 언어 전환 시 일반 placeholder로 덮임
-- `data-i18n-data-placeholder`가 일반 키로 남아있어 재번역 시 덮어씀. 픽스: 뮤트 시 속성도 스왑(player-controls.ts:1026-1033의 기존 패턴) 또는 `i18n:changed`에서 뮤트 상태 재적용.
-- 상태: ✅ 수정 완료
+- Of roughly 13 bootstrap frames, only VOLUME sets `_bootstrap: true` to suppress the toast. The other 12 trigger the debounced `_notifyHostChanged()` toast. The fix adds `_bootstrap` to every bootstrap send and gates the notification on it.
+- Status: Fixed
 
-### UI-7 🔵 — YouTube URL 입력·다이얼로그 입력에 "type-then-delete 후 placeholder 실종" 동일 버그
-- 채팅에서 8d00a174로 고친 contentEditable `<br>` 잔재 버그의 형제. `player-controls.ts:811-834`, `dialog.ts:243-270`에 정규화 부재. 픽스: 채팅 정규화를 공용 헬퍼로 추출해 양쪽 적용.
-- 상태: ✅ 수정 완료
+### ROLE-4 [Blue] - Operator changes are attributed to the host and echoed back to the operator
 
-### UI-8 🔵 — `system_audio.stopped` 토스트가 "재생목록 재개"를 약속하지만 재개 안 되는 경로에서도 발화
-- `system-capture.ts:338` 무조건 emit: force-stop 전환 경로(복원 금지가 21차 확정 의미론), 스냅샷 없음 경로, 그리고 happy path도 **paused 복원**. 픽스: 토스트를 명시적 stop+복원 분기로 이동 또는 카피 완화.
-- 상태: ✅ 수정 완료
+- The broadcast echo serves as an implicit ACK and must remain. Add an origin label or `_echo` flag to suppress the sender's toast and correct the attribution.
+- Status: Recorded only. The guest self-ID path was not verified, so requesterId design must come first. This is a minor toast-copy issue.
 
-### UI-9 🔵 — idle/paused 중 테마 전환 시 시각화 캔버스 미갱신
-- `data-theme` MutationObserver가 `refreshThemeCache()`만 호출, 재드로 없음 — 스펙트럼 그리드(화이트/블랙 0.06α)가 뒤집힌 배경에 어긋남. 픽스: observer에서 idle이면 resting frame 재드로.
-- 상태: ✅ 수정 완료
+### ROLE-5 [Blue] - `network.isOperator` is reset only in leaveSession
 
-### UI-10 🔵 — "Windows/Mac Chrome 전용" 카피 vs 실제 게이트(모든 데스크톱 Chromium)
-- Edge/Opera/Brave/Linux Chrome도 기능 동작하는데 카피가 불가 안내. 보수적 방향(기능>광고)이라 cosmetic. 픽스: "Chrome 계열 데스크톱 브라우저"로 카피 수정.
-- 상태: ✅ 후속 커밋 62f21211에서 16로케일 일괄 수정 (UI-3 잔여 로케일 + 전 파일 번역 폴리시 동반)
+- This path is currently unreachable because all reconnection paths fully reload the page. A future in-place reconnection could leave the operator UI stale indefinitely. The ratchet is to reset it to false in `handleWelcome`, which is safe because the host restores the role through GRANT, or to synchronize from the current peer's `isOp` field in DEVICE_LIST_UPDATE.
+- Status: Fixed with the `handleWelcome` reset ratchet
 
-### CHECKED & SOLID (UI/i18n/테마)
-- **로케일 구조 무결성 스크립트 검증**: 16개 로케일 × 537키 완전 일치(누락/잉여 0), `{{placeholder}}` 세트 불일치 0, index.html의 185개 `data-i18n*` 키 전부 해석됨. t() 폴백 체인 + wire 메시지 raw-key 폴백 방어적.
-- 카피 수치 주장 전수 일치: 200MB·2시간 SFU·닉 20자·32슬롯·3초·8자리 암호·6자리 코드·대형 방 임계값.
-- YT 모드 설정 잠금 = 카피 정확(`#youtube-settings-disabled-wrap` 범위와 help 텍스트 일치). 시스템오디오 호스트 채널 잠금도 일치.
-- 언어 전환 재렌더 커버리지(UI-2/6 외): connect 기기목록·데모 카피·재생목록·트랙타이틀·미디어버튼·QR placeholder 전부 정상 패턴.
-- 테마: bootstrap.js 프리플라이트로 FOUC 없음, theme-color/color-scheme 메타 동기화(데모 변형 포함), QR 테마 인식.
-- 오버레이/z-order(LIFO 모달 스택·inert 포커스 트랩), 토스트/로더(ref-count·grapheme 절단), 시크바 anti-jitter 가드 전부 건전.
-- 의도적 비수정: 역할 배지 영문 라벨(컨벤션), ko `enter_link_desc_html`의 "재생목록" 누락(한 단어 카피 보강 후보일 뿐).
+### ROLE-6 [Blue] - `SYNC_PONG.trackIndex` is a dead field
+
+- It is produced at `sync.ts:223` but had no reader. **DEMO-1 fix (b) uses this field and resolves the issue as part of that change.**
+- Status: Fixed in DEMO-1(b) by comparing trackIndex in the demo-scoped `handleSyncPong` path
+
+### Verified Behaviors (Roles and Effects)
+
+- Role gates are complete on both sides. Every host-side REQUEST\_\* handler verifies `verifyOperator` or the demo subset, and the client-side pre-gates match. All 14 effect broadcast handlers use `isHostBroadcast`, so guests cannot alter or impersonate host audio state.
+- Concurrent host and operator changes converge through absolute-value wire messages, host-side serialization, and echo. There is no ping-pong loop.
+- Validator ranges exactly match UI ranges, so valid slider values are not dropped. Settings received before `audio:ready` are safe because they pass through setState and are fully reapplied later.
+- Both control and bulk channels are ordered and reliable. Role and settings messages always use control, preserving FIFO order between GRANT/REVOKE and subsequent settings.
+- GRANT/REVOKE changes state only after confirming that the channel is open and the send succeeds. Rate limits allow legitimate commit bursts, including the seven-frame demo toggle.
+- P4 observations: PREAMP in REQUEST_SETTING is dead allowance because the client never sends it; optimistic demo-button flips self-heal; operator repeat and shuffle produce duplicate toasts.
 
 ---
 
-## 4. 채팅/스케일 (CHAT)
+## 3. UI, i18n, Themes, and Visualization (UI)
 
-### CHAT-1 🟡 — 필터 OFF(기본값) 시 호스트가 **절단 전 원문**을 전체 릴레이 (wire 증폭)
-- `chat/protocol.ts:199-206` 절단을 로컬 변수에만 적용, `data.text` write-back이 `filterEnabled` 분기 안에만 존재 → `:243` broadcast-except가 원본 크기 그대로 N-1 게스트에 fan-out. validator(`network/protocol.ts:231`)에 길이 캡 없음. 렌더러 재절단으로 시각 캡은 유지 — 문제는 호스트 업스트림 증폭. whisper 핸들러는 write-back 하는 비대칭.
-- **픽스**: `data.text = text`를 필터 분기 밖으로 (1줄) + validator 길이 캡(OPERATOR_TOAST의 300캡 미러).
-- 상태: ✅ 수정 완료
+### UI-1 [Yellow] - Total duration is not cleared when entering system-audio mode because `time-total` is a dead ID
 
-### CHAT-2 🔵 — zero-width/RTL/제어문자로 표시명 위장 가능 (XSS 아님)
-- `HOST​` 류가 예약어/중복 검사(raw lowercase 동등성) 통과. crown 배지는 서버 파생이라 위장 불가, 렌더는 createTextNode — 순수 시각 사칭. **픽스**: `handleRequestRename`에서 제어/zero-width/bidi 문자 strip (+NFKC 고려).
-- 상태: ✅ 수정 완료
+- The clearing branch at `seekbar.ts:115` calls `getElementById('time-total')`, while the actual ID in index.html is `time-dur`. Every other writer uses `time-dur`. The UI shows `0:00 / previous track duration` for the entire sharing session.
+- **Fix:** Change `'time-total'` to `'time-dur'` and consider a one-time clear on mode entry.
+- Status: Fixed
 
-### CHECKED & SOLID (채팅)
-- **XSS 전 sink 클린**: parseMessageContent 전 분기 escape(텍스트 escapeHtml, 속성 escapeAttr), 발신자/시스템/귓속말/공지 전부 textContent 계열. i18n 파라미터 주입 불가(naive replaceAll, no HTML).
-- 배지 스푸핑 차단(호스트가 정본에서 identity 필드 덮어씀 — CHAT·WHISPER 동일). 관리 명령 권한(게스트측 isFromHost, 호스트측 hostConn-null 거부, OP는 REQUEST_CHAT_COMMAND 서버 검증).
-- 2중 토큰버킷(일반 60/20s + 채팅 10/1s, disconnect 시 정리), DOM 200노드 캡, dedup 50캡, dedup 키는 인증된 conn.peer 파생(포이즈닝 불가).
-- 욕설 필터 ReDoS 없음(모듈 로드 시 1회 빌드, ≤500자 입력). 슬래시 명령 엣지 양성. 개행 유입 불가(paste strip + beforeinput 차단).
+### UI-2 [Yellow] - Changing language empties the Settings-tab device list by reading the wrong state source
 
----
+- The `i18n:changed` handler at `settings.ts:1007-1012` rerenders from `network.connectedPeers`, a host-only raw list that is empty for guests and excludes the host's own row. The canonical source is `network.lastKnownDeviceList`. connect.ts correctly uses its `_lastDeviceList` cache; only settings.ts was wrong.
+- **Fix:** Replace the source with `lastKnownDeviceList`.
+- Status: Fixed
 
-## 5. 혼재 세션 (HET) — 원격×로컬 게스트, YT×파일 모드
+### UI-3 [Yellow] - SESSION_FULL is translated in the host locale before transmission
 
-> **교차 패턴**: HET 6건 중 4건이 같은 모양 — *R2/원격 서브시스템이 모듈 로컬 상태(`_activeDownload`, `_activeUploads`, descriptor 캐시, 미기록 `transfer.localSessionId`)로 수명주기를 관리해서, `transfer.state`/lifecycle 중심으로 지어진 모드 전환·복구 기계가 못 본다.* → 사각 ⑧(cancel 매트릭스)·⑨(모드 형제 패리티)에 "remote-share 모듈 상태" 열 추가 필요.
+- `host.ts` sends `message: t('network.session_full_detail')`, which the guest renders verbatim. A Korean host and an English guest therefore see a mixed-language dialog. The English copy also tells the rejected guest to set the limit in the Connect tab, where the guest has no such control.
+- **Fix:** Send an `i18nKey` on the wire and call `t()` on receipt, reusing the existing pattern. Reframe the English copy to tell the guest to ask the host.
+- Status: Fixed
 
-### HET-1 🟡 — 원격→로컬 승급 시 이미 로드된 트랙의 오디오를 죽이고 전체 재전송
-- 초기 ICE 오분류된 LAN 게스트가 R2로 현재 곡 재생 중 → 30초 fallback recheck가 local 승급 → 호스트가 현재 파일 unicast → 게스트 `handleFileStart`가 `incomingSid > localSessionId(=0, 원격 경로는 이 필드를 안 씀)` → 허위 new-session → **same-file 체크 전에 파괴적 clear** → 재생 중 음악 컷 + 이미 가진 파일 전체 재다운로드. 승급 가드 `shouldAcceptLocalDirectFileStart`는 mid-download(AWAITING_PRELOAD)만 커버.
-- **픽스**: handleFileStart에서 isNewSession clear 전에 현재 blob+meta vs 헤더 비교 short-circuit(`replayLoadedSameFile` 미러) 또는 원격 경로가 descriptor sessionId를 localSessionId에 기록.
-- 상태: ✅ 수정 완료
+### UI-4 [Yellow] - The visualization rAF loop never stops when paused or idle
 
-### HET-2 🟡 — OS 미디어키 STOP(YT 중)이 YOUTUBE_STOP을 영영 브로드캐스트 안 함 → 방 전체 hard desync
-- `stopPlayback` YT 분기(`transport.ts:808-819`)가 ENDED race 억제를 위해 `setPlaybackIdle()`을 **먼저** 호출 → `stopYouTubeMode`의 `wasInYouTube`가 false → 브로드캐스트 스킵. 게스트 전원 YT 모드 고착: 이후 파일 트랙 전부 무시(FILE_PREPARE YT-owner 가드) + REQUEST_CURRENT_FILE 스팸 + 호스트 재unicast 낭비. 형제(handleEndOfPlaylist/stopAllMedia)는 idle 전에 캡처해서 정상 — 이 1개만 발산 (사각 ⑨).
-- **픽스**: stopPlayback에서 idle 전에 `wasInYouTube` 캡처 후 전달/명시 브로드캐스트.
-- 상태: ✅ 수정 완료
+- The draw loop exits only for YouTube mode, token changes, or errors. Three bypass entry points can start it indefinitely: resize, which also destroys a held pause frame by clearing `_isHoldingPauseFrame`; `ui:visualizer-check`, whose idle path starts because `isPlaybackPaused()` returns false; and `visualizer:set-type`, which starts unconditionally. Only the `scopePlaybackModeActivity` subscriber has an activity gate.
+- **Fix:** Gate `startVisualizer` on `activity === 'playing'` and redraw the retained frame when resizing while held.
+- Status: Fixed
 
-### HET-3 🟡 — 파일→YT(/시스템오디오) 전환이 업로드 중 R2 descriptor를 **stale 상태로 브로드캐스트**
-- playTrack YT 분기가 `files.currentFileBlob`을 안 지우고 업로드도 취소 안 함(`cancelInFlightUpload`은 **호출자 0의 dead code**) → 업로드 완료 시 `isHostActiveFile` blob-identity 분기 통과 → 방은 YT 재생 중인데 트랙 A descriptor 브로드캐스트. 원격 게스트의 `handleRemoteFileShare`엔 external-owner 가드 없음(handleFilePrepare와 대조) → currentTrackIndex 스톰프 + YT 재생 중 타이틀 UI 플립 + 모바일 데이터로 전체 다운로드 후 activation에서 폐기.
-- **픽스**: 호스트 — `isHostActiveFile`에 `!isExternalOwner()` 게이트(또는 모드 전환 시 업로드 취소: dead code 배선). 게스트 — handleRemoteFileShare 상단 external-owner 가드.
-- 상태: ✅ 수정 완료
+### UI-5 [Yellow] - Singular device-count titles are restricted to English
 
-### HET-4 🟡 — 진행 중 R2 다운로드가 모드 전환 시 취소 안 됨 (LTE 낭비 + 새 모드 위 로더 잔류)
-- YOUTUBE_PLAY의 `cancelInFlightTransfer`와 SYSTEM_AUDIO_START의 `cancelIncomingFileTransfer`(SA-08) 모두 `transfer.state` RECEIVING 키드 — 원격 경로는 그 상태를 안 씀. `cancelRemoteShareWait` 호출자 3곳에 모드 전환 없음. `_activeDownload` 계속 스트리밍 + 로더 repaint + 5분15초 타이머 잔존. **사각 ⑧의 R2 변종.**
-- **픽스**: `cancelActiveRemoteDownload(reason)` 래퍼 export → 양쪽 cancel 블록에서 호출.
-- 상태: ✅ 수정 완료
+- `connect.ts:362-367` selects `device_list_one` only when `count===1 && lang==='en'`. The grammatical singular forms for fr/de/es/it/pl/pt-br/ru are therefore unreachable, producing copy such as `1 appareils connectés` in French.
+- **Fix:** Remove the `'en'` check and use the singular key whenever count is 1. A script verified that every locale has the key.
+- Status: Fixed
 
-### HET-5 🔵 — `handlePlayPreloaded`에 원격 게스트 분기 부재 — FSM safety-promotion이 우회로로 지탱
-- PLAY_PRELOADED엔 isRemoteGuest 분기가 없는 유일한 "트랙 변경" 메시지. R2 구성 환경에선 descriptor가 자가치유(현 배포 = musixquare.com은 R2 있음 → 🔵). R2 미구성 배포에선 로더 영구 고착(REQUEST_DATA_RECOVERY를 호스트가 무응답 드랍 — `unicastFile` transport 가드가 FILE_WAIT 없이 return).
-- **픽스**: handlePlayPreloaded fallback 상단에 handlePlayMsg 미러 분기 + unicastFile 원격 스킵 시 FILE_WAIT 응답.
-- 상태: ✅ 수정 완료
+### UI-6 [Blue] - Language changes overwrite the muted placeholder with the normal placeholder
 
-### HET-6 🟡 — 원격 게스트 실패 경로가 전부 terminal (재시도·호스트 신호 0)
-- ⓐ 디코드 실패: guest가 REQUEST_CURRENT_FILE 전송(원격 분기 없음) → 호스트 unicastFile이 원격 타깃을 **무응답 스킵**(blob을 찾았으니 FILE_WAIT도 없음) → FAILED 고착, 트랙 끝까지 무음. ⓑ 다운로드 실패: toast+status만, 재시도/lifecycle 전이 없음 → 5분 타임아웃까지 대기. 로컬 파이프라인의 3-retry backoff와 비대칭.
-- **픽스**: 호스트 — requester가 remote/unknown이면 `shareRemoteFileIfNeeded`(descriptor 재전송/재업로드)로 라우팅. 게스트 — non-abort 실패 1회 bounded retry.
-- 상태: ✅ 수정 완료
+- `data-i18n-data-placeholder` retains the normal key, so translation reapplies it. The fix also swaps the attribute when muting, following the existing pattern at `player-controls.ts:1026-1033`, or reapplies mute state in `i18n:changed`.
+- Status: Fixed
 
-### CHECKED & SOLID (혼재 세션)
-- 헤드라인 race "원격 게스트 준비 전 PLAY" 완전 처리(lifecycle defer + pendingPlayTime 나이 보정 + SYNC_PONG 부트스트랩).
-- 혼합 청중 트랙 변경 정상(로컬 chunk + 원격 descriptor, 순서 역전 멱등 흡수, 빠른 A→B 플립 objectId-비교 abort). 원격 게스트 조인 mid-transfer, 승급 mid-download(테스트 존재), preloadedIndexes 혼합 부기, PRELOAD_ABORT 타깃팅 전부 건전.
-- YT↔파일 빠른 교차: FIFO로 YOUTUBE_STOP이 FILE_PREPARE 선행 보장, YT→파일 경계 preload 정상 작동, 셔플/반복이 YT에 착지 시 캐시 클리어(SA-01 계약 보존).
-- P4 관찰 3건: 전환 후 구 파일 broadcast 루프 잔류(대역폭만), 유일 원격 피어 disconnect 시 업로드 완주(무해), cancelInFlightUpload dead code(HET-3에서 배선).
+### UI-7 [Blue] - YouTube URL and dialog inputs lose their placeholders after type-then-delete
 
----
+- This is the same residual contentEditable `<br>` bug fixed for chat in commit `8d00a174`. Normalization was missing at `player-controls.ts:811-834` and `dialog.ts:243-270`. The fix extracts the chat normalization into a shared helper and applies it to both inputs.
+- Status: Fixed
 
-## 6. 보안 (SEC) — 클린 패스
+### UI-8 [Blue] - `system_audio.stopped` promises playlist resumption on paths that do not resume
 
-**신규 🔴/🟠/🟡 0건.** 6개 위협 표면 전수 추적: XSS 전 sink escape/textContent 확인, 권한은 정본 재파생(verifyOperator + isHostBroadcast 40+ 핸들러), 크립토(파일당 AES-256-GCM 새 키+새 IV, 키는 WebRTC로만, R2엔 암호문만), DoS(토큰버킷 2중 + chunk는 isHostBroadcast 1차 가드라 증폭 불가 + 수치 validator NaN/Infinity 거부), 시그널링(hostSecret 24바이트 CSPRNG 서버 검증), 정찰(__health 부활 없음). **선행 audit fix 전부 intact** (role-badge XSS·lastJoinCode·title 이중디코드·DATA_RELAY 제거).
+- `system-capture.ts:338` emits unconditionally: on force-stop transitions, where Audit 21 explicitly established that restoration must not occur; when there is no snapshot; and even on the happy path, which restores a **paused** state. Move the toast into the explicit stop-and-restore branch or soften the copy.
+- Status: Fixed
 
-### SEC-1 🔵 — chat YT 버튼 DOM id에 Math.random (비보안 용도, 이론상 충돌 시 oEmbed 타이틀이 다른 메시지에 기입)
-- textContent 기입이라 XSS 아님. 기록만.
-### SEC-2 🔵 — peer id 부재 시 rate-limit fail-open (`allowInboundFromPeer`/`allowChatFromPeer`)
-- 현 transport에서 conn.peer 항상 존재 → 도달 불가. 미래 transport 대비 방어 노트. 기록만.
+### UI-9 [Blue] - Theme changes do not update the visualization canvas while idle or paused
+
+- The `data-theme` MutationObserver only calls `refreshThemeCache()` and does not redraw. The spectrum grid, using white or black at 0.06 alpha, then conflicts with the inverted background. Redraw the resting frame from the observer when idle.
+- Status: Fixed
+
+### UI-10 [Blue] - "Windows/Mac Chrome only" copy does not match the actual desktop-Chromium gate
+
+- The feature also works in Edge, Opera, Brave, and Linux Chrome, but the copy says it is unavailable. This conservative mismatch is cosmetic. Change the copy to "desktop Chromium-based browsers."
+- Status: Fixed across all 16 locales in follow-up commit `62f21211`, together with the remaining UI-3 locales and the repository-wide translation policy
+
+### Verified Behaviors (UI, i18n, and Themes)
+
+- **Locale-structure script verification:** all 16 locales contain the same 537 keys, with zero missing or extra keys and zero mismatched `{{placeholder}}` sets. All 185 `data-i18n*` keys in index.html resolve. The `t()` fallback chain and raw-key fallback for wire messages are defensive.
+- Every numeric claim in copy matches implementation: 200 MB, two-hour SFU duration, 20-character nicknames, 32 slots, three seconds, eight-digit passwords, six-digit codes, and the large-room threshold.
+- YouTube-mode settings locking matches the copy, including the scope of `#youtube-settings-disabled-wrap` and its help text. Host-channel locking during system audio also matches.
+- Language-change rerender coverage outside UI-2 and UI-6 follows the correct pattern for the Connect device list, demo copy, playlist, track title, media buttons, and QR placeholder.
+- `bootstrap.js` preflight prevents theme FOUC. The theme-color and color-scheme metadata remain synchronized, including demo variants, and QR rendering is theme-aware.
+- Overlay and z-order behavior, including the LIFO modal stack and inert focus trap, is sound. Toast and loader reference counting, grapheme truncation, and seekbar anti-jitter guards are also sound.
+- Intentionally unchanged: English role-badge labels are a convention. The missing word for "playlist" in the Korean `enter_link_desc_html` is only a minor copy-improvement candidate.
 
 ---
 
-## 7. 데모 복구 + 캐치올 + 성능 (DEMO/CATCH/PERF)
+## 4. Chat and Scale (CHAT)
 
-> **헤드라인 답변**: 데모의 **시간축 desync는 복구 경로 완비**(1초 SYNC_PING→PONG drift>2s 보정, no-buffer 부트스트랩, background resume force-resync). **트랙 정체성 desync는 복구 경로 없음** — DEMO-1/3/4가 그 구멍.
+### CHAT-1 [Yellow] - With the filter off by default, the host relays the untruncated original to every guest
 
-### DEMO-4 🟠 — 데모 중 입장한 게스트가 데모 종료 후 영구 무음 (이번 오디트 유일 ORANGE)
-- ① 1회성 orchestrator 파일 부트스트랩이 데모 게이트(`playback.ts:962`)에 먹혀 소실 ② 종료 후 첫 PLAY는 index-mismatch 분기가 "부트스트랩이 올 것"으로 가정하고 return ③ 다음 PLAY의 SA-03 복구 요청은 **호스트 `transfer.meta`가 아직 데모 트랙 메타**(스냅샷이 meta를 저장/복원 안 함 — `loadDemoFile`이 덮어씀)라 `findMatchingBlob` 양쪽 실패 → **FILE_WAIT 무한**. 트랙 변경까지 무음. `(currentFileBlob, transfer.meta)` 원자 페어 불변식(decode.ts:205-211 주석) 위반이 근본.
-- **픽스**: 데모 스냅샷에 transfer.meta 포함(페어 불변식 복원 — 이것만으로 2번째 PLAY에서 SA-03 경유 복구) + 이상적으로는 데모 종료 시 파일 없는 isDataTarget 피어에 bootstrapLocalPeerFile 재실행.
-- 상태: ✅ 수정 완료
+- `chat/protocol.ts:199-206` truncates only a local variable. The write-back to `data.text` exists only inside the `filterEnabled` branch, so broadcast-except at `:243` fans the original length out to N-1 guests. The validator at `network/protocol.ts:231` has no length cap. Renderer-side truncation preserves the visual cap; the defect is upstream amplification at the host. The whisper handler does write back, creating an asymmetry.
+- **Fix:** Move `data.text = text` outside the filter branch and add a validator length cap mirroring OPERATOR_TOAST's 300-character cap.
+- Status: Fixed
 
-### DEMO-1 🟡 — 로딩 중 게스트가 호스트의 트랙 전진을 silent drop → 엉뚱한 트랙을 호스트 타임라인에 동기화
-- `enterDemoMode` 첫 줄 `demo.loading` early-return이 DEMO_ENTER(n+1)을 버림 → pending도 index 불일치로 no-op → 재트리거 없음 → 1초 내 SYNC_PONG 부트스트랩이 **트랙 n 오디오를 n+1 위치로 재생**. PONG payload의 trackIndex(ROLE-6의 dead field)를 수신측이 비교 안 함.
-- **픽스**: ⓐ loading 중 요청 인덱스 큐잉 → load finally 후 re-dispatch ⓑ 방어: handleSyncPong에서 trackIndex 유한+불일치 시 부트스트랩 스킵.
-- 상태: ✅ 수정 완료
+### CHAT-2 [Blue] - Zero-width, RTL, and control characters can disguise display names
 
-### DEMO-3 🟡 — 데모 트랙 전진 fetch 실패 시 in-demo 재시도 없음 → 플레이 버튼이 방을 쪼갬
-- index 전진+브로드캐스트가 load **앞**이라 실패 시 호스트만 버퍼 null. 플레이 탭 → DEMO_PLAY 먼저 브로드캐스트 → 게스트들 재생, 호스트 무음("재생목록 비어있음" 무관 토스트). 재탭은 same-index 가드로 refetch 안 됨. exit+재진입만 복구.
-- **픽스**: toggleDemoPlay/startDemoPlayback에서 `demo.active && !buffer`면 `loadDemoTrack(_demoTrackIndex, autoplay)` 또는 catch에서 retry.
-- 상태: ✅ 수정 완료
+- Names such as `HOST\u200B`, where the escape denotes U+200B ZERO WIDTH SPACE, bypass reserved-name and duplicate checks based on raw lowercase equality. The crown badge is server-derived and cannot be forged, and rendering uses createTextNode, so this is visual impersonation, not XSS. Strip control, zero-width, and bidi characters in `handleRequestRename`, with NFKC normalization also worth considering.
+- Status: Fixed
 
-### DEMO-2 🔵 — 빠른 exit→재진입(~340ms) 시 구 restore가 새 데모 중간에 발화 → 원래 설정 영구 소실 가능
-- active fast path가 구 커튼 애니메이션을 안 멈춰서 구 `afterCovered`(restoreSnapshot)가 새 데모 위에서 실행, 새 스냅샷엔 데모 설정이 캡처됨. SA-11(entry측, 의도적 미수정)의 exit측 형제 — 별개 항목.
-- **픽스**: active fast path에서 `stopDemoCurtainAnimation()` + pending afterCovered 동기 실행 후 신규 캡처.
-- 상태: ✅ 수정 완료
+### Verified Behaviors (Chat)
 
-### CATCH-1 🟡 — SW controllerchange가 **다른 탭의 라이브 세션을 무프롬프트 hard-reload**
-- 탭 B에서 업데이트 수락 → SKIP_WAITING → 전 controlled 클라이언트 controllerchange → 탭 A(호스트 세션 중) 즉사(`markIntentionalNav`가 beforeunload 프롬프트까지 억제). 30초 쿨다운 분기는 두 번째 배포를 **무다이얼로그** SKIP_WAITING. co-located 멀티탭 테스트가 흔한 제품 특성상 실사용 타격.
-- **픽스**: controllerchange에서 `network.appRole !== 'idle'`이면 자동 리로드 대신 "업데이트 준비됨" 토스트로 연기, idle 탭만 자동 리로드.
-- 상태: ✅ 수정 완료
-
-### CATCH-2 🟡 — 원격 트랙 전환마다 object URL 1개 누수 (복호화 blob 전체 핀)
-- 완료 시 `download.blobUrl` 저장 → 다음 descriptor의 fetch-start가 **revoke 없이 null 덮어씀** → 이후 revoke는 null 읽음. 원격 게스트 모바일에서 트랙당 5-50MB 누적. **`blobUrl` 소비자 grep 0** — createObjectURL 호출 자체 삭제가 최선.
-- 상태: ✅ 수정 완료
-
-### CATCH-3 🔵 — 데모 exit 폴백 타이머가 커튼 애니메이션 미취소 → afterCovered(스냅샷 복원) 2회 실행 가능
-- hidden 중 exit(잠금화면 host-drop) 시 920ms 폴백이 #1 실행, visibility 복귀 시 onfinish가 #2. 현재 거의 멱등이라 UI blip뿐. **픽스**: 폴백 타이머 본문에 `stopDemoCurtainAnimation()` 1줄.
-- 상태: ✅ 수정 완료
-
-### PERF-1 🟡 — 게스트 SYNC_PING(초당 1×N)마다 connectedPeers setState → **숨겨진 데모 QR을 초당 N회 재생성**
-- liveness 업데이트가 매 핑 전체 배열 재생성 setState → 유일 구독자가 `syncDemoSessionCopy`(demo.active 게이트 없음, same-code dedup 없음) → QRCode.toString SVG + innerHTML을 데모 안 연 호스트에서 세션 내내. 배터리 + 미래 구독자 지뢰.
-- **픽스**: ① lastHeartbeat를 모듈 Map으로(상태 제거 — 유일 reader가 heartbeat 모니터) ② syncDemoSessionCopy에 `!demo.active` early-return ③ QR same-code 캐시. ①+②권장.
-- 상태: ✅ 수정 완료
-
-### PERF-2 🔵 — 데모 이펙트 토글 1회가 3중 전송 + 게스트당 enterDemoMode 재실행 + synthetic resize 5회 폭풍
-- 오디오 SETTING(베이스=7메시지) + 정보상 잉여인 DEMO_ENTER 재브로드캐스트(게스트는 설정에서 플래그 자가 파생) → 게스트마다 setDemoDomActive 풀 경로(~5 resize). 4토글 = 게스트당 ~20 relayout.
-- **픽스**: DEMO_ENTER는 부트스트랩/트랙변경 전용으로, 플래그 변경은 무전송(자가 파생) 또는 경량 메시지. same-index active 시 setDemoDomActive 스킵.
-- 상태: ✅ 수정 완료
-
-### (무ID 메모) guest enterDemoMode active 분기 try/finally에 catch 부재
-- 실패 시 unhandledrejection 노이즈(자가치유는 됨). DEMO-1 작업 시 catch 1개 추가.
-
-### CHECKED & SOLID (데모/캐치올)
-- 데모 시간축 동기 복구 전 경로 검증 작동(상단 헤드라인). 데모 중 게스트 조인 부트스트랩 정상 + 일반 재생 부트스트랩의 데모 게이트 적절(충돌 PLAY 없음 — 구멍은 post-exit인 DEMO-4뿐).
-- 선행 데모 fix 전부 보존(11차 H-3, 12차 re-check, SA-13, 13차 QR 토큰, load-token). 타이머/페이지 수명주기/AudioContext statechange/blob-manager/버스 페어링 148 전부 건전.
-- 스토리지는 RAM-only 확인(navigator.storage 쓰기 0 — OPFS 표면 소멸), ramstore 무결성 게이트·backpressure 정상. 데모 메모리 피크 ~200MB(iOS 예산 내, 스냅샷이 pre-demo 버퍼 핀하는 건 인지 사항).
+- **All XSS sinks are clean:** every `parseMessageContent` branch escapes before reaching a sink, using escapeHtml for text and escapeAttr for attributes. Sender names, system messages, whispers, and announcements all use textContent-style paths. i18n parameters cannot inject markup because replacement is a plain replaceAll with no HTML evaluation.
+- Badge spoofing is blocked because the host overwrites identity fields from canonical state for both CHAT and WHISPER. Administrative commands are authorized through isFromHost on guests, rejection of hostConn-null on the host, and server verification of REQUEST_CHAT_COMMAND for operators.
+- Two token buckets apply: general traffic at 60 per 20 seconds and chat at 10 per second, with cleanup on disconnect. The DOM is capped at 200 nodes and dedup at 50 entries. Dedup keys derive from authenticated `conn.peer` and cannot be poisoned.
+- The profanity filter has no ReDoS exposure: it is built once at module load and input is capped at 500 characters. Slash-command edge cases pass. Newlines cannot enter because paste strips them and beforeinput blocks them.
 
 ---
 
-## 외부 리뷰 후속 (같은 날, 커밋 78a60487)
+## 5. Mixed Sessions (HET)
 
-사용자가 가져온 외부 AI 리뷰 2건 검증 — 13차 패턴 재현(외부 정독이 멀티에이전트 스윕의 잔여를 잡음):
+> **Cross-cutting pattern:** Four of the six HET findings share one shape. The R2/remote subsystem manages its lifecycle in module-local state such as `_activeDownload`, `_activeUploads`, descriptor caches, and an unrecorded `transfer.localSessionId`. Mode-transition and recovery machinery built around `transfer.state` and lifecycle cannot see that state. Add a "remote-share module state" column to Blind Spot 8, the cancellation matrix, and Blind Spot 9, sibling-mode parity.
 
-### EXT-1 🟡(P2) — preload index-mismatch 클리어를 캡처된 로컬이 우회 (선재 버그, 22차와 무관)
-- `handleFilePrepare`가 mismatch 시 preload **상태**는 클리어하지만 매치 판정 로컬(`nextFileBlob`/`hasPreloadedByName`)은 클리어 **전에** 캡처됨 → 동명·타 index 트랙(중복 파일명, 같은 곡 2회 추가 포함)이 name-match로 preload-match 분기 진입. 리뷰 주장과 달리 stale blob 디코드는 아니고(консумер가 상태에서 null을 읽음) **유령 preload 대기 + 진짜 전송 드랍**(skip 게이트)으로 워치독 복구까지 정체.
-- 픽스: 분기에 `!isMismatch` 게이트 1줄 (index-match와 mismatch는 상호배타 — name-match 진입만 차단, index 부재 폴백 보존·핀).
-- 상태: ✅ 수정 완료
+### HET-1 [Yellow] - Promotion from remote to local kills loaded audio and retransmits the full file
 
-### EXT-2 🔵(P4) — CONN-1 relocation의 `ConnectedPeer.slot` 미동기화 (위생)
-- 지적 3건 중 1건만 유효: slot 필드 stale은 사실(프로덕션 reader 0이라 기능 영향 없음, 위생 픽스 적용). 라벨/joinOrder 유지와 re-broadcast 부재는 **의도적 수용** — 라벨=입장 시점 정체성(rename 의미론), joinOrder=입장 순서, device list는 slot을 노출하지 않아 relocation으로 바뀌는 가시 데이터가 0.
-- 상태: ✅ slot 동기화 적용 + 테스트 assert 확장
+- A LAN guest initially misclassified by ICE is playing the current track through R2. The 30-second fallback recheck promotes it to local, so the host unicasts the current file. On the guest, `handleFileStart` sees `incomingSid > localSessionId (= 0, unused by the remote path)`, treats it as a false new session, and **destructively clears state before the same-file check**. Playback cuts out and the already-present file downloads again in full. The promotion guard `shouldAcceptLocalDirectFileStart` covers only mid-download AWAITING_PRELOAD.
+- **Fix:** Before the isNewSession clear in handleFileStart, short-circuit when the current blob and metadata match the header, mirroring `replayLoadedSameFile`. The alternative of recording the descriptor sessionId in localSessionId on the remote path is unsafe.
+- Status: Fixed
 
-### 신규 사각 후보 ⑭ — 캡처된 로컬 vs 상태 클리어
-같은 스코프에서 "상태를 읽어 로컬에 캡처 → 조건부 상태 클리어 → 캡처본으로 분기"가 있으면 클리어가 무력화된다. 상태 클리어 가드를 추가/리뷰할 때 **선행 캡처본이 클리어를 우회하는지** 확인 의무화. (22차가 놓친 이유: 검증자들은 변경 코드에, 도메인 에이전트는 모듈 간 플로우에 집중 — 한 함수 안 20줄 거리의 시간차 비일관성은 양쪽 렌즈 모두의 사각)
+### HET-2 [Yellow] - OS media-key STOP during YouTube playback never broadcasts YOUTUBE_STOP
 
-## 실기기 테스트 발견 (같은 날, 커밋 7adf11c6)
+- The YouTube branch of `stopPlayback` (`transport.ts:808-819`) calls `setPlaybackIdle()` **first** to suppress an ENDED race. `stopYouTubeMode` then observes `wasInYouTube === false` and skips the broadcast. Every guest remains stuck in YouTube mode: later file tracks are ignored by the FILE_PREPARE YouTube-owner guard, guests spam REQUEST_CURRENT_FILE, and host unicasts are wasted. Sibling paths `handleEndOfPlaylist` and `stopAllMedia` capture the state before setting idle, so only this path diverged (Blind Spot 9).
+- **Fix:** Capture `wasInYouTube` in stopPlayback before setting idle, then pass it through or broadcast explicitly.
+- Status: Fixed
 
-사용자 실기기 테스트가 잡은 2건 — 조사 에이전트 1:1 추적 후 수정:
+### HET-3 [Yellow] - Switching from file playback to YouTube or system audio broadcasts an in-progress R2 descriptor after it becomes stale
 
-### DV-1 🔴(P1) — 신규 전송 전체에서 호스트 재생 시작 시 게스트 다운로드 0% 리셋 (SA-03 유발 회귀)
-- **메커니즘**: handleFilePrepare fresh 분기가 DOWNLOADING 전이 **한 버스홉 뒤에** `storage:clear-previous-track`를 emit → clearPreviousTrackState의 setPlaybackIdle이 방금 쓴 lifecycle을 IDLE로 클로버 → **모든 신규 게스트 다운로드에서 FSM이 조용히 해제된 채 진행** → PLAY의 DOWNLOADING defer 게이트 무발동 → 어제 넣은 SA-03 no-buffer 분기가 전송 중 REQUEST_CURRENT_FILE 발사 → 호스트 unicast-from-0 응답(같은 sid의 FILE_START)을 handleFileStart가 "복구 재전송 = 0부터"로 처리 → 부분 다운로드 폐기. SA-03 주석의 "FILE_START가 1 RTT 내 DOWNLOADING 전이" 가정은 HEAD에서 거짓이었음(handleFileStart는 transition을 안 함) — PLAY마다 반복 리셋.
-- **픽스**: ① clearPreviousTrackState가 `isFilePipelineBusyForPlay()` 중에는 idle 금지(근본) ② SA-03에 transfer.state RECEIVING/PROCESSING 억제 벨트(웨지는 12초 chunkWatchdog의 resume 복구가 커버). +동반 최적화: FILE_PREPARE에 size 추가, name+size 일치 시 프리로드 blob을 재인덱싱해 재다운로드 생략(중복 파일명/prev 복귀).
-- **후속 (517f4a60, 사용자 재질문이 잡은 형제 갭)**: 재사용 기계가 2곳(프리로드 슬롯 / 현재 로드 파일)인데 promote를 프리로드에만 배선했었음 — **재생 중인 바로 그 파일**의 중복 항목을 다른 index로 클릭해도 재다운로드. same-file 분기에 name+size 매칭 추가, index/meta 재포인팅 후 기존 replay-current 경로. (사각 ⑤: 픽스 자체도 형제 스윕 대상)
-- 상태: ✅ (+핀 4+2)
+- The YouTube branch of playTrack neither clears `files.currentFileBlob` nor cancels the upload. `cancelInFlightUpload` was dead code with no callers. When the upload completes, the blob-identity branch of `isHostActiveFile` still passes and broadcasts the descriptor for track A even though the room is playing YouTube. The remote guest's `handleRemoteFileShare` has no external-owner guard, unlike handleFilePrepare, so it overwrites currentTrackIndex, flips title UI during YouTube playback, downloads the full file over mobile data, and discards it at activation.
+- **Fix:** On the host, add `!isExternalOwner()` to `isHostActiveFile`, or wire the dead upload-cancellation code into mode transitions. A guest-side guard was rejected because descriptors are one-shot; the host-side fix is required.
+- Status: Fixed
 
-### DV-2 🟠(P2) — 원격 게스트의 remote-wait가 수동적 막다른 길 (사각 ⑤ 재발)
-- **메커니즘**: bare PLAY(데모 종료 후 재개 등)로 remote-wait에 진입하면 호스트에 **아무것도 안 보냄** — local 형제 분기는 REQUEST_CURRENT_FILE을 보내는데 remote는 passive. 정당화였던 "호스트가 원격 요청을 드랍"은 HET-6 라우팅으로 obsolete됐는데 형제 분기 미갱신. 재개 경로엔 descriptor 재공유가 없고, 5분 타이머도 토스트만(lifecycle 영구 AWAITING_PRELOAD → 이후 PLAY 전부 defer, SYNC 부트스트랩 스킵, 플레이 버튼 busy 차단).
-- **픽스**: ① 양쪽 remote-wait 분기가 NEW wait일 때 REQUEST_CURRENT_FILE(reason: remote_share_wait) 발사 → 호스트의 기존 원격 라우팅이 캐시 descriptor 재전송(컨트롤 플레인만) ② REMOTE_WAIT_TIMER 타임아웃 시 AWAITING_PRELOAD→FAILED 전이로 게이트 해제.
-- 상태: ✅ (+핀 3+1)
+### HET-4 [Yellow] - In-progress R2 downloads are not canceled on mode changes
 
-### 후속 관찰 (DV-1 조사 중 발견, 미수정)
-FILE_END가 control 채널로 bulk 청크(~512KB)를 추월 → 조기 shortfall 복구 + backoff 콜백에 완료-확인 부재 → finalize된 슬롯에 무의미한 FILE_RESUME/INTEGRITY_FAIL 노이즈 가능(자가치유, wire 낭비만). 다음 라운드 후보.
+- Both `cancelInFlightTransfer` for YOUTUBE_PLAY and `cancelIncomingFileTransfer` for SYSTEM_AUDIO_START, introduced in SA-08, are keyed to RECEIVING in `transfer.state`. The remote path does not use that state. None of the three callers of `cancelRemoteShareWait` handles mode changes. `_activeDownload` continues streaming and repainting the loader, and its 5-minute-15-second timer remains active. This is the R2 variant of Blind Spot 8.
+- **Fix:** Export a `cancelActiveRemoteDownload(reason)` wrapper and call it from both cancellation blocks.
+- Status: Fixed
 
-### 사각 ⑭ 보강
-DV-1은 ⑭("캡처된 로컬 vs 상태 클리어")의 형제 모양: **"전이 직후의 클린업이 방금 쓴 상태를 클로버"**. 전이 추가/리뷰 시 같은 플로우 안에서 뒤따르는 클린업(stop-all-media, clear-previous-track)이 그 전이를 덮지 않는지 확인.
+### HET-5 [Blue] - `handlePlayPreloaded` lacks a remote-guest branch and relies on FSM safety promotion
 
-## 외부 리뷰 2차 (2026-06-11)
+- PLAY_PRELOADED is the only track-change message without an isRemoteGuest branch. An R2 descriptor self-heals in the current deployment, where musixquare.com has R2 configured, so the finding remained Blue-classified. In deployments without R2, the loader remains indefinitely because the host silently drops REQUEST_DATA_RECOVERY: the transport guard in `unicastFile` returns without FILE_WAIT.
+- **Fix:** Add a branch at the top of the handlePlayPreloaded fallback that mirrors handlePlayMsg, and respond with FILE_WAIT when unicastFile skips a remote target.
+- Status: Fixed
 
-### EXT-3 🟡(P2~P3) — reuse fast-path가 고아 chunkWatchdog을 남김 (사각 ⑤가 DV-1/517f4a60 픽스 자신에 재적중)
-- **메커니즘**: handleFilePrepare의 new-session 리셋이 chunkWatchdog 장전 + receivedCount=0 → 직후 reuse fast-path(preload promote / same-content replay)로 빠지면 청크가 영영 안 오는데 해제 코드가 없음. replay는 decode를 안 타서 decode 완료 해제(decode.ts)도 안 옴 → 12초 뒤 발화 → `sendRecoveryRequest`의 로컬 게스트 경로는 lifecycle 게이트가 없어 `REQUEST_DATA_RECOVERY(nextChunk=0)` 발사 → **호스트가 파일 전체를 로컬 게스트 수만큼 unicast 재스트리밍**. FILE_START의 HET-1 단락이 받아서 버리므로 재생 끊김·0% 리셋은 없음 — 증상이 "조용한 풀파일 재전송 낭비"라 실기기에서 안 보였음.
-- **범위 보정**: 원격 게스트 무관(장전 이전에 return). preload promote는 decode 완료가 12초 내면 자가치유 — 대용량 decode 엣지만 잔존. 중복 항목 reuse(같은 날 넣은 517f4a60 경로)는 100% 재현.
-- **픽스**: 두 reuse return 직전에 `clearManagedTimer('chunkWatchdog')` + 방어적 `prepareWatchdog`. "청크가 올 일 없는 경로 = 청크 안전망 해제" 의미론. startChunkWatchdog 장전 자체를 뒤로 미루는 대안은 preload-waiting 분기의 백업 벨트 의미를 바꿔서 기각.
-- 상태: ✅ (+핀 2: 장전→해제 호출 순서 assert, 1075 tests)
-- **교훈**: 사각 ⑤ 3연속 — 517f4a60에서 "픽스 자신에게 sibling sweep"을 기록하고도, reuse fast-path 신설 시 **몇 줄 위에서 방금 장전한 안전망**은 안 봤다. fast-path/short-circuit return을 추가하면 그 함수가 진입 시점에 장전한 타이머/가드/카운터를 전수 확인할 것.
+### HET-6 [Yellow] - Every remote-guest failure path is terminal
 
-### EXT-4 🟡(P2) — remote-share 같은 objectId dedup이 새 재생 컨텍스트를 통째로 버림 (사각 ⑪ + ⑤ 원격 형제)
-- **메커니즘**: `_activeDownload.objectId === descriptor.objectId`면 무조건 return — 중복 playlist 항목/호스트 재클릭이 같은 캐시 descriptor를 **새 index/sessionId로 rebase해 재전송**하는 경우(호스트 측 명시 기능: "rebasing the wire descriptor to the current playback session/index")를 구분 못 함. 다운로드 완료 publish는 클로저에 잡힌 **원본 descriptor의 index/sid**로 나감 → 게스트가 stale 트랙 정체성 채택(잘못된 row 하이라이트, transfer.meta index/sid 불일치) + **REMOTE_WAIT_TIMER 성공판정이 새 index 기준이라 정상 재생 중 스퓨리어스 "대기 시간 초과" 토스트**. 이후 descriptor 재수신 시 `isCurrentRemoteFileLoaded`가 index 불일치로 false → 같은 바이트 풀 R2 재다운로드 가능.
-- **픽스**: abort/restart(부분 다운로드 폐기 — 셀룰러 대용량에 최악)가 아니라 **publish 컨텍스트 re-point**. `DownloadEntry`가 최신 descriptor를 보유, 같은 objectId 수신 시 `_activeDownload.descriptor` 갱신 + `prepareRemoteShareWait` 재호출(동일 컨텍스트면 idempotent skip), 완료 publish는 `publishDescriptor`(최신) 기준. 같은 objectId = 같은 바이트라 다운로드는 그대로 살림.
-- 상태: ✅ (+핀 2: mid-download 컨텍스트 교체 publish / 동일 컨텍스트 순수 dedup, 1077 tests)
-- **교훈**: ⑪(모듈 로컬 `_activeDownload`가 전역 기계에 불가시)과 ⑤(로컬 same-content reuse 픽스의 원격 형제)의 교차점. **dedup 키와 publish 컨텍스트가 다른 축이면, dedup은 "작업"만 합치고 "컨텍스트"는 최신으로 끌고 가야 한다** — wholesale drop은 컨텍스트까지 버린다.
+- **Decode failure:** The guest sends REQUEST_CURRENT_FILE, but there is no remote branch. The host's unicastFile silently skips the remote target. Because a blob was found, it does not send FILE_WAIT. The guest remains FAILED and silent until the track ends. **Download failure:** Only a toast and status update occur; there is no retry or lifecycle transition, so the guest waits for the five-minute timeout. This differs from the local pipeline's three-retry backoff.
+- **Fix:** On the host, route remote or unknown requesters to `shareRemoteFileIfNeeded` so the descriptor is resent or reuploaded. On the guest, add one bounded retry for non-abort failures.
+- Status: Fixed
 
-### EXT-5 🟡(P2) — 늦은 REQUEST_CURRENT_FILE 응답이 EXT-4 re-point를 통해 wait를 stale index로 되감음 (EXT-4 유도 회귀)
-- **메커니즘 (호스트 측 합성)**: ① `findMatchingBlob`이 명시적 reqIndex 불일치여도 name 매치로 현재 blob 서빙(recovery.ts:290-293) ② targeted `shareRemoteFileIfNeeded`는 stale-track guard 우회(`if (!targetConn)` 게이트, remote-share.ts:423) ③ `withPlaybackContext(descriptor, sid=ensureValidSessionId(), index=reqIndex)` — 즉 늦은 응답이 **(현재 sessionId, stale index)** descriptor로 합성됨. EXT-4의 무조건 re-point가 이걸 채택 → `prepareRemoteShareWait`가 currentTrackIndex/pendingRecoveryTarget/meta를 옛 index로 되돌리고 publish도 stale. **EXT-4 이전엔 이 방향은 무해 drop이었으므로 유도 회귀** (15차 패턴).
-- **픽스 (게스트 측 (b), monotonic sid 게이트)**: 정당한 재선택은 항상 `nextSessionId()`로 sid 증가, 합성 stale 응답은 sid가 추적값과 같거나 낮음 → **strictly newer sessionId만 채택**, 그 외 순수 dedup. ordered 채널이라 newer-sid 브로드캐스트는 나중 합성 응답보다 항상 먼저 도착 — 전 인터리빙 커버. 호스트 측 (a)(name 폴백 index 엄격화)는 로컬 복구 파이프라인과 공유되는 기계 + index-drift 관용이 존재 이유라 **기각/관찰 기록**(아래).
-- 상태: ✅ (+핀 1: index 1 대기 중 same-sid/older-sid stale descriptor 무시 + publish index 1 유지, 1078 tests)
-- **관찰 (미수정, P4)**: findMatchingBlob의 name 폴백이 명시적 index 불일치 요청에 현재 blob을 서빙하는 것 자체는 잔존 — 게스트 측 게이트가 descriptor 방향을 막았고, 로컬 unicast 방향은 동명·이내용 파일 엣지(size 불일치가 하류에서 잡음). 호스트 측 엄격화는 로컬 복구 회귀 위험 대비 이득이 낮아 보류.
-- **교훈**: ⑬의 형제 — **"늦게 도착한 메시지 ≠ 최신 컨텍스트". 컨텍스트 채택 로직은 도착 순서가 아니라 단조 증가 토큰(sessionId)으로 게이트할 것.** + re-point/adopt 픽스를 넣으면 "이걸 악용하는 stale 공급원이 있나"를 즉시 역방향 스윕 (EXT-4 검증 때 호스트 측 합성 경로를 안 봤음).
+### Verified Behaviors (Mixed Sessions)
 
-### EXT-6 🟡(P2) — EXT-5 게이트가 in-flight 창에서만 유효, 다운로드 완료 후 stale descriptor는 fresh-download로 우회 (EXT-5 잔여)
-- **메커니즘**: EXT-5 게이트는 `if (_activeDownload)` 분기 내부 — finally가 `_activeDownload = null` 후 늦은 composed-stale descriptor 도착 시 ① isCurrentRemoteFileLoaded / isPreloadedRemoteFile 모두 index 불일치로 미스 ② 게이트 부재 → **fresh download 진입 + prepareRemoteShareWait로 wait 되감기 + 이미 기기에 있는 바이트 풀 R2 재다운로드**. R2 완료 타이밍은 DataChannel control 순서와 독립이라 "완료 후 늦은 응답" 창은 실재.
-- **픽스**: 모듈 레벨 `_lastAdoptedRemoteContext {objectId, index, sessionId}` — 채택 3지점(fresh 시작·in-flight re-point·preload-promote)에서 기록, fresh-download 진입 전 전역 게이트: **strictly newer sessionId 또는 exact re-send(동일 objectId+index+sid)만 통과**. exact 예외가 디코드 실패 재요청 등 복구 재시도 보존. 세션 경계(`state:network.sessionCode` 변경 — M13: truthy→truthy 재연결 포함)에서 무조건 리셋(새 호스트 sid 공간이 낮으면 정당 descriptor 차단 방지). **보너스: EXT-5 분석에서 식별한 다른-object 변종(호스트 preload 슬롯이 stale 요청을 현재 sid로 서빙)도 전역 게이트가 함께 차단** — equal-sid 다른-object는 newer도 exact도 아님.
-- 상태: ✅ (+핀 2: 완료 후 same-sid/older-sid stale 무시 + **newer-sid는 여전히 수락(과차단 방지 컨트롤)**, 1080 tests)
-- **잔여 관찰 (P3 후보, 미수정)**: newer-sid 중복 항목 재선택 시 원격 게스트는 이미 가진 바이트를 풀 재다운로드 — 로컬 same-content reuse(517f4a60)의 원격 형제 미배선(원격 게스트는 transfer-receive의 same-content 분기 도달 전에 return). meta에 objectId를 실으면 재포인팅 가능. 다음 라운드 후보.
-- **교훈**: 게이트/가드 픽스의 스코프 질문 의무화 — **"이 가드가 지키는 상태의 수명과 가드 자신의 수명이 일치하는가?"** in-flight 가드는 in-flight 상태만 지킨다; 지켜야 할 것이 완료 후에도 남으면(채택된 컨텍스트) 가드도 그만큼 살아야 한다. + 테스트가 "pending 동안"만 커버하면 "완료 후" 형제 케이스를 명시적으로 묻기.
+- The main race, PLAY arriving before a remote guest is ready, is fully handled through lifecycle deferral, age correction for pendingPlayTime, and SYNC_PONG bootstrap.
+- Track changes work for mixed audiences: local chunks and remote descriptors, idempotent handling of reversed arrival order, objectId-based aborts on rapid A-to-B changes, remote guests joining mid-transfer, promotion mid-download with test coverage, mixed preloadedIndexes bookkeeping, and targeted PRELOAD_ABORT.
+- Rapid YouTube/file crossings are correct. FIFO ensures YOUTUBE_STOP precedes FILE_PREPARE, preload works at the YouTube-to-file boundary, and shuffle/repeat clears caches when it lands on YouTube, preserving the SA-01 contract.
+- Three P4 observations: an old-file broadcast loop can remain after a transition but wastes only bandwidth; an upload finishes after the only remote peer disconnects but is harmless; and `cancelInFlightUpload` was dead code before HET-3 wired it.
 
-### EXT-7 🟡(P2) — EXT-6 exact 예외가 objectId까지 요구해 정당한 복구 재발급을 차단 (EXT-6 유도 회귀, 과차단 방향)
-- **메커니즘**: 호스트 descriptor 캐시 만료 시 같은 트랙을 **새 R2 object로 재업로드**(같은 sid/index — shareRemoteFileIfNeeded의 명시 경로, HET-6 복구 라우팅이 의존). 게스트가 {A, 1, 9} 채택 후 다운로드 실패 → 재발급 {B, 1, 9}: newer 아님(sid 동일) + exact 아님(objectId 상이) → **drop. 게스트는 파일을 영영 못 받음** — 재시도마다 같은 {B,1,9}가 와서 같은 게이트에 막힘(트랙 변경으로 sid가 오를 때까지).
-- **픽스**: 예외 기준을 **재생 컨텍스트 동일성(index+sessionId)으로 완화, objectId 의도적 비교 제외**. 되감기 차단에 필요충분한 건 "다른 index + 같은/낮은 sid" 차단 — 같은 컨텍스트 재발급은 정의상 되감을 게 없음. 호스트 sid가 playFile마다 단조 증가라 같은 sid = 같은 재생 선택이 보장됨.
-- **테스트 중 확인된 형제 경로 (이미 건전)**: 첫 다운로드가 **성공**한 뒤의 재발급은 preload-promote fast-path(isPreloadedRemoteFile — index/name/size/sid 매치, objectId 무관)가 받아서 재다운로드 없이 기존 blob 승격 — 원래 테스트 시나리오가 이걸로 "실패"해서 발견. 게이트가 필요한 건 blob이 없는 실패-후-재발급 케이스뿐.
-- 상태: ✅ (+핀 1: 실패 후 재발급 {B,1,9} 수락 + 같은 테스트에서 {B,0,9} composed-stale 차단 유지 assert, 1081 tests)
-- **교훈**: 차단 게이트의 예외 조건은 **"막으려는 침해가 정확히 무엇인가"에서 역산**할 것 — 침해=index 되감기인데 예외 키에 objectId를 넣은 건 침해와 무관한 축을 묶은 것. 불변 축(컨텍스트)과 가변 축(전송 수단=object)을 분리. + 게이트 추가 시 "이 게이트를 통과해야 하는 정당한 트래픽의 전수 목록"을 먼저 적기 (재발급을 목록에 안 올린 게 이번 구멍).
+---
 
-## 메타 — 이번 오디트가 추가한 사각 후보
+## 6. Security (SEC) - Clean Pass
 
-1. **⑪ 모듈 로컬 상태 vs 전역 기계** (HET 패턴): 서브시스템이 자기 수명주기를 모듈 변수로 관리하면 cancel/parity 스윕(⑧⑨)이 못 본다. 신규 서브시스템 추가 시 "이 모듈의 in-flight 작업을 외부 기계가 취소/관찰할 수 있는가" 체크 의무화.
-2. **⑫ 송신측 번역 금지** (UI-3): wire에 번역된 문자열을 싣는 순간 교차 로케일 누출. i18nKey 패턴 강제 — `t(` 결과를 send/broadcast payload에 넣는 정적 가드 후보.
-3. **⑬ 낙관적 적용의 거절 경로** (ROLE-1): request-grant 프로토콜에서 "거절되면 로컬 상태는 누가 되돌리나"를 설계 시점에 답해야 함. NACK 또는 재베이스라인.
-4. **idle-vs-paused 구분 누락** (UI-4): `isPlaybackPaused()`가 idle을 cover하지 않는다는 사실이 분기 버그를 만듦 — activity 3분법(idle/paused/playing) 전수 매칭 습관.
+**No new Red-, Orange-, or Yellow-classified findings.** Six threat surfaces were traced end to end: all XSS sinks use escaping or textContent; authorization is rederived from canonical state through `verifyOperator` and `isHostBroadcast` in more than 40 handlers; every file uses a fresh AES-256-GCM key and IV, with keys sent only over WebRTC and only ciphertext stored in R2; DoS controls include two token buckets, an `isHostBroadcast` first-line guard on chunks that prevents amplification, and numeric validators that reject NaN and Infinity; signaling validates a 24-byte CSPRNG hostSecret server-side; and the `__health` reconnaissance endpoint remains absent. **All earlier audit fixes remain intact,** including role-badge XSS, lastJoinCode, double decoding of titles, and DATA_RELAY removal.
+
+### SEC-1 [Blue] - Chat YouTube-button DOM IDs use Math.random
+
+- This is not security-sensitive. A theoretical collision could write an oEmbed title to the wrong message, but the write uses textContent and cannot cause XSS.
+- Status: Recorded only
+
+### SEC-2 [Blue] - Rate limiting fails open when peer ID is absent
+
+- `allowInboundFromPeer` and `allowChatFromPeer` fail open without a peer ID. The current transport always supplies `conn.peer`, so the path is unreachable. Record this as a defensive note for future transports.
+- Status: Recorded only
+
+---
+
+## 7. Demo Recovery, Catch-All, and Performance (DEMO/CATCH/PERF)
+
+> **Summary:** Demo timeline desynchronization has complete recovery coverage through one-second SYNC_PING/PONG checks, correction when drift exceeds two seconds, no-buffer bootstrap, and forced resynchronization after background resume. **Demo track-identity desynchronization had no recovery path; DEMO-1, DEMO-3, and DEMO-4 cover that gap.**
+
+### DEMO-4 [Orange] - A guest joining during demo remains permanently silent after demo exit
+
+- First, the one-shot orchestrator file bootstrap is consumed and lost at the demo gate in `playback.ts:962`. Second, the first PLAY after exit returns from its index-mismatch branch because it assumes another bootstrap will arrive. Third, the next PLAY's SA-03 recovery request cannot match either side of `findMatchingBlob` because host `transfer.meta` still describes the demo track: the snapshot does not save or restore metadata, and `loadDemoFile` overwrites it. The guest remains in **FILE_WAIT indefinitely** and silent until the track changes. The root cause is a violation of the atomic `(currentFileBlob, transfer.meta)` pair invariant documented at `decode.ts:205-211`.
+- **Fix:** Include transfer.meta in the demo snapshot so the pair invariant is restored. That alone allows the second PLAY to recover through SA-03. Ideally, demo exit should also rerun bootstrapLocalPeerFile for isDataTarget peers that have no file.
+- Status: Fixed
+
+### DEMO-1 [Yellow] - A loading guest silently drops host track advancement and synchronizes the wrong track to the host timeline
+
+- The first-line `demo.loading` early return in `enterDemoMode` drops DEMO_ENTER for track n+1. The pending action is also a no-op because its index does not match, and nothing retriggers it. Within one second, SYNC_PONG bootstrap starts track n's audio at track n+1's position. The receiver did not compare the PONG payload's trackIndex, the dead field from ROLE-6.
+- **Fix:** (a) Queue the requested index while loading and redispatch it from the load's finally block; and (b) defensively skip bootstrap in handleSyncPong when trackIndex is finite and does not match.
+- Status: Fixed
+
+### DEMO-3 [Yellow] - Demo track-advance fetch failure has no in-demo retry and splits the room when Play is pressed
+
+- The index advances and broadcasts **before** loading. On failure, only the host has a null buffer. Pressing Play broadcasts DEMO_PLAY first, so guests play while the host is silent and shows an unrelated "playlist empty" toast. Pressing it again does not refetch because of the same-index guard. Only exiting and reentering demo recovers.
+- **Fix:** In toggleDemoPlay or startDemoPlayback, call `loadDemoTrack(_demoTrackIndex, autoplay)` when `demo.active && !buffer`, or retry from the catch path.
+- Status: Fixed
+
+### DEMO-2 [Blue] - Rapid exit and reentry can run an old restore during the new demo
+
+- On reentry within roughly 340 ms, the active fast path does not stop the old curtain animation. Its old `afterCovered` callback runs `restoreSnapshot` over the new demo, and the new snapshot then captures demo settings, potentially losing the original settings permanently. This is the exit-side sibling of SA-11's intentionally unchanged entry-side issue and is tracked separately.
+- **Fix:** In the active fast path, call `stopDemoCurtainAnimation()`, synchronously finish the pending afterCovered callback, and only then capture the new snapshot.
+- Status: Fixed
+
+### CATCH-1 [Yellow] - Service-worker controllerchange hard-reloads live sessions in other tabs without prompting
+
+- Tab B accepts an update, triggering SKIP_WAITING. Every controlled client receives controllerchange, so Tab A can die while hosting a live session. `markIntentionalNav` also suppresses its beforeunload prompt. On a second deployment within the 30-second cooldown, the client calls SKIP_WAITING with **no dialog**. This has practical impact because colocated multi-tab testing is common for this product.
+- **Fix:** In controllerchange, defer reload and show an "update ready" toast when `network.appRole !== 'idle'`. Auto-reload only idle tabs.
+- Status: Fixed
+
+### CATCH-2 [Yellow] - Every remote track change leaks one object URL and pins the full decrypted blob
+
+- Completion stores `download.blobUrl`. The next descriptor's fetch start overwrites it with null **without revoking it**, so later revoke logic reads null. A remote guest on mobile can accumulate 5-50 MB per track. A search found **zero consumers of `blobUrl`**, so removing the createObjectURL call entirely is the best fix.
+- Status: Fixed
+
+### CATCH-3 [Blue] - Demo-exit fallback does not cancel the curtain animation and may run snapshot restoration twice
+
+- If exit occurs while hidden, such as a host drop on the lock screen, the 920 ms fallback runs once. On visibility return, onfinish runs it a second time. The path is nearly idempotent today and causes only a UI blip. Add `stopDemoCurtainAnimation()` to the fallback timer body.
+- Status: Fixed
+
+### PERF-1 [Yellow] - Every guest SYNC_PING recreates a hidden demo QR code
+
+- Each guest sends one SYNC_PING per second. Every ping recreates the connectedPeers array through setState for a liveness update. Its only subscriber, `syncDemoSessionCopy`, has neither a `demo.active` gate nor same-code dedup, so it runs QRCode.toString, SVG, and innerHTML N times per second for a host who never opened demo. This wastes battery and is a hazard for future subscribers.
+- **Fix:** (1) Move lastHeartbeat to a module Map because the heartbeat monitor is its only reader; (2) add an early return for `!demo.active` in syncDemoSessionCopy; and (3) cache identical QR codes. Items 1 and 2 are recommended.
+- Status: Fixed
+
+### PERF-2 [Blue] - One demo-effect toggle causes triple transmission, repeated enterDemoMode, and five synthetic resizes per guest
+
+- A bass toggle already emits seven audio SETTING messages, followed by an informationally redundant DEMO_ENTER rebroadcast. Guests already derive the flags from settings, yet each guest reruns the full setDemoDomActive path, including roughly five resize events. Four toggles cause roughly 20 relayouts per guest.
+- **Fix:** Reserve DEMO_ENTER for bootstrap and track changes. Send nothing for flag changes because guests derive them, or use a lightweight message. Skip setDemoDomActive when the same index is already active.
+- Status: Fixed
+
+### Unnumbered Note - Missing catch in the active guest enterDemoMode branch
+
+- The try/finally has no catch, so failure creates unhandled-rejection noise even though the flow self-heals. Add a catch while implementing DEMO-1.
+
+### Verified Behaviors (Demo and Catch-All)
+
+- Every demo timeline-recovery path described in the summary works. Guest bootstrap during demo is correct, and the demo gate on normal-playback bootstrap prevents conflicting PLAY messages. The only post-exit gap was DEMO-4.
+- Earlier demo fixes remain intact: Audit 11 H-3, Audit 12 recheck, SA-13, the Audit 13 QR token, and load-token. Timers, page lifecycle, AudioContext statechange, blob manager, and all 148 bus pairings are sound.
+- Storage is confirmed RAM-only, with zero navigator.storage writes and no remaining OPFS surface. Ramstore integrity gates and backpressure are correct. Peak demo memory is roughly 200 MB, within the iOS budget. The pre-demo buffer pinned by the snapshot is a known cost.
+
+---
+
+## External Review Follow-Up (Same Day, Commit `78a60487`)
+
+Two externally reported findings were validated. As in Audit 13, close reading revealed residual issues after the initial review.
+
+### EXT-1 [Yellow, P2] - A captured local bypasses preload index-mismatch clearing
+
+- This bug predates Audit 22. On mismatch, `handleFilePrepare` clears preload **state**, but captures the match-decision locals `nextFileBlob` and `hasPreloadedByName` **before** that clear. A same-name track at another index, including a duplicate filename or the same song added twice, enters the preload-match branch through name matching. Contrary to the review claim, it does not decode a stale blob because the consumer reads null from state. Instead, it waits on a **phantom preload and drops the real transfer** at the skip gate until watchdog recovery.
+- **Fix:** Add `!isMismatch` to the branch. Index match and mismatch are mutually exclusive, so this blocks only name-match entry while preserving the fallback and regression pin for missing indices.
+- Status: Fixed
+
+### EXT-2 [Blue, P4] - CONN-1 relocation does not update `ConnectedPeer.slot`
+
+- Only one of the review's three claims was valid: the slot field was stale. There were no production readers, so this had no functional effect, but the hygiene fix was applied. Preserving label and joinOrder and omitting rebroadcast were **intentional**. Label is identity at join time under rename semantics, joinOrder is admission order, and the device list exposes no slot, so relocation changes no visible data.
+- Status: Fixed by synchronizing slot and extending the test assertion
+
+### New Blind-Spot Candidate 14 - Captured locals versus state clearing
+
+If a scope captures state into a local, conditionally clears the state, and then branches on the captured value, the clear is ineffective. Whenever adding or reviewing a state-clear guard, check whether an earlier capture bypasses it. Audit 22 missed this because validation focused on changed code while the domain review focused on cross-module flow. Both lenses missed a temporal inconsistency separated by 20 lines inside one function.
+
+## Physical-Device Test Findings (Same Day, Commit `7adf11c6`)
+
+User testing on physical devices found two issues. Each received a dedicated investigation and fix.
+
+### DV-1 [Red, P1] - Host playback resets every new guest transfer to 0 percent
+
+- **Mechanism:** The fresh branch in handleFilePrepare emits `storage:clear-previous-track` **one bus hop after** transitioning to DOWNLOADING. setPlaybackIdle in clearPreviousTrackState then clobbers the new lifecycle back to IDLE. **Every new guest download continues with the FSM silently disengaged.** PLAY therefore bypasses the DOWNLOADING defer gate, and the SA-03 no-buffer branch added the day before sends REQUEST_CURRENT_FILE during transfer. The host replies with unicast-from-0. When handleFileStart receives FILE_START for the same sid, it treats it as "recovery resend from zero" and discards the partial download. This repeats on every PLAY. The SA-03 comment's assumption that "FILE_START transitions to DOWNLOADING within one RTT" was false at HEAD because handleFileStart performs no such transition.
+- **Fix:** (1) Prevent clearPreviousTrackState from setting idle while `isFilePipelineBusyForPlay()` is true; this is the root fix. (2) Add a transfer.state RECEIVING/PROCESSING suppression belt to SA-03. The 12-second chunkWatchdog resume path covers wedges. A related optimization adds size to FILE_PREPARE and reindexes a preload blob when name and size match, avoiding repeat downloads for duplicate filenames and navigation back to a previous item.
+- **Follow-up (`517f4a60`, prompted by the user's question):** There are two reuse mechanisms, the preload slot and the currently loaded file, but promotion had been wired only to preload. Clicking another playlist item for **the same file currently playing** still downloaded it again. The same-file branch now matches name and size, repoints its index and metadata, and uses the existing replay-current path. This is another example of Blind Spot 5: every fix needs a sibling-path sweep.
+- Status: Fixed with 4+2 regression pins
+
+### DV-2 [Orange, P2] - Remote-guest remote-wait is a passive dead end
+
+- **Mechanism:** Entering remote-wait from a bare PLAY, including resume after demo exit, sends **nothing** to the host. The local sibling branch sends REQUEST_CURRENT_FILE, but the remote branch remains passive. Its original justification, that the host drops remote requests, became obsolete after HET-6 routing, but the sibling branch was not updated. Resume does not reshare the descriptor. The five-minute timer only shows a toast and leaves lifecycle permanently in AWAITING_PRELOAD, so every later PLAY defers, SYNC bootstrap skips, and the Play button remains blocked as busy.
+- **Fix:** (1) When either remote-wait branch enters a new wait, send REQUEST_CURRENT_FILE with reason `remote_share_wait`. Existing host routing then resends the cached descriptor over the control plane. (2) On REMOTE_WAIT_TIMER timeout, transition AWAITING_PRELOAD to FAILED so the gate is released.
+- Status: Fixed with 3+1 regression pins
+
+### Follow-Up Observation from the DV-1 Investigation (Not Fixed)
+
+`FILE_END`, sent on the control channel, can overtake roughly 512 KB chunks on the bulk channel. Early shortfall recovery and a backoff callback that lacks a completion check may then send pointless FILE_RESUME or INTEGRITY_FAIL messages for a finalized slot. The flow self-heals; the only impact is wire overhead. This is a candidate for the next audit.
+
+### Blind Spot 14 Addendum
+
+DV-1 is the sibling form of "captured locals versus state clearing": **cleanup immediately after a transition clobbers the state just written by that transition.** When adding or reviewing a transition, inspect later cleanup in the same flow, including stop-all-media and clear-previous-track, for overwrites.
+
+## External Review Round 2 (2026-06-11)
+
+### EXT-3 [Yellow, P2-P3] - A reuse fast path leaves an orphaned chunkWatchdog
+
+- **Mechanism:** handleFilePrepare's new-session reset arms chunkWatchdog and sets receivedCount to zero. A subsequent reuse fast path, whether preload promotion or same-content replay, returns even though no chunk will ever arrive, without clearing the timer. Replay does not decode, so decode completion in decode.ts does not clear it either. After 12 seconds, it fires. The local-guest path in `sendRecoveryRequest` has no lifecycle gate and sends `REQUEST_DATA_RECOVERY(nextChunk=0)`, causing the host to **unicast the entire file once per local guest**. HET-1's FILE_START short-circuit discards it, so playback does not stop and progress does not reset. Physical-device testing missed it because the symptom is silent full-file retransmission.
+- **Scope correction:** Remote guests are unaffected because they return before the timer is armed. Preload promotion self-heals when decoding completes within 12 seconds, leaving only the large-file decode edge. Duplicate-item reuse added in `517f4a60` reproduces the issue 100% of the time.
+- **Fix:** Immediately before both reuse returns, call `clearManagedTimer('chunkWatchdog')` and defensively clear `prepareWatchdog`. Moving startChunkWatchdog later was rejected because it changes the backup-safety semantics of the preload-waiting branch. The intended rule is: paths that will receive no chunks must disarm the chunk safety timer.
+- Status: Fixed with two regression pins asserting arm-then-clear call order; 1075 tests pass
+- Blind Spot 5 recurred for the third time. Although `517f4a60` recorded the need to sweep siblings of the fix, the new reuse fast path was not checked against the safety mechanism armed only a few lines earlier. Fast paths and short-circuit returns need to be checked against every timer, guard, and counter armed on function entry.
+
+### EXT-4 [Yellow, P2] - Same-objectId remote-share dedup discards a new playback context
+
+- **Mechanism:** `_activeDownload.objectId === descriptor.objectId` returns unconditionally. It cannot distinguish a duplicate playlist item or host re-click that resends the same cached descriptor **rebased to a new index/sessionId**. The host explicitly supports "rebasing the wire descriptor to the current playback session/index." Completion publishes using the **original descriptor index and sid captured by the closure**, so the guest adopts stale track identity: the wrong playlist row is highlighted, transfer.meta has the wrong index/sid, and REMOTE_WAIT_TIMER, evaluated against the new index, shows a spurious timeout toast during normal playback. A later descriptor then misses `isCurrentRemoteFileLoaded` because of the index mismatch and may redownload the same bytes from R2.
+- **Fix:** Do not abort and restart, which would discard a partial cellular download. Instead, repoint the publish context. `DownloadEntry` holds the latest descriptor. On receipt of the same objectId, update `_activeDownload.descriptor` and call `prepareRemoteShareWait` again, which skips idempotently for the same context. Completion publishes from the latest `publishDescriptor`. The bytes are identical for one objectId, so the download itself continues.
+- Status: Fixed with two regression pins: mid-download context replacement at publish and pure dedup for an identical context; 1077 tests pass
+- This is the intersection of Blind Spot 11, where module-local `_activeDownload` is invisible to the global machine, and Blind Spot 5, the remote sibling of local same-content reuse. When the dedup key and publish context are separate axes, dedup should merge only the work and advance the context to the latest value. Dropping the entire request also drops its context.
+
+### EXT-5 [Yellow, P2] - A late REQUEST_CURRENT_FILE response rewinds EXT-4 repointing to a stale index
+
+- **Mechanism, synthesized on the host:** (1) `findMatchingBlob` serves the current blob by name even when an explicit reqIndex does not match (`recovery.ts:290-293`). (2) A targeted `shareRemoteFileIfNeeded` bypasses the stale-track guard at `if (!targetConn)` in `remote-share.ts:423`. (3) `withPlaybackContext(descriptor, sid=ensureValidSessionId(), index=reqIndex)` therefore constructs a late response with **the current sessionId and a stale index**. EXT-4's unconditional repoint adopts it, so `prepareRemoteShareWait` rewinds currentTrackIndex, pendingRecoveryTarget, and metadata to the old index, and publish is stale. Before EXT-4, this direction was harmlessly dropped, making this a regression induced by EXT-4, following the Audit 15 pattern.
+- **Fix, guest-side option (b), a monotonic sid gate:** Legitimate reselection always increments sid through `nextSessionId()`, while a synthesized stale response has a sid less than or equal to the tracked value. Adopt only a strictly newer sessionId; otherwise treat it as pure dedup. Because the channel is ordered, the newer-sid broadcast always arrives before any later synthesized response, covering all interleavings. Host-side option (a), strict index enforcement in the name fallback, was rejected and recorded as an observation because that machinery is shared with the local recovery pipeline and intentionally tolerates index drift.
+- Status: Fixed with one regression pin: while waiting for index 1, ignore same-sid and older-sid stale descriptors and preserve publish index 1; 1078 tests pass
+- **Observation (not fixed, P4):** findMatchingBlob can still serve the current blob by name for an explicit, mismatched index. The guest gate blocks the descriptor path. On local unicast, the remaining edge requires files with the same name but different content; downstream size checks catch size mismatches. Tightening the host path was deferred because the benefit did not justify the local-recovery regression risk.
+- This is a sibling of Blind Spot 13: **a later message is not necessarily a newer context.** Context adoption must be gated on a monotonic token such as sessionId, not arrival order. A repoint or adoption fix also requires checking older sources that can exploit it; the EXT-4 validation did not inspect the host-side synthesis path.
+
+### EXT-6 [Yellow, P2] - The EXT-5 gate covers only the in-flight window
+
+- **Mechanism:** The EXT-5 gate lives inside `if (_activeDownload)`. After finally sets `_activeDownload = null`, a late composed-stale descriptor misses both isCurrentRemoteFileLoaded and isPreloadedRemoteFile because its index is wrong. With no gate, it starts a **fresh download, rewinds remote wait through prepareRemoteShareWait, and redownloads all bytes already on the device from R2**. R2 completion timing is independent of DataChannel control ordering, so a post-completion late-response window is real.
+- **Fix:** Add module-level `_lastAdoptedRemoteContext {objectId, index, sessionId}`. Record it at all three adoption points: fresh start, in-flight repoint, and preload promotion. Before a fresh download, admit only a strictly newer sessionId or an exact resend with the same objectId, index, and sid. The exact exception preserves recovery retries such as decode failure. Reset it at every `state:network.sessionCode` boundary, including M13 truthy-to-truthy reconnection, so a new host with a lower sid space is not blocked. This also blocks the different-object variant found during EXT-5 analysis, where the host's preload slot serves a stale request under the current sid: an equal-sid, different-object context is neither newer nor exact.
+- Status: Fixed with two regression pins: ignore same-sid and older-sid stale descriptors after completion, while still accepting a newer sid as an overblocking control; 1080 tests pass
+- **Remaining observation (P3 candidate, not fixed):** Reselecting a duplicate item under a newer sid makes remote guests redownload bytes they already have. The remote sibling of local same-content reuse from `517f4a60` was not wired because remote guests return before reaching the transfer-receive same-content branch. Including objectId in metadata would allow repointing. This is a candidate for the next audit.
+- The guard's lifetime did not match the lifetime of the state it protected. An in-flight guard protects only in-flight state; if the adopted context remains after completion, the guard must remain too. Tests that cover only the pending state also need a post-completion case.
+
+### EXT-7 [Yellow, P2] - EXT-6's exact exception blocks legitimate recovery reissuance by requiring objectId
+
+- **Mechanism:** When the host descriptor cache expires, it can reupload the same track as a **new R2 object** with the same sid and index. This is an explicit shareRemoteFileIfNeeded path used by HET-6 recovery routing. If the guest adopts `{A, 1, 9}` and the download fails, reissue `{B, 1, 9}` is neither newer because sid is equal nor exact because objectId differs. It is dropped, and the guest can never receive the file. Every retry with `{B, 1, 9}` hits the same gate until a track change raises sid.
+- **Fix:** Relax the exception to **playback-context identity, index plus sessionId, and intentionally exclude objectId**. Rewind prevention only needs to block a different index with the same or lower sid. A reissue in the same context cannot rewind anything. The host increments sid monotonically on every playFile, so an equal sid identifies the same playback selection.
+- **Sibling path confirmed during testing:** After the first download **succeeds**, a reissue is already safe. The isPreloadedRemoteFile fast path matches index, name, size, and sid without objectId, and promotes the existing blob without downloading it again. The original test scenario unexpectedly passed through this path and exposed the distinction. The gate is needed only for failure followed by reissue, when no blob exists.
+- Status: Fixed with one regression pin: accept `{B, 1, 9}` after failure while continuing to block composed-stale `{B, 0, 9}` in the same test; 1081 tests pass
+- The exception criteria did not match the violation being prevented. The violation is index rewind, so including objectId tied an unrelated axis to the exception. The invariant axis, playback context, must remain separate from the variable transport axis, the object. Recovery reissuance was a legitimate traffic class missing from the gate's allowlist.
+
+## Meta: New Blind-Spot Candidates from This Audit
+
+1. **Blind Spot 11 - Module-local state versus global machinery** (HET pattern): When a subsystem manages its lifecycle in module variables, cancellation and parity sweeps from Blind Spots 8 and 9 cannot see it. For every new subsystem, verify that external machinery can observe and cancel its in-flight work.
+2. **Blind Spot 12 - Do not translate on the sender** (UI-3): Putting translated text on the wire leaks the sender's locale. Require the i18nKey pattern. A static check could flag results of `t(` passed into send or broadcast payloads.
+3. **Blind Spot 13 - Rejection paths for optimistic application** (ROLE-1): Every request-grant protocol must define who restores local state after rejection, using a NACK or a rebaseline.
+4. **Missing idle-versus-paused distinction** (UI-4): `isPlaybackPaused()` does not cover idle. Review relevant branches against all three activity states: idle, paused, and playing.

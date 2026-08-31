@@ -5,6 +5,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ur: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ const ur: Record<I18nKey, string> = {
   'player.repeat_mode': 'دہرانے کا موڈ بدلیں',
   'player.shuffle_mode': 'شفل موڈ بدلیں',
   'player.sync_compact': 'سنک',
-  'player.syncing_compact': 'سنک ہو رہا ہے…',
+  'player.syncing_compact': 'سنک…',
   'player.play_media': 'میڈیا چلائیں',
   'player.play_media_compact': 'میڈیا',
   'player.play_media_action': 'میڈیا چلائیں',
@@ -849,3 +850,27 @@ const ur: Record<I18nKey, string> = {
 };
 
 export default ur;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'منتخب کیا گیا {{count}} ٹریک حذف کریں',
+  },
+  'demo.session_body_connected': {
+    one: 'اس وقت {{count}} آلہ منسلک ہے۔\nاس آلے کا کردار مقرر کریں۔',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} نے {{count}} ٹریک شامل کیا',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} نے {{count}} ٹریک شامل کیا، یعنی {{title}}',
+  },
+  'toast.added_tracks': {
+    one: '{{count}} ٹریک شامل ہوا',
+  },
+  'dialog.file_drop.message': {
+    one: '{{count}} فائل شامل کریں؟',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} غیر معاون فائل شامل نہیں کی جائے گی۔',
+  },
+} satisfies LocalePluralMessages;

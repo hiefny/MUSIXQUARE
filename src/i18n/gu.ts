@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const gu: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ const gu: Record<I18nKey, string> = {
   'player.repeat_mode': 'પુનરાવર્તન મોડ બદલો',
   'player.shuffle_mode': 'આડેધડ ક્રમનો મોડ બદલો',
   'player.sync_compact': 'સિંક',
-  'player.syncing_compact': 'સિંક થઈ રહ્યું છે…',
+  'player.syncing_compact': 'સિંક…',
   'player.play_media': 'મીડિયા ચલાવો',
   'player.play_media_compact': 'મીડિયા',
   'player.play_media_action': 'મીડિયા ચલાવો',
@@ -843,3 +844,36 @@ const gu: Record<I18nKey, string> = {
 };
 
 export default gu;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'કાઢી નાખવાના પસંદ કરેલા ટ્રૅકની સંખ્યા: {{count}}',
+  },
+  'connect.device_list': {
+    one: 'જોડાયેલા ડિવાઇસની સંખ્યા: {{count}}',
+  },
+  'connect.administrator_list': {
+    one: 'સંચાલકોની સંખ્યા: {{count}}',
+  },
+  'demo.session_body_connected': {
+    one: 'હમણાં જોડાયેલા ડિવાઇસની સંખ્યા: {{count}}.\nદરેક ડિવાઇસની ભૂમિકા નક્કી કરો.',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} એ ઉમેરેલા ટ્રૅકની સંખ્યા: {{count}}',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} એ {{title}} સહિત ઉમેરેલા ટ્રૅકની સંખ્યા: {{count}}',
+  },
+  'toast.added_tracks': {
+    one: 'ઉમેરેલા ટ્રૅકની સંખ્યા: {{count}}',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'છોડી દેવાયેલી અસમર્થિત ફાઇલોની સંખ્યા: {{count}}',
+  },
+  'dialog.file_drop.message': {
+    one: 'ઉમેરવાની ફાઇલોની સંખ્યા {{count}} છે. આગળ વધવું છે?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'ઉમેરવામાં નહીં આવે એવી અસમર્થિત ફાઇલોની સંખ્યા: {{count}}.',
+  },
+} satisfies LocalePluralMessages;

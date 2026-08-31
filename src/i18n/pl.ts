@@ -5,6 +5,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const pl: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -875,3 +876,66 @@ const pl: Record<I18nKey, string> = {
 };
 
 export default pl;
+
+export const pluralMessages = {
+  'connect.administrator_list': {
+    one: 'Administrator: {{count}}',
+    few: 'Administratorzy: {{count}}',
+    many: 'Administratorzy: {{count}}',
+  },
+  'playlist.delete_selected': {
+    one: 'Usuń {{count}} zaznaczony materiał',
+    few: 'Usuń {{count}} zaznaczone materiały',
+    many: 'Usuń {{count}} zaznaczonych materiałów',
+  },
+  'connect.device_list': {
+    one: '{{count}} połączone urządzenie',
+    few: '{{count}} połączone urządzenia',
+    many: '{{count}} połączonych urządzeń',
+  },
+  'demo.session_body_connected': {
+    one: 'Obecnie połączone jest {{count}} urządzenie.\nPrzypisz rolę do tego urządzenia.',
+    few: 'Obecnie połączone są {{count}} urządzenia.\nPrzypisz rolę do każdego urządzenia.',
+    many: 'Obecnie połączonych jest {{count}} urządzeń.\nPrzypisz rolę do każdego urządzenia.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Tryb spowolniony: wiadomości można wysyłać co {{sec}} sekundę',
+    few: 'Tryb spowolniony: wiadomości można wysyłać co {{sec}} sekundy',
+    many: 'Tryb spowolniony: wiadomości można wysyłać co {{sec}} sekund',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Poczekaj {{sec}} sekundę przed wysłaniem kolejnej wiadomości',
+    few: 'Poczekaj {{sec}} sekundy przed wysłaniem kolejnej wiadomości',
+    many: 'Poczekaj {{sec}} sekund przed wysłaniem kolejnej wiadomości',
+  },
+  'chat.tracks_added': {
+    one: '{{name}}: dodano {{count}} materiał',
+    few: '{{name}}: dodano {{count}} materiały',
+    many: '{{name}}: dodano {{count}} materiałów',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}}: dodano {{count}} materiał, w tym {{title}}',
+    few: '{{name}}: dodano {{count}} materiały, w tym {{title}}',
+    many: '{{name}}: dodano {{count}} materiałów, w tym {{title}}',
+  },
+  'toast.added_tracks': {
+    one: 'Dodano {{count}} materiał',
+    few: 'Dodano {{count}} materiały',
+    many: 'Dodano {{count}} materiałów',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'Pominięto {{count}} nieobsługiwany plik',
+    few: 'Pominięto {{count}} nieobsługiwane pliki',
+    many: 'Pominięto {{count}} nieobsługiwanych plików',
+  },
+  'dialog.file_drop.message': {
+    one: 'Dodać {{count}} plik?',
+    few: 'Dodać {{count}} pliki?',
+    many: 'Dodać {{count}} plików?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} nieobsługiwany plik nie zostanie dodany.',
+    few: '{{count}} nieobsługiwane pliki nie zostaną dodane.',
+    many: '{{count}} nieobsługiwanych plików nie zostanie dodanych.',
+  },
+} satisfies LocalePluralMessages;

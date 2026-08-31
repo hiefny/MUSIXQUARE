@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const da: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -98,7 +99,7 @@ const da: Record<I18nKey, string> = {
   'nav.settings': 'Indstillinger',
   'nav.help': 'Hjælp',
   'nav.connect': 'Forbind',
-  'nav.playlist_compact': 'Afspilningsliste',
+  'nav.playlist_compact': 'Playliste',
   'nav.connect_compact': 'Forbind',
   'nav.settings_compact': 'Indstillinger',
   'nav.go_home': 'Gå til startsiden',
@@ -117,8 +118,8 @@ const da: Record<I18nKey, string> = {
   'player.next_track': 'Næste nummer',
   'player.repeat_mode': 'Skift gentagelsestilstand',
   'player.shuffle_mode': 'Skift blandingstilstand',
-  'player.sync_compact': 'Synkroniser',
-  'player.syncing_compact': 'Synkroniserer…',
+  'player.sync_compact': 'Synk',
+  'player.syncing_compact': 'Synk…',
   'player.play_media': 'Afspil medie',
   'player.play_media_compact': 'Medie',
   'player.play_media_action': 'Afspil medie',
@@ -864,3 +865,33 @@ const da: Record<I18nKey, string> = {
 };
 
 export default da;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'Slet {{count}} markeret nummer',
+  },
+  'demo.session_body_connected': {
+    one: '{{count}} enhed er forbundet lige nu.\nAngiv en rolle for denne enhed.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Langsom tilstand: {{sec}} sekund mellem beskeder',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Vent {{sec}} sekund, før du sender',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} tilføjede {{count}} nummer',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} tilføjede {{count}} nummer, herunder {{title}}',
+  },
+  'toast.added_tracks': {
+    one: '{{count}} nummer blev tilføjet',
+  },
+  'dialog.file_drop.message': {
+    one: 'Tilføj {{count}} fil?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} fil, der ikke understøttes, bliver ikke tilføjet.',
+  },
+} satisfies LocalePluralMessages;

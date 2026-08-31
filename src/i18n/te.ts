@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const te: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ const te: Record<I18nKey, string> = {
   'player.repeat_mode': 'రిపీట్ మోడ్ మార్చు',
   'player.shuffle_mode': 'షఫుల్ మోడ్ మార్చు',
   'player.sync_compact': 'సింక్',
-  'player.syncing_compact': 'సింక్ అవుతోంది…',
+  'player.syncing_compact': 'సింక్…',
   'player.play_media': 'మీడియాను ప్లే చేయి',
   'player.play_media_compact': 'మీడియా',
   'player.play_media_action': 'మీడియాను ప్లే చేయి',
@@ -862,3 +863,42 @@ const te: Record<I18nKey, string> = {
 };
 
 export default te;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'ఎంచుకున్న {{count}} ట్రాక్‌ను తొలగించు',
+  },
+  'connect.device_list': {
+    one: 'కనెక్ట్ అయిన పరికరం: {{count}}',
+  },
+  'connect.administrator_list': {
+    one: 'అడ్మిన్: {{count}}',
+  },
+  'demo.session_body_connected': {
+    one: 'ప్రస్తుతం {{count}} పరికరం కనెక్ట్ అయింది.\nఈ పరికరానికి ఒక పాత్రను సెట్ చేయండి.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'స్లో మోడ్: సందేశాల మధ్య {{sec}} సెకను',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'పంపడానికి ముందు {{sec}} సెకను వేచి ఉండండి',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} {{count}} ట్రాక్‌ను జోడించారు',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} {{title}}తో కలిపి {{count}} ట్రాక్‌ను జోడించారు',
+  },
+  'toast.added_tracks': {
+    one: '{{count}} ట్రాక్ జోడించబడింది',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'మద్దతు లేని ఫైల్ దాటవేయబడింది: {{count}}',
+  },
+  'dialog.file_drop.message': {
+    one: '{{count}} ఫైల్‌ను జోడించాలా?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'మద్దతు లేని {{count}} ఫైల్ జోడించబడదు.',
+  },
+} satisfies LocalePluralMessages;

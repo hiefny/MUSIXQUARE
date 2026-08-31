@@ -6,8 +6,8 @@ import {
   __resetLocaleFontLoadingForTests,
   __setLocaleFontLoaderForTests,
   isLocaleFontLoadedForTests,
-  loadLocaleFont,
-  preloadLocaleFontGlyphs,
+  loadLocaleFontForTests as loadLocaleFont,
+  preloadLocaleFontGlyphsForTests as preloadLocaleFontGlyphs,
 } from '../locale-fonts.ts';
 
 afterEach(() => {

@@ -14,7 +14,7 @@ vi.mock('../../i18n/index.ts', () => ({
 }));
 
 vi.mock('../../i18n/locale-fonts.ts', () => ({
-  preloadLocaleFontGlyphs: userTextFontMocks.preloadLocaleFontGlyphs,
+  default: { preloadLocaleFontGlyphs: userTextFontMocks.preloadLocaleFontGlyphs },
 }));
 
 vi.mock('../../youtube/oembed.ts', () => ({

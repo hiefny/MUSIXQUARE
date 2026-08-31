@@ -5,6 +5,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const he: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -117,7 +118,7 @@ const he: Record<I18nKey, string> = {
   'player.repeat_mode': 'שינוי מצב החזרה',
   'player.shuffle_mode': 'שינוי מצב הערבוב',
   'player.sync_compact': 'סנכרון',
-  'player.syncing_compact': 'מתבצע סנכרון…',
+  'player.syncing_compact': 'סנכרון…',
   'player.play_media': 'הפעלת מדיה',
   'player.play_media_compact': 'מדיה',
   'player.play_media_action': 'הפעלת מדיה',
@@ -832,3 +833,33 @@ const he: Record<I18nKey, string> = {
 };
 
 export default he;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'מחיקת {{count}} רצועה שנבחרה',
+  },
+  'demo.session_body_connected': {
+    one: '{{count}} מכשיר מחובר עכשיו.\nיש להגדיר תפקיד למכשיר הזה.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'מצב איטי: {{sec}} שנייה בין הודעות',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'יש להמתין {{sec}} שנייה לפני השליחה',
+  },
+  'chat.tracks_added': {
+    one: 'נוספה {{count}} רצועה על ידי {{name}}',
+  },
+  'chat.tracks_added_named': {
+    one: 'נוספה {{count}} רצועה על ידי {{name}}, כולל {{title}}',
+  },
+  'toast.added_tracks': {
+    one: 'נוספה {{count}} רצועה',
+  },
+  'dialog.file_drop.message': {
+    one: 'להוסיף {{count}} קובץ?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} קובץ שאינו נתמך לא יתווסף.',
+  },
+} satisfies LocalePluralMessages;

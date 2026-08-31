@@ -7,8 +7,8 @@
  * existing conservative system/CJK fallback without making a locale guess.
  */
 
-import { preloadLocaleFontGlyphs, type LocaleFontCode } from '../i18n/locale-fonts.ts';
 import { log } from '../core/log.ts';
+import type { LocaleFontCode } from '../i18n/locale-font-contract.ts';
 
 const HIRAGANA_OR_KATAKANA_RE = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
 const CYRILLIC_RE = /\p{Script=Cyrillic}/u;
@@ -125,13 +125,17 @@ export function applyUserTextFontFallback(
   element.classList.add('user-text-font');
   for (const code of codes) {
     element.classList.add(USER_TEXT_FONT_CLASS_BY_CODE[code]);
-    // Register the locale face and explicitly warm only the unicode-range
-    // shards needed by this rendering boundary. Importing the CSS alone does
-    // not make a hidden/external string request its matching WOFF2 shard.
-    preloadLocaleFontGlyphs(code, text).catch((error) => {
-      log.warn(`[UI] User-text font preload escaped its loader boundary (${code})`, error);
-    });
   }
+  // Font infrastructure itself stays outside the initial graph. Register each
+  // detected face and warm only the unicode-range shards used at this render
+  // boundary once the shared lazy module arrives.
+  import('../i18n/locale-fonts.ts')
+    .then(({ default: localeFonts }) =>
+      Promise.all(codes.map((code) => localeFonts.preloadLocaleFontGlyphs(code, text))),
+    )
+    .catch((error) => {
+      log.warn('[UI] User-text font preload escaped its loader boundary', error);
+    });
   element.dataset.userTextFonts = codes.join(' ');
   return codes;
 }

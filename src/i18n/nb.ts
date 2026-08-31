@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const nb: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -118,8 +119,8 @@ const nb: Record<I18nKey, string> = {
   'player.next_track': 'Neste spor',
   'player.repeat_mode': 'Endre gjentakelsesmodus',
   'player.shuffle_mode': 'Endre tilfeldig rekkefølge',
-  'player.sync_compact': 'Synkroniser',
-  'player.syncing_compact': 'Synkroniserer…',
+  'player.sync_compact': 'Synk',
+  'player.syncing_compact': 'Synk…',
   'player.play_media': 'Spill av medier',
   'player.play_media_compact': 'Medier',
   'player.play_media_action': 'Spill av medier',
@@ -861,3 +862,24 @@ const nb: Record<I18nKey, string> = {
 };
 
 export default nb;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'Slett {{count}} merket spor',
+  },
+  'demo.session_body_connected': {
+    one: '{{count}} enhet er tilkoblet nå.\nAngi en rolle for denne enheten.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Sakte modus: {{sec}} sekund mellom meldinger',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Vent {{sec}} sekund før du sender',
+  },
+  'dialog.file_drop.message': {
+    one: 'Legg til {{count}} fil?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} fil som ikke støttes, blir ikke lagt til.',
+  },
+} satisfies LocalePluralMessages;

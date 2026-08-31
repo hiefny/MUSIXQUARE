@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const fi: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ const fi: Record<I18nKey, string> = {
   'player.repeat_mode': 'Vaihda toistotilaa',
   'player.shuffle_mode': 'Vaihda satunnaistoistoa',
   'player.sync_compact': 'Synkronoi',
-  'player.syncing_compact': 'Synkronoidaan…',
+  'player.syncing_compact': 'Synk…',
   'player.play_media': 'Toista mediaa',
   'player.play_media_compact': 'Media',
   'player.play_media_action': 'Toista mediaa',
@@ -862,3 +863,33 @@ const fi: Record<I18nKey, string> = {
 };
 
 export default fi;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'Poista {{count}} valittu kappale',
+  },
+  'demo.session_body_connected': {
+    one: 'Yhdistettynä on nyt {{count}} laite.\nAseta tälle laitteelle rooli.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Hidas tila: viestien välillä {{sec}} sekunti',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Odota {{sec}} sekunti ennen lähettämistä',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} lisäsi {{count}} kappaleen',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} lisäsi {{count}} kappaleen ({{title}})',
+  },
+  'toast.added_tracks': {
+    one: 'Lisättiin {{count}} kappale',
+  },
+  'dialog.file_drop.message': {
+    one: 'Lisätäänkö {{count}} tiedosto?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} tiedosto, jota ei tueta, jätetään lisäämättä.',
+  },
+} satisfies LocalePluralMessages;

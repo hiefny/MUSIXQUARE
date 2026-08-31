@@ -9,7 +9,9 @@ const { preloadLocaleFontGlyphs } = vi.hoisted(() => ({
     Promise.resolve(true),
   ),
 }));
-vi.mock('../../i18n/locale-fonts.ts', () => ({ preloadLocaleFontGlyphs }));
+vi.mock('../../i18n/locale-fonts.ts', () => ({
+  default: { preloadLocaleFontGlyphs },
+}));
 
 import { applyUserTextFontFallback, detectUserTextFontCodesForTests } from '../user-text-font.ts';
 
@@ -56,7 +58,7 @@ describe('script-aware user text font fallback', () => {
     expect(preloadLocaleFontGlyphs).not.toHaveBeenCalled();
   });
 
-  it('loads and composes every confidently detected shard in mixed text', () => {
+  it('loads and composes every confidently detected shard in mixed text', async () => {
     const element = document.createElement('span');
     const text =
       'かな Привет Γεια مرحبا שלום नमस्ते স্বাগতম வணக்கம் నమస్కారం નમસ્તે ನಮಸ್ಕಾರ നമസ്കാരം ਸਤ ਸ੍ਰੀ ਅਕਾਲ สวัสดี ㄅ';
@@ -96,33 +98,35 @@ describe('script-aware user text font fallback', () => {
     expect(element.classList).toContain('user-text-font-pa');
     expect(element.classList).toContain('user-text-font-th');
     expect(element.classList).toContain('user-text-font-zh-hant');
-    expect(preloadLocaleFontGlyphs.mock.calls).toEqual([
-      ['ja', text],
-      ['ru', text],
-      ['el', text],
-      ['ar', text],
-      ['he', text],
-      ['hi', text],
-      ['bn', text],
-      ['ta', text],
-      ['te', text],
-      ['gu', text],
-      ['kn', text],
-      ['ml', text],
-      ['pa', text],
-      ['th', text],
-      ['zh-hant', text],
-    ]);
+    await vi.waitFor(() =>
+      expect(preloadLocaleFontGlyphs.mock.calls).toEqual([
+        ['ja', text],
+        ['ru', text],
+        ['el', text],
+        ['ar', text],
+        ['he', text],
+        ['hi', text],
+        ['bn', text],
+        ['ta', text],
+        ['te', text],
+        ['gu', text],
+        ['kn', text],
+        ['ml', text],
+        ['pa', text],
+        ['th', text],
+        ['zh-hant', text],
+      ]),
+    );
   });
 
-  it('warms the exact Simplified Chinese glyphs used by an external label', () => {
+  it('warms the exact Simplified Chinese glyphs used by an external label', async () => {
     const element = document.createElement('span');
     const text = '山东省金寨岭锅包肉';
 
     expect(applyUserTextFontFallback(element, text)).toEqual(['zh-hans']);
     expect(element.dataset.userTextFonts).toBe('zh-hans');
     expect(element.classList).toContain('user-text-font-zh-hans');
-    expect(preloadLocaleFontGlyphs).toHaveBeenCalledWith('zh-hans', text);
+    await vi.waitFor(() => expect(preloadLocaleFontGlyphs).toHaveBeenCalledWith('zh-hans', text));
   });
 
   it('clears stale classes when a reused element no longer needs a shard', () => {

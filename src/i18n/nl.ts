@@ -7,6 +7,7 @@
 
 import en from './en.ts';
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const nl: Record<I18nKey, string> = {
   ...en,
@@ -863,3 +864,28 @@ const nl: Record<I18nKey, string> = {
 };
 
 export default nl;
+
+export const pluralMessages = {
+  'connect.administrator_list': { one: '{{count}} beheerder' },
+  'playlist.delete_selected': { one: '{{count}} geselecteerde track verwijderen' },
+  'connect.device_list': { one: '{{count}} verbonden apparaat' },
+  'demo.session_body_connected': {
+    one: 'Er is nu {{count}} apparaat verbonden.\nStel voor dit apparaat een rol in.',
+  },
+  'chat.cmd_slowmode_on': { one: 'Langzame modus: {{sec}} seconde tussen berichten' },
+  'chat.cmd_slowmode_wait': {
+    one: 'Wacht {{sec}} seconde voordat je een bericht verstuurt',
+  },
+  'chat.tracks_added': { one: '{{name}} heeft {{count}} track toegevoegd' },
+  'chat.tracks_added_named': {
+    one: '{{name}} heeft {{count}} track toegevoegd, waaronder {{title}}',
+  },
+  'toast.added_tracks': { one: '{{count}} track toegevoegd' },
+  'toast.unsupported_files_excluded': {
+    one: 'Niet-ondersteund bestand overgeslagen: {{count}}',
+  },
+  'dialog.file_drop.message': { one: '{{count}} bestand toevoegen?' },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} niet-ondersteund bestand wordt niet toegevoegd.',
+  },
+} satisfies LocalePluralMessages;

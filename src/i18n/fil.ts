@@ -121,7 +121,7 @@ const fil: Record<I18nKey, string> = {
   'player.repeat_mode': 'Palitan ang repeat mode',
   'player.shuffle_mode': 'Palitan ang shuffle mode',
   'player.sync_compact': 'I-sync',
-  'player.syncing_compact': 'Sini-sync…',
+  'player.syncing_compact': 'Sync…',
   'player.play_media': 'Mag-play ng media',
   'player.play_media_compact': 'Media',
   'player.play_media_action': 'Mag-play ng media',

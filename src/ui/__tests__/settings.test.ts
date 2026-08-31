@@ -18,7 +18,10 @@ vi.mock('../../i18n/locale-fonts.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../i18n/locale-fonts.ts')>();
   return {
     ...actual,
-    preloadLocaleFontGlyphs: preloadLocaleFontGlyphsMock,
+    default: {
+      ...actual.default,
+      preloadLocaleFontGlyphs: preloadLocaleFontGlyphsMock,
+    },
   };
 });
 
@@ -554,7 +557,7 @@ describe('initSettings language controls', () => {
     expect(optionCodes).toEqual(LANGUAGE_OPTIONS.map((language) => language.code));
   });
 
-  it('opens the language dialog with all supported languages and a custom scrollbar', () => {
+  it('opens the language dialog with all supported languages and a custom scrollbar', async () => {
     setLanguageMode('ko');
     installLanguageSettingsDom();
     initSettings();
@@ -576,8 +579,10 @@ describe('initSettings language controls', () => {
         .querySelector<HTMLElement>('.language-option[data-lang="ko"]')
         ?.getAttribute('aria-pressed'),
     ).toBe('true');
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
-      LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
+    await vi.waitFor(() =>
+      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
+        LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
+      ),
     );
   });
 
@@ -620,8 +625,10 @@ describe('initSettings language controls', () => {
       false,
     );
     const selfHostedFontOptions = LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code));
-    expect(preloadLocaleFontGlyphsMock.mock.calls).toEqual(
-      selfHostedFontOptions.map(({ code, nativeName }) => [code, nativeName]),
+    await vi.waitFor(() =>
+      expect(preloadLocaleFontGlyphsMock.mock.calls).toEqual(
+        selfHostedFontOptions.map(({ code, nativeName }) => [code, nativeName]),
+      ),
     );
 
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -634,14 +641,16 @@ describe('initSettings language controls', () => {
     );
   });
 
-  it('preloads from keyboard focus without opening the dialog', () => {
+  it('preloads from keyboard focus without opening the dialog', async () => {
     installLanguageSettingsDom();
     initSettings();
 
     document.getElementById('btn-language-select')?.focus();
 
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
-      LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
+    await vi.waitFor(() =>
+      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
+        LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
+      ),
     );
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       false,

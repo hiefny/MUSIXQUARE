@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const kn: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -119,9 +120,9 @@ const kn: Record<I18nKey, string> = {
   'player.repeat_mode': 'ಪುನರಾವರ್ತನೆ ಮೋಡ್ ಬದಲಿಸಿ',
   'player.shuffle_mode': 'ಷಫಲ್ ಮೋಡ್ ಬದಲಿಸಿ',
   'player.sync_compact': 'ಸಿಂಕ್',
-  'player.syncing_compact': 'ಸಿಂಕ್ ಆಗುತ್ತಿದೆ…',
+  'player.syncing_compact': 'ಸಿಂಕ್…',
   'player.play_media': 'ಮೀಡಿಯಾ ಪ್ಲೇ ಮಾಡಿ',
-  'player.play_media_compact': 'ಮೀಡಿಯಾ',
+  'player.play_media_compact': 'Media',
   'player.play_media_action': 'ಮೀಡಿಯಾ ಪ್ಲೇ ಮಾಡಿ',
   'player.add_media': 'ಮೀಡಿಯಾ ಸೇರಿಸಿ',
   'player.play_start': 'ಸರತಿಗೆ ಸೇರಿಸಿ',
@@ -865,3 +866,36 @@ const kn: Record<I18nKey, string> = {
 };
 
 export default kn;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'ಆರಿಸಿದ ಟ್ರ್ಯಾಕ್‌ಗಳನ್ನು ಅಳಿಸಿ ({{count}})',
+  },
+  'connect.device_list': {
+    one: 'ಸಂಪರ್ಕಗೊಂಡ ಸಾಧನಗಳ ಸಂಖ್ಯೆ: {{count}}',
+  },
+  'connect.administrator_list': {
+    one: 'ನಿರ್ವಾಹಕರ ಸಂಖ್ಯೆ: {{count}}',
+  },
+  'demo.session_body_connected': {
+    one: 'ಈಗ ಸಂಪರ್ಕಗೊಂಡ ಸಾಧನಗಳ ಸಂಖ್ಯೆ: {{count}}.\nಸಂಪರ್ಕಗೊಂಡ ಪ್ರತಿ ಸಾಧನಕ್ಕೂ ಪಾತ್ರ ಹೊಂದಿಸಿ.',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} ಸೇರಿಸಿದ ಟ್ರ್ಯಾಕ್‌ಗಳ ಸಂಖ್ಯೆ: {{count}}',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} {{title}} ಸೇರಿದಂತೆ ಸೇರಿಸಿದ ಟ್ರ್ಯಾಕ್‌ಗಳ ಸಂಖ್ಯೆ: {{count}}',
+  },
+  'toast.added_tracks': {
+    one: 'ಸೇರಿಸಿದ ಟ್ರ್ಯಾಕ್‌ಗಳ ಸಂಖ್ಯೆ: {{count}}',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'ಬಿಟ್ಟುಬಿಡಲಾದ ಬೆಂಬಲಿಸದ ಫೈಲ್‌ಗಳ ಸಂಖ್ಯೆ: {{count}}',
+  },
+  'dialog.file_drop.message': {
+    one: 'ಸೇರಿಸಬೇಕಾದ ಫೈಲ್‌ಗಳ ಸಂಖ್ಯೆ {{count}}. ಮುಂದುವರಿಯಬೇಕೆ?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'ಸೇರಿಸದೇ ಬಿಡುವ ಬೆಂಬಲಿಸದ ಫೈಲ್‌ಗಳ ಸಂಖ್ಯೆ: {{count}}.',
+  },
+} satisfies LocalePluralMessages;

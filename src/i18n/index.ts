@@ -10,16 +10,16 @@ import { bus } from '../core/events.ts';
 import { syncExclusivePressedState } from '../core/aria-state.ts';
 import ko from './ko.ts';
 import en from './en.ts';
+import { EN_PLURAL_MESSAGES } from './plural-en.ts';
 import {
-  PLURAL_MESSAGES,
   PLURAL_PARAM_BY_KEY,
   type LocalePluralMessages,
   type PluralCategory,
   type PluralI18nKey,
-} from './plural.ts';
+} from './plural-contract.ts';
 
 import type { I18nKey } from './ko.ts';
-import { hasLocaleFont, loadLocaleFont } from './locale-fonts.ts';
+import { hasLocaleFont } from './locale-font-contract.ts';
 import {
   appLanguageFromPathname,
   languageDirection,
@@ -45,10 +45,16 @@ const _dicts: Partial<Record<LanguageCode, Record<string, string>>> = {
 };
 
 const _pluralRules = new Map<LanguageCode, Intl.PluralRules>();
+const _pluralMessages: Partial<Record<LanguageCode, LocalePluralMessages>> = {
+  en: EN_PLURAL_MESSAGES,
+};
 
-const _localeLoaders: Partial<
-  Record<LanguageCode, () => Promise<{ default: Record<string, string> }>>
-> = {
+interface LocaleModule {
+  readonly default: Record<string, string>;
+  readonly pluralMessages?: LocalePluralMessages;
+}
+
+const _localeLoaders: Partial<Record<LanguageCode, () => Promise<LocaleModule>>> = {
   ar: () => import('./ar.ts'),
   bn: () => import('./bn.ts'),
   bg: () => import('./bg.ts'),
@@ -129,7 +135,7 @@ function _pluralCategory(value: number): PluralCategory {
 }
 
 function _pluralFormsFor(code: LanguageCode): LocalePluralMessages | undefined {
-  return (PLURAL_MESSAGES as Partial<Record<LanguageCode, LocalePluralMessages>>)[code];
+  return _pluralMessages[code];
 }
 
 function _translationTemplate(key: I18nKey, params?: TranslationParams): string {
@@ -435,7 +441,13 @@ function _loadLanguage(code: LanguageCode): Promise<void> {
 
   const pending = loader()
     .then((mod) => {
-      _dicts[code] = mod.default;
+      // The dictionary and its grammatical overrides are exports of one lazy
+      // module. Commit both synchronously only after that chunk resolves, so a
+      // deploy-skew failure can never leave mixed-language plural copy cached.
+      const dictionary = mod.default;
+      const pluralMessages = 'pluralMessages' in mod ? mod.pluralMessages : undefined;
+      _dicts[code] = dictionary;
+      if (pluralMessages) _pluralMessages[code] = pluralMessages;
     })
     .catch((error) => {
       // Deliberately cache NOTHING on failure. _dicts is a presence-keyed
@@ -488,7 +500,11 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
   }
 
   const needsFontLoad = hasLocaleFont(resolved);
-  const fontLoad = needsFontLoad ? loadLocaleFont(resolved) : Promise.resolve();
+  const fontLoad = needsFontLoad
+    ? import('./locale-fonts.ts').then(({ default: localeFonts }) =>
+        localeFonts.loadLocaleFont(resolved),
+      )
+    : Promise.resolve();
 
   if (_dicts[resolved]) {
     if (needsFontLoad) await fontLoad;

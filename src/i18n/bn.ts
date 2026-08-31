@@ -119,7 +119,7 @@ const bn: Record<I18nKey, string> = {
   'player.repeat_mode': 'রিপিট মোড পরিবর্তন করুন',
   'player.shuffle_mode': 'শাফল মোড পরিবর্তন করুন',
   'player.sync_compact': 'সিঙ্ক',
-  'player.syncing_compact': 'সিঙ্ক হচ্ছে…',
+  'player.syncing_compact': 'সিঙ্ক…',
   'player.play_media': 'মিডিয়া চালান',
   'player.play_media_compact': 'মিডিয়া',
   'player.play_media_action': 'মিডিয়া চালান',

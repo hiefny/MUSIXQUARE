@@ -95,12 +95,12 @@ const ms: Record<I18nKey, string> = {
   'common.peer': 'Rakan',
 
   // ─── Navigasi ────────────────────────────────────────────────────
-  'nav.home': 'Laman Utama',
+  'nav.home': 'Utama',
   'nav.playlist': 'Senarai Main',
   'nav.settings': 'Tetapan',
   'nav.help': 'Bantuan',
   'nav.connect': 'Sambung',
-  'nav.playlist_compact': 'Senarai Main',
+  'nav.playlist_compact': 'Senarai',
   'nav.connect_compact': 'Sambung',
   'nav.settings_compact': 'Tetapan',
   'nav.go_home': 'Pergi ke Laman Utama',
@@ -121,7 +121,7 @@ const ms: Record<I18nKey, string> = {
   'player.repeat_mode': 'Tukar mod ulang',
   'player.shuffle_mode': 'Tukar mod rawak',
   'player.sync_compact': 'Segerak',
-  'player.syncing_compact': 'Menyegerak…',
+  'player.syncing_compact': 'Segerak…',
   'player.play_media': 'Mainkan media',
   'player.play_media_compact': 'Media',
   'player.play_media_action': 'Mainkan media',

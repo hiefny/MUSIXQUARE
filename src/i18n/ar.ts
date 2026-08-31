@@ -5,6 +5,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ar: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -116,7 +117,7 @@ const ar: Record<I18nKey, string> = {
   'player.repeat_mode': 'تغيير وضع التكرار',
   'player.shuffle_mode': 'تغيير وضع التشغيل العشوائي',
   'player.sync_compact': 'مزامنة',
-  'player.syncing_compact': 'جارٍ المزامنة…',
+  'player.syncing_compact': 'مزامنة…',
   'player.play_media': 'تشغيل الوسائط',
   'player.play_media_compact': 'وسائط',
   'player.play_media_action': 'تشغيل الوسائط',
@@ -837,3 +838,56 @@ const ar: Record<I18nKey, string> = {
 };
 
 export default ar;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'حذف {{count}} مقطع محدد',
+    two: 'حذف {{count}} مقطعين محددين',
+    few: 'حذف {{count}} مقاطع محددة',
+    many: 'حذف {{count}} مقطعًا محددًا',
+  },
+  'demo.session_body_connected': {
+    one: 'هناك {{count}} جهاز متصل الآن.\nعيّن دورًا لهذا الجهاز.',
+    two: 'هناك {{count}} جهازان متصلان الآن.\nعيّن دورًا لكلا الجهازين.',
+    few: 'هناك {{count}} أجهزة متصلة الآن.\nعيّن دورًا لكل جهاز.',
+    many: 'هناك {{count}} جهازًا متصلًا الآن.\nعيّن دورًا لكل جهاز.',
+  },
+  'chat.cmd_slowmode_on': {
+    two: 'الوضع البطيء: {{sec}} ثانيتان بين الرسائل',
+    few: 'الوضع البطيء: {{sec}} ثوانٍ بين الرسائل',
+  },
+  'chat.cmd_slowmode_wait': {
+    two: 'انتظر {{sec}} ثانيتين قبل الإرسال',
+    few: 'انتظر {{sec}} ثوانٍ قبل الإرسال',
+  },
+  'chat.tracks_added': {
+    one: 'أضاف {{name}} {{count}} مقطعًا',
+    two: 'أضاف {{name}} {{count}} مقطعين',
+    few: 'أضاف {{name}} {{count}} مقاطع',
+    many: 'أضاف {{name}} {{count}} مقطعًا',
+  },
+  'chat.tracks_added_named': {
+    one: 'أضاف {{name}} {{count}} مقطعًا، وهو {{title}}',
+    two: 'أضاف {{name}} {{count}} مقطعين، منهما {{title}}',
+    few: 'أضاف {{name}} {{count}} مقاطع، منها {{title}}',
+    many: 'أضاف {{name}} {{count}} مقطعًا، منها {{title}}',
+  },
+  'toast.added_tracks': {
+    one: 'تمت إضافة {{count}} مقطع',
+    two: 'تمت إضافة {{count}} مقطعين',
+    few: 'تمت إضافة {{count}} مقاطع',
+    many: 'تمت إضافة {{count}} مقطعًا',
+  },
+  'dialog.file_drop.message': {
+    one: 'هل تريد إضافة {{count}} ملف؟',
+    two: 'هل تريد إضافة {{count}} ملفين؟',
+    few: 'هل تريد إضافة {{count}} ملفات؟',
+    many: 'هل تريد إضافة {{count}} ملفًا؟',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'لن تتم إضافة {{count}} ملف غير مدعوم.',
+    two: 'لن تتم إضافة {{count}} ملفين غير مدعومين.',
+    few: 'لن تتم إضافة {{count}} ملفات غير مدعومة.',
+    many: 'لن تتم إضافة {{count}} ملفًا غير مدعوم.',
+  },
+} satisfies LocalePluralMessages;

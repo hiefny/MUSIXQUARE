@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ro: Record<I18nKey, string> = {
   // ─── General ─────────────────────────────────────────────────────
@@ -93,12 +94,12 @@ const ro: Record<I18nKey, string> = {
   'common.peer': 'Participant',
 
   // ─── Navigare ────────────────────────────────────────────────────
-  'nav.home': 'Pagina principală',
+  'nav.home': 'Acasă',
   'nav.playlist': 'Listă de redare',
   'nav.settings': 'Setări',
   'nav.help': 'Ajutor',
   'nav.connect': 'Conectare',
-  'nav.playlist_compact': 'Listă de redare',
+  'nav.playlist_compact': 'Listă',
   'nav.connect_compact': 'Conectare',
   'nav.settings_compact': 'Setări',
   'nav.go_home': 'Mergi la pagina principală',
@@ -118,8 +119,8 @@ const ro: Record<I18nKey, string> = {
   'player.next_track': 'Pista următoare',
   'player.repeat_mode': 'Schimbă modul de repetare',
   'player.shuffle_mode': 'Schimbă modul de redare aleatorie',
-  'player.sync_compact': 'Sincronizează',
-  'player.syncing_compact': 'Se sincronizează…',
+  'player.sync_compact': 'Sincron',
+  'player.syncing_compact': 'Sincron…',
   'player.play_media': 'Redă conținut media',
   'player.play_media_compact': 'Media',
   'player.play_media_action': 'Redă conținut media',
@@ -878,3 +879,47 @@ const ro: Record<I18nKey, string> = {
 };
 
 export default ro;
+
+export const pluralMessages = {
+  'connect.device_list': {
+    one: '{{count}} dispozitiv conectat',
+    other: '{{count}} de dispozitive conectate',
+  },
+  'connect.administrator_list': {
+    one: '{{count}} administrator',
+    other: '{{count}} de administratori',
+  },
+  'demo.session_body_connected': {
+    one: 'În acest moment este conectat {{count}} dispozitiv.\nSetează un rol pentru acest dispozitiv.',
+    other:
+      'În acest moment sunt conectate {{count}} de dispozitive.\nSetează un rol pentru fiecare.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Mod lent: {{sec}} secundă între mesaje',
+    other: 'Mod lent: {{sec}} de secunde între mesaje',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Așteaptă {{sec}} secundă înainte de a trimite',
+    other: 'Așteaptă {{sec}} de secunde înainte de a trimite',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} a adăugat {{count}} pistă',
+    other: '{{name}} a adăugat {{count}} de piste',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} a adăugat {{count}} pistă, inclusiv {{title}}',
+    other: '{{name}} a adăugat {{count}} de piste, inclusiv {{title}}',
+  },
+  'toast.added_tracks': {
+    one: '{{count}} pistă adăugată',
+    other: '{{count}} de piste adăugate',
+  },
+  'dialog.file_drop.message': {
+    one: 'Adaugi {{count}} fișier?',
+    other: 'Adaugi {{count}} de fișiere?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} fișier neacceptat nu va fi adăugat.',
+    other: '{{count}} de fișiere neacceptate nu vor fi adăugate.',
+  },
+} satisfies LocalePluralMessages;

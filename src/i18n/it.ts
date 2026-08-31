@@ -5,6 +5,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const it: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -882,3 +883,28 @@ const it: Record<I18nKey, string> = {
 };
 
 export default it;
+
+export const pluralMessages = {
+  'connect.administrator_list': { one: '{{count}} amministratore' },
+  'playlist.delete_selected': { one: 'Elimina {{count}} traccia selezionata' },
+  'connect.device_list': { one: '{{count}} dispositivo connesso' },
+  'demo.session_body_connected': {
+    one: 'Attualmente c’è {{count}} dispositivo connesso.\nAssegna un ruolo a questo dispositivo.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Modalità lenta attiva: puoi inviare un messaggio ogni {{sec}} secondo',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Attendi {{sec}} secondo prima di inviare un nuovo messaggio',
+  },
+  'chat.tracks_added': { one: '{{name}} ha aggiunto {{count}} traccia' },
+  'chat.tracks_added_named': {
+    one: '{{name}} ha aggiunto {{count}} traccia, inclusa {{title}}',
+  },
+  'toast.added_tracks': { one: '{{count}} traccia aggiunta' },
+  'toast.unsupported_files_excluded': { one: '{{count}} file non supportato escluso' },
+  'dialog.file_drop.message': { one: 'Aggiungere {{count}} file?' },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} file non supportato non verrà aggiunto.',
+  },
+} satisfies LocalePluralMessages;

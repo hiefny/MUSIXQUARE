@@ -99,8 +99,8 @@ const uk: Record<I18nKey, string> = {
   'nav.help': 'Довідка',
   'nav.connect': 'Підключення',
   'nav.playlist_compact': 'Плейліст',
-  'nav.connect_compact': 'Підключення',
-  'nav.settings_compact': 'Налаштування',
+  'nav.connect_compact': 'Підключити',
+  'nav.settings_compact': 'Параметри',
   'nav.go_home': 'Перейти на головну',
 
   // ─── Програвач ───────────────────────────────────────────────────
@@ -118,8 +118,8 @@ const uk: Record<I18nKey, string> = {
   'player.next_track': 'Наступний трек',
   'player.repeat_mode': 'Змінити режим повтору',
   'player.shuffle_mode': 'Змінити режим перемішування',
-  'player.sync_compact': 'Синхронізувати',
-  'player.syncing_compact': 'Синхронізація…',
+  'player.sync_compact': 'Синхр.',
+  'player.syncing_compact': 'Синхр…',
   'player.play_media': 'Відтворити медіа',
   'player.play_media_compact': 'Медіа',
   'player.play_media_action': 'Відтворити медіа',

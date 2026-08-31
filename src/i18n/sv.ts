@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const sv: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -867,3 +868,24 @@ const sv: Record<I18nKey, string> = {
 };
 
 export default sv;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'Radera {{count}} markerat spår',
+  },
+  'demo.session_body_connected': {
+    one: '{{count}} enhet är ansluten just nu.\nAnge en roll för den här enheten.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Långsamt läge: {{sec}} sekund mellan meddelanden',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Vänta {{sec}} sekund innan du skickar',
+  },
+  'dialog.file_drop.message': {
+    one: 'Lägg till {{count}} fil?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} fil som inte stöds kommer inte att läggas till.',
+  },
+} satisfies LocalePluralMessages;

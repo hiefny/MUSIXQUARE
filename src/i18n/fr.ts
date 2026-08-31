@@ -6,6 +6,7 @@
 
 import en from './en.ts';
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const fr: Record<I18nKey, string> = {
   ...en,
@@ -863,3 +864,26 @@ const fr: Record<I18nKey, string> = {
 };
 
 export default fr;
+
+export const pluralMessages = {
+  'connect.administrator_list': { one: '{{count}} administrateur' },
+  'playlist.delete_selected': { one: 'Supprimer {{count}} piste sélectionnée' },
+  'connect.device_list': { one: '{{count}} appareil connecté' },
+  'demo.session_body_connected': {
+    one: '{{count}} appareil est actuellement connecté.\nDéfinissez un rôle pour cet appareil.',
+  },
+  'chat.cmd_slowmode_on': { one: 'Mode lent : {{sec}} seconde entre les messages' },
+  'chat.cmd_slowmode_wait': { one: 'Attendez {{sec}} seconde avant d’envoyer' },
+  'chat.tracks_added': { one: '{{name}} a ajouté {{count}} piste' },
+  'chat.tracks_added_named': {
+    one: '{{name}} a ajouté {{count}} piste, dont {{title}}',
+  },
+  'toast.added_tracks': { one: '{{count}} piste ajoutée' },
+  'toast.unsupported_files_excluded': {
+    one: 'Fichier non pris en charge ignoré : {{count}}',
+  },
+  'dialog.file_drop.message': { one: 'Ajouter {{count}} fichier ?' },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} fichier non pris en charge ne sera pas ajouté.',
+  },
+} satisfies LocalePluralMessages;

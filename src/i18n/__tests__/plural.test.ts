@@ -3,7 +3,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { PLURAL_MESSAGES, PLURAL_PARAM_BY_KEY } from '../plural.ts';
+import { PLURAL_PARAM_BY_KEY, pluralMessagesForTests as PLURAL_MESSAGES } from '../plural.ts';
 
 async function loadTranslator(language: string) {
   vi.resetModules();

@@ -118,7 +118,7 @@ const bg: Record<I18nKey, string> = {
   'player.repeat_mode': 'Промяна на режима за повторение',
   'player.shuffle_mode': 'Промяна на разбъркването',
   'player.sync_compact': 'Синхрон.',
-  'player.syncing_compact': 'Синхронизиране…',
+  'player.syncing_compact': 'Синхр…',
   'player.play_media': 'Пускане на медия',
   'player.play_media_compact': 'Медия',
   'player.play_media_action': 'Пускане на медия',

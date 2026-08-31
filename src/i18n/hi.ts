@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const hi: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -119,7 +120,7 @@ const hi: Record<I18nKey, string> = {
   'player.repeat_mode': 'रिपीट मोड बदलें',
   'player.shuffle_mode': 'शफ़ल मोड बदलें',
   'player.sync_compact': 'सिंक',
-  'player.syncing_compact': 'सिंक हो रहा है…',
+  'player.syncing_compact': 'सिंक…',
   'player.play_media': 'मीडिया चलाएँ',
   'player.play_media_compact': 'मीडिया',
   'player.play_media_action': 'मीडिया चलाएँ',
@@ -855,3 +856,30 @@ const hi: Record<I18nKey, string> = {
 };
 
 export default hi;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'चयनित ट्रैक मिटाएँ ({{count}})',
+  },
+  'connect.device_list': {
+    one: 'कनेक्टेड डिवाइस की संख्या: {{count}}',
+  },
+  'demo.session_body_connected': {
+    one: 'अभी कनेक्टेड डिवाइस की संख्या: {{count}}।\nहर कनेक्टेड डिवाइस के लिए भूमिका सेट करें।',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} द्वारा जोड़े गए ट्रैक: {{count}}',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} द्वारा जोड़े गए ट्रैक: {{count}}, जिनमें {{title}} शामिल है',
+  },
+  'toast.added_tracks': {
+    one: 'जोड़े गए ट्रैक: {{count}}',
+  },
+  'dialog.file_drop.message': {
+    one: 'जोड़ने के लिए फ़ाइलें: {{count}}। आगे बढ़ें?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'नहीं जोड़ी जाने वाली असमर्थित फ़ाइलें: {{count}}।',
+  },
+} satisfies LocalePluralMessages;

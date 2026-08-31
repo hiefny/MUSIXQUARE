@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ta: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -99,9 +100,9 @@ const ta: Record<I18nKey, string> = {
   'nav.settings': 'அமைப்புகள்',
   'nav.help': 'உதவி',
   'nav.connect': 'இணை',
-  'nav.playlist_compact': 'பிளேலிஸ்ட்',
+  'nav.playlist_compact': 'பட்டியல்',
   'nav.connect_compact': 'இணை',
-  'nav.settings_compact': 'அமைப்புகள்',
+  'nav.settings_compact': 'அமைப்பு',
   'nav.go_home': 'முகப்புக்குச் செல்',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -119,8 +120,8 @@ const ta: Record<I18nKey, string> = {
   'player.next_track': 'அடுத்த டிராக்',
   'player.repeat_mode': 'மீளியக்க முறையை மாற்று',
   'player.shuffle_mode': 'கலக்கு முறையை மாற்று',
-  'player.sync_compact': 'ஒத்திசை',
-  'player.syncing_compact': 'ஒத்திசைக்கிறது…',
+  'player.sync_compact': 'சின்க்',
+  'player.syncing_compact': 'சின்க்',
   'player.play_media': 'மீடியாவை இயக்கு',
   'player.play_media_compact': 'மீடியா',
   'player.play_media_action': 'மீடியாவை இயக்கு',
@@ -879,3 +880,42 @@ const ta: Record<I18nKey, string> = {
 };
 
 export default ta;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'தேர்ந்தெடுத்த {{count}} டிராக்கை நீக்கு',
+  },
+  'connect.device_list': {
+    one: 'இணைக்கப்பட்ட சாதனம்: {{count}}',
+  },
+  'connect.administrator_list': {
+    one: 'நிர்வாகி: {{count}}',
+  },
+  'demo.session_body_connected': {
+    one: 'இப்போது {{count}} சாதனம் இணைந்துள்ளது.\nஇந்தச் சாதனத்துக்கு ஒரு பங்கை அமைக்கவும்.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'மெதுவான பயன்முறை: செய்திகளுக்கு இடையில் {{sec}} வினாடி',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'அனுப்புவதற்கு முன் {{sec}} வினாடி காத்திருக்கவும்',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} {{count}} டிராக்கைச் சேர்த்தார்',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} {{title}} உட்பட {{count}} டிராக்கைச் சேர்த்தார்',
+  },
+  'toast.added_tracks': {
+    one: '{{count}} டிராக் சேர்க்கப்பட்டது',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'ஆதரிக்கப்படாத கோப்பு தவிர்க்கப்பட்டது: {{count}}',
+  },
+  'dialog.file_drop.message': {
+    one: '{{count}} கோப்பைச் சேர்க்கவா?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'ஆதரிக்கப்படாத {{count}} கோப்பு சேர்க்கப்படாது.',
+  },
+} satisfies LocalePluralMessages;

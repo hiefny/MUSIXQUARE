@@ -1,6 +1,7 @@
 import { JSDOM } from 'jsdom';
 
 import { APP_DICTIONARIES, type TranslationDictionary } from '../src/i18n/catalogs.ts';
+import { localeSeoMetadata } from './locale-seo-metadata.mts';
 import {
   LANGUAGE_OPTIONS,
   languageDirection,
@@ -93,7 +94,7 @@ function replaceAlternateLinks(document: Document, page: 'app' | 'about'): void 
   for (const option of LANGUAGE_OPTIONS) {
     const link = document.createElement('link');
     link.rel = 'alternate';
-    link.hreflang = option.hrefLang;
+    link.hreflang = localeSeoMetadata(option.code).hrefLang;
     const path = page === 'app' ? localizedAppPath(option.code) : localizedAboutPath(option.code);
     link.href = `${SITE_ORIGIN}${path}`;
     canonicalElement.insertAdjacentElement('afterend', link);
@@ -107,8 +108,7 @@ function replaceAlternateLinks(document: Document, page: 'app' | 'about'): void 
 }
 
 function replaceOpenGraphLocales(document: Document, code: LanguageCode): void {
-  meta(document, 'meta[property="og:locale"]').content =
-    LANGUAGE_OPTIONS.find((option) => option.code === code)?.ogLocale ?? 'en_US';
+  meta(document, 'meta[property="og:locale"]').content = localeSeoMetadata(code).ogLocale;
   for (const element of document.querySelectorAll('meta[property="og:locale:alternate"]')) {
     element.remove();
   }
@@ -117,7 +117,7 @@ function replaceOpenGraphLocales(document: Document, code: LanguageCode): void {
     if (option.code === code) continue;
     const alternate = document.createElement('meta');
     alternate.setAttribute('property', 'og:locale:alternate');
-    alternate.content = option.ogLocale;
+    alternate.content = localeSeoMetadata(option.code).ogLocale;
     primary.insertAdjacentElement('afterend', alternate);
   }
 }

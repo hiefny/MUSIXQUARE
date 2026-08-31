@@ -178,16 +178,6 @@ const [
 const lazyFontSourceCss = await Promise.all(
   lazyFontShards.map(({ source }) => readFile(path.join(repoRoot, 'css', 'fonts', source), 'utf8')),
 );
-const lazyFontAssetStems = [
-  ...new Set(
-    lazyFontSourceCss.flatMap((css) =>
-      [...css.matchAll(/url\((?:["']?)([^)"']+\.woff2)(?:["']?)\)/giu)].flatMap((match) => {
-        const fontAssetUrl = match[1];
-        return fontAssetUrl ? [path.basename(fontAssetUrl, '.woff2')] : [];
-      }),
-    ),
-  ),
-];
 const lazyFontAssetStemsBySource = new Map(
   lazyFontShards.map(({ source }, index) => [
     source,
@@ -522,6 +512,9 @@ if (distMode) {
     initialAssetFiles.map((file) => readFile(file, 'utf8')),
   );
   const initialAssetSet = new Set(initialAssetFiles.map((file) => path.resolve(file)));
+  const builtNotoFontAssetNames = distFiles
+    .filter((file) => file.endsWith('.woff2') && path.basename(file) !== 'PretendardVariable.woff2')
+    .map((file) => path.basename(file));
 
   for (const { file } of primaryFontCssEntries) {
     check(
@@ -548,7 +541,7 @@ if (distMode) {
   }
   check(
     !initialAssetContents.some((content) =>
-      lazyFontAssetStems.some((stem) => content.includes(stem)),
+      builtNotoFontAssetNames.some((assetName) => content.includes(assetName)),
     ),
     'a Noto font asset URL was absorbed into an initial CSS/JS asset',
   );

@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const pa: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -120,7 +121,7 @@ const pa: Record<I18nKey, string> = {
   'player.repeat_mode': 'ਦੁਹਰਾਓ ਮੋਡ ਬਦਲੋ',
   'player.shuffle_mode': 'ਬੇਤਰਤੀਬ ਕ੍ਰਮ ਮੋਡ ਬਦਲੋ',
   'player.sync_compact': 'ਸਿੰਕ',
-  'player.syncing_compact': 'ਸਿੰਕ ਹੋ ਰਿਹਾ ਹੈ…',
+  'player.syncing_compact': 'ਸਿੰਕ…',
   'player.play_media': 'ਮੀਡੀਆ ਚਲਾਓ',
   'player.play_media_compact': 'ਮੀਡੀਆ',
   'player.play_media_action': 'ਮੀਡੀਆ ਚਲਾਓ',
@@ -857,3 +858,33 @@ const pa: Record<I18nKey, string> = {
 };
 
 export default pa;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'ਚੁਣੇ ਟਰੈਕ ਮਿਟਾਓ ({{count}})',
+  },
+  'connect.device_list': {
+    one: 'ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
+  },
+  'demo.session_body_connected': {
+    one: 'ਇਸ ਵੇਲੇ ਜੁੜੀਆਂ ਡਿਵਾਈਸਾਂ ਦੀ ਗਿਣਤੀ: {{count}}।\nਹਰ ਜੁੜੀ ਡਿਵਾਈਸ ਦੀ ਭੂਮਿਕਾ ਸੈੱਟ ਕਰੋ।',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} ਵੱਲੋਂ ਜੋੜੇ ਟਰੈਕਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} ਵੱਲੋਂ {{title}} ਸਮੇਤ ਜੋੜੇ ਟਰੈਕਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
+  },
+  'toast.added_tracks': {
+    one: 'ਜੋੜੇ ਗਏ ਟਰੈਕਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'ਛੱਡੀਆਂ ਗਈਆਂ ਨਾ-ਚੱਲਣ ਵਾਲੀਆਂ ਫ਼ਾਈਲਾਂ ਦੀ ਗਿਣਤੀ: {{count}}',
+  },
+  'dialog.file_drop.message': {
+    one: 'ਜੋੜੀਆਂ ਜਾਣ ਵਾਲੀਆਂ ਫ਼ਾਈਲਾਂ ਦੀ ਗਿਣਤੀ {{count}} ਹੈ। ਅੱਗੇ ਵਧਣਾ ਹੈ?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'ਨਾ ਜੋੜੀਆਂ ਜਾਣ ਵਾਲੀਆਂ ਨਾ-ਚੱਲਣ ਵਾਲੀਆਂ ਫ਼ਾਈਲਾਂ ਦੀ ਗਿਣਤੀ: {{count}}।',
+  },
+} satisfies LocalePluralMessages;

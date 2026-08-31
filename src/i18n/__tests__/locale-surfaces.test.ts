@@ -190,16 +190,12 @@ describe('locale surface parity', () => {
 
   it('keeps script-specific font shards paired and retryable through the locale font loader', async () => {
     const source = await readFile('src/i18n/locale-fonts.ts', 'utf8');
-    const loaderCodes = objectKeys(
-      variableInitializer(source, 'src/i18n/locale-fonts.ts', 'DEFAULT_FONT_LOADERS'),
-      'DEFAULT_FONT_LOADERS',
-    ).sort();
-    const familyCodes = objectKeys(
-      variableInitializer(source, 'src/i18n/locale-fonts.ts', 'FONT_FAMILIES'),
-      'FONT_FAMILIES',
+    const mappedCodes = objectKeys(
+      variableInitializer(source, 'src/i18n/locale-fonts.ts', 'FONT_ASSET_BY_LOCALE'),
+      'FONT_ASSET_BY_LOCALE',
     ).sort();
 
-    expect(loaderCodes).toEqual([
+    expect(mappedCodes).toEqual([
       'ar',
       'bg',
       'bn',
@@ -222,6 +218,6 @@ describe('locale surface parity', () => {
       'zh-hans',
       'zh-hant',
     ]);
-    expect(familyCodes).toEqual(loaderCodes);
+    expect(source.match(/import\('\.\.\/\.\.\/css\/fonts\//gu)).toHaveLength(16);
   });
 });

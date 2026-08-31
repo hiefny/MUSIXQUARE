@@ -6,6 +6,7 @@
 
 import en from './en.ts';
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const es: Record<I18nKey, string> = {
   ...en,
@@ -872,3 +873,26 @@ const es: Record<I18nKey, string> = {
 };
 
 export default es;
+
+export const pluralMessages = {
+  'connect.administrator_list': { one: '{{count}} administrador' },
+  'playlist.delete_selected': { one: 'Eliminar {{count}} pista seleccionada' },
+  'connect.device_list': { one: '{{count}} dispositivo conectado' },
+  'demo.session_body_connected': {
+    one: '{{count}} dispositivo está conectado ahora.\nConfigura un rol para este dispositivo.',
+  },
+  'chat.cmd_slowmode_on': { one: 'Modo lento: {{sec}} segundo entre mensajes' },
+  'chat.cmd_slowmode_wait': { one: 'Espera {{sec}} segundo antes de enviar' },
+  'chat.tracks_added': { one: '{{name}} añadió {{count}} pista' },
+  'chat.tracks_added_named': {
+    one: '{{name}} añadió {{count}} pista, incluida {{title}}',
+  },
+  'toast.added_tracks': { one: '{{count}} pista añadida' },
+  'toast.unsupported_files_excluded': {
+    one: 'Archivo no compatible omitido: {{count}}',
+  },
+  'dialog.file_drop.message': { one: '¿Añadir {{count}} archivo?' },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'No se añadirá {{count}} archivo no compatible.',
+  },
+} satisfies LocalePluralMessages;

@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ml: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -99,8 +100,8 @@ const ml: Record<I18nKey, string> = {
   'nav.help': 'സഹായം',
   'nav.connect': 'ബന്ധിപ്പിക്കുക',
   'nav.playlist_compact': 'പ്ലേലിസ്റ്റ്',
-  'nav.connect_compact': 'ബന്ധിപ്പിക്കുക',
-  'nav.settings_compact': 'ക്രമീകരണങ്ങൾ',
+  'nav.connect_compact': 'ചേരുക',
+  'nav.settings_compact': 'സെറ്റിംഗ്സ്',
   'nav.go_home': 'ഹോമിലേക്ക് പോകുക',
 
   // ─── Player ──────────────────────────────────────────────────────
@@ -119,9 +120,9 @@ const ml: Record<I18nKey, string> = {
   'player.repeat_mode': 'ആവർത്തന രീതി മാറ്റുക',
   'player.shuffle_mode': 'ഷഫിൾ രീതി മാറ്റുക',
   'player.sync_compact': 'സിങ്ക്',
-  'player.syncing_compact': 'സിങ്ക് ചെയ്യുന്നു…',
+  'player.syncing_compact': 'സിങ്ക്…',
   'player.play_media': 'മീഡിയ പ്ലേ ചെയ്യുക',
-  'player.play_media_compact': 'മീഡിയ',
+  'player.play_media_compact': 'Media',
   'player.play_media_action': 'മീഡിയ പ്ലേ ചെയ്യുക',
   'player.add_media': 'മീഡിയ ചേർക്കുക',
   'player.play_start': 'ക്യൂവിൽ ചേർക്കുക',
@@ -848,7 +849,7 @@ const ml: Record<I18nKey, string> = {
   'system_audio.capture_denied': 'ഓഡിയോ പങ്കിടൽ റദ്ദാക്കി.',
   'system_audio.no_audio_track': '“ഓഡിയോ പങ്കിടുക” പ്രവർത്തനക്ഷമമാക്കിയില്ല.\nവീണ്ടും ശ്രമിക്കുക.',
   'system_audio.stop': 'പങ്കിടൽ നിർത്തുക',
-  'system_audio.stop_compact': 'നിർത്തുക',
+  'system_audio.stop_compact': 'Stop',
   'system_audio.started':
     'സിസ്റ്റം ഓഡിയോയിൽ നേരിയ കാലതാമസം ഉണ്ടാകാം.\nകഴിയുമെങ്കിൽ ഉറവിടത്തിന്റെ ശബ്ദനില കുറയ്ക്കുക.',
   'system_audio.stopped': 'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ അവസാനിച്ചു.\nപ്ലേലിസ്റ്റ് തുടരുന്നു.',
@@ -875,3 +876,36 @@ const ml: Record<I18nKey, string> = {
 };
 
 export default ml;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'തിരഞ്ഞെടുത്ത {{count}} ട്രാക്ക് ഇല്ലാതാക്കുക',
+  },
+  'connect.device_list': {
+    one: 'ബന്ധിപ്പിച്ച ഡിവൈസ്: {{count}}',
+  },
+  'connect.administrator_list': {
+    one: 'അഡ്മിൻ: {{count}}',
+  },
+  'demo.session_body_connected': {
+    one: 'ഇപ്പോൾ {{count}} ഡിവൈസ് ബന്ധിപ്പിച്ചിട്ടുണ്ട്.\nഈ ഡിവൈസിന് ഒരു റോൾ സജ്ജമാക്കുക.',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} {{count}} ട്രാക്ക് ചേർത്തു',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} {{title}} ഉൾപ്പെടെ {{count}} ട്രാക്ക് ചേർത്തു',
+  },
+  'toast.added_tracks': {
+    one: '{{count}} ട്രാക്ക് ചേർത്തു',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'പിന്തുണയ്ക്കാത്ത ഫയൽ ഒഴിവാക്കി: {{count}}',
+  },
+  'dialog.file_drop.message': {
+    one: '{{count}} ഫയൽ ചേർക്കണോ?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: 'പിന്തുണയ്ക്കാത്ത {{count}} ഫയൽ ചേർക്കില്ല.',
+  },
+} satisfies LocalePluralMessages;

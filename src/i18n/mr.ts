@@ -6,6 +6,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const mr: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -118,7 +119,7 @@ const mr: Record<I18nKey, string> = {
   'player.repeat_mode': 'पुनरावृत्ती मोड बदला',
   'player.shuffle_mode': 'यादृच्छिक क्रम मोड बदला',
   'player.sync_compact': 'सिंक',
-  'player.syncing_compact': 'सिंक होत आहे…',
+  'player.syncing_compact': 'सिंक…',
   'player.play_media': 'मीडिया प्ले करा',
   'player.play_media_compact': 'मीडिया',
   'player.play_media_action': 'मीडिया प्ले करा',
@@ -853,3 +854,33 @@ const mr: Record<I18nKey, string> = {
 };
 
 export default mr;
+
+export const pluralMessages = {
+  'playlist.delete_selected': {
+    one: 'निवडलेला {{count}} ट्रॅक हटवा',
+  },
+  'connect.device_list': {
+    one: 'कनेक्ट केलेले {{count}} डिव्हाइस',
+  },
+  'demo.session_body_connected': {
+    one: 'सध्या {{count}} डिव्हाइस कनेक्ट आहे.\nया डिव्हाइसची भूमिका ठरवा.',
+  },
+  'chat.tracks_added': {
+    one: '{{name}} यांनी {{count}} ट्रॅक जोडला',
+  },
+  'chat.tracks_added_named': {
+    one: '{{name}} यांनी {{title}} सह {{count}} ट्रॅक जोडला',
+  },
+  'toast.added_tracks': {
+    one: '{{count}} ट्रॅक जोडला',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'असमर्थित फाइल वगळली: {{count}}',
+  },
+  'dialog.file_drop.message': {
+    one: '{{count}} फाइल जोडायची?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} असमर्थित फाइल जोडली जाणार नाही.',
+  },
+} satisfies LocalePluralMessages;

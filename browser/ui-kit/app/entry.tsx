@@ -1,16 +1,26 @@
 type UiKitStage = 'app' | 'role' | 'start';
 
 const TRACKS = [
-  { title: 'Aurora Hymn', artist: 'Kaia Voss', dur: '3:42', source: 'file' },
-  { title: 'Midnight Protocol', artist: 'Noctis', dur: '4:08', source: 'youtube' },
   {
-    title: 'Coastal Drift · Night Mix',
-    artist: 'Seon-u & Rafael',
-    dur: '5:21',
+    title: 'Goldberg Variations, BWV 988: Aria',
+    artist: 'J. S. Bach',
+    dur: '4:51',
+    source: 'file',
+  },
+  {
+    title: 'Cello Suite No. 1, BWV 1007: Prelude',
+    artist: 'J. S. Bach',
+    dur: '2:42',
+    source: 'youtube',
+  },
+  {
+    title: 'The Well-Tempered Clavier, Book I',
+    artist: 'J. S. Bach',
+    dur: '4:36',
     source: 'youtube-playlist',
   },
-  { title: 'Paper Lanterns', artist: 'Hyejin Park', dur: '2:58', source: 'file' },
-  { title: 'Slow Weather', artist: 'Archive Signal', dur: '4:33', source: 'youtube' },
+  { title: 'Gymnopédie No. 1', artist: 'Erik Satie', dur: '3:08', source: 'file' },
+  { title: 'Clair de lune, L. 32', artist: 'Claude Debussy', dur: '5:12', source: 'youtube' },
 ] as const satisfies readonly UiKitTrack[];
 
 const DEVICES = [

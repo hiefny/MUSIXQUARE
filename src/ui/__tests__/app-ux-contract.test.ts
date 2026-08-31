@@ -288,6 +288,24 @@ describe('app UX markup contract', () => {
   it('keeps the chat composer bottom-aligned with a small optical lift for send', () => {
     expect(appStylesheet).toMatch(/\.chat-input-wrapper\s*\{[\s\S]*?align-items:\s*flex-end;/u);
     expect(appStylesheet).toMatch(/\.chat-send-btn\s*\{[\s\S]*?margin-bottom:\s*2px;/u);
+    expect(appDocument.getElementById('chat-input')?.getAttribute('dir')).toBe('auto');
+    expect(appDocument.getElementById('chat-pinned-notice-label')?.getAttribute('dir')).toBe(
+      'auto',
+    );
+    expect(appDocument.getElementById('chat-pinned-notice-text')?.getAttribute('dir')).toBe('auto');
+  });
+
+  it('uses content-sized wrappers for every collapsible audio control panel', () => {
+    for (const id of ['woofer-cutoff-control', 'reverb-sliders-area', 'eq-sliders-area']) {
+      const panel = appDocument.getElementById(id);
+      expect(panel?.children).toHaveLength(1);
+      expect(panel?.firstElementChild?.classList.contains('collapsible-slider-content')).toBe(true);
+    }
+    expect(appStylesheet).toMatch(/\.reverb-sliders-area\s*\{[\s\S]*?grid-template-rows:\s*1fr;/u);
+    expect(appStylesheet).toMatch(
+      /\.reverb-sliders-area\.collapsed\s*\{[\s\S]*?grid-template-rows:\s*0fr;/u,
+    );
+    expect(appStylesheet).not.toMatch(/#reverb-sliders-area:not\(\.collapsed\)[^{]*\{/u);
   });
 
   it('uses the official centered contenteditable for manual sync without an auto column', () => {
@@ -327,6 +345,7 @@ describe('app UX markup contract', () => {
     const youtubeInputWrapper = youtubeField?.closest('.yt-search-input-wrapper');
     expect(youtubeField?.tagName).toBe('DIV');
     expect(youtubeField?.getAttribute('contenteditable')).toBe('true');
+    expect(youtubeField?.getAttribute('dir')).toBe('auto');
     expect(youtubeField?.getAttribute('aria-describedby')).toBe('youtube-preview-status');
     expect(youtubeInputWrapper?.contains(youtubeSearch ?? null)).toBe(true);
     expect(youtubeSearch?.tagName).toBe('BUTTON');
@@ -338,13 +357,13 @@ describe('app UX markup contract', () => {
       /\.yt-search-input-wrapper\s*\{[\s\S]*?display:\s*flex;[\s\S]*?border-bottom:\s*2px solid var\(--surface-3\);/u,
     );
     expect(appStylesheet).toMatch(
-      /\.yt-search-input-wrapper \.yt-intro-text\s*\{[\s\S]*?text-align:\s*left;[\s\S]*?border-bottom:\s*0;/u,
+      /\.yt-search-input-wrapper \.yt-intro-text\s*\{[\s\S]*?text-align:\s*start;[\s\S]*?border-bottom:\s*0;/u,
     );
     expect(appStylesheet).toMatch(
       /\.yt-search-submit-btn:not\(:disabled\)\s*\{[\s\S]*?color:\s*var\(--primary\);/u,
     );
     expect(appStylesheet).toMatch(
-      /#youtube-url-overlay \.setup-join-area\s*\{[\s\S]*?text-align:\s*left;/u,
+      /#youtube-url-overlay \.setup-join-area\s*\{[\s\S]*?text-align:\s*start;/u,
     );
 
     const viewport = appDocument.querySelector<HTMLMetaElement>('meta[name="viewport"]');
@@ -388,6 +407,15 @@ describe('app UX markup contract', () => {
       connectBoundaryStart,
     );
     const connectBoundary = appRuntimeSource.slice(connectBoundaryStart, connectBoundaryEnd);
+    const announcementBoundaryStart = appRuntimeSource.indexOf("safeInit('AnnouncementPolling'");
+    const announcementBoundaryEnd = appRuntimeSource.indexOf(
+      "safeInit('ProRoomBranding'",
+      announcementBoundaryStart,
+    );
+    const announcementBoundary = appRuntimeSource.slice(
+      announcementBoundaryStart,
+      announcementBoundaryEnd,
+    );
 
     expect(appRuntimeSource).toContain("bus.on('app:lazy-feature-load-failed'");
     expect(appRuntimeSource).toContain("buttonText: t('common.refresh')");
@@ -396,6 +424,16 @@ describe('app UX markup contract', () => {
     expect(recoverySource.match(/reportLazyFeatureLoadFailure\(/gu)).toHaveLength(1);
     expect(connectBoundary).toContain("bus.emit('app:lazy-feature-load-failed', 'connect', error)");
     expect(connectBoundary).not.toContain('loading = null');
+    expect(appRuntimeSource).not.toContain(
+      "import { initAnnouncementPolling } from './ui/announcement.ts'",
+    );
+    expect(announcementBoundary).toContain("import('./ui/announcement.ts')");
+    expect(announcementBoundary).toContain('subscribeRoomAuthorityLifecycle(loadIfActive)');
+    expect(announcementBoundary).toContain("getRoomContext().role !== 'idle'");
+    expect(announcementBoundary).toContain(
+      "bus.emit('app:lazy-feature-load-failed', 'announcement', error)",
+    );
+    expect(announcementBoundary).not.toContain('loading = null');
   });
 
   it('places settings sync last in General and keeps one lock around every Audio section', () => {

@@ -5,6 +5,7 @@ import {
   CLASSIC_RUNTIME_ASSETS,
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
+import { LANGUAGE_OPTIONS } from '../locales.ts';
 
 const STATIC_LANGUAGE_ASSET = CLASSIC_RUNTIME_ASSETS.find(
   (candidate) => candidate.outputPath === 'static-language.js',
@@ -24,6 +25,9 @@ type PickerHarness = {
 type StaticLanguageApi = {
   htmlLang(code: string): string;
   locale(code: string): string;
+  direction(code: string): 'ltr' | 'rtl';
+  ensureFont(code: string): void;
+  ensurePickerFonts(): void;
   normalize(code: string): string | null;
   persist(code: string): string;
   resolve(fallback: string): string;
@@ -37,9 +41,10 @@ function languageApi(dom: JSDOM): StaticLanguageApi {
 async function createPickerHarness(
   mobile: boolean,
   url = 'https://musixquare.com/about',
+  headMarkup = '',
 ): Promise<PickerHarness> {
   const dom = new JSDOM(
-    '<!doctype html><html><body><div data-static-lang-picker></div></body></html>',
+    `<!doctype html><html><head>${headMarkup}</head><body><div data-static-lang-picker></div></body></html>`,
     {
       pretendToBeVisual: true,
       runScripts: 'outside-only',
@@ -72,6 +77,51 @@ async function createPickerHarness(
 }
 
 describe('static page language picker', () => {
+  it('enables the Vite-authored font URL instead of inventing a production path', async () => {
+    const { dom } = await createPickerHarness(
+      false,
+      'https://musixquare.com/ar/about',
+      '<link rel="stylesheet" href="/assets/noto-arabic.hash.css" data-static-lang-font-codes="ar fa ur" disabled>',
+    );
+    const authored = dom.window.document.querySelector<HTMLLinkElement>(
+      '[data-static-lang-font-codes]',
+    )!;
+
+    expect(authored.disabled).toBe(false);
+    expect(authored.href).toBe('https://musixquare.com/assets/noto-arabic.hash.css');
+    expect(dom.window.document.querySelectorAll('[data-static-lang-font]')).toHaveLength(0);
+
+    dom.window.close();
+  });
+
+  it('loads only the active About font until the full language picker opens', async () => {
+    const { dom } = await createPickerHarness(false, 'https://musixquare.com/ar/about');
+    const { document } = dom.window;
+    const api = languageApi(dom);
+    const fontLinks = () => [
+      ...document.querySelectorAll<HTMLLinkElement>('link[data-static-lang-font]'),
+    ];
+
+    expect(fontLinks().map((link) => link.getAttribute('href'))).toEqual([
+      '/css/fonts/noto-arabic.css',
+    ]);
+
+    api.ensureFont('fa');
+    api.ensureFont('ur');
+    expect(fontLinks()).toHaveLength(1);
+
+    fontLinks()[0]?.dispatchEvent(new dom.window.Event('error'));
+    expect(fontLinks()).toHaveLength(0);
+    api.ensureFont('ar');
+    expect(fontLinks()).toHaveLength(1);
+
+    document.querySelector<HTMLButtonElement>('[data-static-lang-trigger]')?.click();
+    expect(fontLinks()).toHaveLength(16);
+    expect(fontLinks().every((link) => link.href.startsWith('https://musixquare.com/'))).toBe(true);
+
+    dom.window.close();
+  });
+
   it('isolates mobile scrolling while the picker is open and restores the page afterward', async () => {
     const { dom, scrollTo } = await createPickerHarness(true);
     const { document } = dom.window;
@@ -129,18 +179,40 @@ describe('static page language picker', () => {
     const menu = document.querySelector<HTMLElement>('[data-static-lang-menu]')!;
     const options = [...document.querySelectorAll<HTMLElement>('[data-lang-set]')];
 
-    expect(api.options).toHaveLength(17);
+    expect(api.options).toHaveLength(LANGUAGE_OPTIONS.length);
     expect(options).toHaveLength(api.options.length);
     expect(trigger.getAttribute('aria-controls')).toBe(menu.id);
     expect(menu.getAttribute('aria-labelledby')).toBe(current.id);
     expect(current.lang).toBe('en');
+
+    const filipino = options.find((option) => option.dataset.langSet === 'fil');
+    expect(filipino?.querySelector('.static-lang-option__native')?.textContent).toBe('Filipino');
+    expect(filipino?.querySelector('.static-lang-option__english')?.textContent).toBe(
+      'Philippines',
+    );
 
     for (const [index, option] of options.entries()) {
       expect(option.dataset.langSet).toBe(api.options[index].code);
       expect(option.querySelector<HTMLElement>('.static-lang-option__native')?.lang).toBe(
         api.options[index].htmlLang,
       );
+      expect(option.querySelector<HTMLElement>('.static-lang-option__native')?.dir).toBe(
+        api.direction(api.options[index].code),
+      );
       expect(option.querySelector<HTMLElement>('.static-lang-option__english')?.lang).toBe('en');
+    }
+
+    dom.window.close();
+  });
+
+  it('keeps Arabic, Persian, Hebrew, and Urdu RTL without reversing other locales', async () => {
+    const { dom } = await createPickerHarness(false);
+    const api = languageApi(dom);
+
+    for (const { code } of api.options) {
+      expect(api.direction(code), code).toBe(
+        ['ar', 'fa', 'he', 'ur'].includes(code) ? 'rtl' : 'ltr',
+      );
     }
 
     dom.window.close();
@@ -156,6 +228,13 @@ describe('static page language picker', () => {
     japanese.dom.window.localStorage.setItem('mxqr-landing-lang', 'ko');
     expect(languageApi(japanese.dom).resolve('en')).toBe('ja');
     japanese.dom.window.close();
+  });
+
+  it('maps generic Norwegian URLs to the supported Bokmål locale', async () => {
+    const norwegian = await createPickerHarness(false, 'https://musixquare.com/no/about');
+    expect(languageApi(norwegian.dom).resolve('en')).toBe('nb');
+    expect(languageApi(norwegian.dom).htmlLang('nb')).toBe('nb-NO');
+    norwegian.dom.window.close();
   });
 
   it('renders locale counterparts as real links without carrying the legacy lang query', async () => {

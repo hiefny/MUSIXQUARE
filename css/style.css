@@ -57,6 +57,26 @@
     --font-sans-cyrillic:
       var(--font-primary), 'Noto Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       sans-serif;
+    --font-sans-devanagari:
+      'Noto Sans Devanagari', var(--font-primary), 'Nirmala UI', Mangal, sans-serif;
+    --font-sans-bengali:
+      'Noto Sans Bengali', var(--font-primary), 'Nirmala UI', 'Vrinda', sans-serif;
+    --font-sans-tamil: 'Noto Sans Tamil', var(--font-primary), 'Nirmala UI', 'Latha', sans-serif;
+    --font-sans-telugu:
+      'Noto Sans Telugu', var(--font-primary), 'Nirmala UI', 'Gautami', sans-serif;
+    --font-sans-gujarati:
+      'Noto Sans Gujarati', var(--font-primary), 'Nirmala UI', Shruti, sans-serif;
+    --font-sans-kannada: 'Noto Sans Kannada', var(--font-primary), 'Nirmala UI', Tunga, sans-serif;
+    --font-sans-malayalam:
+      'Noto Sans Malayalam', var(--font-primary), 'Nirmala UI', Kartika, sans-serif;
+    --font-sans-gurmukhi:
+      'Noto Sans Gurmukhi', var(--font-primary), 'Nirmala UI', Raavi, sans-serif;
+    --font-sans-arabic:
+      'Noto Sans Arabic', var(--font-primary), 'Segoe UI', Tahoma, Arial, sans-serif;
+    --font-sans-hebrew: 'Noto Sans Hebrew', var(--font-primary), 'Segoe UI', Arial, sans-serif;
+    --font-sans-greek:
+      'Noto Sans', var(--font-primary), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+      sans-serif;
     --font-sans: var(--font-sans-ko);
     --font-weight-display: 800;
 
@@ -429,7 +449,16 @@
   html:lang(pl),
   html:lang(tr),
   html:lang(id),
-  html:lang(vi) {
+  html:lang(vi),
+  html:lang(ms-MY),
+  html:lang(fil-PH),
+  html:lang(ro-RO),
+  html:lang(cs-CZ),
+  html:lang(sv-SE),
+  html:lang(da-DK),
+  html:lang(nb-NO),
+  html:lang(fi-FI),
+  html:lang(hu-HU) {
     --font-sans: var(--font-sans-ui);
   }
 
@@ -453,8 +482,57 @@
     --font-sans: var(--font-sans-th);
   }
 
-  html:lang(ru) {
+  html:lang(ru),
+  html:lang(uk-UA),
+  html:lang(bg-BG) {
     --font-sans: var(--font-sans-cyrillic);
+  }
+
+  html:lang(hi-IN),
+  html:lang(mr-IN) {
+    --font-sans: var(--font-sans-devanagari);
+  }
+
+  html:lang(bn-BD) {
+    --font-sans: var(--font-sans-bengali);
+  }
+
+  html:lang(ta-IN) {
+    --font-sans: var(--font-sans-tamil);
+  }
+
+  html:lang(te-IN) {
+    --font-sans: var(--font-sans-telugu);
+  }
+
+  html:lang(gu-IN) {
+    --font-sans: var(--font-sans-gujarati);
+  }
+
+  html:lang(kn-IN) {
+    --font-sans: var(--font-sans-kannada);
+  }
+
+  html:lang(ml-IN) {
+    --font-sans: var(--font-sans-malayalam);
+  }
+
+  html:lang(pa-IN) {
+    --font-sans: var(--font-sans-gurmukhi);
+  }
+
+  html:lang(ar),
+  html:lang(ur-PK),
+  html:lang(fa-IR) {
+    --font-sans: var(--font-sans-arabic);
+  }
+
+  html:lang(he-IL) {
+    --font-sans: var(--font-sans-hebrew);
+  }
+
+  html:lang(el-GR) {
+    --font-sans: var(--font-sans-greek);
   }
 
   html:lang(ja),
@@ -1389,8 +1467,8 @@
     overscroll-behavior-y: contain;
     padding-top: var(--header-height);
     /* Protect tab content from landscape safe-area insets. */
-    padding-left: var(--safe-left);
-    padding-right: var(--safe-right);
+    padding-inline-start: var(--safe-left);
+    padding-inline-end: var(--safe-right);
   }
 
   /* Mobile/Tablet: no padding on .tab-content — the scroll container (.tab-body)
@@ -1883,7 +1961,7 @@
 
   .track-box {
     --track-title-bleed: 20px;
-    text-align: left;
+    text-align: start;
   }
 
   /* Marquee: Ping-Pong Style (Wait -> Scroll -> Wait -> Return) */
@@ -1920,7 +1998,7 @@
     white-space: nowrap;
     width: auto;
     min-width: 100%;
-    text-align: left;
+    text-align: start;
     padding: 0 24px 0 var(--track-title-bleed);
     box-sizing: border-box;
   }
@@ -2010,6 +2088,7 @@
     background: transparent;
     --range-fill: var(--range-fill-idle);
     --range-progress: 0%;
+    --range-track-direction: to right;
     cursor: pointer;
     /* Preserve a 32px touch target around the thinner visual track. */
     height: 32px;
@@ -2032,7 +2111,7 @@
     width: 100%;
     height: 6px;
     background: linear-gradient(
-      to right,
+      var(--range-track-direction),
       var(--range-fill) 0%,
       var(--range-fill) var(--range-progress),
       var(--surface-2) var(--range-progress),
@@ -2047,7 +2126,7 @@
     width: 100%;
     height: 6px;
     background: linear-gradient(
-      to right,
+      var(--range-track-direction),
       var(--range-fill) 0%,
       var(--range-fill) var(--range-progress),
       var(--surface-2) var(--range-progress),
@@ -2147,7 +2226,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-left: auto;
+    margin-inline-start: auto;
     width: 100px;
     min-width: 80px;
     transform: translateX(-2px);
@@ -2289,7 +2368,7 @@
            box. Shift the whole area right by 4px so the visual circle's
            right edge aligns with the invite wrapper's text right edge on
            the other tabs (which sits flush at the header's content edge). */
-    margin-right: -4px;
+    margin-inline-end: -4px;
   }
 
   .playlist-ul {
@@ -2570,7 +2649,7 @@
     padding: 0;
     border: 0;
     background: transparent;
-    text-align: left;
+    text-align: start;
     font-family: inherit;
     line-height: inherit;
     font-size: 15px;
@@ -3475,6 +3554,8 @@
   }
 
   .reverb-sliders-area {
+    display: grid;
+    grid-template-rows: 1fr;
     overflow: hidden;
     opacity: 1;
     padding-top: 24px;
@@ -3484,37 +3565,28 @@
            the 0.35s delay (see .collapsed below) so focusable controls only
            become invisible after the collapse animation finishes. */
     transition:
-      max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+      grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.25s ease,
       padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       visibility 0s;
   }
 
-  #woofer-cutoff-control:not(.collapsed) {
-    max-height: 100px;
-    overflow: visible;
-  }
-
-  #reverb-sliders-area:not(.collapsed) {
-    max-height: 380px;
-    overflow: visible;
-  }
-
-  #eq-sliders-area:not(.collapsed) {
-    max-height: 200px;
+  .reverb-sliders-area > .collapsible-slider-content {
+    min-height: 0;
+    min-width: 0;
     overflow: visible;
   }
 
   .reverb-sliders-area.collapsed {
-    max-height: 0;
+    grid-template-rows: 0fr;
     opacity: 0;
     padding-top: 0;
     pointer-events: none;
     visibility: hidden;
     /* Override just the visibility channel to delay until collapse finishes;
-           keeps max-height, opacity, and padding on their existing easing. */
+           keeps the grid row, opacity, and padding on their existing easing. */
     transition:
-      max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+      grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.25s ease,
       padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       visibility 0s 0.35s;
@@ -3542,6 +3614,7 @@
     position: absolute;
     top: 50%;
     left: 50%;
+    /* This is physical centering, independent of the document's writing direction. */
     margin-left: -50px;
     margin-top: -16px;
   }
@@ -3667,8 +3740,8 @@
 
   #tab-settings .channel-grid {
     padding-top: 12px;
-    padding-left: 0;
-    padding-right: 0;
+    padding-inline-start: 0;
+    padding-inline-end: 0;
   }
 
   /* Shared channel grid for Settings and setup. */
@@ -3841,7 +3914,7 @@
     color: var(--primary);
     font-size: 10px;
     font-weight: bold;
-    margin-left: 6px;
+    margin-inline-start: 6px;
   }
 
   .d-actions {
@@ -4157,8 +4230,8 @@
     }
 
     .device-sublist {
-      padding-left: 40px;
-      padding-right: 8px;
+      padding-inline-start: 40px;
+      padding-inline-end: 8px;
     }
   }
 
@@ -4485,7 +4558,7 @@
 
   .help-list {
     margin-top: 10px;
-    margin-left: 20px;
+    margin-inline-start: 20px;
     color: var(--text-sub);
     font-size: 13px;
     line-height: 1.6;
@@ -4894,7 +4967,7 @@
     font-family: inherit;
     font-size: 15px;
     font-weight: 650;
-    text-align: left;
+    text-align: start;
     cursor: pointer;
   }
 
@@ -5154,7 +5227,7 @@
     font-weight: 700;
     font-variant-numeric: tabular-nums;
     line-height: 1.35;
-    text-align: right;
+    text-align: end;
     white-space: nowrap;
   }
 
@@ -5642,7 +5715,7 @@
   }
 
   .language-dialog-beta-badge {
-    margin-left: 14px;
+    margin-inline-start: 14px;
   }
 
   .language-list-frame {
@@ -5739,7 +5812,7 @@
     background: transparent;
     color: var(--text-main);
     font-family: inherit;
-    text-align: left;
+    text-align: start;
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
@@ -5771,7 +5844,7 @@
 
   .language-option-label {
     min-width: 0;
-    padding-left: 8px;
+    padding-inline-start: 8px;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -5801,7 +5874,10 @@
     font-family: 'Noto Sans Thai', var(--font-primary), 'Leelawadee UI', 'Tahoma', sans-serif;
   }
 
-  .language-option-native:lang(ru) {
+  .language-option-native:lang(ru),
+  .language-option-native:lang(uk),
+  .language-option-native:lang(bg),
+  .language-option-native:lang(el) {
     font-family:
       'Noto Sans',
       var(--font-primary),
@@ -5810,6 +5886,49 @@
       'Segoe UI',
       'Roboto',
       sans-serif;
+  }
+
+  .language-option-native:lang(hi),
+  .language-option-native:lang(mr) {
+    font-family: 'Noto Sans Devanagari', var(--font-primary), 'Nirmala UI', Mangal, sans-serif;
+  }
+
+  .language-option-native:lang(bn) {
+    font-family: 'Noto Sans Bengali', var(--font-primary), 'Nirmala UI', Vrinda, sans-serif;
+  }
+
+  .language-option-native:lang(ta) {
+    font-family: 'Noto Sans Tamil', var(--font-primary), 'Nirmala UI', Latha, sans-serif;
+  }
+
+  .language-option-native:lang(te) {
+    font-family: 'Noto Sans Telugu', var(--font-primary), 'Nirmala UI', Gautami, sans-serif;
+  }
+
+  .language-option-native:lang(gu) {
+    font-family: 'Noto Sans Gujarati', var(--font-primary), 'Nirmala UI', Shruti, sans-serif;
+  }
+
+  .language-option-native:lang(kn) {
+    font-family: 'Noto Sans Kannada', var(--font-primary), 'Nirmala UI', Tunga, sans-serif;
+  }
+
+  .language-option-native:lang(ml) {
+    font-family: 'Noto Sans Malayalam', var(--font-primary), 'Nirmala UI', Kartika, sans-serif;
+  }
+
+  .language-option-native:lang(pa) {
+    font-family: 'Noto Sans Gurmukhi', var(--font-primary), 'Nirmala UI', Raavi, sans-serif;
+  }
+
+  .language-option-native:lang(ar),
+  .language-option-native:lang(fa),
+  .language-option-native:lang(ur) {
+    font-family: 'Noto Sans Arabic', var(--font-primary), 'Segoe UI', Tahoma, Arial, sans-serif;
+  }
+
+  .language-option-native:lang(he) {
+    font-family: 'Noto Sans Hebrew', var(--font-primary), 'Segoe UI', Arial, sans-serif;
   }
 
   .language-option-english {
@@ -6320,7 +6439,7 @@
     width: 24px;
     height: 24px;
     fill: currentColor;
-    margin-right: 2px;
+    margin-inline-end: 2px;
     /* Slight visual centering tweak for back arrow */
   }
 
@@ -6382,7 +6501,7 @@
   .setup-header-text {
     width: 100%;
     margin-bottom: 56px;
-    text-align: left;
+    text-align: start;
     flex: none;
     padding-top: 0;
   }
@@ -7202,21 +7321,21 @@
     font-weight: 700;
     color: var(--text-sub);
     margin-bottom: 4px;
-    margin-left: 2px;
+    margin-inline-start: 2px;
     text-transform: none;
   }
 
   .chat-group.mine .chat-sender {
-    text-align: right;
-    margin-left: 0;
-    margin-right: 2px;
+    text-align: end;
+    margin-inline-start: 0;
+    margin-inline-end: 2px;
   }
 
   .chat-crown {
     position: relative;
     top: -1px;
     vertical-align: middle;
-    margin-right: 2px;
+    margin-inline-end: 2px;
     width: 14px;
     height: 14px;
   }
@@ -7232,7 +7351,7 @@
   .chat-join-order {
     font-size: 0.8em;
     opacity: 0.5;
-    margin-left: 2px;
+    margin-inline-start: 2px;
   }
 
   /* System messages — full-width notice style */
@@ -7255,7 +7374,7 @@
     background: var(--surface-2);
     color: var(--text-sub);
     font-size: 12px;
-    text-align: left;
+    text-align: start;
     width: 100%;
     border-radius: 0;
     padding: 10px 16px;
@@ -7476,7 +7595,7 @@
     border: none;
     color: inherit;
     font: inherit;
-    text-align: left;
+    text-align: start;
 
     width: 100%;
     display: flex;
@@ -7621,8 +7740,8 @@
     /* Prevent sub-pixel "peek" in iOS safe-area (viewport-fit=cover) */
     visibility: hidden;
     /* Notch protection for chat drawer */
-    padding-left: var(--safe-left);
-    padding-right: var(--safe-right);
+    padding-inline-start: var(--safe-left);
+    padding-inline-end: var(--safe-right);
   }
 
   [data-theme='light'] .chat-drawer {
@@ -8053,7 +8172,7 @@
     appearance: none;
     -webkit-appearance: none;
     outline: none;
-    text-align: left;
+    text-align: start;
     font-family: inherit;
     box-sizing: border-box;
   }
@@ -8100,7 +8219,7 @@
     font-size: 13px;
     color: rgba(255, 255, 255, 0.9);
     line-height: 1.45;
-    text-align: left;
+    text-align: start;
     word-break: break-all;
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -9082,8 +9201,8 @@
     body.mode-demo .demo-finish-content .demo-large-actions .leave-session-btn {
       flex: none;
       width: 100%;
-      margin-left: 0;
-      margin-right: 0;
+      margin-inline-start: 0;
+      margin-inline-end: 0;
       height: 58px;
       min-height: 58px;
     }
@@ -9155,8 +9274,8 @@
 
   @media (max-width: 420px) {
     .demo-mobile-shell {
-      padding-left: 10px;
-      padding-right: 10px;
+      padding-inline-start: 10px;
+      padding-inline-end: 10px;
       --demo-control-inset: 18px;
       --demo-shell-gap: 22px;
       --demo-panel-start-offset: 0px;
@@ -9239,7 +9358,7 @@
     -webkit-appearance: none;
     outline: none;
     color: var(--text-sub);
-    text-align: left;
+    text-align: start;
   }
 
   .file-select-btn:hover {
@@ -9309,7 +9428,9 @@
     flex: 1;
     min-width: 0;
     width: 100%;
-    padding-right: calc(var(--media-source-beta-edge-inset) - var(--media-source-option-padding-x));
+    padding-inline-end: calc(
+      var(--media-source-beta-edge-inset) - var(--media-source-option-padding-x)
+    );
   }
 
   .file-select-btn .media-source-label-text {
@@ -9339,7 +9460,7 @@
 
   .file-select-btn .media-source-beta-badge {
     height: var(--media-source-beta-height);
-    margin-left: auto;
+    margin-inline-start: auto;
   }
 
   #btn-system-audio.unsupported .media-source-beta-badge {
@@ -9359,7 +9480,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-right: 16px;
+    margin-inline-end: 16px;
     color: var(--text-main);
     transition: color 0.2s;
   }
@@ -9632,9 +9753,9 @@
       flex-direction: column !important;
       justify-content: flex-start !important;
       padding: 29px 16px 16px !important;
-      padding-right: calc(16px + var(--safe-right)) !important;
-      border-left: none !important;
-      border-right: none !important;
+      padding-inline-end: calc(16px + var(--safe-right)) !important;
+      border-inline-start: none !important;
+      border-inline-end: none !important;
       background: var(--surface-1) !important;
       z-index: 2501 !important;
       border-bottom: none !important;
@@ -9663,7 +9784,7 @@
        29px optical left edge so the logo and sidebar navigation share one axis. */
     html[data-pro-room] #app-logo {
       align-self: flex-start;
-      margin-left: 13px;
+      margin-inline-start: 13px;
     }
 
     /* Hide header behind setup overlay */
@@ -9685,7 +9806,7 @@
       margin-top: auto !important;
       flex-shrink: 0 !important;
       width: 100% !important;
-      padding-left: 13px !important; /* 29 - header 16px padding (from sidebar left edge) */
+      padding-inline-start: 13px !important; /* 29 - header 16px padding (from sidebar left edge) */
       padding-bottom: 13px !important; /* 29 - header 16px padding */
     }
 
@@ -9718,7 +9839,7 @@
       flex-direction: column !important;
       justify-content: flex-start !important;
       padding: 8px 12px 8px 20px !important;
-      padding-right: calc(20px + var(--safe-right)) !important;
+      padding-inline-end: calc(20px + var(--safe-right)) !important;
       background: transparent !important;
       backdrop-filter: none !important;
       -webkit-backdrop-filter: none !important;
@@ -9802,7 +9923,7 @@
       z-index: 90 !important;
       background: var(--bg);
       padding: 16px 24px 8px 24px !important;
-      padding-left: calc(24px + var(--safe-left)) !important;
+      padding-inline-start: calc(24px + var(--safe-left)) !important;
       box-sizing: border-box;
       border-radius: 0 !important;
       -webkit-overflow-scrolling: touch;
@@ -9872,7 +9993,7 @@
       min-height: 0 !important;
       border-radius: 0 !important;
       z-index: 3000 !important;
-      padding-left: var(--safe-left) !important;
+      padding-inline-start: var(--safe-left) !important;
       bottom: 0 !important;
     }
 
@@ -9935,7 +10056,7 @@
     #youtube-url-overlay {
       left: 0 !important;
       width: calc(100% - (200px + var(--safe-right))) !important;
-      padding-left: var(--safe-left) !important;
+      padding-inline-start: var(--safe-left) !important;
       padding-top: 8px !important;
       height: var(--app-height, 100dvh) !important;
       max-height: var(--app-height, 100dvh) !important;
@@ -10064,7 +10185,7 @@
         flex-direction: row !important;
         justify-content: space-evenly !important; /* Distribute icons across the sidebar width */
         padding: 0 8px !important;
-        padding-right: calc(8px + var(--safe-right)) !important;
+        padding-inline-end: calc(8px + var(--safe-right)) !important;
         width: calc(200px + var(--safe-right)) !important;
         top: calc((45px + var(--app-height, 100dvh) - 54px) / 2) !important;
         gap: 0 !important;
@@ -10094,8 +10215,8 @@
       /* Dashboard bottom area: badge on left, help on right */
       html:not(.keyboard-open) .header-right {
         justify-content: space-between !important;
-        padding-left: 13px !important;
-        padding-right: 0 !important;
+        padding-inline-start: 13px !important;
+        padding-inline-end: 0 !important;
         width: 100% !important;
       }
 
@@ -10110,9 +10231,9 @@
         border-radius: 12px !important;
         align-items: center !important;
         justify-content: center !important;
-        margin-left: 0 !important;
+        margin-inline-start: 0 !important;
         /* Match the 29px visual inset used by the compact sidebar. */
-        margin-right: 13px !important;
+        margin-inline-end: 13px !important;
         transition:
           color 0.15s,
           background 0.15s !important;
@@ -10253,7 +10374,7 @@
       justify-content: flex-start !important;
       align-items: flex-start !important;
       text-align: left !important;
-      padding-left: var(--safe-left) !important;
+      padding-inline-start: var(--safe-left) !important;
       color: var(--text-main) !important;
       position: relative !important;
       overflow: hidden !important;
@@ -10348,8 +10469,8 @@
 
     /* Content padding inside right panel */
     .setup-mobile-view > div:not(.ob-actions):not(.setup-header-pill):not(.cscroll-track) {
-      padding-left: var(--setup-px) !important;
-      padding-right: var(--setup-px-end) !important;
+      padding-inline-start: var(--setup-px) !important;
+      padding-inline-end: var(--setup-px-end) !important;
     }
 
     /* Actions bar at bottom of right column */
@@ -10588,6 +10709,17 @@
 .user-text-font.user-text-font {
   font-family:
     var(--font-primary),
+    var(--user-text-font-ar, '__MXQR_USER_TEXT_AR__'),
+    var(--user-text-font-he, '__MXQR_USER_TEXT_HE__'),
+    var(--user-text-font-hi, '__MXQR_USER_TEXT_HI__'),
+    var(--user-text-font-bn, '__MXQR_USER_TEXT_BN__'),
+    var(--user-text-font-ta, '__MXQR_USER_TEXT_TA__'),
+    var(--user-text-font-te, '__MXQR_USER_TEXT_TE__'),
+    var(--user-text-font-gu, '__MXQR_USER_TEXT_GU__'),
+    var(--user-text-font-kn, '__MXQR_USER_TEXT_KN__'),
+    var(--user-text-font-ml, '__MXQR_USER_TEXT_ML__'),
+    var(--user-text-font-pa, '__MXQR_USER_TEXT_PA__'),
+    var(--user-text-font-el, '__MXQR_USER_TEXT_EL__'),
     var(--user-text-font-ru, '__MXQR_USER_TEXT_RU__'),
     var(--user-text-font-th, '__MXQR_USER_TEXT_TH__'),
     var(--user-text-font-ja, '__MXQR_USER_TEXT_JA__'),
@@ -10598,6 +10730,50 @@
     'Segoe UI',
     Roboto,
     sans-serif;
+}
+
+.user-text-font-ar {
+  --user-text-font-ar: 'Noto Sans Arabic';
+}
+
+.user-text-font-he {
+  --user-text-font-he: 'Noto Sans Hebrew';
+}
+
+.user-text-font-hi {
+  --user-text-font-hi: 'Noto Sans Devanagari';
+}
+
+.user-text-font-bn {
+  --user-text-font-bn: 'Noto Sans Bengali';
+}
+
+.user-text-font-ta {
+  --user-text-font-ta: 'Noto Sans Tamil';
+}
+
+.user-text-font-te {
+  --user-text-font-te: 'Noto Sans Telugu';
+}
+
+.user-text-font-gu {
+  --user-text-font-gu: 'Noto Sans Gujarati';
+}
+
+.user-text-font-kn {
+  --user-text-font-kn: 'Noto Sans Kannada';
+}
+
+.user-text-font-ml {
+  --user-text-font-ml: 'Noto Sans Malayalam';
+}
+
+.user-text-font-pa {
+  --user-text-font-pa: 'Noto Sans Gurmukhi';
+}
+
+.user-text-font-el {
+  --user-text-font-el: 'Noto Sans';
 }
 
 .user-text-font-ru {
@@ -10776,7 +10952,7 @@ html:not(.ios-standalone) body {
   color: inherit;
   background: transparent;
   font: inherit;
-  text-align: right;
+  text-align: end;
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -10796,7 +10972,7 @@ html:not(.ios-standalone) body {
   color: var(--text-sub);
   letter-spacing: 0.1em;
   margin-bottom: 2px;
-  text-align: right;
+  text-align: end;
 }
 
 .invite-meta-value {
@@ -10804,7 +10980,7 @@ html:not(.ios-standalone) body {
   font-weight: var(--font-weight-display);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.1em;
-  text-align: right;
+  text-align: end;
 }
 
 /* Compact setup-role hint such as "(중앙)". */
@@ -10812,7 +10988,7 @@ html:not(.ios-standalone) body {
   font-size: 10px;
   color: var(--text-sub);
   font-weight: normal;
-  margin-left: 4px;
+  margin-inline-start: 4px;
 }
 
 /* SVG color utilities used by inline icons */
@@ -10915,8 +11091,8 @@ html:not(.ios-standalone) body {
   margin-bottom: 24px;
   background: transparent;
   max-height: 180px;
-  margin-left: -28px;
-  margin-right: -28px;
+  margin-inline-start: -28px;
+  margin-inline-end: -28px;
   width: calc(100% + 56px);
 }
 
@@ -10962,7 +11138,7 @@ html:not(.ios-standalone) body {
 }
 
 #youtube-url-overlay .setup-join-area {
-  text-align: left;
+  text-align: start;
 }
 
 /* YouTube preview text rows */
@@ -10981,7 +11157,7 @@ html:not(.ios-standalone) body {
 .yt-preview-meta {
   font-size: 11px;
   color: var(--text-sub);
-  text-align: left;
+  text-align: start;
   margin: 4px 0 0 0;
   font-weight: 600;
 }
@@ -11033,7 +11209,7 @@ html:not(.ios-standalone) body {
   font-weight: 500;
   letter-spacing: normal;
   line-height: 20px;
-  text-align: left;
+  text-align: start;
   padding: 12px 4px 10px;
   border-bottom: 0;
   align-self: stretch;
@@ -11194,7 +11370,7 @@ html:not(.ios-standalone) body {
   color: var(--text-main);
   padding: 10px 12px;
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition:
     border-color 0.16s ease,

@@ -81,8 +81,8 @@
       grid-area: header;
       position: relative;
       width: 100%;
-      padding-left: 24px;
-      padding-right: 24px;
+      padding-inline-start: 24px;
+      padding-inline-end: 24px;
       box-sizing: border-box;
       box-shadow: none;
       background: var(--surface-1);
@@ -141,7 +141,7 @@
       background: transparent;
       border-radius: 0;
       border: 0;
-      border-right: 1px solid var(--divider);
+      border-inline-end: 1px solid var(--divider);
       box-shadow: none;
       overflow: hidden;
     }
@@ -208,7 +208,7 @@
        so nudge the chat header's left padding by +4 to keep its title on
        the same X as the other tab titles. */
     .chat-drawer-header {
-      padding-left: 36px;
+      padding-inline-start: 36px;
     }
 
     /* Shared panel-title metrics keep header rows aligned. */
@@ -242,7 +242,7 @@
       align-items: center;
       /* One panel inset owns the shared stage-and-controls rail. */
       padding: 0 44px;
-      border-right: 1px solid var(--divider);
+      border-inline-end: 1px solid var(--divider);
       min-width: 0;
       min-height: 0;
       max-width: 100%;
@@ -256,13 +256,13 @@
            shares this column and keeps padding: 0
            (compensated via .chat-drawer-header padding-left). */
       padding: 0 4px;
-      border-right: 1px solid var(--divider);
+      border-inline-end: 1px solid var(--divider);
       border-bottom: 1px solid var(--divider);
     }
 
     .chat-drawer {
       padding: 0;
-      border-right: 1px solid var(--divider);
+      border-inline-end: 1px solid var(--divider);
       background: transparent;
       box-shadow: none;
       /* Reset the mobile slide-up drawer into a grid panel. */
@@ -292,8 +292,8 @@
       right: auto;
       width: 100%;
       max-width: calc(100% - 80px);
-      margin-left: auto;
-      margin-right: auto;
+      margin-inline-start: auto;
+      margin-inline-end: auto;
       gap: 12px;
       margin-top: auto;
       padding-bottom: 0px;
@@ -366,8 +366,8 @@
       box-sizing: border-box;
       padding: 20px 0 0;
       margin-top: 0;
-      margin-left: auto;
-      margin-right: auto;
+      margin-inline-start: auto;
+      margin-inline-end: auto;
       flex-grow: 0;
     }
 
@@ -515,8 +515,8 @@
     #desktop-connect-content .administrator-list,
     #desktop-connect-content .device-list,
     #desktop-connect-content .room-password-code-row {
-      margin-left: 20px;
-      margin-right: 20px;
+      margin-inline-start: 20px;
+      margin-inline-end: 20px;
     }
 
     /* ---------------------------------------------------
@@ -606,8 +606,8 @@
 
     /* Reset narrow-layout offsets on the role diagram. */
     #setup-role-area .setup-graphic-container {
-      margin-left: 0;
-      margin-right: 0;
+      margin-inline-start: 0;
+      margin-inline-end: 0;
       width: 100%;
     }
 
@@ -620,7 +620,7 @@
       background: var(--bg);
       backdrop-filter: none;
       -webkit-backdrop-filter: none;
-      border-right: 1px solid var(--divider);
+      border-inline-end: 1px solid var(--divider);
       padding: 0;
       border-radius: 0;
       overflow-x: hidden;
@@ -679,8 +679,8 @@
 
     /* Keep the role diagram within the desktop panel. */
     #setup-role-area .setup-graphic-container {
-      margin-left: 0;
-      margin-right: 0;
+      margin-inline-start: 0;
+      margin-inline-end: 0;
       width: 100%;
     }
 
@@ -701,16 +701,16 @@
     /* Padding for inner content (media/youtube overlays) */
     #media-source-overlay .setup-card.full-screen > div:not(.ob-actions):not(.cscroll-track),
     #youtube-url-overlay .setup-card.full-screen > div:not(.ob-actions):not(.cscroll-track) {
-      padding-left: 40px;
-      padding-right: 40px;
+      padding-inline-start: 40px;
+      padding-inline-end: 40px;
     }
 
     /* Use desktop horizontal padding while preserving the action-bar rhythm. */
     #media-source-overlay .setup-card.full-screen .ob-actions,
     #youtube-url-overlay .setup-card.full-screen .ob-actions {
       background: transparent;
-      padding-left: 40px;
-      padding-right: 40px;
+      padding-inline-start: 40px;
+      padding-inline-end: 40px;
       padding-bottom: 40px;
     }
 
@@ -779,8 +779,8 @@
 
     .accent-action-btn,
     .leave-session-btn {
-      margin-left: 20px;
-      margin-right: 20px;
+      margin-inline-start: 20px;
+      margin-inline-end: 20px;
       width: calc(100% - 40px);
     }
 
@@ -797,8 +797,8 @@
     body.mode-demo .demo-finish-content .demo-large-actions .leave-session-btn {
       flex: none;
       width: 100%;
-      margin-left: 0;
-      margin-right: 0;
+      margin-inline-start: 0;
+      margin-inline-end: 0;
     }
 
     /* Align the first audio section with the other settings sections. */
@@ -884,8 +884,8 @@
     .chat-drawer-messages {
       overflow-y: auto;
       overflow-x: hidden;
-      padding-left: 16px;
-      padding-right: 16px;
+      padding-inline-start: 16px;
+      padding-inline-end: 16px;
       height: 100%;
     }
 

@@ -165,7 +165,7 @@ describe('PRO room branding', () => {
       /#app-logo\s*{\s*flex-direction:\s*row;\s*align-items:\s*center;/,
     );
     expect(compactSidebarStyles).toMatch(
-      /html\[data-pro-room\]\s+#app-logo\s*\{\s*align-self:\s*flex-start;\s*margin-left:\s*13px;/,
+      /html\[data-pro-room\]\s+#app-logo\s*\{\s*align-self:\s*flex-start;\s*margin-inline-start:\s*13px;/,
     );
     expect(compactSidebarStyles).toMatch(
       /@media\s*\(max-height:\s*370px\)[\s\S]*?html:not\(\.keyboard-open\) #app-logo\s*\{\s*display:\s*none\s*!important;/,

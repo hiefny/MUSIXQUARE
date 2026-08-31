@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v528"></script>
+    <script src="/bootstrap.js?cache=v533"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <link rel="alternate" hreflang="en" href="https://musixquare.com/" />
@@ -67,10 +67,7 @@
     <meta property="og:image:alt" content="MUSIXQUARE: Play Together, Watch Together" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="MUSIXQUARE" />
-    <meta
-      name="twitter:description"
-      content="Every device, one system."
-    />
+    <meta name="twitter:description" content="Every device, one system." />
     <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
     <title>MUSIXQUARE</title>
     <meta
@@ -335,10 +332,14 @@
         </div>
 
         <div class="track-box">
-          <div class="track-title-wrapper">
-            <div class="track-title" id="track-title" data-i18n="player.no_media">No media playing</div>
+          <div class="track-title-wrapper" dir="auto">
+            <div class="track-title" id="track-title" data-i18n="player.no_media">
+              No media playing
+            </div>
           </div>
-          <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">Select a file or check the playlist</div>
+          <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">
+            Select a file or check the playlist
+          </div>
         </div>
 
         <div class="controls-area">
@@ -455,7 +456,12 @@
                 </svg>
                 <span class="chat-preview-badge" id="chat-preview-badge"></span>
               </div>
-              <span class="chat-preview-text" id="chat-preview-text" data-i18n="chat.start">Send a message to start!</span>
+              <span
+                class="chat-preview-text"
+                id="chat-preview-text"
+                data-i18n="chat.start"
+                >Send a message to start!</span
+              >
             </div>
           </button>
 
@@ -713,7 +719,7 @@
             </svg>
             <span data-i18n="player.play_speakers">Use as Speaker</span>
           </div>
-          <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
+          <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
         </div>
 
         <div class="help-block">
@@ -793,7 +799,9 @@
           aria-controls="settings-subtab-panel-general"
           aria-pressed="true"
           data-i18n="settings.subtab.general"
-        >General</button>
+        >
+          General
+        </button>
         <button
           type="button"
           id="settings-subtab-audio"
@@ -802,7 +810,9 @@
           aria-controls="settings-subtab-panel-audio"
           aria-pressed="false"
           data-i18n="settings.subtab.audio"
-        >Audio</button>
+        >
+          Audio
+        </button>
         <button
           type="button"
           id="settings-subtab-connect"
@@ -811,7 +821,9 @@
           aria-controls="settings-subtab-panel-connect"
           aria-pressed="false"
           data-i18n="settings.subtab.connect"
-        >Connect</button>
+        >
+          Connect
+        </button>
         <button
           type="button"
           id="settings-subtab-help"
@@ -820,7 +832,9 @@
           aria-controls="settings-subtab-panel-help"
           aria-pressed="false"
           data-i18n="settings.subtab.help"
-        >Help</button>
+        >
+          Help
+        </button>
       </div>
 
       <div class="tab-body" data-custom-scroll>
@@ -831,17 +845,17 @@
         >
           <div class="section-group" id="settings-language-section">
             <div class="section-header-row">
-              <span
-                class="section-title"
-                id="settings-language-title"
-                data-i18n="settings.language"
-              >Language Settings</span>
+              <span class="section-title" id="settings-language-title" data-i18n="settings.language"
+                >Language Settings</span
+              >
             </div>
             <p
               class="settings-option-description"
               id="settings-language-description"
               data-i18n="settings.language_desc"
-            >Choose a language or follow your system language.</p>
+            >
+              Choose a language or follow your system language.
+            </p>
             <div
               class="channel-grid language-mode-grid"
               id="grid-lang"
@@ -912,17 +926,17 @@
 
           <div class="section-group" id="theme-section">
             <div class="section-header-row">
-              <span
-                class="section-title"
-                id="settings-theme-title"
-                data-i18n="settings.theme"
-              >Theme</span>
+              <span class="section-title" id="settings-theme-title" data-i18n="settings.theme"
+                >Theme</span
+              >
             </div>
             <p
               class="settings-option-description"
               id="settings-theme-description"
               data-i18n="settings.theme_desc"
-            >Choose a light or dark theme.</p>
+            >
+              Choose a light or dark theme.
+            </p>
             <div
               class="channel-grid"
               id="grid-theme"
@@ -955,13 +969,16 @@
                 class="section-title"
                 id="settings-ui-sounds-title"
                 data-i18n="settings.ui_sounds"
-              >UI Sounds</span>
+                >UI Sounds</span
+              >
             </div>
             <p
               class="settings-option-description"
               id="settings-ui-sounds-description"
               data-i18n="settings.ui_sounds_desc"
-            >Turn notification, join and leave, and touch sounds on or off.</p>
+            >
+              Turn notification, join and leave, and touch sounds on or off.
+            </p>
             <div
               class="channel-grid"
               id="grid-ui-sounds"
@@ -1006,13 +1023,16 @@
                 class="section-title"
                 id="settings-sync-title"
                 data-i18n="settings.sync_settings"
-              >Settings sync</span>
+                >Settings sync</span
+              >
             </div>
             <p
               class="settings-option-description"
               id="settings-sync-description"
               data-i18n="settings.sync_settings_desc"
-            >Devices with this setting on sync their volume and audio effects.</p>
+            >
+              Devices with this setting on sync their volume and audio effects.
+            </p>
             <div
               class="channel-grid"
               id="grid-settings-sync"
@@ -1052,17 +1072,17 @@
             id="youtube-settings-note"
             role="note"
             data-i18n="help.youtube_no_effects"
-          >In YouTube mode, role settings and audio effects are unavailable.</div>
+          >
+            In YouTube mode, role settings and audio effects are unavailable.
+          </div>
 
           <!-- File-only role/effect controls are disabled while YouTube owns playback. -->
           <div id="youtube-settings-disabled-wrap" class="youtube-settings-disabled-wrap">
             <div class="section-group">
               <div class="section-header-row">
-                <span
-                  class="section-title"
-                  id="settings-role-title"
-                  data-i18n="setup.set_role"
-                >Set this device's role</span>
+                <span class="section-title" id="settings-role-title" data-i18n="setup.set_role"
+                  >Set this device's role</span
+                >
               </div>
 
               <p
@@ -1071,8 +1091,9 @@
                 data-i18n="settings.role_center_desc"
                 aria-live="polite"
                 aria-atomic="true"
-              >This device is acting as the center speaker.
-Place it in the center.</p>
+              >
+                This device is acting as the center speaker. Place it in the center.
+              </p>
 
               <div
                 class="setup-graphic-container settings-role-diagram"
@@ -1173,20 +1194,22 @@ Place it in the center.</p>
                 </button>
               </div>
               <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span data-i18n="settings.subwoofer_adjust">Subwoofer Cutoff</span>
-                    <span class="val-disp" id="val-cutoff">120 Hz</span>
+                <div class="collapsible-slider-content">
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span data-i18n="settings.subwoofer_adjust">Subwoofer Cutoff</span>
+                      <span class="val-disp" id="val-cutoff">120 Hz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="cutoff-slider"
+                      min="60"
+                      max="200"
+                      value="120"
+                      aria-label="Subwoofer Cutoff Frequency"
+                      data-i18n-aria-label="settings.subwoofer_cutoff"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="cutoff-slider"
-                    min="60"
-                    max="200"
-                    value="120"
-                    aria-label="Subwoofer Cutoff Frequency"
-                    data-i18n-aria-label="settings.subwoofer_cutoff"
-                  />
                 </div>
               </div>
             </div>
@@ -1196,7 +1219,8 @@ Place it in the center.</p>
                   class="section-title"
                   id="settings-reverb-title"
                   data-i18n="settings.reverb_title"
-                >Reverb</span>
+                  >Reverb</span
+                >
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
@@ -1218,7 +1242,9 @@ Place it in the center.</p>
                 class="settings-option-description"
                 id="settings-reverb-description"
                 data-i18n="settings.reverb_desc"
-              >Adjust the sound's reverb and resonance.</p>
+              >
+                Adjust the sound's reverb and resonance.
+              </p>
               <div
                 class="channel-grid"
                 id="grid-reverb"
@@ -1256,114 +1282,124 @@ Place it in the center.</p>
                 </button>
               </div>
               <div id="reverb-sliders-area" class="reverb-sliders-area collapsed">
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="common.mix">Mix</span>
-                      <span class="role-hint-label" data-i18n="settings.default_0pct">Default 0%</span
-                    ></span>
-                    <span class="val-disp" id="val-reverb">0%</span>
+                <div class="collapsible-slider-content">
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="common.mix">Mix</span>
+                        <span class="role-hint-label" data-i18n="settings.default_0pct"
+                          >Default 0%</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-reverb">0%</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-slider"
+                      min="0"
+                      max="100"
+                      value="0"
+                      aria-label="Reverb mix"
+                      data-i18n-aria-label="settings.reverb_mix"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-slider"
-                    min="0"
-                    max="100"
-                    value="0"
-                    aria-label="Reverb mix"
-                    data-i18n-aria-label="settings.reverb_mix"
-                  />
-                </div>
 
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="settings.decay_time">Decay time</span>
-                      <span class="role-hint-label" data-i18n="settings.default_5s">Default 5.0s</span
-                    ></span>
-                    <span class="val-disp" id="val-rvb-decay">5.0s</span>
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.decay_time">Decay time</span>
+                        <span class="role-hint-label" data-i18n="settings.default_5s"
+                          >Default 5.0s</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-decay">5.0s</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-decay-slider"
+                      min="0.1"
+                      max="10.0"
+                      step="0.1"
+                      value="5.0"
+                      aria-label="Reverb decay"
+                      data-i18n-aria-label="settings.reverb_decay"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-decay-slider"
-                    min="0.1"
-                    max="10.0"
-                    step="0.1"
-                    value="5.0"
-                    aria-label="Reverb decay"
-                    data-i18n-aria-label="settings.reverb_decay"
-                  />
-                </div>
 
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="settings.predelay">Pre-delay</span>
-                      <span class="role-hint-label" data-i18n="settings.default_01s">Default 0.1s</span
-                    ></span>
-                    <span class="val-disp" id="val-rvb-predelay">0.1s</span>
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.predelay">Pre-delay</span>
+                        <span class="role-hint-label" data-i18n="settings.default_01s"
+                          >Default 0.1s</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-predelay">0.1s</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-predelay-slider"
+                      min="0"
+                      max="0.5"
+                      step="0.01"
+                      value="0.1"
+                      aria-label="Reverb pre-delay"
+                      data-i18n-aria-label="settings.reverb_predelay"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-predelay-slider"
-                    min="0"
-                    max="0.5"
-                    step="0.01"
-                    value="0.1"
-                    aria-label="Reverb pre-delay"
-                    data-i18n-aria-label="settings.reverb_predelay"
-                  />
-                </div>
 
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="settings.highpass">High-pass</span>
-                      <span class="role-hint-label" data-i18n="settings.default_20hz">Default 20Hz</span
-                    ></span>
-                    <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.highpass">High-pass</span>
+                        <span class="role-hint-label" data-i18n="settings.default_20hz"
+                          >Default 20Hz</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-lowcut-slider"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value="0"
+                      aria-label="Reverb low-cut"
+                      data-i18n-aria-label="settings.reverb_lowcut"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-lowcut-slider"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value="0"
-                    aria-label="Reverb low-cut"
-                    data-i18n-aria-label="settings.reverb_lowcut"
-                  />
-                </div>
 
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="settings.lowpass">Low-pass</span>
-                      <span class="role-hint-label" data-i18n="settings.default_20khz">Default 20.0kHz</span
-                    ></span>
-                    <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.lowpass">Low-pass</span>
+                        <span class="role-hint-label" data-i18n="settings.default_20khz"
+                          >Default 20.0kHz</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-highcut-slider"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value="0"
+                      aria-label="Reverb high-cut"
+                      data-i18n-aria-label="settings.reverb_highcut"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-highcut-slider"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value="0"
-                    aria-label="Reverb high-cut"
-                    data-i18n-aria-label="settings.reverb_highcut"
-                  />
                 </div>
               </div>
             </div>
 
             <div class="section-group">
               <div class="section-header-row">
-                <span
-                  class="section-title"
-                  id="settings-eq-title"
-                  data-i18n="settings.eq_title"
-                >Equalizer</span>
+                <span class="section-title" id="settings-eq-title" data-i18n="settings.eq_title"
+                  >Equalizer</span
+                >
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
@@ -1385,7 +1421,9 @@ Place it in the center.</p>
                 class="settings-option-description"
                 id="settings-eq-description"
                 data-i18n="settings.eq_desc"
-              >Adjust the tone of the sound. Use it together with the volume control.</p>
+              >
+                Adjust the tone of the sound. Use it together with the volume control.
+              </p>
               <div
                 class="channel-grid"
                 id="grid-eq"
@@ -1423,71 +1461,73 @@ Place it in the center.</p>
                 </button>
               </div>
               <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
-                <div class="eq-container">
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-0">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-0"
-                      aria-label="EQ 60Hz"
-                    />
-                    <span class="eq-label">60</span>
-                  </div>
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-1">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-1"
-                      aria-label="EQ 230Hz"
-                    />
-                    <span class="eq-label">230</span>
-                  </div>
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-2">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-2"
-                      aria-label="EQ 910Hz"
-                    />
-                    <span class="eq-label">910</span>
-                  </div>
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-3">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-3"
-                      aria-label="EQ 3.6kHz"
-                    />
-                    <span class="eq-label">3.6k</span>
-                  </div>
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-4">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-4"
-                      aria-label="EQ 14kHz"
-                    />
-                    <span class="eq-label">14k</span>
+                <div class="collapsible-slider-content">
+                  <div class="eq-container">
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-0">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-0"
+                        aria-label="EQ 60Hz"
+                      />
+                      <span class="eq-label">60</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-1">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-1"
+                        aria-label="EQ 230Hz"
+                      />
+                      <span class="eq-label">230</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-2">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-2"
+                        aria-label="EQ 910Hz"
+                      />
+                      <span class="eq-label">910</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-3">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-3"
+                        aria-label="EQ 3.6kHz"
+                      />
+                      <span class="eq-label">3.6k</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-4">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-4"
+                        aria-label="EQ 14kHz"
+                      />
+                      <span class="eq-label">14k</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1499,7 +1539,8 @@ Place it in the center.</p>
                   class="section-title"
                   id="settings-virtual-effects-title"
                   data-i18n="settings.virtual_effects_title"
-                >Virtual effects</span>
+                  >Virtual effects</span
+                >
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
@@ -1521,7 +1562,9 @@ Place it in the center.</p>
                 class="settings-option-description"
                 id="settings-virtual-effects-description"
                 data-i18n="settings.virtual_effects_desc"
-              >Apply synthesized effects to the audio. This may cause heavy distortion.</p>
+              >
+                Apply synthesized effects to the audio. This may cause heavy distortion.
+              </p>
               <div
                 class="channel-grid virtual-effects-grid"
                 id="grid-virtual-effects"
@@ -1588,7 +1631,9 @@ Place it in the center.</p>
             <!-- Desktop mirrors the mobile connection list rendered in #tab-connect. -->
             <div class="section-group settings-device-section">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="settings.devices_title">Connected Devices</span>
+                <span class="section-title" data-i18n="settings.devices_title"
+                  >Connected Devices</span
+                >
               </div>
               <div id="device-list"></div>
             </div>
@@ -1600,7 +1645,9 @@ Place it in the center.</p>
           <div id="desktop-connect-content">
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="connect.qr_title">Invite via QR or Link</span>
+                <span class="section-title" data-i18n="connect.qr_title"
+                  >Invite via QR or Link</span
+                >
               </div>
               <div id="desktop-qr-container" class="qr-container">
                 <p class="qr-placeholder" data-i18n="connect.no_session">Start a session first</p>
@@ -1726,7 +1773,7 @@ Place it in the center.</p>
                 </svg>
                 <span data-i18n="player.play_speakers">Use as Speaker</span>
               </div>
-              <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
+              <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> <bdi dir="ltr">L</bdi> channel output</li><li><strong>Right:</strong> <bdi dir="ltr">R</bdi> channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
             </div>
 
             <div class="help-block">
@@ -1807,7 +1854,7 @@ Place it in the center.</p>
       >
         <div class="chat-pinned-notice-body">
           <div class="chat-pinned-notice-header">
-            <div class="chat-pinned-notice-label" id="chat-pinned-notice-label"></div>
+            <div class="chat-pinned-notice-label" id="chat-pinned-notice-label" dir="auto"></div>
             <span class="chat-pinned-notice-time" id="chat-pinned-notice-time"></span>
             <svg
               class="chat-pinned-notice-close"
@@ -1823,11 +1870,13 @@ Place it in the center.</p>
               />
             </svg>
           </div>
-          <div class="chat-pinned-notice-text" id="chat-pinned-notice-text"></div>
+          <div class="chat-pinned-notice-text" id="chat-pinned-notice-text" dir="auto"></div>
         </div>
       </div>
       <div class="chat-scroll-wrapper">
-        <span id="chat-copy-hint" class="sr-only" data-i18n="chat.copy_hint">Press Enter to copy this chat message</span>
+        <span id="chat-copy-hint" class="sr-only" data-i18n="chat.copy_hint"
+          >Press Enter to copy this chat message</span
+        >
         <div
           class="chat-drawer-messages"
           id="chat-messages"
@@ -1836,7 +1885,7 @@ Place it in the center.</p>
           tabindex="-1"
           data-custom-scroll
         >
-          <div class="chat-empty" data-i18n-html="chat.empty_html">No messages yet.<br>Send the first message!</div>
+          <div class="chat-empty" dir="auto" data-i18n-html="chat.empty_html">No messages yet.<br>Send the first message!</div>
         </div>
         <button
           class="chat-scroll-down-btn"
@@ -1874,6 +1923,7 @@ Place it in the center.</p>
           <div
             class="chat-input"
             id="chat-input"
+            dir="auto"
             contenteditable="true"
             tabindex="0"
             role="combobox"
@@ -2441,7 +2491,9 @@ Place it in the center.</p>
                   </h2>
                 </div>
               </div>
-              <p class="setup-role-prompt" data-i18n="setup.hello_select_role">Create a room or join one.</p>
+              <p class="setup-role-prompt" data-i18n="setup.hello_select_role">
+                Create a room or join one.
+              </p>
             </div>
 
             <div id="ob-slider-area" class="ob-slider-block">
@@ -2602,7 +2654,9 @@ Place it in the center.</p>
                 class="setup-code-label"
                 id="setup-host-code-label"
                 data-i18n="setup.enter_code_connect"
-              >Invitation code</div>
+              >
+                Invitation code
+              </div>
               <input
                 type="text"
                 class="setup-join-input code-input-active"
@@ -2671,7 +2725,9 @@ Place it in the center.</p>
               </div>
             </div>
             <div class="setup-code-area-bottom">
-              <div class="setup-code-label" data-i18n="setup.enter_host_code">Enter invitation code</div>
+              <div class="setup-code-label" data-i18n="setup.enter_host_code">
+                Enter invitation code
+              </div>
               <input
                 type="text"
                 class="setup-join-input"
@@ -2873,13 +2929,12 @@ Place it in the center.</p>
             id="btn-dialog-secondary"
             hidden
             data-i18n="common.cancel"
-          >Cancel</button>
-          <button
-            type="button"
-            class="dialog-primary"
-            id="btn-dialog-ok"
-            data-i18n="common.ok"
-          >OK</button>
+          >
+            Cancel
+          </button>
+          <button type="button" class="dialog-primary" id="btn-dialog-ok" data-i18n="common.ok">
+            OK
+          </button>
         </div>
       </div>
     </div>
@@ -2997,19 +3052,13 @@ Place it in the center.</p>
             hidden
           ></button>
           <nav class="account-legal-links" id="account-legal-links" hidden>
-            <a
-              href="/terms"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-i18n="account.terms"
-            >Terms</a>
+            <a href="/terms" target="_blank" rel="noopener noreferrer" data-i18n="account.terms"
+              >Terms</a
+            >
             <span aria-hidden="true">·</span>
-            <a
-              href="/privacy"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-i18n="account.privacy"
-            >Privacy</a>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" data-i18n="account.privacy"
+              >Privacy</a
+            >
           </nav>
         </div>
         <dl
@@ -3020,15 +3069,21 @@ Place it in the center.</p>
           hidden
         >
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-sessions-label" data-i18n="account.stats_sessions_label">Sessions joined</dt>
+            <dt id="account-stats-sessions-label" data-i18n="account.stats_sessions_label">
+              Sessions joined
+            </dt>
             <dd id="account-stats-session-count">-</dd>
           </div>
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-listening-label" data-i18n="account.stats_listening_label">Listening time</dt>
+            <dt id="account-stats-listening-label" data-i18n="account.stats_listening_label">
+              Listening time
+            </dt>
             <dd id="account-stats-listening-time">-</dd>
           </div>
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-tracks-label" data-i18n="account.stats_tracks_label">Media played</dt>
+            <dt id="account-stats-tracks-label" data-i18n="account.stats_tracks_label">
+              Media played
+            </dt>
             <dd id="account-stats-track-count">-</dd>
           </div>
         </dl>
@@ -3090,7 +3145,8 @@ Place it in the center.</p>
                 class="administrator-permission-inherited"
                 hidden
                 data-i18n="connect.permission_inherited"
-              >Included</small>
+                >Included</small
+              >
             </span>
             <span class="administrator-permission-toggle" aria-hidden="true">
               <span class="administrator-permission-toggle-knob"></span>
@@ -3127,13 +3183,17 @@ Place it in the center.</p>
             class="dialog-secondary"
             id="btn-administrator-permissions-cancel"
             data-i18n="common.cancel"
-          >Cancel</button>
+          >
+            Cancel
+          </button>
           <button
             type="button"
             class="dialog-primary"
             id="btn-administrator-permissions-save"
             data-i18n="common.done"
-          >Done</button>
+          >
+            Done
+          </button>
         </div>
       </div>
     </div>
@@ -3154,7 +3214,8 @@ Place it in the center.</p>
             class="dialog-title"
             id="language-dialog-title"
             data-i18n="settings.language_dialog_title"
-          >Select Language</span>
+            >Select Language</span
+          >
           <span
             class="feature-badge media-source-beta-badge language-dialog-beta-badge"
             aria-label="Beta"
@@ -3180,7 +3241,9 @@ Place it in the center.</p>
             class="dialog-primary"
             id="btn-language-dialog-done"
             data-i18n="common.done"
-          >Done</button>
+          >
+            Done
+          </button>
         </div>
       </div>
     </div>
@@ -3235,7 +3298,11 @@ Place it in the center.</p>
 
     <div id="demo-overlay" class="demo-overlay" aria-hidden="true" data-nosnippet>
       <div class="demo-mobile-shell">
-        <section class="demo-visual-stage" aria-label="Audio visualizer" data-i18n-aria-label="player.visualizer">
+        <section
+          class="demo-visual-stage"
+          aria-label="Audio visualizer"
+          data-i18n-aria-label="player.visualizer"
+        >
           <div id="demo-visualizer-slot" class="demo-visualizer-slot"></div>
           <div class="demo-track-header">
             <button
@@ -3259,7 +3326,11 @@ Place it in the center.</p>
               <div class="demo-track-artist">© Brett Taylor</div>
             </div>
           </div>
-          <div class="demo-step-nav" aria-label="Demo steps" data-i18n-aria-label="demo.step_nav_label">
+          <div
+            class="demo-step-nav"
+            aria-label="Demo steps"
+            data-i18n-aria-label="demo.step_nav_label"
+          >
             <button type="button" class="active" data-demo-step="1" aria-pressed="true">
               <span data-i18n="demo.step_connect">1. Connect</span>
             </button>
@@ -3407,7 +3478,9 @@ Place it in the center.</p>
             <article class="demo-step-panel" data-demo-panel="3">
               <div class="demo-step-copy">
                 <h2 data-i18n="demo.effects_step_title">Craft your premium sound.</h2>
-                <p data-i18n="demo.effects_step_subtitle">You can fine-tune these advanced acoustics anytime in Settings.</p>
+                <p data-i18n="demo.effects_step_subtitle">
+                  You can fine-tune these advanced acoustics anytime in Settings.
+                </p>
               </div>
               <div class="demo-step-content demo-effects-content">
                 <div class="demo-large-actions">
@@ -3471,7 +3544,9 @@ Place it in the center.</p>
             <article class="demo-step-panel" data-demo-panel="4">
               <div class="demo-step-copy">
                 <h2 data-i18n="demo.finish_step_title">You're all set!</h2>
-                <p data-i18n="demo.finish_step_subtitle">Jump right in and start playing together.</p>
+                <p data-i18n="demo.finish_step_subtitle">
+                  Jump right in and start playing together.
+                </p>
               </div>
               <div class="demo-step-content demo-finish-content">
                 <div
@@ -3532,8 +3607,12 @@ Place it in the center.</p>
     >
       <div class="onboarding-card setup-card full-screen">
         <div class="setup-header-text">
-          <h2 id="media-source-dialog-title" data-i18n="player.select_media">Select media to play</h2>
-          <p data-i18n="help.media_synced_detail">The selected media plays simultaneously on all connected devices.</p>
+          <h2 id="media-source-dialog-title" data-i18n="player.select_media">
+            Select media to play
+          </h2>
+          <p data-i18n="help.media_synced_detail">
+            The selected media plays simultaneously on all connected devices.
+          </p>
         </div>
 
         <div class="setup-slot-list" data-custom-scroll data-custom-scroll-contained>
@@ -3581,7 +3660,9 @@ Place it in the center.</p>
               </span>
             </div>
             <span class="media-source-label-row">
-              <span class="media-source-label-text" data-i18n="system_audio.button">System Audio</span>
+              <span class="media-source-label-text" data-i18n="system_audio.button"
+                >System Audio</span
+              >
               <span class="feature-badge media-source-beta-badge" aria-label="Beta">BETA</span>
             </span>
           </button>
@@ -3592,7 +3673,9 @@ Place it in the center.</p>
             class="btn-ob-secondary flex-1"
             id="btn-close-media-popup"
             data-i18n="common.close"
-          >Close</button>
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -3607,7 +3690,9 @@ Place it in the center.</p>
     >
       <div class="onboarding-card setup-card full-screen">
         <div class="setup-header-text">
-          <h2 id="youtube-url-dialog-title" data-i18n="youtube.watch_together">Watch YouTube together</h2>
+          <h2 id="youtube-url-dialog-title" data-i18n="youtube.watch_together">
+            Watch YouTube together
+          </h2>
           <p data-i18n-html="youtube.enter_link_desc_html">Only public videos or playlists can be played.</p>
         </div>
 
@@ -3617,6 +3702,7 @@ Place it in the center.</p>
               contenteditable="true"
               id="youtube-url-input"
               class="setup-join-input yt-intro-text"
+              dir="auto"
               role="textbox"
               aria-label="Enter YouTube link or search"
               aria-describedby="youtube-preview-status"
@@ -3671,21 +3757,23 @@ Place it in the center.</p>
             aria-live="polite"
             aria-atomic="true"
             data-i18n="youtube.enter_link_prompt"
-          >Enter a YouTube search term or link</p>
+          >
+            Enter a YouTube search term or link
+          </p>
         </div>
 
         <div class="ob-actions setup-card-mt-8-row">
-          <button
-            class="btn-ob-secondary flex-1"
-            id="btn-yt-cancel"
-            data-i18n="common.cancel"
-          >Cancel</button>
+          <button class="btn-ob-secondary flex-1" id="btn-yt-cancel" data-i18n="common.cancel">
+            Cancel
+          </button>
           <button
             id="youtube-play-btn"
             class="btn-ob-primary yt-play-btn-flex15"
             disabled
             data-i18n="player.play_start"
-          >Add to Queue</button>
+          >
+            Add to Queue
+          </button>
         </div>
       </div>
     </div>

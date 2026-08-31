@@ -83,7 +83,7 @@ import { initSync } from './network/sync.ts';
 import { initOrchestrator } from './network/orchestrator.ts';
 import { registerSystemCaptureListeners } from './audio/system-capture.ts';
 import { initStandardOperatorFileUplink } from './network/operator-file-uplink.ts';
-import { getRoomContext } from './rooms/authority.ts';
+import { getRoomContext, subscribeRoomAuthorityLifecycle } from './rooms/authority.ts';
 // ── Storage ──
 // RAM-only storage dispatches STORAGE_* commands in-process.
 import { initTransfer } from './storage/transfer.ts';
@@ -129,7 +129,6 @@ import { initSettings } from './ui/settings.ts';
 import { initSetup } from './ui/setup.ts';
 import { failOpenSetupBootGuard } from './ui/setup-boot-guard.ts';
 import { initDemoModeLoader } from './demo/loader.ts';
-import { initAnnouncementPolling } from './ui/announcement.ts';
 import { initProRoomBranding } from './pro-room/branding.ts';
 import { initUiSounds } from './audio/ui-sounds.ts';
 import { initContrastPreference } from './core/contrast.ts';
@@ -1031,7 +1030,7 @@ function recordCachedNavigationFallback(): void {
 }
 
 type LazyFeatureFailure = {
-  feature: 'connect' | 'pro-room' | 'room-session';
+  feature: 'announcement' | 'connect' | 'pro-room' | 'room-session';
   error: unknown;
 };
 
@@ -1068,7 +1067,7 @@ const runLazyFeatureRecovery = createReloadRecoveryLatch<LazyFeatureFailure>({
 });
 
 function reportLazyFeatureLoadFailure(
-  feature: 'connect' | 'pro-room' | 'room-session',
+  feature: 'announcement' | 'connect' | 'pro-room' | 'room-session',
   error: unknown,
 ): void {
   log.error(`[App] ${feature} feature load failed; reload required:`, error);
@@ -1216,7 +1215,30 @@ async function bootstrap(): Promise<void> {
     }
   });
   safeInit('DemoMode', initDemoModeLoader);
-  safeInit('AnnouncementPolling', initAnnouncementPolling);
+  safeInit('AnnouncementPolling', () => {
+    let loading: Promise<void> | null = null;
+    let loadFailure: unknown;
+    let loadFailed = false;
+    const load = (): void => {
+      if (loadFailed) {
+        bus.emit('app:lazy-feature-load-failed', 'announcement', loadFailure);
+        return;
+      }
+      loading ??= (async () => {
+        const { initAnnouncementPolling } = await import('./ui/announcement.ts');
+        initAnnouncementPolling();
+      })().catch((error) => {
+        loadFailure = error;
+        loadFailed = true;
+        bus.emit('app:lazy-feature-load-failed', 'announcement', error);
+      });
+    };
+    const loadIfActive = (): void => {
+      if (getRoomContext().role !== 'idle') load();
+    };
+    subscribeRoomAuthorityLifecycle(loadIfActive);
+    loadIfActive();
+  });
   safeInit('ProRoomBranding', initProRoomBranding);
 
   // 9. Service Worker

@@ -570,6 +570,8 @@ describe('strict TypeScript classic browser runtimes', () => {
         resolve(fallback: unknown): string;
         htmlLang(code: unknown): string;
         locale(code: unknown): string;
+        direction(code: unknown): 'ltr' | 'rtl';
+        setDocumentLang(code: unknown): void;
         update(code: unknown): void;
       };
       __landingLang?: string;
@@ -580,6 +582,11 @@ describe('strict TypeScript classic browser runtimes', () => {
       resolve: () => 'nl',
       htmlLang: (code) => (code === 'zh-hant' ? 'zh-Hant' : String(code)),
       locale: (code) => (code === 'zh-hant' ? 'zh_TW' : code === 'nl' ? 'nl_NL' : 'en_US'),
+      direction: () => 'ltr',
+      setDocumentLang: (code) => {
+        landingWindow.document.documentElement.lang = code === 'zh-hant' ? 'zh-Hant' : String(code);
+        landingWindow.document.documentElement.dir = 'ltr';
+      },
       update: (code) => updates.push(String(code)),
     };
     landingWindow.__landingLang = 'nl';
@@ -589,7 +596,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       landingWindow.eval(code);
       expect(landingWindow.document.title).toBe('Over MUSIXQUARE');
       expect(landingWindow.document.documentElement.lang).toBe('nl');
-      expect(landingWindow.document.documentElement.dir).toBe('rtl');
+      expect(landingWindow.document.documentElement.dir).toBe('ltr');
       expect(landingWindow.document.querySelector('[data-i18n="header.try"]')?.textContent).toBe(
         'Nu proberen',
       );
@@ -603,7 +610,7 @@ describe('strict TypeScript classic browser runtimes', () => {
 
       expect(landingWindow.__landingLang).toBe('zh-hant');
       expect(landingWindow.document.documentElement.lang).toBe('zh-Hant');
-      expect(landingWindow.document.documentElement.dir).toBe('rtl');
+      expect(landingWindow.document.documentElement.dir).toBe('ltr');
       expect(landingWindow.document.title).toBe('關於 MUSIXQUARE');
       expect(
         landingWindow.document.querySelector('meta[property="og:locale"]')?.getAttribute('content'),

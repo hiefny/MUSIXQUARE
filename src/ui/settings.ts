@@ -39,7 +39,8 @@ import { syncOverlayState } from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
-import { hasLocaleFont, preloadLocaleFontGlyphs } from '../i18n/locale-fonts.ts';
+import { hasLocaleFont } from '../i18n/locale-font-contract.ts';
+import { languageDirection } from '../i18n/locales.ts';
 import { isSettingsSyncEnabled, setSettingsSyncEnabled } from '../audio/effects.ts';
 import { setPressedState, syncExclusivePressedState } from '../core/aria-state.ts';
 import { isSystemAudioCaptureActive } from '../audio/system-audio-policy.ts';
@@ -662,10 +663,12 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
 
     const name = document.createElement('span');
     name.className = 'd-name';
+    name.dir = 'auto';
     name.textContent = String(p.label || t('common.peer'));
     applyUserTextFontFallback(name, name.textContent);
 
     const shortId = document.createElement('span');
+    shortId.dir = 'ltr';
     shortId.style.cssText = 'font-size:11px; opacity:0.5; margin-left:4px;';
     shortId.textContent = `(${String(p.id || '').slice(-4)})`;
     name.appendChild(document.createTextNode(' '));
@@ -732,6 +735,7 @@ function renderLanguageOptions(): void {
     const nativeName = document.createElement('span');
     nativeName.className = 'language-option-native';
     nativeName.lang = lang.htmlLang;
+    nativeName.dir = languageDirection(lang.code);
     nativeName.textContent = lang.nativeName;
     label.appendChild(nativeName);
 
@@ -739,6 +743,7 @@ function renderLanguageOptions(): void {
       const englishName = document.createElement('span');
       englishName.className = 'language-option-english';
       englishName.lang = 'en';
+      englishName.dir = 'ltr';
       englishName.textContent = lang.englishName;
       label.appendChild(englishName);
     }
@@ -795,15 +800,20 @@ let _languagePickerPreparationRequest = 0;
 function prepareLanguagePickerFonts(): void {
   if (_languagePickerFontsReady) return;
 
-  const preloadTasks: Promise<boolean>[] = [];
-  for (const language of LANGUAGE_OPTIONS) {
-    if (!hasLocaleFont(language.code)) continue;
-    preloadTasks.push(preloadLocaleFontGlyphs(language.code, language.nativeName));
-  }
+  const fontLanguages = LANGUAGE_OPTIONS.flatMap((language) =>
+    hasLocaleFont(language.code) ? [{ code: language.code, nativeName: language.nativeName }] : [],
+  );
   const generation = _languagePickerPreparationGeneration;
   const request = ++_languagePickerPreparationRequest;
 
-  Promise.all(preloadTasks)
+  import('../i18n/locale-fonts.ts')
+    .then(({ default: localeFonts }) =>
+      Promise.all(
+        fontLanguages.map(({ code, nativeName }) =>
+          localeFonts.preloadLocaleFontGlyphs(code, nativeName),
+        ),
+      ),
+    )
     .then((results) => results.every(Boolean))
     .catch(() => false)
     .then((ready) => {

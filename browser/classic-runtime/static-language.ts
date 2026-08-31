@@ -9,6 +9,7 @@
     readonly nativeName: string;
     readonly englishName: string;
     readonly locale: string;
+    readonly direction?: 'rtl';
   }
 
   interface PageScrollLock {
@@ -26,6 +27,9 @@
     resolve(fallback: unknown): string;
     htmlLang(code: unknown): string;
     locale(code: unknown): string;
+    direction(code: unknown): 'ltr' | 'rtl';
+    ensureFont(code: unknown): void;
+    ensurePickerFonts(): void;
     persist(code: unknown): string;
     setDocumentLang(code: unknown): void;
     update(code: unknown): void;
@@ -85,6 +89,185 @@
       locale: 'vi_VN',
     },
     { code: 'th', htmlLang: 'th', nativeName: 'ไทย', englishName: 'Thai', locale: 'th_TH' },
+    {
+      code: 'hi',
+      htmlLang: 'hi-IN',
+      nativeName: 'हिन्दी',
+      englishName: 'Hindi',
+      locale: 'hi_IN',
+    },
+    {
+      code: 'bn',
+      htmlLang: 'bn-BD',
+      nativeName: 'বাংলা',
+      englishName: 'Bengali',
+      locale: 'bn_BD',
+    },
+    {
+      code: 'ta',
+      htmlLang: 'ta-IN',
+      nativeName: 'தமிழ்',
+      englishName: 'Tamil',
+      locale: 'ta_IN',
+    },
+    {
+      code: 'te',
+      htmlLang: 'te-IN',
+      nativeName: 'తెలుగు',
+      englishName: 'Telugu',
+      locale: 'te_IN',
+    },
+    {
+      code: 'ms',
+      htmlLang: 'ms-MY',
+      nativeName: 'Bahasa Melayu',
+      englishName: 'Malay',
+      locale: 'ms_MY',
+    },
+    {
+      code: 'fil',
+      htmlLang: 'fil-PH',
+      nativeName: 'Filipino',
+      englishName: 'Philippines',
+      locale: 'fil_PH',
+    },
+    {
+      code: 'ar',
+      htmlLang: 'ar',
+      nativeName: 'العربية',
+      englishName: 'Arabic',
+      locale: 'ar_SA',
+      direction: 'rtl',
+    },
+    {
+      code: 'ur',
+      htmlLang: 'ur-PK',
+      nativeName: 'اردو',
+      englishName: 'Urdu',
+      locale: 'ur_PK',
+      direction: 'rtl',
+    },
+    {
+      code: 'he',
+      htmlLang: 'he-IL',
+      nativeName: 'עברית',
+      englishName: 'Hebrew',
+      locale: 'he_IL',
+      direction: 'rtl',
+    },
+    {
+      code: 'uk',
+      htmlLang: 'uk-UA',
+      nativeName: 'Українська',
+      englishName: 'Ukrainian',
+      locale: 'uk_UA',
+    },
+    {
+      code: 'ro',
+      htmlLang: 'ro-RO',
+      nativeName: 'Română',
+      englishName: 'Romanian',
+      locale: 'ro_RO',
+    },
+    {
+      code: 'cs',
+      htmlLang: 'cs-CZ',
+      nativeName: 'Čeština',
+      englishName: 'Czech',
+      locale: 'cs_CZ',
+    },
+    {
+      code: 'el',
+      htmlLang: 'el-GR',
+      nativeName: 'Ελληνικά',
+      englishName: 'Greek',
+      locale: 'el_GR',
+    },
+    {
+      code: 'fa',
+      htmlLang: 'fa-IR',
+      nativeName: 'فارسی',
+      englishName: 'Persian',
+      locale: 'fa_IR',
+      direction: 'rtl',
+    },
+    {
+      code: 'mr',
+      htmlLang: 'mr-IN',
+      nativeName: 'मराठी',
+      englishName: 'Marathi',
+      locale: 'mr_IN',
+    },
+    {
+      code: 'gu',
+      htmlLang: 'gu-IN',
+      nativeName: 'ગુજરાતી',
+      englishName: 'Gujarati',
+      locale: 'gu_IN',
+    },
+    {
+      code: 'kn',
+      htmlLang: 'kn-IN',
+      nativeName: 'ಕನ್ನಡ',
+      englishName: 'Kannada',
+      locale: 'kn_IN',
+    },
+    {
+      code: 'ml',
+      htmlLang: 'ml-IN',
+      nativeName: 'മലയാളം',
+      englishName: 'Malayalam',
+      locale: 'ml_IN',
+    },
+    {
+      code: 'pa',
+      htmlLang: 'pa-IN',
+      nativeName: 'ਪੰਜਾਬੀ',
+      englishName: 'Punjabi',
+      locale: 'pa_IN',
+    },
+    {
+      code: 'sv',
+      htmlLang: 'sv-SE',
+      nativeName: 'Svenska',
+      englishName: 'Swedish',
+      locale: 'sv_SE',
+    },
+    {
+      code: 'da',
+      htmlLang: 'da-DK',
+      nativeName: 'Dansk',
+      englishName: 'Danish',
+      locale: 'da_DK',
+    },
+    {
+      code: 'nb',
+      htmlLang: 'nb-NO',
+      nativeName: 'Norsk bokmål',
+      englishName: 'Norwegian Bokmål',
+      locale: 'nb_NO',
+    },
+    {
+      code: 'fi',
+      htmlLang: 'fi-FI',
+      nativeName: 'Suomi',
+      englishName: 'Finnish',
+      locale: 'fi_FI',
+    },
+    {
+      code: 'hu',
+      htmlLang: 'hu-HU',
+      nativeName: 'Magyar',
+      englishName: 'Hungarian',
+      locale: 'hu_HU',
+    },
+    {
+      code: 'bg',
+      htmlLang: 'bg-BG',
+      nativeName: 'Български',
+      englishName: 'Bulgarian',
+      locale: 'bg_BG',
+    },
   ];
 
   const optionByCode: Record<string, StaticLanguageOption> = {};
@@ -92,6 +275,31 @@
     const configuredOption = OPTIONS[i];
     if (configuredOption) optionByCode[configuredOption.code] = configuredOption;
   }
+
+  const FONT_STYLESHEET_BY_CODE: Readonly<Record<string, string>> = {
+    ar: '/css/fonts/noto-arabic.css',
+    bn: '/css/fonts/noto-bengali.css',
+    bg: '/css/fonts/noto-cyrillic.css',
+    el: '/css/fonts/noto-greek.css',
+    fa: '/css/fonts/noto-arabic.css',
+    gu: '/css/fonts/noto-gujarati.css',
+    he: '/css/fonts/noto-hebrew.css',
+    hi: '/css/fonts/noto-devanagari.css',
+    ja: '/css/fonts/noto-jp.css',
+    kn: '/css/fonts/noto-kannada.css',
+    ml: '/css/fonts/noto-malayalam.css',
+    mr: '/css/fonts/noto-devanagari.css',
+    pa: '/css/fonts/noto-gurmukhi.css',
+    ru: '/css/fonts/noto-cyrillic.css',
+    ta: '/css/fonts/noto-tamil.css',
+    te: '/css/fonts/noto-telugu.css',
+    th: '/css/fonts/noto-thai.css',
+    uk: '/css/fonts/noto-cyrillic.css',
+    ur: '/css/fonts/noto-arabic.css',
+    'zh-hans': '/css/fonts/noto-sc.css',
+    'zh-hant': '/css/fonts/noto-tc.css',
+  };
+  const requestedFontStylesheets = new Set<string>();
 
   function normalize(value: unknown): string | null {
     if (!value) return null;
@@ -112,6 +320,10 @@
       return 'zh-hans';
     }
     if (raw.indexOf('pt') === 0) return 'pt-br';
+    if (raw === 'in' || raw.indexOf('in-') === 0) return 'id';
+    if (raw === 'iw' || raw.indexOf('iw-') === 0) return 'he';
+    if (raw === 'no' || raw.indexOf('no-') === 0) return 'nb';
+    if (raw === 'tl' || raw.indexOf('tl-') === 0) return 'fil';
     const base = raw.split('-')[0];
     return base && optionByCode[base] ? base : null;
   }
@@ -214,6 +426,53 @@
     return option(code).locale;
   }
 
+  function direction(code: unknown): 'ltr' | 'rtl' {
+    return option(code).direction === 'rtl' ? 'rtl' : 'ltr';
+  }
+
+  function ensureFont(code: unknown): void {
+    const normalized = normalize(code);
+    if (!normalized) return;
+    const authored = document.querySelector<HTMLLinkElement>(
+      `link[rel="stylesheet"][data-static-lang-font-codes~="${normalized}"]`,
+    );
+    const href = authored?.href || FONT_STYLESHEET_BY_CODE[normalized];
+    if (!href || requestedFontStylesheets.has(href)) return;
+
+    const existing =
+      authored ||
+      [...document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')].find(
+        (link) => link.href === new URL(href, document.baseURI).href,
+      );
+    if (existing && !existing.hasAttribute('data-static-lang-font-codes')) {
+      requestedFontStylesheets.add(href);
+      return;
+    }
+
+    const link = existing || document.createElement('link');
+    if (!existing) {
+      link.rel = 'stylesheet';
+      link.href = href;
+      link.setAttribute('data-static-lang-font', normalized);
+    }
+    link.disabled = false;
+    link.addEventListener(
+      'error',
+      function () {
+        requestedFontStylesheets.delete(href);
+        if (existing) link.disabled = true;
+        else link.remove();
+      },
+      { once: true },
+    );
+    if (!existing) (document.head || document.documentElement).appendChild(link);
+    requestedFontStylesheets.add(href);
+  }
+
+  function ensurePickerFonts(): void {
+    for (let i = 0; i < OPTIONS.length; i++) ensureFont(OPTIONS[i]?.code);
+  }
+
   function persist(code: unknown): string {
     const normalized = normalize(code) || 'en';
     writeStore(STATIC_STORE_KEY, normalized);
@@ -223,6 +482,7 @@
 
   function setDocumentLang(code: unknown): void {
     document.documentElement.lang = htmlLang(code);
+    document.documentElement.dir = direction(code);
   }
 
   function isMobilePicker(): boolean {
@@ -290,6 +550,7 @@
   }
 
   function openPicker(picker: HTMLElement): void {
+    ensurePickerFonts();
     const openPickers = document.querySelectorAll<HTMLElement>('[data-static-lang-picker].is-open');
     for (let i = 0; i < openPickers.length; i++) {
       const openPickerElement = openPickers[i];
@@ -352,9 +613,11 @@
       item.innerHTML =
         '<span class="static-lang-option__native" lang="' +
         lang.htmlLang +
+        '" dir="' +
+        (lang.direction || 'ltr') +
         '">' +
         lang.nativeName +
-        '</span><span class="static-lang-option__english" lang="en">' +
+        '</span><span class="static-lang-option__english" lang="en" dir="ltr">' +
         lang.englishName +
         '</span>';
       menu.appendChild(item);
@@ -435,6 +698,7 @@
   function update(code: unknown): void {
     const normalized = normalize(code) || resolve('en');
     const selected = option(normalized);
+    ensureFont(selected.code);
     const pickers = document.querySelectorAll<HTMLElement>('[data-static-lang-picker]');
     for (let i = 0; i < pickers.length; i++) {
       const picker = pickers[i];
@@ -443,8 +707,8 @@
       if (current) {
         current.textContent = selected.nativeName;
         current.setAttribute('lang', selected.htmlLang);
+        current.setAttribute('dir', selected.direction || 'ltr');
       }
-
       const options = picker.querySelectorAll('[data-lang-set]');
       for (let j = 0; j < options.length; j++) {
         const item = options[j];
@@ -500,6 +764,9 @@
     resolve: resolve,
     htmlLang: htmlLang,
     locale: locale,
+    direction: direction,
+    ensureFont: ensureFont,
+    ensurePickerFonts: ensurePickerFonts,
     persist: persist,
     setDocumentLang: setDocumentLang,
     update: update,

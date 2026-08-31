@@ -1,0 +1,15 @@
+/* Noto Sans Kannada (self-hosted from Google Fonts)
+ * Source CSS: https://fonts.googleapis.com/css2?family=Noto+Sans+Kannada:wght@100..900&display=swap
+ * License: fonts/NOTO_SANS_LICENSE.txt (SIL OFL 1.1)
+ */
+@font-face {
+  font-family: 'Noto Sans Kannada';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(../../fonts/noto/noto-sans-kannada/kannada.woff2) format('woff2');
+  unicode-range:
+    U+0951-0952, U+0964-0965, U+0C80-0CF3, U+1CD0, U+1CD2-1CD3, U+1CDA, U+1CF2, U+1CF4, U+200C-200D,
+    U+20B9, U+25CC, U+A830-A835;
+}

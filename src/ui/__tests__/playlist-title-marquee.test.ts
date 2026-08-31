@@ -8,9 +8,15 @@ import {
   schedulePlaylistTitleMarqueeMeasure,
 } from '../playlist-title-marquee.ts';
 
-function title(clientWidth: number, contentWidth: number): HTMLElement {
+function title(
+  clientWidth: number,
+  contentWidth: number,
+  direction: 'ltr' | 'rtl' = 'ltr',
+): HTMLElement {
   const container = document.createElement('span');
   container.className = 'track-name-text';
+  container.dir = 'auto';
+  container.style.direction = direction;
   const content = document.createElement('span');
   content.className = 'playlist-title-marquee-content';
   content.textContent = 'A title that may be wider than its row';
@@ -34,6 +40,17 @@ describe('playlist title marquee', () => {
 
     expect(container.classList).toContain('is-playlist-title-overflowing');
     expect(container.style.getPropertyValue('--playlist-marquee-offset')).toBe('-92px');
+    expect(container.style.getPropertyValue('--playlist-marquee-duration')).toBe('8.6s');
+  });
+
+  it('moves an RTL title toward the physical right to reveal its hidden end', async () => {
+    const container = title(160, 252, 'rtl');
+
+    schedulePlaylistTitleMarqueeMeasure(container);
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    expect(container.classList).toContain('is-playlist-title-overflowing');
+    expect(container.style.getPropertyValue('--playlist-marquee-offset')).toBe('92px');
     expect(container.style.getPropertyValue('--playlist-marquee-duration')).toBe('8.6s');
   });
 

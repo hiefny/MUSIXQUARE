@@ -5,6 +5,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const it: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -812,7 +813,7 @@ const it: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Inserisci il <strong>codice a 6 cifre</strong> fornito dall’host per connetterti.<ul class="help-list"><li><strong>Host:</strong> “Crea una stanza” → controlla il codice</li><li><strong>Partecipante:</strong> “Entra in una stanza” → inserisci il codice</li><li>Possono connettersi fino a <strong>100 dispositivi, incluso quello dell’host</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Ogni partecipante sceglie un <strong>ruolo (canale di uscita)</strong>.<ul class="help-list"><li><strong>Altoparlante centrale:</strong> uscita stereo (predefinita)</li><li><strong>Altoparlante sinistro:</strong> uscita canale L</li><li><strong>Altoparlante destro:</strong> uscita canale R</li><li><strong>Subwoofer:</strong> uscita mix a bassa frequenza</li></ul>Puoi cambiare ruolo in qualsiasi momento dalle <strong>Impostazioni</strong>.',
+    'Ogni partecipante sceglie un <strong>ruolo (canale di uscita)</strong>.<ul class="help-list"><li><strong>Altoparlante centrale:</strong> uscita stereo (predefinita)</li><li><strong>Altoparlante sinistro:</strong> uscita canale <bdi dir="ltr">L</bdi></li><li><strong>Altoparlante destro:</strong> uscita canale <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> uscita mix a bassa frequenza</li></ul>Puoi cambiare ruolo in qualsiasi momento dalle <strong>Impostazioni</strong>.',
   'player.play_media_action_html':
     'L’host ha 3 opzioni per la riproduzione.<ul class="help-list"><li><strong>Carica file locale:</strong> scegli brani dal tuo dispositivo. Supporta la sincronizzazione di precisione</li><li><strong>YouTube insieme:</strong> supporta video e playlist. Non supporta la separazione dei canali né gli effetti audio</li><li><strong>Condivisione audio di sistema:</strong> disponibile quando l’host usa un computer con un browser basato su Chromium (Chrome, Edge, ecc.)</li></ul>',
   'help.need_help_html':
@@ -882,3 +883,28 @@ const it: Record<I18nKey, string> = {
 };
 
 export default it;
+
+export const pluralMessages = {
+  'connect.administrator_list': { one: '{{count}} amministratore' },
+  'playlist.delete_selected': { one: 'Elimina {{count}} traccia selezionata' },
+  'connect.device_list': { one: '{{count}} dispositivo connesso' },
+  'demo.session_body_connected': {
+    one: 'Attualmente c’è {{count}} dispositivo connesso.\nAssegna un ruolo a questo dispositivo.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Modalità lenta attiva: puoi inviare un messaggio ogni {{sec}} secondo',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Attendi {{sec}} secondo prima di inviare un nuovo messaggio',
+  },
+  'chat.tracks_added': { one: '{{name}} ha aggiunto {{count}} traccia' },
+  'chat.tracks_added_named': {
+    one: '{{name}} ha aggiunto {{count}} traccia, inclusa {{title}}',
+  },
+  'toast.added_tracks': { one: '{{count}} traccia aggiunta' },
+  'toast.unsupported_files_excluded': { one: '{{count}} file non supportato escluso' },
+  'dialog.file_drop.message': { one: 'Aggiungere {{count}} file?' },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} file non supportato non verrà aggiunto.',
+  },
+} satisfies LocalePluralMessages;

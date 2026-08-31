@@ -9,7 +9,7 @@
  * or setup-guest.ts to avoid circular dependencies.
  */
 
-import { t } from '../i18n/index.ts';
+import { t, type I18nKey } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState } from '../core/state.ts';
 import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
@@ -406,6 +406,7 @@ export function setupHighlightJoinRole(mode: number | null): void {
 interface SetupButton {
   id: string;
   text?: string;
+  textKey?: I18nKey;
   html?: string;
   ariaLabel?: string;
   kind?: 'primary' | 'secondary' | 'text-link' | 'icon-only';
@@ -436,7 +437,10 @@ export function setupRenderActions(
     else b.className = 'btn-ob-primary';
 
     if (btn.html) b.innerHTML = btn.html;
-    else if (btn.text) b.textContent = btn.text;
+    else if (btn.textKey) {
+      b.dataset.i18n = btn.textKey;
+      b.textContent = t(btn.textKey);
+    } else if (btn.text) b.textContent = btn.text;
     if (btn.ariaLabel) b.setAttribute('aria-label', btn.ariaLabel);
 
     if (btn.disabled) b.disabled = true;

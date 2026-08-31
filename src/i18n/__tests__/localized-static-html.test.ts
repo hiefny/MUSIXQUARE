@@ -37,7 +37,7 @@ function documentFor(html: string): Document {
 }
 
 describe('localized static HTML materialization', () => {
-  it('renders complete, self-canonical app and About documents for all 17 locales', () => {
+  it(`renders complete, self-canonical app and About documents for all ${LANGUAGE_OPTIONS.length} locales`, () => {
     for (const option of LANGUAGE_OPTIONS) {
       const about = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, option.code);
       const app = renderLocalizedApp(appHtml, option.code, about.metadata);
@@ -56,15 +56,19 @@ describe('localized static HTML materialization', () => {
       ).toBe(`${SITE_ORIGIN}${localizedAboutPath(option.code)}`);
 
       for (const document of [appDocument, aboutDocument]) {
-        expect(document.querySelectorAll('link[rel="alternate"][hreflang]').length).toBe(18);
+        expect(document.querySelectorAll('link[rel="alternate"][hreflang]').length).toBe(
+          LANGUAGE_OPTIONS.length + 1,
+        );
         expect(document.querySelector('link[hreflang="x-default"]')).not.toBeNull();
-        expect(document.querySelectorAll('meta[property="og:locale:alternate"]').length).toBe(16);
+        expect(document.querySelectorAll('meta[property="og:locale:alternate"]').length).toBe(
+          LANGUAGE_OPTIONS.length - 1,
+        );
       }
 
       expect(appDocument.querySelectorAll('[data-i18n]').length).toBeGreaterThan(150);
       expect(aboutDocument.querySelectorAll('[data-i18n]').length).toBeGreaterThan(50);
     }
-  });
+  }, 45_000);
 
   it('preserves every materialized Open Graph locale alternate during About hydration', () => {
     for (const option of LANGUAGE_OPTIONS) {
@@ -88,7 +92,7 @@ describe('localized static HTML materialization', () => {
         landingWindow.eval(landingI18nJavaScript);
 
         expect(alternateContents(), option.code).toEqual(beforeHydration);
-        expect(new Set(alternateContents()).size, option.code).toBe(16);
+        expect(new Set(alternateContents()).size, option.code).toBe(LANGUAGE_OPTIONS.length - 1);
       } finally {
         landingWindow.close();
       }
@@ -103,6 +107,10 @@ describe('localized static HTML materialization', () => {
     expect(englishApp).not.toContain('Runtime insertion point');
     expect(englishApp).not.toContain('<!-- Slide 1: Invite -->');
     expect(englishApp).not.toMatch(/^[\t ]+/mu);
+    expect(englishApp).not.toMatch(/\n{2,}/u);
+    for (const svg of englishApp.matchAll(/<svg\b[\s\S]*?<\/svg>/gu)) {
+      expect(svg[0]).not.toMatch(/>\s+</u);
+    }
   });
 
   it('uses established Korean and Japanese search aliases without changing the global brand', () => {

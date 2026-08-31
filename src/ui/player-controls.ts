@@ -497,6 +497,7 @@ export function updateRoleBadge(): void {
 
   badge.classList.remove('connected', 'remote', 'pro-equal', 'account-authenticated');
   badge.classList.toggle('account-authenticated', isAuthenticated);
+  text.dir = 'auto';
   text.textContent = displayText;
   applyUserTextFontFallback(text, text.textContent);
   const accountLabel = isAuthenticated

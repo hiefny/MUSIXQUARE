@@ -825,7 +825,7 @@ const vi: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Nhập <strong>mã 6 chữ số</strong> từ chủ phòng để kết nối.<ul class="help-list"><li><strong>Chủ phòng:</strong> “Tạo phòng” → kiểm tra mã</li><li><strong>Người tham gia:</strong> “Tham gia phòng” → nhập mã</li><li>Có thể kết nối tối đa <strong>100 thiết bị, bao gồm cả thiết bị của chủ phòng</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Mỗi người tham gia chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Giữa:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh L</li><li><strong>Phải:</strong> Đầu ra kênh R</li><li><strong>Loa siêu trầm:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
+    'Mỗi người tham gia chọn một <strong>vai trò (kênh đầu ra)</strong>.<ul class="help-list"><li><strong>Giữa:</strong> Đầu ra stereo (mặc định)</li><li><strong>Trái:</strong> Đầu ra kênh <bdi dir="ltr">L</bdi></li><li><strong>Phải:</strong> Đầu ra kênh <bdi dir="ltr">R</bdi></li><li><strong>Loa siêu trầm:</strong> Đầu ra trộn tần số thấp</li></ul>Bạn có thể đổi vai trò bất cứ lúc nào trong <strong>Cài đặt</strong>.',
   'player.play_media_action_html':
     'Chủ phòng có 3 tùy chọn.<ul class="help-list"><li><strong>Mở tệp trên thiết bị:</strong> Chọn nhạc từ thiết bị của bạn. Hỗ trợ đồng bộ chính xác</li><li><strong>YouTube cùng nhau:</strong> Hỗ trợ video và danh sách phát. Không hỗ trợ tách kênh và hiệu ứng âm thanh</li><li><strong>Chia sẻ âm thanh hệ thống:</strong> Khả dụng khi chủ phòng dùng trình duyệt dựa trên Chromium trên máy tính (Chrome, Edge, v.v.)</li></ul>',
   'help.need_help_html':

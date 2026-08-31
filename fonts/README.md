@@ -14,11 +14,22 @@ described below.
 ## Noto fallback fonts
 
 The app also self-hosts Google Fonts WOFF2 shards for:
+
 - `Noto Sans JP`
 - `Noto Sans SC`
 - `Noto Sans TC`
 - `Noto Sans Thai`
-- `Noto Sans` (Cyrillic shards)
+- `Noto Sans` (Cyrillic and Greek shards)
+- `Noto Sans Arabic`
+- `Noto Sans Hebrew`
+- `Noto Sans Devanagari`
+- `Noto Sans Bengali`
+- `Noto Sans Tamil`
+- `Noto Sans Telugu`
+- `Noto Sans Gujarati`
+- `Noto Sans Kannada`
+- `Noto Sans Malayalam`
+- `Noto Sans Gurmukhi`
 
 These live under `fonts/noto/` and are referenced by per-locale CSS shards in
 `css/fonts/`. The app loads those CSS shards only when the resolved language
@@ -28,13 +39,25 @@ needs them:
 - Simplified Chinese: `css/fonts/noto-sc.css`
 - Traditional Chinese: `css/fonts/noto-tc.css`
 - Thai: `css/fonts/noto-thai.css`
-- Russian: `css/fonts/noto-cyrillic.css`
+- Russian, Ukrainian, and Bulgarian: `css/fonts/noto-cyrillic.css`
+- Greek: `css/fonts/noto-greek.css`
+- Arabic, Persian, and Urdu: `css/fonts/noto-arabic.css`
+- Hebrew: `css/fonts/noto-hebrew.css`
+- Hindi and Marathi: `css/fonts/noto-devanagari.css`
+- Bengali: `css/fonts/noto-bengali.css`
+- Tamil: `css/fonts/noto-tamil.css`
+- Telugu: `css/fonts/noto-telugu.css`
+- Gujarati: `css/fonts/noto-gujarati.css`
+- Kannada: `css/fonts/noto-kannada.css`
+- Malayalam: `css/fonts/noto-malayalam.css`
+- Punjabi (Gurmukhi): `css/fonts/noto-gurmukhi.css`
 
 Latin and Korean both use the complete `PretendardVariable.woff2` face. This is
 intentional: arbitrary user-entered Korean (including chat messages) must not
-fall back glyph-by-glyph to a platform font. Japanese, Simplified/Traditional
-Chinese, Thai, and Cyrillic keep their locale-specific Noto fallback faces for
-characters Pretendard does not cover.
+fall back glyph-by-glyph to a platform font. Every non-Latin script listed above
+keeps its locale-specific Noto fallback face for characters Pretendard does not
+cover. The language picker warms only the native-name glyphs it needs, and
+ordinary app navigation loads only the active locale's CSS shard.
 
 `fonts/PretendardVariable.woff2` is the canonical source copy. The deployed copy
 at `public/designsystem/fonts/PretendardVariable.woff2` must be byte-identical.

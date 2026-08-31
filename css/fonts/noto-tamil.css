@@ -1,0 +1,13 @@
+/* Noto Sans Tamil (self-hosted from Google Fonts)
+ * Source CSS: https://fonts.googleapis.com/css2?family=Noto+Sans+Tamil:wght@100..900&display=swap
+ * License: fonts/NOTO_SANS_LICENSE.txt (SIL OFL 1.1)
+ */
+@font-face {
+  font-family: 'Noto Sans Tamil';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(../../fonts/noto/noto-sans-tamil/tamil.woff2) format('woff2');
+  unicode-range: U+0964-0965, U+0B82-0BFA, U+200C-200D, U+20B9, U+25CC;
+}

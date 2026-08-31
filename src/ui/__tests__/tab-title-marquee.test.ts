@@ -22,6 +22,7 @@ describe('tab title marquee', () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);
     setVisibility('visible');
+    document.querySelector('meta[property="og:title"]')?.remove();
     dispose = initTabTitleMarquee();
   });
 
@@ -30,6 +31,26 @@ describe('tab title marquee', () => {
     clearAllManagedTimers();
     vi.useRealTimers();
     setVisibility('visible');
+    document.querySelector('meta[property="og:title"]')?.remove();
+  });
+
+  it('uses localized page metadata only when no track owns the tab title', () => {
+    dispose?.();
+    const pageTitle = document.createElement('meta');
+    pageTitle.setAttribute('property', 'og:title');
+    pageTitle.content = '뮤직스퀘어 | MUSIXQUARE';
+    document.head.appendChild(pageTitle);
+    dispose = initTabTitleMarquee();
+
+    expect(document.title).toBe('뮤직스퀘어 | MUSIXQUARE');
+
+    setTabTitleTrack('Playing track');
+    setTabTitlePlaying(true);
+    pageTitle.content = 'ミュージックスクエア | MUSIXQUARE';
+    expect(document.title).toBe('Playing track · MUSIXQUARE');
+
+    setTabTitleTrack('');
+    expect(document.title).toBe('ミュージックスクエア | MUSIXQUARE');
   });
 
   it('derives frames from elapsed time and never splits an emoji surrogate pair', () => {

@@ -180,9 +180,11 @@ describe('playlist title marquee markup', () => {
     );
     const sub = document.querySelector<HTMLElement>('.sub-track-item .sub-name');
     expect(parent?.children).toHaveLength(1);
+    expect(parent?.dir).toBe('auto');
     expect(parent?.firstElementChild?.classList).toContain('playlist-title-marquee-content');
     expect(parent?.textContent).toBe('A');
     expect(sub?.children).toHaveLength(1);
+    expect(sub?.dir).toBe('auto');
     expect(sub?.firstElementChild?.classList).toContain('playlist-title-marquee-content');
     expect(sub?.textContent).toBe('A long resolved sub-track title');
   });
@@ -198,6 +200,7 @@ describe('playlist title marquee markup', () => {
 
     const sub = document.querySelector<HTMLElement>('.sub-track-item .sub-name');
     expect(sub?.children).toHaveLength(1);
+    expect(sub?.dir).toBe('auto');
     expect(sub?.firstElementChild?.classList).toContain('playlist-title-marquee-content');
     expect(sub?.textContent).toBe('Resolved without rebuilding the row');
   });

@@ -681,6 +681,16 @@ describe('setup recovery accessibility', () => {
     expect(error?.hidden).toBe(true);
   });
 
+  it('keeps dynamically rendered setup text bound to future language changes', () => {
+    document.body.innerHTML = '<div id="setup-actions"></div>';
+
+    setupRenderActions([{ id: 'btn-setup-host', textKey: 'setup.host_button' }]);
+
+    const host = document.getElementById('btn-setup-host');
+    expect(host?.textContent).toBe('setup.host_button');
+    expect(host?.dataset.i18n).toBe('setup.host_button');
+  });
+
   it('keeps invite-link failures in the dedicated alert without invalidating the code field', () => {
     document.body.innerHTML = `
       <input id="setup-join-code" aria-describedby="setup-guest-error">

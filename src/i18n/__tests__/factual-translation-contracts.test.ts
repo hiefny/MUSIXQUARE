@@ -6,45 +6,10 @@ import {
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
 
-import de from '../de.ts';
-import en from '../en.ts';
-import es from '../es.ts';
-import fr from '../fr.ts';
-import id from '../id.ts';
-import italian from '../it.ts';
-import ja from '../ja.ts';
-import ko from '../ko.ts';
-import nl from '../nl.ts';
-import pl from '../pl.ts';
-import ptBr from '../pt-br.ts';
-import ru from '../ru.ts';
-import th from '../th.ts';
-import tr from '../tr.ts';
-import vi from '../vi.ts';
-import zhHans from '../zh-hans.ts';
-import zhHant from '../zh-hant.ts';
+import { APP_DICTIONARIES } from '../catalogs.ts';
+import { LANGUAGE_OPTIONS } from '../locales.ts';
 
 type LandingDictionary = Record<string, Record<string, string>>;
-
-const completedAppDictionaries = {
-  de,
-  en,
-  es,
-  fr,
-  id,
-  it: italian,
-  ja,
-  ko,
-  nl,
-  pl,
-  'pt-br': ptBr,
-  ru,
-  th,
-  tr,
-  vi,
-  'zh-hans': zhHans,
-  'zh-hant': zhHant,
-};
 
 const completedLanguageContracts = {
   en: [
@@ -178,7 +143,7 @@ function expectContains(value: string, fragment: string, context: string): void 
 
 describe('completed translation factual contracts', () => {
   it('does not pin browser-update guidance to retired browser version floors', () => {
-    for (const [language, dictionary] of Object.entries(completedAppDictionaries)) {
+    for (const [language, dictionary] of Object.entries(APP_DICTIONARIES)) {
       expect(dictionary['error.browser_update'], language).not.toMatch(
         /\biOS\b|\bChrome\b|15[.,]2|86\+/i,
       );
@@ -187,12 +152,41 @@ describe('completed translation factual contracts', () => {
 
   it('keeps supported-browser, synchronization, and system-audio claims factual', async () => {
     const dictionaries = await loadLandingDictionary();
-    expect(Object.keys(completedLanguageContracts).sort()).toEqual(
-      Object.keys(completedAppDictionaries).sort(),
+    expect(Object.keys(dictionaries).sort()).toEqual(
+      LANGUAGE_OPTIONS.map(({ code }) => code).sort(),
     );
-    expect(Object.keys(completedLanguageContracts).sort()).toEqual(
-      Object.keys(dictionaries).sort(),
-    );
+
+    for (const [language, dictionary] of Object.entries(dictionaries)) {
+      expect(dictionary['code.lead'], `${language}.code.lead`).not.toMatch(/\bPRO\b/iu);
+      expect(dictionary['sync.lead'], `${language}.sync.lead`).not.toMatch(/\bPRO\b/iu);
+      expect(dictionary['sync.transport_value'], `${language}.sync.transport_value`).not.toMatch(
+        /\bPRO\b/iu,
+      );
+      expect(dictionary['sync.transport_value'], language).toContain('WebRTC');
+      expect(
+        `${dictionary['sync.h2']} ${dictionary['sync.lead']} ${dictionary['sync.video_value']}`,
+        `${language} unsupported synchronization guarantee`,
+      ).not.toMatch(
+        /frame[- ]?perfect|sample[- ]?accurate|zero[- ]?latency|perfect(?:ly)? synchronized/iu,
+      );
+      expect(dictionary['standin.feature_value'], `${language}.standin.feature_value`).toContain(
+        'Beta',
+      );
+      if (!Object.prototype.hasOwnProperty.call(completedLanguageContracts, language)) {
+        expect(dictionary['standin.caveat'], `${language}.standin.caveat room tier`).toMatch(
+          /Standard/iu,
+        );
+        for (const token of ['Cloudflare', 'SFU', 'PRO', 'LAN-direct']) {
+          expect(dictionary['standin.caveat'], `${language}.standin.caveat ${token}`).toContain(
+            token,
+          );
+        }
+      }
+      // Device and duration limits are deliberately written as inflected number words in many
+      // locales (Arabic even uses a dual noun form), so ASCII-digit matching would reject the
+      // more natural translation. Their semantic values are covered by the reviewed locale
+      // contracts while the invariant product and transport terms stay machine-verifiable here.
+    }
 
     for (const [language, contract] of Object.entries(completedLanguageContracts)) {
       const dictionary = dictionaries[language];

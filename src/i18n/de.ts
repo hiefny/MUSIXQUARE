@@ -6,6 +6,7 @@
 
 import en from './en.ts';
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const de: Record<I18nKey, string> = {
   ...en,
@@ -845,7 +846,7 @@ const de: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Gib den <strong>6-stelligen Code</strong> des Hosts ein, um dich zu verbinden.<ul class="help-list"><li><strong>Host:</strong> „Raum erstellen“ → Code prüfen</li><li><strong>Teilnehmer:</strong> „Einem Raum beitreten“ → Code eingeben</li><li>Es können sich bis zu <strong>100 Geräte einschließlich des Hosts</strong> verbinden.</li></ul>',
   'player.play_speakers_html':
-    'Jeder Teilnehmer wählt eine <strong>Rolle (Ausgabekanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereoausgabe (Standard)</li><li><strong>Links:</strong> Ausgabe des L-Kanals</li><li><strong>Rechts:</strong> Ausgabe des R-Kanals</li><li><strong>Subwoofer:</strong> Ausgabe des Tiefton-Mixes</li></ul>Rollen können jederzeit in den <strong>Einstellungen</strong> geändert werden.',
+    'Jeder Teilnehmer wählt eine <strong>Rolle (Ausgabekanal)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereoausgabe (Standard)</li><li><strong>Links:</strong> Ausgabe des <bdi dir="ltr">L</bdi>-Kanals</li><li><strong>Rechts:</strong> Ausgabe des <bdi dir="ltr">R</bdi>-Kanals</li><li><strong>Subwoofer:</strong> Ausgabe des Tiefton-Mixes</li></ul>Rollen können jederzeit in den <strong>Einstellungen</strong> geändert werden.',
   'player.play_media_action_html':
     'Der Host hat 3 Optionen.<ul class="help-list"><li><strong>Lokale Datei laden:</strong> Musik vom Gerät auswählen. Präzise Synchronisierung wird unterstützt</li><li><strong>YouTube gemeinsam ansehen:</strong> Videos und Playlists werden unterstützt. Keine Kanaltrennung oder Audioeffekte</li><li><strong>Systemaudio-Freigabe:</strong> verfügbar, wenn der Host einen Computer mit einem Chromium-basierten Browser verwendet (Chrome, Edge usw.)</li></ul>',
   'help.need_help_html':
@@ -866,3 +867,26 @@ const de: Record<I18nKey, string> = {
 };
 
 export default de;
+
+export const pluralMessages = {
+  'connect.administrator_list': { one: '{{count}} Administrator' },
+  'playlist.delete_selected': { one: '{{count}} ausgewählten Titel löschen' },
+  'connect.device_list': { one: '{{count}} verbundenes Gerät' },
+  'demo.session_body_connected': {
+    one: '{{count}} Gerät ist gerade verbunden.\nLege für dieses Gerät eine Rolle fest.',
+  },
+  'chat.cmd_slowmode_on': { one: 'Langsammodus: {{sec}} Sekunde zwischen Nachrichten' },
+  'chat.cmd_slowmode_wait': { one: 'Warte {{sec}} Sekunde vor dem Senden' },
+  'chat.tracks_added': { one: '{{name}} hat {{count}} Titel hinzugefügt' },
+  'chat.tracks_added_named': {
+    one: '{{name}} hat {{count}} Titel hinzugefügt, darunter {{title}}',
+  },
+  'toast.added_tracks': { one: '{{count}} Titel hinzugefügt' },
+  'toast.unsupported_files_excluded': {
+    one: '{{count}} nicht unterstützte Datei übersprungen',
+  },
+  'dialog.file_drop.message': { one: '{{count}} Datei hinzufügen?' },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} nicht unterstützte Datei wird nicht hinzugefügt.',
+  },
+} satisfies LocalePluralMessages;

@@ -87,13 +87,13 @@ function showHostGuestSelection(): void {
     [
       {
         id: 'btn-setup-host',
-        text: t('setup.host_button'),
+        textKey: 'setup.host_button',
         kind: 'primary',
         onClick: startHostFlow,
       },
       {
         id: 'btn-setup-guest',
-        text: t('setup.guest_button'),
+        textKey: 'setup.guest_button',
         kind: 'secondary',
         onClick: startGuestFlow,
       },

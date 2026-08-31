@@ -68,10 +68,13 @@ describe('localized sitemap', () => {
     ];
 
     expect(document.documentElement.getAttribute('xmlns:xhtml')).toBe(XHTML_NAMESPACE);
-    expect(localizedUrls).toHaveLength(34);
-    expect(new Set(localizedUrls).size).toBe(34);
-    expect(entries).toHaveLength(34 + ENGLISH_ONLY_PAGES.length);
-    expect(entries.filter((entry) => localizedUrls.includes(entryLocation(entry))).length).toBe(34);
+    const localizedUrlCount = LANGUAGE_OPTIONS.length * 2;
+    expect(localizedUrls).toHaveLength(localizedUrlCount);
+    expect(new Set(localizedUrls).size).toBe(localizedUrlCount);
+    expect(entries).toHaveLength(localizedUrlCount + ENGLISH_ONLY_PAGES.length);
+    expect(entries.filter((entry) => localizedUrls.includes(entryLocation(entry))).length).toBe(
+      localizedUrlCount,
+    );
     expect(localizedUrls.some((url) => /\/en(?:\/|$)/u.test(new URL(url).pathname))).toBe(false);
 
     for (const url of localizedUrls) {

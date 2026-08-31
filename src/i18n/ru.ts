@@ -5,6 +5,7 @@
  */
 
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ru: Record<I18nKey, string> = {
   // ─── Common ──────────────────────────────────────────────────────
@@ -801,7 +802,7 @@ const ru: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Введите <strong>6-значный код</strong> хоста для подключения.<ul class="help-list"><li><strong>Хост:</strong> «Создать комнату» → посмотреть код</li><li><strong>Участник:</strong> «Войти в комнату» → ввести код</li><li>Можно подключить до <strong>100 устройств, включая хоста</strong>.</li></ul>',
   'player.play_speakers_html':
-    'Каждый участник выбирает <strong>роль (выходной канал)</strong>.<ul class="help-list"><li><strong>Центральный динамик:</strong> стереовыход (по умолчанию)</li><li><strong>Левый динамик:</strong> выход левого канала (L)</li><li><strong>Правый динамик:</strong> выход правого канала (R)</li><li><strong>Сабвуфер:</strong> микс низких частот</li></ul>Роли можно изменить в любое время в <strong>Настройках</strong>.',
+    'Каждый участник выбирает <strong>роль (выходной канал)</strong>.<ul class="help-list"><li><strong>Центральный динамик:</strong> стереовыход (по умолчанию)</li><li><strong>Левый динамик:</strong> выход левого канала (<bdi dir="ltr">L</bdi>)</li><li><strong>Правый динамик:</strong> выход правого канала (<bdi dir="ltr">R</bdi>)</li><li><strong>Сабвуфер:</strong> микс низких частот</li></ul>Роли можно изменить в любое время в <strong>Настройках</strong>.',
   'player.play_media_action_html':
     'У хоста есть 3 варианта воспроизведения.<ul class="help-list"><li><strong>Локальный файл:</strong> выберите музыку на своём устройстве. Поддерживается точная синхронизация</li><li><strong>Совместный просмотр YouTube:</strong> поддерживаются видео и плейлисты. Разделение каналов и звуковые эффекты недоступны</li><li><strong>Системный звук:</strong> доступен, когда хост использует на компьютере браузер на базе Chromium</li></ul>',
   'help.need_help_html':
@@ -871,3 +872,66 @@ const ru: Record<I18nKey, string> = {
 };
 
 export default ru;
+
+export const pluralMessages = {
+  'connect.administrator_list': {
+    one: '{{count}} администратор',
+    few: '{{count}} администратора',
+    many: '{{count}} администраторов',
+  },
+  'playlist.delete_selected': {
+    one: 'Удалить {{count}} выбранный материал',
+    few: 'Удалить {{count}} выбранных материала',
+    many: 'Удалить {{count}} выбранных материалов',
+  },
+  'connect.device_list': {
+    one: 'Подключено {{count}} устройство',
+    few: 'Подключено {{count}} устройства',
+    many: 'Подключено {{count}} устройств',
+  },
+  'demo.session_body_connected': {
+    one: 'Сейчас подключено {{count}} устройство.\nНазначьте роль этому устройству.',
+    few: 'Сейчас подключено {{count}} устройства.\nНазначьте роль каждому устройству.',
+    many: 'Сейчас подключено {{count}} устройств.\nНазначьте роль каждому устройству.',
+  },
+  'chat.cmd_slowmode_on': {
+    one: 'Медленный режим: одно сообщение в {{sec}} секунду',
+    few: 'Медленный режим: одно сообщение в {{sec}} секунды',
+    many: 'Медленный режим: одно сообщение в {{sec}} секунд',
+  },
+  'chat.cmd_slowmode_wait': {
+    one: 'Подождите {{sec}} секунду перед отправкой следующего сообщения',
+    few: 'Подождите {{sec}} секунды перед отправкой следующего сообщения',
+    many: 'Подождите {{sec}} секунд перед отправкой следующего сообщения',
+  },
+  'chat.tracks_added': {
+    one: 'Добавлен {{count}} материал ({{name}})',
+    few: 'Добавлено {{count}} материала ({{name}})',
+    many: 'Добавлено {{count}} материалов ({{name}})',
+  },
+  'chat.tracks_added_named': {
+    one: 'Добавлен {{count}} материал, включая {{title}} ({{name}})',
+    few: 'Добавлено {{count}} материала, включая {{title}} ({{name}})',
+    many: 'Добавлено {{count}} материалов, включая {{title}} ({{name}})',
+  },
+  'toast.added_tracks': {
+    one: 'Добавлен {{count}} материал',
+    few: 'Добавлено {{count}} материала',
+    many: 'Добавлено {{count}} материалов',
+  },
+  'toast.unsupported_files_excluded': {
+    one: 'Пропущен {{count}} неподдерживаемый файл',
+    few: 'Пропущено {{count}} неподдерживаемых файла',
+    many: 'Пропущено {{count}} неподдерживаемых файлов',
+  },
+  'dialog.file_drop.message': {
+    one: 'Добавить {{count}} файл?',
+    few: 'Добавить {{count}} файла?',
+    many: 'Добавить {{count}} файлов?',
+  },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} неподдерживаемый файл не будет добавлен.',
+    few: '{{count}} неподдерживаемых файла не будут добавлены.',
+    many: '{{count}} неподдерживаемых файлов не будут добавлены.',
+  },
+} satisfies LocalePluralMessages;

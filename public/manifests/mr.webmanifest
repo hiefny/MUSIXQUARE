@@ -1,0 +1,39 @@
+{
+  "id": "/",
+  "name": "MUSIXQUARE",
+  "short_name": "MUSIXQUARE",
+  "description": "अनेक डिव्हाइस वायरलेस पद्धतीने जोडून मोठी ऑडिओ सिस्टीम तयार करा. कनेक्ट होण्यासाठी 6 अंकी आमंत्रण कोड वापरा.",
+  "lang": "mr-IN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "handle_links": "preferred",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

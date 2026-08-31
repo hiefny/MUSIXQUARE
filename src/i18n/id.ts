@@ -834,7 +834,7 @@ const id: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Masukkan <strong>kode 6 digit</strong> dari host untuk terhubung.<ul class="help-list"><li><strong>Host:</strong> “Buat ruang” → cek kode</li><li><strong>Peserta:</strong> “Gabung ke ruang” → masukkan kode</li><li>Hingga <strong>100 perangkat, termasuk host</strong>, dapat terhubung.</li></ul>',
   'player.play_speakers_html':
-    'Setiap peserta memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Keluaran stereo (bawaan)</li><li><strong>Kiri:</strong> Keluaran kanal L</li><li><strong>Kanan:</strong> Keluaran kanal R</li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
+    'Setiap peserta memilih <strong>peran (kanal keluaran)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Keluaran stereo (bawaan)</li><li><strong>Kiri:</strong> Keluaran kanal <bdi dir="ltr">L</bdi></li><li><strong>Kanan:</strong> Keluaran kanal <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> Keluaran campuran frekuensi rendah</li></ul>Anda dapat mengubah peran kapan saja di <strong>Pengaturan</strong>.',
   'player.play_media_action_html':
     'Host memiliki 3 opsi.<ul class="help-list"><li><strong>Muat file lokal:</strong> Pilih musik dari perangkat Anda. Sinkronisasi presisi didukung</li><li><strong>YouTube Bersama:</strong> Video dan daftar putar didukung. Tidak ada pemisahan kanal atau efek audio</li><li><strong>Berbagi Audio Sistem:</strong> Tersedia saat host menggunakan browser berbasis Chromium di komputer</li></ul>',
   'help.need_help_html':

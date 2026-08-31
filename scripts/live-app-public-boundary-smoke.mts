@@ -2,6 +2,7 @@
 
 import { pathToFileURL } from 'node:url';
 import { JSDOM } from 'jsdom';
+import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
 
 const AUTH_SESSION_URL = 'https://musixquare.com/api/auth/session';
 const SECURITY_CONFIG_URL = 'https://musixquare.com/api/security-config';
@@ -334,7 +335,7 @@ export async function verifyLocalizedSeoBoundary({
       page.canonical !== expectation.canonical ||
       page.openGraphUrl !== expectation.canonical ||
       page.description.trim().length === 0 ||
-      page.alternateCount !== 18 ||
+      page.alternateCount !== LANGUAGE_OPTIONS.length + 1 ||
       page.xDefault !== expectedXDefault ||
       (expectation.page === 'app'
         ? !cacheControl.includes('no-store')

@@ -7,6 +7,7 @@
 
 import en from './en.ts';
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const nl: Record<I18nKey, string> = {
   ...en,
@@ -803,7 +804,7 @@ const nl: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Voer de <strong>6-cijferige code</strong> van de host in om verbinding te maken.<ul class="help-list"><li><strong>Host:</strong> “Kamer maken” → code bekijken</li><li><strong>Deelnemer:</strong> “Deelnemen aan een kamer” → code invoeren</li><li>Er kunnen maximaal <strong>100 apparaten, inclusief de host</strong>, verbinding maken.</li></ul>',
   'player.play_speakers_html':
-    'Elke deelnemer kiest een <strong>rol (uitvoerkanaal)</strong>.<ul class="help-list"><li><strong>Midden:</strong> stereo-uitvoer (standaard)</li><li><strong>Links:</strong> uitvoer van het L-kanaal</li><li><strong>Rechts:</strong> uitvoer van het R-kanaal</li><li><strong>Subwoofer:</strong> mix van lage frequenties</li></ul>Je kunt rollen altijd wijzigen in <strong>Instellingen</strong>.',
+    'Elke deelnemer kiest een <strong>rol (uitvoerkanaal)</strong>.<ul class="help-list"><li><strong>Midden:</strong> stereo-uitvoer (standaard)</li><li><strong>Links:</strong> uitvoer van het <bdi dir="ltr">L</bdi>-kanaal</li><li><strong>Rechts:</strong> uitvoer van het <bdi dir="ltr">R</bdi>-kanaal</li><li><strong>Subwoofer:</strong> mix van lage frequenties</li></ul>Je kunt rollen altijd wijzigen in <strong>Instellingen</strong>.',
   'player.play_media_action_html':
     'De host heeft 3 opties.<ul class="help-list"><li><strong>Lokaal bestand laden:</strong> kies muziek op je apparaat. Nauwkeurige synchronisatie wordt ondersteund</li><li><strong>Samen YouTube kijken:</strong> video’s en afspeellijsten worden ondersteund. Geen kanaalsplitsing of audio-effecten</li><li><strong>Systeemaudio delen:</strong> beschikbaar wanneer de host een computer met een Chromium-browser gebruikt (Chrome, Edge enz.)</li></ul>',
   'help.need_help_html':
@@ -863,3 +864,28 @@ const nl: Record<I18nKey, string> = {
 };
 
 export default nl;
+
+export const pluralMessages = {
+  'connect.administrator_list': { one: '{{count}} beheerder' },
+  'playlist.delete_selected': { one: '{{count}} geselecteerde track verwijderen' },
+  'connect.device_list': { one: '{{count}} verbonden apparaat' },
+  'demo.session_body_connected': {
+    one: 'Er is nu {{count}} apparaat verbonden.\nStel voor dit apparaat een rol in.',
+  },
+  'chat.cmd_slowmode_on': { one: 'Langzame modus: {{sec}} seconde tussen berichten' },
+  'chat.cmd_slowmode_wait': {
+    one: 'Wacht {{sec}} seconde voordat je een bericht verstuurt',
+  },
+  'chat.tracks_added': { one: '{{name}} heeft {{count}} track toegevoegd' },
+  'chat.tracks_added_named': {
+    one: '{{name}} heeft {{count}} track toegevoegd, waaronder {{title}}',
+  },
+  'toast.added_tracks': { one: '{{count}} track toegevoegd' },
+  'toast.unsupported_files_excluded': {
+    one: 'Niet-ondersteund bestand overgeslagen: {{count}}',
+  },
+  'dialog.file_drop.message': { one: '{{count}} bestand toevoegen?' },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} niet-ondersteund bestand wordt niet toegevoegd.',
+  },
+} satisfies LocalePluralMessages;

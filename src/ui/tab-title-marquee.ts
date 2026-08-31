@@ -32,12 +32,19 @@ interface TabTitleSnapshot {
 
 type TabTitleSnapshotReader = () => TabTitleSnapshot;
 
+function defaultTabTitle(): string {
+  return (
+    document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content.trim() ||
+    DEFAULT_TAB_TITLE
+  );
+}
+
 function staticTitle(track: string): string {
-  return track ? `${track}${TITLE_SUFFIX}` : DEFAULT_TAB_TITLE;
+  return track ? `${track}${TITLE_SUFFIX}` : defaultTabTitle();
 }
 
 function getTabTitleMarqueeFrame(track: string, elapsedMs: number): string {
-  if (!track) return DEFAULT_TAB_TITLE;
+  if (!track) return defaultTabTitle();
 
   const full = `${track}${TITLE_SUFFIX}`;
   const chars = Array.from(full);
@@ -119,7 +126,7 @@ export function initTabTitleMarquee(readSnapshot?: TabTitleSnapshotReader): () =
   _track = '';
   _playing = false;
   _cycleStartedAt = Date.now();
-  document.title = DEFAULT_TAB_TITLE;
+  document.title = defaultTabTitle();
 
   // Hydrate from the central player state immediately when a reader is
   // available. This also covers UI initialization after remote state arrived.

@@ -10,21 +10,21 @@ import { bus } from '../core/events.ts';
 import { syncExclusivePressedState } from '../core/aria-state.ts';
 import ko from './ko.ts';
 import en from './en.ts';
+import { EN_PLURAL_MESSAGES } from './plural-en.ts';
 import {
-  PLURAL_MESSAGES,
   PLURAL_PARAM_BY_KEY,
   type LocalePluralMessages,
   type PluralCategory,
   type PluralI18nKey,
-} from './plural.ts';
+} from './plural-contract.ts';
 
 import type { I18nKey } from './ko.ts';
-import { hasLocaleFont, loadLocaleFont } from './locale-fonts.ts';
+import { hasLocaleFont } from './locale-font-contract.ts';
+import { currentAppPathLanguage, updateLocalizedAppPath } from './localized-app-document.ts';
 import {
-  appLanguageFromPathname,
+  languageDirection,
   LANGUAGE_OPTIONS,
   localizedAboutPath,
-  localizedAppEntryPath,
   type LanguageCode,
 } from './locales.ts';
 export type { I18nKey };
@@ -44,22 +44,53 @@ const _dicts: Partial<Record<LanguageCode, Record<string, string>>> = {
 };
 
 const _pluralRules = new Map<LanguageCode, Intl.PluralRules>();
+const _pluralMessages: Partial<Record<LanguageCode, LocalePluralMessages>> = {
+  en: EN_PLURAL_MESSAGES,
+};
 
-const _localeLoaders: Partial<
-  Record<LanguageCode, () => Promise<{ default: Record<string, string> }>>
-> = {
+interface LocaleModule {
+  readonly default: Record<string, string>;
+  readonly pluralMessages?: LocalePluralMessages;
+}
+
+const _localeLoaders: Partial<Record<LanguageCode, () => Promise<LocaleModule>>> = {
+  ar: () => import('./ar.ts'),
+  bn: () => import('./bn.ts'),
+  bg: () => import('./bg.ts'),
+  cs: () => import('./cs.ts'),
+  da: () => import('./da.ts'),
   de: () => import('./de.ts'),
+  el: () => import('./el.ts'),
   es: () => import('./es.ts'),
+  fa: () => import('./fa.ts'),
+  fi: () => import('./fi.ts'),
+  fil: () => import('./fil.ts'),
   fr: () => import('./fr.ts'),
+  he: () => import('./he.ts'),
+  hi: () => import('./hi.ts'),
+  hu: () => import('./hu.ts'),
   id: () => import('./id.ts'),
   it: () => import('./it.ts'),
+  gu: () => import('./gu.ts'),
+  kn: () => import('./kn.ts'),
+  ml: () => import('./ml.ts'),
+  mr: () => import('./mr.ts'),
+  nb: () => import('./nb.ts'),
   nl: () => import('./nl.ts'),
   ja: () => import('./ja.ts'),
   pl: () => import('./pl.ts'),
+  pa: () => import('./pa.ts'),
   'pt-br': () => import('./pt-br.ts'),
+  ro: () => import('./ro.ts'),
   ru: () => import('./ru.ts'),
+  ms: () => import('./ms.ts'),
+  sv: () => import('./sv.ts'),
+  ta: () => import('./ta.ts'),
+  te: () => import('./te.ts'),
   th: () => import('./th.ts'),
   tr: () => import('./tr.ts'),
+  uk: () => import('./uk.ts'),
+  ur: () => import('./ur.ts'),
   vi: () => import('./vi.ts'),
   'zh-hans': () => import('./zh-hans.ts'),
   'zh-hant': () => import('./zh-hant.ts'),
@@ -103,7 +134,7 @@ function _pluralCategory(value: number): PluralCategory {
 }
 
 function _pluralFormsFor(code: LanguageCode): LocalePluralMessages | undefined {
-  return (PLURAL_MESSAGES as Partial<Record<LanguageCode, LocalePluralMessages>>)[code];
+  return _pluralMessages[code];
 }
 
 function _translationTemplate(key: I18nKey, params?: TranslationParams): string {
@@ -181,7 +212,39 @@ export function setLanguageMode(mode: string): void {
   });
 }
 
+type LocalizedAppHead = typeof import('./localized-app-head.ts');
+let _localizedAppHead: LocalizedAppHead | undefined;
+let _localizedAppHeadLoad: Promise<LocalizedAppHead | undefined> | undefined;
+let _localizedHeadIntent = 0;
+
+function _loadLocalizedAppHead(): Promise<LocalizedAppHead | undefined> {
+  if (_localizedAppHead) return Promise.resolve(_localizedAppHead);
+  return (_localizedAppHeadLoad ??= import('./localized-app-head.ts')
+    .then((module) => (_localizedAppHead = module))
+    .catch(() => {
+      _localizedAppHeadLoad = undefined;
+      return undefined;
+    }));
+}
+
+function _synchronizeLocalizedHead(resolved: LanguageCode, intent: number): void {
+  void _loadLocalizedAppHead()
+    .then((head) => {
+      if (!head || intent !== _localizedHeadIntent) return;
+      return head.synchronizeLocalizedAppHead(
+        resolved,
+        () => intent === _localizedHeadIntent && _resolved === resolved,
+      );
+    })
+    .catch(() => {
+      // Metadata synchronization is best-effort; URL and translated UI already
+      // hold the selected locale even if this deferred boundary fails.
+    });
+}
+
 async function _setLanguageMode(mode: string): Promise<void> {
+  const headIntent = ++_localizedHeadIntent;
+  _localizedAppHead?.cancelLocalizedAppHeadSync();
   const normalizedMode = _normalizeLanguageMode(mode);
   const resolved = normalizedMode === 'system' ? _resolveSystem() : normalizedMode;
   _mode = normalizedMode;
@@ -193,41 +256,16 @@ async function _setLanguageMode(mode: string): Promise<void> {
     /* ignore */
   }
 
-  if (_navigateLocalizedAppPath(resolved)) return;
+  const pathUpdate = updateLocalizedAppPath(resolved);
+  if (pathUpdate === 'navigating') return;
   await _applyLanguage(resolved);
-}
-
-function _currentAppPathLanguage(): LanguageCode | null {
-  try {
-    return appLanguageFromPathname(window.location.pathname);
-  } catch {
-    return null;
-  }
-}
-
-function _navigateLocalizedAppPath(resolved: LanguageCode): boolean {
-  if (_currentAppPathLanguage() === null) return false;
-  const nextPath = localizedAppEntryPath(resolved);
-  if (window.location.pathname === nextPath) return false;
-  const href = `${nextPath}${window.location.search}${window.location.hash}`;
-
-  try {
-    const navigationRequest = new CustomEvent<{ href: string }>('mxqr:locale-navigation-request', {
-      cancelable: true,
-      detail: { href },
-    });
-    if (!window.dispatchEvent(navigationRequest)) return true;
-  } catch {
-    /* CustomEvent may be unavailable in restricted or embedded contexts. */
-  }
-
-  try {
-    window.location.assign(href);
-    return true;
-  } catch {
-    // If full-document navigation is unavailable, retain the established
-    // in-place translation fallback instead of leaving the picker inert.
-    return false;
+  if (
+    (pathUpdate === 'replaced' || pathUpdate === 'unchanged') &&
+    _resolved === resolved &&
+    _dicts[resolved] &&
+    currentAppPathLanguage() === resolved
+  ) {
+    _synchronizeLocalizedHead(resolved, headIntent);
   }
 }
 
@@ -244,7 +282,7 @@ export async function initI18n(): Promise<void> {
     /* ignore */
   }
 
-  const pathLanguage = _currentAppPathLanguage();
+  const pathLanguage = currentAppPathLanguage();
   const savedMode = _initialLanguageMode(saved);
   if (pathLanguage) {
     // A localized URL owns this document's presentation without rewriting the
@@ -269,9 +307,7 @@ export async function initI18n(): Promise<void> {
     // unless a previously-requested locale is genuinely missing.
     window.addEventListener('online', () => {
       if (!_dicts[_resolved] && _localeLoaders[_resolved]) {
-        _applyLanguage(_resolved).catch((error) => {
-          log.warn('[i18n] Online locale recovery failed', error);
-        });
+        setLanguageMode(_mode);
       }
     });
   } catch {
@@ -372,6 +408,10 @@ function _matchLanguage(value: string | null | undefined): LanguageCode | null {
 
   if (normalized === 'pt-br' || normalized.startsWith('pt-br-')) return 'pt-br';
   if (normalized === 'pt' || normalized.startsWith('pt-')) return 'pt-br';
+  if (normalized === 'in' || normalized.startsWith('in-')) return 'id';
+  if (normalized === 'iw' || normalized.startsWith('iw-')) return 'he';
+  if (normalized === 'no' || normalized.startsWith('no-')) return 'nb';
+  if (normalized === 'tl' || normalized.startsWith('tl-')) return 'fil';
 
   const primary = normalized.split('-')[0];
   if (LANGUAGE_OPTIONS.some((lang) => lang.code === primary)) return primary as LanguageCode;
@@ -405,7 +445,13 @@ function _loadLanguage(code: LanguageCode): Promise<void> {
 
   const pending = loader()
     .then((mod) => {
-      _dicts[code] = mod.default;
+      // The dictionary and its grammatical overrides are exports of one lazy
+      // module. Commit both synchronously only after that chunk resolves, so a
+      // deploy-skew failure can never leave mixed-language plural copy cached.
+      const dictionary = mod.default;
+      const pluralMessages = 'pluralMessages' in mod ? mod.pluralMessages : undefined;
+      _dicts[code] = dictionary;
+      if (pluralMessages) _pluralMessages[code] = pluralMessages;
     })
     .catch((error) => {
       // Deliberately cache NOTHING on failure. _dicts is a presence-keyed
@@ -434,7 +480,9 @@ function _translateLoadedLanguage(resolved: LanguageCode): void {
   // `_resolved` intentionally remains unchanged so re-select/online can
   // retry the missing chunk; a successful retry restores the requested tag.
   try {
-    document.documentElement.setAttribute('lang', _htmlLangFor(_dicts[resolved] ? resolved : 'en'));
+    const renderedLanguage = _dicts[resolved] ? resolved : 'en';
+    document.documentElement.setAttribute('lang', _htmlLangFor(renderedLanguage));
+    document.documentElement.setAttribute('dir', languageDirection(renderedLanguage));
   } catch {
     /* ignore */
   }
@@ -450,12 +498,17 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
   _resolved = resolved;
   try {
     document.documentElement.setAttribute('lang', _htmlLangFor(_resolved));
+    document.documentElement.setAttribute('dir', languageDirection(_resolved));
   } catch {
     /* ignore */
   }
 
   const needsFontLoad = hasLocaleFont(resolved);
-  const fontLoad = needsFontLoad ? loadLocaleFont(resolved) : Promise.resolve();
+  const fontLoad = needsFontLoad
+    ? import('./locale-fonts.ts').then(({ default: localeFonts }) =>
+        localeFonts.loadLocaleFont(resolved),
+      )
+    : Promise.resolve();
 
   if (_dicts[resolved]) {
     if (needsFontLoad) await fontLoad;

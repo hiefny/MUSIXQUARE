@@ -1,0 +1,40 @@
+{
+  "id": "/",
+  "name": "MUSIXQUARE",
+  "short_name": "MUSIXQUARE",
+  "description": "ایک بڑا آڈیو سسٹم بنانے کے لیے متعدد ڈیوائسز کو وائرلیس طریقے سے جوڑیں۔ منسلک ہونے کے لیے 6 ہندسوں کا دعوتی کوڈ استعمال کریں۔",
+  "lang": "ur-PK",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "handle_links": "preferred",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

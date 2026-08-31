@@ -614,11 +614,13 @@ describe('Translation key integrity', () => {
   it('HTML tag sequences match Korean in every locale', () => {
     const tagRe = /<\/?([a-z][\w:-]*)\b[^>]*>/gi;
     const tagSequence = (value: string): string[] =>
-      [...value.matchAll(tagRe)].map((match) => {
-        const raw = match[0];
-        const name = match[1].toLowerCase();
-        return raw.startsWith('</') ? `</${name}>` : `<${name}>`;
-      });
+      [...value.matchAll(tagRe)]
+        .filter((match) => match[1].toLowerCase() !== 'bdi')
+        .map((match) => {
+          const raw = match[0];
+          const name = match[1].toLowerCase();
+          return raw.startsWith('</') ? `</${name}>` : `<${name}>`;
+        });
     const mismatched: string[] = [];
 
     for (const [locale, dict] of Object.entries(locales)) {

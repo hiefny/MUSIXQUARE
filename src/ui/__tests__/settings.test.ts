@@ -6,6 +6,7 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { showToast } from '../toast.ts';
 import { LANGUAGE_OPTIONS, setLanguageMode, t } from '../../i18n/index.ts';
+import { hasLocaleFont } from '../../i18n/locale-fonts.ts';
 import type { DataConnection } from '../../types/index.ts';
 import { configureSystemAudioCaptureActivityProbe } from '../../audio/system-audio-policy.ts';
 
@@ -17,7 +18,10 @@ vi.mock('../../i18n/locale-fonts.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../i18n/locale-fonts.ts')>();
   return {
     ...actual,
-    preloadLocaleFontGlyphs: preloadLocaleFontGlyphsMock,
+    default: {
+      ...actual.default,
+      preloadLocaleFontGlyphs: preloadLocaleFontGlyphsMock,
+    },
   };
 });
 
@@ -540,8 +544,8 @@ describe('initSettings language controls', () => {
   });
 
   it('keeps the default order when no system language is supported', () => {
-    vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('ar-SA');
-    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['ar-SA', 'ja-JP']);
+    vi.spyOn(window.navigator, 'language', 'get').mockReturnValue('sw-KE');
+    vi.spyOn(window.navigator, 'languages', 'get').mockReturnValue(['sw-KE']);
     installLanguageSettingsDom();
     initSettings();
 
@@ -553,7 +557,7 @@ describe('initSettings language controls', () => {
     expect(optionCodes).toEqual(LANGUAGE_OPTIONS.map((language) => language.code));
   });
 
-  it('opens the language dialog with all supported languages and a custom scrollbar', () => {
+  it('opens the language dialog with all supported languages and a custom scrollbar', async () => {
     setLanguageMode('ko');
     installLanguageSettingsDom();
     initSettings();
@@ -568,6 +572,9 @@ describe('initSettings language controls', () => {
     expect(document.querySelectorAll('.language-list-edge')).toHaveLength(2);
     expect(document.querySelector('.language-dialog-beta-badge')?.textContent?.trim()).toBe('BETA');
     expect(document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang).toBe('ko');
+    const filipino = document.querySelector<HTMLElement>('.language-option[data-lang="fil"]');
+    expect(filipino?.querySelector('.language-option-native')?.textContent).toBe('Filipino');
+    expect(filipino?.querySelector('.language-option-english')?.textContent).toBe('Philippines');
     expect(document.getElementById('language-list')?.getAttribute('role')).toBe('group');
     expect(document.querySelector('.language-option')?.getAttribute('role')).toBeNull();
     expect(
@@ -575,7 +582,11 @@ describe('initSettings language controls', () => {
         .querySelector<HTMLElement>('.language-option[data-lang="ko"]')
         ?.getAttribute('aria-pressed'),
     ).toBe('true');
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+    await vi.waitFor(() =>
+      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
+        LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
+      ),
+    );
   });
 
   it('suppresses only the initial pointer focus ring and restores keyboard focus styling', async () => {
@@ -606,7 +617,7 @@ describe('initSettings language controls', () => {
     expect(active.classList).not.toContain('language-option-initial-pointer-focus');
   });
 
-  it('preloads only the five self-hosted native names on pointer intent before opening', async () => {
+  it('preloads only self-hosted native-name fonts on pointer intent before opening', async () => {
     installLanguageSettingsDom();
     initSettings();
     const trigger = document.getElementById('btn-language-select')!;
@@ -616,31 +627,34 @@ describe('initSettings language controls', () => {
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       false,
     );
-    expect(preloadLocaleFontGlyphsMock.mock.calls).toEqual([
-      ['ja', '日本語'],
-      ['zh-hans', '简体中文'],
-      ['zh-hant', '繁體中文'],
-      ['ru', 'Русский'],
-      ['th', 'ไทย'],
-    ]);
+    const selfHostedFontOptions = LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code));
+    await vi.waitFor(() =>
+      expect(preloadLocaleFontGlyphsMock.mock.calls).toEqual(
+        selfHostedFontOptions.map(({ code, nativeName }) => [code, nativeName]),
+      ),
+    );
 
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     trigger.focus();
     trigger.click();
 
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontOptions.length);
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       true,
     );
   });
 
-  it('preloads from keyboard focus without opening the dialog', () => {
+  it('preloads from keyboard focus without opening the dialog', async () => {
     installLanguageSettingsDom();
     initSettings();
 
     document.getElementById('btn-language-select')?.focus();
 
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+    await vi.waitFor(() =>
+      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
+        LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
+      ),
+    );
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
       false,
     );
@@ -654,15 +668,16 @@ describe('initSettings language controls', () => {
 
     trigger.dispatchEvent(new Event('pointerdown'));
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+    const selfHostedFontCount = LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length;
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontCount);
 
     preloadLocaleFontGlyphsMock.mockResolvedValue(true);
     trigger.focus();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(10);
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontCount * 2);
 
     trigger.click();
-    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(10);
+    expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontCount * 2);
   });
 
   it('keeps the dialog responsive when a glyph preload fails', async () => {
@@ -676,7 +691,9 @@ describe('initSettings language controls', () => {
       true,
     );
     await vi.waitFor(() => {
-      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(5);
+      expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(
+        LANGUAGE_OPTIONS.filter(({ code }) => hasLocaleFont(code)).length,
+      );
     });
   });
 

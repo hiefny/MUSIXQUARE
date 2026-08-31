@@ -1,0 +1,147 @@
+/* Bidirectional layout support for Arabic, Persian, Hebrew, and Urdu.
+ * Logical spacing in the base styles handles ordinary flow. These rules keep
+ * machine-readable values and physically meaningful audio diagrams LTR while
+ * the surrounding application follows the document direction. */
+
+:root[dir='rtl'] {
+  --safe-left: env(safe-area-inset-right, 0px);
+  --safe-right: env(safe-area-inset-left, 0px);
+  --font-sans: var(--font-sans-arabic);
+}
+
+:root:lang(he)[dir='rtl'] {
+  --font-sans: var(--font-sans-hebrew);
+}
+
+html[dir='rtl'],
+html[dir='rtl'] body {
+  direction: rtl;
+}
+
+/* Determinate application work starts at the reading edge in RTL. Circular
+ * indeterminate spinners remain direction-neutral. */
+html[dir='rtl'] .header-progress-bg {
+  transform-origin: right;
+}
+
+html[dir='rtl'] :where(h1, h2, h3, h4, p, button, label, span, input, textarea) {
+  letter-spacing: normal;
+}
+
+html[dir='rtl'] :where(input, textarea, select, button) {
+  font-family: inherit;
+}
+
+/* Codes, timestamps, URLs, media counters, and protocol identifiers retain
+ * left-to-right ordering inside an RTL sentence. */
+html[dir='rtl']
+  :where(
+    .invite-code-value,
+    .room-password-code,
+    #setup-code,
+    #setup-join-code,
+    #time-curr,
+    #time-dur,
+    .chat-time,
+    .chat-timestamp,
+    .chat-join-order,
+    .chat-pinned-notice-time,
+    .val-disp,
+    .eq-val,
+    .eq-label,
+    #manual-sync-value,
+    .sync-nudge-row,
+    .d-order,
+    .device-sub-index,
+    .chat-cmd-usage,
+    .chat-cmd-ghost,
+    .dialog-input-split,
+    .dialog-input-segment,
+    .dialog-input-separator,
+    .debug-console,
+    code,
+    pre,
+    kbd,
+    samp
+  ) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir='rtl'] #youtube-url-input {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* Track subtitles alternate between localized prose and LTR technical
+ * metadata such as "≈192 kbps · MP3". Let each value establish its own
+ * paragraph direction without moving the row away from the RTL text edge. */
+html[dir='rtl'] .track-artist {
+  unicode-bidi: plaintext;
+  text-align: right;
+}
+
+/* Bubble ownership is physical: mine stays on the right and others stay on
+ * the left so the existing tails, grouped corners, and time placement agree.
+ * Individual text boundaries opt back into their own content direction. */
+html[dir='rtl'] #chat-messages {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Channel placement is physical, not linguistic. A left speaker must remain
+ * on the viewer's left even when the surrounding controls read right-to-left. */
+html[dir='rtl']
+  :where(
+    [data-role-diagram],
+    .setup-graphic-svg,
+    .setup-graphic-container,
+    .demo-role-diagram,
+    #grid-standard,
+    #setup-role-grid,
+    .demo-role-segmented,
+    .time-info,
+    .eq-container
+  ) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Carousel navigation follows reading direction; playback transport remains
+ * temporal and therefore keeps its established icon orientation. */
+html[dir='rtl'] .ob-nav-arrow svg,
+html[dir='rtl'] .demo-step-next svg,
+html[dir='rtl'] #btn-setup-back svg {
+  transform: scaleX(-1);
+}
+
+html[dir='rtl'] :where(.play-btn-group, .vol-group-playback) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Media time, playback volume, and EQ are physical audio axes. Keep those
+ * low-to-high from left to right (Spotify-style), including pointer, paint,
+ * and native keyboard behavior. */
+html[dir='rtl'] #seek-slider {
+  direction: ltr;
+}
+
+/* Ordinary setting sliders follow the RTL reading edge. range-drag.ts reads
+ * their computed direction so pointer math agrees with native keyboard input. */
+html[dir='rtl'] #settings-subtab-panel-audio input[type='range']:not(.eq-slider) {
+  --range-track-direction: to left;
+}
+
+/* Chat prose and user labels choose direction from their own first strong
+ * character. Inline protocol/time tokens above remain isolated LTR. */
+html[dir='rtl']
+  :where(
+    .chat-text,
+    .chat-sender,
+    .chat-preview-text,
+    .chat-pinned-notice-label,
+    .chat-pinned-notice-text
+  ) {
+  text-align: start;
+}

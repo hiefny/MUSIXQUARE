@@ -21,6 +21,20 @@ import { LANGUAGE_OPTIONS } from './src/i18n/locales.ts';
 export const SECONDARY_JAVASCRIPT_CHUNK_RAW_LIMIT_BYTES = 500_000;
 export const LEGACY_APP_BROWSER_TARGET = 'chrome79';
 
+/**
+ * Locale font stylesheets contain relative WOFF2 references and are toggled by
+ * the static-page language runtime. Inlining one as a data: URL would change
+ * the reference base and make every relative font URL inside it unusable.
+ * Keep the WOFF2 shards external too so unicode-range remains genuinely lazy
+ * instead of folding uncommon glyph shards into the stylesheet transfer.
+ */
+export function localeFontAssetInlineLimit(filePath: string): boolean | undefined {
+  const normalized = filePath.replaceAll('\\', '/');
+  return /(?:^|\/)(?:css\/fonts\/[^/]+\.css|fonts\/noto\/.+\.woff2)$/u.test(normalized)
+    ? false
+    : undefined;
+}
+
 const LEGACY_CSS_OPTIONS = {
   onRevertLayerKeyword: 'warn',
   onConditionalRulesChangingLayerOrder: 'warn',
@@ -260,6 +274,229 @@ const flattenWorkshopHtml = (): Plugin => ({
   },
 });
 
+const STATIC_LOCALE_FONT_STYLESHEETS = [
+  'noto-arabic.css',
+  'noto-bengali.css',
+  'noto-cyrillic.css',
+  'noto-devanagari.css',
+  'noto-greek.css',
+  'noto-gujarati.css',
+  'noto-gurmukhi.css',
+  'noto-hebrew.css',
+  'noto-jp.css',
+  'noto-kannada.css',
+  'noto-malayalam.css',
+  'noto-sc.css',
+  'noto-tamil.css',
+  'noto-tc.css',
+  'noto-telugu.css',
+  'noto-thai.css',
+] as const;
+
+interface ViteCssMetadata {
+  readonly importedCss?: ReadonlySet<string>;
+}
+
+function outputText(source: string | Uint8Array): string {
+  return typeof source === 'string' ? source : new TextDecoder().decode(source);
+}
+
+function localeFontStylesheetFromOutputPath(outputPath: string): string | null {
+  const baseName = outputPath.replace(/\\/gu, '/').split('/').pop() || '';
+  const matches = STATIC_LOCALE_FONT_STYLESHEETS.filter((sourceName) => {
+    const stem = sourceName.slice(0, -'.css'.length);
+    return (
+      baseName === sourceName || (baseName.startsWith(`${stem}-`) && baseName.endsWith('.css'))
+    );
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function resolveBundleAssetPath(stylesheetPath: string, rawUrl: string): string | null {
+  if (/^(?:data|https?):/iu.test(rawUrl)) return null;
+  try {
+    return new URL(rawUrl, `https://musixquare.invalid/${stylesheetPath}`).pathname.replace(
+      /^\/+/,
+      '',
+    );
+  } catch {
+    return null;
+  }
+}
+
+function stylesheetWoff2Urls(css: string): string[] {
+  return [...css.matchAll(/url\((?:["']?)([^)"']+\.woff2)(?:["']?)\)/giu)].flatMap((match) =>
+    match[1] ? [match[1]] : [],
+  );
+}
+
+/**
+ * About keeps locale font links disabled until the language bootstrap selects
+ * one. Vite consequently treats those authored links as raw assets, while the
+ * app's dynamic CSS imports produce the correctly rewritten CSS/WOFF2 graph.
+ * Repoint the disabled links at that processed graph and remove the orphan raw
+ * copies without making any locale stylesheet part of the initial app graph.
+ */
+export const bindStaticLocaleFontAssets = (): Plugin => ({
+  name: 'bind-static-locale-font-assets',
+  apply: 'build',
+  enforce: 'post',
+  generateBundle(_options, bundle) {
+    const chunks = new Map(
+      Object.values(bundle)
+        .filter((output) => output.type === 'chunk')
+        .map((chunk) => [chunk.fileName, chunk]),
+    );
+    const processedCssBySource = new Map<string, string>();
+
+    for (const output of Object.values(bundle)) {
+      if (output.type !== 'asset' || !output.fileName.endsWith('.css')) continue;
+      const sourceName = localeFontStylesheetFromOutputPath(output.fileName);
+      if (!sourceName) continue;
+      const fontUrls = stylesheetWoff2Urls(outputText(output.source));
+      if (fontUrls.length === 0) continue;
+      const isProcessed = fontUrls.every((fontUrl) => {
+        const fontPath = resolveBundleAssetPath(output.fileName, fontUrl);
+        return Boolean(fontPath && bundle[fontPath]?.type === 'asset');
+      });
+      if (!isProcessed) continue;
+      if (processedCssBySource.has(sourceName)) {
+        this.error(`Duplicate processed locale font CSS mapping for ${sourceName}.`);
+      }
+      processedCssBySource.set(sourceName, output.fileName);
+    }
+
+    if (processedCssBySource.size !== STATIC_LOCALE_FONT_STYLESHEETS.length) {
+      const missing = STATIC_LOCALE_FONT_STYLESHEETS.filter(
+        (sourceName) => !processedCssBySource.has(sourceName),
+      );
+      this.error(`Processed locale font CSS mapping is incomplete: ${missing.join(', ')}`);
+    }
+
+    const aboutOutput = bundle['about.html'];
+    if (!aboutOutput || aboutOutput.type !== 'asset') {
+      this.error('Could not locate the flattened About HTML output.');
+    }
+    const authoredHtml = outputText(aboutOutput.source);
+    const rawCssAssets = new Set<string>();
+    const linkedSources = new Set<string>();
+    const linkedProcessedCss = new Set<string>();
+    let linkCount = 0;
+    const rewrittenHtml = authoredHtml.replace(
+      /<link\b(?=[^>]*\bdata-static-lang-font-codes=["'][^"']+["'])[^>]*>/giu,
+      (tag) => {
+        linkCount += 1;
+        const hrefMatch = /\bhref=(["'])([^"']+)\1/iu.exec(tag);
+        const href = hrefMatch?.[2] || '';
+        if (!href || href.startsWith('data:')) {
+          this.error(`About locale font link has an invalid build href: ${href || '(missing)'}`);
+        }
+        const rawOutputPath = href.replace(/^\/+/, '');
+        const sourceName = localeFontStylesheetFromOutputPath(rawOutputPath);
+        if (!sourceName) {
+          this.error(`Could not identify About locale font source from ${href}.`);
+        }
+        const processedCss = processedCssBySource.get(sourceName);
+        if (!processedCss || bundle[processedCss]?.type !== 'asset') {
+          this.error(`Processed About locale font CSS is missing for ${sourceName}.`);
+        }
+        if (linkedSources.has(sourceName) || linkedProcessedCss.has(processedCss)) {
+          this.error(`Duplicate About locale font link mapping for ${sourceName}.`);
+        }
+        linkedSources.add(sourceName);
+        linkedProcessedCss.add(processedCss);
+        rawCssAssets.add(rawOutputPath);
+        return tag.replace(href, `/${processedCss}`);
+      },
+    );
+
+    if (
+      linkCount !== STATIC_LOCALE_FONT_STYLESHEETS.length ||
+      linkedSources.size !== STATIC_LOCALE_FONT_STYLESHEETS.length
+    ) {
+      this.error(
+        `About must map exactly ${STATIC_LOCALE_FONT_STYLESHEETS.length} locale font links (found ${linkCount}).`,
+      );
+    }
+    aboutOutput.source = rewrittenHtml;
+
+    for (const processedCss of linkedProcessedCss) {
+      const cssOutput = bundle[processedCss];
+      if (!cssOutput || cssOutput.type !== 'asset') {
+        this.error(`Linked processed locale font CSS is missing: ${processedCss}.`);
+      }
+      const css = outputText(cssOutput.source);
+      const fontUrls = stylesheetWoff2Urls(css);
+      if (fontUrls.length === 0) {
+        this.error(`Linked locale font CSS has no WOFF2 assets: ${processedCss}.`);
+      }
+      for (const fontUrl of fontUrls) {
+        const fontPath = fontUrl ? resolveBundleAssetPath(processedCss, fontUrl) : null;
+        if (!fontPath || bundle[fontPath]?.type !== 'asset') {
+          this.error(
+            `Linked locale font CSS has an unresolved WOFF2 URL: ${processedCss} -> ${fontUrl || '(missing)'}.`,
+          );
+        }
+      }
+    }
+
+    const appEntry = [...chunks.values()].find(
+      (chunk) =>
+        chunk.isEntry &&
+        Object.keys(chunk.modules).some((id) => id.replace(/\\/gu, '/').endsWith('/src/app.ts')),
+    );
+    if (!appEntry) this.error('Could not locate the MUSIXQUARE app entry chunk.');
+    const initialCss = new Set<string>();
+    const visited = new Set<string>();
+    const pending = [appEntry.fileName];
+    while (pending.length > 0) {
+      const fileName = pending.pop();
+      if (!fileName || visited.has(fileName)) continue;
+      visited.add(fileName);
+      const chunk = chunks.get(fileName);
+      if (!chunk) continue;
+      const metadata = (chunk as typeof chunk & { viteMetadata?: ViteCssMetadata }).viteMetadata;
+      for (const css of metadata?.importedCss ?? []) initialCss.add(css);
+      pending.push(...chunk.imports);
+    }
+    const eagerLocaleCss = [...linkedProcessedCss].filter((fileName) => initialCss.has(fileName));
+    if (eagerLocaleCss.length > 0) {
+      this.error(
+        `Locale fonts leaked into the initial app CSS graph: ${eagerLocaleCss.join(', ')}`,
+      );
+    }
+
+    const initialAppHtml = bundle['index.html'];
+    if (!initialAppHtml || initialAppHtml.type !== 'asset') {
+      this.error('Could not locate the canonical app HTML output.');
+    }
+    const initialAppSource = outputText(initialAppHtml.source);
+    const eagerHtmlLinks = [...linkedProcessedCss].filter((fileName) =>
+      initialAppSource.includes(`/${fileName}`),
+    );
+    if (eagerHtmlLinks.length > 0) {
+      this.error(`Locale fonts leaked into the initial app HTML: ${eagerHtmlLinks.join(', ')}`);
+    }
+
+    for (const rawCss of rawCssAssets) {
+      const stillReferenced = Object.values(bundle).some(
+        (output) =>
+          output.type === 'asset' &&
+          output.fileName.endsWith('.html') &&
+          outputText(output.source).includes(`/${rawCss}`),
+      );
+      if (stillReferenced) {
+        this.error(`Raw locale font CSS is still referenced after rebinding: ${rawCss}.`);
+      }
+      const rawOutput = bundle[rawCss];
+      if (!rawOutput || rawOutput.type !== 'asset') {
+        this.error(`Expected orphan raw locale font CSS is missing: ${rawCss}.`);
+      }
+      delete bundle[rawCss];
+    }
+  },
+});
+
 const LOCALIZED_PAGE_CODES = new Set<string>(LANGUAGE_OPTIONS.map(({ code }) => code));
 
 export function pageAliasTarget(rawUrl: string, built = false): string | null {
@@ -375,8 +612,10 @@ const prioritizeStylesheetsInHtml = (): Plugin => ({
 
 const REVIEWED_DEFERRED_APP_SHELL_ROOTS = [
   '/src/demo/mode.ts',
+  '/src/i18n/localized-app-head.ts',
   '/src/network/room-session-feature-runtime.ts',
   '/src/player/media-session.ts',
+  '/src/ui/announcement.ts',
   '/src/ui/connect-session-runtime.ts',
   '/src/ui/manual-sync-overlay-runtime.ts',
   '/src/youtube/standard-host-manual-offset-runtime.ts',
@@ -708,6 +947,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       uiKitAsset(),
       auxiliaryBrowserAssets(),
       flattenWorkshopHtml(),
+      bindStaticLocaleFontAssets(),
       devPageAliases(),
       failClosedDevApi(proxyProductionApi),
       prioritizeStylesheetsInHtml(),
@@ -726,6 +966,7 @@ export function createViteConfig(env: DevEnvironment = {}): UserConfig {
       outDir: 'dist',
       target: LEGACY_APP_BROWSER_TARGET,
       cssTarget: LEGACY_APP_BROWSER_TARGET,
+      assetsInlineLimit: localeFontAssetInlineLimit,
       sourcemap: false,
       // Vite's built-in threshold is global. Suppress the known main-entry
       // warning at its architectural ceiling; the build plugin above retains a

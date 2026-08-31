@@ -8,6 +8,8 @@
 interface StaticLanguageResolver {
   resolve(fallback: string): string;
   htmlLang(language: string): string;
+  direction(language: string): 'ltr' | 'rtl';
+  ensureFont?(language: string): void;
 }
 
 interface LandingRuntimeWindow extends Window {
@@ -36,6 +38,31 @@ interface LandingRuntimeWindow extends Window {
     id: 'id',
     vi: 'vi',
     th: 'th',
+    hi: 'hi-IN',
+    bn: 'bn-BD',
+    ta: 'ta-IN',
+    te: 'te-IN',
+    ms: 'ms-MY',
+    fil: 'fil-PH',
+    ar: 'ar',
+    ur: 'ur-PK',
+    he: 'he-IL',
+    uk: 'uk-UA',
+    ro: 'ro-RO',
+    cs: 'cs-CZ',
+    el: 'el-GR',
+    fa: 'fa-IR',
+    mr: 'mr-IN',
+    gu: 'gu-IN',
+    kn: 'kn-IN',
+    ml: 'ml-IN',
+    pa: 'pa-IN',
+    sv: 'sv-SE',
+    da: 'da-DK',
+    nb: 'nb-NO',
+    fi: 'fi-FI',
+    hu: 'hu-HU',
+    bg: 'bg-BG',
   };
 
   function normalizeFallback(value: unknown): string | null {
@@ -51,6 +78,10 @@ interface LandingRuntimeWindow extends Window {
       return /(?:tw|hk|mo|hant)/u.test(raw) ? 'zh-hant' : 'zh-hans';
     }
     if (raw === 'pt' || raw.startsWith('pt-')) return 'pt-br';
+    if (raw === 'in' || raw.startsWith('in-')) return 'id';
+    if (raw === 'iw' || raw.startsWith('iw-')) return 'he';
+    if (raw === 'no' || raw.startsWith('no-')) return 'nb';
+    if (raw === 'tl' || raw.startsWith('tl-')) return 'fil';
     const [primary] = raw.split('-');
     return primary && fallbackHtmlLang[primary] ? primary : null;
   }
@@ -89,6 +120,12 @@ interface LandingRuntimeWindow extends Window {
   document.documentElement.lang = landingWindow.MXQRStaticLang
     ? landingWindow.MXQRStaticLang.htmlLang(lang)
     : fallbackHtmlLang[lang] || 'en';
+  document.documentElement.dir = landingWindow.MXQRStaticLang
+    ? landingWindow.MXQRStaticLang.direction(lang)
+    : lang === 'ar' || lang === 'fa' || lang === 'he' || lang === 'ur'
+      ? 'rtl'
+      : 'ltr';
+  landingWindow.MXQRStaticLang?.ensureFont?.(lang);
 
   try {
     let standalone =

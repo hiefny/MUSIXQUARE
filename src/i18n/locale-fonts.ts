@@ -5,25 +5,85 @@
  */
 
 import { log } from '../core/log.ts';
+import { LOCALE_FONT_CODES, type LocaleFontCode } from './locale-font-contract.ts';
 
-export type LocaleFontCode = 'ja' | 'ru' | 'th' | 'zh-hans' | 'zh-hant';
+export { hasLocaleFont } from './locale-font-contract.ts';
+export type { LocaleFontCode } from './locale-font-contract.ts';
+
 type FontCssLoader = () => Promise<unknown>;
 
-const DEFAULT_FONT_LOADERS: Record<LocaleFontCode, FontCssLoader> = {
-  ja: () => import('../../css/fonts/noto-jp.css'),
-  ru: () => import('../../css/fonts/noto-cyrillic.css'),
-  th: () => import('../../css/fonts/noto-thai.css'),
-  'zh-hans': () => import('../../css/fonts/noto-sc.css'),
-  'zh-hant': () => import('../../css/fonts/noto-tc.css'),
+interface LocaleFontAsset {
+  readonly load: FontCssLoader;
+  readonly family: string;
+}
+
+const FONT_ASSETS = {
+  arabic: { load: () => import('../../css/fonts/noto-arabic.css'), family: 'Noto Sans Arabic' },
+  bengali: {
+    load: () => import('../../css/fonts/noto-bengali.css'),
+    family: 'Noto Sans Bengali',
+  },
+  cyrillic: { load: () => import('../../css/fonts/noto-cyrillic.css'), family: 'Noto Sans' },
+  devanagari: {
+    load: () => import('../../css/fonts/noto-devanagari.css'),
+    family: 'Noto Sans Devanagari',
+  },
+  greek: { load: () => import('../../css/fonts/noto-greek.css'), family: 'Noto Sans' },
+  gujarati: {
+    load: () => import('../../css/fonts/noto-gujarati.css'),
+    family: 'Noto Sans Gujarati',
+  },
+  gurmukhi: {
+    load: () => import('../../css/fonts/noto-gurmukhi.css'),
+    family: 'Noto Sans Gurmukhi',
+  },
+  hebrew: { load: () => import('../../css/fonts/noto-hebrew.css'), family: 'Noto Sans Hebrew' },
+  japanese: { load: () => import('../../css/fonts/noto-jp.css'), family: 'Noto Sans JP' },
+  kannada: { load: () => import('../../css/fonts/noto-kannada.css'), family: 'Noto Sans Kannada' },
+  malayalam: {
+    load: () => import('../../css/fonts/noto-malayalam.css'),
+    family: 'Noto Sans Malayalam',
+  },
+  simplifiedChinese: {
+    load: () => import('../../css/fonts/noto-sc.css'),
+    family: 'Noto Sans SC',
+  },
+  tamil: { load: () => import('../../css/fonts/noto-tamil.css'), family: 'Noto Sans Tamil' },
+  telugu: { load: () => import('../../css/fonts/noto-telugu.css'), family: 'Noto Sans Telugu' },
+  thai: { load: () => import('../../css/fonts/noto-thai.css'), family: 'Noto Sans Thai' },
+  traditionalChinese: {
+    load: () => import('../../css/fonts/noto-tc.css'),
+    family: 'Noto Sans TC',
+  },
+} as const satisfies Readonly<Record<string, LocaleFontAsset>>;
+
+const FONT_ASSET_BY_LOCALE: Readonly<Record<LocaleFontCode, LocaleFontAsset>> = {
+  ar: FONT_ASSETS.arabic,
+  bn: FONT_ASSETS.bengali,
+  bg: FONT_ASSETS.cyrillic,
+  el: FONT_ASSETS.greek,
+  fa: FONT_ASSETS.arabic,
+  gu: FONT_ASSETS.gujarati,
+  he: FONT_ASSETS.hebrew,
+  hi: FONT_ASSETS.devanagari,
+  ja: FONT_ASSETS.japanese,
+  kn: FONT_ASSETS.kannada,
+  ml: FONT_ASSETS.malayalam,
+  mr: FONT_ASSETS.devanagari,
+  pa: FONT_ASSETS.gurmukhi,
+  ru: FONT_ASSETS.cyrillic,
+  ta: FONT_ASSETS.tamil,
+  te: FONT_ASSETS.telugu,
+  th: FONT_ASSETS.thai,
+  uk: FONT_ASSETS.cyrillic,
+  ur: FONT_ASSETS.arabic,
+  'zh-hans': FONT_ASSETS.simplifiedChinese,
+  'zh-hant': FONT_ASSETS.traditionalChinese,
 };
 
-const FONT_FAMILIES: Record<LocaleFontCode, string> = {
-  ja: 'Noto Sans JP',
-  ru: 'Noto Sans',
-  th: 'Noto Sans Thai',
-  'zh-hans': 'Noto Sans SC',
-  'zh-hant': 'Noto Sans TC',
-};
+const DEFAULT_FONT_LOADERS = Object.fromEntries(
+  LOCALE_FONT_CODES.map((code) => [code, FONT_ASSET_BY_LOCALE[code].load]),
+) as Record<LocaleFontCode, FontCssLoader>;
 
 const fontLoaders: Record<LocaleFontCode, FontCssLoader> = { ...DEFAULT_FONT_LOADERS };
 const loadedFonts = new Set<LocaleFontCode>();
@@ -32,10 +92,6 @@ const loadedGlyphCharacters = new Map<LocaleFontCode, Set<string>>();
 const inFlightGlyphCharacters = new Map<LocaleFontCode, Map<string, Promise<boolean>>>();
 const inFlightGlyphSamples = new Map<string, Promise<boolean>>();
 const MAX_TRACKED_GLYPH_CHARACTERS_PER_FONT = 4_096;
-
-export function hasLocaleFont(code: string): code is LocaleFontCode {
-  return Object.prototype.hasOwnProperty.call(DEFAULT_FONT_LOADERS, code);
-}
 
 export function isLocaleFontLoadedForTests(code: LocaleFontCode): boolean {
   return loadedFonts.has(code);
@@ -46,7 +102,7 @@ export function isLocaleFontLoadedForTests(code: LocaleFontCode): boolean {
  * share one promise; successful loads remain cached explicitly. A failed load
  * is not cached, so a later render can retry after a transient chunk failure.
  */
-export function loadLocaleFont(code: LocaleFontCode): Promise<void> {
+function loadLocaleFont(code: LocaleFontCode): Promise<void> {
   if (loadedFonts.has(code)) return Promise.resolve();
   const existing = inFlightFonts.get(code);
   if (existing) return existing;
@@ -71,7 +127,7 @@ export function loadLocaleFont(code: LocaleFontCode): Promise<void> {
  * UI does not ask the browser for the matching WOFF2 shard. FontFaceSet.load()
  * performs that final glyph request without making the caller wait to render.
  */
-export function preloadLocaleFontGlyphs(code: LocaleFontCode, text: string): Promise<boolean> {
+function preloadLocaleFontGlyphs(code: LocaleFontCode, text: string): Promise<boolean> {
   const sample = text.trim();
   if (!sample) return loadLocaleFont(code).then(() => loadedFonts.has(code));
 
@@ -106,7 +162,10 @@ export function preloadLocaleFontGlyphs(code: LocaleFontCode, text: string): Pro
 
         const fontSet = typeof document === 'undefined' ? undefined : document.fonts;
         if (fontSet && typeof fontSet.load === 'function') {
-          const faces = await fontSet.load(`750 15px "${FONT_FAMILIES[code]}"`, freshSample);
+          const faces = await fontSet.load(
+            `750 15px "${FONT_ASSET_BY_LOCALE[code].family}"`,
+            freshSample,
+          );
           if (faces.length === 0) return false;
         }
 
@@ -173,3 +232,11 @@ export function __resetLocaleFontLoadingForTests(): void {
     fontLoaders[code] = DEFAULT_FONT_LOADERS[code];
   }
 }
+
+/** Direct seams for the font loader's unit tests; production uses the lazy default API. */
+export const loadLocaleFontForTests = loadLocaleFont;
+export const preloadLocaleFontGlyphsForTests = preloadLocaleFontGlyphs;
+
+const localeFontRuntime = Object.freeze({ loadLocaleFont, preloadLocaleFontGlyphs });
+
+export default localeFontRuntime;

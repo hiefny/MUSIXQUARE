@@ -774,7 +774,7 @@ const th: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'ใส่ <strong>รหัส 6 หลัก</strong> จากเจ้าของห้องเพื่อเชื่อมต่อ<ul class="help-list"><li><strong>เจ้าของห้อง:</strong> “สร้างห้อง” → ดูรหัส</li><li><strong>ผู้เข้าร่วม:</strong> “เข้าร่วมห้อง” → ใส่รหัส</li><li>เชื่อมต่อได้สูงสุด <strong>100 เครื่อง รวมเจ้าของห้อง</strong></li></ul>',
   'player.play_speakers_html':
-    'ผู้เข้าร่วมแต่ละคนเลือก <strong>บทบาท (ช่องสัญญาณเอาต์พุต)</strong><ul class="help-list"><li><strong>กลาง:</strong> เอาต์พุตสเตอริโอ (ค่าเริ่มต้น)</li><li><strong>ซ้าย:</strong> เอาต์พุตช่อง L</li><li><strong>ขวา:</strong> เอาต์พุตช่อง R</li><li><strong>ซับวูฟเฟอร์:</strong> เอาต์พุตผสมย่านความถี่ต่ำ</li></ul>เปลี่ยนบทบาทได้ทุกเมื่อใน <strong>การตั้งค่า</strong>',
+    'ผู้เข้าร่วมแต่ละคนเลือก <strong>บทบาท (ช่องสัญญาณเอาต์พุต)</strong><ul class="help-list"><li><strong>กลาง:</strong> เอาต์พุตสเตอริโอ (ค่าเริ่มต้น)</li><li><strong>ซ้าย:</strong> เอาต์พุตช่อง <bdi dir="ltr">L</bdi></li><li><strong>ขวา:</strong> เอาต์พุตช่อง <bdi dir="ltr">R</bdi></li><li><strong>ซับวูฟเฟอร์:</strong> เอาต์พุตผสมย่านความถี่ต่ำ</li></ul>เปลี่ยนบทบาทได้ทุกเมื่อใน <strong>การตั้งค่า</strong>',
   'player.play_media_action_html':
     'เจ้าของห้องมี 3 ตัวเลือก<ul class="help-list"><li><strong>โหลดไฟล์ในเครื่อง:</strong> เลือกเพลงจากอุปกรณ์ รองรับการซิงก์ที่แม่นยำ</li><li><strong>ดู YouTube ด้วยกัน:</strong> รองรับวิดีโอและเพลย์ลิสต์ แต่ไม่รองรับการแยกช่องสัญญาณหรือเอฟเฟกต์เสียง</li><li><strong>แชร์เสียงระบบ:</strong> ใช้ได้เมื่อเจ้าของห้องใช้เบราว์เซอร์ที่ใช้ Chromium บนคอมพิวเตอร์ เช่น Chrome หรือ Edge</li></ul>',
   'help.need_help_html':

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   __resetLocaleFontLoadingForTests,
   __setLocaleFontLoaderForTests,
-  loadLocaleFont,
+  loadLocaleFontForTests as loadLocaleFont,
 } from '../../i18n/locale-fonts.ts';
 import { applyUserTextFontFallback } from '../user-text-font.ts';
 
@@ -29,7 +29,7 @@ describe('user-text and UI-locale font loading integration', () => {
     const element = document.createElement('span');
     applyUserTextFontFallback(element, 'かな');
 
-    expect(loader).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(1));
     resolveLoad();
     await localeLoad;
   });

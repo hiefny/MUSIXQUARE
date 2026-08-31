@@ -6,6 +6,7 @@
 
 import en from './en.ts';
 import type { I18nKey } from './ko.ts';
+import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ptBr: Record<I18nKey, string> = {
   ...en,
@@ -847,7 +848,7 @@ const ptBr: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     'Digite o <strong>código de 6 dígitos</strong> do anfitrião para se conectar.<ul class="help-list"><li><strong>Anfitrião:</strong> “Criar sala” → conferir o código</li><li><strong>Participante:</strong> “Entrar em uma sala” → digitar o código</li><li>Até <strong>100 dispositivos, incluindo o anfitrião</strong>, podem se conectar.</li></ul>',
   'player.play_speakers_html':
-    'Cada participante seleciona uma <strong>função (canal de saída)</strong>.<ul class="help-list"><li><strong>Centro:</strong> saída estéreo padrão</li><li><strong>Esquerda:</strong> saída do canal L</li><li><strong>Direita:</strong> saída do canal R</li><li><strong>Subwoofer:</strong> saída da mixagem de graves</li></ul>Você pode mudar as funções quando quiser em <strong>Configurações</strong>.',
+    'Cada participante seleciona uma <strong>função (canal de saída)</strong>.<ul class="help-list"><li><strong>Centro:</strong> saída estéreo padrão</li><li><strong>Esquerda:</strong> saída do canal <bdi dir="ltr">L</bdi></li><li><strong>Direita:</strong> saída do canal <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> saída da mixagem de graves</li></ul>Você pode mudar as funções quando quiser em <strong>Configurações</strong>.',
   'player.play_media_action_html':
     'O anfitrião tem 3 opções.<ul class="help-list"><li><strong>Carregar arquivo local:</strong> escolha músicas do dispositivo. Compatível com sincronização precisa</li><li><strong>YouTube juntos:</strong> compatível com vídeos e playlists. Sem divisão de canais nem efeitos de áudio</li><li><strong>Compartilhar áudio do sistema:</strong> disponível quando o anfitrião usa um computador com navegador baseado no Chromium (Chrome, Edge etc.)</li></ul>',
   'help.need_help_html':
@@ -868,3 +869,26 @@ const ptBr: Record<I18nKey, string> = {
 };
 
 export default ptBr;
+
+export const pluralMessages = {
+  'connect.administrator_list': { one: '{{count}} administrador' },
+  'playlist.delete_selected': { one: 'Excluir {{count}} faixa selecionada' },
+  'connect.device_list': { one: '{{count}} dispositivo conectado' },
+  'demo.session_body_connected': {
+    one: '{{count}} dispositivo está conectado agora.\nDefina uma função para este dispositivo.',
+  },
+  'chat.cmd_slowmode_on': { one: 'Modo lento: {{sec}} segundo entre mensagens' },
+  'chat.cmd_slowmode_wait': { one: 'Aguarde {{sec}} segundo antes de enviar' },
+  'chat.tracks_added': { one: '{{name}} adicionou {{count}} faixa' },
+  'chat.tracks_added_named': {
+    one: '{{name}} adicionou {{count}} faixa, incluindo {{title}}',
+  },
+  'toast.added_tracks': { one: '{{count}} faixa adicionada' },
+  'toast.unsupported_files_excluded': {
+    one: '{{count}} arquivo não compatível ignorado',
+  },
+  'dialog.file_drop.message': { one: 'Adicionar {{count}} arquivo?' },
+  'dialog.file_drop.unsupported_notice': {
+    one: '{{count}} arquivo não compatível não será adicionado.',
+  },
+} satisfies LocalePluralMessages;

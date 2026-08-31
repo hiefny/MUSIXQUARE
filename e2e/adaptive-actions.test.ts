@@ -1,45 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import de from '../src/i18n/de.ts';
-import en from '../src/i18n/en.ts';
-import es from '../src/i18n/es.ts';
-import fr from '../src/i18n/fr.ts';
-import id from '../src/i18n/id.ts';
-import it from '../src/i18n/it.ts';
-import ja from '../src/i18n/ja.ts';
-import ko from '../src/i18n/ko.ts';
-import nl from '../src/i18n/nl.ts';
-import pl from '../src/i18n/pl.ts';
-import ptBr from '../src/i18n/pt-br.ts';
-import ru from '../src/i18n/ru.ts';
-import th from '../src/i18n/th.ts';
-import tr from '../src/i18n/tr.ts';
-import vi from '../src/i18n/vi.ts';
-import zhHans from '../src/i18n/zh-hans.ts';
-import zhHant from '../src/i18n/zh-hant.ts';
+import { APP_DICTIONARIES as LOCALES } from '../src/i18n/catalogs.ts';
 
 const APP_STYLES = readFileSync(resolve('css/style.css'), 'utf8');
-
-const LOCALES = {
-  de,
-  en,
-  es,
-  fr,
-  id,
-  it,
-  ja,
-  ko,
-  nl,
-  pl,
-  'pt-br': ptBr,
-  ru,
-  th,
-  tr,
-  vi,
-  'zh-hans': zhHans,
-  'zh-hant': zhHant,
-} as const;
 
 const AUDITED_ACTION_KEYS = [
   'common.ok',
@@ -307,7 +271,7 @@ test.describe('content-based adaptive action groups', () => {
     expectNoActionOverflow([logout!, deleteAccount!, close!]);
   });
 
-  test('contains every audited action label across all 17 locales at 200% text', async ({
+  test('contains every audited action label across all supported locales at 200% text', async ({
     page,
   }) => {
     await installLayoutProbe(page, '<main id="locale-probes"></main>');

@@ -6,8 +6,8 @@ import {
   __resetLocaleFontLoadingForTests,
   __setLocaleFontLoaderForTests,
   isLocaleFontLoadedForTests,
-  loadLocaleFont,
-  preloadLocaleFontGlyphs,
+  loadLocaleFontForTests as loadLocaleFont,
+  preloadLocaleFontGlyphsForTests as preloadLocaleFontGlyphs,
 } from '../locale-fonts.ts';
 
 afterEach(() => {
@@ -89,6 +89,10 @@ describe('locale font glyph preloading', () => {
   it.each([
     ['ru', 'Русский', '750 15px "Noto Sans"'],
     ['th', 'ไทย', '750 15px "Noto Sans Thai"'],
+    ['gu', 'ગુજરાતી', '750 15px "Noto Sans Gujarati"'],
+    ['kn', 'ಕನ್ನಡ', '750 15px "Noto Sans Kannada"'],
+    ['ml', 'മലയാളം', '750 15px "Noto Sans Malayalam"'],
+    ['pa', 'ਪੰਜਾਬੀ', '750 15px "Noto Sans Gurmukhi"'],
     ['zh-hans', '简体中文', '750 15px "Noto Sans SC"'],
     ['zh-hant', '繁體中文', '750 15px "Noto Sans TC"'],
   ] as const)('uses the matching %s family', async (code, sample, font) => {

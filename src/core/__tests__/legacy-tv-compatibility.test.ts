@@ -35,6 +35,7 @@ describe('legacy smart-TV app compatibility', () => {
     expect(readFileSync('css/app.css', 'utf8').match(/@import\s+['"][^'"]+['"]/gu)).toEqual([
       "@import './style.css'",
       "@import './desktop.css'",
+      "@import './rtl.css'",
     ]);
 
     const html = readFileSync('index.html', 'utf8');
@@ -42,6 +43,7 @@ describe('legacy smart-TV app compatibility', () => {
     expect(html).toContain('<noscript><link rel="stylesheet" href="/noscript.css" /></noscript>');
     expect(html).not.toContain('href="css/style.css"');
     expect(html).not.toContain('href="css/desktop.css"');
+    expect(html).not.toContain('href="css/rtl.css"');
 
     const noScriptCss = readFileSync('public/noscript.css', 'utf8');
     expect(noScriptCss).toContain('opacity: 1 !important');

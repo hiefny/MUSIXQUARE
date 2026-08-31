@@ -1,53 +1,19 @@
 import { JSDOM } from 'jsdom';
 
-import de from '../src/i18n/de.ts';
-import en from '../src/i18n/en.ts';
-import es from '../src/i18n/es.ts';
-import fr from '../src/i18n/fr.ts';
-import id from '../src/i18n/id.ts';
-import it from '../src/i18n/it.ts';
-import ja from '../src/i18n/ja.ts';
-import ko from '../src/i18n/ko.ts';
-import nl from '../src/i18n/nl.ts';
-import pl from '../src/i18n/pl.ts';
-import ptBr from '../src/i18n/pt-br.ts';
-import ru from '../src/i18n/ru.ts';
-import th from '../src/i18n/th.ts';
-import tr from '../src/i18n/tr.ts';
-import vi from '../src/i18n/vi.ts';
-import zhHans from '../src/i18n/zh-hans.ts';
-import zhHant from '../src/i18n/zh-hant.ts';
+import { APP_DICTIONARIES, type TranslationDictionary } from '../src/i18n/catalogs.ts';
+import { localeSeoMetadata } from './locale-seo-metadata.mts';
 import {
   LANGUAGE_OPTIONS,
+  languageDirection,
   localizedAboutPath,
   localizedAppEntryPath,
   localizedAppPath,
   type LanguageCode,
 } from '../src/i18n/locales.ts';
 
+export { APP_DICTIONARIES } from '../src/i18n/catalogs.ts';
+
 export const SITE_ORIGIN = 'https://musixquare.com';
-
-type TranslationDictionary = Readonly<Record<string, string>>;
-
-export const APP_DICTIONARIES: Readonly<Record<LanguageCode, TranslationDictionary>> = {
-  de,
-  en,
-  es,
-  fr,
-  id,
-  it,
-  ja,
-  ko,
-  nl,
-  pl,
-  'pt-br': ptBr,
-  ru,
-  th,
-  tr,
-  vi,
-  'zh-hans': zhHans,
-  'zh-hant': zhHant,
-};
 
 const APP_ATTRIBUTE_BINDINGS = [
   ['placeholder', 'data-i18n-placeholder'],
@@ -128,7 +94,7 @@ function replaceAlternateLinks(document: Document, page: 'app' | 'about'): void 
   for (const option of LANGUAGE_OPTIONS) {
     const link = document.createElement('link');
     link.rel = 'alternate';
-    link.hreflang = option.hrefLang;
+    link.hreflang = localeSeoMetadata(option.code).hrefLang;
     const path = page === 'app' ? localizedAppPath(option.code) : localizedAboutPath(option.code);
     link.href = `${SITE_ORIGIN}${path}`;
     canonicalElement.insertAdjacentElement('afterend', link);
@@ -142,8 +108,7 @@ function replaceAlternateLinks(document: Document, page: 'app' | 'about'): void 
 }
 
 function replaceOpenGraphLocales(document: Document, code: LanguageCode): void {
-  meta(document, 'meta[property="og:locale"]').content =
-    LANGUAGE_OPTIONS.find((option) => option.code === code)?.ogLocale ?? 'en_US';
+  meta(document, 'meta[property="og:locale"]').content = localeSeoMetadata(code).ogLocale;
   for (const element of document.querySelectorAll('meta[property="og:locale:alternate"]')) {
     element.remove();
   }
@@ -152,7 +117,7 @@ function replaceOpenGraphLocales(document: Document, code: LanguageCode): void {
     if (option.code === code) continue;
     const alternate = document.createElement('meta');
     alternate.setAttribute('property', 'og:locale:alternate');
-    alternate.content = option.ogLocale;
+    alternate.content = localeSeoMetadata(option.code).ogLocale;
     primary.insertAdjacentElement('afterend', alternate);
   }
 }
@@ -192,6 +157,17 @@ function removeNonLicenseComments(document: Document): void {
   for (const comment of comments) comment.remove();
 }
 
+function removeWhitespaceOnlyTextNodes(root: Node): void {
+  const whitespaceNodes: Text[] = [];
+  const walker = root.ownerDocument!.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === 3 && !String(node.nodeValue || '').trim()) {
+      whitespaceNodes.push(node as Text);
+    }
+  }
+  for (const node of whitespaceNodes) node.remove();
+}
+
 export function localizeAppDocument(
   document: Document,
   code: LanguageCode,
@@ -202,6 +178,7 @@ export function localizeAppDocument(
 
   applyAppDictionary(document, code);
   document.documentElement.lang = option.htmlLang;
+  document.documentElement.dir = languageDirection(code);
 
   const title = APP_SEARCH_TITLES[code] ?? 'MUSIXQUARE';
   const description = APP_SEARCH_DESCRIPTIONS[code] ?? aboutMetadata.description;
@@ -227,6 +204,7 @@ export function localizeAboutDocument(document: Document, code: LanguageCode): A
   if (!option) throw new Error(`Unsupported About locale: ${code}`);
 
   document.documentElement.lang = option.htmlLang;
+  document.documentElement.dir = languageDirection(code);
   const pagePath = localizedAboutPath(code);
   const pageUrl = `${SITE_ORIGIN}${pagePath}`;
   canonical(document).href = pageUrl;
@@ -280,7 +258,14 @@ export function renderLocalizedApp(
   // several compressed KiB to every localized app shell. Keep the authored-
   // license marker while the source remains fully documented and formatted.
   removeNonLicenseComments(dom.window.document);
-  const html = dom.serialize().replace(/^[\t ]+/gmu, '');
+  removeWhitespaceOnlyTextNodes(dom.window.document.head);
+  for (const svg of dom.window.document.querySelectorAll('svg')) {
+    removeWhitespaceOnlyTextNodes(svg);
+  }
+  const html = dom
+    .serialize()
+    .replace(/^[\t ]+/gmu, '')
+    .replace(/\n{2,}/gu, '\n');
   dom.window.close();
   return html;
 }

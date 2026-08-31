@@ -51,7 +51,7 @@
 .static-lang-trigger__chevron {
   width: 7px;
   height: 7px;
-  border-right: 1.5px solid currentColor;
+  border-inline-end: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
   transform: translateY(-2px) rotate(45deg);
   opacity: 0.7;
@@ -63,7 +63,7 @@
 
 .static-lang-menu {
   position: absolute;
-  right: 0;
+  inset-inline-end: 0;
   bottom: calc(100% + 10px);
   width: min(310px, calc(100vw - 32px));
   max-height: min(440px, calc(100vh - 120px));
@@ -82,6 +82,10 @@
   transition:
     opacity 150ms ease,
     transform 150ms ease;
+}
+
+html[dir='rtl'] .static-lang-menu {
+  transform-origin: bottom left;
 }
 
 .static-lang-picker.is-open .static-lang-menu {
@@ -103,7 +107,7 @@
   background: transparent;
   color: var(--text-main, #fff);
   font: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -128,6 +132,93 @@
 
 .static-lang-option__native {
   font-weight: 700;
+}
+
+.static-lang-option__native:lang(hi),
+.static-lang-trigger__label:lang(hi),
+.static-lang-option__native:lang(mr),
+.static-lang-trigger__label:lang(mr) {
+  font-family: 'Noto Sans Devanagari', 'Nirmala UI', Mangal, sans-serif;
+}
+
+.static-lang-option__native:lang(bn),
+.static-lang-trigger__label:lang(bn) {
+  font-family: 'Noto Sans Bengali', 'Nirmala UI', Vrinda, sans-serif;
+}
+
+.static-lang-option__native:lang(ta),
+.static-lang-trigger__label:lang(ta) {
+  font-family: 'Noto Sans Tamil', 'Nirmala UI', Latha, sans-serif;
+}
+
+.static-lang-option__native:lang(te),
+.static-lang-trigger__label:lang(te) {
+  font-family: 'Noto Sans Telugu', 'Nirmala UI', Gautami, sans-serif;
+}
+
+.static-lang-option__native:lang(gu),
+.static-lang-trigger__label:lang(gu) {
+  font-family: 'Noto Sans Gujarati', 'Nirmala UI', Shruti, sans-serif;
+}
+
+.static-lang-option__native:lang(kn),
+.static-lang-trigger__label:lang(kn) {
+  font-family: 'Noto Sans Kannada', 'Nirmala UI', Tunga, sans-serif;
+}
+
+.static-lang-option__native:lang(ml),
+.static-lang-trigger__label:lang(ml) {
+  font-family: 'Noto Sans Malayalam', 'Nirmala UI', Kartika, sans-serif;
+}
+
+.static-lang-option__native:lang(pa),
+.static-lang-trigger__label:lang(pa) {
+  font-family: 'Noto Sans Gurmukhi', 'Nirmala UI', Raavi, sans-serif;
+}
+
+.static-lang-option__native:lang(ar),
+.static-lang-trigger__label:lang(ar),
+.static-lang-option__native:lang(fa),
+.static-lang-trigger__label:lang(fa),
+.static-lang-option__native:lang(ur),
+.static-lang-trigger__label:lang(ur) {
+  font-family: 'Noto Sans Arabic', 'Segoe UI', Tahoma, Arial, sans-serif;
+}
+
+.static-lang-option__native:lang(he),
+.static-lang-trigger__label:lang(he) {
+  font-family: 'Noto Sans Hebrew', 'Segoe UI', Arial, sans-serif;
+}
+
+.static-lang-option__native:lang(ja),
+.static-lang-trigger__label:lang(ja) {
+  font-family: 'Noto Sans JP', 'Yu Gothic UI', Meiryo, sans-serif;
+}
+
+.static-lang-option__native:lang(zh-Hans),
+.static-lang-trigger__label:lang(zh-Hans) {
+  font-family: 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
+}
+
+.static-lang-option__native:lang(zh-Hant),
+.static-lang-trigger__label:lang(zh-Hant) {
+  font-family: 'Noto Sans TC', 'Microsoft JhengHei UI', sans-serif;
+}
+
+.static-lang-option__native:lang(th),
+.static-lang-trigger__label:lang(th) {
+  font-family: 'Noto Sans Thai', Tahoma, sans-serif;
+}
+
+.static-lang-option__native:lang(ru),
+.static-lang-trigger__label:lang(ru),
+.static-lang-option__native:lang(uk),
+.static-lang-trigger__label:lang(uk),
+.static-lang-option__native:lang(bg),
+.static-lang-trigger__label:lang(bg),
+.static-lang-option__native:lang(el),
+.static-lang-trigger__label:lang(el) {
+  font-family: 'Noto Sans', 'Segoe UI', Roboto, sans-serif;
 }
 
 .static-lang-option__english {

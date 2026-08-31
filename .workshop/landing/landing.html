@@ -37,6 +37,105 @@
     <meta name="twitter:description" content="Every device, one system." />
     <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
 
+    <!-- Vite rewrites these URLs; the language bootstrap enables only the
+         active script, and the picker enables the rest on demand. -->
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-arabic.css"
+      data-static-lang-font-codes="ar fa ur"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-bengali.css"
+      data-static-lang-font-codes="bn"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-cyrillic.css"
+      data-static-lang-font-codes="ru uk bg"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-devanagari.css"
+      data-static-lang-font-codes="hi mr"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-greek.css"
+      data-static-lang-font-codes="el"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-gujarati.css"
+      data-static-lang-font-codes="gu"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-gurmukhi.css"
+      data-static-lang-font-codes="pa"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-hebrew.css"
+      data-static-lang-font-codes="he"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-jp.css"
+      data-static-lang-font-codes="ja"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-kannada.css"
+      data-static-lang-font-codes="kn"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-malayalam.css"
+      data-static-lang-font-codes="ml"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-sc.css"
+      data-static-lang-font-codes="zh-hans"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-tamil.css"
+      data-static-lang-font-codes="ta"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-tc.css"
+      data-static-lang-font-codes="zh-hant"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-telugu.css"
+      data-static-lang-font-codes="te"
+      disabled
+    />
+    <link
+      rel="stylesheet"
+      href="/css/fonts/noto-thai.css"
+      data-static-lang-font-codes="th"
+      disabled
+    />
+
     <!-- Resolve language before localized copy and the footer selector render. -->
     <script src="/static-language.js"></script>
     <script src="/landing-bootstrap.js"></script>
@@ -48,6 +147,7 @@
     <link rel="stylesheet" href="/editorial-base.css" />
     <link rel="stylesheet" href="/static-language.css" />
     <link rel="stylesheet" href="/editorial-about.css" />
+    <link rel="stylesheet" href="/editorial-rtl.css" />
     <!-- Cloudflare Web Analytics -->
     <script defer src="/analytics-bootstrap.js"></script>
     <!-- End Cloudflare Web Analytics -->
@@ -445,9 +545,9 @@
             </div>
           </dl>
           <p class="lp-caveat" data-i18n="standin.caveat">
-            Beta: desktop Chromium only, up to four connected devices including the publisher.
-            Every Standard-room share and every Cloudflare-relayed (SFU) share ends after two hours;
-            a verified PRO LAN-direct share may continue while room authority remains healthy. Live
+            Beta: desktop Chromium only, up to four connected devices including the publisher. Every
+            Standard-room share and every Cloudflare-relayed (SFU) share ends after two hours; a
+            verified PRO LAN-direct share may continue while room authority remains healthy. Live
             audio has unavoidable latency, so the sharing device should lower its volume.
           </p>
         </div>

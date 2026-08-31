@@ -21,11 +21,15 @@ import {
 import type { I18nKey } from './ko.ts';
 import { hasLocaleFont } from './locale-font-contract.ts';
 import {
-  appLanguageFromPathname,
+  cancelLocalizedAppHeadSync,
+  currentAppPathLanguage,
+  synchronizeLocalizedAppHead,
+  updateLocalizedAppPath,
+} from './localized-app-document.ts';
+import {
   languageDirection,
   LANGUAGE_OPTIONS,
   localizedAboutPath,
-  localizedAppEntryPath,
   type LanguageCode,
 } from './locales.ts';
 export type { I18nKey };
@@ -213,9 +217,16 @@ export function setLanguageMode(mode: string): void {
   });
 }
 
+function _synchronizeLocalizedHead(resolved: LanguageCode): void {
+  synchronizeLocalizedAppHead(resolved, () => _resolved === resolved).catch((error) => {
+    log.warn('[i18n] Localized metadata synchronization failed', error);
+  });
+}
+
 async function _setLanguageMode(mode: string): Promise<void> {
   const normalizedMode = _normalizeLanguageMode(mode);
   const resolved = normalizedMode === 'system' ? _resolveSystem() : normalizedMode;
+  cancelLocalizedAppHeadSync();
   _mode = normalizedMode;
   _updateSelector(normalizedMode);
 
@@ -225,41 +236,16 @@ async function _setLanguageMode(mode: string): Promise<void> {
     /* ignore */
   }
 
-  if (_navigateLocalizedAppPath(resolved)) return;
+  const pathUpdate = updateLocalizedAppPath(resolved);
+  if (pathUpdate === 'navigating') return;
   await _applyLanguage(resolved);
-}
-
-function _currentAppPathLanguage(): LanguageCode | null {
-  try {
-    return appLanguageFromPathname(window.location.pathname);
-  } catch {
-    return null;
-  }
-}
-
-function _navigateLocalizedAppPath(resolved: LanguageCode): boolean {
-  if (_currentAppPathLanguage() === null) return false;
-  const nextPath = localizedAppEntryPath(resolved);
-  if (window.location.pathname === nextPath) return false;
-  const href = `${nextPath}${window.location.search}${window.location.hash}`;
-
-  try {
-    const navigationRequest = new CustomEvent<{ href: string }>('mxqr:locale-navigation-request', {
-      cancelable: true,
-      detail: { href },
-    });
-    if (!window.dispatchEvent(navigationRequest)) return true;
-  } catch {
-    /* CustomEvent may be unavailable in restricted or embedded contexts. */
-  }
-
-  try {
-    window.location.assign(href);
-    return true;
-  } catch {
-    // If full-document navigation is unavailable, retain the established
-    // in-place translation fallback instead of leaving the picker inert.
-    return false;
+  if (
+    (pathUpdate === 'replaced' || pathUpdate === 'unchanged') &&
+    _resolved === resolved &&
+    _dicts[resolved] &&
+    currentAppPathLanguage() === resolved
+  ) {
+    _synchronizeLocalizedHead(resolved);
   }
 }
 
@@ -276,7 +262,7 @@ export async function initI18n(): Promise<void> {
     /* ignore */
   }
 
-  const pathLanguage = _currentAppPathLanguage();
+  const pathLanguage = currentAppPathLanguage();
   const savedMode = _initialLanguageMode(saved);
   if (pathLanguage) {
     // A localized URL owns this document's presentation without rewriting the
@@ -301,9 +287,20 @@ export async function initI18n(): Promise<void> {
     // unless a previously-requested locale is genuinely missing.
     window.addEventListener('online', () => {
       if (!_dicts[_resolved] && _localeLoaders[_resolved]) {
-        _applyLanguage(_resolved).catch((error) => {
-          log.warn('[i18n] Online locale recovery failed', error);
-        });
+        const recovering = _resolved;
+        _applyLanguage(recovering)
+          .then(() => {
+            if (
+              _resolved === recovering &&
+              _dicts[recovering] &&
+              currentAppPathLanguage() === recovering
+            ) {
+              _synchronizeLocalizedHead(recovering);
+            }
+          })
+          .catch((error) => {
+            log.warn('[i18n] Online locale recovery failed', error);
+          });
       }
     });
   } catch {

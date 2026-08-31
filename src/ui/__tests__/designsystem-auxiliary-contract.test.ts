@@ -16,9 +16,9 @@ let playlistSource: string;
 let settingsSource: string;
 
 beforeAll(() => {
-  appCss = readFileSync(resolve('public/designsystem/ui_kits/app/app.css'), 'utf8');
-  appIndex = readFileSync(resolve('public/designsystem/ui_kits/app/index.html'), 'utf8');
-  appReadme = readFileSync(resolve('public/designsystem/ui_kits/app/README.md'), 'utf8');
+  appCss = readFileSync(resolve('browser/ui-kit/static/app/app.css'), 'utf8');
+  appIndex = readFileSync(resolve('browser/ui-kit/static/app/index.html'), 'utf8');
+  appReadme = readFileSync(resolve('browser/ui-kit/static/app/README.md'), 'utf8');
   appShell = readFileSync(resolve('browser/ui-kit/app/AppShell.tsx'), 'utf8');
   colorsTextPreview = readFileSync(resolve('public/designsystem/preview/colors-text.html'), 'utf8');
   entrySource = readFileSync(resolve('browser/ui-kit/app/entry.tsx'), 'utf8');
@@ -30,7 +30,7 @@ beforeAll(() => {
   settingsSource = readFileSync(resolve('browser/ui-kit/app/Settings.tsx'), 'utf8');
 });
 
-describe('auxiliary public design-system samples', () => {
+describe('auxiliary design-system development samples', () => {
   it('keeps the UI kit explicitly subordinate to the production contract', () => {
     expect(appReadme).toContain('not an authoritative or complete copy');
     expect(appReadme).toMatch(/`index\.html`, `css\/style\.css`, and\s+`src\/ui\/`/u);

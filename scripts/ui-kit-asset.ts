@@ -6,7 +6,11 @@ import { useAsyncConnectMiddleware } from './async-connect-middleware.ts';
 
 export const UI_KIT_SOURCE_DIRECTORY = 'browser/ui-kit/app';
 export const UI_KIT_DECLARATION_PATH = `${UI_KIT_SOURCE_DIRECTORY}/globals.d.ts`;
-export const UI_KIT_HTML_PATH = 'public/designsystem/ui_kits/app/index.html';
+export const UI_KIT_STATIC_DIRECTORY = 'browser/ui-kit/static/app';
+export const UI_KIT_HTML_PATH = `${UI_KIT_STATIC_DIRECTORY}/index.html`;
+export const UI_KIT_STYLE_PATH = `${UI_KIT_STATIC_DIRECTORY}/app.css`;
+export const UI_KIT_README_PATH = `${UI_KIT_STATIC_DIRECTORY}/README.md`;
+export const UI_KIT_PUBLIC_APP_PATH = '/designsystem/ui_kits/app';
 export const UI_KIT_OUTPUT_PATH = 'designsystem/ui_kits/app/app.js';
 
 export const UI_KIT_SOURCES = [
@@ -109,19 +113,39 @@ export async function assertUiKitSourceCompleteness(repoRoot: string): Promise<v
     );
   }
 
-  const publicDirectory = path.resolve(repoRoot, 'public/designsystem/ui_kits/app');
-  const publicBypasses = (await readdir(publicDirectory, { withFileTypes: true }))
-    .filter(
-      (entry) =>
-        entry.isFile() && (entry.name === 'app.js' || /\.(?:jsx|ts|tsx)$/iu.test(entry.name)),
-    )
-    .map((entry) => path.posix.join('public/designsystem/ui_kits/app', entry.name));
-  if (publicBypasses.length > 0) {
+  const staticExpected = new Set(['README.md', 'app.css', 'index.html']);
+  const staticDirectory = path.resolve(repoRoot, UI_KIT_STATIC_DIRECTORY);
+  const staticEntries = await readdir(staticDirectory, { withFileTypes: true });
+  const staticUnsupported = staticEntries
+    .filter((entry) => !entry.isFile() || !staticExpected.has(entry.name))
+    .map((entry) => path.posix.join(UI_KIT_STATIC_DIRECTORY, entry.name));
+  const staticMissing = [...staticExpected]
+    .filter((name) => !staticEntries.some((entry) => entry.isFile() && entry.name === name))
+    .map((name) => path.posix.join(UI_KIT_STATIC_DIRECTORY, name));
+  if (staticUnsupported.length > 0 || staticMissing.length > 0) {
     throw new Error(
-      `publicDir bypasses the UI kit compiler:\n${publicBypasses
-        .map((entry) => `  shadowed: ${entry}`)
-        .join('\n')}`,
+      `UI kit static ownership is incomplete:\n${[
+        ...staticUnsupported.map((entry) => `  unsupported: ${entry}`),
+        ...staticMissing.map((entry) => `  missing: ${entry}`),
+      ].join('\n')}`,
     );
+  }
+
+  const retiredPublicDirectory = path.resolve(repoRoot, 'public/designsystem/ui_kits/app');
+  try {
+    const publicEntries = await readdir(retiredPublicDirectory, { withFileTypes: true });
+    if (publicEntries.length > 0) {
+      throw new Error(
+        `publicDir must not publish the development-only UI kit:\n${publicEntries
+          .map(
+            (entry) =>
+              `  published: ${path.posix.join('public/designsystem/ui_kits/app', entry.name)}`,
+          )
+          .join('\n')}`,
+      );
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
   }
 
   const html = await readFile(path.resolve(repoRoot, UI_KIT_HTML_PATH), 'utf8');
@@ -181,15 +205,10 @@ export async function compileUiKitAsset(repoRoot: string): Promise<CompiledUiKit
 }
 
 export function uiKitAsset(): Plugin {
-  let repoRoot = '';
-  let productionBuild = false;
   return {
     name: 'musixquare-ui-kit-asset', // brand-capitalization: allow-technical
+    apply: 'serve',
     enforce: 'pre',
-    configResolved(config) {
-      repoRoot = config.root;
-      productionBuild = config.command === 'build';
-    },
     async configureServer(server) {
       await assertUiKitSourceCompleteness(server.config.root);
       useAsyncConnectMiddleware(server.middlewares, async (request, response, next) => {
@@ -204,40 +223,41 @@ export function uiKitAsset(): Plugin {
           next();
           return;
         }
-        if (pathname !== `/${UI_KIT_OUTPUT_PATH}`) {
+        if (pathname === UI_KIT_PUBLIC_APP_PATH) {
+          response.statusCode = 307;
+          response.setHeader('Location', `${UI_KIT_PUBLIC_APP_PATH}/`);
+          response.setHeader('Cache-Control', 'no-cache');
+          response.end();
+          return;
+        }
+        const staticAsset =
+          pathname === `${UI_KIT_PUBLIC_APP_PATH}/` ||
+          pathname === `${UI_KIT_PUBLIC_APP_PATH}/index.html`
+            ? { path: UI_KIT_HTML_PATH, contentType: 'text/html; charset=utf-8' }
+            : pathname === `${UI_KIT_PUBLIC_APP_PATH}/app.css`
+              ? { path: UI_KIT_STYLE_PATH, contentType: 'text/css; charset=utf-8' }
+              : pathname === `${UI_KIT_PUBLIC_APP_PATH}/README.md`
+                ? { path: UI_KIT_README_PATH, contentType: 'text/markdown; charset=utf-8' }
+                : null;
+        if (!staticAsset && pathname !== `/${UI_KIT_OUTPUT_PATH}`) {
           next();
           return;
         }
         try {
-          const compiled = await compileUiKitAsset(server.config.root);
+          const body = staticAsset
+            ? await readFile(path.resolve(server.config.root, staticAsset.path), 'utf8')
+            : (await compileUiKitAsset(server.config.root)).code;
           response.statusCode = 200;
-          response.setHeader('Content-Type', 'text/javascript; charset=utf-8');
+          response.setHeader(
+            'Content-Type',
+            staticAsset?.contentType ?? 'text/javascript; charset=utf-8',
+          );
           response.setHeader('Cache-Control', 'no-cache');
-          response.end(request.method === 'HEAD' ? undefined : compiled.code);
+          response.end(request.method === 'HEAD' ? undefined : body);
         } catch (error) {
           next(error);
         }
       });
-    },
-    async buildStart() {
-      if (!productionBuild) return;
-      const compiled = await compileUiKitAsset(repoRoot);
-      this.emitFile({
-        type: 'asset',
-        fileName: UI_KIT_OUTPUT_PATH,
-        source: compiled.code,
-      });
-    },
-    generateBundle(_options, bundle) {
-      if (!productionBuild) return;
-      const output = bundle[UI_KIT_OUTPUT_PATH];
-      if (!output || output.type !== 'asset' || typeof output.source !== 'string') {
-        this.error(`UI kit build output is missing: ${UI_KIT_OUTPUT_PATH}`);
-      }
-      assertUiKitJavaScript(output.source);
-      if (bundle[`${UI_KIT_OUTPUT_PATH}.map`]) {
-        this.error(`UI kit sourcemap must not be emitted: ${UI_KIT_OUTPUT_PATH}.map`);
-      }
     },
   };
 }

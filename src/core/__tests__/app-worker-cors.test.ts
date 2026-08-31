@@ -6208,11 +6208,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.46');
-    expect(html).toContain('/clearable-editors.js?v=8.4.46');
-    expect(html).toContain('/admin.js?v=8.4.46');
+    expect(html).toContain('/admin.css?v=8.4.47');
+    expect(html).toContain('/clearable-editors.js?v=8.4.47');
+    expect(html).toContain('/admin.js?v=8.4.47');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.46"');
+    expect(html).toContain('data-admin-asset-version="8.4.47"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6233,9 +6233,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.46',
-      '/admin.css?v=8.4.46',
-      '/clearable-editors.js?v=8.4.46',
+      '/admin.js?v=8.4.47',
+      '/admin.css?v=8.4.47',
+      '/clearable-editors.js?v=8.4.47',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
@@ -6246,16 +6246,33 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(assetFetch).toHaveBeenCalledTimes(3);
   });
 
-  it('does not publish the development-only interactive UI kit', async () => {
-    for (const method of ['GET', 'HEAD']) {
-      const response = await appWorker.fetch(
-        new Request('https://musixquare.com/designsystem/ui_kits/app/index.html', { method }),
-        {},
-      );
-      expect(response.status).toBe(404);
-      expect(response.headers.get('Cache-Control')).toBe('no-store');
-      expect(response.headers.get('Content-Security-Policy')).toBeTruthy();
-      if (method === 'HEAD') expect(await response.text()).toBe('');
+  it('permanently retires every development-only UI kit alias before SPA fallback', async () => {
+    const aliases = [
+      '/ui_kits',
+      '/ui_kits/',
+      '/ui_kits/app',
+      '/ui_kits/app/index.html',
+      '/designsystem/ui_kits',
+      '/designsystem/ui_kits/',
+      '/designsystem/ui_kits/app/index.html',
+      '/DESIGNSYSTEM/UI_KITS/APP',
+    ];
+
+    for (const method of ['GET', 'HEAD'] as const) {
+      for (const path of aliases) {
+        const response = await appWorker.fetch(
+          new Request(`https://musixquare.com${path}`, {
+            method,
+            headers: { Accept: 'text/html,application/xhtml+xml' },
+          }),
+          {},
+        );
+        expect(response.status, `${method} ${path}`).toBe(410);
+        expect(response.headers.get('Cache-Control'), `${method} ${path}`).toBe('no-store');
+        expect(response.headers.get('X-Robots-Tag'), `${method} ${path}`).toBe('noindex, nofollow');
+        expect(response.headers.get('Content-Security-Policy'), `${method} ${path}`).toBeTruthy();
+        expect(await response.text(), `${method} ${path}`).toBe(method === 'HEAD' ? '' : 'Gone');
+      }
     }
   });
 });

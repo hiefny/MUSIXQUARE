@@ -128,7 +128,7 @@
       code: 'fil',
       htmlLang: 'fil-PH',
       nativeName: 'Filipino',
-      englishName: 'Filipino',
+      englishName: 'Philippines',
       locale: 'fil_PH',
     },
     {

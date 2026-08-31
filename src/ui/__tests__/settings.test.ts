@@ -572,6 +572,9 @@ describe('initSettings language controls', () => {
     expect(document.querySelectorAll('.language-list-edge')).toHaveLength(2);
     expect(document.querySelector('.language-dialog-beta-badge')?.textContent?.trim()).toBe('BETA');
     expect(document.querySelector<HTMLElement>('.language-option.active')?.dataset.lang).toBe('ko');
+    const filipino = document.querySelector<HTMLElement>('.language-option[data-lang="fil"]');
+    expect(filipino?.querySelector('.language-option-native')?.textContent).toBe('Filipino');
+    expect(filipino?.querySelector('.language-option-english')?.textContent).toBe('Philippines');
     expect(document.getElementById('language-list')?.getAttribute('role')).toBe('group');
     expect(document.querySelector('.language-option')?.getAttribute('role')).toBeNull();
     expect(

@@ -185,6 +185,12 @@ describe('static page language picker', () => {
     expect(menu.getAttribute('aria-labelledby')).toBe(current.id);
     expect(current.lang).toBe('en');
 
+    const filipino = options.find((option) => option.dataset.langSet === 'fil');
+    expect(filipino?.querySelector('.static-lang-option__native')?.textContent).toBe('Filipino');
+    expect(filipino?.querySelector('.static-lang-option__english')?.textContent).toBe(
+      'Philippines',
+    );
+
     for (const [index, option] of options.entries()) {
       expect(option.dataset.langSet).toBe(api.options[index].code);
       expect(option.querySelector<HTMLElement>('.static-lang-option__native')?.lang).toBe(

@@ -135,7 +135,7 @@ export const LANGUAGE_OPTIONS = [
     code: 'fil',
     htmlLang: 'fil-PH',
     nativeName: 'Filipino',
-    englishName: 'Filipino',
+    englishName: 'Philippines',
   },
   {
     code: 'ar',

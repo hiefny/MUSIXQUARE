@@ -301,9 +301,9 @@ describe('public design-system page contract', () => {
       [FILE_PATH, YOUTUBE_PATH, YOUTUBE_PLAYLIST_PATH].map(normalizedPath),
     );
     expect(trackTitles).toEqual([
-      'Goldberg Variations, BWV 988: Aria.wav',
-      'Cello Suite No. 1 in G Major, BWV 1007: Prelude',
-      'The Well-Tempered Clavier, Book I · J. S. Bach',
+      'Goldberg Aria.wav',
+      'Cello Suite No. 1 Prelude',
+      'Well-Tempered Clavier Book I',
     ]);
     expect(thirdSource).toBeTruthy();
     expect(designStylesheet).toMatch(
@@ -336,10 +336,10 @@ describe('public design-system page contract', () => {
     ).toEqual(['1', '2', '3', '4']);
     expect(subTracks.map((track) => track.querySelector('.sub-name')?.textContent?.trim())).toEqual(
       [
-        'Prelude in C Major, BWV 846',
-        'Fugue in C Major, BWV 846',
-        'Prelude in C Minor, BWV 847',
-        'Fugue in C Minor, BWV 847',
+        'Prelude No. 1 in C Major',
+        'Fugue No. 1 in C Major',
+        'Prelude No. 2 in C Minor',
+        'Fugue No. 2 in C Minor',
       ],
     );
     for (const retiredTitle of [
@@ -533,7 +533,7 @@ describe('public design-system page contract', () => {
     expect(bubbles.some((bubble) => bubble.matches('.mine:not(.whisper)'))).toBe(true);
     expect(bubbles.some((bubble) => bubble.matches('.mine.whisper'))).toBe(true);
     expect(components.querySelector('.chat-youtube-btn .chat-yt-title')?.textContent?.trim()).toBe(
-      'The Well-Tempered Clavier, Book I · J. S. Bach',
+      'Well-Tempered Clavier Book I',
     );
     expect(
       components.querySelector('.chat-group.mine:not(.whisper)')?.querySelectorAll('.chat-row'),
@@ -560,25 +560,35 @@ describe('public design-system page contract', () => {
       'Loading...',
     );
     expect(components.querySelector('.app-loading-header-badge i')).toBeTruthy();
-    expect(designStylesheet).toContain('@keyframes app-header-badge-cycle');
+    expect(designStylesheet).toContain('@keyframes app-header-default-rail-cycle');
+    expect(designStylesheet).toContain('@keyframes app-header-default-opacity-cycle');
+    expect(designStylesheet).toContain('@keyframes app-header-loading-rail-cycle');
+    expect(designStylesheet).toContain('@keyframes app-header-loading-opacity-cycle');
     expect(designStylesheet).toContain(
-      'animation: app-header-loading-progress 6s linear infinite;',
+      'animation: app-header-loading-progress 6s cubic-bezier(0.4, 0, 0.6, 1) infinite;',
     );
     expect(
       designStylesheet.match(
-        /animation:\s*app-header-(?:logo|status|badge)-cycle 6s cubic-bezier\(0\.3, 0\.2, 0\.7, 0\.8\) infinite;/gu,
+        /app-header-(?:default|loading)-rail-cycle 6s cubic-bezier\(0\.08, 0\.82, 0\.17, 1\) infinite,/gu,
       ),
     ).toHaveLength(3);
-    expect(designStylesheet).toMatch(/78%\s*\{[^}]*transform:\s*scaleX\(1\);[^}]*opacity:\s*0;/su);
+    expect(
+      designStylesheet.match(/app-header-(?:default|loading)-opacity-cycle 6s ease infinite;/gu),
+    ).toHaveLength(3);
     expect(designStylesheet).toMatch(
-      /78\.01%,\s*100%\s*\{[^}]*transform:\s*scaleX\(0\);[^}]*opacity:\s*0\.15;/su,
+      /66\.6667%\s*\{[^}]*transform:\s*scaleX\(1\);[^}]*opacity:\s*0;/su,
     );
     expect(designStylesheet).toMatch(
-      /20%,\s*74%\s*\{[^}]*transform:\s*translateY\(-100%\);[^}]*opacity:\s*0;/su,
+      /66\.68%,\s*100%\s*\{[^}]*transform:\s*scaleX\(0\);[^}]*opacity:\s*0\.15;/su,
     );
     expect(designStylesheet).toMatch(
-      /0%,\s*14%,\s*80%,\s*100%\s*\{[^}]*transform:\s*translateY\(100%\);[^}]*opacity:\s*0;/su,
+      /26\.6667%,\s*58%\s*\{[^}]*transform:\s*translateY\(-150%\);/su,
     );
+    expect(designStylesheet).toMatch(
+      /74\.6667%,\s*100%\s*\{[^}]*transform:\s*translateY\(100%\);/su,
+    );
+    expect(designStylesheet).toMatch(/18\.3333%,\s*58%\s*\{[^}]*opacity:\s*0;/su);
+    expect(designStylesheet).toMatch(/66\.3333%,\s*100%\s*\{[^}]*opacity:\s*0;/su);
     expect(designStylesheet).toMatch(
       /\.large-spinner-stage\s*\{[^}]*height:\s*60px;[^}]*background:\s*var\(--surface-2\);/su,
     );
@@ -611,7 +621,7 @@ describe('public design-system page contract', () => {
 
     expect(deviceEntries).toHaveLength(3);
     expect(devices).toHaveLength(3);
-    expect(deviceNames).toEqual(['mina', 'jk', 'noa']);
+    expect(deviceNames).toEqual(['minari', 'julesk', 'noa_home']);
     expect(
       administratorGrants.map((button) => ({
         label: button.getAttribute('aria-label'),

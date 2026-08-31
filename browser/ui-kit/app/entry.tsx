@@ -2,25 +2,25 @@ type UiKitStage = 'app' | 'role' | 'start';
 
 const TRACKS = [
   {
-    title: 'Goldberg Variations, BWV 988: Aria',
+    title: 'Goldberg Aria',
     artist: 'J. S. Bach',
     dur: '4:51',
     source: 'file',
   },
   {
-    title: 'Cello Suite No. 1, BWV 1007: Prelude',
+    title: 'Cello Suite No. 1 Prelude',
     artist: 'J. S. Bach',
     dur: '2:42',
     source: 'youtube',
   },
   {
-    title: 'The Well-Tempered Clavier, Book I',
+    title: 'Well-Tempered Clavier Book I',
     artist: 'J. S. Bach',
     dur: '4:36',
     source: 'youtube-playlist',
   },
   { title: 'Gymnopédie No. 1', artist: 'Erik Satie', dur: '3:08', source: 'file' },
-  { title: 'Clair de lune, L. 32', artist: 'Claude Debussy', dur: '5:12', source: 'youtube' },
+  { title: 'Clair de lune', artist: 'Claude Debussy', dur: '5:12', source: 'youtube' },
 ] as const satisfies readonly UiKitTrack[];
 
 const DEVICES = [

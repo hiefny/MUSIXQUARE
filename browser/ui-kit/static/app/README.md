@@ -5,6 +5,12 @@ of the current onboarding, room, settings, or playback flows. Before reusing a
 pattern, verify its production behavior in `index.html`, `css/style.css`, and
 `src/ui/`.
 
+This sample is available only through the local Vite development server. The
+production Worker permanently retires its former public URLs, and the Workers
+asset upload excludes the entire `designsystem/ui_kits/` directory.
+Run the regular development server and open `/designsystem/ui_kits/app/` to use
+the sample locally.
+
 The sample currently demonstrates:
 
 - solid header and edge-to-edge bottom navigation chrome;

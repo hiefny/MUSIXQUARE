@@ -10,9 +10,12 @@ import {
   UI_KIT_DECLARATION_PATH,
   UI_KIT_HTML_PATH,
   UI_KIT_OUTPUT_PATH,
+  UI_KIT_PUBLIC_APP_PATH,
+  UI_KIT_README_PATH,
   UI_KIT_REACT_DOM_RUNTIME,
   UI_KIT_REACT_RUNTIME,
   UI_KIT_SOURCES,
+  UI_KIT_STYLE_PATH,
   assertUiKitHtmlContract,
   assertUiKitSourceCompleteness,
   compileUiKitAsset,
@@ -227,6 +230,8 @@ async function createUiKitFixture(): Promise<string> {
     ].join('\n'),
     'utf8',
   );
+  await writeFile(resolve(fixtureRoot, UI_KIT_STYLE_PATH), 'body { color: white; }\n', 'utf8');
+  await writeFile(resolve(fixtureRoot, UI_KIT_README_PATH), '# Fixture UI kit\n', 'utf8');
   return fixtureRoot;
 }
 
@@ -255,6 +260,7 @@ async function requestDevServer(
   readonly body: string;
   readonly cacheControl: string | undefined;
   readonly contentType: string | undefined;
+  readonly location: string | undefined;
   readonly status: number;
 }> {
   return new Promise((resolveRequest, rejectRequest) => {
@@ -265,10 +271,12 @@ async function requestDevServer(
       response.once('end', () => {
         const cacheControl = response.headers['cache-control'];
         const contentType = response.headers['content-type'];
+        const location = response.headers.location;
         resolveRequest({
           body: Buffer.concat(chunks).toString('utf8'),
           cacheControl: Array.isArray(cacheControl) ? cacheControl.join(', ') : cacheControl,
           contentType: Array.isArray(contentType) ? contentType.join(', ') : contentType,
+          location: Array.isArray(location) ? location.join(', ') : location,
           status: response.statusCode ?? 0,
         });
       });
@@ -308,13 +316,15 @@ describe('strict TypeScript UI kit asset', () => {
       );
       await rm(resolve(fixtureRoot, 'browser/ui-kit/app/unmanaged.js'));
 
+      const retiredPublicDirectory = resolve(fixtureRoot, 'public/designsystem/ui_kits/app');
+      await mkdir(retiredPublicDirectory, { recursive: true });
       await writeFile(
-        resolve(fixtureRoot, 'public/designsystem/ui_kits/app/app.js'),
+        resolve(retiredPublicDirectory, 'app.js'),
         'window.shadowed = true;\n',
         'utf8',
       );
       await expect(assertUiKitSourceCompleteness(fixtureRoot)).rejects.toThrow(
-        'publicDir bypasses the UI kit compiler',
+        'publicDir must not publish the development-only UI kit',
       );
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });
@@ -386,7 +396,7 @@ describe('strict TypeScript UI kit asset', () => {
 
       clickButtonByText(dom.window.document, 'Playlist');
       expect(dom.window.document.querySelector('.mq-title')?.textContent).toContain('Playlist');
-      expect(dom.window.document.body.textContent).toContain('Midnight Protocol');
+      expect(dom.window.document.body.textContent).toContain('Cello Suite No. 1 Prelude');
 
       clickButtonByText(dom.window.document, 'Connect');
       expect(dom.window.document.body.textContent).toContain('492815');
@@ -407,20 +417,58 @@ describe('strict TypeScript UI kit asset', () => {
     }
   });
 
-  it('serves only the stable GET/HEAD dev URL as generated JavaScript', async () => {
+  it('serves the complete UI kit only through stable GET/HEAD development URLs', async () => {
     const server = await startUiKitDevServer();
-    const expected = (await compileUiKitAsset(REPO_ROOT)).code;
+    const expectedJavaScript = (await compileUiKitAsset(REPO_ROOT)).code;
+    const expectedHtml = await readFile(resolve(REPO_ROOT, UI_KIT_HTML_PATH), 'utf8');
+    const expectedStyle = await readFile(resolve(REPO_ROOT, UI_KIT_STYLE_PATH), 'utf8');
+    const expectedReadme = await readFile(resolve(REPO_ROOT, UI_KIT_README_PATH), 'utf8');
+    const resources = [
+      {
+        path: `${UI_KIT_PUBLIC_APP_PATH}/`,
+        contentType: 'text/html; charset=utf-8',
+        body: expectedHtml,
+      },
+      {
+        path: `${UI_KIT_PUBLIC_APP_PATH}/index.html`,
+        contentType: 'text/html; charset=utf-8',
+        body: expectedHtml,
+      },
+      {
+        path: `${UI_KIT_PUBLIC_APP_PATH}/app.css`,
+        contentType: 'text/css; charset=utf-8',
+        body: expectedStyle,
+      },
+      {
+        path: `${UI_KIT_PUBLIC_APP_PATH}/README.md`,
+        contentType: 'text/markdown; charset=utf-8',
+        body: expectedReadme,
+      },
+      {
+        path: `/${UI_KIT_OUTPUT_PATH}`,
+        contentType: 'text/javascript; charset=utf-8',
+        body: expectedJavaScript,
+      },
+    ];
     try {
       for (const method of ['GET', 'HEAD'] as const) {
-        const response = await requestDevServer(
-          server.origin,
-          `/${UI_KIT_OUTPUT_PATH}?dev=1`,
-          method,
+        const redirect = await requestDevServer(server.origin, UI_KIT_PUBLIC_APP_PATH, method);
+        expect(redirect.status, `${method} ${UI_KIT_PUBLIC_APP_PATH}`).toBe(307);
+        expect(redirect.location, `${method} ${UI_KIT_PUBLIC_APP_PATH}`).toBe(
+          `${UI_KIT_PUBLIC_APP_PATH}/`,
         );
-        expect(response.status).toBe(200);
-        expect(response.contentType).toBe('text/javascript; charset=utf-8');
-        expect(response.cacheControl).toBe('no-cache');
-        expect(response.body).toBe(method === 'GET' ? expected : '');
+        expect(redirect.cacheControl, `${method} ${UI_KIT_PUBLIC_APP_PATH}`).toBe('no-cache');
+        expect(redirect.body, `${method} ${UI_KIT_PUBLIC_APP_PATH}`).toBe('');
+
+        for (const resource of resources) {
+          const response = await requestDevServer(server.origin, `${resource.path}?dev=1`, method);
+          expect(response.status, `${method} ${resource.path}`).toBe(200);
+          expect(response.contentType, `${method} ${resource.path}`).toBe(resource.contentType);
+          expect(response.cacheControl, `${method} ${resource.path}`).toBe('no-cache');
+          expect(response.body, `${method} ${resource.path}`).toBe(
+            method === 'GET' ? resource.body : '',
+          );
+        }
       }
 
       const map = await requestDevServer(server.origin, `/${UI_KIT_OUTPUT_PATH}.map`, 'GET');

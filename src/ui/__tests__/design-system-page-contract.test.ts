@@ -276,6 +276,9 @@ describe('public design-system page contract', () => {
     const removePaths = items.map((item) =>
       normalizedPath(item.querySelector('.playlist-remove path')?.getAttribute('d') ?? null),
     );
+    const trackTitles = items.map((item) =>
+      item.querySelector('.playlist-name')?.textContent?.trim(),
+    );
     const expandButtons = [
       ...(playlist?.querySelectorAll<HTMLButtonElement>('.expand-toggle') ?? []),
     ];
@@ -297,6 +300,11 @@ describe('public design-system page contract', () => {
     expect(sourcePaths).toEqual(
       [FILE_PATH, YOUTUBE_PATH, YOUTUBE_PLAYLIST_PATH].map(normalizedPath),
     );
+    expect(trackTitles).toEqual([
+      'Goldberg Aria.wav',
+      'Cello Suite No. 1 Prelude',
+      'Well-Tempered Clavier Book I',
+    ]);
     expect(thirdSource).toBeTruthy();
     expect(designStylesheet).toMatch(
       /\.playlist-source\.youtube-playlist\s*\{[^}]*transform:\s*scale\(1\.2\);/su,
@@ -327,8 +335,24 @@ describe('public design-system page contract', () => {
       subTracks.map((track) => track.querySelector('.sub-idx-number')?.textContent?.trim()),
     ).toEqual(['1', '2', '3', '4']);
     expect(subTracks.map((track) => track.querySelector('.sub-name')?.textContent?.trim())).toEqual(
-      ['Neon Expressway', 'Tokyo After Rain', '2AM Convenience Store', 'Last Train Home'],
+      [
+        'Prelude No. 1 in C Major',
+        'Fugue No. 1 in C Major',
+        'Prelude No. 2 in C Minor',
+        'Fugue No. 2 in C Minor',
+      ],
     );
+    for (const retiredTitle of [
+      'Coastal Drift',
+      'Midnight Protocol',
+      'Late Night Drive',
+      'Neon Expressway',
+      'Tokyo After Rain',
+      '2AM Convenience Store',
+      'Last Train Home',
+    ]) {
+      expect(designSource).not.toContain(retiredTitle);
+    }
     expect(
       subTracks.every(
         (track) =>
@@ -509,7 +533,7 @@ describe('public design-system page contract', () => {
     expect(bubbles.some((bubble) => bubble.matches('.mine:not(.whisper)'))).toBe(true);
     expect(bubbles.some((bubble) => bubble.matches('.mine.whisper'))).toBe(true);
     expect(components.querySelector('.chat-youtube-btn .chat-yt-title')?.textContent?.trim()).toBe(
-      'Late Night Drive · Tokyo Mix',
+      'Well-Tempered Clavier Book I',
     );
     expect(
       components.querySelector('.chat-group.mine:not(.whisper)')?.querySelectorAll('.chat-row'),
@@ -528,7 +552,7 @@ describe('public design-system page contract', () => {
     expect(composer?.getAttribute('contenteditable')).toBe('true');
     expect(composer?.getAttribute('data-placeholder')).toBe('Message or /command');
     expect(search?.getAttribute('contenteditable')).toBe('true');
-    expect(search?.textContent?.trim()).toBe('midnight mix');
+    expect(search?.textContent?.trim()).toBe('bach cello suite');
     expect(components.querySelector('.material-elastic-spinner--large circle')).toBeTruthy();
     expect(components.querySelector('.large-spinner-stage')?.textContent?.trim()).toBe('');
     expect(components.querySelector('.app-loading-header-progress')).toBeTruthy();
@@ -536,7 +560,35 @@ describe('public design-system page contract', () => {
       'Loading...',
     );
     expect(components.querySelector('.app-loading-header-badge i')).toBeTruthy();
-    expect(designStylesheet).toContain('@keyframes app-header-badge-cycle');
+    expect(designStylesheet).toContain('@keyframes app-header-default-rail-cycle');
+    expect(designStylesheet).toContain('@keyframes app-header-default-opacity-cycle');
+    expect(designStylesheet).toContain('@keyframes app-header-loading-rail-cycle');
+    expect(designStylesheet).toContain('@keyframes app-header-loading-opacity-cycle');
+    expect(designStylesheet).toContain(
+      'animation: app-header-loading-progress 6s cubic-bezier(0.4, 0, 0.6, 1) infinite;',
+    );
+    expect(
+      designStylesheet.match(
+        /app-header-(?:default|loading)-rail-cycle 6s cubic-bezier\(0\.08, 0\.82, 0\.17, 1\) infinite,/gu,
+      ),
+    ).toHaveLength(3);
+    expect(
+      designStylesheet.match(/app-header-(?:default|loading)-opacity-cycle 6s ease infinite;/gu),
+    ).toHaveLength(3);
+    expect(designStylesheet).toMatch(
+      /66\.6667%\s*\{[^}]*transform:\s*scaleX\(1\);[^}]*opacity:\s*0;/su,
+    );
+    expect(designStylesheet).toMatch(
+      /66\.68%,\s*100%\s*\{[^}]*transform:\s*scaleX\(0\);[^}]*opacity:\s*0\.15;/su,
+    );
+    expect(designStylesheet).toMatch(
+      /26\.6667%,\s*58%\s*\{[^}]*transform:\s*translateY\(-150%\);/su,
+    );
+    expect(designStylesheet).toMatch(
+      /74\.6667%,\s*100%\s*\{[^}]*transform:\s*translateY\(100%\);/su,
+    );
+    expect(designStylesheet).toMatch(/18\.3333%,\s*58%\s*\{[^}]*opacity:\s*0;/su);
+    expect(designStylesheet).toMatch(/66\.3333%,\s*100%\s*\{[^}]*opacity:\s*0;/su);
     expect(designStylesheet).toMatch(
       /\.large-spinner-stage\s*\{[^}]*height:\s*60px;[^}]*background:\s*var\(--surface-2\);/su,
     );
@@ -569,7 +621,7 @@ describe('public design-system page contract', () => {
 
     expect(deviceEntries).toHaveLength(3);
     expect(devices).toHaveLength(3);
-    expect(deviceNames).toEqual(['Mina Park', 'Jules Kim', 'Noah Lee']);
+    expect(deviceNames).toEqual(['minari', 'julesk', 'noa_home']);
     expect(
       administratorGrants.map((button) => ({
         label: button.getAttribute('aria-label'),

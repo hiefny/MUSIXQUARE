@@ -163,7 +163,7 @@ When changing the visual system:
 1. Update the production source first.
 2. Verify light/dark, mobile/wide, keyboard focus, reduced motion, and at least
    one long translation.
-3. Update `colors_and_type.css`, previews, or the UI kit only when their public
+3. Update `colors_and_type.css`, previews, or the local UI kit only when their
    guidance changed.
 4. Keep extraction snapshots clearly non-authoritative; do not copy behavior
    back from `src_ref/` into production.

@@ -2085,7 +2085,7 @@
   opacity: 0.15;
   transform: scaleX(0);
   transform-origin: left center;
-  animation: app-header-loading-progress 6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: app-header-loading-progress 6s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .app-loading-header-logo,
@@ -2107,15 +2107,19 @@
   mask-size: 100% 108.333%;
   -webkit-mask-position: left top;
   -webkit-mask-size: 100% 108.333%;
-  animation: app-header-logo-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite;
+  animation:
+    app-header-default-rail-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite,
+    app-header-default-opacity-cycle 6s ease infinite;
 }
 
 .app-loading-header-status {
   font-size: 13px;
   font-weight: 600;
-  transform: translateY(150%);
+  transform: translateY(100%);
   opacity: 0;
-  animation: app-header-status-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite;
+  animation:
+    app-header-loading-rail-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite,
+    app-header-loading-opacity-cycle 6s ease infinite;
 }
 
 .app-loading-header-badge {
@@ -2132,7 +2136,9 @@
   font-size: 11px;
   font-weight: 700;
   line-height: normal;
-  animation: app-header-badge-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite;
+  animation:
+    app-header-default-rail-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite,
+    app-header-default-opacity-cycle 6s ease infinite;
 }
 
 .app-loading-header-badge i {
@@ -2144,65 +2150,94 @@
 
 @keyframes app-header-loading-progress {
   0%,
-  15% {
+  10% {
     transform: scaleX(0);
+    opacity: 0.15;
   }
 
-  68% {
+  58%,
+  60% {
     transform: scaleX(1);
+    opacity: 0.15;
   }
 
-  76%,
+  66.6667% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+
+  66.68%,
   100% {
     transform: scaleX(0);
+    opacity: 0.15;
   }
 }
 
-@keyframes app-header-logo-cycle {
+@keyframes app-header-default-rail-cycle {
   0%,
-  13%,
-  78%,
-  100% {
+  10% {
     transform: translateY(0);
-    opacity: 1;
   }
 
-  22%,
-  70% {
+  26.6667%,
+  58% {
     transform: translateY(-150%);
-    opacity: 0;
+  }
+
+  74.6667%,
+  100% {
+    transform: translateY(0);
   }
 }
 
-@keyframes app-header-badge-cycle {
+@keyframes app-header-default-opacity-cycle {
   0%,
-  13%,
-  78%,
-  100% {
-    transform: translateY(0);
+  10% {
     opacity: 1;
   }
 
-  22%,
-  70% {
-    transform: translateY(-150%);
+  18.3333%,
+  58% {
     opacity: 0;
+  }
+
+  66.3333%,
+  100% {
+    opacity: 1;
   }
 }
 
-@keyframes app-header-status-cycle {
+@keyframes app-header-loading-rail-cycle {
   0%,
-  13%,
-  78%,
+  10% {
+    transform: translateY(100%);
+  }
+
+  26.6667%,
+  58% {
+    transform: translateY(0);
+  }
+
+  74.6667%,
   100% {
-    transform: translateY(150%);
+    transform: translateY(100%);
+  }
+}
+
+@keyframes app-header-loading-opacity-cycle {
+  0%,
+  10% {
     opacity: 0;
   }
 
-  22%,
-  70% {
-    transform: translateY(0);
+  18.3333%,
+  58% {
     opacity: 1;
+  }
+
+  66.3333%,
+  100% {
+    opacity: 0;
   }
 }
 

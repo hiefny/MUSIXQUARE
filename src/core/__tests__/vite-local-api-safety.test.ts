@@ -327,6 +327,20 @@ describe('service-worker build entry manifest', () => {
         imports: ['assets/vendor.js'],
         modules: { 'C:/repo/src/demo/mode.ts': {} },
       },
+      'assets/localized-app-head.js': {
+        type: 'chunk',
+        fileName: 'assets/localized-app-head.js',
+        isEntry: false,
+        imports: [],
+        modules: { 'C:/repo/src/i18n/localized-app-head.ts': {} },
+      },
+      'assets/announcement.js': {
+        type: 'chunk',
+        fileName: 'assets/announcement.js',
+        isEntry: false,
+        imports: ['assets/vendor.js'],
+        modules: { 'C:/repo/src/ui/announcement.ts': {} },
+      },
       'assets/room-features.js': {
         type: 'chunk',
         fileName: 'assets/room-features.js',
@@ -377,10 +391,12 @@ describe('service-worker build entry manifest', () => {
     };
 
     expect(collectStaticAppEntryAssets(bundle)).toEqual([
+      './assets/announcement.js',
       './assets/app.css',
       './assets/app.js',
       './assets/connect.js',
       './assets/demo-mode.js',
+      './assets/localized-app-head.js',
       './assets/manual-sync-overlay.js',
       './assets/media-session.js',
       './assets/room-audio.js',

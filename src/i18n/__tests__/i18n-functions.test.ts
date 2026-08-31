@@ -276,7 +276,7 @@ describe('i18n functions', () => {
       setLanguageMode('ja');
 
       expect(localStorage.getItem('musixquare-lang')).toBe('ja');
-      expect(window.location.pathname).toBe('/ja/');
+      await vi.waitFor(() => expect(window.location.pathname).toBe('/ja/'));
       expect(window.location.search).toBe('?campaign=launch');
       expect(window.location.hash).toBe('#player');
       expect(window.history.state).toEqual(historyState);
@@ -310,15 +310,19 @@ describe('i18n functions', () => {
         ogLocale: 'ko_KR',
       });
       localStorage.setItem('musixquare-lang', 'ko');
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(
-          localizedDocument({
-            lang: 'en',
-            canonical: 'https://musixquare.com/',
-            title: 'MUSIXQUARE',
-            websiteSchema: true,
-          }),
-          { status: 200 },
+      const fetchHead = vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+        Promise.resolve(
+          String(input) === '/'
+            ? new Response(
+                localizedDocument({
+                  lang: 'en',
+                  canonical: 'https://musixquare.com/',
+                  title: 'MUSIXQUARE',
+                  websiteSchema: true,
+                }),
+                { status: 200 },
+              )
+            : new Response('Not Found', { status: 404 }),
         ),
       );
 
@@ -327,13 +331,27 @@ describe('i18n functions', () => {
       setLanguageMode('en');
 
       expect(localStorage.getItem('musixquare-lang')).toBe('en');
-      expect(window.location.pathname).toBe('/en/');
+      await vi.waitFor(() => expect(window.location.pathname).toBe('/en/'));
       await vi.waitFor(() => {
+        expect(document.title).toBe('MUSIXQUARE');
+        expect(document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content).toBe(
+          'MUSIXQUARE description',
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content).toBe(
+          'MUSIXQUARE',
+        );
         expect(document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href).toBe(
+          'https://musixquare.com/',
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.content).toBe(
           'https://musixquare.com/',
         );
         expect(document.querySelectorAll('[data-mxqr-website-schema]')).toHaveLength(1);
       });
+      expect(fetchHead).toHaveBeenCalledWith(
+        '/',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      );
     });
 
     it.each(['throw', 'noop'] as const)(
@@ -360,7 +378,9 @@ describe('i18n functions', () => {
 
         setLanguageMode('ja');
 
-        expect(navigationRequests).toEqual(['/ja/?campaign=launch#player']);
+        await vi.waitFor(() => {
+          expect(navigationRequests).toEqual(['/ja/?campaign=launch#player']);
+        });
         expect(window.location.pathname).toBe('/ko/');
         expect(getResolvedLanguage()).toBe('ko');
         expect(fetchHead).not.toHaveBeenCalled();
@@ -418,7 +438,7 @@ describe('i18n functions', () => {
       setLanguageMode('ko');
 
       expect(localStorage.getItem('musixquare-lang')).toBe('ko');
-      expect(window.location.pathname).toBe('/ko/');
+      await vi.waitFor(() => expect(window.location.pathname).toBe('/ko/'));
       await vi.waitFor(() => {
         expect(getResolvedLanguage()).toBe('ko');
         expect(document.title).toBe('뮤직스퀘어 | MUSIXQUARE');

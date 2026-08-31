@@ -1617,7 +1617,7 @@ interface BaseEventMap {
   // ── App ───────────────────────────────────────────────────────────
   'app:files-selected': [files: FileList | readonly File[] | null];
   'app:lazy-feature-load-failed': [
-    feature: 'connect' | 'pro-room' | 'room-session',
+    feature: 'announcement' | 'connect' | 'pro-room' | 'room-session',
     error: unknown,
   ];
 

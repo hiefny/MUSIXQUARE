@@ -407,6 +407,15 @@ describe('app UX markup contract', () => {
       connectBoundaryStart,
     );
     const connectBoundary = appRuntimeSource.slice(connectBoundaryStart, connectBoundaryEnd);
+    const announcementBoundaryStart = appRuntimeSource.indexOf("safeInit('AnnouncementPolling'");
+    const announcementBoundaryEnd = appRuntimeSource.indexOf(
+      "safeInit('ProRoomBranding'",
+      announcementBoundaryStart,
+    );
+    const announcementBoundary = appRuntimeSource.slice(
+      announcementBoundaryStart,
+      announcementBoundaryEnd,
+    );
 
     expect(appRuntimeSource).toContain("bus.on('app:lazy-feature-load-failed'");
     expect(appRuntimeSource).toContain("buttonText: t('common.refresh')");
@@ -415,6 +424,16 @@ describe('app UX markup contract', () => {
     expect(recoverySource.match(/reportLazyFeatureLoadFailure\(/gu)).toHaveLength(1);
     expect(connectBoundary).toContain("bus.emit('app:lazy-feature-load-failed', 'connect', error)");
     expect(connectBoundary).not.toContain('loading = null');
+    expect(appRuntimeSource).not.toContain(
+      "import { initAnnouncementPolling } from './ui/announcement.ts'",
+    );
+    expect(announcementBoundary).toContain("import('./ui/announcement.ts')");
+    expect(announcementBoundary).toContain('subscribeRoomAuthorityLifecycle(loadIfActive)');
+    expect(announcementBoundary).toContain("getRoomContext().role !== 'idle'");
+    expect(announcementBoundary).toContain(
+      "bus.emit('app:lazy-feature-load-failed', 'announcement', error)",
+    );
+    expect(announcementBoundary).not.toContain('loading = null');
   });
 
   it('places settings sync last in General and keeps one lock around every Audio section', () => {

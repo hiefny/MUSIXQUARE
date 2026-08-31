@@ -20,12 +20,7 @@ import {
 
 import type { I18nKey } from './ko.ts';
 import { hasLocaleFont } from './locale-font-contract.ts';
-import {
-  cancelLocalizedAppHeadSync,
-  currentAppPathLanguage,
-  synchronizeLocalizedAppHead,
-  updateLocalizedAppPath,
-} from './localized-app-document.ts';
+import { currentAppPathLanguage, updateLocalizedAppPath } from './localized-app-document.ts';
 import {
   languageDirection,
   LANGUAGE_OPTIONS,
@@ -217,16 +212,41 @@ export function setLanguageMode(mode: string): void {
   });
 }
 
-function _synchronizeLocalizedHead(resolved: LanguageCode): void {
-  synchronizeLocalizedAppHead(resolved, () => _resolved === resolved).catch((error) => {
-    log.warn('[i18n] Localized metadata synchronization failed', error);
-  });
+type LocalizedAppHead = typeof import('./localized-app-head.ts');
+let _localizedAppHead: LocalizedAppHead | undefined;
+let _localizedAppHeadLoad: Promise<LocalizedAppHead | undefined> | undefined;
+let _localizedHeadIntent = 0;
+
+function _loadLocalizedAppHead(): Promise<LocalizedAppHead | undefined> {
+  if (_localizedAppHead) return Promise.resolve(_localizedAppHead);
+  return (_localizedAppHeadLoad ??= import('./localized-app-head.ts')
+    .then((module) => (_localizedAppHead = module))
+    .catch(() => {
+      _localizedAppHeadLoad = undefined;
+      return undefined;
+    }));
+}
+
+function _synchronizeLocalizedHead(resolved: LanguageCode, intent: number): void {
+  void _loadLocalizedAppHead()
+    .then((head) => {
+      if (!head || intent !== _localizedHeadIntent) return;
+      return head.synchronizeLocalizedAppHead(
+        resolved,
+        () => intent === _localizedHeadIntent && _resolved === resolved,
+      );
+    })
+    .catch(() => {
+      // Metadata synchronization is best-effort; URL and translated UI already
+      // hold the selected locale even if this deferred boundary fails.
+    });
 }
 
 async function _setLanguageMode(mode: string): Promise<void> {
+  const headIntent = ++_localizedHeadIntent;
+  _localizedAppHead?.cancelLocalizedAppHeadSync();
   const normalizedMode = _normalizeLanguageMode(mode);
   const resolved = normalizedMode === 'system' ? _resolveSystem() : normalizedMode;
-  cancelLocalizedAppHeadSync();
   _mode = normalizedMode;
   _updateSelector(normalizedMode);
 
@@ -245,7 +265,7 @@ async function _setLanguageMode(mode: string): Promise<void> {
     _dicts[resolved] &&
     currentAppPathLanguage() === resolved
   ) {
-    _synchronizeLocalizedHead(resolved);
+    _synchronizeLocalizedHead(resolved, headIntent);
   }
 }
 
@@ -287,20 +307,7 @@ export async function initI18n(): Promise<void> {
     // unless a previously-requested locale is genuinely missing.
     window.addEventListener('online', () => {
       if (!_dicts[_resolved] && _localeLoaders[_resolved]) {
-        const recovering = _resolved;
-        _applyLanguage(recovering)
-          .then(() => {
-            if (
-              _resolved === recovering &&
-              _dicts[recovering] &&
-              currentAppPathLanguage() === recovering
-            ) {
-              _synchronizeLocalizedHead(recovering);
-            }
-          })
-          .catch((error) => {
-            log.warn('[i18n] Online locale recovery failed', error);
-          });
+        setLanguageMode(_mode);
       }
     });
   } catch {

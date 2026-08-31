@@ -107,6 +107,10 @@ describe('localized static HTML materialization', () => {
     expect(englishApp).not.toContain('Runtime insertion point');
     expect(englishApp).not.toContain('<!-- Slide 1: Invite -->');
     expect(englishApp).not.toMatch(/^[\t ]+/mu);
+    expect(englishApp).not.toMatch(/\n{2,}/u);
+    for (const svg of englishApp.matchAll(/<svg\b[\s\S]*?<\/svg>/gu)) {
+      expect(svg[0]).not.toMatch(/>\s+</u);
+    }
   });
 
   it('uses established Korean and Japanese search aliases without changing the global brand', () => {

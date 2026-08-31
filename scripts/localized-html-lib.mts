@@ -157,6 +157,17 @@ function removeNonLicenseComments(document: Document): void {
   for (const comment of comments) comment.remove();
 }
 
+function removeWhitespaceOnlyTextNodes(root: Node): void {
+  const whitespaceNodes: Text[] = [];
+  const walker = root.ownerDocument!.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === 3 && !String(node.nodeValue || '').trim()) {
+      whitespaceNodes.push(node as Text);
+    }
+  }
+  for (const node of whitespaceNodes) node.remove();
+}
+
 export function localizeAppDocument(
   document: Document,
   code: LanguageCode,
@@ -247,7 +258,14 @@ export function renderLocalizedApp(
   // several compressed KiB to every localized app shell. Keep the authored-
   // license marker while the source remains fully documented and formatted.
   removeNonLicenseComments(dom.window.document);
-  const html = dom.serialize().replace(/^[\t ]+/gmu, '');
+  removeWhitespaceOnlyTextNodes(dom.window.document.head);
+  for (const svg of dom.window.document.querySelectorAll('svg')) {
+    removeWhitespaceOnlyTextNodes(svg);
+  }
+  const html = dom
+    .serialize()
+    .replace(/^[\t ]+/gmu, '')
+    .replace(/\n{2,}/gu, '\n');
   dom.window.close();
   return html;
 }

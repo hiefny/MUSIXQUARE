@@ -612,8 +612,10 @@ const prioritizeStylesheetsInHtml = (): Plugin => ({
 
 const REVIEWED_DEFERRED_APP_SHELL_ROOTS = [
   '/src/demo/mode.ts',
+  '/src/i18n/localized-app-head.ts',
   '/src/network/room-session-feature-runtime.ts',
   '/src/player/media-session.ts',
+  '/src/ui/announcement.ts',
   '/src/ui/connect-session-runtime.ts',
   '/src/ui/manual-sync-overlay-runtime.ts',
   '/src/youtube/standard-host-manual-offset-runtime.ts',

@@ -396,7 +396,9 @@ describe('strict TypeScript UI kit asset', () => {
 
       clickButtonByText(dom.window.document, 'Playlist');
       expect(dom.window.document.querySelector('.mq-title')?.textContent).toContain('Playlist');
-      expect(dom.window.document.body.textContent).toContain('Midnight Protocol');
+      expect(dom.window.document.body.textContent).toContain(
+        'Cello Suite No. 1, BWV 1007: Prelude',
+      );
 
       clickButtonByText(dom.window.document, 'Connect');
       expect(dom.window.document.body.textContent).toContain('492815');

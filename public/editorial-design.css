@@ -2085,7 +2085,7 @@
   opacity: 0.15;
   transform: scaleX(0);
   transform-origin: left center;
-  animation: app-header-loading-progress 6s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+  animation: app-header-loading-progress 6s linear infinite;
 }
 
 .app-loading-header-logo,
@@ -2107,15 +2107,15 @@
   mask-size: 100% 108.333%;
   -webkit-mask-position: left top;
   -webkit-mask-size: 100% 108.333%;
-  animation: app-header-logo-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite;
+  animation: app-header-logo-cycle 6s cubic-bezier(0.3, 0.2, 0.7, 0.8) infinite;
 }
 
 .app-loading-header-status {
   font-size: 13px;
   font-weight: 600;
-  transform: translateY(150%);
+  transform: translateY(100%);
   opacity: 0;
-  animation: app-header-status-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite;
+  animation: app-header-status-cycle 6s cubic-bezier(0.3, 0.2, 0.7, 0.8) infinite;
 }
 
 .app-loading-header-badge {
@@ -2132,7 +2132,7 @@
   font-size: 11px;
   font-weight: 700;
   line-height: normal;
-  animation: app-header-badge-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite;
+  animation: app-header-badge-cycle 6s cubic-bezier(0.3, 0.2, 0.7, 0.8) infinite;
 }
 
 .app-loading-header-badge i {
@@ -2144,63 +2144,72 @@
 
 @keyframes app-header-loading-progress {
   0%,
-  15% {
+  18% {
     transform: scaleX(0);
+    opacity: 0.15;
   }
 
-  68% {
+  68%,
+  72% {
     transform: scaleX(1);
+    opacity: 0.15;
   }
 
-  76%,
+  78% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+
+  78.01%,
   100% {
     transform: scaleX(0);
+    opacity: 0.15;
   }
 }
 
 @keyframes app-header-logo-cycle {
   0%,
-  13%,
-  78%,
+  14%,
+  80%,
   100% {
     transform: translateY(0);
     opacity: 1;
   }
 
-  22%,
-  70% {
-    transform: translateY(-150%);
+  20%,
+  74% {
+    transform: translateY(-100%);
     opacity: 0;
   }
 }
 
 @keyframes app-header-badge-cycle {
   0%,
-  13%,
-  78%,
+  14%,
+  80%,
   100% {
     transform: translateY(0);
     opacity: 1;
   }
 
-  22%,
-  70% {
-    transform: translateY(-150%);
+  20%,
+  74% {
+    transform: translateY(-100%);
     opacity: 0;
   }
 }
 
 @keyframes app-header-status-cycle {
   0%,
-  13%,
-  78%,
+  14%,
+  80%,
   100% {
-    transform: translateY(150%);
+    transform: translateY(100%);
     opacity: 0;
   }
 
-  22%,
-  70% {
+  20%,
+  74% {
     transform: translateY(0);
     opacity: 1;
   }
@@ -2973,7 +2982,7 @@
   }
 
   .app-loading-header-badge {
-    transform: translateY(-150%);
+    transform: translateY(-100%);
     opacity: 0;
   }
 

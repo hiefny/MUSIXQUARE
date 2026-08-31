@@ -133,6 +133,67 @@ describe('count-sensitive translations', () => {
     );
   });
 
+  it('uses Romanian singular, few fallback, and de-bearing other forms at numeric boundaries', async () => {
+    const t = await loadTranslator('ro-RO');
+
+    expect(t('connect.device_list', { count: 0 })).toBe('0 dispozitive conectate');
+    expect(t('connect.device_list', { count: 1 })).toBe('1 dispozitiv conectat');
+    expect(t('connect.device_list', { count: 2 })).toBe('2 dispozitive conectate');
+    expect(t('connect.device_list', { count: 19 })).toBe('19 dispozitive conectate');
+    expect(t('connect.device_list', { count: 20 })).toBe('20 de dispozitive conectate');
+    expect(t('connect.device_list', { count: 21 })).toBe('21 de dispozitive conectate');
+    expect(t('connect.device_list', { count: 100 })).toBe('100 de dispozitive conectate');
+    expect(t('connect.device_list', { count: 101 })).toBe('101 dispozitive conectate');
+    expect(t('connect.device_list', { count: 119 })).toBe('119 dispozitive conectate');
+    expect(t('connect.device_list', { count: 120 })).toBe('120 de dispozitive conectate');
+
+    expect(t('chat.cmd_slowmode_wait', { sec: 1 })).toBe('Așteaptă 1 secundă înainte de a trimite');
+    expect(t('chat.cmd_slowmode_wait', { sec: 2 })).toBe('Așteaptă 2 secunde înainte de a trimite');
+    expect(t('chat.cmd_slowmode_wait', { sec: 20 })).toBe(
+      'Așteaptă 20 de secunde înainte de a trimite',
+    );
+    expect(t('chat.tracks_added_named', { name: 'Alex', count: 20, title: 'Prima' })).toBe(
+      'Alex a adăugat 20 de piste, inclusiv Prima',
+    );
+
+    // These labels deliberately put the count after a neutral plural label.
+    expect(t('playlist.delete_selected', { count: 1 })).toBe('Șterge pistele selectate: 1');
+    expect(t('toast.unsupported_files_excluded', { count: 20 })).toBe(
+      'Fișiere neacceptate omise: 20',
+    );
+  });
+
+  it('selects Arabic zero, one, two, few, many, and other forms without losing placeholders', async () => {
+    const t = await loadTranslator('ar-SA');
+
+    expect(t('dialog.file_drop.message', { count: 0 })).toBe('هل تريد إضافة 0 من الملفات؟');
+    expect(t('dialog.file_drop.message', { count: 1 })).toBe('هل تريد إضافة 1 ملف؟');
+    expect(t('dialog.file_drop.message', { count: 2 })).toBe('هل تريد إضافة 2 ملفين؟');
+    expect(t('dialog.file_drop.message', { count: 3 })).toBe('هل تريد إضافة 3 ملفات؟');
+    expect(t('dialog.file_drop.message', { count: 11 })).toBe('هل تريد إضافة 11 ملفًا؟');
+    expect(t('dialog.file_drop.message', { count: 100 })).toBe('هل تريد إضافة 100 من الملفات؟');
+    expect(t('chat.tracks_added_named', { name: 'ليلى', count: 2, title: 'الأولى' })).toBe(
+      'أضاف ليلى 2 مقطعين، منهما الأولى',
+    );
+  });
+
+  it('uses singular copy in Urdu, Hebrew, and Nordic locales while retaining neutral fallbacks', async () => {
+    const cases = [
+      ['ur-PK', 'منتخب کیا گیا 1 ٹریک حذف کریں', 'منتخب کیے گئے 2 ٹریک حذف کریں'],
+      ['he-IL', 'מחיקת 1 רצועה שנבחרה', 'מחיקת 2 הרצועות שנבחרו'],
+      ['sv-SE', 'Radera 1 markerat spår', 'Radera 2 markerade spår'],
+      ['da-DK', 'Slet 1 markeret nummer', 'Slet 2 markerede numre'],
+      ['nb-NO', 'Slett 1 merket spor', 'Slett 2 merkede spor'],
+      ['fi-FI', 'Poista 1 valittu kappale', 'Poista 2 valittua kappaletta'],
+    ] as const;
+
+    for (const [locale, singular, plural] of cases) {
+      const t = await loadTranslator(locale);
+      expect(t('playlist.delete_selected', { count: 1 }), locale).toBe(singular);
+      expect(t('playlist.delete_selected', { count: 2 }), locale).toBe(plural);
+    }
+  });
+
   it('keeps invariant Korean counter copy for both singular and plural counts', async () => {
     const t = await loadTranslator('ko-KR');
 
@@ -251,7 +312,7 @@ describe('count-sensitive translations', () => {
     for (const [locale, messages] of Object.entries(PLURAL_MESSAGES)) {
       for (const [key, variants] of Object.entries(messages || {})) {
         const parameter = PLURAL_PARAM_BY_KEY[key as keyof typeof PLURAL_PARAM_BY_KEY];
-        for (const [form, value] of Object.entries(variants || {})) {
+        for (const [form, value] of Object.entries(variants || {}) as Array<[string, string]>) {
           const placeholders = [...value.matchAll(/\{\{(\w+)\}\}/g)].map((match) => match[1]);
           expect(
             placeholders.filter((placeholder) => placeholder === parameter),

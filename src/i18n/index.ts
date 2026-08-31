@@ -22,6 +22,7 @@ import type { I18nKey } from './ko.ts';
 import { hasLocaleFont, loadLocaleFont } from './locale-fonts.ts';
 import {
   appLanguageFromPathname,
+  languageDirection,
   LANGUAGE_OPTIONS,
   localizedAboutPath,
   localizedAppEntryPath,
@@ -48,18 +49,43 @@ const _pluralRules = new Map<LanguageCode, Intl.PluralRules>();
 const _localeLoaders: Partial<
   Record<LanguageCode, () => Promise<{ default: Record<string, string> }>>
 > = {
+  ar: () => import('./ar.ts'),
+  bn: () => import('./bn.ts'),
+  bg: () => import('./bg.ts'),
+  cs: () => import('./cs.ts'),
+  da: () => import('./da.ts'),
   de: () => import('./de.ts'),
+  el: () => import('./el.ts'),
   es: () => import('./es.ts'),
+  fa: () => import('./fa.ts'),
+  fi: () => import('./fi.ts'),
+  fil: () => import('./fil.ts'),
   fr: () => import('./fr.ts'),
+  he: () => import('./he.ts'),
+  hi: () => import('./hi.ts'),
+  hu: () => import('./hu.ts'),
   id: () => import('./id.ts'),
   it: () => import('./it.ts'),
+  gu: () => import('./gu.ts'),
+  kn: () => import('./kn.ts'),
+  ml: () => import('./ml.ts'),
+  mr: () => import('./mr.ts'),
+  nb: () => import('./nb.ts'),
   nl: () => import('./nl.ts'),
   ja: () => import('./ja.ts'),
   pl: () => import('./pl.ts'),
+  pa: () => import('./pa.ts'),
   'pt-br': () => import('./pt-br.ts'),
+  ro: () => import('./ro.ts'),
   ru: () => import('./ru.ts'),
+  ms: () => import('./ms.ts'),
+  sv: () => import('./sv.ts'),
+  ta: () => import('./ta.ts'),
+  te: () => import('./te.ts'),
   th: () => import('./th.ts'),
   tr: () => import('./tr.ts'),
+  uk: () => import('./uk.ts'),
+  ur: () => import('./ur.ts'),
   vi: () => import('./vi.ts'),
   'zh-hans': () => import('./zh-hans.ts'),
   'zh-hant': () => import('./zh-hant.ts'),
@@ -372,6 +398,10 @@ function _matchLanguage(value: string | null | undefined): LanguageCode | null {
 
   if (normalized === 'pt-br' || normalized.startsWith('pt-br-')) return 'pt-br';
   if (normalized === 'pt' || normalized.startsWith('pt-')) return 'pt-br';
+  if (normalized === 'in' || normalized.startsWith('in-')) return 'id';
+  if (normalized === 'iw' || normalized.startsWith('iw-')) return 'he';
+  if (normalized === 'no' || normalized.startsWith('no-')) return 'nb';
+  if (normalized === 'tl' || normalized.startsWith('tl-')) return 'fil';
 
   const primary = normalized.split('-')[0];
   if (LANGUAGE_OPTIONS.some((lang) => lang.code === primary)) return primary as LanguageCode;
@@ -434,7 +464,9 @@ function _translateLoadedLanguage(resolved: LanguageCode): void {
   // `_resolved` intentionally remains unchanged so re-select/online can
   // retry the missing chunk; a successful retry restores the requested tag.
   try {
-    document.documentElement.setAttribute('lang', _htmlLangFor(_dicts[resolved] ? resolved : 'en'));
+    const renderedLanguage = _dicts[resolved] ? resolved : 'en';
+    document.documentElement.setAttribute('lang', _htmlLangFor(renderedLanguage));
+    document.documentElement.setAttribute('dir', languageDirection(renderedLanguage));
   } catch {
     /* ignore */
   }
@@ -450,6 +482,7 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
   _resolved = resolved;
   try {
     document.documentElement.setAttribute('lang', _htmlLangFor(_resolved));
+    document.documentElement.setAttribute('dir', languageDirection(_resolved));
   } catch {
     /* ignore */
   }

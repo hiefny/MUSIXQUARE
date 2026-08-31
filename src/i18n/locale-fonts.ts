@@ -6,21 +6,74 @@
 
 import { log } from '../core/log.ts';
 
-export type LocaleFontCode = 'ja' | 'ru' | 'th' | 'zh-hans' | 'zh-hant';
+export type LocaleFontCode =
+  | 'ar'
+  | 'bn'
+  | 'bg'
+  | 'el'
+  | 'fa'
+  | 'gu'
+  | 'he'
+  | 'hi'
+  | 'ja'
+  | 'kn'
+  | 'ml'
+  | 'mr'
+  | 'pa'
+  | 'ru'
+  | 'ta'
+  | 'te'
+  | 'th'
+  | 'uk'
+  | 'ur'
+  | 'zh-hans'
+  | 'zh-hant';
 type FontCssLoader = () => Promise<unknown>;
 
 const DEFAULT_FONT_LOADERS: Record<LocaleFontCode, FontCssLoader> = {
+  ar: () => import('../../css/fonts/noto-arabic.css'),
+  bn: () => import('../../css/fonts/noto-bengali.css'),
+  bg: () => import('../../css/fonts/noto-cyrillic.css'),
+  el: () => import('../../css/fonts/noto-greek.css'),
+  fa: () => import('../../css/fonts/noto-arabic.css'),
+  gu: () => import('../../css/fonts/noto-gujarati.css'),
+  he: () => import('../../css/fonts/noto-hebrew.css'),
+  hi: () => import('../../css/fonts/noto-devanagari.css'),
   ja: () => import('../../css/fonts/noto-jp.css'),
+  kn: () => import('../../css/fonts/noto-kannada.css'),
+  ml: () => import('../../css/fonts/noto-malayalam.css'),
+  mr: () => import('../../css/fonts/noto-devanagari.css'),
+  pa: () => import('../../css/fonts/noto-gurmukhi.css'),
   ru: () => import('../../css/fonts/noto-cyrillic.css'),
+  ta: () => import('../../css/fonts/noto-tamil.css'),
+  te: () => import('../../css/fonts/noto-telugu.css'),
   th: () => import('../../css/fonts/noto-thai.css'),
+  uk: () => import('../../css/fonts/noto-cyrillic.css'),
+  ur: () => import('../../css/fonts/noto-arabic.css'),
   'zh-hans': () => import('../../css/fonts/noto-sc.css'),
   'zh-hant': () => import('../../css/fonts/noto-tc.css'),
 };
 
 const FONT_FAMILIES: Record<LocaleFontCode, string> = {
+  ar: 'Noto Sans Arabic',
+  bn: 'Noto Sans Bengali',
+  bg: 'Noto Sans',
+  el: 'Noto Sans',
+  fa: 'Noto Sans Arabic',
+  gu: 'Noto Sans Gujarati',
+  he: 'Noto Sans Hebrew',
+  hi: 'Noto Sans Devanagari',
   ja: 'Noto Sans JP',
+  kn: 'Noto Sans Kannada',
+  ml: 'Noto Sans Malayalam',
+  mr: 'Noto Sans Devanagari',
+  pa: 'Noto Sans Gurmukhi',
   ru: 'Noto Sans',
+  ta: 'Noto Sans Tamil',
+  te: 'Noto Sans Telugu',
   th: 'Noto Sans Thai',
+  uk: 'Noto Sans',
+  ur: 'Noto Sans Arabic',
   'zh-hans': 'Noto Sans SC',
   'zh-hant': 'Noto Sans TC',
 };

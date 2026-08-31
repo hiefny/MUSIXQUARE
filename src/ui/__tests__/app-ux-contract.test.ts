@@ -327,6 +327,7 @@ describe('app UX markup contract', () => {
     const youtubeInputWrapper = youtubeField?.closest('.yt-search-input-wrapper');
     expect(youtubeField?.tagName).toBe('DIV');
     expect(youtubeField?.getAttribute('contenteditable')).toBe('true');
+    expect(youtubeField?.getAttribute('dir')).toBe('auto');
     expect(youtubeField?.getAttribute('aria-describedby')).toBe('youtube-preview-status');
     expect(youtubeInputWrapper?.contains(youtubeSearch ?? null)).toBe(true);
     expect(youtubeSearch?.tagName).toBe('BUTTON');
@@ -338,13 +339,13 @@ describe('app UX markup contract', () => {
       /\.yt-search-input-wrapper\s*\{[\s\S]*?display:\s*flex;[\s\S]*?border-bottom:\s*2px solid var\(--surface-3\);/u,
     );
     expect(appStylesheet).toMatch(
-      /\.yt-search-input-wrapper \.yt-intro-text\s*\{[\s\S]*?text-align:\s*left;[\s\S]*?border-bottom:\s*0;/u,
+      /\.yt-search-input-wrapper \.yt-intro-text\s*\{[\s\S]*?text-align:\s*start;[\s\S]*?border-bottom:\s*0;/u,
     );
     expect(appStylesheet).toMatch(
       /\.yt-search-submit-btn:not\(:disabled\)\s*\{[\s\S]*?color:\s*var\(--primary\);/u,
     );
     expect(appStylesheet).toMatch(
-      /#youtube-url-overlay \.setup-join-area\s*\{[\s\S]*?text-align:\s*left;/u,
+      /#youtube-url-overlay \.setup-join-area\s*\{[\s\S]*?text-align:\s*start;/u,
     );
 
     const viewport = appDocument.querySelector<HTMLMetaElement>('meta[name="viewport"]');

@@ -1,0 +1,51 @@
+/* RTL support for localized editorial surfaces. Product diagrams and room
+ * codes remain physically LTR while prose, navigation, and metadata flow RTL. */
+
+:root[dir='rtl'] {
+  --safe-left: env(safe-area-inset-right, 0px);
+  --safe-right: env(safe-area-inset-left, 0px);
+}
+
+:root:lang(ar)[dir='rtl'],
+:root:lang(fa)[dir='rtl'],
+:root:lang(ur)[dir='rtl'] {
+  --font-ui: 'Noto Sans Arabic', Pretendard, 'Segoe UI', Tahoma, Arial, sans-serif;
+}
+
+:root:lang(he)[dir='rtl'] {
+  --font-ui: 'Noto Sans Hebrew', Pretendard, 'Segoe UI', Arial, sans-serif;
+}
+
+html[dir='rtl'],
+html[dir='rtl'] body {
+  direction: rtl;
+}
+
+html[dir='rtl'] :where(h1, h2, h3, h4, p, a, button, span) {
+  letter-spacing: normal;
+}
+
+html[dir='rtl']
+  :where(.lp-array, .lp-code, .lp-standin, .lp-sync, .lp-dev, .lp-qr, .lp-sync__timecode) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir='rtl'] :where(.lp-sync__timecode, .lp-room-count strong, code, pre, kbd, samp) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir='rtl'] .lp-sync__label {
+  direction: rtl;
+  unicode-bidi: isolate;
+  text-align: start;
+}
+
+html[dir='rtl'] .lp-btn__arrow--right {
+  transform: scaleX(-1);
+}
+
+html[dir='rtl'] .lp-btn:hover .lp-btn__arrow--right {
+  transform: translateX(-2px) scaleX(-1);
+}

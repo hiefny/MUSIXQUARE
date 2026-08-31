@@ -82,14 +82,23 @@ function stringProperty(object: ts.ObjectLiteralExpression, name: string): strin
 
 describe('locale surface parity', () => {
   it('keeps every public locale registry aligned with the app registry', async () => {
-    const [appSource, bootstrapSource, staticSource, accountSource, maintenanceSource] =
-      await Promise.all([
-        readFile('src/i18n/index.ts', 'utf8'),
-        classicRuntime('bootstrap.js'),
-        classicRuntime('static-language.js'),
-        classicRuntime('account-complete.js'),
-        readFile('cloudflare/service-maintenance.ts', 'utf8'),
-      ]);
+    const [
+      appSource,
+      bootstrapSource,
+      landingBootstrapSource,
+      landingI18nSource,
+      staticSource,
+      accountSource,
+      maintenanceSource,
+    ] = await Promise.all([
+      readFile('src/i18n/index.ts', 'utf8'),
+      classicRuntime('bootstrap.js'),
+      classicRuntime('landing-bootstrap.js'),
+      classicRuntime('landing-i18n.js'),
+      classicRuntime('static-language.js'),
+      classicRuntime('account-complete.js'),
+      readFile('cloudflare/service-maintenance.ts', 'utf8'),
+    ]);
     const expectedCodes = LANGUAGE_OPTIONS.map(({ code }) => code).sort();
 
     const lazyLocaleCodes = objectKeys(
@@ -103,6 +112,23 @@ describe('locale surface parity', () => {
       'htmlLangByCode',
     );
     expect(bootstrapCodes.sort()).toEqual(expectedCodes);
+
+    const landingBootstrapCodes = objectKeys(
+      variableInitializer(landingBootstrapSource, 'landing-bootstrap.js', 'fallbackHtmlLang'),
+      'fallbackHtmlLang',
+    );
+    expect(landingBootstrapCodes.sort()).toEqual(expectedCodes);
+
+    const landingOgLocaleCodes = objectKeys(
+      variableInitializer(landingI18nSource, 'landing-i18n.js', 'fallbackOgLocales'),
+      'fallbackOgLocales',
+    );
+    const landingHtmlLanguageCodes = objectKeys(
+      variableInitializer(landingI18nSource, 'landing-i18n.js', 'htmlLangs'),
+      'htmlLangs',
+    );
+    expect(landingOgLocaleCodes.sort()).toEqual(expectedCodes);
+    expect(landingHtmlLanguageCodes.sort()).toEqual(expectedCodes);
 
     const accountTranslations = unwrapObject(
       variableInitializer(accountSource, 'account-complete.js', 'translations'),
@@ -150,7 +176,7 @@ describe('locale surface parity', () => {
     expect(optionRows.map(({ code, htmlLang }) => ({ code, htmlLang }))).toEqual(
       LANGUAGE_OPTIONS.map(({ code, htmlLang }) => ({ code, htmlLang })),
     );
-    for (const { locale } of optionRows) expect(locale).toMatch(/^[a-z]{2}_[A-Z]{2}$/);
+    for (const { locale } of optionRows) expect(locale).toMatch(/^[a-z]{2,3}_[A-Z]{2}$/);
     expect(new Set(optionRows.map(({ locale }) => locale)).size).toBe(optionRows.length);
   });
 
@@ -173,7 +199,29 @@ describe('locale surface parity', () => {
       'FONT_FAMILIES',
     ).sort();
 
-    expect(loaderCodes).toEqual(['ja', 'ru', 'th', 'zh-hans', 'zh-hant']);
+    expect(loaderCodes).toEqual([
+      'ar',
+      'bg',
+      'bn',
+      'el',
+      'fa',
+      'gu',
+      'he',
+      'hi',
+      'ja',
+      'kn',
+      'ml',
+      'mr',
+      'pa',
+      'ru',
+      'ta',
+      'te',
+      'th',
+      'uk',
+      'ur',
+      'zh-hans',
+      'zh-hant',
+    ]);
     expect(familyCodes).toEqual(loaderCodes);
   });
 });

@@ -67,10 +67,7 @@
     <meta property="og:image:alt" content="MUSIXQUARE: Play Together, Watch Together" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="MUSIXQUARE" />
-    <meta
-      name="twitter:description"
-      content="Every device, one system."
-    />
+    <meta name="twitter:description" content="Every device, one system." />
     <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
     <title>MUSIXQUARE</title>
     <meta
@@ -336,9 +333,13 @@
 
         <div class="track-box">
           <div class="track-title-wrapper">
-            <div class="track-title" id="track-title" data-i18n="player.no_media">No media playing</div>
+            <div class="track-title" id="track-title" data-i18n="player.no_media">
+              No media playing
+            </div>
           </div>
-          <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">Select a file or check the playlist</div>
+          <div class="track-artist" id="track-artist" data-i18n="player.select_file_hint">
+            Select a file or check the playlist
+          </div>
         </div>
 
         <div class="controls-area">
@@ -455,7 +456,9 @@
                 </svg>
                 <span class="chat-preview-badge" id="chat-preview-badge"></span>
               </div>
-              <span class="chat-preview-text" id="chat-preview-text" data-i18n="chat.start">Send a message to start!</span>
+              <span class="chat-preview-text" id="chat-preview-text" data-i18n="chat.start"
+                >Send a message to start!</span
+              >
             </div>
           </button>
 
@@ -677,7 +680,15 @@
             </svg>
             <span data-i18n="help.install_app">Install Web App</span>
           </div>
-          <div class="help-desc" data-i18n-html="help.install_app_html">Like MUSIXQUARE? You can install it as an app.<ul class="help-list"><li><strong>iOS:</strong> Share → Add to Home Screen</li><li><strong>Android:</strong> Menu → Install app</li><li><strong>Windows:</strong> Install icon in the address bar</li><li><strong>macOS:</strong> Share → Add to Dock</li></ul></div>
+          <div class="help-desc" data-i18n-html="help.install_app_html">
+            Like MUSIXQUARE? You can install it as an app.
+            <ul class="help-list">
+              <li><strong>iOS:</strong> Share → Add to Home Screen</li>
+              <li><strong>Android:</strong> Menu → Install app</li>
+              <li><strong>Windows:</strong> Install icon in the address bar</li>
+              <li><strong>macOS:</strong> Share → Add to Dock</li>
+            </ul>
+          </div>
         </div>
 
         <div class="help-block">
@@ -689,7 +700,17 @@
             </svg>
             <span data-i18n="help.local_recommended">Local network recommended</span>
           </div>
-          <div class="help-desc" data-i18n-html="help.local_recommended_html">Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul></div>
+          <div class="help-desc" data-i18n-html="help.local_recommended_html">
+            Audio sharing is most stable on the same network.
+            <ul class="help-list">
+              <li>Remote participants can use the same features.</li>
+              <li>
+                Remote participants use Cloudflare paths, so latency may increase or reception may
+                fail depending on network conditions.
+              </li>
+              <li>A VPN or restricted network may make the connection unstable.</li>
+            </ul>
+          </div>
         </div>
 
         <div class="help-block">
@@ -701,7 +722,14 @@
             </svg>
             <span data-i18n="setup.how_to_connect">How to connect</span>
           </div>
-          <div class="help-desc" data-i18n-html="setup.how_to_connect_html">Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I'll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul></div>
+          <div class="help-desc" data-i18n-html="setup.how_to_connect_html">
+            Enter the <strong>6-digit code</strong> from the host to connect.
+            <ul class="help-list">
+              <li><strong>Host:</strong> “I'll be the host” → check code</li>
+              <li><strong>Participant:</strong> “Join a session” → enter code</li>
+              <li>Up to <strong>100 devices, including the host</strong>, can connect.</li>
+            </ul>
+          </div>
         </div>
 
         <div class="help-block">
@@ -713,7 +741,16 @@
             </svg>
             <span data-i18n="player.play_speakers">Use as Speaker</span>
           </div>
-          <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
+          <div class="help-desc" data-i18n-html="player.play_speakers_html">
+            Each participant selects a <strong>role (output channel)</strong>.
+            <ul class="help-list">
+              <li><strong>Center:</strong> Stereo (default) output</li>
+              <li><strong>Left:</strong> L channel output</li>
+              <li><strong>Right:</strong> R channel output</li>
+              <li><strong>Subwoofer:</strong> Low-frequency mix output</li>
+            </ul>
+            You can change roles anytime in <strong>Settings</strong>.
+          </div>
         </div>
 
         <div class="help-block">
@@ -723,7 +760,23 @@
             </svg>
             <span data-i18n="player.play_media_action">Play media</span>
           </div>
-          <div class="help-desc" data-i18n-html="player.play_media_action_html">The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul></div>
+          <div class="help-desc" data-i18n-html="player.play_media_action_html">
+            The host has 3 options.
+            <ul class="help-list">
+              <li>
+                <strong>Load local file:</strong> Pick music from your device. Precise sync
+                supported
+              </li>
+              <li>
+                <strong>YouTube Together:</strong> Videos and playlists supported. No channel split
+                or audio effects
+              </li>
+              <li>
+                <strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based
+                browser on a computer
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div class="help-block">
@@ -742,7 +795,30 @@
             </svg>
             <span data-i18n="help.need_help">Need help?</span>
           </div>
-          <div class="help-desc" data-i18n-html="help.need_help_html"><ul class="help-list"><li><strong>Entered the code but can't connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul></div>
+          <div class="help-desc" data-i18n-html="help.need_help_html">
+            <ul class="help-list">
+              <li>
+                <strong>Entered the code but can't connect:</strong> Check the code and try again
+                shortly. Company, school, or VPN networks may restrict the connection.
+              </li>
+              <li>
+                <strong>Unstable connection:</strong> Local participants should try staying closer
+                to the router, and remote participants should use a stable internet connection.
+              </li>
+              <li>
+                <strong>Other issues:</strong> Check the network status and restart the app on all
+                devices. If you have any questions, please refer to the
+                <a
+                  href="/faq"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >FAQ</a
+                >
+                or contact us via the email at the very bottom.
+              </li>
+            </ul>
+          </div>
         </div>
 
         <button class="accent-action-btn divider-narrower" id="btn-demo-media-mobile">
@@ -758,7 +834,95 @@
           <div class="help-title">
             <span data-i18n="legal.title">Service notes</span>
           </div>
-          <div class="help-desc legal-desc" data-i18n-html="legal.content_html"><strong>Privacy Policy</strong><br><span data-legal-standard-storage>On the same network, most session content goes directly between devices. The signaling server only briefly processes room operation, authentication and reconnection data; some remote or large-session data goes via Cloudflare. Remote files are held for up to 24 hours in private Cloudflare storage; only room participants get temporary download access. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span><span data-legal-pro-storage>PRO rooms store on Cloudflare the session, member, playlist, playback, and upload state needed for operation. Original playlist files stay in private Cloudflare storage; only room participants can download them via short-lived URLs. Files are erased when a room administrator removes them from the playlist or the operator deletes the room data. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service's policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a></div>
+          <div class="help-desc legal-desc" data-i18n-html="legal.content_html">
+            <strong>Privacy Policy</strong><br /><span data-legal-standard-storage
+              >On the same network, most session content goes directly between devices. The
+              signaling server only briefly processes room operation, authentication and
+              reconnection data; some remote or large-session data goes via Cloudflare. Remote files
+              are held for up to 24 hours in private Cloudflare storage; only room participants get
+              temporary download access. MUSIXQUARE accesses, analyzes, or retains data only to
+              provide, run, and secure the service.</span
+            ><span data-legal-pro-storage
+              >PRO rooms store on Cloudflare the session, member, playlist, playback, and upload
+              state needed for operation. Original playlist files stay in private Cloudflare
+              storage; only room participants can download them via short-lived URLs. Files are
+              erased when a room administrator removes them from the playlist or the operator
+              deletes the room data. MUSIXQUARE accesses, analyzes, or retains data only to provide,
+              run, and secure the service.</span
+            >
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color: inherit; text-decoration: underline"
+              >Learn more</a
+            ><br /><br /><strong>Copyright Notice</strong><br />Content shared through MUSIXQUARE
+            belongs to the respective rights holders. System audio sharing and file sharing are
+            intended for personal use. Users are responsible for unauthorized distribution or public
+            transmission of copyrighted content. YouTube sharing uses the official playback method,
+            and views and rights handling follow that service's policies and rights-holder settings.
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color: inherit; text-decoration: underline"
+              >Learn more</a
+            ><br /><br /><strong>Disclaimer</strong><br />MUSIXQUARE is provided free of charge.
+            Some features rely on external services such as YouTube or Cloudflare, so temporary
+            limitations may occur if those services change or go offline. Real-time audio sync and
+            remote sharing quality can vary greatly depending on the network, browser policy, and
+            device performance. Mobile data charges may apply when not on Wi-Fi.
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color: inherit; text-decoration: underline"
+              >Learn more</a
+            ><br /><br /><strong>© 2026 MUSIXQUARE</strong><br /><a
+              href="/about"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color: inherit; text-decoration: underline"
+              >About</a
+            >
+            ·
+            <a
+              href="/history"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color: inherit; text-decoration: underline"
+              >History</a
+            >
+            ·
+            <a
+              href="/designsystem"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color: inherit; text-decoration: underline"
+              >Design System</a
+            >
+            ·
+            <a
+              href="https://github.com/hiefny/MUSIXQUARE"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color: inherit; text-decoration: underline"
+              >GitHub</a
+            >
+            ·
+            <a
+              href="https://discord.gg/PmmFhGTBsX"
+              target="_blank"
+              rel="noopener noreferrer"
+              style="color: inherit; text-decoration: underline"
+              >Discord</a
+            ><br /><a
+              href="mailto:contact@musixquare.com"
+              data-copy-email="contact@musixquare.com"
+              style="color: inherit; text-decoration: none"
+              >contact@musixquare.com</a
+            >
+          </div>
         </div>
       </div>
     </div>
@@ -793,7 +957,9 @@
           aria-controls="settings-subtab-panel-general"
           aria-pressed="true"
           data-i18n="settings.subtab.general"
-        >General</button>
+        >
+          General
+        </button>
         <button
           type="button"
           id="settings-subtab-audio"
@@ -802,7 +968,9 @@
           aria-controls="settings-subtab-panel-audio"
           aria-pressed="false"
           data-i18n="settings.subtab.audio"
-        >Audio</button>
+        >
+          Audio
+        </button>
         <button
           type="button"
           id="settings-subtab-connect"
@@ -811,7 +979,9 @@
           aria-controls="settings-subtab-panel-connect"
           aria-pressed="false"
           data-i18n="settings.subtab.connect"
-        >Connect</button>
+        >
+          Connect
+        </button>
         <button
           type="button"
           id="settings-subtab-help"
@@ -820,7 +990,9 @@
           aria-controls="settings-subtab-panel-help"
           aria-pressed="false"
           data-i18n="settings.subtab.help"
-        >Help</button>
+        >
+          Help
+        </button>
       </div>
 
       <div class="tab-body" data-custom-scroll>
@@ -831,17 +1003,17 @@
         >
           <div class="section-group" id="settings-language-section">
             <div class="section-header-row">
-              <span
-                class="section-title"
-                id="settings-language-title"
-                data-i18n="settings.language"
-              >Language Settings</span>
+              <span class="section-title" id="settings-language-title" data-i18n="settings.language"
+                >Language Settings</span
+              >
             </div>
             <p
               class="settings-option-description"
               id="settings-language-description"
               data-i18n="settings.language_desc"
-            >Choose a language or follow your system language.</p>
+            >
+              Choose a language or follow your system language.
+            </p>
             <div
               class="channel-grid language-mode-grid"
               id="grid-lang"
@@ -912,17 +1084,17 @@
 
           <div class="section-group" id="theme-section">
             <div class="section-header-row">
-              <span
-                class="section-title"
-                id="settings-theme-title"
-                data-i18n="settings.theme"
-              >Theme</span>
+              <span class="section-title" id="settings-theme-title" data-i18n="settings.theme"
+                >Theme</span
+              >
             </div>
             <p
               class="settings-option-description"
               id="settings-theme-description"
               data-i18n="settings.theme_desc"
-            >Choose a light or dark theme.</p>
+            >
+              Choose a light or dark theme.
+            </p>
             <div
               class="channel-grid"
               id="grid-theme"
@@ -955,13 +1127,16 @@
                 class="section-title"
                 id="settings-ui-sounds-title"
                 data-i18n="settings.ui_sounds"
-              >UI Sounds</span>
+                >UI Sounds</span
+              >
             </div>
             <p
               class="settings-option-description"
               id="settings-ui-sounds-description"
               data-i18n="settings.ui_sounds_desc"
-            >Turn notification, join and leave, and touch sounds on or off.</p>
+            >
+              Turn notification, join and leave, and touch sounds on or off.
+            </p>
             <div
               class="channel-grid"
               id="grid-ui-sounds"
@@ -1006,13 +1181,16 @@
                 class="section-title"
                 id="settings-sync-title"
                 data-i18n="settings.sync_settings"
-              >Settings sync</span>
+                >Settings sync</span
+              >
             </div>
             <p
               class="settings-option-description"
               id="settings-sync-description"
               data-i18n="settings.sync_settings_desc"
-            >Devices with this setting on sync their volume and audio effects.</p>
+            >
+              Devices with this setting on sync their volume and audio effects.
+            </p>
             <div
               class="channel-grid"
               id="grid-settings-sync"
@@ -1052,17 +1230,17 @@
             id="youtube-settings-note"
             role="note"
             data-i18n="help.youtube_no_effects"
-          >In YouTube mode, role settings and audio effects are unavailable.</div>
+          >
+            In YouTube mode, role settings and audio effects are unavailable.
+          </div>
 
           <!-- File-only role/effect controls are disabled while YouTube owns playback. -->
           <div id="youtube-settings-disabled-wrap" class="youtube-settings-disabled-wrap">
             <div class="section-group">
               <div class="section-header-row">
-                <span
-                  class="section-title"
-                  id="settings-role-title"
-                  data-i18n="setup.set_role"
-                >Set this device's role</span>
+                <span class="section-title" id="settings-role-title" data-i18n="setup.set_role"
+                  >Set this device's role</span
+                >
               </div>
 
               <p
@@ -1071,8 +1249,9 @@
                 data-i18n="settings.role_center_desc"
                 aria-live="polite"
                 aria-atomic="true"
-              >This device is acting as the center speaker.
-Place it in the center.</p>
+              >
+                This device is acting as the center speaker. Place it in the center.
+              </p>
 
               <div
                 class="setup-graphic-container settings-role-diagram"
@@ -1196,7 +1375,8 @@ Place it in the center.</p>
                   class="section-title"
                   id="settings-reverb-title"
                   data-i18n="settings.reverb_title"
-                >Reverb</span>
+                  >Reverb</span
+                >
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
@@ -1218,7 +1398,9 @@ Place it in the center.</p>
                 class="settings-option-description"
                 id="settings-reverb-description"
                 data-i18n="settings.reverb_desc"
-              >Adjust the sound's reverb and resonance.</p>
+              >
+                Adjust the sound's reverb and resonance.
+              </p>
               <div
                 class="channel-grid"
                 id="grid-reverb"
@@ -1260,8 +1442,10 @@ Place it in the center.</p>
                   <div class="slider-header">
                     <span
                       ><span data-i18n="common.mix">Mix</span>
-                      <span class="role-hint-label" data-i18n="settings.default_0pct">Default 0%</span
-                    ></span>
+                      <span class="role-hint-label" data-i18n="settings.default_0pct"
+                        >Default 0%</span
+                      ></span
+                    >
                     <span class="val-disp" id="val-reverb">0%</span>
                   </div>
                   <input
@@ -1279,8 +1463,10 @@ Place it in the center.</p>
                   <div class="slider-header">
                     <span
                       ><span data-i18n="settings.decay_time">Decay time</span>
-                      <span class="role-hint-label" data-i18n="settings.default_5s">Default 5.0s</span
-                    ></span>
+                      <span class="role-hint-label" data-i18n="settings.default_5s"
+                        >Default 5.0s</span
+                      ></span
+                    >
                     <span class="val-disp" id="val-rvb-decay">5.0s</span>
                   </div>
                   <input
@@ -1299,8 +1485,10 @@ Place it in the center.</p>
                   <div class="slider-header">
                     <span
                       ><span data-i18n="settings.predelay">Pre-delay</span>
-                      <span class="role-hint-label" data-i18n="settings.default_01s">Default 0.1s</span
-                    ></span>
+                      <span class="role-hint-label" data-i18n="settings.default_01s"
+                        >Default 0.1s</span
+                      ></span
+                    >
                     <span class="val-disp" id="val-rvb-predelay">0.1s</span>
                   </div>
                   <input
@@ -1319,8 +1507,10 @@ Place it in the center.</p>
                   <div class="slider-header">
                     <span
                       ><span data-i18n="settings.highpass">High-pass</span>
-                      <span class="role-hint-label" data-i18n="settings.default_20hz">Default 20Hz</span
-                    ></span>
+                      <span class="role-hint-label" data-i18n="settings.default_20hz"
+                        >Default 20Hz</span
+                      ></span
+                    >
                     <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
                   </div>
                   <input
@@ -1339,8 +1529,10 @@ Place it in the center.</p>
                   <div class="slider-header">
                     <span
                       ><span data-i18n="settings.lowpass">Low-pass</span>
-                      <span class="role-hint-label" data-i18n="settings.default_20khz">Default 20.0kHz</span
-                    ></span>
+                      <span class="role-hint-label" data-i18n="settings.default_20khz"
+                        >Default 20.0kHz</span
+                      ></span
+                    >
                     <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
                   </div>
                   <input
@@ -1359,11 +1551,9 @@ Place it in the center.</p>
 
             <div class="section-group">
               <div class="section-header-row">
-                <span
-                  class="section-title"
-                  id="settings-eq-title"
-                  data-i18n="settings.eq_title"
-                >Equalizer</span>
+                <span class="section-title" id="settings-eq-title" data-i18n="settings.eq_title"
+                  >Equalizer</span
+                >
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
@@ -1385,7 +1575,9 @@ Place it in the center.</p>
                 class="settings-option-description"
                 id="settings-eq-description"
                 data-i18n="settings.eq_desc"
-              >Adjust the tone of the sound. Use it together with the volume control.</p>
+              >
+                Adjust the tone of the sound. Use it together with the volume control.
+              </p>
               <div
                 class="channel-grid"
                 id="grid-eq"
@@ -1499,7 +1691,8 @@ Place it in the center.</p>
                   class="section-title"
                   id="settings-virtual-effects-title"
                   data-i18n="settings.virtual_effects_title"
-                >Virtual effects</span>
+                  >Virtual effects</span
+                >
                 <span class="settings-sync-indicator-slot">
                   <button
                     type="button"
@@ -1521,7 +1714,9 @@ Place it in the center.</p>
                 class="settings-option-description"
                 id="settings-virtual-effects-description"
                 data-i18n="settings.virtual_effects_desc"
-              >Apply synthesized effects to the audio. This may cause heavy distortion.</p>
+              >
+                Apply synthesized effects to the audio. This may cause heavy distortion.
+              </p>
               <div
                 class="channel-grid virtual-effects-grid"
                 id="grid-virtual-effects"
@@ -1588,7 +1783,9 @@ Place it in the center.</p>
             <!-- Desktop mirrors the mobile connection list rendered in #tab-connect. -->
             <div class="section-group settings-device-section">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="settings.devices_title">Connected Devices</span>
+                <span class="section-title" data-i18n="settings.devices_title"
+                  >Connected Devices</span
+                >
               </div>
               <div id="device-list"></div>
             </div>
@@ -1600,7 +1797,9 @@ Place it in the center.</p>
           <div id="desktop-connect-content">
             <div class="section-group">
               <div class="section-header-row">
-                <span class="section-title" data-i18n="connect.qr_title">Invite via QR or Link</span>
+                <span class="section-title" data-i18n="connect.qr_title"
+                  >Invite via QR or Link</span
+                >
               </div>
               <div id="desktop-qr-container" class="qr-container">
                 <p class="qr-placeholder" data-i18n="connect.no_session">Start a session first</p>
@@ -1690,7 +1889,15 @@ Place it in the center.</p>
                 </svg>
                 <span data-i18n="help.install_app">Install Web App</span>
               </div>
-              <div class="help-desc" data-i18n-html="help.install_app_html">Like MUSIXQUARE? You can install it as an app.<ul class="help-list"><li><strong>iOS:</strong> Share → Add to Home Screen</li><li><strong>Android:</strong> Menu → Install app</li><li><strong>Windows:</strong> Install icon in the address bar</li><li><strong>macOS:</strong> Share → Add to Dock</li></ul></div>
+              <div class="help-desc" data-i18n-html="help.install_app_html">
+                Like MUSIXQUARE? You can install it as an app.
+                <ul class="help-list">
+                  <li><strong>iOS:</strong> Share → Add to Home Screen</li>
+                  <li><strong>Android:</strong> Menu → Install app</li>
+                  <li><strong>Windows:</strong> Install icon in the address bar</li>
+                  <li><strong>macOS:</strong> Share → Add to Dock</li>
+                </ul>
+              </div>
             </div>
 
             <div class="help-block">
@@ -1702,7 +1909,17 @@ Place it in the center.</p>
                 </svg>
                 <span data-i18n="help.local_recommended">Local network recommended</span>
               </div>
-              <div class="help-desc" data-i18n-html="help.local_recommended_html">Audio sharing is most stable on the same network.<ul class="help-list"><li>Remote participants can use the same features.</li><li>Remote participants use Cloudflare paths, so latency may increase or reception may fail depending on network conditions.</li><li>A VPN or restricted network may make the connection unstable.</li></ul></div>
+              <div class="help-desc" data-i18n-html="help.local_recommended_html">
+                Audio sharing is most stable on the same network.
+                <ul class="help-list">
+                  <li>Remote participants can use the same features.</li>
+                  <li>
+                    Remote participants use Cloudflare paths, so latency may increase or reception
+                    may fail depending on network conditions.
+                  </li>
+                  <li>A VPN or restricted network may make the connection unstable.</li>
+                </ul>
+              </div>
             </div>
 
             <div class="help-block">
@@ -1714,7 +1931,14 @@ Place it in the center.</p>
                 </svg>
                 <span data-i18n="setup.how_to_connect">How to connect</span>
               </div>
-              <div class="help-desc" data-i18n-html="setup.how_to_connect_html">Enter the <strong>6-digit code</strong> from the host to connect.<ul class="help-list"><li><strong>Host:</strong> “I'll be the host” → check code</li><li><strong>Participant:</strong> “Join a session” → enter code</li><li>Up to <strong>100 devices, including the host</strong>, can connect.</li></ul></div>
+              <div class="help-desc" data-i18n-html="setup.how_to_connect_html">
+                Enter the <strong>6-digit code</strong> from the host to connect.
+                <ul class="help-list">
+                  <li><strong>Host:</strong> “I'll be the host” → check code</li>
+                  <li><strong>Participant:</strong> “Join a session” → enter code</li>
+                  <li>Up to <strong>100 devices, including the host</strong>, can connect.</li>
+                </ul>
+              </div>
             </div>
 
             <div class="help-block">
@@ -1726,7 +1950,16 @@ Place it in the center.</p>
                 </svg>
                 <span data-i18n="player.play_speakers">Use as Speaker</span>
               </div>
-              <div class="help-desc" data-i18n-html="player.play_speakers_html">Each participant selects a <strong>role (output channel)</strong>.<ul class="help-list"><li><strong>Center:</strong> Stereo (default) output</li><li><strong>Left:</strong> L channel output</li><li><strong>Right:</strong> R channel output</li><li><strong>Subwoofer:</strong> Low-frequency mix output</li></ul>You can change roles anytime in <strong>Settings</strong>.</div>
+              <div class="help-desc" data-i18n-html="player.play_speakers_html">
+                Each participant selects a <strong>role (output channel)</strong>.
+                <ul class="help-list">
+                  <li><strong>Center:</strong> Stereo (default) output</li>
+                  <li><strong>Left:</strong> L channel output</li>
+                  <li><strong>Right:</strong> R channel output</li>
+                  <li><strong>Subwoofer:</strong> Low-frequency mix output</li>
+                </ul>
+                You can change roles anytime in <strong>Settings</strong>.
+              </div>
             </div>
 
             <div class="help-block">
@@ -1736,7 +1969,23 @@ Place it in the center.</p>
                 </svg>
                 <span data-i18n="player.play_media_action">Play media</span>
               </div>
-              <div class="help-desc" data-i18n-html="player.play_media_action_html">The host has 3 options.<ul class="help-list"><li><strong>Load local file:</strong> Pick music from your device. Precise sync supported</li><li><strong>YouTube Together:</strong> Videos and playlists supported. No channel split or audio effects</li><li><strong>System Audio Sharing:</strong> Available when the host uses a Chromium-based browser on a computer</li></ul></div>
+              <div class="help-desc" data-i18n-html="player.play_media_action_html">
+                The host has 3 options.
+                <ul class="help-list">
+                  <li>
+                    <strong>Load local file:</strong> Pick music from your device. Precise sync
+                    supported
+                  </li>
+                  <li>
+                    <strong>YouTube Together:</strong> Videos and playlists supported. No channel
+                    split or audio effects
+                  </li>
+                  <li>
+                    <strong>System Audio Sharing:</strong> Available when the host uses a
+                    Chromium-based browser on a computer
+                  </li>
+                </ul>
+              </div>
             </div>
 
             <div class="help-block">
@@ -1755,7 +2004,31 @@ Place it in the center.</p>
                 </svg>
                 <span data-i18n="help.need_help">Need help?</span>
               </div>
-              <div class="help-desc" data-i18n-html="help.need_help_html"><ul class="help-list"><li><strong>Entered the code but can't connect:</strong> Check the code and try again shortly. Company, school, or VPN networks may restrict the connection.</li><li><strong>Unstable connection:</strong> Local participants should try staying closer to the router, and remote participants should use a stable internet connection.</li><li><strong>Other issues:</strong> Check the network status and restart the app on all devices. If you have any questions, please refer to the <a href="/faq" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">FAQ</a> or contact us via the email at the very bottom.</li></ul></div>
+              <div class="help-desc" data-i18n-html="help.need_help_html">
+                <ul class="help-list">
+                  <li>
+                    <strong>Entered the code but can't connect:</strong> Check the code and try
+                    again shortly. Company, school, or VPN networks may restrict the connection.
+                  </li>
+                  <li>
+                    <strong>Unstable connection:</strong> Local participants should try staying
+                    closer to the router, and remote participants should use a stable internet
+                    connection.
+                  </li>
+                  <li>
+                    <strong>Other issues:</strong> Check the network status and restart the app on
+                    all devices. If you have any questions, please refer to the
+                    <a
+                      href="/faq"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style="color: inherit; text-decoration: underline"
+                      >FAQ</a
+                    >
+                    or contact us via the email at the very bottom.
+                  </li>
+                </ul>
+              </div>
             </div>
 
             <button class="accent-action-btn divider-narrow" id="btn-demo-media">
@@ -1771,7 +2044,96 @@ Place it in the center.</p>
               <div class="help-title">
                 <span data-i18n="legal.title">Service notes</span>
               </div>
-              <div class="help-desc legal-desc" data-i18n-html="legal.content_html"><strong>Privacy Policy</strong><br><span data-legal-standard-storage>On the same network, most session content goes directly between devices. The signaling server only briefly processes room operation, authentication and reconnection data; some remote or large-session data goes via Cloudflare. Remote files are held for up to 24 hours in private Cloudflare storage; only room participants get temporary download access. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span><span data-legal-pro-storage>PRO rooms store on Cloudflare the session, member, playlist, playback, and upload state needed for operation. Original playlist files stay in private Cloudflare storage; only room participants can download them via short-lived URLs. Files are erased when a room administrator removes them from the playlist or the operator deletes the room data. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Copyright Notice</strong><br>Content shared through MUSIXQUARE belongs to the respective rights holders. System audio sharing and file sharing are intended for personal use. Users are responsible for unauthorized distribution or public transmission of copyrighted content. YouTube sharing uses the official playback method, and views and rights handling follow that service's policies and rights-holder settings. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>Disclaimer</strong><br>MUSIXQUARE is provided free of charge. Some features rely on external services such as YouTube or Cloudflare, so temporary limitations may occur if those services change or go offline. Real-time audio sync and remote sharing quality can vary greatly depending on the network, browser policy, and device performance. Mobile data charges may apply when not on Wi-Fi. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Learn more</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a></div>
+              <div class="help-desc legal-desc" data-i18n-html="legal.content_html">
+                <strong>Privacy Policy</strong><br /><span data-legal-standard-storage
+                  >On the same network, most session content goes directly between devices. The
+                  signaling server only briefly processes room operation, authentication and
+                  reconnection data; some remote or large-session data goes via Cloudflare. Remote
+                  files are held for up to 24 hours in private Cloudflare storage; only room
+                  participants get temporary download access. MUSIXQUARE accesses, analyzes, or
+                  retains data only to provide, run, and secure the service.</span
+                ><span data-legal-pro-storage
+                  >PRO rooms store on Cloudflare the session, member, playlist, playback, and upload
+                  state needed for operation. Original playlist files stay in private Cloudflare
+                  storage; only room participants can download them via short-lived URLs. Files are
+                  erased when a room administrator removes them from the playlist or the operator
+                  deletes the room data. MUSIXQUARE accesses, analyzes, or retains data only to
+                  provide, run, and secure the service.</span
+                >
+                <a
+                  href="/privacy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >Learn more</a
+                ><br /><br /><strong>Copyright Notice</strong><br />Content shared through
+                MUSIXQUARE belongs to the respective rights holders. System audio sharing and file
+                sharing are intended for personal use. Users are responsible for unauthorized
+                distribution or public transmission of copyrighted content. YouTube sharing uses the
+                official playback method, and views and rights handling follow that service's
+                policies and rights-holder settings.
+                <a
+                  href="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >Learn more</a
+                ><br /><br /><strong>Disclaimer</strong><br />MUSIXQUARE is provided free of charge.
+                Some features rely on external services such as YouTube or Cloudflare, so temporary
+                limitations may occur if those services change or go offline. Real-time audio sync
+                and remote sharing quality can vary greatly depending on the network, browser
+                policy, and device performance. Mobile data charges may apply when not on Wi-Fi.
+                <a
+                  href="/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >Learn more</a
+                ><br /><br /><strong>© 2026 MUSIXQUARE</strong><br /><a
+                  href="/about"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >About</a
+                >
+                ·
+                <a
+                  href="/history"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >History</a
+                >
+                ·
+                <a
+                  href="/designsystem"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >Design System</a
+                >
+                ·
+                <a
+                  href="https://github.com/hiefny/MUSIXQUARE"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >GitHub</a
+                >
+                ·
+                <a
+                  href="https://discord.gg/PmmFhGTBsX"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style="color: inherit; text-decoration: underline"
+                  >Discord</a
+                ><br /><a
+                  href="mailto:contact@musixquare.com"
+                  data-copy-email="contact@musixquare.com"
+                  style="color: inherit; text-decoration: none"
+                  >contact@musixquare.com</a
+                >
+              </div>
             </div>
           </div>
         </div>
@@ -1827,7 +2189,9 @@ Place it in the center.</p>
         </div>
       </div>
       <div class="chat-scroll-wrapper">
-        <span id="chat-copy-hint" class="sr-only" data-i18n="chat.copy_hint">Press Enter to copy this chat message</span>
+        <span id="chat-copy-hint" class="sr-only" data-i18n="chat.copy_hint"
+          >Press Enter to copy this chat message</span
+        >
         <div
           class="chat-drawer-messages"
           id="chat-messages"
@@ -1836,7 +2200,9 @@ Place it in the center.</p>
           tabindex="-1"
           data-custom-scroll
         >
-          <div class="chat-empty" data-i18n-html="chat.empty_html">No messages yet.<br>Send the first message!</div>
+          <div class="chat-empty" data-i18n-html="chat.empty_html">
+            No messages yet.<br />Send the first message!
+          </div>
         </div>
         <button
           class="chat-scroll-down-btn"
@@ -2033,7 +2399,9 @@ Place it in the center.</p>
               <rect x="237.2311266" y="21.7594598" width="13.5" height="4.5" />
               <rect x="237.2337931" y="30.7587928" width="18" height="4.5" />
             </svg>
-            <p class="brand-tagline" data-i18n-html="setup.brand_tagline_html">Listen together, anywhere<br>The perfect sound experience</p>
+            <p class="brand-tagline" data-i18n-html="setup.brand_tagline_html">
+              Listen together, anywhere<br />The perfect sound experience
+            </p>
           </div>
           <!-- JS mirrors the active setup step into the desktop presentation panel. -->
           <div id="desktop-step-header" class="desktop-step-header"></div>
@@ -2441,7 +2809,9 @@ Place it in the center.</p>
                   </h2>
                 </div>
               </div>
-              <p class="setup-role-prompt" data-i18n="setup.hello_select_role">Create a room or join one.</p>
+              <p class="setup-role-prompt" data-i18n="setup.hello_select_role">
+                Create a room or join one.
+              </p>
             </div>
 
             <div id="ob-slider-area" class="ob-slider-block">
@@ -2457,7 +2827,10 @@ Place it in the center.</p>
                       </svg>
                     </div>
                     <div class="ob-title" data-i18n="settings.invite_share">Invite &amp; Share</div>
-                    <div class="ob-desc" data-i18n-html="setup.invite_share_desc_html">Connect multiple devices wirelessly<br>to create a massive audio system.<br>Use a 6-digit invitation code to connect.</div>
+                    <div class="ob-desc" data-i18n-html="setup.invite_share_desc_html">
+                      Connect multiple devices wirelessly<br />to create a massive audio system.<br />Use
+                      a 6-digit invitation code to connect.
+                    </div>
                   </div>
                   <!-- Slide 2: Sync -->
                   <div class="ob-slide" aria-hidden="true" inert>
@@ -2469,7 +2842,10 @@ Place it in the center.</p>
                       </svg>
                     </div>
                     <div class="ob-title" data-i18n="player.play_together">Play in Sync</div>
-                    <div class="ob-desc" data-i18n-html="setup.play_together_desc_html">When the host plays media,<br>all connected devices play in sync.<br>Press the sync button to align.</div>
+                    <div class="ob-desc" data-i18n-html="setup.play_together_desc_html">
+                      When the host plays media,<br />all connected devices play in sync.<br />Press
+                      the sync button to align.
+                    </div>
                   </div>
                   <!-- Slide 3: Surround -->
                   <div class="ob-slide" aria-hidden="true" inert>
@@ -2482,7 +2858,10 @@ Place it in the center.</p>
                       </svg>
                     </div>
                     <div class="ob-title" data-i18n="settings.spatial_audio">Spatial audio</div>
-                    <div class="ob-desc" data-i18n-html="setup.spatial_audio_desc_html">Set the role for each device.<br>Play left and right audio separately<br>and feel deep bass from the woofer.</div>
+                    <div class="ob-desc" data-i18n-html="setup.spatial_audio_desc_html">
+                      Set the role for each device.<br />Play left and right audio separately<br />and
+                      feel deep bass from the woofer.
+                    </div>
                   </div>
                   <!-- Slide 4: Advanced Audio -->
                   <div class="ob-slide" aria-hidden="true" inert>
@@ -2492,7 +2871,10 @@ Place it in the center.</p>
                       </svg>
                     </div>
                     <div class="ob-title" data-i18n="settings.advanced_audio">Advanced audio</div>
-                    <div class="ob-desc" data-i18n-html="setup.advanced_audio_desc_html">Match the host's settings<br>with reverb, EQ, virtual effects,<br>and more across the system.</div>
+                    <div class="ob-desc" data-i18n-html="setup.advanced_audio_desc_html">
+                      Match the host's settings<br />with reverb, EQ, virtual effects,<br />and more
+                      across the system.
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2602,7 +2984,9 @@ Place it in the center.</p>
                 class="setup-code-label"
                 id="setup-host-code-label"
                 data-i18n="setup.enter_code_connect"
-              >Invitation code</div>
+              >
+                Invitation code
+              </div>
               <input
                 type="text"
                 class="setup-join-input code-input-active"
@@ -2671,7 +3055,9 @@ Place it in the center.</p>
               </div>
             </div>
             <div class="setup-code-area-bottom">
-              <div class="setup-code-label" data-i18n="setup.enter_host_code">Enter invitation code</div>
+              <div class="setup-code-label" data-i18n="setup.enter_host_code">
+                Enter invitation code
+              </div>
               <input
                 type="text"
                 class="setup-join-input"
@@ -2873,13 +3259,12 @@ Place it in the center.</p>
             id="btn-dialog-secondary"
             hidden
             data-i18n="common.cancel"
-          >Cancel</button>
-          <button
-            type="button"
-            class="dialog-primary"
-            id="btn-dialog-ok"
-            data-i18n="common.ok"
-          >OK</button>
+          >
+            Cancel
+          </button>
+          <button type="button" class="dialog-primary" id="btn-dialog-ok" data-i18n="common.ok">
+            OK
+          </button>
         </div>
       </div>
     </div>
@@ -2997,19 +3382,13 @@ Place it in the center.</p>
             hidden
           ></button>
           <nav class="account-legal-links" id="account-legal-links" hidden>
-            <a
-              href="/terms"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-i18n="account.terms"
-            >Terms</a>
+            <a href="/terms" target="_blank" rel="noopener noreferrer" data-i18n="account.terms"
+              >Terms</a
+            >
             <span aria-hidden="true">·</span>
-            <a
-              href="/privacy"
-              target="_blank"
-              rel="noopener noreferrer"
-              data-i18n="account.privacy"
-            >Privacy</a>
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" data-i18n="account.privacy"
+              >Privacy</a
+            >
           </nav>
         </div>
         <dl
@@ -3020,15 +3399,21 @@ Place it in the center.</p>
           hidden
         >
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-sessions-label" data-i18n="account.stats_sessions_label">Sessions joined</dt>
+            <dt id="account-stats-sessions-label" data-i18n="account.stats_sessions_label">
+              Sessions joined
+            </dt>
             <dd id="account-stats-session-count">-</dd>
           </div>
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-listening-label" data-i18n="account.stats_listening_label">Listening time</dt>
+            <dt id="account-stats-listening-label" data-i18n="account.stats_listening_label">
+              Listening time
+            </dt>
             <dd id="account-stats-listening-time">-</dd>
           </div>
           <div class="account-dialog-stat-row">
-            <dt id="account-stats-tracks-label" data-i18n="account.stats_tracks_label">Media played</dt>
+            <dt id="account-stats-tracks-label" data-i18n="account.stats_tracks_label">
+              Media played
+            </dt>
             <dd id="account-stats-track-count">-</dd>
           </div>
         </dl>
@@ -3090,7 +3475,8 @@ Place it in the center.</p>
                 class="administrator-permission-inherited"
                 hidden
                 data-i18n="connect.permission_inherited"
-              >Included</small>
+                >Included</small
+              >
             </span>
             <span class="administrator-permission-toggle" aria-hidden="true">
               <span class="administrator-permission-toggle-knob"></span>
@@ -3127,13 +3513,17 @@ Place it in the center.</p>
             class="dialog-secondary"
             id="btn-administrator-permissions-cancel"
             data-i18n="common.cancel"
-          >Cancel</button>
+          >
+            Cancel
+          </button>
           <button
             type="button"
             class="dialog-primary"
             id="btn-administrator-permissions-save"
             data-i18n="common.done"
-          >Done</button>
+          >
+            Done
+          </button>
         </div>
       </div>
     </div>
@@ -3154,7 +3544,8 @@ Place it in the center.</p>
             class="dialog-title"
             id="language-dialog-title"
             data-i18n="settings.language_dialog_title"
-          >Select Language</span>
+            >Select Language</span
+          >
           <span
             class="feature-badge media-source-beta-badge language-dialog-beta-badge"
             aria-label="Beta"
@@ -3180,7 +3571,9 @@ Place it in the center.</p>
             class="dialog-primary"
             id="btn-language-dialog-done"
             data-i18n="common.done"
-          >Done</button>
+          >
+            Done
+          </button>
         </div>
       </div>
     </div>
@@ -3235,7 +3628,11 @@ Place it in the center.</p>
 
     <div id="demo-overlay" class="demo-overlay" aria-hidden="true" data-nosnippet>
       <div class="demo-mobile-shell">
-        <section class="demo-visual-stage" aria-label="Audio visualizer" data-i18n-aria-label="player.visualizer">
+        <section
+          class="demo-visual-stage"
+          aria-label="Audio visualizer"
+          data-i18n-aria-label="player.visualizer"
+        >
           <div id="demo-visualizer-slot" class="demo-visualizer-slot"></div>
           <div class="demo-track-header">
             <button
@@ -3259,7 +3656,11 @@ Place it in the center.</p>
               <div class="demo-track-artist">© Brett Taylor</div>
             </div>
           </div>
-          <div class="demo-step-nav" aria-label="Demo steps" data-i18n-aria-label="demo.step_nav_label">
+          <div
+            class="demo-step-nav"
+            aria-label="Demo steps"
+            data-i18n-aria-label="demo.step_nav_label"
+          >
             <button type="button" class="active" data-demo-step="1" aria-pressed="true">
               <span data-i18n="demo.step_connect">1. Connect</span>
             </button>
@@ -3407,7 +3808,9 @@ Place it in the center.</p>
             <article class="demo-step-panel" data-demo-panel="3">
               <div class="demo-step-copy">
                 <h2 data-i18n="demo.effects_step_title">Craft your premium sound.</h2>
-                <p data-i18n="demo.effects_step_subtitle">You can fine-tune these advanced acoustics anytime in Settings.</p>
+                <p data-i18n="demo.effects_step_subtitle">
+                  You can fine-tune these advanced acoustics anytime in Settings.
+                </p>
               </div>
               <div class="demo-step-content demo-effects-content">
                 <div class="demo-large-actions">
@@ -3471,7 +3874,9 @@ Place it in the center.</p>
             <article class="demo-step-panel" data-demo-panel="4">
               <div class="demo-step-copy">
                 <h2 data-i18n="demo.finish_step_title">You're all set!</h2>
-                <p data-i18n="demo.finish_step_subtitle">Jump right in and start playing together.</p>
+                <p data-i18n="demo.finish_step_subtitle">
+                  Jump right in and start playing together.
+                </p>
               </div>
               <div class="demo-step-content demo-finish-content">
                 <div
@@ -3532,8 +3937,12 @@ Place it in the center.</p>
     >
       <div class="onboarding-card setup-card full-screen">
         <div class="setup-header-text">
-          <h2 id="media-source-dialog-title" data-i18n="player.select_media">Select media to play</h2>
-          <p data-i18n="help.media_synced_detail">The selected media plays simultaneously on all connected devices.</p>
+          <h2 id="media-source-dialog-title" data-i18n="player.select_media">
+            Select media to play
+          </h2>
+          <p data-i18n="help.media_synced_detail">
+            The selected media plays simultaneously on all connected devices.
+          </p>
         </div>
 
         <div class="setup-slot-list" data-custom-scroll data-custom-scroll-contained>
@@ -3581,7 +3990,9 @@ Place it in the center.</p>
               </span>
             </div>
             <span class="media-source-label-row">
-              <span class="media-source-label-text" data-i18n="system_audio.button">System Audio</span>
+              <span class="media-source-label-text" data-i18n="system_audio.button"
+                >System Audio</span
+              >
               <span class="feature-badge media-source-beta-badge" aria-label="Beta">BETA</span>
             </span>
           </button>
@@ -3592,7 +4003,9 @@ Place it in the center.</p>
             class="btn-ob-secondary flex-1"
             id="btn-close-media-popup"
             data-i18n="common.close"
-          >Close</button>
+          >
+            Close
+          </button>
         </div>
       </div>
     </div>
@@ -3607,8 +4020,12 @@ Place it in the center.</p>
     >
       <div class="onboarding-card setup-card full-screen">
         <div class="setup-header-text">
-          <h2 id="youtube-url-dialog-title" data-i18n="youtube.watch_together">Watch YouTube together</h2>
-          <p data-i18n-html="youtube.enter_link_desc_html">Only public videos or playlists can be played.</p>
+          <h2 id="youtube-url-dialog-title" data-i18n="youtube.watch_together">
+            Watch YouTube together
+          </h2>
+          <p data-i18n-html="youtube.enter_link_desc_html">
+            Only public videos or playlists can be played.
+          </p>
         </div>
 
         <div class="setup-join-area setup-mt-0" data-custom-scroll data-custom-scroll-contained>
@@ -3617,6 +4034,7 @@ Place it in the center.</p>
               contenteditable="true"
               id="youtube-url-input"
               class="setup-join-input yt-intro-text"
+              dir="auto"
               role="textbox"
               aria-label="Enter YouTube link or search"
               aria-describedby="youtube-preview-status"
@@ -3671,21 +4089,23 @@ Place it in the center.</p>
             aria-live="polite"
             aria-atomic="true"
             data-i18n="youtube.enter_link_prompt"
-          >Enter a YouTube search term or link</p>
+          >
+            Enter a YouTube search term or link
+          </p>
         </div>
 
         <div class="ob-actions setup-card-mt-8-row">
-          <button
-            class="btn-ob-secondary flex-1"
-            id="btn-yt-cancel"
-            data-i18n="common.cancel"
-          >Cancel</button>
+          <button class="btn-ob-secondary flex-1" id="btn-yt-cancel" data-i18n="common.cancel">
+            Cancel
+          </button>
           <button
             id="youtube-play-btn"
             class="btn-ob-primary yt-play-btn-flex15"
             disabled
             data-i18n="player.play_start"
-          >Add to Queue</button>
+          >
+            Add to Queue
+          </button>
         </div>
       </div>
     </div>

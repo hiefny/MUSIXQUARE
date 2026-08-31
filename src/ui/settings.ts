@@ -40,6 +40,7 @@ import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { hasLocaleFont, preloadLocaleFontGlyphs } from '../i18n/locale-fonts.ts';
+import { languageDirection } from '../i18n/locales.ts';
 import { isSettingsSyncEnabled, setSettingsSyncEnabled } from '../audio/effects.ts';
 import { setPressedState, syncExclusivePressedState } from '../core/aria-state.ts';
 import { isSystemAudioCaptureActive } from '../audio/system-audio-policy.ts';
@@ -732,6 +733,7 @@ function renderLanguageOptions(): void {
     const nativeName = document.createElement('span');
     nativeName.className = 'language-option-native';
     nativeName.lang = lang.htmlLang;
+    nativeName.dir = languageDirection(lang.code);
     nativeName.textContent = lang.nativeName;
     label.appendChild(nativeName);
 
@@ -739,6 +741,7 @@ function renderLanguageOptions(): void {
       const englishName = document.createElement('span');
       englishName.className = 'language-option-english';
       englishName.lang = 'en';
+      englishName.dir = 'ltr';
       englishName.textContent = lang.englishName;
       label.appendChild(englishName);
     }

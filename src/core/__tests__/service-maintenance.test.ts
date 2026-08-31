@@ -2041,9 +2041,9 @@ describe('shared service-maintenance control', () => {
     expect(response.status).toBe(503);
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
     expect(response.headers.get('Content-Language')).toBe('ko');
-    expect(body).toContain('<html lang="ko">');
+    expect(body).toContain('<html lang="ko" dir="ltr">');
     expect(body).toContain('<title lang="en">MUSIXQUARE: Service check</title>');
-    expect(body).toContain('<h1 lang="en">');
+    expect(body).toContain('<h1 lang="en" dir="ltr">');
     expect(body).toContain('<span class="sr-only">MUSIXQUARE is temporarily unavailable.</span>');
     expect(body).toContain('<span class="headline" aria-hidden="true">');
     expect(body).toContain('<span class="headline-lead"><svg class="wordmark"');
@@ -2087,12 +2087,26 @@ describe('shared service-maintenance control', () => {
     const body = await response.text();
 
     expect(response.headers.get('Content-Language')).toBe('pt-br');
-    expect(body).toContain('<html lang="pt-br">');
+    expect(body).toContain('<html lang="pt-br" dir="ltr">');
     expect(body).toContain('Estamos verificando o serviço. Tente novamente em instantes.');
   });
 
+  it('maps the generic Norwegian language tag to supported Bokmål copy', async () => {
+    const response = serviceMaintenanceResponse(
+      new Request('https://musixquare.com/', {
+        headers: { Accept: 'text/html', 'Accept-Language': 'no-NO' },
+      }),
+      activeState(),
+    );
+    const body = await response.text();
+
+    expect(response.headers.get('Content-Language')).toBe('nb');
+    expect(body).toContain('<html lang="nb" dir="ltr">');
+    expect(body).toContain('Vi gjennomfører en servicekontroll. Prøv igjen om en liten stund.');
+  });
+
   it('falls back to English for English, unsupported, wildcard, and missing language headers', () => {
-    for (const language of ['en-GB', 'ar-SA', '*', '']) {
+    for (const language of ['en-GB', 'zu-ZA', '*', '']) {
       const headers = new Headers({ Accept: 'text/html' });
       if (language) headers.set('Accept-Language', language);
       const response = serviceMaintenanceResponse(
@@ -2101,6 +2115,20 @@ describe('shared service-maintenance control', () => {
       );
       expect(response.headers.get('Content-Language'), language || 'missing').toBe('en');
     }
+  });
+
+  it('serves right-to-left maintenance copy with an explicit document direction', async () => {
+    const response = serviceMaintenanceResponse(
+      new Request('https://musixquare.com/', {
+        headers: { Accept: 'text/html', 'Accept-Language': 'ar-EG, en;q=0.5' },
+      }),
+      activeState(),
+    );
+    const body = await response.text();
+
+    expect(response.headers.get('Content-Language')).toBe('ar');
+    expect(body).toContain('<html lang="ar" dir="rtl">');
+    expect(body).toContain('نجري فحصًا للخدمة حاليًا. يُرجى المحاولة مرة أخرى بعد قليل.');
   });
 
   it('returns headers without a response body for maintenance HEAD requests', async () => {

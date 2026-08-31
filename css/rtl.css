@@ -1,0 +1,85 @@
+/* Bidirectional layout support for Arabic, Persian, Hebrew, and Urdu.
+ * Logical spacing in the base styles handles ordinary flow. These rules keep
+ * machine-readable values and physically meaningful audio diagrams LTR while
+ * the surrounding application follows the document direction. */
+
+:root[dir='rtl'] {
+  --safe-left: env(safe-area-inset-right, 0px);
+  --safe-right: env(safe-area-inset-left, 0px);
+  --font-sans: var(--font-sans-arabic);
+}
+
+:root:lang(he)[dir='rtl'] {
+  --font-sans: var(--font-sans-hebrew);
+}
+
+html[dir='rtl'],
+html[dir='rtl'] body {
+  direction: rtl;
+}
+
+html[dir='rtl'] :where(h1, h2, h3, h4, p, button, label, span, input, textarea) {
+  letter-spacing: normal;
+}
+
+html[dir='rtl'] :where(input, textarea, select, button) {
+  font-family: inherit;
+}
+
+/* Codes, timestamps, URLs, media counters, and protocol identifiers retain
+ * left-to-right ordering inside an RTL sentence. */
+html[dir='rtl']
+  :where(
+    .invite-code-value,
+    .room-password-code,
+    #setup-code,
+    #setup-join-code,
+    #time-curr,
+    #time-dur,
+    .chat-pinned-notice-time,
+    .debug-console,
+    code,
+    pre,
+    kbd,
+    samp
+  ) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+html[dir='rtl'] #youtube-url-input {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* Channel placement is physical, not linguistic. A left speaker must remain
+ * on the viewer's left even when the surrounding controls read right-to-left. */
+html[dir='rtl']
+  :where(
+    [data-role-diagram],
+    .setup-graphic-svg,
+    .setup-graphic-container,
+    .demo-role-diagram,
+    #grid-standard,
+    #setup-role-grid,
+    .demo-role-segmented,
+    .time-info,
+    .progress-container,
+    .eq-curve,
+    .eq-slider-container,
+    .role-graphic
+  ) {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Carousel navigation follows reading direction; playback transport remains
+ * temporal and therefore keeps its established icon orientation. */
+html[dir='rtl'] .ob-nav-arrow svg,
+html[dir='rtl'] .demo-step-next svg {
+  transform: scaleX(-1);
+}
+
+html[dir='rtl'] :where(#btn-prev, #btn-next, .player-controls, .youtube-controls, .volume-control) {
+  direction: ltr;
+}

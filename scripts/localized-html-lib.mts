@@ -1,53 +1,18 @@
 import { JSDOM } from 'jsdom';
 
-import de from '../src/i18n/de.ts';
-import en from '../src/i18n/en.ts';
-import es from '../src/i18n/es.ts';
-import fr from '../src/i18n/fr.ts';
-import id from '../src/i18n/id.ts';
-import it from '../src/i18n/it.ts';
-import ja from '../src/i18n/ja.ts';
-import ko from '../src/i18n/ko.ts';
-import nl from '../src/i18n/nl.ts';
-import pl from '../src/i18n/pl.ts';
-import ptBr from '../src/i18n/pt-br.ts';
-import ru from '../src/i18n/ru.ts';
-import th from '../src/i18n/th.ts';
-import tr from '../src/i18n/tr.ts';
-import vi from '../src/i18n/vi.ts';
-import zhHans from '../src/i18n/zh-hans.ts';
-import zhHant from '../src/i18n/zh-hant.ts';
+import { APP_DICTIONARIES, type TranslationDictionary } from '../src/i18n/catalogs.ts';
 import {
   LANGUAGE_OPTIONS,
+  languageDirection,
   localizedAboutPath,
   localizedAppEntryPath,
   localizedAppPath,
   type LanguageCode,
 } from '../src/i18n/locales.ts';
 
+export { APP_DICTIONARIES } from '../src/i18n/catalogs.ts';
+
 export const SITE_ORIGIN = 'https://musixquare.com';
-
-type TranslationDictionary = Readonly<Record<string, string>>;
-
-export const APP_DICTIONARIES: Readonly<Record<LanguageCode, TranslationDictionary>> = {
-  de,
-  en,
-  es,
-  fr,
-  id,
-  it,
-  ja,
-  ko,
-  nl,
-  pl,
-  'pt-br': ptBr,
-  ru,
-  th,
-  tr,
-  vi,
-  'zh-hans': zhHans,
-  'zh-hant': zhHant,
-};
 
 const APP_ATTRIBUTE_BINDINGS = [
   ['placeholder', 'data-i18n-placeholder'],
@@ -202,6 +167,7 @@ export function localizeAppDocument(
 
   applyAppDictionary(document, code);
   document.documentElement.lang = option.htmlLang;
+  document.documentElement.dir = languageDirection(code);
 
   const title = APP_SEARCH_TITLES[code] ?? 'MUSIXQUARE';
   const description = APP_SEARCH_DESCRIPTIONS[code] ?? aboutMetadata.description;
@@ -227,6 +193,7 @@ export function localizeAboutDocument(document: Document, code: LanguageCode): A
   if (!option) throw new Error(`Unsupported About locale: ${code}`);
 
   document.documentElement.lang = option.htmlLang;
+  document.documentElement.dir = languageDirection(code);
   const pagePath = localizedAboutPath(code);
   const pageUrl = `${SITE_ORIGIN}${pagePath}`;
   canonical(document).href = pageUrl;

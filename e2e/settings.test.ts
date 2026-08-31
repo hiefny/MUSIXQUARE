@@ -15,6 +15,7 @@ import {
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
+import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
 import {
   clickAndWaitActive,
   navigateToSubtab,
@@ -216,7 +217,9 @@ test.describe('Settings Panel', () => {
     await trigger.click();
 
     await expect(pair.hostPage.locator('#language-dialog-overlay')).toHaveClass(/show/);
-    await expect(pair.hostPage.locator('#language-list .language-option')).toHaveCount(17);
+    await expect(pair.hostPage.locator('#language-list .language-option')).toHaveCount(
+      LANGUAGE_OPTIONS.length,
+    );
 
     const activeLanguage = pair.hostPage.locator('.language-option.active');
     await expect(activeLanguage).toBeFocused();

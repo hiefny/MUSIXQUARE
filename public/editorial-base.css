@@ -33,6 +33,63 @@
   --hairline-scale: 1;
   --pad-x: 48px;
   --max-w: 1440px;
+  --font-ui: Pretendard, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+:root:lang(hi),
+:root:lang(mr) {
+  --font-ui: 'Noto Sans Devanagari', Pretendard, 'Nirmala UI', Mangal, sans-serif;
+}
+
+:root:lang(bn) {
+  --font-ui: 'Noto Sans Bengali', Pretendard, 'Nirmala UI', Vrinda, sans-serif;
+}
+
+:root:lang(ta) {
+  --font-ui: 'Noto Sans Tamil', Pretendard, 'Nirmala UI', Latha, sans-serif;
+}
+
+:root:lang(te) {
+  --font-ui: 'Noto Sans Telugu', Pretendard, 'Nirmala UI', Gautami, sans-serif;
+}
+
+:root:lang(gu) {
+  --font-ui: 'Noto Sans Gujarati', Pretendard, 'Nirmala UI', Shruti, sans-serif;
+}
+
+:root:lang(kn) {
+  --font-ui: 'Noto Sans Kannada', Pretendard, 'Nirmala UI', Tunga, sans-serif;
+}
+
+:root:lang(ml) {
+  --font-ui: 'Noto Sans Malayalam', Pretendard, 'Nirmala UI', Kartika, sans-serif;
+}
+
+:root:lang(pa) {
+  --font-ui: 'Noto Sans Gurmukhi', Pretendard, 'Nirmala UI', Raavi, sans-serif;
+}
+
+:root:lang(ja) {
+  --font-ui: 'Noto Sans JP', Pretendard, 'Yu Gothic UI', Meiryo, sans-serif;
+}
+
+:root:lang(zh-Hans) {
+  --font-ui: 'Noto Sans SC', Pretendard, 'Microsoft YaHei UI', sans-serif;
+}
+
+:root:lang(zh-Hant) {
+  --font-ui: 'Noto Sans TC', Pretendard, 'Microsoft JhengHei UI', sans-serif;
+}
+
+:root:lang(th) {
+  --font-ui: 'Noto Sans Thai', Pretendard, Tahoma, sans-serif;
+}
+
+:root:lang(uk),
+:root:lang(bg),
+:root:lang(ru),
+:root:lang(el) {
+  --font-ui: 'Noto Sans', Pretendard, 'Segoe UI', Roboto, sans-serif;
 }
 
 * {
@@ -45,7 +102,7 @@ body {
   padding: 0;
   background: var(--bg);
   color: var(--text-main);
-  font-family: Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-ui);
   font-size: 16px;
   line-height: 1.55;
   -webkit-font-smoothing: antialiased;
@@ -107,7 +164,7 @@ svg {
 }
 
 .lp-header::after {
-  content: "loading...";
+  content: 'loading...';
   position: absolute;
   top: var(--safe-top);
   left: calc(24px + var(--safe-left));
@@ -166,8 +223,8 @@ svg {
 
 .editorial-wordmark {
   background: currentColor;
-  mask: url("/designsystem/assets/logo-wordmark.svg") center / contain no-repeat;
-  -webkit-mask: url("/designsystem/assets/logo-wordmark.svg") center / contain no-repeat;
+  mask: url('/designsystem/assets/logo-wordmark.svg') center / contain no-repeat;
+  -webkit-mask: url('/designsystem/assets/logo-wordmark.svg') center / contain no-repeat;
 }
 
 .lp-try {
@@ -264,13 +321,23 @@ svg {
   letter-spacing: 0;
   line-height: 1;
   white-space: nowrap;
-  transition: color var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+  transition:
+    color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
 }
 
-.editorial-site-tab[href="/about"] { width: 72px; }
-.editorial-site-tab[href="/blog"] { width: 68px; }
-.editorial-site-tab[href="/history"] { width: 80px; }
-.editorial-site-tab[href="/designsystem"] { width: 78px; }
+.editorial-site-tab[href='/about'] {
+  width: 72px;
+}
+.editorial-site-tab[href='/blog'] {
+  width: 68px;
+}
+.editorial-site-tab[href='/history'] {
+  width: 80px;
+}
+.editorial-site-tab[href='/designsystem'] {
+  width: 78px;
+}
 
 .editorial-site-tab:hover {
   color: var(--text-main);
@@ -600,7 +667,7 @@ code {
 
 .editorial-page footer::before,
 .lp-footer::before {
-  content: "";
+  content: '';
   position: absolute;
   top: 0;
   left: 50%;
@@ -682,7 +749,9 @@ code {
 [data-animate] > * {
   opacity: 0;
   transform: translateY(16px);
-  transition: opacity 800ms var(--ease-out), transform 800ms var(--ease-out);
+  transition:
+    opacity 800ms var(--ease-out),
+    transform 800ms var(--ease-out);
 }
 
 [data-animate].is-visible > * {
@@ -690,11 +759,21 @@ code {
   transform: translateY(0);
 }
 
-[data-animate].is-visible > *:nth-child(1) { transition-delay: 0ms; }
-[data-animate].is-visible > *:nth-child(2) { transition-delay: 80ms; }
-[data-animate].is-visible > *:nth-child(3) { transition-delay: 160ms; }
-[data-animate].is-visible > *:nth-child(4) { transition-delay: 240ms; }
-[data-animate].is-visible > *:nth-child(5) { transition-delay: 320ms; }
+[data-animate].is-visible > *:nth-child(1) {
+  transition-delay: 0ms;
+}
+[data-animate].is-visible > *:nth-child(2) {
+  transition-delay: 80ms;
+}
+[data-animate].is-visible > *:nth-child(3) {
+  transition-delay: 160ms;
+}
+[data-animate].is-visible > *:nth-child(4) {
+  transition-delay: 240ms;
+}
+[data-animate].is-visible > *:nth-child(5) {
+  transition-delay: 320ms;
+}
 
 :lang(ko) .lp-h1 {
   letter-spacing: -0.025em;
@@ -738,6 +817,27 @@ code {
   line-break: strict;
 }
 
+:is(
+    :lang(hi),
+    :lang(mr),
+    :lang(bn),
+    :lang(ta),
+    :lang(te),
+    :lang(gu),
+    :lang(kn),
+    :lang(ml),
+    :lang(pa),
+    :lang(ar),
+    :lang(fa),
+    :lang(ur),
+    :lang(he)
+  )
+  :is(.lp-h1, .lp-h2) {
+  letter-spacing: 0;
+  line-height: 1.2;
+  word-break: normal;
+}
+
 .lp-lang-divider {
   color: var(--text-muted);
   user-select: none;
@@ -776,10 +876,18 @@ code {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .stat:nth-child(1) { border-radius: var(--radius-m) 0 0 0; }
-  .stat:nth-child(2) { border-radius: 0 var(--radius-m) 0 0; }
-  .stat:nth-child(3) { border-radius: 0 0 0 var(--radius-m); }
-  .stat:nth-child(4) { border-radius: 0 0 var(--radius-m) 0; }
+  .stat:nth-child(1) {
+    border-radius: var(--radius-m) 0 0 0;
+  }
+  .stat:nth-child(2) {
+    border-radius: 0 var(--radius-m) 0 0;
+  }
+  .stat:nth-child(3) {
+    border-radius: 0 0 0 var(--radius-m);
+  }
+  .stat:nth-child(4) {
+    border-radius: 0 0 var(--radius-m) 0;
+  }
 }
 
 @media (max-width: 720px) {
@@ -896,7 +1004,7 @@ code {
   }
 
   .editorial-site-tabs .editorial-site-tab::before {
-    content: "";
+    content: '';
     position: absolute;
     top: 0;
     left: 50%;
@@ -912,7 +1020,7 @@ code {
   }
 
   .editorial-site-tabs .editorial-site-tab + .editorial-site-tab::after {
-    content: "";
+    content: '';
     position: absolute;
     left: 0;
     top: 13px;

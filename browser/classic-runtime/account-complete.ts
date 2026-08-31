@@ -145,6 +145,181 @@
       'ยกเลิกการเข้าสู่ระบบแล้ว',
       'เข้าสู่ระบบไม่ได้ ลองอีกครั้ง',
     ],
+    hi: [
+      'साइन इन पूरा हुआ। अब आप यह विंडो बंद कर सकते हैं।',
+      'बंद करें',
+      'hi-IN',
+      'साइन इन रद्द कर दिया गया।',
+      'साइन इन नहीं हो सका। कृपया फिर से कोशिश करें।',
+    ],
+    bn: [
+      'সাইন-ইন সম্পন্ন হয়েছে। এখন এই উইন্ডোটি বন্ধ করতে পারেন।',
+      'বন্ধ করুন',
+      'bn-BD',
+      'সাইন-ইন বাতিল করা হয়েছে।',
+      'সাইন-ইন করা যায়নি। আবার চেষ্টা করুন।',
+    ],
+    ta: [
+      'உள்நுழைவு முடிந்தது. இப்போது இந்தச் சாளரத்தை மூடலாம்.',
+      'மூடு',
+      'ta-IN',
+      'உள்நுழைவு ரத்துசெய்யப்பட்டது.',
+      'உள்நுழைய முடியவில்லை. மீண்டும் முயலவும்.',
+    ],
+    te: [
+      'సైన్ ఇన్ పూర్తయింది. ఇప్పుడు ఈ విండోను మూసివేయవచ్చు.',
+      'మూసివేయి',
+      'te-IN',
+      'సైన్ ఇన్ రద్దయింది.',
+      'సైన్ ఇన్ చేయడం సాధ్యపడలేదు. మళ్లీ ప్రయత్నించండి.',
+    ],
+    ms: [
+      'Daftar masuk selesai. Anda boleh menutup tetingkap ini.',
+      'Tutup',
+      'ms-MY',
+      'Daftar masuk dibatalkan.',
+      'Tidak dapat mendaftar masuk. Sila cuba lagi.',
+    ],
+    fil: [
+      'Tapos na ang pag-sign in. Maaari mo nang isara ang window na ito.',
+      'Isara',
+      'fil-PH',
+      'Kinansela ang pag-sign in.',
+      'Hindi makapag-sign in. Pakisubukan ulit.',
+    ],
+    ar: [
+      'اكتمل تسجيل الدخول. يمكنك إغلاق هذه النافذة الآن.',
+      'إغلاق',
+      'ar',
+      'أُلغي تسجيل الدخول.',
+      'تعذّر تسجيل الدخول. يُرجى المحاولة مرة أخرى.',
+    ],
+    ur: [
+      'سائن اِن مکمل ہو گیا۔ اب آپ یہ ونڈو بند کر سکتے ہیں۔',
+      'بند کریں',
+      'ur-PK',
+      'سائن اِن منسوخ کر دیا گیا۔',
+      'سائن اِن نہیں ہو سکا۔ براہِ کرم دوبارہ کوشش کریں۔',
+    ],
+    he: [
+      'ההתחברות הושלמה. אפשר לסגור את החלון הזה.',
+      'סגירה',
+      'he-IL',
+      'ההתחברות בוטלה.',
+      'לא הצלחנו להתחבר. נסו שוב.',
+    ],
+    uk: [
+      'Вхід завершено. Тепер це вікно можна закрити.',
+      'Закрити',
+      'uk-UA',
+      'Вхід скасовано.',
+      'Не вдалося ввійти. Спробуйте ще раз.',
+    ],
+    ro: [
+      'Autentificarea s-a încheiat. Poți închide această fereastră.',
+      'Închide',
+      'ro-RO',
+      'Autentificarea a fost anulată.',
+      'Autentificarea nu a reușit. Încearcă din nou.',
+    ],
+    cs: [
+      'Přihlášení je dokončeno. Toto okno můžete zavřít.',
+      'Zavřít',
+      'cs-CZ',
+      'Přihlášení bylo zrušeno.',
+      'Přihlášení se nezdařilo. Zkuste to znovu.',
+    ],
+    el: [
+      'Η σύνδεση ολοκληρώθηκε. Μπορείτε να κλείσετε αυτό το παράθυρο.',
+      'Κλείσιμο',
+      'el-GR',
+      'Η σύνδεση ακυρώθηκε.',
+      'Δεν ήταν δυνατή η σύνδεση. Δοκιμάστε ξανά.',
+    ],
+    fa: [
+      'ورود انجام شد. اکنون می‌توانید این پنجره را ببندید.',
+      'بستن',
+      'fa-IR',
+      'ورود لغو شد.',
+      'ورود انجام نشد. لطفاً دوباره تلاش کنید.',
+    ],
+    mr: [
+      'साइन इन पूर्ण झाले. आता तुम्ही ही विंडो बंद करू शकता.',
+      'बंद करा',
+      'mr-IN',
+      'साइन इन रद्द झाले.',
+      'साइन इन करता आले नाही. कृपया पुन्हा प्रयत्न करा.',
+    ],
+    gu: [
+      'સાઇન ઇન પૂર્ણ થયું. હવે તમે આ વિન્ડો બંધ કરી શકો છો.',
+      'બંધ કરો',
+      'gu-IN',
+      'સાઇન ઇન રદ થયું.',
+      'સાઇન ઇન થઈ શક્યું નહીં. કૃપા કરીને ફરી પ્રયાસ કરો.',
+    ],
+    kn: [
+      'ಸೈನ್ ಇನ್ ಪೂರ್ಣಗೊಂಡಿದೆ. ಈಗ ನೀವು ಈ ವಿಂಡೋವನ್ನು ಮುಚ್ಚಬಹುದು.',
+      'ಮುಚ್ಚಿ',
+      'kn-IN',
+      'ಸೈನ್ ಇನ್ ರದ್ದಾಗಿದೆ.',
+      'ಸೈನ್ ಇನ್ ಮಾಡಲು ಸಾಧ್ಯವಾಗಲಿಲ್ಲ. ದಯವಿಟ್ಟು ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+    ],
+    ml: [
+      'സൈൻ ഇൻ പൂർത്തിയായി. ഇനി ഈ വിൻഡോ അടയ്ക്കാം.',
+      'അടയ്ക്കുക',
+      'ml-IN',
+      'സൈൻ ഇൻ റദ്ദാക്കി.',
+      'സൈൻ ഇൻ ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.',
+    ],
+    pa: [
+      'ਸਾਈਨ ਇਨ ਪੂਰਾ ਹੋ ਗਿਆ ਹੈ। ਹੁਣ ਤੁਸੀਂ ਇਹ ਵਿੰਡੋ ਬੰਦ ਕਰ ਸਕਦੇ ਹੋ।',
+      'ਬੰਦ ਕਰੋ',
+      'pa-IN',
+      'ਸਾਈਨ ਇਨ ਰੱਦ ਕਰ ਦਿੱਤਾ ਗਿਆ।',
+      'ਸਾਈਨ ਇਨ ਨਹੀਂ ਹੋ ਸਕਿਆ। ਕਿਰਪਾ ਕਰਕੇ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
+    ],
+    sv: [
+      'Inloggningen är klar. Du kan stänga det här fönstret.',
+      'Stäng',
+      'sv-SE',
+      'Inloggningen avbröts.',
+      'Det gick inte att logga in. Försök igen.',
+    ],
+    da: [
+      'Login er gennemført. Du kan lukke dette vindue.',
+      'Luk',
+      'da-DK',
+      'Login blev annulleret.',
+      'Det var ikke muligt at logge ind. Prøv igen.',
+    ],
+    nb: [
+      'Påloggingen er fullført. Du kan lukke dette vinduet.',
+      'Lukk',
+      'nb-NO',
+      'Påloggingen ble avbrutt.',
+      'Kunne ikke logge på. Prøv igjen.',
+    ],
+    fi: [
+      'Kirjautuminen onnistui. Voit sulkea tämän ikkunan.',
+      'Sulje',
+      'fi-FI',
+      'Kirjautuminen peruutettiin.',
+      'Kirjautuminen epäonnistui. Yritä uudelleen.',
+    ],
+    hu: [
+      'A bejelentkezés befejeződött. Bezárhatod ezt az ablakot.',
+      'Bezárás',
+      'hu-HU',
+      'A bejelentkezést megszakították.',
+      'Nem sikerült bejelentkezni. Próbáld újra.',
+    ],
+    bg: [
+      'Влизането е завършено. Можете да затворите този прозорец.',
+      'Затваряне',
+      'bg-BG',
+      'Влизането беше отменено.',
+      'Неуспешно влизане. Опитайте отново.',
+    ],
   };
 
   const matchLanguage = (value: unknown): string | null => {
@@ -159,6 +334,10 @@
       return /(?:tw|hk|mo|hant)/.test(normalized) ? 'zh-hant' : 'zh-hans';
     }
     if (normalized === 'pt' || normalized.startsWith('pt-')) return 'pt-br';
+    if (normalized === 'in' || normalized.startsWith('in-')) return 'id';
+    if (normalized === 'iw' || normalized.startsWith('iw-')) return 'he';
+    if (normalized === 'no' || normalized.startsWith('no-')) return 'nb';
+    if (normalized === 'tl' || normalized.startsWith('tl-')) return 'fil';
     const [primary] = normalized.split('-');
     return primary && Object.prototype.hasOwnProperty.call(translations, primary) ? primary : null;
   };
@@ -181,6 +360,8 @@
     throw new Error('Account completion document is missing its required controls.');
   }
   document.documentElement.lang = translated[2];
+  document.documentElement.dir =
+    key === 'ar' || key === 'fa' || key === 'he' || key === 'ur' ? 'rtl' : 'ltr';
   completionMessage.textContent =
     outcome === 'cancelled' ? translated[3] : outcome === 'error' ? translated[4] : translated[0];
   closeButton.textContent = translated[1];

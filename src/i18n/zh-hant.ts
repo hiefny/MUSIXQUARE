@@ -782,7 +782,7 @@ const zhHant: Record<I18nKey, string> = {
   'setup.how_to_connect_html':
     '輸入房主提供的<strong>6 位數邀請碼</strong>進行連線。<ul class="help-list"><li><strong>房主：</strong>「建立房間」→ 查看邀請碼</li><li><strong>參與者：</strong>「加入房間」→ 輸入邀請碼</li><li>包含房主在內，最多可連線 <strong>100 台裝置</strong>。</li></ul>',
   'player.play_speakers_html':
-    '每位參與者選擇一個<strong>角色（輸出聲道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立體聲（預設）輸出</li><li><strong>左：</strong>L 聲道輸出</li><li><strong>右：</strong>R 聲道輸出</li><li><strong>重低音喇叭：</strong>低頻混合輸出</li></ul>你可以隨時在<strong>設定</strong>中變更角色。',
+    '每位參與者選擇一個<strong>角色（輸出聲道）</strong>。<ul class="help-list"><li><strong>中置：</strong>立體聲（預設）輸出</li><li><strong>左：</strong><bdi dir="ltr">L</bdi> 聲道輸出</li><li><strong>右：</strong><bdi dir="ltr">R</bdi> 聲道輸出</li><li><strong>重低音喇叭：</strong>低頻混合輸出</li></ul>你可以隨時在<strong>設定</strong>中變更角色。',
   'player.play_media_action_html':
     '房主有 3 個選項。<ul class="help-list"><li><strong>載入本機檔案：</strong>從裝置中選擇音樂。支援精確同步</li><li><strong>一起看 YouTube：</strong>支援影片和播放清單。不支援聲道分離和音訊效果</li><li><strong>系統音訊分享：</strong>房主使用電腦上以 Chromium 為核心的瀏覽器（Chrome、Edge 等）時可用</li></ul>',
   'help.need_help_html':

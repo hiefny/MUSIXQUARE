@@ -33,6 +33,31 @@ const localizedCompletionCopy = [
   ['id', 'id', 'Berhasil masuk. Anda dapat menutup jendela ini.', 'Tutup'],
   ['vi', 'vi', 'Đăng nhập hoàn tất. Bạn có thể đóng cửa sổ này.', 'Đóng'],
   ['th', 'th', 'เข้าสู่ระบบเรียบร้อยแล้ว ปิดหน้าต่างนี้ได้เลย', 'ปิด'],
+  ['hi', 'hi-IN', 'साइन इन पूरा हुआ। अब आप यह विंडो बंद कर सकते हैं।', 'बंद करें'],
+  ['bn', 'bn-BD', 'সাইন-ইন সম্পন্ন হয়েছে। এখন এই উইন্ডোটি বন্ধ করতে পারেন।', 'বন্ধ করুন'],
+  ['ta', 'ta-IN', 'உள்நுழைவு முடிந்தது. இப்போது இந்தச் சாளரத்தை மூடலாம்.', 'மூடு'],
+  ['te', 'te-IN', 'సైన్ ఇన్ పూర్తయింది. ఇప్పుడు ఈ విండోను మూసివేయవచ్చు.', 'మూసివేయి'],
+  ['ms', 'ms-MY', 'Daftar masuk selesai. Anda boleh menutup tetingkap ini.', 'Tutup'],
+  ['fil', 'fil-PH', 'Tapos na ang pag-sign in. Maaari mo nang isara ang window na ito.', 'Isara'],
+  ['ar', 'ar', 'اكتمل تسجيل الدخول. يمكنك إغلاق هذه النافذة الآن.', 'إغلاق'],
+  ['ur', 'ur-PK', 'سائن اِن مکمل ہو گیا۔ اب آپ یہ ونڈو بند کر سکتے ہیں۔', 'بند کریں'],
+  ['he', 'he-IL', 'ההתחברות הושלמה. אפשר לסגור את החלון הזה.', 'סגירה'],
+  ['uk', 'uk-UA', 'Вхід завершено. Тепер це вікно можна закрити.', 'Закрити'],
+  ['ro', 'ro-RO', 'Autentificarea s-a încheiat. Poți închide această fereastră.', 'Închide'],
+  ['cs', 'cs-CZ', 'Přihlášení je dokončeno. Toto okno můžete zavřít.', 'Zavřít'],
+  ['el', 'el-GR', 'Η σύνδεση ολοκληρώθηκε. Μπορείτε να κλείσετε αυτό το παράθυρο.', 'Κλείσιμο'],
+  ['fa', 'fa-IR', 'ورود انجام شد. اکنون می‌توانید این پنجره را ببندید.', 'بستن'],
+  ['mr', 'mr-IN', 'साइन इन पूर्ण झाले. आता तुम्ही ही विंडो बंद करू शकता.', 'बंद करा'],
+  ['gu', 'gu-IN', 'સાઇન ઇન પૂર્ણ થયું. હવે તમે આ વિન્ડો બંધ કરી શકો છો.', 'બંધ કરો'],
+  ['kn', 'kn-IN', 'ಸೈನ್ ಇನ್ ಪೂರ್ಣಗೊಂಡಿದೆ. ಈಗ ನೀವು ಈ ವಿಂಡೋವನ್ನು ಮುಚ್ಚಬಹುದು.', 'ಮುಚ್ಚಿ'],
+  ['ml', 'ml-IN', 'സൈൻ ഇൻ പൂർത്തിയായി. ഇനി ഈ വിൻഡോ അടയ്ക്കാം.', 'അടയ്ക്കുക'],
+  ['pa', 'pa-IN', 'ਸਾਈਨ ਇਨ ਪੂਰਾ ਹੋ ਗਿਆ ਹੈ। ਹੁਣ ਤੁਸੀਂ ਇਹ ਵਿੰਡੋ ਬੰਦ ਕਰ ਸਕਦੇ ਹੋ।', 'ਬੰਦ ਕਰੋ'],
+  ['sv', 'sv-SE', 'Inloggningen är klar. Du kan stänga det här fönstret.', 'Stäng'],
+  ['da', 'da-DK', 'Login er gennemført. Du kan lukke dette vindue.', 'Luk'],
+  ['nb', 'nb-NO', 'Påloggingen er fullført. Du kan lukke dette vinduet.', 'Lukk'],
+  ['fi', 'fi-FI', 'Kirjautuminen onnistui. Voit sulkea tämän ikkunan.', 'Sulje'],
+  ['hu', 'hu-HU', 'A bejelentkezés befejeződött. Bezárhatod ezt az ablakot.', 'Bezárás'],
+  ['bg', 'bg-BG', 'Влизането е завършено. Можете да затворите този прозорец.', 'Затваряне'],
 ] as const;
 
 async function renderCompletion(language: string, marker = ''): Promise<CompletionDom> {
@@ -119,6 +144,9 @@ describe('account completion localization', () => {
     async (locale, htmlLang, message, closeLabel) => {
       const dom = await renderCompletion(locale);
       expect(dom.window.document.documentElement.lang).toBe(htmlLang);
+      expect(dom.window.document.documentElement.dir).toBe(
+        ['ar', 'fa', 'ur', 'he'].includes(locale) ? 'rtl' : 'ltr',
+      );
       expect(dom.window.document.getElementById('account-complete-message')?.textContent).toBe(
         message,
       );
@@ -151,6 +179,18 @@ describe('account completion localization', () => {
     const explicitTraditional = await renderCompletion('zh-Hant-CN');
     expect(explicitTraditional.window.document.documentElement.lang).toBe('zh-Hant');
     explicitTraditional.window.close();
+  });
+
+  it.each([
+    ['in-ID', 'id', 'ltr'],
+    ['iw-IL', 'he-IL', 'rtl'],
+    ['no-NO', 'nb-NO', 'ltr'],
+    ['tl-PH', 'fil-PH', 'ltr'],
+  ] as const)('maps the legacy %s language alias', async (locale, htmlLang, direction) => {
+    const dom = await renderCompletion(locale);
+    expect(dom.window.document.documentElement.lang).toBe(htmlLang);
+    expect(dom.window.document.documentElement.dir).toBe(direction);
+    dom.window.close();
   });
 
   it('localizes cancellation and provider-error completion states', async () => {

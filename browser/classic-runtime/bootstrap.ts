@@ -548,6 +548,38 @@
       id: 'id',
       vi: 'vi',
       th: 'th',
+      hi: 'hi-IN',
+      bn: 'bn-BD',
+      ta: 'ta-IN',
+      te: 'te-IN',
+      ms: 'ms-MY',
+      fil: 'fil-PH',
+      ar: 'ar',
+      ur: 'ur-PK',
+      he: 'he-IL',
+      uk: 'uk-UA',
+      ro: 'ro-RO',
+      cs: 'cs-CZ',
+      el: 'el-GR',
+      fa: 'fa-IR',
+      mr: 'mr-IN',
+      gu: 'gu-IN',
+      kn: 'kn-IN',
+      ml: 'ml-IN',
+      pa: 'pa-IN',
+      sv: 'sv-SE',
+      da: 'da-DK',
+      nb: 'nb-NO',
+      fi: 'fi-FI',
+      hu: 'hu-HU',
+      bg: 'bg-BG',
+    };
+
+    const directionByCode: Partial<Record<AppLanguageCode, 'rtl'>> = {
+      ar: 'rtl',
+      fa: 'rtl',
+      he: 'rtl',
+      ur: 'rtl',
     };
 
     type AppLanguageCode = keyof typeof htmlLangByCode;
@@ -579,6 +611,10 @@
 
       if (normalized === 'pt-br' || normalized.indexOf('pt-br-') === 0) return 'pt-br';
       if (normalized === 'pt' || normalized.indexOf('pt-') === 0) return 'pt-br';
+      if (normalized === 'in' || normalized.indexOf('in-') === 0) return 'id';
+      if (normalized === 'iw' || normalized.indexOf('iw-') === 0) return 'he';
+      if (normalized === 'no' || normalized.indexOf('no-') === 0) return 'nb';
+      if (normalized === 'tl' || normalized.indexOf('tl-') === 0) return 'fil';
 
       const primary = normalized.split('-')[0];
       return primary && isAppLanguageCode(primary) ? primary : null;
@@ -640,6 +676,7 @@
 
     const initialLanguage = resolvedLang || 'en';
     document.documentElement.setAttribute('lang', htmlLangByCode[initialLanguage] || 'en');
+    document.documentElement.setAttribute('dir', directionByCode[initialLanguage] || 'ltr');
     // The parser has already created the href-less manifest link immediately
     // before this script. Assigning its href only after locale resolution
     // avoids an eager fetch of the wrong language's install metadata.

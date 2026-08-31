@@ -7,6 +7,7 @@ import {
   verifyProductionCapabilityBoundary,
   verifyProductionOriginBoundary,
 } from '../../../scripts/live-app-public-boundary-smoke.mts';
+import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 
 describe('live app public boundary smoke', () => {
   it('accepts the representative localized SEO matrix only with canonical metadata and cache policy', async () => {
@@ -47,7 +48,7 @@ describe('live app public boundary smoke', () => {
         canonical,
         description: 'Localized product description',
         openGraphUrl: canonical,
-        alternateCount: 18,
+        alternateCount: LANGUAGE_OPTIONS.length + 1,
         xDefault: path.includes('/about')
           ? 'https://musixquare.com/about'
           : 'https://musixquare.com/',

@@ -75,7 +75,7 @@ describe('visualizer layout contract', () => {
       /#tab-play\s*\{[\s\S]*?grid-area:\s*tab-play;[\s\S]*?padding:\s*0 44px;/u,
     );
     expect(desktopStylesheet).toMatch(
-      /\.track-box,\s*\.controls-area,\s*\.play-secondary-area\s*\{[\s\S]*?width:\s*calc\(var\(--playback-rail-width\) - 8px\);[\s\S]*?padding:\s*20px 0 0;[\s\S]*?margin-left:\s*auto;[\s\S]*?margin-right:\s*auto;/u,
+      /\.track-box,\s*\.controls-area,\s*\.play-secondary-area\s*\{[\s\S]*?width:\s*calc\(var\(--playback-rail-width\) - 8px\);[\s\S]*?padding:\s*20px 0 0;[\s\S]*?margin-inline-start:\s*auto;[\s\S]*?margin-inline-end:\s*auto;/u,
     );
     expect(desktopStylesheet).toMatch(/\.controls-area\s*\{\s*padding-top:\s*12px;/u);
     expect(desktopStylesheet).toMatch(/\.video-wrapper\s*\{[\s\S]*?border-radius:\s*16px;/u);

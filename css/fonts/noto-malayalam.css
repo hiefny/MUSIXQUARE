@@ -1,0 +1,15 @@
+/* Noto Sans Malayalam (self-hosted from Google Fonts)
+ * Source CSS: https://fonts.googleapis.com/css2?family=Noto+Sans+Malayalam:wght@100..900&display=swap
+ * License: fonts/NOTO_SANS_LICENSE.txt (SIL OFL 1.1)
+ */
+@font-face {
+  font-family: 'Noto Sans Malayalam';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(../../fonts/noto/noto-sans-malayalam/malayalam.woff2) format('woff2');
+  unicode-range:
+    U+0307, U+0323, U+0951-0952, U+0964-0965, U+0D00-0D7F, U+1CDA, U+1CF2, U+200C-200D, U+20B9,
+    U+25CC, U+A830-A832;
+}

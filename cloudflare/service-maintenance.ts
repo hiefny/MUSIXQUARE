@@ -312,20 +312,45 @@ function isServiceControlHttpResponse(value: unknown): value is ServiceControlHt
 }
 
 const localizedDescriptions = Object.freeze({
+  ar: 'نجري فحصًا للخدمة حاليًا. يُرجى المحاولة مرة أخرى بعد قليل.',
+  bg: 'В момента проверяваме услугата. Опитайте отново след малко.',
+  bn: 'আমরা পরিষেবাটি পরীক্ষা করছি। অনুগ্রহ করে কিছুক্ষণ পর আবার চেষ্টা করুন।',
+  cs: 'Právě kontrolujeme službu. Zkuste to prosím za chvíli znovu.',
   de: 'Wir überprüfen gerade den Dienst. Bitte versuche es gleich noch einmal.',
+  da: 'Vi gennemfører et servicetjek. Prøv igen om et øjeblik.',
+  el: 'Πραγματοποιούμε έλεγχο της υπηρεσίας. Δοκιμάστε ξανά σε λίγο.',
   en: 'We’re carrying out a service check. Please try again shortly.',
   es: 'Estamos realizando una revisión del servicio. Vuelve a intentarlo en breve.',
+  fa: 'در حال بررسی سرویس هستیم. لطفاً تا لحظاتی دیگر دوباره تلاش کنید.',
+  fi: 'Tarkistamme parhaillaan palvelua. Yritä hetken kuluttua uudelleen.',
+  fil: 'Sinusuri namin ang serbisyo. Pakisubukan ulit maya-maya.',
   fr: 'Nous effectuons une vérification du service. Réessayez dans quelques instants.',
+  he: 'אנחנו מבצעים בדיקה של השירות. נסו שוב בעוד זמן קצר.',
+  hi: 'हम सेवा की जाँच कर रहे हैं। कृपया थोड़ी देर बाद फिर से कोशिश करें।',
+  hu: 'Éppen ellenőrizzük a szolgáltatást. Próbáld újra hamarosan.',
   id: 'Kami sedang memeriksa layanan. Silakan coba lagi sebentar lagi.',
   it: 'Stiamo controllando il servizio. Riprova tra poco.',
   ja: 'サービスの点検を行っています。しばらくしてからもう一度お試しください。',
   ko: '안전한 서비스 점검을 진행 중이에요. 잠시 후 다시 시도해 주세요.',
+  gu: 'અમે સેવાની તપાસ કરી રહ્યા છીએ. કૃપા કરીને થોડીવાર પછી ફરી પ્રયાસ કરો.',
+  kn: 'ನಾವು ಸೇವೆಯನ್ನು ಪರಿಶೀಲಿಸುತ್ತಿದ್ದೇವೆ. ದಯವಿಟ್ಟು ಸ್ವಲ್ಪ ಸಮಯದ ನಂತರ ಮತ್ತೆ ಪ್ರಯತ್ನಿಸಿ.',
+  ms: 'Kami sedang menjalankan pemeriksaan perkhidmatan. Sila cuba lagi sebentar lagi.',
+  ml: 'സേവനം പരിശോധിച്ചുകൊണ്ടിരിക്കുകയാണ്. ദയവായി അൽപ്പസമയത്തിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.',
+  mr: 'आम्ही सेवेची तपासणी करत आहोत. कृपया थोड्या वेळाने पुन्हा प्रयत्न करा.',
+  nb: 'Vi gjennomfører en servicekontroll. Prøv igjen om en liten stund.',
   nl: 'We controleren momenteel de service. Probeer het over een ogenblik opnieuw.',
   pl: 'Sprawdzamy działanie usługi. Spróbuj ponownie za chwilę.',
+  pa: 'ਅਸੀਂ ਸੇਵਾ ਦੀ ਜਾਂਚ ਕਰ ਰਹੇ ਹਾਂ। ਕਿਰਪਾ ਕਰਕੇ ਥੋੜ੍ਹੀ ਦੇਰ ਬਾਅਦ ਦੁਬਾਰਾ ਕੋਸ਼ਿਸ਼ ਕਰੋ।',
   'pt-br': 'Estamos verificando o serviço. Tente novamente em instantes.',
   ru: 'Мы проводим проверку сервиса. Повторите попытку чуть позже.',
+  ro: 'Verificăm serviciul în acest moment. Încearcă din nou în scurt timp.',
+  ta: 'சேவையைச் சரிபார்த்து வருகிறோம். சிறிது நேரம் கழித்து மீண்டும் முயலவும்.',
+  sv: 'Vi genomför en servicekontroll. Försök igen om en liten stund.',
+  te: 'మేము సేవను తనిఖీ చేస్తున్నాము. దయచేసి కాసేపటి తర్వాత మళ్లీ ప్రయత్నించండి.',
   th: 'กำลังตรวจสอบบริการอยู่ ลองอีกครั้งในอีกสักครู่',
   tr: 'Hizmeti kontrol ediyoruz. Lütfen kısa süre sonra tekrar dene.',
+  uk: 'Ми перевіряємо роботу сервісу. Спробуйте ще раз трохи згодом.',
+  ur: 'ہم سروس کی جانچ کر رہے ہیں۔ براہِ کرم کچھ دیر بعد دوبارہ کوشش کریں۔',
   vi: 'Chúng tôi đang kiểm tra dịch vụ. Vui lòng thử lại sau giây lát.',
   'zh-hans': '我们正在检查服务，请稍后重试。',
   'zh-hant': '我們正在進行服務檢查，請稍後再試。',
@@ -1630,6 +1655,10 @@ function matchedMaintenanceLanguage(request: Request): MaintenanceLanguage {
   for (const { tag } of weighted) {
     if (tag === '*') return 'en';
     if (tag === 'pt' || tag.startsWith('pt-')) return 'pt-br';
+    if (tag === 'in' || tag.startsWith('in-')) return 'id';
+    if (tag === 'iw' || tag.startsWith('iw-')) return 'he';
+    if (tag === 'no' || tag.startsWith('no-')) return 'nb';
+    if (tag === 'tl' || tag.startsWith('tl-')) return 'fil';
     if (tag === 'zh-hant' || tag.startsWith('zh-hant-') || /^(zh-(tw|hk|mo))(?:-|$)/.test(tag)) {
       return 'zh-hant';
     }
@@ -1668,8 +1697,12 @@ function maintenanceHeaders(
 
 function maintenanceHtml(language: MaintenanceLanguage): string {
   const description = localizedDescriptions[language];
+  const direction =
+    language === 'ar' || language === 'fa' || language === 'he' || language === 'ur'
+      ? 'rtl'
+      : 'ltr';
   return `<!doctype html>
-<html lang="${language}">
+<html lang="${language}" dir="${direction}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1681,7 +1714,7 @@ function maintenanceHtml(language: MaintenanceLanguage): string {
 </head>
 <body>
   <main>
-    <h1 lang="en">
+    <h1 lang="en" dir="ltr">
       <span class="sr-only">MUSIXQUARE is temporarily unavailable.</span>
       <span class="headline" aria-hidden="true"><span class="headline-lead"><svg class="wordmark" xmlns="http://www.w3.org/2000/svg" viewBox="43 12 214 26" fill="currentColor" focusable="false">
       <polygon points="45.4679049 17.3182774 45.4732381 35.3182767 49.9732379 35.3169433 49.9679047 17.3169441 54.4679045 17.3156108 54.4732377 35.31561 58.9732375 35.3142767 58.9679043 17.3142775 63.4679041 17.3129442 63.4732373 35.3129434 67.9732371 35.3116101 67.9679039 17.3116109 67.9665706 12.8116111 45.4665715 12.8182776 45.4679049 17.3182774"></polygon>

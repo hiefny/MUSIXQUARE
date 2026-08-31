@@ -9,7 +9,7 @@ import {
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
 import { compileServiceWorkerAsset } from '../../../scripts/service-worker-asset.ts';
-import { LANGUAGE_OPTIONS } from '../index.ts';
+import { LANGUAGE_OPTIONS, languageDirection } from '../locales.ts';
 
 interface AppManifest {
   readonly id: string;
@@ -17,6 +17,7 @@ interface AppManifest {
   readonly short_name: string;
   readonly description: string;
   readonly lang: string;
+  readonly dir?: 'ltr' | 'rtl';
   readonly start_url: string;
   readonly scope: string;
   readonly display: string;
@@ -48,8 +49,10 @@ function readManifest(path: string): AppManifest {
   return JSON.parse(readFileSync(path, 'utf8')) as AppManifest;
 }
 
-function stableManifestFields(manifest: AppManifest): Omit<AppManifest, 'description' | 'lang'> {
-  const { description: _description, lang: _lang, ...stable } = manifest;
+function stableManifestFields(
+  manifest: AppManifest,
+): Omit<AppManifest, 'description' | 'lang' | 'dir'> {
+  const { description: _description, lang: _lang, dir: _dir, ...stable } = manifest;
   return stable;
 }
 
@@ -122,6 +125,7 @@ describe('localized PWA install metadata', () => {
     for (const { code, htmlLang } of LANGUAGE_OPTIONS) {
       const manifest = readManifest(resolve(MANIFEST_DIRECTORY, `${code}.webmanifest`));
       expect(manifest.lang, code).toBe(htmlLang);
+      expect(manifest.dir, code).toBe(languageDirection(code) === 'rtl' ? 'rtl' : undefined);
       expect(manifest.description.trim().length, code).toBeGreaterThan(30);
       expect(manifest.description, code).not.toMatch(/<[^>]+>/u);
       expect(stableManifestFields(manifest), code).toEqual(stableManifestFields(english));
@@ -154,6 +158,14 @@ describe('localized PWA install metadata', () => {
     expect(
       system.window.document.querySelector<HTMLLinkElement>('#app-manifest')?.getAttribute('href'),
     ).toBe('/manifests/pt-br.webmanifest');
+
+    const norwegian = bootstrapDom('system', ['no-NO', 'en-US']);
+    expect(norwegian.window.document.documentElement.lang).toBe('nb-NO');
+    expect(
+      norwegian.window.document
+        .querySelector<HTMLLinkElement>('#app-manifest')
+        ?.getAttribute('href'),
+    ).toBe('/manifests/nb.webmanifest');
 
     const restricted = bootstrapDom('system', ['ko-KR'], { storage: true });
     const restrictedLink =

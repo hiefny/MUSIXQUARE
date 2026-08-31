@@ -1,0 +1,13 @@
+/* Noto Sans Hebrew (self-hosted from Google Fonts)
+ * Source CSS: https://fonts.googleapis.com/css2?family=Noto+Sans+Hebrew:wght@100..900&display=swap
+ * License: fonts/NOTO_SANS_LICENSE.txt (SIL OFL 1.1)
+ */
+@font-face {
+  font-family: 'Noto Sans Hebrew';
+  font-style: normal;
+  font-weight: 100 900;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(../../fonts/noto/noto-sans-hebrew/hebrew.woff2) format('woff2');
+  unicode-range: U+0307-0308, U+0590-05FF, U+200C-2010, U+20AA, U+25CC, U+FB1D-FB4F;
+}

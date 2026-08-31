@@ -1,0 +1,39 @@
+{
+  "id": "/",
+  "name": "MUSIXQUARE",
+  "short_name": "MUSIXQUARE",
+  "description": "Conectează wireless mai multe dispozitive pentru a crea un sistem audio amplu. Folosește un cod de invitație din 6 cifre pentru conectare.",
+  "lang": "ro-RO",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "handle_links": "preferred",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

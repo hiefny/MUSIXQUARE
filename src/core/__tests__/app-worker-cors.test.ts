@@ -17,6 +17,14 @@ import appWorker, {
 import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.ts';
 import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
+import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
+
+const NON_ENGLISH_LOCALE_CODES = LANGUAGE_OPTIONS.filter(({ code }) => code !== 'en').map(
+  ({ code }) => code,
+);
+const LOCALIZED_PAGE_ASSET_RE = new RegExp(
+  `^/(${NON_ENGLISH_LOCALE_CODES.join('|')})/(index|about)\\.html$`,
+);
 
 const proGrantMigration = await readFile(
   new URL('../../../cloudflare/admin-metrics.pro-grants.migration.sql', import.meta.url),
@@ -10838,10 +10846,7 @@ describe('Cloudflare app worker invite route', () => {
       ASSETS: {
         fetch: vi.fn(async (request: Request) => {
           const url = new URL(request.url);
-          const localizedPage =
-            /^\/(ko|ja|zh-hans|zh-hant|es|pt-br|fr|de|nl|it|pl|ru|tr|id|vi|th)\/(index|about)\.html$/.exec(
-              url.pathname,
-            );
+          const localizedPage = LOCALIZED_PAGE_ASSET_RE.exec(url.pathname);
           if (url.pathname === '/about.html' || localizedPage?.[2] === 'about') {
             return new Response(
               `<html data-mxqr-rooms-opened=""><body>${url.pathname}</body></html>`,
@@ -10979,26 +10984,7 @@ describe('Cloudflare app worker invite route', () => {
   });
 
   it('serves every supported non-English locale from its generated app and About assets', async () => {
-    const localeCodes = [
-      'ko',
-      'ja',
-      'zh-hans',
-      'zh-hant',
-      'es',
-      'pt-br',
-      'fr',
-      'de',
-      'nl',
-      'it',
-      'pl',
-      'ru',
-      'tr',
-      'id',
-      'vi',
-      'th',
-    ];
-
-    for (const locale of localeCodes) {
+    for (const locale of NON_ENGLISH_LOCALE_CODES) {
       const appEnv = createAssetEnv();
       const appResponse = await appWorker.fetch(
         new Request(`https://musixquare.com/${locale}/`),
@@ -11130,7 +11116,7 @@ describe('Cloudflare app worker invite route', () => {
   it('leaves unsupported legacy About lang queries on the ordinary About route', async () => {
     const env = createAssetEnv();
     const response = await appWorker.fetch(
-      new Request('https://musixquare.com/about?lang=hi'),
+      new Request('https://musixquare.com/about?lang=sw'),
       env,
     );
 

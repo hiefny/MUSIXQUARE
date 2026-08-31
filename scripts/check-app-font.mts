@@ -24,11 +24,22 @@ const publicFontPath = path.join(
 );
 const failures: string[] = [];
 const lazyFontShards = [
-  { label: 'Japanese', family: 'Noto Sans JP', source: 'noto-jp.css' },
-  { label: 'Simplified Chinese', family: 'Noto Sans SC', source: 'noto-sc.css' },
-  { label: 'Traditional Chinese', family: 'Noto Sans TC', source: 'noto-tc.css' },
-  { label: 'Thai', family: 'Noto Sans Thai', source: 'noto-thai.css' },
+  { label: 'Arabic', family: 'Noto Sans Arabic', source: 'noto-arabic.css' },
+  { label: 'Bengali', family: 'Noto Sans Bengali', source: 'noto-bengali.css' },
   { label: 'Cyrillic', family: 'Noto Sans', source: 'noto-cyrillic.css' },
+  { label: 'Devanagari', family: 'Noto Sans Devanagari', source: 'noto-devanagari.css' },
+  { label: 'Greek', family: 'Noto Sans', source: 'noto-greek.css' },
+  { label: 'Gujarati', family: 'Noto Sans Gujarati', source: 'noto-gujarati.css' },
+  { label: 'Gurmukhi', family: 'Noto Sans Gurmukhi', source: 'noto-gurmukhi.css' },
+  { label: 'Hebrew', family: 'Noto Sans Hebrew', source: 'noto-hebrew.css' },
+  { label: 'Japanese', family: 'Noto Sans JP', source: 'noto-jp.css' },
+  { label: 'Kannada', family: 'Noto Sans Kannada', source: 'noto-kannada.css' },
+  { label: 'Malayalam', family: 'Noto Sans Malayalam', source: 'noto-malayalam.css' },
+  { label: 'Simplified Chinese', family: 'Noto Sans SC', source: 'noto-sc.css' },
+  { label: 'Tamil', family: 'Noto Sans Tamil', source: 'noto-tamil.css' },
+  { label: 'Traditional Chinese', family: 'Noto Sans TC', source: 'noto-tc.css' },
+  { label: 'Telugu', family: 'Noto Sans Telugu', source: 'noto-telugu.css' },
+  { label: 'Thai', family: 'Noto Sans Thai', source: 'noto-thai.css' },
 ] as const;
 
 function check(condition: boolean, message: string): void {
@@ -83,6 +94,28 @@ function localDistAssetPath(distDirectory: string, assetUrl: string): string | n
   const pathname = decodeURIComponent(rawPathname).replace(/^\/+/, '');
   if (!pathname || pathname.includes('..')) return null;
   return path.join(distDirectory, ...pathname.split('/'));
+}
+
+function localCssAssetPath(
+  distDirectory: string,
+  stylesheetPath: string,
+  assetUrl: string,
+): string | null {
+  if (/^(?:data|https?):/iu.test(assetUrl)) return null;
+  const [rawPathname] = assetUrl.split(/[?#]/u, 1);
+  if (!rawPathname) return null;
+  let target: string;
+  try {
+    target = rawPathname.startsWith('/')
+      ? path.join(distDirectory, ...decodeURIComponent(rawPathname).replace(/^\/+/, '').split('/'))
+      : path.resolve(path.dirname(stylesheetPath), decodeURIComponent(rawPathname));
+  } catch {
+    return null;
+  }
+  const relative = path.relative(distDirectory, target);
+  return relative === '' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+    ? null
+    : target;
 }
 
 async function collectFiles(directory: string): Promise<string[]> {
@@ -155,6 +188,22 @@ const lazyFontAssetStems = [
     ),
   ),
 ];
+const lazyFontAssetStemsBySource = new Map(
+  lazyFontShards.map(({ source }, index) => [
+    source,
+    [
+      ...new Set(
+        [
+          ...(lazyFontSourceCss[index]?.matchAll(/url\((?:["']?)([^)"']+\.woff2)(?:["']?)\)/giu) ??
+            []),
+        ]
+          .map((match) => match[1])
+          .filter((fontAssetUrl): fontAssetUrl is string => Boolean(fontAssetUrl))
+          .map((fontAssetUrl) => path.basename(fontAssetUrl, '.woff2')),
+      ),
+    ],
+  ]),
+);
 
 check(sourceFont.subarray(0, 4).toString('ascii') === 'wOF2', 'source font is not WOFF2');
 check(sourceFont.byteLength >= 1_500_000, 'source font looks like a subset, not the complete face');
@@ -218,16 +267,29 @@ check(
 );
 
 for (const fallback of [
+  'Noto Sans Arabic',
+  'Noto Sans Bengali',
+  'Noto Sans Devanagari',
+  'Noto Sans Gujarati',
+  'Noto Sans Gurmukhi',
+  'Noto Sans Hebrew',
   'Noto Sans JP',
+  'Noto Sans Kannada',
+  'Noto Sans Malayalam',
   'Noto Sans SC',
+  'Noto Sans Tamil',
   'Noto Sans TC',
+  'Noto Sans Telugu',
   'Noto Sans Thai',
   'Noto Sans',
 ]) {
   const escaped = fallback.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
   check(
-    new RegExp(`var\\(--font-primary\\)[^;]*'${escaped}'`, 'u').test(styleCss),
-    `${fallback} is not retained after Pretendard in a locale fallback stack`,
+    new RegExp(
+      `(?:var\\(--font-primary\\)[^;]*'${escaped}'|'${escaped}'[^;]*var\\(--font-primary\\))`,
+      'u',
+    ).test(styleCss),
+    `${fallback} is not paired with Pretendard in a locale fallback stack`,
   );
 }
 
@@ -270,6 +332,7 @@ if (distMode) {
   const [
     distFont,
     distHtml,
+    distAboutHtml,
     distServiceWorker,
     distPrimaryFontCss,
     distPrimaryFontRuntime,
@@ -278,6 +341,7 @@ if (distMode) {
   ] = await Promise.all([
     readFile(distFontPath),
     readFile(path.join(distDirectory, 'index.html'), 'utf8'),
+    readFile(path.join(distDirectory, 'about.html'), 'utf8'),
     readFile(path.join(distDirectory, 'service-worker.js'), 'utf8'),
     readFile(path.join(distDirectory, 'primary-font.css'), 'utf8'),
     readFile(path.join(distDirectory, 'primary-font-loader.js'), 'utf8'),
@@ -378,13 +442,16 @@ if (distMode) {
     'built core app shell contains an optional Pretendard asset',
   );
 
-  // Vite must keep the five locale faces behind their dynamic CSS imports.
+  // Vite must keep every locale face behind its dynamic CSS import.
   // Inspect content rather than hashes: output filenames are intentionally
   // unstable, while an @font-face family uniquely identifies each shard.
   const lazyShardFiles: string[] = [];
-  lazyFontShards.forEach(({ label, family }) => {
+  lazyFontShards.forEach(({ label, family, source }) => {
+    const assetStems = lazyFontAssetStemsBySource.get(source) ?? [];
     const matchingFiles = builtCssEntries
-      .filter(({ css }) => hasFontFace(css, family))
+      .filter(
+        ({ css }) => hasFontFace(css, family) && assetStems.some((stem) => css.includes(stem)),
+      )
       .map(({ file }) => file);
     check(
       matchingFiles.length === 1,
@@ -395,8 +462,56 @@ if (distMode) {
   });
   check(
     new Set(lazyShardFiles).size === lazyFontShards.length,
-    'locale fonts must remain five independent lazy CSS shards',
+    `locale fonts must remain ${lazyFontShards.length} independent lazy CSS shards`,
   );
+
+  const distFileSet = new Set(distFiles.map((file) => path.resolve(file)));
+  const aboutLocaleFontTags = [...distAboutHtml.matchAll(/<link\b[^>]*>/giu)]
+    .map((match) => match[0])
+    .filter((tag) => /\bdata-static-lang-font-codes=["'][^"']+["']/iu.test(tag));
+  check(
+    aboutLocaleFontTags.length === lazyFontShards.length,
+    `built About HTML must expose ${lazyFontShards.length} lazy locale font links (found ${aboutLocaleFontTags.length})`,
+  );
+  const aboutLocaleCssFiles = aboutLocaleFontTags.flatMap((tag) => {
+    const href = /\bhref=["']([^"']+)["']/iu.exec(tag)?.[1] || '';
+    check(
+      Boolean(href) && !href.startsWith('data:'),
+      `built About locale font href is invalid: ${href}`,
+    );
+    const file = localDistAssetPath(distDirectory, href);
+    check(
+      Boolean(file) && distFileSet.has(path.resolve(file || '')),
+      `built About locale font CSS is missing: ${href}`,
+    );
+    return file ? [file] : [];
+  });
+  check(
+    new Set(aboutLocaleCssFiles.map((file) => path.resolve(file))).size === lazyFontShards.length,
+    'built About locale font links must resolve to distinct CSS shards',
+  );
+  const lazyShardSet = new Set(lazyShardFiles.map((file) => path.resolve(file)));
+  for (const file of aboutLocaleCssFiles) {
+    check(
+      lazyShardSet.has(path.resolve(file)),
+      `built About HTML references raw rather than processed locale CSS: ${path.relative(distDirectory, file)}`,
+    );
+    const css = await readFile(file, 'utf8');
+    const fontUrls = [...css.matchAll(/url\((?:["']?)([^)"']+\.woff2)(?:["']?)\)/giu)].map(
+      (match) => match[1],
+    );
+    check(
+      fontUrls.length > 0,
+      `built About locale font CSS has no WOFF2 references: ${path.relative(distDirectory, file)}`,
+    );
+    for (const fontUrl of fontUrls) {
+      const fontFile = fontUrl ? localCssAssetPath(distDirectory, file, fontUrl) : null;
+      check(
+        Boolean(fontFile) && distFileSet.has(path.resolve(fontFile || '')),
+        `built About locale font WOFF2 is unresolved: ${path.relative(distDirectory, file)} -> ${fontUrl || '(missing)'}`,
+      );
+    }
+  }
 
   const initialAssetUrls = collectInitialAssetUrls(distHtml);
   const initialAssetFiles = initialAssetUrls

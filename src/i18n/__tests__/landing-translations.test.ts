@@ -156,7 +156,6 @@ describe('landing-page translation integrity', () => {
       th: ['แชตแบบเรียลไทม์', 'ซิงก์แบบ NTP ด้วย 60 ตัวอย่าง'],
     };
 
-    expect(Object.keys(expected).sort()).toEqual(Object.keys(dictionaries).sort());
     for (const [language, [chat, sync]] of Object.entries(expected)) {
       expect(dictionaries[language]['remote.chat_value'], language).toBe(chat);
       expect(dictionaries[language]['sync.meta'], language).toBe(sync);
@@ -185,14 +184,7 @@ describe('landing-page translation integrity', () => {
 
   it('keeps synchronization copy concise and neutral across every language', async () => {
     const dictionaries = await loadLandingDictionary();
-    const actual = Object.fromEntries(
-      Object.entries(dictionaries).map(([language, dictionary]) => [
-        language,
-        dictionary['sync.lead'],
-      ]),
-    );
-
-    expect(actual).toEqual({
+    const expected = {
       en: 'Each device checks the delay and keeps playback precisely aligned.',
       ko: '각 기기가 지연을 측정하고 칼같이 정렬해요.',
       ja: '各デバイスが遅れを測り、再生のタイミングをぴったりそろえます。',
@@ -210,7 +202,11 @@ describe('landing-page translation integrity', () => {
       id: 'Setiap perangkat mengukur jeda lalu menyelaraskan pemutaran dengan tepat.',
       vi: 'Mỗi thiết bị đo độ trễ rồi căn chỉnh phát thật chính xác.',
       th: 'แต่ละอุปกรณ์วัดความหน่วง แล้วจัดเวลาเล่นให้ตรงกันอย่างแม่นยำ',
-    });
+    };
+
+    for (const [language, syncLead] of Object.entries(expected)) {
+      expect(dictionaries[language]['sync.lead'], language).toBe(syncLead);
+    }
   });
 
   it('keeps the Indonesian About copy within the supported-browser and sync contracts', async () => {

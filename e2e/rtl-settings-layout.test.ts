@@ -84,6 +84,13 @@ test.describe('RTL settings and directional controls', () => {
               <button id="play-btn"></button>
               <button id="btn-next"><svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" /></svg></button>
             </div>
+            <button class="language-option" type="button" style="margin-top:20px">
+              <span class="language-option-label">
+                <span class="language-option-native" lang="ms-MY" dir="ltr">Bahasa Melayu</span>
+                <span class="language-option-english" lang="en" dir="ltr">Malay</span>
+              </span>
+              <span class="language-option-check"></span>
+            </button>
             <div class="dialog-input-split">
               <input class="dialog-input-segment" value="1234" />
               <span class="dialog-input-separator">-</span>
@@ -279,5 +286,33 @@ test.describe('RTL settings and directional controls', () => {
     expect(directions.mineTail).toBe('4px');
     await expect(page.locator('.chat-text').first()).toHaveCSS('direction', 'rtl');
     await expect(page.locator('.chat-text').last()).toHaveCSS('direction', 'ltr');
+  });
+
+  test('right-aligns LTR language names to one edge in the RTL picker', async ({ page }) => {
+    const geometry = await page.evaluate(() => {
+      const textRect = (selector: string) => {
+        const element = document.querySelector<HTMLElement>(selector)!;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const rect = range.getBoundingClientRect();
+        const style = getComputedStyle(element);
+        return {
+          right: rect.right,
+          direction: style.direction,
+          textAlign: style.textAlign,
+        };
+      };
+
+      return {
+        native: textRect('.language-option-native'),
+        english: textRect('.language-option-english'),
+      };
+    });
+
+    expect(geometry.native.direction).toBe('ltr');
+    expect(geometry.english.direction).toBe('ltr');
+    expect(geometry.native.textAlign).toBe('right');
+    expect(geometry.english.textAlign).toBe('right');
+    expect(Math.abs(geometry.native.right - geometry.english.right)).toBeLessThanOrEqual(1);
   });
 });

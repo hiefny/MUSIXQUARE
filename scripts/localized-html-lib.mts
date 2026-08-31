@@ -136,6 +136,7 @@ function replaceWebsiteSchema(document: Document, include: boolean): void {
     url: `${SITE_ORIGIN}/`,
     name: 'MUSIXQUARE',
     alternateName: ['뮤직스퀘어', 'ミュージックスクエア', 'musixquare.com'],
+    sameAs: ['https://x.com/musixquare', 'https://github.com/hiefny/MUSIXQUARE'],
     inLanguage: 'en',
   });
   document.head.appendChild(schema);
@@ -183,16 +184,19 @@ export function localizeAppDocument(
   const title = APP_SEARCH_TITLES[code] ?? 'MUSIXQUARE';
   const description = APP_SEARCH_DESCRIPTIONS[code] ?? aboutMetadata.description;
   const pageUrl = `${SITE_ORIGIN}${localizedAppPath(code)}`;
+  const manifest = document.querySelector<HTMLLinkElement>('#app-manifest[rel~="manifest"]');
 
   document.title = title;
   meta(document, 'meta[name="description"]').content = description;
   meta(document, 'meta[property="og:title"]').content = title;
-  meta(document, 'meta[property="og:description"]').content = aboutMetadata.ogDescription;
+  meta(document, 'meta[property="og:description"]').content = description;
   meta(document, 'meta[property="og:url"]').content = pageUrl;
   meta(document, 'meta[property="og:image:alt"]').content = aboutMetadata.ogImageAlt;
   meta(document, 'meta[name="twitter:title"]').content = title;
-  meta(document, 'meta[name="twitter:description"]').content = aboutMetadata.twitterDescription;
+  meta(document, 'meta[name="twitter:description"]').content = description;
   canonical(document).href = pageUrl;
+  if (code === 'en') manifest?.removeAttribute('href');
+  else manifest?.setAttribute('href', `/manifests/${code}.webmanifest`);
 
   replaceAlternateLinks(document, 'app');
   replaceOpenGraphLocales(document, code);

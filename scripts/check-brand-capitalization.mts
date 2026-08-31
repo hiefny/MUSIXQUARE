@@ -78,6 +78,9 @@ function isFixedTechnicalSpelling(source: string, match: RegExpExecArray): boole
   // Domains, email addresses, escaped host matchers, and technical dotted names.
   if (/^(?:\\?\.)[a-z0-9]/iu.test(after)) return true;
   if (/@[a-z0-9.-]*$/iu.test(before) && /^(?:\\?\.)[a-z0-9]/iu.test(after)) return true;
+  // Social handles and URL path segments are externally fixed identifiers.
+  if (/@$/u.test(before)) return true;
+  if (/https?:\/\/[a-z0-9.-]+(?:\/[a-z0-9._~-]+)*\/$/iu.test(before)) return true;
 
   if (spelling === 'musixquare' && FIXED_LOWERCASE_HYPHEN_TOKEN.test(source.slice(index))) {
     return true;

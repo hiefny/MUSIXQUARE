@@ -17,18 +17,24 @@ test.describe('RTL player layout', () => {
           <div class="track-box" style="width: 420px">
             <div class="track-artist" id="track-artist">≈192 kbps · MP3</div>
           </div>
-          <div class="play-btn-group">
-            <button class="ctrl-btn" id="btn-prev" aria-label="Previous track">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
-              </svg>
-            </button>
-            <button class="play-fab" id="play-btn" aria-label="Play/Pause"></button>
-            <button class="ctrl-btn" id="btn-next" aria-label="Next track">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-              </svg>
-            </button>
+          <div class="play-controls-left" style="width: 420px">
+            <div class="play-btn-group">
+              <button class="ctrl-btn" id="btn-prev" aria-label="Previous track">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z" />
+                </svg>
+              </button>
+              <button class="play-fab" id="play-btn" aria-label="Play/Pause"></button>
+              <button class="ctrl-btn" id="btn-next" aria-label="Next track">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
+                </svg>
+              </button>
+            </div>
+            <div class="vol-group-playback">
+              <button id="vol-icon-btn" aria-label="Toggle mute"></button>
+              <input id="volume-slider" type="range" min="0" max="100" value="100" />
+            </div>
           </div>
         </body>
       </html>
@@ -81,5 +87,29 @@ test.describe('RTL player layout', () => {
 
     expect(positions['btn-prev']).toBeLessThan(positions['play-btn']!);
     expect(positions['play-btn']).toBeLessThan(positions['btn-next']!);
+  });
+
+  test('keeps the LTR volume axis separated from the transport controls', async ({ page }) => {
+    const layout = await page.locator('.play-controls-left').evaluate((parent) => {
+      const transport = parent.querySelector<HTMLElement>('.play-btn-group')!;
+      const volume = parent.querySelector<HTMLElement>('.vol-group-playback')!;
+      const transportRect = transport.getBoundingClientRect();
+      const volumeRect = volume.getBoundingClientRect();
+
+      return {
+        parentDirection: getComputedStyle(parent).direction,
+        transportDirection: getComputedStyle(transport).direction,
+        volumeDirection: getComputedStyle(volume).direction,
+        volumeRight: volumeRect.right,
+        transportLeft: transportRect.left,
+        separation: transportRect.left - volumeRect.right,
+      };
+    });
+
+    expect(layout.parentDirection).toBe('rtl');
+    expect(layout.transportDirection).toBe('ltr');
+    expect(layout.volumeDirection).toBe('ltr');
+    expect(layout.volumeRight).toBeLessThan(layout.transportLeft);
+    expect(layout.separation).toBeGreaterThan(32);
   });
 });

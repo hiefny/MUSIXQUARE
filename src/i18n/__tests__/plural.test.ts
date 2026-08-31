@@ -8,6 +8,7 @@ import { PLURAL_PARAM_BY_KEY, pluralMessagesForTests as PLURAL_MESSAGES } from '
 async function loadTranslator(language: string) {
   vi.resetModules();
   localStorage.clear();
+  window.history.replaceState(null, '', '/');
   document.body.innerHTML = '';
   Object.defineProperty(navigator, 'languages', {
     value: [language],

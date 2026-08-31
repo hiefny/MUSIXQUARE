@@ -115,6 +115,7 @@ import { initDialog, showDialog } from './ui/dialog.ts';
 import { initTabs } from './ui/tabs.ts';
 import { initI18n } from './i18n/index.ts';
 import { t } from './i18n/index.ts';
+import { restoreAccountLoginReturnPath } from './account/login-return.ts';
 import { initAccount } from './ui/account.ts';
 import { initAccountActivityStats } from './account/activity-stats.ts';
 import { initAccountRoomIdentity } from './account/room-identity.ts';
@@ -1106,6 +1107,9 @@ async function bootstrap(): Promise<void> {
   safeInit('EmailCopy', initEmailCopyLinks);
   safeInit('Dialog', initDialog);
   safeInit('Tabs', initTabs);
+  // A standalone PWA may relaunch at `/` with a durable PRO-room return.
+  // Restore that room route before i18n projects `/` onto a locale pathname.
+  safeInit('Account login return path', restoreAccountLoginReturnPath);
   await runBootstrapStepAsync(bootstrapReadiness, 'I18n', initI18n, (e) =>
     log.error('[App] I18n init failed:', e),
   );

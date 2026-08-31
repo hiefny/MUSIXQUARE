@@ -15,7 +15,7 @@ export function currentAppPathLanguage(): LanguageCode | null {
   }
 }
 
-function updateKnownUrlMetadata(code: LanguageCode): void {
+export function updateKnownLocalizedAppUrlMetadata(code: LanguageCode): void {
   const url = `https://musixquare.com${localizedAppPath(code)}`;
   document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', url);
   document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute('content', url);
@@ -40,15 +40,32 @@ function requestFullDocumentNavigation(href: string): boolean {
   }
 }
 
+function isCanonicalRootAppPath(): boolean {
+  try {
+    return window.location.pathname === '/' || window.location.pathname === '/index.html';
+  } catch {
+    return false;
+  }
+}
+
+export function currentAppPathMatchesLanguage(code: LanguageCode): boolean {
+  const currentLanguage = currentAppPathLanguage();
+  return currentLanguage === code || (code === 'en' && isCanonicalRootAppPath());
+}
+
 /**
- * Replace one explicit locale entry with another without adding history or
- * discarding live room/app state. A real navigation remains the fail-safe for
- * browsers whose History API is unavailable, throws, or silently no-ops.
+ * Keep the canonical root English, and replace it or one explicit locale entry
+ * with the selected locale without adding history or discarding live app
+ * state. Six-digit room URLs and every other non-locale path remain unowned. A
+ * real navigation remains the fail-safe for browsers whose History API is
+ * unavailable, throws, or silently no-ops.
  */
 export function updateLocalizedAppPath(resolved: LanguageCode): LocalizedAppPathUpdate {
-  if (currentAppPathLanguage() === null) return 'unowned';
+  const currentLanguage = currentAppPathLanguage();
+  const ownsCanonicalRoot = currentLanguage === null && isCanonicalRootAppPath();
+  if (currentLanguage === null && !ownsCanonicalRoot) return 'unowned';
 
-  const nextPath = localizedAppEntryPath(resolved);
+  const nextPath = ownsCanonicalRoot && resolved === 'en' ? '/' : localizedAppEntryPath(resolved);
   if (window.location.pathname === nextPath) return 'unchanged';
 
   const search = window.location.search;
@@ -61,7 +78,7 @@ export function updateLocalizedAppPath(resolved: LanguageCode): LocalizedAppPath
       window.location.search === search &&
       window.location.hash === hash
     ) {
-      updateKnownUrlMetadata(resolved);
+      updateKnownLocalizedAppUrlMetadata(resolved);
       return 'replaced';
     }
   } catch {

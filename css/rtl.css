@@ -52,6 +52,14 @@ html[dir='rtl'] #youtube-url-input {
   text-align: start;
 }
 
+/* Track subtitles alternate between localized prose and LTR technical
+ * metadata such as "≈192 kbps · MP3". Let each value establish its own
+ * paragraph direction without moving the row away from the RTL text edge. */
+html[dir='rtl'] .track-artist {
+  unicode-bidi: plaintext;
+  text-align: right;
+}
+
 /* Channel placement is physical, not linguistic. A left speaker must remain
  * on the viewer's left even when the surrounding controls read right-to-left. */
 html[dir='rtl']
@@ -80,6 +88,14 @@ html[dir='rtl'] .demo-step-next svg {
   transform: scaleX(-1);
 }
 
-html[dir='rtl'] :where(#btn-prev, #btn-next, .player-controls, .youtube-controls, .volume-control) {
+html[dir='rtl']
+  :where(
+    #btn-prev,
+    #btn-next,
+    .play-btn-group,
+    .player-controls,
+    .youtube-controls,
+    .volume-control
+  ) {
   direction: ltr;
 }

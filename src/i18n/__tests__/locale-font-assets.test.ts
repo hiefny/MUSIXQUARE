@@ -51,6 +51,10 @@ describe('self-hosted locale font assets', () => {
       expect(rtlCss, selector).toContain(selector);
     }
     expect(rtlCss).toMatch(/#youtube-url-input\s*\{[^}]*unicode-bidi:\s*plaintext;/su);
+    expect(rtlCss).toMatch(
+      /\.track-artist\s*\{[^}]*unicode-bidi:\s*plaintext;[^}]*text-align:\s*right;/su,
+    );
+    expect(rtlCss).toMatch(/:where\([^)]*\.play-btn-group[^)]*\)\s*\{[^}]*direction:\s*ltr;/su);
     expect(editorialRtlCss).toMatch(/\.lp-room-count strong[^}]*direction:\s*ltr;/su);
     expect(editorialRtlCss).toMatch(/\.lp-sync__label\s*\{[^}]*direction:\s*rtl;/su);
     expect(staticLanguageCss).toMatch(/\.static-lang-menu\s*\{[^}]*inset-inline-end:\s*0;/su);

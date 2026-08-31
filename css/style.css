@@ -2088,6 +2088,7 @@
     background: transparent;
     --range-fill: var(--range-fill-idle);
     --range-progress: 0%;
+    --range-track-direction: to right;
     cursor: pointer;
     /* Preserve a 32px touch target around the thinner visual track. */
     height: 32px;
@@ -2110,7 +2111,7 @@
     width: 100%;
     height: 6px;
     background: linear-gradient(
-      to right,
+      var(--range-track-direction),
       var(--range-fill) 0%,
       var(--range-fill) var(--range-progress),
       var(--surface-2) var(--range-progress),
@@ -2125,7 +2126,7 @@
     width: 100%;
     height: 6px;
     background: linear-gradient(
-      to right,
+      var(--range-track-direction),
       var(--range-fill) 0%,
       var(--range-fill) var(--range-progress),
       var(--surface-2) var(--range-progress),
@@ -3553,6 +3554,8 @@
   }
 
   .reverb-sliders-area {
+    display: grid;
+    grid-template-rows: 1fr;
     overflow: hidden;
     opacity: 1;
     padding-top: 24px;
@@ -3562,37 +3565,28 @@
            the 0.35s delay (see .collapsed below) so focusable controls only
            become invisible after the collapse animation finishes. */
     transition:
-      max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+      grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.25s ease,
       padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       visibility 0s;
   }
 
-  #woofer-cutoff-control:not(.collapsed) {
-    max-height: 100px;
-    overflow: visible;
-  }
-
-  #reverb-sliders-area:not(.collapsed) {
-    max-height: 380px;
-    overflow: visible;
-  }
-
-  #eq-sliders-area:not(.collapsed) {
-    max-height: 200px;
+  .reverb-sliders-area > .collapsible-slider-content {
+    min-height: 0;
+    min-width: 0;
     overflow: visible;
   }
 
   .reverb-sliders-area.collapsed {
-    max-height: 0;
+    grid-template-rows: 0fr;
     opacity: 0;
     padding-top: 0;
     pointer-events: none;
     visibility: hidden;
     /* Override just the visibility channel to delay until collapse finishes;
-           keeps max-height, opacity, and padding on their existing easing. */
+           keeps the grid row, opacity, and padding on their existing easing. */
     transition:
-      max-height 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
+      grid-template-rows 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 0.25s ease,
       padding-top 0.35s cubic-bezier(0.2, 0.8, 0.2, 1),
       visibility 0s 0.35s;
@@ -3620,7 +3614,8 @@
     position: absolute;
     top: 50%;
     left: 50%;
-    margin-inline-start: -50px;
+    /* This is physical centering, independent of the document's writing direction. */
+    margin-left: -50px;
     margin-top: -16px;
   }
 

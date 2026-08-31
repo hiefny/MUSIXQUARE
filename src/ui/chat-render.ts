@@ -24,6 +24,12 @@ import { fetchOEmbedTitle } from '../youtube/oembed.ts';
 // not import them from a render module.
 const MAX_CHAT_MESSAGES = 200;
 
+// Translate the complete label in the active locale, but keep the untrusted
+// peer name in its own bidi isolation boundary. A plain dir="auto" on the
+// whole label is incorrect for translations (for example Urdu) that place a
+// Latin-script nickname before the localized RTL text.
+const WHISPER_NAME_TOKEN = '\uE000';
+
 // Sticky-bottom tolerance: how close to the bottom (in CSS px) counts as
 // "still at the bottom" when deciding whether a new message should auto-
 // scroll the chat. Browsers can leave fractional pixel offsets after
@@ -106,7 +112,7 @@ export function parseMessageContent(text: string): string {
             <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z"/></svg>
             <span class="chat-yt-label">YouTube</span>
           </div>
-          <div id="${uniqueId}" class="chat-yt-title">${escapeHtml(matchedText)}</div>
+          <div id="${uniqueId}" class="chat-yt-title" dir="auto">${escapeHtml(matchedText)}</div>
         </button>
       `;
 
@@ -134,6 +140,7 @@ export function parseMessageContent(text: string): string {
 
 function renderParsedChatContent(target: HTMLElement, text: string): void {
   // Keep chat HTML insertion constrained to parseMessageContent's escaped output.
+  target.dir = 'auto';
   target.innerHTML = parseMessageContent(text);
   applyUserTextFontFallback(target, text);
 }
@@ -276,6 +283,7 @@ export function addChatMessage(
 
       const senderNode = document.createElement('div');
       senderNode.className = 'chat-sender';
+      senderNode.dir = 'auto';
       if (badge) {
         const crown = document.createElement('span');
         crown.className = `chat-badge-${badge}`;
@@ -367,6 +375,7 @@ export function addSystemChatMessage(text: string): void {
 
   const senderNode = document.createElement('div');
   senderNode.className = 'chat-sender';
+  senderNode.dir = 'auto';
   senderNode.innerText = t('common.system');
   group.appendChild(senderNode);
 
@@ -377,6 +386,7 @@ export function addSystemChatMessage(text: string): void {
   bubble.className = 'chat-bubble others system';
   const chatTextDiv = document.createElement('div');
   chatTextDiv.className = 'chat-text';
+  chatTextDiv.dir = 'auto';
   // First line bold if multi-line (command output headers like /help, /users, /debug)
   const msgLines = text.split('\n');
   if (msgLines.length > 1) {
@@ -438,6 +448,7 @@ function createBotChatGroup(requestId: string): HTMLElement {
 
   const senderNode = document.createElement('div');
   senderNode.className = 'chat-sender';
+  senderNode.dir = 'auto';
   senderNode.textContent = 'BOT';
   group.appendChild(senderNode);
 
@@ -454,6 +465,7 @@ function createBotChatGroup(requestId: string): HTMLElement {
 
   const chatTextDiv = document.createElement('div');
   chatTextDiv.className = 'chat-text';
+  chatTextDiv.dir = 'auto';
   renderBotTypingIndicator(chatTextDiv);
   bubble.appendChild(chatTextDiv);
 
@@ -539,9 +551,15 @@ export function addWhisperMessage(peerLabel: string, text: string, isSent: boole
 
   const senderNode = document.createElement('div');
   senderNode.className = 'chat-sender whisper-label';
-  senderNode.textContent = isSent
-    ? t('chat.cmd_whisper_to', { name: peerLabel })
-    : t('chat.cmd_whisper_from', { name: peerLabel });
+  senderNode.dir = document.documentElement.dir;
+
+  const whisperKey = isSent ? 'chat.cmd_whisper_to' : 'chat.cmd_whisper_from';
+  const tokenizedLabel = t(whisperKey, { name: WHISPER_NAME_TOKEN });
+  const [labelBeforeName = '', labelAfterName = ''] = tokenizedLabel.split(WHISPER_NAME_TOKEN);
+  const peerNameNode = document.createElement('bdi');
+  peerNameNode.dir = 'auto';
+  peerNameNode.textContent = peerLabel;
+  senderNode.append(labelBeforeName, peerNameNode, labelAfterName);
   applyUserTextFontFallback(senderNode, senderNode.textContent || peerLabel);
   group.appendChild(senderNode);
 

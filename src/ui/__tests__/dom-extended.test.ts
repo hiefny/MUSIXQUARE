@@ -14,6 +14,7 @@ import {
   initOverlayObservers,
   __resetModalStackForTests,
   setElementInertForOwner,
+  updateTitleWithMarquee,
 } from '../dom.ts';
 
 describe('escapeHtml', () => {
@@ -75,6 +76,45 @@ describe('animateTransition', () => {
     const cb = vi.fn();
     animateTransition(cb);
     expect(cb).toHaveBeenCalled();
+  });
+});
+
+describe('updateTitleWithMarquee', () => {
+  function renderTitle(direction: 'ltr' | 'rtl', text: string): HTMLElement {
+    document.body.innerHTML = `
+      <div class="track-title-wrapper" dir="auto" style="direction: ${direction}">
+        <div id="track-title"></div>
+      </div>
+    `;
+    const wrapper = document.querySelector<HTMLElement>('.track-title-wrapper')!;
+    const title = document.getElementById('track-title')!;
+    Object.defineProperty(wrapper, 'clientWidth', { configurable: true, value: 160 });
+    Object.defineProperty(title, 'scrollWidth', { configurable: true, value: 252 });
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+
+    updateTitleWithMarquee(text);
+    return title;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('moves an LTR title left by its exact overflow width', () => {
+    const title = renderTitle('ltr', 'A uniquely long LTR marquee title');
+
+    expect(title.style.getPropertyValue('--marquee-offset')).toBe('-92px');
+    expect(title.style.getPropertyValue('--marquee-duration')).toBe('8.6s');
+  });
+
+  it('moves an RTL title right by its exact overflow width', () => {
+    const title = renderTitle('rtl', 'عنوان عربي طويل وفريد للاختبار');
+
+    expect(title.style.getPropertyValue('--marquee-offset')).toBe('92px');
+    expect(title.style.getPropertyValue('--marquee-duration')).toBe('8.6s');
   });
 });
 

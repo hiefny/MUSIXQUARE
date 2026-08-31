@@ -663,10 +663,12 @@ function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
 
     const name = document.createElement('span');
     name.className = 'd-name';
+    name.dir = 'auto';
     name.textContent = String(p.label || t('common.peer'));
     applyUserTextFontFallback(name, name.textContent);
 
     const shortId = document.createElement('span');
+    shortId.dir = 'ltr';
     shortId.style.cssText = 'font-size:11px; opacity:0.5; margin-left:4px;';
     shortId.textContent = `(${String(p.id || '').slice(-4)})`;
     name.appendChild(document.createTextNode(' '));

@@ -288,6 +288,24 @@ describe('app UX markup contract', () => {
   it('keeps the chat composer bottom-aligned with a small optical lift for send', () => {
     expect(appStylesheet).toMatch(/\.chat-input-wrapper\s*\{[\s\S]*?align-items:\s*flex-end;/u);
     expect(appStylesheet).toMatch(/\.chat-send-btn\s*\{[\s\S]*?margin-bottom:\s*2px;/u);
+    expect(appDocument.getElementById('chat-input')?.getAttribute('dir')).toBe('auto');
+    expect(appDocument.getElementById('chat-pinned-notice-label')?.getAttribute('dir')).toBe(
+      'auto',
+    );
+    expect(appDocument.getElementById('chat-pinned-notice-text')?.getAttribute('dir')).toBe('auto');
+  });
+
+  it('uses content-sized wrappers for every collapsible audio control panel', () => {
+    for (const id of ['woofer-cutoff-control', 'reverb-sliders-area', 'eq-sliders-area']) {
+      const panel = appDocument.getElementById(id);
+      expect(panel?.children).toHaveLength(1);
+      expect(panel?.firstElementChild?.classList.contains('collapsible-slider-content')).toBe(true);
+    }
+    expect(appStylesheet).toMatch(/\.reverb-sliders-area\s*\{[\s\S]*?grid-template-rows:\s*1fr;/u);
+    expect(appStylesheet).toMatch(
+      /\.reverb-sliders-area\.collapsed\s*\{[\s\S]*?grid-template-rows:\s*0fr;/u,
+    );
+    expect(appStylesheet).not.toMatch(/#reverb-sliders-area:not\(\.collapsed\)[^{]*\{/u);
   });
 
   it('uses the official centered contenteditable for manual sync without an auto column', () => {

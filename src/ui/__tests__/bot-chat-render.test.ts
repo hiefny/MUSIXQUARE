@@ -86,6 +86,7 @@ describe('BOT chat bubble renderer', () => {
     expect(currentBubble?.getAttribute('aria-busy')).toBe('false');
     expect(currentBubble?.hasAttribute('aria-label')).toBe(false);
     expect(currentBubble?.querySelector('.chat-text')?.textContent).toBe('셔플 재생을 켰어요');
+    expect(currentBubble?.querySelector<HTMLElement>('.chat-text')?.dir).toBe('auto');
     expect(currentBubble?.querySelector('.chat-bot-typing')).toBeNull();
     expect(rendered).toHaveBeenCalledOnce();
     expect(rendered).toHaveBeenCalledWith('BOT', '셔플 재생을 켰어요', false);

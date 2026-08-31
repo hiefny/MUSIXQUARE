@@ -1029,6 +1029,7 @@ function renderAccountDialog(snapshot: Readonly<AccountSnapshot> = getAccountSna
       : t('account.nickname_title');
     title.textContent = accountTitle;
     title.hidden = true;
+    titleEditLabel.dir = 'auto';
     titleEditLabel.textContent = accountTitle;
     dialog.setAttribute('aria-labelledby', 'account-dialog-title-edit-label');
     message.textContent = snapshot.account.profileComplete ? '' : t('account.nickname_message');

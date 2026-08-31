@@ -274,6 +274,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
       const input = document.createElement('div');
       input.contentEditable = 'true';
       input.className = 'dialog-input';
+      input.dir = 'auto';
       input.setAttribute('role', 'textbox');
       input.setAttribute('aria-label', inputCfg.placeholder || title);
       if (inputCfg.placeholder) input.setAttribute('data-placeholder', inputCfg.placeholder);

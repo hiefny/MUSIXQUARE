@@ -478,7 +478,8 @@ function applyMarquee(el: HTMLElement): void {
     if (!parent) return;
 
     const overflowWidth = el.scrollWidth - parent.clientWidth;
-    const targetOffset = -overflowWidth;
+    const targetOffset =
+      getComputedStyle(parent).direction === 'rtl' ? overflowWidth : -overflowWidth;
 
     if (overflowWidth > 0) {
       el.classList.add('marquee');

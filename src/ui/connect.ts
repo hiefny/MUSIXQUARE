@@ -1024,6 +1024,7 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
       name.className = 'd-name';
       const nameLabel = document.createElement('span');
       nameLabel.className = 'd-name-label';
+      nameLabel.dir = 'auto';
       nameLabel.textContent = administrator.displayName || t('common.peer');
       applyUserTextFontFallback(nameLabel, nameLabel.textContent);
       name.appendChild(nameLabel);
@@ -1551,6 +1552,7 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
       name.className = 'd-name';
       const nameLabel = document.createElement('span');
       nameLabel.className = 'd-name-label';
+      nameLabel.dir = 'auto';
       nameLabel.textContent = member.label || t('common.peer');
       applyUserTextFontFallback(nameLabel, nameLabel.textContent);
       name.appendChild(nameLabel);
@@ -1688,6 +1690,7 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
 
           const subName = document.createElement('span');
           subName.className = 'device-sub-name';
+          subName.dir = 'auto';
           const displayName = deviceDisplayName(device);
           subName.textContent = displayName;
           applyUserTextFontFallback(subName, displayName);

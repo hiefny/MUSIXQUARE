@@ -302,6 +302,10 @@ describe('Chat Module', () => {
         );
 
         const regularTexts = regularGroup?.querySelectorAll<HTMLElement>('.chat-text');
+        expect(regularGroup?.querySelector<HTMLElement>('.chat-sender')?.dir).toBe('auto');
+        expect(Array.from(regularTexts ?? []).every((element) => element.dir === 'auto')).toBe(
+          true,
+        );
         expectFontClasses(regularTexts?.[0], 'user-text-font', 'user-text-font-ja');
         expectFontClasses(regularTexts?.[1], 'user-text-font', 'user-text-font-th');
         expectFontClasses(
@@ -315,6 +319,38 @@ describe('Chat Module', () => {
           'user-text-font-zh-hant',
         );
       } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('keeps the localized whisper label direction while isolating the peer name', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 0, 1, 9, 5));
+      document.documentElement.dir = 'rtl';
+
+      const { t } = await import('../../i18n/index.ts');
+      const tMock = vi.mocked(t);
+      tMock.mockImplementation((key, params) => {
+        const name = String(params?.name ?? '');
+        if (key === 'chat.cmd_whisper_from') return `${name} سے سرگوشی`;
+        if (key === 'chat.cmd_whisper_to') return `${name} کو سرگوشی`;
+        return key;
+      });
+
+      try {
+        renderMessageShell();
+        const { addWhisperMessage } = await import('../chat-render.ts');
+        addWhisperMessage('Peer 3', 'private hello', false);
+
+        const label = document.querySelector<HTMLElement>('.whisper-label');
+        const peerName = label?.querySelector<HTMLElement>('bdi');
+        expect(label?.dir).toBe('rtl');
+        expect(label?.textContent).toBe('Peer 3 سے سرگوشی');
+        expect(peerName?.dir).toBe('auto');
+        expect(peerName?.textContent).toBe('Peer 3');
+      } finally {
+        document.documentElement.removeAttribute('dir');
+        tMock.mockImplementation((key) => key);
         vi.useRealTimers();
       }
     });
@@ -1256,6 +1292,7 @@ describe('Chat Module', () => {
       bus.emit('chat:message-rendered', 'Пользователь', 'かな', false);
 
       const preview = document.querySelector<HTMLElement>('.chat-preview-text');
+      expect(preview?.textContent).toBe('\u2068Пользователь\u2069: \u2068かな\u2069');
       expectFontClasses(preview, 'user-text-font', 'user-text-font-ru', 'user-text-font-ja');
       expect(preview?.dataset.userTextFonts).toBe('ru ja');
 

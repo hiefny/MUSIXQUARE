@@ -34,7 +34,10 @@ function getRangeRatio(range: HTMLInputElement, event: PointerEvent): number {
   if (range.classList.contains('eq-slider')) {
     return rect.height > 0 ? clamp((rect.bottom - event.clientY) / rect.height, 0, 1) : 0;
   }
-  return rect.width > 0 ? clamp((event.clientX - rect.left) / rect.width, 0, 1) : 0;
+  if (rect.width <= 0) return 0;
+
+  const physicalRatio = clamp((event.clientX - rect.left) / rect.width, 0, 1);
+  return getComputedStyle(range).direction === 'rtl' ? 1 - physicalRatio : physicalRatio;
 }
 
 function getValueFromPointer(range: HTMLInputElement, event: PointerEvent): string {
@@ -60,6 +63,31 @@ function applyRangeValue(range: HTMLInputElement, event: PointerEvent): void {
   range.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+function applyRtlHorizontalArrow(range: HTMLInputElement, event: KeyboardEvent): void {
+  if (getComputedStyle(range).direction !== 'rtl') return;
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+
+  // Chromium follows the range's RTL direction for horizontal arrows while
+  // WebKit historically keeps ArrowRight=increase. Own the two horizontal
+  // keys so keyboard, pointer geometry, and the painted track agree in every
+  // engine: moving physically left increases; moving right decreases.
+  const previous = range.value;
+  try {
+    if (event.key === 'ArrowLeft') range.stepUp();
+    else range.stepDown();
+  } catch {
+    // `step="any"` cannot be advanced through stepUp/stepDown. Leave those
+    // future callers to the engine by returning before preventDefault().
+    return;
+  }
+  event.preventDefault();
+  if (range.value === previous) return;
+
+  syncRangeProgress(range);
+  range.dispatchEvent(new Event('input', { bubbles: true }));
+  range.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
 export function installRangeDragGuard(root: ParentNode = document): void {
   const ranges = Array.from(root.querySelectorAll<HTMLInputElement>('input[type="range"]'));
   requestAnimationFrame(() => syncAllRangeProgress(root));
@@ -73,7 +101,10 @@ export function installRangeDragGuard(root: ParentNode = document): void {
     range.addEventListener('input', () => syncRangeProgress(range));
     range.addEventListener('change', () => syncRangeProgress(range));
     range.addEventListener('blur', () => range.classList.remove('is-pointer-focused'));
-    range.addEventListener('keydown', () => range.classList.remove('is-pointer-focused'));
+    range.addEventListener('keydown', (event) => {
+      range.classList.remove('is-pointer-focused');
+      applyRtlHorizontalArrow(range, event);
+    });
 
     const finishDrag = (event?: PointerEvent) => {
       if (activePointerId === null) return;

@@ -351,6 +351,7 @@ function createSubTrackItem(
   }`;
   const subName = document.createElement('span');
   subName.className = 'sub-name';
+  subName.dir = 'auto';
   const marqueeContent = document.createElement('span');
   marqueeContent.className = 'playlist-title-marquee-content';
   marqueeContent.textContent = title;
@@ -532,6 +533,7 @@ function patchRenderedSubPlaylistTitles(list: HTMLElement): boolean {
         latest.titles?.[subIndex] || t('playlist.video_fallback', { idx: subIndex + 1 });
       const name = row.querySelector<HTMLElement>('.sub-name');
       if (name && name.textContent !== title) {
+        name.dir = 'auto';
         const marqueeContent = document.createElement('span');
         marqueeContent.className = 'playlist-title-marquee-content';
         marqueeContent.textContent = title;
@@ -688,6 +690,7 @@ function appendProRoomUploadRow(list: HTMLElement, upload: ProRoomUploadRow): vo
   track.className = 'track-name pro-upload-track';
   const name = document.createElement('span');
   name.className = 'track-name-text pro-upload-name';
+  name.dir = 'auto';
   name.textContent = upload.name;
   applyUserTextFontFallback(name, upload.name);
   track.appendChild(name);
@@ -792,7 +795,7 @@ export function updatePlaylistUI(): void {
       ${renderLeadingSlot(item, idx, canReorder, isCurrent)}
       <button type="button" class="track-name" data-action="play"
         data-queue-item-id="${escapeHtml(item.queueItemId)}"
-        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text"><span class="playlist-title-marquee-content">${escapeHtml(displayName)}</span></span></button>
+        ${isCurrent ? 'aria-current="true"' : ''}>${renderTrackIcon(item)}<span class="track-name-text" dir="auto"><span class="playlist-title-marquee-content">${escapeHtml(displayName)}</span></span></button>
       ${expandButton}
       ${removeButton}
     `;

@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v530"></script>
+    <script src="/bootstrap.js?cache=v531"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <link rel="alternate" hreflang="en" href="https://musixquare.com/" />
@@ -332,7 +332,7 @@
         </div>
 
         <div class="track-box">
-          <div class="track-title-wrapper">
+          <div class="track-title-wrapper" dir="auto">
             <div class="track-title" id="track-title" data-i18n="player.no_media">
               No media playing
             </div>
@@ -456,7 +456,10 @@
                 </svg>
                 <span class="chat-preview-badge" id="chat-preview-badge"></span>
               </div>
-              <span class="chat-preview-text" id="chat-preview-text" data-i18n="chat.start"
+              <span
+                class="chat-preview-text"
+                id="chat-preview-text"
+                data-i18n="chat.start"
                 >Send a message to start!</span
               >
             </div>
@@ -1191,20 +1194,22 @@
                 </button>
               </div>
               <div class="reverb-sliders-area collapsed" id="woofer-cutoff-control">
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span data-i18n="settings.subwoofer_adjust">Subwoofer Cutoff</span>
-                    <span class="val-disp" id="val-cutoff">120 Hz</span>
+                <div class="collapsible-slider-content">
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span data-i18n="settings.subwoofer_adjust">Subwoofer Cutoff</span>
+                      <span class="val-disp" id="val-cutoff">120 Hz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="cutoff-slider"
+                      min="60"
+                      max="200"
+                      value="120"
+                      aria-label="Subwoofer Cutoff Frequency"
+                      data-i18n-aria-label="settings.subwoofer_cutoff"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="cutoff-slider"
-                    min="60"
-                    max="200"
-                    value="120"
-                    aria-label="Subwoofer Cutoff Frequency"
-                    data-i18n-aria-label="settings.subwoofer_cutoff"
-                  />
                 </div>
               </div>
             </div>
@@ -1277,113 +1282,115 @@
                 </button>
               </div>
               <div id="reverb-sliders-area" class="reverb-sliders-area collapsed">
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="common.mix">Mix</span>
-                      <span class="role-hint-label" data-i18n="settings.default_0pct"
-                        >Default 0%</span
-                      ></span
-                    >
-                    <span class="val-disp" id="val-reverb">0%</span>
+                <div class="collapsible-slider-content">
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="common.mix">Mix</span>
+                        <span class="role-hint-label" data-i18n="settings.default_0pct"
+                          >Default 0%</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-reverb">0%</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-slider"
+                      min="0"
+                      max="100"
+                      value="0"
+                      aria-label="Reverb mix"
+                      data-i18n-aria-label="settings.reverb_mix"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-slider"
-                    min="0"
-                    max="100"
-                    value="0"
-                    aria-label="Reverb mix"
-                    data-i18n-aria-label="settings.reverb_mix"
-                  />
-                </div>
 
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="settings.decay_time">Decay time</span>
-                      <span class="role-hint-label" data-i18n="settings.default_5s"
-                        >Default 5.0s</span
-                      ></span
-                    >
-                    <span class="val-disp" id="val-rvb-decay">5.0s</span>
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.decay_time">Decay time</span>
+                        <span class="role-hint-label" data-i18n="settings.default_5s"
+                          >Default 5.0s</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-decay">5.0s</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-decay-slider"
+                      min="0.1"
+                      max="10.0"
+                      step="0.1"
+                      value="5.0"
+                      aria-label="Reverb decay"
+                      data-i18n-aria-label="settings.reverb_decay"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-decay-slider"
-                    min="0.1"
-                    max="10.0"
-                    step="0.1"
-                    value="5.0"
-                    aria-label="Reverb decay"
-                    data-i18n-aria-label="settings.reverb_decay"
-                  />
-                </div>
 
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="settings.predelay">Pre-delay</span>
-                      <span class="role-hint-label" data-i18n="settings.default_01s"
-                        >Default 0.1s</span
-                      ></span
-                    >
-                    <span class="val-disp" id="val-rvb-predelay">0.1s</span>
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.predelay">Pre-delay</span>
+                        <span class="role-hint-label" data-i18n="settings.default_01s"
+                          >Default 0.1s</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-predelay">0.1s</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-predelay-slider"
+                      min="0"
+                      max="0.5"
+                      step="0.01"
+                      value="0.1"
+                      aria-label="Reverb pre-delay"
+                      data-i18n-aria-label="settings.reverb_predelay"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-predelay-slider"
-                    min="0"
-                    max="0.5"
-                    step="0.01"
-                    value="0.1"
-                    aria-label="Reverb pre-delay"
-                    data-i18n-aria-label="settings.reverb_predelay"
-                  />
-                </div>
 
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="settings.highpass">High-pass</span>
-                      <span class="role-hint-label" data-i18n="settings.default_20hz"
-                        >Default 20Hz</span
-                      ></span
-                    >
-                    <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.highpass">High-pass</span>
+                        <span class="role-hint-label" data-i18n="settings.default_20hz"
+                          >Default 20Hz</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-lowcut">20Hz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-lowcut-slider"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value="0"
+                      aria-label="Reverb low-cut"
+                      data-i18n-aria-label="settings.reverb_lowcut"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-lowcut-slider"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value="0"
-                    aria-label="Reverb low-cut"
-                    data-i18n-aria-label="settings.reverb_lowcut"
-                  />
-                </div>
 
-                <div class="slider-wrap">
-                  <div class="slider-header">
-                    <span
-                      ><span data-i18n="settings.lowpass">Low-pass</span>
-                      <span class="role-hint-label" data-i18n="settings.default_20khz"
-                        >Default 20.0kHz</span
-                      ></span
-                    >
-                    <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
+                  <div class="slider-wrap">
+                    <div class="slider-header">
+                      <span
+                        ><span data-i18n="settings.lowpass">Low-pass</span>
+                        <span class="role-hint-label" data-i18n="settings.default_20khz"
+                          >Default 20.0kHz</span
+                        ></span
+                      >
+                      <span class="val-disp" id="val-rvb-highcut">20.0kHz</span>
+                    </div>
+                    <input
+                      type="range"
+                      id="reverb-highcut-slider"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value="0"
+                      aria-label="Reverb high-cut"
+                      data-i18n-aria-label="settings.reverb_highcut"
+                    />
                   </div>
-                  <input
-                    type="range"
-                    id="reverb-highcut-slider"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value="0"
-                    aria-label="Reverb high-cut"
-                    data-i18n-aria-label="settings.reverb_highcut"
-                  />
                 </div>
               </div>
             </div>
@@ -1454,71 +1461,73 @@
                 </button>
               </div>
               <div id="eq-sliders-area" class="reverb-sliders-area collapsed">
-                <div class="eq-container">
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-0">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-0"
-                      aria-label="EQ 60Hz"
-                    />
-                    <span class="eq-label">60</span>
-                  </div>
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-1">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-1"
-                      aria-label="EQ 230Hz"
-                    />
-                    <span class="eq-label">230</span>
-                  </div>
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-2">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-2"
-                      aria-label="EQ 910Hz"
-                    />
-                    <span class="eq-label">910</span>
-                  </div>
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-3">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-3"
-                      aria-label="EQ 3.6kHz"
-                    />
-                    <span class="eq-label">3.6k</span>
-                  </div>
-                  <div class="eq-band">
-                    <span class="eq-val" id="eq-val-4">0</span>
-                    <input
-                      type="range"
-                      class="eq-slider"
-                      min="-12"
-                      max="12"
-                      value="0"
-                      id="eq-slider-4"
-                      aria-label="EQ 14kHz"
-                    />
-                    <span class="eq-label">14k</span>
+                <div class="collapsible-slider-content">
+                  <div class="eq-container">
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-0">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-0"
+                        aria-label="EQ 60Hz"
+                      />
+                      <span class="eq-label">60</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-1">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-1"
+                        aria-label="EQ 230Hz"
+                      />
+                      <span class="eq-label">230</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-2">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-2"
+                        aria-label="EQ 910Hz"
+                      />
+                      <span class="eq-label">910</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-3">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-3"
+                        aria-label="EQ 3.6kHz"
+                      />
+                      <span class="eq-label">3.6k</span>
+                    </div>
+                    <div class="eq-band">
+                      <span class="eq-val" id="eq-val-4">0</span>
+                      <input
+                        type="range"
+                        class="eq-slider"
+                        min="-12"
+                        max="12"
+                        value="0"
+                        id="eq-slider-4"
+                        aria-label="EQ 14kHz"
+                      />
+                      <span class="eq-label">14k</span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1845,7 +1854,7 @@
       >
         <div class="chat-pinned-notice-body">
           <div class="chat-pinned-notice-header">
-            <div class="chat-pinned-notice-label" id="chat-pinned-notice-label"></div>
+            <div class="chat-pinned-notice-label" id="chat-pinned-notice-label" dir="auto"></div>
             <span class="chat-pinned-notice-time" id="chat-pinned-notice-time"></span>
             <svg
               class="chat-pinned-notice-close"
@@ -1861,7 +1870,7 @@
               />
             </svg>
           </div>
-          <div class="chat-pinned-notice-text" id="chat-pinned-notice-text"></div>
+          <div class="chat-pinned-notice-text" id="chat-pinned-notice-text" dir="auto"></div>
         </div>
       </div>
       <div class="chat-scroll-wrapper">
@@ -1876,7 +1885,7 @@
           tabindex="-1"
           data-custom-scroll
         >
-          <div class="chat-empty" data-i18n-html="chat.empty_html">No messages yet.<br>Send the first message!</div>
+          <div class="chat-empty" dir="auto" data-i18n-html="chat.empty_html">No messages yet.<br>Send the first message!</div>
         </div>
         <button
           class="chat-scroll-down-btn"
@@ -1914,6 +1923,7 @@
           <div
             class="chat-input"
             id="chat-input"
+            dir="auto"
             contenteditable="true"
             tabindex="0"
             role="combobox"

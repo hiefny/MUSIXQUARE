@@ -46,23 +46,28 @@ function flushMeasurements(): void {
   // Read all geometry before writing classes and custom properties. This
   // prevents one title's style update from forcing layout for every next row.
   const measurements = pending.map((container) => {
-    if (!container.isConnected) return { container, overflow: 0, valid: false };
+    if (!container.isConnected) return { container, overflow: 0, isRtl: false, valid: false };
     const content = container.querySelector<HTMLElement>(`:scope > .${CONTENT_CLASS}`);
-    if (!content) return { container, overflow: 0, valid: false };
+    if (!content) return { container, overflow: 0, isRtl: false, valid: false };
     // Keep the child inline while idle so the parent's native ellipsis still
     // paints. offsetWidth reports the untransformed intrinsic inline width;
     // scrollWidth is retained as a DOM-test/older-engine fallback.
     const intrinsicWidth = content.offsetWidth || content.scrollWidth;
-    return { container, overflow: Math.ceil(intrinsicWidth - container.clientWidth), valid: true };
+    return {
+      container,
+      overflow: Math.ceil(intrinsicWidth - container.clientWidth),
+      isRtl: getComputedStyle(container).direction === 'rtl',
+      valid: true,
+    };
   });
 
-  for (const { container, overflow, valid } of measurements) {
+  for (const { container, overflow, isRtl, valid } of measurements) {
     if (!valid || overflow <= MIN_OVERFLOW_PX) {
       clearOverflow(container);
       continue;
     }
     container.classList.add(OVERFLOW_CLASS);
-    container.style.setProperty('--playlist-marquee-offset', `${-overflow}px`);
+    container.style.setProperty('--playlist-marquee-offset', `${isRtl ? overflow : -overflow}px`);
     const travelSeconds = overflow / TRAVEL_SPEED_PX_PER_SECOND;
     container.style.setProperty(
       '--playlist-marquee-duration',

@@ -17,6 +17,8 @@ export default defineConfig({
     'maintenance-inline-logo.test.ts',
     'setup-carousel-autoplay.test.ts',
     'app-entrance.test.ts',
+    'rtl-player-layout.test.ts',
+    'rtl-settings-layout.test.ts',
   ],
   timeout: 60_000,
   expect: { timeout: 15_000 },

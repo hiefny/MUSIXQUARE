@@ -556,11 +556,13 @@ function renderSearchResults(query: string, results: YouTubeSearchResult[]): voi
 
     const title = document.createElement('span');
     title.className = 'yt-search-title';
+    title.dir = 'auto';
     title.textContent = result.title || t('common.youtube_video');
     applyUserTextFontFallback(title, title.textContent);
 
     const channel = document.createElement('span');
     channel.className = 'yt-search-channel';
+    channel.dir = 'auto';
     channel.textContent = result.channelTitle || 'YouTube';
     applyUserTextFontFallback(channel, channel.textContent);
 

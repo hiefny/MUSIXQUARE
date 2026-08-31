@@ -55,7 +55,24 @@ describe('script-aware user text font fallback', () => {
     const element = document.createElement('span');
 
     expect(applyUserTextFontFallback(element, 'MUSIXQUARE 가나다')).toEqual([]);
+    expect(element.hasAttribute('dir')).toBe(false);
     expect(preloadLocaleFontGlyphs).not.toHaveBeenCalled();
+  });
+
+  it('does not mutate the direction owned by the rendering boundary', () => {
+    const inherited = document.createElement('span');
+    const automatic = document.createElement('span');
+    const physical = document.createElement('span');
+    automatic.dir = 'auto';
+    physical.dir = 'ltr';
+
+    applyUserTextFontFallback(inherited, 'مرحبا');
+    applyUserTextFontFallback(automatic, 'مرحبا');
+    applyUserTextFontFallback(physical, 'مرحبا');
+
+    expect(inherited.hasAttribute('dir')).toBe(false);
+    expect(automatic.dir).toBe('auto');
+    expect(physical.dir).toBe('ltr');
   });
 
   it('loads and composes every confidently detected shard in mixed text', async () => {

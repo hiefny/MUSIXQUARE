@@ -96,8 +96,8 @@ function updateChatPreview(sender: string, text: string): void {
 
   const previewText = previewBtn.querySelector('.chat-preview-text');
   if (previewText instanceof HTMLElement) {
-    previewText.textContent = `${sender}: ${text}`;
-    applyUserTextFontFallback(previewText, previewText.textContent);
+    previewText.textContent = `\u2068${sender}\u2069: \u2068${text}\u2069`;
+    applyUserTextFontFallback(previewText, `${sender}: ${text}`);
   }
 }
 

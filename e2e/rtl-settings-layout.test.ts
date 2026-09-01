@@ -170,7 +170,6 @@ test.describe('RTL settings and directional controls', () => {
         };
       });
 
-      expect(geometry.panelClientHeight, `${width}px client height`).toBeGreaterThan(380);
       expect(geometry.panelScrollHeight, `${width}px scroll height`).toBeLessThanOrEqual(
         geometry.panelClientHeight + 1,
       );

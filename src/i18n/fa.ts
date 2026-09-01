@@ -101,7 +101,7 @@ const fa: Record<I18nKey, string> = {
   'nav.settings': 'تنظیمات',
   'nav.help': 'راهنما',
   'nav.connect': 'اتصال',
-  'nav.playlist_compact': 'فهرست پخش',
+  'nav.playlist_compact': 'فهرست',
   'nav.connect_compact': 'اتصال',
   'nav.settings_compact': 'تنظیمات',
   'nav.go_home': 'رفتن به خانه',

@@ -61,8 +61,26 @@ test.describe('Production release smoke', () => {
       'href',
       '/manifests/ko.webmanifest',
     );
-    await expect.poll(() => page.title()).toBe('뮤직스퀘어 | MUSIXQUARE');
+    await expect.poll(() => page.title()).toBe('뮤직스퀘어 · MUSIXQUARE');
     expect(await page.evaluate(() => performance.getEntriesByType('navigation').length)).toBe(1);
+  });
+
+  test('preserves the About locale across English-only editorial pages', async ({ page }) => {
+    await page.goto('/ko/about');
+
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
+    const historyLink = page.locator('.editorial-site-tab[href^="/history"]');
+    await expect(historyLink).toHaveAttribute('href', '/history?lang=ko');
+    await historyLink.click();
+
+    await expect(page).toHaveURL(/\/history\?lang=ko$/u);
+    const aboutLink = page.locator('.editorial-site-tab[href^="/ko/about"]');
+    await expect(aboutLink).toHaveAttribute('href', '/ko/about');
+    await aboutLink.click();
+
+    await expect(page).toHaveURL(/\/ko\/about$/u);
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
+    await expect(page).toHaveTitle('MUSIXQUARE 소개');
   });
 
   test('boots, joins a host and guest, and exchanges chat both ways', async ({ browser }) => {

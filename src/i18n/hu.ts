@@ -8,6 +8,10 @@
 import type { I18nKey } from './ko.ts';
 
 const hu: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Alakítsd a telefonokat, táblagépeket és számítógépeket egyetlen szinkronizált vezeték nélküli hangrendszerré. Játssz le együtt zenét, YouTube-videókat és rendszerhangot közvetlenül a böngészőben, telepítés nélkül.',
+
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Mégse',

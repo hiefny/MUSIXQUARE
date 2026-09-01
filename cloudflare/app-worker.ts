@@ -38,7 +38,12 @@ import {
   updateServiceMaintenance,
 } from './service-maintenance.ts';
 import { accountNicknameKey, normalizeAccountNickname } from './account-nickname.ts';
-import { LANGUAGE_OPTIONS, localizedAboutPath, type LanguageCode } from '../src/i18n/locales.ts';
+import {
+  LANGUAGE_OPTIONS,
+  localizedAboutPath,
+  localizedAppEntryPath,
+  type LanguageCode,
+} from '../src/i18n/locales.ts';
 import {
   abortProRoomOwnershipTransferEntitlement,
   authorizeProGrantActivation,
@@ -334,7 +339,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.4.51';
+const ADMIN_ASSET_VERSION = '8.4.52';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -346,6 +351,12 @@ const APP_SHELL_FRESH_CACHE_HEADERS = Object.freeze({
   Pragma: 'no-cache',
 });
 const APP_LANGUAGE_CODES = new Set<string>(LANGUAGE_OPTIONS.map(({ code }) => code));
+const LEGACY_APP_LANGUAGE_ALIASES: Readonly<Record<string, LanguageCode>> = {
+  in: 'id',
+  iw: 'he',
+  no: 'nb',
+  tl: 'fil',
+};
 const EVENT_CAMPAIGN_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/;
 const EVENT_PAGE_ASSET_PATH = '/events/index.html';
 const SORO_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
@@ -12945,9 +12956,9 @@ function replaceMetaName(html: string, name: string, content: string) {
 function rewriteInviteMeta(html: string, code: string, origin: string) {
   const imageUrl = `${origin}/og-invite.png`;
   const pageUrl = `${origin}/${code}`;
-  const title = `Session ${code} - MUSIXQUARE`;
+  const title = `Session ${code} · MUSIXQUARE`;
   const description = `Join a MUSIXQUARE session with code ${code}.`;
-  const alt = `MUSIXQUARE - Session ${code}`;
+  const alt = `MUSIXQUARE · Session ${code}`;
 
   let rewritten = html;
   rewritten = replaceMetaProperty(rewritten, 'og:url', pageUrl);
@@ -14815,7 +14826,24 @@ function normalizeLegacyAboutLanguage(value: unknown): LanguageCode | null {
     .trim()
     .replace(/_/gu, '-')
     .toLowerCase();
-  return APP_LANGUAGE_CODES.has(normalized) ? (normalized as LanguageCode) : null;
+  if (APP_LANGUAGE_CODES.has(normalized)) return normalized as LanguageCode;
+  return LEGACY_APP_LANGUAGE_ALIASES[normalized] ?? null;
+}
+
+function legacyLocalePathRedirect(pathname: string): string | null {
+  const aboutMatch = /^\/([^/]+)\/about(?:\.html)?\/*$/iu.exec(pathname);
+  if (aboutMatch) {
+    const rawLanguage = String(aboutMatch[1] || '').toLowerCase();
+    const language = LEGACY_APP_LANGUAGE_ALIASES[rawLanguage] ?? null;
+    if (language && language !== rawLanguage) return localizedAboutPath(language);
+    return null;
+  }
+
+  const appMatch = /^\/([^/]+)(?:\/index\.html)?\/*$/iu.exec(pathname);
+  if (!appMatch) return null;
+  const rawLanguage = String(appMatch[1] || '').toLowerCase();
+  const language = LEGACY_APP_LANGUAGE_ALIASES[rawLanguage] ?? null;
+  return language && language !== rawLanguage ? localizedAppEntryPath(language) : null;
 }
 
 function legacyAboutLanguageRedirect(url: URL): URL | null {
@@ -14837,6 +14865,8 @@ function legacyAboutLanguageRedirect(url: URL): URL | null {
 
 function redirectTarget(pathname: string) {
   const lower = pathname.toLowerCase();
+  const legacyLocaleRedirect = legacyLocalePathRedirect(pathname);
+  if (legacyLocaleRedirect) return legacyLocaleRedirect;
   const localizedRoute = localizedStaticRoute(pathname);
   if (localizedRoute && pathname !== localizedRoute.canonicalPathname) {
     return localizedRoute.canonicalPathname;
@@ -14863,9 +14893,8 @@ function redirectTarget(pathname: string) {
       return canonicalEventPath;
     }
   }
-  if (pathname !== lower && canonical.has(lower.replace(/\/$/, ''))) {
-    return canonical.get(lower.replace(/\/$/, '')) ?? null;
-  }
+  const canonicalStaticPath = canonical.get(lower.replace(/\/$/, ''));
+  if (canonicalStaticPath && pathname !== canonicalStaticPath) return canonicalStaticPath;
   return null;
 }
 
@@ -14984,7 +15013,11 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
   const redirect = redirectTarget(url.pathname);
   if (redirect) {
     const preserveUrlState =
-      localizedRoute !== null || /^\/about(?:\.html)?\/*$/i.test(url.pathname);
+      localizedRoute !== null ||
+      legacyLocalePathRedirect(url.pathname) !== null ||
+      /^\/(?:about(?:\.html)?|blog|privacy|terms|faq|developers|history|designsystem)\/*$/iu.test(
+        url.pathname,
+      );
     const target = new URL(redirect, url);
     if (preserveUrlState) {
       target.search = url.search;

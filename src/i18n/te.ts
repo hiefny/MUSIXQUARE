@@ -9,6 +9,10 @@ import type { I18nKey } from './ko.ts';
 import type { LocalePluralMessages } from './plural-contract.ts';
 
 const te: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'ఫోన్‌లు, టాబ్లెట్‌లు, కంప్యూటర్‌లను ఒకే సింక్ చేసిన వైర్‌లెస్ ఆడియో సిస్టమ్‌గా మార్చండి. ఇన్‌స్టాలేషన్ అవసరం లేకుండా బ్రౌజర్‌లో సంగీతం, YouTube, సిస్టమ్ ఆడియోను కలిసి ప్లే చేయండి.',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'సరే',
   'common.cancel': 'రద్దు చేయి',

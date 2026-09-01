@@ -6216,11 +6216,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.51');
-    expect(html).toContain('/clearable-editors.js?v=8.4.51');
-    expect(html).toContain('/admin.js?v=8.4.51');
+    expect(html).toContain('/admin.css?v=8.4.52');
+    expect(html).toContain('/clearable-editors.js?v=8.4.52');
+    expect(html).toContain('/admin.js?v=8.4.52');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.51"');
+    expect(html).toContain('data-admin-asset-version="8.4.52"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6241,9 +6241,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.51',
-      '/admin.css?v=8.4.51',
-      '/clearable-editors.js?v=8.4.51',
+      '/admin.js?v=8.4.52',
+      '/admin.css?v=8.4.52',
+      '/clearable-editors.js?v=8.4.52',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
@@ -11087,6 +11087,21 @@ describe('Cloudflare app worker invite route', () => {
     ['/ABOUT', '/about'],
     ['/about.html', '/about'],
     ['/about.html///', '/about'],
+    ['/blog/', '/blog'],
+    ['/history/', '/history'],
+    ['/privacy/', '/privacy'],
+    ['/terms/', '/terms'],
+    ['/faq/', '/faq'],
+    ['/developers/', '/developers'],
+    ['/designsystem/', '/designsystem'],
+    ['/in/', '/id/'],
+    ['/iw/', '/he/'],
+    ['/no/', '/nb/'],
+    ['/tl/', '/fil/'],
+    ['/in/about', '/id/about'],
+    ['/iw/about/', '/he/about'],
+    ['/no/about.html', '/nb/about'],
+    ['/tl/about.html/', '/fil/about'],
   ])('redirects locale alias %s to canonical path %s', async (sourcePath, canonicalPath) => {
     const env = createAssetEnv();
     const response = await appWorker.fetch(new Request(`https://musixquare.com${sourcePath}`), env);
@@ -11099,6 +11114,8 @@ describe('Cloudflare app worker invite route', () => {
   it.each([
     ['/KO//', '/ko/'],
     ['/EN//', '/en/'],
+    ['/TL//', '/fil/'],
+    ['/HISTORY/', '/history'],
   ])(
     'preserves query and fragment state while canonicalizing locale alias %s',
     async (sourcePath, canonicalPath) => {
@@ -11190,7 +11207,7 @@ describe('Cloudflare app worker invite route', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('Pragma')).toBe('no-cache');
     expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
-    expect(html).toContain('Session 123456 - MUSIXQUARE');
+    expect(html).toContain('Session 123456 · MUSIXQUARE');
     expect(html).toContain('https://musixquare.com/123456');
     expect(html).toContain('/assets/main-test.js');
   });

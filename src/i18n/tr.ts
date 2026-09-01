@@ -7,6 +7,10 @@
 import type { I18nKey } from './ko.ts';
 
 const tr: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Telefonları, tabletleri ve bilgisayarları tek bir senkronize kablosuz ses sistemine dönüştürün. Müzik, YouTube ve sistem sesini kurulum gerektirmeden tarayıcınızda birlikte oynatın.',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'Tamam',
   'common.cancel': 'İptal',

@@ -88,7 +88,7 @@ describe('public history page contract', () => {
   });
 
   it('publishes concise metadata and a dated timeline summary', () => {
-    expect(historyDocument.title).toBe('History | MUSIXQUARE');
+    expect(historyDocument.title).toBe('History · MUSIXQUARE');
     expect(historyDocument.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
       'MUSIXQUARE development history from the first Web Audio prototype in August 2025 to its May 2026 launch and current architecture.',
     );

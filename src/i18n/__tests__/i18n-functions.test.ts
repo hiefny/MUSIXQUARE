@@ -243,13 +243,37 @@ describe('i18n functions', () => {
       expect(document.documentElement.getAttribute('lang')).toBe('ko');
     });
 
+    it('keeps the accessible app identity aligned when a locale changes in place', async () => {
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      localStorage.setItem('musixquare-lang', 'en');
+      document.body.innerHTML = `
+        <h1 class="sr-only" data-i18n="app.search_title">MUSIXQUARE</h1>
+        <p class="sr-only" data-i18n="app.search_description"></p>
+      `;
+
+      const { initI18n, setLanguageMode } = await import('../index.ts');
+      const { default: ko } = await import('../ko.ts');
+      await initI18n();
+      setLanguageMode('ko');
+
+      await vi.waitFor(() => {
+        expect(document.querySelector('h1')?.textContent).toBe(ko['app.search_title']);
+        expect(document.querySelector('p')?.textContent).toBe(ko['app.search_description']);
+      });
+      expect(document.querySelector('h1')?.hasAttribute('aria-hidden')).toBe(false);
+      expect(document.querySelector('p')?.hasAttribute('aria-hidden')).toBe(false);
+    });
+
     it('replaces a localized URL in place while preserving app history, query, and hash', async () => {
       const historyState = { guard: 'active-session' };
       window.history.replaceState(historyState, '', '/ko/?campaign=launch#player');
       document.head.innerHTML = localizedHeadMarkup({
         lang: 'ko',
         canonical: 'https://musixquare.com/ko/',
-        title: '뮤직스퀘어 | MUSIXQUARE',
+        title: '뮤직스퀘어 · MUSIXQUARE',
         ogLocale: 'ko_KR',
       });
       document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
@@ -267,7 +291,7 @@ describe('i18n functions', () => {
           localizedDocument({
             lang: 'ja',
             canonical: 'https://musixquare.com/ja/',
-            title: 'ミュージックスクエア | MUSIXQUARE',
+            title: 'ミュージックスクエア · MUSIXQUARE',
             ogLocale: 'ja_JP',
           }),
           { status: 200, headers: { 'Content-Type': 'text/html' } },
@@ -290,7 +314,7 @@ describe('i18n functions', () => {
       await vi.waitFor(() => {
         expect(getResolvedLanguage()).toBe('ja');
         expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']);
-        expect(document.title).toBe('ミュージックスクエア | MUSIXQUARE');
+        expect(document.title).toBe('ミュージックスクエア · MUSIXQUARE');
       });
       expect(fetchHead).toHaveBeenCalledWith(
         '/ja/',
@@ -309,7 +333,7 @@ describe('i18n functions', () => {
       document.head.innerHTML = localizedHeadMarkup({
         lang: 'ko',
         canonical: 'https://musixquare.com/ko/',
-        title: '뮤직스퀘어 | MUSIXQUARE',
+        title: '뮤직스퀘어 · MUSIXQUARE',
         ogLocale: 'ko_KR',
       });
       localStorage.setItem('musixquare-lang', 'ko');
@@ -407,7 +431,7 @@ describe('i18n functions', () => {
           localizedDocument({
             lang: 'ko',
             canonical: 'https://musixquare.com/ko/',
-            title: '뮤직스퀘어 | MUSIXQUARE',
+            title: '뮤직스퀘어 · MUSIXQUARE',
             ogLocale: 'ko_KR',
           }),
           { status: 200, headers: { 'Content-Type': 'text/html' } },
@@ -428,7 +452,7 @@ describe('i18n functions', () => {
       await vi.waitFor(() => {
         expect(rootI18n.getResolvedLanguage()).toBe('ko');
         expect(document.querySelector('button')?.textContent).toBe(ko['setup.host_button']);
-        expect(document.title).toBe('뮤직스퀘어 | MUSIXQUARE');
+        expect(document.title).toBe('뮤직스퀘어 · MUSIXQUARE');
       });
       expect(fetchHead).toHaveBeenCalledWith(
         '/ko/',
@@ -504,7 +528,7 @@ describe('i18n functions', () => {
         code: 'ko' as const,
         targetPath: '/ko/',
         canonical: 'https://musixquare.com/ko/',
-        title: '뮤직스퀘어 | MUSIXQUARE',
+        title: '뮤직스퀘어 · MUSIXQUARE',
         lang: 'ko',
         websiteSchema: false,
       },
@@ -526,7 +550,7 @@ describe('i18n functions', () => {
         document.querySelector<HTMLMetaElement>('meta[property="og:image"]')!.content =
           'https://musixquare.com/og-invite.png';
         document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')!.content =
-          'MUSIXQUARE - Session 123456';
+          'MUSIXQUARE · Session 123456';
         document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')!.content =
           'Session 123456 · MUSIXQUARE';
         document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')!.content =
@@ -595,7 +619,7 @@ describe('i18n functions', () => {
           localizedDocument({
             lang: 'ko',
             canonical: 'https://musixquare.com/ko/',
-            title: '뮤직스퀘어 | MUSIXQUARE',
+            title: '뮤직스퀘어 · MUSIXQUARE',
             ogLocale: 'ko_KR',
           }),
           { status: 200 },
@@ -613,7 +637,7 @@ describe('i18n functions', () => {
       await vi.waitFor(() => expect(window.location.pathname).toBe('/ko/'));
       await vi.waitFor(() => {
         expect(getResolvedLanguage()).toBe('ko');
-        expect(document.title).toBe('뮤직스퀘어 | MUSIXQUARE');
+        expect(document.title).toBe('뮤직스퀘어 · MUSIXQUARE');
       });
     });
 
@@ -622,7 +646,7 @@ describe('i18n functions', () => {
       document.head.innerHTML = localizedHeadMarkup({
         lang: 'ko',
         canonical: 'https://musixquare.com/ko/',
-        title: '뮤직스퀘어 | MUSIXQUARE',
+        title: '뮤직스퀘어 · MUSIXQUARE',
         ogLocale: 'ko_KR',
       });
       document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
@@ -642,7 +666,7 @@ describe('i18n functions', () => {
       expect(document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href).toBe(
         'https://musixquare.com/ja/',
       );
-      expect(document.title).toBe('뮤직스퀘어 | MUSIXQUARE');
+      expect(document.title).toBe('뮤직스퀘어 · MUSIXQUARE');
     });
 
     it('ignores a stale localized head response after a faster later selection', async () => {
@@ -650,7 +674,7 @@ describe('i18n functions', () => {
       document.head.innerHTML = localizedHeadMarkup({
         lang: 'ko',
         canonical: 'https://musixquare.com/ko/',
-        title: '뮤직스퀘어 | MUSIXQUARE',
+        title: '뮤직스퀘어 · MUSIXQUARE',
         ogLocale: 'ko_KR',
       });
       localStorage.setItem('musixquare-lang', 'ko');
@@ -667,7 +691,7 @@ describe('i18n functions', () => {
             localizedDocument({
               lang: 'ja',
               canonical: 'https://musixquare.com/ja/',
-              title: 'ミュージックスクエア | MUSIXQUARE',
+              title: 'ミュージックスクエア · MUSIXQUARE',
               ogLocale: 'ja_JP',
             }),
             { status: 200 },
@@ -683,7 +707,7 @@ describe('i18n functions', () => {
       setLanguageMode('ja');
       await vi.waitFor(() => {
         expect(getResolvedLanguage()).toBe('ja');
-        expect(document.title).toBe('ミュージックスクエア | MUSIXQUARE');
+        expect(document.title).toBe('ミュージックスクエア · MUSIXQUARE');
       });
 
       const releaseArabic = arabicRequest.resolve;
@@ -705,7 +729,7 @@ describe('i18n functions', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
 
       expect(window.location.pathname).toBe('/ja/');
-      expect(document.title).toBe('ミュージックスクエア | MUSIXQUARE');
+      expect(document.title).toBe('ミュージックスクエア · MUSIXQUARE');
       expect(document.querySelector<HTMLMetaElement>('meta[property="og:locale"]')?.content).toBe(
         'ja_JP',
       );

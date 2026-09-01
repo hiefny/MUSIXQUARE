@@ -8,6 +8,11 @@
 import type { I18nKey } from './ko.ts';
 
 const en: Record<I18nKey, string> = {
+  // ─── App identity ───────────────────────────────────────────────
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required.',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Cancel',

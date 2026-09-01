@@ -7,10 +7,12 @@ import {
   compileClassicRuntimeAsset,
 } from '../../../scripts/classic-runtime-assets.ts';
 import {
+  APP_DICTIONARIES,
   renderLocalizedAbout,
   renderLocalizedApp,
   SITE_ORIGIN,
 } from '../../../scripts/localized-html-lib.mts';
+import { localeSeoMetadata } from '../../../scripts/locale-seo-metadata.mts';
 import { LANGUAGE_OPTIONS, localizedAboutPath, localizedAppPath } from '../locales.ts';
 
 const landingI18nAsset = CLASSIC_RUNTIME_ASSETS.find(
@@ -36,13 +38,54 @@ function documentFor(html: string): Document {
   return new JSDOM(html).window.document;
 }
 
+function alternateMap(document: Document): Map<string, string> {
+  return new Map(
+    Array.from(
+      document.querySelectorAll<HTMLLinkElement>('link[rel="alternate"][hreflang]'),
+      (link) => [link.hreflang, link.href] as const,
+    ),
+  );
+}
+
 describe('localized static HTML materialization', () => {
+  it('keeps one complete locale-native app search description per supported language', () => {
+    const descriptions = LANGUAGE_OPTIONS.map(
+      ({ code }) => APP_DICTIONARIES[code]['app.search_description'],
+    );
+
+    expect(new Set(descriptions).size).toBe(LANGUAGE_OPTIONS.length);
+    for (const [index, description] of descriptions.entries()) {
+      const code = LANGUAGE_OPTIONS[index]?.code;
+      expect(description.trim(), `${code} trimmed description`).toBe(description);
+      expect(description.length, `${code} meaningful description`).toBeGreaterThan(40);
+      expect(description, `${code} plain-text description`).not.toMatch(/<[^>]+>/u);
+    }
+  });
+
   it(`renders complete, self-canonical app and About documents for all ${LANGUAGE_OPTIONS.length} locales`, () => {
+    const expectedAppAlternates = new Map(
+      LANGUAGE_OPTIONS.map(
+        ({ code }) =>
+          [localeSeoMetadata(code).hrefLang, `${SITE_ORIGIN}${localizedAppPath(code)}`] as const,
+      ),
+    );
+    expectedAppAlternates.set('x-default', `${SITE_ORIGIN}/`);
+    const expectedAboutAlternates = new Map(
+      LANGUAGE_OPTIONS.map(
+        ({ code }) =>
+          [localeSeoMetadata(code).hrefLang, `${SITE_ORIGIN}${localizedAboutPath(code)}`] as const,
+      ),
+    );
+    expectedAboutAlternates.set('x-default', `${SITE_ORIGIN}/about`);
+
     for (const option of LANGUAGE_OPTIONS) {
       const about = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, option.code);
       const app = renderLocalizedApp(appHtml, option.code, about.metadata);
       const appDocument = documentFor(app);
       const aboutDocument = documentFor(about.html);
+      const dictionary = APP_DICTIONARIES[option.code];
+      const expectedTitle = dictionary['app.search_title'];
+      const expectedDescription = dictionary['app.search_description'];
 
       expect(appDocument.documentElement.lang, `${option.code} app lang`).toBe(option.htmlLang);
       expect(aboutDocument.documentElement.lang, `${option.code} About lang`).toBe(option.htmlLang);
@@ -54,6 +97,12 @@ describe('localized static HTML materialization', () => {
         aboutDocument.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href,
         `${option.code} About canonical`,
       ).toBe(`${SITE_ORIGIN}${localizedAboutPath(option.code)}`);
+      expect(alternateMap(appDocument), `${option.code} app alternate cluster`).toEqual(
+        expectedAppAlternates,
+      );
+      expect(alternateMap(aboutDocument), `${option.code} About alternate cluster`).toEqual(
+        expectedAboutAlternates,
+      );
 
       for (const document of [appDocument, aboutDocument]) {
         expect(document.querySelectorAll('link[rel="alternate"][hreflang]').length).toBe(
@@ -68,7 +117,21 @@ describe('localized static HTML materialization', () => {
       expect(appDocument.querySelectorAll('[data-i18n]').length).toBeGreaterThan(150);
       expect(aboutDocument.querySelectorAll('[data-i18n]').length).toBeGreaterThan(50);
       expect(appDocument.querySelectorAll('h1')).toHaveLength(1);
-      expect(appDocument.querySelector('h1')?.textContent).toBe('MUSIXQUARE');
+      expect(appDocument.title, `${option.code} app title`).toBe(expectedTitle);
+      const appHeading = appDocument.querySelector<HTMLElement>('h1[data-i18n="app.search_title"]');
+      const appSummary = appDocument.querySelector<HTMLElement>(
+        '[data-i18n="app.search_description"]',
+      );
+      expect(appHeading?.textContent, `${option.code} app heading`).toBe(expectedTitle);
+      expect(appHeading?.classList.contains('sr-only'), `${option.code} hidden heading`).toBe(true);
+      expect(appHeading?.hasAttribute('aria-hidden'), `${option.code} accessible heading`).toBe(
+        false,
+      );
+      expect(appSummary?.textContent, `${option.code} app summary`).toBe(expectedDescription);
+      expect(appSummary?.classList.contains('sr-only'), `${option.code} hidden summary`).toBe(true);
+      expect(appSummary?.hasAttribute('aria-hidden'), `${option.code} accessible summary`).toBe(
+        false,
+      );
       expect(appDocument.querySelector<HTMLMetaElement>('meta[name="twitter:site"]')?.content).toBe(
         '@musixquare',
       );
@@ -85,6 +148,7 @@ describe('localized static HTML materialization', () => {
       const appDescription = appDocument.querySelector<HTMLMetaElement>(
         'meta[name="description"]',
       )?.content;
+      expect(appDescription, `${option.code} app description`).toBe(expectedDescription);
       expect(
         appDocument.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.content,
         `${option.code} app Open Graph description`,
@@ -93,15 +157,10 @@ describe('localized static HTML materialization', () => {
         appDocument.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.content,
         `${option.code} app Twitter description`,
       ).toBe(appDescription);
-      const excludedHelpBlocks = Array.from(
-        appDocument.querySelectorAll<HTMLElement>('.help-block[data-nosnippet]'),
-      );
-      expect(excludedHelpBlocks, `${option.code} excluded install help`).toHaveLength(2);
       expect(
-        excludedHelpBlocks.every((block) =>
-          Boolean(block.querySelector('[data-i18n="help.install_app"]')),
-        ),
-      ).toBe(true);
+        appDocument.querySelectorAll('[data-nosnippet]'),
+        `${option.code} snippet exclusions`,
+      ).toHaveLength(0);
     }
   }, 45_000);
 
@@ -154,17 +213,21 @@ describe('localized static HTML materialization', () => {
     const koreanApp = documentFor(renderLocalizedApp(appHtml, 'ko', koreanAbout.metadata));
     const japaneseApp = documentFor(renderLocalizedApp(appHtml, 'ja', japaneseAbout.metadata));
 
-    expect(koreanApp.title).toBe('뮤직스퀘어 | MUSIXQUARE');
-    expect(japaneseApp.title).toBe('ミュージックスクエア | MUSIXQUARE');
+    expect(koreanApp.title).toBe('뮤직스퀘어 · MUSIXQUARE');
+    expect(japaneseApp.title).toBe('ミュージックスクエア · MUSIXQUARE');
     expect(koreanApp.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
-      '여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요.',
+      '스마트폰, 태블릿, PC를 연결해 하나의 동기화된 무선 오디오 시스템을 만들어 보세요. 음악·YouTube·시스템 오디오를 설치 없이 브라우저에서 함께 재생할 수 있습니다.',
     );
     expect(
       koreanApp.querySelector('meta[property="og:description"]')?.getAttribute('content'),
-    ).toBe('여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요.');
+    ).toBe(
+      '스마트폰, 태블릿, PC를 연결해 하나의 동기화된 무선 오디오 시스템을 만들어 보세요. 음악·YouTube·시스템 오디오를 설치 없이 브라우저에서 함께 재생할 수 있습니다.',
+    );
     expect(
       koreanApp.querySelector('meta[name="twitter:description"]')?.getAttribute('content'),
-    ).toBe('여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요.');
+    ).toBe(
+      '스마트폰, 태블릿, PC를 연결해 하나의 동기화된 무선 오디오 시스템을 만들어 보세요. 음악·YouTube·시스템 오디오를 설치 없이 브라우저에서 함께 재생할 수 있습니다.',
+    );
     expect(koreanApp.querySelector('meta[name="application-name"]')?.getAttribute('content')).toBe(
       'MUSIXQUARE',
     );
@@ -181,14 +244,18 @@ describe('localized static HTML materialization', () => {
 
     expect(englishApp.title).toBe('MUSIXQUARE');
     expect(englishApp.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
-      'Turn phones, tablets, desktops into a synchronized wireless audio system.',
+      'Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required.',
     );
     expect(
       englishApp.querySelector('meta[property="og:description"]')?.getAttribute('content'),
-    ).toBe('Turn phones, tablets, desktops into a synchronized wireless audio system.');
+    ).toBe(
+      'Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required.',
+    );
     expect(
       englishApp.querySelector('meta[name="twitter:description"]')?.getAttribute('content'),
-    ).toBe('Turn phones, tablets, desktops into a synchronized wireless audio system.');
+    ).toBe(
+      'Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required.',
+    );
     expect(englishApp.querySelectorAll('[data-mxqr-website-schema]')).toHaveLength(1);
     expect(englishApp.querySelector('[data-mxqr-website-schema]')?.textContent).toContain(
       '뮤직스퀘어',
@@ -211,6 +278,18 @@ describe('localized static HTML materialization', () => {
         about.querySelector<HTMLLinkElement>('link[hreflang="en"]')?.href,
         `${option.code} English hreflang`,
       ).toBe(`${SITE_ORIGIN}${localizedAboutPath('en')}`);
+
+      for (const path of ['/blog', '/history', '/designsystem']) {
+        const link = Array.from(about.querySelectorAll<HTMLAnchorElement>('a[href]')).find(
+          (candidate) =>
+            new URL(candidate.getAttribute('href') || '/', SITE_ORIGIN).pathname === path,
+        );
+        const target = link ? new URL(link.getAttribute('href') || '/', SITE_ORIGIN) : null;
+        expect(target, `${option.code} ${path} link`).not.toBeNull();
+        expect(target?.searchParams.get('lang'), `${option.code} ${path} locale intent`).toBe(
+          option.code === 'en' ? null : option.code,
+        );
+      }
     }
   });
 });

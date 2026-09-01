@@ -9,6 +9,10 @@ import type { I18nKey } from './ko.ts';
 import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ml: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'ഫോണുകൾ, ടാബ്‌ലെറ്റുകൾ, കമ്പ്യൂട്ടറുകൾ എന്നിവയെ ഒരൊറ്റ സിങ്ക് ചെയ്ത വയർലെസ് ഓഡിയോ സിസ്റ്റമാക്കി മാറ്റൂ. ഒന്നും ഇൻസ്റ്റാൾ ചെയ്യാതെ ബ്രൗസറിൽ സംഗീതം, YouTube, സിസ്റ്റം ഓഡിയോ എന്നിവ ഒരുമിച്ച് പ്ലേ ചെയ്യൂ.',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ശരി',
   'common.cancel': 'റദ്ദാക്കുക',

@@ -10,6 +10,9 @@ import type { I18nKey } from './ko.ts';
 const vi: Record<I18nKey, string> = {
   ...en,
 
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Biến điện thoại, máy tính bảng và máy tính thành một hệ thống âm thanh không dây đồng bộ. Cùng phát nhạc, YouTube và âm thanh hệ thống ngay trong trình duyệt mà không cần cài đặt.',
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Hủy',

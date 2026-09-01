@@ -10,6 +10,9 @@ import type { I18nKey } from './ko.ts';
 const zhHant: Record<I18nKey, string> = {
   ...en,
 
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    '將手機、平板電腦和電腦連接成一套同步的無線音響系統。無需安裝，即可在瀏覽器中一起播放音樂、YouTube 和系統音訊。',
   // Common
   'common.ok': '確定',
   'common.cancel': '取消',

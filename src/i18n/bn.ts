@@ -8,6 +8,10 @@
 import type { I18nKey } from './ko.ts';
 
 const bn: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'ফোন, ট্যাবলেট ও কম্পিউটারকে একটি সিঙ্ক করা ওয়্যারলেস অডিও সিস্টেমে পরিণত করুন। কোনো কিছু ইনস্টল না করেই ব্রাউজারে একসঙ্গে গান, YouTube ও সিস্টেম অডিও চালান।',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ঠিক আছে',
   'common.cancel': 'বাতিল করুন',

@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v535"></script>
+    <script src="/bootstrap.js?cache=v536"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <link rel="alternate" hreflang="en" href="https://musixquare.com/" />
@@ -54,7 +54,7 @@
     <meta property="og:title" content="MUSIXQUARE" />
     <meta
       property="og:description"
-      content="Turn phones, tablets, desktops into a synchronized wireless audio system."
+      content="Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required."
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="MUSIXQUARE" />
@@ -70,13 +70,13 @@
     <meta name="twitter:title" content="MUSIXQUARE" />
     <meta
       name="twitter:description"
-      content="Turn phones, tablets, desktops into a synchronized wireless audio system."
+      content="Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required."
     />
     <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
     <title>MUSIXQUARE</title>
     <meta
       name="description"
-      content="Turn phones, tablets, desktops into a synchronized wireless audio system."
+      content="Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required."
     />
     <script type="application/ld+json" data-mxqr-website-schema>
       {
@@ -114,7 +114,11 @@
 
   <body>
     <a href="#tab-play" class="skip-link">Skip to content</a>
-    <h1 class="sr-only">MUSIXQUARE</h1>
+    <h1 class="sr-only" data-i18n="app.search_title">MUSIXQUARE</h1>
+    <p class="sr-only" data-i18n="app.search_description">
+      Turn phones, tablets, and computers into one synchronized wireless audio system. Play music,
+      YouTube, and system audio together in your browser, with no installation required.
+    </p>
 
     <noscript>
       <div class="noscript-fallback">
@@ -680,7 +684,7 @@
       </div>
 
       <div class="tab-body" data-custom-scroll>
-        <div class="help-block" data-nosnippet>
+        <div class="help-block">
           <div class="help-title">
             <svg viewBox="0 0 24 24">
               <path
@@ -1734,7 +1738,7 @@
 
         <div class="settings-subtab-panel" id="settings-subtab-panel-help" data-panel="help">
           <div class="desktop-help-section">
-            <div class="help-block" data-nosnippet>
+            <div class="help-block">
               <div class="help-title">
                 <svg viewBox="0 0 24 24">
                   <path
@@ -3302,7 +3306,7 @@
       </div>
     </div>
 
-    <div id="demo-overlay" class="demo-overlay" aria-hidden="true" data-nosnippet>
+    <div id="demo-overlay" class="demo-overlay" aria-hidden="true">
       <div class="demo-mobile-shell">
         <section
           class="demo-visual-stage"

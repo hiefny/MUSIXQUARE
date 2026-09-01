@@ -317,7 +317,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.4.51';
+const ADMIN_SCRIPT_VERSION = '8.4.52';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -5539,7 +5539,7 @@ function renderAnnouncement(payload: AdminApiPayload): void {
   }
   announcementPreviewEl.hidden = false;
   announcementPreviewEl.innerHTML = `
-    <span>Notice - MUSIXQUARE</span>
+    <span>Notice · MUSIXQUARE</span>
     <p></p>
   `;
   const previewMessage = announcementPreviewEl.querySelector<HTMLElement>('p');

@@ -8,6 +8,10 @@
 import type { I18nKey } from './ko.ts';
 
 const ms: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Jadikan telefon, tablet dan komputer sebagai satu sistem audio tanpa wayar yang terselaras. Mainkan muzik, YouTube dan audio sistem bersama-sama dalam pelayar tanpa pemasangan.',
+
   // ─── Umum ────────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Batal',

@@ -7,6 +7,10 @@
 import type { I18nKey } from './ko.ts';
 
 const fa: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'تلفن‌ها، تبلت‌ها و رایانه‌ها را به یک سیستم صوتی بی‌سیم و همگام تبدیل کنید. موسیقی، YouTube و صدای سیستم را بدون نیاز به نصب، مستقیماً در مرورگر با هم پخش کنید.',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'تأیید',
   'common.cancel': 'لغو',

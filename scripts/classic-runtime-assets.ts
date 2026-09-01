@@ -64,6 +64,7 @@ export const CLASSIC_RUNTIME_ASSETS = [
   {
     sourcePath: 'browser/classic-runtime/fouc-cleanup.ts',
     outputPath: 'fouc-cleanup.js',
+    minify: true,
     target: 'es2018',
   },
   {
@@ -90,6 +91,7 @@ export const CLASSIC_RUNTIME_ASSETS = [
   {
     sourcePath: 'browser/classic-runtime/wordmark-anim.ts',
     outputPath: 'wordmark-anim.js',
+    minify: true,
     target: 'es2018',
   },
 ] as const satisfies readonly ClassicRuntimeAsset[];

@@ -12,6 +12,9 @@ import type { LocalePluralMessages } from './plural-contract.ts';
 const nl: Record<I18nKey, string> = {
   ...en,
 
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Maak van telefoons, tablets en computers één gesynchroniseerd draadloos audiosysteem. Speel muziek, YouTube en systeemaudio samen af in je browser, zonder iets te installeren.',
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Annuleren',

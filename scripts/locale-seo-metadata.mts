@@ -29,7 +29,10 @@ const LOCALE_SEO_METADATA = {
   ta: { hrefLang: 'ta', ogLocale: 'ta_IN' },
   te: { hrefLang: 'te', ogLocale: 'te_IN' },
   ms: { hrefLang: 'ms', ogLocale: 'ms_MY' },
-  fil: { hrefLang: 'fil', ogLocale: 'fil_PH' },
+  // Google Search only accepts ISO 639-1 language codes in hreflang. Filipino
+  // has no ISO 639-1 code, so use its supported Tagalog code for the search
+  // annotation while keeping the document's valid BCP 47 `fil-PH` language.
+  fil: { hrefLang: 'tl-PH', ogLocale: 'fil_PH' },
   ar: { hrefLang: 'ar', ogLocale: 'ar_SA' },
   ur: { hrefLang: 'ur', ogLocale: 'ur_PK' },
   he: { hrefLang: 'he', ogLocale: 'he_IL' },

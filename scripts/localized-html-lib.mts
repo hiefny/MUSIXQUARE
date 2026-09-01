@@ -23,16 +23,6 @@ const APP_ATTRIBUTE_BINDINGS = [
   ['data-placeholder', 'data-i18n-data-placeholder'],
 ] as const;
 
-const APP_SEARCH_TITLES: Readonly<Partial<Record<LanguageCode, string>>> = {
-  ko: '뮤직스퀘어 | MUSIXQUARE',
-  ja: 'ミュージックスクエア | MUSIXQUARE',
-};
-
-const APP_SEARCH_DESCRIPTIONS: Readonly<Partial<Record<LanguageCode, string>>> = {
-  en: 'Turn phones, tablets, desktops into a synchronized wireless audio system.',
-  ko: '여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요.',
-};
-
 interface AboutMetadata {
   readonly description: string;
   readonly ogDescription: string;
@@ -142,6 +132,17 @@ function replaceWebsiteSchema(document: Document, include: boolean): void {
   document.head.appendChild(schema);
 }
 
+function preserveAboutLocaleAcrossEditorialPages(document: Document, code: LanguageCode): void {
+  if (code === 'en') return;
+  for (const link of document.querySelectorAll<HTMLAnchorElement>(
+    'a[href="/blog"], a[href="/history"], a[href="/designsystem"]',
+  )) {
+    const target = new URL(link.href, SITE_ORIGIN);
+    target.searchParams.set('lang', code);
+    link.setAttribute('href', target.pathname + target.search + target.hash);
+  }
+}
+
 function removeNonLicenseComments(document: Document): void {
   const comments: Comment[] = [];
   const walker = document.createTreeWalker(document, 128 /* NodeFilter.SHOW_COMMENT */);
@@ -181,8 +182,9 @@ export function localizeAppDocument(
   document.documentElement.lang = option.htmlLang;
   document.documentElement.dir = languageDirection(code);
 
-  const title = APP_SEARCH_TITLES[code] ?? 'MUSIXQUARE';
-  const description = APP_SEARCH_DESCRIPTIONS[code] ?? aboutMetadata.description;
+  const dictionary = APP_DICTIONARIES[code];
+  const title = requireTranslation(dictionary, 'app.search_title');
+  const description = requireTranslation(dictionary, 'app.search_description');
   const pageUrl = `${SITE_ORIGIN}${localizedAppPath(code)}`;
   const manifest = document.querySelector<HTMLLinkElement>('#app-manifest[rel~="manifest"]');
 
@@ -225,6 +227,7 @@ export function localizeAboutDocument(document: Document, code: LanguageCode): A
   )) {
     link.setAttribute('href', localizedAppEntryPath(code));
   }
+  preserveAboutLocaleAcrossEditorialPages(document, code);
 
   return {
     description: meta(document, 'meta[name="description"]').content,

@@ -6,10 +6,11 @@ import {
   localizedAppPath,
   type LanguageCode,
 } from '../src/i18n/locales.ts';
+import { localeSeoMetadata } from './locale-seo-metadata.mts';
 
 const ORIGIN = 'https://musixquare.com';
 const OUTPUT_PATH = 'public/sitemap.xml';
-const LOCALIZED_LASTMOD = '2026-08-31';
+const LOCALIZED_LASTMOD = '2026-09-01';
 const ENGLISH_ONLY_PAGES = [
   { path: '/blog', lastmod: '2026-07-18', changefreq: 'weekly', priority: '0.8' },
   { path: '/history', lastmod: '2026-08-23', changefreq: 'monthly', priority: '0.8' },
@@ -31,7 +32,7 @@ function localizedEntry(
 ): string {
   const alternates = LANGUAGE_OPTIONS.map(
     (option) =>
-      `    <xhtml:link rel="alternate" hreflang="${option.htmlLang}" href="${absolute(pathFor(option.code))}" />`,
+      `    <xhtml:link rel="alternate" hreflang="${localeSeoMetadata(option.code).hrefLang}" href="${absolute(pathFor(option.code))}" />`,
   );
   alternates.push(
     `    <xhtml:link rel="alternate" hreflang="x-default" href="${absolute(pathFor('en'))}" />`,

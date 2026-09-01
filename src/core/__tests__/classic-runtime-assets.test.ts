@@ -114,6 +114,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       {
         sourcePath: 'browser/classic-runtime/fouc-cleanup.ts',
         outputPath: 'fouc-cleanup.js',
+        minify: true,
         target: 'es2018',
       },
       {
@@ -140,6 +141,7 @@ describe('strict TypeScript classic browser runtimes', () => {
       {
         sourcePath: 'browser/classic-runtime/wordmark-anim.ts',
         outputPath: 'wordmark-anim.js',
+        minify: true,
         target: 'es2018',
       },
     ]);
@@ -203,13 +205,13 @@ describe('strict TypeScript classic browser runtimes', () => {
       'editorial-pages.js': 'installEditorialPageRuntime',
       'events/event.js': 'CAMPAIGN_SLUG_PATTERN',
       'events/theme.js': 'applyInitialEventTheme',
-      'fouc-cleanup.js': 'installFoucCleanup',
+      'fouc-cleanup.js': 'setup-boot-failed',
       'landing-bootstrap.js': 'applyInitialLandingPreferences',
       'landing-i18n.js': '__landingT',
       'policy-accordion.js': 'details.policy-accordion',
       'primary-font-loader.js': '__mxqrPrimaryFontRuntime',
       'static-language.js': 'MXQRStaticLang',
-      'wordmark-anim.js': 'installWordmarkTiming',
+      'wordmark-anim.js': '[data-wt]',
     };
 
     for (const asset of CLASSIC_RUNTIME_ASSETS) {
@@ -503,6 +505,64 @@ describe('strict TypeScript classic browser runtimes', () => {
       false,
     );
     dom.window.close();
+  });
+
+  it('preserves explicit and stored locale intent across editorial and app links', async () => {
+    const { code } = await compiledAsset('editorial-pages.js');
+    const markup = `<!doctype html><html><body>
+      <header><a class="lp-try" href="https://musixquare.com">Open app</a></header>
+      <nav>
+        <a class="editorial-site-tab" href="/about">About</a>
+        <a class="editorial-site-tab" href="/blog">Blog</a>
+        <a class="editorial-site-tab" href="/history">History</a>
+        <a class="editorial-site-tab" href="/designsystem">Design</a>
+      </nav>
+      <footer><a href="https://musixquare.com">App</a></footer>
+    </body></html>`;
+
+    const explicit = new JSDOM(markup, {
+      runScripts: 'outside-only',
+      url: 'https://musixquare.com/history?lang=ko',
+    });
+    explicit.window.localStorage.setItem('musixquare-lang', 'en');
+    explicit.window.eval(code);
+    explicit.window.document.dispatchEvent(new explicit.window.Event('DOMContentLoaded'));
+
+    const explicitTabs = Array.from(
+      explicit.window.document.querySelectorAll<HTMLAnchorElement>('.editorial-site-tab'),
+      (link) => link.getAttribute('href'),
+    );
+    expect(explicitTabs).toEqual([
+      '/ko/about',
+      '/blog?lang=ko',
+      '/history?lang=ko',
+      '/designsystem?lang=ko',
+    ]);
+    expect(explicit.window.document.querySelector<HTMLAnchorElement>('.lp-try')?.pathname).toBe(
+      '/ko/',
+    );
+    expect(explicit.window.document.querySelector<HTMLAnchorElement>('footer a')?.pathname).toBe(
+      '/ko/',
+    );
+    explicit.window.close();
+
+    const stored = new JSDOM(markup, {
+      runScripts: 'outside-only',
+      url: 'https://musixquare.com/blog?lang=unsupported',
+    });
+    stored.window.localStorage.setItem('musixquare-lang', 'ja');
+    stored.window.eval(code);
+    stored.window.document.dispatchEvent(new stored.window.Event('DOMContentLoaded'));
+
+    expect(
+      stored.window.document
+        .querySelector<HTMLAnchorElement>('.editorial-site-tab')
+        ?.getAttribute('href'),
+    ).toBe('/ja/about');
+    expect(stored.window.document.querySelector<HTMLAnchorElement>('.lp-try')?.pathname).toBe(
+      '/ja/',
+    );
+    stored.window.close();
   });
 
   it('runs the deferred event runtime from compiled output against the parsed event document', async () => {

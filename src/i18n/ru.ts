@@ -8,6 +8,10 @@ import type { I18nKey } from './ko.ts';
 import type { LocalePluralMessages } from './plural-contract.ts';
 
 const ru: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Превратите телефоны, планшеты и компьютеры в единую синхронизированную беспроводную аудиосистему. Вместе воспроизводите музыку, видео с YouTube и системный звук прямо в браузере, без установки.',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ОК',
   'common.cancel': 'Отмена',

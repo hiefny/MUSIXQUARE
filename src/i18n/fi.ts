@@ -9,6 +9,10 @@ import type { I18nKey } from './ko.ts';
 import type { LocalePluralMessages } from './plural-contract.ts';
 
 const fi: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Muuta puhelimet, tabletit ja tietokoneet yhdeksi synkronoiduksi langattomaksi äänentoistojärjestelmäksi. Toista musiikkia, YouTube-sisältöä ja järjestelmän ääntä yhdessä suoraan selaimessa – ilman asennusta.',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Peruuta',

@@ -8,6 +8,10 @@
 import type { I18nKey } from './ko.ts';
 
 const cs: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Proměňte telefony, tablety a počítače v jeden synchronizovaný bezdrátový audiosystém. Přehrávejte společně hudbu, obsah z YouTube a systémový zvuk přímo v prohlížeči. Není nutná instalace.',
+
   // ─── General ─────────────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Zrušit',

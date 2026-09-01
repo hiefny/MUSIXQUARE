@@ -5,6 +5,154 @@
   let updateHeaderProgress: (() => void) | null = null;
   let pendingEditorialNavigation = false;
   const EDITORIAL_CHROME_COLOR = '#1a1a1a';
+  const APP_LANGUAGE_STORE_KEY = 'musixquare-lang';
+  const STATIC_LANGUAGE_STORE_KEY = 'mxqr-landing-lang';
+  const EDITORIAL_LANGUAGE_CODES = new Set([
+    'en',
+    'ko',
+    'ja',
+    'zh-hans',
+    'zh-hant',
+    'es',
+    'pt-br',
+    'fr',
+    'de',
+    'nl',
+    'it',
+    'pl',
+    'ru',
+    'tr',
+    'id',
+    'vi',
+    'th',
+    'hi',
+    'bn',
+    'ta',
+    'te',
+    'ms',
+    'fil',
+    'ar',
+    'ur',
+    'he',
+    'uk',
+    'ro',
+    'cs',
+    'el',
+    'fa',
+    'mr',
+    'gu',
+    'kn',
+    'ml',
+    'pa',
+    'sv',
+    'da',
+    'nb',
+    'fi',
+    'hu',
+    'bg',
+  ]);
+
+  interface EditorialLanguageIntent {
+    readonly code: string;
+    readonly explicitQuery: boolean;
+  }
+
+  function normalizeEditorialLanguage(value: unknown): string | null {
+    const normalized = String(value ?? '')
+      .trim()
+      .replace(/_/gu, '-')
+      .toLowerCase();
+    if (!normalized || normalized === 'system') return null;
+    if (EDITORIAL_LANGUAGE_CODES.has(normalized)) return normalized;
+    if (normalized === 'zh-hans' || normalized.startsWith('zh-hans-')) return 'zh-hans';
+    if (normalized === 'zh-hant' || normalized.startsWith('zh-hant-')) return 'zh-hant';
+    if (normalized.startsWith('zh')) {
+      return /(?:tw|hk|mo|hant)/u.test(normalized) ? 'zh-hant' : 'zh-hans';
+    }
+    if (normalized.startsWith('pt')) return 'pt-br';
+    if (normalized === 'in' || normalized.startsWith('in-')) return 'id';
+    if (normalized === 'iw' || normalized.startsWith('iw-')) return 'he';
+    if (normalized === 'no' || normalized.startsWith('no-')) return 'nb';
+    if (normalized === 'tl' || normalized.startsWith('tl-')) return 'fil';
+    const primary = normalized.split('-')[0];
+    return primary && EDITORIAL_LANGUAGE_CODES.has(primary) ? primary : null;
+  }
+
+  function readLanguageStore(key: string): string | null {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
+  function resolveEditorialLanguage(): EditorialLanguageIntent {
+    let queryLanguage: string | null = null;
+    try {
+      queryLanguage = normalizeEditorialLanguage(new URL(location.href).searchParams.get('lang'));
+    } catch {
+      queryLanguage = null;
+    }
+    if (queryLanguage) return { code: queryLanguage, explicitQuery: true };
+
+    const appPreference = readLanguageStore(APP_LANGUAGE_STORE_KEY);
+    const appLanguage = normalizeEditorialLanguage(appPreference);
+    if (appLanguage) return { code: appLanguage, explicitQuery: false };
+
+    // `system` is an explicit app preference. Do not revive a stale static-page
+    // choice when the user has asked all surfaces to follow the browser.
+    if (String(appPreference || '').toLowerCase() !== 'system') {
+      const staticLanguage = normalizeEditorialLanguage(
+        readLanguageStore(STATIC_LANGUAGE_STORE_KEY),
+      );
+      if (staticLanguage) return { code: staticLanguage, explicitQuery: false };
+    }
+
+    try {
+      const candidates = navigator.languages?.length
+        ? navigator.languages
+        : [navigator.language || ''];
+      for (const candidate of candidates) {
+        const language = normalizeEditorialLanguage(candidate);
+        if (language) return { code: language, explicitQuery: false };
+      }
+    } catch {
+      /* Restricted browser surfaces fall through to English. */
+    }
+
+    return { code: 'en', explicitQuery: false };
+  }
+
+  function initLocaleAwareLinks(): void {
+    const intent = resolveEditorialLanguage();
+    const carryQuery = intent.code !== 'en' || intent.explicitQuery;
+    const aboutPath = intent.code === 'en' ? '/about' : `/${intent.code}/about`;
+    const appPath = `/${intent.code}/`;
+
+    document.querySelectorAll<HTMLAnchorElement>('.editorial-site-tab[href]').forEach((link) => {
+      const authoredHref = link.getAttribute('href');
+      if (!authoredHref) return;
+      const target = new URL(authoredHref, window.location.origin);
+      if (target.origin !== window.location.origin) return;
+
+      if (/^\/about\/?$/u.test(target.pathname)) {
+        target.pathname = aboutPath;
+        target.searchParams.delete('lang');
+      } else if (/^\/(?:blog|history|designsystem)\/?$/u.test(target.pathname)) {
+        if (carryQuery) target.searchParams.set('lang', intent.code);
+        else target.searchParams.delete('lang');
+      } else {
+        return;
+      }
+      link.setAttribute('href', target.pathname + target.search + target.hash);
+    });
+
+    document
+      .querySelectorAll<HTMLAnchorElement>(
+        '.lp-try[href], footer a[href="https://musixquare.com"], body[data-soro-view="article"] .lp-logo[href="https://musixquare.com"]',
+      )
+      .forEach((link) => link.setAttribute('href', appPath));
+  }
 
   function syncEditorialThemeChrome(): void {
     document.documentElement.style.colorScheme = 'dark';
@@ -242,6 +390,7 @@
     initHairlineScale();
     initReveal();
     initScrollProgress();
+    initLocaleAwareLinks();
     initEditorialPageLoader();
     initSmoothAnchor();
     initArticleEntryScroll();

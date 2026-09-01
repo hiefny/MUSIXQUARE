@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
+import { localeSeoMetadata } from '../../../scripts/locale-seo-metadata.mts';
 import { LANGUAGE_OPTIONS, localizedAboutPath, localizedAppPath } from '../locales.ts';
 
 const ORIGIN = 'https://musixquare.com';
@@ -79,7 +80,7 @@ describe('localized sitemap', () => {
 
     for (const url of localizedUrls) {
       const entry = findEntry(entries, url);
-      expect(entry.querySelector('lastmod')?.textContent?.trim(), url).toBe('2026-08-31');
+      expect(entry.querySelector('lastmod')?.textContent?.trim(), url).toBe('2026-09-01');
     }
   });
 
@@ -87,11 +88,14 @@ describe('localized sitemap', () => {
     ['app', localizedAppPath],
     ['about', localizedAboutPath],
   ] as const)(
-    'keeps the %s locale cluster reciprocal with htmlLang hreflang values',
+    'keeps the %s locale cluster reciprocal with Google-supported hreflang values',
     async (_, pathFor) => {
       const entries = urlEntries(await readSitemap());
       const expectedAlternates = new Map<string, string>(
-        LANGUAGE_OPTIONS.map(({ code, htmlLang }) => [htmlLang, absoluteUrl(pathFor(code))]),
+        LANGUAGE_OPTIONS.map(({ code }) => [
+          localeSeoMetadata(code).hrefLang,
+          absoluteUrl(pathFor(code)),
+        ]),
       );
       expectedAlternates.set('x-default', absoluteUrl(pathFor('en')));
 

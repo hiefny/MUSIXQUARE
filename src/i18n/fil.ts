@@ -8,6 +8,10 @@
 import type { I18nKey } from './ko.ts';
 
 const fil: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Gawing iisang naka-sync na wireless audio system ang mga phone, tablet, at computer. Mag-play ng musika, YouTube, at system audio nang magkakasama sa browser nang walang kailangang i-install.',
+
   // ─── Pangkalahatan ───────────────────────────────────────────────
   'common.ok': 'OK',
   'common.cancel': 'Kanselahin',

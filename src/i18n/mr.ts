@@ -9,6 +9,10 @@ import type { I18nKey } from './ko.ts';
 import type { LocalePluralMessages } from './plural-contract.ts';
 
 const mr: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'फोन, टॅबलेट आणि संगणकांना एका सिंक केलेल्या वायरलेस ऑडिओ सिस्टीममध्ये बदला. काहीही इन्स्टॉल न करता ब्राउझरमध्ये संगीत, YouTube आणि सिस्टम ऑडिओ एकत्र प्ले करा.',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ठीक आहे',
   'common.cancel': 'रद्द करा',

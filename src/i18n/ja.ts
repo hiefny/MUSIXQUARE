@@ -10,6 +10,10 @@ import type { I18nKey } from './ko.ts';
 const ja: Record<I18nKey, string> = {
   ...en,
 
+  // ─── App identity ───────────────────────────────────────────────
+  'app.search_title': 'ミュージックスクエア · MUSIXQUARE',
+  'app.search_description':
+    'スマートフォン、タブレット、パソコンをつないで、同期再生する1つのワイヤレスオーディオシステムに。音楽、YouTube、システムオーディオを、インストール不要でブラウザから一緒に再生できます。',
   // Common
   'common.ok': 'OK',
   'common.cancel': 'キャンセル',

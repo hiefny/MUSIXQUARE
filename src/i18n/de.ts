@@ -11,6 +11,9 @@ import type { LocalePluralMessages } from './plural-contract.ts';
 const de: Record<I18nKey, string> = {
   ...en,
 
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'Verwandle Smartphones, Tablets und Computer in ein synchronisiertes kabelloses Audiosystem. Spiele Musik, YouTube und Systemaudio gemeinsam im Browser ab – ganz ohne Installation.',
   // Common
   'common.ok': 'OK',
   'common.cancel': 'Abbrechen',

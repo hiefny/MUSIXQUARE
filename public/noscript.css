@@ -1,5 +1,3 @@
-/* Legacy-safe no-script escape hatch. Kept free of modern selectors so the
-   recovery message remains visible on the Chromium 79 engine in webOS TV 6. */
 body {
   opacity: 1 !important;
   animation: none !important;

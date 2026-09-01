@@ -7,6 +7,10 @@
 import type { I18nKey } from './ko.ts';
 
 const th: Record<I18nKey, string> = {
+  'app.search_title': 'MUSIXQUARE',
+  'app.search_description':
+    'เปลี่ยนโทรศัพท์ แท็บเล็ต และคอมพิวเตอร์ให้เป็นระบบเสียงไร้สายหนึ่งเดียวที่ซิงก์กัน เล่นเพลง YouTube และเสียงระบบร่วมกันได้ในเบราว์เซอร์โดยไม่ต้องติดตั้ง',
+
   // ─── Common ──────────────────────────────────────────────────────
   'common.ok': 'ตกลง',
   'common.cancel': 'ยกเลิก',

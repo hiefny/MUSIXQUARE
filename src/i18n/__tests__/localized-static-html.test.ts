@@ -67,6 +67,41 @@ describe('localized static HTML materialization', () => {
 
       expect(appDocument.querySelectorAll('[data-i18n]').length).toBeGreaterThan(150);
       expect(aboutDocument.querySelectorAll('[data-i18n]').length).toBeGreaterThan(50);
+      expect(appDocument.querySelectorAll('h1')).toHaveLength(1);
+      expect(appDocument.querySelector('h1')?.textContent).toBe('MUSIXQUARE');
+      expect(appDocument.querySelector<HTMLMetaElement>('meta[name="twitter:site"]')?.content).toBe(
+        '@musixquare',
+      );
+      expect(
+        aboutDocument.querySelector<HTMLMetaElement>('meta[name="twitter:site"]')?.content,
+      ).toBe('@musixquare');
+      expect(
+        appDocument
+          .querySelector<HTMLLinkElement>('#app-manifest[rel~="manifest"]')
+          ?.getAttribute('href'),
+        `${option.code} app manifest`,
+      ).toBe(option.code === 'en' ? null : `/manifests/${option.code}.webmanifest`);
+
+      const appDescription = appDocument.querySelector<HTMLMetaElement>(
+        'meta[name="description"]',
+      )?.content;
+      expect(
+        appDocument.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.content,
+        `${option.code} app Open Graph description`,
+      ).toBe(appDescription);
+      expect(
+        appDocument.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.content,
+        `${option.code} app Twitter description`,
+      ).toBe(appDescription);
+      const excludedHelpBlocks = Array.from(
+        appDocument.querySelectorAll<HTMLElement>('.help-block[data-nosnippet]'),
+      );
+      expect(excludedHelpBlocks, `${option.code} excluded install help`).toHaveLength(2);
+      expect(
+        excludedHelpBlocks.every((block) =>
+          Boolean(block.querySelector('[data-i18n="help.install_app"]')),
+        ),
+      ).toBe(true);
     }
   }, 45_000);
 
@@ -121,6 +156,15 @@ describe('localized static HTML materialization', () => {
 
     expect(koreanApp.title).toBe('뮤직스퀘어 | MUSIXQUARE');
     expect(japaneseApp.title).toBe('ミュージックスクエア | MUSIXQUARE');
+    expect(koreanApp.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
+      '여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요.',
+    );
+    expect(
+      koreanApp.querySelector('meta[property="og:description"]')?.getAttribute('content'),
+    ).toBe('여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요.');
+    expect(
+      koreanApp.querySelector('meta[name="twitter:description"]')?.getAttribute('content'),
+    ).toBe('여러 기기를 연결해 동기화된 서라운드 사운드를 만들어 보세요.');
     expect(koreanApp.querySelector('meta[name="application-name"]')?.getAttribute('content')).toBe(
       'MUSIXQUARE',
     );
@@ -139,9 +183,18 @@ describe('localized static HTML materialization', () => {
     expect(englishApp.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
       'Turn phones, tablets, desktops into a synchronized wireless audio system.',
     );
+    expect(
+      englishApp.querySelector('meta[property="og:description"]')?.getAttribute('content'),
+    ).toBe('Turn phones, tablets, desktops into a synchronized wireless audio system.');
+    expect(
+      englishApp.querySelector('meta[name="twitter:description"]')?.getAttribute('content'),
+    ).toBe('Turn phones, tablets, desktops into a synchronized wireless audio system.');
     expect(englishApp.querySelectorAll('[data-mxqr-website-schema]')).toHaveLength(1);
     expect(englishApp.querySelector('[data-mxqr-website-schema]')?.textContent).toContain(
       '뮤직스퀘어',
+    );
+    expect(englishApp.querySelector('[data-mxqr-website-schema]')?.textContent).toContain(
+      'https://x.com/musixquare',
     );
     expect(koreanApp.querySelectorAll('[data-mxqr-website-schema]')).toHaveLength(0);
   });

@@ -20,7 +20,12 @@ import {
 
 import type { I18nKey } from './ko.ts';
 import { hasLocaleFont } from './locale-font-contract.ts';
-import { currentAppPathLanguage, updateLocalizedAppPath } from './localized-app-document.ts';
+import {
+  currentAppPathLanguage,
+  currentAppPathMatchesLanguage,
+  updateKnownLocalizedAppUrlMetadata,
+  updateLocalizedAppPath,
+} from './localized-app-document.ts';
 import {
   languageDirection,
   LANGUAGE_OPTIONS,
@@ -227,19 +232,37 @@ function _loadLocalizedAppHead(): Promise<LocalizedAppHead | undefined> {
     }));
 }
 
-function _synchronizeLocalizedHead(resolved: LanguageCode, intent: number): void {
+function _synchronizeLocalizedHead(
+  resolved: LanguageCode,
+  intent: number,
+  options: { forceDocumentTitle?: boolean } = {},
+): void {
   void _loadLocalizedAppHead()
     .then((head) => {
       if (!head || intent !== _localizedHeadIntent) return;
       return head.synchronizeLocalizedAppHead(
         resolved,
         () => intent === _localizedHeadIntent && _resolved === resolved,
+        options,
       );
     })
     .catch(() => {
       // Metadata synchronization is best-effort; URL and translated UI already
       // hold the selected locale even if this deferred boundary fails.
     });
+}
+
+/** Restore canonical app metadata after an invite-room URL is cleaned in place. */
+export function synchronizeCurrentLocalizedAppHead(): void {
+  const resolved = _resolved;
+  if (!currentAppPathMatchesLanguage(resolved)) return;
+
+  updateKnownLocalizedAppUrlMetadata(resolved);
+  const headIntent = ++_localizedHeadIntent;
+  _localizedAppHead?.cancelLocalizedAppHeadSync();
+  if (_dicts[resolved]) {
+    _synchronizeLocalizedHead(resolved, headIntent, { forceDocumentTitle: true });
+  }
 }
 
 async function _setLanguageMode(mode: string): Promise<void> {

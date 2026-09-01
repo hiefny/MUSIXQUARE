@@ -228,4 +228,19 @@ describe('account login return continuity', () => {
     expect(sessionStorage.getItem(__accountLoginReturnForTests.STORAGE_KEY)).toBeNull();
     expect(localStorage.getItem(__accountLoginReturnForTests.DURABLE_STORAGE_KEY)).toBeNull();
   });
+
+  it('restores a durable PWA room before locale projection can claim the root URL', async () => {
+    runAsInstalledPwa();
+    rememberAccountLoginReturn('/000001?panel=connect#account', '000001');
+    sessionStorage.clear();
+    localStorage.setItem('musixquare-lang', 'ko');
+    window.history.replaceState({}, '', '/');
+
+    expect(restoreAccountLoginReturnPath()).toBe(true);
+    const { getResolvedLanguage, initI18n } = await import('../../i18n/index.ts');
+    await initI18n();
+
+    expect(getResolvedLanguage()).toBe('ko');
+    expect(window.location.pathname).toBe('/000001');
+  });
 });

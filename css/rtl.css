@@ -120,6 +120,21 @@ html[dir='rtl'] :where(.play-btn-group, .vol-group-playback) {
   unicode-bidi: isolate;
 }
 
+/* The volume group is isolated LTR so its icon and low-to-high slider stay
+ * physical. That also makes margin-inline-start resolve to the physical left,
+ * moving its flexible spacer outside the transport row. Put the auto margin
+ * back on the physical right so volume and playback controls remain apart. */
+html[dir='rtl'] .vol-group-playback {
+  margin-inline-start: 0;
+  margin-inline-end: auto;
+}
+
+/* Keep LTR language names and subtitles on the same physical right edge as
+ * the surrounding RTL picker without changing their character order. */
+html[dir='rtl'] .language-option-label {
+  text-align: right;
+}
+
 /* Media time, playback volume, and EQ are physical audio axes. Keep those
  * low-to-high from left to right (Spotify-style), including pointer, paint,
  * and native keyboard behavior. */

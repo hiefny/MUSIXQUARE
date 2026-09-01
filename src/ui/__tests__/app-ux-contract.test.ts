@@ -41,6 +41,18 @@ beforeAll(() => {
 });
 
 describe('app UX markup contract', () => {
+  it('restores a durable account room before locale URL projection', () => {
+    const restoreIndex = appRuntimeSource.indexOf(
+      "safeInit('Account login return path', restoreAccountLoginReturnPath)",
+    );
+    const i18nIndex = appRuntimeSource.indexOf(
+      "runBootstrapStepAsync(bootstrapReadiness, 'I18n', initI18n",
+    );
+
+    expect(restoreIndex).toBeGreaterThanOrEqual(0);
+    expect(i18nIndex).toBeGreaterThan(restoreIndex);
+  });
+
   it('uses stable filled question icons on help titles without changing navigation icons', () => {
     const icons = [...appDocument.querySelectorAll<SVGElement>('.help-question-icon')];
     const compactNavPath = appDocument.querySelector('#btn-help-compact path')?.getAttribute('d');

@@ -3,6 +3,10 @@ import { afterAll, afterEach, beforeEach } from 'vitest';
 type BlockedRequest = Readonly<{ method: string; url: string }>;
 
 let blockedRequests: BlockedRequest[] = [];
+const resetUnitTestHistory =
+  typeof window !== 'undefined' && window.history?.replaceState
+    ? window.history.replaceState.bind(window.history)
+    : null;
 
 function safeRequestTarget(input: RequestInfo | URL): string {
   const raw = input instanceof Request ? input.url : String(input);
@@ -55,6 +59,13 @@ function assertNoBlockedRequests(phase: string): void {
 beforeEach(() => {
   // Catch work that escaped the previous test after its teardown completed.
   assertNoBlockedRequests('before the next test started');
+  // Locale selection intentionally projects the app URL in place. Keep that
+  // browser state from leaking into the next test in a reused DOM environment.
+  try {
+    resetUnitTestHistory?.(null, '', '/');
+  } catch {
+    /* A test-specific non-DOM history stub remains outside global isolation. */
+  }
 });
 
 afterEach(async () => {

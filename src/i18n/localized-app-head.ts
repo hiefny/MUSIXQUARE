@@ -1,26 +1,35 @@
 import {
-  appLanguageFromPathname,
   LANGUAGE_OPTIONS,
   languageDirection,
   localizedAppPath,
   type LanguageCode,
 } from './locales.ts';
+import { currentAppPathMatchesLanguage } from './localized-app-document.ts';
 
 const META_SELECTORS = [
   'meta[name="description"]',
   'meta[property="og:title"]',
   'meta[property="og:description"]',
   'meta[property="og:url"]',
+  'meta[property="og:image"]',
   'meta[property="og:image:alt"]',
   'meta[property="og:locale"]',
   'meta[name="twitter:title"]',
   'meta[name="twitter:description"]',
+  'meta[name="twitter:image"]',
 ] as const;
 const OG_ALTERNATE = 'meta[property="og:locale:alternate"]';
 const WEBSITE_SCHEMA = '[data-mxqr-website-schema]';
 
 let _generation = 0;
 let _controller: AbortController | null = null;
+
+function hasLocalizedHeadTarget(): boolean {
+  return (
+    Boolean(document.querySelector('link[rel="canonical"]')) &&
+    META_SELECTORS.every((selector) => document.querySelector(selector))
+  );
+}
 
 export function cancelLocalizedAppHeadSync(): void {
   _generation += 1;
@@ -44,7 +53,7 @@ function isExpectedDocument(source: Document, code: LanguageCode): boolean {
   );
 }
 
-function applyLocalizedHead(source: Document): boolean {
+function applyLocalizedHead(source: Document, forceDocumentTitle: boolean): boolean {
   const metaPairs = META_SELECTORS.map(
     (selector) =>
       [
@@ -71,7 +80,8 @@ function applyLocalizedHead(source: Document): boolean {
   const previousPageTitle = document
     .querySelector<HTMLMetaElement>('meta[property="og:title"]')
     ?.content.trim();
-  const pageOwnsTitle = !previousPageTitle || document.title === previousPageTitle;
+  const pageOwnsTitle =
+    forceDocumentTitle || !previousPageTitle || document.title === previousPageTitle;
   for (const [target, content] of metaPairs) target!.content = content!;
   targetCanonical.href = sourceCanonical.href;
   targetAlternates.forEach((target, index) => (target.content = sourceAlternates[index]));
@@ -87,8 +97,13 @@ function applyLocalizedHead(source: Document): boolean {
 export async function synchronizeLocalizedAppHead(
   code: LanguageCode,
   isCurrent: () => boolean,
+  options: { forceDocumentTitle?: boolean } = {},
 ): Promise<boolean> {
   cancelLocalizedAppHeadSync();
+  // Partial/embedded documents cannot accept the complete localized head, so
+  // avoid fetching a locale document that applyLocalizedHead must reject.
+  if (!hasLocalizedHeadTarget()) return false;
+
   const generation = _generation;
   const controller = typeof AbortController === 'undefined' ? null : new AbortController();
   _controller = controller;
@@ -109,11 +124,11 @@ export async function synchronizeLocalizedAppHead(
       !isExpectedDocument(source, code) ||
       generation !== _generation ||
       !isCurrent() ||
-      appLanguageFromPathname(window.location.pathname) !== code
+      !currentAppPathMatchesLanguage(code)
     ) {
       return false;
     }
-    return applyLocalizedHead(source);
+    return applyLocalizedHead(source, options.forceDocumentTitle === true);
   } catch {
     return false;
   } finally {

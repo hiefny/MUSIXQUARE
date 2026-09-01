@@ -39,6 +39,8 @@ vi.mock('../../player/ownership.ts', () => ({
 
 vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
+  getResolvedLanguage: vi.fn(() => 'en'),
+  synchronizeCurrentLocalizedAppHead: vi.fn(),
 }));
 
 vi.mock('../toast.ts', () => ({
@@ -111,6 +113,7 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { cancelPendingSessionSetup } from '../../network/peer.ts';
 import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
+import { getResolvedLanguage, synchronizeCurrentLocalizedAppHead } from '../../i18n/index.ts';
 import { isPlaybackModeYouTube } from '../../player/ownership.ts';
 import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
 import { markProRoomTransportRecovered } from '../../pro-room/transport-recovery.ts';
@@ -147,6 +150,8 @@ beforeEach(() => {
   vi.mocked(showDialog).mockClear();
   vi.mocked(isPlaybackModeYouTube).mockClear();
   vi.mocked(isPlaybackModeYouTube).mockReturnValue(false);
+  vi.mocked(getResolvedLanguage).mockReturnValue('en');
+  vi.mocked(synchronizeCurrentLocalizedAppHead).mockClear();
   startJoining();
 });
 
@@ -243,6 +248,18 @@ describe('setup network error messages', () => {
 
     expect(sessionStorage.getItem('mxqr_reconnect_target')).toBeNull();
     expect(getState('setup.sessionStarted')).toBe(true);
+  });
+
+  it('returns a joined non-English room to its matching locale URL', () => {
+    window.history.replaceState({}, '', '/123456#queue');
+    vi.mocked(getResolvedLanguage).mockReturnValue('ko');
+    setState('network.lastJoinCode', '123456');
+
+    bus.emit('setup:guest-join-success');
+
+    expect(window.location.pathname).toBe('/ko/');
+    expect(window.location.hash).toBe('#queue');
+    expect(synchronizeCurrentLocalizedAppHead).toHaveBeenCalledOnce();
   });
 
   it('refuses to downgrade an active session through a setup back callback', () => {

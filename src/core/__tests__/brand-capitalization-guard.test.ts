@@ -28,6 +28,8 @@ describe('MUSIXQUARE brand-capitalization guard', () => {
     'MUSIXQUARE is available.',
     'https://musixquare.com',
     'contact@musixquare.com',
+    '@musixquare',
+    'https://x.com/musixquare',
     'const cache = "musixquare-static-v428"; // brand-capitalization: allow-technical',
     'const audience = "musixquare-remote-share-upload";',
     'X-Musixquare-Navigation-Source',

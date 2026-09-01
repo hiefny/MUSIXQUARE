@@ -27,11 +27,13 @@ function localizedHeadMarkup(fixture: LocalizedHeadFixture): string {
     <meta property="og:title" content="${fixture.title}">
     <meta property="og:description" content="${description} Open Graph">
     <meta property="og:url" content="${fixture.canonical}">
+    <meta property="og:image" content="https://musixquare.com/og-image.png">
     <meta property="og:image:alt" content="${fixture.title} image">
     <meta property="og:locale" content="${ogLocale}">
     <meta property="og:locale:alternate" content="en_US">
     <meta name="twitter:title" content="${fixture.title}">
     <meta name="twitter:description" content="${description} Twitter">
+    <meta name="twitter:image" content="https://musixquare.com/og-image.png">
     ${
       fixture.websiteSchema
         ? '<script type="application/ld+json" data-mxqr-website-schema>{"name":"MUSIXQUARE"}</script>'
@@ -48,6 +50,7 @@ describe('i18n functions', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('Not Found', { status: 404 }));
     window.history.replaceState(null, '', '/');
     localStorage.clear();
     document.head.innerHTML = localizedHeadMarkup({
@@ -387,7 +390,9 @@ describe('i18n functions', () => {
       },
     );
 
-    it('does not move the root app or a six-digit room URL when the UI language changes', async () => {
+    it('moves the canonical root to a selected non-English locale without adding history', async () => {
+      const historyState = { guard: 'root-app-session' };
+      window.history.replaceState(historyState, '', '/?source=homepage#player');
       Object.defineProperty(navigator, 'languages', {
         value: ['en-US'],
         configurable: true,
@@ -396,13 +401,84 @@ describe('i18n functions', () => {
       window.addEventListener('mxqr:locale-navigation-request', navigationRequest);
       const rootI18n = await import('../index.ts');
       await rootI18n.initI18n();
-      rootI18n.setLanguageMode('ko');
-      expect(window.location.pathname).toBe('/');
-      expect(rootI18n.getResolvedLanguage()).toBe('ko');
+      document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
+      const fetchHead = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          localizedDocument({
+            lang: 'ko',
+            canonical: 'https://musixquare.com/ko/',
+            title: '뮤직스퀘어 | MUSIXQUARE',
+            ogLocale: 'ko_KR',
+          }),
+          { status: 200, headers: { 'Content-Type': 'text/html' } },
+        ),
+      );
+      const replaceState = vi.spyOn(window.history, 'replaceState');
+      const historyLength = window.history.length;
 
-      vi.resetModules();
+      rootI18n.setLanguageMode('ko');
+
+      expect(window.location.pathname).toBe('/ko/');
+      expect(window.location.search).toBe('?source=homepage');
+      expect(window.location.hash).toBe('#player');
+      expect(window.history.state).toEqual(historyState);
+      expect(window.history.length).toBe(historyLength);
+      expect(replaceState).toHaveBeenCalledWith(historyState, '', '/ko/?source=homepage#player');
+      const { default: ko } = await import('../ko.ts');
+      await vi.waitFor(() => {
+        expect(rootI18n.getResolvedLanguage()).toBe('ko');
+        expect(document.querySelector('button')?.textContent).toBe(ko['setup.host_button']);
+        expect(document.title).toBe('뮤직스퀘어 | MUSIXQUARE');
+      });
+      expect(fetchHead).toHaveBeenCalledWith(
+        '/ko/',
+        expect.objectContaining({ credentials: 'same-origin' }),
+      );
+      expect(navigationRequest).not.toHaveBeenCalled();
+      window.removeEventListener('mxqr:locale-navigation-request', navigationRequest);
+    });
+
+    it.each(['throw', 'noop'] as const)(
+      'falls back to a full-document request when root history replacement %s',
+      async (behavior) => {
+        window.history.replaceState(null, '', '/?campaign=launch#player');
+        Object.defineProperty(navigator, 'languages', {
+          value: ['en-US'],
+          configurable: true,
+        });
+        const { getResolvedLanguage, initI18n, setLanguageMode } = await import('../index.ts');
+        await initI18n();
+
+        const navigationRequests: string[] = [];
+        window.addEventListener(
+          'mxqr:locale-navigation-request',
+          (event) => {
+            navigationRequests.push((event as CustomEvent<{ href: string }>).detail.href);
+            event.preventDefault();
+          },
+          { once: true },
+        );
+        vi.spyOn(window.history, 'replaceState').mockImplementation(() => {
+          if (behavior === 'throw') throw new DOMException('History unavailable', 'SecurityError');
+        });
+        const fetchHead = vi.spyOn(globalThis, 'fetch');
+
+        setLanguageMode('ko');
+
+        await vi.waitFor(() => {
+          expect(navigationRequests).toEqual(['/ko/?campaign=launch#player']);
+        });
+        expect(window.location.pathname).toBe('/');
+        expect(getResolvedLanguage()).toBe('en');
+        expect(fetchHead).not.toHaveBeenCalled();
+      },
+    );
+
+    it('keeps a six-digit room URL outside locale ownership', async () => {
       window.history.replaceState(null, '', '/123456?source=invite#queue');
       localStorage.setItem('musixquare-lang', 'en');
+      const navigationRequest = vi.fn((event: Event) => event.preventDefault());
+      window.addEventListener('mxqr:locale-navigation-request', navigationRequest);
       const roomI18n = await import('../index.ts');
       await roomI18n.initI18n();
       roomI18n.setLanguageMode('ko');
@@ -414,6 +490,102 @@ describe('i18n functions', () => {
       expect(navigationRequest).not.toHaveBeenCalled();
       window.removeEventListener('mxqr:locale-navigation-request', navigationRequest);
     });
+
+    it.each([
+      {
+        code: 'en' as const,
+        targetPath: '/',
+        canonical: 'https://musixquare.com/',
+        title: 'MUSIXQUARE',
+        lang: 'en',
+        websiteSchema: true,
+      },
+      {
+        code: 'ko' as const,
+        targetPath: '/ko/',
+        canonical: 'https://musixquare.com/ko/',
+        title: '뮤직스퀘어 | MUSIXQUARE',
+        lang: 'ko',
+        websiteSchema: false,
+      },
+    ])(
+      'restores $code app metadata after a joined room URL is cleaned in place',
+      async ({ code, targetPath, canonical, title, lang, websiteSchema }) => {
+        window.history.replaceState(null, '', '/123456?source=invite#queue');
+        document.head.innerHTML = localizedHeadMarkup({
+          lang: 'en',
+          canonical: 'https://musixquare.com/123456',
+          title: 'MUSIXQUARE',
+        });
+        document.querySelector<HTMLMetaElement>('meta[property="og:title"]')!.content =
+          'Session 123456 · MUSIXQUARE';
+        document.querySelector<HTMLMetaElement>('meta[name="description"]')!.content =
+          'Join session 123456 on MUSIXQUARE.';
+        document.querySelector<HTMLMetaElement>('meta[property="og:description"]')!.content =
+          'Join session 123456 on MUSIXQUARE.';
+        document.querySelector<HTMLMetaElement>('meta[property="og:image"]')!.content =
+          'https://musixquare.com/og-invite.png';
+        document.querySelector<HTMLMetaElement>('meta[property="og:image:alt"]')!.content =
+          'MUSIXQUARE - Session 123456';
+        document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')!.content =
+          'Session 123456 · MUSIXQUARE';
+        document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')!.content =
+          'Join session 123456 on MUSIXQUARE.';
+        document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')!.content =
+          'https://musixquare.com/og-invite.png';
+        localStorage.setItem('musixquare-lang', code);
+        Object.defineProperty(navigator, 'languages', {
+          value: ['en-US'],
+          configurable: true,
+        });
+        const { getResolvedLanguage, initI18n, synchronizeCurrentLocalizedAppHead } =
+          await import('../index.ts');
+        await initI18n();
+        expect(getResolvedLanguage()).toBe(code);
+
+        vi.mocked(fetch).mockResolvedValue(
+          new Response(
+            localizedDocument({
+              lang,
+              canonical,
+              title,
+              websiteSchema,
+              ogLocale: code === 'ko' ? 'ko_KR' : 'en_US',
+            }),
+            { status: 200, headers: { 'Content-Type': 'text/html' } },
+          ),
+        );
+        window.history.replaceState(null, '', `${targetPath}#queue`);
+
+        synchronizeCurrentLocalizedAppHead();
+
+        expect(document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href).toBe(
+          canonical,
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.content).toBe(
+          canonical,
+        );
+        await vi.waitFor(() => {
+          expect(document.title).toBe(title);
+          expect(
+            document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content,
+          ).toBe(title);
+          expect(document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content).toBe(
+            `${title} description`,
+          );
+          expect(
+            document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content,
+          ).toBe('https://musixquare.com/og-image.png');
+          expect(
+            document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')?.content,
+          ).toBe('https://musixquare.com/og-image.png');
+        });
+        expect(fetch).toHaveBeenCalledWith(
+          targetPath,
+          expect.objectContaining({ credentials: 'same-origin' }),
+        );
+      },
+    );
 
     it('treats the English app alias as URL-owned when selecting another locale', async () => {
       window.history.replaceState(null, '', '/en/?campaign=launch#player');
@@ -619,6 +791,51 @@ describe('i18n functions', () => {
   });
 
   describe('initI18n()', () => {
+    it('projects a saved non-English root app onto its locale URL at startup', async () => {
+      const historyState = { guard: 'startup-session' };
+      window.history.replaceState(historyState, '', '/?campaign=returning#player');
+      localStorage.setItem('musixquare-lang', 'ja');
+      Object.defineProperty(navigator, 'languages', {
+        value: ['en-US'],
+        configurable: true,
+      });
+      const historyLength = window.history.length;
+      const { getResolvedLanguage, initI18n } = await import('../index.ts');
+
+      await initI18n();
+
+      expect(getResolvedLanguage()).toBe('ja');
+      expect(window.location.pathname).toBe('/ja/');
+      expect(window.location.search).toBe('?campaign=returning');
+      expect(window.location.hash).toBe('#player');
+      expect(window.history.state).toEqual(historyState);
+      expect(window.history.length).toBe(historyLength);
+      await vi.waitFor(() => {
+        expect(fetch).toHaveBeenCalledWith(
+          '/ja/',
+          expect.objectContaining({ credentials: 'same-origin' }),
+        );
+      });
+    });
+
+    it('keeps the English root canonical and skips localized head loading', async () => {
+      window.history.replaceState(null, '', '/?campaign=english#player');
+      localStorage.setItem('musixquare-lang', 'en');
+      Object.defineProperty(navigator, 'languages', {
+        value: ['ko-KR'],
+        configurable: true,
+      });
+      const { getResolvedLanguage, initI18n } = await import('../index.ts');
+
+      await initI18n();
+
+      expect(getResolvedLanguage()).toBe('en');
+      expect(window.location.pathname).toBe('/');
+      expect(window.location.search).toBe('?campaign=english');
+      expect(window.location.hash).toBe('#player');
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     it('reads saved language from localStorage', async () => {
       localStorage.setItem('musixquare-lang', 'en');
       Object.defineProperty(navigator, 'languages', {
@@ -638,6 +855,7 @@ describe('i18n functions', () => {
       const { getResolvedLanguage, initI18n } = await import('../index.ts');
       await initI18n();
       expect(getResolvedLanguage()).toBe('ko');
+      expect(window.location.pathname).toBe('/ko/');
     });
 
     it.each(['system', 'ko'])(

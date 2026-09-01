@@ -17,7 +17,7 @@
          link href-less until then prevents a race that could pin install UI to
          the wrong language. -->
     <link id="app-manifest" rel="manifest" />
-    <script src="/bootstrap.js?cache=v533"></script>
+    <script src="/bootstrap.js?cache=v534"></script>
 
     <link rel="canonical" href="https://musixquare.com/" />
     <link rel="alternate" hreflang="en" href="https://musixquare.com/" />
@@ -54,7 +54,7 @@
     <meta property="og:title" content="MUSIXQUARE" />
     <meta
       property="og:description"
-      content="Every device, one system. Multi-device synchronized audio, no install."
+      content="Turn phones, tablets, desktops into a synchronized wireless audio system."
     />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="MUSIXQUARE" />
@@ -66,8 +66,12 @@
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="MUSIXQUARE: Play Together, Watch Together" />
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@musixquare" />
     <meta name="twitter:title" content="MUSIXQUARE" />
-    <meta name="twitter:description" content="Every device, one system." />
+    <meta
+      name="twitter:description"
+      content="Turn phones, tablets, desktops into a synchronized wireless audio system."
+    />
     <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
     <title>MUSIXQUARE</title>
     <meta
@@ -82,6 +86,7 @@
         "url": "https://musixquare.com/",
         "name": "MUSIXQUARE",
         "alternateName": ["뮤직스퀘어", "ミュージックスクエア", "musixquare.com"],
+        "sameAs": ["https://x.com/musixquare", "https://github.com/hiefny/MUSIXQUARE"],
         "inLanguage": "en"
       }
     </script>
@@ -109,6 +114,7 @@
 
   <body>
     <a href="#tab-play" class="skip-link">Skip to content</a>
+    <h1 class="sr-only">MUSIXQUARE</h1>
 
     <noscript>
       <div class="noscript-fallback">
@@ -674,7 +680,7 @@
       </div>
 
       <div class="tab-body" data-custom-scroll>
-        <div class="help-block">
+        <div class="help-block" data-nosnippet>
           <div class="help-title">
             <svg viewBox="0 0 24 24">
               <path
@@ -1728,7 +1734,7 @@
 
         <div class="settings-subtab-panel" id="settings-subtab-panel-help" data-panel="help">
           <div class="desktop-help-section">
-            <div class="help-block">
+            <div class="help-block" data-nosnippet>
               <div class="help-title">
                 <svg viewBox="0 0 24 24">
                   <path

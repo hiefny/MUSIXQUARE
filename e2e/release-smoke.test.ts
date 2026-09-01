@@ -44,6 +44,27 @@ test.describe('Production release smoke', () => {
       .toBe('ko');
   });
 
+  test('projects a saved non-English root onto its locale URL without reloading', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('musixquare-lang', 'ko');
+    });
+
+    await page.goto('/?campaign=returning#player');
+    await waitForBootstrapReady(page);
+
+    await expect(page).toHaveURL(/\/ko\/\?campaign=returning#player$/u);
+    await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
+    await expect(page.locator('#btn-setup-host')).toHaveText('방 만들기');
+    await expect(page.locator('#app-manifest')).toHaveAttribute(
+      'href',
+      '/manifests/ko.webmanifest',
+    );
+    await expect.poll(() => page.title()).toBe('뮤직스퀘어 | MUSIXQUARE');
+    expect(await page.evaluate(() => performance.getEntriesByType('navigation').length)).toBe(1);
+  });
+
   test('boots, joins a host and guest, and exchanges chat both ways', async ({ browser }) => {
     pair = await createHostGuestContexts(browser);
 

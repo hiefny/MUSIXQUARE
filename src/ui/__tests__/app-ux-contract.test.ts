@@ -407,6 +407,20 @@ describe('app UX markup contract', () => {
     expect(appRuntimeSource).toContain("detail?.source === 'cache-fallback'");
   });
 
+  it('announces a controller-confirmed update only after bootstrap is ready', () => {
+    const completionCheck = appRuntimeSource.indexOf('if (updateCompletion)');
+    const readinessPublish = appRuntimeSource.lastIndexOf(
+      'publishBootstrapReadiness();',
+      completionCheck,
+    );
+
+    expect(completionCheck).toBeGreaterThanOrEqual(0);
+    expect(readinessPublish).toBeGreaterThanOrEqual(0);
+    expect(completionCheck).toBeGreaterThan(readinessPublish);
+    expect(appRuntimeSource).toContain("sessionStorage.removeItem('mxqr-swu')");
+    expect(appRuntimeSource).toContain('showToast(updateCompletion)');
+  });
+
   it('turns a terminal lazy-feature failure into an explicit reload action', () => {
     const recoveryStart = appRuntimeSource.indexOf('const runLazyFeatureRecovery');
     const recoveryEnd = appRuntimeSource.indexOf('\n// bootstrap.js', recoveryStart);

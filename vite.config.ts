@@ -611,6 +611,7 @@ const prioritizeStylesheetsInHtml = (): Plugin => ({
 });
 
 const REVIEWED_DEFERRED_APP_SHELL_ROOTS = [
+  '/src/core/sw-hard-reset.ts',
   '/src/demo/mode.ts',
   '/src/i18n/localized-app-head.ts',
   '/src/network/room-session-feature-runtime.ts',

@@ -362,6 +362,13 @@ describe('service-worker build entry manifest', () => {
         imports: ['assets/vendor.js'],
         modules: { 'C:/repo/src/player/media-session.ts': {} },
       },
+      'assets/sw-hard-reset.js': {
+        type: 'chunk',
+        fileName: 'assets/sw-hard-reset.js',
+        isEntry: false,
+        imports: [],
+        modules: { 'C:/repo/src/core/sw-hard-reset.ts': {} },
+      },
       'assets/manual-sync-overlay.js': {
         type: 'chunk',
         fileName: 'assets/manual-sync-overlay.js',
@@ -403,6 +410,7 @@ describe('service-worker build entry manifest', () => {
       './assets/room-features.js',
       './assets/standard-host-manual-offset.js',
       './assets/static-runtime.bin',
+      './assets/sw-hard-reset.js',
       './assets/sync.worker.js',
       './assets/vendor.css',
       './assets/vendor.js',

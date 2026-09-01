@@ -1068,7 +1068,11 @@ async function handleLogoReturnToMain(): Promise<void> {
 
     // A hard same-origin replacement clears in-memory media without leaving an
     // invite/PRO auto-join route behind in browser history.
-    scheduleSessionReset(t('dialog.leaving_session'), navigateToAppHome);
+    scheduleSessionReset(t('dialog.leaving_session'), () => {
+      void import('../core/sw-hard-reset.ts')
+        .then((module) => module.default())
+        .then(navigateToAppHome, () => navigateToAppHome());
+    });
   } finally {
     _logoNavBusy = false;
   }

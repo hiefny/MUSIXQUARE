@@ -46,6 +46,12 @@ const proRoomClock = vi.hoisted(() => ({
   offsetMs: 0,
 }));
 
+const hardResetNavigation = vi.hoisted(() => ({
+  activatePendingServiceWorkerForHardReset: vi.fn<() => Promise<undefined>>(),
+  navigateToAppHome: vi.fn(),
+  scheduleSessionReset: vi.fn(),
+}));
+
 const proSystemAudio = vi.hoisted(() => ({
   view: {
     roomCode: '000001',
@@ -93,6 +99,20 @@ vi.mock('../../pro-room/network-bridge.ts', () => ({
   },
 }));
 
+vi.mock('../../core/sw-hard-reset.ts', () => ({
+  default: hardResetNavigation.activatePendingServiceWorkerForHardReset,
+}));
+
+vi.mock('../../core/navigation.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/navigation.ts')>()),
+  navigateToAppHome: hardResetNavigation.navigateToAppHome,
+}));
+
+vi.mock('../../core/session-reset.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/session-reset.ts')>()),
+  scheduleSessionReset: hardResetNavigation.scheduleSessionReset,
+}));
+
 vi.mock('../toast.ts', () => ({
   showToast: vi.fn(),
   showLoader: vi.fn(),
@@ -133,6 +153,7 @@ beforeEach(() => {
   zeroStartFacade.active = false;
   zeroStartFacade.inFlight = false;
   proPlaybackRuntime.reconcile.mockResolvedValue(true);
+  hardResetNavigation.activatePendingServiceWorkerForHardReset.mockResolvedValue(undefined);
   document.body.innerHTML = '';
 });
 
@@ -175,6 +196,56 @@ describe('initPlayerControls storage errors', () => {
       setLanguageMode('en');
       await vi.waitFor(() => expect(getResolvedLanguage()).toBe('en'));
     }
+  });
+});
+
+describe('logo hard reset update hand-off', () => {
+  it('hands service-worker activation to the reset coordinator before navigating home', async () => {
+    document.body.innerHTML = `
+      <button id="app-logo" type="button">MUSIXQUARE</button>
+      <div id="setup-overlay"></div>
+    `;
+    initPlayerControls();
+
+    document.getElementById('app-logo')?.click();
+    await vi.waitFor(() => expect(hardResetNavigation.scheduleSessionReset).toHaveBeenCalledOnce());
+    expect(hardResetNavigation.scheduleSessionReset).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Function),
+    );
+    // Scheduling paints and blocks first; the coordinator owns when the lazy
+    // update hand-off and its one home navigation are actually invoked.
+    expect(hardResetNavigation.activatePendingServiceWorkerForHardReset).not.toHaveBeenCalled();
+    expect(hardResetNavigation.navigateToAppHome).not.toHaveBeenCalled();
+
+    const resetAction = hardResetNavigation.scheduleSessionReset.mock.calls[0]?.[1] as
+      | (() => void)
+      | undefined;
+    resetAction?.();
+    await vi.waitFor(() =>
+      expect(hardResetNavigation.activatePendingServiceWorkerForHardReset).toHaveBeenCalledOnce(),
+    );
+    expect(hardResetNavigation.navigateToAppHome).toHaveBeenCalledOnce();
+  });
+
+  it('still navigates home when the deferred update hand-off fails', async () => {
+    hardResetNavigation.activatePendingServiceWorkerForHardReset.mockRejectedValueOnce(
+      new Error('activation unavailable'),
+    );
+    document.body.innerHTML = `
+      <button id="app-logo" type="button">MUSIXQUARE</button>
+      <div id="setup-overlay"></div>
+    `;
+    initPlayerControls();
+
+    document.getElementById('app-logo')?.click();
+    await vi.waitFor(() => expect(hardResetNavigation.scheduleSessionReset).toHaveBeenCalledOnce());
+    const resetAction = hardResetNavigation.scheduleSessionReset.mock.calls[0]?.[1] as
+      | (() => void)
+      | undefined;
+    resetAction?.();
+
+    await vi.waitFor(() => expect(hardResetNavigation.navigateToAppHome).toHaveBeenCalledOnce());
   });
 });
 

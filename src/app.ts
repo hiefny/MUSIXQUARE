@@ -1299,6 +1299,14 @@ async function bootstrap(): Promise<void> {
   }
 
   publishBootstrapReadiness();
+  let updateCompletion: string | null = null;
+  try {
+    updateCompletion = sessionStorage.getItem('mxqr-swu');
+    sessionStorage.removeItem('mxqr-swu');
+  } catch {
+    // Storage denial only suppresses this one informational toast.
+  }
+  if (updateCompletion) showToast(updateCompletion);
 }
 
 // Run bootstrap

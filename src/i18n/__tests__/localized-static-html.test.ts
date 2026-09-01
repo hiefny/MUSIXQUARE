@@ -48,6 +48,22 @@ function alternateMap(document: Document): Map<string, string> {
 }
 
 describe('localized static HTML materialization', () => {
+  it('keeps the authored app shell alternate cluster in sync with every supported locale', () => {
+    const expectedAlternates = new Map(
+      LANGUAGE_OPTIONS.map(
+        ({ code }) =>
+          [localeSeoMetadata(code).hrefLang, `${SITE_ORIGIN}${localizedAppPath(code)}`] as const,
+      ),
+    );
+    expectedAlternates.set('x-default', `${SITE_ORIGIN}/`);
+    const document = documentFor(appHtml);
+
+    expect(alternateMap(document)).toEqual(expectedAlternates);
+    expect(document.querySelectorAll('link[rel="alternate"][hreflang]')).toHaveLength(
+      LANGUAGE_OPTIONS.length + 1,
+    );
+  });
+
   it('keeps one complete locale-native app search description per supported language', () => {
     const descriptions = LANGUAGE_OPTIONS.map(
       ({ code }) => APP_DICTIONARIES[code]['app.search_description'],

@@ -48,6 +48,8 @@ type SanitizedQueueItem =
       queueItemId: string;
       kind: 'youtube';
       name: string;
+      youtubeSubItemCount?: number;
+      youtubeEntrySubIndex?: number;
     });
 
 interface YouTubeMutationItem extends JsonRecord {
@@ -133,6 +135,7 @@ const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
+const YOUTUBE_PLAYBACK_SUB_INDEX_MAX = 100_000;
 const QUEUE_ITEM_ADDED_BY_VALUES = new Set(['participant', 'current_api_key', 'another_api_key']);
 const PLAYLIST_MAX_ITEMS = 1_000;
 const YOUTUBE_BATCH_MAX_ITEMS = 100;
@@ -410,6 +413,9 @@ function sanitizeQueueItem(value: unknown): SanitizedQueueItem | null {
   }
   optional.addedBy = value.addedBy;
   if (value.kind === 'audio') {
+    if (value.youtubeSubItemCount !== undefined || value.youtubeEntrySubIndex !== undefined) {
+      return null;
+    }
     if (!isSafeNonNegativeInteger(value.byteLength) || value.byteLength <= 0) return null;
     return {
       queueItemId: value.queueItemId,
@@ -419,11 +425,35 @@ function sanitizeQueueItem(value: unknown): SanitizedQueueItem | null {
       byteLength: value.byteLength,
     };
   }
+  const hasYouTubeManifestSummary =
+    value.youtubeSubItemCount !== undefined || value.youtubeEntrySubIndex !== undefined;
+  const youtubeSubItemCount = isSafeNonNegativeInteger(value.youtubeSubItemCount)
+    ? value.youtubeSubItemCount
+    : null;
+  const youtubeEntrySubIndex = isSafeNonNegativeInteger(value.youtubeEntrySubIndex)
+    ? value.youtubeEntrySubIndex
+    : null;
+  if (
+    hasYouTubeManifestSummary &&
+    (youtubeSubItemCount === null ||
+      youtubeSubItemCount < 1 ||
+      youtubeSubItemCount > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS ||
+      youtubeEntrySubIndex === null ||
+      youtubeEntrySubIndex >= youtubeSubItemCount)
+  ) {
+    return null;
+  }
   return {
     queueItemId: value.queueItemId,
     kind: 'youtube',
     name,
     ...optional,
+    ...(hasYouTubeManifestSummary
+      ? {
+          youtubeSubItemCount: youtubeSubItemCount as number,
+          youtubeEntrySubIndex: youtubeEntrySubIndex as number,
+        }
+      : {}),
   };
 }
 
@@ -470,6 +500,21 @@ function sanitizeProjection(value: unknown, projection: Projection, roomCode: st
   }
   if (projection === 'playback') {
     const item = value.item === null ? null : sanitizeQueueItem(value.item);
+    const hasYoutubeIdentity =
+      value.youtubeVideoId !== undefined || value.youtubeSubIndex !== undefined;
+    const youtubeIdentityIsNull = value.youtubeVideoId === null && value.youtubeSubIndex === null;
+    const youtubeSubIndex = isSafeNonNegativeInteger(value.youtubeSubIndex)
+      ? value.youtubeSubIndex
+      : null;
+    const youtubeIdentityIsPresent =
+      typeof value.youtubeVideoId === 'string' &&
+      /^[A-Za-z0-9_-]{11}$/u.test(value.youtubeVideoId) &&
+      youtubeSubIndex !== null &&
+      youtubeSubIndex <= YOUTUBE_PLAYBACK_SUB_INDEX_MAX;
+    const itemYoutubeSubItemCount =
+      item?.kind === 'youtube' && typeof item.youtubeSubItemCount === 'number'
+        ? item.youtubeSubItemCount
+        : null;
     if (
       !isSafeNonNegativeInteger(value.revision) ||
       !isSafeNonNegativeInteger(value.playlistRevision) ||
@@ -484,7 +529,14 @@ function sanitizeProjection(value: unknown, projection: Projection, roomCode: st
       (item && item.queueItemId !== value.queueItemId) ||
       (value.state === 'idle' &&
         (value.queueItemId !== null || value.item !== null || value.positionSeconds !== 0)) ||
-      (value.state !== 'idle' && (value.queueItemId === null || value.item === null))
+      (value.state !== 'idle' && (value.queueItemId === null || value.item === null)) ||
+      (hasYoutubeIdentity && !youtubeIdentityIsNull && !youtubeIdentityIsPresent) ||
+      (youtubeIdentityIsPresent && item?.kind !== 'youtube') ||
+      (item?.kind === 'youtube' && !youtubeIdentityIsPresent) ||
+      (youtubeIdentityIsPresent &&
+        itemYoutubeSubItemCount !== null &&
+        youtubeSubIndex !== null &&
+        youtubeSubIndex >= itemYoutubeSubItemCount)
     ) {
       return null;
     }
@@ -499,6 +551,12 @@ function sanitizeProjection(value: unknown, projection: Projection, roomCode: st
       positionSeconds: value.positionSeconds,
       observedAtMs: value.observedAtMs,
       item,
+      ...(youtubeIdentityIsPresent
+        ? {
+            youtubeVideoId: value.youtubeVideoId,
+            youtubeSubIndex,
+          }
+        : {}),
     };
   }
   if (projection === 'queue') {
@@ -620,10 +678,19 @@ function parseDeveloperCommand(value: unknown) {
       : null;
   }
   if (value.type === 'play_item') {
-    return hasExactKeys(value, ['type', 'queueItemId']) &&
+    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex']) &&
       typeof value.queueItemId === 'string' &&
-      QUEUE_ITEM_UUID_RE.test(value.queueItemId)
-      ? { type: 'play_item', queueItemId: value.queueItemId }
+      QUEUE_ITEM_UUID_RE.test(value.queueItemId) &&
+      (value.youtubeSubIndex === undefined ||
+        (isSafeNonNegativeInteger(value.youtubeSubIndex) &&
+          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS))
+      ? {
+          type: 'play_item',
+          queueItemId: value.queueItemId,
+          ...(value.youtubeSubIndex === undefined
+            ? {}
+            : { youtubeSubIndex: value.youtubeSubIndex }),
+        }
       : null;
   }
   if (value.type === 'set_effects') {

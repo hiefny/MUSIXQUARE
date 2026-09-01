@@ -137,13 +137,18 @@ console.log(await response.json());</code></pre>
           </div>
           <div>
             <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/playback</span></dt>
-            <dd>Canonical playback state, selected queue item, position, and observation time.</dd>
+            <dd>
+              Canonical playback state, selected queue item, position, and observation time. While a YouTube item is
+              selected, <code>youtubeVideoId</code> and zero-based <code>youtubeSubIndex</code> identify its exact inner
+              item.
+            </dd>
           </div>
           <div>
             <dt class="api-endpoint"><span class="api-method">GET</span><span class="api-path">/rooms/{roomCode}/queue</span></dt>
             <dd>
               Persistent playlist, current item, playlist revision, and each item's required <code>addedBy</code>
-              provenance without private R2 identifiers, API key IDs, or URLs.
+              provenance without private R2 identifiers, API key IDs, or URLs. A YouTube aggregate with a complete
+              manifest also exposes <code>youtubeSubItemCount</code> and <code>youtubeEntrySubIndex</code>.
             </dd>
           </div>
           <div>
@@ -201,7 +206,11 @@ console.log(await response.json());</code></pre>
     'Content-Type': 'application/json',
     'Idempotency-Key': crypto.randomUUID(),
   },
-  body: JSON.stringify({ type: 'seek', positionSeconds: 42.5 }),
+  body: JSON.stringify({
+    type: 'play_item',
+    queueItemId: 'queue_item_000001',
+    youtubeSubIndex: 2,
+  }),
 });
 
 const command = await response.json();
@@ -211,7 +220,9 @@ console.log(command.commandId, command.status);</code></pre>
           playlist aggregate, it advances to the next video inside that aggregate first. After the aggregate's last
           video, it advances to the next top-level item using the room's current repeat and shuffle settings.
           <code>play_item</code> is different: it force-selects the exact top-level item identified by
-          <code>queueItemId</code> instead of traversing from the current item's internal video.
+          <code>queueItemId</code>. For a YouTube playlist aggregate with a complete manifest, add the zero-based
+          <code>youtubeSubIndex</code> to select an exact inner video. The room server derives the matching video ID;
+          clients do not send one.
         </p>
         <p>
           Playback and effect commands are authorized and applied by the PRO room server. They remain available while

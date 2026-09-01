@@ -114,6 +114,8 @@ interface QueueItem extends JsonRecord {
   name: string;
   addedBy: string;
   byteLength?: number;
+  youtubeSubItemCount?: number;
+  youtubeEntrySubIndex?: number;
 }
 
 interface RateBucketRequest {
@@ -173,6 +175,7 @@ const SHA256_RE = /^(?:[a-f0-9]{64}|[A-Za-z0-9_-]{43})$/;
 const YOUTUBE_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
 const YOUTUBE_PLAYLIST_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 const YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS = 5_000;
+const YOUTUBE_PLAYBACK_SUB_INDEX_MAX = 100_000;
 const QUEUE_ITEM_ADDED_BY_VALUES: ReadonlySet<unknown> = new Set([
   'participant',
   'current_api_key',
@@ -886,7 +889,7 @@ async function hasNonEmptyRequestBody(request: Request): Promise<boolean> {
 type DeveloperCommand =
   | { type: 'play' | 'pause' | 'next' }
   | { type: 'seek'; positionSeconds: number }
-  | { type: 'play_item'; queueItemId: string }
+  | { type: 'play_item'; queueItemId: string; youtubeSubIndex?: number }
   | { type: 'set_effects'; effects: JsonRecord };
 
 function parseDeveloperCommand(value: unknown): DeveloperCommand | null {
@@ -904,10 +907,19 @@ function parseDeveloperCommand(value: unknown): DeveloperCommand | null {
       : null;
   }
   if (value.type === 'play_item') {
-    return hasExactKeys(value, ['type', 'queueItemId']) &&
+    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex']) &&
       typeof value.queueItemId === 'string' &&
-      QUEUE_ITEM_UUID_RE.test(value.queueItemId)
-      ? { type: 'play_item', queueItemId: value.queueItemId }
+      QUEUE_ITEM_UUID_RE.test(value.queueItemId) &&
+      (value.youtubeSubIndex === undefined ||
+        (isSafeNonNegativeInteger(value.youtubeSubIndex) &&
+          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS))
+      ? {
+          type: 'play_item',
+          queueItemId: value.queueItemId,
+          ...(value.youtubeSubIndex === undefined
+            ? {}
+            : { youtubeSubIndex: value.youtubeSubIndex }),
+        }
       : null;
   }
   if (value.type === 'set_effects') {
@@ -1319,7 +1331,7 @@ function validQueueItem(value: unknown): value is QueueItem {
     !hasExactKeys(
       value,
       ['queueItemId', 'kind', 'name', 'addedBy'],
-      ['title', 'artist', 'thumbnail', 'byteLength'],
+      ['title', 'artist', 'thumbnail', 'byteLength', 'youtubeSubItemCount', 'youtubeEntrySubIndex'],
     ) ||
     typeof value.queueItemId !== 'string' ||
     !/^[A-Za-z0-9_-]{16,128}$/.test(value.queueItemId) ||
@@ -1334,9 +1346,22 @@ function validQueueItem(value: unknown): value is QueueItem {
   }
   if (value.thumbnail !== undefined && boundedString(value.thumbnail, 2_048) === null) return false;
   if (value.kind === 'audio') {
+    if (value.youtubeSubItemCount !== undefined || value.youtubeEntrySubIndex !== undefined) {
+      return false;
+    }
     return isSafeNonNegativeInteger(value.byteLength) && value.byteLength > 0;
   }
-  return value.byteLength === undefined;
+  if (value.byteLength !== undefined) return false;
+  const hasYouTubeManifestSummary =
+    value.youtubeSubItemCount !== undefined || value.youtubeEntrySubIndex !== undefined;
+  return (
+    !hasYouTubeManifestSummary ||
+    (isSafeNonNegativeInteger(value.youtubeSubItemCount) &&
+      value.youtubeSubItemCount >= 1 &&
+      value.youtubeSubItemCount <= YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS &&
+      isSafeNonNegativeInteger(value.youtubeEntrySubIndex) &&
+      value.youtubeEntrySubIndex < value.youtubeSubItemCount)
+  );
 }
 
 function validateFacadePayload(
@@ -1384,19 +1409,33 @@ function validateFacadePayload(
     return value;
   }
   if (expectedView === 'playback') {
+    const hasYoutubeIdentity =
+      value.youtubeVideoId !== undefined || value.youtubeSubIndex !== undefined;
+    const youtubeSubIndex = isSafeNonNegativeInteger(value.youtubeSubIndex)
+      ? value.youtubeSubIndex
+      : null;
+    const youtubeIdentityIsPresent =
+      typeof value.youtubeVideoId === 'string' &&
+      /^[A-Za-z0-9_-]{11}$/u.test(value.youtubeVideoId) &&
+      youtubeSubIndex !== null &&
+      youtubeSubIndex <= YOUTUBE_PLAYBACK_SUB_INDEX_MAX;
     if (
-      !hasExactKeys(value, [
-        'schemaVersion',
-        'view',
-        'roomCode',
-        'revision',
-        'playlistRevision',
-        'state',
-        'queueItemId',
-        'positionSeconds',
-        'observedAtMs',
-        'item',
-      ]) ||
+      !hasExactKeys(
+        value,
+        [
+          'schemaVersion',
+          'view',
+          'roomCode',
+          'revision',
+          'playlistRevision',
+          'state',
+          'queueItemId',
+          'positionSeconds',
+          'observedAtMs',
+          'item',
+        ],
+        ['youtubeVideoId', 'youtubeSubIndex'],
+      ) ||
       !isSafeNonNegativeInteger(value.revision) ||
       !isSafeNonNegativeInteger(value.playlistRevision) ||
       (value.state !== 'idle' && value.state !== 'playing' && value.state !== 'paused') ||
@@ -1410,7 +1449,14 @@ function validateFacadePayload(
       (value.item && value.item.queueItemId !== value.queueItemId) ||
       (value.state === 'idle' &&
         (value.queueItemId !== null || value.item !== null || value.positionSeconds !== 0)) ||
-      (value.state !== 'idle' && (value.queueItemId === null || value.item === null))
+      (value.state !== 'idle' && (value.queueItemId === null || value.item === null)) ||
+      (hasYoutubeIdentity && !youtubeIdentityIsPresent) ||
+      (youtubeIdentityIsPresent && value.item?.kind !== 'youtube') ||
+      (value.item?.kind === 'youtube' && !youtubeIdentityIsPresent) ||
+      (youtubeIdentityIsPresent &&
+        value.item?.youtubeSubItemCount !== undefined &&
+        youtubeSubIndex !== null &&
+        youtubeSubIndex >= value.item.youtubeSubItemCount)
     ) {
       return null;
     }

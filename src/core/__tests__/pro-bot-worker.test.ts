@@ -593,6 +593,79 @@ describe('server-only PRO BOT app boundary', () => {
     });
   });
 
+  it('fences an exact YouTube sub-item selection and forwards it through the shared play_item path', async () => {
+    let executedPlan: Record<string, unknown> | null = null;
+    const namespace = roomNamespace(async (request) => {
+      const path = new URL(request.url).pathname;
+      if (path === '/internal/bot/context') {
+        return Response.json({
+          leaseToken: LEASE_TOKEN,
+          actorName: 'Peer 1',
+          room: {
+            playlistRevision: 7,
+            currentQueueItemId: QUEUE_ITEM_ID_1,
+            playbackState: 'playing',
+            currentYoutubeSubItemNumber: 1,
+            repeatMode: 'off',
+            shuffleEnabled: false,
+            playlist: [
+              {
+                queueItemId: QUEUE_ITEM_ID_1,
+                name: 'YouTube playlist',
+                youtubeSubItemCount: 4,
+              },
+            ],
+          },
+        });
+      }
+      if (path === '/internal/bot/execute') {
+        const body = (await request.json()) as { plan: Record<string, unknown> };
+        executedPlan = body.plan;
+        return Response.json({
+          ok: true,
+          summary: '세 번째 영상을 재생할게요.',
+          addedCount: 0,
+          playbackChanged: true,
+        });
+      }
+      return Response.json({ error: 'NOT_FOUND' }, { status: 404 });
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        geminiPlanResponse({
+          intent: 'play_existing',
+          queueItemId: QUEUE_ITEM_ID_1,
+          youtubeSubItemNumber: 3,
+          answer: '세 번째 영상을 재생할게요.',
+        }),
+      ),
+    );
+
+    const response = await appWorker.fetch(
+      botRequest({
+        body: {
+          prompt: '유튜브 플레이리스트의 3번째 영상을 재생해줘',
+          requestId: REQUEST_ID,
+        },
+      }),
+      appBotEnvironment(namespace, {
+        GEMINI_API_KEY: GEMINI_KEY,
+        YOUTUBE_API_KEY: YOUTUBE_KEY,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(executedPlan).toEqual({
+      intent: 'play_existing',
+      queueItemId: QUEUE_ITEM_ID_1,
+      youtubeSubItemNumber: 3,
+      basePlaylistRevision: 7,
+      answer: '플레이리스트의 3번째 영상을 재생할게요.',
+    });
+    await expect(response.json()).resolves.toMatchObject({ ok: true, playbackChanged: true });
+  });
+
   it('passes ordinary information requests to Gemini without invoking music search', async () => {
     const answer = '서울의 오늘 날씨는 실시간 예보를 확인하는 게 가장 정확해요.';
     const namespace = roomNamespace(async (request) => {
@@ -1320,6 +1393,7 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
       planExplicitQueueOrdinal,
       planMatchesPromptScope,
       requestedQueueOrdinal,
+      requestedYoutubeSubItemNumber,
     } = proBotInternalsForTests;
     for (const prompt of [
       '3번곡 재생 시작',
@@ -1335,6 +1409,23 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     expect(requestedQueueOrdinal('3번곡 재생 시작')).toBe(3);
     expect(requestedQueueOrdinal('4번 트랙 재생해줘')).toBe(4);
     expect(requestedQueueOrdinal('play track 2')).toBe(2);
+    expect(requestedQueueOrdinal('유튜브 플레이리스트의 3번째 영상을 재생해줘')).toBeNull();
+    expect(requestedYoutubeSubItemNumber('유튜브 플레이리스트의 3번째 영상을 재생해줘')).toBe(3);
+    expect(requestedYoutubeSubItemNumber('play the fourth video in the YouTube playlist')).toBe(4);
+    expect(
+      planMatchesPromptScope('유튜브 플레이리스트의 3번째 영상을 재생해줘', {
+        intent: 'play_existing',
+        queueItemId: QUEUE_ITEM_ID_1,
+        youtubeSubItemNumber: 3,
+      }),
+    ).toBe(true);
+    expect(
+      planMatchesPromptScope('유튜브 플레이리스트의 3번째 영상을 재생해줘', {
+        intent: 'play_existing',
+        queueItemId: QUEUE_ITEM_ID_1,
+        youtubeSubItemNumber: 2,
+      }),
+    ).toBe(false);
     expect(
       planExplicitQueueOrdinal('2번곡 재생 시작', {
         room: {
@@ -1420,6 +1511,52 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
         { GEMINI_API_KEY: GEMINI_KEY },
         new AbortController().signal,
       ),
+    ).rejects.toThrow('BOT_INVALID_PLAN');
+  });
+
+  it('accepts only an in-range YouTube sub-item from the current ROOM_STATE manifest summary', async () => {
+    const { buildPlan } = proBotInternalsForTests;
+    const context = {
+      room: {
+        currentQueueItemId: QUEUE_ITEM_ID_1,
+        playlist: [
+          {
+            queueItemId: QUEUE_ITEM_ID_1,
+            name: 'YouTube playlist',
+            youtubeSubItemCount: 4,
+          },
+        ],
+      },
+    };
+    const prompt = '유튜브 플레이리스트의 3번째 영상을 재생해줘';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        geminiPlanResponse({
+          intent: 'play_existing',
+          queueItemId: QUEUE_ITEM_ID_1,
+          youtubeSubItemNumber: 3,
+          answer: '세 번째 영상을 재생할게요.',
+        }),
+      ),
+    );
+    await expect(
+      buildPlan(prompt, context, '', { GEMINI_API_KEY: GEMINI_KEY }, new AbortController().signal),
+    ).resolves.toMatchObject({ youtubeSubItemNumber: 3 });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        geminiPlanResponse({
+          intent: 'play_existing',
+          queueItemId: QUEUE_ITEM_ID_1,
+          youtubeSubItemNumber: 5,
+          answer: '다섯 번째 영상을 재생할게요.',
+        }),
+      ),
+    );
+    await expect(
+      buildPlan(prompt, context, '', { GEMINI_API_KEY: GEMINI_KEY }, new AbortController().signal),
     ).rejects.toThrow('BOT_INVALID_PLAN');
   });
 
@@ -1601,6 +1738,40 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     ]) {
       expect(parsePlan(invalid), JSON.stringify(invalid)).toBeNull();
     }
+  });
+
+  it('parses only exact, bounded YouTube sub-item selection plans', () => {
+    const { parsePlan } = proBotInternalsForTests;
+    expect(
+      parsePlan({
+        intent: 'play_existing',
+        queueItemId: QUEUE_ITEM_ID_1,
+        youtubeSubItemNumber: 3,
+        answer: '세 번째 영상을 재생할게요.',
+      }),
+    ).toEqual({
+      intent: 'play_existing',
+      queueItemId: QUEUE_ITEM_ID_1,
+      youtubeSubItemNumber: 3,
+      answer: '세 번째 영상을 재생할게요.',
+    });
+    for (const youtubeSubItemNumber of [0, 2.5, 5_001]) {
+      expect(
+        parsePlan({
+          intent: 'play_existing',
+          queueItemId: QUEUE_ITEM_ID_1,
+          youtubeSubItemNumber,
+        }),
+      ).toBeNull();
+    }
+    expect(
+      parsePlan({
+        intent: 'play_existing',
+        queueItemId: QUEUE_ITEM_ID_1,
+        youtubeSubItemNumber: 3,
+        queueItemIds: [QUEUE_ITEM_ID_2],
+      }),
+    ).toBeNull();
   });
 
   it('allows deletion plans only for explicit user deletion using exact ROOM_STATE IDs', async () => {

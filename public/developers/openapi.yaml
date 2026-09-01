@@ -192,7 +192,9 @@ paths:
         Creates one fenced playback or room-wide audio-effect intent. Playback commands require
         playback:control; set_effects requires effects:control. next behaves like the app's Next button: it advances
         inside the current YouTube playlist aggregate first, then advances to the next top-level queue item using
-        the room's repeat and shuffle settings. play_item instead force-selects the exact top-level queueItemId.
+        the room's repeat and shuffle settings. play_item force-selects the exact top-level queueItemId. When that
+        item is a YouTube playlist aggregate with a complete manifest, optional youtubeSubIndex selects an exact
+        zero-based item inside the aggregate; the server derives and validates the video ID.
         Playback and effect commands are authorized and applied by the PRO room server, including while the runtime is
         sleeping. An applied play_item command means the server committed the canonical selection; connected or
         returning devices may still be loading it. There is no browser coordinator. The sleeping timeline remains
@@ -542,6 +544,14 @@ components:
           properties:
             type: { const: play_item }
             queueItemId: { $ref: '#/components/schemas/QueueItemId' }
+            youtubeSubIndex:
+              type: integer
+              minimum: 0
+              maximum: 4999
+              description: |
+                Optional zero-based item inside a YouTube playlist aggregate. The target queue item must expose a
+                complete manifest summary and the index must be smaller than youtubeSubItemCount. Omit this field
+                to select the aggregate's canonical entry video, preserving the original play_item behavior.
     SetEffectsCommand:
       type: object
       additionalProperties: false
@@ -758,6 +768,16 @@ components:
             artist: { type: string, minLength: 1, maxLength: 512 }
             thumbnail: { type: string, minLength: 1, maxLength: 512 }
             addedBy: { $ref: '#/components/schemas/QueueItemAddedBy' }
+            youtubeSubItemCount:
+              type: integer
+              minimum: 1
+              maximum: 5000
+              description: Present only when this aggregate has a complete server-validated YouTube manifest.
+            youtubeEntrySubIndex:
+              type: integer
+              minimum: 0
+              maximum: 4999
+              description: Zero-based canonical entry item used when play_item omits youtubeSubIndex.
         - type: object
           additionalProperties: false
           required: [queueItemId, kind, name, byteLength, addedBy]
@@ -823,6 +843,15 @@ components:
         state: { enum: [idle, playing, paused] }
         queueItemId: { oneOf: [{ $ref: '#/components/schemas/QueueItemId' }, { type: 'null' }] }
         positionSeconds: { type: number, minimum: 0 }
+        youtubeVideoId:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{11}$'
+          description: Present while a YouTube item is selected.
+        youtubeSubIndex:
+          type: integer
+          minimum: 0
+          maximum: 100000
+          description: Present with youtubeVideoId; zero-based within the selected YouTube aggregate.
         observedAtMs: { type: integer, minimum: 0 }
         item: { oneOf: [{ $ref: '#/components/schemas/QueueItem' }, { type: 'null' }] }
     Queue:

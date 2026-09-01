@@ -440,7 +440,7 @@ describe('private Developer API facade', () => {
           roomCode: ROOM_CODE,
           keyId: KEY_ID,
           idempotencyKey: IDEMPOTENCY_KEY,
-          command: { type: 'play_item', queueItemId: QUEUE_ITEM_ID },
+          command: { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 2 },
         },
         {},
         '/internal/v1/commands/create',
@@ -469,7 +469,7 @@ describe('private Developer API facade', () => {
       roomCode: ROOM_CODE,
       keyId: KEY_ID,
       idempotencyKey: IDEMPOTENCY_KEY,
-      command: { type: 'play_item', queueItemId: QUEUE_ITEM_ID },
+      command: { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 2 },
     });
   });
 
@@ -1554,6 +1554,9 @@ describe('private Developer API facade', () => {
       { type: 'play', expectedQueueItemId: QUEUE_ITEM_ID },
       { type: 'seek', positionSeconds: -1 },
       { type: 'play_item', queueItemId: 'queue_item_000001' },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: -1 },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 2.5 },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 5_000 },
     ]) {
       const response = await facadeWorker.fetch(
         request(
@@ -1659,6 +1662,52 @@ describe('private Developer API facade', () => {
     });
     expect(JSON.stringify(payload)).not.toContain('private-asset-id');
     expect(JSON.stringify(payload)).not.toContain('objectKey');
+    expect(JSON.stringify(payload)).not.toContain('source');
+  });
+
+  it('exposes only a bounded YouTube manifest summary and current sub-item identity', async () => {
+    const item = {
+      queueItemId: QUEUE_ITEM_ID,
+      kind: 'youtube',
+      name: 'Server playlist',
+      addedBy: 'participant',
+      youtubeSubItemCount: 4,
+      youtubeEntrySubIndex: 1,
+      source: {
+        kind: 'youtube',
+        videoId: 'dQw4w9WgXcQ',
+        videoIds: ['9bZkp7q19f0', 'dQw4w9WgXcQ', 'M7lc1UVf-VE', 'jNQXAC9IVRw'],
+      },
+    };
+    const rooms = namespace(() =>
+      Response.json({
+        schemaVersion: 1,
+        view: 'playback',
+        roomCode: ROOM_CODE,
+        revision: 3,
+        playlistRevision: 4,
+        state: 'playing',
+        queueItemId: QUEUE_ITEM_ID,
+        positionSeconds: 12.5,
+        youtubeVideoId: 'M7lc1UVf-VE',
+        youtubeSubIndex: 2,
+        observedAtMs: 1_784_262_910_000,
+        item,
+      }),
+    );
+    const response = await facadeWorker.fetch(
+      request({ roomCode: ROOM_CODE, keyId: KEY_ID, projection: 'playback' }),
+      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+    );
+
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      youtubeVideoId: 'M7lc1UVf-VE',
+      youtubeSubIndex: 2,
+      item: { youtubeSubItemCount: 4, youtubeEntrySubIndex: 1 },
+    });
+    expect(JSON.stringify(payload)).not.toContain('videoIds');
     expect(JSON.stringify(payload)).not.toContain('source');
   });
 

@@ -250,6 +250,28 @@ describe('Developer API public documentation', () => {
     expect(spec).not.toMatch(/^\s+shuffleOrder:/m);
   });
 
+  it('documents exact YouTube sub-item reads and play_item control in both references', async () => {
+    const [html, spec] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+    ]);
+
+    for (const field of [
+      'youtubeSubIndex',
+      'youtubeVideoId',
+      'youtubeSubItemCount',
+      'youtubeEntrySubIndex',
+    ]) {
+      expect(html).toContain(`<code>${field}</code>`);
+      expect(spec).toContain(`${field}:`);
+    }
+    expect(html).toContain("type: 'play_item'");
+    expect(html).toContain('clients do not send one');
+    expect(spec).toContain('the server derives and validates the video ID');
+    expect(spec).toContain('minimum: 0');
+    expect(spec).toContain('maximum: 4999');
+  });
+
   it('documents atomic YouTube batches and bounded non-atomic audio upload concurrency', async () => {
     const [html, spec] = await Promise.all([
       readFile(DOC_PATH, 'utf8'),

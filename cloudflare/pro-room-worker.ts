@@ -570,7 +570,7 @@ interface DeveloperCommandIdempotencyRecord {
 type DeveloperControlCommand =
   | { type: 'play' | 'pause' | 'next' }
   | { type: 'seek'; positionSeconds: number }
-  | { type: 'play_item'; queueItemId: string }
+  | { type: 'play_item'; queueItemId: string; youtubeSubIndex?: number }
   | { type: 'set_effects'; effects: RoomEffectsPatch };
 
 interface DeveloperMetadata extends JsonRecord {
@@ -606,7 +606,13 @@ type DeveloperQueueMutation =
 
 type BotPlan =
   | { intent: 'add_youtube'; trackQueries: string[]; playAddedIndex: number; answer?: string }
-  | { intent: 'play_existing'; queueItemId: string; answer?: string }
+  | {
+      intent: 'play_existing';
+      queueItemId: string;
+      youtubeSubItemNumber?: number;
+      basePlaylistRevision?: number;
+      answer?: string;
+    }
   | { intent: 'remove_items'; queueItemIds: string[]; answer?: string }
   | { intent: 'clear_queue'; basePlaylistRevision: number; answer?: string }
   | { intent: 'playback'; playbackCommand: 'play' | 'pause' | 'next'; answer?: string }
@@ -2134,6 +2140,12 @@ function developerQueueItem(item: PlaylistItem, requesterKeyId: string | undefin
     ...(item.title === undefined ? {} : { title: developerText(item.title) }),
     ...(item.artist === undefined ? {} : { artist: developerText(item.artist) }),
     ...(item.thumbnail === undefined ? {} : { thumbnail: item.thumbnail }),
+    ...(item.source.kind === 'youtube' && item.source.videoIds !== undefined
+      ? {
+          youtubeSubItemCount: item.source.videoIds.length,
+          youtubeEntrySubIndex: item.source.videoIds.indexOf(item.source.videoId),
+        }
+      : {}),
   };
   return item.source.kind === 'pro-r2'
     ? { ...metadata, byteLength: item.source.byteLength }
@@ -2225,10 +2237,19 @@ function parseDeveloperCommand(value: unknown): DeveloperControlCommand | null {
       : null;
   }
   if (value.type === 'play_item') {
-    return hasExactKeys(value, ['type', 'queueItemId']) &&
+    return hasExactKeys(value, ['type', 'queueItemId'], ['youtubeSubIndex']) &&
       typeof value.queueItemId === 'string' &&
-      QUEUE_ITEM_ID_RE.test(value.queueItemId)
-      ? { type: 'play_item', queueItemId: value.queueItemId }
+      QUEUE_ITEM_ID_RE.test(value.queueItemId) &&
+      (value.youtubeSubIndex === undefined ||
+        (isSafeNonNegativeInteger(value.youtubeSubIndex) &&
+          value.youtubeSubIndex < YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS))
+      ? {
+          type: 'play_item',
+          queueItemId: value.queueItemId,
+          ...(value.youtubeSubIndex === undefined
+            ? {}
+            : { youtubeSubIndex: value.youtubeSubIndex }),
+        }
       : null;
   }
   if (value.type === 'set_effects') {
@@ -2460,6 +2481,7 @@ function parseBotPlan(value: unknown): BotPlan | null {
         'trackQueries',
         'playAddedIndex',
         'queueItemId',
+        'youtubeSubItemNumber',
         'queueItemIds',
         'basePlaylistRevision',
         'playbackCommand',
@@ -2509,9 +2531,33 @@ function parseBotPlan(value: unknown): BotPlan | null {
     };
   }
   if (value.intent === 'play_existing') {
-    return typeof value.queueItemId === 'string' && QUEUE_ITEM_ID_RE.test(value.queueItemId)
-      ? { intent: value.intent, queueItemId: value.queueItemId, ...(answer ? { answer } : {}) }
-      : null;
+    if (
+      typeof value.queueItemId !== 'string' ||
+      !QUEUE_ITEM_ID_RE.test(value.queueItemId) ||
+      (value.youtubeSubItemNumber !== undefined &&
+        (!isSafeInteger(value.youtubeSubItemNumber) ||
+          value.youtubeSubItemNumber < 1 ||
+          value.youtubeSubItemNumber > YOUTUBE_PLAYLIST_MANIFEST_MAX_ITEMS)) ||
+      (value.youtubeSubItemNumber === undefined) !== (value.basePlaylistRevision === undefined) ||
+      (value.basePlaylistRevision !== undefined &&
+        !isSafeNonNegativeInteger(value.basePlaylistRevision))
+    ) {
+      return null;
+    }
+    if (value.youtubeSubItemNumber === undefined) {
+      return {
+        intent: value.intent,
+        queueItemId: value.queueItemId,
+        ...(answer ? { answer } : {}),
+      };
+    }
+    return {
+      intent: value.intent,
+      queueItemId: value.queueItemId,
+      youtubeSubItemNumber: value.youtubeSubItemNumber,
+      basePlaylistRevision: value.basePlaylistRevision as number,
+      ...(answer ? { answer } : {}),
+    };
   }
   if (value.intent === 'remove_items') {
     if (
@@ -5910,6 +5956,9 @@ export class MusixquareProRoom {
       name: item.name.slice(0, 160),
       ...(typeof item.title === 'string' ? { title: item.title.slice(0, 160) } : {}),
       ...(typeof item.artist === 'string' ? { artist: item.artist.slice(0, 160) } : {}),
+      ...(item.source.kind === 'youtube' && item.source.videoIds !== undefined
+        ? { youtubeSubItemCount: item.source.videoIds.length }
+        : {}),
     }));
     return {
       actorName: queueAdditionActorName(auth.session.displayName, 'Peer'),
@@ -5917,6 +5966,10 @@ export class MusixquareProRoom {
         playlistRevision: this.activeRoom.playlistRevision,
         currentQueueItemId: this.activeRoom.currentQueueItemId,
         playbackState: this.activeRoom.playback.state,
+        currentYoutubeSubItemNumber:
+          this.activeRoom.playback.youtubeSubIndex === null
+            ? null
+            : this.activeRoom.playback.youtubeSubIndex + 1,
         repeatMode:
           this.activeRoom.queueMode.repeatMode === 2
             ? 'one'
@@ -6130,8 +6183,11 @@ export class MusixquareProRoom {
     const fingerprint = await this.idempotencyFingerprint(scope, { plan, tracks });
     const replay = this.replayIdempotency(scope, parsed.value.requestId, fingerprint);
     if (replay) return replay;
+    const revisionFencedPlan =
+      plan.intent === 'clear_queue' ||
+      (plan.intent === 'play_existing' && plan.youtubeSubItemNumber !== undefined);
     if (
-      plan.intent === 'clear_queue' &&
+      revisionFencedPlan &&
       (contextReceipt.body?.playlistRevision !== plan.basePlaylistRevision ||
         this.activeRoom.playlistRevision !== plan.basePlaylistRevision)
     ) {
@@ -6185,12 +6241,24 @@ export class MusixquareProRoom {
         }
       }
     } else if (plan.intent === 'play_existing') {
-      if (!this.activeRoom.playlist.some((item) => item.queueItemId === plan.queueItemId)) {
+      const target = this.activeRoom.playlist.find((item) => item.queueItemId === plan.queueItemId);
+      if (!target) {
         return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
+      }
+      const youtubeSubIndex =
+        plan.youtubeSubItemNumber === undefined ? undefined : plan.youtubeSubItemNumber - 1;
+      if (
+        youtubeSubIndex !== undefined &&
+        (target.source.kind !== 'youtube' ||
+          target.source.videoIds === undefined ||
+          youtubeSubIndex >= target.source.videoIds.length)
+      ) {
+        return errorResponse('INVALID_REQUEST', 400);
       }
       playbackChanged = await this.runBotDeveloperCommand(parsed.value.requestId, {
         type: 'play_item',
         queueItemId: plan.queueItemId,
+        ...(youtubeSubIndex === undefined ? {} : { youtubeSubIndex }),
       });
       if (!playbackChanged) return errorResponse('BOT_ACTION_FAILED', 409);
     } else if (plan.intent === 'remove_items' || plan.intent === 'clear_queue') {
@@ -6382,9 +6450,24 @@ export class MusixquareProRoom {
     if (replay) return replay;
 
     const requiredControlVersion = requiredDeveloperControlVersion(command);
+    let playItemYoutubeVideoId: string | undefined;
     if (command.type === 'play_item') {
-      if (!this.activeRoom.playlist.some((item) => item.queueItemId === command.queueItemId)) {
+      const target = this.activeRoom.playlist.find(
+        (item) => item.queueItemId === command.queueItemId,
+      );
+      if (!target) {
         return errorResponse('QUEUE_ITEM_NOT_FOUND', 404);
+      }
+      if (command.youtubeSubIndex !== undefined) {
+        if (
+          target.source.kind !== 'youtube' ||
+          target.source.videoIds === undefined ||
+          command.youtubeSubIndex >= target.source.videoIds.length
+        ) {
+          return errorResponse('INVALID_REQUEST', 400);
+        }
+        playItemYoutubeVideoId = target.source.videoIds[command.youtubeSubIndex];
+        if (playItemYoutubeVideoId === undefined) return errorResponse('INVALID_REQUEST', 400);
       }
     }
 
@@ -6463,6 +6546,12 @@ export class MusixquareProRoom {
               queueItemId: command.queueItemId,
               state: 'playing',
               positionSeconds: 0,
+              ...(command.youtubeSubIndex === undefined
+                ? {}
+                : {
+                    youtubeVideoId: playItemYoutubeVideoId as string,
+                    youtubeSubIndex: command.youtubeSubIndex,
+                  }),
             }
           : command.type === 'seek'
             ? { type: 'seek', baseRevision, positionSeconds: command.positionSeconds }

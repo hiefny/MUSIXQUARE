@@ -87,6 +87,30 @@ function playbackPayload() {
   };
 }
 
+function youtubePlaybackPayload() {
+  return {
+    schemaVersion: 1,
+    view: 'playback',
+    roomCode: ROOM_CODE,
+    revision: 5,
+    playlistRevision: 6,
+    state: 'playing',
+    queueItemId: QUEUE_ITEM_ID,
+    positionSeconds: 21,
+    youtubeVideoId: 'M7lc1UVf-VE',
+    youtubeSubIndex: 2,
+    observedAtMs: OBSERVED_AT_MS,
+    item: {
+      queueItemId: QUEUE_ITEM_ID,
+      kind: 'youtube',
+      name: 'Server playlist',
+      addedBy: 'participant',
+      youtubeSubItemCount: 4,
+      youtubeEntrySubIndex: 1,
+    },
+  };
+}
+
 function queuePayload() {
   return {
     schemaVersion: 1,
@@ -646,6 +670,17 @@ describe('Developer API read-only public Worker', () => {
     expect(queue.status).toBe(200);
     expect(queue.headers.get('etag')).toMatch(/^"mxqr-queue-[A-Za-z0-9_-]{43}"$/);
     await expect(queue.json()).resolves.toEqual(queuePayload());
+  });
+
+  it('passes through the bounded YouTube manifest summary and current sub-item identity', async () => {
+    const setup = await createEnvironment({ facadePayload: youtubePlaybackPayload() });
+    const response = await developerApiWorker.fetch(
+      apiRequest(`/v1/rooms/${ROOM_CODE}/playback`),
+      setup.env,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(youtubePlaybackPayload());
   });
 
   it('returns a strictly bounded effects v2 projection through effects:read', async () => {
@@ -2357,6 +2392,10 @@ describe('Developer API read-only public Worker', () => {
       { type: 'seek' },
       { type: 'seek', positionSeconds: 604_801 },
       { type: 'play_item', queueItemId: 'queue_item_000001' },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: -1 },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 2.5 },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 5_000 },
+      { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 2, extra: true },
     ];
     for (const command of invalidCommands) {
       const setup = await createEnvironment({
@@ -2390,11 +2429,18 @@ describe('Developer API read-only public Worker', () => {
           'content-type': 'application/json',
           'idempotency-key': IDEMPOTENCY_KEY,
         },
-        body: JSON.stringify({ type: 'play_item', queueItemId: QUEUE_ITEM_ID }),
+        body: JSON.stringify({
+          type: 'play_item',
+          queueItemId: QUEUE_ITEM_ID,
+          youtubeSubIndex: 2,
+        }),
       }),
       valid.env,
     );
     expect(accepted.status).toBe(202);
+    expect(JSON.parse(String(valid.facadeFetch.mock.calls[0]?.[1]?.body))).toMatchObject({
+      command: { type: 'play_item', queueItemId: QUEUE_ITEM_ID, youtubeSubIndex: 2 },
+    });
   });
 
   it('requires a bounded Idempotency-Key and a body no larger than 1 KiB', async () => {

@@ -1869,6 +1869,57 @@ describe('PRO room server-authoritative playback', () => {
     ]);
   });
 
+  it('lets the Developer API read and select an exact YouTube manifest item', async () => {
+    const context = await activatedRoom();
+    expect(
+      (await replacePlaylist(context, playlistManifest, 'developer-youtube-sub-item')).status,
+    ).toBe(200);
+    expect(
+      (
+        await context.worker.fetch(
+          request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+        )
+      ).status,
+    ).toBe(200);
+
+    const queue = await responseJson(await internalDeveloperRead(context.worker, 'queue'));
+    expect(queue.items[0]).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeSubItemCount: 4,
+      youtubeEntrySubIndex: 1,
+    });
+    expect(JSON.stringify(queue)).not.toContain('videoIds');
+
+    const command = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-youtube-sub-item-0001',
+      { type: 'play_item', queueItemId: firstQueueItemId, youtubeSubIndex: 2 },
+    );
+    expect(command.status).toBe(202);
+    await expect(command.json()).resolves.toMatchObject({
+      status: 'applied',
+      resultCode: 'applied',
+    });
+
+    const playback = await responseJson(await internalDeveloperRead(context.worker, 'playback'));
+    expect(playback).toMatchObject({
+      queueItemId: firstQueueItemId,
+      youtubeVideoId: 'M7lc1UVf-VE',
+      youtubeSubIndex: 2,
+      item: { youtubeSubItemCount: 4, youtubeEntrySubIndex: 1 },
+    });
+
+    const outOfRange = await createInternalDeveloperCommand(
+      context.worker,
+      DEVELOPER_KEY_ID,
+      'developer-youtube-sub-item-0002',
+      { type: 'play_item', queueItemId: firstQueueItemId, youtubeSubIndex: 4 },
+    );
+    expect(outOfRange.status).toBe(400);
+    await expect(outOfRange.json()).resolves.toEqual({ error: 'INVALID_REQUEST' });
+  });
+
   it('atomically stops the selected item at zero without losing its media identity', async () => {
     const context = await activatedRoom();
     const realtime = installRealtimeRecorder(context);
@@ -4182,6 +4233,7 @@ describe('PRO room server BOT boundary', () => {
         ),
       },
       { intent: 'clear_queue', queueItemIds: [queueItemId] },
+      { intent: 'play_existing', queueItemId, youtubeSubItemNumber: 2 },
     ];
     const before = structuredClone(internal.room);
 
@@ -4251,6 +4303,115 @@ describe('PRO room server BOT boundary', () => {
     await expect(replay.json()).resolves.toEqual(firstPayload);
     expect(Object.values(internal.room.developerCommands)).toHaveLength(1);
     expect(dispatchFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes a bounded YouTube manifest summary and dispatches an exact BOT sub-item once', async () => {
+    const { worker, ownerCookie, internal, queueItemId, dispatchFetch } =
+      await preparedDeveloperCommandRoom();
+    internal.room.playlist[0].source = {
+      kind: 'youtube',
+      videoId: 'dQw4w9WgXcQ',
+      playlistId: 'PL_SERVER_AUTHORITY',
+      videoIds: ['9bZkp7q19f0', 'dQw4w9WgXcQ', 'M7lc1UVf-VE', 'jNQXAC9IVRw'],
+    };
+    internal.room.playback.youtubeVideoId = 'dQw4w9WgXcQ';
+    internal.room.playback.youtubeSubIndex = 1;
+    const requestId = 'bot-play-youtube-sub-item-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'play the third video in the YouTube playlist' },
+      ownerCookie,
+    );
+    expect(context.status).toBe(200);
+    const contextPayload = await responseJson(context);
+    expect(contextPayload.room).toMatchObject({
+      playlistRevision: 2,
+      currentQueueItemId: queueItemId,
+      currentYoutubeSubItemNumber: 2,
+      playlist: [{ queueItemId, youtubeSubItemCount: 4 }],
+    });
+    expect(JSON.stringify(contextPayload.room)).not.toContain('videoIds');
+    const body = {
+      roomCode: ROOM_CODE,
+      requestId,
+      leaseToken: contextPayload.leaseToken,
+      plan: {
+        intent: 'play_existing',
+        queueItemId,
+        youtubeSubItemNumber: 3,
+        basePlaylistRevision: contextPayload.room.playlistRevision,
+        answer: 'Playing the third video.',
+      },
+      tracks: [],
+    };
+
+    const first = await internalBotRequest(worker, 'execute', body, ownerCookie);
+    expect(first.status).toBe(200);
+    const firstPayload = await responseJson(first);
+    expect(firstPayload).toMatchObject({ ok: true, playbackChanged: true });
+    expect(Object.values(internal.room.developerCommands)).toHaveLength(1);
+    expect(Object.values(internal.room.developerCommands)[0]).toMatchObject({
+      keyId: 'MxqrGeminiBot001',
+      command: { type: 'play_item', queueItemId, youtubeSubIndex: 2 },
+    });
+    expect(internal.room.pendingPlaybackTransition).toMatchObject({
+      target: {
+        queueItemId,
+        youtubeVideoId: 'M7lc1UVf-VE',
+        youtubeSubIndex: 2,
+      },
+    });
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+
+    const replay = await internalBotRequest(worker, 'execute', body, ownerCookie);
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toEqual(firstPayload);
+    expect(Object.values(internal.room.developerCommands)).toHaveLength(1);
+    expect(dispatchFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a BOT YouTube sub-item selection after the playlist revision changes', async () => {
+    const { worker, ownerCookie, internal, queueItemId, dispatchFetch } =
+      await preparedDeveloperCommandRoom();
+    internal.room.playlist[0].source = {
+      kind: 'youtube',
+      videoId: 'dQw4w9WgXcQ',
+      playlistId: 'PL_SERVER_AUTHORITY',
+      videoIds: ['dQw4w9WgXcQ', 'M7lc1UVf-VE'],
+    };
+    const requestId = 'bot-play-youtube-sub-item-stale-0001';
+    const context = await internalBotRequest(
+      worker,
+      'context',
+      { roomCode: ROOM_CODE, requestId, prompt: 'play the second video in the YouTube playlist' },
+      ownerCookie,
+    );
+    const contextPayload = await responseJson(context);
+    internal.room.playlistRevision += 1;
+
+    const response = await internalBotRequest(
+      worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken: contextPayload.leaseToken,
+        plan: {
+          intent: 'play_existing',
+          queueItemId,
+          youtubeSubItemNumber: 2,
+          basePlaylistRevision: contextPayload.room.playlistRevision,
+        },
+        tracks: [],
+      },
+      ownerCookie,
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ error: 'BOT_CONTEXT_STALE' });
+    expect(Object.values(internal.room.developerCommands)).toHaveLength(0);
+    expect(dispatchFetch).not.toHaveBeenCalled();
   });
 
   it('accepts a server-issued Base64URL BOT lease with a symbol prefix', async () => {

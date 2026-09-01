@@ -317,7 +317,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.4.52';
+const ADMIN_SCRIPT_VERSION = '8.4.53';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {

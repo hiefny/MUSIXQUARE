@@ -4532,21 +4532,13 @@
     fill: var(--primary);
   }
 
-  .help-question-icon-bg {
+  .help-question-icon-cutout {
     fill: var(--primary-filled);
   }
 
-  .help-question-icon-mark {
-    fill: #fff;
-  }
-
   @media (forced-colors: active) {
-    .help-question-icon-bg {
+    .help-question-icon-cutout {
       fill: Highlight;
-    }
-
-    .help-question-icon-mark {
-      fill: HighlightText;
     }
   }
 

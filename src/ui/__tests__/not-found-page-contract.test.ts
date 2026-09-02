@@ -48,6 +48,9 @@ describe('custom not-found page contract', () => {
     expect(styles).toMatch(
       /\.cta\s*\{[^}]*height:\s*56px;[^}]*padding:\s*0 28px 0 36px;[^}]*border-radius:\s*999px;/su,
     );
+    expect(styles).toMatch(
+      /\.cta-wordmark\s*\{[^}]*width:\s*142px;[^}]*height:\s*18px;[^}]*transform:\s*translateY\(0\.6px\);/su,
+    );
     expect(styles).not.toMatch(
       /@media\s*\(max-width:\s*520px\)[^{]*\{[^}]*body\s*\{[^}]*place-items:\s*start/su,
     );

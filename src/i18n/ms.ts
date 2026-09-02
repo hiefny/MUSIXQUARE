@@ -598,8 +598,6 @@ const ms: Record<I18nKey, string> = {
   'dialog.continue': 'Teruskan',
   'toast.sync_reset': 'Ofset penyegerakan ditetapkan semula',
   'toast.stop_sent': 'Permintaan berhenti dihantar',
-  'toast.auto_play_canceled': 'Main automatik dibatalkan',
-  'toast.playing_in_3s': 'Main balik bermula dalam 3 saat...',
   'toast.hprecision_sync': 'Penyegerakan berketepatan tinggi: menyediakan audio…',
   'toast.file_ready': 'Fail anda sudah sedia!\nTekan Main.',
   'toast.host_sync_not_recommended': 'Laraskan penyegerakan pada peranti tetamu',

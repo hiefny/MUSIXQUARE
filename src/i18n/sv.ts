@@ -595,8 +595,6 @@ const sv: Record<I18nKey, string> = {
   'dialog.continue': 'Fortsätt',
   'toast.sync_reset': 'Synkroniseringsförskjutningen har återställts',
   'toast.stop_sent': 'Begäran om att stoppa har skickats',
-  'toast.auto_play_canceled': 'Automatisk uppspelning avbröts',
-  'toast.playing_in_3s': 'Uppspelningen startar om 3 sekunder…',
   'toast.hprecision_sync': 'Högprecisionssynkronisering: förbereder ljud…',
   'toast.file_ready': 'Filen är klar!\nTryck på Spela upp.',
   'toast.host_sync_not_recommended': 'Justera synkroniseringen på en gästenhet',

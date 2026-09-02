@@ -583,8 +583,6 @@ const ur: Record<I18nKey, string> = {
   'dialog.continue': 'جاری رکھیں',
   'toast.sync_reset': 'سنک آفسیٹ دوبارہ ترتیب دے دیا گیا',
   'toast.stop_sent': 'روکنے کی درخواست بھیج دی گئی',
-  'toast.auto_play_canceled': 'خودکار پلے منسوخ ہو گیا',
-  'toast.playing_in_3s': 'پلے بیک 3 سیکنڈ میں شروع ہوگا...',
   'toast.hprecision_sync': 'انتہائی درست سنک: آڈیو تیار ہو رہی ہے…',
   'toast.file_ready': 'آپ کی فائل تیار ہے!\nچلائیں دبائیں۔',
   'toast.host_sync_not_recommended': 'سنک کسی مہمان آلے پر ایڈجسٹ کریں',

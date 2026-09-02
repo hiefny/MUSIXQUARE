@@ -635,7 +635,6 @@ describe('host cached-blob recovery identity', () => {
       name: 'persistent.flac',
       mime: 'audio/flac',
       size: currentBlob.size,
-      autoPlayDelayMs: 0,
     });
     expect(unicastFile).not.toHaveBeenCalled();
     expect(remoteShareMocks.shareRemoteFileIfNeeded).not.toHaveBeenCalled();

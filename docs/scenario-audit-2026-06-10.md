@@ -124,7 +124,8 @@ force-stop 의미론 수정이 그 의미를 시스템오디오까지 일관 확
 
 공통 원인: 트랙 전환 중 `stopAllMedia({silent})`가 mode=file/playing을 의도적으로 유지하므로
 `isPlaybackPlayingFile()`/`!isQueueIdle()`이 통과. 게스트는 자기 lifecycle 게이트가 막아줘서
-호스트-로컬 증상 위주. autoPlayTimer가 3초 뒤 덮어써서 자가 치유되나 그 동안 유령 이전곡 재생.
+호스트-로컬 증상 위주. 당시의 지연 시작이 뒤늦게 상태를 덮어써 자가 치유됐지만,
+그 전까지 이전 곡이 잘못 재생되는 문제가 있었다.
 
 **P4 변형 (브로드캐스트만, 로컬 재생 없음)**: 호스트 sync 버튼(`player-controls.ts:505-519`
 `handleMainSyncBtn`)도 busy 중 `getTrackPosition()`=0으로 PLAY/PAUSE(time=0, 새 index)를 브로드캐스트.
@@ -137,7 +138,7 @@ force-stop 의미론 수정이 그 의미를 시스템오디오까지 일관 확
 **전수 매트릭스에서 안전 확인된 진입점** (가드 불필요, 기록):
 `togglePlay`·`handleRequestPlay`·`handlePlayMsg`(기존 가드), `adjustSync` 넛지(게스트 전용 +
 busy 시 buffer null이라 차단), `handleAutoSync`(게스트, mode=pending이라 차단),
-SYNC_PONG bootstrap/drift(lifecycle 3-state 게이트), `playback:replay-current`(same-file 검증),
+SYNC_PONG bootstrap/drift(lifecycle 3-state 게이트), same-file resident 검증,
 preload/finalize의 pendingPlayTime 소비(새 buffer 직후), demo 내부(자체 토큰),
 `audio:surround-toggled`(UI 미연결 cold storage — 재활성화 시 가드 필요 주석 권장).
 

@@ -223,7 +223,6 @@ function routeProRoomFileRequest(
     size: resident.blob.size,
     queueItemId,
     sessionId,
-    autoPlayDelayMs: 0,
   });
   return true;
 }

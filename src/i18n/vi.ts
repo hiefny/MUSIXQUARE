@@ -548,8 +548,6 @@ const vi: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Không có tệp âm thanh được hỗ trợ để thêm.',
   'toast.sync_reset': 'Đã đặt lại độ lệch đồng bộ',
   'toast.stop_sent': 'Đã gửi yêu cầu dừng',
-  'toast.auto_play_canceled': 'Đã hủy phát tự động',
-  'toast.playing_in_3s': 'Bắt đầu phát sau 3 giây...',
   'toast.hprecision_sync': 'Đồng bộ độ chính xác cao: đang chuẩn bị âm thanh...',
   'toast.file_ready': 'Tệp của bạn đã sẵn sàng!\nNhấn Phát.',
   'toast.host_sync_not_recommended': 'Hãy chỉnh đồng bộ trên thiết bị của người tham gia',

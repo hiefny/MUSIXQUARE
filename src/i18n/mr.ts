@@ -582,8 +582,6 @@ const mr: Record<I18nKey, string> = {
   'dialog.continue': 'पुढे जा',
   'toast.sync_reset': 'सिंक ऑफसेट पूर्ववत केला',
   'toast.stop_sent': 'थांबवण्याची विनंती पाठवली',
-  'toast.auto_play_canceled': 'स्वयंचलित प्ले रद्द केले',
-  'toast.playing_in_3s': '3 सेकंदांत प्लेबॅक सुरू होत आहे...',
   'toast.hprecision_sync': 'उच्च-अचूकता सिंक: ऑडिओ तयार होत आहे…',
   'toast.file_ready': 'तुमची फाइल तयार आहे!\nप्ले दाबा.',
   'toast.host_sync_not_recommended': 'अतिथी डिव्हाइसवर सिंक समायोजित करा',

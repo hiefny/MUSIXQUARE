@@ -560,8 +560,6 @@ const de: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Keine unterstützten Audiodateien gefunden.',
   'toast.sync_reset': 'Sync-Versatz zurückgesetzt',
   'toast.stop_sent': 'Stoppanfrage gesendet',
-  'toast.auto_play_canceled': 'Automatische Wiedergabe abgebrochen',
-  'toast.playing_in_3s': 'Wiedergabe startet in 3 Sekunden...',
   'toast.hprecision_sync': 'Präzisionssynchronisierung: Audio wird vorbereitet...',
   'toast.file_ready': 'Deine Datei ist bereit!\nDrücke auf Wiedergabe.',
   'toast.host_sync_not_recommended': 'Sync auf einem Teilnehmergerät anpassen',

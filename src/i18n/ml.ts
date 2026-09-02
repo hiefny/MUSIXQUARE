@@ -598,8 +598,6 @@ const ml: Record<I18nKey, string> = {
   'dialog.continue': 'തുടരുക',
   'toast.sync_reset': 'സിങ്ക് ഓഫ്‌സെറ്റ് പുനഃസജ്ജമാക്കി',
   'toast.stop_sent': 'നിർത്താനുള്ള അഭ്യർത്ഥന അയച്ചു',
-  'toast.auto_play_canceled': 'സ്വയമേവ പ്ലേ ചെയ്യുന്നത് റദ്ദാക്കി',
-  'toast.playing_in_3s': '3 സെക്കൻഡിനകം പ്ലേബാക്ക് ആരംഭിക്കുന്നു...',
   'toast.hprecision_sync': 'ഉയർന്ന കൃത്യതയുള്ള സിങ്ക്: ഓഡിയോ തയ്യാറാക്കുന്നു…',
   'toast.file_ready': 'നിങ്ങളുടെ ഫയൽ തയ്യാറാണ്!\nപ്ലേ അമർത്തുക.',
   'toast.host_sync_not_recommended': 'അതിഥി ഡിവൈസിൽ സിങ്ക് ക്രമീകരിക്കുക',

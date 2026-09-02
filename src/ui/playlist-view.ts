@@ -835,8 +835,9 @@ function playQueueItem(queueItemId: QueueItemId): void {
     return;
   }
   const hostConn = getState('network.hostConn');
-  if (!hostConn) bus.emit('playlist:play-track', queueItemId);
-  else {
+  if (!hostConn) {
+    bus.emit('playlist:play-track', queueItemId, undefined, { explicitPlaybackIntent: true });
+  } else {
     const sent = safeSend(hostConn, { type: MSG.REQUEST_TRACK_CHANGE, queueItemId });
     const roomContext = getState('room.context');
     if (sent && roomContext.kind === 'pro' && roomContext.role === 'member') {

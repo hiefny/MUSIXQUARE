@@ -594,8 +594,6 @@ const cs: Record<I18nKey, string> = {
   'dialog.continue': 'Pokračovat',
   'toast.sync_reset': 'Posun synchronizace byl vynulován',
   'toast.stop_sent': 'Požadavek na zastavení byl odeslán',
-  'toast.auto_play_canceled': 'Automatické přehrávání bylo zrušeno',
-  'toast.playing_in_3s': 'Přehrávání začne za 3 sekundy...',
   'toast.hprecision_sync': 'Přesná synchronizace: připravuje se zvuk…',
   'toast.file_ready': 'Soubor je připraven!\nStiskněte Přehrát.',
   'toast.host_sync_not_recommended': 'Upravte synchronizaci na zařízení účastníka',

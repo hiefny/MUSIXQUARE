@@ -591,8 +591,6 @@ const nb: Record<I18nKey, string> = {
   'dialog.continue': 'Fortsett',
   'toast.sync_reset': 'Synkroniseringsforskyvningen er tilbakestilt',
   'toast.stop_sent': 'Forespørselen om å stoppe er sendt',
-  'toast.auto_play_canceled': 'Automatisk avspilling ble avbrutt',
-  'toast.playing_in_3s': 'Avspillingen starter om 3 sekunder…',
   'toast.hprecision_sync': 'Høypresisjonssynkronisering: forbereder lyd…',
   'toast.file_ready': 'Filen din er klar!\nTrykk på Spill av.',
   'toast.host_sync_not_recommended': 'Juster synkroniseringen på en gjesteenhet',

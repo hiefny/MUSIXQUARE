@@ -601,8 +601,6 @@ const it: Record<I18nKey, string> = {
   'dialog.continue': 'Continua',
   'toast.sync_reset': 'Offset di sincronizzazione azzerato',
   'toast.stop_sent': 'Richiesta di arresto inviata',
-  'toast.auto_play_canceled': 'Riproduzione automatica annullata',
-  'toast.playing_in_3s': 'La riproduzione inizierà tra 3 secondi...',
   'toast.hprecision_sync': 'Sincronizzazione ad alta precisione: preparazione dell’audio...',
   'toast.file_ready': 'Il file è pronto!\nPremi il pulsante Riproduci.',
   'toast.host_sync_not_recommended':

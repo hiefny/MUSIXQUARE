@@ -258,7 +258,9 @@ export function initMediaSession(): void {
       if (isNonOperatorGuest()) return;
       // Try to play from current playlist position instead of blocking
       if (currentQueueItemId) {
-        bus.emit('playlist:play-track', currentQueueItemId);
+        bus.emit('playlist:play-track', currentQueueItemId, undefined, {
+          explicitPlaybackIntent: true,
+        });
       }
       return;
     }

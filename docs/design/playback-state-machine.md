@@ -139,7 +139,7 @@ per Open Question #5 decision below.
 | `FILE_PREPARE` (fresh — no preload / not same file)           | DOWNLOADING                      | set transfer.meta, currentTrackIndex; arm prepareWatchdog         |
 | `FILE_PREPARE` (demo file)                                    | AWAITING_PRELOAD                 | HTTP fetch from server; treated as preload path                   |
 | `FILE_PREPARE` (matches completed preload blob)               | DECODING                         | loadPreloadedTrack()                                              |
-| `FILE_PREPARE` (same file already loaded)                     | — (stays IDLE, but rare in IDLE) | replay-current path                                               |
+| `FILE_PREPARE` (same file already loaded)                     | — (stays IDLE, but rare in IDLE) | retain exact resident; PLAY owns restart                          |
 | `PLAY_PRELOADED` (blob ready)                                 | DECODING                         | loadPreloadedTrack()                                              |
 | `PLAY_PRELOADED` (preload session active, blob not assembled) | AWAITING_PRELOAD                 | arm progress-reset preload stall watchdog                         |
 | `PLAY_PRELOADED` (no matching session anywhere)               | DOWNLOADING                      | emit REQUEST_DATA_RECOVERY with nextChunk=0                       |
@@ -209,7 +209,7 @@ per Open Question #5 decision below.
 | consuming pendingPlayTime (internal)       | PLAYING                 | same as PLAY handler above                                                |
 | consuming pausedAt (internal)              | PAUSED                  | set pausedAt; publish paused file mode/activity                           |
 | `PAUSE(time)`                              | PAUSED                  | set pausedAt                                                              |
-| `FILE_PREPARE` (same file, replay-current) | READY                   | fire playback:replay-current; respect autoPlayDelayMs                     |
+| `FILE_PREPARE` (same file)                 | READY                   | keep the exact resident; wait for authoritative PLAY                      |
 | `FILE_PREPARE` (different file)            | supersede → DOWNLOADING | stopAllMedia                                                              |
 | `PLAY_PRELOADED` (different index)         | supersede               |                                                                           |
 | `PAUSE(endOfPlaylist=true)`                | IDLE                    | reset                                                                     |
@@ -221,7 +221,7 @@ per Open Question #5 decision below.
 | `PAUSE(time)`                              | PAUSED                                | pause audio, set pausedAt                                |
 | track ended (audioBuffer.onended)          | IDLE                                  | host broadcasts next PAUSE/FILE_PREPARE; guest passively |
 | `PLAY(time)` (same track)                  | PLAYING                               | seek to time or restart from 0                           |
-| `FILE_PREPARE` (same file, replay-current) | PLAYING                               | play(0)                                                  |
+| `FILE_PREPARE` (same file)                 | PLAYING                               | keep current source; PLAY owns any restart               |
 | `FILE_PREPARE` (different file)            | supersede → DOWNLOADING               | stopAllMedia                                             |
 | `PLAY_PRELOADED` (different track)         | supersede → DECODING/AWAITING_PRELOAD | stopAllMedia                                             |
 | `PAUSE(endOfPlaylist=true)`                | IDLE                                  | reset                                                    |
@@ -233,7 +233,7 @@ per Open Question #5 decision below.
 | ---------------------------------- | ----------------------- | -------------------------------- |
 | `PLAY(time)`                       | PLAYING                 | resume at time                   |
 | `PAUSE(time)`                      | PAUSED                  | update pausedAt                  |
-| `FILE_PREPARE` (same file)         | PAUSED → PLAYING        | replay-current + auto-play delay |
+| `FILE_PREPARE` (same file)         | PAUSED                  | retain exact resident            |
 | `FILE_PREPARE` (different file)    | supersede → DOWNLOADING | stopAllMedia                     |
 | `PLAY_PRELOADED` (different track) | supersede               |                                  |
 | `PAUSE(endOfPlaylist=true)`        | IDLE                    | reset                            |
@@ -318,7 +318,7 @@ Inverse view of Section 4 for quick reference.
 - pend = set pendingPlayTime
 - save = set pausedAt
 - stale = ignore chunk (session/state mismatch)
-- replay = emit playback:replay-current with autoPlayDelayMs
+- same-file = keep the exact resident and let PLAY own the audible restart
 
 **Critical observation:** The ⭐ cells identify the two transitions that
 directly fix the current bug. `PLAY in AWAITING_PRELOAD` must store pending

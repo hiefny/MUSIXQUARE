@@ -795,7 +795,7 @@ describe('playlist queue identity rendering and actions', () => {
     expect(trackAction?.tabIndex).toBe(0);
 
     trackAction?.click();
-    expect(play).toHaveBeenCalledWith(FILE_A);
+    expect(play).toHaveBeenCalledWith(FILE_A, undefined, { explicitPlaybackIntent: true });
   });
 
   it('renders a huge sub-playlist progressively and patches title-only updates in place', async () => {
@@ -1185,7 +1185,7 @@ describe('playlist queue identity rendering and actions', () => {
     document
       .querySelector<HTMLElement>(`.track-item[data-queue-item-id="${FILE_A}"] .track-name`)!
       .click();
-    expect(play).toHaveBeenCalledWith(FILE_A);
+    expect(play).toHaveBeenCalledWith(FILE_A, undefined, { explicitPlaybackIntent: true });
 
     document
       .querySelector<HTMLElement>(`[data-action="expand"][data-queue-item-id="${YT_B}"]`)!

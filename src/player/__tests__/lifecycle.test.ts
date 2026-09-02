@@ -516,7 +516,7 @@ describe('lifecycle: from READY', () => {
     expect(r).toEqual({ next: PLAYBACK_STATE.PAUSED });
   });
 
-  it('FILE_PREPARE same-file → stay (replay-current)', () => {
+  it('FILE_PREPARE same-file → stay until PLAY', () => {
     const r = step(FROM, {
       type: 'FILE_PREPARE',
       variant: 'same-file',

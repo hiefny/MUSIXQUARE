@@ -523,8 +523,6 @@ const zhHans: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': '没有可添加的兼容音频文件。',
   'toast.sync_reset': '同步偏移已重置',
   'toast.stop_sent': '停止请求已发送',
-  'toast.auto_play_canceled': '自动播放已取消',
-  'toast.playing_in_3s': '将在 3 秒后开始播放...',
   'toast.hprecision_sync': '高精度同步：正在准备音频...',
   'toast.file_ready': '文件已准备好！\n请点击播放。',
   'toast.host_sync_not_recommended': '请在参与者设备上调整同步',

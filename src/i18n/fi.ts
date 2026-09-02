@@ -592,8 +592,6 @@ const fi: Record<I18nKey, string> = {
   'dialog.continue': 'Jatka',
   'toast.sync_reset': 'Synkronoinnin poikkeama nollattiin',
   'toast.stop_sent': 'Pysäytyspyyntö lähetettiin',
-  'toast.auto_play_canceled': 'Automaattinen toisto peruutettiin',
-  'toast.playing_in_3s': 'Toisto alkaa 3 sekunnin kuluttua…',
   'toast.hprecision_sync': 'Erittäin tarkka synkronointi: valmistellaan ääntä…',
   'toast.file_ready': 'Tiedosto on valmis!\nPaina Toista.',
   'toast.host_sync_not_recommended': 'Säädä synkronointia vieraslaitteella',

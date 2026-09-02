@@ -361,7 +361,9 @@ describe('initMediaSession', () => {
     setPlaybackIdle();
     setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     _handlers['play']();
-    expect(fn).toHaveBeenCalledWith(CURRENT_QUEUE_ITEM_ID);
+    expect(fn).toHaveBeenCalledWith(CURRENT_QUEUE_ITEM_ID, undefined, {
+      explicitPlaybackIntent: true,
+    });
   });
 
   // Non-OP guests must still be able to pause/resume their OWN local pause —

@@ -3031,7 +3031,7 @@ export function initYouTube(): void {
     const pending = consumePendingAutoSyncOnReadyOwned();
     if (!pending) return;
     // Route through youtube:auto-play so we share the same code path as
-    // the post-autoPlayTimer flow in playTrack (scheduleYtAutoSync with
+    // the post-load flow in playTrack (scheduleYtAutoSync with
     // skipSeek + autoplayIntent flip).
     bus.emit('youtube:auto-play', pending);
   });

@@ -555,8 +555,6 @@ const id: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Tidak ada file audio yang dapat ditambahkan.',
   'toast.sync_reset': 'Offset sinkronisasi diatur ulang',
   'toast.stop_sent': 'Permintaan menghentikan pemutaran dikirim',
-  'toast.auto_play_canceled': 'Pemutaran otomatis dibatalkan',
-  'toast.playing_in_3s': 'Pemutaran dimulai dalam 3 detik...',
   'toast.hprecision_sync': 'Sinkronisasi presisi tinggi: menyiapkan audio...',
   'toast.file_ready': 'File Anda siap!\nTekan Putar.',
   'toast.host_sync_not_recommended': 'Atur sinkronisasi di perangkat peserta',

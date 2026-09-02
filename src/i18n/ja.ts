@@ -550,8 +550,6 @@ const ja: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': '追加できるオーディオファイルがありません。',
   'toast.sync_reset': '同期オフセットをリセットしました',
   'toast.stop_sent': '停止リクエストを送信しました',
-  'toast.auto_play_canceled': '自動再生をキャンセルしました',
-  'toast.playing_in_3s': '3秒後に再生を開始します...',
   'toast.hprecision_sync': '高精度同期: オーディオを準備中...',
   'toast.file_ready': 'ファイルの準備ができました！\n再生ボタンを押してください。',
   'toast.host_sync_not_recommended': '同期補正は参加者デバイスで調整してください',

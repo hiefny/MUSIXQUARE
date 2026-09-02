@@ -580,8 +580,6 @@ const th: Record<I18nKey, string> = {
   'dialog.continue': 'ไปต่อ',
   'toast.sync_reset': 'รีเซ็ตออฟเซ็ตซิงก์แล้ว',
   'toast.stop_sent': 'ส่งคำขอหยุดแล้ว',
-  'toast.auto_play_canceled': 'ยกเลิกเล่นอัตโนมัติแล้ว',
-  'toast.playing_in_3s': 'จะเริ่มเล่นใน 3 วินาที...',
   'toast.hprecision_sync': 'ซิงก์ความแม่นยำสูง: กำลังเตรียมเสียง...',
   'toast.file_ready': 'ไฟล์พร้อมแล้ว!\nกดเล่น',
   'toast.host_sync_not_recommended': 'ปรับซิงก์บนอุปกรณ์ผู้เข้าร่วม',

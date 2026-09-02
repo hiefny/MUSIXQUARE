@@ -580,8 +580,6 @@ const ko = {
   'dialog.continue': '계속하기',
   'toast.sync_reset': '싱크 오프셋 초기화 완료',
   'toast.stop_sent': '정지 요청을 보냈어요',
-  'toast.auto_play_canceled': '자동 재생을 취소했어요',
-  'toast.playing_in_3s': '3초 후 재생 시작...',
   'toast.hprecision_sync': '고정밀 동기화: 오디오를 준비하고 있어요...',
   'toast.file_ready': '파일이 준비됐어요!\n재생 버튼을 눌러 보세요.',
   'toast.host_sync_not_recommended': '동기화 보정은 참여자 기기에서 조정해주세요',

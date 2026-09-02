@@ -595,8 +595,6 @@ const nl: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Geen ondersteunde audiobestanden gevonden.',
   'toast.sync_reset': 'Synchronisatiecorrectie teruggezet',
   'toast.stop_sent': 'Stopverzoek verzonden',
-  'toast.auto_play_canceled': 'Automatisch afspelen geannuleerd',
-  'toast.playing_in_3s': 'Afspelen start over 3 seconden...',
   'toast.hprecision_sync': 'Nauwkeurige synchronisatie: audio voorbereiden...',
   'toast.file_ready': 'Je bestand is klaar!\nDruk op Afspelen.',
   'toast.host_sync_not_recommended': 'Pas de synchronisatie aan op een deelnemerapparaat',

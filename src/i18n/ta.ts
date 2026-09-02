@@ -603,8 +603,6 @@ const ta: Record<I18nKey, string> = {
   'dialog.continue': 'தொடர்',
   'toast.sync_reset': 'ஒத்திசைவு ஆஃப்செட் மீட்டமைக்கப்பட்டது',
   'toast.stop_sent': 'நிறுத்தும் கோரிக்கை அனுப்பப்பட்டது',
-  'toast.auto_play_canceled': 'தானியங்கி இயக்கம் ரத்துசெய்யப்பட்டது',
-  'toast.playing_in_3s': '3 வினாடிகளில் பிளேபேக் தொடங்குகிறது...',
   'toast.hprecision_sync': 'உயர் துல்லிய ஒத்திசைவு: ஆடியோ தயாராகிறது\u2026',
   'toast.file_ready': 'உங்கள் கோப்பு தயாராக உள்ளது!\nஇயக்கு என்பதை அழுத்தவும்.',
   'toast.host_sync_not_recommended': 'விருந்தினர் சாதனத்தில் ஒத்திசைவைச் சரிசெய்யவும்',

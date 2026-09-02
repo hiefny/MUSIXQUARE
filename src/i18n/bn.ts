@@ -586,8 +586,6 @@ const bn: Record<I18nKey, string> = {
   'dialog.continue': 'চালিয়ে যান',
   'toast.sync_reset': 'সিঙ্ক অফসেট রিসেট হয়েছে',
   'toast.stop_sent': 'থামানোর অনুরোধ পাঠানো হয়েছে',
-  'toast.auto_play_canceled': 'অটো-প্লে বাতিল করা হয়েছে',
-  'toast.playing_in_3s': '3 সেকেন্ডের মধ্যে প্লেব্যাক শুরু হচ্ছে...',
   'toast.hprecision_sync': 'উচ্চ-নির্ভুলতার সিঙ্ক: অডিও প্রস্তুত হচ্ছে\u2026',
   'toast.file_ready': 'আপনার ফাইল প্রস্তুত!\nচালান চাপুন।',
   'toast.host_sync_not_recommended': 'অতিথি ডিভাইসে সিঙ্ক সামঞ্জস্য করুন',

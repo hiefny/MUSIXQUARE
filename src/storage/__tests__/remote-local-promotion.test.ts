@@ -30,6 +30,7 @@ vi.mock('../../ui/toast.ts', () => ({
 }));
 
 vi.mock('../../i18n/index.ts', () => ({ t: vi.fn((key: string) => key) }));
+vi.mock('../../player/transport.ts', () => ({ pause: vi.fn() }));
 vi.mock('../../core/log.ts', () => ({
   log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
@@ -356,21 +357,31 @@ describe('remote-share to local direct transfer promotion', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.DECODING);
   });
 
-  it('replays only the exact resident queue item and session', async () => {
+  it('deduplicates only the exact resident queue item and session', async () => {
     const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { pause } = await import('../../player/transport.ts');
     const blob = new Blob(['abcd'], { type: 'audio/mpeg' });
     setState('files.current', resident(Q0, 7, blob));
     setState('transfer.meta', { queueItemId: Q0, indexHint: 0, name: 'song.mp3', sessionId: 7 });
-    const replay = vi.fn();
-    bus.on('playback:replay-current', replay);
 
     await handleFilePrepare(prepareFrame(Q0, 7), conn);
-    expect(replay).toHaveBeenCalledOnce();
+    expect(getState('playlist.currentQueueItemId')).toBe(Q0);
+    expect(getState('files.current')).toEqual(expect.objectContaining({ queueItemId: Q0 }));
+    expect(pause).not.toHaveBeenCalled();
 
-    replay.mockClear();
     await handleFilePrepare(prepareFrame(Q1, 9), conn);
-    expect(replay).not.toHaveBeenCalled();
     expect(getState('playlist.currentQueueItemId')).toBe(Q1);
+  });
+
+  it('holds an exact resident for an already-open host that still delays PLAY', async () => {
+    const { handleFilePrepare } = await import('../transfer-receive.ts');
+    const { pause } = await import('../../player/transport.ts');
+    const blob = new Blob(['abcd'], { type: 'audio/mpeg' });
+    setState('files.current', resident(Q0, 7, blob));
+    setState('transfer.meta', { queueItemId: Q0, indexHint: 0, name: 'song.mp3', sessionId: 7 });
+    await handleFilePrepare({ ...prepareFrame(Q0, 7), autoPlayDelayMs: 3000 }, conn);
+
+    expect(pause).toHaveBeenCalledWith(0, { holdVisualizer: false, showToast: false });
   });
 
   it('keeps a newer FILE_PREPARE owner when an older connection check resumes last', async () => {

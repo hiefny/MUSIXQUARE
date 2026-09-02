@@ -54,7 +54,7 @@ export type PlaybackEvent =
   // ── File transfer (main pipeline) ──
   // Variants:
   //   fresh          — no preload match; start new download
-  //   same-file      — already loaded; replay-current path
+  //   same-file      — exact resident already loaded; no transfer required
   //   preload-match  — preload blob is assembled; go straight to DECODING
   //   preload-waiting — preload session exists but blob not yet ready (transfer-receive race)
   //   resume         — FILE_PREPARE of a file whose receivedCount > 0 (recovery resume)
@@ -133,7 +133,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
             next: PLAYBACK_STATE.AWAITING_PRELOAD,
             loadSource: LOAD_SOURCE.PRELOAD_PROMOTED,
           };
-        if (ev.variant === 'same-file') return { stay: true }; // rare; replay-current path
+        if (ev.variant === 'same-file') return { stay: true }; // exact resident; PLAY owns restart
         if (ev.variant === 'resume')
           return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.RECOVERY_RESUME };
         return { next: PLAYBACK_STATE.DOWNLOADING, loadSource: LOAD_SOURCE.FRESH };
@@ -302,7 +302,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PAUSE':
         return { next: PLAYBACK_STATE.PAUSED };
       case 'FILE_PREPARE':
-        if (ev.variant === 'same-file') return { stay: true }; // replay-current, stays READY
+        if (ev.variant === 'same-file') return { stay: true }; // stays READY until PLAY
         if (ev.variant === 'preload-match')
           return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
         if (ev.variant === 'preload-waiting')
@@ -379,7 +379,7 @@ function resolve(from: PlaybackStateValue, ev: Event): TransitionResult {
       case 'PAUSE':
         return { stay: true }; // update pausedAt
       case 'FILE_PREPARE':
-        if (ev.variant === 'same-file') return { stay: true }; // replay-current handles it
+        if (ev.variant === 'same-file') return { stay: true }; // stays PAUSED until PLAY
         if (ev.variant === 'preload-match')
           return { next: PLAYBACK_STATE.DECODING, loadSource: LOAD_SOURCE.PRELOAD_PROMOTED };
         if (ev.variant === 'preload-waiting')

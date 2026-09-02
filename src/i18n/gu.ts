@@ -579,8 +579,6 @@ const gu: Record<I18nKey, string> = {
   'dialog.continue': 'આગળ વધો',
   'toast.sync_reset': 'સિંક ઑફસેટ મૂળ સ્થિતિમાં લાવ્યો',
   'toast.stop_sent': 'રોકવાની વિનંતી મોકલી',
-  'toast.auto_play_canceled': 'આપમેળે ચલાવવાનું રદ કર્યું',
-  'toast.playing_in_3s': '3 સેકન્ડમાં પ્લેબૅક શરૂ થઈ રહ્યું છે...',
   'toast.hprecision_sync': 'ઉચ્ચ-ચોકસાઈ સિંક: ઑડિયો તૈયાર થઈ રહ્યો છે…',
   'toast.file_ready': 'તમારી ફાઇલ તૈયાર છે!\nચલાવો બટન દબાવો.',
   'toast.host_sync_not_recommended': 'મહેમાન ડિવાઇસ પર સિંક ગોઠવો',

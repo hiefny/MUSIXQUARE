@@ -420,7 +420,6 @@ export interface ProtocolMap {
     sessionId: number;
     mime: string;
     size?: number;
-    autoPlayDelayMs?: number;
     delivery?: 'r2';
   };
   'file-r2-capability': {
@@ -1269,7 +1268,6 @@ interface BaseEventMap {
   'player:stop-all-media': [
     options?: { silent?: boolean; cancelInFlight?: boolean; clearBuffer?: boolean },
   ];
-  'playback:replay-current': [delayMs?: number];
   'playback:refresh-current-position': [];
   /**
    * Rejoin only this browser's output to the authoritative room timeline.
@@ -1304,7 +1302,7 @@ interface BaseEventMap {
   'playlist:play-track': [
     queueItemId: QueueItemId,
     subIndex?: number,
-    options?: { navigateToPlay?: boolean },
+    options?: { navigateToPlay?: boolean; explicitPlaybackIntent?: boolean },
   ];
 
   // ── UI ────────────────────────────────────────────────────────────

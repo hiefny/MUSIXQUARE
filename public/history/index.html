@@ -109,10 +109,10 @@
           </p>
           <p>
             In October, the first PeerJS and WebRTC prototype synchronized two phones with hard seek
-            corrections and small <code>playbackRate</code> changes. A three-second scheduled start
-            replaced that approach in November. December focused on channel routing with
-            <code>ChannelSplitter</code>, per-band <code>GainNode</code>s and a 120 Hz low-pass
-            filter for the subwoofer channel. The MUSIXQUARE name, wordmark and
+            corrections and small <code>playbackRate</code> changes. The synchronization model was
+            rebuilt through November while direct file transfer was added. December focused on
+            channel routing with <code>ChannelSplitter</code>, per-band <code>GainNode</code>s and a
+            120 Hz low-pass filter for the subwoofer channel. The MUSIXQUARE name, wordmark and
             <strong>#3b82f6</strong> blue were adopted late that month.
           </p>
         </div>
@@ -134,11 +134,10 @@
             </div>
           </li>
           <li>
-            <div class="lead">November: Scheduled start and file transfer</div>
+            <div class="lead">November: Shared playback and file transfer</div>
             <div class="body">
-              Both devices scheduled playback against the same three-second countdown. Host MP3
-              files were transferred to guests as Blob data. Per-device offsets later became Nudge
-              Sync.
+              The two-device prototype aligned playback over the room connection. Host MP3 files
+              were transferred to guests as Blob data. Per-device offsets later became Nudge Sync.
             </div>
           </li>
           <li>

@@ -594,8 +594,6 @@ const uk: Record<I18nKey, string> = {
   'dialog.continue': 'Продовжити',
   'toast.sync_reset': 'Зміщення синхронізації скинуто',
   'toast.stop_sent': 'Запит на зупинку надіслано',
-  'toast.auto_play_canceled': 'Автовідтворення скасовано',
-  'toast.playing_in_3s': 'Відтворення почнеться за 3 секунди...',
   'toast.hprecision_sync': 'Високоточна синхронізація: підготовка аудіо…',
   'toast.file_ready': 'Файл готовий!\nНатисніть «Відтворити».',
   'toast.host_sync_not_recommended': 'Налаштуйте синхронізацію на гостьовому пристрої',

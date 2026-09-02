@@ -468,6 +468,39 @@ describe('togglePlay end-of-track race', () => {
 // ─── updatePlayState ─────────────────────────────────────────────────
 
 describe('togglePlay file pipeline guard', () => {
+  it('marks a deselected first-row Play tap as explicit playback intent', async () => {
+    const playTrack = vi.fn().mockResolvedValue(undefined);
+    lazyPlaylistMocks.loadPlaylistModule.mockResolvedValueOnce({ playTrack });
+    setState('network.appRole', 'host');
+    setState('playlist.items', [playlistItem(QID_OLD, 'first.mp3', 'First')]);
+    setState('playlist.currentQueueItemId', null);
+
+    togglePlay();
+
+    await vi.waitFor(() =>
+      expect(playTrack).toHaveBeenCalledWith(QID_OLD, undefined, {
+        explicitPlaybackIntent: true,
+      }),
+    );
+  });
+
+  it('marks a missing-buffer Play retry as explicit playback intent', async () => {
+    const playTrack = vi.fn().mockResolvedValue(undefined);
+    lazyPlaylistMocks.loadPlaylistModule.mockResolvedValueOnce({ playTrack });
+    setState('network.appRole', 'host');
+    setState('playlist.items', [playlistItem(QID_OLD, 'retry.mp3', 'Retry')]);
+    setState('playlist.currentQueueItemId', QID_OLD);
+    setPlaybackFilePaused();
+
+    togglePlay();
+
+    await vi.waitFor(() =>
+      expect(playTrack).toHaveBeenCalledWith(QID_OLD, undefined, {
+        explicitPlaybackIntent: true,
+      }),
+    );
+  });
+
   it('ignores play while the next file is decoding even if an old buffer is still resident', () => {
     setState('playlist.items', [
       playlistItem(QID_OLD, 'old.mp3', 'Old'),
@@ -527,6 +560,28 @@ describe('togglePlay file pipeline guard', () => {
 // resident buffer under the new track index.
 
 describe('handleRequestPlay file pipeline guard', () => {
+  it('marks an operator Play from the deselected state as explicit playback intent', async () => {
+    const playTrack = vi.fn().mockResolvedValue(undefined);
+    lazyPlaylistMocks.loadPlaylistModule.mockResolvedValueOnce({ playTrack });
+    setState('network.appRole', 'host');
+    setState('playlist.items', [playlistItem(QID_OLD, 'first.mp3', 'First')]);
+    setState('playlist.currentQueueItemId', null);
+    const opConn = dataConnection('op-1');
+    setState('network.activeHostConnByPeerId', new Map([[opConn.peer, opConn]]));
+    setState('network.connectedPeers', [
+      { ...connectedPeer(1), id: 'op-1', label: 'OP', isOp: true, conn: opConn },
+    ]);
+
+    initPlayback();
+    await handleData({ type: MSG.REQUEST_PLAY, time: 0, queueItemId: QID_OLD }, opConn);
+
+    await vi.waitFor(() =>
+      expect(playTrack).toHaveBeenCalledWith(QID_OLD, undefined, {
+        explicitPlaybackIntent: true,
+      }),
+    );
+  });
+
   it('drops OP REQUEST_PLAY while the next file is decoding', async () => {
     setState('playlist.items', [
       playlistItem(QID_OLD, 'old.mp3', 'Old'),

@@ -601,8 +601,6 @@ const el: Record<I18nKey, string> = {
   'dialog.continue': 'Συνέχεια',
   'toast.sync_reset': 'Η απόκλιση συγχρονισμού μηδενίστηκε',
   'toast.stop_sent': 'Το αίτημα διακοπής στάλθηκε',
-  'toast.auto_play_canceled': 'Η αυτόματη αναπαραγωγή ακυρώθηκε',
-  'toast.playing_in_3s': 'Η αναπαραγωγή ξεκινά σε 3 δευτερόλεπτα...',
   'toast.hprecision_sync': 'Συγχρονισμός υψηλής ακρίβειας: προετοιμασία ήχου…',
   'toast.file_ready': 'Το αρχείο είναι έτοιμο!\nΠατήστε Αναπαραγωγή.',
   'toast.host_sync_not_recommended': 'Ρυθμίστε τον συγχρονισμό σε συσκευή μέλους',

@@ -597,8 +597,6 @@ const hu: Record<I18nKey, string> = {
   'dialog.continue': 'Folytatás',
   'toast.sync_reset': 'Szinkronizálási eltolás nullázva',
   'toast.stop_sent': 'Leállítási kérés elküldve',
-  'toast.auto_play_canceled': 'Automatikus lejátszás megszakítva',
-  'toast.playing_in_3s': 'A lejátszás 3 másodperc múlva indul...',
   'toast.hprecision_sync': 'Nagy pontosságú szinkronizálás: hang előkészítése…',
   'toast.file_ready': 'A fájl készen áll!\nNyomd meg a Lejátszás gombot.',
   'toast.host_sync_not_recommended': 'A szinkronizálást résztvevői eszközön állítsd be',

@@ -596,8 +596,6 @@ const ru: Record<I18nKey, string> = {
   'dialog.continue': 'Продолжить',
   'toast.sync_reset': 'Смещение синхронизации сброшено',
   'toast.stop_sent': 'Запрос на остановку воспроизведения отправлен',
-  'toast.auto_play_canceled': 'Автовоспроизведение отменено',
-  'toast.playing_in_3s': 'Воспроизведение начнётся через 3 секунды...',
   'toast.hprecision_sync': 'Высокоточная синхронизация: подготовка аудио...',
   'toast.file_ready': 'Файл готов!\nНажмите кнопку «Воспроизвести».',
   'toast.host_sync_not_recommended': 'Настройте синхронизацию на устройстве участника',

@@ -559,8 +559,6 @@ const fr: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Aucun fichier audio compatible à ajouter.',
   'toast.sync_reset': 'Décalage de synchronisation réinitialisé',
   'toast.stop_sent': 'Demande d’arrêt envoyée',
-  'toast.auto_play_canceled': 'Lecture automatique annulée',
-  'toast.playing_in_3s': 'Démarrage de la lecture dans 3 secondes…',
   'toast.hprecision_sync': 'Synchronisation haute précision : préparation audio…',
   'toast.file_ready': 'Votre fichier est prêt !\nAppuyez sur Lecture.',
   'toast.host_sync_not_recommended': 'Réglez la synchronisation sur l’appareil d’un participant',

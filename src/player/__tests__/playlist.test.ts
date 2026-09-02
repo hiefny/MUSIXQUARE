@@ -1586,37 +1586,42 @@ describe('playTrack explicit file playback intent', () => {
     const item = fileItem(file.name, file);
     setState('playlist.items', [item]);
     decodeMocks.loadAndBroadcastFile.mockResolvedValue(true);
+    const startSpy = vi
+      .spyOn(transport, 'startHostFileAndBroadcastPlay')
+      .mockResolvedValueOnce(true);
 
     await playTrack(item.queueItemId);
 
-    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledWith(
-      file,
-      item.queueItemId,
-      expect.any(Number),
-      expect.any(Number),
-      expect.objectContaining({ autoPlayDelayMs: 0 }),
-    );
-    expect(getManagedTimer('autoPlayTimer')).toBeNull();
+    expect(decodeMocks.loadAndBroadcastFile.mock.calls[0]?.[4]).toEqual({
+      type: MSG.FILE_PREPARE,
+      name: file.name,
+      queueItemId: item.queueItemId,
+      sessionId: expect.any(Number),
+      size: file.size,
+      mime: file.type,
+    });
+    expect(startSpy).not.toHaveBeenCalled();
     expect(getState('player.isFirstTrackLoad')).toBe(false);
   });
 
-  it('routes an explicit first file through the synchronized delayed start', async () => {
-    vi.useFakeTimers();
+  it('starts an explicitly played first file immediately', async () => {
     const file = new File(['audio'], 'first.flac', { type: 'audio/flac' });
     const item = fileItem(file.name, file);
     setState('playlist.items', [item]);
     decodeMocks.loadAndBroadcastFile.mockResolvedValue(true);
+    const startSpy = vi
+      .spyOn(transport, 'startHostFileAndBroadcastPlay')
+      .mockResolvedValueOnce(true);
 
     await playTrack(item.queueItemId, undefined, { explicitPlaybackIntent: true });
 
-    expect(decodeMocks.loadAndBroadcastFile).toHaveBeenCalledWith(
-      file,
-      item.queueItemId,
-      expect.any(Number),
-      expect.any(Number),
-      expect.objectContaining({ autoPlayDelayMs: 3000 }),
+    expect(startSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        time: 0,
+        queueItemId: item.queueItemId,
+        name: file.name,
+      }),
     );
-    expect(getManagedTimer('autoPlayTimer')).not.toBeNull();
     expect(getState('player.isFirstTrackLoad')).toBe(false);
   });
 });
@@ -2391,9 +2396,8 @@ describe('repeat-one ended-advance after a mid-window removal (SA-12)', () => {
   });
 });
 
-describe('fast-replay autoPlayTimer stable identity (F-2404)', () => {
-  it('starts the same qid after a lower row is removed during the delay', async () => {
-    vi.useFakeTimers();
+describe('immediate same-track replay stable identity (F-2404)', () => {
+  it('starts the same qid immediately and keeps its stable identity', async () => {
     const send = vi.fn();
     const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
     setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
@@ -2414,15 +2418,8 @@ describe('fast-replay autoPlayTimer stable identity (F-2404)', () => {
       .mockResolvedValueOnce(true);
 
     await playTrack(c.queueItemId);
-    // Ignore the immediate preparation frame; the delayed PLAY carries the
-    // fire-time index under test.
-    send.mockClear();
 
-    // A lower-index removal during the 3s replay window shifts the current
-    // index down. The successful start must still publish the stable qid.
-    bus.emit('playlist:remove-tracks', [a.queueItemId]);
-    await vi.advanceTimersByTimeAsync(3000);
-
+    expect(startSpy).toHaveBeenCalledTimes(1);
     expect(startSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         time: 0,
@@ -2430,10 +2427,14 @@ describe('fast-replay autoPlayTimer stable identity (F-2404)', () => {
         name: 'c.mp3',
       }),
     );
+
+    // A later lower-index removal may shift the projected array index, but it
+    // cannot change the occurrence identity already sent to the play kernel.
+    bus.emit('playlist:remove-tracks', [a.queueItemId]);
+    expect(getState('playlist.currentQueueItemId')).toBe(c.queueItemId);
   });
 
-  it('does not broadcast PLAY when the delayed replay start returns false', async () => {
-    vi.useFakeTimers();
+  it('does not send a transfer prepare for an already-resident replay', async () => {
     const send = vi.fn();
     const conn = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
     setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn }]);
@@ -2448,63 +2449,12 @@ describe('fast-replay autoPlayTimer stable identity (F-2404)', () => {
     setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
     const startSpy = vi
       .spyOn(transport, 'startHostFileAndBroadcastPlay')
-      .mockResolvedValueOnce(false);
+      .mockResolvedValueOnce(true);
 
     await playTrack(item.queueItemId);
-    send.mockClear();
-    await vi.advanceTimersByTimeAsync(3000);
 
-    expect(startSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ time: 0, queueItemId: item.queueItemId }),
-    );
-    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
-  });
-
-  it('does not revive a delayed replay after switching from host to guest', async () => {
-    vi.useFakeTimers();
-    const send = vi.fn();
-    const peer = { peer: 'guest-1', open: true, send } as unknown as DataConnection;
-    setState('network.connectedPeers', [{ ...makeConnectedPeer('guest-1', false), conn: peer }]);
-    setState('network.appRole', 'host');
-    setState('network.sessionCode', '123456');
-    setState('setup.sessionStarted', true);
-    setState('room.context', {
-      kind: 'standard',
-      roomId: '123456',
-      role: 'coordinator',
-      coordinatorId: 'host-1',
-      epoch: 4,
-      snapshotRevision: 1,
-      capabilities: ['playback.control'],
-    });
-    initPlaylist();
-
-    const file = new File(['audio'], 'handoff.mp3', { type: 'audio/mpeg' });
-    const item = fileItem('handoff.mp3', file);
-    setState('playlist.items', [item]);
-    selectIndex(0);
-    setState('player.isFirstTrackLoad', false);
-    setState('files.current', residentFor(item, file));
-    setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
-    const startSpy = vi.spyOn(transport, 'startHostFileAndBroadcastPlay');
-
-    await playTrack(item.queueItemId);
-    send.mockClear();
-    const newHostConn = { peer: 'new-host', open: true } as DataConnection;
-    setState('network.appRole', 'guest');
-    setState('network.hostConn', newHostConn);
-    setState('room.context', {
-      ...getState('room.context'),
-      role: 'member',
-      coordinatorId: 'new-host',
-      epoch: 5,
-    });
-    await vi.advanceTimersByTimeAsync(3000);
-
-    expect(startSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ time: 0, queueItemId: item.queueItemId }),
-    );
-    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.PLAY }));
+    expect(startSpy).toHaveBeenCalledOnce();
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ type: MSG.FILE_PREPARE }));
   });
 });
 

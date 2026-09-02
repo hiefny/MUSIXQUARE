@@ -587,8 +587,6 @@ const pa: Record<I18nKey, string> = {
   'dialog.continue': 'ਅੱਗੇ ਵਧੋ',
   'toast.sync_reset': 'ਸਿੰਕ ਆਫ਼ਸੈੱਟ ਮੁੜ ਸੈੱਟ ਹੋ ਗਿਆ',
   'toast.stop_sent': 'ਰੋਕਣ ਦੀ ਬੇਨਤੀ ਭੇਜੀ ਗਈ',
-  'toast.auto_play_canceled': 'ਆਪਣੇ ਆਪ ਚਲਾਉਣਾ ਰੱਦ ਹੋ ਗਿਆ',
-  'toast.playing_in_3s': '3 ਸਕਿੰਟਾਂ ਵਿੱਚ ਪਲੇਬੈਕ ਸ਼ੁਰੂ ਹੋ ਰਿਹਾ ਹੈ...',
   'toast.hprecision_sync': 'ਉੱਚ-ਸਟੀਕਤਾ ਸਿੰਕ: ਆਡੀਓ ਤਿਆਰ ਹੋ ਰਿਹਾ ਹੈ…',
   'toast.file_ready': 'ਤੁਹਾਡੀ ਫ਼ਾਈਲ ਤਿਆਰ ਹੈ!\nਚਲਾਓ ਬਟਨ ਦਬਾਓ।',
   'toast.host_sync_not_recommended': 'ਮਹਿਮਾਨ ਡਿਵਾਈਸ ਉੱਤੇ ਸਿੰਕ ਬਦਲੋ',

@@ -592,8 +592,6 @@ const da: Record<I18nKey, string> = {
   'dialog.continue': 'Fortsæt',
   'toast.sync_reset': 'Synkroniseringsforskydningen er nulstillet',
   'toast.stop_sent': 'Anmodningen om at stoppe er sendt',
-  'toast.auto_play_canceled': 'Automatisk afspilning blev annulleret',
-  'toast.playing_in_3s': 'Afspilningen starter om 3 sekunder…',
   'toast.hprecision_sync': 'Højpræcisionssynkronisering: forbereder lyd…',
   'toast.file_ready': 'Din fil er klar!\nTryk på Afspil.',
   'toast.host_sync_not_recommended': 'Juster synkroniseringen på en gæsteenhed',

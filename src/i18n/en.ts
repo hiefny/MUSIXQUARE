@@ -585,8 +585,6 @@ const en: Record<I18nKey, string> = {
   'dialog.continue': 'Continue',
   'toast.sync_reset': 'Sync offset reset',
   'toast.stop_sent': 'Stop request sent',
-  'toast.auto_play_canceled': 'Auto-play canceled',
-  'toast.playing_in_3s': 'Starting playback in 3 seconds...',
   'toast.hprecision_sync': 'High-precision sync: preparing audio\u2026',
   'toast.file_ready': 'Your file is ready!\nPress Play.',
   'toast.host_sync_not_recommended': 'Adjust sync on a guest device',

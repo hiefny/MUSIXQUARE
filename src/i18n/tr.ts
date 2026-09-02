@@ -584,8 +584,6 @@ const tr: Record<I18nKey, string> = {
   'dialog.continue': 'Devam et',
   'toast.sync_reset': 'Senkronizasyon ofseti sıfırlandı',
   'toast.stop_sent': 'Durdurma isteği gönderildi',
-  'toast.auto_play_canceled': 'Otomatik oynatma iptal edildi',
-  'toast.playing_in_3s': 'Oynatma 3 saniye sonra başlayacak...',
   'toast.hprecision_sync': 'Yüksek hassasiyetli senkronizasyon: ses hazırlanıyor...',
   'toast.file_ready': 'Dosyan hazır!\nOynat düğmesine bas.',
   'toast.host_sync_not_recommended': 'Senkronizasyonu katılımcı cihazından ayarlaman önerilir',

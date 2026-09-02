@@ -755,7 +755,6 @@ export async function playTrack(
     }
   }
 
-  clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
   // A direct track choice supersedes any scheduled decode-failure advance.
@@ -767,10 +766,9 @@ export async function playTrack(
   const playbackMetaBeforeSelection = getState('player.currentTrackMeta');
 
   // ─── Fast Path: Host re-clicks currently-playing local file ─────────
-  // Skip full reload/rebroadcast/preload-reset. Just reset position to 0
-  // and restart after the standard 3s delay. Guests get a FILE_PREPARE
-  // with autoPlayDelayMs which routes through their same-file replay
-  // branch — no re-download.
+  // Skip full reload/rebroadcast/preload-reset. Reset position to 0 and
+  // restart immediately. The authoritative PLAY frame restarts guests that
+  // already own this exact buffer, so no transfer control frame is needed.
   //
   // Buffer existence alone does not establish ownership: superseded loads may
   // leave the previous track resident while selection has advanced. The
@@ -843,54 +841,22 @@ export async function playTrack(
     const sessionId =
       _resident?.sessionId || getState('transfer.currentSessionId') || nextSessionId();
     freezeFileDeliveryMode(sessionId);
-    const isFirstTrackLoad = getState('player.isFirstTrackLoad');
-    const autoPlayDelayMs = isFirstTrackLoad ? 0 : 3000;
-
-    // Tell guests via FILE_PREPARE → their same-file branch emits
-    // playback:replay-current(delayMs), which defers play(0) accordingly.
-    sendFilePrepareByDelivery(
-      {
-        type: MSG.FILE_PREPARE,
-        name: file.name,
-        queueItemId,
-        sessionId,
-        // Size is transport metadata only; receivers never treat name+size as
-        // media identity.
-        size: file.size,
-        mime: file.type,
-        autoPlayDelayMs,
-      },
-      sessionId,
-    );
     if (!isProRoomPersistentPlaylistFile(queueItemId)) {
       shareRemoteFileIfNeeded(file, sessionId, undefined, { queueItemId }).catch((error) => {
         log.warn('[Playlist] Same-track Remote Share publication failed', error);
       });
     }
 
-    // Reset host position to 0 and wait, mirroring the normal branch's UX
+    // Reset the host position before replacing the current source.
     pause(0, { holdVisualizer: false });
     setState('player.pausedAt', 0);
-
-    if (isFirstTrackLoad) {
-      setState('player.isFirstTrackLoad', false);
-    } else {
-      showToast(t('toast.playing_in_3s'));
-    }
-
-    setManagedTimer(
-      'autoPlayTimer',
-      () => {
-        if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-        startLocalFileAndBroadcastPlay({
-          time: 0,
-          queueItemId,
-          name: file.name,
-          context: 'same-track replay',
-        });
-      },
-      autoPlayDelayMs,
-    );
+    setState('player.isFirstTrackLoad', false);
+    startLocalFileAndBroadcastPlay({
+      time: 0,
+      queueItemId,
+      name: file.name,
+      context: 'same-track replay',
+    });
 
     return;
   }
@@ -1040,7 +1006,6 @@ export async function playTrack(
         mime: preloadFile.type || readyPreload.mime || 'application/octet-stream',
         size: preloadFile.size,
         sessionId: getState('transfer.currentSessionId'),
-        autoPlayDelayMs: 0,
       });
     } else {
       const preloadSessionId = getState('transfer.currentSessionId');
@@ -1052,7 +1017,6 @@ export async function playTrack(
           mime: preloadFile.type || readyPreload.mime || 'application/octet-stream',
           size: preloadFile.size,
           sessionId: preloadSessionId,
-          autoPlayDelayMs: 0,
         },
         preloadSessionId,
         { r2Only: true },
@@ -1370,11 +1334,6 @@ export async function playTrack(
 
     const isFirstTrackLoad = getState('player.isFirstTrackLoad');
     const waitsForManualFirstStart = isFirstTrackLoad && !options.explicitPlaybackIntent;
-    // Tell guests how long the host will wait before actually calling play(0).
-    // Guests on the "same-file replay" path use this to defer their own
-    // play(0), otherwise they ghost-play for 3s while the host is still
-    // waiting on its autoPlayTimer.
-    const autoPlayDelayMs = options.proFilePreparation || waitsForManualFirstStart ? 0 : 3000;
 
     // FILE_PREPARE is coalesced into the same debounce as broadcastFile.
     // Sending it eagerly here would flood guests with metadata updates for
@@ -1389,7 +1348,6 @@ export async function playTrack(
       // Name and size are transport metadata, not media identity.
       size: file.size,
       mime: file.type,
-      autoPlayDelayMs,
     };
     const didLoad = await loadAndBroadcastFile(
       file,
@@ -1484,22 +1442,13 @@ export async function playTrack(
     if (waitsForManualFirstStart) {
       showToast(t('toast.file_ready'));
     } else {
-      showToast(t('toast.playing_in_3s'));
-      setManagedTimer(
-        'autoPlayTimer',
-        () => {
-          if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) return;
-          startLocalFileAndBroadcastPlay({
-            time: 0,
-            queueItemId,
-            name: file.name,
-            shouldApply: () => isCurrentLoadEpoch(myLoadEpoch),
-            context: 'automatic track start',
-          });
-          // SharedClock handles sync
-        },
-        autoPlayDelayMs,
-      );
+      startLocalFileAndBroadcastPlay({
+        time: 0,
+        queueItemId,
+        name: file.name,
+        shouldApply: () => isCurrentLoadEpoch(myLoadEpoch),
+        context: 'automatic track start',
+      });
     }
   }
 }
@@ -1899,7 +1848,10 @@ function handleTrackChange(data: Record<string, unknown>, conn: DataConnection):
     log.warn(`[Playlist] Invalid queue item ID: ${String(queueItemId)}`);
     return;
   }
-  observePlayTrack(playTrack(queueItemId), 'apply the operator track change');
+  observePlayTrack(
+    playTrack(queueItemId, undefined, { explicitPlaybackIntent: true }),
+    'apply the operator track change',
+  );
 }
 
 function handleRequestNextTrack(data: Record<string, unknown>, conn: DataConnection): void {

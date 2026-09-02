@@ -598,8 +598,6 @@ const pl: Record<I18nKey, string> = {
   'dialog.continue': 'Kontynuuj',
   'toast.sync_reset': 'Przesunięcie synchronizacji zostało wyzerowane',
   'toast.stop_sent': 'Wysłano polecenie zatrzymania odtwarzania',
-  'toast.auto_play_canceled': 'Automatyczne odtwarzanie anulowane',
-  'toast.playing_in_3s': 'Odtwarzanie rozpocznie się za 3 sekundy…',
   'toast.hprecision_sync': 'Synchronizacja o wysokiej precyzji: przygotowywanie dźwięku…',
   'toast.file_ready': 'Plik jest gotowy!\nNaciśnij przycisk Odtwórz.',
   'toast.host_sync_not_recommended':

@@ -591,8 +591,6 @@ const kn: Record<I18nKey, string> = {
   'dialog.continue': 'ಮುಂದುವರಿಸಿ',
   'toast.sync_reset': 'ಸಿಂಕ್ ಆಫ್‌ಸೆಟ್ ಮರುಹೊಂದಿಸಲಾಗಿದೆ',
   'toast.stop_sent': 'ನಿಲ್ಲಿಸುವ ವಿನಂತಿ ಕಳುಹಿಸಲಾಗಿದೆ',
-  'toast.auto_play_canceled': 'ಸ್ವಯಂ-ಪ್ಲೇ ರದ್ದಾಗಿದೆ',
-  'toast.playing_in_3s': '3 ಸೆಕೆಂಡುಗಳಲ್ಲಿ ಪ್ಲೇಬ್ಯಾಕ್ ಪ್ರಾರಂಭವಾಗುತ್ತದೆ...',
   'toast.hprecision_sync': 'ಹೆಚ್ಚಿನ ನಿಖರತೆಯ ಸಿಂಕ್: ಆಡಿಯೊ ಸಿದ್ಧವಾಗುತ್ತಿದೆ…',
   'toast.file_ready': 'ನಿಮ್ಮ ಫೈಲ್ ಸಿದ್ಧವಾಗಿದೆ!\nಪ್ಲೇ ಬಟನ್ ಒತ್ತಿರಿ.',
   'toast.host_sync_not_recommended': 'ಅತಿಥಿ ಸಾಧನದಲ್ಲಿ ಸಿಂಕ್ ಹೊಂದಿಸಿ',

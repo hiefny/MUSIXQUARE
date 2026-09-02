@@ -71,6 +71,7 @@ import {
 } from '../pro-room/media-hooks.ts';
 import { isGuestR2FileDelivery, recordGuestFileDelivery } from '../share/file-delivery-policy.ts';
 import { announceSystemMessageLocally } from '../chat/protocol.ts';
+import { pause } from '../player/transport.ts';
 
 // ─── Receive-side Module State ───────────────────────────────────────
 
@@ -82,6 +83,19 @@ let rejectedMainSessionId = 0;
 let _filePrepareGeneration = 0;
 let lastTransferProgressSessionId = 0;
 let lastTransferProgressPercent = -1;
+
+/**
+ * A page that was already open before this release can still send the retired
+ * delayed-start hint. Do not reproduce that delay locally; only silence the
+ * resident source until the old host eventually sends its authoritative PLAY.
+ * Unknown FILE_PREPARE fields are intentionally accepted for rolling updates.
+ */
+function holdResidentForRetiredDelayedStart(data: Record<string, unknown>): void {
+  const delayHint = data.autoPlayDelayMs;
+  if (typeof delayHint === 'number' && Number.isSafeInteger(delayHint) && delayHint > 0) {
+    pause(0, { holdVisualizer: false, showToast: false });
+  }
+}
 
 function resetDecodeFailureCountForNewOccurrence(queueItemId: QueueItemId): void {
   if (getState('transfer.meta')?.queueItemId !== queueItemId) {
@@ -363,7 +377,7 @@ function shouldSkipIncomingFile(data?: Record<string, unknown>): boolean {
     return !!data && queueItemId === getState('playlist.currentQueueItemId');
   }
 
-  // Same-transfer replay: skip tail frames only when they belong to the exact
+  // Same-transfer resident reuse: skip tail frames only when they belong to the exact
   // session that produced the loaded blob. A filename match is insufficient:
   // distinct files can share both name and byte length.
   if (
@@ -582,11 +596,11 @@ export function isActiveHostFileChunkForRateLimit(
   );
 }
 
-function replayLoadedSameFile(data: Record<string, unknown>): boolean {
+function retainLoadedSameFileForPrepare(data: Record<string, unknown>): boolean {
   const resident = getState('files.current');
   const requestedQueueItemId = incomingQueueItemId(data);
   const requestedName = data.name as string | undefined;
-  const replayName = requestedName || resident?.name || '';
+  const residentName = requestedName || resident?.name || '';
   const incomingSessionId = Number(data.sessionId);
   const loadedSessionId = Number(resident?.sessionId);
   const metadataConsistent =
@@ -605,16 +619,17 @@ function replayLoadedSameFile(data: Record<string, unknown>): boolean {
   if (!Number.isFinite(incomingSessionId) || incomingSessionId <= 0) return false;
   if (incomingSessionId !== loadedSessionId) return false;
 
-  log.debug(`[file-prepare] Exact loaded transfer replay, skipping re-download: ${requestedName}`);
+  log.debug(`[file-prepare] Exact loaded transfer already resident: ${requestedName}`);
   transition({
     type: 'FILE_PREPARE',
     variant: 'same-file',
     queueItemId: requestedQueueItemId,
-    name: replayName,
+    name: residentName,
   });
   showLoader(false);
-  const delayMs = Number(data.autoPlayDelayMs) || 0;
-  bus.emit('playback:replay-current', delayMs);
+  // FILE_PREPARE establishes transport ownership only. PLAY is the sole
+  // authority that may start or restart the resident buffer.
+  holdResidentForRetiredDelayedStart(data);
   return true;
 }
 
@@ -777,11 +792,9 @@ export async function handleFilePrepare(
   // a deterministic decoder rejection cannot loop forever at attempt one.
   resetDecodeFailureCountForNewOccurrence(queueItemId);
 
-  // Same-track replay needs to win before the remote-share branch. A remote
-  // guest that already has the Blob should restart it locally, not enter
-  // "waiting for remote file" for a descriptor the host will not
-  // send on the replay fast path.
-  if (replayLoadedSameFile(data)) {
+  // Exact resident ownership wins before the remote-share branch. It needs no
+  // replacement descriptor or transfer; authoritative PLAY owns any restart.
+  if (retainLoadedSameFileForPrepare(data)) {
     completeAcceptedFileRequest(data, conn);
     return;
   }
@@ -966,11 +979,11 @@ export async function handleFilePrepare(
     log.debug(
       `[file-prepare] Same file already loaded (repeat?), skipping re-download: ${data.name}`,
     );
-    // Replay receives no chunks, so clear the watchdog armed for a new session.
+    // Resident reuse receives no chunks, so clear the watchdog armed for a new session.
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('prepareWatchdog');
-    // Same file already loaded. No lifecycle change — replay-current fires
-    // and the existing PLAYING/READY/PAUSED state keeps its audio buffer.
+    // Same file already loaded. Keep its lifecycle and buffer intact; the
+    // authoritative PLAY frame decides whether and when it restarts.
     // shouldSkipIncomingFile() returns true via the exact resident queue item,
     // session, and metadata match.
     transition({
@@ -980,11 +993,7 @@ export async function handleFilePrepare(
       name: data.name as string,
     });
     showLoader(false);
-    // Honor host's auto-play delay if provided — otherwise the guest would
-    // play(0) immediately and drift for 3s while the host still waits on
-    // its autoPlayTimer before broadcasting MSG.PLAY.
-    const delayMs = Number(data.autoPlayDelayMs) || 0;
-    bus.emit('playback:replay-current', delayMs);
+    holdResidentForRetiredDelayedStart(data);
     return;
   }
 

@@ -578,8 +578,6 @@ const he: Record<I18nKey, string> = {
   'dialog.continue': 'המשך',
   'toast.sync_reset': 'היסט הסנכרון אופס',
   'toast.stop_sent': 'בקשת העצירה נשלחה',
-  'toast.auto_play_canceled': 'ההפעלה האוטומטית בוטלה',
-  'toast.playing_in_3s': 'ההפעלה תתחיל בעוד 3 שניות...',
   'toast.hprecision_sync': 'סנכרון מדויק: השמע בהכנה…',
   'toast.file_ready': 'הקובץ מוכן!\nלחצו על הפעלה.',
   'toast.host_sync_not_recommended': 'יש לכוונן את הסנכרון במכשיר אורח',

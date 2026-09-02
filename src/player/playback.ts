@@ -332,9 +332,8 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
   }
 
   // Only a validated, live queue occurrence may release local pause state or
-  // cancel the deferred replay owned by the current file pipeline.
+  // update playback owned by the current file pipeline.
   setLocalFilePaused(false);
-  clearManagedTimer('playback-replay-defer');
 
   // Guard: If loadPreloadedTrack is in progress, queue the play time
   if (
@@ -700,36 +699,39 @@ async function handleRequestPlay(
     log.warn(`[Playback] Rejected request-play from non-OP: ${conn?.peer}`);
     return;
   }
-  if (data.queueItemId !== getCurrentQueueItemId()) {
-    log.debug('[Playback] Ignoring stale REQUEST_PLAY');
-    return;
-  }
 
-  // Cancel any pending auto-play / ended-advance timers — otherwise an OP's
-  // REQUEST_PLAY that lands during the post-end 300–500ms window would be
-  // silently stomped by the armed `ended-advance-*` timer firing `play(0)`
-  // or `playNextTrack()`. Mirrors the guards used by `togglePlay`/`playTrack`.
-  clearManagedTimer('autoPlayTimer');
+  // Supersede natural-end work before handling either a resident resume or a
+  // deselected first-row restart.
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
-  const pausedAt = getState('player.pausedAt') || 0;
-  const rawTime = Number(data.time);
-  const time = Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : pausedAt;
+
   const currentQueueItemId = getCurrentQueueItemId();
   const playlistItems = getState('playlist.items') || [];
 
-  // Deselected state (post end-of-playlist): redirect to playTrack(0)
-  // rather than resuming stale audio buffer.
+  // Deselected state (post end-of-playlist): an explicit Play for the first
+  // visible row reloads that occurrence instead of trying to resume stale PCM.
   if (currentQueueItemId === null && playlistItems[0]) {
     const firstQueueItemId = playlistItems[0].queueItemId;
+    if (data.queueItemId !== firstQueueItemId) {
+      log.debug('[Playback] Ignoring stale REQUEST_PLAY');
+      return;
+    }
     void loadPlaylistModule()
-      .then((mod) => mod.playTrack(firstQueueItemId))
+      .then((mod) => mod.playTrack(firstQueueItemId, undefined, { explicitPlaybackIntent: true }))
       .catch((error) => {
         log.warn('[Playback] Failed to load the playlist for an operator play request:', error);
         showToast(t('error.network_generic'));
       });
     return;
   }
+  if (data.queueItemId !== currentQueueItemId) {
+    log.debug('[Playback] Ignoring stale REQUEST_PLAY');
+    return;
+  }
+
+  const pausedAt = getState('player.pausedAt') || 0;
+  const rawTime = Number(data.time);
+  const time = Number.isFinite(rawTime) && rawTime >= 0 ? rawTime : pausedAt;
   if (!currentQueueItemId) return;
 
   // A busy pipeline still holds the previous track's AudioBuffer. Ignore the
@@ -771,7 +773,6 @@ function handleRequestPause(data: Record<string, unknown>, conn: DataConnection)
     return;
   }
 
-  clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
   const currentQueueItemId = getCurrentQueueItemId();
@@ -800,10 +801,8 @@ async function handleRequestSeek(
     return;
   }
 
-  // Cancel pending auto-play / ended-advance timers — the 3s auto-play
-  // window after a track load would otherwise fire `play(0)` at its
-  // scheduled time and overwrite the OP's just-applied seek position.
-  clearManagedTimer('autoPlayTimer');
+  // Cancel pending ended-advance timers so they cannot overwrite the
+  // operator's just-applied seek position.
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
 
@@ -895,59 +894,6 @@ export function initPlayback(): void {
   bus.on('system-audio:host-started', () => {
     _guestPlayIntentEpoch += 1;
     releaseActiveGuestFileRouteLoader();
-  });
-
-  // Replay current track from start (repeat-one: guest already has file).
-  // delayMs lets the host tell the guest "I'm going to start at T+delayMs,
-  // so don't start playing until then" — prevents the 3-second drift
-  // window when host re-clicks a currently-playing track.
-  bus.on('playback:replay-current', (delayMs?: number) => {
-    const queueItemId = getCurrentQueueItemId();
-    if (
-      !queueItemId ||
-      !getCurrentAudioBuffer() ||
-      getState('files.current')?.queueItemId !== queueItemId
-    ) {
-      return;
-    }
-
-    const doReplay = () => {
-      log.debug('[Guest] Replaying current track from start');
-      const hostConn = getState('network.hostConn');
-      const residentFile = getState('files.current');
-      const buffer = getCurrentAudioBuffer();
-      let syncScheduled = false;
-      const occurrenceStillCurrent = (): boolean =>
-        !!hostConn?.open &&
-        getState('network.hostConn') === hostConn &&
-        getCurrentQueueItemId() === queueItemId &&
-        getState('files.current') === residentFile &&
-        getCurrentAudioBuffer() === buffer;
-      const scheduleSyncAfterStart = (): void => {
-        if (syncScheduled || !occurrenceStillCurrent() || !isPlaybackPlayingFile()) return;
-        syncScheduled = true;
-        // Auto-sync 1s later to align with host.
-        setManagedTimer('playback-repeat-auto-sync', () => bus.emit('sync:force-resync'), 1000);
-      };
-      void play(0, 0, undefined, occurrenceStillCurrent, {
-        timing: 'catch-up',
-        onRecoveredStarted: scheduleSyncAfterStart,
-      })
-        .then((started) => {
-          if (started) scheduleSyncAfterStart();
-        })
-        .catch((error) => log.warn('[Guest] Failed to replay the current track:', error));
-    };
-
-    if (delayMs && delayMs > 0) {
-      log.debug(`[Guest] Deferring replay by ${delayMs}ms to match host autoPlayTimer`);
-      // Pause locally so the old decoded buffer doesn't keep running, and
-      // the guest shows a "lined up" UI while waiting for the host's rendezvous.
-      pause(0, { holdVisualizer: false });
-      setManagedTimer('playback-replay-defer', doReplay, delayMs);
-    } else {
-      doReplay();
-    }
   });
 
   // Long background resume recovery: rebuild/re-arm the current file source at
@@ -1313,7 +1259,6 @@ export function initPlayback(): void {
           sessionId: currentResident.sessionId,
           size: currentResident.blob.size,
           mime: currentResident.mime || currentResident.blob.type || 'application/octet-stream',
-          autoPlayDelayMs: 0,
         });
         log.debug(`[Playback] Sent PRO direct-file prepare to ${peer.label || peerId} (${reason})`);
         return;
@@ -1326,7 +1271,6 @@ export function initPlayback(): void {
         sessionId: currentResident.sessionId,
         size: currentResident.blob.size,
         mime: currentResident.mime || currentResident.blob.type || 'application/octet-stream',
-        autoPlayDelayMs: 0,
       };
       if (delivery === 'r2') {
         safeSend(conn, {

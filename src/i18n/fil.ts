@@ -605,8 +605,6 @@ const fil: Record<I18nKey, string> = {
   'dialog.continue': 'Magpatuloy',
   'toast.sync_reset': 'Na-reset ang sync offset',
   'toast.stop_sent': 'Ipinadala ang hiling na huminto',
-  'toast.auto_play_canceled': 'Kinansela ang auto-play',
-  'toast.playing_in_3s': 'Magsisimula ang pag-play sa loob ng 3 segundo...',
   'toast.hprecision_sync': 'High-precision sync: inihahanda ang audio…',
   'toast.file_ready': 'Handa na ang file mo!\nPindutin ang I-play.',
   'toast.host_sync_not_recommended': 'Ayusin ang sync sa bisitang device',

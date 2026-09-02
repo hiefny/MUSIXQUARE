@@ -826,11 +826,8 @@ function stopAllMediaLegacy(opts: StopMediaOptions = {}): void {
 
   // Clear pending triggers.
   clearManagedTimer('preloadScheduleTimer');
-  clearManagedTimer('autoPlayTimer');
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
-  // A deferred same-file replay must not survive into a replacement buffer.
-  clearManagedTimer('playback-replay-defer');
   // Reset the play lock, watchdog, deferred play, and preload-activation flag
   // as one teardown unit. _internalPlay and preload activation finishers are
   // idempotent if they later observe this reset.
@@ -936,12 +933,6 @@ export function seekTo(time: number): void {
   if (hostConn && canControlPlayback) {
     if (queueItemId) sendToHost({ type: MSG.REQUEST_SEEK, time, queueItemId });
     return;
-  }
-
-  // Cancel pending auto-play on manual interaction (Host only)
-  if (!hostConn && getManagedTimer('autoPlayTimer')) {
-    clearManagedTimer('autoPlayTimer');
-    showToast(t('toast.auto_play_canceled'));
   }
 
   // YouTube mode
@@ -1787,7 +1778,7 @@ export function togglePlay(): void {
     if (!firstQueueItemId) return;
     if (!hostConn) {
       void loadPlaylistModule()
-        .then((mod) => mod.playTrack(firstQueueItemId))
+        .then((mod) => mod.playTrack(firstQueueItemId, undefined, { explicitPlaybackIntent: true }))
         .catch((error) => {
           log.warn('[Play] Failed to restart the first playlist item:', error);
           showToast(t('error.network_generic'));
@@ -1810,7 +1801,9 @@ export function togglePlay(): void {
       (!getCurrentAudioBuffer() || resident?.queueItemId !== currentQueueItemId)
     ) {
       void loadPlaylistModule()
-        .then((mod) => mod.playTrack(currentQueueItemId))
+        .then((mod) =>
+          mod.playTrack(currentQueueItemId, undefined, { explicitPlaybackIntent: true }),
+        )
         .catch((error) => {
           log.warn('[Play] Failed to retry the selected playlist item:', error);
           showToast(t('error.network_generic'));
@@ -1833,11 +1826,6 @@ export function togglePlay(): void {
     return;
   }
 
-  // Cancel pending auto-play (with user feedback)
-  if (!hostConn && getManagedTimer('autoPlayTimer')) {
-    clearManagedTimer('autoPlayTimer');
-    showToast(t('toast.auto_play_canceled'));
-  }
   clearManagedTimer('ended-advance-retry');
   clearManagedTimer('ended-advance-next');
 
@@ -1929,7 +1917,6 @@ export function stopPlayback(): void {
     setPlaybackIdle();
     bus.emit('youtube:stop-playback');
     bus.emit('youtube:stop-mode');
-    clearManagedTimer('autoPlayTimer');
     clearManagedTimer('ended-advance-retry');
     clearManagedTimer('ended-advance-next');
     setState('player.pausedAt', 0);
@@ -1956,12 +1943,6 @@ export function skipTime(sec: number): void {
   if (hostConn && canControlPlayback) {
     if (queueItemId) sendToHost({ type: MSG.REQUEST_SKIP_TIME, sec, queueItemId });
     return;
-  }
-
-  // Cancel pending auto-play on manual interaction (Host only)
-  if (!hostConn && getManagedTimer('autoPlayTimer')) {
-    clearManagedTimer('autoPlayTimer');
-    showToast(t('toast.auto_play_canceled'));
   }
 
   if (isCompatIdle()) return;

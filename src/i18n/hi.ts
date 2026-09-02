@@ -587,8 +587,6 @@ const hi: Record<I18nKey, string> = {
   'dialog.continue': 'जारी रखें',
   'toast.sync_reset': 'सिंक ऑफ़सेट रीसेट हो गया',
   'toast.stop_sent': 'रोकने का अनुरोध भेज दिया गया',
-  'toast.auto_play_canceled': 'ऑटो-प्ले रद्द कर दिया गया',
-  'toast.playing_in_3s': 'प्लेबैक 3 सेकंड में शुरू होगा...',
   'toast.hprecision_sync': 'हाई-प्रिसीज़न सिंक: ऑडियो तैयार हो रहा है\u2026',
   'toast.file_ready': 'आपकी फ़ाइल तैयार है!\nचलाएँ दबाएँ।',
   'toast.host_sync_not_recommended': 'किसी अतिथि डिवाइस पर सिंक समायोजित करें',

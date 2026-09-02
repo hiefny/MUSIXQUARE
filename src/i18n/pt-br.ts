@@ -561,8 +561,6 @@ const ptBr: Record<I18nKey, string> = {
   'toast.no_supported_audio_files': 'Não há arquivos de áudio compatíveis para adicionar.',
   'toast.sync_reset': 'Compensação de sincronização redefinida',
   'toast.stop_sent': 'Solicitação para parar enviada',
-  'toast.auto_play_canceled': 'Reprodução automática cancelada',
-  'toast.playing_in_3s': 'Iniciando reprodução em 3 segundos...',
   'toast.hprecision_sync': 'Sincronização de alta precisão: preparando áudio...',
   'toast.file_ready': 'Seu arquivo está pronto!\nToque em Reproduzir.',
   'toast.host_sync_not_recommended': 'Ajuste a sincronização em um dispositivo participante',

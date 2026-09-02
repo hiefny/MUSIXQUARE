@@ -598,8 +598,6 @@ const ro: Record<I18nKey, string> = {
   'dialog.continue': 'Continuă',
   'toast.sync_reset': 'Decalajul de sincronizare a fost resetat',
   'toast.stop_sent': 'Cererea de oprire a fost trimisă',
-  'toast.auto_play_canceled': 'Redarea automată a fost anulată',
-  'toast.playing_in_3s': 'Redarea începe în 3 secunde...',
   'toast.hprecision_sync': 'Sincronizare de înaltă precizie: se pregătește sunetul…',
   'toast.file_ready': 'Fișierul este gata!\nApasă Redare.',
   'toast.host_sync_not_recommended': 'Reglează sincronizarea pe un dispozitiv oaspete',

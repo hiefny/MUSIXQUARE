@@ -576,8 +576,6 @@ const ar: Record<I18nKey, string> = {
   'dialog.continue': 'متابعة',
   'toast.sync_reset': 'تمت إعادة ضبط إزاحة المزامنة',
   'toast.stop_sent': 'تم إرسال طلب الإيقاف',
-  'toast.auto_play_canceled': 'تم إلغاء التشغيل التلقائي',
-  'toast.playing_in_3s': 'سيبدأ التشغيل خلال 3 ثوانٍ...',
   'toast.hprecision_sync': 'مزامنة عالية الدقة: جارٍ تحضير الصوت…',
   'toast.file_ready': 'ملفك جاهز!\nاضغط تشغيل.',
   'toast.host_sync_not_recommended': 'اضبط المزامنة على جهاز ضيف',

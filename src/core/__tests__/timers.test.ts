@@ -42,8 +42,8 @@ describe('Managed Timers', () => {
   it('replaces existing timer when set again', () => {
     const fn1 = vi.fn();
     const fn2 = vi.fn();
-    setManagedTimer('autoPlayTimer', fn1, 1000);
-    setManagedTimer('autoPlayTimer', fn2, 1000);
+    setManagedTimer('replacement-timeout', fn1, 1000);
+    setManagedTimer('replacement-timeout', fn2, 1000);
     vi.advanceTimersByTime(1000);
     expect(fn1).not.toHaveBeenCalled();
     expect(fn2).toHaveBeenCalledTimes(1);

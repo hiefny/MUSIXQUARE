@@ -592,8 +592,6 @@ const te: Record<I18nKey, string> = {
   'dialog.continue': 'కొనసాగించు',
   'toast.sync_reset': 'సింక్ ఆఫ్‌సెట్ రీసెట్ అయింది',
   'toast.stop_sent': 'ఆపే అభ్యర్థన పంపబడింది',
-  'toast.auto_play_canceled': 'ఆటో-ప్లే రద్దయింది',
-  'toast.playing_in_3s': '3 సెకన్లలో ప్లేబ్యాక్ ప్రారంభమవుతోంది...',
   'toast.hprecision_sync': 'అత్యంత ఖచ్చితమైన సింక్: ఆడియో సిద్ధమవుతోంది\u2026',
   'toast.file_ready': 'మీ ఫైల్ సిద్ధంగా ఉంది!\nప్లే నొక్కండి.',
   'toast.host_sync_not_recommended': 'అతిథి పరికరంలో సింక్‌ను సర్దుబాటు చేయండి',

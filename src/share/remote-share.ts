@@ -2211,7 +2211,6 @@ async function handleFileR2Capability(
       sessionId: current.sessionId,
       size: current.blob.size,
       mime: current.mime || current.blob.type || 'application/octet-stream',
-      autoPlayDelayMs: 0,
       delivery: 'r2',
     });
     await shareRemoteFileIfNeeded(current.blob, current.sessionId, conn, {

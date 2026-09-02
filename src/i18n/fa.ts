@@ -584,8 +584,6 @@ const fa: Record<I18nKey, string> = {
   'dialog.continue': 'ادامه',
   'toast.sync_reset': 'اختلاف همگام‌سازی بازنشانی شد',
   'toast.stop_sent': 'درخواست توقف فرستاده شد',
-  'toast.auto_play_canceled': 'پخش خودکار لغو شد',
-  'toast.playing_in_3s': 'پخش تا 3 ثانیهٔ دیگر آغاز می‌شود...',
   'toast.hprecision_sync': 'همگام‌سازی دقیق: صدا در حال آماده‌سازی است…',
   'toast.file_ready': 'فایل آماده است!\nپخش را بزنید.',
   'toast.host_sync_not_recommended': 'همگام‌سازی را در یک دستگاه مهمان تنظیم کنید',

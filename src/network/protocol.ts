@@ -977,7 +977,6 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     isPositiveSafeInt(d.sessionId) &&
     typeof d.mime === 'string' &&
     (d.size === undefined || isPositiveSafeInt(d.size)) &&
-    (d.autoPlayDelayMs === undefined || isNonNegSafeInt(d.autoPlayDelayMs)) &&
     (d.delivery === undefined || d.delivery === 'r2'),
   [MSG.FILE_R2_CAPABILITY]: (d) => d.version === 1 && d.localAudience === true,
   [MSG.REMOTE_FILE_UNAVAILABLE]: (d) =>

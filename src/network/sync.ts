@@ -266,7 +266,7 @@ export function getSyncPongPlaybackState(): SyncPongPlaybackState {
 
   // During host track switches, stopAllMedia({ silent: true }) intentionally
   // leaves playback.mode/activity at file/playing to avoid UI flicker while
-  // the new file decodes and waits for autoPlayTimer. That is not audible
+  // the new file is still decoding. That is not audible
   // playback, so the wire view advertises the paused file shadow.
   if (isPlaybackPlayingFile(playback)) {
     if (lifecycle === PLAYBACK_STATE.PLAYING) {

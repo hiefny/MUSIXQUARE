@@ -595,8 +595,6 @@ const bg: Record<I18nKey, string> = {
   'dialog.continue': 'Продължаване',
   'toast.sync_reset': 'Отместването за синхрон е нулирано',
   'toast.stop_sent': 'Заявката за спиране е изпратена',
-  'toast.auto_play_canceled': 'Автоматичното възпроизвеждане е отменено',
-  'toast.playing_in_3s': 'Възпроизвеждането започва след 3 секунди...',
   'toast.hprecision_sync': 'Високоточен синхрон: подготовка на звука…',
   'toast.file_ready': 'Файлът е готов!\nНатисни „Пускане“.',
   'toast.host_sync_not_recommended': 'Настрой синхрона на устройство на гост',

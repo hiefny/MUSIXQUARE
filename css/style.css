@@ -1409,26 +1409,9 @@
     white-space: nowrap;
   }
 
-  .role-dot {
-    width: 6px;
-    height: 6px;
-    background: var(--text-muted);
-    border-radius: 999px;
-    opacity: 0.5;
-    transition: background 0.2s;
-  }
-
-  .role-dot.clock-beat {
-    opacity: 1;
-  }
-
   .role-badge.connected {
     background: var(--primary-filled);
     color: white;
-  }
-
-  .role-badge.connected .role-dot {
-    background: white;
   }
 
   .role-badge.connected.remote {
@@ -1441,18 +1424,9 @@
     color: white;
   }
 
-  .role-badge.pro-equal .role-dot {
-    background: white;
-    opacity: 1;
-  }
-
   .role-badge.account-authenticated {
     background: var(--primary-filled);
     color: white;
-  }
-
-  .role-badge.account-authenticated .role-dot {
-    background: white;
   }
 
   .tab-content {
@@ -1677,7 +1651,6 @@
 
   .invite-code-value.copied {
     color: var(--accent);
-    text-shadow: 0 0 6px rgba(var(--accent-rgb, 99, 102, 241), 0.4);
   }
 
   /* Lock invite wrapper to 36px — matches .tab-action-btn's -4px effective
@@ -3045,15 +3018,11 @@
     z-index: -1;
     border-radius: 50%;
     background: #ff4d4f;
-    box-shadow:
-      0 0 0 0 rgba(255, 77, 79, 0),
-      0 2px 8px rgba(185, 28, 28, 0);
     opacity: 0;
     transform: scale(0.72);
     transition:
       opacity 0.16s ease,
-      transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
-      box-shadow 0.2s ease;
+      transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 
   .btn-playlist-remove svg {
@@ -3076,9 +3045,6 @@
   .btn-playlist-remove.is-selected::before {
     opacity: 1;
     transform: scale(1);
-    box-shadow:
-      0 0 0 4px rgba(255, 77, 79, 0.14),
-      0 3px 10px rgba(185, 28, 28, 0.28);
   }
 
   .btn-playlist-remove.is-selected svg {
@@ -4611,10 +4577,6 @@
     transition: none !important;
   }
 
-  .nav-blur-halo {
-    display: none;
-  }
-
   /* Light Mode */
   [data-theme='light'] .bottom-nav {
     background: var(--surface-1);
@@ -5983,15 +5945,11 @@
     font-weight: 700;
     cursor: pointer;
     min-width: 100px;
-    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
-    transition:
-      transform 0.2s,
-      box-shadow 0.2s;
+    transition: transform 0.2s;
   }
 
   .dialog-primary:active {
     transform: scale(0.97);
-    box-shadow: none;
   }
 
   /* Dark theme toast */
@@ -6398,7 +6356,6 @@
     font-family: inherit;
     transition:
       transform 0.2s,
-      box-shadow 0.2s,
       background 0.2s;
     display: flex;
     align-items: center;
@@ -6446,7 +6403,6 @@
   .btn-ob-primary {
     background: var(--primary-filled);
     color: white;
-    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
   }
 
   .btn-ob-secondary {
@@ -6876,7 +6832,6 @@
   #setup-role-grid .ch-opt.selected {
     background: rgba(var(--primary-rgb), 0.08);
     border-color: rgba(var(--primary-rgb), 0.75);
-    box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.15);
   }
 
   .setup-graphic-svg {
@@ -6996,10 +6951,6 @@
   }
 
   @media (hover: hover) {
-    .btn-ob-primary:hover {
-      box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.35);
-    }
-
     .btn-ob-secondary:hover {
       background: var(--surface-3);
     }
@@ -7008,10 +6959,6 @@
   .btn-ob-primary:active,
   .btn-ob-secondary:active {
     transform: scale(0.97);
-  }
-
-  .btn-ob-primary:active {
-    box-shadow: none;
   }
 
   .btn-ob-secondary:active {
@@ -8160,7 +8107,6 @@
       border-radius 280ms cubic-bezier(0.22, 1, 0.36, 1);
     width: 100%;
     max-width: 260px;
-    box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
     appearance: none;
     -webkit-appearance: none;
     outline: none;
@@ -10248,10 +10194,6 @@
         margin: 0 !important;
       }
 
-      /* Hide ping latency in role badge — too cramped */
-      html:not(.keyboard-open) .badge-ping {
-        display: none !important;
-      }
     }
 
     /* Only a practically unusable sliver of viewport gives up the logo a

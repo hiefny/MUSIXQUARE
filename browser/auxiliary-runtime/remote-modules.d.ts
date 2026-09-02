@@ -18,22 +18,6 @@ declare module 'https://esm.sh/three@0.162.0/examples/jsm/loaders/SVGLoader.js' 
   export { SVGLoader } from 'three-types-0162/examples/jsm/loaders/SVGLoader.js';
 }
 
-declare module 'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/EffectComposer.js' {
-  export { EffectComposer } from 'three-types-0162/examples/jsm/postprocessing/EffectComposer.js';
-}
-
-declare module 'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/OutputPass.js' {
-  export { OutputPass } from 'three-types-0162/examples/jsm/postprocessing/OutputPass.js';
-}
-
-declare module 'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/RenderPass.js' {
-  export { RenderPass } from 'three-types-0162/examples/jsm/postprocessing/RenderPass.js';
-}
-
-declare module 'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/UnrealBloomPass.js' {
-  export { UnrealBloomPass } from 'three-types-0162/examples/jsm/postprocessing/UnrealBloomPass.js';
-}
-
 declare module 'https://esm.sh/lil-gui@0.19.2' {
   export { default } from 'lil-gui';
 }

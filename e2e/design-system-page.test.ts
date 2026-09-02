@@ -396,22 +396,25 @@ test('keeps the Design System rail and examples coherent at every layout size', 
             return {
               fontSize: style.fontSize,
               fontWeight: style.fontWeight,
-              gap: style.gap,
               lineHeight: style.lineHeight,
               padding: style.padding,
             };
           })(),
-          headerBadgeDot: (() => {
-            const dot = document.querySelector<HTMLElement>('.app-loading-header-badge i')!;
-            const rect = dot.getBoundingClientRect();
-            return { height: rect.height, width: rect.width };
-          })(),
+          headerBadgeHasDot: !!document.querySelector('.app-loading-header-badge i'),
           headerProgress: !!document.querySelector('.app-loading-header-progress'),
         },
         playlistRemoval: {
           actionCount: document.querySelectorAll('.playlist-selection-pill button').length,
           count: document.querySelector('.playlist-selection-count')?.textContent?.trim(),
-          selectedHalo: !!document.querySelector('.btn-playlist-remove.is-selected'),
+          selectedState: (() => {
+            const selected = document.querySelector<HTMLElement>(
+              '.btn-playlist-remove.is-selected',
+            );
+            return {
+              selected: !!selected,
+              shadow: selected ? getComputedStyle(selected, '::before').boxShadow : '',
+            };
+          })(),
         },
         expandedLists: {
           deviceCount: document.querySelectorAll('.device-subrow-sample').length,
@@ -597,11 +600,10 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.interfacePatterns.headerBadge).toEqual({
       fontSize: '11px',
       fontWeight: '700',
-      gap: '6px',
       lineHeight: 'normal',
       padding: '6px 14px',
     });
-    expect(components.interfacePatterns.headerBadgeDot).toEqual({ height: 6, width: 6 });
+    expect(components.interfacePatterns.headerBadgeHasDot).toBe(false);
     expect(components.interfacePatterns.headerProgress).toBe(true);
     expect(components.playlistHeaderActions).toEqual(['Repeat one', 'Shuffle', 'Add media']);
     expect(components.playlistHeaderOwner).toEqual({
@@ -625,7 +627,7 @@ test('keeps the Design System rail and examples coherent at every layout size', 
     expect(components.playlistRemoval).toEqual({
       actionCount: 3,
       count: '1',
-      selectedHalo: true,
+      selectedState: { selected: true, shadow: 'none' },
     });
     expect(components.expandedLists).toEqual({
       deviceCount: 4,

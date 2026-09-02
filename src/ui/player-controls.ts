@@ -11,8 +11,7 @@ import { getState } from '../core/state.ts';
 import { MAX_SYSTEM_AUDIO_DEVICES, PLAYBACK_STATE } from '../core/constants.ts';
 import { formatSystemAudioProfileLabel } from '../core/system-audio-profile.ts';
 import { IS_ANDROID, IS_IOS, canCaptureSystemAudio } from '../core/platform.ts';
-import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
-import { setManagedTimer, clearManagedTimer, getManagedTimer } from '../core/timers.ts';
+import { setManagedTimer, clearManagedTimer } from '../core/timers.ts';
 import { t } from '../i18n/index.ts';
 import type { I18nKey } from '../i18n/index.ts';
 import { showToast } from './toast.ts';
@@ -81,7 +80,6 @@ import {
 } from '../pro-room/system-audio-bridge.ts';
 import { getAccountSnapshot } from '../account/state.ts';
 import { openAccountDialog } from './account.ts';
-import { getProRoomServerNow, proRoomServerBridge } from '../pro-room/network-bridge.ts';
 import {
   canPublishSynchronizedSettings,
   isSettingsSyncEnabled,
@@ -97,13 +95,6 @@ const STANDARD_ROLE_MAP: Record<string, { labelKey: I18nKey; placementToastKey: 
   '2': { labelKey: 'common.woofer', placementToastKey: 'role.subwoofer_placement' },
 };
 
-const ROLE_CLOCK_SECOND_MS = 1000;
-const ROLE_CLOCK_PULSE_ON_MS = 120;
-const ROLE_CLOCK_PULSE_GAP_MS = 120;
-const ROLE_CLOCK_SECOND_PULSE_START_MS = ROLE_CLOCK_PULSE_ON_MS + ROLE_CLOCK_PULSE_GAP_MS;
-const ROLE_CLOCK_SECOND_PULSE_END_MS = ROLE_CLOCK_SECOND_PULSE_START_MS + ROLE_CLOCK_PULSE_ON_MS;
-const ROLE_CLOCK_PULSE_TIMER = 'role-clock-pulse';
-const ROLE_CLOCK_PULSE_RESET_TIMER = 'role-clock-pulse-reset';
 let _ytPlayButtonLoading = false;
 const _ytSyncLoadingOwners = new Set<YouTubeSyncLoadingOwner | 'legacy'>();
 let _filePlayButtonLoading = false;
@@ -401,81 +392,6 @@ function toggleMute(): void {
 // Badge text is intentionally English-only (HOST, PEER, GUEST, etc.)
 // — treated as a brand/UI label, not translatable content.
 
-function getRoleClockDot(): HTMLElement | null {
-  return document.querySelector<HTMLElement>('#role-badge .role-dot');
-}
-
-function shouldPulseRoleClock(): boolean {
-  if (document.visibilityState === 'hidden') return false;
-  if (getRoomContext().kind === 'pro') return proRoomServerBridge.connected;
-  const appRole = getState('network.appRole');
-  if (appRole === 'host') return true;
-  return !!getState('network.hostConn') && isClockCalibrated();
-}
-
-function getRoleClockNow(): number {
-  return getRoomContext().kind === 'pro' ? getProRoomServerNow() : getHostNow();
-}
-
-function stopRoleClockPulse(): void {
-  clearManagedTimer(ROLE_CLOCK_PULSE_TIMER);
-  clearManagedTimer(ROLE_CLOCK_PULSE_RESET_TIMER);
-  const dot = getRoleClockDot();
-  if (dot) dot.classList.remove('clock-beat');
-}
-
-function scheduleRoleClockPulse(realign = false): void {
-  if (!shouldPulseRoleClock()) {
-    stopRoleClockPulse();
-    return;
-  }
-  if (!realign && getManagedTimer(ROLE_CLOCK_PULSE_TIMER)) return;
-
-  clearManagedTimer(ROLE_CLOCK_PULSE_TIMER);
-  clearManagedTimer(ROLE_CLOCK_PULSE_RESET_TIMER);
-
-  const dot = getRoleClockDot();
-  if (!dot || !shouldPulseRoleClock()) {
-    stopRoleClockPulse();
-    return;
-  }
-
-  const roomNow = getRoleClockNow();
-  const phase = ((roomNow % ROLE_CLOCK_SECOND_MS) + ROLE_CLOCK_SECOND_MS) % ROLE_CLOCK_SECOND_MS;
-
-  let activeUntilMs = 0;
-  let nextPulseDelayMs = ROLE_CLOCK_SECOND_MS - phase;
-  if (phase < ROLE_CLOCK_PULSE_ON_MS) {
-    activeUntilMs = ROLE_CLOCK_PULSE_ON_MS;
-    nextPulseDelayMs = ROLE_CLOCK_SECOND_PULSE_START_MS - phase;
-  } else if (phase < ROLE_CLOCK_SECOND_PULSE_START_MS) {
-    nextPulseDelayMs = ROLE_CLOCK_SECOND_PULSE_START_MS - phase;
-  } else if (phase < ROLE_CLOCK_SECOND_PULSE_END_MS) {
-    activeUntilMs = ROLE_CLOCK_SECOND_PULSE_END_MS;
-  }
-
-  if (activeUntilMs > phase) {
-    dot.classList.add('clock-beat');
-    setManagedTimer(
-      ROLE_CLOCK_PULSE_RESET_TIMER,
-      () => {
-        dot.classList.remove('clock-beat');
-      },
-      Math.max(1, activeUntilMs - phase),
-    );
-  } else {
-    dot.classList.remove('clock-beat');
-  }
-
-  setManagedTimer(
-    ROLE_CLOCK_PULSE_TIMER,
-    () => {
-      scheduleRoleClockPulse(true);
-    },
-    Math.max(1, nextPulseDelayMs),
-  );
-}
-
 export function updateRoleBadge(): void {
   const badge = document.getElementById('role-badge');
   const text = document.getElementById('role-text');
@@ -508,7 +424,6 @@ export function updateRoleBadge(): void {
         ? `${t('account.account_title')}: ${t('common.wait')}`
         : t('account.unavailable');
   badge.setAttribute('aria-label', accountLabel);
-  scheduleRoleClockPulse();
 }
 
 // ─── Invite Code ─────────────────────────────────────────────────
@@ -1497,7 +1412,6 @@ export function initPlayerControls(): void {
   // active but is intentionally no longer exposed as a second panel column.
   _busScope.on('sync:latency-update', () => {
     updateRoleBadge();
-    scheduleRoleClockPulse(true);
   });
 
   // Connection type updated (e.g. ICE resolved) → Re-trigger title update to check for Wi-Fi warning
@@ -1505,14 +1419,6 @@ export function initPlayerControls(): void {
     refreshTrackTitle();
     updateRoleBadge();
   });
-
-  document.addEventListener(
-    'visibilitychange',
-    () => {
-      scheduleRoleClockPulse(true);
-    },
-    { signal: domSignal },
-  );
 
   // Ordinary guests cannot select media, while every authenticated PRO
   // controller can. Derive the visual affordance from the same capability

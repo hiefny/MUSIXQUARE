@@ -53,7 +53,6 @@
       .role {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
         padding: 6px 14px;
         border-radius: 999px;
         background: var(--surface-2);
@@ -61,19 +60,9 @@
         font-size: 11px;
         font-weight: 700;
       }
-      .role i {
-        width: 6px;
-        height: 6px;
-        border-radius: 999px;
-        background: currentColor;
-        opacity: 0.5;
-      }
       .role.connected {
         background: var(--primary);
         color: #fff;
-      }
-      .role.connected i {
-        opacity: 1;
       }
     </style>
   </head>
@@ -92,8 +81,8 @@
           <path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z" />
         </svg>
       </button>
-      <span class="role"><i></i>OFFLINE</span>
-      <span class="role connected"><i></i>HOST</span>
+      <span class="role">OFFLINE</span>
+      <span class="role connected">HOST</span>
     </div>
   </body>
 </html>

@@ -2368,8 +2368,6 @@ describe('member-level connection and administrator UI', () => {
     const chatAdministratorCrownRules =
       stylesheet.match(/\.chat-badge-op\s*\{([^}]*)\}/)?.[1] ?? '';
     const chatCrownRules = stylesheet.match(/\.chat-crown\s*\{([^}]*)\}/)?.[1] ?? '';
-    const authenticatedRoleDotRules =
-      stylesheet.match(/\.role-badge\.account-authenticated\s+\.role-dot\s*\{([^}]*)\}/)?.[1] ?? '';
     const onlineAdministratorNameRules =
       stylesheet.match(/\.administrator-row:not\(\.is-offline\)\s+\.d-name\s*\{([^}]*)\}/)?.[1] ??
       '';
@@ -2392,8 +2390,6 @@ describe('member-level connection and administrator UI', () => {
     expect(administratorCrownRules).toContain('color: var(--text-muted)');
     expect(chatAdministratorCrownRules).toContain('color: var(--text-muted)');
     expect(chatCrownRules).toContain('top: -1px');
-    expect(authenticatedRoleDotRules).toContain('background: white');
-    expect(authenticatedRoleDotRules).not.toContain('opacity:');
     expect(onlineAdministratorNameRules).toContain('color: var(--text-main)');
     expect(onlineAdministratorNameRules).toContain('font-weight: 600');
     expect(offlineAdministratorNameRules).toContain('color: var(--text-muted)');

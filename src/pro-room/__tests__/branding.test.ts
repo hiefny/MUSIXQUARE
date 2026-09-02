@@ -202,9 +202,7 @@ describe('PRO room branding', () => {
     expect(stylesheet).toMatch(
       /\.role-badge\.pro-equal\s*{\s*background:\s*var\(--primary-filled\);\s*color:\s*white;/,
     );
-    expect(stylesheet).toMatch(
-      /\.role-badge\.pro-equal \.role-dot\s*{\s*background:\s*white;\s*opacity:\s*1;/,
-    );
+    expect(stylesheet).not.toContain('.role-dot');
   });
 
   it('stays hidden for standard and idle sessions', () => {

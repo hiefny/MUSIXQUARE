@@ -94,7 +94,6 @@
        2. Hide Mobile Elements
        --------------------------------------------------- */
     .bottom-nav,
-    .nav-blur-halo,
     .bottom-nav::before {
       display: none;
     }

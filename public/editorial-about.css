@@ -378,14 +378,11 @@ main {
   font-weight: 800;
   line-height: 1;
   color: var(--text-main);
-  transition:
-    color 280ms var(--ease-out),
-    text-shadow 280ms var(--ease-out);
+  transition: color 280ms var(--ease-out);
 }
 
 .lp-code em.is-lit {
   color: var(--primary);
-  text-shadow: 0 0 8px rgba(59, 130, 246, 0.35);
 }
 
 .lp-code__caption {
@@ -861,7 +858,6 @@ main {
     6px 6px 0 #4d0010,
     7px 7px 0 #33000a,
     8px 8px 0 #1a0005,
-    12px 18px 28px -8px rgba(255, 0, 40, 0.25),
     20px 30px 40px -12px rgba(0, 0, 0, 0.5);
 }
 
@@ -881,7 +877,6 @@ main {
     6px 6px 0 #544000,
     7px 7px 0 #382b00,
     8px 8px 0 #1c1500,
-    12px 18px 28px -8px rgba(255, 193, 7, 0.18),
     20px 30px 40px -12px rgba(0, 0, 0, 0.45);
 }
 
@@ -988,7 +983,7 @@ main {
   background: #ff0033;
   border-radius: var(--radius-m);
   border-bottom-right-radius: 4px;
-  box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
+  box-shadow: none;
 }
 
 .lp-chat--flat .lp-chat-bubble--pin {

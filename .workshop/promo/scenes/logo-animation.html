@@ -45,15 +45,6 @@ body {
   overflow: hidden;
 }
 
-.glow-bg {
-  position: absolute;
-  width: 500px; height: 500px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(var(--primary-rgb), 0.15) 0%, transparent 70%);
-  opacity: 0;
-  pointer-events: none;
-}
-
 .note-icon-wrapper {
   margin-bottom: 48px;
   opacity: 0;
@@ -122,8 +113,6 @@ body {
 </head>
 <body>
 <div class="scene">
-  <div class="glow-bg" id="glow"></div>
-
   <div class="note-icon-wrapper" id="note-wrapper">
     <svg class="note-icon" viewBox="0 0 24 24">
       <path class="note-stroke" id="note-stroke"

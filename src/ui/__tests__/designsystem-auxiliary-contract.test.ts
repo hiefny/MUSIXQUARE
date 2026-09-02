@@ -56,6 +56,8 @@ describe('auxiliary design-system development samples', () => {
     const header = appShell.slice(appShell.indexOf('<header'), appShell.indexOf('</header>'));
     expect(header).toContain('mq-role-badge');
     expect(header).toContain('onAccount');
+    expect(header).not.toContain('<i />');
+    expect(appCss).not.toContain('.mq-role-badge i');
     expect(header).not.toContain('<I.help');
     expect(appShell).not.toContain('onLeave');
   });

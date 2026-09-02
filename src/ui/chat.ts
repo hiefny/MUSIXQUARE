@@ -279,7 +279,6 @@ const CHAT_DRAWER_BACKGROUND_SELECTOR = [
   '.skip-link',
   '#main-header',
   '.tab-content',
-  '.nav-blur-halo',
   '.bottom-nav',
 ].join(',');
 

@@ -25,7 +25,6 @@ function AppShell({ tab, onTab, onAccount, children }: AppShellProps): JSX.Eleme
         </div>
         <div className="right">
           <button className="mq-role-badge" aria-label="Open account" onClick={onAccount}>
-            <i />
             <span>HOST</span>
           </button>
         </div>

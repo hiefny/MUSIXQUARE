@@ -86,8 +86,22 @@ describe('live app public boundary smoke', () => {
 
   it('requires unknown HTML GET and HEAD requests to remain true 404 responses', async () => {
     const read = vi.fn(async () => [
-      { method: 'GET' as const, status: 404 },
-      { method: 'HEAD' as const, status: 404 },
+      {
+        method: 'GET' as const,
+        status: 404,
+        contentType: 'text/html; charset=utf-8',
+        cacheControl: 'no-store, max-age=0, must-revalidate',
+        robotsTag: 'noindex, nofollow',
+        body: '<h1>Invalid URL.</h1><a aria-label="Go to MUSIXQUARE"></a>',
+      },
+      {
+        method: 'HEAD' as const,
+        status: 404,
+        contentType: 'text/html; charset=utf-8',
+        cacheControl: 'no-store, max-age=0, must-revalidate',
+        robotsTag: 'noindex, nofollow',
+        body: '',
+      },
     ]);
 
     await expect(verifyUnknownHtmlRouteBoundary({ read })).resolves.toEqual({
@@ -99,14 +113,68 @@ describe('live app public boundary smoke', () => {
   it.each([
     {
       result: [
-        { method: 'GET' as const, status: 200 },
-        { method: 'HEAD' as const, status: 404 },
+        {
+          method: 'GET' as const,
+          status: 200,
+          contentType: 'text/html',
+          cacheControl: 'no-store',
+          robotsTag: 'noindex, nofollow',
+          body: 'Invalid URL. aria-label="Go to MUSIXQUARE"',
+        },
+        {
+          method: 'HEAD' as const,
+          status: 404,
+          contentType: 'text/html',
+          cacheControl: 'no-store',
+          robotsTag: 'noindex, nofollow',
+          body: '',
+        },
       ],
     },
-    { result: [{ method: 'GET' as const, status: 404 }] },
+    {
+      result: [
+        {
+          method: 'GET' as const,
+          status: 404,
+          contentType: 'text/html',
+          cacheControl: 'no-store',
+          robotsTag: 'noindex, nofollow',
+          body: 'Invalid URL. aria-label="Go to MUSIXQUARE"',
+        },
+      ],
+    },
   ])('rejects a soft-404 or incomplete unknown HTML route matrix %#', async ({ result }) => {
     await expect(verifyUnknownHtmlRouteBoundary({ read: async () => result })).rejects.toThrow(
-      'meaningful 404 responses',
+      'branded true 404 responses',
+    );
+  });
+
+  it.each([
+    { field: 'contentType', value: 'text/plain' },
+    { field: 'cacheControl', value: 'public, max-age=300' },
+    { field: 'robotsTag', value: '' },
+    { field: 'body', value: '<h1>Not found</h1>' },
+  ] as const)('rejects a branded 404 with invalid $field', async ({ field, value }) => {
+    const get = {
+      method: 'GET' as const,
+      status: 404,
+      contentType: 'text/html; charset=utf-8',
+      cacheControl: 'no-store',
+      robotsTag: 'noindex, nofollow',
+      body: '<h1>Invalid URL.</h1><a aria-label="Go to MUSIXQUARE"></a>',
+      [field]: value,
+    };
+    const head = {
+      method: 'HEAD' as const,
+      status: 404,
+      contentType: 'text/html; charset=utf-8',
+      cacheControl: 'no-store',
+      robotsTag: 'noindex, nofollow',
+      body: '',
+    };
+
+    await expect(verifyUnknownHtmlRouteBoundary({ read: async () => [get, head] })).rejects.toThrow(
+      'branded true 404 responses',
     );
   });
 

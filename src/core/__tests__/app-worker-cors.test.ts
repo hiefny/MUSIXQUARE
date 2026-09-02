@@ -25,6 +25,10 @@ const NON_ENGLISH_LOCALE_CODES = LANGUAGE_OPTIONS.filter(({ code }) => code !== 
 const LOCALIZED_PAGE_ASSET_RE = new RegExp(
   `^/(${NON_ENGLISH_LOCALE_CODES.join('|')})/(index|about)\\.html$`,
 );
+const CUSTOM_404_HTML = await readFile(
+  new URL('../../../public/404.html', import.meta.url),
+  'utf8',
+);
 
 const proGrantMigration = await readFile(
   new URL('../../../cloudflare/admin-metrics.pro-grants.migration.sql', import.meta.url),
@@ -6217,11 +6221,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.56');
-    expect(html).toContain('/clearable-editors.js?v=8.4.56');
-    expect(html).toContain('/admin.js?v=8.4.56');
+    expect(html).toContain('/admin.css?v=8.4.57');
+    expect(html).toContain('/clearable-editors.js?v=8.4.57');
+    expect(html).toContain('/admin.js?v=8.4.57');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.56"');
+    expect(html).toContain('data-admin-asset-version="8.4.57"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6242,9 +6246,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.56',
-      '/admin.css?v=8.4.56',
-      '/clearable-editors.js?v=8.4.56',
+      '/admin.js?v=8.4.57',
+      '/admin.css?v=8.4.57',
+      '/clearable-editors.js?v=8.4.57',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
@@ -10892,6 +10896,12 @@ describe('Cloudflare app worker invite route', () => {
               headers: { 'Content-Type': 'text/html; charset=utf-8' },
             });
           }
+          if (url.pathname === '/404.html') {
+            return new Response(request.method === 'HEAD' ? null : CUSTOM_404_HTML, {
+              status: 200,
+              headers: { 'Content-Type': 'text/html' },
+            });
+          }
           if (url.pathname !== '/index.html') {
             return new Response('not found', {
               status: 404,
@@ -11172,7 +11182,7 @@ describe('Cloudflare app worker invite route', () => {
   });
 
   it.each(['GET', 'HEAD'] as const)(
-    'preserves static 404 responses for unknown HTML routes on %s',
+    'serves the branded page with a true 404 status for unknown HTML routes on %s',
     async (method) => {
       for (const pathname of [
         '/not-a-real-page.html',
@@ -11184,20 +11194,110 @@ describe('Cloudflare app worker invite route', () => {
         const response = await appWorker.fetch(
           new Request(`https://musixquare.com${pathname}`, {
             method,
-            headers: { Accept: 'text/html,application/xhtml+xml' },
+            headers: {
+              Accept: 'text/html,application/xhtml+xml',
+              'If-None-Match': '"missing-route"',
+              'If-Modified-Since': 'Wed, 02 Sep 2026 00:00:00 GMT',
+              'If-Range': '"missing-route"',
+              Range: 'bytes=0-99',
+            },
           }),
           env,
         );
 
         expect(response.status, pathname).toBe(404);
-        expect(response.headers.get('Content-Type'), pathname).toContain('text/plain');
+        expect(response.headers.get('Content-Type'), pathname).toBe('text/html; charset=utf-8');
+        expect(response.headers.get('Cache-Control'), pathname).toBe(
+          'no-store, max-age=0, must-revalidate',
+        );
+        expect(response.headers.get('CDN-Cache-Control'), pathname).toBe('no-store');
+        expect(response.headers.get('Cloudflare-CDN-Cache-Control'), pathname).toBe('no-store');
+        expect(response.headers.get('Pragma'), pathname).toBe('no-cache');
+        expect(response.headers.get('X-Robots-Tag'), pathname).toBe('noindex, nofollow');
         expect(response.headers.get('Content-Security-Policy'), pathname).toContain(
           "default-src 'self'",
         );
-        expect(env.ASSETS.fetch, pathname).toHaveBeenCalledOnce();
-        const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
-        expect(new URL(assetRequest.url).pathname).toBe(pathname);
+        const body = await response.text();
+        if (method === 'GET') {
+          expect(body, pathname).toContain('Invalid URL.');
+          expect(body, pathname).toContain('aria-label="Go to MUSIXQUARE"');
+        } else {
+          expect(body, pathname).toBe('');
+        }
+        expect(env.ASSETS.fetch, pathname).toHaveBeenCalledTimes(2);
+        const [missingAssetRequest, custom404AssetRequest] = env.ASSETS.fetch.mock.calls.map(
+          ([assetRequest]) => assetRequest as Request,
+        );
+        expect(new URL(missingAssetRequest.url).pathname).toBe(pathname);
+        expect(new URL(custom404AssetRequest.url).pathname).toBe('/404.html');
+        expect(custom404AssetRequest.headers.get('If-None-Match')).toBeNull();
+        expect(custom404AssetRequest.headers.get('If-Modified-Since')).toBeNull();
+        expect(custom404AssetRequest.headers.get('If-Range')).toBeNull();
+        expect(custom404AssetRequest.headers.get('Range')).toBeNull();
       }
+    },
+  );
+
+  it.each(['GET', 'HEAD'] as const)(
+    'keeps the error document itself on a 404 status for %s',
+    async (method) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/404.html', { method }),
+        env,
+      );
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+      expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
+      expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+      expect(await response.text()).toBe(method === 'GET' ? CUSTOM_404_HTML : '');
+      expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('falls back to the original asset 404 when the branded document is unavailable', async () => {
+    const env = createAssetEnv();
+    env.ASSETS.fetch.mockImplementation(
+      async () =>
+        new Response('not found', {
+          status: 404,
+          headers: { 'Content-Type': 'text/plain' },
+        }),
+    );
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/nested/missing', {
+        headers: { Accept: 'text/html' },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('Content-Type')).toBe('text/plain');
+    expect(await response.text()).toBe('not found');
+    expect(env.ASSETS.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { accept: 'application/javascript,*/*;q=0.1', destination: '' },
+    { accept: 'text/html', destination: 'script' },
+  ])(
+    'preserves the original asset 404 for non-document requests %#',
+    async ({ accept, destination }) => {
+      const env = createAssetEnv();
+      const headers = new Headers({ Accept: accept });
+      if (destination) headers.set('Sec-Fetch-Dest', destination);
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/missing-audit.js', { headers }),
+        env,
+      );
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get('Content-Type')).toContain('text/plain');
+      expect(await response.text()).toBe('not found');
+      expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+      const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+      expect(new URL(assetRequest.url).pathname).toBe('/missing-audit.js');
     },
   );
 

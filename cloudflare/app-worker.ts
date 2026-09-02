@@ -339,7 +339,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.4.56';
+const ADMIN_ASSET_VERSION = '8.4.57';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -349,6 +349,10 @@ const APP_SHELL_FRESH_CACHE_HEADERS = Object.freeze({
   'CDN-Cache-Control': 'no-store',
   'Cloudflare-CDN-Cache-Control': 'no-store',
   Pragma: 'no-cache',
+});
+const CUSTOM_NOT_FOUND_HEADERS = Object.freeze({
+  ...APP_SHELL_FRESH_CACHE_HEADERS,
+  'X-Robots-Tag': 'noindex, nofollow',
 });
 const APP_LANGUAGE_CODES = new Set<string>(LANGUAGE_OPTIONS.map(({ code }) => code));
 const LEGACY_APP_LANGUAGE_ALIASES: Readonly<Record<string, LanguageCode>> = {
@@ -15003,6 +15007,55 @@ function isLocalHttpRequest(request: Request, url: URL) {
   );
 }
 
+async function customNotFoundResponse(
+  request: Request,
+  env: AppEnv,
+  assetResponse: Response,
+): Promise<Response | null> {
+  if (
+    assetResponse.status !== 404 ||
+    (request.method !== 'GET' && request.method !== 'HEAD') ||
+    !String(request.headers.get('Accept') || '')
+      .toLowerCase()
+      .includes('text/html')
+  ) {
+    return null;
+  }
+  const fetchDestination = String(request.headers.get('Sec-Fetch-Dest') || '').toLowerCase();
+  if (fetchDestination && fetchDestination !== 'document' && fetchDestination !== 'iframe') {
+    return null;
+  }
+
+  // The original validator or range belongs to the missing URL, not to the
+  // branded error document that supplies its body.
+  const assetHeaders = new Headers(request.headers);
+  assetHeaders.delete('If-None-Match');
+  assetHeaders.delete('If-Modified-Since');
+  assetHeaders.delete('If-Range');
+  assetHeaders.delete('Range');
+
+  let page: Response;
+  try {
+    page = await fetchAsset(env, new Request(request, { headers: assetHeaders }), '/404.html');
+  } catch {
+    return null;
+  }
+  if (
+    page.status !== 200 ||
+    !String(page.headers.get('Content-Type') || '')
+      .toLowerCase()
+      .includes('text/html')
+  ) {
+    return null;
+  }
+
+  return new Response(request.method === 'HEAD' ? null : page.body, {
+    status: 404,
+    statusText: 'Not Found',
+    headers: page.headers,
+  });
+}
+
 async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionContext | undefined) {
   const url = new URL(request.url);
   const legacyLanguageRedirect = legacyAboutLanguageRedirect(url);
@@ -15023,6 +15076,29 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
       target.hash = url.hash;
     }
     return Response.redirect(target.href, 301);
+  }
+
+  if (
+    url.pathname.toLowerCase() === '/404.html' &&
+    (request.method === 'GET' || request.method === 'HEAD')
+  ) {
+    const page = await fetchAsset(env, request, '/404.html');
+    if (
+      page.status === 200 &&
+      String(page.headers.get('Content-Type') || '')
+        .toLowerCase()
+        .includes('text/html')
+    ) {
+      return withSecurityHeaders(
+        new Response(request.method === 'HEAD' ? null : page.body, {
+          status: 404,
+          statusText: 'Not Found',
+          headers: page.headers,
+        }),
+        CUSTOM_NOT_FOUND_HEADERS,
+      );
+    }
+    return withSecurityHeaders(page, CUSTOM_NOT_FOUND_HEADERS);
   }
 
   if (url.pathname === '/' && (request.method === 'GET' || request.method === 'HEAD')) {
@@ -15109,7 +15185,12 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
       if (url.pathname !== canonicalPath)
         return Response.redirect(new URL(canonicalPath, url).href, 301);
       const articleResponse = await serveSoroArticlePage(request, env, soroBlogSlug, ctx);
-      return articleResponse || withSecurityHeaders(new Response('Not found', { status: 404 }));
+      if (articleResponse) return articleResponse;
+      const missingArticle = new Response('Not found', { status: 404 });
+      const customNotFound = await customNotFoundResponse(request, env, missingArticle);
+      return customNotFound
+        ? withSecurityHeaders(customNotFound, CUSTOM_NOT_FOUND_HEADERS)
+        : withSecurityHeaders(missingArticle);
     }
 
     const soroImageKey = soroImageKeyFromPathname(url.pathname);
@@ -15137,6 +15218,9 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
   const response = assetPathname
     ? await fetchAsset(env, request, assetPathname)
     : await fetchAsset(env, request);
+
+  const customNotFound = await customNotFoundResponse(request, env, response);
+  if (customNotFound) return withSecurityHeaders(customNotFound, CUSTOM_NOT_FOUND_HEADERS);
 
   return withSecurityHeaders(response, {
     ...cacheHeadersForPath(url.pathname, assetPathname || url.pathname),

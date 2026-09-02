@@ -137,6 +137,10 @@ test.describe('maintenance inline wordmark', () => {
         viewport.height + EDGE_TOLERANCE_PX,
       );
       expect(geometry.body.scrollHeight).toBeLessThanOrEqual(viewport.height + EDGE_TOLERANCE_PX);
+      expect(
+        Math.abs((geometry.main.top + geometry.main.bottom) / 2 - geometry.viewport.height / 2),
+        'main vertical center',
+      ).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
 
       for (const [name, rect] of Object.entries({
         main: geometry.main,

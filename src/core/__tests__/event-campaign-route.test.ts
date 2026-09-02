@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import appWorker from '../../../cloudflare/app-worker.ts';
 
 const EVENT_TEMPLATE_PATH = '/events/index.html';
+const CUSTOM_404_PATH = '/404.html';
 
 function createAssetEnv() {
   return {
@@ -13,6 +14,15 @@ function createAssetEnv() {
             status: 200,
             headers: { 'Content-Type': 'text/html' },
           });
+        }
+        if (pathname === CUSTOM_404_PATH) {
+          return new Response(
+            '<!doctype html><h1>Invalid URL.</h1><a aria-label="Go to MUSIXQUARE"></a>',
+            {
+              status: 200,
+              headers: { 'Content-Type': 'text/html' },
+            },
+          );
         }
         return new Response('not found', {
           status: 404,
@@ -106,10 +116,13 @@ describe('generic PRO campaign event pages', () => {
       );
 
       expect(response.status).toBe(404);
+      expect(response.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
       expect(response.headers.get('Cache-Control')).toBe('no-store, max-age=0, must-revalidate');
       expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
-      expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+      expect(await response.text()).toContain('Invalid URL.');
+      expect(env.ASSETS.fetch).toHaveBeenCalledTimes(2);
       expect(new URL(env.ASSETS.fetch.mock.calls[0]![0].url).pathname).toBe(path);
+      expect(new URL(env.ASSETS.fetch.mock.calls[1]![0].url).pathname).toBe(CUSTOM_404_PATH);
     },
   );
 });

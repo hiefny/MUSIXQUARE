@@ -66,6 +66,10 @@ export interface LocalizedSeoBoundaryResult {
 export interface UnknownHtmlRouteBoundaryRead {
   method: 'GET' | 'HEAD';
   status: number;
+  contentType: string;
+  cacheControl: string;
+  robotsTag: string;
+  body: string;
 }
 
 export interface UnknownHtmlRouteBoundaryResult {
@@ -265,15 +269,20 @@ async function readUnknownHtmlRouteBoundary(): Promise<UnknownHtmlRouteBoundaryR
         throw new Error(`Unknown HTML route boundary request failed: ${method}`);
       }
 
+      let body: string;
       try {
-        return { method, status: response.status };
-      } finally {
-        try {
-          await response.body?.cancel();
-        } catch {
-          // Body cleanup cannot replace the unknown-route result.
-        }
+        body = await response.text();
+      } catch {
+        throw new Error(`Unknown HTML route boundary body read failed: ${method}`);
       }
+      return {
+        method,
+        status: response.status,
+        contentType: response.headers.get('Content-Type') || '',
+        cacheControl: response.headers.get('Cache-Control') || '',
+        robotsTag: response.headers.get('X-Robots-Tag') || '',
+        body,
+      };
     }),
   );
 }
@@ -392,13 +401,25 @@ export async function verifyUnknownHtmlRouteBoundary({
   read?: () => Promise<UnknownHtmlRouteBoundaryRead[]>;
 } = {}): Promise<UnknownHtmlRouteBoundaryResult> {
   const results = await read();
+  const get = results.find(({ method }) => method === 'GET');
+  const head = results.find(({ method }) => method === 'HEAD');
   if (
     results.length !== 2 ||
-    !(['GET', 'HEAD'] as const).every((method) =>
-      results.some((result) => result.method === method && result.status === 404),
-    )
+    !get ||
+    !head ||
+    get.status !== 404 ||
+    head.status !== 404 ||
+    !get.contentType.toLowerCase().includes('text/html') ||
+    !head.contentType.toLowerCase().includes('text/html') ||
+    !get.cacheControl.toLowerCase().includes('no-store') ||
+    !head.cacheControl.toLowerCase().includes('no-store') ||
+    get.robotsTag.toLowerCase() !== 'noindex, nofollow' ||
+    head.robotsTag.toLowerCase() !== 'noindex, nofollow' ||
+    !get.body.includes('Invalid URL.') ||
+    !get.body.includes('aria-label="Go to MUSIXQUARE"') ||
+    head.body !== ''
   ) {
-    throw new Error('Unknown HTML routes do not preserve meaningful 404 responses');
+    throw new Error('Unknown HTML routes do not preserve branded true 404 responses');
   }
   return { unknownHtmlRoutesRejected: true };
 }

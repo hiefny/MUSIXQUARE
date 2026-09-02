@@ -252,13 +252,6 @@ svg {
   transform: translateY(-150%);
 }
 
-.lp-try__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #fff;
-}
-
 .lp-try:hover {
   opacity: 0.86;
 }

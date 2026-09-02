@@ -156,9 +156,7 @@ function setupApp(): void {
   const roleBadge = doc.getElementById('role-badge');
   if (roleBadge) {
     const roleText = doc.getElementById('role-text');
-    const roleDot = roleBadge.querySelector<HTMLElement>('.role-dot');
     if (roleText) roleText.textContent = 'HOST';
-    if (roleDot) roleDot.style.background = '#ffffff';
     roleBadge.style.background = '#3b82f6';
     roleBadge.style.color = '#ffffff';
     roleBadge.classList.add('connected');
@@ -488,7 +486,6 @@ const NOTE_FILL_START = 1600,
 const LOGO_WRITE_START = 400; // Simultaneous with note!
 const GHOST_TIME = 1200;
 const _TAGLINE_START = 3200;
-const GLOW_START = 3800;
 const TRANSITION_START = 5000,
   TRANSITION_END = 7000;
 
@@ -721,15 +718,12 @@ const taglineEntries = [
 window.__promoSetTime = function (ms: number): void {
   const promoTop = document.getElementById('promo-top');
   const phone = document.getElementById('promo-phone-wrap');
-  const blob1 = document.querySelector<HTMLElement>('.promo-blob-1');
-  const blob2 = document.querySelector<HTMLElement>('.promo-blob-2');
   const noteWrapper = requiredPromoElement('note-wrapper');
   const noteStroke = requiredPromoElement('note-stroke');
   const noteFill = requiredPromoElement('note-fill');
   const ghost = document.querySelector<HTMLElement>('.wg');
   const tagline = requiredPromoElement('promo-tagline');
   const logoSvg = document.getElementById('logo-svg');
-  const glow = requiredPromoElement('glow');
 
   // ═══ PHASE A: Logo (0-5s) — Note + MUSIXQUARE appear simultaneously ═══
   if (ms < TRANSITION_START) {
@@ -772,19 +766,12 @@ window.__promoSetTime = function (ms: number): void {
     });
     // Phase A intentionally presents the wordmark without a tagline.
     tagline.style.opacity = '0';
-    if (ms >= GLOW_START) {
-      const p = Math.min((ms - GLOW_START) / 1200, 1);
-      const pulse = Math.sin(p * Math.PI);
-      glow.style.opacity = String(pulse * 0.8);
-      glow.style.transform = `scale(${0.8 + pulse * 0.3})`;
-    }
     return;
   }
 
   // ═══ PHASE B: Transition (5-7s) — logo fades out in place, tagline appears at top ═══
   if (ms < TRANSITION_END) {
     const t = (ms - TRANSITION_START) / (TRANSITION_END - TRANSITION_START);
-    const ep = smooth(t);
 
     if (promoTop) {
       // First half: logo fades out at center
@@ -801,10 +788,9 @@ window.__promoSetTime = function (ms: number): void {
       }
     }
 
-    // Fade out everything: note, glow, logo
+    // Fade out the note and logo.
     const fadeOutP = smooth(Math.min(t / 0.4, 1));
     noteWrapper.style.opacity = String(1 - fadeOutP);
-    glow.style.opacity = '0';
     if (logoSvg) logoSvg.style.opacity = String(1 - fadeOutP);
 
     // After fade out, show tagline at top position
@@ -819,8 +805,6 @@ window.__promoSetTime = function (ms: number): void {
     }
 
     if (phone) phone.style.opacity = String(smooth(Math.max(0, (t - 0.3) / 0.7)));
-    if (blob1) blob1.style.opacity = String(ep * 0.7);
-    if (blob2) blob2.style.opacity = String(ep * 0.5);
     return;
   }
 
@@ -833,8 +817,6 @@ window.__promoSetTime = function (ms: number): void {
   if (logoSvg) logoSvg.style.opacity = '0';
   noteWrapper.style.opacity = '0';
   if (phone) phone.style.opacity = '1';
-  if (blob1) blob1.style.opacity = '0.7';
-  if (blob2) blob2.style.opacity = '0.5';
 
   // ── Dynamic tagline ──
   const FADE_DUR = 500;

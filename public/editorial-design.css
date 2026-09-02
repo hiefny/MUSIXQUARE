@@ -810,28 +810,15 @@
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   background: var(--surface-2);
   color: var(--text-sub);
   font-size: 11px;
   font-weight: 700;
 }
 
-.role-sample i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.5;
-}
-
 .role-sample.connected {
   background: var(--primary-filled);
   color: #fff;
-}
-
-.role-sample.connected i {
-  opacity: 1;
 }
 
 .feature-sample {
@@ -1172,8 +1159,7 @@
   transform: scale(0.72);
   transition:
     opacity 0.16s ease,
-    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
-    box-shadow 0.2s ease;
+    transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .btn-playlist-remove.is-selected {
@@ -1183,9 +1169,6 @@
 .btn-playlist-remove.is-selected::before {
   opacity: 1;
   transform: scale(1);
-  box-shadow:
-    0 0 0 4px rgba(255, 77, 79, 0.14),
-    0 3px 10px rgba(185, 28, 28, 0.28);
 }
 
 .btn-playlist-remove.is-selected svg {
@@ -1730,7 +1713,6 @@
   border-bottom-right-radius: 4px;
   background: var(--youtube-filled);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(255, 0, 0, 0.15);
   font: inherit;
   text-align: left;
 }
@@ -2129,7 +2111,6 @@
   padding: 6px 14px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   border-radius: 999px;
   background: var(--primary-filled);
   color: #fff;
@@ -2139,13 +2120,6 @@
   animation:
     app-header-default-rail-cycle 6s cubic-bezier(0.08, 0.82, 0.17, 1) infinite,
     app-header-default-opacity-cycle 6s ease infinite;
-}
-
-.app-loading-header-badge i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #fff;
 }
 
 @keyframes app-header-loading-progress {
@@ -2656,7 +2630,6 @@
   padding: 0 32px;
   background: var(--primary);
   color: #fff;
-  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
 }
 
 .icon-grid {

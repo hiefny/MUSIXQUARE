@@ -41,6 +41,27 @@ beforeAll(() => {
 });
 
 describe('app UX markup contract', () => {
+  it('keeps the identity chip and primary actions free of decorative glow artifacts', () => {
+    expect(appDocument.querySelector('#role-badge .role-dot')).toBeNull();
+    expect(appDocument.querySelector('.nav-blur-halo')).toBeNull();
+    expect(appStylesheet).not.toContain('.role-dot');
+    expect(appStylesheet).not.toContain('.nav-blur-halo');
+
+    for (const selector of [
+      '.invite-code-value.copied',
+      '.btn-playlist-remove::before',
+      '.btn-playlist-remove.is-selected::before',
+      '.dialog-primary',
+      '.btn-ob-primary',
+      '#setup-role-grid .ch-opt.selected',
+      '.chat-youtube-btn',
+    ]) {
+      expect(declarationsForSelector(selector).join('\n'), selector).not.toMatch(
+        /(?:box|text)-shadow:\s*[^;]*(?:rgba|var\()/u,
+      );
+    }
+  });
+
   it('restores a durable account room before locale URL projection', () => {
     const restoreIndex = appRuntimeSource.indexOf(
       "safeInit('Account login return path', restoreAccountLoginReturnPath)",

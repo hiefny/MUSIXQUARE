@@ -98,13 +98,11 @@ function javaScriptDataUrl(source: string): string {
 
 interface MusicNoteFixtureState {
   backgroundHex?: number;
-  bloom?: { strength: number };
   camera?: {
     aspect: number;
     position: { x: number; y: number; z: number };
     projectionUpdates: number;
   };
-  composerSize?: readonly [number, number];
   controls?: {
     autoRotate: boolean;
     target: { x: number; y: number; z: number };
@@ -132,6 +130,7 @@ export class WebGLRenderer {
   setPixelRatio(value) { state.pixelRatio = value; }
   setSize(width, height) { state.rendererSize = [width, height]; }
   setClearColor(hex) { state.rendererClearColor = hex; }
+  render() { state.rendererRenders = (state.rendererRenders ?? 0) + 1; }
 }
 export class Scene { add() {} }
 export class PerspectiveCamera {
@@ -179,24 +178,6 @@ const MUSIC_NOTE_REMOTE_MOCKS: Readonly<Record<string, string>> = {
   `,
   'https://esm.sh/three@0.162.0/examples/jsm/environments/RoomEnvironment.js':
     'export class RoomEnvironment {}',
-  'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/EffectComposer.js': String.raw`
-    const state = globalThis.__MUSIC_NOTE_FIXTURE_STATE__;
-    export class EffectComposer {
-      addPass() {}
-      render() { state.composerRenders = (state.composerRenders ?? 0) + 1; }
-      setSize(width, height) { state.composerSize = [width, height]; }
-    }
-  `,
-  'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/RenderPass.js':
-    'export class RenderPass {}',
-  'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/UnrealBloomPass.js': String.raw`
-    const state = globalThis.__MUSIC_NOTE_FIXTURE_STATE__;
-    export class UnrealBloomPass {
-      constructor(size, strength) { this.size = size; this.strength = strength; state.bloom = this; }
-    }
-  `,
-  'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/OutputPass.js':
-    'export class OutputPass {}',
 };
 
 function replaceRemoteModuleSpecifiers(
@@ -405,7 +386,6 @@ describe('strict TypeScript auxiliary browser assets', () => {
       dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { code: 'KeyB' }));
       expect(state.backgroundHex).toBe(0xe4e4e7);
       expect(state.rendererClearColor).toBe(0xe4e4e7);
-      expect(state.bloom?.strength).toBe(0.15);
       expect(dom.window.document.body.classList.contains('dark')).toBe(false);
       dom.window.dispatchEvent(new dom.window.KeyboardEvent('keydown', { code: 'KeyH' }));
       expect(dom.window.document.querySelector('.overlay')?.classList.contains('hidden')).toBe(
@@ -419,7 +399,6 @@ describe('strict TypeScript auxiliary browser assets', () => {
       expect(state.camera?.aspect).toBe(2);
       expect(state.camera?.projectionUpdates).toBe(1);
       expect(state.rendererSize).toEqual([1024, 512]);
-      expect(state.composerSize).toEqual([1024, 512]);
     } finally {
       cleanup();
       dom.window.close();

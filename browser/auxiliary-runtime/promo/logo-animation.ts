@@ -81,7 +81,6 @@ const NOTE_FILL_END = 1300;
 const GHOST_TIME = 1200;
 const TAGLINE_START = 3200;
 const PILLS_START = 3600;
-const GLOW_START = 3800;
 
 // ─── Main timeline controller ───
 window.__promoSetTime = function (ms: number): void {
@@ -91,7 +90,6 @@ window.__promoSetTime = function (ms: number): void {
   const ghost = document.querySelector<SVGElement>('.wg');
   const tagline = requireHtmlElement('tagline');
   const pills = requireHtmlElement('pills');
-  const glow = requireHtmlElement('glow');
 
   // Phase 1: Note icon scale-in (200ms)
   if (ms >= NOTE_APPEAR) {
@@ -146,14 +144,6 @@ window.__promoSetTime = function (ms: number): void {
     const ep = 1 - Math.pow(1 - p, 3);
     pills.style.opacity = String(ep);
     pills.style.transform = `translateY(${16 * (1 - ep)}px)`;
-  }
-
-  // Phase 8: Glow pulse (3800ms)
-  if (ms >= GLOW_START) {
-    const p = Math.min((ms - GLOW_START) / 1200, 1);
-    const pulse = Math.sin(p * Math.PI);
-    glow.style.opacity = String(pulse * 0.8);
-    glow.style.transform = `scale(${0.8 + pulse * 0.3})`;
   }
 };
 

@@ -2,14 +2,9 @@ import * as THREE from 'https://esm.sh/three@0.162.0';
 import { OrbitControls } from 'https://esm.sh/three@0.162.0/examples/jsm/controls/OrbitControls.js';
 import { SVGLoader } from 'https://esm.sh/three@0.162.0/examples/jsm/loaders/SVGLoader.js';
 import { RoomEnvironment } from 'https://esm.sh/three@0.162.0/examples/jsm/environments/RoomEnvironment.js';
-import { EffectComposer } from 'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'https://esm.sh/three@0.162.0/examples/jsm/postprocessing/OutputPass.js';
 
-const _BRAND_BLUE = 0x3b82f6;
 const GLASS_TINT = 0x7dadfa; // midpoint between #3b82f6 (deep) and #bfdbfe (pale)
-const BG_LIGHT = 0xe4e4e7; // zinc-200 — enough contrast with neon blue
+const BG_LIGHT = 0xe4e4e7; // zinc-200 — enough contrast with the blue glass
 const BG_DARK = 0x0a0a0a;
 
 const canvas = document.getElementById('scene');
@@ -103,22 +98,10 @@ controls.autoRotateSpeed = 1.2;
 controls.minDistance = 25;
 controls.maxDistance = 120;
 
-const composer = new EffectComposer(renderer);
-composer.addPass(new RenderPass(scene, camera));
-
-const bloom = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.55, // strength — soft halo, keep blue legible
-  1.2, // radius — wide soft spread
-  0.4, // threshold — only brightest highlights trigger
-);
-composer.addPass(bloom);
-composer.addPass(new OutputPass());
-
 function animate(): void {
   requestAnimationFrame(animate);
   controls.update();
-  composer.render();
+  renderer.render(scene, camera);
 }
 animate();
 
@@ -133,7 +116,6 @@ function setBackground(dark: boolean): void {
   renderer.setClearColor(hex, 1);
   document.body.style.background = '#' + hex.toString(16).padStart(6, '0');
   document.body.classList.toggle('dark', dark);
-  bloom.strength = dark ? 0.55 : 0.15; // Light bg: minimize glare
 }
 
 window.addEventListener('keydown', (e) => {
@@ -158,5 +140,4 @@ window.addEventListener('resize', () => {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setSize(w, h);
-  composer.setSize(w, h);
 });

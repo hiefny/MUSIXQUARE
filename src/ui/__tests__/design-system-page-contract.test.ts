@@ -559,7 +559,12 @@ describe('public design-system page contract', () => {
     expect(components.querySelector('.app-loading-header-status')?.textContent?.trim()).toBe(
       'Loading...',
     );
-    expect(components.querySelector('.app-loading-header-badge i')).toBeTruthy();
+    expect(components.querySelector('.app-loading-header-badge i')).toBeNull();
+    expect(
+      [...components.querySelectorAll('.role-sample')].every(
+        (sample) => !sample.querySelector('i'),
+      ),
+    ).toBe(true);
     expect(designStylesheet).toContain('@keyframes app-header-default-rail-cycle');
     expect(designStylesheet).toContain('@keyframes app-header-default-opacity-cycle');
     expect(designStylesheet).toContain('@keyframes app-header-loading-rail-cycle');
@@ -597,11 +602,10 @@ describe('public design-system page contract', () => {
       /\.app-loading-header-logo\s*\{[^}]*width:\s*142\.667px;[^}]*height:\s*16px;[^}]*mask-position:\s*left top;[^}]*mask-size:\s*100% 108\.333%;/su,
     );
     expect(designStylesheet).toMatch(
-      /\.app-loading-header-badge\s*\{[^}]*padding:\s*6px 14px;[^}]*gap:\s*6px;[^}]*font-size:\s*11px;[^}]*font-weight:\s*700;[^}]*line-height:\s*normal;/su,
+      /\.app-loading-header-badge\s*\{[^}]*padding:\s*6px 14px;[^}]*font-size:\s*11px;[^}]*font-weight:\s*700;[^}]*line-height:\s*normal;/su,
     );
-    expect(designStylesheet).toMatch(
-      /\.app-loading-header-badge i\s*\{[^}]*width:\s*6px;[^}]*height:\s*6px;/su,
-    );
+    expect(designStylesheet).not.toContain('.app-loading-header-badge i');
+    expect(designStylesheet).not.toContain('.role-sample i');
     expect(designStylesheet).toMatch(
       /48%\s*\{[^}]*stroke-dasharray:\s*74 26;[^}]*stroke-dashoffset:\s*-12;/su,
     );

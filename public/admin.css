@@ -2598,7 +2598,6 @@ p {
   overflow: hidden;
   border-radius: var(--radius-pill) var(--radius-pill) 3px 3px;
   background: var(--surface-2);
-  box-shadow: 0 0 18px rgba(var(--primary-rgb), 0.08);
 }
 
 .spectrum-fill {

@@ -38,25 +38,6 @@ body {
   z-index: 1;
 }
 
-/* ─── Background blobs ─── */
-.promo-blob {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(80px);
-  opacity: 0;
-  pointer-events: none;
-}
-.promo-blob-1 {
-  width: 500px; height: 500px;
-  background: rgba(59,130,246,0.10);
-  top: -120px; right: -120px;
-}
-.promo-blob-2 {
-  width: 400px; height: 400px;
-  background: rgba(59,130,246,0.06);
-  bottom: -100px; left: -100px;
-}
-
 /* ─── Logo + tagline area ─── */
 #promo-top {
   position: absolute;
@@ -69,15 +50,6 @@ body {
   justify-content: center;
   z-index: 3;
   white-space: nowrap;
-}
-
-.glow-bg {
-  position: absolute;
-  width: 500px; height: 500px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(var(--primary-rgb), 0.15) 0%, transparent 70%);
-  opacity: 0;
-  pointer-events: none;
 }
 
 .note-icon-wrapper {
@@ -146,11 +118,7 @@ body {
 <body>
 
 <div class="promo-scene">
-  <div class="promo-blob promo-blob-1"></div>
-  <div class="promo-blob promo-blob-2"></div>
-
   <div id="promo-top">
-    <div class="glow-bg" id="glow"></div>
     <div class="note-icon-wrapper" id="note-wrapper">
       <svg class="note-icon" viewBox="0 0 24 24">
         <defs>

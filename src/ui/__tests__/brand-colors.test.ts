@@ -2,6 +2,40 @@ import { readFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 
 describe('filled UI brand colors', () => {
+  it('keeps public identity chips dotless and removes decorative color glows', async () => {
+    const paths = [
+      'index.html',
+      '.workshop/landing/landing.html',
+      'public/blog/index.html',
+      'public/history/index.html',
+      'public/designsystem/index.html',
+      'cloudflare/app-worker.ts',
+      'public/editorial-base.css',
+    ] as const;
+    const sources = await Promise.all(paths.map((path) => readFile(path, 'utf8')));
+    const combined = sources.join('\n');
+
+    expect(combined).not.toContain('role-dot');
+    expect(combined).not.toContain('lp-try__dot');
+    expect(combined).not.toContain('nav-blur-halo');
+
+    const [aboutCss, designCss, eventCss, accountCss, adminCss] = await Promise.all(
+      [
+        'public/editorial-about.css',
+        'public/editorial-design.css',
+        'public/events/event.css',
+        'public/account-complete.css',
+        'public/admin.css',
+      ].map((path) => readFile(path, 'utf8')),
+    );
+    const publicCss = `${aboutCss}\n${designCss}\n${eventCss}\n${accountCss}\n${adminCss}`;
+
+    expect(publicCss).not.toMatch(/text-shadow:\s*0\s+0\s+\d+px/u);
+    expect(publicCss).not.toMatch(
+      /box-shadow:\s*0\s+(?:0|[1-9]\d*)px\s+[1-9]\d*px\s+rgba\((?:var\(--primary-rgb\)|255,\s*(?:0|77)|37,\s*99,\s*235)/u,
+    );
+  });
+
   it('resolves design-system assets from its canonical slashless route', async () => {
     const html = await readFile('public/designsystem/index.html', 'utf8');
     const stylesheetHref = html.match(

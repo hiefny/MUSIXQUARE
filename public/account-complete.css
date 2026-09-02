@@ -82,16 +82,12 @@ button {
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
-  transition:
-    transform 0.2s,
-    box-shadow 0.2s;
+  transition: transform 0.2s;
   -webkit-tap-highlight-color: transparent;
 }
 
 button:active {
   transform: scale(0.97);
-  box-shadow: none;
 }
 
 button:focus-visible {

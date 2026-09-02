@@ -7,6 +7,7 @@ import { LANGUAGE_OPTIONS } from '../src/i18n/locales.ts';
 const AUTH_SESSION_URL = 'https://musixquare.com/api/auth/session';
 const SECURITY_CONFIG_URL = 'https://musixquare.com/api/security-config';
 const PAID_BOUNDARY_URL = 'https://musixquare.com/api/get-turn-config';
+const UNKNOWN_HTML_ROUTE_URL = 'https://musixquare.com/__mxqr_live_smoke__/missing-html-route';
 const UNRELATED_TOSS_ORIGIN = 'https://unrelated.apps.tossmini.com';
 export const APP_PUBLIC_BOUNDARY_TIMEOUT_MS = 10_000;
 const MUSIXQUARE_COOKIE_RE = /(?:^|[,\r\n]\s*)(?:__Host|__Secure)-mxqr_[^=;,]*=/;
@@ -60,6 +61,15 @@ export interface LocalizedSeoBoundaryRead {
 export interface LocalizedSeoBoundaryResult {
   localizedSeoReady: true;
   pages: number;
+}
+
+export interface UnknownHtmlRouteBoundaryRead {
+  method: 'GET' | 'HEAD';
+  status: number;
+}
+
+export interface UnknownHtmlRouteBoundaryResult {
+  unknownHtmlRoutesRejected: true;
 }
 
 const LOCALIZED_SEO_EXPECTATIONS = [
@@ -240,6 +250,34 @@ async function readLocalizedSeoBoundary(): Promise<LocalizedSeoBoundaryRead[]> {
   );
 }
 
+async function readUnknownHtmlRouteBoundary(): Promise<UnknownHtmlRouteBoundaryRead[]> {
+  return Promise.all(
+    (['GET', 'HEAD'] as const).map(async (method) => {
+      let response: Response;
+      try {
+        response = await fetch(UNKNOWN_HTML_ROUTE_URL, {
+          method,
+          cache: 'no-store',
+          headers: { Accept: 'text/html,application/xhtml+xml' },
+          signal: AbortSignal.timeout(APP_PUBLIC_BOUNDARY_TIMEOUT_MS),
+        });
+      } catch {
+        throw new Error(`Unknown HTML route boundary request failed: ${method}`);
+      }
+
+      try {
+        return { method, status: response.status };
+      } finally {
+        try {
+          await response.body?.cancel();
+        } catch {
+          // Body cleanup cannot replace the unknown-route result.
+        }
+      }
+    }),
+  );
+}
+
 export async function verifyAnonymousAccountSessionBoundary({
   read = readAnonymousSession,
 }: {
@@ -348,14 +386,37 @@ export async function verifyLocalizedSeoBoundary({
   return { localizedSeoReady: true, pages: pages.length };
 }
 
+export async function verifyUnknownHtmlRouteBoundary({
+  read = readUnknownHtmlRouteBoundary,
+}: {
+  read?: () => Promise<UnknownHtmlRouteBoundaryRead[]>;
+} = {}): Promise<UnknownHtmlRouteBoundaryResult> {
+  const results = await read();
+  if (
+    results.length !== 2 ||
+    !(['GET', 'HEAD'] as const).every((method) =>
+      results.some((result) => result.method === method && result.status === 404),
+    )
+  ) {
+    throw new Error('Unknown HTML routes do not preserve meaningful 404 responses');
+  }
+  return { unknownHtmlRoutesRejected: true };
+}
+
 export async function main(): Promise<void> {
-  const [accountBoundary, capabilityBoundary, originBoundary, localizedSeoBoundary] =
-    await Promise.all([
-      verifyAnonymousAccountSessionBoundary(),
-      verifyProductionCapabilityBoundary(),
-      verifyProductionOriginBoundary(),
-      verifyLocalizedSeoBoundary(),
-    ]);
+  const [
+    accountBoundary,
+    capabilityBoundary,
+    originBoundary,
+    localizedSeoBoundary,
+    unknownHtmlRouteBoundary,
+  ] = await Promise.all([
+    verifyAnonymousAccountSessionBoundary(),
+    verifyProductionCapabilityBoundary(),
+    verifyProductionOriginBoundary(),
+    verifyLocalizedSeoBoundary(),
+    verifyUnknownHtmlRouteBoundary(),
+  ]);
   console.log(
     JSON.stringify({
       ok: true,
@@ -363,6 +424,7 @@ export async function main(): Promise<void> {
       capabilityBoundary,
       originBoundary,
       localizedSeoBoundary,
+      unknownHtmlRouteBoundary,
     }),
   );
 }

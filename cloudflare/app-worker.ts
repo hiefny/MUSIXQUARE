@@ -339,7 +339,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.4.54';
+const ADMIN_ASSET_VERSION = '8.4.55';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -15138,21 +15138,6 @@ async function serveStatic(request: Request, env: AppEnv, ctx: AppExecutionConte
   const response = assetPathname
     ? await fetchAsset(env, request, assetPathname)
     : await fetchAsset(env, request);
-
-  // Allow HEAD alongside GET so link unfurlers (Slack/Discord/iMessage) that
-  // HEAD-probe before fetching don't see a broken-link 404 for SPA routes.
-  // Keep this aligned with the GET+HEAD pairing at the invite path.
-  if (
-    response.status === 404 &&
-    (request.method === 'GET' || request.method === 'HEAD') &&
-    (request.headers.get('Accept') || '').includes('text/html') &&
-    !url.pathname.toLowerCase().startsWith('/events/')
-  ) {
-    return withSecurityHeaders(
-      await fetchAsset(env, request, '/index.html'),
-      APP_SHELL_FRESH_CACHE_HEADERS,
-    );
-  }
 
   return withSecurityHeaders(response, {
     ...cacheHeadersForPath(url.pathname, assetPathname || url.pathname),

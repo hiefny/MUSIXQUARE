@@ -6,6 +6,7 @@ import {
   verifyLocalizedSeoBoundary,
   verifyProductionCapabilityBoundary,
   verifyProductionOriginBoundary,
+  verifyUnknownHtmlRouteBoundary,
 } from '../../../scripts/live-app-public-boundary-smoke.mts';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 
@@ -81,6 +82,32 @@ describe('live app public boundary smoke', () => {
         ],
       }),
     ).rejects.toThrow('incomplete page matrix');
+  });
+
+  it('requires unknown HTML GET and HEAD requests to remain true 404 responses', async () => {
+    const read = vi.fn(async () => [
+      { method: 'GET' as const, status: 404 },
+      { method: 'HEAD' as const, status: 404 },
+    ]);
+
+    await expect(verifyUnknownHtmlRouteBoundary({ read })).resolves.toEqual({
+      unknownHtmlRoutesRejected: true,
+    });
+    expect(read).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    {
+      result: [
+        { method: 'GET' as const, status: 200 },
+        { method: 'HEAD' as const, status: 404 },
+      ],
+    },
+    { result: [{ method: 'GET' as const, status: 404 }] },
+  ])('rejects a soft-404 or incomplete unknown HTML route matrix %#', async ({ result }) => {
+    await expect(verifyUnknownHtmlRouteBoundary({ read: async () => result })).rejects.toThrow(
+      'meaningful 404 responses',
+    );
   });
 
   it('accepts only the no-store anonymous account-session projection', async () => {

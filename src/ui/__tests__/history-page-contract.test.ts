@@ -75,7 +75,7 @@ describe('public history page contract', () => {
   });
 
   it('uses current factual copy for infrastructure and future work', () => {
-    const visibleCopy = historyDocument.body.textContent ?? '';
+    const visibleCopy = (historyDocument.body.textContent ?? '').replace(/\s+/gu, ' ').trim();
 
     expect(visibleCopy).toContain('STUN-only direct path');
     expect(visibleCopy).toContain(

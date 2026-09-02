@@ -293,15 +293,16 @@
               Cloudflare: hosting, signaling, room state, TURN, SFU and storage
             </div>
             <div class="body">
-              The app Worker serves the SPA, writes invite metadata and provides API endpoints for
-              TURN credentials, YouTube search and Realtime sessions. It also applies SPA fallback,
-              security headers and immutable asset caching. Signaling Durable Objects carry WebRTC
-              offers, answers and ICE candidates, while PRO Room Durable Objects own persistent room
-              state. D1 stores account, PRO registry, grant, metrics and Developer API records.
-              Cloudflare TURN supplies relay credentials. If those credentials are unavailable,
-              Standard Rooms use a STUN-only direct path rather than another TURN provider. Realtime
-              SFU carries system audio when the selected route requires it. R2 stores temporary
-              Standard Room shares and persistent private PRO media under separate lifecycle rules.
+              The app Worker serves explicit app entry points, writes invite metadata and provides
+              API endpoints for TURN credentials, YouTube search and Realtime sessions. It also
+              applies security headers and immutable asset caching. Signaling Durable Objects carry
+              WebRTC offers, answers and ICE candidates, while PRO Room Durable Objects own
+              persistent room state. D1 stores account, PRO registry, grant, metrics and Developer
+              API records. Cloudflare TURN supplies relay credentials. If those credentials are
+              unavailable, Standard Rooms use a STUN-only direct path rather than another TURN
+              provider. Realtime SFU carries system audio when the selected route requires it. R2
+              stores temporary Standard Room shares and persistent private PRO media under separate
+              lifecycle rules.
             </div>
           </li>
           <li>

@@ -6216,11 +6216,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.54');
-    expect(html).toContain('/clearable-editors.js?v=8.4.54');
-    expect(html).toContain('/admin.js?v=8.4.54');
+    expect(html).toContain('/admin.css?v=8.4.55');
+    expect(html).toContain('/clearable-editors.js?v=8.4.55');
+    expect(html).toContain('/admin.js?v=8.4.55');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.54"');
+    expect(html).toContain('data-admin-asset-version="8.4.55"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6241,9 +6241,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.54',
-      '/admin.css?v=8.4.54',
-      '/clearable-editors.js?v=8.4.54',
+      '/admin.js?v=8.4.55',
+      '/admin.css?v=8.4.55',
+      '/clearable-editors.js?v=8.4.55',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
@@ -6254,7 +6254,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(assetFetch).toHaveBeenCalledTimes(3);
   });
 
-  it('permanently retires every development-only UI kit alias before SPA fallback', async () => {
+  it('permanently retires every development-only UI kit alias before public routing', async () => {
     const aliases = [
       '/ui_kits',
       '/ui_kits/',
@@ -11169,6 +11169,36 @@ describe('Cloudflare app worker invite route', () => {
     const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
     expect(new URL(assetRequest.url).pathname).toBe('/xx/about//');
   });
+
+  it.each(['GET', 'HEAD'] as const)(
+    'preserves static 404 responses for unknown HTML routes on %s',
+    async (method) => {
+      for (const pathname of [
+        '/not-a-real-page.html',
+        '/nested/not-found',
+        '/xx/about',
+        '/missing-audit.js',
+      ]) {
+        const env = createAssetEnv();
+        const response = await appWorker.fetch(
+          new Request(`https://musixquare.com${pathname}`, {
+            method,
+            headers: { Accept: 'text/html,application/xhtml+xml' },
+          }),
+          env,
+        );
+
+        expect(response.status, pathname).toBe(404);
+        expect(response.headers.get('Content-Type'), pathname).toContain('text/plain');
+        expect(response.headers.get('Content-Security-Policy'), pathname).toContain(
+          "default-src 'self'",
+        );
+        expect(env.ASSETS.fetch, pathname).toHaveBeenCalledOnce();
+        const assetRequest = env.ASSETS.fetch.mock.calls[0]?.[0] as Request;
+        expect(new URL(assetRequest.url).pathname).toBe(pathname);
+      }
+    },
+  );
 
   it('serves the canonical Developer API document with static-page cache policy', async () => {
     const env = createAssetEnv();

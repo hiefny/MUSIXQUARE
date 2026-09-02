@@ -61,7 +61,7 @@ test.describe('Production release smoke', () => {
       'href',
       '/manifests/ko.webmanifest',
     );
-    await expect.poll(() => page.title()).toBe('뮤직스퀘어 · MUSIXQUARE');
+    await expect.poll(() => page.title()).toBe('MUSIXQUARE · 뮤직스퀘어');
     expect(await page.evaluate(() => performance.getEntriesByType('navigation').length)).toBe(1);
   });
 

@@ -229,8 +229,8 @@ describe('localized static HTML materialization', () => {
     const koreanApp = documentFor(renderLocalizedApp(appHtml, 'ko', koreanAbout.metadata));
     const japaneseApp = documentFor(renderLocalizedApp(appHtml, 'ja', japaneseAbout.metadata));
 
-    expect(koreanApp.title).toBe('뮤직스퀘어 · MUSIXQUARE');
-    expect(japaneseApp.title).toBe('ミュージックスクエア · MUSIXQUARE');
+    expect(koreanApp.title).toBe('MUSIXQUARE · 뮤직스퀘어');
+    expect(japaneseApp.title).toBe('MUSIXQUARE · ミュージックスクエア');
     expect(koreanApp.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
       '스마트폰, 태블릿, PC를 연결해 하나의 동기화된 무선 오디오 시스템을 만들어 보세요. 음악·YouTube·시스템 오디오를 설치 없이 브라우저에서 함께 재생할 수 있습니다.',
     );

@@ -38,19 +38,19 @@ describe('tab title marquee', () => {
     dispose?.();
     const pageTitle = document.createElement('meta');
     pageTitle.setAttribute('property', 'og:title');
-    pageTitle.content = '뮤직스퀘어 · MUSIXQUARE';
+    pageTitle.content = 'MUSIXQUARE · 뮤직스퀘어';
     document.head.appendChild(pageTitle);
     dispose = initTabTitleMarquee();
 
-    expect(document.title).toBe('뮤직스퀘어 · MUSIXQUARE');
+    expect(document.title).toBe('MUSIXQUARE · 뮤직스퀘어');
 
     setTabTitleTrack('Playing track');
     setTabTitlePlaying(true);
-    pageTitle.content = 'ミュージックスクエア · MUSIXQUARE';
+    pageTitle.content = 'MUSIXQUARE · ミュージックスクエア';
     expect(document.title).toBe('Playing track · MUSIXQUARE');
 
     setTabTitleTrack('');
-    expect(document.title).toBe('ミュージックスクエア · MUSIXQUARE');
+    expect(document.title).toBe('MUSIXQUARE · ミュージックスクエア');
   });
 
   it('derives frames from elapsed time and never splits an emoji surrogate pair', () => {

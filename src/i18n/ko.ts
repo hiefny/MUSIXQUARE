@@ -7,7 +7,7 @@
 
 const ko = {
   // ─── App identity ───────────────────────────────────────────────
-  'app.search_title': '뮤직스퀘어 · MUSIXQUARE',
+  'app.search_title': 'MUSIXQUARE · 뮤직스퀘어',
   'app.search_description':
     '스마트폰, 태블릿, PC를 연결해 하나의 동기화된 무선 오디오 시스템을 만들어 보세요. 음악·YouTube·시스템 오디오를 설치 없이 브라우저에서 함께 재생할 수 있습니다.',
 

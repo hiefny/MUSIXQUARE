@@ -1,6 +1,6 @@
 {
   "name": "musixquare",
-  "version": "8.4.60",
+  "version": "8.4.61",
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -185,7 +185,11 @@
     "qrcode": "^1.5.4"
   },
   "overrides": {
+    "@shuding/opentype.js": {
+      "fflate": "0.7.5"
+    },
     "brace-expansion": "5.0.9",
+    "qs": "6.16.0",
     "undici": "7.29.0"
   }
 }

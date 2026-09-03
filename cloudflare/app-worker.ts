@@ -339,7 +339,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.4.60';
+const ADMIN_ASSET_VERSION = '8.4.61';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -368,6 +368,10 @@ const SORO_IMAGE_FETCH_TIMEOUT_MS = 5000;
 const SORO_IMAGE_ROUTE_PREFIX = '/soro-images/';
 const SORO_IMAGE_R2_PREFIX = 'featured/';
 const SORO_IMAGE_CACHE = 'public, max-age=31536000, immutable';
+// The fixed Soro feed serves featured images from this exact Supabase project.
+// Keep the first-party Soro app origin for legacy images, but do not broaden
+// either entry to a parent-domain wildcard: feed enclosure URLs are untrusted.
+const SORO_IMAGE_ALLOWED_HOSTS = new Set(['afocirmbqdxnkyescnev.supabase.co', 'app.trysoro.com']);
 const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
 const ADMIN_SESSION_TTL_SECONDS = 12 * 60 * 60;
 const ADMIN_PASSWORD_MIN_BYTES = 16;
@@ -505,7 +509,7 @@ const SECURITY_HEADERS = {
   'Permissions-Policy':
     'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=()',
   'Content-Security-Policy':
-    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://*.trysoro.com https://*.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://*.musixquare.com wss://*.musixquare.com https://*.workers.dev wss://*.workers.dev https://*.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com https://app.trysoro.com https://*.trysoro.com; frame-src https://www.youtube.com https://challenges.cloudflare.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://www.youtube.com https://s.ytimg.com https://challenges.cloudflare.com https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://img.youtube.com https://i.ytimg.com https://app.trysoro.com https://afocirmbqdxnkyescnev.supabase.co; media-src 'self' blob: https://demo.musixquare.com; connect-src 'self' blob: https://www.youtube.com https://musixquare.com https://demo.musixquare.com https://share.musixquare.com https://signal.musixquare.com https://signal-alt.musixquare.com wss://signal.musixquare.com wss://signal-alt.musixquare.com https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com https://challenges.cloudflare.com https://cloudflareinsights.com; frame-src https://www.youtube.com https://challenges.cloudflare.com; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
 };
 
 function json(body: unknown, status = 200, headers: HeadersInit = {}) {
@@ -13276,6 +13280,9 @@ function sanitizeSoroImageSource(value: string | URL) {
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:') return '';
+    if (url.username || url.password || url.port) return '';
+    if (!SORO_IMAGE_ALLOWED_HOSTS.has(url.hostname)) return '';
+    url.hash = '';
     return url.href;
   } catch {
     return '';
@@ -13409,6 +13416,7 @@ async function ensureSoroImageMirror(
     const fetched = await fetchAndConsumeWithTimeout(
       sourceUrl,
       {
+        redirect: 'error',
         headers: {
           Accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif;q=0.8,*/*;q=0.1',
         },

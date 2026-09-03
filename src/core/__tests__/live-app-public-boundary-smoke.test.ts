@@ -15,8 +15,8 @@ describe('live app public boundary smoke', () => {
     const records = [
       ['/', 'en', 'MUSIXQUARE', 'https://musixquare.com/', 'no-store'],
       ['/en/', 'en', 'MUSIXQUARE', 'https://musixquare.com/', 'no-store'],
-      ['/ko/', 'ko', 'MUSIXQUARE · 뮤직스퀘어', 'https://musixquare.com/ko/', 'no-store'],
-      ['/ja/', 'ja', 'MUSIXQUARE · ミュージックスクエア', 'https://musixquare.com/ja/', 'no-store'],
+      ['/ko/', 'ko', 'MUSIXQUARE', 'https://musixquare.com/ko/', 'no-store'],
+      ['/ja/', 'ja', 'MUSIXQUARE', 'https://musixquare.com/ja/', 'no-store'],
       [
         '/zh-hans/about',
         'zh-Hans',

@@ -125,7 +125,6 @@ function replaceWebsiteSchema(document: Document, include: boolean): void {
     '@id': `${SITE_ORIGIN}/#website`,
     url: `${SITE_ORIGIN}/`,
     name: 'MUSIXQUARE',
-    alternateName: ['뮤직스퀘어', 'ミュージックスクエア', 'musixquare.com'],
     sameAs: ['https://x.com/musixquare', 'https://github.com/hiefny/MUSIXQUARE'],
     inLanguage: 'en',
   });

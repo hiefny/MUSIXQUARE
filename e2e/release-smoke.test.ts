@@ -44,6 +44,17 @@ test.describe('Production release smoke', () => {
       .toBe('ko');
   });
 
+  test('points default English editorial app links at the root canonical', async ({ page }) => {
+    await page.addInitScript(() => {
+      localStorage.setItem('musixquare-lang', 'en');
+    });
+
+    await page.goto('/blog');
+
+    await expect(page.locator('.lp-try')).toHaveAttribute('href', '/');
+    await expect(page.locator('footer a', { hasText: 'App' })).toHaveAttribute('href', '/');
+  });
+
   test('projects a saved non-English root onto its locale URL without reloading', async ({
     page,
   }) => {
@@ -61,7 +72,7 @@ test.describe('Production release smoke', () => {
       'href',
       '/manifests/ko.webmanifest',
     );
-    await expect.poll(() => page.title()).toBe('MUSIXQUARE · 뮤직스퀘어');
+    await expect.poll(() => page.title()).toBe('MUSIXQUARE');
     expect(await page.evaluate(() => performance.getEntriesByType('navigation').length)).toBe(1);
   });
 

@@ -24,10 +24,10 @@ In this policy, the **Rights Holder** means CHOI HYEONSEUNG.
 
 The “MUSIXQUARE Marks” include, to the extent controlled by the Rights Holder:
 
-- the names `MUSIXQUARE` and `뮤직스퀘어`;
+- the name `MUSIXQUARE`;
 - the custom MUSIXQUARE wordmark and logo lockups;
 - the official MUSIXQUARE app icon; and
-- official source-identifying combinations of those names, logos, or icons;
+- official source-identifying combinations of the name, logos, or icon;
   and
 - the distinctive, non-functional overall visual presentation of the official
   MUSIXQUARE product, including its particular selection, combination, and

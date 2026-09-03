@@ -223,14 +223,17 @@ describe('localized static HTML materialization', () => {
     }
   });
 
-  it('uses established Korean and Japanese search aliases without changing the global brand', () => {
+  it('uses one uppercase app brand title while keeping localized descriptions', () => {
     const koreanAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'ko');
     const japaneseAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'ja');
     const koreanApp = documentFor(renderLocalizedApp(appHtml, 'ko', koreanAbout.metadata));
     const japaneseApp = documentFor(renderLocalizedApp(appHtml, 'ja', japaneseAbout.metadata));
 
-    expect(koreanApp.title).toBe('MUSIXQUARE · 뮤직스퀘어');
-    expect(japaneseApp.title).toBe('MUSIXQUARE · ミュージックスクエア');
+    for (const option of LANGUAGE_OPTIONS) {
+      expect(APP_DICTIONARIES[option.code]['app.search_title'], option.code).toBe('MUSIXQUARE');
+    }
+    expect(koreanApp.title).toBe('MUSIXQUARE');
+    expect(japaneseApp.title).toBe('MUSIXQUARE');
     expect(koreanApp.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
       '스마트폰, 태블릿, PC를 연결해 하나의 동기화된 무선 오디오 시스템을 만들어 보세요. 음악·YouTube·시스템 오디오를 설치 없이 브라우저에서 함께 재생할 수 있습니다.',
     );
@@ -252,7 +255,7 @@ describe('localized static HTML materialization', () => {
     ).toBe('MUSIXQUARE');
   });
 
-  it('keeps English as x-default and emits the brand aliases once in root WebSite data', () => {
+  it('keeps English as x-default and emits one canonical brand in root WebSite data', () => {
     const englishAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'en');
     const englishApp = documentFor(renderLocalizedApp(appHtml, 'en', englishAbout.metadata));
     const koreanAbout = renderLocalizedAbout(aboutHtml, landingI18nJavaScript, 'ko');
@@ -273,9 +276,11 @@ describe('localized static HTML materialization', () => {
       'Turn phones, tablets, and computers into one synchronized wireless audio system. Play music, YouTube, and system audio together in your browser, with no installation required.',
     );
     expect(englishApp.querySelectorAll('[data-mxqr-website-schema]')).toHaveLength(1);
-    expect(englishApp.querySelector('[data-mxqr-website-schema]')?.textContent).toContain(
-      '뮤직스퀘어',
-    );
+    const websiteSchema = JSON.parse(
+      englishApp.querySelector('[data-mxqr-website-schema]')?.textContent || '{}',
+    ) as Record<string, unknown>;
+    expect(websiteSchema.name).toBe('MUSIXQUARE');
+    expect(websiteSchema).not.toHaveProperty('alternateName');
     expect(englishApp.querySelector('[data-mxqr-website-schema]')?.textContent).toContain(
       'https://x.com/musixquare',
     );

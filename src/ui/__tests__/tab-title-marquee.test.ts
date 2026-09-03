@@ -34,23 +34,23 @@ describe('tab title marquee', () => {
     document.querySelector('meta[property="og:title"]')?.remove();
   });
 
-  it('uses localized page metadata only when no track owns the tab title', () => {
+  it('uses current page metadata only when no track owns the tab title', () => {
     dispose?.();
     const pageTitle = document.createElement('meta');
     pageTitle.setAttribute('property', 'og:title');
-    pageTitle.content = 'MUSIXQUARE · 뮤직스퀘어';
+    pageTitle.content = 'MUSIXQUARE — Help';
     document.head.appendChild(pageTitle);
     dispose = initTabTitleMarquee();
 
-    expect(document.title).toBe('MUSIXQUARE · 뮤직스퀘어');
+    expect(document.title).toBe('MUSIXQUARE — Help');
 
     setTabTitleTrack('Playing track');
     setTabTitlePlaying(true);
-    pageTitle.content = 'MUSIXQUARE · ミュージックスクエア';
+    pageTitle.content = 'MUSIXQUARE — About';
     expect(document.title).toBe('Playing track · MUSIXQUARE');
 
     setTabTitleTrack('');
-    expect(document.title).toBe('MUSIXQUARE · ミュージックスクエア');
+    expect(document.title).toBe('MUSIXQUARE — About');
   });
 
   it('derives frames from elapsed time and never splits an emoji surrogate pair', () => {

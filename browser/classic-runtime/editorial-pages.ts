@@ -127,7 +127,7 @@
     const intent = resolveEditorialLanguage();
     const carryQuery = intent.code !== 'en' || intent.explicitQuery;
     const aboutPath = intent.code === 'en' ? '/about' : `/${intent.code}/about`;
-    const appPath = `/${intent.code}/`;
+    const appPath = intent.code === 'en' ? '/' : `/${intent.code}/`;
 
     document.querySelectorAll<HTMLAnchorElement>('.editorial-site-tab[href]').forEach((link) => {
       const authoredHref = link.getAttribute('href');

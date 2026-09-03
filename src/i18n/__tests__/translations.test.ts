@@ -824,10 +824,10 @@ describe('Translation key integrity', () => {
 
     expect(badLegalCopy).toEqual([]);
     expect(ko['legal.content_html']).toContain(
-      '<span data-legal-standard-storage>같은 네트워크에서는 세션 콘텐츠 대부분이 기기끼리 직접 전송돼요. 시그널링 서버는 방 운영·인증·재연결 정보만 잠시 처리하고, 원격·대규모 세션 일부 데이터는 Cloudflare를 거쳐요. 원격 파일은 Cloudflare 비공개 저장소에 최대 24시간 임시 보관되어 방 참여자에게만 한시적 다운로드가 허용돼요. 뮤직스퀘어는 서비스 제공·운영·보안 외 목적으로 데이터를 열람·분석·보관하지 않아요.</span>',
+      '<span data-legal-standard-storage>같은 네트워크에서는 세션 콘텐츠 대부분이 기기끼리 직접 전송돼요. 시그널링 서버는 방 운영·인증·재연결 정보만 잠시 처리하고, 원격·대규모 세션 일부 데이터는 Cloudflare를 거쳐요. 원격 파일은 Cloudflare 비공개 저장소에 최대 24시간 임시 보관되어 방 참여자에게만 한시적 다운로드가 허용돼요. MUSIXQUARE는 서비스 제공·운영·보안 외 목적으로 데이터를 열람·분석·보관하지 않아요.</span>',
     );
     expect(ko['legal.content_html']).toContain(
-      '<span data-legal-pro-storage>PRO 방 운영에 필요한 세션·멤버·재생목록·재생·업로드 상태는 Cloudflare에 저장돼요. 재생목록 원본 파일은 Cloudflare 비공개 저장소에 보관되며, 방 참여자만 짧게 유효한 주소로 내려받을 수 있어요. 파일은 방 관리자가 재생목록에서 삭제하거나 운영자가 방 데이터를 삭제하면 말소돼요. 뮤직스퀘어는 서비스 제공·운영·보안 외 목적으로 데이터를 열람·분석·보관하지 않아요.</span>',
+      '<span data-legal-pro-storage>PRO 방 운영에 필요한 세션·멤버·재생목록·재생·업로드 상태는 Cloudflare에 저장돼요. 재생목록 원본 파일은 Cloudflare 비공개 저장소에 보관되며, 방 참여자만 짧게 유효한 주소로 내려받을 수 있어요. 파일은 방 관리자가 재생목록에서 삭제하거나 운영자가 방 데이터를 삭제하면 말소돼요. MUSIXQUARE는 서비스 제공·운영·보안 외 목적으로 데이터를 열람·분석·보관하지 않아요.</span>',
     );
     expect(en['legal.content_html']).toContain(
       '<span data-legal-standard-storage>On the same network, most session content goes directly between devices. The signaling server only briefly processes room operation, authentication and reconnection data; some remote or large-session data goes via Cloudflare. Remote files are held for up to 24 hours in private Cloudflare storage; only room participants get temporary download access. MUSIXQUARE accesses, analyzes, or retains data only to provide, run, and secure the service.</span>',

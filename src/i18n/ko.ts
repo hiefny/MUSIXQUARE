@@ -7,7 +7,7 @@
 
 const ko = {
   // ─── App identity ───────────────────────────────────────────────
-  'app.search_title': 'MUSIXQUARE · 뮤직스퀘어',
+  'app.search_title': 'MUSIXQUARE',
   'app.search_description':
     '스마트폰, 태블릿, PC를 연결해 하나의 동기화된 무선 오디오 시스템을 만들어 보세요. 음악·YouTube·시스템 오디오를 설치 없이 브라우저에서 함께 재생할 수 있습니다.',
 
@@ -65,7 +65,7 @@ const ko = {
   'account.logout': '로그아웃',
   'account.delete_account': '계정 삭제',
   'account.nickname_title': '닉네임 설정',
-  'account.nickname_message': '뮤직스퀘어에서 사용할 닉네임을 정해주세요.',
+  'account.nickname_message': 'MUSIXQUARE에서 사용할 닉네임을 정해주세요.',
   'account.nickname_placeholder': '닉네임',
   'account.nickname_hint': '12자 이내로 입력해 주세요.',
   'account.nickname_required': '닉네임을 입력해 주세요.',
@@ -775,7 +775,7 @@ const ko = {
 
   // ─── HTML Blocks (used with data-i18n-html) ────────────────────
   'help.install_app_html':
-    '뮤직스퀘어가 마음에 든다면 앱처럼 설치할 수 있어요.<ul class="help-list"><li><strong>iOS:</strong> 공유 → 홈 화면에 추가</li><li><strong>Android:</strong> 메뉴 → 앱 설치</li><li><strong>Windows:</strong> 주소창 설치 아이콘</li><li><strong>macOS:</strong> 공유 → Dock에 추가</li></ul>',
+    'MUSIXQUARE가 마음에 든다면 앱처럼 설치할 수 있어요.<ul class="help-list"><li><strong>iOS:</strong> 공유 → 홈 화면에 추가</li><li><strong>Android:</strong> 메뉴 → 앱 설치</li><li><strong>Windows:</strong> 주소창 설치 아이콘</li><li><strong>macOS:</strong> 공유 → Dock에 추가</li></ul>',
   'help.local_recommended_html':
     '같은 네트워크에서 오디오 공유가 가장 안정적이에요.<ul class="help-list"><li>원격 참여자도 모든 기능을 동일하게 이용할 수 있어요.</li><li>원격 참여자는 Cloudflare 경로를 사용하며 네트워크 상태에 따라 지연이 늘어나거나 수신이 안 될 수 있어요.</li><li>VPN/보안망이 켜져 있으면 연결이 불안정할 수 있어요.</li></ul>',
   'setup.how_to_connect_html':
@@ -841,7 +841,7 @@ const ko = {
   // ─── Legal ────────────────────────────────────────────────────────
   'legal.title': '서비스 이용 안내',
   'legal.content_html':
-    '<strong>개인정보 처리방침</strong><br><span data-legal-standard-storage>같은 네트워크에서는 세션 콘텐츠 대부분이 기기끼리 직접 전송돼요. 시그널링 서버는 방 운영·인증·재연결 정보만 잠시 처리하고, 원격·대규모 세션 일부 데이터는 Cloudflare를 거쳐요. 원격 파일은 Cloudflare 비공개 저장소에 최대 24시간 임시 보관되어 방 참여자에게만 한시적 다운로드가 허용돼요. 뮤직스퀘어는 서비스 제공·운영·보안 외 목적으로 데이터를 열람·분석·보관하지 않아요.</span><span data-legal-pro-storage>PRO 방 운영에 필요한 세션·멤버·재생목록·재생·업로드 상태는 Cloudflare에 저장돼요. 재생목록 원본 파일은 Cloudflare 비공개 저장소에 보관되며, 방 참여자만 짧게 유효한 주소로 내려받을 수 있어요. 파일은 방 관리자가 재생목록에서 삭제하거나 운영자가 방 데이터를 삭제하면 말소돼요. 뮤직스퀘어는 서비스 제공·운영·보안 외 목적으로 데이터를 열람·분석·보관하지 않아요.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>저작권 관련 유의사항</strong><br>뮤직스퀘어를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요. YouTube 공유는 공식 재생 방식을 사용하며, 조회 및 권리 처리는 해당 서비스의 정책과 권리자 설정을 따르게 되어있어요. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>면책 조항</strong><br>뮤직스퀘어는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube나 Cloudflare 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 실시간 오디오 동기화와 원격 공유 품질은 네트워크 환경, 브라우저 정책, 기기 성능에 따라 크게 달라질 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
+    '<strong>개인정보 처리방침</strong><br><span data-legal-standard-storage>같은 네트워크에서는 세션 콘텐츠 대부분이 기기끼리 직접 전송돼요. 시그널링 서버는 방 운영·인증·재연결 정보만 잠시 처리하고, 원격·대규모 세션 일부 데이터는 Cloudflare를 거쳐요. 원격 파일은 Cloudflare 비공개 저장소에 최대 24시간 임시 보관되어 방 참여자에게만 한시적 다운로드가 허용돼요. MUSIXQUARE는 서비스 제공·운영·보안 외 목적으로 데이터를 열람·분석·보관하지 않아요.</span><span data-legal-pro-storage>PRO 방 운영에 필요한 세션·멤버·재생목록·재생·업로드 상태는 Cloudflare에 저장돼요. 재생목록 원본 파일은 Cloudflare 비공개 저장소에 보관되며, 방 참여자만 짧게 유효한 주소로 내려받을 수 있어요. 파일은 방 관리자가 재생목록에서 삭제하거나 운영자가 방 데이터를 삭제하면 말소돼요. MUSIXQUARE는 서비스 제공·운영·보안 외 목적으로 데이터를 열람·분석·보관하지 않아요.</span> <a href="/privacy" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>저작권 관련 유의사항</strong><br>MUSIXQUARE를 통해 공유되는 음악, 영상 등의 콘텐츠에 대한 저작권은 해당 권리자에게 있어요. 시스템 오디오 공유 및 파일 공유 기능은 개인적인 이용을 위한 것이며, 저작권이 있는 콘텐츠의 무단 배포 및 공개 송신에 대한 책임은 사용자에게 있어요. YouTube 공유는 공식 재생 방식을 사용하며, 조회 및 권리 처리는 해당 서비스의 정책과 권리자 설정을 따르게 되어있어요. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>면책 조항</strong><br>MUSIXQUARE는 무료로 제공되고 있어요. 다만 일부 기능이 YouTube나 Cloudflare 등 외부 서비스에 의존하며, 해당 서비스의 변경이나 중단으로 인한 일시적인 기능 제한이 발생할 수 있어요. 실시간 오디오 동기화와 원격 공유 품질은 네트워크 환경, 브라우저 정책, 기기 성능에 따라 크게 달라질 수 있어요. 또한 모바일 데이터 환경에서 사용 시 데이터 요금이 발생할 수 있어요. <a href="/terms" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">자세히 보기</a><br><br><strong>© 2026 MUSIXQUARE</strong><br><a href="/about" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">About</a> · <a href="/history" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">History</a> · <a href="/designsystem" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Design System</a> · <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">GitHub</a> · <a href="https://discord.gg/PmmFhGTBsX" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:underline">Discord</a><br><a href="mailto:contact@musixquare.com" data-copy-email="contact@musixquare.com" style="color:inherit;text-decoration:none">contact@musixquare.com</a>',
 } as const;
 
 export default ko;

@@ -509,8 +509,9 @@ describe('strict TypeScript classic browser runtimes', () => {
 
   it('preserves explicit and stored locale intent across editorial and app links', async () => {
     const { code } = await compiledAsset('editorial-pages.js');
-    const markup = `<!doctype html><html><body>
+    const markup = `<!doctype html><html><body data-soro-view="article">
       <header><a class="lp-try" href="https://musixquare.com">Open app</a></header>
+      <a class="lp-logo" href="https://musixquare.com">MUSIXQUARE</a>
       <nav>
         <a class="editorial-site-tab" href="/about">About</a>
         <a class="editorial-site-tab" href="/blog">Blog</a>
@@ -544,6 +545,9 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(explicit.window.document.querySelector<HTMLAnchorElement>('footer a')?.pathname).toBe(
       '/ko/',
     );
+    expect(explicit.window.document.querySelector<HTMLAnchorElement>('.lp-logo')?.pathname).toBe(
+      '/ko/',
+    );
     explicit.window.close();
 
     const stored = new JSDOM(markup, {
@@ -563,6 +567,23 @@ describe('strict TypeScript classic browser runtimes', () => {
       '/ja/',
     );
     stored.window.close();
+
+    const english = new JSDOM(markup, {
+      runScripts: 'outside-only',
+      url: 'https://musixquare.com/blog',
+    });
+    english.window.localStorage.setItem('musixquare-lang', 'en');
+    english.window.eval(code);
+    english.window.document.dispatchEvent(new english.window.Event('DOMContentLoaded'));
+
+    expect(english.window.document.querySelector<HTMLAnchorElement>('.lp-try')?.pathname).toBe('/');
+    expect(english.window.document.querySelector<HTMLAnchorElement>('footer a')?.pathname).toBe(
+      '/',
+    );
+    expect(english.window.document.querySelector<HTMLAnchorElement>('.lp-logo')?.pathname).toBe(
+      '/',
+    );
+    english.window.close();
   });
 
   it('runs the deferred event runtime from compiled output against the parsed event document', async () => {

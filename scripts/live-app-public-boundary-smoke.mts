@@ -88,14 +88,14 @@ const LOCALIZED_SEO_EXPECTATIONS = [
   {
     path: '/ko/',
     lang: 'ko',
-    title: 'MUSIXQUARE · 뮤직스퀘어',
+    title: 'MUSIXQUARE',
     canonical: 'https://musixquare.com/ko/',
     page: 'app',
   },
   {
     path: '/ja/',
     lang: 'ja',
-    title: 'MUSIXQUARE · ミュージックスクエア',
+    title: 'MUSIXQUARE',
     canonical: 'https://musixquare.com/ja/',
     page: 'app',
   },

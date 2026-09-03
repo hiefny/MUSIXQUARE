@@ -194,8 +194,9 @@ One remote whole-file upload attempt roughly means:
   `*.tossmini.com`, `*.toss.im`, or `*.toss-internal.com`: those ranges include
   unrelated Toss apps. The live write smoke proves only `https://musixquare.com`,
   so exercise both intended Toss origins during the corresponding WebView QA.
-- The app Worker CSP allows direct R2 upload connections through
-  `https://*.r2.cloudflarestorage.com`.
+- The app Worker CSP allows direct R2 upload connections only through the
+  production account endpoint
+  `https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com`.
 
 ## Upgrade Signals
 

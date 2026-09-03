@@ -708,6 +708,13 @@ describe('Cloudflare app worker scheduled maintenance', () => {
   <content:encoded><![CDATA[<p>Scheduled body</p>]]></content:encoded>
 </item></channel></rss>`;
 
+  function rssWithImage(imageSource: string) {
+    return rss.replace(
+      '<content:encoded>',
+      `<enclosure url="${imageSource}" type="image/webp" /><content:encoded>`,
+    );
+  }
+
   function createScheduledEnv(run: () => Promise<unknown>) {
     const store = new Map<string, string>();
     const backup = {
@@ -880,12 +887,115 @@ describe('Cloudflare app worker scheduled maintenance', () => {
     expect(backup.put).not.toHaveBeenCalledWith('soro-rss-latest-good.xml', expect.anything());
   });
 
+  it('mirrors an image from the exact Soro CDN allowlist without enabling redirects', async () => {
+    const imageSource =
+      'https://afocirmbqdxnkyescnev.supabase.co/storage/v1/object/public/featured-images/471fc1df-5c50-4740-9d7e-f7d8e15581ec/normal.webp';
+    const imageBytes = new Uint8Array([1, 2, 3]);
+    const fetchMock = vi.fn(async (resource: RequestInfo | URL) => {
+      if (String(resource) === imageSource) {
+        return new Response(imageBytes, { headers: { 'Content-Type': 'image/webp' } });
+      }
+      return new Response(rssWithImage(imageSource), {
+        headers: { 'Content-Type': 'application/rss+xml' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const imagePut = vi.fn(async () => undefined);
+    const { env } = createScheduledEnv(vi.fn(async () => ({ success: true })));
+    Object.assign(env, {
+      SORO_IMAGE_BUCKET: {
+        head: vi.fn(async () => null),
+        put: imagePut,
+      },
+    });
+
+    const { pending } = await runScheduled(env);
+    await expect(Promise.all(pending)).resolves.toHaveLength(3);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      imageSource,
+      expect.objectContaining({ redirect: 'error', signal: expect.any(AbortSignal) }),
+    );
+    expect(imagePut).toHaveBeenCalledWith(
+      'featured/scheduled-article.webp',
+      imageBytes,
+      expect.objectContaining({
+        customMetadata: expect.objectContaining({ sourceUrl: imageSource }),
+      }),
+    );
+  });
+
+  it.each([
+    ['an arbitrary public host', 'https://images.attacker.example/scheduled-article.webp'],
+    [
+      'credentials',
+      'https://user:password@afocirmbqdxnkyescnev.supabase.co/scheduled-article.webp',
+    ],
+    ['a nonstandard port', 'https://afocirmbqdxnkyescnev.supabase.co:8443/scheduled-article.webp'],
+  ])('rejects a Soro image URL containing %s before fetching it', async (_case, imageSource) => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(rssWithImage(imageSource), {
+          headers: { 'Content-Type': 'application/rss+xml' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const imageHead = vi.fn(async () => null);
+    const imagePut = vi.fn(async () => undefined);
+    const { env } = createScheduledEnv(vi.fn(async () => ({ success: true })));
+    Object.assign(env, {
+      SORO_IMAGE_BUCKET: {
+        head: imageHead,
+        put: imagePut,
+      },
+    });
+
+    const { pending } = await runScheduled(env);
+    await expect(Promise.all(pending)).resolves.toHaveLength(3);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(imageHead).not.toHaveBeenCalled();
+    expect(imagePut).not.toHaveBeenCalled();
+  });
+
+  it('rejects redirects from an allowed Soro image origin to an arbitrary target', async () => {
+    const imageSource = 'https://app.trysoro.com/images/scheduled-article.webp';
+    const redirectTarget = 'https://images.attacker.example/redirected.webp';
+    const fetchMock = vi.fn(async (resource: RequestInfo | URL) => {
+      if (String(resource) === imageSource) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: redirectTarget },
+        });
+      }
+      return new Response(rssWithImage(imageSource), {
+        headers: { 'Content-Type': 'application/rss+xml' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const imagePut = vi.fn(async () => undefined);
+    const { env } = createScheduledEnv(vi.fn(async () => ({ success: true })));
+    Object.assign(env, {
+      SORO_IMAGE_BUCKET: {
+        head: vi.fn(async () => null),
+        put: imagePut,
+      },
+    });
+
+    const { pending } = await runScheduled(env);
+    await expect(Promise.all(pending)).resolves.toHaveLength(3);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      imageSource,
+      expect.objectContaining({ redirect: 'error' }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith(redirectTarget, expect.anything());
+    expect(imagePut).not.toHaveBeenCalled();
+  });
+
   it('cancels a chunked oversized image before reading the remaining body', async () => {
     const imageSource = 'https://app.trysoro.com/images/scheduled-article.webp';
-    const rssWithImage = rss.replace(
-      '<content:encoded>',
-      `<enclosure url="${imageSource}" type="image/webp" /><content:encoded>`,
-    );
+    const oversizedRss = rssWithImage(imageSource);
     const imageChunk = new Uint8Array(1024 * 1024);
     let imagePulls = 0;
     let imageCancelled = false;
@@ -893,7 +1003,7 @@ describe('Cloudflare app worker scheduled maintenance', () => {
       'fetch',
       vi.fn(async (resource: RequestInfo | URL) => {
         if (String(resource) !== imageSource) {
-          return new Response(rssWithImage, {
+          return new Response(oversizedRss, {
             headers: { 'Content-Type': 'application/rss+xml' },
           });
         }
@@ -1105,6 +1215,41 @@ describe('Cloudflare app worker WebAssembly CSP', () => {
     expect(workerSrc).toEqual(['worker-src', "'self'", 'blob:']);
     expect(response.headers.get('Cross-Origin-Opener-Policy')).toBeNull();
     expect(response.headers.get('Cross-Origin-Embedder-Policy')).toBeNull();
+  });
+
+  it('pins image and connection destinations to the production host inventory', async () => {
+    const response = await appWorker.fetch(
+      new Request('https://musixquare.com/api/security-config'),
+      {},
+    );
+    const csp = response.headers.get('Content-Security-Policy') || '';
+
+    expect(directive(csp, 'img-src')).toEqual([
+      'img-src',
+      "'self'",
+      'data:',
+      'blob:',
+      'https://img.youtube.com',
+      'https://i.ytimg.com',
+      'https://app.trysoro.com',
+      'https://afocirmbqdxnkyescnev.supabase.co',
+    ]);
+    expect(directive(csp, 'connect-src')).toEqual([
+      'connect-src',
+      "'self'",
+      'blob:',
+      'https://www.youtube.com',
+      'https://musixquare.com',
+      'https://demo.musixquare.com',
+      'https://share.musixquare.com',
+      'https://signal.musixquare.com',
+      'https://signal-alt.musixquare.com',
+      'wss://signal.musixquare.com',
+      'wss://signal-alt.musixquare.com',
+      'https://01353882e4eea3a5acaa0c45e8336af4.r2.cloudflarestorage.com',
+      'https://challenges.cloudflare.com',
+      'https://cloudflareinsights.com',
+    ]);
   });
 
   it('keeps Worker and Static Assets CSPs identical with form and framing restrictions', async () => {
@@ -6221,11 +6366,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.60');
-    expect(html).toContain('/clearable-editors.js?v=8.4.60');
-    expect(html).toContain('/admin.js?v=8.4.60');
+    expect(html).toContain('/admin.css?v=8.4.61');
+    expect(html).toContain('/clearable-editors.js?v=8.4.61');
+    expect(html).toContain('/admin.js?v=8.4.61');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.60"');
+    expect(html).toContain('data-admin-asset-version="8.4.61"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6246,9 +6391,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.60',
-      '/admin.css?v=8.4.60',
-      '/clearable-editors.js?v=8.4.60',
+      '/admin.js?v=8.4.61',
+      '/admin.css?v=8.4.61',
+      '/clearable-editors.js?v=8.4.61',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);

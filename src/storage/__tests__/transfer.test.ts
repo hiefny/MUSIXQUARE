@@ -603,6 +603,69 @@ describe('host active-file lane arbitration', () => {
     return conn;
   }
 
+  it('finishes a healthy peer before a stalled sibling and fences duplicate bootstrap', async () => {
+    vi.useFakeTimers();
+    try {
+      const { broadcastFile, unicastFile, cancelOutgoingFileTransfers } =
+        await import('../transfer.ts');
+      cancelOutgoingFileTransfers();
+      const healthy = installLanePeer('independent-healthy');
+      const stalled = installLanePeer('independent-stalled');
+      Object.assign(stalled, {
+        dataChannel: { readyState: 'open', bufferedAmount: 10 * 1024 * 1024 },
+      });
+      setState('network.connectedPeers', [
+        connectedPeer(healthy.peer, healthy),
+        connectedPeer(stalled.peer, stalled, { joinOrder: 2 }),
+      ]);
+      setState(
+        'network.activeHostConnByPeerId',
+        new Map([
+          [healthy.peer, healthy],
+          [stalled.peer, stalled],
+        ]),
+      );
+      const file = new File([new Uint8Array(CHUNK_SIZE * 2 + 1)], 'independent.mp3', {
+        type: 'audio/mpeg',
+      });
+      publishHostFile(file, Q0, 81);
+
+      const broadcast = broadcastFile(file, Q0, 81);
+      await vi.advanceTimersByTimeAsync(100);
+      const healthyMessages = () =>
+        vi.mocked(healthy.send).mock.calls.map(([message]) => message as Record<string, unknown>);
+      expect(
+        healthyMessages()
+          .filter((message) => message.type === MSG.FILE_CHUNK)
+          .map((message) => message.chunkIndex),
+      ).toEqual([0, 1, 2]);
+      expect(healthyMessages().filter((message) => message.type === MSG.FILE_END)).toHaveLength(1);
+      expect(stalled.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_CHUNK }),
+      );
+      expect(stalled.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_END }),
+      );
+      expect(getState('transfer.activeBroadcastSession')).toBe(81);
+
+      await unicastFile(healthy, file, 0, 81, { queueItemId: Q0, purpose: 'bootstrap' });
+      expect(healthyMessages().filter((message) => message.type === MSG.FILE_START)).toHaveLength(
+        1,
+      );
+      expect(healthyMessages().filter((message) => message.type === MSG.FILE_END)).toHaveLength(1);
+
+      cancelOutgoingFileTransfers();
+      await vi.advanceTimersByTimeAsync(100);
+      await broadcast;
+      expect(stalled.send).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: MSG.FILE_END }),
+      );
+      expect(getState('transfer.activeBroadcastSession')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('joins a bootstrap unicast to an in-flight exact broadcast', async () => {
     const { broadcastFile, unicastFile, cancelOutgoingFileTransfers } =
       await import('../transfer.ts');

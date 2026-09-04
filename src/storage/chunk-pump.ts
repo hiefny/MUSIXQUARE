@@ -10,10 +10,10 @@
  *     imports setState and its pump body reads nothing from state. The
  *     supersession/abort predicate (shouldContinue) and peer-health check
  *     (isWritable) are caller-supplied. State writes stay in the wrappers.
- *   - Callbacks must be TOTAL (never throw): every send goes through
- *     safeSend and every per-peer exit path is a plain return, so the
- *     per-chunk Promise.all can never reject — a rejection would abort
- *     sibling peers' sends mid-chunk and bubble into wrapper catch paths.
+ *   - Each peer owns a sequential read/send loop and at most one prepared
+ *     chunk. No shared backlog grows when one receiver falls behind.
+ *   - Callbacks must be TOTAL (never throw). A source failure stops all
+ *     unfinished peers; every loop settles before wrapper cleanup runs.
  *   - Unicast paths remain separate because they terminate on one peer's
  *     timeout and carry resume or per-peer cancellation semantics.
  */
@@ -65,7 +65,7 @@ export function isBulkTransferWritablePeer(peer: ConnectedPeer): boolean {
 // ─── Pump Engine ─────────────────────────────────────────────────────
 
 interface ChunkPumpOptions {
-  /** Source file/blob, sliced lazily one chunk at a time. */
+  /** Source file/blob, sliced lazily one chunk at a time per peer. */
   file: File | Blob;
   /** Chunk size in bytes (CHUNK_SIZE for all current callers). */
   chunkSize: number;
@@ -83,8 +83,8 @@ interface ChunkPumpOptions {
    */
   isWritable: (peer: ConnectedPeer) => boolean;
   /**
-   * Supersession/abort predicate, evaluated once at each chunk boundary.
-   * Per-peer waits do not re-check it. Must not throw.
+   * Pure supersession/abort predicate, rechecked around reads and waits.
+   * Once false, the entire pump stops. Must not throw.
    */
   shouldContinue: () => boolean;
   /**
@@ -94,10 +94,11 @@ interface ChunkPumpOptions {
    */
   onPeerExcluded?: (peer: ConnectedPeer) => void;
   /**
-   * Fired after every active peer has either accepted or been excluded from
-   * one prepared chunk. Unicast producers use this for sender-side progress
-   * without maintaining a second, subtly different backpressure loop.
+   * Fired once when this peer has accepted every chunk, without waiting for
+   * other peers. Wrappers send their END frame here. Must not throw.
    */
+  onPeerComplete?: (peer: ConnectedPeer) => void;
+  /** Ordered aggregate progress after all remaining peers accept a chunk. */
   onChunkComplete?: (index: number, byteLength: number) => void;
 }
 
@@ -112,15 +113,14 @@ interface ChunkPumpResult {
 }
 
 /**
- * Stream a file's chunks to many peers in lockstep with PER-PEER flow
- * control: each peer waits on its OWN dataChannel.bufferedAmount only, so a
- * slow peer neither stalls healthy peers nor keeps receiving chunks onto a
- * non-draining channel — it is excluded after stallTimeoutMs and skipped for
- * all remaining chunks (chunk holes would force a full recovery re-transfer,
- * so exclusion is one-way).
+ * Stream independently to each peer, preserving that peer's chunk order.
+ * Backpressure is checked before reading the next slice, so a blocked peer
+ * retains no prepared backlog and cannot delay another peer's completion.
+ * Exclusion is one-way: a stalled peer needs recovery for its missing suffix.
  *
- * May reject only if file.slice().arrayBuffer() rejects (backing storage
- * gone). Deliberately propagated: wrapper catch/finally paths own cleanup.
+ * Source errors propagate only after every peer loop has settled. Pending
+ * reads cannot be cancelled, but their bytes are discarded after failure or
+ * supersession, before any further send or completion callback.
  */
 export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPumpResult> {
   const {
@@ -133,83 +133,94 @@ export async function pumpChunksToPeers(opts: ChunkPumpOptions): Promise<ChunkPu
     isWritable,
     shouldContinue,
     onPeerExcluded,
+    onPeerComplete,
     onChunkComplete,
   } = opts;
 
   const total = Math.ceil(file.size / chunkSize);
   const excluded = new Set<string>();
+  let stopped = false;
+  let failed = false;
+  let failure: unknown;
+  const nextChunks = peers.map(() => 0);
+  let sentThrough = 0;
+  let reportedThrough = 0;
+
+  const reportProgress = (): void => {
+    if (!onChunkComplete) return;
+    const through = Math.min(sentThrough, ...nextChunks);
+    while (reportedThrough < through) {
+      const index = reportedThrough++;
+      onChunkComplete(index, Math.min(chunkSize, file.size - index * chunkSize));
+    }
+  };
+
+  const canContinue = (): boolean => {
+    if (failed || stopped) return false;
+    if (!shouldContinue()) stopped = true;
+    return !stopped;
+  };
 
   // Exclusion is one-way and fires the callback exactly once per peer.
-  const exclude = (p: ConnectedPeer): void => {
+  const exclude = (p: ConnectedPeer, peerIndex: number): void => {
     if (excluded.has(p.id)) return;
     excluded.add(p.id);
     onPeerExcluded?.(p);
+    nextChunks[peerIndex] = total;
+    reportProgress();
   };
 
-  for (let i = 0; i < total; i++) {
-    if (!shouldContinue()) return { status: 'stopped', excluded };
-
-    // All peers excluded (or none to begin with) — nothing left to stream
-    // to. Early break, but still 'complete' (see ChunkPumpResult docs).
-    if (excluded.size >= peers.length) break;
-
-    const start = i * chunkSize;
-    const end = Math.min(start + chunkSize, file.size);
-    const chunkBuf = await file.slice(start, end).arrayBuffer();
-    const chunk = new Uint8Array(chunkBuf);
-    const chunkMsg = buildChunkMsg(chunk, i);
-
-    // Send to all peers concurrently — backpressure is PER-PEER, never
-    // global. Callbacks are total (plain returns + safeSend), so this
-    // Promise.all can never reject.
-    await Promise.all(
-      peers.map(async (p) => {
-        if (excluded.has(p.id)) return;
-        if (!isWritable(p)) {
-          exclude(p);
-          return;
-        }
+  await Promise.all(
+    peers.map(async (p, peerIndex) => {
+      try {
         const conn = p.conn;
-        if (!conn) {
-          // isWritable implementations check conn; defensive for laxer params.
-          exclude(p);
-          return;
-        }
-        const waitStart = Date.now();
-        while (conn.dataChannel && conn.dataChannel.bufferedAmount > bufferedLimit) {
-          if (!isWritable(p)) {
-            exclude(p);
-            return;
+        const canSend = (): boolean => {
+          if (!canContinue()) return false;
+          if (conn && p.conn === conn && isWritable(p)) return true;
+          exclude(p, peerIndex);
+          return false;
+        };
+        if (!canSend() || !conn) return;
+
+        for (let i = 0; i < total; i++) {
+          if (!canSend()) return;
+          const waitStart = Date.now();
+          while (conn.dataChannel && conn.dataChannel.bufferedAmount > bufferedLimit) {
+            if (!canSend()) return;
+            if (Date.now() - waitStart > stallTimeoutMs) {
+              log.warn(
+                `[ChunkPump] Backpressure timeout for peer ${p.label || p.id}. Excluding from remaining stream`,
+              );
+              exclude(p, peerIndex);
+              return;
+            }
+            // Unmanaged delay: concurrent peers must not replace one another's timer.
+            await delay(DELAY.BACKPRESSURE);
           }
-          if (Date.now() - waitStart > stallTimeoutMs) {
-            log.warn(
-              `[ChunkPump] Backpressure timeout for peer ${p.label || p.id}. Excluding from remaining stream`,
-            );
-            exclude(p);
-            return;
-          }
-          // delay() is a plain unmanaged setTimeout promise — safe for
-          // concurrent per-peer waits. Do NOT replace with a name-keyed
-          // managed timer: concurrent waits would cancel each other.
-          await delay(DELAY.BACKPRESSURE);
+          if (!canSend()) return;
+          const start = i * chunkSize;
+          const chunkBuf = await file
+            .slice(start, Math.min(start + chunkSize, file.size))
+            .arrayBuffer();
+          if (!canSend()) return;
+          safeSend(conn, buildChunkMsg(new Uint8Array(chunkBuf), i));
+          nextChunks[peerIndex] = i + 1;
+          sentThrough = Math.max(sentThrough, i + 1);
+          reportProgress();
+
+          // Each peer yields independently, including when Blob reads resolve immediately.
+          if (i % 50 === 0) await delay(DELAY.TICK);
         }
-        // Ownership/connection health may change during the final
-        // backpressure await just as bufferedAmount falls below the limit.
-        // Recheck before the send so a superseded lane cannot leak one stale
-        // chunk after a recovery header has taken ownership.
-        if (!isWritable(p)) {
-          exclude(p);
-          return;
+        if (canSend()) onPeerComplete?.(p);
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          failure = error;
         }
-        safeSend(conn, chunkMsg);
-      }),
-    );
+      }
+    }),
+  );
 
-    onChunkComplete?.(i, chunk.byteLength);
-
-    // Yield periodically so chunk preparation does not monopolize the thread.
-    if (i % 50 === 0) await delay(DELAY.TICK);
-  }
-
-  return { status: 'complete', excluded };
+  if (failed) throw failure;
+  return { status: stopped ? 'stopped' : 'complete', excluded };
 }

@@ -212,13 +212,14 @@ interface BackgroundTransferOwner {
   readonly scope: SessionScope;
   readonly targets: readonly ConnectedPeer[];
   readonly abortedPeerIds: Set<string>;
+  readonly completedPeerIds: Set<string>;
   terminal: BackgroundTransferTerminal;
 }
 
 let _inFlightBackgroundOwner: BackgroundTransferOwner | null = null;
 
 function abortBackgroundPeer(owner: BackgroundTransferOwner, peer: ConnectedPeer): void {
-  if (owner.abortedPeerIds.has(peer.id)) return;
+  if (owner.abortedPeerIds.has(peer.id) || owner.completedPeerIds.has(peer.id)) return;
   owner.abortedPeerIds.add(peer.id);
   safeSend(peer.conn, {
     type: MSG.PRELOAD_ABORT,
@@ -231,8 +232,8 @@ function cancelInFlightBackgroundTransfer(): void {
   const owner = _inFlightBackgroundOwner;
   if (!owner || owner.terminal !== 'streaming') return;
 
-  // Claim the terminal transition before sending anything. END and ABORT can
-  // therefore never both win for the same outbound transfer.
+  // Claim cancellation before sending anything. Peers that already received
+  // END retain their completed preload while unfinished peers release theirs.
   owner.terminal = 'cancelled';
   owner.targets.forEach((peer) => abortBackgroundPeer(owner, peer));
   owner.scope.dispose();
@@ -954,10 +955,32 @@ async function backgroundTransfer(
     scope,
     targets,
     abortedPeerIds: new Set(),
+    completedPeerIds: new Set(),
     terminal: 'streaming',
   };
   _preloadScope = scope;
   _inFlightBackgroundOwner = owner;
+
+  const canContinue = (): boolean =>
+    _inFlightBackgroundOwner === owner && owner.terminal === 'streaming' && !scope.aborted;
+  const completePeer = (peer: ConnectedPeer): void => {
+    if (
+      !canContinue() ||
+      owner.abortedPeerIds.has(peer.id) ||
+      owner.completedPeerIds.has(peer.id)
+    ) {
+      return;
+    }
+    // Record the peer's terminal state before publishing END. A later peer's
+    // read failure or explicit cancellation must not retract this completion.
+    owner.completedPeerIds.add(peer.id);
+    safeSend(peer.conn, {
+      type: MSG.PRELOAD_END,
+      name: owner.sourceBlob.name,
+      queueItemId: owner.queueItemId,
+      sessionId: owner.sessionId,
+    });
+  };
 
   try {
     const targetsWhoNeedChunks = targets.filter((p) => {
@@ -972,8 +995,16 @@ async function backgroundTransfer(
       safeSend(conn, { ...header, skipped: !needsChunks });
     });
 
+    // Already-preloaded peers need no bytes and can settle immediately. Keep
+    // their END independent of congestion affecting the remaining audience.
+    targets.forEach((peer) => {
+      if (targetsWhoNeedChunks.includes(peer) || !canContinue()) return;
+      if (isBulkTransferWritablePeer(peer)) completePeer(peer);
+      else abortBackgroundPeer(owner, peer);
+    });
+
     // Per-peer backpressure prevents one stalled guest from blocking the room.
-    const { status, excluded } = await pumpChunksToPeers({
+    const { status } = await pumpChunksToPeers({
       file: owner.sourceBlob,
       chunkSize: CHUNK,
       peers: targetsWhoNeedChunks,
@@ -987,17 +1018,15 @@ async function backgroundTransfer(
       bufferedLimit: PRELOAD_BROADCAST_BACKPRESSURE_LIMIT,
       stallTimeoutMs: PRELOAD_BROADCAST_BACKPRESSURE_TIMEOUT,
       isWritable: isBulkTransferWritablePeer,
-      shouldContinue: () =>
-        _inFlightBackgroundOwner === owner &&
-        owner.terminal === 'streaming' &&
-        !owner.scope.aborted,
+      shouldContinue: canContinue,
       // Tear down only the excluded peer. PRELOAD_ABORT uses the control channel,
       // and the normal AWAITING_PRELOAD watchdog owns any later recovery.
       onPeerExcluded: (p) => abortBackgroundPeer(owner, p),
+      onPeerComplete: completePeer,
     });
 
     // Cancelled/superseded mid-pump: no fanout, no state writes.
-    // cancelPreloadTransfer already broadcast PRELOAD_ABORT to all targets,
+    // cancelPreloadTransfer already sent PRELOAD_ABORT to unfinished targets,
     // and preloadNextTrack's finally owns preload.isPreloading.
     if (
       status === 'stopped' ||
@@ -1007,24 +1036,9 @@ async function backgroundTransfer(
       return;
     }
 
-    // Claim completion before sending END so an explicit cancellation cannot
-    // also emit ABORT for this same owner.
+    // Individual peers have already received END or ABORT. Settle the owner
+    // only after all lanes exit so the serialized successor keeps its boundary.
     owner.terminal = 'completed';
-    const endMsg = {
-      type: MSG.PRELOAD_END,
-      name: owner.sourceBlob.name,
-      queueItemId: owner.queueItemId,
-      sessionId: owner.sessionId,
-    };
-    // END audience: all targets — INCLUDING skipped-flag peers, whose
-    // handler no-ops on it — MINUS excluded peers. Excluded peers got a
-    // targeted PRELOAD_ABORT instead; sending them END too would arm
-    // handlePreloadEnd's 10s deferred-END timer churn on the guest.
-    targets.forEach((p) => {
-      if (excluded.has(p.id)) return;
-      const conn = p.conn as DataConnection;
-      if (conn?.open) safeSend(conn, endMsg);
-    });
     log.debug('[Preload] Complete for queue item:', owner.queueItemId);
   } catch (error) {
     // A source read failure after PRELOAD_START must terminate the exact

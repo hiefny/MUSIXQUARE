@@ -912,7 +912,7 @@ describe('preloadNextTrack shuffle target (SA-01)', () => {
 // nor keep receiving chunks after timing out — it gets a targeted
 // PRELOAD_ABORT and the session stays alive for everyone else.
 
-/** Two chunks so post-exclusion streaming to survivors is observable. */
+/** Two chunks so progress beyond a stalled peer's first chunk is observable. */
 function makeChunkyFileTrack(name: string, queueItemId = nextQueueItemId()): PlaylistItem {
   return {
     queueItemId,
@@ -999,18 +999,24 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
     connectBulkPeers([healthyConn, frozenConn]);
 
     schedulePreload(0);
-    // Lockstep semantics: the healthy peer's chunks beyond chunk 0 only flow
-    // AFTER the frozen peer's 30s exclusion window — assert only after the
-    // full timer advance, never timing-based.
-    await vi.advanceTimersByTimeAsync(35_000);
+    await vi.advanceTimersByTimeAsync(100);
 
     const sid = getState('preload.sessionId');
 
-    // Healthy peer: full stream — header, both chunks, END.
+    // Healthy peer reaches END while the stalled peer is still waiting for
+    // its first chunk, well before the independent 30-second exclusion limit.
     expect(msgsOf(healthyConn, MSG.PRELOAD_START)).toHaveLength(1);
-    expect(msgsOf(healthyConn, MSG.PRELOAD_CHUNK)).toHaveLength(2);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_CHUNK).map((message) => message.chunkIndex)).toEqual([
+      0, 1,
+    ]);
     expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
     expect(msgsOf(healthyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+    expect(getState('preload.isPreloading')).toBe(true);
+
+    await vi.advanceTimersByTimeAsync(35_000);
 
     // Frozen peer: header, then exactly ONE targeted ABORT for the live sid.
     // No chunks at all (the per-peer wait runs before the send, so a
@@ -1022,6 +1028,127 @@ describe('backgroundTransfer per-peer backpressure exclusion', () => {
     expect(aborts[0].sessionId).toBe(sid);
     expect(msgsOf(frozenConn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
     expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(0);
+  });
+
+  it('aborts only unfinished peers when a partly completed preload is cancelled', async () => {
+    const healthyConn = makeBulkConn('peer-healthy');
+    const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024);
+    connectBulkPeers([healthyConn, frozenConn]);
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    const sessionId = getState('preload.sessionId');
+    const queueItemId = getState('playlist.items')[1]!.queueItemId;
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
+
+    cancelPreloadTransfer();
+    (frozenConn.dataChannel as unknown as { bufferedAmount: number }).bufferedAmount = 0;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toEqual([
+      expect.objectContaining({ queueItemId, sessionId }),
+    ]);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_ABORT)).toEqual([
+      expect.objectContaining({ queueItemId, sessionId }),
+    ]);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(0);
+  });
+
+  it('settles skipped peers immediately and never aborts them after cancellation', async () => {
+    const skippedConn = makeBulkConn('peer-skipped');
+    const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024);
+    connectBulkPeers([skippedConn, frozenConn]);
+    const queueItemId = getState('playlist.items')[1]!.queueItemId;
+    setState(
+      'network.connectedPeers',
+      getState('network.connectedPeers').map((peer) =>
+        peer.id === skippedConn.peer
+          ? { ...peer, preloadedQueueItemIds: new Set([queueItemId]) }
+          : peer,
+      ),
+    );
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    const sessionId = getState('preload.sessionId');
+
+    expect(msgsOf(skippedConn, MSG.PRELOAD_START)).toEqual([
+      expect.objectContaining({ queueItemId, sessionId, skipped: true }),
+    ]);
+    expect(msgsOf(skippedConn, MSG.PRELOAD_END)).toHaveLength(1);
+    expect(msgsOf(skippedConn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(0);
+
+    cancelPreloadTransfer();
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(msgsOf(skippedConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_ABORT)).toHaveLength(1);
+  });
+
+  it('preserves a completed peer when another peer encounters a later source read failure', async () => {
+    const healthyConn = makeBulkConn('peer-healthy');
+    const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024);
+    connectBulkPeers([healthyConn, frozenConn]);
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    const sessionId = getState('preload.sessionId');
+    const target = getState('playlist.items')[1]!;
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
+
+    const failedSlice = new Blob();
+    vi.spyOn(failedSlice, 'arrayBuffer').mockRejectedValue(
+      new Error('Source storage became unavailable'),
+    );
+    vi.spyOn(target.file!, 'slice').mockReturnValue(failedSlice);
+    (frozenConn.dataChannel as unknown as { bufferedAmount: number }).bufferedAmount = 0;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toEqual([
+      expect.objectContaining({ queueItemId: target.queueItemId, sessionId }),
+    ]);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_ABORT)).toEqual([
+      expect.objectContaining({ queueItemId: target.queueItemId, sessionId }),
+    ]);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_CHUNK)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(0);
+    expect(getState('preload.isPreloading')).toBe(false);
+  });
+
+  it('preserves completed peers while a successor waits for the remaining transfer', async () => {
+    const healthyConn = makeBulkConn('peer-healthy');
+    const frozenConn = makeBulkConn('peer-frozen', 10 * 1024 * 1024);
+    connectBulkPeers([healthyConn, frozenConn]);
+    const target = getState('playlist.items')[1]!;
+    const successor = makeChunkyFileTrack('successor.mp3');
+    setState('playlist.items', [...getState('playlist.items'), successor]);
+
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    const firstSessionId = getState('preload.sessionId');
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toHaveLength(1);
+
+    setState('playlist.currentQueueItemId', target.queueItemId);
+    schedulePreload(0);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(getState('preload.sessionId')).toBe(firstSessionId);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_START)).toHaveLength(1);
+
+    (frozenConn.dataChannel as unknown as { bufferedAmount: number }).bufferedAmount = 0;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(msgsOf(healthyConn, MSG.PRELOAD_END)).toEqual([
+      expect.objectContaining({ queueItemId: target.queueItemId, sessionId: firstSessionId }),
+      expect.objectContaining({ queueItemId: successor.queueItemId }),
+    ]);
+    expect(msgsOf(healthyConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_END)).toHaveLength(2);
+    expect(msgsOf(frozenConn, MSG.PRELOAD_ABORT)).toHaveLength(0);
+    expect(getState('preload.ready')?.queueItemId).toBe(successor.queueItemId);
   });
 
   it('finishes an in-flight preload after the host promotes its cache into the current track', async () => {

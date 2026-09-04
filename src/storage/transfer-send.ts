@@ -362,7 +362,7 @@ export async function broadcastFile(
 
     // A peer excluded for backpressure receives no later chunks from this
     // stream; recovery handles its missing suffix.
-    const { excluded } = await pumpChunksToPeers({
+    await pumpChunksToPeers({
       file,
       chunkSize: CHUNK,
       peers: broadcastPeers,
@@ -394,37 +394,26 @@ export async function broadcastFile(
         const owner = ownedPeers.get(peer.id);
         if (owner) releasePeerTransfer(peer.id, owner);
       },
+      // The pump rechecks source and connection ownership before completion.
+      // Finish this receiver immediately; another peer's wait must not delay
+      // its completion frame. Retain the completed owner as the exact-bootstrap fence.
+      onPeerComplete: (peer) => {
+        const owner = ownedPeers.get(peer.id);
+        if (!owner || !ownsPeerTransfer(peer.id, owner)) return;
+        try {
+          owner.conn.send({
+            type: MSG.FILE_END,
+            name: file.name,
+            mime: file.type,
+            queueItemId,
+            sessionId,
+          });
+          owner.status = 'complete';
+        } catch {
+          /* noop */
+        }
+      },
     });
-
-    // Send end message (skip if superseded or aborted after the pump;
-    // excluded peers get no FILE_END — recovery re-requests serve them)
-    if (
-      !scope.aborted &&
-      getState('transfer.activeBroadcastSession') === sessionId &&
-      getState('playlist.currentQueueItemId') === queueItemId &&
-      getState('files.current')?.blob === file
-    ) {
-      const endMsg = {
-        type: MSG.FILE_END,
-        name: file.name,
-        mime: file.type,
-        queueItemId,
-        sessionId,
-      };
-      broadcastPeers.forEach((p) => {
-        if (excluded.has(p.id)) return;
-        const owner = ownedPeers.get(p.id);
-        if (!owner || !ownsPeerTransfer(p.id, owner)) return;
-        const conn = p.conn as DataConnection;
-        if (conn?.open)
-          try {
-            conn.send(endMsg);
-            owner.status = 'complete';
-          } catch {
-            /* noop */
-          }
-      });
-    }
   } finally {
     // Owners which did not reach FILE_END must not block an explicit retry.
     // Completed owners stay as a fence against a delayed duplicate bootstrap.

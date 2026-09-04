@@ -1,21 +1,17 @@
 /**
  * @vitest-environment jsdom
  *
- * Engine-level pins for the shared chunk pump (src/storage/chunk-pump.ts).
- * These pin the ENGINE contract that both broadcast wrappers (broadcastFile,
- * backgroundTransfer) rely on. Wrapper-observable behavior is pinned in
- * transfer.test.ts / preload.test.ts.
- *
- * Real timers + small param timeouts: stallTimeoutMs is an engine parameter,
- * so tests pass ~150-200ms instead of faking 5s/30s clocks. Assertions are
- * made strictly AFTER the pump settles — never timing-based mid-flight.
+ * Engine contracts shared by active-file and preload broadcasts. Fake clocks
+ * and explicitly controlled reads pin progress and cancellation without relying
+ * on machine speed. Wrapper-visible behavior lives in transfer/preload tests.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { pumpChunksToPeers } from '../chunk-pump.ts';
-import { MSG } from '../../core/constants.ts';
+import { DELAY, MSG } from '../../core/constants.ts';
 import type { ConnectedPeer, DataConnection, AnyProtocolMsg } from '../../types/index.ts';
 
 const QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
+const BYTES = [1, 2, 3, 4, 5];
 
 interface MockConn {
   open: boolean;
@@ -53,11 +49,26 @@ function buildMsg(chunk: Uint8Array, chunkIndex: number): AnyProtocolMsg {
   return { type: MSG.PRELOAD_CHUNK, chunk, chunkIndex, queueItemId: QUEUE_ITEM_ID, sessionId: 1 };
 }
 
-// 5 bytes / chunkSize 2 → 3 chunks
-const FILE = new Blob([new Uint8Array([1, 2, 3, 4, 5])]);
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+// Blob reads resolve on the microtask queue, independently of filesystem or
+// jsdom FileReader scheduling. Deferred overrides below model in-flight reads.
+function makeFile(bytes = BYTES) {
+  const slice = vi.fn((start = 0, end = bytes.length) => ({
+    arrayBuffer: async () => Uint8Array.from(bytes.slice(start, end)).buffer,
+  }));
+  return { file: { size: bytes.length, slice } as unknown as Blob, slice };
+}
 
 const baseOpts = {
-  file: FILE,
   chunkSize: 2,
   buildChunkMsg: buildMsg,
   bufferedLimit: 1024,
@@ -67,156 +78,449 @@ const baseOpts = {
 };
 
 const chunkCalls = (conn: MockConn) =>
-  conn.send.mock.calls.filter((c) => (c[0] as { type: string }).type === MSG.PRELOAD_CHUNK);
+  conn.send.mock.calls
+    .map(([msg]) => msg as { type: string; chunkIndex: number; chunk: Uint8Array })
+    .filter((msg) => msg.type === MSG.PRELOAD_CHUNK);
+
+function expectCompleteBytes(conn: MockConn) {
+  expect(chunkCalls(conn).map(({ chunkIndex, chunk }) => [chunkIndex, Array.from(chunk)])).toEqual([
+    [0, [1, 2]],
+    [1, [3, 4]],
+    [2, [5]],
+  ]);
+}
+
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
+
+describe('pumpChunksToPeers — independent peer progress', () => {
+  it('finishes healthy peers while a blocked peer is still waiting, without reading ahead for it', async () => {
+    const { file, slice } = makeFile();
+    const healthy = makeConn('healthy');
+    const frozen = makeConn('frozen', 10 * 1024 * 1024);
+    const onPeerComplete = vi.fn();
+    const onPeerExcluded = vi.fn();
+    let settled = false;
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('healthy', healthy), makePeer('frozen', frozen)],
+      onPeerComplete,
+      onPeerExcluded,
+    }).then((result) => {
+      settled = true;
+      return result;
+    });
+
+    await vi.advanceTimersByTimeAsync(DELAY.TICK);
+
+    expectCompleteBytes(healthy);
+    expect(chunkCalls(frozen)).toHaveLength(0);
+    expect(slice).toHaveBeenCalledTimes(3);
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id)).toEqual(['healthy']);
+    expect(onPeerExcluded).not.toHaveBeenCalled();
+    expect(settled).toBe(false);
+
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set(['frozen']) });
+    expect(onPeerExcluded.mock.calls.map(([peer]) => peer.id)).toEqual(['frozen']);
+    expect(onPeerComplete).toHaveBeenCalledTimes(1);
+    expect(chunkCalls(frozen)).toHaveLength(0);
+  });
+
+  it('preserves exact chunk order and bytes when a slower peer resumes after the healthy peer finishes', async () => {
+    const { file } = makeFile();
+    const healthy = makeConn('healthy');
+    const slow = makeConn('slow');
+    slow.send.mockImplementationOnce(() => {
+      slow.dataChannel.bufferedAmount = 2048;
+    });
+    const onPeerComplete = vi.fn();
+    const onChunkComplete = vi.fn();
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('healthy', healthy), makePeer('slow', slow)],
+      onPeerComplete,
+      onChunkComplete,
+    });
+
+    await vi.advanceTimersByTimeAsync(DELAY.TICK);
+    expectCompleteBytes(healthy);
+    expect(chunkCalls(slow)).toHaveLength(1);
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id)).toEqual(['healthy']);
+    expect(onChunkComplete.mock.calls).toEqual([[0, 2]]);
+
+    slow.dataChannel.bufferedAmount = 0;
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set() });
+    expectCompleteBytes(slow);
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id)).toEqual(['healthy', 'slow']);
+    expect(onChunkComplete.mock.calls).toEqual([
+      [0, 2],
+      [1, 2],
+      [2, 1],
+    ]);
+  });
+
+  it('keeps at most one Blob read in flight for each peer and reports single-peer progress bytes', async () => {
+    const { file, slice } = makeFile();
+    const read = deferred<ArrayBuffer>();
+    slice.mockImplementationOnce(() => ({ arrayBuffer: () => read.promise }));
+    const conn = makeConn('peer');
+    const onChunkComplete = vi.fn();
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('peer', conn)],
+      onChunkComplete,
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(slice).toHaveBeenCalledTimes(1);
+    expect(chunkCalls(conn)).toHaveLength(0);
+
+    read.resolve(Uint8Array.from([1, 2]).buffer);
+    await vi.runAllTimersAsync();
+    expect((await pending).status).toBe('complete');
+    expectCompleteBytes(conn);
+    expect(onChunkComplete.mock.calls).toEqual([
+      [0, 2],
+      [1, 2],
+      [2, 1],
+    ]);
+  });
+});
 
 describe('pumpChunksToPeers — per-peer exclusion', () => {
-  it('excludes a backpressure-stalled peer without stalling or flooding it, healthy peer gets all chunks', async () => {
-    const healthyConn = makeConn('peer-healthy', 0);
-    const frozenConn = makeConn('peer-frozen', 10 * 1024 * 1024); // frozen above limit
-    const onPeerExcluded = vi.fn();
-
-    const result = await pumpChunksToPeers({
-      ...baseOpts,
-      peers: [makePeer('peer-healthy', healthyConn), makePeer('peer-frozen', frozenConn)],
-      onPeerExcluded,
-    });
-
-    // Engine completes — exclusion is per-peer, never a session stop.
-    expect(result.status).toBe('complete');
-    expect(result.excluded).toEqual(new Set(['peer-frozen']));
-
-    // Healthy peer: full lockstep stream.
-    expect(chunkCalls(healthyConn)).toHaveLength(3);
-
-    // Frozen peer: the wait loop runs BEFORE the send, so it receives ZERO
-    // chunks — neither pre-exclusion nor post-timeout flooding.
-    expect(chunkCalls(frozenConn)).toHaveLength(0);
-
-    // Callback fires exactly once, with the excluded peer.
-    expect(onPeerExcluded).toHaveBeenCalledTimes(1);
-    expect(onPeerExcluded.mock.calls[0][0].id).toBe('peer-frozen');
-  });
-
-  it('excludes a peer that turns unwritable mid-stream, exactly once', async () => {
-    const healthyConn = makeConn('peer-healthy', 0);
-    const flakyConn = makeConn('peer-flaky', 0);
-    const onPeerExcluded = vi.fn();
-    let flakyWritable = true;
-
-    const result = await pumpChunksToPeers({
-      ...baseOpts,
-      peers: [makePeer('peer-healthy', healthyConn), makePeer('peer-flaky', flakyConn)],
-      isWritable: (p) => (p.id === 'peer-flaky' ? flakyWritable : true),
-      shouldContinue: () => {
-        // Flip writability after chunk 0 has been dispatched.
-        if (chunkCalls(flakyConn).length > 0) flakyWritable = false;
-        return true;
-      },
-      onPeerExcluded,
-    });
-
-    expect(result.status).toBe('complete');
-    expect(result.excluded).toEqual(new Set(['peer-flaky']));
-    expect(chunkCalls(flakyConn)).toHaveLength(1); // chunk 0 only
-    expect(chunkCalls(healthyConn)).toHaveLength(3);
-    // Exactly once despite two further chunk iterations seeing it unwritable.
-    expect(onPeerExcluded).toHaveBeenCalledTimes(1);
-  });
-
-  it('rechecks ownership after the final backpressure await before sending', async () => {
-    const conn = makeConn('peer-replaced', 10 * 1024 * 1024);
+  it('excludes a peer that turns unwritable after a send exactly once, while siblings finish', async () => {
+    const { file } = makeFile();
+    const healthy = makeConn('healthy');
+    const flaky = makeConn('flaky');
     let writable = true;
-    let checks = 0;
-
-    const result = await pumpChunksToPeers({
+    flaky.send.mockImplementation(() => {
+      writable = false;
+    });
+    const onPeerExcluded = vi.fn();
+    const onPeerComplete = vi.fn();
+    const pending = pumpChunksToPeers({
       ...baseOpts,
-      peers: [makePeer('peer-replaced', conn)],
-      isWritable: () => {
-        checks++;
-        if (checks === 1) {
-          queueMicrotask(() => {
-            writable = false;
-            conn.dataChannel.bufferedAmount = 0;
-          });
-        }
-        return writable;
-      },
+      file,
+      peers: [makePeer('healthy', healthy), makePeer('flaky', flaky)],
+      isWritable: (peer) => peer.id !== 'flaky' || writable,
+      onPeerExcluded,
+      onPeerComplete,
     });
 
-    expect(result.status).toBe('complete');
-    expect(result.excluded).toEqual(new Set(['peer-replaced']));
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set(['flaky']) });
+    expect(chunkCalls(flaky)).toHaveLength(1);
+    expectCompleteBytes(healthy);
+    expect(onPeerExcluded.mock.calls.map(([peer]) => peer.id)).toEqual(['flaky']);
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id)).toEqual(['healthy']);
+  });
+
+  it('rechecks ownership when the final backpressure wait drains', async () => {
+    const { file, slice } = makeFile();
+    const conn = makeConn('replaced', 2048);
+    let writable = true;
+    const onPeerComplete = vi.fn();
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('replaced', conn)],
+      isWritable: () => writable,
+      onPeerComplete,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    writable = false;
+    conn.dataChannel.bufferedAmount = 0;
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set(['replaced']) });
+    expect(slice).not.toHaveBeenCalled();
     expect(chunkCalls(conn)).toHaveLength(0);
+    expect(onPeerComplete).not.toHaveBeenCalled();
   });
 
-  it('returns complete (not stopped) when ALL peers become excluded, so wrappers run completion guards', async () => {
-    const frozenConn = makeConn('peer-frozen', 10 * 1024 * 1024);
-
-    const result = await pumpChunksToPeers({
+  it('rechecks ownership after an asynchronous Blob read before sending', async () => {
+    const { file, slice } = makeFile();
+    const read = deferred<ArrayBuffer>();
+    slice.mockImplementationOnce(() => ({ arrayBuffer: () => read.promise }));
+    const conn = makeConn('replaced');
+    let writable = true;
+    const onPeerComplete = vi.fn();
+    const onPeerExcluded = vi.fn();
+    const pending = pumpChunksToPeers({
       ...baseOpts,
-      peers: [makePeer('peer-frozen', frozenConn)],
+      file,
+      peers: [makePeer('replaced', conn)],
+      isWritable: () => writable,
+      onPeerComplete,
+      onPeerExcluded,
     });
 
-    // 'stopped' is reserved for shouldContinue() failures ONLY — an
-    // all-excluded early break must still let wrappers run END fanout
-    // (which then filters to an empty survivor set).
-    expect(result.status).toBe('complete');
-    expect(result.excluded).toEqual(new Set(['peer-frozen']));
-    expect(chunkCalls(frozenConn)).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slice).toHaveBeenCalledTimes(1);
+    writable = false;
+    read.resolve(Uint8Array.from([1, 2]).buffer);
+    await vi.runAllTimersAsync();
+
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set(['replaced']) });
+    expect(chunkCalls(conn)).toHaveLength(0);
+    expect(onPeerExcluded).toHaveBeenCalledTimes(1);
+    expect(onPeerComplete).not.toHaveBeenCalled();
+  });
+
+  it('returns complete when every peer is excluded, without a completion callback or file read', async () => {
+    const { file, slice } = makeFile();
+    const onPeerComplete = vi.fn();
+    const onPeerExcluded = vi.fn();
+    const peer = makePeer('closed', makeConn('closed'));
+    const result = await pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [peer],
+      isWritable: () => false,
+      onPeerComplete,
+      onPeerExcluded,
+    });
+
+    expect(result).toEqual({ status: 'complete', excluded: new Set(['closed']) });
+    expect(slice).not.toHaveBeenCalled();
+    expect(onPeerComplete).not.toHaveBeenCalled();
+    expect(onPeerExcluded).toHaveBeenCalledExactlyOnceWith(peer);
   });
 });
 
-describe('pumpChunksToPeers — shouldContinue contract', () => {
-  it('stops with status stopped, evaluated once per chunk at iteration top', async () => {
-    const conn = makeConn('peer-a', 0);
-    const shouldContinue = vi.fn().mockReturnValueOnce(true).mockReturnValue(false);
-
+describe('pumpChunksToPeers — cancellation', () => {
+  it('stops before reading or sending when already cancelled', async () => {
+    const { file, slice } = makeFile();
+    const conn = makeConn('peer');
+    const onPeerComplete = vi.fn();
     const result = await pumpChunksToPeers({
       ...baseOpts,
-      peers: [makePeer('peer-a', conn)],
-      shouldContinue,
+      file,
+      peers: [makePeer('peer', conn)],
+      shouldContinue: () => false,
+      onPeerComplete,
     });
 
-    expect(result.status).toBe('stopped');
-    expect(result.excluded.size).toBe(0);
-    expect(chunkCalls(conn)).toHaveLength(1); // chunk 0 sent, stopped before chunk 1
-    // Once per chunk at iteration top: i=0 (true), i=1 (false) — never inside
-    // per-peer waits.
-    expect(shouldContinue).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ status: 'stopped', excluded: new Set() });
+    expect(slice).not.toHaveBeenCalled();
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(onPeerComplete).not.toHaveBeenCalled();
+  });
+
+  it('stops during backpressure without waiting for the stall timeout or excluding peers', async () => {
+    const { file, slice } = makeFile();
+    const conn = makeConn('blocked', 2048);
+    let active = true;
+    const onPeerExcluded = vi.fn();
+    const onPeerComplete = vi.fn();
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('blocked', conn)],
+      shouldContinue: () => active,
+      onPeerExcluded,
+      onPeerComplete,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    active = false;
+    await vi.advanceTimersByTimeAsync(DELAY.BACKPRESSURE);
+    expect(await pending).toEqual({ status: 'stopped', excluded: new Set() });
+    expect(slice).not.toHaveBeenCalled();
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(onPeerExcluded).not.toHaveBeenCalled();
+    expect(onPeerComplete).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('latches cancellation so an in-flight sibling cannot resume after the predicate becomes true again', async () => {
+    const { file, slice } = makeFile();
+    const read = deferred<ArrayBuffer>();
+    slice.mockImplementationOnce(() => ({ arrayBuffer: () => read.promise }));
+    const reading = makeConn('reading');
+    const blocked = makeConn('blocked', 2048);
+    let active = true;
+    const onPeerComplete = vi.fn();
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('reading', reading), makePeer('blocked', blocked)],
+      shouldContinue: () => active,
+      onPeerComplete,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slice).toHaveBeenCalledTimes(1);
+    active = false;
+    await vi.advanceTimersByTimeAsync(DELAY.BACKPRESSURE);
+    active = true;
+    blocked.dataChannel.bufferedAmount = 0;
+    read.resolve(Uint8Array.from([1, 2]).buffer);
+    await vi.runAllTimersAsync();
+
+    expect(await pending).toEqual({ status: 'stopped', excluded: new Set() });
+    expect(reading.send).not.toHaveBeenCalled();
+    expect(blocked.send).not.toHaveBeenCalled();
+    expect(onPeerComplete).not.toHaveBeenCalled();
+  });
+
+  it('rechecks cancellation after a Blob read before sending or completing', async () => {
+    const { file, slice } = makeFile([1, 2]);
+    const read = deferred<ArrayBuffer>();
+    slice.mockImplementationOnce(() => ({ arrayBuffer: () => read.promise }));
+    const conn = makeConn('peer');
+    let active = true;
+    const onPeerComplete = vi.fn();
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('peer', conn)],
+      shouldContinue: () => active,
+      onPeerComplete,
+    });
+
+    await vi.advanceTimersByTimeAsync(0);
+    active = false;
+    read.resolve(Uint8Array.from([1, 2]).buffer);
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'stopped', excluded: new Set() });
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(onPeerComplete).not.toHaveBeenCalled();
+  });
+
+  it('rechecks cancellation before completion even after the last chunk has been sent', async () => {
+    const { file } = makeFile([1, 2]);
+    const conn = makeConn('peer');
+    let active = true;
+    conn.send.mockImplementation(() => {
+      active = false;
+    });
+    const onPeerComplete = vi.fn();
+    const pending = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [makePeer('peer', conn)],
+      shouldContinue: () => active,
+      onPeerComplete,
+    });
+
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'stopped', excluded: new Set() });
+    expect(chunkCalls(conn)).toHaveLength(1);
+    expect(onPeerComplete).not.toHaveBeenCalled();
   });
 });
 
-describe('pumpChunksToPeers — totality', () => {
-  it('never rejects when a conn.send throws (safeSend absorbs); siblings unaffected', async () => {
-    const healthyConn = makeConn('peer-healthy', 0);
-    const throwingConn = makeConn('peer-throwing', 0);
-    throwingConn.send.mockImplementation(() => {
+describe('pumpChunksToPeers — failure and completion', () => {
+  it('stops sibling sends on a read failure and joins their outstanding work before rejecting', async () => {
+    const { file, slice } = makeFile();
+    const failedRead = deferred<ArrayBuffer>();
+    const siblingRead = deferred<ArrayBuffer>();
+    slice
+      .mockImplementationOnce(() => ({ arrayBuffer: () => failedRead.promise }))
+      .mockImplementationOnce(() => ({ arrayBuffer: () => siblingRead.promise }));
+    const failed = makeConn('failed');
+    const reading = makeConn('reading');
+    const blocked = makeConn('blocked', 2048);
+    const onPeerComplete = vi.fn();
+    const error = new Error('backing storage unavailable');
+    let settled = false;
+    const outcome = pumpChunksToPeers({
+      ...baseOpts,
+      file,
+      peers: [
+        makePeer('failed', failed),
+        makePeer('reading', reading),
+        makePeer('blocked', blocked),
+      ],
+      onPeerComplete,
+    }).then(
+      (result) => {
+        settled = true;
+        return { result };
+      },
+      (reason: unknown) => {
+        settled = true;
+        return { error: reason };
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(slice).toHaveBeenCalledTimes(2);
+    failedRead.reject(error);
+    await vi.advanceTimersByTimeAsync(DELAY.BACKPRESSURE);
+    expect(settled).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+
+    siblingRead.resolve(Uint8Array.from([1, 2]).buffer);
+    await vi.runAllTimersAsync();
+    expect(await outcome).toEqual({ error });
+    expect(failed.send).not.toHaveBeenCalled();
+    expect(reading.send).not.toHaveBeenCalled();
+    expect(blocked.send).not.toHaveBeenCalled();
+    expect(onPeerComplete).not.toHaveBeenCalled();
+    expect(slice).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('absorbs conn.send errors without excluding the peer or affecting siblings', async () => {
+    const { file } = makeFile();
+    const healthy = makeConn('healthy');
+    const throwing = makeConn('throwing');
+    throwing.send.mockImplementation(() => {
       throw new Error('send failed');
     });
-
-    const result = await pumpChunksToPeers({
+    const onPeerComplete = vi.fn();
+    const pending = pumpChunksToPeers({
       ...baseOpts,
-      peers: [makePeer('peer-throwing', throwingConn), makePeer('peer-healthy', healthyConn)],
+      file,
+      peers: [makePeer('throwing', throwing), makePeer('healthy', healthy)],
+      onPeerComplete,
     });
 
-    expect(result.status).toBe('complete');
-    // A throwing send is NOT an exclusion (safeSend swallows it); the engine
-    // keeps attempting — matching the pre-refactor try/catch-per-send shape.
-    expect(result.excluded.size).toBe(0);
-    expect(chunkCalls(healthyConn)).toHaveLength(3);
-    expect(throwingConn.send).toHaveBeenCalledTimes(3);
+    await vi.runAllTimersAsync();
+    expect(await pending).toEqual({ status: 'complete', excluded: new Set() });
+    expectCompleteBytes(healthy);
+    expect(throwing.send).toHaveBeenCalledTimes(3);
+    expect(onPeerComplete.mock.calls.map(([peer]) => peer.id).sort()).toEqual([
+      'healthy',
+      'throwing',
+    ]);
   });
 
-  it('handles an empty peer list as an immediate complete', async () => {
-    const result = await pumpChunksToPeers({ ...baseOpts, peers: [] });
-    expect(result.status).toBe('complete');
-    expect(result.excluded.size).toBe(0);
+  it('completes an empty peer list immediately without reading the source', async () => {
+    const { file, slice } = makeFile();
+    const onPeerComplete = vi.fn();
+    expect(await pumpChunksToPeers({ ...baseOpts, file, peers: [], onPeerComplete })).toEqual({
+      status: 'complete',
+      excluded: new Set(),
+    });
+    expect(slice).not.toHaveBeenCalled();
+    expect(onPeerComplete).not.toHaveBeenCalled();
+  });
+
+  it('completes a zero-byte file once per writable peer without sending chunks', async () => {
+    const { file, slice } = makeFile([]);
+    const conn = makeConn('peer');
+    const peer = makePeer('peer', conn);
+    const onPeerComplete = vi.fn();
+    expect(await pumpChunksToPeers({ ...baseOpts, file, peers: [peer], onPeerComplete })).toEqual({
+      status: 'complete',
+      excluded: new Set(),
+    });
+    expect(slice).not.toHaveBeenCalled();
+    expect(conn.send).not.toHaveBeenCalled();
+    expect(onPeerComplete).toHaveBeenCalledExactlyOnceWith(peer);
   });
 });
 
 describe('chunk-pump — state-free contract', () => {
-  it('the engine module never imports setState (all state writes stay in wrappers)', async () => {
-    // The shared engine must remain state-tree independent; wrappers own
-    // abort and supersession cleanup.
+  it('never imports setState; all state writes stay in wrappers', async () => {
     const source = (await import('../chunk-pump.ts?raw')).default as string;
     expect(source).not.toMatch(/import\s*\{[^}]*\bsetState\b/);
   });

@@ -170,6 +170,7 @@ function isRuntimeAppPath(rawPath: string): boolean {
   if (filePath.startsWith('src/')) return !isTestOnlySourcePath(filePath);
   if (filePath.startsWith('browser/')) return !isTestOnlySourcePath(filePath);
   if (filePath.startsWith('css/')) return true;
+  if (filePath.startsWith('fonts/noto/')) return true;
   if (filePath.startsWith('public/')) return true;
 
   if (
@@ -186,6 +187,10 @@ function isRuntimeAppPath(rawPath: string): boolean {
     'index.html',
     'scripts/classic-runtime-assets.ts',
     'scripts/service-worker-asset.ts',
+    'scripts/service-worker-app-shell-guard-lib.mts',
+    'scripts/materialize-localized-html.mts',
+    'scripts/localized-html-lib.mts',
+    'scripts/locale-seo-metadata.mts',
     'scripts/ui-kit-asset.ts',
     'vite.config.ts',
     'package.json',

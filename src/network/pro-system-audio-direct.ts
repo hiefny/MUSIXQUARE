@@ -39,6 +39,24 @@ function observeDirectTask(task: Promise<void>, label: string): void {
   });
 }
 
+async function withinDirectDeadline<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  onTimeout: () => T,
+): Promise<T> {
+  let timer: ReturnType<typeof globalThis.setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((resolve) => {
+        timer = globalThis.setTimeout(() => resolve(onTimeout()), timeoutMs);
+      }),
+    ]);
+  } finally {
+    globalThis.clearTimeout(timer);
+  }
+}
+
 type DirectDirection = 'publisher' | 'subscriber';
 type DirectCloseReason = 'stopped' | 'fallback' | 'superseded';
 type DirectSignalKind = 'offer' | 'answer' | 'candidate' | 'close';
@@ -1403,7 +1421,11 @@ async function provePublisherRouteCurrent(
   if (!publisherRouteIsCurrent(session, route) || pcDisconnected(route.pc)) return false;
   if (route.reproofFlight) return route.reproofFlight;
   const flight = (async () => {
-    const locality = await selectedPairLocality(route.pc, route.acceptedRemoteMdnsKeys);
+    const locality = await withinDirectDeadline(
+      selectedPairLocality(route.pc, route.acceptedRemoteMdnsKeys),
+      DIRECT_NEGOTIATION_TIMEOUT_MS,
+      (): SelectedPairLocality => 'pending',
+    );
     if (!publisherRouteIsCurrent(session, route) || pcDisconnected(route.pc)) return false;
     route.provenLocal = locality === 'same-subnet';
     return route.provenLocal;
@@ -1462,21 +1484,35 @@ async function negotiatePublisherRoute(
   let route: PublisherRoute | null = null;
   try {
     route = createPublisherRoute(session, participantId, routeToken);
-    const expiresAt = Date.now() + timeoutMs;
-    const remaining = () => Math.max(1, expiresAt - Date.now());
-    await sendPublisherOffer(session, route, 'probe');
-    if (!(await waitForPublisherAnswer(session, route, 'probe', remaining()))) return false;
-    if (!(await waitForLocalPair(session, route, remaining()))) return false;
-    if (!publisherRouteIsCurrent(session, route)) return false;
+    const negotiatingRoute = route;
+    const operation = async (): Promise<boolean> => {
+      const expiresAt = Date.now() + timeoutMs;
+      const remaining = () => Math.max(1, expiresAt - Date.now());
+      await sendPublisherOffer(session, negotiatingRoute, 'probe');
+      if (!(await waitForPublisherAnswer(session, negotiatingRoute, 'probe', remaining())))
+        return false;
+      if (!(await waitForLocalPair(session, negotiatingRoute, remaining()))) return false;
+      if (!publisherRouteIsCurrent(session, negotiatingRoute)) return false;
 
-    const stream = new MediaStream([session.track]);
-    tuneAudioSender(route.pc.addTrack(session.track, stream));
-    route.mediaTrackAdded = true;
-    route.remoteDescriptionReady = false;
-    await sendPublisherOffer(session, route, 'media');
-    if (!(await waitForPublisherAnswer(session, route, 'media', remaining()))) return false;
-    const proven = await waitForLocalPair(session, route, remaining());
-    return proven && route.mediaTrackAdded;
+      const stream = new MediaStream([session.track]);
+      tuneAudioSender(negotiatingRoute.pc.addTrack(session.track, stream));
+      negotiatingRoute.mediaTrackAdded = true;
+      negotiatingRoute.remoteDescriptionReady = false;
+      await sendPublisherOffer(session, negotiatingRoute, 'media');
+      if (!(await waitForPublisherAnswer(session, negotiatingRoute, 'media', remaining())))
+        return false;
+      const proven = await waitForLocalPair(session, negotiatingRoute, remaining());
+      return proven && negotiatingRoute.mediaTrackAdded;
+    };
+    // Native SDP/statistics promises may outlive the polling deadline. Retire
+    // only this route so the existing caller can select its single SFU fallback.
+    return await withinDirectDeadline(operation(), timeoutMs, () => {
+      negotiatingRoute.failed = true;
+      if (session.routes.get(participantId) === negotiatingRoute)
+        session.routes.delete(participantId);
+      closePublisherRoute(negotiatingRoute, 'fallback', negotiatingRoute.offerSent);
+      return false;
+    });
   } catch (error) {
     log.debug('[ProSysAudioDirect] Publisher negotiation failed', error);
     if (route) {

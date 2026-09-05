@@ -775,6 +775,9 @@ class YouTubeZeroStartController {
   }
 
   updateDesiredAudioState(update: { muted?: boolean; volume?: number }): void {
+    // The explicit audio action now owns the player. An older cancelled run
+    // must not retry its captured volume/mute over that newer choice.
+    this.#cancelDetachedAudioRestore();
     const run = this.#localRun;
     if (!run || run.phase === 'playing' || run.phase === 'error') return;
     if (typeof update.muted === 'boolean') run.originalMuted = update.muted;

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -11,6 +11,7 @@ import {
   expandProGrantRoomSelection,
   generateProGrantVoucherCode,
   parseProGrantCampaignCommand,
+  readProGrantArtifact,
   reserveProGrantArtifact,
   runProGrantCampaignCli,
 } from '../../../scripts/pro-grant-campaign.mts';
@@ -326,6 +327,22 @@ describe('PRO grant campaign operator CLI', () => {
       reserveProGrantArtifact(root, 'voucher-export.json', 'asamo-0', requestId),
     ).toThrow(/under release-artifacts\/pro-grants/i);
   });
+
+  it.skipIf(process.platform !== 'win32')(
+    'rejects another drive before reading or creating an artifact',
+    () => {
+      const root = temporaryRoot();
+      const target = join(root, 'cross-drive-export.json');
+      const otherDriveRoot = `${root[0]?.toUpperCase() === 'Z' ? 'Y' : 'Z'}:/audit-repo`;
+      expect(() =>
+        reserveProGrantArtifact(otherDriveRoot, target, 'asamo-0', `batch_${'A'.repeat(22)}`),
+      ).toThrow(/under release-artifacts\/pro-grants/i);
+      expect(existsSync(target)).toBe(false);
+      expect(() => readProGrantArtifact(otherDriveRoot, target)).toThrow(
+        /read from release-artifacts\/pro-grants/i,
+      );
+    },
+  );
 
   it('never accepts voucher material from status endpoints', async () => {
     await expect(

@@ -830,6 +830,50 @@ describe('playlist queue identity rendering and actions', () => {
     expect(document.querySelector('.sub-playlist')?.hasAttribute('aria-busy')).toBe(false);
   });
 
+  it.each(['restore', 'focus', 'pointer', 'hidden', 'rerender', 'reorder'])(
+    'owns progressive sub-row focus through %s',
+    async (intent) => {
+      const ids = Array.from(
+        { length: 1_000 },
+        (_, index) => `video-${String(index).padStart(4, '0')}`,
+      );
+      setState('playlist.items', sampleItems());
+      setState('youtube.subItemsMap', { PL_TEST: { ids, titles: [] } });
+      initPlaylistView();
+      for (let frame = 0; frame < 5; frame += 1) await nextAnimationFrame();
+      if (intent === 'reorder') {
+        const handle = document.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+        handle.focus();
+        handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        expect(handle.getAttribute('aria-grabbed')).toBe('true');
+        handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="900"]')!.focus();
+      updatePlaylistUI();
+      expect(document.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(240);
+      const otherControl = document.createElement('button');
+      document.body.appendChild(otherControl);
+      if (intent === 'focus') otherControl.focus();
+      if (intent === 'pointer')
+        document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      if (intent === 'hidden') document.getElementById('tab-playlist')!.classList.remove('active');
+      if (intent === 'rerender') {
+        document.querySelector<HTMLElement>('.sub-track-item[data-sub-index="10"]')!.focus();
+        updatePlaylistUI();
+      }
+      for (let frame = 0; frame < 5; frame += 1) await nextAnimationFrame();
+      expect(document.querySelectorAll('.sub-track-item[data-sub-index]')).toHaveLength(1_000);
+      if (intent === 'restore' || intent === 'rerender' || intent === 'reorder') {
+        expect((document.activeElement as HTMLElement).dataset.subIndex).toBe(
+          intent === 'rerender' ? '10' : '900',
+        );
+      } else {
+        expect(document.activeElement).toBe(intent === 'focus' ? otherControl : document.body);
+      }
+    },
+  );
+
   it('measures only the newly appended titles in each progressive batch', async () => {
     const frameCallbacks: FrameRequestCallback[] = [];
     let nextFrameId = 1;

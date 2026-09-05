@@ -610,13 +610,14 @@ export function initObCarousel(signal: AbortSignal): void {
   );
   area?.addEventListener('focusin', stopObCarouselForUser, { signal });
 
-  let touchStartX: number | null = null;
+  let activeTouch: Touch | undefined;
   const viewport = setupEl('ob-slider-viewport');
   if (viewport) {
     viewport.addEventListener(
       'touchstart',
       (event) => {
-        touchStartX = (event as TouchEvent).touches[0]?.clientX ?? null;
+        if (activeTouch) return;
+        activeTouch = (event as TouchEvent).changedTouches[0];
         stopObCarouselForUser();
       },
       { passive: true, signal },
@@ -624,9 +625,12 @@ export function initObCarousel(signal: AbortSignal): void {
     viewport.addEventListener(
       'touchend',
       (event) => {
-        const endX = (event as TouchEvent).changedTouches[0]?.clientX;
-        const diff = touchStartX != null && endX != null ? touchStartX - endX : 0;
-        touchStartX = null;
+        const ended = Array.from((event as TouchEvent).changedTouches).find(
+          (touch) => touch.identifier === activeTouch?.identifier,
+        );
+        if (!activeTouch || !ended) return;
+        const diff = activeTouch.clientX - ended.clientX;
+        activeTouch = undefined;
         if (Math.abs(diff) > OB_CAROUSEL_SWIPE_THRESHOLD_PX) {
           if (diff > 0) nextObSlide(false);
           else prevObSlide(false);
@@ -636,8 +640,14 @@ export function initObCarousel(signal: AbortSignal): void {
     );
     viewport.addEventListener(
       'touchcancel',
-      () => {
-        touchStartX = null;
+      (event) => {
+        const changed = (event as TouchEvent).changedTouches;
+        if (
+          !changed?.length ||
+          Array.from(changed).some((touch) => touch.identifier === activeTouch?.identifier)
+        ) {
+          activeTouch = undefined;
+        }
       },
       { signal },
     );
@@ -649,7 +659,7 @@ export function initObCarousel(signal: AbortSignal): void {
       // Browsers may omit mouseleave/touchcancel while a page is backgrounded.
       // Normalize those transient inputs so a stale gesture cannot suppress
       // rotation forever or turn a late touchend into an accidental swipe.
-      touchStartX = null;
+      activeTouch = undefined;
       if (document.hidden) {
         _obCarouselHoverPaused = false;
         clearObCarouselAutoplayTimer();
@@ -670,7 +680,7 @@ export function initObCarousel(signal: AbortSignal): void {
     clearObCarouselAutoplayTimer();
     _obCarouselInitialized = false;
     _obCarouselHoverPaused = false;
-    touchStartX = null;
+    activeTouch = undefined;
     _obCarouselGreetingReady = false;
   };
   signal.addEventListener('abort', dispose, { once: true });

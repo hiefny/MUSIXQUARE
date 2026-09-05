@@ -381,7 +381,11 @@ describe('initMediaSession', () => {
     setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     setState('player.pausedAt', 12);
     _handlers['play']();
-    expect(rejoin).toHaveBeenCalledWith({ reason: 'media-session-play', mode: 'file' });
+    expect(rejoin).toHaveBeenCalledWith({
+      reason: 'media-session-play',
+      mode: 'file',
+      isCurrent: expect.any(Function),
+    });
     expect(togglePlay).not.toHaveBeenCalled();
   });
 
@@ -397,7 +401,11 @@ describe('initMediaSession', () => {
 
     _handlers['play']();
 
-    expect(rejoin).toHaveBeenCalledWith({ reason: 'media-session-play', mode: 'file' });
+    expect(rejoin).toHaveBeenCalledWith({
+      reason: 'media-session-play',
+      mode: 'file',
+      isCurrent: expect.any(Function),
+    });
     expect(togglePlay).not.toHaveBeenCalled();
   });
 
@@ -412,7 +420,11 @@ describe('initMediaSession', () => {
     setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
     setState('player.pausedAt', 12);
     _handlers['play']();
-    expect(rejoin).toHaveBeenCalledWith({ reason: 'media-session-play', mode: 'file' });
+    expect(rejoin).toHaveBeenCalledWith({
+      reason: 'media-session-play',
+      mode: 'file',
+      isCurrent: expect.any(Function),
+    });
     expect(togglePlay).not.toHaveBeenCalled();
   });
 
@@ -543,6 +555,49 @@ describe('initMediaSession', () => {
     expect(context.resume).toHaveBeenCalledTimes(2);
     dispose();
   });
+
+  it.each(['pause', 'pause-play', 'current'] as const)(
+    'honors %s while local YouTube PLAY recovery is pending',
+    async (intent) => {
+      setState('setup.sessionStarted', true);
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', { open: true } as never);
+      setPlaybackYouTubePlaying();
+      setState('playlist.currentQueueItemId', CURRENT_QUEUE_ITEM_ID);
+      setLocalYouTubePaused(true);
+      const localState = vi.fn((paused: boolean) => setLocalYouTubePaused(paused));
+      bus.on('youtube:set-local-paused', localState);
+      let finishGestureResume!: () => void;
+      const gestureResume = new Promise<undefined>((resolve) => {
+        finishGestureResume = () => resolve(undefined);
+      });
+      const context = new FakeInterruptedAudioContext();
+      context.resume
+        .mockRejectedValueOnce(new Error('autoplay blocked'))
+        .mockImplementationOnce(() => gestureResume);
+      const dispose = bindAudioContextInterruptionRecovery(context as unknown as AudioContext);
+      try {
+        context.dispatchState('suspended');
+        await vi.waitFor(() => expect(context.resume).toHaveBeenCalledOnce());
+        _handlers['play']();
+        await vi.waitFor(() => expect(context.resume).toHaveBeenCalledTimes(2));
+        if (intent !== 'current') _handlers['pause']();
+        if (intent === 'pause-play') _handlers['play']();
+        context.state = 'running';
+        finishGestureResume();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        if (intent === 'pause') {
+          expect(localState).not.toHaveBeenCalledWith(false, 'media-session-play');
+        } else if (intent === 'pause-play') {
+          expect(localState.mock.calls).toEqual([[true], [false, 'media-session-play']]);
+        } else {
+          expect(localState).toHaveBeenCalledExactlyOnceWith(false, 'media-session-play');
+        }
+      } finally {
+        dispose();
+      }
+    },
+  );
 
   it.each([
     ['file', 'youtube'],

@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   DeveloperApiKeyCliError,
   parseDeveloperApiKeyCommand,
-  resolveCurrentProRoomGeneration,
   runDeveloperApiKeyCli,
 } from '../../../scripts/developer-api-key.mts';
 
@@ -65,135 +64,218 @@ describe('Developer API key CLI', () => {
     ).toThrow(DeveloperApiKeyCliError);
   });
 
-  it('stores only a digest and emits the full random key exactly once', async () => {
-    const sql: string[] = [];
-    let randomCall = 0;
+  const now = 1_784_262_910_000;
+  const keyId = 'A'.repeat(16);
+  const apiKey = `mxqr_live_${keyId}.${'B'.repeat(43)}`;
+  const requestId = '12345678-1234-4234-8234-123456789abc';
+  const env = {
+    CF_ACCESS_CLIENT_ID: 'fixture-access-id',
+    CF_ACCESS_CLIENT_SECRET: 'fixture-access-secret',
+    MXQR_ADMIN_PASSWORD: 'fixture-admin-password',
+  };
+  function fixture(
+    overrides: {
+      post?: (body: Record<string, unknown>, attempt: number) => Response | Promise<Response>;
+      detail?: unknown;
+      session?: boolean;
+    } = {},
+  ) {
     let output = '';
-    const result = await runDeveloperApiKeyCli({
-      argv: ['issue', '--room', '000001', '--label', "Friend's API"],
-      env: { MXQR_DEVELOPER_API_KEY_PEPPER: 'p'.repeat(32) },
-      now: () => 1_784_262_910_000,
-      randomBytes: (size: number) => {
-        randomCall += 1;
-        return Buffer.alloc(size, randomCall);
+    let attempts = 0;
+    const execute = vi.fn(() => []);
+    const confirmation = (body: Record<string, unknown>) => ({
+      roomCode: '000001',
+      roomGeneration: 7,
+      apiKey,
+      key: {
+        keyId,
+        roomGeneration: 7,
+        label: body.label,
+        scopes: body.scopes,
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+        expiresAt: now + Number(body.days) * 86_400_000,
+        revokedAt: null,
+        lastUsedAt: null,
       },
-      execute: (statement: string) => {
-        sql.push(statement);
-        const match = statement.match(/VALUES \('([^']+)'/);
-        return [{ key_id: match?.[1] }];
-      },
-      resolveRoomGeneration: vi.fn(() => 7),
-      stdout: { write: (value: string) => (output += value) },
     });
-    expect(result.apiKey).toMatch(/^mxqr_live_[A-Za-z0-9_-]{16}\.[A-Za-z0-9_-]{43}$/);
-    expect(
-      output.match(new RegExp(result.apiKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')),
-    ).toHaveLength(1);
-    expect(sql).toHaveLength(1);
-    expect(sql[0]).not.toContain(result.apiKey);
-    expect(sql[0]).not.toContain(result.apiKey.split('.')[1] || 'missing-secret');
-    expect(sql[0]).toContain("Friend''s API");
-    expect(sql[0]).toContain('room_generation');
-    expect(sql[0]).toMatch(/'000001', 7,/);
-    expect(sql[0]).toContain(', 75,');
-    expect(output).toContain('"roomGeneration": 7');
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/login'))
+        return Response.json(
+          { ok: true },
+          {
+            headers: {
+              'set-cookie': '__Host-mxqr_admin=fixture.signature; Path=/; Secure; HttpOnly',
+            },
+          },
+        );
+      if (init?.method === 'GET')
+        return Response.json(
+          overrides.detail ?? { roomCode: '000001', roomGeneration: 7, maxActiveKeys: 3, keys: [] },
+        );
+      const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      attempts++;
+      return overrides.post
+        ? overrides.post(body, attempts)
+        : Response.json(confirmation(body), {
+            status: 201,
+            headers: { 'cache-control': 'no-store' },
+          });
+    });
+    const run = (scopes?: string) =>
+      runDeveloperApiKeyCli({
+        argv: [
+          'issue',
+          '--room',
+          '000001',
+          '--label',
+          "Friend's API",
+          '--days',
+          '30',
+          ...(scopes ? ['--scopes', scopes] : []),
+        ],
+        env: overrides.session
+          ? {
+              ...env,
+              MXQR_ADMIN_PASSWORD: undefined,
+              MXQR_ADMIN_SESSION_COOKIE: 'existing.signature',
+            }
+          : env,
+        now: () => now,
+        randomUUID: () => requestId,
+        fetcher,
+        execute,
+        stdout: {
+          write: (value) => {
+            output += value;
+          },
+        },
+      });
+    return { run, fetcher, execute, confirmation, output: () => output };
+  }
+
+  it('issues through canonical admin authority without local pepper or D1 and prints once', async () => {
+    const context = fixture();
+    await expect(context.run()).resolves.toEqual({ apiKey, keyId });
+    expect(context.execute).not.toHaveBeenCalled();
+    expect(context.fetcher.mock.calls.map(([input]) => String(input))).toEqual([
+      'https://musixquare.com/api/admin/login',
+      'https://musixquare.com/api/admin/pro-rooms/000001/api-keys',
+      'https://musixquare.com/api/admin/pro-rooms/000001/api-keys',
+    ]);
+    for (const [, init] of context.fetcher.mock.calls) {
+      expect(init?.redirect).toBe('error');
+      expect(init?.cache).toBe('no-store');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      expect(new Headers(init?.headers).get('CF-Access-Client-Secret')).toBe(
+        env.CF_ACCESS_CLIENT_SECRET,
+      );
+    }
+    const post = context.fetcher.mock.calls[2]?.[1];
+    expect(new Headers(post?.headers).get('X-MXQR-Admin-CSRF')).toBe('1');
+    expect(new Headers(post?.headers).get('Cookie')).toBe('__Host-mxqr_admin=fixture.signature');
+    expect(JSON.parse(String(post?.body))).toEqual({
+      label: "Friend's API",
+      days: 30,
+      scopes: ['room:read', 'playback:read', 'queue:read', 'effects:read'],
+      requestId,
+      roomGeneration: 7,
+    });
+    expect(context.output().split(apiKey)).toHaveLength(2);
+    expect(JSON.parse(context.output())).toMatchObject({ apiKey, keyId, roomGeneration: 7 });
+    expect(context.output()).not.toContain(env.MXQR_ADMIN_PASSWORD);
   });
 
-  it('stores the complete v1 permission set as scope mask 255', async () => {
-    let insert = '';
-    await runDeveloperApiKeyCli({
-      argv: [
-        'issue',
-        '--room',
-        '000001',
-        '--label',
-        'Friend full API',
-        '--scopes',
-        'room:read,playback:read,playback:control,queue:read,queue:write,media:upload,effects:read,effects:control',
-      ],
-      env: { MXQR_DEVELOPER_API_KEY_PEPPER: 'p'.repeat(32) },
-      randomBytes: (size: number) => Buffer.alloc(size, 7),
-      execute: (statement: string) => {
-        insert = statement;
-        const match = statement.match(/VALUES \('([^']+)'/);
-        return [{ key_id: match?.[1] }];
-      },
-      resolveRoomGeneration: vi.fn(() => 0),
-      stdout: { write: () => true },
-    });
-    expect(insert).toContain(', 255,');
+  it('supports an existing admin session and all scopes without reading D1', async () => {
+    const context = fixture({ session: true });
+    await context.run(
+      'room:read,playback:read,playback:control,queue:read,queue:write,media:upload,effects:read,effects:control',
+    );
+    expect(context.fetcher).toHaveBeenCalledTimes(2);
+    expect(context.execute).not.toHaveBeenCalled();
+    expect(JSON.parse(context.output()).scopes).toHaveLength(8);
   });
 
-  it('requires the same key pepper before generating any credential', async () => {
+  it('retries only a lost transport result using the same generation and request ID', async () => {
+    let confirmation: ReturnType<ReturnType<typeof fixture>['confirmation']>;
+    const context = fixture({
+      post: (body, attempt) => {
+        confirmation = context.confirmation(body);
+        if (attempt === 1) throw new TypeError('fixture-secret-must-not-be-printed');
+        return Response.json(confirmation, { headers: { 'cache-control': 'no-store' } });
+      },
+    });
+    await context.run();
+    const posts = context.fetcher.mock.calls
+      .filter(([input]) => !String(input).endsWith('/login'))
+      .slice(1);
+    expect(posts).toHaveLength(2);
+    expect(posts[0]?.[1]?.body).toBe(posts[1]?.[1]?.body);
+    expect(context.output().split(apiKey)).toHaveLength(2);
+    expect(context.output()).not.toContain('fixture-secret');
+  });
+
+  it.each([
+    'generation',
+    'key-generation',
+    'key-id',
+    'scopes',
+    'days',
+    'status',
+    'extra',
+    'cache',
+    'http',
+  ] as const)('does not print a key or retry an invalid %s confirmation', async (kind) => {
+    const context = fixture({
+      post: (body) => {
+        const value = context.confirmation(body);
+        if (kind === 'generation') value.roomGeneration = 8;
+        if (kind === 'key-generation') value.key.roomGeneration = 8;
+        if (kind === 'key-id') value.key.keyId = 'C'.repeat(16);
+        if (kind === 'scopes') value.key.scopes = ['media:upload'];
+        if (kind === 'days') value.key.expiresAt++;
+        if (kind === 'status') value.key.status = 'revoked';
+        if (kind === 'extra') Object.assign(value, { secret: 'unexpected' });
+        if (kind === 'http')
+          return Response.json(
+            { error: 'PRO_ROOM_GENERATION_CONFLICT' },
+            { status: 409, headers: { 'cache-control': 'no-store' } },
+          );
+        return Response.json(value, {
+          headers: kind === 'cache' ? {} : { 'cache-control': 'no-store' },
+        });
+      },
+    });
+    await expect(context.run()).rejects.toBeInstanceOf(DeveloperApiKeyCliError);
+    expect(context.output()).toBe('');
+    expect(context.fetcher).toHaveBeenCalledTimes(3);
+    expect(context.execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects incorrect room detail before issuing', async () => {
+    const context = fixture({
+      detail: { roomCode: '000002', roomGeneration: 7, maxActiveKeys: 3, keys: [] },
+    });
+    await expect(context.run()).rejects.toThrow('incarnation could not be verified');
+    expect(context.fetcher).toHaveBeenCalledTimes(2);
+    expect(context.output()).toBe('');
+  });
+
+  it('requires Access and administrator authentication without falling back to local pepper', async () => {
+    const fetcher = vi.fn();
     const execute = vi.fn();
     await expect(
       runDeveloperApiKeyCli({
-        argv: ['issue', '--room', '000001', '--label', 'Friend API'],
-        env: {},
-        execute,
-        resolveRoomGeneration: vi.fn(),
-      }),
-    ).rejects.toThrow('MXQR_DEVELOPER_API_KEY_PEPPER');
-    expect(execute).not.toHaveBeenCalled();
-  });
-
-  it('resolves only the current active registry incarnation before issuing', () => {
-    const execute = vi.fn(() => [
-      {
-        room_code: '000001',
-        room_generation: 7,
-        status: 'registered',
-        activation_state: 'active',
-      },
-    ]);
-    expect(resolveCurrentProRoomGeneration('000001', execute)).toBe(7);
-    expect(execute).toHaveBeenCalledWith(expect.stringContaining('FROM mxqr_pro_room_registry'));
-
-    for (const row of [
-      null,
-      {
-        room_code: '000001',
-        room_generation: 7,
-        status: 'decommissioned',
-        activation_state: 'unactivated',
-      },
-      {
-        room_code: '000001',
-        room_generation: -1,
-        status: 'registered',
-        activation_state: 'active',
-      },
-    ]) {
-      expect(() => resolveCurrentProRoomGeneration('000001', () => (row ? [row] : []))).toThrow(
-        'current active PRO room incarnation',
-      );
-    }
-  });
-
-  it('removes the key without printing it when the registry generation changes mid-issue', async () => {
-    const sql: string[] = [];
-    const resolveRoomGeneration = vi.fn().mockReturnValueOnce(3).mockReturnValueOnce(4);
-    let output = '';
-    await expect(
-      runDeveloperApiKeyCli({
-        argv: ['issue', '--room', '000001', '--label', 'Racing API'],
+        argv: ['issue', '--room', '000001', '--label', 'Fixture'],
         env: { MXQR_DEVELOPER_API_KEY_PEPPER: 'p'.repeat(32) },
-        randomBytes: (size: number) => Buffer.alloc(size, 9),
-        execute: (statement: string) => {
-          sql.push(statement);
-          const match = statement.match(/VALUES \('([^']+)'/);
-          return match ? [{ key_id: match[1] }] : [];
-        },
-        resolveRoomGeneration,
-        stdout: { write: (value: string) => (output += value) },
+        fetcher,
+        execute,
       }),
-    ).rejects.toThrow('incarnation changed');
-    expect(sql).toHaveLength(2);
-    expect(sql[0]).toMatch(/'000001', 3,/);
-    expect(sql[1]).toMatch(
-      /DELETE FROM mxqr_developer_api_keys .*room_generation = 3 .*secret_digest = /,
-    );
-    expect(output).toBe('');
+    ).rejects.toThrow('CF_ACCESS_CLIENT_ID');
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('revokes by public key id without requiring or printing the secret', async () => {

@@ -27,6 +27,8 @@ vi.mock('../../core/state.ts', () => ({
 
 import { bus } from '../../core/events.ts';
 import { bindOnboardingDebugGesture } from '../onboarding-debug-gesture.ts';
+import { closeDialog, showDialog } from '../dialog.ts';
+import { syncOverlayState } from '../dom.ts';
 import {
   onboardingDiagnosticsForTests,
   initOnboardingDiagnostics,
@@ -324,6 +326,33 @@ describe('onboarding diagnostics lifecycle', () => {
 });
 
 describe('onboarding diagnostics overlay', () => {
+  it('preserves a later dialog lock when diagnostics closes during setup', async () => {
+    document.body.innerHTML = `
+      <div id="setup-overlay" class="active"><button id="setup-action">Create room</button></div>
+      <div id="dialog-overlay"><h2 id="dialog-title"></h2><div id="dialog-message"></div>
+        <button id="btn-dialog-ok"></button><button id="btn-dialog-secondary"></button></div>`;
+    syncOverlayState('setup-overlay');
+    openOnboardingDiagnostics();
+    // A late authenticated session can open this ordinary nickname dialog.
+    const pending = showDialog({ title: 'Nickname', message: 'Complete your profile' });
+    try {
+      const diagnostics = document.getElementById('onboarding-diagnostics-overlay')!;
+      const dialog = document.getElementById('dialog-overlay')!;
+      expect(Number(diagnostics.style.zIndex)).toBeLessThan(Number(dialog.style.zIndex));
+      expect(diagnostics.inert).toBe(true);
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(diagnostics.isConnected).toBe(true);
+      expect(document.getElementById('setup-overlay')?.inert).toBe(true);
+      expect(dialog.inert).toBe(false);
+    } finally {
+      closeDialog();
+      await pending;
+    }
+    expect(document.getElementById('onboarding-diagnostics-overlay')?.inert).toBe(false);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.getElementById('onboarding-diagnostics-overlay')).toBeNull();
+    expect(document.getElementById('setup-overlay')?.inert).toBe(false);
+  });
   it('reopens after close from a second ten-tap sequence', () => {
     const target = document.createElement('div');
     document.body.appendChild(target);

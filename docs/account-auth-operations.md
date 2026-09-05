@@ -189,14 +189,33 @@ An optional one-to-one statistics row keeps only the three nonnegative lifetime
 aggregates described above. Missing rows read as zero. Statistics writes accept
 bounded positive deltas from an authenticated same-origin client. Each
 authenticated session response also carries a short opaque `statsScope`, and
-the client echoes it in `X-MXQR-Account-Stats-Scope` on a statistics PATCH. The
+the client echoes it in `X-MXQR-Account-Stats-Scope` on statistics GET and PATCH requests. The
 value is a purpose-separated HMAC fence for that exact session—not an account
 identifier or authorization credential—and is never stored in the statistics
-table. A stale scope is rejected before any write, so activity queued before a
-browser switches accounts cannot be attributed to the new cookie session.
+table. A stale scope returns `409 ACCOUNT_STATS_SCOPE_MISMATCH` before reading
+or writing counters, so activity and reads queued before a browser switches
+accounts cannot be attributed to the new cookie session. GET requests without
+the header remain compatible with older clients; PATCH still requires it.
 Statistics are deliberately unsuitable for ranking, rewards, billing, or
 authorization because they are user-facing approximate counters rather than
 an event ledger.
+
+Nickname PATCH and account DELETE additionally require
+`X-MXQR-Account-Expected-Scope`, carrying the same opaque session scope captured
+when the user began that confirmation. Missing, malformed or mismatched values
+return `409 ACCOUNT_SESSION_CHANGED` before profile, deletion-fence or session
+touch writes. Authentication and the same-origin CSRF requirement still apply;
+the scope is only a target-session precondition. Normal session reads/touches
+keep it stable. A new OAuth login changes it, even for the same account, and
+requires the user to review the action again. This also covers a cookie change
+that reaches the server before the client receives a sibling-tab notification.
+
+The App Worker and current account client ship this required condition together.
+Cached older clients must refresh before nickname changes or account deletion;
+missing scopes are not accepted as a legacy bypass. These same-origin relative
+API calls need no new cross-origin CORS permission. Login, reading the session,
+statistics, and normal room startup retain their existing contracts.
+
 Immediately before deletion, the same D1 transaction copies at most 128 session
 digests into `mxqr_account_deleted_sessions` for ten minutes. Those rows can
 mint only a separate Standard-room deletion assertion: they cannot authenticate
@@ -226,7 +245,16 @@ admin registry records `decommissioned`, the App Worker removes only that exact
 generation's account reverse edges. This happens immediately when an admin
 request observes completion, through a recent-completion sweep on the minute
 trigger when the room's own alarm completes without another admin request, and
-through the six-hour full repair sweep over immutable generation history. The
+through the six-hour full repair sweep over immutable generation history. Each
+full sweep attempts at most 5,000 distinct incarnations in stable completion-time,
+room-code and generation order. The admin D1 singleton
+`mxqr_pro_room_retirement_cursor` advances with a revision compare-and-swap and
+wraps at the end of history, so older failed cleanup and late reverse-edge writes
+are revisited. A failed central entitlement or 40-incarnation Auth batch is logged
+and reported as incomplete, while later batches/pages are still attempted. The
+minute sweep continues to prioritize completions within the last 15 minutes and
+does not move the full-sweep cursor. Apply the additive retirement-cursor migration
+before deploying an App Worker that uses it. The
 room's durable generation tombstone remains the authorization fence. Terminal
 room history therefore cannot consume an account's live cleanup budget or
 inflate a future account deletion forever.
@@ -287,12 +315,12 @@ reverse index. An ordinary-room delete frame is accepted only with the distinct
 deletion-audience assertion bound to that room, physical peer, and role; neither
 a current attachment nor a normal account assertion is deletion authority.
 
-The separate PRO owner-recovery credential is a room recovery secret, not an
-account session. Account deletion unlinks the deleted account from ownership
-and delegated authority but deliberately does not decommission the PRO room or
-erase that independent recovery credential. A room owner must use the PRO room
-decommission action when the room itself, its recovery path, and its retained
-playlist data should all be destroyed.
+Deleting a PRO owner's account suspends the room and revokes its sessions,
+delegated authority, PIN, and owner-recovery credential. The deleted owner's
+credential cannot recover the room; an operator must complete an ownership
+transfer to activate it for a new owner. Account deletion does not decommission
+the room or delete its retained playlist data. Use the PRO room decommission
+action when the room itself and its retained playlist data should be destroyed.
 
 Revoking MUSIXQUARE in Google Security Settings stops future Google
 authorization but does not delete the MUSIXQUARE account or immediately revoke

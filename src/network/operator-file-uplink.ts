@@ -33,7 +33,13 @@ import type {
   StandardOperatorFileUplinkProgress,
 } from '../types/index.ts';
 import { safeSend } from './peer-state.ts';
-import { registerHandlers, registerInboundRateLimitExemptionGuard } from './protocol.ts';
+import {
+  isArrayBufferLike,
+  isOperatorUploadMime as isValidMime,
+  isSafeOperatorUploadFileName as isValidFileName,
+  registerHandlers,
+  registerInboundRateLimitExemptionGuard,
+} from './protocol.ts';
 
 const MAX_FILE_BYTES = REMOTE_SHARE_MAX_BYTES;
 const MAX_RESERVED_HOST_BYTES = REMOTE_SHARE_MAX_BYTES;
@@ -43,8 +49,6 @@ const COMPLETE_TIMEOUT_MS = 30_000;
 const COMPLETE_RETRY_TIMEOUT_MS = 8_000;
 const BUFFERED_AMOUNT_LIMIT = 4 * 1024 * 1024;
 const BACKPRESSURE_TIMEOUT_MS = 15_000;
-const MAX_FILE_NAME_LENGTH = 255;
-const MAX_MIME_LENGTH = 128;
 const PROGRESS_BYTE_INTERVAL = 1024 * 1024;
 
 type UplinkTerminalCode =
@@ -247,24 +251,6 @@ function emitReceiveProgress(
   );
 }
 
-function isValidFileName(name: string): boolean {
-  return (
-    name.length > 0 &&
-    name.length <= MAX_FILE_NAME_LENGTH &&
-    name.trim() === name &&
-    !name.includes('/') &&
-    !name.includes('\\') &&
-    ![...name].some((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint <= 31 || codePoint === 127;
-    })
-  );
-}
-
-function isValidMime(mime: string): boolean {
-  return mime.length > 0 && mime.length <= MAX_MIME_LENGTH && mime.trim() === mime;
-}
-
 function isValidAudioFile(file: File): boolean {
   return partitionAudioFileCandidates([file]).accepted.length === 1;
 }
@@ -310,13 +296,7 @@ function isActiveAuthorizedUploadChunk(
     return false;
   }
   const chunk = data.chunk;
-  const isBuffer =
-    chunk instanceof ArrayBuffer ||
-    chunk instanceof Uint8Array ||
-    (chunk != null &&
-      typeof chunk === 'object' &&
-      Object.prototype.toString.call(chunk) === '[object ArrayBuffer]');
-  if (!isBuffer) return false;
+  if (!isArrayBufferLike(chunk)) return false;
   const byteLength = (chunk as ArrayBuffer | Uint8Array).byteLength;
   if (byteLength <= 0 || byteLength > CHUNK_SIZE) return false;
 

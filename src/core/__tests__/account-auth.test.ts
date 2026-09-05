@@ -392,6 +392,16 @@ class FakeAuthDb {
       return changed(1);
     }
     if (normalized.startsWith('delete from mxqr_account_pro_room_generations')) {
+      if (normalized.includes('where (room_code = ?1 and room_generation = ?2)')) {
+        let count = 0;
+        for (const [key, row] of this.proRoomLinks) {
+          if (row.room_code === values[0] && (row.room_generation ?? 0) === values[1]) {
+            this.proRoomLinks.delete(key);
+            count += 1;
+          }
+        }
+        return changed(count);
+      }
       const accountId = String(values[0]);
       const exactRoomCode = normalized.includes('room_code = ?2') ? String(values[1]) : null;
       const exactGeneration = normalized.includes('room_generation = ?3')
@@ -657,6 +667,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   resetAccountAuthCachesForTests();
+  expectedMutationScopes.clear();
 });
 
 function authEnv(
@@ -852,6 +863,8 @@ async function startLogin(
   };
 }
 
+const expectedMutationScopes = new Map<string, string>();
+
 async function completeLogin(
   env: Record<string, unknown>,
   returnTo = '/000001?panel=connect#account',
@@ -866,11 +879,14 @@ async function completeLogin(
     ),
     env,
   );
+  const sessionCookie = optionalCookiePair(callback!, '__Host-mxqr_account');
+  if (sessionCookie)
+    expectedMutationScopes.set(sessionCookie, await statsScopeFor(env, sessionCookie));
   return {
     ...started,
     google,
     callback: callback!,
-    sessionCookie: optionalCookiePair(callback!, '__Host-mxqr_account'),
+    sessionCookie,
   };
 }
 
@@ -880,6 +896,11 @@ function mutationHeaders(cookie: string): Record<string, string> {
     Origin: 'https://musixquare.com',
     'Content-Type': 'application/json',
     'X-MXQR-Account-CSRF': '1',
+    ...(expectedMutationScopes.has(cookie)
+      ? {
+          'X-MXQR-Account-Expected-Scope': expectedMutationScopes.get(cookie)!,
+        }
+      : {}),
   };
 }
 
@@ -1157,6 +1178,19 @@ describe('Google Authorization Code + PKCE account flow', () => {
     const firstScope = await statsScopeFor(env, first.sessionCookie!);
     expect(await statsScopeFor(env, first.sessionCookie!)).toBe(firstScope);
     expect(await statsScopeFor(env, second.sessionCookie!)).not.toBe(firstScope);
+    const integrationRequest = new Request('https://musixquare.com/', {
+      headers: { Cookie: first.sessionCookie! },
+    });
+    const defaultIntegration = await resolveAccountSession(integrationRequest, env);
+    expect(defaultIntegration).not.toHaveProperty('statsScope');
+    const scopedIntegration = await resolveAccountSession(integrationRequest, env, {
+      includeStatsScope: true,
+    });
+    expect(scopedIntegration).toEqual({ ...defaultIntegration, statsScope: firstScope });
+    expect(
+      (await resolveAccountSession(integrationRequest, env, { includeStatsScope: true }))
+        ?.statsScope,
+    ).toBe(firstScope);
     expect(db.accounts.size).toBe(1);
     expect(db.sessions.size).toBe(2);
   });
@@ -1766,6 +1800,47 @@ describe('account session mutations', () => {
     ).resolves.toMatchObject({ accountId });
   });
 
+  it.each([
+    { path: 'profile', method: 'PATCH', body: { nickname: 'Changed' } },
+    { path: 'account', method: 'DELETE', body: { confirm: true } },
+  ])(
+    'binds $method $path to the confirmed session before any D1 writes',
+    async ({ path, method, body }) => {
+      const db = new FakeAuthDb();
+      const env = authEnv(db);
+      const first = await completeLogin(env);
+      const firstScope = await statsScopeFor(env, first.sessionCookie!);
+      const second = await completeLogin(env, '/', {
+        claimOverrides: { sub: 'different-confirmation-account' },
+      });
+      vi.unstubAllGlobals();
+      for (const session of db.sessions.values()) session.last_seen_at = 0;
+      const before = structuredClone([...db.accounts.entries()]);
+      const writes = vi.spyOn(db, 'run');
+      for (const expectedScope of [undefined, 'malformed', firstScope]) {
+        const headers = mutationHeaders(second.sessionCookie!);
+        delete headers['X-MXQR-Account-Expected-Scope'];
+        if (expectedScope !== undefined) headers['X-MXQR-Account-Expected-Scope'] = expectedScope;
+        const response = await handleAccountAuthRequest(
+          new Request(`https://musixquare.com/api/auth/${path}`, {
+            method,
+            headers,
+            body: JSON.stringify(body),
+          }),
+          env,
+        );
+        expect(response?.status).toBe(409);
+        await expect(response?.json()).resolves.toEqual({ error: 'ACCOUNT_SESSION_CHANGED' });
+      }
+      expect(writes).not.toHaveBeenCalled();
+      expect([...db.accounts.entries()]).toEqual(before);
+      expect(db.accountDeletions.size).toBe(0);
+      expect(db.deletedSessions.size).toBe(0);
+      expect(db.sessions.size).toBe(2);
+      writes.mockRestore();
+    },
+  );
+
   it('normalizes profile nicknames and enforces same-origin CSRF', async () => {
     const env = authEnv();
     const login = await completeLogin(env);
@@ -2298,6 +2373,80 @@ describe('account session mutations', () => {
       ),
     ).toEqual([]);
   });
+
+  it.each(['suspended', 'decommissioning', 'missing', 'read-failure', 'reused', 'decommissioned'])(
+    'preserves account cleanup edges during a %s registry race unless completion is proven',
+    async (race) => {
+      const db = new FakeAuthDb();
+      const env = authEnv(db);
+      const login = await completeLogin(env);
+      const accountId = [...db.accounts.keys()][0]!;
+      const account = db.accounts.get(accountId)!;
+      account.nickname = 'Minsu';
+      account.profile_complete = 1;
+      const otherAccountId = `acct_${'B'.repeat(22)}`;
+      for (const [id, generation] of [
+        [accountId, 7],
+        [otherAccountId, 7],
+        [otherAccountId, 8],
+      ] as const) {
+        db.proRoomLinks.set(`${id}:000123:${generation}`, {
+          account_id: id,
+          room_code: '000123',
+          room_generation: generation,
+          first_linked_at: 1,
+          last_seen_at: 1,
+        });
+      }
+      let preflightReads = 0;
+      const registry = {
+        prepare: (sql: string) => ({
+          bind: (...values: unknown[]) => ({
+            first: async () => {
+              if (sql.includes('mxqr_pro_room_generation_history')) {
+                expect(values).toEqual(['000123', 7]);
+                if (race === 'read-failure') throw new Error('registry unavailable');
+                return race === 'decommissioned'
+                  ? { room_code: '000123', room_generation: 7 }
+                  : null;
+              }
+              preflightReads += 1;
+              if (preflightReads <= 2) return { status: 'registered', room_generation: 7 };
+              if (race === 'read-failure') throw new Error('registry unavailable');
+              if (race === 'missing') return null;
+              return {
+                status: race === 'reused' ? 'registered' : race,
+                room_generation: race === 'reused' ? 8 : 7,
+              };
+            },
+          }),
+        }),
+      };
+      vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/api/pro-room/v1/rooms/000123/sessions', {
+          method: 'POST',
+          headers: mutationHeaders(login.sessionCookie!),
+          body: JSON.stringify({ pin: '12345678', requestId: 'account-edge-race-request' }),
+        }),
+        {
+          ...env,
+          MUSIXQUARE_ADMIN_DB: registry,
+          MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'edge-race-secret-'.padEnd(48, 'x'),
+          PRO_ROOM_PUBLIC_API: {
+            fetch: async (request: Request) => {
+              expect(request.headers.get(ACCOUNT_ASSERTION_HEADER)).toBeNull();
+              return Response.json({ error: 'PRO_ROOM_SUSPENDED' }, { status: 409 });
+            },
+          },
+        },
+      );
+      expect(response.status).toBe(409);
+      expect(db.proRoomLinks.has(`${otherAccountId}:000123:8`)).toBe(true);
+      expect(db.proRoomLinks.has(`${otherAccountId}:000123:7`)).toBe(race !== 'decommissioned');
+      expect(db.proRoomLinks.has(`${accountId}:000123:7`)).toBe(race !== 'decommissioned');
+    },
+  );
 
   it('logs out one session, all sessions, and permanently deletes the account', async () => {
     const db = new FakeAuthDb();

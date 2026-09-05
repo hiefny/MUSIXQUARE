@@ -4,6 +4,11 @@ import { t } from '../i18n/index.ts';
 
 const REMOVE_BUTTON_SELECTOR = '.btn-playlist-remove[data-queue-item-id]';
 
+function setButtonLabel(button: HTMLButtonElement, label: string): void {
+  button.setAttribute('aria-label', label);
+  button.title = label;
+}
+
 interface PlaylistRemovalControllerOptions {
   list: HTMLElement;
   canRemove: () => boolean;
@@ -70,7 +75,7 @@ export function createPlaylistRemovalController(
   const panel = createPanel(list);
   const abortController = new AbortController();
   let lastTriggerQueueItemId: QueueItemId | null = null;
-  let pendingFocusQueueItemId: QueueItemId | null | undefined;
+  let pendingFocus: { queueItemId: QueueItemId | null; origin: Element | null } | undefined;
   let wasSelectionActive = false;
   let destroyed = false;
 
@@ -103,10 +108,10 @@ export function createPlaylistRemovalController(
   function syncDom(): void {
     if (destroyed) return;
     const items = liveItems();
-    const liveIds = new Set(items.map((item) => item.queueItemId));
+    const itemsById = new Map(items.map((item) => [item.queueItemId, item]));
     if (!options.canRemove()) selectedQueueItemIds.clear();
     for (const queueItemId of selectedQueueItemIds) {
-      if (!liveIds.has(queueItemId)) selectedQueueItemIds.delete(queueItemId);
+      if (!itemsById.has(queueItemId)) selectedQueueItemIds.delete(queueItemId);
     }
 
     const selectedCount = selectedQueueItemIds.size;
@@ -114,7 +119,6 @@ export function createPlaylistRemovalController(
     const selectionEnded = wasSelectionActive && !active;
     wasSelectionActive = active;
     const allSelected = active && items.length > 0 && selectedCount === items.length;
-    const itemsById = new Map(items.map((item) => [item.queueItemId, item]));
     list.classList.toggle('has-removal-selection', active);
 
     for (const button of list.querySelectorAll<HTMLButtonElement>(REMOVE_BUTTON_SELECTOR)) {
@@ -128,8 +132,7 @@ export function createPlaylistRemovalController(
       );
       button.classList.toggle('is-selected', selected);
       button.setAttribute('aria-pressed', String(selected));
-      button.setAttribute('aria-label', label);
-      button.title = label;
+      setButtonLabel(button, label);
       button.closest('.playlist-entry')?.classList.toggle('is-removal-selected', selected);
     }
 
@@ -145,8 +148,7 @@ export function createPlaylistRemovalController(
     panel.setAttribute('aria-label', t('playlist.remove_title'));
     if (selectAllButton) {
       const label = t(allSelected ? 'playlist.deselect_all' : 'playlist.select_all');
-      selectAllButton.setAttribute('aria-label', label);
-      selectAllButton.title = label;
+      setButtonLabel(selectAllButton, label);
       selectAllButton.setAttribute('aria-pressed', String(allSelected));
       selectAllButton.classList.toggle('is-selected', allSelected);
       selectAllButton.disabled = items.length === 0;
@@ -154,22 +156,27 @@ export function createPlaylistRemovalController(
     if (deleteButton) {
       const label = t('playlist.delete_selected', { count: selectedCount });
       deleteButton.disabled = !active;
-      deleteButton.setAttribute('aria-label', label);
-      deleteButton.title = label;
+      setButtonLabel(deleteButton, label);
     }
     if (cancelButton) {
-      const label = t('common.cancel');
-      cancelButton.setAttribute('aria-label', label);
-      cancelButton.title = label;
+      setButtonLabel(cancelButton, t('common.cancel'));
     }
     if (count) count.textContent = String(selectedCount);
 
-    if (pendingFocusQueueItemId !== undefined) {
-      const target = pendingFocusQueueItemId;
-      pendingFocusQueueItemId = undefined;
-      if (options.isPlaylistVisible()) {
-        queueMicrotask(() => restoreFocus(target));
-      }
+    if (pendingFocus) {
+      const owner = pendingFocus;
+      queueMicrotask(() => {
+        if (pendingFocus !== owner) return;
+        pendingFocus = undefined;
+        const active = document.activeElement;
+        if (
+          active === owner.origin ||
+          active === document.body ||
+          active === document.documentElement
+        ) {
+          restoreFocus(owner.queueItemId);
+        }
+      });
     }
 
     if (selectionEnded && options.isPlaylistVisible()) {
@@ -186,7 +193,7 @@ export function createPlaylistRemovalController(
     // A pending post-render restore belongs to the interaction being
     // cancelled. It must not fire after the playlist has been parked
     // off-screen by a mobile tab change.
-    pendingFocusQueueItemId = undefined;
+    pendingFocus = undefined;
     const focusTarget = options.restoreFocus ? lastTriggerQueueItemId : null;
     if (options.restoreFocus || panel.contains(document.activeElement)) restoreFocus(focusTarget);
     selectedQueueItemIds.clear();
@@ -199,7 +206,7 @@ export function createPlaylistRemovalController(
       activeElement instanceof HTMLElement &&
       (list.contains(activeElement) || panel.contains(activeElement));
 
-    pendingFocusQueueItemId = undefined;
+    pendingFocus = undefined;
     selectedQueueItemIds.clear();
     syncDom();
 
@@ -211,6 +218,7 @@ export function createPlaylistRemovalController(
   function toggle(queueItemId: QueueItemId): void {
     if (!options.canRemove()) return;
     if (!liveItems().some((item) => item.queueItemId === queueItemId)) return;
+    pendingFocus = undefined;
     const wasActive = selectedQueueItemIds.size > 0;
     lastTriggerQueueItemId = queueItemId;
     if (selectedQueueItemIds.has(queueItemId)) selectedQueueItemIds.delete(queueItemId);
@@ -242,19 +250,32 @@ export function createPlaylistRemovalController(
       return;
     }
 
-    const removedIds = new Set(orderedQueueItemIds);
-    const firstRemovedIndex = items.findIndex((item) => removedIds.has(item.queueItemId));
-    const survivors = items.filter((item) => !removedIds.has(item.queueItemId));
+    const firstRemovedIndex = items.findIndex((item) => selectedQueueItemIds.has(item.queueItemId));
+    const survivors = items.filter((item) => !selectedQueueItemIds.has(item.queueItemId));
     const focusQueueItemId =
       survivors[Math.min(firstRemovedIndex, Math.max(0, survivors.length - 1))]?.queueItemId ??
       null;
     restoreFocus(focusQueueItemId);
     selectedQueueItemIds.clear();
     syncDom();
-    pendingFocusQueueItemId = focusQueueItemId;
+    pendingFocus = { queueItemId: focusQueueItemId, origin: document.activeElement };
     options.onDelete(orderedQueueItemIds);
   }
 
+  // Server-authoritative deletion can finish after the user starts another
+  // interaction. Retire that intent even if the later rebuild drops its focused
+  // row to body, which otherwise looks like ordinary DOM replacement.
+  const retirePendingFocus = (event: Event) => {
+    if (event.type !== 'focusin' || document.activeElement !== pendingFocus?.origin) {
+      pendingFocus = undefined;
+    }
+  };
+  for (const type of ['pointerdown', 'keydown', 'focusin']) {
+    document.addEventListener(type, retirePendingFocus, {
+      capture: true,
+      signal: abortController.signal,
+    });
+  }
   panel.addEventListener(
     'click',
     (event) => {
@@ -302,6 +323,7 @@ export function createPlaylistRemovalController(
     notifyPlaylistHidden,
     destroy: () => {
       destroyed = true;
+      pendingFocus = undefined;
       abortController.abort();
       selectedQueueItemIds.clear();
       list.classList.remove('has-removal-selection');

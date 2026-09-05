@@ -387,6 +387,34 @@ describe('PRO system-audio SFU publisher', () => {
 });
 
 describe('PRO system-audio SFU subscriber', () => {
+  it.each(['failed', 'stopped', 'replaced'] as const)(
+    'invalidates emitted track ownership when its native subscriber is %s',
+    async (termination) => {
+      const events: proSfu.ProSystemAudioSfuEventForTests[] = [];
+      const unsubscribe = proSfu.onProSystemAudioSfuEvent((event) => events.push(event));
+      await proSfu.subscribeProSystemAudioSfu(publication(1));
+      const track = events.find((event) => event.type === 'subscriber-track');
+      expect(track).toBeDefined();
+      if (!track) throw new Error('Subscriber did not emit its actual track');
+      expect(track.isCurrent()).toBe(true);
+      peerConnections[0].emitConnectionState('disconnected');
+      expect(track.isCurrent()).toBe(true);
+      peerConnections[0].emitConnectionState('connected');
+      expect(track.isCurrent()).toBe(true);
+
+      if (termination === 'failed') peerConnections[0].emitConnectionState('failed');
+      else if (termination === 'stopped') proSfu.stopProSystemAudioSfuSubscriber();
+      else await proSfu.subscribeProSystemAudioSfu(publication(2));
+
+      expect(track.isCurrent()).toBe(false);
+      await proSfu.subscribeProSystemAudioSfu(publication(2));
+      expect(track.isCurrent()).toBe(false);
+      const replacement = events.filter((event) => event.type === 'subscriber-track').at(-1);
+      expect(replacement?.isCurrent()).toBe(true);
+      unsubscribe();
+    },
+  );
+
   it('subscribes from any participant using only the public descriptor', async () => {
     const events: proSfu.ProSystemAudioSfuEventForTests[] = [];
     const unsubscribe = proSfu.onProSystemAudioSfuEvent((event) => events.push(event));

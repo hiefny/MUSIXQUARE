@@ -70,7 +70,7 @@ jobs:
           artifact_list="$(
             gh api \
               -H 'Accept: application/vnd.github+json' \
-              "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100"
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100&name=${artifact_name}"
           )"
           api_status=$?
           set -e
@@ -78,18 +78,25 @@ jobs:
             echo 'state=indeterminate' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          artifact_count="$(
+          artifact_state="$(
             jq -er --arg name "$artifact_name" \
-              '[.artifacts[] | select(.name == $name and .expired == false)] | length' \
+              'if type != "object" then "indeterminate"
+               elif (.total_count | type) != "number" or (.artifacts | type) != "array"
+                 then "indeterminate"
+               elif .total_count < 0 or .total_count > 100
+                 or (.total_count | floor) != .total_count
+                 or .total_count != (.artifacts | length)
+                 then "indeterminate"
+               elif .total_count == 0 then "absent"
+               elif .total_count == 1
+                 and (.artifacts[0] | type) == "object"
+                 and .artifacts[0].name == $name
+                 and .artifacts[0].expired == false
+                 then "committed"
+               else "indeterminate" end' \
               <<< "$artifact_list"
-          )"
-          if [[ "$artifact_count" == '1' ]]; then
-            echo 'state=committed' >> "$GITHUB_OUTPUT"
-          elif [[ "$artifact_count" == '0' ]]; then
-            echo 'state=absent' >> "$GITHUB_OUTPUT"
-          else
-            echo 'state=indeterminate' >> "$GITHUB_OUTPUT"
-          fi
+          )" || artifact_state='indeterminate'
+          echo "state=${artifact_state}" >> "$GITHUB_OUTPUT"
 
       - name: Preserve committed production after post-deploy failure
         if: steps.production_commit_state.outputs.state == 'committed'
@@ -405,6 +412,10 @@ jobs:
             node scripts/release-deployment-state.mts \
               standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
+          soro_article_visibility_forward_floor="$(
+            node scripts/release-deployment-state.mts \
+              soro-article-visibility-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
+          )"
           signaling_domain_recovery_outcome="${{ steps.fallback_signaling_domain_recovery.outcome }}"
           if [[ "$RELEASE_TARGET" == 'all' || "$RELEASE_TARGET" == 'signaling' ]]; then
             if ! node scripts/release-signaling-domain-state.mts \
@@ -424,6 +435,7 @@ jobs:
             MXQR_REMOTE_SHARE_FORWARD_FLOOR="$remote_share_forward_floor" \
             MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR="$pro_system_audio_forward_floor" \
             MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR="$standard_room_pin_forward_floor" \
+            MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR="$soro_article_visibility_forward_floor" \
             node scripts/release-recovery-plan.mts
           )"
           echo "skipped_targets=${skip_targets}" >> "$GITHUB_OUTPUT"

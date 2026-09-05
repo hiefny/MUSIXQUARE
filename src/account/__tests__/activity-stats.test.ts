@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AccountStats } from '../api.ts';
-import { __resetAccountStateForTests, type AccountSnapshot } from '../state.ts';
+import * as accountApi from '../api.ts';
+import {
+  applyAccountSession,
+  __resetAccountStateForTests,
+  type AccountSnapshot,
+} from '../state.ts';
 import {
   __accountActivityStatsForTests,
   createAccountActivityStatsTracker,
@@ -9,7 +14,7 @@ import {
   initAccountActivityStats,
 } from '../activity-stats.ts';
 import { bus } from '../../core/events.ts';
-import { resetState } from '../../core/state.ts';
+import { resetState, setState } from '../../core/state.ts';
 
 type AccountActivityStatsTracker = ReturnType<typeof createAccountActivityStatsTracker>;
 type AccountActivityStatsDependencies = Parameters<typeof createAccountActivityStatsTracker>[0];
@@ -1032,6 +1037,41 @@ describe('account activity delta delivery', () => {
 });
 
 describe('account activity lifecycle', () => {
+  it('settles device leadership while repeated peer telemetry keeps updating the directory', async () => {
+    vi.useFakeTimers();
+    bus.clear();
+    resetState();
+    __resetAccountStateForTests();
+    applyAccountSession({
+      configured: true,
+      authenticated: true,
+      account: AUTHENTICATED.account,
+      statsScope: STATS_SCOPE_A,
+    });
+    setState('network.myId', 'device-own');
+    setState('setup.sessionStarted', true);
+    setState('playback.mode', 'system-audio');
+    setState('playback.activity', 'playing');
+    const addStats = vi.spyOn(accountApi, 'addAccountStats').mockResolvedValue(FIRST_UPDATED_STATS);
+    try {
+      initAccountActivityStats();
+      // Host SYNC_PING handlers replace connectedPeers for each guest. This
+      // background traffic must not postpone the one-second election forever.
+      for (let index = 0; index < 8; index += 1) {
+        await vi.advanceTimersByTimeAsync(250);
+        setState('network.connectedPeers', []);
+      }
+      await flushAccountActivityStatsForRead();
+      expect(addStats).toHaveBeenCalledWith(
+        { sessionCountDelta: 1, listeningSecondsDelta: 1, trackCountDelta: 0 },
+        STATS_SCOPE_A,
+      );
+    } finally {
+      await disposeAccountActivityStats(false);
+      vi.useRealTimers();
+    }
+  });
+
   it('returns idle when a foreground read happens before tracker initialization', async () => {
     await disposeAccountActivityStats(false);
 

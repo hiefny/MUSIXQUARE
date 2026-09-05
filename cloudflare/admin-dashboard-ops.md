@@ -16,6 +16,65 @@ query below before production schema maintenance.
 
 ## Data Model
 
+Soro article visibility uses `mxqr_soro_article_visibility` as a canonical
+per-slug override of the existing `soro-hidden-slugs.json` KV snapshot. A
+`hidden=0` row is a durable explicit unhide; never delete it merely because
+the article is public, since the older KV snapshot may still hide that slug.
+Different article updates are independent D1 upserts. Public blog/article
+and legacy-link reads apply the same overrides as the admin list. Missing
+schema or unavailable D1 returns 503 instead of publishing an incomplete
+visibility view. Ordinary room startup and TURN do not read this table.
+
+The normal `all` and `app` release targets apply and verify
+`cloudflare/admin-metrics.soro-article-visibility.migration.sql` before the App
+Worker deployment. The declarative baseline includes the same table for a
+new database. No KV rewrite or bulk data migration is required. The App-only
+`soro-article-visibility-contract-version.txt` marker applies the existing
+schema compatibility recovery rule: on the first cutover, both normal and
+independent recovery preserve the candidate App and report forward repair
+when it is live or its version cannot be proved. An unchanged captured App
+baseline can still be restored. Other Workers retain their normal recovery,
+and later releases with the same marker can roll back to a compatible App.
+This prevents older code from ignoring new hides during failed-smoke recovery.
+Recovery verifies the marker from the release Git SHA and requires the complete
+immutable Worker checkpoint; missing source/checkpoint evidence fails closed.
+The marker is source metadata, not a Static Assets file in the dist manifest.
+The pre-App migration stage also checks its checked-out and committed values.
+Never silently fall back on a missing table or drop overrides during recovery.
+
+Public owner-transfer PREPARE retains its durable intent before calling the
+PRO Worker. New request IDs now require a matching unexpired `issued` ledger
+row for the signed-in target, room incarnation and claim generation. The App
+only parses a bounded, untrusted claim selector; signature verification and
+authorization remain exclusively in the PRO Worker.
+
+`mxqr_pro_room_owner_transfer_intent_admissions` permits at most 10 distinct
+request IDs per issued claim, atomically in D1. This is a separate durable
+allocation limit, not the existing PRO per-room/IP limit of 10 attempts/hour.
+The same request ID consumes no additional admission, including retry after
+an interrupted intent write. Existing exact saga retries preserve their prior
+state rules even after issuance expiry; terminal expired/superseded/deleted
+target sagas are not reopened. `RATE_LIMITED` (429) reports exhausted new-ID
+capacity; an invalid or unissued selector returns `OWNER_TRANSFER_CLAIM_INVALID`
+(401). A new operator-issued claim provides a new allocation budget. Normal
+same-operation retries keep their original request ID.
+
+Malformed, invalid, rate-denied and other public PREPARE failures retain only
+the first fixed `(room, generation, action, result)` audit row. The insert is
+atomic and the result strings are server-defined. Successful operations,
+commits and admin claim issuance retain their existing audit records. This
+prevents invalid public traffic from replacing unbounded saga allocation with
+unbounded failure-audit allocation.
+
+The normal `all`/`app` workflow applies the existing saga prerequisite and
+`cloudflare/admin-metrics.owner-transfer-intent-admission.migration.sql` before
+App deployment. The additive table contains no bearer material. Keep it during
+recovery: old code can ignore it, but rolling back the App reintroduces the
+allocation weakness. The current App exposes a new claim only after recording
+its issuance. A pre-rollout or directly issued internal claim without a ledger
+and without an existing saga needs a replacement link; normal App links live
+at most 10 minutes, while the lower-level claim format allows 15 minutes.
+
 Ordinary room codes, peer IDs, IP addresses, raw Access identities, and user
 agents are not stored. The PRO registry necessarily stores its explicitly
 registered `0xxxxx` room codes, current immutable `room_generation`, and
@@ -210,6 +269,35 @@ Wrangler configs directly or use the local `deploy:*` primitives for routine
 releases; the exceptional operator path is documented in
 `docs/hotfix-procedure.md`.
 
+## Developer API operator CLI
+
+`npm run developer-api:key -- issue --room 000001 --label "Automation" --days 30`
+uses the same App administrator issuance endpoint as the dashboard. Existing
+`--room`, `--label`, `--days` and `--scopes` options remain available. Supply
+`CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, together with either
+`MXQR_ADMIN_PASSWORD` or `MXQR_ADMIN_SESSION_COOKIE`, through the environment.
+The session variable accepts the admin token or its `__Host-mxqr_admin=` cookie.
+Do not put these secrets into command arguments or saved output.
+
+Issuance no longer reads a local `MXQR_DEVELOPER_API_KEY_PEPPER` or inserts a
+credential directly into D1. It captures the current room generation from the
+admin key-list response and sends it with a new request ID. The App verifies the
+canonical room owner authority epoch before issuing, so keys issued after an
+ownership transition bind to the current owner. A generation/authority change
+during issuance fails instead of issuing against a different room incarnation.
+
+One lost network/timeout result is retried within the invocation with the same
+request ID, generation and parameters. An HTTP error or invalid confirmation is
+not automatically retried. The CLI verifies the no-store response, key identity,
+generation, scope set and lifetime before printing the full key once. If both
+transport attempts fail, inspect the Admin key list before starting a new issue
+operation; an unobserved successful issuance may already occupy an active slot.
+
+`list` and `revoke` retain their existing explicit Wrangler/D1 operator path and
+do not require or reveal the key secret. The shared CLI HTTP adapter also serves
+the campaign CLI; its Access/admin authentication is unchanged, with explicit
+no-store requests and bounded JSON response bytes and read time.
+
 ## Manual Re-registration of a Decommissioned Code
 
 There is no automatic room-code recycling. Before an administrator selects
@@ -304,17 +392,20 @@ Inspect table names and aggregate row ages without exposing user data:
 npm run wrangler -- d1 execute musixquare-admin-metrics --remote --json --command "SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name; SELECT MIN(bucket_minute) AS oldest_minute, MAX(bucket_minute) AS newest_minute, COUNT(*) AS rows FROM mxqr_metric_buckets;"
 ```
 
-The declarative baseline currently defines these 19 application tables; `_cf_KV`
+The declarative baseline currently defines these 22 application tables; `_cf_KV`
 is managed by Cloudflare:
 
 - metrics: `mxqr_metric_buckets`, `mxqr_lifetime_metric_totals`,
   `mxqr_lifetime_metric_days`;
+- editorial visibility: `mxqr_soro_article_visibility`;
 - registry and generation: `mxqr_pro_room_registry`,
   `mxqr_pro_room_generation_history`,
   `mxqr_pro_room_generation_allocations`,
+  `mxqr_pro_room_retirement_cursor`,
   `mxqr_pro_room_generation_cutover`, `mxqr_pro_room_admin_audit`;
 - owner transfer: `mxqr_pro_room_owner_transfer_sagas`,
-  `mxqr_pro_room_owner_transfer_issuances`;
+  `mxqr_pro_room_owner_transfer_issuances`,
+  `mxqr_pro_room_owner_transfer_intent_admissions`;
 - grants and entitlements: `mxqr_pro_grant_campaigns`,
   `mxqr_pro_grant_voucher_batches`, `mxqr_pro_grant_vouchers`,
   `mxqr_pro_grant_account_fences`, `mxqr_pro_grants`,
@@ -329,6 +420,21 @@ and unbounded by that active-room cap; the cutover row is a singleton release
 fence; and audit tables contain metadata, never credentials. For any other
 unexpected table, first search the deployed Worker source, take a D1 export or
 confirm Time Travel coverage, and record the maintenance decision.
+
+The additive `admin-metrics.pro-room-retirement-cursor.migration.sql` migration
+must precede the App Worker release that uses it. The release workflow applies
+and verifies this contract for App/all releases. Its singleton stores only a
+revision and the last attempted `(completed_at, room_code, room_generation)`
+tuple. Every six-hour full repair attempts at most 5,000 distinct completed
+incarnations, then advances with a revision compare-and-swap and wraps at the
+end. Failed entitlement or account-edge batches are reported and retried on
+later cycles without blocking other pages. The minute recent-completion sweep
+is independent. This is progress, not an authorization or permanent completion
+receipt: a later cycle also cleans reverse edges written by delayed requests.
+Reapplying the migration preserves progress. During recovery, retain this
+additive table and roll forward or restore the provider database; resetting the
+cursor merely repeats idempotent cleanup, while older App code reintroduces the
+latest-5,000-history starvation defect.
 
 The runtime retention cutoff is 90 days. To audit what the next scheduled
 cleanup would remove, preview the affected row count with:

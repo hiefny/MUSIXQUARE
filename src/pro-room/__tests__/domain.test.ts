@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   capabilitiesForProRoomRole,
   PRO_ROOM_MAX_ASSET_BYTES,
+  PRO_ROOM_MAX_ADMINISTRATOR_ITEMS,
   PRO_ROOM_MAX_PRESENCE_ITEMS,
   PRO_ROOM_MAX_YOUTUBE_MANIFEST_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
@@ -365,6 +366,30 @@ describe('PRO playlist wire items', () => {
 });
 
 describe('PRO room snapshot validation', () => {
+  it('bounds persistent administrators separately from live presence', () => {
+    const snapshot = activeSnapshot();
+    for (let index = 1; index < PRO_ROOM_MAX_ADMINISTRATOR_ITEMS; index += 1) {
+      snapshot.administrators.push({
+        memberId: `member_${String(index + 1).padStart(24, '0')}`,
+        memberDisplayNumber: (index % 100) + 1,
+        isAuthenticated: true,
+        displayName: `Administrator ${index}`,
+        role: 'controller',
+        permissions: { ...OWNER_PERMISSIONS },
+        inheritedPermissions: [],
+        onlineDeviceCount: 0,
+      });
+    }
+    expect(parseProRoomSnapshot(snapshot)?.administrators).toHaveLength(
+      PRO_ROOM_MAX_ADMINISTRATOR_ITEMS,
+    );
+    snapshot.administrators.push({
+      ...snapshot.administrators[1]!,
+      memberId: 'member_overflow0000000000000000',
+    });
+    expect(parseProRoomSnapshot(snapshot)).toBeNull();
+  });
+
   it('parses the active v1 snapshot and returns a detached JSON-safe copy', () => {
     const raw = activeSnapshot();
     const parsed = parseProRoomSnapshot(raw);

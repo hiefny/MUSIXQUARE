@@ -8,6 +8,29 @@ const BRIDGE_PREFIX = `${APP_ORIGIN}/api/standard-signaling/v1/bridge`;
 const REQUEST_TIMEOUT_MS = 20_000;
 const WAIT_TIMEOUT_MS = 12_000;
 const MAX_JSON_BYTES = 128 * 1024;
+const SEND_FRAME_TYPES = new Set([
+  'host-auth',
+  'room-password-set',
+  'guest-auth',
+  'signal-offer',
+  'signal-answer',
+]);
+// Emit only recognized machine codes. Response text and authentication data
+// must never become release logs, even when an upstream returns them as error.
+const SEND_ERROR_CODES = new Set([
+  'CAPABILITY_NOT_CONFIGURED',
+  'RATE_LIMIT_UNAVAILABLE',
+  'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE',
+  'STANDARD_SIGNALING_BRIDGE_INVALID_RESPONSE',
+  'STANDARD_SIGNALING_BRIDGE_SESSION_REQUIRED',
+  'INVALID_STANDARD_HTTP_BRIDGE_REQUEST',
+  'STANDARD_HTTP_BRIDGE_REAUTH_REQUIRED',
+  'STANDARD_HTTP_BRIDGE_AUTHORITY_MISMATCH',
+  'STANDARD_HTTP_BRIDGE_CLOSED',
+  'STANDARD_HTTP_BRIDGE_SEQUENCE_REPLAY_MISMATCH',
+  'STANDARD_HTTP_BRIDGE_SEQUENCE_GAP',
+  'STANDARD_HTTP_BRIDGE_SEND_FAILED',
+]);
 
 type JsonObject = Record<string, unknown>;
 
@@ -187,7 +210,15 @@ export class StandardHttpBridgeSmokeClient {
       sent.payload.v !== 1 ||
       sent.payload.ack !== this.clientSequence
     ) {
-      throw new Error(`HTTP signaling bridge send failed (HTTP ${sent.response.status})`);
+      const frameType =
+        typeof frame.type === 'string' && SEND_FRAME_TYPES.has(frame.type) ? frame.type : 'unknown';
+      const rawCode = isJsonObject(sent.payload) ? sent.payload.error : undefined;
+      const code =
+        typeof rawCode === 'string' && SEND_ERROR_CODES.has(rawCode) ? rawCode : 'unknown';
+      throw new Error(
+        `HTTP signaling bridge send failed (HTTP ${sent.response.status}; ` +
+          `cseq=${this.clientSequence}; frame=${frameType}; code=${code})`,
+      );
     }
   }
 

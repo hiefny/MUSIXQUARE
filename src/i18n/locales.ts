@@ -276,7 +276,8 @@ function normalizeLanguageCode(value: unknown): LanguageCode | null {
     .replace(/_/gu, '-')
     .toLowerCase();
   if (isLanguageCode(normalized)) return normalized;
-  return LANGUAGE_ALIASES[normalized] ?? null;
+  const alias = LANGUAGE_ALIASES[normalized];
+  return isLanguageCode(alias) ? alias : null;
 }
 
 export function languageDirection(code: LanguageCode): 'ltr' | 'rtl' {

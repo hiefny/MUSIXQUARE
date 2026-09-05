@@ -159,6 +159,7 @@ export function initMediaSession(): void {
   };
   const isNonOperatorGuest = isPlaybackBlocked;
   let pendingLocalPlayRecovery: { attemptToken: object } | null = null;
+  let localPlayOwner: object | null = null;
 
   const requestLocalPlay = (mode: 'file' | 'youtube'): void => {
     const explicitLocalPause = mode === 'file' ? isLocalFilePaused() : isLocalYouTubePaused();
@@ -167,9 +168,12 @@ export function initMediaSession(): void {
         bus.emit('youtube:set-local-paused', false, 'media-session-play');
         return;
       }
+      const owner = {};
+      localPlayOwner = owner;
       bus.emit('playback:local-output-rejoin', {
         reason: 'media-session-play',
         mode: requestedMode,
+        isCurrent: () => localPlayOwner === owner,
       });
     };
 
@@ -199,7 +203,13 @@ export function initMediaSession(): void {
     const flight = { attemptToken };
     void resumePendingAudioContextInterruptionFromGesture()
       .then(async (result) => {
-        if (!result.running || !isAudioContextInterruptionAttemptCurrent(attemptToken)) return;
+        if (
+          pendingLocalPlayRecovery !== flight ||
+          !result.running ||
+          !isAudioContextInterruptionAttemptCurrent(attemptToken)
+        ) {
+          return;
+        }
         const requirement = getPendingAudioContextClockHealthRequirement();
         if (!requirement || requirement.attemptToken !== attemptToken || !requirement.isCurrent()) {
           return;
@@ -209,7 +219,7 @@ export function initMediaSession(): void {
           context: requirement.context,
           isCurrent: requirement.isCurrent,
         });
-        if (!requirement.isCurrent()) return;
+        if (pendingLocalPlayRecovery !== flight || !requirement.isCurrent()) return;
         if (!health.healthy) {
           if (health.reason === 'clock-stalled') {
             await escalatePendingAudioContextRecoveryToClockStalled(attemptToken);
@@ -287,8 +297,13 @@ export function initMediaSession(): void {
   registerMediaSessionAction('pause', () => {
     if (isPlaybackModeYouTube()) {
       if (shouldIgnoreRecentNativeYouTubeMediaAction('pause')) return;
+      // PAUSE also cancels a PLAY still waiting on native output recovery,
+      // even while the local pause flag has not yet been cleared by that PLAY.
+      pendingLocalPlayRecovery = null;
+      localPlayOwner = null;
       if (isNonOperatorGuest()) {
-        if (isLocalYouTubePaused()) return;
+        // The native iframe PLAY path may already have paused locally while
+        // its rejoin is pending. Still deliver the newer desired PAUSE.
         bus.emit('youtube:set-local-paused', true);
         return;
       }
@@ -296,6 +311,8 @@ export function initMediaSession(): void {
       togglePlay();
       return;
     }
+    pendingLocalPlayRecovery = null;
+    localPlayOwner = null;
     if (isPlaybackPlayingFile()) {
       if (isNonOperatorGuest()) {
         // Local pause: mark it so the host's SYNC_PONG bootstrap/drift in

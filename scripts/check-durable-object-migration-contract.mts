@@ -219,19 +219,35 @@ export function parseProductionWranglerMigrations(
     const line = stripTomlComment(sourceLine).trim();
     if (!line) continue;
 
-    if (/^\[\[?[^\]]+\]\]?$/u.test(line)) {
-      if (/^\[+exports(?:\.|\])/u.test(line)) {
+    if (/^\[.*\]$/u.test(line)) {
+      // TOML permits whitespace around bare table keys. Normalize that form,
+      // but fail closed on quoted/escaped keys instead of silently overlooking
+      // a migration or declarative export that Wrangler would interpret.
+      const table = line.replace(/[ \t]/gu, '');
+      const bareKey = '[A-Za-z0-9_-]+(?:\\.[A-Za-z0-9_-]+)*';
+      if (!new RegExp(`^(?:\\[${bareKey}\\]|\\[\\[${bareKey}\\]\\])$`, 'u').test(table)) {
+        throw new Error(
+          `${label} uses an unsupported table header; use canonical bare table keys.`,
+        );
+      }
+      if (/^\[+exports(?:\.|\])/u.test(table)) {
         throw new Error(
           `${label} uses declarative exports; extend the canonical Durable Object contract before migrating away from the legacy history.`,
         );
       }
       inTopLevel = false;
-      currentMigration = line === '[[migrations]]' ? {} : null;
+      if (/^\[+migrations(?:\.|\])/u.test(table) && table !== '[[migrations]]') {
+        throw new Error(`${label} uses an unsupported migration table; use [[migrations]].`);
+      }
+      currentMigration = table === '[[migrations]]' ? {} : null;
       if (currentMigration) migrations.push(currentMigration);
       continue;
     }
 
     const assignment = /^([A-Za-z0-9_-]+)\s*=\s*(.+)$/u.exec(line);
+    if (inTopLevel && /^(?:["']|(?:migrations|exports)(?:\s|\.|=))/u.test(line)) {
+      throw new Error(`${label} uses an unsupported top-level migration/export or quoted key.`);
+    }
     if (inTopLevel && assignment?.[1] === 'name') {
       if (scriptName !== null) throw new Error(`${label} declares top-level name more than once.`);
       const nameValue = assignment[2];

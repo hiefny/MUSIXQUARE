@@ -30,7 +30,8 @@ export function getAccountSnapshot(): Readonly<AccountSnapshot> {
 }
 
 /**
- * Opaque current-session fence used only by aggregate activity writes.
+ * Opaque current-session fence for aggregate writes and confirmed account mutations.
+ * Equality identifies an intended session; it never grants account or room authority.
  * It is intentionally kept out of the user-facing account profile.
  */
 export function getAccountStatsScope(): string | null {

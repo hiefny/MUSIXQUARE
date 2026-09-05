@@ -125,9 +125,11 @@ device-specific sync compensation intact.
 ## Residual, accepted boundaries
 
 - Low-risk Cache API rate limits remain edge-local best effort. Paid-resource,
-  remote-share allocation, and signaling admission limits use the shared
+  remote-share allocation, and PRO signaling admission limits use the shared
   service-control Durable Object for serialized atomic decisions and fail
-  closed when that production binding is unavailable.
+  closed when that production binding is unavailable. Standard WebSocket
+  admission instead uses one atomic rate decision in its own signaling Durable
+  Object namespace; it does not add a synchronous service-control dependency.
 - The repository-wide TypeScript migration is complete: all six Wrangler entry
   files are TypeScript, authored JavaScript is zero, and 19 strict projects cover
   the tracked TypeScript-family source. Type-escape, declaration-ownership,

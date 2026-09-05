@@ -112,6 +112,25 @@ describe('standard-room security/performance policy', () => {
     );
   });
 
+  it('does not treat void as a terminal rejection observer', async () => {
+    const current = await sources();
+    const discarded = replaceOrThrow(
+      replaceOrThrow(
+        current.peer,
+        '      settleDeferredHostRtcConfiguration(',
+        '      void settleDeferredHostRtcConfiguration(',
+      ),
+      `      ).catch((error) => {
+        log.error('[Network] Deferred RTC configuration escaped its boundary', error);
+      });`,
+      '      );',
+    );
+
+    expect(() => assertStandardRoomHotPath({ ...current, peer: discarded })).toThrow(
+      /TURN settlement must start exactly once as an observed background task/u,
+    );
+  });
+
   it('rejects restoring a control-plane readiness preflight ahead of room signaling', async () => {
     const current = await sources();
     const gatedHost = replaceOrThrow(

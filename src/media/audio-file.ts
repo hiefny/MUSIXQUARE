@@ -6,21 +6,6 @@
  * decodeAudioData at load time.
  */
 
-const AUDIO_FILE_FALLBACK_EXTENSIONS = Object.freeze([
-  'mp3',
-  'wav',
-  'flac',
-  'm4a',
-  'aac',
-  'ogg',
-  'oga',
-  'opus',
-  'webm',
-  'aif',
-  'aiff',
-  'caf',
-] as const);
-
 const AUDIO_MIME_BY_EXTENSION: Readonly<Record<string, string>> = Object.freeze({
   mp3: 'audio/mpeg',
   wav: 'audio/wav',
@@ -45,7 +30,9 @@ const GENERIC_BINARY_MIME_ESSENCES = new Set([
   'application/x-ogg',
 ]);
 
-export const AUDIO_FILE_ACCEPT = `${AUDIO_FILE_FALLBACK_EXTENSIONS.map((ext) => `.${ext}`).join(',')},audio/*`;
+export const AUDIO_FILE_ACCEPT = `${Object.keys(AUDIO_MIME_BY_EXTENSION)
+  .map((ext) => `.${ext}`)
+  .join(',')},audio/*`;
 
 function mimeEssence(mime?: string): string {
   return typeof mime === 'string' ? (mime.split(';', 1)[0]?.trim().toLowerCase() ?? '') : '';
@@ -55,13 +42,20 @@ function filenameExtension(filename: string): string {
   return /\.([^.\\/]+)$/.exec(filename.trim().toLowerCase())?.[1] ?? '';
 }
 
+function audioMimeForExtension(extension: string): string {
+  const mime = Object.prototype.hasOwnProperty.call(AUDIO_MIME_BY_EXTENSION, extension)
+    ? AUDIO_MIME_BY_EXTENSION[extension]
+    : '';
+  return typeof mime === 'string' ? mime : '';
+}
+
 function inferAudioMimeFromFilename(filename: string): string {
-  return AUDIO_MIME_BY_EXTENSION[filenameExtension(filename)] ?? '';
+  return audioMimeForExtension(filenameExtension(filename));
 }
 
 export function stripRecognizedAudioFileExtension(filename: string): string {
   const match = /\.([^.\\/]+)$/.exec(filename);
-  if (!match || !AUDIO_MIME_BY_EXTENSION[match[1]!.toLowerCase()]) return filename;
+  if (!match || !audioMimeForExtension(match[1]!.toLowerCase())) return filename;
   return filename.slice(0, -match[0].length) || filename;
 }
 

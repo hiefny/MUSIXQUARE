@@ -10,12 +10,13 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { randomBytes as nodeRandomBytes } from 'node:crypto';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { createAdminCliClient } from './admin-cli-client.mts';
 
 const DEFAULT_ORIGIN = 'https://musixquare.com';
 const ARTIFACT_ROOT = 'release-artifacts/pro-grants';
-const ADMIN_SESSION_COOKIE = '__Host-mxqr_admin';
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_BATCH_SIZE = 100;
 const PROVISION_CONCURRENCY = 4;
@@ -377,158 +378,17 @@ export function parseProGrantCampaignCommand(argv: string[]): ProGrantCampaignCo
   throw usageError();
 }
 
-function accessHeaders(env: Environment): Record<string, string> {
-  const clientId = env.CF_ACCESS_CLIENT_ID;
-  const clientSecret = env.CF_ACCESS_CLIENT_SECRET;
-  if (!!clientId !== !!clientSecret) {
-    throw new ProGrantCampaignCliError(
-      'CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET must be supplied together',
-    );
-  }
-  return clientId && clientSecret
-    ? {
-        'CF-Access-Client-Id': clientId,
-        'CF-Access-Client-Secret': clientSecret,
-      }
-    : {};
-}
-
-function normalizeSessionCookie(value: string | undefined): string | null {
-  const input = String(value || '').trim();
-  if (!input) return null;
-  const token = input.startsWith(`${ADMIN_SESSION_COOKIE}=`)
-    ? input.slice(ADMIN_SESSION_COOKIE.length + 1).split(';', 1)[0]
-    : input;
-  if (token === undefined || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(token)) {
-    throw new ProGrantCampaignCliError('MXQR_ADMIN_SESSION_COOKIE is malformed');
-  }
-  return `${ADMIN_SESSION_COOKIE}=${token}`;
-}
-
-function extractAdminCookie(response: Response): string {
-  const headers = response.headers;
-  const setCookies =
-    typeof headers.getSetCookie === 'function'
-      ? headers.getSetCookie()
-      : [headers.get('set-cookie') || ''];
-  for (const value of setCookies) {
-    const match = new RegExp(`(?:^|[,;]\\s*)${ADMIN_SESSION_COOKIE}=([^;\\s,]+)`, 'u').exec(value);
-    const token = match?.[1];
-    if (token && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(token)) {
-      return `${ADMIN_SESSION_COOKIE}=${token}`;
-    }
-  }
-  throw new ProGrantCampaignCliError('Admin login did not return a valid session');
-}
-
-async function readJsonResponse(response: Response, label: string): Promise<unknown> {
-  let text: string;
-  try {
-    text = await response.text();
-  } catch {
-    throw new ProGrantCampaignCliError(`${label} returned an unreadable response`);
-  }
-  if (text.length > MAX_JSON_BYTES) {
-    throw new ProGrantCampaignCliError(`${label} response exceeded the safe size limit`);
-  }
-  let payload: unknown;
-  try {
-    payload = JSON.parse(text);
-  } catch {
-    throw new ProGrantCampaignCliError(`${label} returned invalid JSON`);
-  }
-  if (!response.ok) {
-    const error = isRecord(payload) ? payload.error : undefined;
-    const errorCode =
-      typeof error === 'string' && /^[A-Z0-9_]{3,80}$/u.test(error) ? error : 'REQUEST_FAILED';
-    throw new ProGrantCampaignCliError(`${label} failed (${response.status} ${errorCode})`);
-  }
-  return payload;
-}
-
-export function createProGrantAdminClient({
-  origin,
-  env,
-  fetcher = globalThis.fetch,
-}: {
+export function createProGrantAdminClient(options: {
   origin: string;
   env: Environment;
   fetcher?: typeof fetch;
 }): ProGrantAdminApi {
-  if (typeof fetcher !== 'function') {
-    throw new ProGrantCampaignCliError('A fetch implementation is required');
-  }
-  const baseHeaders = accessHeaders(env);
-  let cookie = normalizeSessionCookie(env.MXQR_ADMIN_SESSION_COOKIE);
-
-  async function login(): Promise<string> {
-    if (cookie) return cookie;
-    const password = env.MXQR_ADMIN_PASSWORD;
-    if (typeof password !== 'string' || !password) {
-      throw new ProGrantCampaignCliError(
-        'MXQR_ADMIN_PASSWORD or MXQR_ADMIN_SESSION_COOKIE must be supplied',
-      );
-    }
-    let response: Response;
-    try {
-      response = await fetcher(`${origin}/api/admin/login`, {
-        method: 'POST',
-        redirect: 'error',
-        signal: AbortSignal.timeout(15_000),
-        headers: {
-          ...baseHeaders,
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          Origin: origin,
-          'Sec-Fetch-Site': 'same-origin',
-          'X-MXQR-Admin-CSRF': '1',
-        },
-        body: JSON.stringify({ password }),
-      });
-    } catch {
-      throw new ProGrantCampaignCliError('Admin login request failed');
-    }
-    await readJsonResponse(response, 'Admin login');
-    cookie = extractAdminCookie(response);
-    return cookie;
-  }
-
-  async function request(
-    path: string,
-    { method = 'GET', body = null, sensitive = false }: ProGrantRequestOptions = {},
-  ): Promise<unknown> {
-    const authenticatedCookie = await login();
-    let response: Response;
-    try {
-      response = await fetcher(`${origin}${path}`, {
-        method,
-        redirect: 'error',
-        signal: AbortSignal.timeout(30_000),
-        headers: {
-          ...baseHeaders,
-          Accept: 'application/json',
-          Cookie: authenticatedCookie,
-          ...(body === null
-            ? {}
-            : {
-                'Content-Type': 'application/json',
-                Origin: origin,
-                'Sec-Fetch-Site': 'same-origin',
-                'X-MXQR-Admin-CSRF': '1',
-              }),
-        },
-        ...(body === null ? {} : { body: JSON.stringify(body) }),
-      });
-    } catch {
-      throw new ProGrantCampaignCliError('PRO grant admin request failed');
-    }
-    if (sensitive && !/\bno-store\b/iu.test(response.headers.get('cache-control') || '')) {
-      throw new ProGrantCampaignCliError('Sensitive voucher response was not marked no-store');
-    }
-    return readJsonResponse(response, 'PRO grant admin request');
-  }
-
-  return { request };
+  return createAdminCliClient({
+    ...options,
+    ErrorType: ProGrantCampaignCliError,
+    requestLabel: 'PRO grant admin request',
+    sensitiveLabel: 'Sensitive voucher response',
+  });
 }
 
 export function createProGrantBatchRequestId(randomBytes: RandomBytes = nodeRandomBytes): string {
@@ -583,6 +443,7 @@ function assertArtifactPath(
   const absolute = resolve(root, path);
   const fromArtifactRoot = relative(artifactRoot, absolute);
   if (
+    isAbsolute(fromArtifactRoot) ||
     fromArtifactRoot === '..' ||
     fromArtifactRoot.startsWith(`..${sep}`) ||
     fromArtifactRoot === '' ||
@@ -659,6 +520,7 @@ function artifactPathInsideRoot(
   const absolute = resolve(root, requestedPath);
   const fromArtifactRoot = relative(artifactRoot, absolute);
   if (
+    isAbsolute(fromArtifactRoot) ||
     fromArtifactRoot === '..' ||
     fromArtifactRoot.startsWith(`..${sep}`) ||
     fromArtifactRoot === '' ||

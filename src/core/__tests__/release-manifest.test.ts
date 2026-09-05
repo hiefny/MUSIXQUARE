@@ -87,6 +87,26 @@ afterEach(() => {
 });
 
 describe('release manifest validation profile', () => {
+  it('runs the standalone CLI without npm environment hints', () => {
+    const { dist, manifest } = createFixture();
+    const environment: NodeJS.ProcessEnv = { ...process.env, GITHUB_SHA: COMMIT };
+    for (const key of Object.keys(environment)) {
+      if (['npm_config_user_agent', 'npm_execpath'].includes(key.toLowerCase())) {
+        delete environment[key];
+      }
+    }
+    const result = spawnSync(process.execPath, [SCRIPT_PATH, 'create', dist, manifest], {
+      encoding: 'utf8',
+      env: environment,
+      timeout: 30_000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    const payload = JSON.parse(readFileSync(manifest, 'utf8')) as {
+      tools: { npm: string };
+    };
+    expect(payload.tools.npm).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u);
+  });
+
   it('preserves the executable CLI boundary', () => {
     const { dist, manifest } = createFixture();
     const environment = {

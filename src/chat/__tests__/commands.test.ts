@@ -4,6 +4,9 @@ import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { t } from '../../i18n/index.ts';
 import type { TransportDataConnection } from '../../network/transport/types.ts';
+import { initRoomControl } from '../../network/room-control.ts';
+import { handleData } from '../../network/protocol.ts';
+import type { ConnectedPeer } from '../../types/index.ts';
 
 function hostConnection(peer = 'host'): TransportDataConnection {
   return {
@@ -49,6 +52,7 @@ import {
   parseCommand,
   executeCommand,
   getAvailableCommands,
+  getCommandArgHint,
   shouldBroadcastCommand,
 } from '../commands.ts';
 
@@ -57,6 +61,158 @@ beforeEach(() => {
   bus.clear();
   vi.clearAllMocks();
 });
+
+describe.each([
+  {
+    scenario: 'grouped public member number',
+    target: '#1',
+    siblingOrder: 1,
+    listenerOrder: 2,
+    legacy: false,
+    availability: 'live',
+  },
+  {
+    scenario: 'aligned member and device numbers',
+    target: '#1',
+    siblingOrder: 2,
+    listenerOrder: 1,
+    legacy: false,
+    availability: 'live',
+  },
+  {
+    scenario: 'legacy anonymous device number',
+    target: '#2',
+    siblingOrder: 1,
+    listenerOrder: 2,
+    legacy: true,
+    availability: 'live',
+  },
+  {
+    scenario: 'nickname target',
+    target: 'Listener',
+    siblingOrder: 1,
+    listenerOrder: 2,
+    legacy: false,
+    availability: 'live',
+  },
+  {
+    scenario: 'protected host number zero',
+    target: '#0',
+    siblingOrder: 1,
+    listenerOrder: 2,
+    legacy: false,
+    availability: 'host',
+  },
+  {
+    scenario: 'retired exact connection',
+    target: '#1',
+    siblingOrder: 1,
+    listenerOrder: 2,
+    legacy: false,
+    availability: 'retired',
+  },
+  {
+    scenario: 'not yet connected representative',
+    target: '#1',
+    siblingOrder: 1,
+    listenerOrder: 2,
+    legacy: false,
+    availability: 'connecting',
+  },
+])(
+  'owner-sibling moderation through the real host protocol: $scenario',
+  ({ target, siblingOrder, listenerOrder, legacy, availability }) => {
+    it.each(['mute', 'unmute'] as const)(
+      'keeps the public member number for /%s after device and member numbers diverge',
+      async (command) => {
+        const sibling = hostConnection('owner-phone');
+        const listener = hostConnection('listener-laptop');
+        const peers: ConnectedPeer[] = [
+          {
+            id: sibling.peer,
+            conn: sibling,
+            slot: siblingOrder,
+            joinOrder: siblingOrder,
+            memberId: 'member_aaaaaaaaaaaaaaaaaaaaaa',
+            memberDisplayNumber: 0,
+            label: 'Owner',
+            isAuthenticated: true,
+            isOp: true,
+            roomCapabilities: ['room.configure'],
+            status: 'connected',
+            connectionType: 'local',
+            isDataTarget: true,
+            preloadedQueueItemIds: new Set(),
+            lastHeartbeat: 0,
+          },
+          {
+            id: listener.peer,
+            conn: listener,
+            slot: listenerOrder,
+            joinOrder: listenerOrder,
+            ...(legacy
+              ? {}
+              : { memberId: 'member_bbbbbbbbbbbbbbbbbbbbbb', memberDisplayNumber: 1 }),
+            label: 'Listener',
+            isAuthenticated: true,
+            isOp: false,
+            roomCapabilities: [],
+            status: 'connected',
+            connectionType: 'local',
+            isDataTarget: true,
+            preloadedQueueItemIds: new Set(),
+            lastHeartbeat: 0,
+          },
+        ];
+        setState('network.appRole', 'guest');
+        setState('network.myId', sibling.peer);
+        setState('network.myJoinOrder', siblingOrder);
+        setState('network.myMemberDisplayNumber', 0);
+        setState('network.hostConn', hostConnection('physical-host'));
+        setState('network.isOperator', true);
+        setState('network.standardRoomCapabilities', ['room.configure']);
+        setState(
+          'network.lastKnownDeviceList',
+          peers.map((peer) => ({ ...peer, isHost: false })),
+        );
+
+        executeCommand(parseCommand(`/${command} ${target}`)!);
+        expect(mocks.sendToHost).toHaveBeenCalledOnce();
+        const [frame] = mocks.sendToHost.mock.calls[0]!;
+
+        // Transfer the actual serialized producer frame to the physical host's state.
+        setState('network.appRole', 'host');
+        setState('network.myId', 'physical-host');
+        setState('network.hostConn', null);
+        if (availability === 'connecting') peers[1]!.status = 'connecting';
+        setState('network.connectedPeers', peers);
+        const activeConnections = new Map(peers.map((peer) => [peer.id, peer.conn!]));
+        if (availability === 'retired')
+          activeConnections.set(listener.peer, hostConnection(listener.peer));
+        setState('network.activeHostConnByPeerId', activeConnections);
+        setState('network.mutedPeers', command === 'unmute' ? new Set([listener.peer]) : new Set());
+        initRoomControl(() => null);
+        await handleData(frame, sibling);
+
+        const applied = availability === 'live';
+        expect(getState('network.mutedPeers').has(listener.peer)).toBe(
+          applied ? command === 'mute' : command === 'unmute',
+        );
+        expect(getState('network.mutedPeers').has(sibling.peer)).toBe(false);
+        if (!applied) {
+          expect(sibling.send).not.toHaveBeenCalled();
+          return;
+        }
+        expect(sibling.send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: command === 'mute' ? MSG.CHAT_MUTE : MSG.CHAT_UNMUTE,
+            targetId: listener.peer,
+          }),
+        );
+      },
+    );
+  },
+);
 
 describe('parseCommand', () => {
   it('parses name (lowercased), args, and rawArgs', () => {
@@ -99,6 +255,15 @@ describe('parseCommand', () => {
 });
 
 describe('executeCommand permission gating', () => {
+  it.each(['constructor', '__proto__'])(
+    'treats inherited registry key %s as an unknown command',
+    (name) => {
+      expect(getCommandArgHint(name)).toBe('');
+      executeCommand({ name, args: [], rawArgs: '' });
+      expect(mocks.addSystemChatMessage).toHaveBeenCalledWith(t('chat.cmd_unknown', { cmd: name }));
+    },
+  );
+
   it('names the exact member-management permission required by /kick', () => {
     setState('network.hostConn', hostConnection());
     executeCommand({ name: 'kick', args: ['someone'], rawArgs: 'someone' });

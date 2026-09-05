@@ -78,6 +78,83 @@ function invoke(middleware: DevMiddleware, url: string, method = 'GET') {
 }
 
 describe('Vite local API safety', () => {
+  it.each(['privacy', 'terms', 'faq', 'developers'])(
+    'serves flattened %s output through the actual preview alias middleware',
+    (page) => {
+      const plugins = createViteConfig({}).plugins || [];
+      const pluginNamed = (name: string) =>
+        plugins.find(
+          (candidate) =>
+            candidate &&
+            typeof candidate === 'object' &&
+            !Array.isArray(candidate) &&
+            'name' in candidate &&
+            candidate.name === name,
+        );
+      const flatten = pluginNamed('flatten-workshop-html') as unknown as {
+        generateBundle(
+          options: object,
+          bundle: Record<string, { source: string; fileName: string; type: string }>,
+        ): void;
+      };
+      const authored = `.workshop/${page}/${page}.html`;
+      const bundle = {
+        [authored]: { type: 'asset', fileName: authored, source: `<title>${page}</title>` },
+      };
+      flatten.generateBundle({}, bundle);
+      expect(bundle[authored]).toBeUndefined();
+      const aliases = pluginNamed('dev-page-aliases') as {
+        configureServer(server: { middlewares: { use(value: DevMiddleware): void } }): void;
+        configurePreviewServer(server: { middlewares: { use(value: DevMiddleware): void } }): void;
+      };
+      for (const surface of ['configureServer', 'configurePreviewServer'] as const) {
+        let middleware: DevMiddleware | undefined;
+        aliases[surface]({
+          middlewares: {
+            use(value) {
+              middleware = value;
+            },
+          },
+        });
+        expect(middleware).toBeDefined();
+        for (const pathname of [`/${page}`, `/${page}.html`, `/${page.toUpperCase()}/`]) {
+          const request = { url: `${pathname}?fixture=1` };
+          const next = vi.fn();
+          middleware!(request, { statusCode: 200, setHeader() {}, end() {} }, next);
+          expect(next).toHaveBeenCalledOnce();
+          if (surface === 'configurePreviewServer') {
+            expect(request.url).toBe(`/${page}.html?fixture=1`);
+            expect(bundle[request.url.slice(1).split('?')[0]!]?.source).toBe(
+              `<title>${page}</title>`,
+            );
+          } else {
+            expect(request.url).toBe(`/${authored}?fixture=1`);
+          }
+        }
+        for (const url of ['/123456', '/not-a-page', '/assets/example.js']) {
+          const request = { url };
+          const next = vi.fn();
+          middleware!(request, { statusCode: 200, setHeader() {}, end() {} }, next);
+          expect(request.url).toBe(url);
+          expect(next).toHaveBeenCalledOnce();
+        }
+      }
+    },
+  );
+
+  it.each([
+    ['/blog', '/blog/index.html'],
+    ['/history', '/history/index.html'],
+    ['/changelog', '/history/index.html'],
+    ['/roadmap', '/history/index.html'],
+    ['/designsystem', '/designsystem/index.html'],
+    ['/events/example', '/events/index.html'],
+    ['/events/example/1', '/events/index.html'],
+  ])('keeps public static alias %s identical in development and preview', (route, target) => {
+    expect(pageAliasTarget(`${route}?fixture=1`)).toBe(`${target}?fixture=1`);
+    expect(pageAliasTarget(`${route}?fixture=1`, true)).toBe(`${target}?fixture=1`);
+  });
+
   it('maps localized app and About routes to source and built counterparts', () => {
     expect(pageAliasTarget('/en/?campaign=launch')).toBe('/index.html?campaign=launch');
     expect(pageAliasTarget('/en/?campaign=launch', true)).toBe('/index.html?campaign=launch');

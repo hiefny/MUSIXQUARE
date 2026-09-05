@@ -99,6 +99,11 @@ function setHeaderLoading(loading: boolean): void {
 
 function initEditorialPageLoader(): void {
   window.setTimeout(() => setHeaderLoading(false), EDITORIAL_LOAD_DELAY_MS);
+  window.addEventListener('pageshow', (event) => {
+    if (!event.persisted) return;
+    pendingEditorialNavigation = false;
+    setHeaderLoading(false);
+  });
 
   document.querySelectorAll<HTMLAnchorElement>('.editorial-site-tab[href]').forEach((link) => {
     link.addEventListener('click', (event) => {
@@ -144,16 +149,29 @@ function initHairlineScale(): void {
 function initSmoothAnchor(): void {
   document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((link) => {
     link.addEventListener('click', (e) => {
+      if (
+        e.defaultPrevented ||
+        e.button !== 0 ||
+        e.metaKey ||
+        e.ctrlKey ||
+        e.shiftKey ||
+        e.altKey
+      ) {
+        return;
+      }
       const id = link.getAttribute('href')?.slice(1);
       if (!id) return;
       const target = document.getElementById(id);
       if (!target) return;
       e.preventDefault();
+      const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+        ? 'auto'
+        : 'smooth';
       if (id === 'top') {
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        window.scrollTo({ top: 0, behavior });
         return;
       }
-      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      target.scrollIntoView({ behavior, block: 'start' });
     });
   });
 }

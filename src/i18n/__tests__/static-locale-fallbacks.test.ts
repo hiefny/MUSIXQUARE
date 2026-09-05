@@ -14,11 +14,11 @@ async function classicRuntime(outputPath: string): Promise<string> {
 }
 
 describe('static locale fallbacks without the shared resolver', () => {
-  it('resolves every supported query locale before the About page paints', async () => {
+  it('resolves a regional query locale on the authored About alias before painting', async () => {
     const source = await classicRuntime('landing-bootstrap.js');
     const dom = new JSDOM('<!doctype html><html lang="en"><body></body></html>', {
       runScripts: 'outside-only',
-      url: 'https://musixquare.com/about?lang=nl-NL',
+      url: 'https://musixquare.com/.workshop/landing/landing.html?lang=nl-NL',
     });
 
     dom.window.eval(source);

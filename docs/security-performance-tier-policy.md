@@ -73,6 +73,10 @@ helpers already exist.
   bounds. A separate cross-service exact counter adds a cold Worker/DO hop but
   does not stop a distributed botnet; coarse edge controls may supplement the
   room limits without joining the startup critical path.
+  Authority frames waiting in the Standard receive-order queue are bounded per
+  socket to 32 frames and 64 KiB in total before any asynchronous dependency.
+  Exceeding either bound closes only that socket; ordinary ICE/media relay
+  frames do not join this queue. Settled work releases both budgets.
 - PRO ownership, D1 mutations, R2 allocation, remote-share quotas, and admin
   actions protect durable authority or direct cost. Exact fail-closed decisions
   remain appropriate there even when they are slower.

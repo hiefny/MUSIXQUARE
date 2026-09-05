@@ -3,8 +3,8 @@
  *
  * Closes the gap that `file-transfer.test.ts` and the ramstore unit tests
  * leave open: a host's file blob and the guest's reconstructed blob must
- * be byte-identical (same size + finalized in the guest's storage layer)
- * by the time `transfer.state` returns to IDLE.
+ * be byte-identical (same size and SHA-256 digest after guest finalization)
+ * by the time `transfer.state` reaches READY.
  *
  * The unit tests cover ramstore in isolation; this scenario verifies the
  * full transport → in-process bridge → blob assembly pipeline end-to-end.
@@ -30,7 +30,7 @@ test.describe('Storage Round-Trip', () => {
     await cleanupContexts(pair);
   });
 
-  test('guest blob matches host blob size + name after transfer', async () => {
+  test('guest blob matches host bytes and identity after transfer', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test03');
@@ -48,16 +48,15 @@ test.describe('Storage Round-Trip', () => {
       { timeout: 25_000 },
     );
 
-    // Pull both sides' current blob size + meta name. Round-trip integrity
-    // means both halves agree on these — host's file authored; guest's
-    // assembled from chunks + finalized via the in-process bridge.
-    const hostInfo = await pair.hostPage.evaluate(() => {
+    // Digest the actual residents inside each browser. Equal metadata alone
+    // cannot detect reordered or corrupted chunks of the same total size.
+    const hostInfo = await pair.hostPage.evaluate(async () => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
         | ((p: string) => unknown)
         | undefined;
       if (!get) return null;
       const current = get('files.current') as {
-        blob?: { size?: number };
+        blob?: Blob;
         name?: string;
         queueItemId?: string;
       } | null;
@@ -65,16 +64,25 @@ test.describe('Storage Round-Trip', () => {
         size: current?.blob?.size ?? null,
         name: current?.name ?? null,
         queueItemId: current?.queueItemId ?? null,
+        digest: current?.blob
+          ? Array.from(
+              new Uint8Array(
+                await crypto.subtle.digest('SHA-256', await current.blob.arrayBuffer()),
+              ),
+            )
+              .map((byte) => byte.toString(16).padStart(2, '0'))
+              .join('')
+          : null,
       };
     });
 
-    const guestInfo = await pair.guestPage.evaluate(() => {
+    const guestInfo = await pair.guestPage.evaluate(async () => {
       const get = (window as unknown as Record<string, unknown>).__MUSIXQUARE_GET_STATE__ as
         | ((p: string) => unknown)
         | undefined;
       if (!get) return null;
       const current = get('files.current') as {
-        blob?: { size?: number };
+        blob?: Blob;
         name?: string;
         queueItemId?: string;
       } | null;
@@ -82,6 +90,15 @@ test.describe('Storage Round-Trip', () => {
         size: current?.blob?.size ?? null,
         name: current?.name ?? null,
         queueItemId: current?.queueItemId ?? null,
+        digest: current?.blob
+          ? Array.from(
+              new Uint8Array(
+                await crypto.subtle.digest('SHA-256', await current.blob.arrayBuffer()),
+              ),
+            )
+              .map((byte) => byte.toString(16).padStart(2, '0'))
+              .join('')
+          : null,
       };
     });
 
@@ -91,6 +108,8 @@ test.describe('Storage Round-Trip', () => {
     expect(guestInfo!.size).toBe(hostInfo!.size);
     expect(guestInfo!.name).toBe(hostInfo!.name);
     expect(guestInfo!.queueItemId).toBe(hostInfo!.queueItemId);
+    expect(hostInfo!.digest).toMatch(/^[0-9a-f]{64}$/);
+    expect(guestInfo!.digest).toBe(hostInfo!.digest);
   });
 
   test('guest transfer metadata and atomic resident agree after transfer', async () => {

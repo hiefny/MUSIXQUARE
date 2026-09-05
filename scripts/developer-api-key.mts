@@ -1,18 +1,15 @@
 import { execFileSync } from 'node:child_process';
-import { randomBytes as nodeRandomBytes } from 'node:crypto';
+import { randomUUID as nodeRandomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import {
-  deriveDeveloperApiKeyDigest,
-  developerApiScopes,
-} from '../cloudflare/developer-api-worker.ts';
+import { parseDeveloperApiKey } from '../cloudflare/developer-api-worker.ts';
+import { createAdminCliClient, isAdminCliTransportFailure } from './admin-cli-client.mts';
 import { isProRoomGeneration } from '../cloudflare/pro-room-generation.ts';
 
 const DATABASE_NAME = 'musixquare-developer-api';
 const WRANGLER_CONFIG = 'cloudflare/wrangler.developer-api.toml';
-const ADMIN_DATABASE_NAME = 'musixquare-admin-metrics';
-const ADMIN_WRANGLER_CONFIG = 'cloudflare/wrangler.app.toml';
+const ADMIN_ORIGIN = 'https://musixquare.com';
 const ROOM_CODE_RE = /^0\d{5}$/;
 const KEY_ID_RE = /^[A-Za-z0-9_-]{16}$/;
 export type DeveloperApiScope =
@@ -41,16 +38,15 @@ export interface DeveloperApiD1Row extends Record<string, unknown> {
 }
 
 type D1Executor = (statement: string) => DeveloperApiD1Row[];
-type RoomGenerationResolver = (roomCode: string) => number | Promise<number>;
 
 export interface DeveloperApiKeyCliDependencies {
   argv?: readonly string[];
   env?: Readonly<Record<string, string | undefined>>;
   stdout?: { write(value: string): unknown };
   now?: () => number;
-  randomBytes?: (size: number) => Buffer;
+  randomUUID?: () => string;
+  fetcher?: typeof fetch;
   execute?: D1Executor;
-  resolveRoomGeneration?: RoomGenerationResolver;
 }
 
 export interface IssuedDeveloperApiKey {
@@ -86,6 +82,7 @@ const USAGE = [
   '  npm run developer-api:key -- issue --room 000000 --label "Launch canary" [--days 90] [--scopes room:read,playback:read,playback:control,queue:read,queue:write,media:upload,effects:read,effects:control]',
   '  npm run developer-api:key -- list [--room 000000]',
   '  npm run developer-api:key -- revoke --id <16-character-key-id>',
+  'issue requires CF_ACCESS_CLIENT_ID/SECRET and MXQR_ADMIN_PASSWORD or MXQR_ADMIN_SESSION_COOKIE; no local key pepper is used.',
 ].join('\n');
 
 export class DeveloperApiKeyCliError extends Error {
@@ -250,32 +247,68 @@ export function executeDeveloperApiD1(sql: string): DeveloperApiD1Row[] {
   return executeD1(DATABASE_NAME, WRANGLER_CONFIG, sql);
 }
 
-export function executeAdminD1(sql: string): DeveloperApiD1Row[] {
-  return executeD1(ADMIN_DATABASE_NAME, ADMIN_WRANGLER_CONFIG, sql);
+function hasExactKeys(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.hasOwn(value, key))
+  );
 }
 
-export function resolveCurrentProRoomGeneration(
-  roomCode: string,
-  execute: D1Executor = executeAdminD1,
-): number {
-  const rows = execute(
-    `SELECT room_code, room_generation, status, activation_state ` +
-      `FROM mxqr_pro_room_registry WHERE room_code = ${sqlString(roomCode)} LIMIT 2;`,
-  );
-  const row = rows[0];
-  const roomGeneration = row?.room_generation;
+function safeTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function validateIssuedKey(
+  value: unknown,
+  command: Extract<DeveloperApiKeyCommand, { command: 'issue' }>,
+  roomGeneration: number,
+  nowMs: number,
+): { apiKey: string; keyId: string; expiresAt: number } {
+  const fail = () =>
+    new DeveloperApiKeyCliError('Developer API key issuance returned an invalid confirmation');
   if (
-    rows.length !== 1 ||
-    row?.room_code !== roomCode ||
-    !isProRoomGeneration(roomGeneration) ||
-    row.status !== 'registered' ||
-    row.activation_state !== 'active'
-  ) {
-    throw new DeveloperApiKeyCliError(
-      'The current active PRO room incarnation could not be verified',
-    );
-  }
-  return roomGeneration;
+    !hasExactKeys(value, ['roomCode', 'roomGeneration', 'apiKey', 'key']) ||
+    value.roomCode !== command.roomCode ||
+    value.roomGeneration !== roomGeneration ||
+    typeof value.apiKey !== 'string'
+  )
+    throw fail();
+  const credential = parseDeveloperApiKey(value.apiKey);
+  const key = value.key;
+  if (
+    !credential ||
+    !hasExactKeys(key, [
+      'keyId',
+      'roomGeneration',
+      'label',
+      'scopes',
+      'status',
+      'createdAt',
+      'updatedAt',
+      'expiresAt',
+      'revokedAt',
+      'lastUsedAt',
+    ]) ||
+    key.keyId !== credential.keyId ||
+    key.roomGeneration !== roomGeneration ||
+    key.label !== command.label ||
+    !Array.isArray(key.scopes) ||
+    key.scopes.length !== command.scopes.length ||
+    new Set(key.scopes).size !== key.scopes.length ||
+    key.scopes.some((scope) => !command.scopes.includes(scope as DeveloperApiScope)) ||
+    key.status !== 'active' ||
+    !safeTimestamp(key.createdAt) ||
+    !safeTimestamp(key.updatedAt) ||
+    key.updatedAt < key.createdAt ||
+    !safeTimestamp(key.expiresAt) ||
+    key.expiresAt - key.createdAt !== command.days * 86_400_000 ||
+    key.expiresAt <= nowMs ||
+    key.revokedAt !== null ||
+    (key.lastUsedAt !== null && !safeTimestamp(key.lastUsedAt))
+  )
+    throw fail();
+  return { apiKey: value.apiKey, keyId: credential.keyId, expiresAt: key.expiresAt };
 }
 
 export function runDeveloperApiKeyCli(
@@ -289,89 +322,78 @@ export async function runDeveloperApiKeyCli({
   env = process.env,
   stdout = process.stdout,
   now = () => Date.now(),
-  randomBytes = nodeRandomBytes,
+  randomUUID = nodeRandomUUID,
+  fetcher = globalThis.fetch,
   execute = executeDeveloperApiD1,
-  resolveRoomGeneration = resolveCurrentProRoomGeneration,
 }: DeveloperApiKeyCliDependencies = {}): Promise<
   IssuedDeveloperApiKey | RevokedDeveloperApiKey | DeveloperApiD1Row[]
 > {
   const command = parseDeveloperApiKeyCommand(argv);
   if (command.command === 'issue') {
-    const pepper = env.MXQR_DEVELOPER_API_KEY_PEPPER;
-    if (typeof pepper !== 'string' || pepper.length < 32) {
+    if (!env.CF_ACCESS_CLIENT_ID || !env.CF_ACCESS_CLIENT_SECRET) {
       throw new DeveloperApiKeyCliError(
-        'MXQR_DEVELOPER_API_KEY_PEPPER must be supplied through the environment',
+        'CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are required for issuance',
       );
     }
-    const roomGeneration = await resolveRoomGeneration(command.roomCode);
-    if (!isProRoomGeneration(roomGeneration)) {
-      throw new DeveloperApiKeyCliError(
-        'The current active PRO room incarnation could not be verified',
-      );
+    const client = createAdminCliClient({
+      origin: ADMIN_ORIGIN,
+      env,
+      fetcher,
+      ErrorType: DeveloperApiKeyCliError,
+      requestLabel: 'Developer API admin request',
+      sensitiveLabel: 'Sensitive API key response',
+    });
+    const path = `/api/admin/pro-rooms/${command.roomCode}/api-keys`;
+    const detail = await client.request(path);
+    if (
+      !hasExactKeys(detail, ['roomCode', 'roomGeneration', 'maxActiveKeys', 'keys']) ||
+      detail.roomCode !== command.roomCode ||
+      !isProRoomGeneration(detail.roomGeneration) ||
+      detail.maxActiveKeys !== 3 ||
+      !Array.isArray(detail.keys)
+    ) {
+      throw new DeveloperApiKeyCliError('The current PRO room incarnation could not be verified');
     }
-    const keyId = randomBytes(12).toString('base64url');
-    const secret = randomBytes(32).toString('base64url');
-    if (!KEY_ID_RE.test(keyId) || secret.length !== 43) {
-      throw new DeveloperApiKeyCliError('Secure API key generation failed');
+    const roomGeneration = detail.roomGeneration;
+    const requestId = randomUUID();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(requestId)) {
+      throw new DeveloperApiKeyCliError('Secure API key request ID generation failed');
     }
-    const digest = await deriveDeveloperApiKeyDigest(pepper, keyId, secret);
-    const createdAt = now();
-    const expiresAt = createdAt + command.days * 86_400_000;
-    let scopeMask = 0;
-    for (const scope of command.scopes) {
-      const bit = developerApiScopes[scope];
-      if (typeof bit !== 'number' || !Number.isSafeInteger(bit)) {
-        throw new DeveloperApiKeyCliError('Developer API scope configuration is invalid');
+    const body = {
+      label: command.label,
+      days: command.days,
+      scopes: command.scopes,
+      requestId,
+      roomGeneration,
+    };
+    let issued: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        issued = await client.request(path, { method: 'POST', body, sensitive: true });
+        break;
+      } catch (error) {
+        if (attempt === 0 && isAdminCliTransportFailure(error)) continue;
+        throw error;
       }
-      scopeMask |= bit;
     }
-    const inserted = execute(
-      `INSERT INTO mxqr_developer_api_keys (` +
-        `key_id, room_code, room_generation, label, secret_digest, digest_version, scope_mask, status, ` +
-        `created_at, updated_at, expires_at, revoked_at, last_used_hour` +
-        `) VALUES (` +
-        `${sqlString(keyId)}, ${sqlString(command.roomCode)}, ${roomGeneration}, ` +
-        `${sqlString(command.label)}, ${sqlString(digest)}, 1, ${scopeMask}, 'active', ${createdAt}, ${createdAt}, ` +
-        `${expiresAt}, NULL, NULL) RETURNING key_id;`,
-    );
-    if (!inserted.some((row) => row?.key_id === keyId)) {
-      throw new DeveloperApiKeyCliError('Developer API key creation was not confirmed');
-    }
-    let confirmedGeneration = null;
-    try {
-      confirmedGeneration = await resolveRoomGeneration(command.roomCode);
-    } catch {
-      // The cleanup below runs before the error is surfaced, so a registry
-      // transition can never leave an unreported credential behind.
-    }
-    if (confirmedGeneration !== roomGeneration) {
-      execute(
-        `DELETE FROM mxqr_developer_api_keys WHERE key_id = ${sqlString(keyId)} ` +
-          `AND room_code = ${sqlString(command.roomCode)} ` +
-          `AND room_generation = ${roomGeneration} AND secret_digest = ${sqlString(digest)};`,
-      );
-      throw new DeveloperApiKeyCliError(
-        'The PRO room incarnation changed while the key was being issued',
-      );
-    }
-    const apiKey = `mxqr_live_${keyId}.${secret}`;
+    const key = validateIssuedKey(issued, command, roomGeneration, now());
     stdout.write(
       `${JSON.stringify(
         {
-          apiKey,
-          keyId,
+          apiKey: key.apiKey,
+          keyId: key.keyId,
           roomCode: command.roomCode,
           roomGeneration,
           label: command.label,
           scopes: command.scopes,
-          expiresAt: new Date(expiresAt).toISOString(),
+          expiresAt: new Date(key.expiresAt).toISOString(),
           warning: 'This full API key is shown once. Store it securely now.',
         },
         null,
         2,
       )}\n`,
     );
-    return { apiKey, keyId };
+    return { apiKey: key.apiKey, keyId: key.keyId };
   }
   if (command.command === 'revoke') {
     const revokedAt = now();

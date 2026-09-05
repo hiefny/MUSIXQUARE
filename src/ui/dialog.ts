@@ -5,7 +5,7 @@
  */
 
 import { log } from '../core/log.ts';
-import { setManagedTimer } from '../core/timers.ts';
+import { clearManagedTimer, setManagedTimer } from '../core/timers.ts';
 import { showToast } from './toast.ts';
 import { t } from '../i18n/index.ts';
 import { syncOverlayState, normalizeEmptyContentEditable } from './dom.ts';
@@ -85,6 +85,7 @@ function setDialogInputInvalid(invalid: boolean): void {
 }
 
 export function closeDialog(action = 'close'): void {
+  clearManagedTimer('dialog-focus');
   const overlay = document.getElementById('dialog-overlay');
   if (overlay) {
     overlay.classList.remove('show');
@@ -444,8 +445,10 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   // Enter key on input confirms dialog (with validation)
   if (_dialogInput) {
     on(_dialogInput, 'keydown', (e) => {
-      if ((e as KeyboardEvent).key === 'Enter') {
-        (e as KeyboardEvent).preventDefault();
+      const ke = e as KeyboardEvent;
+      if (ke.isComposing || ke.keyCode === 229) return;
+      if (ke.key === 'Enter') {
+        ke.preventDefault();
         tryValidateAndClose();
       }
     });
@@ -453,6 +456,8 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
 
   on(window, 'keydown', (e) => {
     const ke = e as KeyboardEvent;
+    if (ke.defaultPrevented || overlay.hasAttribute('inert')) return;
+    if (ke.isComposing || ke.keyCode === 229) return;
     if (ke.key === 'Escape') {
       if (!dismissible) return;
       ke.preventDefault();
@@ -489,6 +494,7 @@ function _openDialog(opts: DialogOptions | string, resolve: (result: DialogResul
   setManagedTimer(
     'dialog-focus',
     () => {
+      if (_dialogActive?.resolve !== resolve) return;
       try {
         if (_dialogInput) {
           const focusTarget = _dialogInputFocusTarget || _dialogInput;

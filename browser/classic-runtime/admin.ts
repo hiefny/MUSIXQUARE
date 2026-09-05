@@ -317,7 +317,7 @@ interface ProRoomDialogTarget {
 
 type ProRoomApiRefresh = (message?: string, isError?: boolean, reload?: boolean) => Promise<void>;
 
-const ADMIN_SCRIPT_VERSION = '8.4.62';
+const ADMIN_SCRIPT_VERSION = '8.4.63';
 Object.assign(window, { __MXQR_ADMIN_SCRIPT_VERSION__: ADMIN_SCRIPT_VERSION });
 
 function reportUnexpectedAdminActionFailure(error: unknown): void {
@@ -427,7 +427,6 @@ const logoutBtn = document.querySelector<HTMLButtonElement>('[data-logout]');
 const formatter = new Intl.NumberFormat();
 const ADMIN_REQUEST_TIMEOUT_MS = 20_000;
 const ADMIN_RESPONSE_MAX_BYTES = 1_048_576;
-let currentAdminTab: string = 'operations';
 let proRoomsLoaded = false;
 let proRoomsSnapshot: readonly ProRoomRecord[] = [];
 let proRoomSearchTimer: number | null = null;
@@ -453,6 +452,7 @@ const issuedOwnerTransferLinks = new Set<string>();
 const expandedProRooms = new Set<string>();
 const proRoomApiCache = new Map<string, AdminApiPayload>();
 const proRoomApiSecrets = new Map<string, DeveloperApiSecret>();
+const proRoomApiIssuanceOwners = new Map<string, symbol>();
 const proRoomApiRequestGenerations = new Map<string, number>();
 let proRoomDestroyDialogElements: ProRoomDestroyDialogElements | null = null;
 let proRoomDestroyTarget: ProRoomDialogTarget | null = null;
@@ -922,6 +922,7 @@ function sameImportedCampaign(
 
 async function importProGrantVoucherExport(file: File | null | undefined): Promise<void> {
   if (!file || proGrantCampaignBusy) return;
+  const sessionEpoch = adminSessionEpoch;
   setProGrantCampaignBusy(true);
   try {
     if (
@@ -937,6 +938,7 @@ async function importProGrantVoucherExport(file: File | null | undefined): Promi
     } catch {
       throw new Error('The code file could not be read. Check that it is valid JSON.');
     }
+    if (sessionEpoch !== adminSessionEpoch) return;
     const batch = parseProGrantVoucherExport(parsed);
     if (pendingProGrantVoucherExport && pendingProGrantVoucherExport.applied !== true) {
       const { applied: _applied, ...pendingBatch } = pendingProGrantVoucherExport;
@@ -950,6 +952,7 @@ async function importProGrantVoucherExport(file: File | null | undefined): Promi
       }
     }
     await loadProGrantCampaignStatus();
+    if (sessionEpoch !== adminSessionEpoch) return;
     const existing = proGrantCampaigns.find(
       (entry) => (entry.campaign || entry).slug === batch.campaign.slug,
     );
@@ -999,7 +1002,8 @@ function downloadProGrantVoucherExport(
   batch: ProGrantVoucherBatch | null = pendingProGrantVoucherExport,
 ): boolean {
   if (!batch) return false;
-  const blob = new Blob([`${JSON.stringify(batch, null, 2)}\n`], {
+  const { applied: _applied, ...exportedBatch } = batch;
+  const blob = new Blob([`${JSON.stringify(exportedBatch, null, 2)}\n`], {
     type: 'application/json;charset=utf-8',
   });
   const url = URL.createObjectURL(blob);
@@ -1315,6 +1319,7 @@ function invalidateAdminSession(): void {
   adminRequestControllers.clear();
   for (const controller of adminLatestLoads.values()) controller.abort();
   adminLatestLoads.clear();
+  setServiceStatusBusy(false);
 }
 
 function beginAdminSession(): number {
@@ -1831,6 +1836,7 @@ async function openServiceStatusDialog(
   try {
     await loadServiceStatus({ updateTimestamp: false });
   } catch (error) {
+    if (isAdminRequestFailure(error) && error.code === 'ADMIN_REQUEST_CANCELLED') return;
     if (serviceStatusErrorEl) {
       serviceStatusErrorEl.textContent = adminErrorMessage(error, 'Service status refresh failed.');
       serviceStatusErrorEl.hidden = false;
@@ -1851,10 +1857,13 @@ function abortNonStatusDashboardLoads(): void {
 
 async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
   if (!currentServiceStatus || !serviceStatusLoaded || serviceStatusBusy) return;
+  const sessionEpoch = adminSessionEpoch;
   const previous = currentServiceStatus;
   const targetEnabled = !previous.enabled;
   const requestId = serviceStatusRequestId || createAdminRequestId();
   serviceStatusRequestId = requestId;
+  let next: ServiceStatusState;
+  adminLatestLoads.get('service-status')?.abort();
   setServiceStatusBusy(true, targetEnabled);
   if (serviceStatusErrorEl) {
     serviceStatusErrorEl.textContent = '';
@@ -1869,7 +1878,7 @@ async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
         requestId,
       }),
     });
-    const next = normalizeServiceStatusPayload(payload);
+    next = normalizeServiceStatusPayload(payload);
     if (next.enabled !== targetEnabled) {
       throw adminRequestError(
         'ADMIN_SERVICE_STATUS_MISMATCH',
@@ -1894,9 +1903,8 @@ async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
     }
     setServiceStatusBusy(false);
     closeServiceStatusDialog();
-    if (!targetEnabled && !isServiceStatusSettling(next)) await refreshAllDashboardData();
-    return next;
   } catch (error) {
+    if (sessionEpoch !== adminSessionEpoch) return;
     const responseStatus = isAdminRequestFailure(error) ? error.payload?.serviceStatus : undefined;
     if (responseStatus) {
       try {
@@ -1918,6 +1926,7 @@ async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
     } else {
       serviceStatusRequestId = null;
     }
+    if (sessionEpoch !== adminSessionEpoch) return;
     if (serviceStatusErrorEl) {
       serviceStatusErrorEl.textContent = adminErrorMessage(
         error,
@@ -1927,8 +1936,12 @@ async function saveServiceStatus(): Promise<ServiceStatusState | undefined> {
     }
     throw error;
   } finally {
-    setServiceStatusBusy(false);
+    if (sessionEpoch === adminSessionEpoch) setServiceStatusBusy(false);
   }
+  // The mutation has released its controls. A follow-up refresh must not own
+  // the busy state or error display of a subsequent maintenance change.
+  if (!targetEnabled && !isServiceStatusSettling(next)) await refreshAllDashboardData();
+  return next;
 }
 
 function formatDelta(value: unknown): string {
@@ -1996,6 +2009,9 @@ function parseAnnouncementExpiresValue(value: unknown): string | null {
       if (date.getTime() <= Date.now()) throw new Error('Expires must be in the future.');
       return date.toISOString();
     }
+    // Native parsing normalizes impossible calendar dates into a later day.
+    // Keep a failed validation of the displayed format from reaching that fallback.
+    throw new Error('Use YYYY-MM-DD HH:MM for Expires.');
   }
   const fallback = new Date(text);
   if (!Number.isNaN(fallback.getTime())) {
@@ -2275,6 +2291,7 @@ function clearProRoomApiSecret(roomCode: string, roomGeneration: unknown): void 
   const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
   if (!incarnationKey) return;
   proRoomApiSecrets.delete(incarnationKey);
+  proRoomApiIssuanceOwners.delete(incarnationKey);
   const panel = document.querySelector(
     `[data-pro-room-api-panel="${roomCode}"][data-pro-room-generation="${roomGeneration}"]`,
   );
@@ -2283,6 +2300,7 @@ function clearProRoomApiSecret(roomCode: string, roomGeneration: unknown): void 
 
 function clearAllProRoomApiSecrets(): void {
   proRoomApiSecrets.clear();
+  proRoomApiIssuanceOwners.clear();
   for (const host of document.querySelectorAll('[data-pro-room-api-secret]')) {
     host.replaceChildren();
   }
@@ -3446,7 +3464,17 @@ function renderProRoomApiPanel(
   form.append(labelField, accessField, expiryField, issue);
   addAsyncAdminEventListener(form, 'submit', async (event) => {
     event.preventDefault();
-    if (!validRoomGeneration) return;
+    if (!validRoomGeneration || issue.disabled) return;
+    const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
+    if (!incarnationKey) return;
+    const sessionEpoch = adminSessionEpoch;
+    const issuanceOwner = Symbol();
+    proRoomApiIssuanceOwners.set(incarnationKey, issuanceOwner);
+    const ownsIssuance = () =>
+      adminSessionEpoch === sessionEpoch &&
+      proRoomApiIssuanceOwners.get(incarnationKey) === issuanceOwner &&
+      panel.isConnected &&
+      panel.closest<HTMLDetailsElement>('[data-pro-room-item]')?.open === true;
     const preset = developerApiPresets[accessSelect.value] || developerApiPresets.read || [];
     const requestBody = JSON.stringify({
       roomGeneration,
@@ -3460,6 +3488,7 @@ function renderProRoomApiPanel(
     try {
       let issued: AdminApiPayload | undefined;
       for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (!ownsIssuance()) return;
         try {
           issued = await fetchJson(`/api/admin/pro-rooms/${roomCode}/api-keys`, {
             method: 'POST',
@@ -3467,14 +3496,15 @@ function renderProRoomApiPanel(
           });
           break;
         } catch (error) {
+          if (!ownsIssuance()) return;
+          if (isAdminRequestFailure(error) && error.code === 'ADMIN_REQUEST_CANCELLED') return;
           if ((isAdminRequestFailure(error) && error.status) || attempt === 1) throw error;
         }
       }
+      if (!ownsIssuance()) return;
       if (typeof issued?.apiKey !== 'string' || !issued.apiKey.startsWith('mxqr_live_')) {
         throw new Error('INVALID_DEVELOPER_API_KEY_RESPONSE');
       }
-      const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
-      if (!incarnationKey) throw new Error('PRO_ROOM_GENERATION_MISMATCH');
       if (
         issued?.roomCode !== roomCode ||
         normalizeProRoomGeneration(issued?.roomGeneration) !== roomGeneration
@@ -3493,10 +3523,12 @@ function renderProRoomApiPanel(
         panel,
         'API key issued. Copy it now.',
       );
+      if (!ownsIssuance()) return;
       panel
         .querySelector<HTMLElement>(`[aria-label="${roomCode} Developer API key"]`)
         ?.focus({ preventScroll: true });
     } catch (error) {
+      if (!ownsIssuance()) return;
       if (isProRoomGenerationMismatchError(error)) {
         const incarnationKey = proRoomIncarnationKey(roomCode, roomGeneration);
         if (incarnationKey) proRoomApiCache.delete(incarnationKey);
@@ -4139,6 +4171,7 @@ function renderProRooms(payload: AdminApiPayload): void {
     issuedOwnerTransferLinks,
     proRoomApiCache,
     proRoomApiSecrets,
+    proRoomApiIssuanceOwners,
     proRoomApiRequestGenerations,
   ]) {
     for (const incarnationKey of collection.keys()) {
@@ -4301,6 +4334,7 @@ function renderProGrantCampaignList(): void {
 }
 
 function setProGrantCampaignBusy(busy: boolean): void {
+  if (busy) adminLatestLoads.get('pro-grants')?.abort();
   proGrantCampaignBusy = busy;
   proGrantCampaignPanelEl?.toggleAttribute('aria-busy', busy);
   for (const button of [
@@ -4470,11 +4504,15 @@ function renderProGrantCampaignState(payload: NormalizedProGrantCampaignEntry | 
 
 async function loadProGrantCampaignStatus(): Promise<NormalizedProGrantCampaignEntry | null> {
   if (!proGrantCampaignPanelEl) return null;
+  const load = beginLatestAdminLoad('pro-grants');
   try {
     let entries: NormalizedProGrantCampaignEntry[] | null = null;
     let usedLegacyStatusRoute = false;
     try {
-      const listPayload = await fetchJson('/api/admin/pro-grants/campaigns');
+      const listPayload = await fetchJson('/api/admin/pro-grants/campaigns', {
+        signal: load.controller.signal,
+      });
+      throwIfAdminLoadStale(load);
       entries = normalizeProGrantCampaignEntries(listPayload);
     } catch (error) {
       if (!isAdminRequestFailure(error) || ![404, 405].includes(error.status ?? 0)) throw error;
@@ -4484,7 +4522,9 @@ async function loadProGrantCampaignStatus(): Promise<NormalizedProGrantCampaignE
       try {
         const legacy = await fetchJson(
           `/api/admin/pro-grants/campaigns/${PRO_GRANT_ASAMO_SLUG}/status`,
+          { signal: load.controller.signal },
         );
+        throwIfAdminLoadStale(load);
         entries = legacy?.campaign ? normalizeProGrantCampaignEntries({ campaigns: [legacy] }) : [];
         if (entries === null) entries = [];
       } catch (error) {
@@ -4514,6 +4554,7 @@ async function loadProGrantCampaignStatus(): Promise<NormalizedProGrantCampaignE
         },
       ];
     }
+    throwIfAdminLoadStale(load);
     proGrantCampaigns = entries;
     if (
       !selectedProGrantCampaignSlug ||
@@ -4531,8 +4572,10 @@ async function loadProGrantCampaignStatus(): Promise<NormalizedProGrantCampaignE
     renderProGrantCampaignState(proGrantCampaignState);
     return proGrantCampaignState;
   } catch (error) {
-    proGrantCampaignLoaded = false;
+    if (isLatestAdminLoad(load)) proGrantCampaignLoaded = false;
     throw error;
+  } finally {
+    finishLatestAdminLoad(load);
   }
 }
 
@@ -5010,7 +5053,6 @@ async function registerProRoom(): Promise<AdminApiPayload> {
 }
 
 function setActiveTab(tab: string): void {
-  currentAdminTab = tab;
   adminTabs.forEach((button) => {
     const active = button.dataset.adminTab === tab;
     button.classList.toggle('is-active', active);
@@ -5347,7 +5389,7 @@ function renderSignals(summary: AdminMetricsSummary): void {
 }
 
 async function loadMetrics(
-  options: { readonly activateOperations?: boolean; readonly updateTimestamp?: boolean } = {},
+  options: { readonly updateTimestamp?: boolean } = {},
 ): Promise<AdminApiPayload> {
   const load = beginLatestAdminLoad('metrics');
   if (updatedAtEl) updatedAtEl.textContent = 'Refreshing...';
@@ -5357,7 +5399,6 @@ async function loadMetrics(
     });
     throwIfAdminLoadStale(load);
     showDashboard();
-    if (options.activateOperations) setActiveTab('operations');
     renderAccountMetrics(metrics.accounts);
     renderCards(metrics.cards || []);
     renderHourlyChart(metrics.summary?.hourly || []);
@@ -5675,6 +5716,7 @@ async function saveAnnouncement({ clear = false }: { readonly clear?: boolean } 
   const mutation = pendingAnnouncementMutation;
   if (!mutation) throw adminRequestError('ADMIN_RESPONSE_INVALID', 'Mutation state unavailable.');
   const expectedRevision = currentAnnouncementRevision;
+  adminLatestLoads.get('announcement')?.abort();
   setAnnouncementMutationBusy(true);
   if (announcementStatusEl) announcementStatusEl.textContent = clear ? 'Clearing...' : 'Saving...';
   try {
@@ -5739,7 +5781,7 @@ async function loadAuthenticatedDashboard({
   // Keep a rolling admin asset update usable if an older server-rendered shell
   // is briefly paired with this script. Production shells expose the control.
   if (!serviceStatusTrigger) {
-    await loadMetrics({ activateOperations: activateAnalytics });
+    await loadMetrics();
     return null;
   }
   if (updatedAtEl) updatedAtEl.textContent = 'Checking service status...';
@@ -5770,7 +5812,7 @@ async function loadAuthenticatedDashboard({
   }
 
   try {
-    await loadMetrics({ activateOperations: activateAnalytics });
+    await loadMetrics();
   } catch (error) {
     if (updatedAtEl)
       updatedAtEl.textContent = adminErrorMessage(error, 'Analytics refresh failed.');
@@ -5786,7 +5828,7 @@ async function loadAuthenticatedDashboard({
 
 async function refreshAllDashboardData(): Promise<void> {
   const refreshEpoch = adminSessionEpoch;
-  const activeTab = currentAdminTab;
+  // Refresh data without replaying the tab selected before the requests began.
   if (serviceStatusTrigger) {
     if (updatedAtEl) updatedAtEl.textContent = 'Checking service status...';
     let status = null;
@@ -5799,7 +5841,6 @@ async function refreshAllDashboardData(): Promise<void> {
     if (refreshEpoch !== adminSessionEpoch || dashboard?.hidden) return;
     if (!status) {
       if (updatedAtEl) updatedAtEl.textContent = 'Service status unavailable';
-      setActiveTab(activeTab);
       return;
     }
     if (status.enabled || isServiceStatusSettling(status)) {
@@ -5813,7 +5854,6 @@ async function refreshAllDashboardData(): Promise<void> {
               ? 'Resuming service - background refresh in progress'
               : `Maintenance active${statusTime ? ` since ${formatAdminDateTime(statusTime)}` : ''}`;
       }
-      setActiveTab(activeTab);
       return;
     }
   }
@@ -5826,6 +5866,7 @@ async function refreshAllDashboardData(): Promise<void> {
       }
     }),
     loadProGrantCampaignStatus().catch((error) => {
+      if (isAdminRequestFailure(error) && error.code === 'ADMIN_REQUEST_CANCELLED') return;
       setProGrantCampaignMessage(
         adminErrorMessage(error, 'PRO grant campaign refresh failed.'),
         true,
@@ -5835,7 +5876,6 @@ async function refreshAllDashboardData(): Promise<void> {
     loadAnnouncement({ updateTimestamp: false }),
   ]);
   if (refreshEpoch !== adminSessionEpoch || dashboard?.hidden) return;
-  setActiveTab(activeTab);
   if (updatedAtEl) updatedAtEl.textContent = `Updated ${formatAdminDateTime(Date.now())}`;
 }
 
@@ -5875,15 +5915,18 @@ async function init(): Promise<void> {
     return;
   }
 
+  let sessionEpoch = adminSessionEpoch;
   try {
-    const session = await fetchJson('/api/admin/session');
+    const session = await fetchJson('/api/admin/session', { sessionBound: true });
+    if (sessionEpoch !== adminSessionEpoch) return;
     if (!session.authenticated) {
       showLogin();
       return;
     }
-    beginAdminSession();
+    sessionEpoch = beginAdminSession();
     await loadAuthenticatedDashboard();
   } catch (error) {
+    if (sessionEpoch !== adminSessionEpoch) return;
     showLogin(adminErrorMessage(error, 'Failed to load admin session.'));
   }
 }
@@ -5896,6 +5939,9 @@ addAsyncAdminEventListener(loginForm, 'submit', async (event) => {
     setStatus('Signing out...');
     return;
   }
+  // Explicit login owns the session from the user's action onward, including
+  // while the initial session lookup or an older login is still settling.
+  const sessionEpoch = beginAdminSession();
   const form = new FormData(loginForm ?? undefined);
   const password = String(form.get('password') || '');
   setStatus('Checking...');
@@ -5905,10 +5951,11 @@ addAsyncAdminEventListener(loginForm, 'submit', async (event) => {
       body: JSON.stringify({ password }),
       sessionBound: false,
     });
+    if (sessionEpoch !== adminSessionEpoch) return;
     loginForm?.reset();
-    beginAdminSession();
     await loadAuthenticatedDashboard();
   } catch (error) {
+    if (sessionEpoch !== adminSessionEpoch) return;
     if (!dashboard?.hidden) showLogin(adminErrorMessage(error, 'Dashboard load failed.'));
     else setStatus(adminErrorMessage(error, 'Login failed.'), true);
   }
@@ -5933,6 +5980,7 @@ adminTabs.forEach((button) => {
     }
     if (tab === 'pro-rooms' && !proGrantCampaignLoaded) {
       loadProGrantCampaignStatus().catch((error) => {
+        if (isAdminRequestFailure(error) && error.code === 'ADMIN_REQUEST_CANCELLED') return;
         setProGrantCampaignMessage(
           adminErrorMessage(error, 'PRO grant campaign refresh failed.'),
           true,
@@ -5998,8 +6046,10 @@ function bindProGrantCampaignEvents(): void {
   const importInput = proGrantCampaignImportInput;
   importInput?.addEventListener('change', () => {
     const file = importInput.files?.[0];
+    const sessionEpoch = adminSessionEpoch;
     importProGrantVoucherExport(file)
       .catch((error) => {
+        if (sessionEpoch !== adminSessionEpoch) return;
         setProGrantCampaignMessage(
           adminErrorMessage(error, 'The code file could not be imported.'),
           true,
@@ -6137,6 +6187,7 @@ proRoomClaimCopyBtn?.addEventListener('click', () => {
 
 proRoomClaimDismissBtn?.addEventListener('click', dismissProRoomClaim);
 window.addEventListener('pagehide', () => {
+  invalidateAdminSession();
   if (proRoomSearchTimer !== null) window.clearTimeout(proRoomSearchTimer);
   clearAnnouncementExpiryTimer();
   clearServiceStatusSettleTimer();
@@ -6147,6 +6198,12 @@ window.addEventListener('pagehide', () => {
   clearProRoomClaimState();
   clearAllProRoomApiSecrets();
   pendingProGrantVoucherExport = null;
+});
+window.addEventListener('pageshow', (event) => {
+  if (!event.persisted || dashboard?.hidden) return;
+  refreshAllDashboardData().catch((error) => {
+    if (updatedAtEl) updatedAtEl.textContent = adminErrorMessage(error, 'Refresh failed.');
+  });
 });
 window.addEventListener('beforeunload', (event) => {
   if (pendingProGrantVoucherExport) {

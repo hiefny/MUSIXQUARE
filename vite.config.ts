@@ -527,13 +527,13 @@ export function pageAliasTarget(rawUrl: string, built = false): string | null {
   ) {
     target = built ? '/about.html' : '/.workshop/landing/landing.html';
   } else if (normalizedPath === '/privacy' || normalizedPath === '/privacy.html') {
-    target = '/.workshop/privacy/privacy.html';
+    target = built ? '/privacy.html' : '/.workshop/privacy/privacy.html';
   } else if (normalizedPath === '/terms' || normalizedPath === '/terms.html') {
-    target = '/.workshop/terms/terms.html';
+    target = built ? '/terms.html' : '/.workshop/terms/terms.html';
   } else if (normalizedPath === '/faq' || normalizedPath === '/faq.html') {
-    target = '/.workshop/faq/faq.html';
+    target = built ? '/faq.html' : '/.workshop/faq/faq.html';
   } else if (normalizedPath === '/developers' || normalizedPath === '/developers.html') {
-    target = '/.workshop/developers/developers.html';
+    target = built ? '/developers.html' : '/.workshop/developers/developers.html';
   } else if (
     normalizedPath === '/history' ||
     normalizedPath === '/changelog' ||

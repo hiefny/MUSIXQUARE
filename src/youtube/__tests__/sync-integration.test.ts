@@ -26,6 +26,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resetState, setState, getState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
+import { log } from '../../core/log.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { MSG } from '../../core/constants.ts';
 import { isClockCalibrated } from '../../network/shared-clock.ts';
@@ -149,6 +150,9 @@ vi.mock('../iframe.ts', () => ({
   markYtStateBroadcast: vi.fn(),
   invalidateYtDurationCache: vi.fn(),
   hideYouTubeTapToPlayGate: vi.fn(),
+  updateProYouTubeAuthorityDesiredAudioState: vi.fn(),
+  proYouTubeAuthorityOwnsHardMute: vi.fn(() => false),
+  isRetainedYouTubePlayerParked: vi.fn(() => false),
 }));
 
 vi.mock('../zero-start.ts', async (importOriginal) => ({
@@ -355,6 +359,145 @@ async function requestGuestExternalFallbackWhilePlayerMissing(
 
 describe('YouTube Sync — Regression Integration', () => {
   describe('zero-start player integration boundary', () => {
+    it('keeps active warmup hard-muted until the latest volume can be restored safely', async () => {
+      const player = installPlayer({
+        __state: 2,
+        __currentTime: 0,
+        __videoId: ZERO_START_VIDEO_ID,
+        __volume: 73,
+      });
+      const conn = installLiveZeroStartGuest();
+      const { initYouTube } = await importPlayer();
+      initYouTube();
+      advertiseZeroStartCapability(conn);
+      emitZeroStartAutoPlay();
+      vi.advanceTimersByTime(1);
+      expect(player.isMuted()).toBe(true);
+      bus.emit('youtube:set-volume', 21);
+      expect(log.error).not.toHaveBeenCalled();
+      expect(player.isMuted()).toBe(true);
+      vi.advanceTimersByTime(619);
+      expect(player.getVolume()).toBe(21);
+      expect(player.isMuted()).toBe(false);
+    });
+
+    it.each(['host', 'guest'] as const)(
+      'retains a mute selected while the %s fallback has no player',
+      async (role) => {
+        if (role === 'host') {
+          installPlayer({ __state: 2, __currentTime: 0, __videoId: ZERO_START_VIDEO_ID });
+          const conn = installLiveZeroStartGuest();
+          const { initYouTube } = await importPlayer();
+          initYouTube();
+          advertiseZeroStartCapability(conn);
+          emitZeroStartAutoPlay();
+          getYouTubePlayerMock.mockReturnValue(null);
+          vi.advanceTimersByTime(500);
+          expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+        } else {
+          await requestGuestExternalFallbackWhilePlayerMissing('fallback-missing-player-mute');
+        }
+        setState('audio.masterVolume', 0);
+        bus.emit('youtube:set-volume', 0);
+        expect(log.error).not.toHaveBeenCalled();
+        const player = installPlayer({
+          __state: 2,
+          __currentTime: 0,
+          __videoId: ZERO_START_VIDEO_ID,
+        });
+        vi.advanceTimersByTime(4_000);
+        expect(player.getVolume()).toBe(0);
+        expect(player.isMuted()).toBe(true);
+        expect(player.__log.some((call) => call.op === 'unMute')).toBe(false);
+      },
+    );
+
+    it.each([0, 21])(
+      'keeps the latest user volume %i after cancelling zero-start warmup',
+      async (volume) => {
+        const player = installPlayer({
+          __state: 2,
+          __currentTime: 0,
+          __videoId: ZERO_START_VIDEO_ID,
+          __volume: 73,
+        });
+        const conn = installLiveZeroStartGuest();
+        const { initYouTube, scheduleYtAutoSync } = await importPlayer();
+        initYouTube();
+        advertiseZeroStartCapability(conn);
+        emitZeroStartAutoPlay();
+        vi.advanceTimersByTime(1);
+        scheduleYtAutoSync(0, { state: 2, videoId: ZERO_START_VIDEO_ID });
+        setState('audio.masterVolume', volume / 100);
+        bus.emit('youtube:set-volume', volume);
+        expect(log.error).not.toHaveBeenCalled();
+        expect(player.getVolume()).toBe(volume);
+        player.__log.length = 0;
+        vi.advanceTimersByTime(500);
+        expect(player.getVolume()).toBe(volume);
+        expect(player.isMuted()).toBe(volume === 0);
+        if (volume === 0) expect(player.__log.some((call) => call.op === 'unMute')).toBe(false);
+      },
+    );
+
+    it.each([0, 21])(
+      'keeps the latest user volume %i through delayed host fallback',
+      async (volume) => {
+        installPlayer({
+          __state: 2,
+          __currentTime: 0,
+          __videoId: ZERO_START_VIDEO_ID,
+          __volume: 73,
+        });
+        const conn = installLiveZeroStartGuest();
+        const { initYouTube } = await importPlayer();
+        initYouTube();
+        advertiseZeroStartCapability(conn);
+        emitZeroStartAutoPlay();
+        getYouTubePlayerMock.mockReturnValue(null);
+        vi.advanceTimersByTime(500);
+        expect(getManagedTimer('yt-zero-start-host-fallback')).not.toBeNull();
+        const player = installPlayer({
+          __state: 2,
+          __currentTime: 0,
+          __videoId: ZERO_START_VIDEO_ID,
+        });
+        setState('audio.masterVolume', volume / 100);
+        bus.emit('youtube:set-volume', volume);
+        expect(log.error).not.toHaveBeenCalled();
+        player.__log.length = 0;
+        vi.advanceTimersByTime(1_000);
+        expect(getManagedTimer('yt-zero-start-host-fallback')).toBeNull();
+        expect(player.getVolume()).toBe(volume);
+        expect(player.isMuted()).toBe(volume === 0);
+        if (volume === 0) expect(player.__log.some((call) => call.op === 'unMute')).toBe(false);
+      },
+    );
+
+    it.each([0, 21])(
+      'keeps the latest user volume %i through delayed guest fallback',
+      async (volume) => {
+        await requestGuestExternalFallbackWhilePlayerMissing('fallback-latest-audio');
+        const player = installPlayer({
+          __state: 2,
+          __currentTime: 0,
+          __videoId: ZERO_START_VIDEO_ID,
+        });
+        vi.advanceTimersByTime(100);
+        expect(getManagedTimer('yt-zero-start-external-fallback')).not.toBeNull();
+        setState('audio.masterVolume', volume / 100);
+        bus.emit('youtube:set-volume', volume);
+        expect(log.error).not.toHaveBeenCalled();
+        player.__log.length = 0;
+        vi.advanceTimersByTime(4_000);
+        expect(getManagedTimer('yt-zero-start-external-fallback')).toBeNull();
+        expect(player.getVolume()).toBe(volume);
+        expect(player.isMuted()).toBe(volume === 0);
+        expect(player.__log.filter((call) => call.op === 'playVideo')).toHaveLength(1);
+        if (volume === 0) expect(player.__log.some((call) => call.op === 'unMute')).toBe(false);
+      },
+    );
+
     it('uses PREPARE and suppresses the immediate legacy state when every live guest advertises support', async () => {
       installPlayer({
         __state: 2,
@@ -2487,6 +2630,39 @@ describe('YouTube Sync — Regression Integration', () => {
   // the next heartbeat seconds later. Both handleYouTubeSync and
   // handleYouTubeState must apply the same snapshot rule.
   describe('late-join host snapshot — recorded before player/mode readiness', () => {
+    it.each([
+      { readiness: 'timer', pause: true },
+      { readiness: 'player-ready', pause: true },
+      { readiness: 'timer', pause: false },
+      { readiness: 'player-ready', pause: false },
+    ])(
+      'respects later local PAUSE=$pause while manual sync waits for $readiness',
+      async ({ readiness, pause }) => {
+        const { initYouTube } = await importPlayer();
+        initYouTube();
+        setState('network.hostConn', mockHostConn);
+        const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
+        syncHandler(
+          { time: 42, state: 1, videoId: 'FAKE_VIDEO', hostClock: Date.now(), isManual: true },
+          mockHostConn,
+        );
+        expect(getManagedTimer('yt-manual-rendezvous-retry')).not.toBeNull();
+
+        // The real player coordinator receives the newer endpoint-local
+        // PAUSE while the iframe is not yet ready. Readiness must not revive
+        // the earlier host sync's deferred play.
+        if (pause) bus.emit('youtube:set-local-paused', true);
+        const player = installPlayer({ __state: 2, __currentTime: 10, __duration: 300 });
+        if (readiness === 'player-ready') bus.emit('youtube:player-ready');
+        await vi.advanceTimersByTimeAsync(5_000);
+
+        const plays = player.__log.filter((call) => call.op === 'playVideo');
+        expect(plays).toHaveLength(pause ? 0 : 1);
+        if (pause) expect(localYouTubePaused.value).toBe(true);
+        expect(getManagedTimer('yt-manual-rendezvous-retry')).toBeNull();
+      },
+    );
+
     it('a paused YOUTUBE_SYNC clears autoplay intent and the tap gate before readiness', async () => {
       const syncHandler = capturedHandlers[MSG.YOUTUBE_SYNC];
       const stateMod = await import('../_state.ts');

@@ -150,12 +150,15 @@
               <dd>
                 Select your nickname in the header and choose Delete account. This removes the
                 active account profile, sign-in sessions, and account-linked room permissions. It
-                does not decommission a PRO room, invalidate its separate room-recovery credential,
-                or delete media already shared there; that media continues to follow the room's
-                retention policy. If cleanup fails before deletion is accepted, the account remains
-                active and you can try again. If deletion has already been accepted, sign-in ends
-                and MUSIXQUARE automatically retries any remaining linked-room cleanup until final
-                removal; you do not need to submit another deletion request.
+                suspends any PRO room owned by that account and revokes the room's sessions,
+                delegated authority, PIN, and owner-recovery credential. An operator must transfer
+                ownership before a new owner can activate the room. Account deletion does not
+                decommission the room or delete media already shared there; that media continues to
+                follow the room's retention policy. If cleanup fails before deletion is accepted,
+                the account remains active and you can try again. If deletion has already been
+                accepted, sign-in ends and MUSIXQUARE automatically retries any remaining
+                linked-room cleanup until final removal; you do not need to submit another
+                deletion request.
               </dd>
             </div>
           </dl>
@@ -391,7 +394,7 @@
             <div>
               <dt>Which interface languages are available?</dt>
               <dd>
-                The in-room language picker is currently a beta feature with 17 language choices and
+                The in-room language picker is currently a beta feature with 42 language choices and
                 a system-language option. Static policy and Developer API pages may remain in
                 English unless that page provides its own localized copy.
               </dd>

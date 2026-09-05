@@ -61,6 +61,145 @@ afterEach(() => {
 });
 
 describe('admin maintenance status UI', () => {
+  it.each(['2031-02-29 12:00', '2032-02-30 12:00', '2031-04-31', '2031-12-31 24:00'])(
+    'does not publish an announcement with a rolled-over expiry: %s',
+    async (invalidExpiry) => {
+      installDom();
+      vi.spyOn(Date, 'now').mockReturnValue(Date.UTC(2030, 0, 1));
+      const writes: Array<Record<string, unknown>> = [];
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), location.origin).pathname;
+          if (path === '/api/admin/session') return Response.json({ authenticated: true });
+          if (path === '/api/admin/service-status') {
+            return Response.json({ serviceStatus: { enabled: false, revision: 0 } });
+          }
+          if (path === '/api/admin/announcement') {
+            const body =
+              init?.method === 'POST'
+                ? (JSON.parse(String(init.body)) as Record<string, unknown>)
+                : null;
+            if (body) writes.push(body);
+            return Response.json({
+              revision: writes.length,
+              announcement: body || { message: '', enabled: false },
+              history: [],
+            });
+          }
+          return Response.json({ cards: [], summary: {} });
+        }),
+      );
+      window.eval(adminScript);
+      const status = document.querySelector<HTMLElement>('[data-announcement-status]')!;
+      await vi.waitFor(() => expect(status.textContent).toBe('Disabled'));
+      document.querySelector<HTMLButtonElement>('[data-admin-tab="announcements"]')!.click();
+      const message = document.querySelector<HTMLTextAreaElement>('[data-announcement-message]')!;
+      const enabled = document.querySelector<HTMLInputElement>('[data-announcement-enabled]')!;
+      const expires = document.querySelector<HTMLInputElement>('[data-announcement-expires]')!;
+      const form = document.querySelector<HTMLFormElement>('[data-announcement-form]')!;
+      message.value = 'Scheduled announcement';
+      enabled.checked = true;
+      expires.value = invalidExpiry;
+      form.requestSubmit();
+      await vi.waitFor(() => expect(status.textContent).toBe('Use YYYY-MM-DD HH:MM for Expires.'));
+      expect(writes).toEqual([]);
+      expect(expires.value).toBe(invalidExpiry);
+      expect(message.disabled).toBe(false);
+
+      // A valid leap day and an explicit UTC timestamp still use the existing form.
+      for (const validExpiry of ['2032-02-29 12:00', '2031-04-30', '2031-05-01T10:30:00Z']) {
+        expires.value = validExpiry;
+        const expectedCount = writes.length + 1;
+        form.requestSubmit();
+        await vi.waitFor(() => {
+          expect(writes).toHaveLength(expectedCount);
+          expect(message.disabled).toBe(false);
+        });
+        const expectedDate =
+          validExpiry === '2031-04-30' ? new Date(2031, 3, 30, 23, 59) : new Date(validExpiry);
+        expect(writes.at(-1)?.expiresAt).toBe(expectedDate.toISOString());
+      }
+    },
+  );
+
+  it('keeps a newer service mutation locked when an earlier resume refresh finishes', async () => {
+    installDom();
+    let resolveMetrics!: (response: Response) => void;
+    const metricsResponse = new Promise<Response>((resolve) => {
+      resolveMetrics = resolve;
+    });
+    let resolveSecondMutation!: (response: Response) => void;
+    const secondMutation = new Promise<Response>((resolve) => {
+      resolveSecondMutation = resolve;
+    });
+    let mutationCount = 0;
+    let metricsCount = 0;
+    let status = {
+      enabled: true,
+      revision: 1,
+      updatedAt: new Date(Date.now() - 60_000).toISOString(),
+      activatedAt: null,
+      settlesAt: null,
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(String(input), location.origin);
+        if (url.pathname === '/api/admin/session') {
+          return Response.json({ authenticated: true, configured: true });
+        }
+        if (url.pathname === '/api/admin/service-status') {
+          if (init?.method === 'POST') {
+            mutationCount += 1;
+            if (mutationCount === 2) return secondMutation;
+            status = { ...status, enabled: false, revision: 2 };
+          }
+          return Response.json({ serviceStatus: status });
+        }
+        if (url.pathname === '/api/admin/metrics') {
+          metricsCount += 1;
+          return metricsResponse;
+        }
+        return Response.json({ revision: 0, rooms: [], articles: [], announcement: {} });
+      }),
+    );
+    window.eval(adminScript);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!;
+    const confirm = document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')!;
+    const dialog = document.querySelector<HTMLDialogElement>('[data-service-status-dialog]')!;
+    await vi.waitFor(() => expect(trigger.textContent).toContain('Maintenance'));
+    trigger.click();
+    await vi.waitFor(() => expect(confirm.disabled).toBe(false));
+    confirm.click();
+    await vi.waitFor(() => {
+      expect(metricsCount).toBe(1);
+      expect(dialog.open).toBe(false);
+    });
+    trigger.click();
+    await vi.waitFor(() => expect(confirm.disabled).toBe(false));
+    confirm.click();
+    await vi.waitFor(() => expect(mutationCount).toBe(2));
+    expect(confirm.disabled).toBe(true);
+    resolveMetrics(
+      Response.json({ generatedAt: new Date().toISOString(), cards: [], summary: {} }),
+    );
+    await vi.waitFor(() =>
+      expect(document.querySelector('[data-updated-at]')?.textContent).toMatch(/^Updated /),
+    );
+    try {
+      expect(confirm.disabled).toBe(true);
+      expect(dialog.open).toBe(true);
+      confirm.click();
+      expect(mutationCount).toBe(2);
+    } finally {
+      resolveSecondMutation(
+        Response.json({ serviceStatus: { ...status, enabled: true, revision: 3 } }),
+      );
+      await vi.waitFor(() => expect(dialog.open).toBe(false));
+    }
+  });
+
   it('shows the global status, toggles maintenance, and marks an active announcement', async () => {
     installDom();
     const openPreview = vi.spyOn(window, 'open').mockImplementation(() => null);

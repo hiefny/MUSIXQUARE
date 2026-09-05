@@ -24,6 +24,7 @@ import {
 } from '../protocol.ts';
 import {
   addChatMessage,
+  addNoticeChatMessage,
   addSystemChatMessage,
   upsertBotChatMessage,
 } from '../../ui/chat-render.ts';
@@ -70,6 +71,34 @@ function connectedPeer(
     ...overrides,
   };
 }
+
+describe('unknown host translation metadata fallback', () => {
+  beforeEach(() => {
+    resetState();
+    bus.clear();
+    vi.clearAllMocks();
+    registerChatProtocolHandlers();
+  });
+
+  it.each([MSG.CHAT_SYSTEM, MSG.CHAT_NOTICE])(
+    'preserves the wire text for %s with an inherited object-name key',
+    async (type) => {
+      const host = { peer: 'current-host', open: true } as DataConnection;
+      setState('network.hostConn', host);
+      for (const i18nParams of [undefined, { count: 1 }]) {
+        await handleData(
+          { type, text: 'Compatible fallback', i18nKey: 'constructor', i18nParams },
+          host,
+        );
+      }
+      const renderer = type === MSG.CHAT_SYSTEM ? addSystemChatMessage : addNoticeChatMessage;
+      expect(renderer).toHaveBeenCalledTimes(2);
+      for (const call of vi.mocked(renderer).mock.calls) {
+        expect(call).toContain('Compatible fallback');
+      }
+    },
+  );
+});
 
 describe('PRO member-level chat projection', () => {
   function enterProRoom(): void {

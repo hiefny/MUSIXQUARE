@@ -302,6 +302,11 @@
   }
 
   function initEditorialPageLoader(): void {
+    window.addEventListener('pageshow', (event) => {
+      if (!event.persisted) return;
+      pendingEditorialNavigation = false;
+      setHeaderLoading(false);
+    });
     window.setTimeout(function () {
       setHeaderLoading(false);
     }, EDITORIAL_LOAD_DELAY_MS);
@@ -350,16 +355,29 @@
   function initSmoothAnchor(): void {
     document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((link) => {
       link.addEventListener('click', (event) => {
+        if (
+          event.defaultPrevented ||
+          event.button !== 0 ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.shiftKey ||
+          event.altKey
+        ) {
+          return;
+        }
         const id = (link.getAttribute('href') || '').slice(1);
         if (!id) return;
         const target = document.getElementById(id);
         if (!target) return;
         event.preventDefault();
+        const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth';
         if (id === 'top') {
-          window.scrollTo({ top: 0, behavior: 'smooth' });
+          window.scrollTo({ top: 0, behavior });
           return;
         }
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        target.scrollIntoView({ behavior, block: 'start' });
       });
     });
   }

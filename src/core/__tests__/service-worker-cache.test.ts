@@ -90,7 +90,7 @@ describe('service worker cache policy', () => {
   let installListener: ExtendableListener;
   let activateListener: ExtendableListener;
   let messageListener: MessageListener;
-  let cachePut: ReturnType<typeof vi.fn>;
+  let cachePut: Mock<(request: Request, response: Response) => Promise<void>>;
   let cacheAddAll: ReturnType<typeof vi.fn>;
   let cacheEntryKeys: ReturnType<typeof vi.fn>;
   let cacheEntryDelete: ReturnType<typeof vi.fn>;
@@ -620,6 +620,43 @@ describe('service worker cache policy', () => {
     expect(cachePut).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    'https://musixquare.com/bootstrap.js',
+    'https://musixquare.com/assets/main-ABC12345.js',
+    'https://musixquare.com/primary-font-loader.js',
+  ])('uses the online response when active CacheStorage reads fail for %s', async (url) => {
+    const denied = new DOMException('CacheStorage access denied', 'SecurityError');
+    cacheMatch.mockRejectedValue(denied);
+    cacheOpen.mockRejectedValue(denied);
+    fetchMock.mockResolvedValue(new Response('online asset', { status: 200 }));
+    const request = new Request(url);
+
+    const response = await dispatch(request);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('online asset');
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
+  });
+
+  it.each([
+    'https://musixquare.com/bootstrap.js',
+    'https://musixquare.com/assets/main-ABC12345.js',
+    'https://musixquare.com/primary-font-loader.js',
+  ])('returns the offline response when CacheStorage and the network fail for %s', async (url) => {
+    const denied = new DOMException('CacheStorage access denied', 'SecurityError');
+    cacheMatch.mockRejectedValue(denied);
+    cacheKeys.mockRejectedValue(denied);
+    cacheOpen.mockRejectedValue(denied);
+    fetchMock.mockRejectedValue(new TypeError('Network unavailable'));
+    const request = new Request(url);
+
+    const response = await dispatch(request);
+
+    expect(response.status).toBe(503);
+    expect(await response.text()).toBe('Offline');
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(request);
+  });
+
   it('uses the static cache for same-origin assets', async () => {
     fetchMock.mockResolvedValue(new Response('asset', { status: 200 }));
 
@@ -769,6 +806,44 @@ describe('service worker cache policy', () => {
     expect(await offline.text()).toBe('Offline');
   });
 
+  it.each([false, true])(
+    'keeps the newest successful stable-asset cache when responses finish out of order (new put fails: %s)',
+    async (newPutFails) => {
+      const request = new Request('https://musixquare.com/editorial-base.css');
+      let cachedBody: string | null = null;
+      let resolveOlderNetwork: (response: Response) => void = () => {};
+      const olderNetwork = new Promise<Response>((resolve) => {
+        resolveOlderNetwork = resolve;
+      });
+      cacheMatch.mockImplementation(async (candidate) =>
+        candidate.url === request.url && cachedBody !== null ? new Response(cachedBody) : undefined,
+      );
+      cachePut.mockImplementation(async (_request: Request, response: Response) => {
+        const body = await response.text();
+        if (newPutFails && body === 'new stylesheet') throw new Error('quota exceeded');
+        cachedBody = body;
+      });
+      fetchMock
+        .mockReturnValueOnce(olderNetwork)
+        .mockResolvedValueOnce(new Response('new stylesheet'));
+
+      const olderPending = dispatchWithWork(request);
+      const newer = await dispatchWithWork(request);
+      expect(await newer.response.text()).toBe('new stylesheet');
+      await Promise.all(newer.work);
+      expect(cachedBody).toBe(newPutFails ? null : 'new stylesheet');
+
+      resolveOlderNetwork(new Response('old stylesheet'));
+      const older = await olderPending;
+      expect(await older.response.text()).toBe('old stylesheet');
+      await Promise.all(older.work);
+
+      fetchMock.mockRejectedValueOnce(new Error('offline'));
+      const offline = await dispatch(request);
+      expect(await offline.text()).toBe(newPutFails ? 'old stylesheet' : 'new stylesheet');
+    },
+  );
+
   it('does not let an older delayed no-store response delete a newer cached response', async () => {
     const request = new Request('https://musixquare.com/runtime-config');
     let cachedBody: string | null = null;
@@ -788,7 +863,7 @@ describe('service worker cache policy', () => {
           : undefined;
       },
     );
-    cachePut.mockImplementation(() => {
+    cachePut.mockImplementation(async () => {
       cachedBody = 'newer cacheable configuration';
     });
     cacheEntryDelete.mockImplementation(() => {

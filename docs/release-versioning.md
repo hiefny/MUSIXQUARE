@@ -77,3 +77,11 @@ npm run version:status
 The manifest also records the Git SHA, build tools, validation profile, and
 content hashes. Cloudflare deployment records add each deployed Worker version
 ID, completing the operational release identity.
+
+The Standard HTTPS signaling smoke records the failed send's HTTP status,
+client sequence, recognized frame type, and recognized machine error code.
+Unknown values are reported as `unknown`; response text, tokens, authentication
+payloads, and PINs are never included. These fields identify the failed boundary
+but do not establish an upstream root cause. A 503 still fails the smoke without
+retrying admission, and a later successful run does not explain the earlier
+failure.

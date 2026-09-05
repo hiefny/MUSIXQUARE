@@ -71,13 +71,22 @@ describe('account room assertions', () => {
     await expect(
       verifyAccountAssertion(token, secret, {
         audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
+        roomCode: '000001',
+        nowSeconds: issuedAt,
+      }),
+    ).resolves.toMatchObject({ roomCode: '000001' });
+    await expect(
+      verifyAccountAssertion(token, secret, {
+        audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
         roomCode: '000002',
+        nowSeconds: issuedAt,
       }),
     ).resolves.toBeNull();
     await expect(
       verifyAccountAssertion(`${token!.slice(0, -1)}x`, secret, {
         audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
         roomCode: '000001',
+        nowSeconds: issuedAt,
       }),
     ).resolves.toBeNull();
     await expect(
@@ -159,8 +168,9 @@ describe('account room assertions', () => {
       createAccountAssertion(
         {
           accountId: 'google-email@example.com',
-          nickname: 'Peer',
+          nickname: 'Minsu',
           roomCode: '000001',
+          roomGeneration: 0,
           audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
         },
         secret,
@@ -170,8 +180,9 @@ describe('account room assertions', () => {
       createAccountAssertion(
         {
           accountId: 'acct_0123456789abcdefghijkl',
-          nickname: 'Peer',
+          nickname: 'Minsu',
           roomCode: '000001',
+          roomGeneration: 0,
           audience: ACCOUNT_ASSERTION_AUDIENCE_PRO_ROOM,
         },
         'short',

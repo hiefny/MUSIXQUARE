@@ -4,9 +4,9 @@
     {
       "database": "musixquare-admin-metrics",
       "baseline": "cloudflare/admin-metrics.schema.sql",
-      "baselineRevision": 6,
-      "baselineSha256": "ab5e9377084c9d586da5a6a8a89e8f91ed61a819baa4797828d9ab27d0c793aa",
-      "baselineMigration": "admin-lifetime-analytics-v1",
+      "baselineRevision": 7,
+      "baselineSha256": "6cba01fa7888098a90d003c9b81567119cb7547ee54bca00f59dc7a6483cb504",
+      "baselineMigration": "admin-pro-room-retirement-cursor-v1",
       "baselineRecovery": {
         "strategy": "roll-forward-or-provider-restore",
         "runbook": "cloudflare/admin-dashboard-ops.md",
@@ -89,6 +89,45 @@
             "strategy": "roll-forward-or-provider-restore",
             "runbook": "cloudflare/admin-dashboard-ops.md",
             "note": "Permanent aggregate-only UTC-day room-open and guest-join increments are backfilled while the complete measured history remains inside retention; recovery preserves the monotonic table and triggers, rolls forward, or restores the provider database."
+          }
+        },
+        {
+          "id": "admin-soro-article-visibility-v1",
+          "forward": "cloudflare/admin-metrics.soro-article-visibility.migration.sql",
+          "forwardSha256": "718cc1efc9cc96640bde3aa7506cb4d5389dd0378141044513c0f8a7278009b2",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "Per-slug D1 visibility overrides preserve legacy KV settings without lost updates. Keep hidden and explicit-unhide rows on recovery; older App code ignores overrides and requires reconciliation of the effective visibility before rollback."
+          }
+        },
+        {
+          "id": "admin-owner-transfer-intent-admission-v1",
+          "forward": "cloudflare/admin-metrics.owner-transfer-intent-admission.migration.sql",
+          "forwardSha256": "309a9f1ebe09e23f0ebd7e3456d9b4887e3802254efd56c5f7cec04d634d7891",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "The additive secret-free admission ledger bounds durable intent allocation per operator-issued claim. Preserve it during forward recovery; older App code ignores the table but restores the unbounded-allocation vulnerability."
+          }
+        },
+        {
+          "id": "admin-pro-room-retirement-cursor-v1",
+          "forward": "cloudflare/admin-metrics.pro-room-retirement-cursor.migration.sql",
+          "forwardSha256": "4dba85a7ec89c9f1f845b9870612885c4aac2267de7f34f0ad11e9e829d3426f",
+          "reversibility": "forward-only",
+          "rollback": null,
+          "rollbackSha256": null,
+          "recovery": {
+            "strategy": "roll-forward-or-provider-restore",
+            "runbook": "cloudflare/admin-dashboard-ops.md",
+            "note": "The additive singleton contains only cyclic cleanup progress. Preserve it on forward recovery; older App code ignores it but restores the latest-5000 history starvation defect. It is not an authorization or permanent completion receipt."
           }
         }
       ]

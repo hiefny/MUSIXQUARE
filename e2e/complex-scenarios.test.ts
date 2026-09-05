@@ -25,11 +25,16 @@ import {
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
+import {
+  installLocalYouTube,
+  submitYouTubeSource,
+  waitForYouTubePlayback,
+} from './helpers/youtube-source.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import { readCurrentQueueIndex, waitForCurrentQueueIndex } from './helpers/queue-state.ts';
 import {
   clickPlayButton,
-  isVisible,
+  navigateToSubtab,
   navigateToTab,
   openChatDrawer,
   readPlaybackProjection,
@@ -42,6 +47,16 @@ import {
   waitForPlayState,
   waitForState,
 } from './helpers/wait.ts';
+
+async function grantOperator(): Promise<string> {
+  await navigateToTab(pair.hostPage, 'settings');
+  await navigateToSubtab(pair.hostPage, 'connect');
+  const peerId = await readState(pair.guestPage, 'network.myId');
+  expect(typeof peerId).toBe('string');
+  await pair.hostPage.locator('.d-op-btn:visible').first().click();
+  await waitForState(pair.guestPage, 'network.isOperator', true);
+  return String(peerId);
+}
 
 const YT_VIDEO = 'https://youtu.be/bnh70V0yu2s';
 
@@ -56,6 +71,7 @@ test.describe('Mode Switching Chains', () => {
   });
 
   test('Audio -> YouTube -> Audio roundtrip preserves playlist', async () => {
+    await Promise.all([pair.hostPage, pair.guestPage].map(installLocalYouTube));
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -69,46 +85,25 @@ test.describe('Mode Switching Chains', () => {
     await clickPlayButton(pair.hostPage);
     await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
 
-    await pair.hostPage.evaluate(() => {
-      const overlay = document.getElementById('youtube-url-overlay');
-      if (overlay) overlay.classList.add('active');
-    });
-    const ytInput = pair.hostPage.locator('#youtube-url-input');
-    if (await ytInput.isVisible()) {
-      await ytInput.fill(YT_VIDEO);
-      await ytInput.dispatchEvent('input');
-      await pair.hostPage
-        .waitForFunction(
-          () => {
-            const btn = document.getElementById('youtube-play-btn');
-            return btn && !btn.hasAttribute('disabled');
-          },
-          undefined,
-          { timeout: 10_000 },
-        )
-        .catch(() => {});
-
-      const playBtn = pair.hostPage.locator('#youtube-play-btn');
-      if (await playBtn.isEnabled({ timeout: 5000 }).catch(() => false)) {
-        await playBtn.click();
-        await waitForPlaybackProjection(pair.hostPage, 'PLAYING_YOUTUBE').catch(() => {});
-      }
-    }
-
+    await submitYouTubeSource(pair.hostPage, YT_VIDEO);
+    for (const page of [pair.hostPage, pair.guestPage])
+      await waitForYouTubePlayback(page, 'bnh70V0yu2s');
     await uploadFixture(pair.hostPage, 'test02');
-    await waitForPlaylistCount(pair.hostPage, 2);
-
-    const count = await pair.hostPage.evaluate(() => {
-      const get = (window as any).__MUSIXQUARE_GET_STATE__;
-      return get ? ((get('playlist.items') as unknown[])?.length ?? 0) : 0;
-    });
-    expect(count).toBeGreaterThanOrEqual(2);
-
-    const state = (await readPlaybackProjection(pair.hostPage)) as string;
-    expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO', 'PLAYING_YOUTUBE']).toContain(state);
+    for (const page of [pair.hostPage, pair.guestPage]) await waitForPlaylistCount(page, 3);
+    await navigateToTab(pair.hostPage, 'playlist');
+    await pair.hostPage
+      .locator('#playlist-ui > .playlist-entry > .track-item')
+      .filter({ hasText: 'test-02' })
+      .click();
+    for (const page of [pair.hostPage, pair.guestPage]) {
+      await waitForState(page, 'playback.mode', 'file');
+      await waitForPlaybackProjection(page, 'PLAYING_AUDIO');
+      await expect(page.locator('#playlist-ui')).toContainText('test-01');
+      await expect(page.locator('#playlist-ui')).toContainText('test-02');
+    }
   });
 
-  test('rapid mode switching does not corrupt state', async () => {
+  test('rapid play and pause switching preserves the file playlist', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     await uploadFixture(pair.hostPage, 'test01');
@@ -169,17 +164,15 @@ test.describe('Playlist Manipulation During Playback', () => {
       await navigateToTab(pair.hostPage, 'play');
     }
 
+    await navigateToTab(pair.hostPage, 'playlist');
     const currentIndex = await readCurrentQueueIndex(pair.hostPage);
 
     const removeBtns = pair.hostPage.locator('#playlist-ui .btn-playlist-remove');
     const btnForCurrent = removeBtns.nth(currentIndex);
-    if (
-      await isVisible(pair.hostPage, `#playlist-ui .btn-playlist-remove >> nth=${currentIndex}`)
-    ) {
-      await btnForCurrent.click();
-      await pair.hostPage.locator('.playlist-selection-delete').click();
-      await waitForPlaylistCount(pair.hostPage, 1);
-    }
+
+    await btnForCurrent.click();
+    await pair.hostPage.locator('.playlist-selection-delete').click();
+    await waitForPlaylistCount(pair.hostPage, 1);
 
     const state = (await readPlaybackProjection(pair.hostPage)) as string;
     expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(state);
@@ -330,19 +323,11 @@ test.describe('Concurrent Host+Guest Operations', () => {
     })();
 
     const hostThemeChange = (async () => {
-      const darkOpt = pair.hostPage.locator('.ch-opt[data-theme="dark"]');
-      if (await isVisible(pair.hostPage, '.ch-opt[data-theme="dark"]')) {
-        await darkOpt.click();
-        await pair.hostPage
-          .waitForFunction(
-            () => document.documentElement.getAttribute('data-theme') === 'dark',
-            undefined,
-            {
-              timeout: 5_000,
-            },
-          )
-          .catch(() => {});
-      }
+      await navigateToSubtab(pair.hostPage, 'general');
+      await pair.hostPage.locator('.ch-opt[data-theme="light"]').click();
+      await expect(pair.hostPage.locator('html')).toHaveAttribute('data-theme', 'light');
+      await pair.hostPage.locator('.ch-opt[data-theme="dark"]').click();
+      await expect(pair.hostPage.locator('html')).toHaveAttribute('data-theme', 'dark');
     })();
 
     await Promise.all([guestTabSwitch, hostThemeChange]);
@@ -634,53 +619,18 @@ test.describe('Operator Privilege Scenarios', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
 
-    const opBtn = pair.hostPage.locator('.d-op-btn').first();
-    if (await isVisible(pair.hostPage, '.d-op-btn')) {
-      await opBtn.click();
-      await pair.guestPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('network.isOperator') !== undefined;
-        },
-        undefined,
-        { timeout: 10_000 },
-      );
-
-      const isOpBefore = await readState(pair.guestPage, 'network.isOperator');
-
-      if (isOpBefore === true) {
-        // Exercise the real administrator -> host uplink. Uploading from the
-        // host here would only cover the ordinary local playlist path.
-        await uploadFixture(pair.guestPage, 'test01');
-        await waitForPlaylistCount(pair.hostPage, 1);
-        await waitForPlaylistCount(pair.guestPage, 1);
-
-        const isOp = await readState(pair.guestPage, 'network.isOperator');
-        expect(isOp).toBe(true);
-      } else {
-        // The operator control is a toggle, so normalize it to the granted state.
-        const guestState = await readPlaybackProjection(pair.guestPage);
-        expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
-      }
-    }
+    await grantOperator();
+    await uploadFixture(pair.guestPage, 'test01');
+    await waitForPlaylistCount(pair.hostPage, 1);
+    await waitForPlaylistCount(pair.guestPage, 1);
+    expect(await readState(pair.guestPage, 'network.isOperator')).toBe(true);
   });
 
   test('revoking operator during playback does not crash guest', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
     await waitForDeviceCount(pair.hostPage, 2);
 
-    const opBtn = pair.hostPage.locator('.d-op-btn').first();
-    if (await isVisible(pair.hostPage, '.d-op-btn')) {
-      await opBtn.click();
-      await pair.guestPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get && get('network.isOperator') !== undefined;
-        },
-        undefined,
-        { timeout: 10_000 },
-      );
-    }
+    const peerId = await grantOperator();
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
@@ -692,19 +642,16 @@ test.describe('Operator Privilege Scenarios', () => {
     await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, true);
 
-    if (await isVisible(pair.hostPage, '.d-op-btn')) {
-      await opBtn.click();
-      await pair.guestPage
-        .waitForFunction(
-          () => {
-            const get = (window as any).__MUSIXQUARE_GET_STATE__;
-            return get && get('network.isOperator') === false;
-          },
-          undefined,
-          { timeout: 10_000 },
-        )
-        .catch(() => {});
-    }
+    await pair.hostPage
+      .locator(
+        '.administrator-row[data-member-id="peer:' +
+          peerId +
+          '"]:visible .administrator-action-button.revoke',
+      )
+      .click();
+    await expect(pair.hostPage.locator('#dialog-overlay.show')).toBeVisible();
+    await pair.hostPage.locator('#btn-dialog-ok').click();
+    await waitForState(pair.guestPage, 'network.isOperator', false);
 
     const isOp = await readState(pair.guestPage, 'network.isOperator');
     expect(isOp).toBe(false);
@@ -795,33 +742,22 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
     await cleanupContexts(pair);
   });
 
-  test('opening chat while media source popup is open', async () => {
+  test('media source modal retains focus until dismissed before opening chat', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
-
-    await navigateToTab(pair.hostPage, 'play', 15_000);
-
-    // Use a DOM click because responsive CSS may hide the desktop control.
-    const mediaBtnExists = await pair.hostPage.evaluate(
-      () => !!document.getElementById('btn-media-source'),
-    );
-    if (mediaBtnExists) {
-      await pair.hostPage.evaluate(() =>
-        (document.getElementById('btn-media-source') as HTMLElement)?.click(),
-      );
-      await pair.hostPage
-        .waitForFunction(
-          () =>
-            document.getElementById('media-source-overlay')?.classList.contains('active') ?? false,
-          undefined,
-          { timeout: 5_000 },
-        )
-        .catch(() => {});
-
-      await openChatDrawer(pair.hostPage).catch(() => {});
-
-      const state = await readPlaybackProjection(pair.hostPage);
-      expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
-    }
+    await navigateToTab(pair.hostPage, 'play');
+    await pair.hostPage.locator('#btn-media-source').click();
+    await expect(pair.hostPage.locator('#media-source-overlay')).toHaveClass(/active/);
+    await expect
+      .poll(() =>
+        pair.hostPage.evaluate(() =>
+          Boolean(document.activeElement?.closest('#media-source-overlay')),
+        ),
+      )
+      .toBe(true);
+    await pair.hostPage.locator('#btn-close-media-popup').click();
+    await expect(pair.hostPage.locator('#media-source-overlay')).not.toHaveClass(/active/);
+    await openChatDrawer(pair.hostPage);
+    await expect(pair.hostPage.locator('#chat-drawer')).toHaveClass(/open/);
   });
 
   test('playlist removal selection survives a wide-layout tab switch', async () => {
@@ -830,26 +766,25 @@ test.describe('Dialog & UI Overlap Edge Cases', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    await navigateToTab(pair.hostPage, 'play');
+    await navigateToTab(pair.hostPage, 'playlist');
 
     const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first();
-    if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
-      await removeBtn.click();
-      await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
 
-      await pair.hostPage.evaluate(() => {
-        (document.getElementById('nav-settings') as HTMLElement)?.click();
-      });
+    await removeBtn.click();
+    await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
 
-      await navigateToTab(pair.hostPage, 'play');
-      await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
-      await expect(removeBtn).toHaveAttribute('aria-pressed', 'true');
+    await pair.hostPage.evaluate(() => {
+      (document.getElementById('nav-settings') as HTMLElement)?.click();
+    });
 
-      const count = await pair.hostPage.evaluate(
-        () => document.getElementById('playlist-ui')?.children.length ?? 0,
-      );
-      expect(count).toBe(1);
-    }
+    await navigateToTab(pair.hostPage, 'play');
+    await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
+    await expect(removeBtn).toHaveAttribute('aria-pressed', 'true');
+
+    const count = await pair.hostPage.evaluate(
+      () => document.getElementById('playlist-ui')?.children.length ?? 0,
+    );
+    expect(count).toBe(1);
   });
 });
 
@@ -909,14 +844,13 @@ test.describe('State Consistency After Complex Flows', () => {
     await clickPlayButton(pair.hostPage);
     await waitForPlayState(pair.hostPage, true);
 
-    await navigateToTab(pair.hostPage, 'play');
+    await navigateToTab(pair.hostPage, 'playlist');
 
     const removeBtn = pair.hostPage.locator('#playlist-ui .btn-playlist-remove').last();
-    if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
-      await removeBtn.click();
-      await pair.hostPage.locator('.playlist-selection-delete').click();
-      await waitForPlaylistCount(pair.hostPage, 2).catch(() => {});
-    }
+
+    await removeBtn.click();
+    await pair.hostPage.locator('.playlist-selection-delete').click();
+    await waitForPlaylistCount(pair.hostPage, 2);
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 3);

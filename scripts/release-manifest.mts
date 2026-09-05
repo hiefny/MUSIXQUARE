@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readReleaseIdentity, type ReleaseIdentity } from './release-identity.mts';
+import { executeNpm } from './npm-invocation.mts';
 
 const SCHEMA_VERSION = 2;
 const REUSABLE_RELEASE_TARGETS = new Set([
@@ -127,11 +128,6 @@ function isReleaseManifest(value: unknown): value is ReleaseManifest {
   return Array.isArray(value.files) && value.files.every(isReleaseManifestFile);
 }
 
-function commandVersion(command: string, args: string[] = ['--version']): string {
-  const executable = process.platform === 'win32' ? `${command}.cmd` : command;
-  return execFileSync(executable, args, { encoding: 'utf8' }).trim();
-}
-
 function npmVersion(environment: NodeJS.ProcessEnv): string {
   const userAgentVersion = environment.npm_config_user_agent?.match(/^npm\/([^\s]+)/)?.[1];
   if (userAgentVersion) return userAgentVersion;
@@ -141,7 +137,13 @@ function npmVersion(environment: NodeJS.ProcessEnv): string {
       encoding: 'utf8',
     }).trim();
   }
-  return commandVersion('npm');
+  return String(
+    executeNpm(['--version'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'inherit'],
+      environment,
+    }),
+  ).trim();
 }
 
 function installedWranglerVersion(): string {

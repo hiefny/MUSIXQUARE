@@ -226,10 +226,43 @@ describe('Developer API live canary smoke', () => {
     ['mixed backend and network convergence', 'success', null, 'mixed'],
     ['post-commit timeout', 'timeout', 'simulated post-commit timeout', 'maintenance'],
     ['post-commit damaged response', 'damaged', 'returned invalid JSON', 'network'],
+    ['YouTube post-commit timeout', 'youtube-timeout', 'YouTube response lost', 'stale'],
+    ['YouTube post-commit damaged response', 'youtube-damaged', 'returned invalid JSON', 'stale'],
+    ['concurrent queue insertion', 'youtube-concurrent', null, 'stale'],
   ] as const)(
     'exercises scoped reads, queue mutations, direct upload, completion, and cleanup: %s',
     async (_label, completionMode, expectedError, convergenceMode) => {
       let youtubePresent = false;
+      let youtubeName = '';
+      let competingPresent = false;
+      const currentYouTubeItems = () => [
+        ...(youtubePresent
+          ? [
+              {
+                queueItemId: YOUTUBE_ITEM_ID,
+                kind: 'youtube',
+                name: youtubeName,
+                addedBy: 'current_api_key',
+              },
+            ]
+          : []),
+        ...(competingPresent
+          ? [
+              {
+                queueItemId: '123e4567-e89b-42d3-a456-426614174003',
+                kind: 'youtube',
+                name: youtubeName,
+                addedBy: 'another_api_key',
+              },
+              {
+                queueItemId: '123e4567-e89b-42d3-a456-426614174004',
+                kind: 'youtube',
+                name: 'Another operation',
+                addedBy: 'current_api_key',
+              },
+            ]
+          : []),
+      ];
       let audioPresent = false;
       let uploadBytes = 0;
       let roomReadAttempts = 0;
@@ -309,7 +342,7 @@ describe('Developer API live canary smoke', () => {
             });
           }
           if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}/queue`) {
-            return json(queue());
+            return json(queue(currentYouTubeItems(), youtubePresent ? 2 : 1));
           }
           if (method === 'GET' && url.pathname === `/v1/rooms/${ROOM}/effects`) {
             const effectsVersion = new Headers(init.headers).get('x-mxqr-effects-version');
@@ -359,41 +392,27 @@ describe('Developer API live canary smoke', () => {
           }
           if (method === 'POST' && url.pathname === `/v1/rooms/${ROOM}/queue/items`) {
             youtubePresent = true;
-            return json(
-              queue(
-                [
-                  {
-                    queueItemId: YOUTUBE_ITEM_ID,
-                    kind: 'youtube',
-                    name: 'MUSIXQUARE API smoke',
-                  },
-                ],
-                2,
-              ),
-              201,
-            );
+            youtubeName = JSON.parse(String(init.body)).name;
+            competingPresent = completionMode === 'youtube-concurrent';
+            if (completionMode === 'youtube-timeout')
+              throw new DOMException('YouTube response lost', 'TimeoutError');
+            if (completionMode === 'youtube-damaged')
+              return new Response('{"committed":', { status: 201 });
+            return json(queue(currentYouTubeItems(), 2), 201);
           }
           if (method === 'PUT' && url.pathname === `/v1/rooms/${ROOM}/queue/order`) {
             expect(youtubePresent).toBe(true);
-            return json(
-              queue(
-                [
-                  {
-                    queueItemId: YOUTUBE_ITEM_ID,
-                    kind: 'youtube',
-                    name: 'MUSIXQUARE API smoke',
-                  },
-                ],
-                3,
-              ),
+            expect(JSON.parse(String(init.body)).queueItemIds).toEqual(
+              currentYouTubeItems().map((item) => item.queueItemId),
             );
+            return json(queue(currentYouTubeItems(), 3));
           }
           if (
             method === 'DELETE' &&
             url.pathname === `/v1/rooms/${ROOM}/queue/items/${YOUTUBE_ITEM_ID}`
           ) {
             youtubePresent = false;
-            return json(queue([], 4));
+            return json(queue(currentYouTubeItems(), 4));
           }
           if (method === 'POST' && url.pathname === `/v1/rooms/${ROOM}/media/uploads`) {
             return json(
@@ -457,7 +476,7 @@ describe('Developer API live canary smoke', () => {
             url.pathname === `/v1/rooms/${ROOM}/queue/items/${AUDIO_ITEM_ID}`
           ) {
             audioPresent = false;
-            return json(queue([], 6));
+            return json(queue(currentYouTubeItems(), 6));
           }
           throw new Error(`Unexpected smoke request: ${method} ${url}`);
         }),
@@ -475,25 +494,28 @@ describe('Developer API live canary smoke', () => {
       } else {
         await expect(smoke).resolves.toBeUndefined();
       }
-      expect(uploadBytes).toBe(46);
+      const youtubeFailed =
+        completionMode === 'youtube-timeout' || completionMode === 'youtube-damaged';
+      expect(uploadBytes).toBe(youtubeFailed ? 0 : 46);
       const expectedRoomReadAttempts = convergenceMode === 'mixed' ? 3 : 2;
       expect(roomReadAttempts).toBe(expectedRoomReadAttempts);
       expect(convergenceWait.mock.calls).toEqual(
         convergenceMode === 'mixed' ? [[1_000], [2_000]] : [[1_000]],
       );
       expect(youtubePresent).toBe(false);
+      expect(competingPresent).toBe(completionMode === 'youtube-concurrent');
       expect(audioPresent).toBe(false);
       expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`);
       expect(
         calls.filter((call) => call === `GET https://api.musixquare.com/v1/rooms/${ROOM}/effects`),
       ).toHaveLength(1);
       expect(calls).toContain(`GET https://api.musixquare.com/v1/rooms/${ROOM}/queue-mode`);
-      expect(calls).toContain('PUT https://storage.example/upload');
+      if (!youtubeFailed) expect(calls).toContain('PUT https://storage.example/upload');
       const mutationCalls = calls.filter((call) => /^(?:POST|PUT|DELETE) /u.test(call));
       expect(mutationCalls.length).toBeGreaterThan(0);
       expect(new Set(mutationCalls).size).toBe(mutationCalls.length);
       expect(calls.at(-1)).toBe(
-        `DELETE https://api.musixquare.com/v1/rooms/${ROOM}/queue/items/${AUDIO_ITEM_ID}`,
+        `DELETE https://api.musixquare.com/v1/rooms/${ROOM}/queue/items/${youtubeFailed ? YOUTUBE_ITEM_ID : AUDIO_ITEM_ID}`,
       );
     },
   );

@@ -1209,6 +1209,10 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
 
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
+  const localSid = getState('transfer.localSessionId');
+  // A newer bulk stream can overtake old control-channel frames. Retired
+  // owners must not clear that stream's watchdogs or loading UI below.
+  if (incomingSid < localSid) return;
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
     clearManagedTimer('prepareWatchdog');
@@ -1223,7 +1227,6 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
     return;
   }
   recordGuestFileDelivery(queueItemId, incomingSid, 'direct-local');
-  const localSid = getState('transfer.localSessionId');
   const isLocalDirectStart = shouldAcceptLocalDirectFileStart(data);
 
   // Persistent PRO occurrences are participant-owned R2 downloads. Even a
@@ -1232,11 +1235,6 @@ export function handleFileStart(data: Record<string, unknown>, conn?: DataConnec
   if (isProRoomPersistentPlaylistFile(queueItemId)) {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
-    return;
-  }
-
-  if (!incomingSid || incomingSid < localSid) {
-    log.warn(`[file-start] Stale session ignored. Current: ${localSid}, Received: ${incomingSid}`);
     return;
   }
 
@@ -1413,6 +1411,8 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
 
   const incomingSid = data.sessionId as number;
   if (!Number.isSafeInteger(incomingSid) || incomingSid <= 0) return;
+  const localSid = getState('transfer.localSessionId');
+  if (incomingSid < localSid) return;
   if (isTrackFailed(getTrackKeyFromItem(getQueueItemById(queueItemId)))) {
     completeAcceptedFileRequest(data, conn);
     clearManagedTimer('prepareWatchdog');
@@ -1421,9 +1421,6 @@ export function handleFileResume(data: Record<string, unknown>, conn?: DataConne
     log.debug(`[file-resume] Ignoring locally unsupported ${queueItemId}`);
     return;
   }
-  const localSid = getState('transfer.localSessionId');
-
-  if (!incomingSid || incomingSid < localSid) return;
   if (shouldSkipIncomingFile(data)) {
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');

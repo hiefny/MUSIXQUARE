@@ -10,6 +10,7 @@ import { getCapturedLogs } from '../core/log-capture.ts';
 import { log } from '../core/log.ts';
 import { getState } from '../core/state.ts';
 import { getRoomContext } from '../rooms/authority.ts';
+import { syncOverlayState } from './dom.ts';
 
 const OVERLAY_ID = 'onboarding-diagnostics-overlay';
 const TIMELINE_STORAGE_KEY = 'mxqr:diagnostics:lifecycle-v1';
@@ -596,7 +597,6 @@ export function openOnboardingDiagnostics(): void {
   let disposed = false;
   let collectionGeneration = 0;
   let snapshot = '';
-  const backgroundInertState: Array<{ element: HTMLElement; inert: boolean }> = [];
   const renderSnapshot = (): void => {
     const generation = ++collectionGeneration;
     refreshButton.disabled = true;
@@ -624,7 +624,7 @@ export function openOnboardingDiagnostics(): void {
     collectionGeneration += 1;
     document.removeEventListener('keydown', onKey);
     overlay.remove();
-    for (const { element, inert } of backgroundInertState) element.inert = inert;
+    syncOverlayState();
     if (activeOverlayCleanup === cleanup) activeOverlayCleanup = null;
     try {
       previousFocus?.focus({ preventScroll: true });
@@ -633,6 +633,8 @@ export function openOnboardingDiagnostics(): void {
     }
   };
   const onKey = (event: KeyboardEvent): void => {
+    if (overlay.hasAttribute('inert') || (event.key !== 'Escape' && event.key !== 'Tab')) return;
+    event.stopPropagation();
     if (event.key === 'Escape') {
       event.preventDefault();
       cleanup();
@@ -680,11 +682,7 @@ export function openOnboardingDiagnostics(): void {
 
   activeOverlayCleanup = cleanup;
   document.body.appendChild(overlay);
-  for (const child of Array.from(document.body.children)) {
-    if (!(child instanceof HTMLElement) || child === overlay) continue;
-    backgroundInertState.push({ element: child, inert: child.inert === true });
-    child.inert = true;
-  }
+  syncOverlayState(OVERLAY_ID);
   closeButton.focus({ preventScroll: true });
   renderSnapshot();
 }

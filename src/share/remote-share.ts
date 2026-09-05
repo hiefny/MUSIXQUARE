@@ -467,8 +467,8 @@ function isStorageQuotaError(error: unknown): boolean {
 }
 
 function getR2MessageTargets(sessionId: number, targetConn?: DataConnection): DataConnection[] {
-  if (targetConn?.open) {
-    return shouldConnectionUseR2(targetConn, sessionId) ? [targetConn] : [];
+  if (targetConn) {
+    return targetConn.open && shouldConnectionUseR2(targetConn, sessionId) ? [targetConn] : [];
   }
   return getR2FileTargets(sessionId);
 }

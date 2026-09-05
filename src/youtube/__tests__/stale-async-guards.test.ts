@@ -18,6 +18,7 @@ import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import {
   IOS_WATCHDOG_MS,
+  CRASH_FAIL_THRESHOLD,
   UNAVAILABLE_STUCK_THRESHOLD_MS,
   YOUTUBE_PRIME_VIDEO_ID,
 } from '../constants.ts';
@@ -320,6 +321,106 @@ async function startHostScrapeLoad(
 // ─── Scrape poll supersession ──────────────────────────────────────────────
 
 describe('IFrame runtime readiness identity', () => {
+  it.each([true, false])('preserves guest local pause=%s after an iframe crash', async (paused) => {
+    const { loadYouTubeVideo } = await import('../iframe.ts');
+    const { initYouTube } = await import('../player.ts');
+    const { setLocalYouTubePaused, isLocalYouTubePaused } = await import('../_state.ts');
+    const sync = await import('../sync.ts');
+    const realSync = await vi.importActual<typeof import('../sync.ts')>('../sync.ts');
+    initYouTube();
+    wireStopAllMediaChain();
+    setState('network.hostConn', {
+      peer: 'crash-host',
+      open: true,
+      send: () => undefined,
+      close: () => undefined,
+      on: () => undefined,
+    });
+    const item: PlaylistItem = {
+      queueItemId: QUEUE_ITEM_ID,
+      type: 'youtube',
+      name: 'Recoverable video',
+      videoId: 'recoverVid1',
+      playlistId: null,
+    };
+    setState('playlist.items', [item]);
+    setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+    setPlaybackTrackMeta({ ...item, title: item.name } as TrackMeta);
+    const previousPlayer = createMockYtPlayer();
+    vi.mocked(previousPlayer.getCurrentTime).mockReturnValue(42);
+    vi.mocked(previousPlayer.getVideoData!).mockReturnValue({ video_id: item.videoId! });
+    const previousHandle = installYtNamespace(previousPlayer);
+    loadYouTubeVideo(item.videoId, null, true, 0);
+    previousHandle.fireReady();
+    previousHandle.fireStateChange(paused ? 2 : 1);
+    setLocalYouTubePaused(paused);
+    const tick = lastTimerCallback('youtubeUILoop')!;
+    tick();
+
+    const replacement = createMockYtPlayer();
+    const replacementHandle = installYtNamespace(replacement);
+    vi.mocked(previousPlayer.getCurrentTime).mockImplementation(() => {
+      throw new Error('iframe unavailable');
+    });
+    // Use the production teardown here: the ordinary mock would conceal its
+    // reset of the local pause flag during the replacement load.
+    const resetSync = vi.fn(realSync.resetYouTubeSyncState);
+    vi.mocked(sync.resetYouTubeSyncState).mockImplementationOnce(resetSync);
+    for (let attempt = 0; attempt < CRASH_FAIL_THRESHOLD; attempt += 1) tick();
+    replacementHandle.fireReady();
+
+    expect(resetSync).toHaveBeenCalledOnce();
+    expect(previousPlayer.destroy).toHaveBeenCalled();
+    expect(isLocalYouTubePaused()).toBe(paused);
+    expect(sync.guestRendezvousSync).toHaveBeenCalledTimes(paused ? 0 : 1);
+  });
+
+  it.each([1, 2])(
+    'preserves host state %s when the iframe crashes and is rebuilt',
+    async (state) => {
+      const { loadYouTubeVideo } = await import('../iframe.ts');
+      const { initYouTube } = await import('../player.ts');
+      initYouTube();
+      wireStopAllMediaChain();
+      const item: PlaylistItem = {
+        queueItemId: QUEUE_ITEM_ID,
+        type: 'youtube',
+        name: 'Recoverable video',
+        videoId: 'recoverVid1',
+        playlistId: null,
+      };
+      setState('playlist.items', [item]);
+      setState('playlist.currentQueueItemId', QUEUE_ITEM_ID);
+      setPlaybackTrackMeta({ ...item, title: item.name } as TrackMeta);
+      const previousPlayer = createMockYtPlayer();
+      vi.mocked(previousPlayer.getCurrentTime).mockReturnValue(42);
+      vi.mocked(previousPlayer.getDuration).mockReturnValue(300);
+      vi.mocked(previousPlayer.getVideoData!).mockReturnValue({ video_id: item.videoId! });
+      const previousHandle = installYtNamespace(previousPlayer);
+      loadYouTubeVideo(item.videoId, null, true, 0);
+      previousHandle.fireReady();
+      previousHandle.fireStateChange(state);
+      const tick = lastTimerCallback('youtubeUILoop');
+      expect(tick).toBeDefined();
+      tick!();
+
+      // Only the native iframe boundary fails. The real UI watchdog rebuilds
+      // the player and the real coordinator consumes its recovery intent.
+      const replacement = createMockYtPlayer();
+      vi.mocked(replacement.getVideoData!).mockReturnValue({ video_id: item.videoId! });
+      const replacementHandle = installYtNamespace(replacement);
+      vi.mocked(previousPlayer.getCurrentTime).mockImplementation(() => {
+        throw new Error('iframe unavailable');
+      });
+      for (let attempt = 0; attempt < CRASH_FAIL_THRESHOLD; attempt += 1) tick!();
+      replacementHandle.fireReady();
+
+      expect(previousPlayer.destroy).toHaveBeenCalled();
+      expect(replacement.playVideo).toHaveBeenCalledTimes(state === 1 ? 1 : 0);
+      if (state === 2) expect(replacement.pauseVideo).toHaveBeenCalled();
+    },
+  );
+
   it('does not expose the synchronous player facade as ready before onReady', async () => {
     const player = createMockYtPlayer();
     const handle = installYtNamespace(player);
@@ -796,6 +897,25 @@ describe('playlist snapshot pid identity (F-2401)', () => {
     expect(broadcastMock).toHaveBeenCalledWith(
       expect.objectContaining({ type: MSG.YOUTUBE_PLAYLIST_INFO, playlistId: 'PL_A' }),
     );
+  });
+
+  it('a changed snapshot preserves cached titles by video ID before broadcasting', async () => {
+    const player = createMockYtPlayer(['a2AAAAAAAAA', 'a3AAAAAAAAA', 'a1AAAAAAAAA']);
+    await armSnapshotForPidA(player);
+    setState('youtube.subItemsMap', {
+      PL_A: { ids: ['a1AAAAAAAAA', 'a2AAAAAAAAA'], titles: ['Title A1', 'Title A2'] },
+    });
+
+    broadcastMock.mockClear();
+    lastTimerCallback('yt-playlist-snapshot')!();
+
+    expect(getState('youtube.subItemsMap')['PL_A']?.titles).toEqual(['Title A2', '', 'Title A1']);
+    expect(broadcastMock).toHaveBeenCalledWith({
+      type: MSG.YOUTUBE_PLAYLIST_INFO,
+      playlistId: 'PL_A',
+      ids: ['a2AAAAAAAAA', 'a3AAAAAAAAA', 'a1AAAAAAAAA'],
+      titles: ['Title A2', '', 'Title A1'],
+    });
   });
 
   it('a first-track fisher firing after the track changed must not write under the old pid', async () => {

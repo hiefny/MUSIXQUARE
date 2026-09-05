@@ -3038,7 +3038,7 @@ describe('Developer API atomic room limiter', () => {
       roomCode: '000001',
       requestId: '12345678-1234-4123-8123-123456789abc',
     });
-    expect(storage.deleteAllCalls).toBe(1);
+    expect(storage.deleteAllCalls).toBe(0);
     expect(storage.alarmAt).toBeNull();
 
     const rejected = await limiter.fetch(
@@ -3056,6 +3056,46 @@ describe('Developer API atomic room limiter', () => {
     await limiter.alarm();
     expect([...storage.values.keys()]).toEqual(['decommissioned']);
     expect(storage.alarmAt).toBeNull();
+  });
+
+  it('preserves a committed deletion fence when a repeated decommission write fails', async () => {
+    const storage = new FakeStorage();
+    const limiter = new DeveloperApiRateLimiter({ storage } as never);
+    const decommissionRequest = () =>
+      new Request('https://developer-api-rate.internal/internal/admin/v1/decommission', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-mxqr-pro-room-code': ROOM_CODE,
+          'x-mxqr-pro-room-generation': '7',
+        },
+        body: JSON.stringify({
+          roomCode: ROOM_CODE,
+          roomGeneration: 7,
+          requestId: '12345678-1234-4123-8123-123456789abc',
+        }),
+      });
+    expect((await limiter.fetch(decommissionRequest())).status).toBe(200);
+    const committed = await storage.get('decommissioned');
+    const failedPut = vi
+      .spyOn(storage, 'put')
+      .mockRejectedValueOnce(new Error('storage unavailable'));
+    await expect(limiter.fetch(decommissionRequest())).rejects.toThrow('storage unavailable');
+    failedPut.mockRestore();
+
+    // A request authenticated at the public edge before deletion may reach
+    // this limiter later, including after its isolate has restarted.
+    const restarted = new DeveloperApiRateLimiter({ storage } as never);
+    const late = await restarted.fetch(
+      new Request('https://developer-api-rate.internal/check', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ operation: 'authenticated-read', keyId: KEY_ID, roomGeneration: 7 }),
+      }),
+    );
+    expect(late.status).toBe(410);
+    expect(await storage.get('decommissioned')).toEqual(committed);
+    expect([...storage.values.keys()]).toEqual(['decommissioned']);
   });
 
   it('requires an exact generation body/header pair before tombstoning a later limiter', async () => {

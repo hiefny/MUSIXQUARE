@@ -734,6 +734,62 @@ describe('standard host canonical file end boundary', () => {
     expect(getState('playback.lifecycle')).toBe(PLAYBACK_STATE.PAUSED);
   });
 
+  it.each(['unchanged', 'revoked', 'replaced connection'] as const)(
+    'rechecks operator skip authority after audio resume: %s',
+    async (change) => {
+      activateStandardHost(0);
+      setSelectedResidentFile();
+      setCurrentAudioBuffer({ duration: 60 } as AudioBuffer);
+      setPlaybackFilePlaying();
+      setState('playback.lifecycle', PLAYBACK_STATE.PLAYING);
+      const operator: DataConnection = {
+        open: true,
+        peer: 'skip-operator',
+        send: vi.fn(),
+        close: vi.fn(),
+        on: () => undefined,
+      };
+      setState('network.activeHostConnByPeerId', new Map([[operator.peer, operator]]));
+      setState('network.connectedPeers', [
+        {
+          id: operator.peer,
+          slot: 1,
+          label: 'OP',
+          conn: operator,
+          isOp: true,
+          preloadedQueueItemIds: new Set<QueueItemId>(),
+          status: 'connected',
+          isDataTarget: true,
+          joinOrder: 1,
+          connectionType: 'local',
+          lastHeartbeat: Date.now(),
+        },
+      ]);
+      initPlayback();
+      const resume = deferred<void>();
+      mocks.ensureRunning.mockReturnValueOnce(resume.promise);
+      await handleData(
+        { type: MSG.REQUEST_SKIP_TIME, sec: 10, queueItemId: queueItemIdAt(0) },
+        operator,
+      );
+      await vi.waitFor(() => expect(mocks.ensureRunning).toHaveBeenCalledOnce());
+      if (change === 'revoked') {
+        setState(
+          'network.connectedPeers',
+          getState('network.connectedPeers').map((peer) => ({ ...peer, isOp: false })),
+        );
+      } else if (change === 'replaced connection') {
+        setState('network.activeHostConnByPeerId', new Map([[operator.peer, { ...operator }]]));
+      }
+      resume.resolve();
+      await flushAsync();
+      expect(mocks.createBufferSource).toHaveBeenCalledTimes(change === 'unchanged' ? 1 : 0);
+      expect(mocks.broadcast.mock.calls.filter(([frame]) => frame.type === MSG.PLAY)).toHaveLength(
+        change === 'unchanged' ? 1 : 0,
+      );
+    },
+  );
+
   it('keeps a usable source and playing clock authoritative when its replacement start rejects', async () => {
     activateStandardHost(0);
     setSelectedResidentFile();
@@ -1540,6 +1596,59 @@ describe('pin (c) — stopAllMedia during the in-flight play window', () => {
 });
 
 describe('play invocation owner — stale unlock/watchdog isolation', () => {
+  it.each(['resume-failure', 'healthy-foreground'] as const)(
+    'keeps the replacement PLAY current after stale-lock recovery: %s',
+    async (outcome) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
+      const queueItemId = selectIndex(0);
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      const hungOwner = deferred<void>();
+      mocks.ensureRunning.mockReturnValueOnce(hungOwner.promise);
+      const first = play(1);
+      clearAllManagedTimers();
+      vi.setSystemTime(new Date('2026-08-21T00:00:06.000Z'));
+
+      let recovery:
+        | {
+            queueItemId: QueueItemId | null;
+            isCurrent?: () => boolean;
+            retry?: () => Promise<boolean>;
+          }
+        | undefined;
+      bus.on('audio:output-recovery-needed', (event) => {
+        recovery = event;
+      });
+      const healthToken = {};
+      if (outcome === 'resume-failure') {
+        mocks.ensureRunning.mockRejectedValueOnce(new Error('replacement resume blocked'));
+      } else {
+        mocks.getPendingForegroundHealthCheck.mockReturnValueOnce({
+          context: { state: 'running' },
+          token: healthToken,
+          isCurrent: () => true,
+        });
+      }
+
+      const started = await play(2);
+      if (outcome === 'resume-failure') {
+        expect(started).toBe(false);
+        expect(recovery?.queueItemId).toBe(queueItemId);
+        expect(recovery?.isCurrent?.()).toBe(true);
+        await expect(recovery?.retry?.()).resolves.toBe(true);
+        await expect(recovery?.retry?.()).resolves.toBe(false);
+      } else {
+        expect(started).toBe(true);
+        expect(mocks.consumeForegroundHealthCheck).toHaveBeenCalledWith(healthToken);
+      }
+      expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+      hungOwner.resolve();
+      await first;
+      expect(mocks.createBufferSource).toHaveBeenCalledOnce();
+      expect(getPlayLockSnapshot()).toMatchObject({ locked: false, consistent: true });
+    },
+  );
+
   it('self-heals a stale lock even when WebKit never runs its watchdog timer', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-08-21T00:00:00.000Z'));
@@ -2379,6 +2488,7 @@ describe('completion consumers — exact post-play ownership', () => {
     setPendingPlayTime(44);
     setState('playback.lifecycle', PLAYBACK_STATE.DOWNLOADING);
 
+    mocks.showLoader.mockClear();
     hangPlay.resolve();
     await activationA;
     await vi.advanceTimersByTimeAsync(600);
@@ -2387,6 +2497,7 @@ describe('completion consumers — exact post-play ownership', () => {
     expect(armInitial).not.toHaveBeenCalled();
     expect(forceResync).not.toHaveBeenCalled();
     expect(getManagedTimer('playback-preload-host-sync')).toBeNull();
+    expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
   });
 });
 

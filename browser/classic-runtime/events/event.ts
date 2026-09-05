@@ -28,6 +28,7 @@
     readonly campaignTitle: string;
     readonly authenticated: boolean;
     readonly profileComplete: boolean;
+    readonly statsScope: string | null;
     readonly redemption: EventRedemption | null;
   }
 
@@ -134,11 +135,18 @@
   let currentRoomGeneration: number | null = null;
   let roomSetupRequired = false;
   let needsProfile = false;
+  let currentAccountScope: string | null = null;
+  let accountGeneration = 0;
+  let viewGeneration = 0;
+  let redeemIntent: object | null = null;
+  let setupIntent: object | null = null;
+  let nicknameIntent: { scope: string; pending: boolean } | null = null;
   let profilePromptOffered = false;
   let authPopup: Window | null = null;
   let authPopupMonitor = 0;
   let authRefreshInFlight: Promise<void> | null = null;
   let sessionGeneration = 0;
+  let sessionMutationRevision = 0;
   let toastTimer = 0;
   let authChannel: BroadcastChannel | null = null;
   const accountClientId = createClientId();
@@ -207,6 +215,16 @@
   }
 
   function setView(view: string, focus?: boolean): void {
+    const generation = ++viewGeneration;
+    if (view !== 'redeem' && redeemIntent) {
+      redeemIntent = null;
+      redeemCode.disabled = false;
+      setBusy(redeemSubmit, false, '확인하는 중', '확인하기');
+    }
+    if (view !== 'success') {
+      setupIntent = null;
+      setBusy(openRoomButton, false, '불러오는 중', '방 설정 시작하기');
+    }
     document.documentElement.dataset.view = view;
     steps.forEach(function (step) {
       const active = step.dataset.step === view;
@@ -220,6 +238,7 @@
     });
     if (focus === false) return;
     window.requestAnimationFrame(function () {
+      if (generation !== viewGeneration || nicknameDialog.open) return;
       if (view === 'redeem') safeFocus(redeemCode);
       else safeFocus(document.querySelector<HTMLElement>('[data-step="' + view + '"] h1'));
     });
@@ -367,6 +386,12 @@
       campaignTitle: campaignTitle,
       authenticated: account.authenticated,
       profileComplete: account.profileComplete === true,
+      statsScope:
+        account.authenticated &&
+        typeof account.statsScope === 'string' &&
+        /^[A-Za-z0-9_-]{43}$/.test(account.statsScope)
+          ? account.statsScope
+          : null,
       redemption: redemption,
     };
   }
@@ -408,6 +433,14 @@
   }
 
   function renderSuccess(redemption: EventRedemption): void {
+    if (
+      currentRoomCode !== redemption.roomCode ||
+      currentRoomGeneration !== redemption.roomGeneration ||
+      roomSetupRequired !== redemption.setupRequired
+    ) {
+      setupIntent = null;
+      setBusy(openRoomButton, false, '불러오는 중', '방 설정 시작하기');
+    }
     currentRoomCode = redemption.roomCode;
     currentRoomGeneration = redemption.roomGeneration;
     roomSetupRequired = redemption.setupRequired;
@@ -453,11 +486,28 @@
 
   async function loadSession(options?: LoadSessionOptions): Promise<void> {
     const generation = ++sessionGeneration;
+    const mutationRevision = sessionMutationRevision;
     if (!options || options.keepView !== true) setView('loading', false);
     try {
       if (!CAMPAIGN_SLUG) throw makeApiError('INVALID_CAMPAIGN_PATH', 400);
       const session = normalizeSession(await requestJson(SESSION_ENDPOINT));
       if (generation !== sessionGeneration) return;
+      if (mutationRevision !== sessionMutationRevision) {
+        await loadSession({ keepView: true });
+        return;
+      }
+      if (currentAccountScope !== session.statsScope) {
+        currentAccountScope = session.statsScope;
+        accountGeneration += 1;
+        currentRoomCode = '';
+        currentRoomGeneration = null;
+        roomSetupRequired = false;
+        setupIntent = null;
+        setBusy(openRoomButton, false, '불러오는 중', '방 설정 시작하기');
+        resetRedeemForm();
+        closeNicknameDialog();
+        profilePromptOffered = false;
+      }
       renderCampaignTitle(session.campaignTitle);
       if (session.authenticated && session.profileComplete && session.redemption) {
         needsProfile = false;
@@ -496,6 +546,10 @@
       setView('redeem');
     } catch (_error) {
       if (generation !== sessionGeneration) return;
+      if (mutationRevision !== sessionMutationRevision) {
+        await loadSession({ keepView: true });
+        return;
+      }
       showNotice('이벤트를 불러오지 못했어요', '연결을 확인한 뒤 다시 시도해 주세요.', true);
     }
   }
@@ -540,7 +594,11 @@
   }
 
   function refreshAfterAuthSignal(): Promise<void> {
-    if (authRefreshInFlight) return authRefreshInFlight;
+    if (authRefreshInFlight) {
+      // A newer auth signal may postdate the cookie sampled by the pending read.
+      sessionMutationRevision += 1;
+      return authRefreshInFlight;
+    }
     authRefreshInFlight = loadSession({ keepView: true }).finally(function () {
       authRefreshInFlight = null;
       resetAccountAction();
@@ -609,7 +667,9 @@
   }
 
   function openNicknameDialog(): void {
-    if (!needsProfile || nicknameDialog.open) return;
+    if (!needsProfile || !currentAccountScope || nicknameDialog.open) return;
+    const intent = { scope: currentAccountScope, pending: false };
+    nicknameIntent = intent;
     nicknameMessage.textContent = '12자 이내로 입력해 주세요.';
     nicknameMessage.classList.remove('is-error');
     nicknameInput.setAttribute('aria-invalid', 'false');
@@ -619,8 +679,18 @@
       nicknameDialog.setAttribute('open', '');
     }
     window.requestAnimationFrame(function () {
+      if (nicknameIntent !== intent || !nicknameDialog.open) return;
       safeFocus(nicknameInput);
     });
+  }
+
+  function closeNicknameDialog(): void {
+    nicknameIntent = null;
+    if (nicknameDialog.open) nicknameDialog.close();
+    nicknameInput.value = '';
+    nicknameInput.disabled = false;
+    setBusy(nicknameSubmit, false, '저장하는 중', '확인');
+    nicknameCancel.disabled = false;
   }
 
   function nicknameValidationMessage(value: string): string {
@@ -642,12 +712,18 @@
 
   async function saveNickname(event: Event): Promise<void> {
     event.preventDefault();
+    const intent = nicknameIntent;
+    if (!intent || intent.pending || !nicknameDialog.open || intent.scope !== currentAccountScope)
+      return;
+    const isCurrent = () =>
+      nicknameIntent === intent && currentAccountScope === intent.scope && nicknameDialog.open;
     const nickname = nicknameInput.value.normalize('NFC');
     const validationMessage = nicknameValidationMessage(nickname);
     if (validationMessage) {
       showNicknameError(validationMessage);
       return;
     }
+    intent.pending = true;
     nicknameInput.disabled = true;
     setBusy(nicknameSubmit, true, '저장하는 중', '확인');
     nicknameCancel.disabled = true;
@@ -657,34 +733,44 @@
         headers: {
           'Content-Type': 'application/json',
           'X-MXQR-Account-CSRF': '1',
+          'X-MXQR-Account-Expected-Scope': intent.scope,
         },
         body: JSON.stringify({ nickname: nickname }),
       });
-      nicknameDialog.close();
-      nicknameInput.value = '';
+      if (!isCurrent()) return;
+      closeNicknameDialog();
       showToast('닉네임을 설정했어요.');
       await loadSession({ keepView: true });
     } catch (error) {
+      if (!isCurrent()) return;
       const apiError = isApiError(error) ? error : makeApiError('NETWORK_ERROR', 0);
-      if (apiError.code === 'NICKNAME_TAKEN') {
+      if (apiError.code === 'ACCOUNT_SESSION_CHANGED') {
+        closeNicknameDialog();
+        showToast('로그인 상태를 다시 확인해 주세요.');
+        await loadSession({ keepView: true });
+      } else if (apiError.code === 'NICKNAME_TAKEN') {
         showNicknameError('이미 사용 중인 닉네임이에요.');
       } else if (apiError.code === 'NICKNAME_INVALID') {
         showNicknameError('사용할 수 없는 닉네임이에요.');
       } else if (apiError.status === 401 || apiError.code === 'AUTH_REQUIRED') {
-        nicknameDialog.close();
+        closeNicknameDialog();
         renderLogin(false);
         loginMessage.textContent = '로그인이 만료됐어요. 다시 로그인해 주세요.';
       } else {
         showNicknameError('닉네임을 설정하지 못했어요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
-      nicknameInput.disabled = false;
-      setBusy(nicknameSubmit, false, '저장하는 중', '확인');
-      nicknameCancel.disabled = false;
+      if (isCurrent()) {
+        intent.pending = false;
+        nicknameInput.disabled = false;
+        setBusy(nicknameSubmit, false, '저장하는 중', '확인');
+        nicknameCancel.disabled = false;
+      }
     }
   }
 
   function resetRedeemForm(): void {
+    redeemIntent = null;
     redeemCode.value = '';
     redeemCode.disabled = false;
     redeemCode.setAttribute('aria-invalid', 'false');
@@ -700,11 +786,27 @@
 
   async function submitRedeem(event: Event): Promise<void> {
     event.preventDefault();
+    if (
+      redeemIntent ||
+      !currentAccountScope ||
+      document.documentElement.dataset.view !== 'redeem'
+    ) {
+      return;
+    }
     const code = redeemCode.value.trim().toUpperCase().replace(/\s+/g, '');
     if (!code) {
       showRedeemError('리딤 코드를 입력해 주세요.');
       return;
     }
+    const intent = {};
+    const generation = accountGeneration;
+    const scope = currentAccountScope;
+    redeemIntent = intent;
+    const isCurrent = () =>
+      redeemIntent === intent &&
+      accountGeneration === generation &&
+      currentAccountScope === scope &&
+      document.documentElement.dataset.view === 'redeem';
     redeemCode.value = code;
     redeemCode.disabled = true;
     setBusy(redeemSubmit, true, '확인하는 중', '확인하기');
@@ -717,9 +819,11 @@
         headers: {
           'Content-Type': 'application/json',
           'X-MXQR-Account-CSRF': '1',
+          'X-MXQR-Account-Expected-Scope': scope,
         },
         body: JSON.stringify({ code: code }),
       });
+      if (!isCurrent()) return;
       if (payload.outcome !== 'redeemed' && payload.outcome !== 'already_redeemed') {
         throw makeApiError('INVALID_RESPONSE', 502);
       }
@@ -729,19 +833,31 @@
         throw makeApiError('INVALID_RESPONSE', 502);
       }
       redeemCode.value = '';
+      // A status read started before this accepted mutation may still carry
+      // the pre-redemption view. Re-read it after completion, preserving any
+      // account-change signal instead of allowing that snapshot to undo success.
+      sessionMutationRevision += 1;
       renderSuccess({
         roomCode: roomCode,
         roomGeneration: roomGeneration,
         setupRequired: payload.setupRequired,
       });
     } catch (error) {
+      if (!isCurrent()) return;
       const apiError = isApiError(error) ? error : makeApiError('NETWORK_ERROR', 0);
       if (apiError.code === 'REDEEM_CODE_USED') {
         resetRedeemForm();
         setView('used');
         return;
       }
-      if (apiError.code === 'INVALID_REDEEM_CODE' || apiError.code === 'REDEEM_CODE_INVALID') {
+      if (apiError.code === 'ACCOUNT_SESSION_CHANGED') {
+        resetRedeemForm();
+        showToast('로그인 상태를 다시 확인해 주세요.');
+        await loadSession();
+      } else if (
+        apiError.code === 'INVALID_REDEEM_CODE' ||
+        apiError.code === 'REDEEM_CODE_INVALID'
+      ) {
         showRedeemError('리딤 코드를 확인해 주세요.');
       } else if (apiError.code === 'ACCOUNT_SESSION_REQUIRED' || apiError.status === 401) {
         resetRedeemForm();
@@ -777,7 +893,8 @@
         showRedeemError('연결이 원활하지 않아요. 잠시 후 다시 시도해 주세요.');
       }
     } finally {
-      if (document.documentElement.dataset.view === 'redeem') {
+      if (isCurrent()) {
+        redeemIntent = null;
         redeemCode.disabled = false;
         setBusy(redeemSubmit, false, '확인하는 중', '확인하기');
       }
@@ -864,8 +981,11 @@
 
   addAsyncEventListener(nicknameForm, 'submit', saveNickname);
   nicknameCancel.addEventListener('click', function () {
-    nicknameDialog.close();
+    closeNicknameDialog();
     safeFocus(accountAction);
+  });
+  nicknameDialog.addEventListener('close', function () {
+    if (!nicknameDialog.open) closeNicknameDialog();
   });
   nicknameInput.addEventListener('input', function () {
     nicknameInput.setAttribute('aria-invalid', 'false');
@@ -874,17 +994,31 @@
   });
 
   addAsyncEventListener(copyRoomButton, 'click', async function () {
-    if (!currentRoomCode) return;
+    if (!currentRoomCode || document.documentElement.dataset.view !== 'success') return;
+    const roomCode = currentRoomCode;
+    const generation = accountGeneration;
+    const isCurrent = () =>
+      generation === accountGeneration &&
+      roomCode === currentRoomCode &&
+      document.documentElement.dataset.view === 'success';
     try {
-      await copyText(currentRoomCode);
-      showToast(currentRoomCode + '을 복사했어요.');
+      await copyText(roomCode);
+      if (isCurrent()) showToast(roomCode + '을 복사했어요.');
     } catch (_error) {
-      showToast('방 번호는 ' + currentRoomCode + '이에요.');
+      if (isCurrent()) showToast('방 번호는 ' + roomCode + '이에요.');
     }
   });
 
   addAsyncEventListener(openRoomButton, 'click', async function () {
-    if (!currentRoomCode || currentRoomGeneration === null) return;
+    if (
+      setupIntent ||
+      !currentAccountScope ||
+      !currentRoomCode ||
+      currentRoomGeneration === null ||
+      document.documentElement.dataset.view !== 'success'
+    ) {
+      return;
+    }
     if (!roomSetupRequired) {
       window.location.assign('/' + currentRoomCode);
       return;
@@ -892,17 +1026,22 @@
 
     const expectedRoomCode = currentRoomCode;
     const expectedRoomGeneration = currentRoomGeneration;
+    const intent = {};
+    const generation = accountGeneration;
+    setupIntent = intent;
+    const isCurrent = () =>
+      setupIntent === intent &&
+      generation === accountGeneration &&
+      currentRoomCode === expectedRoomCode &&
+      currentRoomGeneration === expectedRoomGeneration &&
+      document.documentElement.dataset.view === 'success';
     setBusy(openRoomButton, true, '불러오는 중', '방 설정 시작하기');
     try {
       const target = await requestSetupTarget(expectedRoomCode, expectedRoomGeneration);
-      if (
-        currentRoomCode !== expectedRoomCode ||
-        currentRoomGeneration !== expectedRoomGeneration
-      ) {
-        throw makeApiError('INVALID_RESPONSE', 502);
-      }
+      if (!isCurrent()) return;
       window.location.assign(target);
     } catch (error) {
+      if (!isCurrent()) return;
       const apiError = isApiError(error) ? error : makeApiError('NETWORK_ERROR', 0);
       if (apiError.code === 'ACCOUNT_SESSION_REQUIRED' || apiError.status === 401) {
         showToast('로그인 상태를 다시 확인해 주세요.');
@@ -913,7 +1052,8 @@
         showToast('방 설정 링크를 불러오지 못했어요. 다시 시도해 주세요.');
       }
     } finally {
-      if (document.documentElement.dataset.view === 'success') {
+      if (isCurrent()) {
+        setupIntent = null;
         setBusy(openRoomButton, false, '불러오는 중', '방 설정 시작하기');
       }
     }

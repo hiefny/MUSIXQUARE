@@ -341,12 +341,16 @@ Cloudflare's newer declarative `exports` lifecycle is a separate migration and
 must not be mixed into a legacy migration-array Worker without extending this
 contract and reviewing the provider transition.
 
-The tracked admin baseline currently defines 19 application tables covering
-metrics, room generations, owner-transfer sagas, grants, entitlements, and
-their audits, and explicitly drops the retired `mxqr_api_rate_limits` table.
+The tracked admin baseline currently defines 22 application tables covering
+metrics, editorial visibility, room generations, owner-transfer sagas and
+admissions, grants, entitlements, and their audits. This includes the additive
+`mxqr_soro_article_visibility` overrides and
+`mxqr_pro_room_owner_transfer_intent_admissions` allocation ledger, and
+`mxqr_pro_room_retirement_cursor` cyclic repair progress. The baseline
+explicitly drops the retired `mxqr_api_rate_limits` table.
 `cloudflare/admin-metrics.schema.sql` is the exact schema source; the complete
 human inventory and read-only production query live in
-`admin-dashboard-ops.md`. The source contract was rechecked on 2026-08-30, but
+`admin-dashboard-ops.md`. The schema source inventory was rechecked on 2026-09-05, but
 live table presence remains a separate provider check before maintenance.
 
 The independent `musixquare-auth` and `musixquare-developer-api` databases must

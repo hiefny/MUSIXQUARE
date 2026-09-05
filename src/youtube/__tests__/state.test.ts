@@ -91,6 +91,49 @@ describe('YouTube subItemsMap cache', () => {
     expect(getState('youtube.subItemsMap')['pid-50']?.loadError).toBeUndefined();
   });
 
+  it('preserves titles by video ID across reordered and replaced manifests without changing queue identity', () => {
+    const queueItemId = '33333333-3333-4333-8333-333333333333';
+    const items: PlaylistItem[] = [
+      { queueItemId, type: 'youtube', playlistId: 'pid', videoId: 'A', name: 'Playlist' },
+    ];
+    setState('playlist.items', items);
+    setState('playlist.currentQueueItemId', queueItemId);
+    setSubItemsData('pid', ['A', 'B', 'C'], ['Title A', 'Title B', 'Title C']);
+
+    updateSubItemIds('pid', ['B', 'D', 'A']);
+
+    expect(getState('youtube.subItemsMap')['pid']).toMatchObject({
+      ids: ['B', 'D', 'A'],
+      titles: ['Title B', '', 'Title A'],
+    });
+    expect(getState('playlist.items')).toEqual(items);
+    expect(getState('playlist.currentQueueItemId')).toBe(queueItemId);
+  });
+
+  it('shares the first known title for duplicate video IDs and clears titles for an empty manifest', () => {
+    setSubItemsData('pid', ['A', 'A', 'A', 'B'], ['', 'Title A', 'Other title A', 'Title B']);
+
+    updateSubItemIds('pid', ['B', 'A', 'A']);
+    expect(getState('youtube.subItemsMap')['pid']?.titles).toEqual([
+      'Title B',
+      'Title A',
+      'Title A',
+    ]);
+
+    updateSubItemIds('pid', []);
+    expect(getState('youtube.subItemsMap')['pid']).toMatchObject({ ids: [], titles: [] });
+  });
+
+  it('keeps explicit received titles authoritative over cached titles', () => {
+    setSubItemsData('pid', ['A', 'B'], ['Old A', 'Old B']);
+    updateSubItemIds('pid', ['B', 'A']);
+    setSubItemsData('pid', ['B', 'A'], ['Received B', '']);
+
+    expect(getState('youtube.subItemsMap')['pid']?.titles).toEqual(['Received B', '']);
+    updateSubItemIds('pid', ['A', 'B']);
+    expect(getState('youtube.subItemsMap')['pid']?.titles).toEqual(['', 'Received B']);
+  });
+
   it('caps an out-of-range sub-item index so a hostile update cannot OOM-pad titles (F-2101)', () => {
     setSubItemsData('pid-0', ['v0'], ['Video 0']);
 

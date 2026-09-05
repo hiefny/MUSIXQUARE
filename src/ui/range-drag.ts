@@ -124,7 +124,7 @@ export function installRangeDragGuard(root: ParentNode = document): void {
     };
 
     range.addEventListener('pointerdown', (event) => {
-      if (range.disabled || event.button !== 0) return;
+      if (range.disabled || event.button !== 0 || activePointerId !== null) return;
 
       activePointerId = event.pointerId;
       range.classList.add('is-dragging');
@@ -149,6 +149,6 @@ export function installRangeDragGuard(root: ParentNode = document): void {
 
     range.addEventListener('pointerup', finishDrag);
     range.addEventListener('pointercancel', finishDrag);
-    range.addEventListener('lostpointercapture', () => finishDrag());
+    range.addEventListener('lostpointercapture', finishDrag);
   });
 }

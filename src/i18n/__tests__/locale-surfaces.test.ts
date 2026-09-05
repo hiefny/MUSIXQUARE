@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { JSDOM } from 'jsdom';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
@@ -92,7 +93,7 @@ describe('locale surface parity', () => {
       maintenanceSource,
     ] = await Promise.all([
       readFile('src/i18n/index.ts', 'utf8'),
-      classicRuntime('bootstrap.js'),
+      readFile('browser/classic-runtime/bootstrap.ts', 'utf8'),
       classicRuntime('landing-bootstrap.js'),
       classicRuntime('landing-i18n.js'),
       classicRuntime('static-language.js'),
@@ -108,7 +109,11 @@ describe('locale surface parity', () => {
     expect([...lazyLocaleCodes, 'en', 'ko'].sort()).toEqual(expectedCodes);
 
     const bootstrapCodes = objectKeys(
-      variableInitializer(bootstrapSource, 'bootstrap.js', 'htmlLangByCode'),
+      variableInitializer(
+        bootstrapSource,
+        'browser/classic-runtime/bootstrap.ts',
+        'htmlLangByCode',
+      ),
       'htmlLangByCode',
     );
     expect(bootstrapCodes.sort()).toEqual(expectedCodes);
@@ -178,6 +183,32 @@ describe('locale surface parity', () => {
     );
     for (const { locale } of optionRows) expect(locale).toMatch(/^[a-z]{2,3}_[A-Z]{2}$/);
     expect(new Set(optionRows.map(({ locale }) => locale)).size).toBe(optionRows.length);
+  });
+
+  it('applies every locale through the actual compiled bootstrap public DOM contract', async () => {
+    const code = await classicRuntime('bootstrap.js');
+    for (const { code: locale, htmlLang } of LANGUAGE_OPTIONS) {
+      const dom = new JSDOM(
+        '<!doctype html><html><head><link id="app-manifest" rel="manifest"></head><body></body></html>',
+        {
+          url: `https://musixquare.com/${locale}/`,
+          runScripts: 'outside-only',
+        },
+      );
+      try {
+        dom.window.eval(code);
+        expect(dom.window.document.documentElement.lang, locale).toBe(htmlLang);
+        expect(dom.window.document.documentElement.dir, locale).toBe(
+          ['ar', 'fa', 'he', 'ur'].includes(locale) ? 'rtl' : 'ltr',
+        );
+        expect(
+          dom.window.document.querySelector('#app-manifest')?.getAttribute('href'),
+          locale,
+        ).toBe(`/manifests/${locale}.webmanifest`);
+      } finally {
+        dom.window.close();
+      }
+    }
   });
 
   it('keeps every app html language on the matching first-paint font stack', async () => {

@@ -403,11 +403,15 @@ test.describe('Chat Commands', () => {
     await pair.guestPage.waitForTimeout(1000);
 
     const guestText = await getChatText(pair.guestPage);
-    // Should see slowmode warning
+    expect(await getChatText(pair.hostPage)).not.toContain('Too fast');
+    expect(guestText).toContain('seconds before sending');
     expect(guestText).toContain('First msg');
 
     // Disable slowmode
     await sendChat(pair.hostPage, '/slowmode 0');
+    await waitForState(pair.guestPage, 'network.slowmodeSeconds', 0);
+    await sendChat(pair.guestPage, 'Slow mode released');
+    await waitForChatMessage(pair.hostPage, 'Slow mode released');
   });
 
   // ── /filter ────────────────────────────────────────────────────
@@ -432,16 +436,7 @@ test.describe('Chat Commands', () => {
     const hostText = await getChatText(pair.hostPage);
     expect(hostText.length).toBeGreaterThan(0);
 
-    // Check the state — readState may return undefined if the global hook
-    // doesn't expose nested paths. Fall back to checking system message text.
-    const filterState = await readState(pair.hostPage, 'network.filterEnabled');
-    if (filterState !== undefined) {
-      expect(filterState).toBe(true);
-    } else {
-      // Fallback: check that the system message confirms filter is on
-      // en: 'Profanity filter enabled' / ko: equivalent
-      expect(hostText.length).toBeGreaterThan(10);
-    }
+    await waitForState(pair.hostPage, 'network.filterEnabled', true);
   });
 
   // ── Permission checks ─────────────────────────────────────────
@@ -451,20 +446,7 @@ test.describe('Chat Commands', () => {
     await openChatDrawer(pair.guestPage);
 
     await sendChat(pair.guestPage, '/kick #0');
-    // Wait for permission error message
-    await pair.guestPage.waitForFunction(
-      () => {
-        const container = document.getElementById('chat-messages');
-        if (!container) return false;
-        return (container.innerText || '').length > 0;
-      },
-      undefined,
-      { timeout: 10_000 },
-    );
-
-    const guestText = await getChatText(pair.guestPage);
-    // Should show no-permission error
-    expect(guestText.length).toBeGreaterThan(0);
+    await waitForChatMessage(pair.guestPage, 'Permission to kick members is required.');
   });
 
   test('unknown command shows error message', async () => {

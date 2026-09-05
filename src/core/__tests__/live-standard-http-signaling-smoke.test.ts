@@ -83,6 +83,61 @@ describe('live Standard HTTPS signaling smoke', () => {
     ).rejects.toThrow('bridge open failed');
   });
 
+  it.each([
+    ['RATE_LIMIT_UNAVAILABLE', 'guest-auth', 'RATE_LIMIT_UNAVAILABLE', 'guest-auth'],
+    [
+      'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE',
+      'host-auth',
+      'STANDARD_SIGNALING_BRIDGE_UNAVAILABLE',
+      'host-auth',
+    ],
+    ['Bearer private-token.password-4821', 'private-token.password-4821', 'unknown', 'unknown'],
+    ['A'.repeat(5_000), 'guest-auth', 'unknown', 'guest-auth'],
+  ])(
+    'reports bounded send diagnostics without leaking credentials (%#)',
+    async (rawCode, rawType, code, frameType) => {
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse({ sessionToken: 'private-bridge-session' }))
+        .mockResolvedValueOnce(
+          jsonResponse(
+            {
+              error: rawCode,
+              message: 'private-token.password-4821',
+              authorization: 'Bearer private-bridge-session',
+              pin: '4821',
+            },
+            503,
+          ),
+        );
+      vi.stubGlobal('fetch', fetchMock);
+      const client = await StandardHttpBridgeSmokeClient.open('private-capability', {
+        roomId: '123456',
+        role: 'guest',
+        peerId: 'http-guest-abcdef12',
+      });
+
+      const failure: unknown = await client
+        .send({
+          type: rawType,
+          password: '4821',
+          reconnectSecret: 'private-reconnect-secret',
+        })
+        .catch((error: unknown) => error);
+
+      expect(failure).toBeInstanceOf(Error);
+      const message = (failure as Error).message;
+      expect(message).toBe(
+        `HTTP signaling bridge send failed (HTTP 503; cseq=1; frame=${frameType}; code=${code})`,
+      );
+      expect(message.length).toBeLessThan(200);
+      for (const secret of ['private-', '4821', 'Bearer ', 'A'.repeat(100)]) {
+        expect(message).not.toContain(secret);
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it('rejects gaps in the server event sequence', async () => {
     vi.stubGlobal(
       'fetch',

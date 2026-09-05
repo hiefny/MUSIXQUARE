@@ -98,13 +98,16 @@ function _parseOS(ua: string): string {
   return 'Unknown';
 }
 
+let debugCommandGeneration = 0;
+
 export function cmdDebug(args: string[]): void {
+  const generation = ++debugCommandGeneration;
   // Hidden subcommands. Not surfaced in /help / autocomplete (the chat
   // command framework doesn't expose subcommand discovery, so passing
   // any string after `/debug ` works only for users who already know).
   const sub = (args[0] || '').toLowerCase();
   if (sub === 'memory' || sub === 'mem') {
-    cmdDebugMemory().catch((error) => {
+    cmdDebugMemory(generation).catch((error) => {
       log.warn('[Debug] Memory snapshot failed', error);
     });
     return;
@@ -321,6 +324,7 @@ function closeActiveTextDebugOverlay(): void {
 }
 
 function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
+  const generation = debugCommandGeneration;
   // Single-overlay invariant across ALL /debug overlays (including memory).
   closeActiveTextDebugOverlay();
   stopDebugMemorySession();
@@ -375,7 +379,10 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     });
   };
 
-  const close = (): void => closeActiveTextDebugOverlay();
+  const close = (): void => {
+    debugCommandGeneration++;
+    closeActiveTextDebugOverlay();
+  };
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') {
       e.preventDefault();
@@ -424,9 +431,10 @@ function openTextDebugOverlay(opts: TextDebugOverlayOptions): void {
     } catch {
       return;
     }
+    if (disposed || generation !== debugCommandGeneration) return;
     try {
       await navigator.clipboard?.writeText(text);
-      showToast(t('chat.debug_copied'));
+      if (!disposed && generation === debugCommandGeneration) showToast(t('chat.debug_copied'));
     } catch {
       /* clipboard unavailable */
     }
@@ -643,10 +651,11 @@ interface MemSnapshot {
   storageMB: number;
 }
 
-async function cmdDebugMemory(): Promise<void> {
+async function cmdDebugMemory(generation: number): Promise<void> {
   // Build the first sample synchronously so the overlay opens with data,
   // then hand off to the live session for continuous updates + graphs.
   const snapshot = await collectMemorySnapshot();
+  if (generation !== debugCommandGeneration) return;
 
   // Replaces any in-flight session — single-overlay invariant preserved.
   startDebugMemorySession(snapshot);
@@ -656,7 +665,9 @@ async function cmdDebugMemory(): Promise<void> {
   try {
     navigator.clipboard
       .writeText(snapshot.lines.join('\n'))
-      .then(() => showToast(t('chat.debug_copied')))
+      .then(() => {
+        if (generation === debugCommandGeneration) showToast(t('chat.debug_copied'));
+      })
       .catch(() => {
         /* clipboard not available */
       });
@@ -1042,10 +1053,14 @@ function startDebugMemorySession(initial: MemSnapshot): void {
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      debugCommandGeneration++;
       stopDebugMemorySession();
     }
   };
-  overlay.addEventListener('click', () => stopDebugMemorySession());
+  overlay.addEventListener('click', () => {
+    debugCommandGeneration++;
+    stopDebugMemorySession();
+  });
   document.addEventListener('keydown', onKey);
 
   session.cleanup = () => {

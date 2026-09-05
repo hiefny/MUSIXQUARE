@@ -125,7 +125,6 @@ function callsNamed(root: ts.Node, names: ReadonlySet<string>): ts.CallExpressio
 }
 
 function isObservedBackgroundCall(call: ts.CallExpression): boolean {
-  if (ts.isVoidExpression(call.parent)) return true;
   const property = call.parent;
   return (
     ts.isPropertyAccessExpression(property) &&

@@ -9,6 +9,7 @@ export interface ResolvedAccountSession {
   accountId: string;
   nickname: string | null;
   profileComplete: boolean;
+  statsScope?: string;
 }
 
 export interface AccountDeletionIntegrations {
@@ -243,6 +244,7 @@ const ACCOUNT_STATS_SESSION_DELTA_MAX = 100;
 const ACCOUNT_STATS_LISTENING_SECONDS_DELTA_MAX = 60 * 60;
 const ACCOUNT_STATS_TRACK_DELTA_MAX = 1000;
 const ACCOUNT_STATS_SCOPE_HEADER = 'X-MXQR-Account-Stats-Scope';
+const ACCOUNT_EXPECTED_SCOPE_HEADER = 'X-MXQR-Account-Expected-Scope';
 const ACCOUNT_STATS_SCOPE_PURPOSE = 'account-stats-session-scope:v1';
 const FLOW_TOKEN_AAD = new TextEncoder().encode('mxqr-oauth-flow:v1');
 const SESSION_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
@@ -1102,7 +1104,8 @@ async function createAccountSession(
     `INSERT INTO ${ACCOUNT_TABLE}
        (account_id, google_subject_hash, nickname, profile_complete, status, created_at, updated_at)
      VALUES (?1, ?2, NULL, 0, 'active', ?3, ?3)
-     ON CONFLICT(google_subject_hash) DO UPDATE SET updated_at = excluded.updated_at`,
+     ON CONFLICT(google_subject_hash) DO UPDATE SET
+       updated_at = MAX(${ACCOUNT_TABLE}.updated_at, excluded.updated_at)`,
     [proposedAccountId, subjectHash, nowMs],
   );
   if (d1ChangeCount(accountUpsert) !== 1) throw new Error('ACCOUNT_UNAVAILABLE');
@@ -1357,8 +1360,9 @@ async function resolveStoredSession(
 async function requireSession(
   request: Request,
   config: ConfiguredAuthConfig,
+  options: { touch?: boolean } = {},
 ): Promise<RequiredSession> {
-  const session = await resolveStoredSession(request, config);
+  const session = await resolveStoredSession(request, config, options);
   if (!session.authenticated) {
     const response = authJson({ error: 'AUTH_REQUIRED' }, 401);
     return {
@@ -1368,6 +1372,31 @@ async function requireSession(
     };
   }
   return { session };
+}
+
+async function requireExpectedAccountSession(
+  request: Request,
+  config: ConfiguredAuthConfig,
+): Promise<RequiredSession> {
+  const resolved = await requireSession(request, config, { touch: false });
+  if (resolved.error) return resolved;
+  const expectedScope = request.headers.get(ACCOUNT_EXPECTED_SCOPE_HEADER);
+  if (
+    !expectedScope ||
+    !ACCOUNT_STATS_SCOPE_RE.test(expectedScope) ||
+    !constantTimeStringEqual(
+      expectedScope,
+      await accountStatsScope(config, resolved.session.sessionHash),
+    )
+  ) {
+    return { error: authJson({ error: 'ACCOUNT_SESSION_CHANGED' }, 409) };
+  }
+  // A confirmation belongs to the session displayed when it was opened.
+  // Cookie replacement in another tab must fail before profile/deletion or
+  // even activity-touch writes. This precondition grants no account authority.
+  const touch = resolved.session.sessionTouch;
+  if (touch) await touchStoredSession(config, touch.sessionHash, touch.touchedAtMs);
+  return resolved;
 }
 
 async function handleGoogleStart(
@@ -1624,7 +1653,7 @@ async function handleProfile(request: Request, config: ConfiguredAuthConfig): Pr
   const nicknameKey = accountNicknameKey(nickname);
   if (!nicknameKey) return authJson({ error: 'NICKNAME_INVALID' }, 400);
   try {
-    const resolved = await requireSession(request, config);
+    const resolved = await requireExpectedAccountSession(request, config);
     if (resolved.error) return resolved.error;
     let updated;
     try {
@@ -1680,11 +1709,13 @@ async function handleAccountStats(
 
   let deltas: AccountStatsDeltas | null = null;
   let expectedStatsScope: string | null = null;
-  if (request.method === 'PATCH') {
+  if (request.method === 'PATCH' || request.headers.has(ACCOUNT_STATS_SCOPE_HEADER)) {
     expectedStatsScope = request.headers.get(ACCOUNT_STATS_SCOPE_HEADER);
     if (!expectedStatsScope || !ACCOUNT_STATS_SCOPE_RE.test(expectedStatsScope)) {
       return authJson({ error: 'INVALID_REQUEST' }, 400);
     }
+  }
+  if (request.method === 'PATCH') {
     const body = await readJsonObject(request);
     const keys = body ? Object.keys(body).sort() : [];
     if (
@@ -1719,11 +1750,13 @@ async function handleAccountStats(
     const resolved = await requireSession(request, config);
     if (resolved.error) return resolved.error;
     const accountId = resolved.session.accountId;
-    if (deltas) {
+    if (expectedStatsScope !== null) {
       const currentStatsScope = await accountStatsScope(config, resolved.session.sessionHash);
       if (!constantTimeStringEqual(expectedStatsScope, currentStatsScope)) {
         return authJson({ error: 'ACCOUNT_STATS_SCOPE_MISMATCH' }, 409);
       }
+    }
+    if (deltas) {
       const updated = await d1Run(
         config.db,
         `INSERT INTO ${ACCOUNT_STATS_TABLE}
@@ -1960,7 +1993,7 @@ async function handleAccountDelete(
   let deletionCommitted = false;
   let deletionSessionToken: string | null = null;
   try {
-    const resolved = await requireSession(request, config);
+    const resolved = await requireExpectedAccountSession(request, config);
     if (resolved.error) return resolved.error;
     const accountId = resolved.session.accountId;
     deletingAccountId = accountId;
@@ -2161,6 +2194,7 @@ async function handleStandardRoomAssertion(
 export async function resolveAccountSession(
   request: Request,
   env: unknown,
+  options: { includeStatsScope?: boolean } = {},
 ): Promise<ResolvedAccountSession | null> {
   const config = resolveAuthConfig(env);
   if (!config.configured) return null;
@@ -2170,6 +2204,9 @@ export async function resolveAccountSession(
         accountId: session.accountId,
         nickname: session.account.nickname,
         profileComplete: session.account.profileComplete,
+        ...(options.includeStatsScope
+          ? { statsScope: await accountStatsScope(config, session.sessionHash) }
+          : {}),
       }
     : null;
 }
@@ -2277,7 +2314,8 @@ export async function recordAccountProRoomLink(
           ) < ?5
         )
      ON CONFLICT(account_id, room_code, room_generation)
-     DO UPDATE SET last_seen_at = excluded.last_seen_at`,
+     DO UPDATE SET
+       last_seen_at = MAX(${PRO_ROOM_GENERATION_LINK_TABLE}.last_seen_at, excluded.last_seen_at)`,
     [accountId, roomCode, roomGeneration, nowMs, ACCOUNT_PRO_ROOM_LINK_MAX_PER_ACCOUNT],
   );
   return d1ChangeCount(result) === 1;

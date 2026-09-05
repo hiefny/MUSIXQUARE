@@ -366,6 +366,78 @@ jobs:
             "$fence_file" \
             disabled
 
+      - name: Apply and verify Soro article visibility D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'app'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          test "$(git show "$GITHUB_SHA:cloudflare/soro-article-visibility-contract-version.txt")" = 'soro-article-visibility-d1-v1'
+          test "$(cat cloudflare/soro-article-visibility-contract-version.txt)" = 'soro-article-visibility-d1-v1'
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/admin-metrics.soro-article-visibility.migration.sql
+          verify_file='release-artifacts/deployments/admin-soro-article-visibility-verified.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_soro_article_visibility' AND instr(lower(sql), 'check (hidden in (0, 1))') > 0) AS table_count, (SELECT COUNT(*) FROM pragma_table_info('mxqr_soro_article_visibility') WHERE name IN ('slug', 'hidden', 'updated_at') AND \"notnull\" = 1) AS column_count, (SELECT COUNT(*) FROM pragma_table_info('mxqr_soro_article_visibility') WHERE name = 'slug' AND pk = 1) AS primary_key_count" \
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
+          jq -e '.[0].results[0] | (.table_count | tonumber) == 1 and (.column_count | tonumber) == 3 and (.primary_key_count | tonumber) == 1' "$verify_file" >/dev/null || {
+            echo '::error::The production Soro article visibility schema contract is incomplete.'
+            exit 1
+          }
+
+      - name: Apply and verify PRO retirement cursor D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'app'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/admin-metrics.pro-room-retirement-cursor.migration.sql
+          verify_file='release-artifacts/deployments/admin-pro-room-retirement-cursor-verified.json'
+          verify_sql=$(cat <<'SQL'
+          SELECT
+            (SELECT COUNT(*) FROM sqlite_master
+              WHERE type = 'table' AND name = 'mxqr_pro_room_retirement_cursor'
+                AND instr(lower(sql), 'check (singleton = 1)') > 0
+                AND instr(lower(sql), 'revision between 0 and 9007199254740991') > 0
+                AND instr(lower(sql), 'typeof(revision) = ''integer''') > 0) AS table_count,
+            (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_retirement_cursor')) AS column_count,
+            (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_retirement_cursor')
+              WHERE (name = 'singleton' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 1)
+                 OR (name = 'revision' AND type = 'INTEGER' AND "notnull" = 1 AND pk = 0)
+                 OR (name IN ('completed_at', 'room_generation') AND type = 'INTEGER' AND "notnull" = 0 AND pk = 0)
+                 OR (name = 'room_code' AND type = 'TEXT' AND "notnull" = 0 AND pk = 0)) AS required_column_count,
+            (SELECT COUNT(*) FROM mxqr_pro_room_retirement_cursor) AS row_count,
+            (SELECT COUNT(*) FROM mxqr_pro_room_retirement_cursor
+              WHERE singleton = 1 AND typeof(revision) = 'integer' AND revision BETWEEN 0 AND 9007199254740991
+                AND ((completed_at IS NULL AND room_code IS NULL AND room_generation IS NULL)
+                  OR (typeof(completed_at) = 'integer' AND completed_at >= 0
+                    AND length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'
+                    AND typeof(room_generation) = 'integer' AND room_generation BETWEEN 0 AND 9007199254740991))) AS valid_row_count
+          SQL
+          )
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "$verify_sql" \
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
+          jq -e '.[0].results[0] | (.table_count | tonumber) == 1 and (.column_count | tonumber) == 5 and (.required_column_count | tonumber) == 5 and (.row_count | tonumber) == 1 and (.valid_row_count | tonumber) == 1' "$verify_file" >/dev/null || {
+            echo '::error::The production PRO retirement cursor schema or singleton is incomplete.'
+            exit 1
+          }
+
       - name: Apply and verify lifetime room-count D1 contract
         timeout-minutes: 10
         if: inputs.target == 'all' || inputs.target == 'app'
@@ -541,6 +613,33 @@ jobs:
           ' "$verify_file" >/dev/null || {
             echo '::error::The production suspension-reason schema/backfill contract is incomplete.'
             jq '.[0].results[0]' "$verify_file"
+            exit 1
+          }
+
+      - name: Apply and verify owner-transfer intent admission D1 contract
+        timeout-minutes: 10
+        if: inputs.target == 'all' || inputs.target == 'app'
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}
+        run: |
+          if [[ -z "$CLOUDFLARE_API_TOKEN" ]]; then
+            echo "::error::The production environment secret CLOUDFLARE_D1_API_TOKEN is not configured."
+            exit 1
+          fi
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/admin-metrics.owner-transfer-saga.migration.sql
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --config cloudflare/wrangler.app.toml \
+            --file cloudflare/admin-metrics.owner-transfer-intent-admission.migration.sql
+          verify_file='release-artifacts/deployments/admin-owner-transfer-intent-admission-verified.json'
+          npm run --silent wrangler -- d1 execute musixquare-admin-metrics \
+            --remote --json --config cloudflare/wrangler.app.toml \
+            --command "SELECT (SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'mxqr_pro_room_owner_transfer_intent_admissions') AS table_count, (SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_mxqr_pro_room_owner_transfer_intent_admissions_claim') AS index_count, (SELECT COUNT(*) FROM pragma_table_info('mxqr_pro_room_owner_transfer_intent_admissions') WHERE name IN ('room_code', 'room_generation', 'request_id') AND pk > 0) AS primary_key_columns, (SELECT COUNT(*) FROM pragma_foreign_key_list('mxqr_pro_room_owner_transfer_intent_admissions') WHERE \"table\" = 'mxqr_pro_room_owner_transfer_issuances') AS foreign_key_columns" \
+            | node scripts/capture-wrangler-d1-json.mts "$verify_file"
+          jq -e '.[0].results[0] | (.table_count | tonumber) == 1 and (.index_count | tonumber) == 1 and (.primary_key_columns | tonumber) == 3 and (.foreign_key_columns | tonumber) == 3' "$verify_file" >/dev/null || {
+            echo '::error::The production owner-transfer intent admission schema contract is incomplete.'
             exit 1
           }
 
@@ -1390,6 +1489,10 @@ jobs:
             node scripts/release-deployment-state.mts \
               standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
           )"
+          soro_article_visibility_forward_floor="$(
+            node scripts/release-deployment-state.mts \
+              soro-article-visibility-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint
+          )"
           signaling_domain_recovery_outcome="${{ steps.signaling_domain_recovery.outcome }}"
           if [[ "$RELEASE_TARGET" == 'all' || "$RELEASE_TARGET" == 'signaling' ]]; then
             if ! node scripts/release-signaling-domain-state.mts \
@@ -1409,6 +1512,7 @@ jobs:
             MXQR_REMOTE_SHARE_FORWARD_FLOOR="$remote_share_forward_floor" \
             MXQR_PRO_SYSTEM_AUDIO_FORWARD_FLOOR="$pro_system_audio_forward_floor" \
             MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR="$standard_room_pin_forward_floor" \
+            MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR="$soro_article_visibility_forward_floor" \
             node scripts/release-recovery-plan.mts
           )"
           echo "skipped_targets=${rollback_skip_targets}" >> "$GITHUB_OUTPUT"

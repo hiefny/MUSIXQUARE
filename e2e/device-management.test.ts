@@ -12,9 +12,20 @@ import {
   type HostGuestPair,
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
-import { isVisible, waitForDeviceCount } from './helpers/wait.ts';
+import { readState, waitForDeviceCount } from './helpers/wait.ts';
 
 let pair: HostGuestPair;
+
+async function openHostDevices(): Promise<void> {
+  const desktopConnect = pair.hostPage.locator('#settings-subtab-connect');
+  if (await desktopConnect.isVisible()) await desktopConnect.click();
+  else await pair.hostPage.locator('#nav-connect').click();
+  await expect(
+    pair.hostPage.locator(
+      '#connect-device-list:visible .device-row, #desktop-device-list:visible .device-row',
+    ),
+  ).toHaveCount(2);
+}
 
 test.describe('Device Management', () => {
   test.beforeEach(async ({ browser }) => {
@@ -28,12 +39,8 @@ test.describe('Device Management', () => {
   test('host device list shows connected guest', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
-    if (await connectNav.isVisible()) {
-      await connectNav.click();
-    }
-
     await waitForDeviceCount(pair.hostPage, 2);
+    await openHostDevices();
 
     const deviceRows = await pair.hostPage.evaluate(() => {
       const list =
@@ -50,39 +57,27 @@ test.describe('Device Management', () => {
     const hostRow = deviceRows.find((r) => r.name.includes('HOST'));
     expect(hostRow).toBeTruthy();
     const guestRow = deviceRows.find((r) => !r.name.includes('HOST'));
-    if (guestRow) {
-      expect(guestRow.hasKickBtn).toBe(true);
-    }
+    expect(guestRow).toBeTruthy();
+    expect(guestRow?.hasKickBtn).toBe(true);
   });
 
   test('host can kick guest', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    const connectNav = pair.hostPage.locator('.nav-item[data-tab="connect"]');
-    if (await connectNav.isVisible()) {
-      await connectNav.click();
-    }
-
     await waitForDeviceCount(pair.hostPage, 2);
+    await openHostDevices();
 
-    const kickBtn = pair.hostPage.locator('.btn-kick-device').first();
-    if (await kickBtn.isVisible()) {
-      await kickBtn.click();
-
-      const confirmBtn = pair.hostPage.locator('#btn-dialog-ok');
-      if (await isVisible(pair.hostPage, '#btn-dialog-ok', 3000)) {
-        await confirmBtn.click();
-      }
-
-      await pair.guestPage.waitForFunction(
-        () => {
-          const dialog = document.querySelector('.dialog-overlay.active, .dialog-backdrop.active');
-          const overlay = document.getElementById('setup-overlay');
-          return dialog || overlay?.classList.contains('active');
-        },
-        undefined,
-        { timeout: 15_000 },
-      );
-    }
+    const kickBtn = pair.hostPage.locator('.btn-kick-device:visible');
+    await expect(kickBtn).toBeVisible();
+    await kickBtn.click();
+    await expect(pair.hostPage.locator('#dialog-overlay.show')).toBeVisible();
+    await pair.hostPage.locator('#btn-dialog-ok').click();
+    await expect(pair.guestPage.locator('#dialog-overlay.show')).toBeVisible();
+    await waitForDeviceCount(pair.hostPage, 1);
+    const reloaded = pair.guestPage.waitForNavigation({ waitUntil: 'domcontentloaded' });
+    await pair.guestPage.locator('#btn-dialog-ok').click();
+    await reloaded;
+    await expect(pair.guestPage.locator('#setup-overlay.active')).toBeVisible();
+    expect(await readState(pair.guestPage, 'network.appRole')).toBe('idle');
   });
 });

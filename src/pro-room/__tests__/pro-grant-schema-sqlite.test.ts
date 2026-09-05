@@ -106,9 +106,9 @@ function seedCampaignAndBatch(db: DatabaseSync): void {
       expect(columns.map((column: any) => column.name)).toEqual(
         expect.arrayContaining(['code_digest', 'room_code', 'room_generation']),
       );
-      expect(columns.map((column: any) => column.name)).not.toEqual(
-        expect.arrayContaining(['code', 'plaintext_code', 'raw_code']),
-      );
+      for (const forbidden of ['code', 'plaintext_code', 'raw_code']) {
+        expect(columns.map((column: any) => column.name)).not.toContain(forbidden);
+      }
       db.prepare(
         `INSERT INTO mxqr_pro_grant_vouchers
            (voucher_id, campaign_id, batch_request_id, code_digest, room_code, room_generation,
@@ -310,9 +310,9 @@ function seedCampaignAndBatch(db: DatabaseSync): void {
     const db = openDatabase();
     try {
       const columns = db.prepare('PRAGMA table_info(mxqr_pro_grant_audit)').all();
-      expect(columns.map((column: any) => column.name)).not.toEqual(
-        expect.arrayContaining(['code', 'code_digest', 'email', 'ip']),
-      );
+      for (const forbidden of ['code', 'code_digest', 'email', 'ip']) {
+        expect(columns.map((column: any) => column.name)).not.toContain(forbidden);
+      }
       db.exec(
         `INSERT INTO mxqr_pro_grant_audit
            (actor_id, action, result, campaign_id, room_code, room_generation, created_at)

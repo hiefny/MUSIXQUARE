@@ -1375,46 +1375,60 @@ describe('private Developer API facade', () => {
   });
 
   it('fails closed when an upload reservation contains a non-R2 URL or unsigned headers', async () => {
-    const rooms = namespace(() =>
-      Response.json(
-        {
-          schemaVersion: 1,
-          roomCode: ROOM_CODE,
-          assetId: ASSET_ID,
-          queueItemId: QUEUE_ITEM_ID,
-          byteLength: 4_096,
-          uploadExpiresAtMs: 1_784_263_810_000,
-          completionExpiresAtMs: 1_784_263_990_000,
-          upload: {
-            method: 'PUT',
-            url: 'https://example.invalid/upload?X-Amz-Signature=stolen',
-            headers: { 'content-length': '4096', 'content-type': 'audio/flac' },
+    for (const invalid of ['url', 'headers']) {
+      const rooms = namespace(() =>
+        Response.json(
+          {
+            schemaVersion: 1,
+            roomCode: ROOM_CODE,
+            assetId: ASSET_ID,
+            queueItemId: QUEUE_ITEM_ID,
+            byteLength: 4_096,
+            uploadExpiresAtMs: 1_784_263_810_000,
+            completionExpiresAtMs: 1_784_263_990_000,
+            upload: {
+              method: 'PUT',
+              url:
+                invalid === 'url'
+                  ? 'https://example.invalid/upload?X-Amz-Signature=stolen'
+                  : UPLOAD_URL,
+              headers: {
+                'content-length': '4096',
+                'content-type': 'audio/flac',
+                'x-amz-meta-mxqr-room': ROOM_CODE,
+                'x-amz-meta-mxqr-generation': '0',
+                'x-amz-meta-mxqr-asset': ASSET_ID,
+                'x-amz-meta-mxqr-version': '1',
+                'x-amz-meta-mxqr-bytes': '4096',
+                ...(invalid === 'headers' ? { authorization: 'must-not-be-forwarded' } : {}),
+              },
+            },
+            quota: {
+              limitBytes: 1_073_741_824,
+              perAssetLimitBytes: 209_715_200,
+              usedBytes: 0,
+              reservedBytes: 4_096,
+            },
           },
-          quota: {
-            limitBytes: 1_073_741_824,
-            perAssetLimitBytes: 209_715_200,
-            usedBytes: 0,
-            reservedBytes: 4_096,
+          { status: 201 },
+        ),
+      );
+      const response = await facadeWorker.fetch(
+        request(
+          {
+            roomCode: ROOM_CODE,
+            keyId: KEY_ID,
+            idempotencyKey: IDEMPOTENCY_KEY,
+            media: { name: 'Orchestra.flac', byteLength: 4_096, mime: 'audio/flac' },
           },
-        },
-        { status: 201 },
-      ),
-    );
-    const response = await facadeWorker.fetch(
-      request(
-        {
-          roomCode: ROOM_CODE,
-          keyId: KEY_ID,
-          idempotencyKey: IDEMPOTENCY_KEY,
-          media: { name: 'Orchestra.flac', byteLength: 4_096, mime: 'audio/flac' },
-        },
-        {},
-        '/internal/v1/media/uploads/create',
-      ),
-      { PRO_ROOM_DEVELOPER_ROOMS: rooms },
-    );
-    expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
+          {},
+          '/internal/v1/media/uploads/create',
+        ),
+        { PRO_ROOM_DEVELOPER_ROOMS: rooms },
+      );
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual({ error: 'INVALID_BACKEND_RESPONSE' });
+    }
   });
 
   it('fails closed when upload responses do not echo the requested media or asset identity', async () => {
@@ -1441,6 +1455,7 @@ describe('private Developer API facade', () => {
               'content-length': '4097',
               'content-type': 'audio/flac',
               'x-amz-meta-mxqr-room': ROOM_CODE,
+              'x-amz-meta-mxqr-generation': '0',
               'x-amz-meta-mxqr-asset': ASSET_ID,
               'x-amz-meta-mxqr-version': '1',
               'x-amz-meta-mxqr-bytes': '4097',
@@ -1484,6 +1499,7 @@ describe('private Developer API facade', () => {
             queueItemId: QUEUE_ITEM_ID,
             kind: 'audio',
             name: 'Orchestra.flac',
+            addedBy: 'current_api_key',
             byteLength: 4_096,
           },
           playlistRevision: 8,

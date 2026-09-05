@@ -11,6 +11,7 @@ import {
 } from './api.ts';
 import {
   applyAccountSession,
+  getAccountStatsScope,
   setAccountAnonymous,
   setAccountLoading,
   setAccountUnavailable,
@@ -21,7 +22,7 @@ import { log } from '../core/log.ts';
 let _operationGeneration = 0;
 let _sessionFence = 0;
 let _refreshInFlight: Promise<void> | null = null;
-let _refreshFollowUp = false;
+let _refreshFollowUp: number | null = null;
 let _explicitRecoveryInFlight: Promise<void> | null = null;
 let _explicitRecoveryWaitingForFreshRead = false;
 let _explicitRecoveryPreClickGeneration: number | null = null;
@@ -285,15 +286,20 @@ async function runExplicitAccountRecovery(
   // could recover. Wait for the pre-click ordinary read to leave the slot,
   // then make one genuinely fresh bounded read.
   if (pendingRefreshAtClick) await pendingRefreshAtClick;
+  if (sessionFence !== _sessionFence) return;
   // The explicit intent or any newer authoritative operation supersedes a
   // generic follow-up queued behind the pre-click read. Leaving it armed could
   // start after this function returns and incorrectly fence that newer work.
-  _refreshFollowUp = false;
+  // A pulse queued by a later mutation belongs to that successor, even when
+  // this Retry is still waiting for its old ordinary read to settle.
+  if (_refreshFollowUp !== null && _refreshFollowUp <= operationGenerationAtClick) {
+    _refreshFollowUp = null;
+  }
 
   // A lifecycle reset cancels this intent. A popup, cross-tab pulse, or
   // account mutation begun after the click is newer authoritative work and
   // owns the visible result instead; never let this older Retry fence it.
-  if (sessionFence !== _sessionFence || operationGenerationAtClick !== _operationGeneration) {
+  if (operationGenerationAtClick !== _operationGeneration) {
     return;
   }
 
@@ -386,7 +392,7 @@ function reconcileExternalAccountChange(refreshId: string | null, loginSuccess =
   }
   if (!rememberExternalRefreshId(refreshId)) return;
   if (_mutationDepth > 0) {
-    _refreshFollowUp = true;
+    _refreshFollowUp = _operationGeneration;
     return;
   }
   if (_externalRefreshInFlight) {
@@ -556,7 +562,7 @@ function drainPendingAccountLoginResults(): void {
   // All success pulses observed during one mutation describe the cookie state
   // after that same serialization boundary. One exact read resolves the whole
   // batch and supersedes any generic refresh queued while the mutation ran.
-  _refreshFollowUp = false;
+  _refreshFollowUp = null;
   _pendingAccountLoginResultBatches.push({
     pendingResults,
   });
@@ -585,14 +591,14 @@ function drainAccountLoginResultBatches(): void {
 
 function drainRefreshFollowUp(): void {
   if (
-    !_refreshFollowUp ||
+    _refreshFollowUp === null ||
     _explicitRecoveryWaitingForFreshRead ||
     _mutationDepth > 0 ||
     _refreshInFlight
   ) {
     return;
   }
-  _refreshFollowUp = false;
+  _refreshFollowUp = null;
   // A completed mutation already supplied the visible authoritative state.
   // Reconcile any refresh requested during it without flashing that state back
   // to "loading" while the post-mutation cookie check is in flight.
@@ -601,11 +607,11 @@ function drainRefreshFollowUp(): void {
 
 function refreshAccountSession(showLoading = true, followUpIfBusy = true): Promise<void> {
   if (_mutationDepth > 0) {
-    _refreshFollowUp = true;
+    _refreshFollowUp = _operationGeneration;
     return Promise.resolve();
   }
   if (_refreshInFlight) {
-    if (followUpIfBusy) _refreshFollowUp = true;
+    if (followUpIfBusy) _refreshFollowUp = _operationGeneration;
     return _refreshInFlight;
   }
   clearAccountRecoveryTimer();
@@ -633,23 +639,35 @@ function refreshAccountSession(showLoading = true, followUpIfBusy = true): Promi
   return wrapped;
 }
 
-export async function saveAccountNickname(nickname: string): Promise<AccountProfile> {
+function finishAccountMutation(): void {
+  _mutationDepth -= 1;
+  drainPendingAccountLoginResults();
+  drainRefreshFollowUp();
+}
+
+export async function saveAccountNickname(
+  nickname: string,
+  expectedScope = getAccountStatsScope(),
+): Promise<AccountProfile> {
   const generation = ++_operationGeneration;
   const sessionFence = _sessionFence;
   _mutationDepth += 1;
   try {
-    const response = await updateAccountProfile(nickname);
+    const response = await updateAccountProfile(nickname, expectedScope);
     if (!response.authenticated || !response.account) throw new Error('ACCOUNT_INVALID_RESPONSE');
     clearAccountRecovery();
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
       applyAccountSession(response);
+    } else if (sessionFence === _sessionFence) {
+      // A later logout can fail after this nickname was committed. Re-read
+      // the current cookie once every mutation settles instead of applying
+      // this older response over a successful logout or another account.
+      _refreshFollowUp = _operationGeneration;
     }
     broadcastAccountChange();
     return response.account;
   } finally {
-    _mutationDepth -= 1;
-    drainPendingAccountLoginResults();
-    drainRefreshFollowUp();
+    finishAccountMutation();
   }
 }
 
@@ -663,33 +681,37 @@ export async function signOutAccount(everywhere = false): Promise<void> {
     clearAccountRecovery();
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
       setAccountAnonymous(true);
+    } else if (sessionFence === _sessionFence) {
+      // A nickname-conflict retry can start while logout is pending. Its
+      // failure must not hide the logout that already revoked this cookie.
+      _refreshFollowUp = _operationGeneration;
     }
     broadcastAccountChange();
   } finally {
-    _mutationDepth -= 1;
-    drainPendingAccountLoginResults();
-    drainRefreshFollowUp();
+    finishAccountMutation();
   }
 }
 
-export async function removeAccount(): Promise<AccountDeletionResult> {
+export async function removeAccount(
+  expectedScope = getAccountStatsScope(),
+): Promise<AccountDeletionResult> {
   const generation = ++_operationGeneration;
   const sessionFence = _sessionFence;
   _mutationDepth += 1;
   try {
-    const result = await deleteAccount();
+    const result = await deleteAccount(expectedScope);
     clearAccountRecovery();
     if (sessionFence === _sessionFence && generation === _operationGeneration) {
       if (result.pending) bus.emit('account:deletion-pending');
       else bus.emit('account:deleted');
       setAccountAnonymous(true);
+    } else if (sessionFence === _sessionFence) {
+      _refreshFollowUp = _operationGeneration;
     }
     broadcastAccountChange();
     return result;
   } finally {
-    _mutationDepth -= 1;
-    drainPendingAccountLoginResults();
-    drainRefreshFollowUp();
+    finishAccountMutation();
   }
 }
 
@@ -718,7 +740,7 @@ export function __resetAccountSessionForTests(): void {
   _sessionFence += 1;
   _operationGeneration += 1;
   _refreshInFlight = null;
-  _refreshFollowUp = false;
+  _refreshFollowUp = null;
   _explicitRecoveryInFlight = null;
   _explicitRecoveryWaitingForFreshRead = false;
   _explicitRecoveryPreClickGeneration = null;

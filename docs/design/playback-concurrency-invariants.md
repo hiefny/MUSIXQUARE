@@ -91,7 +91,8 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   of: unlock, clear `pendingPlayTime`, `stopPlayerNode()`, bump `loadToken`
   (+1), semantic IDLE. The bump aborts in-flight `_internalPlay` and
   token-checking decodes. It does **NOT** abort an in-flight
-  `finalizeGuestFile` (sessionId-only checks) — see §5 owner decision.
+  `finalizeGuestFile` (load/queue/transfer ownership, without an epoch check)
+  — see §5 owner decision.
   _Pins (b), (g)._
 - **C4 — stopAllMedia must-reset-together block** (`transport.ts`): play
   invocation owner + lock + watchdog/legacy-unlock timers +
@@ -107,9 +108,12 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   their failure-catch entry too (a superseded load's failure is INERT: no
   blob clear, no FSM transition, no failed-mark/auto-advance, no play-btn
   emit — the host-load mirror of the M4-row catch guard). The `finally`
-  loader teardown keys on sessionId only. `finalizeGuestFile` checks
-  sessionId AND its `transfer.localSessionId` entry snapshot at the same
-  pre/post-decode checkpoints (2026-06-13) — still NEVER the epoch (§5).
+  loader teardown for host/demo loads keys on sessionId only.
+  `finalizeGuestFile` checks its load invocation, selected queue occurrence,
+  exact transfer metadata and `transfer.localSessionId` at the pre/post-decode
+  checkpoints and final loader cleanup. A successor PREPARE/START can own the
+  loader before it invokes its own finalizer and increments M2. This predicate
+  still NEVER checks the epoch (§5).
   _Pins (d), (g), (j)._
 - **C6 — owner-scoped post-unlock queued-play consumption**: `_internalPlay`'s
   `finally` releases its lock synchronously, then schedules one microtask to
@@ -141,9 +145,10 @@ a documented bug. Pin letters refer to `concurrency-invariants.test.ts`.
   `finalizeGuestFile` and `loadPreloadedTrack` publish an exact resident and may
   then await `play(pendingTime)`. A newer transfer can take over the same queue
   occurrence during that await, so qid equality alone is insufficient. Before
-  clearing `pendingPlayTime` or arming delayed sync, the finalizer re-runs its
+  clearing `pendingPlayTime`, arming delayed sync, or hiding the loader, the finalizer re-runs its
   exact load/transfer/meta owner predicate; the preload path checks the exact
   published `{ queueItemId, sessionId, Blob }`, epoch, and playback mode owner.
+  Preload loader cleanup after a post-publication error uses the same predicate.
   This preserves the newer completion consumer's mailbox without changing the
   replay-then-clear order documented below. _Pinned in
   `concurrency-invariants.test.ts`._

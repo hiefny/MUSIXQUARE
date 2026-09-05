@@ -175,9 +175,6 @@ describe('policy-page accordions', () => {
       '10 minutes',
       'room-scoped member identifier',
       'without creating an account',
-      'does not decommission a PRO room',
-      'separate room-recovery credential',
-      'does not automatically delete media',
       'point-in-time recovery',
     ]) {
       expect(privacyText).toContain(phrase);
@@ -191,8 +188,6 @@ describe('policy-page accordions', () => {
       'signed-in PRO-room grant may remain',
       'anonymous grant ends',
       'account is deleted',
-      'does not decommission a PRO room',
-      'separate room-recovery credential',
       'accounts, rooms, connections, requests, or technical identifiers',
     ]) {
       expect(termsText).toContain(phrase);
@@ -204,11 +199,27 @@ describe('policy-page accordions', () => {
       'same account on several devices',
       'ordinary-room permission lasts only while the room exists',
       'account or room is deleted',
-      'does not decommission a PRO room',
-      'separate room-recovery credential',
       'delete media already shared there',
     ]) {
       expect(faqText).toContain(phrase);
+    }
+
+    // Owner deletion revokes room authority while preserving the room/media.
+    // An ordinary member's account deletion must not be described as suspending it.
+    expect(privacyText).toContain("Deleting a PRO owner's account suspends the room");
+    expect(termsText).toContain('If the account owns a PRO room, deletion suspends that room');
+    expect(faqText).toContain('suspends any PRO room owned by that account');
+    for (const text of [privacyText, termsText, faqText]) {
+      expect(text).toMatch(
+        /revokes (?:its|the room's) sessions, delegated authority, PIN, and owner-recovery credential/u,
+      );
+      expect(text).toContain(
+        'An operator must transfer ownership before a new owner can activate the room',
+      );
+      expect(text).toMatch(
+        /Account deletion does not decommission the room or (?:automatically )?delete media already shared/u,
+      );
+      expect(text).not.toContain('does not invalidate its separate room-recovery credential');
     }
 
     const allPublicCopy = normalizeText(

@@ -28,7 +28,11 @@ export interface ProRoomEntitlementRevocationIdentity {
 }
 
 export interface ProGrantDependencies {
-  resolveAccountSession?: (request: Request, env: unknown) => Promise<unknown>;
+  resolveAccountSession?: (
+    request: Request,
+    env: unknown,
+    options?: { includeStatsScope?: boolean },
+  ) => Promise<unknown>;
   hasLegacyProRoomLink?: (accountId: string) => Promise<boolean>;
   inspectRoom?: (roomCode: string, roomGeneration: number) => Promise<unknown>;
   preflightVoucherRoom?: (roomCode: string) => Promise<unknown>;
@@ -2258,7 +2262,9 @@ export async function handleProGrantPublicRequest(
   try {
     const [campaignResult, accountResult] = await Promise.all([
       readCampaign(db, slug),
-      dependencies.resolveAccountSession(request, env),
+      dependencies.resolveAccountSession(request, env, {
+        includeStatsScope: action === 'session' || action === 'redeem',
+      }),
     ]);
     campaign = campaignResult;
     account = isAccountSession(accountResult) ? accountResult : null;
@@ -2284,6 +2290,10 @@ export async function handleProGrantPublicRequest(
       account: {
         authenticated: !!account,
         profileComplete: !!account?.profileComplete,
+        statsScope:
+          typeof account?.statsScope === 'string' && /^[A-Za-z0-9_-]{43}$/.test(account.statsScope)
+            ? account.statsScope
+            : null,
       },
       redemption: redemption
         ? {
@@ -2298,6 +2308,23 @@ export async function handleProGrantPublicRequest(
 
   if (!account || !ACCOUNT_ID_RE.test(account.accountId || '')) {
     return responseJson({ error: 'ACCOUNT_SESSION_REQUIRED' }, 401);
+  }
+  if (action === 'redeem') {
+    const expectedScope = request.headers.get('X-MXQR-Account-Expected-Scope');
+    const actualScope = account.statsScope;
+    if (
+      !expectedScope ||
+      !/^[A-Za-z0-9_-]{43}$/.test(expectedScope) ||
+      typeof actualScope !== 'string' ||
+      !/^[A-Za-z0-9_-]{43}$/.test(actualScope)
+    ) {
+      return responseJson({ error: 'ACCOUNT_SESSION_CHANGED' }, 409);
+    }
+    let difference = 0;
+    for (let index = 0; index < 43; index += 1) {
+      difference |= expectedScope.charCodeAt(index) ^ actualScope.charCodeAt(index);
+    }
+    if (difference !== 0) return responseJson({ error: 'ACCOUNT_SESSION_CHANGED' }, 409);
   }
   if (!account.profileComplete || !account.nickname) {
     return responseJson({ error: 'ACCOUNT_PROFILE_REQUIRED' }, 409);
@@ -2487,7 +2514,10 @@ async function adminVoucherBatch(
         .prepare(
           `INSERT INTO ${VOUCHER_BATCH_TABLE}
              (campaign_id, request_id, request_digest, status, voucher_count, created_at, updated_at)
-           VALUES (?1, ?2, ?3, 'committed', ?5, ?4, ?4)`,
+           SELECT ?1, ?2, ?3, 'committed', ?5, ?4, ?4
+             FROM ${CAMPAIGN_TABLE}
+            WHERE campaign_id = ?1 AND status IN ('draft', 'active', 'paused')
+              AND (status <> 'active' OR ends_at IS NULL OR ends_at > ?4)`,
         )
         .bind(campaign.campaign_id, requestId, requestDigest, nowMs, prepared.length),
       ...prepared.map((item) =>
@@ -2540,6 +2570,13 @@ async function adminVoucherBatch(
         mappings: publicVoucherMappings(raced.mappings),
         replayed: true,
       });
+    }
+    const currentCampaign = await readCampaign(db, campaign.slug).catch(() => null);
+    if (
+      currentCampaign &&
+      !MUTABLE_VOUCHER_CAMPAIGN_STATES.has(campaignPublicState(currentCampaign, Date.now())?.status)
+    ) {
+      return responseJson({ error: 'CAMPAIGN_NOT_MUTABLE' }, 409);
     }
     return responseJson({ error: 'PRO_GRANT_BATCH_UNAVAILABLE' }, 503);
   }

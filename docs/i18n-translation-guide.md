@@ -42,7 +42,8 @@ is missing** — so a complete file must define every key.
 ## 2. Hard rules (never break these)
 
 1. **Preserve every `{{placeholder}}` token exactly** — do not translate, space,
-   or reorder the letters inside. The full set in use:
+   or reorder the letters inside. Preserve the placeholders in each source key;
+   examples include:
    `{{cmd}}` `{{code}}` `{{count}}` `{{idx}}` `{{label}}` `{{max}}` `{{msg}}`
    `{{name}}` `{{pct}}` `{{sec}}` `{{status}}` `{{target}}` `{{time}}`
    `{{usage}}` `{{val}}`

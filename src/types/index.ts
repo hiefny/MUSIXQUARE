@@ -1538,7 +1538,12 @@ interface BaseEventMap {
   // normalizes undefined → null before forwarding to sendRecoveryRequest.
   'storage:request-recovery': [forceChunk?: number];
   'storage:clear-previous-track': [context: string];
-  'storage:use-preloaded': [queueItemId: QueueItemId, name: string, sessionId?: number];
+  'storage:use-preloaded': [
+    queueItemId: QueueItemId,
+    name: string,
+    sessionId?: number,
+    awaitedResident?: Readonly<ResidentFile>,
+  ];
   'storage:preload-file-ready': [filename: string, sessionId: number, queueItemId: QueueItemId];
   'storage:file-ready': [
     filename: string,

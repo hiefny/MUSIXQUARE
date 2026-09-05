@@ -1,193 +1,137 @@
-import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { experimental_readRawConfig } from 'wrangler';
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
-function withoutComments(text: string): string {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+#.*$/, ''))
-    .join('\n');
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function requireMatch(
-  text: string,
-  pattern: RegExp,
-  description: string,
-  failures: string[],
-): void {
-  if (!pattern.test(text)) failures.push(`missing ${description}`);
+export function readDeveloperApiBoundaryConfig(configPath: string): unknown {
+  // With an explicit path, this raw-config API only reads and parses that file.
+  // It does not load secrets, redirect configs, build, or deploy.
+  return experimental_readRawConfig({ config: configPath }).rawConfig;
 }
 
-function forbidMatch(text: string, pattern: RegExp, description: string, failures: string[]): void {
-  if (pattern.test(text)) failures.push(`forbidden ${description}`);
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) throw new Error(`${label} must be a configuration table.`);
+  return value;
 }
 
-const [publicRaw, facadeRaw] = await Promise.all([
-  readFile(resolve(root, 'cloudflare/wrangler.developer-api.toml'), 'utf8'),
-  readFile(resolve(root, 'cloudflare/wrangler.developer-api-facade.toml'), 'utf8'),
-]);
-const publicConfig = withoutComments(publicRaw);
-const facadeConfig = withoutComments(facadeRaw);
-const failures: string[] = [];
-
-requireMatch(
-  publicConfig,
-  /^name\s*=\s*"musixquare-developer-api"\s*$/m,
-  'public Worker name',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^main\s*=\s*"developer-api-worker\.ts"\s*$/m,
-  'public Worker entrypoint',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^workers_dev\s*=\s*false\s*$/m,
-  'disabled public workers.dev route',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^preview_urls\s*=\s*false\s*$/m,
-  'disabled public preview URL',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^pattern\s*=\s*"api\.musixquare\.com"\s*$/m,
-  'API custom domain',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^binding\s*=\s*"DEVELOPER_API_DB"\s*$/m,
-  'dedicated API D1 binding',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^database_name\s*=\s*"musixquare-developer-api"\s*$/m,
-  'dedicated API D1 name',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^database_id\s*=\s*"237d63d2-6eea-4b01-b396-7784b5b8b6f0"\s*$/m,
-  'dedicated API D1 id',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^name\s*=\s*"DEVELOPER_API_LIMITERS"\s*$/m,
-  'API limiter binding',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^class_name\s*=\s*"DeveloperApiRateLimiter"\s*$/m,
-  'API limiter class',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^binding\s*=\s*"DEVELOPER_API_FACADE"\s*$/m,
-  'private facade service binding',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^service\s*=\s*"musixquare-developer-api-facade"\s*$/m,
-  'private facade service target',
-  failures,
-);
-requireMatch(
-  publicConfig,
-  /^DEVELOPER_API_MODE\s*=\s*"enabled"\s*$/m,
-  'admin-issued room-bound API mode',
-  failures,
-);
-forbidMatch(
-  publicConfig,
-  /^DEVELOPER_API_CANARY_ROOMS\s*=/m,
-  'stale static canary room list',
-  failures,
-);
-forbidMatch(
-  publicConfig,
-  /MusixquareProRoom|PRO_ROOMS|PRO_ROOM_DEVELOPER_ROOMS/,
-  'PRO room Durable Object binding on the public Worker',
-  failures,
-);
-forbidMatch(
-  publicConfig,
-  /\[\[r2_buckets\]\]|bucket_name\s*=|SIGNAL|MusixquareRoom/,
-  'R2 or signaling binding on the public Worker',
-  failures,
-);
-
-requireMatch(
-  facadeConfig,
-  /^name\s*=\s*"musixquare-developer-api-facade"\s*$/m,
-  'facade Worker name',
-  failures,
-);
-requireMatch(
-  facadeConfig,
-  /^main\s*=\s*"developer-api-facade-worker\.ts"\s*$/m,
-  'facade Worker entrypoint',
-  failures,
-);
-requireMatch(
-  facadeConfig,
-  /^workers_dev\s*=\s*false\s*$/m,
-  'disabled facade workers.dev route',
-  failures,
-);
-requireMatch(
-  facadeConfig,
-  /^preview_urls\s*=\s*false\s*$/m,
-  'disabled facade preview URL',
-  failures,
-);
-requireMatch(
-  facadeConfig,
-  /^binding\s*=\s*"CF_VERSION_METADATA"\s*$/m,
-  'facade version metadata binding',
-  failures,
-);
-requireMatch(
-  facadeConfig,
-  /^name\s*=\s*"PRO_ROOM_DEVELOPER_ROOMS"\s*$/m,
-  'facade PRO room binding',
-  failures,
-);
-requireMatch(
-  facadeConfig,
-  /^class_name\s*=\s*"MusixquareProRoom"\s*$/m,
-  'facade PRO room class',
-  failures,
-);
-requireMatch(
-  facadeConfig,
-  /^script_name\s*=\s*"musixquare-pro-room"\s*$/m,
-  'facade cross-script target',
-  failures,
-);
-forbidMatch(
-  facadeConfig,
-  /\[\[routes\]\]|custom_domain\s*=|\[\[d1_databases\]\]|\[\[r2_buckets\]\]|\[\[services\]\]|^\[vars\]\s*$/m,
-  'public route, storage, service, or variable binding on the facade',
-  failures,
-);
-
-if (failures.length > 0) {
-  console.error('[developer-api-boundary] Unsafe Worker boundary configuration:');
-  for (const failure of failures) console.error(`  - ${failure}`);
-  process.exit(1);
+function records(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) && value.every(isRecord) ? value : [];
 }
 
-console.log('[developer-api-boundary] OK: public API and private facade bindings remain isolated.');
+function hasBinding(value: unknown, expected: Record<string, unknown>): boolean {
+  return records(value).some((binding) =>
+    Object.entries(expected).every(([key, entry]) => binding[key] === entry),
+  );
+}
+
+export function assertDeveloperApiBoundaries(publicValue: unknown, facadeValue: unknown): void {
+  const publicConfig = requireRecord(publicValue, 'public Worker');
+  const facadeConfig = requireRecord(facadeValue, 'facade Worker');
+  const failures: string[] = [];
+  const require = (condition: boolean, description: string): void => {
+    if (!condition) failures.push(`missing ${description}`);
+  };
+  const forbid = (condition: boolean, description: string): void => {
+    if (condition) failures.push(`forbidden ${description}`);
+  };
+
+  for (const [config, name, main, label] of [
+    [publicConfig, 'musixquare-developer-api', 'developer-api-worker.ts', 'public'],
+    [facadeConfig, 'musixquare-developer-api-facade', 'developer-api-facade-worker.ts', 'facade'],
+  ] as const) {
+    require(config.name === name, `${label} Worker name`);
+    require(config.main === main, `${label} Worker entrypoint`);
+    require(config.workers_dev === false, `disabled ${label} workers.dev route`);
+    require(config.preview_urls === false, `disabled ${label} preview URL`);
+  }
+  require(hasBinding(publicConfig.routes, {
+    pattern: 'api.musixquare.com',
+    custom_domain: true,
+  }), 'API custom domain');
+  require(hasBinding(publicConfig.d1_databases, {
+    binding: 'DEVELOPER_API_DB',
+    database_name: 'musixquare-developer-api',
+    database_id: '237d63d2-6eea-4b01-b396-7784b5b8b6f0',
+  }), 'dedicated API D1 binding, name, and id on the same database');
+  const publicDurableObjects = isRecord(publicConfig.durable_objects)
+    ? publicConfig.durable_objects.bindings
+    : undefined;
+  require(hasBinding(publicDurableObjects, {
+    name: 'DEVELOPER_API_LIMITERS',
+    class_name: 'DeveloperApiRateLimiter',
+  }), 'API limiter binding and class');
+  require(hasBinding(publicConfig.services, {
+    binding: 'DEVELOPER_API_FACADE',
+    service: 'musixquare-developer-api-facade',
+  }), 'private facade service binding and target');
+  const publicVars = isRecord(publicConfig.vars) ? publicConfig.vars : {};
+  require(publicVars.DEVELOPER_API_MODE === 'enabled', 'admin-issued room-bound API mode');
+  forbid(Object.hasOwn(publicVars, 'DEVELOPER_API_CANARY_ROOMS'), 'stale static canary room list');
+  forbid(
+    records(publicDurableObjects).some(
+      (binding) =>
+        binding.class_name === 'MusixquareProRoom' ||
+        binding.name === 'PRO_ROOMS' ||
+        binding.name === 'PRO_ROOM_DEVELOPER_ROOMS',
+    ),
+    'PRO room Durable Object binding on the public Worker',
+  );
+  forbid(
+    Object.hasOwn(publicConfig, 'r2_buckets') ||
+      records(publicDurableObjects).some(
+        (binding) =>
+          binding.class_name === 'MusixquareRoom' ||
+          (typeof binding.name === 'string' && binding.name.includes('SIGNAL')),
+      ),
+    'R2 or signaling binding on the public Worker',
+  );
+
+  require(isRecord(facadeConfig.version_metadata) &&
+    facadeConfig.version_metadata.binding ===
+      'CF_VERSION_METADATA', 'facade version metadata binding');
+  require(hasBinding(
+    isRecord(facadeConfig.durable_objects) ? facadeConfig.durable_objects.bindings : undefined,
+    {
+      name: 'PRO_ROOM_DEVELOPER_ROOMS',
+      class_name: 'MusixquareProRoom',
+      script_name: 'musixquare-pro-room',
+    },
+  ), 'facade PRO room binding, class, and cross-script target');
+  forbid(
+    ['route', 'routes', 'd1_databases', 'r2_buckets', 'services', 'vars'].some((key) =>
+      Object.hasOwn(facadeConfig, key),
+    ),
+    'public route, storage, service, or variable binding on the facade',
+  );
+
+  if (failures.length > 0) {
+    throw new Error(
+      '[developer-api-boundary] Unsafe Worker boundary configuration:\n' +
+        failures.map((failure) => `  - ${failure}`).join('\n'),
+    );
+  }
+}
+
+function main(): void {
+  assertDeveloperApiBoundaries(
+    readDeveloperApiBoundaryConfig(resolve(root, 'cloudflare/wrangler.developer-api.toml')),
+    readDeveloperApiBoundaryConfig(resolve(root, 'cloudflare/wrangler.developer-api-facade.toml')),
+  );
+  console.log(
+    '[developer-api-boundary] OK: public API and private facade bindings remain isolated.',
+  );
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+}

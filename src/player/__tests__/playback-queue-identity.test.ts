@@ -168,6 +168,8 @@ describe('operator request queue identity guards', () => {
       connectionType: 'local',
       lastHeartbeat: 0,
     };
+    setState('network.appRole', 'host');
+    setState('network.activeHostConnByPeerId', new Map([[opConn.peer, opConn]]));
     setState('network.connectedPeers', [peer]);
     setState('playlist.items', [item(QID_A, 'a.mp3'), item(QID_B, 'b.mp3')]);
     setState('playlist.currentQueueItemId', QID_B);
@@ -182,13 +184,14 @@ describe('operator request queue identity guards', () => {
     await handleData({ type: 'request-skip-time', sec: 10, queueItemId: QID_A }, opConn);
 
     expect(mocks.play).not.toHaveBeenCalled();
+    expect(mocks.startHostFileAndBroadcastPlay).not.toHaveBeenCalled();
     expect(mocks.pause).not.toHaveBeenCalled();
     expect(mocks.broadcast).not.toHaveBeenCalled();
     expect(getState('playlist.currentQueueItemId')).toBe(QID_B);
   });
 });
 
-describe('operator PLAY success boundary', () => {
+describe('operator current-occurrence control boundary', () => {
   function arrangeOperatorHost(): DataConnection {
     const opConn = { open: true, peer: 'op-start' } as DataConnection;
     const current = resident(QID_B, 0, 'b.mp3', 5);
@@ -216,6 +219,17 @@ describe('operator PLAY success boundary', () => {
     initPlayback();
     return opConn;
   }
+
+  it('accepts a current-occurrence PAUSE from the exact active operator connection', async () => {
+    const opConn = arrangeOperatorHost();
+
+    await handleData({ type: MSG.REQUEST_PAUSE, queueItemId: QID_B }, opConn);
+
+    expect(mocks.pause).toHaveBeenCalledOnce();
+    expect(mocks.broadcast).toHaveBeenCalledWith(
+      expect.objectContaining({ type: MSG.PAUSE, queueItemId: QID_B, reason: 'pause' }),
+    );
+  });
 
   it('does not broadcast canonical PLAY when play returns false', async () => {
     const opConn = arrangeOperatorHost();
@@ -316,7 +330,7 @@ describe('preload and late-join resident identity', () => {
     bus.emit('storage:use-preloaded', QID_B, 'b.mp3', 9);
 
     await vi.waitFor(() => {
-      expect(mocks.loadPreloadedTrack).toHaveBeenCalledWith(QID_B, expect.any(Number));
+      expect(mocks.loadPreloadedTrack).toHaveBeenCalledWith(QID_B, expect.any(Number), undefined);
     });
   });
 

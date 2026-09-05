@@ -413,90 +413,106 @@ async function openRoomUploadAssertionAuthorityAttempt(
   url.searchParams.set('role', 'host');
   url.searchParams.set('peerId', roomId);
   const socket = new WebSocket(url, { origin: APP_ORIGIN });
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error('remote-share signaling host open timeout')),
-      REQUEST_TIMEOUT_MS,
-    );
-    socket.once('open', () => {
-      clearTimeout(timer);
-      resolve();
+  // Keep transport errors observed between protocol waits and during terminate.
+  // The active open/admission/assertion waiter still rejects its own operation.
+  socket.on('error', () => {});
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        clearTimeout(timer);
+        socket.off('open', onOpen);
+        socket.off('error', onError);
+        socket.off('close', onClose);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onOpen = () => finish();
+      const onError = (error: Error) => finish(error);
+      const onClose = () => finish(new Error('remote-share signaling host closed before open'));
+      const timer = setTimeout(
+        () => finish(new Error('remote-share signaling host open timeout')),
+        REQUEST_TIMEOUT_MS,
+      );
+      socket.once('open', onOpen);
+      socket.once('error', onError);
+      socket.once('close', onClose);
     });
-    socket.once('error', (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-  });
-  const admitted = waitForSignalingMessage(
-    socket,
-    'remote-share signaling host admission',
-    (message) => message.type === 'peer-open' || message.type === 'error',
-  );
-  socket.send(
-    JSON.stringify({
-      type: 'host-auth',
-      secret: hostSecret,
-    }),
-  );
-  const peerOpen = await admitted;
-  if (peerOpen.type === 'error') {
-    socket.close(1000, 'remote-share smoke host admission failed');
-    throw new Error(
-      `remote-share signaling host rejected: ${String(peerOpen.message || peerOpen.errorType)}`,
-    );
-  }
-  const actualSignalingVersion =
-    typeof peerOpen.workerVersionId === 'string' ? peerOpen.workerVersionId.trim() : '';
-  if (expectedSignalingVersion && actualSignalingVersion !== expectedSignalingVersion) {
-    socket.close(1000, 'stale signaling version');
-    throw new StaleSignalingVersionError(
-      `remote-share signaling version mismatch: expected ${expectedSignalingVersion}, received ${actualSignalingVersion || '<missing>'}`,
-    );
-  }
-  if (peerOpen.remoteShareUploadAssertionVersion !== 1) {
-    socket.close(1000, 'remote-share assertion unsupported');
-    throw new Error('required Remote Share upload assertion is unavailable from signaling');
-  }
-  if (requireKeyringVersion && peerOpen.remoteShareUploadAssertionKeyringVersion !== 1) {
-    socket.close(1000, 'remote-share assertion keyring unsupported');
-    throw new Error('Remote Share upload assertion keyring is unavailable from signaling');
-  }
-
-  const provider: RoomUploadAssertionProvider = async (request) => {
-    const correlationId = `rsaq_${randomBytes(24).toString('base64url')}`;
-    const responsePromise = waitForSignalingMessage(
+    const admitted = waitForSignalingMessage(
       socket,
-      'remote-share upload assertion',
-      (message) =>
-        (message.type === 'remote-share-upload-assertion' ||
-          message.type === 'remote-share-upload-assertion-error') &&
-        message.correlationId === correlationId,
+      'remote-share signaling host admission',
+      (message) => message.type === 'peer-open' || message.type === 'error',
     );
     socket.send(
       JSON.stringify({
-        type: 'remote-share-upload-assertion-request',
-        correlationId,
-        ...request,
+        type: 'host-auth',
+        secret: hostSecret,
       }),
     );
-    const response = await responsePromise;
-    if (response.type === 'remote-share-upload-assertion-error') {
-      throw new Error(`remote-share assertion rejected: ${String(response.errorType)}`);
+    const peerOpen = await admitted;
+    if (peerOpen.type === 'error') {
+      socket.close(1000, 'remote-share smoke host admission failed');
+      throw new Error(
+        `remote-share signaling host rejected: ${String(peerOpen.message || peerOpen.errorType)}`,
+      );
     }
-    if (
-      typeof response.assertion !== 'string' ||
-      !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(response.assertion) ||
-      !Number.isSafeInteger(response.expiresAt) ||
-      Number(response.expiresAt) <= 0
-    ) {
-      throw new Error('remote-share signaling returned an invalid upload assertion');
+    const actualSignalingVersion =
+      typeof peerOpen.workerVersionId === 'string' ? peerOpen.workerVersionId.trim() : '';
+    if (expectedSignalingVersion && actualSignalingVersion !== expectedSignalingVersion) {
+      socket.close(1000, 'stale signaling version');
+      throw new StaleSignalingVersionError(
+        `remote-share signaling version mismatch: expected ${expectedSignalingVersion}, received ${actualSignalingVersion || '<missing>'}`,
+      );
     }
-    return response.assertion;
-  };
-  return {
-    provider,
-    close: () => socket.close(1000, 'remote-share smoke complete'),
-  };
+    if (peerOpen.remoteShareUploadAssertionVersion !== 1) {
+      socket.close(1000, 'remote-share assertion unsupported');
+      throw new Error('required Remote Share upload assertion is unavailable from signaling');
+    }
+    if (requireKeyringVersion && peerOpen.remoteShareUploadAssertionKeyringVersion !== 1) {
+      socket.close(1000, 'remote-share assertion keyring unsupported');
+      throw new Error('Remote Share upload assertion keyring is unavailable from signaling');
+    }
+
+    const provider: RoomUploadAssertionProvider = async (request) => {
+      const correlationId = `rsaq_${randomBytes(24).toString('base64url')}`;
+      const responsePromise = waitForSignalingMessage(
+        socket,
+        'remote-share upload assertion',
+        (message) =>
+          (message.type === 'remote-share-upload-assertion' ||
+            message.type === 'remote-share-upload-assertion-error') &&
+          message.correlationId === correlationId,
+      );
+      socket.send(
+        JSON.stringify({
+          type: 'remote-share-upload-assertion-request',
+          correlationId,
+          ...request,
+        }),
+      );
+      const response = await responsePromise;
+      if (response.type === 'remote-share-upload-assertion-error') {
+        throw new Error(`remote-share assertion rejected: ${String(response.errorType)}`);
+      }
+      if (
+        typeof response.assertion !== 'string' ||
+        !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(response.assertion) ||
+        !Number.isSafeInteger(response.expiresAt) ||
+        Number(response.expiresAt) <= 0
+      ) {
+        throw new Error('remote-share signaling returned an invalid upload assertion');
+      }
+      return response.assertion;
+    };
+    return {
+      provider,
+      close: () => socket.close(1000, 'remote-share smoke complete'),
+    };
+  } catch (error) {
+    // Until the authority is returned, this function owns the socket. A failed
+    // admission must not keep the CLI alive and delay release recovery.
+    socket.terminate();
+    throw error;
+  }
 }
 
 async function withSignalingVersionConvergence<T>(

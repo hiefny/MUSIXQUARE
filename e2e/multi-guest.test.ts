@@ -13,7 +13,9 @@ import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import {
-  isVisible,
+  openChatDrawer,
+  readState,
+  sendChat,
   waitForChatMessage,
   waitForDeviceCount,
   waitForPlaylistCount,
@@ -215,14 +217,11 @@ test.describe('Multi-Guest', () => {
     }
     await waitForDeviceCount(setup.hostPage, 3);
 
-    const chatInput = setup.hostPage.locator('#chat-input');
-    if (await chatInput.isVisible()) {
-      await chatInput.fill('Hello all guests!');
-      await setup.hostPage.locator('#btn-chat-send').click();
+    await openChatDrawer(setup.hostPage);
+    await sendChat(setup.hostPage, 'Hello all guests!');
 
-      for (const guestPage of setup.guestPages) {
-        await waitForChatMessage(guestPage, 'Hello all guests!');
-      }
+    for (const guestPage of setup.guestPages) {
+      await waitForChatMessage(guestPage, 'Hello all guests!');
     }
   });
 
@@ -235,43 +234,53 @@ test.describe('Multi-Guest', () => {
     }
     await waitForDeviceCount(setup.hostPage, 3);
 
-    const connectNav = setup.hostPage.locator('.nav-item[data-tab="connect"]');
-    if (await connectNav.isVisible()) {
-      await connectNav.click();
-      await setup.hostPage
-        .locator('#tab-connect')
-        .waitFor({ state: 'visible', timeout: 5_000 })
-        .catch(() => {});
-    }
+    const kickedPeerId = await readState(setup.guestPages[0], 'network.myId');
+    const retainedPeerId = await readState(setup.guestPages[1], 'network.myId');
+    expect(typeof kickedPeerId).toBe('string');
+    expect(typeof retainedPeerId).toBe('string');
+    expect(kickedPeerId).not.toBe(retainedPeerId);
+    const kickedMemberKey = await setup.hostPage.evaluate((peerId) => {
+      const get = (window as any).__MUSIXQUARE_GET_STATE__;
+      const peer = (
+        get?.('network.connectedPeers') as Array<{ id: string; memberId?: string }>
+      ).find((candidate) => candidate.id === peerId);
+      if (!peer) throw new Error('Kick target is not connected');
+      return peer.memberId ? `member:${peer.memberId}` : `device:${peer.id}`;
+    }, kickedPeerId);
+    const desktopConnect = setup.hostPage.locator('#settings-subtab-connect');
+    if (await desktopConnect.isVisible()) await desktopConnect.click();
+    else await setup.hostPage.locator('#nav-connect').click();
 
-    const kickBtn = setup.hostPage.locator('.btn-kick-device').first();
-    if (await kickBtn.isVisible()) {
-      await kickBtn.click();
+    const kickBtn = setup.hostPage.locator(
+      `.device-entry[data-member-key="${kickedMemberKey}"]:visible .btn-kick-device`,
+    );
+    await expect(kickBtn).toBeVisible();
+    await kickBtn.click();
 
-      const confirmBtn = setup.hostPage.locator('#btn-dialog-ok');
-      if (await isVisible(setup.hostPage, '#btn-dialog-ok', 3000)) {
-        await confirmBtn.click();
-      }
+    await expect(setup.hostPage.locator('#dialog-overlay.show')).toBeVisible();
+    await setup.hostPage.locator('#btn-dialog-ok').click();
+    await expect(setup.guestPages[0].locator('#dialog-overlay.show')).toBeVisible();
 
-      await setup.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          if (!get) return false;
-          const peers = get('network.connectedPeers') as unknown[];
-          return peers && peers.length === 1;
-        },
-        undefined,
-        { timeout: 15_000 },
-      );
-
-      const peerCount = await setup.hostPage.evaluate(() => {
+    await setup.hostPage.waitForFunction(
+      (peerId) => {
         const get = (window as any).__MUSIXQUARE_GET_STATE__;
-        if (!get) return 0;
-        const peers = get('network.connectedPeers') as unknown[];
-        return peers ? peers.length : 0;
-      });
-      expect(peerCount).toBe(1); // 1 remaining guest
-    }
+        const peers = get?.('network.connectedPeers') as
+          | Array<{ id?: string; status?: string; conn?: { open?: boolean } }>
+          | undefined;
+        return (
+          peers?.length === 1 &&
+          peers[0]?.id === peerId &&
+          peers[0]?.status === 'connected' &&
+          peers[0]?.conn?.open === true
+        );
+      },
+      retainedPeerId,
+      { timeout: 15_000 },
+    );
+
+    await openChatDrawer(setup.hostPage);
+    await sendChat(setup.hostPage, 'Remaining guest is connected');
+    await waitForChatMessage(setup.guestPages[1], 'Remaining guest is connected');
   });
 
   test('device list shows correct count for all guests', async ({ browser }) => {

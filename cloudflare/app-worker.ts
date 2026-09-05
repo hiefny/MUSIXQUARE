@@ -96,6 +96,7 @@ interface AppR2Bucket {
     options?: {
       httpMetadata?: AppR2HttpMetadata;
       customMetadata?: Record<string, string>;
+      onlyIf?: { etagDoesNotMatch: string };
     },
   ): Promise<unknown>;
 }
@@ -339,7 +340,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.4.62';
+const ADMIN_ASSET_VERSION = '8.4.63';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -412,6 +413,7 @@ const ADMIN_PRO_ROOM_ACTIVATION_CLAIM_MAX_TTL_MS = 15 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_RECOVERY_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_CLAIM_MAX_TTL_MS = 10 * 60 * 1000;
 const ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENT_TTL_MS = 15 * 60 * 1000;
+const ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENTS_PER_CLAIM = 10;
 const PRO_ROOM_OWNER_TRANSFER_RECEIPT_TTL_MS = 15 * 60 * 1000;
 const ACCOUNT_ID_RE = /^acct_[A-Za-z0-9_-]{22}$/;
 const OWNER_TRANSFER_ID_RE = /^transfer_[A-Za-z0-9_-]{22}$/;
@@ -720,58 +722,36 @@ async function repairUnforwardedAccountProRoomLink(
   roomGeneration: number,
 ) {
   try {
-    const current = await preflightRegisteredProRoomAccountLink(env, roomCode);
-    if (current?.roomGeneration === roomGeneration) {
-      // The room is still a valid incarnation. Keeping its conservative
-      // reverse edge is intentional even though this particular assertion was
-      // not forwarded; a later successful link must retain an account-deletion
-      // cleanup path.
+    const db = getAdminDb(env);
+    if (!db?.prepare) return false;
+    const statement = db
+      .prepare(
+        `SELECT room_code, room_generation
+           FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+          WHERE room_code = ?1 AND room_generation = ?2 AND status = 'decommissioned'
+         UNION
+         SELECT room_code, room_generation
+           FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+          WHERE room_code = ?1 AND room_generation = ?2 AND status = 'decommissioned'
+         LIMIT 1`,
+      )
+      .bind(roomCode, roomGeneration);
+    const completed =
+      typeof statement.first === 'function'
+        ? await statement.first()
+        : (await statement.all()).results[0] || null;
+    if (completed?.room_code !== roomCode || Number(completed.room_generation) !== roomGeneration) {
       return false;
     }
-    // A missing, terminal, or recycled registry pointer proves that no account
-    // authority can be created in this exact incarnation. Retire all of that
-    // incarnation's now-orphaned cleanup edges, never the successor's.
+    // Only completed decommission is monotonic evidence that this exact
+    // incarnation can no longer retain authority. Suspension, in-progress
+    // deletion, a missing pointer, and a read failure must preserve every
+    // account's conservative cleanup edge, including earlier successful links.
     await retireAccountProRoomLinks(env, roomCode, roomGeneration);
     return true;
   } catch {
     // A registry outage is not proof that an edge is orphaned. Leave the
     // conservative edge for the scheduled decommission repair sweep.
-    return false;
-  }
-}
-
-async function repairUnforwardedOwnerTransferAccountLink(
-  env: AppEnv,
-  accountId: string,
-  roomCode: string,
-  roomGeneration: number,
-) {
-  try {
-    const db = getAdminDb(env);
-    if (!db?.prepare) return false;
-    const statement = db
-      .prepare(
-        `SELECT status, room_generation
-           FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-          WHERE room_code = ?1 LIMIT 1`,
-      )
-      .bind(roomCode);
-    const row =
-      typeof statement.first === 'function'
-        ? await statement.first<{ status: string; room_generation: number | string }>()
-        : (await statement.all<{ status: string; room_generation: number | string }>())
-            .results[0] || null;
-    if (
-      Number(row?.room_generation) === roomGeneration &&
-      (typeof row?.status !== 'string' ||
-        !['decommissioning', 'decommissioned'].includes(row.status))
-    ) {
-      // The exact live incarnation may still complete the same transaction;
-      // retain only this target account's conservative deletion edge.
-      return false;
-    }
-    return await retireAccountProRoomLinkForAccount(env, accountId, roomCode, roomGeneration);
-  } catch {
     return false;
   }
 }
@@ -926,7 +906,6 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
   let accountAssertionContext: { accountId: string; roomGeneration: number } | null = null;
   if (accountLinkAssertionPaths.has(upstreamPath) || upstreamPath === accountLeaseAssertionPath) {
     let recordedRoomGeneration = null;
-    let assertedAccountId = null;
     const assertionSecret = String(env.MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET || '');
     if (
       accountRequired &&
@@ -936,7 +915,6 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
     }
     try {
       const account = await resolveAccountSession(request, env);
-      assertedAccountId = account?.accountId || null;
       if (accountRequired && (!account?.profileComplete || !account.nickname)) {
         return json({ error: 'ACCOUNT_SESSION_REQUIRED' }, 401);
       }
@@ -999,7 +977,6 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
                 roomCode,
               );
               if (confirmedAfterWrite?.roomGeneration !== roomLink.roomGeneration) {
-                await retireAccountProRoomLinks(env, roomCode, roomLink.roomGeneration);
                 throw new Error('PRO_ACCOUNT_LINK_CHANGED');
               }
             }
@@ -1015,16 +992,7 @@ async function handleProRoomFacade(request: Request, env: AppEnv, url: URL) {
       }
     } catch (error) {
       if (isProRoomGeneration(recordedRoomGeneration)) {
-        if (ownershipTransferPath && assertedAccountId && ACCOUNT_ID_RE.test(assertedAccountId)) {
-          await repairUnforwardedOwnerTransferAccountLink(
-            env,
-            assertedAccountId,
-            roomCode,
-            recordedRoomGeneration,
-          );
-        } else {
-          await repairUnforwardedAccountProRoomLink(env, roomCode, recordedRoomGeneration);
-        }
+        await repairUnforwardedAccountProRoomLink(env, roomCode, recordedRoomGeneration);
       }
       if (accountRequired) {
         return json({ error: 'PRO_ROOM_ACCOUNT_ASSERTION_UNAVAILABLE' }, 503);
@@ -3312,11 +3280,7 @@ async function listAdminProRooms(db: D1Database): Promise<AdminProRoomRecord[]> 
     .filter((room): room is AdminProRoomRecord => room !== null);
 }
 
-async function attachCanonicalAdminProRoomOwnerState(
-  env: AppEnv,
-  db: D1Database,
-  rooms: AdminProRoomRecord[],
-) {
+async function attachCanonicalAdminProRoomOwnerState(env: AppEnv, rooms: AdminProRoomRecord[]) {
   const needsOwnerState = (room: AdminProRoomRecord) =>
     room?.activationState === 'active' &&
     (room.status === 'registered' || room.status === 'suspended');
@@ -3402,7 +3366,7 @@ async function attachCanonicalAdminProRoomOwnerState(
           // and durably suspend the room. Preserve that state in this response
           // even if the best-effort D1 projection repair is temporarily down.
           await markAdminProRoomOperationalState(
-            db,
+            env,
             room.roomCode,
             room.roomGeneration,
             'suspended',
@@ -3650,64 +3614,37 @@ async function registerAdminProRoom(
   };
 }
 
-async function markAdminProRoomRegistered(
-  db: D1Database,
-  roomCode: string,
-  roomGeneration: number,
-  activationState: string,
-  nowMs: number = Date.now(),
-) {
-  await ensureAdminProRoomRegistry(db);
-  const result = await db
-    .prepare(
-      `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       SET status = 'registered', suspension_reason = NULL,
-           activation_state = ?3, updated_at = ?4
-       WHERE room_code = ?1
-         AND room_generation = ?2
-         AND status NOT IN ('suspended', 'decommissioning', 'decommissioned')`,
-    )
-    .bind(roomCode, roomGeneration, activationState === 'active' ? 'active' : 'unactivated', nowMs)
-    .run();
-  return Number(result?.meta?.changes || 0) === 1;
-}
-
 async function markAdminProRoomOperationalState(
-  db: D1Database,
+  env: AppEnv,
   roomCode: string,
   roomGeneration: number,
   status: string,
   suspensionReason: string | null = status === 'suspended' ? 'operator_suspended' : null,
-  nowMs: number = Date.now(),
 ) {
+  // A binding response may arrive after a later canonical mutation. Project
+  // inside that same DO lane so no old App continuation can overwrite it.
+  const result = await callProRoomAdminObject(
+    env,
+    roomCode,
+    roomGeneration,
+    '/internal/admin/status/project',
+    'POST',
+    { status, suspensionReason },
+  );
+  const payload = result.payload;
+  if (result.response?.status === 409) return false;
   if (
-    status === 'suspended' &&
-    (suspensionReason === null ||
-      !['operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'].includes(
-        suspensionReason,
-      ))
-  ) {
-    throw new Error('Invalid PRO room suspension reason');
-  }
-  await ensureAdminProRoomRegistry(db);
-  const result = await db
-    .prepare(
-      `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-       SET status = ?3, suspension_reason = ?4,
-           activation_state = 'active', updated_at = ?5
-       WHERE room_code = ?1
-         AND room_generation = ?2
-         AND status NOT IN ('decommissioning', 'decommissioned')`,
+    !(
+      result.response?.ok === true &&
+      proRoomAdminResponseIdentityMatches(payload, roomCode, roomGeneration) &&
+      payload.ok === true &&
+      payload.projected === true &&
+      payload.status === status &&
+      payload.suspensionReason === suspensionReason
     )
-    .bind(
-      roomCode,
-      roomGeneration,
-      status === 'suspended' ? 'suspended' : 'registered',
-      status === 'suspended' ? suspensionReason : null,
-      nowMs,
-    )
-    .run();
-  return Number(result?.meta?.changes || 0) === 1;
+  )
+    throw new Error('PRO room canonical registry projection unavailable');
+  return true;
 }
 
 async function reconcileAdminProRoomStatus(
@@ -3750,27 +3687,15 @@ async function reconcileAdminProRoomStatus(
   ) {
     return null;
   }
-  if (payload.status === 'suspended') {
-    await ensureAdminProRoomRegistry(db);
-    await db
-      .prepare(
-        `UPDATE ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-         SET status = 'suspended', suspension_reason = ?3,
-             activation_state = 'active', updated_at = ?4
-         WHERE room_code = ?1
-           AND room_generation = ?2
-           AND status NOT IN ('decommissioning', 'decommissioned')`,
-      )
-      .bind(roomCode, roomGeneration, suspensionReason, Date.now())
-      .run();
-  } else {
-    if (room.status === 'suspended' && payload.status === 'active') {
-      await markAdminProRoomOperationalState(db, roomCode, roomGeneration, 'active');
-    } else {
-      await markAdminProRoomRegistered(db, roomCode, roomGeneration, payload.status);
-    }
-  }
-  return payload.status;
+  return (await markAdminProRoomOperationalState(
+    env,
+    roomCode,
+    roomGeneration,
+    payload.status,
+    suspensionReason,
+  ))
+    ? payload.status
+    : null;
 }
 
 async function reconcileStaleAdminProRoomActivations(
@@ -4743,6 +4668,31 @@ async function purgeProRoomAccountAuthority(
   env: AppEnv,
 ) {
   if (!isProRoomGeneration(roomGeneration)) return false;
+  // Capture before asking the canonical room to remove authority. A duplicate
+  // cleanup may finish that removal and transfer the room while this request
+  // is awaiting D1; its newer fence must not be overwritten by this old writer.
+  const developerDb = getDeveloperApiAdminDb(env);
+  if (!developerDb?.prepare) return false;
+  let expectedFenceDigest: string | null;
+  try {
+    const existingFence = await developerDb
+      .prepare(
+        `SELECT fence_digest FROM mxqr_developer_api_room_authority_fences
+          WHERE room_code = ?1 AND room_generation = ?2 LIMIT 1`,
+      )
+      .bind(roomCode, roomGeneration)
+      .first<{ fence_digest: unknown }>();
+    if (
+      existingFence &&
+      (typeof existingFence.fence_digest !== 'string' ||
+        !/^[A-Za-z0-9_-]{43}$/.test(existingFence.fence_digest))
+    ) {
+      return false;
+    }
+    expectedFenceDigest = existingFence ? (existingFence.fence_digest as string) : null;
+  } catch {
+    return false;
+  }
   // The PRO Durable Object is the only authority that may decide whether this
   // account is still the owner. Purge there first, in the same serialized
   // mutation that revokes owner authority and leaves projectionAcked=false.
@@ -4838,23 +4788,11 @@ async function purgeProRoomAccountAuthority(
       'owner_account_deleted',
       'owner_account_deleted',
       fenceDigest,
+      expectedFenceDigest,
     );
-    const projected = await markAdminProRoomOperationalState(
-      adminDb,
-      roomCode,
-      roomGeneration,
-      'suspended',
-      'owner_account_deleted',
-    );
-    if (!projected) return false;
-    await appendSystemAdminProRoomAudit(
-      adminDb,
-      'system:account-delete',
-      'room.suspend',
-      'owner_account_deleted',
-      roomCode,
-      roomGeneration,
-    );
+    // The exact ACK serializes the registry projection with the next transfer
+    // inside the canonical DO. Writing it here after a read would leave another
+    // cross-database window even though the Developer fence above is protected.
     const acknowledged = await callProRoomAdminObject(
       env,
       roomCode,
@@ -4959,22 +4897,76 @@ async function retireDecommissionedAccountProRoomEdges(
   }
   const normalizedSince =
     typeof sinceMs === 'number' && Number.isSafeInteger(sinceMs) && sinceMs > 0 ? sinceMs : null;
+  let cursor: {
+    revision: number;
+    completedAt: number | null;
+    roomCode: string | null;
+    roomGeneration: number | null;
+  } | null = null;
+  if (normalizedSince === null) {
+    const cursorStatement = adminDb.prepare(
+      `SELECT revision, completed_at, room_code, room_generation
+         FROM mxqr_pro_room_retirement_cursor WHERE singleton = 1`,
+    );
+    const row =
+      typeof cursorStatement.first === 'function'
+        ? await cursorStatement.first()
+        : (await cursorStatement.all()).results[0];
+    const reset =
+      row?.completed_at === null && row.room_code === null && row.room_generation === null;
+    if (
+      !row ||
+      !Number.isSafeInteger(row.revision) ||
+      Number(row.revision) < 0 ||
+      Number(row.revision) >= Number.MAX_SAFE_INTEGER ||
+      (!reset &&
+        (!Number.isSafeInteger(row.completed_at) ||
+          Number(row.completed_at) < 0 ||
+          typeof row.room_code !== 'string' ||
+          !/^0\d{5}$/.test(row.room_code) ||
+          !isProRoomGeneration(row.room_generation)))
+    ) {
+      console.warn('[PRO retirement] full repair cursor is unavailable');
+      return { configured: true, retired: false, entitlementsRevoked: false };
+    }
+    cursor = {
+      revision: Number(row.revision),
+      completedAt: reset ? null : Number(row.completed_at),
+      roomCode: reset ? null : String(row.room_code),
+      roomGeneration: reset ? null : Number(row.room_generation),
+    };
+  }
   const statement = adminDb.prepare(
-    `SELECT room_code, room_generation
+    `SELECT room_code, room_generation, completed_at
          FROM (
-           SELECT room_code, room_generation, decommissioned_at AS completed_at
-             FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
-            WHERE status = 'decommissioned'
-           UNION
-           SELECT room_code, room_generation, updated_at AS completed_at
-             FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
-            WHERE status = 'decommissioned'
+           SELECT room_code, room_generation, MAX(completed_at) AS completed_at
+             FROM (
+               SELECT room_code, room_generation, decommissioned_at AS completed_at
+                 FROM ${ADMIN_PRO_ROOM_GENERATION_HISTORY_TABLE}
+                WHERE status = 'decommissioned'
+               UNION ALL
+               SELECT room_code, room_generation, updated_at AS completed_at
+                 FROM ${ADMIN_PRO_ROOM_REGISTRY_TABLE}
+                WHERE status = 'decommissioned'
+             )
+            GROUP BY room_code, room_generation
          )
-        ${normalizedSince !== null ? 'WHERE completed_at >= ?1' : ''}
-        ORDER BY completed_at DESC, room_code ASC, room_generation ASC
+        ${
+          normalizedSince !== null
+            ? 'WHERE completed_at >= ?1'
+            : cursor?.completedAt !== null
+              ? 'WHERE (completed_at, room_code, room_generation) > (?1, ?2, ?3)'
+              : ''
+        }
+        ORDER BY completed_at ${normalizedSince !== null ? 'DESC' : 'ASC'}, room_code ASC, room_generation ASC
         LIMIT 5000`,
   );
-  const bound = normalizedSince === null ? statement : statement.bind(normalizedSince);
+  const bound =
+    normalizedSince !== null
+      ? statement.bind(normalizedSince)
+      : cursor && cursor.completedAt !== null
+        ? statement.bind(cursor.completedAt, cursor.roomCode, cursor.roomGeneration)
+        : statement;
   const result = await bound.all();
   const incarnations = (result?.results || [])
     .map((row) => ({
@@ -4998,7 +4990,47 @@ async function retireDecommissionedAccountProRoomEdges(
   if (!entitlementsRevoked) {
     console.warn('[PRO entitlement] decommission reconciliation remains pending');
   }
-  const retired = await retireAccountProRoomLinkBatch(env, incarnations);
+  const retired = { configured: true, retired: incarnations.length > 0 };
+  for (let offset = 0; offset < incarnations.length; offset += 40) {
+    try {
+      const chunk = await retireAccountProRoomLinkBatch(
+        env,
+        incarnations.slice(offset, offset + 40),
+      );
+      if (!chunk.configured || !chunk.retired) retired.retired = false;
+    } catch {
+      // Preserve the shared helper's throwing contract for direct callers;
+      // this cyclic sweep alone must continue after a failed chunk.
+      retired.retired = false;
+    }
+  }
+  if (!retired.retired && incarnations.length > 0) {
+    console.warn('[PRO account edge] decommission reconciliation remains pending');
+  }
+  if (cursor) {
+    // Advance after attempting every bounded chunk, even when a storage
+    // boundary failed. Wrapping revisits failed and late-written edges;
+    // keeping a failed page forever would starve every later incarnation.
+    const last = (result?.results || []).length === 5000 ? result.results.at(-1) : null;
+    try {
+      await adminDb
+        .prepare(
+          `UPDATE mxqr_pro_room_retirement_cursor
+            SET completed_at = ?1, room_code = ?2, room_generation = ?3, revision = revision + 1
+          WHERE singleton = 1 AND revision = ?4`,
+        )
+        .bind(
+          last?.completed_at ?? null,
+          last?.room_code ?? null,
+          last?.room_generation ?? null,
+          cursor.revision,
+        )
+        .run();
+    } catch {
+      console.warn('[PRO retirement] full repair cursor advancement failed');
+      return { configured: true, retired: false, entitlementsRevoked };
+    }
+  }
   return { ...retired, entitlementsRevoked };
 }
 
@@ -5762,6 +5794,7 @@ async function revokeDeveloperApiKeysForAuthorityChange(
   result: string,
   suspensionReason: string,
   fenceDigest: string,
+  expectedFenceDigest?: string | null,
 ) {
   const db = getDeveloperApiAdminDb(env);
   if (!db?.prepare || typeof db.batch !== 'function') {
@@ -5799,9 +5832,20 @@ async function revokeDeveloperApiKeysForAuthorityChange(
              THEN mxqr_developer_api_room_authority_fences.fenced_at
              ELSE excluded.fenced_at
            END,
-           updated_at = excluded.updated_at`,
+           updated_at = MAX(mxqr_developer_api_room_authority_fences.updated_at, excluded.updated_at)
+         WHERE ?6 = 0
+            OR mxqr_developer_api_room_authority_fences.fence_digest = ?7
+            OR mxqr_developer_api_room_authority_fences.fence_digest = excluded.fence_digest`,
       )
-      .bind(roomCode, roomGeneration, suspensionReason, fenceDigest, revokedAtMs),
+      .bind(
+        roomCode,
+        roomGeneration,
+        suspensionReason,
+        fenceDigest,
+        revokedAtMs,
+        expectedFenceDigest === undefined ? 0 : 1,
+        expectedFenceDigest ?? null,
+      ),
     db
       .prepare(
         `UPDATE mxqr_developer_api_keys
@@ -5940,6 +5984,94 @@ function ownerTransferRequestIdFromBodyBytes(bytes: Uint8Array | null) {
     return null;
   }
   return body.requestId;
+}
+
+interface OwnerTransferClaimSelector {
+  roomCode: string;
+  roomGeneration: number;
+  targetAccountId: string;
+  claimGeneration: number;
+  expiresAtMs: number;
+}
+
+function ownerTransferClaimSelector(bytes: Uint8Array | null): OwnerTransferClaimSelector | null {
+  try {
+    if (!ownerTransferRequestIdFromBodyBytes(bytes) || !bytes) return null;
+    const body: unknown = JSON.parse(
+      new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes),
+    );
+    if (!isJsonObject(body) || typeof body.claimToken !== 'string') return null;
+    const parts = body.claimToken.split('.');
+    if (
+      parts.length !== 3 ||
+      parts[0] !== 'v1' ||
+      !parts[1] ||
+      !/^[A-Za-z0-9_-]+$/.test(parts[1]) ||
+      !/^[A-Za-z0-9_-]{43}$/.test(parts[2] || '')
+    )
+      return null;
+    const text = base64UrlToString(parts[1]);
+    if (stringToBase64Url(text) !== parts[1]) return null;
+    const payload: unknown = JSON.parse(text);
+    const keys = [
+      'v',
+      'purpose',
+      'roomCode',
+      'roomGeneration',
+      'targetAccountId',
+      'claimGeneration',
+      'ownerAuthorityEpoch',
+      'iat',
+      'exp',
+      'nonce',
+    ];
+    if (
+      !isJsonObject(payload) ||
+      Object.keys(payload).length !== keys.length ||
+      keys.some((key) => !Object.hasOwn(payload, key)) ||
+      payload.v !== 1 ||
+      payload.purpose !== 'pro-room-owner-transfer' ||
+      typeof payload.roomCode !== 'string' ||
+      !ADMIN_PRO_ROOM_CODE_RE.test(payload.roomCode) ||
+      !isProRoomGeneration(payload.roomGeneration) ||
+      typeof payload.targetAccountId !== 'string' ||
+      !ACCOUNT_ID_RE.test(payload.targetAccountId) ||
+      typeof payload.claimGeneration !== 'number' ||
+      !Number.isSafeInteger(payload.claimGeneration) ||
+      payload.claimGeneration < 0 ||
+      typeof payload.ownerAuthorityEpoch !== 'number' ||
+      !Number.isSafeInteger(payload.ownerAuthorityEpoch) ||
+      payload.ownerAuthorityEpoch < 0 ||
+      typeof payload.iat !== 'number' ||
+      !Number.isSafeInteger(payload.iat) ||
+      payload.iat < 0 ||
+      payload.iat > Date.now() + 60_000 ||
+      typeof payload.exp !== 'number' ||
+      !Number.isSafeInteger(payload.exp) ||
+      payload.exp <= payload.iat ||
+      payload.exp - payload.iat > ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENT_TTL_MS ||
+      typeof payload.nonce !== 'string' ||
+      !/^[A-Za-z0-9_-]{16,128}$/.test(payload.nonce)
+    )
+      return null;
+    // This is an untrusted D1 selector, never claim authentication. The PRO
+    // Worker alone verifies the signature and can authorize PREPARE.
+    return {
+      roomCode: payload.roomCode,
+      roomGeneration: payload.roomGeneration,
+      targetAccountId: payload.targetAccountId,
+      claimGeneration: payload.claimGeneration,
+      expiresAtMs: payload.exp,
+    };
+  } catch {
+    return null;
+  }
+}
+
+class OwnerTransferIntentAdmissionError extends Error {
+  constructor(readonly code: 'OWNER_TRANSFER_CLAIM_INVALID' | 'RATE_LIMITED') {
+    super(code);
+  }
 }
 
 interface OwnerTransferPreparePayload extends JsonObject {
@@ -6125,6 +6257,7 @@ async function auditSystemOwnerTransfer(
   result: string,
   roomCode: string,
   roomGeneration: number,
+  { once = false } = {},
 ) {
   const db = getAdminDb(env);
   if (!db?.prepare) throw new Error('PRO room registry unavailable');
@@ -6135,6 +6268,7 @@ async function auditSystemOwnerTransfer(
     result,
     roomCode,
     roomGeneration,
+    { once },
   );
 }
 
@@ -6310,11 +6444,13 @@ async function recordOwnerTransferIntent(
     roomGeneration,
     requestId,
     targetAccountId,
+    selector,
   }: {
     roomCode: string;
     roomGeneration: number;
     requestId: string;
     targetAccountId: string;
+    selector: OwnerTransferClaimSelector | null;
   },
   nowMs: number = Date.now(),
 ) {
@@ -6329,6 +6465,79 @@ async function recordOwnerTransferIntent(
   ) {
     return null;
   }
+  const existing = await readOwnerTransferSaga(db, roomCode, roomGeneration, requestId);
+  if (existing) {
+    return existing.roomCode === roomCode &&
+      existing.roomGeneration === roomGeneration &&
+      existing.requestId === requestId &&
+      existing.targetAccountId === targetAccountId &&
+      !['expired', 'superseded', 'target_deleted'].includes(existing.state)
+      ? existing
+      : null;
+  }
+  if (
+    !selector ||
+    selector.roomCode !== roomCode ||
+    selector.roomGeneration !== roomGeneration ||
+    selector.targetAccountId !== targetAccountId
+  ) {
+    throw new OwnerTransferIntentAdmissionError('OWNER_TRANSFER_CLAIM_INVALID');
+  }
+  // Allocate before PREPARE so a lost response remains recoverable. A single
+  // SQLite statement enforces the issuance-bound durable allocation ceiling;
+  // an already admitted request can finish its interrupted intent write.
+  await db
+    .prepare(
+      `INSERT OR IGNORE INTO mxqr_pro_room_owner_transfer_intent_admissions
+       (room_code, room_generation, request_id, claim_generation, target_account_id, admitted_at)
+     SELECT ?1, ?2, ?3, ?7, ?4, ?5
+      WHERE EXISTS (
+        SELECT 1 FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+         WHERE room_code = ?1 AND room_generation = ?2 AND claim_generation = ?7
+           AND target_account_id = ?4 AND state = 'issued' AND expires_at = ?8 AND expires_at > ?5
+      ) AND (
+        SELECT COUNT(*) FROM mxqr_pro_room_owner_transfer_intent_admissions
+         WHERE room_code = ?1 AND room_generation = ?2 AND claim_generation = ?7
+      ) < ?6`,
+    )
+    .bind(
+      roomCode,
+      roomGeneration,
+      requestId,
+      targetAccountId,
+      nowMs,
+      ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENTS_PER_CLAIM,
+      selector.claimGeneration,
+      selector.expiresAtMs,
+    )
+    .run();
+  const admission = await db
+    .prepare(
+      `SELECT claim_generation FROM mxqr_pro_room_owner_transfer_intent_admissions
+      WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3 AND target_account_id = ?4`,
+    )
+    .bind(roomCode, roomGeneration, requestId, targetAccountId)
+    .first();
+  if (Number(admission?.claim_generation) !== selector.claimGeneration || !admission) {
+    const issued = await db
+      .prepare(
+        `SELECT 1 AS issued FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+        WHERE room_code = ?1 AND room_generation = ?2 AND claim_generation = ?3
+          AND target_account_id = ?4 AND state = 'issued' AND expires_at = ?5 AND expires_at > ?6`,
+      )
+      .bind(
+        roomCode,
+        roomGeneration,
+        selector.claimGeneration,
+        targetAccountId,
+        selector.expiresAtMs,
+        nowMs,
+      )
+      .first();
+    throw new OwnerTransferIntentAdmissionError(
+      issued ? 'RATE_LIMITED' : 'OWNER_TRANSFER_CLAIM_INVALID',
+    );
+  }
   const expiresAtMs = nowMs + ADMIN_PRO_ROOM_OWNER_TRANSFER_INTENT_TTL_MS;
   await db
     .prepare(
@@ -6336,16 +6545,44 @@ async function recordOwnerTransferIntent(
         (room_code, room_generation, claim_generation, transfer_id, request_id,
          target_account_id, previous_owner_account_id, fence_digest, state,
          intent_at, prepared_at, expires_at, updated_at)
-       VALUES (?1, ?2, NULL, NULL, ?3, ?4, NULL, NULL, 'intent', ?5, NULL, ?6, ?5)`,
+       SELECT ?1, ?2, NULL, NULL, ?3, ?4, NULL, NULL, 'intent', ?5, NULL, ?6, ?5
+        WHERE EXISTS (
+          SELECT 1 FROM mxqr_pro_room_owner_transfer_intent_admissions
+           WHERE room_code = ?1 AND room_generation = ?2 AND request_id = ?3 AND target_account_id = ?4
+        )`,
     )
     .bind(roomCode, roomGeneration, requestId, targetAccountId, nowMs, expiresAtMs)
     .run();
   const intent = await readOwnerTransferSaga(db, roomCode, roomGeneration, requestId);
   return intent &&
+    intent.roomCode === roomCode &&
+    intent.roomGeneration === roomGeneration &&
+    intent.requestId === requestId &&
     intent.targetAccountId === targetAccountId &&
     !['expired', 'superseded', 'target_deleted'].includes(intent.state)
     ? intent
     : null;
+}
+
+export async function recordOwnerTransferIntentForTests(
+  db: unknown,
+  input: { roomCode: string; roomGeneration: number; targetAccountId: string; body: Uint8Array },
+  nowMs = Date.now(),
+) {
+  if (!isAppD1Database(db)) throw new TypeError('Owner transfer database unavailable');
+  const requestId = ownerTransferRequestIdFromBodyBytes(input.body);
+  if (!requestId) throw new TypeError('Invalid owner transfer request');
+  return recordOwnerTransferIntent(
+    db,
+    {
+      roomCode: input.roomCode,
+      roomGeneration: input.roomGeneration,
+      targetAccountId: input.targetAccountId,
+      requestId,
+      selector: ownerTransferClaimSelector(input.body),
+    },
+    nowMs,
+  );
 }
 
 async function recordOwnerTransferIssuance(
@@ -6375,12 +6612,15 @@ async function recordOwnerTransferIssuance(
   ) {
     return false;
   }
+  // PRO issues claim generations in order, but separate App requests can
+  // finish their ledger writes in reverse order. An older response must never
+  // supersede the newer claim or recreate itself as the current issuance.
   await db
     .prepare(
       `UPDATE ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
-          SET state = 'superseded', updated_at = ?4
+          SET state = 'superseded', updated_at = MAX(updated_at, ?4)
         WHERE room_code = ?1 AND room_generation = ?2
-          AND claim_generation <> ?3 AND state = 'issued'`,
+          AND claim_generation < ?3 AND state = 'issued'`,
     )
     .bind(roomCode, roomGeneration, claimGeneration, nowMs)
     .run();
@@ -6389,7 +6629,11 @@ async function recordOwnerTransferIssuance(
       `INSERT OR IGNORE INTO ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
         (room_code, room_generation, claim_generation, target_account_id,
          transfer_id, request_id, state, issued_at, expires_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, NULL, NULL, 'issued', ?5, ?6, ?5)`,
+       SELECT ?1, ?2, ?3, ?4, NULL, NULL, 'issued', ?5, ?6, ?5
+        WHERE NOT EXISTS (
+          SELECT 1 FROM ${ADMIN_PRO_ROOM_OWNER_TRANSFER_ISSUANCE_TABLE}
+           WHERE room_code = ?1 AND room_generation = ?2 AND claim_generation > ?3
+        )`,
     )
     .bind(roomCode, roomGeneration, claimGeneration, targetAccountId, nowMs, expiresAtMs)
     .run();
@@ -7306,12 +7550,11 @@ async function reconcileOneOwnerTransferSaga(
 
   if (
     !(await markAdminProRoomOperationalState(
-      db,
+      env,
       saga.roomCode,
       saga.roomGeneration,
       'active',
       null,
-      nowMs,
     )) ||
     !(await advanceOwnerTransferSagaState(db, saga, 'registry_active', nowMs))
   ) {
@@ -7460,6 +7703,7 @@ async function handleProRoomOwnershipTransferSaga({
         result,
         roomCode,
         roomGeneration,
+        { once: true },
       );
       return null;
     } catch {
@@ -7496,8 +7740,15 @@ async function handleProRoomOwnershipTransferSaga({
       roomGeneration,
       requestId,
       targetAccountId,
+      selector: ownerTransferClaimSelector(body),
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof OwnerTransferIntentAdmissionError) {
+      const auditError = await failAudit(
+        error.code === 'RATE_LIMITED' ? 'intent_capacity' : 'denied_invalid',
+      );
+      return auditError || json({ error: error.code }, error.code === 'RATE_LIMITED' ? 429 : 401);
+    }
     const auditError = await failAudit('intent_unavailable');
     return auditError || json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
   }
@@ -7825,7 +8076,7 @@ async function handleProRoomOwnershipTransferSaga({
   // completed ownership boundary.
   try {
     const updated = await markAdminProRoomOperationalState(
-      adminDb,
+      env,
       roomCode,
       roomGeneration,
       'active',
@@ -8516,7 +8767,7 @@ async function handleAdminProRooms(request: Request, env: AppEnv, pathname: stri
           'Cache-Control': 'no-store, max-age=0',
         });
       }
-      rooms = await attachCanonicalAdminProRoomOwnerState(env, db, rooms);
+      rooms = await attachCanonicalAdminProRoomOwnerState(env, rooms);
       return json({ generatedAt: new Date().toISOString(), rooms });
     } catch {
       return json({ error: 'PRO_ROOM_REGISTRY_UNAVAILABLE' }, 503);
@@ -8611,7 +8862,12 @@ async function handleAdminProRooms(request: Request, env: AppEnv, pathname: stri
         !proRoomAdminResponseIdentityMatches(provisionPayload, roomCode, roomGeneration) ||
         provisionPayload.ok !== true ||
         typeof provisionPayload.status !== 'string' ||
-        !['unactivated', 'active', 'suspended'].includes(provisionPayload.status)
+        !['unactivated', 'active', 'suspended'].includes(provisionPayload.status) ||
+        (provisionPayload.status === 'suspended' &&
+          (typeof provisionPayload.suspensionReason !== 'string' ||
+            !['operator_suspended', 'owner_account_deleted', 'ownership_transfer_pending'].includes(
+              provisionPayload.suspensionReason,
+            )))
       ) {
         const auditError = await writeAdminProRoomAuditOrFail(
           db,
@@ -8627,7 +8883,19 @@ async function handleAdminProRooms(request: Request, env: AppEnv, pathname: stri
           ? json({ error: 'PRO_ROOM_ADMIN_INVALID_RESPONSE' }, 502)
           : proRoomObjectError(provisioned);
       }
-      await markAdminProRoomRegistered(db, roomCode, roomGeneration, provisionPayload.status);
+      if (
+        !(await markAdminProRoomOperationalState(
+          env,
+          roomCode,
+          roomGeneration,
+          provisionPayload.status,
+          provisionPayload.status === 'suspended' &&
+            typeof provisionPayload.suspensionReason === 'string'
+            ? provisionPayload.suspensionReason
+            : null,
+        ))
+      )
+        return json({ error: 'PRO_ROOM_REGISTRATION_CONFLICT' }, 409);
       const room = (await readAdminProRoom(db, roomCode)) || registered.room;
       if (
         room.roomGeneration !== roomGeneration ||
@@ -9789,7 +10057,7 @@ async function handleAdminProRoomLegacyOwnerDetach(
     }
     if (
       !(await markAdminProRoomOperationalState(
-        db,
+        env,
         roomCode,
         room.roomGeneration,
         'suspended',
@@ -10012,7 +10280,7 @@ async function handleAdminProRoomState(request: Request, env: AppEnv, pathname: 
 
   try {
     const updated = await markAdminProRoomOperationalState(
-      db,
+      env,
       roomCode,
       room.roomGeneration,
       targetStatus,
@@ -10780,18 +11048,10 @@ async function handleAdminArticleVisibility(request: Request, env: AppEnv) {
   const slug = String(body.slug || '').trim();
   if (!isValidSoroSlug(slug)) return json({ error: 'INVALID_SLUG' }, 400);
 
-  const hiddenSlugs = await readSoroHiddenSlugs(env);
-  const wasHidden = hiddenSlugs.has(slug);
-  if (body.hidden === false) hiddenSlugs.delete(slug);
-  else hiddenSlugs.add(slug);
-  const isHidden = hiddenSlugs.has(slug);
-
-  const status = await writeSoroHiddenSlugs(env, hiddenSlugs);
+  const isHidden = body.hidden !== false;
+  const status = await writeSoroArticleVisibility(env, slug, isHidden);
   if (status === 'unbound') return json({ error: 'SORO_BACKUP_NOT_CONFIGURED' }, 503);
-  const cacheVersion =
-    wasHidden === isHidden
-      ? await readSoroBlogCacheVersion(env)
-      : await touchSoroBlogCacheVersion(env, 'visibility');
+  const cacheVersion = await touchSoroBlogCacheVersion(env, 'visibility');
   return json({
     ok: true,
     slug,
@@ -12017,7 +12277,10 @@ function decodeHtmlEntities(value: string | null | undefined) {
   if (!HTML_ENTITY_RE.test(text)) return text;
   return text.replace(HTML_ENTITY_RE_G, (match, entity: string) => {
     if (entity[0] === '#') return decodeNumericEntity(entity) || match;
-    return HTML_ENTITY_FALLBACKS[entity.toLowerCase()] || match;
+    const name = entity.toLowerCase();
+    return Object.hasOwn(HTML_ENTITY_FALLBACKS, name)
+      ? HTML_ENTITY_FALLBACKS[name] || match
+      : match;
   });
 }
 
@@ -13351,12 +13614,28 @@ function isAllowedSoroImageContentType(contentType: string) {
   return Boolean(contentTypeToSoroImageExt(contentType));
 }
 
-function soroImageKey(article: Pick<SoroArticle, 'slug' | 'image'>, contentType: string = '') {
+function legacySoroImageKey(
+  article: Pick<SoroArticle, 'slug' | 'image'>,
+  contentType: string = '',
+) {
   if (!article.slug || !isValidSoroSlug(article.slug)) return '';
   const source = sanitizeSoroImageSource(article.image);
   if (!source) return '';
   const ext = imageExtFromUrl(source) || contentTypeToSoroImageExt(contentType) || 'webp';
   return `${SORO_IMAGE_R2_PREFIX}${article.slug}.${ext}`;
+}
+
+async function soroImageKey(
+  article: Pick<SoroArticle, 'slug' | 'image'>,
+  contentType: string = '',
+) {
+  const legacyKey = legacySoroImageKey(article, contentType);
+  if (!legacyKey) return '';
+  // The provider source URL identifies the featured-image version. Keep each
+  // version in its own R2 object so replacing an article image never overwrites
+  // bytes behind an already-published immutable browser URL.
+  const version = bytesToBase64Url(await sha256Bytes(sanitizeSoroImageSource(article.image)));
+  return legacyKey.replace(/\.([a-z]+)$/, `.${version}.$1`);
 }
 
 function soroImagePublicPath(key: string) {
@@ -13372,7 +13651,11 @@ function soroImageKeyFromPathname(pathname: string) {
     const key = decodeURIComponent(pathname.slice(SORO_IMAGE_ROUTE_PREFIX.length));
     if (!key.startsWith(SORO_IMAGE_R2_PREFIX)) return '';
     if (key.includes('..') || key.includes('\\')) return '';
-    if (!/^featured\/[a-z0-9]+(?:-[a-z0-9]+)*\.(?:avif|gif|jpg|png|webp)$/.test(key)) {
+    if (
+      !/^featured\/[a-z0-9]+(?:-[a-z0-9]+)*(?:\.[A-Za-z0-9_-]{43})?\.(?:avif|gif|jpg|png|webp)$/.test(
+        key,
+      )
+    ) {
       return '';
     }
     return key;
@@ -13391,7 +13674,7 @@ async function ensureSoroImageMirror(
   if (!sourceUrl) return 'invalid-source';
   if (!env.SORO_IMAGE_BUCKET) return 'unbound';
 
-  const key = soroImageKey(article);
+  const key = await soroImageKey(article);
   if (!key) return 'invalid-key';
   const localPath = soroImagePublicPath(key);
 
@@ -13450,6 +13733,9 @@ async function ensureSoroImageMirror(
 
     const mirroredContentType = fetched.contentType.split(';')[0] || '';
     await env.SORO_IMAGE_BUCKET.put(key, fetched.bytes, {
+      // Even if HEAD failed or two mirrors raced, a published version keeps
+      // the first stored bytes. A source replacement gets a different key.
+      onlyIf: { etagDoesNotMatch: '*' },
       httpMetadata: {
         contentType: mirroredContentType.trim().toLowerCase(),
         cacheControl: SORO_IMAGE_CACHE,
@@ -13531,7 +13817,7 @@ function soroArticleImageUrl(
   return `${origin}/og-blog.png`;
 }
 
-function mapSoroListImagePaths(articles: SoroArticle[]) {
+async function mapSoroListImagePaths(articles: SoroArticle[]) {
   const counts: Record<string, number> = {};
   const visibleCount = Math.min(articles.length, 12);
 
@@ -13542,7 +13828,7 @@ function mapSoroListImagePaths(articles: SoroArticle[]) {
       continue;
     }
 
-    const key = soroImageKey(article);
+    const key = await soroImageKey(article);
     if (!key) {
       counts.invalid = (counts.invalid || 0) + 1;
       continue;
@@ -13558,9 +13844,9 @@ function mapSoroListImagePaths(articles: SoroArticle[]) {
     .join(',');
 }
 
-function mapSoroArticleImagePath(article: SoroArticle) {
+async function mapSoroArticleImagePath(article: SoroArticle) {
   if (!article.image) return 'none';
-  const key = soroImageKey(article);
+  const key = await soroImageKey(article);
   if (!key) return 'invalid';
   article.localImagePath = soroImagePublicPath(key);
   return 'mapped';
@@ -13961,7 +14247,7 @@ export function sanitizeSoroArticleHtmlForTests(html: string) {
 }
 
 function replaceHtmlTag(html: string, pattern: RegExp, replacement: string) {
-  return pattern.test(html) ? html.replace(pattern, replacement) : html;
+  return pattern.test(html) ? html.replace(pattern, () => replacement) : html;
 }
 
 function parseSoroRss(xml: string): SoroArticle[] {
@@ -14012,25 +14298,73 @@ async function readSoroBackup(env: AppEnv) {
   return { text, articles };
 }
 
-async function readSoroHiddenSlugs(env: AppEnv) {
-  if (!env.SORO_RSS_BACKUP) return new Set<string>();
-  const text = (await env.SORO_RSS_BACKUP.get(SORO_HIDDEN_SLUGS_KEY)) || '[]';
+class SoroVisibilityUnavailableError extends Error {}
+
+async function withSoroVisibilityFailureResponse(task: Promise<Response>) {
   try {
-    const slugs: unknown = JSON.parse(text);
-    if (!Array.isArray(slugs)) return new Set<string>();
-    return new Set(
-      slugs.filter((slug): slug is string => typeof slug === 'string' && isValidSoroSlug(slug)),
-    );
-  } catch {
-    return new Set<string>();
+    return await task;
+  } catch (error) {
+    if (!(error instanceof SoroVisibilityUnavailableError)) throw error;
+    return json({ error: 'SORO_VISIBILITY_UNAVAILABLE' }, 503);
   }
 }
 
-async function writeSoroHiddenSlugs(env: AppEnv, hiddenSlugs: Set<string>) {
+async function readSoroHiddenSlugs(env: AppEnv) {
+  if (!env.SORO_RSS_BACKUP) return new Set<string>();
+  const text = (await env.SORO_RSS_BACKUP.get(SORO_HIDDEN_SLUGS_KEY)) || '[]';
+  let hiddenSlugs = new Set<string>();
+  try {
+    const slugs: unknown = JSON.parse(text);
+    if (Array.isArray(slugs)) {
+      hiddenSlugs = new Set(
+        slugs.filter((slug): slug is string => typeof slug === 'string' && isValidSoroSlug(slug)),
+      );
+    }
+  } catch {
+    // Preserve the legacy malformed-KV behavior. Canonical overrides below
+    // still apply and are never replaced by this fallback.
+  }
+  try {
+    const db = getAdminDb(env);
+    if (!db?.prepare) throw new Error('Visibility database unavailable');
+    const rows = await db.prepare('SELECT slug, hidden FROM mxqr_soro_article_visibility').all();
+    if (!Array.isArray(rows.results)) throw new Error('Visibility rows unavailable');
+    for (const row of rows.results) {
+      if (
+        typeof row.slug !== 'string' ||
+        !isValidSoroSlug(row.slug) ||
+        (row.hidden !== 0 && row.hidden !== 1)
+      ) {
+        throw new Error('Invalid visibility row');
+      }
+      if (Number(row.hidden) === 1) hiddenSlugs.add(row.slug);
+      else hiddenSlugs.delete(row.slug);
+    }
+    return hiddenSlugs;
+  } catch {
+    // A missing migration or unavailable D1 cannot silently expose content
+    // hidden by an override that is absent from the legacy KV snapshot.
+    throw new SoroVisibilityUnavailableError();
+  }
+}
+
+async function writeSoroArticleVisibility(env: AppEnv, slug: string, hidden: boolean) {
   if (!env.SORO_RSS_BACKUP) return 'unbound';
-  const slugs = [...hiddenSlugs].filter(isValidSoroSlug).sort();
-  await env.SORO_RSS_BACKUP.put(SORO_HIDDEN_SLUGS_KEY, JSON.stringify(slugs, null, 2));
-  return 'written';
+  try {
+    const db = getAdminDb(env);
+    if (!db?.prepare) throw new Error('Visibility database unavailable');
+    await db
+      .prepare(
+        `INSERT INTO mxqr_soro_article_visibility (slug, hidden, updated_at)
+       VALUES (?1, ?2, ?3)
+       ON CONFLICT(slug) DO UPDATE SET hidden = excluded.hidden, updated_at = excluded.updated_at`,
+      )
+      .bind(slug, hidden ? 1 : 0, Date.now())
+      .run();
+    return 'written';
+  } catch {
+    throw new SoroVisibilityUnavailableError();
+  }
 }
 
 function normalizeSoroBlogCacheVersion(value: string) {
@@ -14316,7 +14650,7 @@ function renderSoroArticleInBlogShell(
   const title = `${article.title} · MUSIXQUARE`;
   const description = article.description || 'MUSIXQUARE blog article.';
   const image = soroArticleImageUrl(article, url.origin, source);
-  const published = article.pubDate ? new Date(article.pubDate).toISOString() : '';
+  const published = soroArticleIsoDate(article.pubDate);
   const safeContent = sanitizeSoroArticleHtml(article.content);
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -14336,7 +14670,7 @@ function renderSoroArticleInBlogShell(
   const articleHtml = renderSoroArticleBodyHtml(article, image, published, blogUrl, safeContent);
 
   let html = templateHtml
-    .replace('<div id="soro-blog"></div>', `<div id="soro-blog">${articleHtml}</div>`)
+    .replace('<div id="soro-blog"></div>', () => `<div id="soro-blog">${articleHtml}</div>`)
     .replace(
       /\n?<script src="https:\/\/app\.trysoro\.com\/api\/embed\/a07c133f-e3b9-401e-a076-ee36124598a7" defer><\/script>/,
       '',
@@ -14406,7 +14740,8 @@ function renderSoroArticleInBlogShell(
   );
   return html.replace(
     '</head>',
-    `  <script type="application/ld+json">${serializeJsonForHtmlScript(jsonLd)}</script>\n</head>`,
+    () =>
+      `  <script type="application/ld+json">${serializeJsonForHtmlScript(jsonLd)}</script>\n</head>`,
   );
 }
 
@@ -14424,7 +14759,7 @@ function renderSoroArticleHtml(
   const title = `${article.title} · MUSIXQUARE`;
   const description = article.description || 'MUSIXQUARE blog article.';
   const image = soroArticleImageUrl(article, url.origin, source);
-  const published = article.pubDate ? new Date(article.pubDate).toISOString() : '';
+  const published = soroArticleIsoDate(article.pubDate);
   const safeContent = sanitizeSoroArticleHtml(article.content);
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -14559,7 +14894,7 @@ async function serveSoroArticlePage(
     if (hiddenSlugs.has(slug)) return null;
   }
   if (!article) return null;
-  const imageStatus = mapSoroArticleImagePath(article);
+  const imageStatus = await mapSoroArticleImagePath(article);
 
   const headers: Record<string, string> = {
     'Content-Type': 'text/html; charset=utf-8',
@@ -14572,7 +14907,7 @@ async function serveSoroArticlePage(
     return withSecurityHeaders(new Response(null, { status: 200, headers }), headers);
   }
 
-  const shellResponse = await fetchAsset(env, request, '/blog/index.html');
+  const shellResponse = await fetchTransformedHtmlAsset(env, request, '/blog/index.html');
   const shellContentType = shellResponse.headers.get('content-type') || '';
   const shellHtml = shellContentType.includes('text/html') ? await shellResponse.text() : '';
   const html = injectSoroBlogCacheVersion(
@@ -14603,15 +14938,20 @@ async function hasSoroArticlePublic(
 }
 
 async function findSoroImageArticleForKey(env: AppEnv, key: string) {
+  const findArticle = async (articles: SoroArticle[]) => {
+    for (const article of articles) {
+      if (legacySoroImageKey(article) === key || (await soroImageKey(article)) === key)
+        return article;
+    }
+    return null;
+  };
   const backup = await readSoroBackup(env);
-  let article = backup.articles.find((candidate) => soroImageKey(candidate) === key);
+  let article = await findArticle(backup.articles);
   if (article) return article;
 
   try {
     const feeds = await loadSoroFeeds(env);
-    article = [...feeds.live.articles, ...feeds.backup.articles].find(
-      (candidate) => soroImageKey(candidate) === key,
-    );
+    article = await findArticle([...feeds.live.articles, ...feeds.backup.articles]);
     return article || null;
   } catch {
     return null;
@@ -14623,7 +14963,7 @@ async function serveSoroBlogIndex(
   env: AppEnv,
   ctx: AppExecutionContext | undefined,
 ) {
-  const response = await fetchAsset(env, request, '/blog/index.html');
+  const response = await fetchTransformedHtmlAsset(env, request, '/blog/index.html');
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/html')) return withSecurityHeaders(response);
 
@@ -14639,7 +14979,7 @@ async function serveSoroBlogIndex(
       hiddenSlugs,
     ),
   );
-  const imageStatus = mapSoroListImagePaths(articles);
+  const imageStatus = await mapSoroListImagePaths(articles);
   const headers: Record<string, string> = {
     'Content-Type': 'text/html; charset=utf-8',
     ...soroBlogCacheHeaders(cacheVersion),
@@ -14650,7 +14990,10 @@ async function serveSoroBlogIndex(
 
   if (request.method === 'HEAD') {
     return withSecurityHeaders(
-      new Response(null, { status: response.status, headers: response.headers }),
+      new Response(null, {
+        status: response.status,
+        headers: dynamicHtmlHeaders(response.headers),
+      }),
       headers,
     );
   }
@@ -14659,7 +15002,7 @@ async function serveSoroBlogIndex(
   const blogHtml = renderSoroBlogListHtml(articles, origin, source);
   let html = await response.text();
   html = html
-    .replace('<div id="soro-blog"></div>', `<div id="soro-blog">${blogHtml}</div>`)
+    .replace('<div id="soro-blog"></div>', () => `<div id="soro-blog">${blogHtml}</div>`)
     .replace(
       /\n?<script src="https:\/\/app\.trysoro\.com\/api\/embed\/a07c133f-e3b9-401e-a076-ee36124598a7" defer><\/script>/,
       '',
@@ -14667,7 +15010,7 @@ async function serveSoroBlogIndex(
   html = injectSoroBlogCacheVersion(html, cacheVersion);
 
   return withSecurityHeaders(
-    new Response(html, { status: response.status, headers: response.headers }),
+    new Response(html, { status: response.status, headers: dynamicHtmlHeaders(response.headers) }),
     headers,
   );
 }
@@ -14682,14 +15025,27 @@ async function serveSoroImage(request: Request, env: AppEnv, key: string) {
     const article = await findSoroImageArticleForKey(env, key);
     if (article) {
       await ensureSoroImageMirror(env, article, { fetchMissing: true });
-      object = await env.SORO_IMAGE_BUCKET.get(key);
+      const currentKey = await soroImageKey(article);
+      if (currentKey !== key) {
+        return withSecurityHeaders(
+          Response.redirect(new URL(soroImagePublicPath(currentKey), request.url).href, 302),
+          {
+            'Cache-Control': 'no-store',
+          },
+        );
+      }
+      object = await env.SORO_IMAGE_BUCKET.get(currentKey);
     }
   }
   if (!object) return withSecurityHeaders(new Response('Not found', { status: 404 }));
 
   const headers: Record<string, string> = {
     'Content-Type': object.httpMetadata?.contentType || 'application/octet-stream',
-    'Cache-Control': object.httpMetadata?.cacheControl || SORO_IMAGE_CACHE,
+    // Existing unversioned links remain usable, but are mutable legacy
+    // representations and must no longer advertise an immutable lifetime.
+    'Cache-Control': /\.[A-Za-z0-9_-]{43}\.[a-z]+$/.test(key)
+      ? SORO_IMAGE_CACHE
+      : 'public, max-age=0, must-revalidate',
   };
   if (object.httpEtag) headers.ETag = object.httpEtag;
 
@@ -14709,6 +15065,17 @@ async function fetchAsset(env: AppEnv, request: Request, pathname: string | null
   return assets.fetch(new Request(assetUrl, request));
 }
 
+async function fetchTransformedHtmlAsset(env: AppEnv, request: Request, pathname: string) {
+  // Validators and ranges describe the public representation, not the static
+  // shell that is about to be rewritten. Always obtain the complete shell.
+  const headers = new Headers(request.headers);
+  headers.delete('If-None-Match');
+  headers.delete('If-Modified-Since');
+  headers.delete('If-Range');
+  headers.delete('Range');
+  return fetchAsset(env, new Request(request, { headers }), pathname);
+}
+
 function injectAboutRoomCount(html: string, roomsOpened: unknown) {
   const value = isLifetimeRoomCount(roomsOpened) ? String(roomsOpened) : '';
   return html.replace(/<html\b([^>]*)>/i, (_match, attributes) => {
@@ -14720,12 +15087,14 @@ function injectAboutRoomCount(html: string, roomsOpened: unknown) {
   });
 }
 
-function dynamicAboutHeaders(sourceHeaders: HeadersInit | undefined) {
+function dynamicHtmlHeaders(sourceHeaders: HeadersInit | undefined) {
   const headers = new Headers(sourceHeaders);
   headers.delete('Content-Length');
   headers.delete('Content-Encoding');
   headers.delete('ETag');
   headers.delete('Last-Modified');
+  headers.delete('Content-Range');
+  headers.delete('Accept-Ranges');
   return headers;
 }
 
@@ -14738,16 +15107,7 @@ async function serveAboutPage(
   // `/about` is a dynamic representation even though its shell comes from the
   // asset binding. Ignore validators/ranges that target the unmodified asset,
   // otherwise a static 304 or partial body could bypass the daily snapshot.
-  const assetHeaders = new Headers(request.headers);
-  assetHeaders.delete('If-None-Match');
-  assetHeaders.delete('If-Modified-Since');
-  assetHeaders.delete('If-Range');
-  assetHeaders.delete('Range');
-  const response = await fetchAsset(
-    env,
-    new Request(request, { headers: assetHeaders }),
-    assetPathname,
-  );
+  const response = await fetchTransformedHtmlAsset(env, request, assetPathname);
   const contentType = response.headers.get('content-type') || '';
   const pageHeaders = cacheHeadersForPath(new URL(request.url).pathname, assetPathname);
   if (!contentType.includes('text/html')) {
@@ -14757,7 +15117,7 @@ async function serveAboutPage(
     return withSecurityHeaders(
       new Response(null, {
         status: response.status,
-        headers: dynamicAboutHeaders(response.headers),
+        headers: dynamicHtmlHeaders(response.headers),
       }),
       pageHeaders,
     );
@@ -14765,12 +15125,12 @@ async function serveAboutPage(
 
   const roomsOpened = await readLifetimeRoomCountSnapshot(request, env, ctx);
   const html = injectAboutRoomCount(await response.text(), roomsOpened);
-  const headers = dynamicAboutHeaders(response.headers);
+  const headers = dynamicHtmlHeaders(response.headers);
   return withSecurityHeaders(new Response(html, { status: response.status, headers }), pageHeaders);
 }
 
 async function serveInvitePage(request: Request, env: AppEnv, code: string) {
-  const response = await fetchAsset(env, request, '/index.html');
+  const response = await fetchTransformedHtmlAsset(env, request, '/index.html');
   const contentType = response.headers.get('content-type') || '';
   if (!contentType.includes('text/html')) return withSecurityHeaders(response);
   const inviteHeaders = {
@@ -14784,13 +15144,16 @@ async function serveInvitePage(request: Request, env: AppEnv, code: string) {
   };
   if (request.method === 'HEAD') {
     return withSecurityHeaders(
-      new Response(null, { status: response.status, headers: response.headers }),
+      new Response(null, {
+        status: response.status,
+        headers: dynamicHtmlHeaders(response.headers),
+      }),
       inviteHeaders,
     );
   }
   const html = rewriteInviteMeta(await response.text(), code, new URL(request.url).origin);
   return withSecurityHeaders(
-    new Response(html, { status: response.status, headers: response.headers }),
+    new Response(html, { status: response.status, headers: dynamicHtmlHeaders(response.headers) }),
     inviteHeaders,
   );
 }
@@ -14832,20 +15195,26 @@ function localizedStaticRoute(pathname: string): LocalizedStaticRoute | null {
   };
 }
 
+function legacyAppLanguageAlias(value: string): LanguageCode | null {
+  if (!Object.hasOwn(LEGACY_APP_LANGUAGE_ALIASES, value)) return null;
+  const language = LEGACY_APP_LANGUAGE_ALIASES[value];
+  return typeof language === 'string' && APP_LANGUAGE_CODES.has(language) ? language : null;
+}
+
 function normalizeLegacyAboutLanguage(value: unknown): LanguageCode | null {
   const normalized = String(value ?? '')
     .trim()
     .replace(/_/gu, '-')
     .toLowerCase();
   if (APP_LANGUAGE_CODES.has(normalized)) return normalized as LanguageCode;
-  return LEGACY_APP_LANGUAGE_ALIASES[normalized] ?? null;
+  return legacyAppLanguageAlias(normalized);
 }
 
 function legacyLocalePathRedirect(pathname: string): string | null {
   const aboutMatch = /^\/([^/]+)\/about(?:\.html)?\/*$/iu.exec(pathname);
   if (aboutMatch) {
     const rawLanguage = String(aboutMatch[1] || '').toLowerCase();
-    const language = LEGACY_APP_LANGUAGE_ALIASES[rawLanguage] ?? null;
+    const language = legacyAppLanguageAlias(rawLanguage);
     if (language && language !== rawLanguage) return localizedAboutPath(language);
     return null;
   }
@@ -14853,7 +15222,7 @@ function legacyLocalePathRedirect(pathname: string): string | null {
   const appMatch = /^\/([^/]+)(?:\/index\.html)?\/*$/iu.exec(pathname);
   if (!appMatch) return null;
   const rawLanguage = String(appMatch[1] || '').toLowerCase();
-  const language = LEGACY_APP_LANGUAGE_ALIASES[rawLanguage] ?? null;
+  const language = legacyAppLanguageAlias(rawLanguage);
   return language && language !== rawLanguage ? localizedAppEntryPath(language) : null;
 }
 
@@ -15525,13 +15894,13 @@ export default {
       case '/api/admin/metrics':
         return handleAdminMetrics(request, env);
       case '/api/admin/articles':
-        return handleAdminArticles(request, env);
+        return withSoroVisibilityFailureResponse(handleAdminArticles(request, env));
       case '/api/admin/articles/visibility':
-        return handleAdminArticleVisibility(request, env);
+        return withSoroVisibilityFailureResponse(handleAdminArticleVisibility(request, env));
       case '/api/admin/announcement':
         return handleAdminAnnouncement(request, env);
       default:
-        return serveStatic(request, env, ctx);
+        return withSoroVisibilityFailureResponse(serveStatic(request, env, ctx));
     }
   },
 };

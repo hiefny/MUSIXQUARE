@@ -584,18 +584,22 @@ describe('R2 canonical whole-object upload', () => {
   });
 
   it('rejects an unsigned cleanup authority before opening the direct PUT', async () => {
+    const expiresAt = Date.now() + 86_400_000;
+    const cleanupToken = '00000000-0000-4000-8000-000000000009';
+    const uploadHeaders = canonicalUploadHeaders(expiresAt, cleanupToken);
+    const upload = presignedUpload(uploadHeaders);
     vi.stubGlobal(
       'fetch',
       vi.fn(async (input: RequestInfo | URL) => {
         if (String(input) === `${endpoint}/security-config`) return securityConfig();
         return Response.json({
-          uploadUrl: 'https://r2.example.test/signed-put',
-          uploadHeaders: { 'content-type': 'application/octet-stream' },
-          uploadUrlExpiresAt: Date.now() + 60_000,
-          completeToken: 'complete-token',
+          uploadUrl: upload.uploadUrl,
+          uploadHeaders,
+          uploadUrlExpiresAt: upload.uploadUrlExpiresAt,
+          completeToken,
           objectId,
-          expiresAt: Date.now() + 60_000,
-          cleanupToken: '00000000-0000-4000-8000-000000000009',
+          expiresAt,
+          cleanupToken,
         });
       }),
     );

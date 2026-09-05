@@ -69,8 +69,21 @@
       button.textContent = label;
     }
     button.addEventListener('click', () => {
+      const restoreFocus = document.activeElement === button;
       currentPage = page;
       updatePagination(list, { scroll: options && options.scroll });
+      if (restoreFocus && document.activeElement === document.body) {
+        const controls = list.parentNode?.querySelector('[data-blog-pagination]');
+        const current = controls?.querySelector<HTMLButtonElement>('[aria-current="page"]');
+        const counterpart = options?.icon
+          ? Array.from(controls?.querySelectorAll('button') || []).find(
+              (candidate) => candidate.getAttribute('aria-label') === options.ariaLabel,
+            )
+          : current;
+        (counterpart && !counterpart.disabled ? counterpart : current)?.focus({
+          preventScroll: true,
+        });
+      }
     });
     return button;
   }
@@ -186,7 +199,12 @@
 
     if (options && options.scroll) {
       const section = document.getElementById('articles');
-      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (section) {
+        const behavior = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+          ? 'auto'
+          : 'smooth';
+        section.scrollIntoView({ behavior, block: 'start' });
+      }
     }
   }
 

@@ -66,6 +66,57 @@ describe('Durable Object migration contract', () => {
     );
   });
 
+  it('includes whitespace migration tables so an appended deletion cannot evade the manifest', () => {
+    const parsed = parseProductionWranglerMigrations(`
+      name = "worker-name"
+      [[migrations]]
+      tag = "v1"
+      new_sqlite_classes = ["Room"]
+      [[ migrations ]]
+      tag = "v2"
+      deleted_classes = ["Room"]
+    `);
+    expect(parsed.migrations).toEqual([
+      { tag: 'v1', new_sqlite_classes: ['Room'] },
+      { tag: 'v2', deleted_classes: ['Room'] },
+    ]);
+  });
+
+  it.each([
+    '[ [ "migrations" ] ]',
+    '[["migrations"]]',
+    "[['migrations']]",
+    '[["\\u006digrations"]]',
+    '[ "exports" . Room ]',
+    "['exports'.Room]",
+    '[[ migrations . nested ]]',
+    '[migrations]',
+  ])('fails closed instead of ignoring unsupported table %s', (table) => {
+    expect(() =>
+      parseProductionWranglerMigrations(
+        `name = "worker-name"\n${table}\ntag = "v2"\ndeleted_classes = ["Room"]`,
+      ),
+    ).toThrow('unsupported');
+  });
+
+  it.each([
+    'migrations = [{ tag = "v2", deleted_classes = ["Room"] }]',
+    'exports.Room = { type = "durable-object", storage = "sqlite" }',
+    '"migrations" = [{ tag = "v2", deleted_classes = ["Room"] }]',
+  ])('fails closed on an unsupported top-level declaration: %s', (statement) => {
+    expect(() => parseProductionWranglerMigrations(`name = "worker-name"\n${statement}`)).toThrow(
+      'unsupported top-level',
+    );
+  });
+
+  it('preserves the declarative export rejection after whitespace normalization', () => {
+    expect(() =>
+      parseProductionWranglerMigrations(
+        'name = "worker-name"\n[ exports . Room ]\ntype = "durable-object"',
+      ),
+    ).toThrow('extend the canonical Durable Object contract');
+  });
+
   it('allows only suffix appends to every existing per-script history', () => {
     const current = clone(loadDurableObjectMigrationManifest());
     const previous = clone(current);

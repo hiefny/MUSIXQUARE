@@ -117,6 +117,37 @@ describe('UI sounds', () => {
     expect(changed).toHaveBeenCalledWith(true);
   });
 
+  it('keeps the selected sound opt-in for this page when a full localStorage rejects its new key', async () => {
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+      throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
+    });
+    try {
+      // The settings button calls this setter; unlike the immediate forced
+      // preview, subsequent ordinary sound must honor the same local choice.
+      setUiSoundsEnabled(true);
+      expect(localStorage.getItem('musixquare-ui-sounds-enabled')).toBeNull();
+      expect(isUiSoundsEnabled()).toBe(true);
+      playUiTouchSound();
+      await flushSounds();
+      expect(context.createBufferSource).toHaveBeenCalledOnce();
+      // A later successful choice resumes the normal persistent/cross-tab
+      // reader instead of keeping an obsolete page override forever.
+      setUiSoundsEnabled(false);
+      expect(isUiSoundsEnabled()).toBe(false);
+      expect(localStorage.getItem('musixquare-ui-sounds-enabled')).toBe('0');
+      localStorage.setItem('musixquare-ui-sounds-enabled', '1');
+      expect(isUiSoundsEnabled()).toBe(true);
+    } finally {
+      write.mockRestore();
+    }
+  });
+
+  it('continues reading ordinary persisted changes when no local write failed', () => {
+    setUiSoundsEnabled(true);
+    localStorage.setItem('musixquare-ui-sounds-enabled', '0');
+    expect(isUiSoundsEnabled()).toBe(false);
+  });
+
   it('does not synthesize while disabled but can preview the opt-in sound', async () => {
     playUiTouchSound();
     await flushSounds();
@@ -126,6 +157,47 @@ describe('UI sounds', () => {
     await flushSounds();
     expect(context.createBufferSource).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['touch', 'announcement', 'session'] as const)(
+    'rechecks sound opt-in and visibility after native resume: %s',
+    async (kind) => {
+      for (const change of ['disabled', 'hidden', 'current'] as const) {
+        resetUiSoundsForTests();
+        setUiSoundsEnabled(true);
+        Object.defineProperty(document, 'visibilityState', {
+          configurable: true,
+          value: 'visible',
+        });
+        Object.defineProperty(context, 'state', { configurable: true, value: 'suspended' });
+        let finishResume!: () => void;
+        const resume = new Promise<void>((resolve) => {
+          finishResume = resolve;
+        });
+        vi.mocked(context.resume).mockReturnValueOnce(resume);
+        context.createBufferSource.mockClear();
+        context.createOscillator.mockClear();
+        if (kind === 'touch') playUiTouchSound();
+        else if (kind === 'announcement') playAnnouncementSound();
+        else playChatSystemEventSound('chat.peer_connected', { name: 'Peer 2' });
+        if (change === 'disabled') setUiSoundsEnabled(false);
+        if (change === 'hidden') {
+          Object.defineProperty(document, 'visibilityState', {
+            configurable: true,
+            value: 'hidden',
+          });
+        }
+        Object.defineProperty(context, 'state', { configurable: true, value: 'running' });
+        finishResume();
+        await flushSounds();
+        expect(context.createBufferSource).toHaveBeenCalledTimes(
+          change === 'current' && kind === 'touch' ? 1 : 0,
+        );
+        expect(context.createOscillator).toHaveBeenCalledTimes(
+          change === 'current' && kind !== 'touch' ? 2 : 0,
+        );
+      }
+    },
+  );
 
   it('keeps touch feedback at unity and gives attention sounds one shared makeup gain', async () => {
     playUiTouchSound({ force: true });

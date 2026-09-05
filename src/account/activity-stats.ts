@@ -667,7 +667,10 @@ class ActivityStatsTracker implements AccountActivityStatsTracker {
   }
 
   #rescheduleLeadershipDecision(): void {
-    this.#cancelLeadershipTimer();
+    // Peer telemetry can publish more often than the settling interval. Keep
+    // the current decision deadline and read the latest directory when it
+    // fires; account/participation changes explicitly cancel their old timer.
+    if (this.#stopLeadershipTimer) return;
     this.#stopLeadershipTimer = this.#deps.scheduler.schedule(
       'leadership',
       () => {

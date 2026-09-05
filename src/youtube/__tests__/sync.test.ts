@@ -219,6 +219,36 @@ describe('YouTube Sync', () => {
       expect(player.pauseVideo).toHaveBeenCalledOnce();
     });
 
+    it.each(['before-ad', 'during-ad'])(
+      'preserves local pause selected %s when the host ad ends',
+      async (when) => {
+        const player = makePlayer();
+        const handler = await registerGuestHandler(player);
+        const stateMod = await import('../_state.ts');
+        try {
+          if (when === 'before-ad') stateMod.setLocalYouTubePaused(true);
+          for (let i = 0; i < 4; i++) {
+            handler({ time: 10, state: 1, videoId: 'same-video' });
+          }
+          if (when === 'during-ad') stateMod.setLocalYouTubePaused(true);
+          vi.mocked(player.getPlayerState).mockReturnValue(2);
+          vi.mocked(player.playVideo).mockClear();
+
+          handler({ time: 12, state: 1, videoId: 'same-video' });
+          expect(stateMod.isLocalYouTubePaused()).toBe(true);
+          expect(player.playVideo).not.toHaveBeenCalled();
+
+          // Ad recovery bookkeeping must finish even while local output is paused.
+          // Clearing the explicit local pause restores the ordinary heartbeat path.
+          stateMod.setLocalYouTubePaused(false);
+          handler({ time: 13, state: 1, videoId: 'same-video' });
+          expect(player.playVideo).toHaveBeenCalledOnce();
+        } finally {
+          stateMod.setLocalYouTubePaused(false);
+        }
+      },
+    );
+
     it('uses the production drift threshold and manual offset', async () => {
       const player = makePlayer(10);
       const handler = await registerGuestHandler(player);

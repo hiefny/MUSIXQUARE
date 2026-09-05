@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { readFile } from 'node:fs/promises';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   animateTransition: vi.fn((apply: () => void) => apply()),
@@ -155,9 +155,20 @@ function autoplayScheduleCount(): number {
 }
 
 function dispatchTouch(target: Element, type: 'touchstart' | 'touchend', clientX: number): void {
+  const touch = { identifier: 1, clientX };
+  dispatchTouches(target, type, type === 'touchstart' ? [touch] : [], [touch]);
+}
+
+function dispatchTouches(
+  target: Element,
+  type: 'touchstart' | 'touchend' | 'touchcancel',
+  touches: Array<{ identifier: number; clientX: number }>,
+  changedTouches: Array<{ identifier: number; clientX: number }>,
+): void {
   const event = new Event(type, { bubbles: true });
-  Object.defineProperty(event, type === 'touchstart' ? 'touches' : 'changedTouches', {
-    value: [{ clientX }],
+  Object.defineProperties(event, {
+    touches: { value: touches },
+    changedTouches: { value: changedTouches },
   });
   target.dispatchEvent(event);
 }
@@ -173,6 +184,57 @@ beforeEach(() => {
 });
 
 describe('onboarding carousel motion preference', () => {
+  it.each(['touchend', 'touchcancel'] as const)(
+    'ignores a stationary second finger %s and preserves the first swipe',
+    (endType) => {
+      renderCarouselFixture();
+      const controller = new AbortController();
+      onTestFinished(() => controller.abort());
+      initObCarousel(controller.signal);
+      const viewport = document.getElementById('ob-slider-viewport')!;
+      const track = document.getElementById('ob-slider-track')!;
+      const owner = { identifier: 1, clientX: 300 };
+      const second = { identifier: 2, clientX: 150 };
+
+      dispatchTouches(viewport, 'touchstart', [owner], [owner]);
+      dispatchTouches(viewport, 'touchstart', [owner, second], [second]);
+      dispatchTouches(viewport, endType, [owner], [second]);
+      expect(track.style.transform).toBe('translateX(-0%)');
+      dispatchTouches(viewport, 'touchend', [], [{ ...owner, clientX: 200 }]);
+      expect(track.style.transform).toBe('translateX(-100%)');
+      expect(autoplayScheduleCount()).toBe(1);
+      controller.abort();
+    },
+  );
+
+  it('starts from the local changed touch, ignores taps, and resets after cancellation', () => {
+    renderCarouselFixture();
+    const controller = new AbortController();
+    onTestFinished(() => controller.abort());
+    initObCarousel(controller.signal);
+    const viewport = document.getElementById('ob-slider-viewport')!;
+    const track = document.getElementById('ob-slider-track')!;
+    const outside = { identifier: 1, clientX: 400 };
+    const owner = { identifier: 2, clientX: 200 };
+    dispatchTouches(viewport, 'touchstart', [outside, owner], [owner]);
+    dispatchTouches(viewport, 'touchend', [outside], [owner]);
+    expect(track.style.transform).toBe('translateX(-0%)');
+
+    dispatchTouches(viewport, 'touchstart', [owner], [owner]);
+    dispatchTouches(viewport, 'touchcancel', [], [owner]);
+    dispatchTouches(viewport, 'touchend', [], [{ ...owner, clientX: 100 }]);
+    expect(track.style.transform).toBe('translateX(-0%)');
+    dispatchTouches(viewport, 'touchstart', [owner], [owner]);
+    viewport.dispatchEvent(new Event('touchcancel'));
+    dispatchTouches(viewport, 'touchend', [], [{ ...owner, clientX: 100 }]);
+    expect(track.style.transform).toBe('translateX(-0%)');
+
+    dispatchTouches(viewport, 'touchstart', [outside, owner], [owner]);
+    dispatchTouches(viewport, 'touchend', [outside], [{ ...owner, clientX: 300 }]);
+    expect(track.style.transform).toBe('translateX(-300%)');
+    controller.abort();
+  });
+
   it('keeps a late setup transition behind a terminal bootstrap failure', () => {
     let applyTransition: (() => void) | undefined;
     mocks.animateTransition.mockImplementationOnce((apply: () => void) => {

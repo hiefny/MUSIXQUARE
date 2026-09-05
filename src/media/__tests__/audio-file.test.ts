@@ -63,6 +63,24 @@ describe('local audio-file candidates', () => {
     expect(isCandidate('movie.webm', 'video/webm')).toBe(false);
   });
 
+  it.each(['constructor', '__proto__'])(
+    'does not recognize inherited .%s keys as audio extensions',
+    (extension) => {
+      const name = `notes.${extension}`;
+      for (const type of ['', 'application/octet-stream']) {
+        const file = new File(['plain text'], name, { type });
+        expect(partitionAudioFileCandidates([file])).toEqual({ accepted: [], rejected: [file] });
+        expect(resolveAudioMime(file.name, file.type)).toBe('');
+        expect(stripRecognizedAudioFileExtension(file.name)).toBe(name);
+      }
+      expect(resolveAudioMime(name, ' audio/custom; codecs=test ')).toBe(
+        'audio/custom; codecs=test',
+      );
+      expect(isCandidate(name, 'audio/custom')).toBe(true);
+      expect(resolveAudioMime(`notes.${extension.toUpperCase()} `)).toBe('');
+    },
+  );
+
   it.each(extensionCases)('shares the .%s extension-to-MIME fallback', (extension, mime) => {
     expect(resolveAudioMime(`TRACK.${extension.toUpperCase()}`, '')).toBe(mime);
     expect(resolveAudioMime(`track.${extension}`, 'application/octet-stream')).toBe(mime);

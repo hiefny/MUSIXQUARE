@@ -53,6 +53,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/playback:
@@ -73,6 +74,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/effects:
@@ -102,6 +104,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/queue-mode:
@@ -126,6 +129,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
     put:
@@ -183,6 +187,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/commands:
@@ -235,6 +240,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
         '429': { $ref: '#/components/responses/RateLimited' }
         '503': { $ref: '#/components/responses/Unavailable' }
   /v1/rooms/{roomCode}/queue/items:
@@ -1021,7 +1027,9 @@ components:
         and retryable flag are part of the public contract below. Honor Retry-After for RATE_LIMITED and
         UPLOAD_INCOMPLETE. COORDINATOR_INCOMPATIBLE and ROOM_SLEEPING remain in v1 only as legacy compatibility
         values; current server-authoritative PRO rooms do not require a browser coordinator and accept canonical
-        playback/effect commands while sleeping. Full remediation guidance is published at
+        playback/effect commands while sleeping. DEVELOPER_API_AUTHORITY_STALE means the room authority advanced
+        beyond this key's issuance epoch; ask the operator to issue a new key for the current room authority.
+        Repeating the request with the stale key cannot restore authority. Full remediation guidance is published at
         https://musixquare.com/developers#errors.
       enum:
         - API_DISABLED
@@ -1031,6 +1039,7 @@ components:
         - BROWSER_ORIGIN_FORBIDDEN
         - COMMAND_CAPACITY_EXCEEDED
         - COORDINATOR_INCOMPATIBLE
+        - DEVELOPER_API_AUTHORITY_STALE
         - FORBIDDEN
         - IDEMPOTENCY_CONFLICT
         - IDEMPOTENCY_KEY_REQUIRED
@@ -1058,6 +1067,7 @@ components:
         BROWSER_ORIGIN_FORBIDDEN: { httpStatus: 403, retryable: false }
         COMMAND_CAPACITY_EXCEEDED: { httpStatus: 409, retryable: false }
         COORDINATOR_INCOMPATIBLE: { httpStatus: 409, retryable: false }
+        DEVELOPER_API_AUTHORITY_STALE: { httpStatus: 409, retryable: false }
         FORBIDDEN: { httpStatus: 403, retryable: false }
         IDEMPOTENCY_CONFLICT: { httpStatus: 409, retryable: false }
         IDEMPOTENCY_KEY_REQUIRED: { httpStatus: 400, retryable: false }
@@ -1101,7 +1111,7 @@ components:
       description: Key lacks the required scope or the request came from a browser origin.
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     Conflict:
-      description: Idempotency conflict, stale queue revision, quota conflict, or incompatible room state.
+      description: Idempotency conflict, stale room authority or queue revision, quota conflict, or incompatible room state.
       content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
     NotFound:
       description: Route, room, item, or upload is unavailable to this key.

@@ -66,6 +66,7 @@ function installServiceWorkerHarness(
   hasWaitingWorker = false,
   initialCacheGeneration = 493,
   waitingCacheGeneration = initialCacheGeneration + 1,
+  registrationGate?: Promise<void>,
 ): SwHarness {
   const listeners = new Map<string, Array<(event: any) => void>>();
   const registrationListeners = new Map<string, Array<() => void>>();
@@ -120,7 +121,10 @@ function installServiceWorkerHarness(
       registrationListeners.set(type, group);
     },
   };
-  const register = vi.fn(async () => registration);
+  const register = vi.fn(async () => {
+    if (registrationGate) await registrationGate;
+    return registration;
+  });
   const container = {
     get controller() {
       return controller;
@@ -596,6 +600,57 @@ describe('service-worker cache-retirement client handshake', () => {
     expect(resetAction).toBeTypeOf('function');
     resetAction?.();
     expect(harness.reload).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { role: 'idle', initiallyControlled: true, replaceController: true, reset: 1, toast: 0 },
+    { role: 'host', initiallyControlled: true, replaceController: true, reset: 0, toast: 1 },
+    { role: 'idle', initiallyControlled: false, replaceController: true, reset: 0, toast: 0 },
+    { role: 'idle', initiallyControlled: true, replaceController: false, reset: 0, toast: 0 },
+  ])('reconciles controller state after pending registration: %j', async (scenario) => {
+    moduleMocks.getState.mockReturnValue(scenario.role);
+    let finishRegistration!: () => void;
+    const registrationGate = new Promise<void>((resolve) => {
+      finishRegistration = resolve;
+    });
+    const originalController = scenario.initiallyControlled ? { postMessage: vi.fn() } : null;
+    const harness = installServiceWorkerHarness(
+      originalController,
+      'navigate',
+      false,
+      493,
+      494,
+      registrationGate,
+    );
+    await registerWithHarness(harness);
+
+    const nextController: FakeWorker = { postMessage: vi.fn() };
+    if (scenario.replaceController) {
+      harness.setController(nextController);
+      harness.emit('controllerchange');
+    }
+    expect(moduleMocks.scheduleSessionReset).not.toHaveBeenCalled();
+    expect(moduleMocks.showToast).not.toHaveBeenCalled();
+    finishRegistration();
+    await flushAsyncControllerChange();
+    await flushAsyncControllerChange();
+
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(scenario.reset);
+    expect(moduleMocks.showToast).toHaveBeenCalledTimes(scenario.toast);
+    if (!scenario.initiallyControlled) {
+      harness.emit('message', {
+        data: { type: 'MXQR_CACHE_STATUS_REQUEST', cacheVersion: 'v494' },
+        source: nextController,
+      });
+      expect(nextController.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'MXQR_CACHE_CLIENT_STATUS', ready: true }),
+      );
+    }
+    // A later event for the already reconciled controller must not repeat the action.
+    harness.emit('controllerchange');
+    await flushAsyncControllerChange();
+    expect(moduleMocks.scheduleSessionReset).toHaveBeenCalledTimes(scenario.reset);
+    expect(moduleMocks.showToast).toHaveBeenCalledTimes(scenario.toast);
   });
 
   it('reserves an idle reset before the replacement generation replies', async () => {

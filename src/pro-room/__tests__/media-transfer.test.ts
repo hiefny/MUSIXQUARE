@@ -383,6 +383,33 @@ describe('PRO room direct R2 upload orchestration', () => {
 });
 
 describe('PRO room signed R2 download orchestration', () => {
+  it('cancels an unread GET when retained encoded bytes reject receive admission', async () => {
+    const harness = apiHarness();
+    harness.getMediaDownload.mockResolvedValue({
+      asset: source(),
+      url: presignedUrl(),
+      expiresAtMs: 1_900_000_000_000,
+    });
+    const cancel = vi.fn();
+    const response = new Response(new ReadableStream({ cancel }), {
+      status: 200,
+      headers: { 'content-length': '4' },
+    });
+    const transfer = new ProRoomMediaTransfer({
+      api: harness.api,
+      fetch: vi.fn<typeof fetch>().mockResolvedValue(response),
+    });
+    await expect(
+      transfer.download({
+        code: ROOM_CODE,
+        name: 'next.flac',
+        source: source(),
+        retainedEncodedBytes: PRO_ROOM_MAX_ASSET_BYTES,
+      }),
+    ).rejects.toMatchObject({ code: 'PRO_ROOM_MEDIA_DOWNLOAD_NETWORK' });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it('enforces the descriptor and byte count, preserves name/MIME, and uses credentialless fetch', async () => {
     const harness = apiHarness();
     harness.getMediaDownload.mockResolvedValue({

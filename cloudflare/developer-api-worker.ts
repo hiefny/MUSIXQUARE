@@ -3012,8 +3012,9 @@ export class DeveloperApiRateLimiter {
       ) {
         return Response.json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, { status: 410 });
       }
-      if (typeof this.storage.deleteAll === 'function') await this.storage.deleteAll();
-      else if (typeof this.storage.delete === 'function') await this.storage.delete('buckets');
+      // Commit the permanent denial before clearing rate state. In particular,
+      // an idempotent deletion retry must never erase an existing tombstone
+      // before a fallible write can restore it.
       await this.storage.put('decommissioned', {
         v: 1,
         roomCode: value.roomCode,
@@ -3021,6 +3022,11 @@ export class DeveloperApiRateLimiter {
         requestId: value.requestId,
         decommissionedAtMs: Date.now(),
       });
+      if (typeof this.storage.delete !== 'function') {
+        throw new Error('Rate limiter storage cleanup unavailable');
+      }
+      await this.storage.delete('buckets');
+      await this.storage.delete('roomIdentity');
       if (typeof this.storage.deleteAlarm === 'function') await this.storage.deleteAlarm();
       return Response.json({
         ok: true,

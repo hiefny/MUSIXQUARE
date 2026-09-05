@@ -22,6 +22,11 @@ import { test, expect } from '@playwright/test';
 import type { Browser, BrowserContext, Page } from '@playwright/test';
 import { injectPeerServer } from './helpers/peer-server.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
+import {
+  installLocalYouTube,
+  submitYouTubeSource,
+  waitForYouTubePlayback,
+} from './helpers/youtube-source.ts';
 import { uploadFixture } from './helpers/file-upload.ts';
 import {
   readCurrentQueueIndex,
@@ -30,7 +35,10 @@ import {
   waitForCurrentQueueItemId,
 } from './helpers/queue-state.ts';
 import {
-  isVisible,
+  navigateToTab,
+  navigateToSubtab,
+  openChatDrawer,
+  sendChat,
   readPlaybackProjection,
   readState,
   VALID_PLAYBACK_PROJECTIONS,
@@ -85,31 +93,24 @@ interface LateGuest {
   guestPage: Page;
 }
 
-async function joinAsLateGuest(browser: Browser, sessionCode: string): Promise<LateGuest> {
+async function joinAsLateGuest(
+  browser: Browser,
+  sessionCode: string,
+  youtube = false,
+): Promise<LateGuest> {
   const guestContext = await browser.newContext({
     permissions: ['clipboard-read', 'clipboard-write'],
   });
   const guestPage = await guestContext.newPage();
   await injectPeerServer(guestPage);
+  if (youtube) await installLocalYouTube(guestPage);
   await setupGuest(guestPage, sessionCode);
   return { guestContext, guestPage };
 }
 
 async function sendChatMessage(page: Page, text: string): Promise<void> {
-  const chatBtn = page.locator('#chat-preview-btn');
-  if (await isVisible(page, '#chat-preview-btn')) {
-    await chatBtn.click();
-    await page.waitForFunction(
-      () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
-      undefined,
-      { timeout: 5_000 },
-    );
-  }
-  const chatInput = page.locator('#chat-input');
-  if (await isVisible(page, '#chat-input')) {
-    await chatInput.fill(text);
-    await page.locator('#btn-chat-send').click();
-  }
+  await openChatDrawer(page);
+  await sendChat(page, text);
 }
 
 async function assertHostAlive(page: Page): Promise<void> {
@@ -118,18 +119,16 @@ async function assertHostAlive(page: Page): Promise<void> {
 }
 
 async function grantOperatorToGuest(hostPage: Page, guestPage: Page): Promise<void> {
-  const buttons = hostPage.locator('.d-op-btn');
-  const count = await buttons.count();
-  for (let i = 0; i < count; i += 1) {
-    await buttons.nth(i).click();
-    try {
-      await waitForState(guestPage, 'network.isOperator', true, 3_000);
-      return;
-    } catch {
-      // Another row may belong to a stale hard-disconnected peer in these chaos tests.
-    }
-  }
-  await waitForState(guestPage, 'network.isOperator', true, 5_000);
+  await navigateToTab(hostPage, 'settings');
+  await navigateToSubtab(hostPage, 'connect');
+  const guestId = await readState(guestPage, 'network.myId');
+  expect(typeof guestId).toBe('string');
+  const buttons = hostPage.locator(
+    '.device-entry[data-member-key="device:' + guestId + '"]:visible .d-op-btn',
+  );
+  await expect(buttons).toBeVisible();
+  await buttons.click();
+  await waitForState(guestPage, 'network.isOperator', true);
 }
 
 /** Give hard-disconnect cleanup a brief chance, then continue with behavior checks. */
@@ -424,11 +423,7 @@ test.describe('Operator + Chaos', () => {
       }
       await waitForDeviceCount(setup.hostPage, 3);
 
-      const opBtn = setup.hostPage.locator('.d-op-btn').first();
-      if (await isVisible(setup.hostPage, '.d-op-btn')) {
-        await opBtn.click();
-        await waitForState(setup.guestPages[0], 'network.isOperator', true);
-      }
+      await grantOperatorToGuest(setup.hostPage, setup.guestPages[0]);
 
       const chatPromise = sendChatMessage(setup.guestPages[0], 'operator msg under chaos');
       const disconnectPromise = setup.guestContexts[1].close();
@@ -436,14 +431,7 @@ test.describe('Operator + Chaos', () => {
 
       await waitForPeerCountAtMost(setup.hostPage, 1);
 
-      if (await isVisible(setup.hostPage, '#chat-preview-btn')) {
-        await setup.hostPage.locator('#chat-preview-btn').click();
-        await setup.hostPage.waitForFunction(
-          () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
-          undefined,
-          { timeout: 5_000 },
-        );
-      }
+      await openChatDrawer(setup.hostPage);
       await waitForChatMessage(setup.hostPage, 'operator msg under chaos');
 
       expect(await readState(setup.guestPages[0], 'network.appRole')).toBe('guest');
@@ -469,9 +457,7 @@ test.describe('Operator + Chaos', () => {
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      if (await isVisible(setup.hostPage, '.d-op-btn')) {
-        await grantOperatorToGuest(setup.hostPage, lateGuest.guestPage);
-      }
+      await grantOperatorToGuest(setup.hostPage, lateGuest.guestPage);
 
       const hostState = await readPlaybackProjection(setup.hostPage);
       expect([
@@ -495,6 +481,7 @@ test.describe('Mode Switch + Disconnect', () => {
     const setup = await createChaosSetup(browser, 2);
     let lateGuest: LateGuest | null = null;
 
+    await Promise.all([setup.hostPage, ...setup.guestPages].map(installLocalYouTube));
     try {
       const code = await setupHostAndStart(setup.hostPage);
       for (const gp of setup.guestPages) {
@@ -502,54 +489,14 @@ test.describe('Mode Switch + Disconnect', () => {
       }
       await waitForDeviceCount(setup.hostPage, 3);
 
-      if (await isVisible(setup.hostPage, '#media-source-btn')) {
-        await setup.hostPage.locator('#media-source-btn').click();
-        await setup.hostPage
-          .waitForFunction(
-            () =>
-              !!document.querySelector(
-                '.media-source-overlay.active, .media-source-panel.active, #media-source-btn.active',
-              ),
-            undefined,
-            { timeout: 5_000 },
-          )
-          .catch(() => {}); // overlay may not have .active class
-      }
-      if (await isVisible(setup.hostPage, '#media-youtube-btn, .media-opt-youtube')) {
-        await setup.hostPage.locator('#media-youtube-btn, .media-opt-youtube').click();
-        await setup.hostPage
-          .locator('#youtube-url-input')
-          .waitFor({ state: 'visible', timeout: 5_000 })
-          .catch(() => {});
-      }
-      if (await isVisible(setup.hostPage, '#youtube-url-input')) {
-        await setup.hostPage.locator('#youtube-url-input').fill(YT_VIDEO);
-        if (await isVisible(setup.hostPage, '#youtube-play-btn, #btn-yt-play')) {
-          await setup.hostPage.locator('#youtube-play-btn, #btn-yt-play').click();
-        }
-      }
-
-      await setup.hostPage.waitForTimeout(1000); // intentional: allow YouTube iframe to begin loading
-      await setup.guestContexts[0].close();
-
-      // Wait for YouTube to settle — YouTube iframe loading has no reliable DOM signal
-      await setup.hostPage.waitForTimeout(5000); // intentional: YouTube iframe load delay
-
-      // Headless YouTube loading may remain unavailable; any valid projection
-      // is acceptable here.
-      const hostState = await readPlaybackProjection(setup.hostPage);
-      expect(VALID_PLAYBACK_PROJECTIONS).toContain(hostState);
-
-      if (hostState === 'PLAYING_YOUTUBE') {
-        const g2State = await readPlaybackProjection(setup.guestPages[1]);
-        expect(['PLAYING_YOUTUBE', 'IDLE']).toContain(g2State);
-      }
-
-      lateGuest = await joinAsLateGuest(browser, code);
-      await waitForPlaybackProjection(lateGuest.guestPage, hostState, 10_000);
-      // The readback gives exact failure output after the convergence wait.
-      const lateState = await readPlaybackProjection(lateGuest.guestPage);
-      expect(lateState).toBe(hostState);
+      await Promise.all([
+        submitYouTubeSource(setup.hostPage, YT_VIDEO),
+        setup.guestContexts[0].close(),
+      ]);
+      await waitForYouTubePlayback(setup.hostPage, 'bnh70V0yu2s');
+      await waitForYouTubePlayback(setup.guestPages[1], 'bnh70V0yu2s');
+      lateGuest = await joinAsLateGuest(browser, code, true);
+      await waitForYouTubePlayback(lateGuest.guestPage, 'bnh70V0yu2s');
     } finally {
       if (lateGuest) await lateGuest.guestContext.close().catch(() => {});
       await cleanupChaosSetup(setup);
@@ -585,16 +532,8 @@ test.describe('Chat Flood + Mass Disconnect', () => {
       await sendChatMessage(setup.hostPage, 'flood-post-crash-5');
 
       await waitForChatMessage(setup.hostPage, 'flood-post-crash-5');
-
-      const hostChat = await setup.hostPage.evaluate(
-        () => document.getElementById('chat-messages')?.textContent || '',
-      );
-      expect(hostChat.length).toBeGreaterThan(0);
-
-      const guest1Chat = await setup.guestPages[0].evaluate(
-        () => document.getElementById('chat-messages')?.textContent || '',
-      );
-      expect(guest1Chat.length).toBeGreaterThan(0);
+      await waitForChatMessage(setup.hostPage, 'guest-flood-1');
+      await waitForChatMessage(setup.guestPages[0], 'flood-post-crash-5');
 
       const hostState = await readPlaybackProjection(setup.hostPage);
       expect(VALID_PLAYBACK_PROJECTIONS).toContain(hostState);
@@ -631,17 +570,13 @@ test.describe('Playlist + Disconnect Storm', () => {
         await waitForPlaylistCount(gp, 3, 30_000);
       }
 
-      const removeBtn = setup.hostPage.locator('.btn-playlist-remove').first();
-      if (await isVisible(setup.hostPage, '.btn-playlist-remove')) {
-        const removePromise = (async () => {
-          await removeBtn.click();
-          await setup.hostPage.locator('.playlist-selection-delete').click();
-        })();
-        const disconnectPromise = setup.guestContexts[0].close();
-        await Promise.all([removePromise, disconnectPromise]);
-      } else {
-        await setup.guestContexts[0].close();
-      }
+      await navigateToTab(setup.hostPage, 'playlist');
+      await setup.hostPage.locator('.btn-playlist-remove').first().click();
+      await Promise.all([
+        setup.hostPage.locator('.playlist-selection-delete').click(),
+        setup.guestContexts[0].close(),
+      ]);
+      await waitForPlaylistCount(setup.hostPage, 2);
 
       await waitForPeerCountAtMost(setup.hostPage, 1);
 

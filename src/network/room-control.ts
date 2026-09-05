@@ -113,11 +113,22 @@ export function resolveRoomControlKickTarget(
 }
 
 function resolveChatTargetForHost(arg: string): { peerId: string; label: string } | null {
-  const peers = getState('network.connectedPeers');
+  const activeConnections = getState('network.activeHostConnByPeerId');
+  const peers = getState('network.connectedPeers').filter(
+    (peer) =>
+      peer.status === 'connected' &&
+      peer.conn?.open &&
+      activeConnections.get(peer.id) === peer.conn,
+  );
   if (arg.startsWith('#')) {
     const order = parseInt(arg.slice(1), 10);
-    if (!Number.isNaN(order)) {
-      const peer = peers.find((candidate) => candidate.joinOrder === order);
+    if (!Number.isNaN(order) && order !== 0) {
+      const peer =
+        peers.find((candidate) => candidate.memberDisplayNumber === order) ??
+        peers.find(
+          (candidate) =>
+            candidate.memberDisplayNumber === undefined && candidate.joinOrder === order,
+        );
       if (peer) return { peerId: peer.id, label: peer.label };
     }
     return null;

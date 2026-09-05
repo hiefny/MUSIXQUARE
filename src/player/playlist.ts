@@ -1284,10 +1284,11 @@ export async function playTrack(
     const pendingFile = resolveProRoomPlaylistFile(queueItemId);
     if (pendingFile) {
       // Playback of the previous row is already stopped. Release its decoded
-      // PCM before the potentially large R2 body is assembled, both to bound
+      // PCM and encoded resident before assembling the R2 body, both to bound
       // peak RAM and to make a later failed fetch incapable of replaying a
       // stale buffer under this newly selected queue ID.
       if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
+      if (getState('files.current')?.queueItemId !== queueItemId) setState('files.current', null);
       // Persistent PRO media has a network fetch phase before the ordinary
       // decode pipeline begins. Enter the existing file lifecycle immediately
       // so checkpointing preserves this selected row and every play/seek
@@ -2595,6 +2596,7 @@ async function prepareAuthoritativePlayback(
         : {}),
     });
 
+    if (request.isCurrent?.() === false) return supersededAuthorityPrepare(request);
     if (item.type === 'youtube') {
       if (!resolvedVideoId) return failedAuthorityPrepare(request, 'identity-mismatch');
       const prepared = await prepareYouTubeAuthorityOccurrence({
@@ -2637,6 +2639,7 @@ async function prepareAuthoritativePlayback(
       youtubeVideoId: null,
     };
   } catch (error) {
+    if (request.isCurrent?.() === false) return supersededAuthorityPrepare(request);
     clearManagedTimer('decode-fail-advance');
     log.warn('[PRO Playback] Participant preparation failed', error);
     return failedAuthorityPrepare(request, 'unknown');

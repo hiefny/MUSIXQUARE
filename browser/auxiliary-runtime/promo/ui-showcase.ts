@@ -139,8 +139,8 @@ function setupApp(): void {
       .forEach((el) => (el.style.opacity = '1'));
   }
 
-  const setupCodeInput = doc.getElementById('setup-code');
-  if (setupCodeInput instanceof HTMLInputElement) setupCodeInput.value = '482937';
+  const setupCodeInput = doc.querySelector<HTMLInputElement>('input#setup-code');
+  if (setupCodeInput) setupCodeInput.value = '482937';
 
   // Setup action buttons — VERTICAL layout matching real mobile app (ob-actions.vertical)
   const setupActions = doc.getElementById('setup-actions');
@@ -168,8 +168,8 @@ function setupApp(): void {
   if (tt) tt.textContent = 'Sunset Boulevard';
   const ta = doc.getElementById('track-artist');
   if (ta) ta.textContent = 'Luna & The Stars';
-  const ss = doc.getElementById('seek-slider');
-  if (ss instanceof HTMLInputElement) {
+  const ss = doc.querySelector<HTMLInputElement>('input#seek-slider');
+  if (ss) {
     ss.max = '225';
     ss.value = '83';
   }
@@ -177,8 +177,8 @@ function setupApp(): void {
   if (tc) tc.textContent = '1:23';
   const td = doc.getElementById('time-dur');
   if (td) td.textContent = '3:45';
-  const vs = doc.getElementById('volume-slider');
-  if (vs instanceof HTMLInputElement) vs.value = '80';
+  const vs = doc.querySelector<HTMLInputElement>('input#volume-slider');
+  if (vs) vs.value = '80';
 
   // Playlist
   const pul = doc.getElementById('playlist-ui');
@@ -927,8 +927,8 @@ window.__promoSetTime = function (ms: number): void {
 
   // ═══ Visualizer ═══
   if (ms >= D_START + 700 && ms < D_FADEOUT + FADEOUT_DUR) {
-    const canvas = doc.getElementById('visualizerCanvas');
-    if (canvas instanceof HTMLCanvasElement) {
+    const canvas = doc.querySelector<HTMLCanvasElement>('canvas#visualizerCanvas');
+    if (canvas) {
       const rect = canvas.getBoundingClientRect();
       const dpr = 2;
       if (canvas.width !== rect.width * dpr) {

@@ -204,7 +204,221 @@ function factories(queueItemIds: string[] = [A, B, C, D]) {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function flushMicrotasks(): Promise<void> {
+  for (let step = 0; step < 60; step += 1) await Promise.resolve();
+}
+
 describe('PRO room playlist state manager', () => {
+  it('accepts fresh authority during an upload while retaining mixed user-action FIFO', async () => {
+    const initial = activeSnapshot();
+    let server = initial;
+    const upload = deferred<Awaited<ReturnType<ProRoomPlaylistMediaTransfer['upload']>>>();
+    const media = mediaTransfer({ upload: vi.fn(() => upload.promise) });
+    const api = {
+      getSnapshot: vi.fn(async () => server),
+      updateCompactSnapshot: vi.fn(async (input: UpdateProRoomCompactSnapshotInput) => {
+        expect(input.baseRevision).toBe(server.revision);
+        server = activeSnapshot({
+          ...server,
+          revision: server.revision + 1,
+          playlistRevision: server.playlistRevision + 1,
+          playlist: applyCompactPlaylist(server, input),
+        });
+        return server;
+      }),
+    };
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories([A, B]),
+    });
+    await manager.acceptSnapshot(initial);
+    const addingFile = manager.addLocalFile({
+      file: new File(['aaaa'], 'first.flac', { type: 'audio/flac' }),
+    });
+    const addingYouTube = manager.addYouTube({ name: 'second', videoId: 'bbbbbbbbbbb' });
+    await flushMicrotasks();
+    expect(media.upload).toHaveBeenCalledOnce();
+    server = activeSnapshot({ revision: 2, playlistRevision: 1, playlist: [youtube(C)] });
+    let projected = false;
+    const accepting = manager.acceptSnapshot(server).then(() => {
+      projected = true;
+    });
+    await flushMicrotasks();
+    expect(projected).toBe(true);
+    expect(api.updateCompactSnapshot).not.toHaveBeenCalled();
+    upload.resolve({ asset: asset('asset_00000000001'), quota: initial.quota });
+    await Promise.all([accepting, addingFile, addingYouTube]);
+    expect(manager.snapshot?.playlist.map((item) => item.queueItemId)).toEqual([C, A, B]);
+  });
+
+  it('does not deadlock a first-append follow-up that awaits heartbeat acceptance', async () => {
+    const initial = activeSnapshot();
+    const { api, current } = updatingApi(initial);
+    const selectionFailure = new ProRoomApiError('PLAYBACK_REVISION_CONFLICT', 409);
+    let manager!: ProRoomPlaylistStateManager;
+    const report = vi.fn();
+    manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories([A]),
+      reportFirstAppendSelectionError: report,
+      requestFirstAppendSelection: async () => {
+        await manager.acceptSnapshot(current());
+        throw selectionFailure;
+      },
+    });
+    await manager.acceptSnapshot(initial);
+    let settled = false;
+    const adding = manager.addYouTube({ name: 'first', videoId: 'bbbbbbbbbbb' }).then(() => {
+      settled = true;
+    });
+    await flushMicrotasks();
+    expect(settled).toBe(true);
+    await adding;
+    expect(report).toHaveBeenCalledWith(expect.objectContaining({ error: selectionFailure }));
+    expect(manager.snapshot?.playlist[0]?.queueItemId).toBe(A);
+  });
+
+  it('accepts heartbeats while post-removal object deletion remains pending', async () => {
+    const initial = activeSnapshot({ playlistRevision: 1, playlist: [r2(A, 'asset_00000000001')] });
+    const { api, current } = updatingApi(initial);
+    const deletion = deferred<void>();
+    const media = mediaTransfer({ deleteAsset: vi.fn(() => deletion.promise) });
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: media,
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+    const removing = manager.remove(A);
+    await flushMicrotasks();
+    expect(media.deleteAsset).toHaveBeenCalledOnce();
+    let projected = false;
+    const accepting = manager.acceptSnapshot(current()).then(() => {
+      projected = true;
+    });
+    await flushMicrotasks();
+    expect(projected).toBe(true);
+    deletion.resolve();
+    await Promise.all([removing, accepting]);
+  });
+
+  it('retains a newer canonical snapshot when its committed mutation response arrives late', async () => {
+    const initial = activeSnapshot({ playlistRevision: 1, playlist: [youtube(A)] });
+    const committed = activeSnapshot({
+      revision: 2,
+      playlistRevision: 2,
+      playlist: [{ ...youtube(A), title: 'committed title' }],
+    });
+    const successor = activeSnapshot({
+      ...committed,
+      revision: 3,
+      playlistRevision: 3,
+      playlist: [...committed.playlist, youtube(B)],
+    });
+    const response = deferred<ProRoomSnapshot>();
+    const api = {
+      getSnapshot: vi.fn(async () => successor),
+      updateCompactSnapshot: vi.fn(() => response.promise),
+    };
+    const sink = vi.fn();
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink,
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+    const mutation = manager.updateMetadata(A, { title: 'committed title' });
+    await flushMicrotasks();
+    await manager.acceptSnapshot(successor);
+    response.resolve(committed);
+    await expect(mutation).resolves.toEqual(successor);
+    expect(sink.mock.calls.map(([event]) => event.snapshot.revision)).toEqual([1, 3]);
+    await expect(manager.acceptSnapshot(committed)).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SNAPSHOT_STALE',
+    });
+  });
+
+  it('still rejects an equal-revision conflicting mutation response', async () => {
+    const initial = activeSnapshot({ playlistRevision: 1, playlist: [youtube(A)] });
+    const response = deferred<ProRoomSnapshot>();
+    const api = {
+      getSnapshot: vi.fn(async () => initial),
+      updateCompactSnapshot: vi.fn(() => response.promise),
+    };
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api,
+      mediaTransfer: mediaTransfer(),
+      sink: vi.fn(),
+      ...factories(),
+    });
+    await manager.acceptSnapshot(initial);
+    const mutation = manager.updateMetadata(A, { title: 'mine' });
+    const rejected = expect(mutation).rejects.toMatchObject({
+      code: 'PRO_ROOM_PLAYLIST_SNAPSHOT_CONFLICT',
+    });
+    await flushMicrotasks();
+    await manager.acceptSnapshot(
+      activeSnapshot({
+        revision: 2,
+        playlistRevision: 2,
+        playlist: [{ ...youtube(A), title: 'canonical' }],
+      }),
+    );
+    response.resolve(
+      activeSnapshot({
+        revision: 2,
+        playlistRevision: 2,
+        playlist: [{ ...youtube(A), title: 'mine' }],
+      }),
+    );
+    await rejected;
+    expect(manager.snapshot?.playlist[0]?.title).toBe('canonical');
+  });
+
+  it('serializes asynchronous projection sinks independently of user-action IO', async () => {
+    const initial = activeSnapshot();
+    const gate = deferred<void>();
+    const entered: number[] = [];
+    const manager = new ProRoomPlaylistStateManager({
+      code: ROOM_CODE,
+      api: updatingApi(initial).api,
+      mediaTransfer: mediaTransfer(),
+      sink: async ({ snapshot }) => {
+        entered.push(snapshot.revision);
+        if (snapshot.revision === 1) await gate.promise;
+      },
+      ...factories(),
+    });
+    const first = manager.acceptSnapshot(initial);
+    const second = manager.acceptSnapshot(activeSnapshot({ revision: 2 }));
+    await flushMicrotasks();
+    expect(entered).toEqual([1]);
+    expect(manager.snapshot).toBeNull();
+    gate.resolve();
+    await Promise.all([first, second]);
+    expect(entered).toEqual([1, 2]);
+    expect(manager.snapshot?.revision).toBe(2);
+  });
+
   it('uses compact mutations and upserts only changed playlist rows', async () => {
     const initial = activeSnapshot({
       playlistRevision: 1,

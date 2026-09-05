@@ -97,6 +97,8 @@ type ProSystemAudioSfuEvent =
       descriptor: ProSystemAudioSfuPublicationDescriptor;
       track: MediaStreamTrack;
       receiver: RTCRtpReceiver;
+      /** Exact native subscriber owner, including across asynchronous audio setup. */
+      isCurrent: () => boolean;
     };
 
 type ProSystemAudioSfuEventListener = (event: ProSystemAudioSfuEvent) => void;
@@ -842,7 +844,13 @@ async function performSubscribe(
     if (emittedTracks.has(key)) return;
     emittedTracks.add(key);
     setReceiverDelay(receiver);
-    emitEvent({ type: 'subscriber-track', descriptor, track, receiver });
+    emitEvent({
+      type: 'subscriber-track',
+      descriptor,
+      track,
+      receiver,
+      isCurrent: () => epoch === subscriberEpoch && subscriberPc === pc,
+    });
     log.info(`[ProSysAudioSFU] Received stereo track (mid=${mid || 'none'})`);
   };
 

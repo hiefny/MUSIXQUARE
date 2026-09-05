@@ -513,6 +513,47 @@ describe('strict TypeScript auxiliary browser assets', () => {
     }
   });
 
+  it('initializes the promo inputs and visualizer in the iframe own DOM realm', async () => {
+    const asset = AUXILIARY_BROWSER_ASSETS.find((candidate) =>
+      candidate.outputPath.endsWith('/ui-showcase.js'),
+    );
+    if (!asset) throw new Error('Missing showcase asset.');
+    const compiled = await compileAuxiliaryBrowserAsset(REPOSITORY, asset);
+    const dom = new JSDOM(
+      '<iframe id="app-frame"></iframe><div id="note-wrapper"></div><svg><path id="note-stroke"/><path id="note-fill"/></svg><div id="promo-tagline"></div>',
+      {
+        runScripts: 'outside-only',
+        url: 'https://promo.local/',
+      },
+    );
+    try {
+      dom.window.eval(compiled.code);
+      const iframe = dom.window.document.querySelector('iframe')!;
+      const doc = iframe.contentDocument!;
+      doc.body.innerHTML =
+        '<input id="setup-code"><input id="seek-slider" type="range" max="100"><input id="volume-slider" type="range" max="100"><canvas id="visualizerCanvas"></canvas><div></div>';
+      const canvas = doc.querySelector('canvas')!;
+      const context = {
+        clearRect: vi.fn(),
+        save: vi.fn(),
+        scale: vi.fn(),
+        beginPath: vi.fn(),
+        arc: vi.fn(),
+        fill: vi.fn(),
+        restore: vi.fn(),
+      };
+      Object.defineProperty(canvas, 'getContext', { value: () => context });
+      iframe.dispatchEvent(new dom.window.Event('load'));
+      expect(doc.querySelector<HTMLInputElement>('#setup-code')!.value).toBe('482937');
+      expect(doc.querySelector<HTMLInputElement>('#seek-slider')!.value).toBe('83');
+      expect(doc.querySelector<HTMLInputElement>('#volume-slider')!.value).toBe('80');
+      dom.window.__promoSetTime(14000);
+      expect(context.fill).toHaveBeenCalledTimes(2);
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it('executes the compiled report polling and preserves failure semantics', async () => {
     const interrupted = await executeReportViewer(reportFixture());
     try {
@@ -533,6 +574,31 @@ describe('strict TypeScript auxiliary browser assets', () => {
       suiteFailure.window.close();
     }
   });
+
+  it.each(['failed', 'timedout', 'interrupted', 'passed'])(
+    'copies the actual %s run outcome when there are no failed test entries',
+    async (finalStatus) => {
+      const dom = await executeReportViewer(reportFixture({ failed: 0, tests: [], finalStatus }));
+      const writeText = vi.fn(async (_text: string) => undefined);
+      Object.defineProperty(dom.window.navigator, 'clipboard', { value: { writeText } });
+      try {
+        const button = dom.window.document.getElementById('copy-btn');
+        if (!(button instanceof dom.window.HTMLElement)) throw new Error('Missing copy button.');
+        button.click();
+        await Promise.resolve();
+        expect(writeText).toHaveBeenCalledOnce();
+        const copied = writeText.mock.calls[0]?.[0];
+        expect(copied).toContain(`**Run status**: ${finalStatus}`);
+        if (finalStatus === 'passed') expect(copied).toContain('All tests passed.');
+        else {
+          expect(copied).not.toContain('All tests passed.');
+          expect(copied).toContain('The test run did not pass.');
+        }
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
 
   it('owns a clipboard success-continuation failure after the report button is removed', async () => {
     const dom = await executeReportViewer(reportFixture());

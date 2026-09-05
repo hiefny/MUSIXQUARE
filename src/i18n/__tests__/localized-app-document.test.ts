@@ -53,16 +53,18 @@ describe('localized app document URL ownership', () => {
     expect(currentAppPathMatchesLanguage('en')).toBe(true);
   });
 
-  it.each(['/123456?source=invite#queue', '/about?source=nav#history'])(
-    'keeps non-app path %s outside locale ownership for every language',
-    (path) => {
-      for (const option of LANGUAGE_OPTIONS) {
-        window.history.replaceState(null, '', path);
-        expect(updateLocalizedAppPath(option.code), option.code).toBe('unowned');
-        expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe(
-          path,
-        );
-      }
-    },
-  );
+  it.each([
+    '/123456?source=invite#queue',
+    '/about?source=nav#history',
+    '/constructor/',
+    '/__proto__/',
+  ])('keeps non-app path %s outside locale ownership for every language', (path) => {
+    for (const option of LANGUAGE_OPTIONS) {
+      window.history.replaceState(null, '', path);
+      expect(updateLocalizedAppPath(option.code), option.code).toBe('unowned');
+      expect(`${window.location.pathname}${window.location.search}${window.location.hash}`).toBe(
+        path,
+      );
+    }
+  });
 });

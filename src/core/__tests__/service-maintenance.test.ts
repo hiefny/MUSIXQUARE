@@ -1769,6 +1769,66 @@ describe('shared service-maintenance control', () => {
     expect(control.fetch).toHaveBeenCalledTimes(2);
   });
 
+  it('returns the canonical announcement when a recovery read finishes behind a newer observed revision', async () => {
+    const revisionOne = announcementControlPayload(1);
+    const revisionTwo = announcementControlPayload(2);
+    const revisionThree = announcementControlPayload(3);
+    let oldResponse!: (response: Response) => void;
+    let recoveryBody!: ReadableStreamDefaultController<Uint8Array>;
+    let reads = 0;
+    const control = serviceControlEnv((request) => {
+      if (request.method === 'POST') {
+        return Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 });
+      }
+      reads += 1;
+      if (reads === 1) return Response.json(revisionOne);
+      if (reads === 2) {
+        // This earlier request reaches the DO after the recovery read below.
+        return new Promise<Response>((resolve) => {
+          oldResponse = resolve;
+        });
+      }
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            recoveryBody = controller;
+          },
+        }),
+        { headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    await expect(readAdminAnnouncementControl(control.env)).resolves.toEqual({
+      status: 'ok',
+      payload: revisionOne,
+    });
+    const oldRead = readAdminAnnouncementControl(control.env, { fresh: true });
+    await vi.waitFor(() => expect(reads).toBe(2));
+    await expect(
+      updateAdminAnnouncementControl(control.env, {
+        message: 'Unknown mutation outcome',
+        enabled: false,
+        expiresAt: null,
+        expectedRevision: 1,
+        requestId: 'announcement-recovery-read',
+        baseHistory: [],
+      }),
+    ).resolves.toMatchObject({ status: 'unavailable' });
+    const recoveryRead = readAdminAnnouncementControl(control.env, { fresh: true });
+    await vi.waitFor(() => expect(reads).toBe(3));
+    // Another operator has advanced to revision 3 after the recovery response
+    // took its revision-2 snapshot. Its body is still arriving.
+    oldResponse(Response.json(revisionThree));
+    await expect(oldRead).resolves.toMatchObject({ status: 'unavailable' });
+    recoveryBody.enqueue(new TextEncoder().encode(JSON.stringify(revisionTwo)));
+    recoveryBody.close();
+    await expect(recoveryRead).resolves.toEqual({ status: 'ok', payload: revisionThree });
+    await expect(readAdminAnnouncementControl(control.env)).resolves.toEqual({
+      status: 'ok',
+      payload: revisionThree,
+    });
+    expect(reads).toBe(3);
+  });
+
   it('bounds an announcement control stall and consumes a later rejection', async () => {
     vi.useFakeTimers();
     let rejectControl!: (error: Error) => void;

@@ -38,7 +38,12 @@ import {
 } from './chat-render.ts';
 import { seekTo } from '../player/transport.ts';
 import { showToast } from './toast.ts';
-import { normalizeEmptyContentEditable, setElementInertForOwner } from './dom.ts';
+import {
+  cycleFocusWithin,
+  getUiElement,
+  normalizeEmptyContentEditable,
+  setElementInertForOwner,
+} from './dom.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import {
   canCollapseChatDrawerFullToHalf,
@@ -91,7 +96,7 @@ function _getChatLabelBase(): string {
 // ─── Chat Preview ────────────────────────────────────────────────
 
 function updateChatPreview(sender: string, text: string): void {
-  const previewBtn = document.getElementById('chat-preview-btn');
+  const previewBtn = getUiElement('chat-preview-btn');
   if (!previewBtn) return;
 
   const previewText = previewBtn.querySelector('.chat-preview-text');
@@ -104,7 +109,7 @@ function updateChatPreview(sender: string, text: string): void {
 function incrementUnread(): void {
   if (isChatDrawerOpen()) return;
   _unreadCount++;
-  const badge = document.getElementById('chat-preview-badge');
+  const badge = getUiElement('chat-preview-badge');
   if (badge) {
     badge.textContent = _unreadCount > 9 ? '9+' : String(_unreadCount);
     badge.classList.add('show');
@@ -113,7 +118,7 @@ function incrementUnread(): void {
 
 function resetUnread(): void {
   _unreadCount = 0;
-  const badge = document.getElementById('chat-preview-badge');
+  const badge = getUiElement('chat-preview-badge');
   if (badge) {
     badge.textContent = '0';
     badge.classList.remove('show');
@@ -241,7 +246,7 @@ function getChatDrawerViewportHeight(): number {
 }
 
 function getChatDrawerStageBottom(): number | null {
-  const playTab = document.getElementById('tab-play');
+  const playTab = getUiElement('tab-play');
   if (playTab && !playTab.classList.contains('active')) return null;
 
   const stage = document.querySelector<HTMLElement>('.playback-stage');
@@ -372,10 +377,11 @@ function getChatDrawerFocusableElements(drawer: HTMLElement): HTMLElement[] {
 
 function handleChatDrawerKeyboard(event: KeyboardEvent): void {
   if (!isChatDrawerOpen() || !isMobileChatDrawer()) return;
-  const drawer = document.getElementById('chat-drawer');
-  if (!drawer) return;
+  const drawer = getUiElement('chat-drawer');
+  if (!drawer || drawer.hasAttribute('inert')) return;
 
   if (event.key === 'Escape') {
+    if (event.isComposing || event.keyCode === 229) return;
     // Command autocomplete owns its first Escape. Only the unhandled Escape
     // reaches the modal drawer.
     if (event.defaultPrevented) return;
@@ -413,24 +419,8 @@ function handleChatDrawerKeyboard(event: KeyboardEvent): void {
     }
   }
 
-  if (event.key !== 'Tab') return;
-  const focusable = getChatDrawerFocusableElements(drawer);
-  if (focusable.length === 0) {
-    event.preventDefault();
-    drawer.focus({ preventScroll: true });
-    return;
-  }
-
-  const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
-  const nextIndex = event.shiftKey
-    ? currentIndex <= 0
-      ? focusable.length - 1
-      : currentIndex - 1
-    : currentIndex < 0 || currentIndex === focusable.length - 1
-      ? 0
-      : currentIndex + 1;
-  event.preventDefault();
-  focusable[nextIndex]?.focus({ preventScroll: true });
+  if (event.key !== 'Tab' || event.defaultPrevented) return;
+  cycleFocusWithin(event, getChatDrawerFocusableElements(drawer), drawer);
 }
 
 function clearChatDrawerLiveGeometry(drawer: HTMLElement): void {
@@ -477,7 +467,7 @@ function setChatDrawerDetent(
   const currentRect = drawer.getBoundingClientRect();
   const currentHeight = currentRect.height || targetHeight;
   const currentOffsetY = getChatDrawerRenderedOffsetY(drawer);
-  const messages = document.getElementById('chat-messages');
+  const messages = getUiElement('chat-messages');
   let messageBottomGap: number | null =
     gestureMessageBottomGap !== undefined
       ? Math.max(0, gestureMessageBottomGap)
@@ -568,7 +558,7 @@ export function toggleChatDrawer(
   openFocus: 'handle' | 'dialog' = 'handle',
   preserveLiveGeometryOnClose = false,
 ): void {
-  const drawer = document.getElementById('chat-drawer');
+  const drawer = getUiElement('chat-drawer');
   if (!drawer) return;
 
   const opening = !isChatDrawerOpen();
@@ -603,12 +593,12 @@ export function toggleChatDrawer(
   syncChatDrawerModalAccessibility(drawer, opening, opening ? openFocus : null);
 
   // Sync backdrop
-  const backdrop = document.getElementById('chat-backdrop');
+  const backdrop = getUiElement('chat-backdrop');
   if (backdrop) backdrop.classList.toggle('open', opening);
 
   if (opening) {
     resetUnread();
-    const messages = document.getElementById('chat-messages');
+    const messages = getUiElement('chat-messages');
     if (messages) messages.scrollTop = messages.scrollHeight;
     // Do not auto-focus: that would open the keyboard immediately.
   } else {
@@ -731,7 +721,7 @@ function setChatDrawerLiveGeometry(
 
 function initChatSwipeToDismiss(): void {
   const header = document.querySelector('.chat-drawer-header') as HTMLElement | null;
-  const drawer = document.getElementById('chat-drawer');
+  const drawer = getUiElement('chat-drawer');
   if (!header || !drawer) return;
 
   _cancelActiveChatDrawerDrag?.(false);
@@ -754,9 +744,10 @@ function initChatSwipeToDismiss(): void {
   let canCollapseFullToHalf = false;
   let messageBottomGap: number | null = null;
   let isDragging = false;
+  let dragTouchId: number | null = null;
 
   const startDrag = (y: number): boolean => {
-    if (_isDesktop.matches || !isChatDrawerOpen()) return false;
+    if (isDragging || _isDesktop.matches || !isChatDrawerOpen()) return false;
 
     const context = getChatDrawerViewportContext();
     startY = y;
@@ -771,7 +762,7 @@ function initChatSwipeToDismiss(): void {
     const currentRect = drawer.getBoundingClientRect();
     startRenderedHeight = currentRect.height || (startDetent === 'full' ? fullHeight : halfHeight);
     startRenderedOffsetY = getChatDrawerRenderedOffsetY(drawer);
-    const messages = document.getElementById('chat-messages');
+    const messages = getUiElement('chat-messages');
     messageBottomGap = messages
       ? isContainerAtBottom(messages)
         ? 0
@@ -793,7 +784,7 @@ function initChatSwipeToDismiss(): void {
 
   const setDragGeometry = (height: number, offsetY = 0): void => {
     setChatDrawerLiveGeometry(drawer, height, offsetY, fullHeight, safeTopInset);
-    const messages = document.getElementById('chat-messages');
+    const messages = getUiElement('chat-messages');
     if (messages && messageBottomGap !== null) {
       scrollChatMessagesToBottomGap(messages, messageBottomGap);
     }
@@ -804,53 +795,38 @@ function initChatSwipeToDismiss(): void {
     rawDeltaY = y - startY;
     dragDistanceY = Math.abs(rawDeltaY);
 
-    if (startDetent === 'half') {
-      if (rawDeltaY < 0 && canExpandToFull) {
-        const upwardDistance = -rawDeltaY;
-        const consumedOffset = Math.min(startRenderedOffsetY, upwardDistance);
+    if (rawDeltaY < 0) {
+      const upwardDistance = -rawDeltaY;
+      const consumedOffset = Math.min(startRenderedOffsetY, upwardDistance);
+      if (startDetent === 'half' && !canExpandToFull) {
+        setDragGeometry(
+          startRenderedHeight + resistedDistance(upwardDistance - consumedOffset),
+          startRenderedOffsetY - consumedOffset,
+        );
+      } else {
         const requestedHeight = startRenderedHeight + upwardDistance - consumedOffset;
         const overshoot = Math.max(0, requestedHeight - fullHeight);
         setDragGeometry(
           Math.min(fullHeight, requestedHeight) + resistedDistance(overshoot),
           startRenderedOffsetY - consumedOffset,
         );
-      } else if (rawDeltaY < 0) {
-        const upwardDistance = -rawDeltaY;
-        const consumedOffset = Math.min(startRenderedOffsetY, upwardDistance);
-        setDragGeometry(
-          startRenderedHeight + resistedDistance(upwardDistance - consumedOffset),
-          startRenderedOffsetY - consumedOffset,
-        );
-      } else {
-        setDragGeometry(startRenderedHeight, startRenderedOffsetY + rawDeltaY);
       }
-      return;
-    }
-
-    if (rawDeltaY < 0) {
-      const upwardDistance = -rawDeltaY;
-      const consumedOffset = Math.min(startRenderedOffsetY, upwardDistance);
-      const requestedHeight = startRenderedHeight + upwardDistance - consumedOffset;
-      const overshoot = Math.max(0, requestedHeight - fullHeight);
-      setDragGeometry(
-        Math.min(fullHeight, requestedHeight) + resistedDistance(overshoot),
-        startRenderedOffsetY - consumedOffset,
-      );
-    } else if (canCollapseFullToHalf) {
+    } else if (startDetent === 'half' || !canCollapseFullToHalf) {
+      setDragGeometry(startRenderedHeight, startRenderedOffsetY + rawDeltaY);
+    } else {
       const requestedHeight = startRenderedHeight - rawDeltaY;
       const belowHalf = Math.max(0, halfHeight - requestedHeight);
       setDragGeometry(
         Math.max(halfHeight, requestedHeight),
         startRenderedOffsetY + resistedDistance(belowHalf),
       );
-    } else {
-      setDragGeometry(startRenderedHeight, startRenderedOffsetY + rawDeltaY);
     }
   };
 
   const endDrag = (cancelled = false) => {
     if (!isDragging) return;
     isDragging = false;
+    dragTouchId = null;
 
     const target = resolveChatDrawerRelease({
       startDetent,
@@ -877,30 +853,41 @@ function initChatSwipeToDismiss(): void {
     }
 
     isDragging = false;
+    dragTouchId = null;
     _chatDrawerMouseDragAC?.abort();
     _chatDrawerMouseDragAC = null;
     drawer.classList.remove('is-dragging');
   };
 
+  const getOwnedTouch = (touches: TouchList) =>
+    Array.from(touches).find((touch) => touch.identifier === dragTouchId);
+
   // Touch events
   header.addEventListener(
     'touchstart',
     (e: TouchEvent) => {
-      const touch = e.touches[0];
-      if (touch) startDrag(touch.clientY);
+      const touch = e.changedTouches[0];
+      if (touch && startDrag(touch.clientY)) dragTouchId = touch.identifier;
     },
     { passive: true, signal: gestureSignal },
   );
   header.addEventListener(
     'touchmove',
     (e: TouchEvent) => {
-      const touch = e.touches[0];
+      const touch = getOwnedTouch(e.touches);
       if (touch) moveDrag(touch.clientY);
     },
     { passive: true, signal: gestureSignal },
   );
-  header.addEventListener('touchend', () => endDrag(), { signal: gestureSignal });
-  header.addEventListener('touchcancel', () => endDrag(true), { signal: gestureSignal });
+  const endTouchDrag = (e: TouchEvent) => {
+    if (dragTouchId === null) return;
+    const cancelled = e.type === 'touchcancel';
+    if ((cancelled && e.changedTouches.length === 0) || getOwnedTouch(e.changedTouches)) {
+      endDrag(cancelled);
+    }
+  };
+  header.addEventListener('touchend', endTouchDrag, { signal: gestureSignal });
+  header.addEventListener('touchcancel', endTouchDrag, { signal: gestureSignal });
 
   // Mouse events (for small-screen PC users)
   // Attach window listeners only during active drag to prevent permanent leak.
@@ -918,7 +905,7 @@ function initChatSwipeToDismiss(): void {
   header.addEventListener(
     'mousedown',
     (e: MouseEvent) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || isDragging) return;
       teardownDrag();
       if (!startDrag(e.clientY)) return;
       e.preventDefault();
@@ -974,7 +961,7 @@ function initChatDrawerViewportReconciliation(): void {
           return;
         }
 
-        const drawer = document.getElementById('chat-drawer');
+        const drawer = getUiElement('chat-drawer');
         if (!drawer) return;
 
         _cancelActiveChatDrawerDrag?.(false);
@@ -1019,7 +1006,7 @@ function initChatDrawerViewportReconciliation(): void {
       !document.documentElement.classList.contains('keyboard-open') &&
       !_isDesktop.matches
     ) {
-      const drawer = document.getElementById('chat-drawer');
+      const drawer = getUiElement('chat-drawer');
       if (drawer) {
         _cancelActiveChatDrawerDrag?.(false);
         // Orientation metrics settle asynchronously on mobile browsers. Full
@@ -1082,8 +1069,8 @@ function initChatTouchContainment(): void {
   _chatTouchContainmentAC?.abort();
   _chatTouchContainmentAC = new AbortController();
   const { signal } = _chatTouchContainmentAC;
-  const drawer = document.getElementById('chat-drawer') as HTMLElement | null;
-  const backdrop = document.getElementById('chat-backdrop');
+  const drawer = getUiElement('chat-drawer') as HTMLElement | null;
+  const backdrop = getUiElement('chat-backdrop');
   if (!drawer) return;
 
   drawer.addEventListener(
@@ -1116,8 +1103,23 @@ let _lastSentTime = 0;
 let _lastSentText = '';
 let _lastSentTs = 0;
 
+function boundChatSubmission(text: string): string {
+  if (text.length > MAX_MSG_LENGTH) {
+    text = text.substring(0, MAX_MSG_LENGTH);
+    showToast(t('chat.msg_truncated', { max: MAX_MSG_LENGTH }));
+  }
+  return text;
+}
+
+function resetChatEditable(input: HTMLDivElement): void {
+  input.contentEditable = 'false';
+  input.replaceChildren();
+  void input.offsetHeight; // Force reflow
+  input.contentEditable = 'true';
+}
+
 export function sendChatMessage(): void {
-  const input = document.getElementById('chat-input') as HTMLDivElement | null;
+  const input = getUiElement('chat-input') as HTMLDivElement | null;
   if (!input) return;
   let text = (input.textContent || '').trim();
   if (!text) return;
@@ -1137,13 +1139,11 @@ export function sendChatMessage(): void {
     // double-fire guard.
     _lastSentText = text;
     _lastSentTs = now;
-    input.contentEditable = 'false';
-    input.replaceChildren();
-    void input.offsetHeight; // Force reflow
-    input.contentEditable = 'true';
+    text = boundChatSubmission(text);
+    resetChatEditable(input);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     input.focus();
-    executeCommand(initialCommand);
+    executeCommand(parseCommand(text) ?? initialCommand);
     return;
   }
 
@@ -1180,10 +1180,7 @@ export function sendChatMessage(): void {
   _lastSentTs = now;
   _lastSentTime = Date.now();
 
-  if (text.length > MAX_MSG_LENGTH) {
-    text = text.substring(0, MAX_MSG_LENGTH);
-    showToast(t('chat.msg_truncated', { max: MAX_MSG_LENGTH }));
-  }
+  text = boundChatSubmission(text);
 
   // ── Profanity filter (own messages too) ──
   if (getState('network.filterEnabled')) {
@@ -1261,17 +1258,14 @@ export function sendChatMessage(): void {
   // Keyboard stays up because iOS preserves it across focusable
   // elements inside the same user-gesture stack.
   //
-  const dummy = document.getElementById('chat-ime-dummy') as HTMLInputElement | null;
+  const dummy = getUiElement('chat-ime-dummy') as HTMLInputElement | null;
   if (dummy) {
     dummy.focus();
     input.replaceChildren();
     input.focus();
   } else {
     // Last-resort reset for unexpected DOM; it may not fully clear the iOS buffer.
-    input.contentEditable = 'false';
-    input.replaceChildren();
-    void input.offsetHeight;
-    input.contentEditable = 'true';
+    resetChatEditable(input);
     input.focus();
   }
   input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -1349,12 +1343,12 @@ export function initChat(): void {
   initChatDrawerViewportReconciliation();
   initChatTouchContainment();
   initChatCopyGestures();
-  const chatDrawer = document.getElementById('chat-drawer');
+  const chatDrawer = getUiElement('chat-drawer');
   if (chatDrawer) syncChatDrawerModalAccessibility(chatDrawer, isChatDrawerOpen());
   document.addEventListener('keydown', handleChatDrawerKeyboard, { signal: uiSignal });
 
   // Backdrop tap to close
-  const backdrop = document.getElementById('chat-backdrop');
+  const backdrop = getUiElement('chat-backdrop');
   if (backdrop)
     backdrop.addEventListener(
       'click',
@@ -1364,8 +1358,8 @@ export function initChat(): void {
       { signal: uiSignal },
     );
 
-  const chatMessages = document.getElementById('chat-messages');
-  const scrollDownBtn = document.getElementById('btn-chat-scroll-down');
+  const chatMessages = getUiElement('chat-messages');
+  const scrollDownBtn = getUiElement('btn-chat-scroll-down');
 
   if (chatMessages && scrollDownBtn) {
     const refreshScrollDownButton = (): void => {
@@ -1397,12 +1391,13 @@ export function initChat(): void {
   }
 
   // Wire up UI buttons
-  const sendBtn = document.getElementById('btn-chat-send');
+  const sendBtn = getUiElement('btn-chat-send');
   if (sendBtn) {
     const handleSend = (e: Event) => {
+      if (e instanceof MouseEvent && e.button !== 0) return;
       e.preventDefault(); // Prevent input blur
       sendChatMessage();
-      const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
+      const chatInput = getUiElement('chat-input') as HTMLDivElement | null;
       if (chatInput) chatInput.focus();
     };
     sendBtn.addEventListener('pointerdown', handleSend, { signal: uiSignal });
@@ -1417,10 +1412,10 @@ export function initChat(): void {
     );
   }
 
-  const closeBtn = document.getElementById('btn-chat-close');
+  const closeBtn = getUiElement('btn-chat-close');
   if (closeBtn) closeBtn.addEventListener('click', () => toggleChatDrawer(), { signal: uiSignal });
 
-  const previewBtn = document.getElementById('chat-preview-btn');
+  const previewBtn = getUiElement('chat-preview-btn');
   if (previewBtn) {
     previewBtn.addEventListener(
       'click',
@@ -1436,7 +1431,7 @@ export function initChat(): void {
   }
 
   // Chat input: send on Enter + command autocomplete
-  const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
+  const chatInput = getUiElement('chat-input') as HTMLDivElement | null;
   if (chatInput) {
     // Create autocomplete dropdown
     const wrapper = chatInput.closest('.chat-input-wrapper');
@@ -1610,10 +1605,17 @@ export function initChat(): void {
         if (e.inputType === 'insertText') {
           const current = getInputValue();
           const incoming = e.data || '';
-          if (current.length + incoming.length > MAX_MSG_LENGTH) {
+          const selection = window.getSelection();
+          const range = selection?.rangeCount === 1 ? selection.getRangeAt(0) : null;
+          const replacedLength =
+            range && chatInput.contains(range.commonAncestorContainer)
+              ? range.toString().length
+              : 0;
+          const retainedLength = Math.max(0, current.length - replacedLength);
+          if (retainedLength + incoming.length > MAX_MSG_LENGTH) {
             e.preventDefault();
             // Insert only what fits
-            const remaining = MAX_MSG_LENGTH - current.length;
+            const remaining = MAX_MSG_LENGTH - retainedLength;
             if (remaining > 0) {
               document.execCommand('insertText', false, incoming.substring(0, remaining));
             }
@@ -1656,6 +1658,7 @@ export function initChat(): void {
     suggest.addEventListener(
       'mousedown',
       (e) => {
+        if (e.button !== 0) return;
         e.preventDefault(); // Keep focus on input
         const el = (e.target as HTMLElement).closest('.chat-cmd-item') as HTMLElement | null;
         if (el) {
@@ -1698,6 +1701,7 @@ export function initChat(): void {
             return;
           }
           if (e.key === 'Escape') {
+            if (e.isComposing || e.keyCode === 229) return;
             e.preventDefault();
             hideSuggest();
             return;
@@ -1802,7 +1806,7 @@ export function initChat(): void {
 
   // Muted state: disable input
   _busScope.on('chat:muted-state-changed', (isMuted: boolean) => {
-    const chatInput = document.getElementById('chat-input') as HTMLDivElement | null;
+    const chatInput = getUiElement('chat-input') as HTMLDivElement | null;
     if (chatInput) {
       chatInput.setAttribute(
         'data-placeholder',
@@ -1822,7 +1826,7 @@ export function initChat(): void {
 
   // Clear all chat messages
   _busScope.on('chat:clear-all', () => {
-    const container = document.getElementById('chat-messages');
+    const container = getUiElement('chat-messages');
     if (container) {
       container.replaceChildren();
       addSystemChatMessage(t('chat.cmd_clear'));
@@ -1833,7 +1837,7 @@ export function initChat(): void {
   });
 
   // Pinned notice: tap anywhere on the banner to dismiss
-  const pinnedBanner = document.getElementById('chat-pinned-notice');
+  const pinnedBanner = getUiElement('chat-pinned-notice');
   pinnedBanner?.addEventListener('click', clearPinnedNotice);
   pinnedBanner?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {

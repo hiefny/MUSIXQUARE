@@ -1,7 +1,9 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { experimental_readRawConfig } from 'wrangler';
 import {
+  readConfigurationAssignment,
   validateAccountRolloutConfig,
   validateRemoteShareRolloutConfig,
 } from './production-security-rollout.mts';
@@ -63,19 +65,11 @@ const configFiles = [...staticConfigFiles, ...(await discoverWranglerFiles())];
 
 const truthyValues = new Set(['1', 'true', 'yes', 'on']);
 
-function isTruthy(value: unknown): boolean {
+function isTruthy(value: unknown, stripAssignmentQuotes = true): boolean {
+  const normalized = String(value || '').trim();
   return truthyValues.has(
-    String(value || '')
-      .trim()
-      .replace(/^['"]|['"]$/g, '')
-      .toLowerCase(),
+    (stripAssignmentQuotes ? normalized.replace(/^['"]|['"]$/g, '') : normalized).toLowerCase(),
   );
-}
-
-function readAssignment(line: string, flag: string): string | null {
-  const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = line.match(new RegExp(`^\\s*${escaped}\\s*=\\s*(.+?)\\s*$`));
-  return match?.[1] ?? null;
 }
 
 const hits: SecurityFlagHit[] = [];
@@ -83,6 +77,23 @@ const rolloutErrors: string[] = [];
 const remoteShareRolloutErrors: string[] = [];
 const proSignalingCredentialErrors: string[] = [];
 const standardRoomPinStorageErrors: string[] = [];
+
+function inspectWranglerValues(value: unknown, file: string): void {
+  if (value === null || typeof value !== 'object') return;
+  for (const [key, entry] of Object.entries(value)) {
+    if (dangerousFlags.includes(key) && isTruthy(entry, false)) {
+      hits.push({ source: file, flag: key });
+    }
+    if (
+      file === 'cloudflare/wrangler.pro-room.toml' &&
+      (key === 'PRO_ROOM_ACCOUNT_IDENTITY_PROJECTION' ||
+        key === 'PRO_ROOM_MEMBER_AUTHORITY_PROJECTION')
+    ) {
+      hits.push({ source: file, flag: key });
+    }
+    inspectWranglerValues(entry, file);
+  }
+}
 
 for (const flag of dangerousFlags) {
   if (isTruthy(process.env[flag])) {
@@ -99,13 +110,26 @@ for (const file of configFiles) {
     throw error;
   }
 
+  if (file.endsWith('.toml')) {
+    try {
+      // Explicit raw-config reads only parse the local file. Use the same
+      // TOML semantics as deployment, including quoted keys and string escapes.
+      const config = experimental_readRawConfig({ config: path.join(repoRoot, file) }).rawConfig;
+      inspectWranglerValues(config, file);
+    } catch {
+      // Parser errors can contain source excerpts; never echo those values.
+      throw new Error(`Production security configuration is unreadable: ${file}`);
+    }
+    continue;
+  }
+
   const lines = text.split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     if (line === undefined) continue;
     if (line.trimStart().startsWith('#')) continue;
     for (const flag of dangerousFlags) {
-      const value = readAssignment(line, flag);
+      const value = readConfigurationAssignment(line, flag);
       if (value !== null && isTruthy(value)) {
         hits.push({ source: `${file}:${i + 1}`, flag });
       }

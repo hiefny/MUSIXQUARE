@@ -897,9 +897,9 @@ function parseSimpleToml(source: unknown, label: string): SimpleTomlDocument {
   for (const [index, rawLine] of source.split(/\r?\n/u).entries()) {
     const line = stripTomlComment(rawLine).trim();
     if (!line) continue;
-    const arrayHeader = line.match(/^\[\[([A-Za-z0-9_.-]+)\]\]$/u);
-    const tableHeader = line.match(/^\[([A-Za-z0-9_.-]+)\]$/u);
-    const headerName = arrayHeader?.[1] ?? tableHeader?.[1];
+    const arrayHeader = line.match(/^\[\[\s*([A-Za-z0-9_-]+(?:\s*\.\s*[A-Za-z0-9_-]+)*)\s*\]\]$/u);
+    const tableHeader = line.match(/^\[\s*([A-Za-z0-9_-]+(?:\s*\.\s*[A-Za-z0-9_-]+)*)\s*\]$/u);
+    const headerName = (arrayHeader?.[1] ?? tableHeader?.[1])?.replace(/\s+/gu, '');
     if (headerName !== undefined) {
       current = {
         name: headerName,
@@ -908,6 +908,11 @@ function parseSimpleToml(source: unknown, label: string): SimpleTomlDocument {
       };
       tables.push(current);
       continue;
+    }
+    // Unrecognized headers must not leave subsequent fields attached to the
+    // previous table, where an added public route could disappear from the audit.
+    if (line.startsWith('[') || /^(?:["']|[A-Za-z0-9_-]+\s*\.)[^=]*=/u.test(line)) {
+      throw new Error(`${label}:${index + 1} contains unsupported TOML syntax.`);
     }
     const assignment = line.match(/^([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*(.+)$/u);
     const key = assignment?.[1];
@@ -1766,43 +1771,44 @@ async function fetchJson(
   }
 }
 
-async function fetchCloudflarePages(
+async function fetchWorkerDomains(
   fetcher: OpsDriftFetcher,
   url: string,
   token: string | undefined,
   label: string,
 ): Promise<unknown[]> {
-  const items: unknown[] = [];
-  let page = 1;
-  let totalPages = 1;
-  do {
-    const pageUrl = new URL(url);
-    pageUrl.searchParams.set('page', String(page));
-    pageUrl.searchParams.set('per_page', '100');
-    const payload = await fetchJson(fetcher, pageUrl.href, token, label);
-    if (!isJsonObject(payload) || payload.success !== true || !Array.isArray(payload.result)) {
-      throw new Error(`${label} returned an invalid API envelope.`);
-    }
-    items.push(...payload.result);
-    const reportedTotalPages = isJsonObject(payload.result_info)
-      ? payload.result_info.total_pages
-      : undefined;
-    if (reportedTotalPages !== undefined) {
-      if (
-        typeof reportedTotalPages !== 'number' ||
-        !Number.isSafeInteger(reportedTotalPages) ||
-        reportedTotalPages < 1 ||
-        reportedTotalPages > 100
-      ) {
-        throw new Error(`${label} returned invalid pagination metadata.`);
+  // Workers domains uses SinglePage, including service-filtered requests.
+  // page/per_page are unsupported. Optional metadata must describe the entire
+  // returned inventory; never follow a reported partial page as if it were safe.
+  const payload = await fetchJson(fetcher, url, token, label);
+  if (!isJsonObject(payload) || payload.success !== true || !Array.isArray(payload.result)) {
+    throw new Error(`${label} returned an invalid API envelope.`);
+  }
+  const info = payload.result_info;
+  if (info !== undefined && info !== null) {
+    if (!isJsonObject(info)) throw new Error(`${label} returned invalid pagination metadata.`);
+    const expectedCounts: Record<string, number> = {
+      page: 1,
+      total_pages: 1,
+      count: payload.result.length,
+      total_count: payload.result.length,
+    };
+    for (const [key, expected] of Object.entries(expectedCounts)) {
+      if (info[key] !== undefined && info[key] !== expected) {
+        throw new Error(`${label} returned inconsistent pagination metadata.`);
       }
-      totalPages = reportedTotalPages;
-    } else if (payload.result.length === 100) {
-      throw new Error(`${label} omitted pagination metadata for a full result page.`);
     }
-    page += 1;
-  } while (page <= totalPages);
-  return items;
+    if (
+      info.per_page !== undefined &&
+      (typeof info.per_page !== 'number' ||
+        !Number.isSafeInteger(info.per_page) ||
+        info.per_page < 1 ||
+        info.per_page < payload.result.length)
+    ) {
+      throw new Error(`${label} returned inconsistent pagination metadata.`);
+    }
+  }
+  return payload.result;
 }
 
 type OpsDriftCheckStatus = 'pass' | 'drift' | 'error' | 'manual-only';
@@ -2176,7 +2182,7 @@ export async function runOpsDriftAudit({
         `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/domains`,
       );
       url.searchParams.set('service', entry.worker);
-      const payload = await fetchCloudflarePages(
+      const payload = await fetchWorkerDomains(
         fetcher,
         url.href,
         env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,
@@ -2219,7 +2225,7 @@ export async function runOpsDriftAudit({
   const domainInventoryId = 'worker-domain-inventory';
   try {
     if (!accountId) throw new Error('Cloudflare account ID is not configured.');
-    const payload = await fetchCloudflarePages(
+    const payload = await fetchWorkerDomains(
       fetcher,
       `${CLOUDFLARE_API}/accounts/${encodeURIComponent(accountId)}/workers/domains`,
       env.CLOUDFLARE_DRIFT_AUDIT_TOKEN,

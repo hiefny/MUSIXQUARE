@@ -437,9 +437,21 @@ function readPreviousManifest(
 ): AuthoredInlineManifest | null {
   const repositoryPath = normalizeRepositoryPath(path.relative(repository, inventoryPath));
   const status = optionalGitText(repository, ['status', '--porcelain', '--', repositoryPath]);
-  const source = status?.trim()
-    ? optionalGitText(repository, ['show', `HEAD:${repositoryPath}`])
-    : null;
+  let source: string | null;
+  if (status?.trim()) {
+    source = optionalGitText(repository, ['show', `HEAD:${repositoryPath}`]);
+  } else {
+    const lastChange = optionalGitText(repository, [
+      'log',
+      '-1',
+      '--format=%H',
+      '--',
+      repositoryPath,
+    ])?.trim();
+    source = lastChange
+      ? optionalGitText(repository, ['show', `${lastChange}^:${repositoryPath}`])
+      : null;
+  }
   if (!source) return null;
   const parsed: unknown = JSON.parse(source);
   const errors = validateInlineManifest(parsed);

@@ -304,7 +304,7 @@
   function normalize(value: unknown): string | null {
     if (!value) return null;
     const raw = String(value).trim().toLowerCase().replace(/_/g, '-');
-    if (optionByCode[raw]) return raw;
+    if (Object.prototype.hasOwnProperty.call(optionByCode, raw)) return raw;
     if (raw === 'system') return null;
     if (raw === 'zh-hans' || raw.indexOf('zh-hans-') === 0) return 'zh-hans';
     if (raw === 'zh-hant' || raw.indexOf('zh-hant-') === 0) return 'zh-hant';
@@ -325,7 +325,7 @@
     if (raw === 'no' || raw.indexOf('no-') === 0) return 'nb';
     if (raw === 'tl' || raw.indexOf('tl-') === 0) return 'fil';
     const base = raw.split('-')[0];
-    return base && optionByCode[base] ? base : null;
+    return base && Object.prototype.hasOwnProperty.call(optionByCode, base) ? base : null;
   }
 
   function readStore(key: string): string | null {
@@ -549,6 +549,13 @@
     );
   }
 
+  function setMenuExpanded(menu: HTMLElement, expanded: boolean): void {
+    menu.setAttribute('aria-hidden', String(!expanded));
+    menu.querySelectorAll<HTMLElement>('[data-lang-set]').forEach((item) => {
+      item.tabIndex = expanded ? 0 : -1;
+    });
+  }
+
   function openPicker(picker: HTMLElement): void {
     ensurePickerFonts();
     const openPickers = document.querySelectorAll<HTMLElement>('[data-static-lang-picker].is-open');
@@ -564,6 +571,7 @@
     lockPageScroll();
 
     if (menu) {
+      setMenuExpanded(menu, true);
       const pickerMenu = menu;
       window.requestAnimationFrame(function () {
         if (picker.classList.contains('is-open')) focusSelectedOption(pickerMenu);
@@ -592,6 +600,7 @@
 
     const menu = document.createElement('div');
     menu.className = 'static-lang-menu';
+    menu.tabIndex = -1;
     menu.id = 'static-lang-menu-' + pickerId;
     menu.setAttribute('role', 'listbox');
     menu.setAttribute('aria-labelledby', 'static-lang-current-' + pickerId);
@@ -623,6 +632,7 @@
       menu.appendChild(item);
     }
 
+    setMenuExpanded(menu, false);
     picker.appendChild(trigger);
     picker.appendChild(backdrop);
     picker.appendChild(menu);
@@ -690,8 +700,10 @@
 
   function closePicker(picker: HTMLElement): void {
     const trigger = picker.querySelector('[data-static-lang-trigger]');
+    const menu = picker.querySelector<HTMLElement>('[data-static-lang-menu]');
     picker.classList.remove('is-open');
     if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    if (menu) setMenuExpanded(menu, false);
     if (!document.querySelector('[data-static-lang-picker].is-open')) unlockPageScroll();
   }
 

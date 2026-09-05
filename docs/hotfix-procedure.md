@@ -309,6 +309,18 @@ different canonical revision. Recovery marks that downgrade as a forward-only
 floor. Keep both Workers at or above the marker and use an `all` target
 roll-forward/forward-repair release.
 
+Soro article visibility has an App-only data floor marked by
+`cloudflare/soro-article-visibility-contract-version.txt`. The `app` and `all`
+release targets apply and verify its D1 table before deploying App. On the
+first marker cutover, a live candidate or an unprovable current version prevents
+App rollback in both recovery jobs; an unchanged captured baseline remains
+eligible. Later releases with the same marker may restore a compatible App
+baseline. Recovery requires the committed marker and complete immutable
+checkpoint evidence. Never restore older code that ignores the canonical D1
+visibility overrides, delete explicit `hidden=0` rows, or fall back to stale KV
+visibility during recovery. Use an App forward fix or an explicitly reviewed
+matched data/code restore; see [Admin Dashboard Ops](../cloudflare/admin-dashboard-ops.md).
+
 If the recovery report records a conflict or unreadable floor, inspect the live version before taking manual
 action and prefer a new exact-SHA `all` release. Deployment records and the
 Actions summary are written even when the in-job recovery path fails; the

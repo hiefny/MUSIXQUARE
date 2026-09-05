@@ -1402,6 +1402,86 @@ describe('PLAY_PRELOADED exact track identity', () => {
       expect.objectContaining({ type: MSG.REQUEST_DATA_RECOVERY, queueItemId: Q1 }),
     );
   });
+
+  it.each(['queue', 'host', 'session'] as const)(
+    'leaves successor UI and recovery alone after %s ownership changes during jitter',
+    async (replacement) => {
+      document.body.innerHTML = `
+        <header id="main-header">
+          <span id="header-loading-text"></span>
+          <span id="header-progress-bg"></span>
+        </header>
+      `;
+      const hostConn = makeHostConnection();
+      setState('network.hostConn', hostConn);
+      setState('playlist.items', [makeFileTrack('a.mp3', Q0), makeFileTrack('b.mp3', Q1)]);
+      await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'b.mp3' }, hostConn);
+      const successor = makeHostConnection();
+      if (replacement === 'queue') setState('playlist.currentQueueItemId', Q0);
+      if (replacement === 'host') setState('network.hostConn', successor);
+      if (replacement === 'session') setState('transfer.localSessionId', 25);
+      showLoader(true, 'Successor file transfer');
+      setState('transfer.state', TRANSFER_STATE.RECEIVING);
+
+      await vi.advanceTimersByTimeAsync(400);
+
+      expect(document.getElementById('main-header')?.classList.contains('loading')).toBe(true);
+      expect(document.querySelector('.header-loading-text-content')?.textContent).toBe(
+        'Successor file transfer',
+      );
+      expect(hostConn.send).not.toHaveBeenCalled();
+      expect(successor.send).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not publish a late cached Blob activation after the jitter target was superseded', async () => {
+    const hostConn = makeHostConnection();
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeFileTrack('a.mp3', Q0), makeFileTrack('b.mp3', Q1)]);
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'b.mp3' }, hostConn);
+    setState('playlist.currentQueueItemId', Q0);
+    const blob = new Blob(['late-b']);
+    setState('preload.ready', {
+      queueItemId: Q1,
+      sessionId: 13,
+      name: 'b.mp3',
+      indexHint: 1,
+      size: blob.size,
+      mime: blob.type,
+      blob,
+    });
+
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(usePreloaded).not.toHaveBeenCalled();
+    expect(hostConn.send).not.toHaveBeenCalled();
+  });
+
+  it('activates a late cached Blob while the jitter owner remains current', async () => {
+    const hostConn = makeHostConnection();
+    setState('network.hostConn', hostConn);
+    setState('playlist.items', [makeFileTrack('b.mp3', Q1)]);
+    const usePreloaded = vi.fn();
+    bus.on('storage:use-preloaded', usePreloaded);
+    await handleData({ type: MSG.PLAY_PRELOADED, queueItemId: Q1, name: 'b.mp3' }, hostConn);
+    const blob = new Blob(['late-b']);
+    setState('preload.ready', {
+      queueItemId: Q1,
+      sessionId: 13,
+      name: 'b.mp3',
+      indexHint: 0,
+      size: blob.size,
+      mime: blob.type,
+      blob,
+    });
+
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(usePreloaded).toHaveBeenCalledExactlyOnceWith(Q1, 'b.mp3', 13);
+    expect(hostConn.send).not.toHaveBeenCalled();
+  });
 });
 
 describe('preload completion session identity', () => {

@@ -5078,42 +5078,82 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(await state.storage.get('proOwnerAccountDeletionFence')).toBeUndefined();
   });
 
-  it('closes existing PRO sockets even when persisting the deletion fence must be retried', async () => {
-    const state = new FakeDurableObjectState();
-    const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
-    const owner = await joinProMember(room, {
-      participantId: 'deleted-owner',
-      memberId: 'owner_0123456789abcdef',
-      presenceIncarnationId: 'deleted-owner-presence',
-      jti: 'deleted-owner-ticket-01',
-    });
-    const originalPut = state.storage.put.bind(state.storage);
-    state.storage.put = vi.fn(async (key: string, value: unknown) => {
-      if (key === 'proOwnerAccountDeletionFence') throw new Error('transient storage failure');
-      return originalPut(key, value);
-    });
-    const request = new Request(
-      'https://signaling.internal/internal/admin/v1/owner-account-deleted',
-      {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          'x-mxqr-pro-room-code': '000001',
-          'x-mxqr-pro-room-generation': '0',
+  it.each([false, true])(
+    'persists a retried deletion fence before acknowledging it (legacy: %s)',
+    async (legacy) => {
+      const state = new FakeDurableObjectState();
+      const room = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+      const owner = await joinProMember(room, {
+        participantId: 'deleted-owner',
+        memberId: 'owner_0123456789abcdef',
+        presenceIncarnationId: 'deleted-owner-presence',
+        jti: 'deleted-owner-ticket-01',
+      });
+      const originalPut = state.storage.put.bind(state.storage);
+      state.storage.put = vi.fn(async (key: string, value: unknown) => {
+        if (key === 'proOwnerAccountDeletionFence') throw new Error('transient storage failure');
+        return originalPut(key, value);
+      });
+      const request = new Request(
+        'https://signaling.internal/internal/admin/v1/owner-account-deleted',
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': '000001',
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({
+            roomCode: '000001',
+            roomGeneration: 0,
+            ...(!legacy
+              ? {
+                  removalId: 'removal_abcdefghijklmnopqrstuv',
+                  removedOwnerAuthorityEpoch: 7,
+                  fencedCoordinatorEpoch: 1,
+                }
+              : {}),
+          }),
         },
-        body: JSON.stringify({
-          roomCode: '000001',
-          roomGeneration: 0,
-          removalId: 'removal_abcdefghijklmnopqrstuv',
-          removedOwnerAuthorityEpoch: 7,
-          fencedCoordinatorEpoch: 1,
-        }),
-      },
-    );
+      );
 
-    await expect(room.fetch(request)).rejects.toThrow('transient storage failure');
-    expect(owner.closeEvents).toEqual([{ code: 1008, reason: 'PRO_OWNER_ACCOUNT_DELETED' }]);
-  });
+      await expect(room.fetch(request.clone())).rejects.toThrow('transient storage failure');
+      expect(owner.closeEvents).toEqual([{ code: 1008, reason: 'PRO_OWNER_ACCOUNT_DELETED' }]);
+      expect(await state.storage.get('proOwnerAccountDeletionFence')).toBeUndefined();
+      await expect(room.fetch(request.clone())).rejects.toThrow('transient storage failure');
+      const blockedInMemory = await room.fetch(
+        await proWsRequest({ jti: 'memory-fence-ticket-01' }),
+      );
+      expect(blockedInMemory.status).toBe(423);
+
+      state.storage.put = originalPut;
+      const repaired = await room.fetch(request.clone());
+      expect(repaired.status).toBe(200);
+      expect(JSON.parse(String(repaired.body))).toMatchObject({
+        status: 'suspended',
+        reason: 'owner_account_deleted',
+        changed: false,
+        ...(!legacy ? { fenceStatus: 'installed' } : {}),
+      });
+      expect(await state.storage.get('proOwnerAccountDeletionFence')).toMatchObject({
+        v: legacy ? 1 : 2,
+        roomCode: '000001',
+        roomGeneration: 0,
+        fencedCoordinatorEpoch: 1,
+      });
+
+      const restarted = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+      const pairCount = FakeWebSocketPair.pairs.length;
+      const blockedAfterRestart = await restarted.fetch(
+        await proWsRequest({ jti: 'restarted-fence-ticket-01' }),
+      );
+      expect(blockedAfterRestart.status).toBe(423);
+      expect(JSON.parse(String(blockedAfterRestart.body))).toEqual({
+        error: 'PRO_OWNER_ACCOUNT_DELETED',
+      });
+      expect(FakeWebSocketPair.pairs).toHaveLength(pairCount);
+    },
+  );
 
   it('bounds and cancels a stalled private signaling JSON body', async () => {
     const timeoutController = new AbortController();
@@ -5274,6 +5314,71 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     expect(coordinator.closeEvents).toHaveLength(1);
     expect(member.closeEvents).toHaveLength(1);
   });
+
+  it.each([
+    { operation: 'presence', restart: false },
+    { operation: 'presence', restart: true },
+    { operation: 'owner-deletion', restart: false },
+    { operation: 'owner-deletion', restart: true },
+  ])(
+    'does not restore deleted signaling state from late $operation delivery (restart=$restart)',
+    async ({ operation, restart }) => {
+      const state = new FakeDurableObjectState();
+      const initial = new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET });
+      const roomGeneration = 23;
+      const headers = {
+        'content-type': 'application/json',
+        'x-mxqr-pro-room-code': '000001',
+        'x-mxqr-pro-room-generation': String(roomGeneration),
+      };
+      const deleted = await initial.fetch(
+        new Request('https://signaling.internal/internal/admin/v1/decommission', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            roomCode: '000001',
+            roomGeneration,
+            requestId: '42345678-1234-4123-8123-123456789abc',
+          }),
+        }),
+      );
+      expect(deleted.status).toBe(200);
+      const retained = await state.storage.list();
+      expect([...retained.keys()]).toEqual(['proRoomDecommissioned']);
+      const room = restart
+        ? new workerModule.MusixquareRoom(state, { PRO_SIGNALING_SECRET })
+        : initial;
+      const path =
+        operation === 'presence'
+          ? '/internal/realtime/v1/broadcast'
+          : '/internal/admin/v1/owner-account-deleted';
+      const response = await room.fetch(
+        new Request(`https://signaling.internal${path}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            roomCode: '000001',
+            roomGeneration,
+            ...(operation === 'presence'
+              ? {
+                  coordinatorEpoch: 4,
+                  targets: ['deleted-member-presence-01'],
+                  event: { type: 'pro-presence-snapshot', presenceRevision: 9 },
+                }
+              : {
+                  removalId: 'removal_abcdefghijklmnopqrstuv',
+                  removedOwnerAuthorityEpoch: 7,
+                  fencedCoordinatorEpoch: 4,
+                }),
+          }),
+        }),
+      );
+      expect(await state.storage.list()).toEqual(retained);
+      expect(response.status).toBe(410);
+      expect(JSON.parse(String(response.body))).toEqual({ error: 'PRO_ROOM_DECOMMISSIONED' });
+      expect(state.storage.alarmTime).toBeNull();
+    },
+  );
 
   it('serializes PRO admission behind permanent decommission', async () => {
     const state = new FakeDurableObjectState();
@@ -6632,6 +6737,137 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
     });
   });
 
+  it.each(['refresh', 'delete'] as const)(
+    'relays the current guest identity after an offer waits across identity %s',
+    async (action) => {
+      let now = Date.now();
+      const nowSpy = vi.spyOn(Date, 'now').mockImplementation(() => now);
+      let delayMaintenance = false;
+      let releaseMaintenance!: () => void;
+      let markMaintenanceEntered!: () => void;
+      const maintenanceEntered = new Promise<void>((resolve) => {
+        markMaintenanceEntered = resolve;
+      });
+      const maintenanceGate = new Promise<void>((resolve) => {
+        releaseMaintenance = resolve;
+      });
+      const binding = {
+        getByName: vi.fn(() => ({
+          fetch: async (request: Request) => {
+            if (request.method === 'HEAD') return new originalResponse(null, { status: 404 });
+            if (delayMaintenance) {
+              markMaintenanceEntered();
+              await maintenanceGate;
+            }
+            return originalResponse.json({
+              serviceStatus: { enabled: false, revision: 0, updatedAt: null, activatedAt: null },
+            });
+          },
+        })),
+      };
+      let signSpy: ReturnType<typeof vi.spyOn> | undefined;
+      let releaseVerification: (() => void) | undefined;
+      try {
+        const state = new FakeDurableObjectState();
+        const room = new workerModule.MusixquareRoom(state, {
+          MUSIXQUARE_SERVICE_CONTROL: binding,
+          MXQR_STANDARD_ROOM_ACCOUNT_ASSERTION_SECRET: STANDARD_ACCOUNT_ASSERTION_SECRET,
+        });
+        const host = await authenticateHost(room, 'host-1', 'room-secret-one');
+        const guest = await joinGuest(room, 'refresh-during-offer', {
+          reconnectSecret: 'w'.repeat(43),
+          accountAssertion: await standardAccountAssertion({
+            peerId: 'refresh-during-offer',
+            role: 'guest',
+            nickname: 'Before Refresh',
+          }),
+        });
+        const mutation =
+          action === 'refresh'
+            ? {
+                type: 'account-identity-refresh',
+                accountAssertion: await standardAccountAssertion({
+                  peerId: 'refresh-during-offer',
+                  role: 'guest',
+                  nickname: 'After Refresh',
+                }),
+              }
+            : {
+                type: 'account-identity-delete',
+                deletionAssertion: await standardAccountDeletionAssertion({
+                  peerId: 'refresh-during-offer',
+                  role: 'guest',
+                }),
+              };
+        const offerFrame = JSON.stringify({
+          type: 'signal-offer',
+          to: 'host',
+          negotiationId: NEGOTIATION_ID,
+          sdp: { type: 'offer', sdp: 'offer-across-identity-refresh' },
+        });
+        await room.webSocketMessage(guest, offerFrame);
+        expect(sent(host).at(-1)).toMatchObject({
+          type: 'signal-offer',
+          memberIdentity: { nickname: 'Before Refresh' },
+        });
+        const originalSign = crypto.subtle.sign.bind(crypto.subtle);
+        let markVerificationEntered!: () => void;
+        const verificationEntered = new Promise<void>((resolve) => {
+          markVerificationEntered = resolve;
+        });
+        const verificationGate = new Promise<void>((resolve) => {
+          releaseVerification = resolve;
+        });
+        signSpy = vi.spyOn(crypto.subtle, 'sign').mockImplementationOnce(async (...args) => {
+          const signature = await originalSign(...args);
+          markVerificationEntered();
+          await verificationGate;
+          return signature;
+        });
+        // Refresh enters on the same binding's still-live one-second cache.
+        // The offer arrives during native verification, before a storage write
+        // could close the Durable Object input gate, and starts the next read.
+        now += 999;
+        const refresh = room.webSocketMessage(guest, JSON.stringify(mutation));
+        await verificationEntered;
+        now += 2;
+        delayMaintenance = true;
+        host.sent.length = 0;
+        const offer = room.webSocketMessage(guest, offerFrame);
+        await maintenanceEntered;
+        releaseVerification?.();
+        await refresh;
+        if (action === 'refresh') {
+          expect(guest.deserializeAttachment()).toMatchObject({ memberNickname: 'After Refresh' });
+        } else {
+          expect(guest.deserializeAttachment()).not.toHaveProperty('memberId');
+        }
+        expect(sent(host)).toContainEqual(
+          expect.objectContaining({
+            type: 'account-member-updated',
+            memberIdentity:
+              action === 'refresh' ? expect.objectContaining({ nickname: 'After Refresh' }) : null,
+          }),
+        );
+        releaseMaintenance();
+        await offer;
+        expect(sent(host).at(-1)).toMatchObject({ type: 'signal-offer' });
+        if (action === 'refresh') {
+          expect(sent(host).at(-1)).toMatchObject({
+            memberIdentity: { nickname: 'After Refresh' },
+          });
+        } else {
+          expect(sent(host).at(-1)).not.toHaveProperty('memberIdentity');
+        }
+      } finally {
+        releaseVerification?.();
+        releaseMaintenance();
+        signSpy?.mockRestore();
+        nowSpy.mockRestore();
+      }
+    },
+  );
+
   it('keeps a newer identity clear authoritative after an older refresh storage write is delayed', async () => {
     const state = new FakeDurableObjectState();
     const room = new workerModule.MusixquareRoom(state, {
@@ -6821,6 +7057,53 @@ describe('Cloudflare signaling Worker hibernation behavior', () => {
       memberIdentity: { nickname: 'After Clear' },
     });
   });
+
+  it.each([
+    { label: 'message count', count: 64, padding: '' },
+    { label: 'retained frame bytes', count: 4, padding: 'x'.repeat(32 * 1024) },
+  ])(
+    'bounds Standard ordered ingress by $label before a slow dependency settles',
+    async ({ count, padding }) => {
+      const state = new FakeDurableObjectState();
+      const env: Record<string, unknown> = {};
+      const room = new workerModule.MusixquareRoom(state, env);
+      await authenticateHost(room, 'host-1', 'room-secret-one');
+      const guest = await joinGuest(room, 'backlogged-guest');
+      const otherGuest = await joinGuest(room, 'unaffected-guest');
+      const maintenance = gatedInactiveMaintenanceBinding();
+      env.MUSIXQUARE_SERVICE_CONTROL = maintenance.binding;
+      const pending = [
+        room.webSocketMessage(guest, JSON.stringify({ type: 'account-identity-clear' })),
+      ];
+      await maintenance.entered;
+      try {
+        for (let index = 0; index < count; index++) {
+          pending.push(
+            room.webSocketMessage(
+              guest,
+              JSON.stringify({ type: 'account-identity-clear', ...(padding ? { padding } : {}) }),
+            ),
+          );
+        }
+        expect(guest.closed).toBe(true);
+        expect(guest.closeEvents).toHaveLength(1);
+        expect(guest.closeEvents[0]).toMatchObject({ code: 1008 });
+        expect(otherGuest.closed).toBe(false);
+      } finally {
+        maintenance.release();
+        await Promise.all(pending);
+        await state.flushWaitUntil();
+      }
+      for (let index = 0; index < 40; index++) {
+        await room.webSocketMessage(otherGuest, JSON.stringify({ type: 'account-identity-clear' }));
+      }
+      expect(otherGuest.closed).toBe(false);
+      expect(sent(otherGuest).at(-1)).toMatchObject({
+        type: 'account-identity',
+        clearReason: 'explicit',
+      });
+    },
+  );
 
   it('serializes a pre-minted admission identity ahead of a newer account deletion', async () => {
     const state = new FakeDurableObjectState();

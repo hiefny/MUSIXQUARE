@@ -222,6 +222,7 @@ let queueModeRefreshInFlight: PersistedStateRefreshFlight | null = null;
 let acceptedQueueMode: ProRoomQueueModeSnapshot | null = null;
 let suppressQueueModeCheckpoint = false;
 let queueModeCheckpointDirty = false;
+let queueModeIntentRevision = 0;
 let queueModeCheckpointRetryAttempt = 0;
 let terminalRecoveryInFlight = false;
 let controlChannelRecoveryAttempt = 0;
@@ -1986,46 +1987,17 @@ async function persistQueueModeCheckpoint(): Promise<void> {
     }
     const snapshot = manager.snapshot;
     if (!snapshot) return;
-    const pendingLocal = capturePlaylistQueueModeState();
-    const previousAccepted = acceptedQueueMode;
     if (
       !acceptedQueueMode ||
       acceptedQueueMode.roomCode !== snapshot.roomCode ||
       !queueModeMatchesPlaylist(acceptedQueueMode, snapshot)
     ) {
       await refreshPersistedQueueModeUnlocked(snapshot);
-      const canonical = acceptedQueueMode;
-      const canonicalSemanticUnchanged =
-        previousAccepted !== null &&
-        canonical !== null &&
-        canonical.repeatMode === previousAccepted.repeatMode &&
-        canonical.shuffleEnabled === previousAccepted.shuffleEnabled;
-      const localSemanticChanged =
-        previousAccepted !== null &&
-        (pendingLocal.repeatMode !== previousAccepted.repeatMode ||
-          pendingLocal.shuffleEnabled !== previousAccepted.shuffleEnabled);
-      if (canonicalSemanticUnchanged && localSemanticChanged && canonical) {
-        suppressQueueModeCheckpoint = true;
-        try {
-          applyPlaylistQueueModeState(
-            {
-              repeatMode: pendingLocal.repeatMode,
-              shuffleEnabled: pendingLocal.shuffleEnabled,
-              shuffleOrder:
-                pendingLocal.shuffleEnabled && canonical.shuffleEnabled
-                  ? canonical.shuffleOrder
-                  : pendingLocal.shuffleOrder,
-            },
-            false,
-          );
-        } finally {
-          suppressQueueModeCheckpoint = false;
-        }
-      }
     }
     const baseRevision = acceptedQueueMode?.revision;
     if (baseRevision === undefined) return;
     const local = capturePlaylistQueueModeState();
+    const intentRevision = queueModeIntentRevision;
     let accepted: ProRoomQueueModeSnapshot;
     try {
       accepted = await api.updateQueueMode(
@@ -2046,9 +2018,14 @@ async function persistQueueModeCheckpoint(): Promise<void> {
         (error.code === 'QUEUE_MODE_REVISION_CONFLICT' ||
           error.code === 'PLAYLIST_REVISION_CONFLICT')
       ) {
-        await refreshPersistedQueueModeUnlocked(snapshot);
-        queueModeCheckpointDirty = false;
-        queueModeCheckpointRetryAttempt = 0;
+        await refreshPersistedQueueModeUnlocked(snapshot, {
+          preservePendingIntent: false,
+          discardedIntent: { revision: intentRevision, state: local },
+        });
+        if (queueModeIntentRevision === intentRevision) {
+          queueModeCheckpointDirty = false;
+          queueModeCheckpointRetryAttempt = 0;
+        }
         return;
       }
       if (
@@ -2070,14 +2047,17 @@ async function persistQueueModeCheckpoint(): Promise<void> {
     }
     if (!isPlaylistLeaseCurrent(lease) || signal.aborted) return;
     acceptedQueueMode = accepted;
-    queueModeCheckpointDirty = false;
-    queueModeCheckpointRetryAttempt = 0;
+    if (queueModeIntentRevision === intentRevision) {
+      queueModeCheckpointDirty = false;
+      queueModeCheckpointRetryAttempt = 0;
+    }
   });
 }
 
 function scheduleQueueModeCheckpoint(): void {
   if (!active || suppressQueueModeCheckpoint) return;
   queueModeCheckpointDirty = true;
+  queueModeIntentRevision += 1;
   queueModeCheckpointRetryAttempt = 0;
   clearManagedTimer(QUEUE_MODE_CHECKPOINT_DEBOUNCE_TIMER);
   setManagedTimer(
@@ -2093,11 +2073,18 @@ function scheduleQueueModeCheckpoint(): void {
 
 async function refreshPersistedQueueModeUnlocked(
   snapshot: ProRoomSnapshot,
-  options: { broadcast?: boolean } = {},
+  options: {
+    broadcast?: boolean;
+    preservePendingIntent?: boolean;
+    discardedIntent?: { revision: number; state: ReturnType<typeof capturePlaylistQueueModeState> };
+  } = {},
 ): Promise<boolean> {
   const lease = playlistRuntimeLease;
   if (!lease || lease.roomCode !== snapshot.roomCode || !isPlaylistLeaseCurrent(lease))
     return false;
+  const previousAccepted = acceptedQueueMode;
+  const localBeforeRead = options.discardedIntent?.state ?? capturePlaylistQueueModeState();
+  const intentBeforeRead = options.discardedIntent?.revision ?? queueModeIntentRevision;
   const accepted = await api.getQueueMode(snapshot.roomCode, playlistRuntimeAbort?.signal);
   const currentSnapshot = playlistManager?.snapshot;
   if (
@@ -2108,15 +2095,31 @@ async function refreshPersistedQueueModeUnlocked(
   ) {
     return false;
   }
-  const changed = acceptedQueueMode?.revision !== accepted.revision;
+  const local = capturePlaylistQueueModeState();
+  const changedDuringRead = queueModeIntentRevision !== intentBeforeRead;
+  const preserveField = (key: 'repeatMode' | 'shuffleEnabled'): boolean =>
+    (changedDuringRead && local[key] !== localBeforeRead[key]) ||
+    (options.preservePendingIntent !== false &&
+      queueModeCheckpointDirty &&
+      previousAccepted !== null &&
+      accepted[key] === previousAccepted[key] &&
+      local[key] !== previousAccepted[key]);
+  const repeatMode = preserveField('repeatMode') ? local.repeatMode : accepted.repeatMode;
+  const shuffleEnabled = preserveField('shuffleEnabled')
+    ? local.shuffleEnabled
+    : accepted.shuffleEnabled;
   suppressQueueModeCheckpoint = true;
   try {
     if (
       !applyPlaylistQueueModeState(
         {
-          repeatMode: accepted.repeatMode,
-          shuffleEnabled: accepted.shuffleEnabled,
-          shuffleOrder: accepted.shuffleOrder,
+          repeatMode,
+          shuffleEnabled,
+          shuffleOrder: !shuffleEnabled
+            ? []
+            : accepted.shuffleEnabled
+              ? accepted.shuffleOrder
+              : local.shuffleOrder,
         },
         false,
       )
@@ -2126,7 +2129,6 @@ async function refreshPersistedQueueModeUnlocked(
     acceptedQueueMode = accepted;
     // The server invalidation reaches every equal endpoint; never fan this
     // state through a browser participant.
-    void changed;
     void options;
     return true;
   } finally {
@@ -3165,7 +3167,15 @@ export async function kickActiveProRoomMember(
   signal?: AbortSignal,
 ): Promise<void> {
   const { code, lease } = requireActiveProRoomAuthorityLease();
-  const snapshot = await api.kickMember(code, memberId, signal);
+  let snapshot: ProRoomSnapshot;
+  try {
+    snapshot = await api.kickMember(code, memberId, signal);
+  } catch (error) {
+    if (!controller.isSessionLeaseCurrent(lease, code)) {
+      throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
+    }
+    throw error;
+  }
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }
@@ -3181,7 +3191,15 @@ export async function kickActiveProRoomPresence(
   signal?: AbortSignal,
 ): Promise<void> {
   const { code, lease } = requireActiveProRoomAuthorityLease();
-  const snapshot = await api.kickPresence(code, participantId, signal);
+  let snapshot: ProRoomSnapshot;
+  try {
+    snapshot = await api.kickPresence(code, participantId, signal);
+  } catch (error) {
+    if (!controller.isSessionLeaseCurrent(lease, code)) {
+      throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
+    }
+    throw error;
+  }
   if (!controller.isSessionLeaseCurrent(lease, code)) {
     throw new ProRoomApiError('PRO_ROOM_SESSION_SUPERSEDED');
   }

@@ -198,6 +198,7 @@ function initSeekBarInput(signal?: AbortSignal): void {
   const slider = document.getElementById('seek-slider') as HTMLInputElement | null;
   if (!slider) return;
 
+  let activePointerId: number | null = null;
   const beginPointerDraft = (event: Event) => {
     _seekDenialFeedbackActive = false;
     if (rejectSeekInteraction(slider)) {
@@ -206,7 +207,15 @@ function initSeekBarInput(signal?: AbortSignal): void {
     }
     beginSeekDraft(slider);
   };
-  slider.addEventListener('pointerdown', beginPointerDraft, { signal });
+  slider.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (event.button !== 0 || activePointerId !== null) return;
+      activePointerId = event.pointerId;
+      beginPointerDraft(event);
+    },
+    { signal },
+  );
   // Pointer-enabled browsers dispatch compatibility mouse/touch events after
   // pointerdown. Keep the legacy listeners only as a fallback so one physical
   // drag cannot open the same permission feedback twice.
@@ -260,17 +269,28 @@ function initSeekBarInput(signal?: AbortSignal): void {
     { signal },
   );
 
-  slider.addEventListener('mouseup', () => scheduleSeekDraftRelease(slider), { signal });
-  slider.addEventListener('pointerup', () => scheduleSeekDraftRelease(slider), { signal });
-  slider.addEventListener('lostpointercapture', () => scheduleSeekDraftRelease(slider), {
-    signal,
-  });
-  slider.addEventListener('touchend', () => scheduleSeekDraftRelease(slider), {
+  // A second touch can end or lose its implicit capture while the first still
+  // owns the range. Keep the timeline draft with that same pointer owner.
+  const finishPointerDraft = (event: PointerEvent) => {
+    if (activePointerId === null || event.pointerId !== activePointerId) return;
+    activePointerId = null;
+    if (event.type === 'pointercancel') finishSeekDraft(slider);
+    else scheduleSeekDraftRelease(slider);
+  };
+  const finishLegacyDraft = (event: Event) => {
+    if (typeof PointerEvent !== 'undefined') return;
+    if (event.type === 'touchcancel') finishSeekDraft(slider);
+    else scheduleSeekDraftRelease(slider);
+  };
+  slider.addEventListener('mouseup', finishLegacyDraft, { signal });
+  slider.addEventListener('pointerup', finishPointerDraft, { signal });
+  slider.addEventListener('lostpointercapture', finishPointerDraft, { signal });
+  slider.addEventListener('touchend', finishLegacyDraft, {
     passive: true,
     signal,
   });
-  slider.addEventListener('pointercancel', () => finishSeekDraft(slider), { signal });
-  slider.addEventListener('touchcancel', () => finishSeekDraft(slider), {
+  slider.addEventListener('pointercancel', finishPointerDraft, { signal });
+  slider.addEventListener('touchcancel', finishLegacyDraft, {
     passive: true,
     signal,
   });
@@ -300,7 +320,8 @@ function initSeekBarInput(signal?: AbortSignal): void {
 
 // ─── rAF Interpolation Loop ─────────────────────────────────────
 
-let _rafId = 0;
+let _rafId: number | null = null;
+let _systemAudioPollTimer: number | null = null;
 let _rafAnchorTime = 0;
 let _rafAnchorTs = 0;
 let _rafLastFmtSec = -1;
@@ -352,6 +373,7 @@ function renderSeekPosition(positionSeconds: number): void {
 }
 
 function _seekRafLoop(now: number): void {
+  _rafId = null;
   // System audio has no seekable timeline — render the unavailable state once
   // and then poll at 1Hz so leaving the mode resumes ordinary interpolation.
   // Previously this branch wrote the same zeros every frame at 60fps, which
@@ -363,7 +385,8 @@ function _seekRafLoop(now: number): void {
       renderUnavailableTimeline('system-audio');
       _systemAudioZerosApplied = true;
     }
-    _rafId = window.setTimeout(() => {
+    _systemAudioPollTimer = window.setTimeout(() => {
+      _systemAudioPollTimer = null;
       _rafId = requestAnimationFrame(_seekRafLoop);
     }, SYSTEM_AUDIO_POLL_MS);
     return;
@@ -401,7 +424,7 @@ function _seekRafLoop(now: number): void {
 }
 
 function _startSeekRaf(): void {
-  if (_rafId) return;
+  if (_rafId !== null || _systemAudioPollTimer !== null) return;
   _rafAnchorTime = getPendingSeekProjection()?.targetSeconds ?? getTrackPosition();
   _rafAnchorTs = performance.now();
   _rafLastFmtSec = -1;
@@ -409,12 +432,14 @@ function _startSeekRaf(): void {
 }
 
 function _stopSeekRaf(): void {
-  if (_rafId) {
-    // _rafId may hold either a RAF id or a setTimeout id (system-audio
-    // throttle path). Clearing both is safe — the unused handle is a no-op.
+  if (_rafId !== null) {
     cancelAnimationFrame(_rafId);
-    clearTimeout(_rafId);
-    _rafId = 0;
+    _rafId = null;
+  }
+  // rAF and timer handles have separate namespaces and may share a number.
+  if (_systemAudioPollTimer !== null) {
+    window.clearTimeout(_systemAudioPollTimer);
+    _systemAudioPollTimer = null;
   }
   _systemAudioZerosApplied = false;
 }

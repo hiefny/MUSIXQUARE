@@ -74,6 +74,7 @@ interface RawAccountStatsResponse {
 
 const ACCOUNT_CSRF_HEADER = 'X-MXQR-Account-CSRF';
 const ACCOUNT_STATS_SCOPE_HEADER = 'X-MXQR-Account-Stats-Scope';
+const ACCOUNT_EXPECTED_SCOPE_HEADER = 'X-MXQR-Account-Expected-Scope';
 const ACCOUNT_STATS_SCOPE_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 const ACCOUNT_REQUEST_TIMEOUT_MS = 15_000;
 // Session reads sit directly on the app's recovery path. A browser or service
@@ -267,6 +268,13 @@ function mutationHeaders(): HeadersInit {
   };
 }
 
+function expectedAccountMutationHeaders(expectedScope: string | null): HeadersInit {
+  if (!expectedScope || !ACCOUNT_STATS_SCOPE_PATTERN.test(expectedScope)) {
+    throw new AccountApiError('ACCOUNT_SESSION_CHANGED', 409);
+  }
+  return { ...mutationHeaders(), [ACCOUNT_EXPECTED_SCOPE_HEADER]: expectedScope };
+}
+
 export async function getAccountSession(): Promise<AccountSessionResponse> {
   return normalizeAccountResponse(
     (await requestJsonResponse('/api/auth/session', {}, ACCOUNT_SESSION_REQUEST_TIMEOUT_MS))
@@ -274,8 +282,15 @@ export async function getAccountSession(): Promise<AccountSessionResponse> {
   );
 }
 
-export async function getAccountStats(): Promise<AccountStats> {
-  return normalizeAccountStats(await requestJson('/api/auth/stats'));
+export async function getAccountStats(statsScope: string): Promise<AccountStats> {
+  if (!ACCOUNT_STATS_SCOPE_PATTERN.test(statsScope)) {
+    throw new AccountApiError('ACCOUNT_STATS_SCOPE_INVALID', 0);
+  }
+  return normalizeAccountStats(
+    await requestJson('/api/auth/stats', {
+      headers: { [ACCOUNT_STATS_SCOPE_HEADER]: statsScope },
+    }),
+  );
 }
 
 export async function addAccountStats(
@@ -331,11 +346,14 @@ export async function getStandardRoomIdentityAssertions(
   return { accountAssertion, deletionAssertion };
 }
 
-export async function updateAccountProfile(nickname: string): Promise<AccountSessionResponse> {
+export async function updateAccountProfile(
+  nickname: string,
+  expectedScope: string | null,
+): Promise<AccountSessionResponse> {
   return normalizeAccountResponse(
     await requestJson('/api/auth/profile', {
       method: 'PATCH',
-      headers: mutationHeaders(),
+      headers: expectedAccountMutationHeaders(expectedScope),
       body: JSON.stringify({ nickname }),
     }),
   );
@@ -357,10 +375,10 @@ export async function logoutAllAccounts(): Promise<void> {
   });
 }
 
-export async function deleteAccount(): Promise<AccountDeletionResult> {
+export async function deleteAccount(expectedScope: string | null): Promise<AccountDeletionResult> {
   const response = await requestJsonResponse('/api/auth/account', {
     method: 'DELETE',
-    headers: mutationHeaders(),
+    headers: expectedAccountMutationHeaders(expectedScope),
     body: JSON.stringify({ confirm: true }),
   });
   const payload = response.payload;

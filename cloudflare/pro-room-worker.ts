@@ -5139,10 +5139,11 @@ export class MusixquareProRoom {
     const nowMs = Date.now();
     const candidates: Array<number | null | undefined> = [];
     if (this.activeRoom.status === 'decommissioning') {
-      candidates.push(
-        this.activeRoom.decommission?.retryAtMs,
-        this.activeRoom.decommission?.purgeAfterMs,
-      );
+      candidates.push(this.activeRoom.decommission?.retryAtMs);
+      const purgeAfterMs = this.activeRoom.decommission?.purgeAfterMs;
+      // The original purge boundary remains stored through the final quiet
+      // window. Once due, retryAtMs owns subsequent cleanup attempts.
+      if (isSafeInteger(purgeAfterMs) && purgeAfterMs > nowMs) candidates.push(purgeAfterMs);
     } else if (this.activeRoom.status === 'decommissioned') {
       candidates.push(this.activeRoom.decommission?.maintenanceAtMs);
     }
@@ -5196,7 +5197,8 @@ export class MusixquareProRoom {
         if (
           isSafeInteger(command.attempts) &&
           command.attempts < DEVELOPER_COMMAND_MAX_ATTEMPTS &&
-          isSafeInteger(command.nextAttemptAtMs)
+          isSafeInteger(command.nextAttemptAtMs) &&
+          command.nextAttemptAtMs > nowMs
         ) {
           candidates.push(command.nextAttemptAtMs);
         }
@@ -5238,7 +5240,11 @@ export class MusixquareProRoom {
       candidates.push(deadlineAtMs <= nowMs ? nowMs + 1 : deadlineAtMs);
     }
     const next = candidates
-      .filter((value): value is number => isSafeInteger(value) && value > nowMs)
+      // Alarm installation may recover after a cleanup deadline. Retain due
+      // work so the alarm can prune it instead of clearing a dirty schedule
+      // while expired sessions, reservations or replay ledgers remain stored.
+      .filter((value): value is number => isSafeInteger(value) && value > 0)
+      .map((value) => (value <= nowMs ? nowMs + 1 : value))
       .sort((a, b) => a - b)[0];
     // An earlier alarm is safe: it will wake, find that a renewed lease has
     // not expired, and schedule the later deadline. Avoid moving the alarm
@@ -5498,7 +5504,11 @@ export class MusixquareProRoom {
   async fetch(request: Request) {
     const maintenanceResponse = await gateServiceMaintenance(request, this.env, { format: 'json' });
     if (maintenanceResponse) return maintenanceResponse;
-    if (!(await this.ensureReady(request))) return errorResponse('ROOM_NOT_FOUND', 404);
+    // Normalization replaces mutable records, so it must share the same
+    // serialization boundary as requests awaiting external service responses.
+    if (!(await this.withMutation(() => this.ensureReady(request)))) {
+      return errorResponse('ROOM_NOT_FOUND', 404);
+    }
     const url = new URL(request.url);
     if (url.search || url.hash || request.url.length > 8192) {
       return errorResponse('INVALID_REQUEST', 400);
@@ -5518,27 +5528,27 @@ export class MusixquareProRoom {
         const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
         if (accountDeletionResponse) return accountDeletionResponse;
         await this.prune(Date.now());
-        return this.withStateCapacityRollback(
-          async () => {
-            if (url.pathname === '/internal/bot/context') {
-              return this.handleInternalBotContext(request);
-            }
-            if (url.pathname === '/internal/bot/execute') {
-              return this.handleInternalBotExecute(request);
-            }
-            return errorResponse('NOT_FOUND', 404);
-          },
-          {
-            // BOT execution composes several independently durable operations
-            // (queue mutation followed by an optional playback command). A late
-            // failure must not rewind earlier commits in memory. Context lease
-            // creation is a single state-only transaction and is safe to undo.
-            rollbackStorageFailure: url.pathname === '/internal/bot/context',
-          },
-        );
+        if (url.pathname === '/internal/bot/context') {
+          return this.withStateCapacityRollback(() => this.handleInternalBotContext(request), {
+            rollbackStorageFailure: true,
+          });
+        }
+        // Each execution stage owns its rollback boundary. A later failure
+        // must preserve queue/playback operations that already committed.
+        if (url.pathname === '/internal/bot/execute') return this.handleInternalBotExecute(request);
+        return errorResponse('NOT_FOUND', 404);
       });
     }
     if (url.pathname.startsWith('/internal/admin/')) {
+      if (request.method === 'POST' && url.pathname === '/internal/admin/status/project') {
+        return this.withMutation(async () => {
+          const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
+          if (accountDeletionResponse && accountDeletionResponse.status !== 423) {
+            return accountDeletionResponse;
+          }
+          return this.handleInternalStatusProjection(request);
+        });
+      }
       if (request.method === 'GET' && url.pathname === '/internal/admin/status') {
         return this.withMutation(async () => {
           const accountDeletionResponse = await this.enforceOwnerAccountDeletionFence();
@@ -5584,6 +5594,7 @@ export class MusixquareProRoom {
                 roomCode: this.activeRoom.roomCode,
                 roomGeneration: this.activeRoom.roomGeneration,
                 status: this.activeRoom.status,
+                suspensionReason: this.activeRoom.suspensionReason,
               });
             },
             { rollbackStorageFailure: true },
@@ -5738,13 +5749,10 @@ export class MusixquareProRoom {
             return errorResponse('NOT_FOUND', 404);
           },
           {
-            // Completion promotes bytes from staging into the final R2 key
-            // before committing metadata. Rewinding only memory after that
-            // external side effect would manufacture a second, contradictory
-            // view of the upload. Its existing cleanup saga remains responsible
-            // for recovery; every other route in this group is state-only.
-            rollbackStorageFailure:
-              url.pathname !== '/internal/developer/v1/media/uploads/complete',
+            // Completion can recover from its verified immutable final R2
+            // object. Restore the durable reservation after a failed state
+            // transaction so same-isolate retries cannot replay a ghost receipt.
+            rollbackStorageFailure: true,
           },
         );
       });
@@ -6072,22 +6080,26 @@ export class MusixquareProRoom {
 
   async runBotDeveloperCommand(requestId: string, command: DeveloperControlCommand) {
     const idempotencyKey = await botDerivedIdempotencyKey(requestId, 'command');
-    const response = await this.handleInternalDeveloperCommandCreate(
-      new Request('https://pro-room.internal/internal/developer/v1/commands/create', {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...proRoomGenerationWireHeaders(this.activeRoom.roomGeneration),
-        },
-        body: JSON.stringify({
-          roomCode: this.activeRoom.roomCode,
-          ...proRoomGenerationWireFields(this.activeRoom.roomGeneration),
-          keyId: BOT_DEVELOPER_KEY_ID,
-          developerAuthorityEpoch: this.activeRoom.developerAuthorityEpoch,
-          idempotencyKey,
-          command,
-        }),
-      }),
+    const response = await this.withStateCapacityRollback(
+      () =>
+        this.handleInternalDeveloperCommandCreate(
+          new Request('https://pro-room.internal/internal/developer/v1/commands/create', {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              ...proRoomGenerationWireHeaders(this.activeRoom.roomGeneration),
+            },
+            body: JSON.stringify({
+              roomCode: this.activeRoom.roomCode,
+              ...proRoomGenerationWireFields(this.activeRoom.roomGeneration),
+              keyId: BOT_DEVELOPER_KEY_ID,
+              developerAuthorityEpoch: this.activeRoom.developerAuthorityEpoch,
+              idempotencyKey,
+              command,
+            }),
+          }),
+        ),
+      { rollbackStorageFailure: true },
     );
     if (!response.ok) return false;
     const result = await response
@@ -6198,12 +6210,28 @@ export class MusixquareProRoom {
       return errorResponse('BOT_CONTEXT_REQUIRED', 409);
     }
 
+    // The terminal browser receipt has a separate ledger from Developer
+    // operations. Check its slot before publishing any intermediate commit.
+    try {
+      this.reserveIdempotencySlot(scope, parsed.value.requestId);
+    } catch (error) {
+      if (!(error instanceof RoomStateCapacityError)) throw error;
+      return errorResponse('ROOM_STATE_CAPACITY_EXCEEDED', 409);
+    }
+    const mutateQueue = (input: Request, terminal: BotTerminalOptions | null = null) =>
+      this.withStateCapacityRollback(
+        () => this.handleInternalDeveloperQueueMutation(input, terminal),
+        {
+          rollbackStorageFailure: true,
+        },
+      );
+
     let addedCount = 0;
     let playbackChanged = false;
     let destructiveResponseBody: JsonRecord | null = null;
     if (plan.intent === 'add_youtube') {
       const queueIdempotencyKey = await botDerivedIdempotencyKey(parsed.value.requestId, 'queue');
-      const queueResponse = await this.handleInternalDeveloperQueueMutation(
+      const queueResponse = await mutateQueue(
         new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
           method: 'POST',
           headers: {
@@ -6263,7 +6291,7 @@ export class MusixquareProRoom {
       if (!playbackChanged) return errorResponse('BOT_ACTION_FAILED', 409);
     } else if (plan.intent === 'remove_items' || plan.intent === 'clear_queue') {
       const queueIdempotencyKey = await botDerivedIdempotencyKey(parsed.value.requestId, 'queue');
-      const queueResponse = await this.handleInternalDeveloperQueueMutation(
+      const queueResponse = await mutateQueue(
         new Request('https://pro-room.internal/internal/developer/v1/queue/mutate', {
           method: 'POST',
           headers: {
@@ -6311,35 +6339,39 @@ export class MusixquareProRoom {
       if (!playbackChanged) return errorResponse('BOT_ACTION_FAILED', 409);
     } else if (plan.intent === 'queue_mode') {
       const modeIdempotencyKey = await botDerivedIdempotencyKey(parsed.value.requestId, 'mode');
-      const queueModeResponse = await this.handleInternalDeveloperQueueModeUpdate(
-        new Request('https://pro-room.internal/internal/developer/v1/queue-mode/update', {
-          method: 'POST',
-          headers: {
-            'content-type': 'application/json',
-            ...proRoomGenerationWireHeaders(this.activeRoom.roomGeneration),
-          },
-          body: JSON.stringify({
-            roomCode: this.activeRoom.roomCode,
-            ...proRoomGenerationWireFields(this.activeRoom.roomGeneration),
-            keyId: BOT_DEVELOPER_KEY_ID,
-            developerAuthorityEpoch: this.activeRoom.developerAuthorityEpoch,
-            idempotencyKey: modeIdempotencyKey,
-            queueMode: {
-              baseRevision: this.activeRoom.queueMode.revision,
-              repeatMode:
-                plan.repeatMode ||
-                (this.activeRoom.queueMode.repeatMode === 2
-                  ? 'one'
-                  : this.activeRoom.queueMode.repeatMode === 1
-                    ? 'all'
-                    : 'off'),
-              shuffleEnabled:
-                plan.shuffleEnabled === undefined
-                  ? this.activeRoom.queueMode.shuffleEnabled
-                  : plan.shuffleEnabled,
-            },
-          }),
-        }),
+      const queueModeResponse = await this.withStateCapacityRollback(
+        () =>
+          this.handleInternalDeveloperQueueModeUpdate(
+            new Request('https://pro-room.internal/internal/developer/v1/queue-mode/update', {
+              method: 'POST',
+              headers: {
+                'content-type': 'application/json',
+                ...proRoomGenerationWireHeaders(this.activeRoom.roomGeneration),
+              },
+              body: JSON.stringify({
+                roomCode: this.activeRoom.roomCode,
+                ...proRoomGenerationWireFields(this.activeRoom.roomGeneration),
+                keyId: BOT_DEVELOPER_KEY_ID,
+                developerAuthorityEpoch: this.activeRoom.developerAuthorityEpoch,
+                idempotencyKey: modeIdempotencyKey,
+                queueMode: {
+                  baseRevision: this.activeRoom.queueMode.revision,
+                  repeatMode:
+                    plan.repeatMode ||
+                    (this.activeRoom.queueMode.repeatMode === 2
+                      ? 'one'
+                      : this.activeRoom.queueMode.repeatMode === 1
+                        ? 'all'
+                        : 'off'),
+                  shuffleEnabled:
+                    plan.shuffleEnabled === undefined
+                      ? this.activeRoom.queueMode.shuffleEnabled
+                      : plan.shuffleEnabled,
+                },
+              }),
+            }),
+          ),
+        { rollbackStorageFailure: true },
       );
       if (!queueModeResponse.ok) return errorResponse('BOT_ACTION_FAILED', 409);
     } else if (plan.intent === 'virtual_treble') {
@@ -6364,9 +6396,15 @@ export class MusixquareProRoom {
       addedCount,
       playbackChanged,
     };
-    this.storeIdempotency(scope, parsed.value.requestId, fingerprint, responseBody);
-    await this.persist();
-    return jsonResponse(responseBody);
+    const requestId = parsed.value.requestId;
+    return this.withStateCapacityRollback(
+      async () => {
+        this.storeIdempotency(scope, requestId, fingerprint, responseBody);
+        await this.persist();
+        return jsonResponse(responseBody);
+      },
+      { rollbackStorageFailure: true },
+    );
   }
 
   developerAuthorityEpochError(value: unknown) {
@@ -7358,6 +7396,7 @@ export class MusixquareProRoom {
     this.activeRoom.quota.reservedBytes -= asset.byteLength;
     this.activeRoom.quota.usedBytes += asset.byteLength;
     this.activeRoom.playlist.push(queueItem);
+    reconcileQueueModePlaylist(this.activeRoom, nowMs);
     this.activeRoom.playlistRevision += 1;
     delete asset.reservedByDeveloperKeyId;
     delete asset.developerQueueItemId;
@@ -8726,7 +8765,7 @@ export class MusixquareProRoom {
     }
   }
 
-  async projectOwnerAccountDeletedSuspension(nowMs = Date.now()) {
+  async projectOwnerAccountDeletedSuspension(nowMs = Date.now(), recordAudit = false) {
     const db = this.env.MUSIXQUARE_ADMIN_DB || this.env.ADMIN_METRICS_DB || null;
     if (!db?.prepare) return false;
     try {
@@ -8745,6 +8784,16 @@ export class MusixquareProRoom {
           ? result.meta.changes
           : 0;
       if (changes < 1) return false;
+      if (recordAudit) {
+        await db
+          .prepare(
+            `INSERT INTO mxqr_pro_room_admin_audit
+              (actor_id, action, result, room_code, room_generation, created_at)
+             VALUES ('system:account-delete', 'room.suspend', 'owner_account_deleted', ?1, ?2, ?3)`,
+          )
+          .bind(this.activeRoom.roomCode, this.activeRoom.roomGeneration, nowMs)
+          .run();
+      }
       // Keep this isolate's public front-door cache consistent with the D1
       // projection immediately. Other isolates re-read the same row on their
       // bounded registry refresh, while this DO remains the final authority.
@@ -9070,6 +9119,15 @@ export class MusixquareProRoom {
     ) {
       return errorResponse('INVALID_REQUEST', 400);
     }
+    // A cleanup request may arrive after its App preflight and room deletion.
+    // The permanent room fence already revokes every account; retaining a new
+    // account tombstone here would recreate data that terminal GC never prunes.
+    if (
+      this.activeRoom.status === 'decommissioning' ||
+      this.activeRoom.status === 'decommissioned'
+    ) {
+      return errorResponse('PRO_ROOM_PERMANENTLY_DECOMMISSIONED', 410);
+    }
     const result = this.purgeAccountAuthority(parsed.value.accountId, Date.now());
     if ((result?.changed ?? false) || this.accountIdentityMigrationPending) {
       if (result?.authorityChanged) this.activeRoom.revision += 1;
@@ -9137,16 +9195,24 @@ export class MusixquareProRoom {
     if (
       this.activeRoom.status !== 'suspended' ||
       this.activeRoom.suspensionReason !== 'owner_account_deleted' ||
+      this.activeRoom.ownerAccountId !== null ||
       !removal ||
       removal.accountId !== parsed.value.accountId ||
       removal.removalId !== parsed.value.removalId ||
       removal.ownerAuthorityEpoch !== parsed.value.removedOwnerAuthorityEpoch ||
+      this.activeRoom.ownerAuthorityEpoch !== removal.ownerAuthorityEpoch ||
       removal.fencedCoordinatorEpoch !== parsed.value.fencedCoordinatorEpoch
     ) {
       return errorResponse('OWNER_AUTHORITY_REMOVAL_MISMATCH', 409);
     }
     const changed = removal.projectionAcked !== true;
     if (changed) {
+      // This handler owns withMutation through the D1 writes and durable ACK.
+      // A successor transfer cannot interleave between the exact owner-removal
+      // check and registry projection; a stale ACK returns before either write.
+      if (!(await this.projectOwnerAccountDeletedSuspension(Date.now(), true))) {
+        return errorResponse('OWNER_AUTHORITY_PROJECTION_UNAVAILABLE', 503);
+      }
       removal.projectionAcked = true;
       await this.persist();
     }
@@ -10869,20 +10935,36 @@ export class MusixquareProRoom {
       timingMode = playback.state === 'idle' ? 'zero-start' : 'scheduled-control';
     } else if (command.type === 'pause') {
       if (playback.state === 'idle') return { error: 'NO_MEDIA', status: 409 };
-      if (playback.state === 'paused') return { status: 'unchanged', event: null };
+      if (playback.state === 'paused' && !pendingPlaybackTransition) {
+        return { status: 'unchanged', event: null };
+      }
       target = this.targetPlayback(
         playback.queueItemId,
         'paused',
-        currentPosition + (playbackClockRunning ? PLAYBACK_COMMIT_LEAD_MS / 1_000 : 0),
+        currentPosition +
+          (playback.state === 'playing' && playbackClockRunning
+            ? PLAYBACK_COMMIT_LEAD_MS / 1_000
+            : 0),
         nowMs,
         currentIdentity,
       );
     } else if (command.type === 'stop') {
-      if (playback.state === 'idle') return { status: 'unchanged', event: null };
-      if (playback.state === 'paused' && playback.positionSeconds === 0) {
+      if (
+        !pendingPlaybackTransition &&
+        (playback.state === 'idle' ||
+          (playback.state === 'paused' && playback.positionSeconds === 0))
+      ) {
         return { status: 'unchanged', event: null };
       }
-      target = this.targetPlayback(playback.queueItemId, 'paused', 0, nowMs, currentIdentity);
+      // Even a canonically silent room can have a prepared sound-on intent.
+      // Commit sound-off through the normal cancellation/revision boundary.
+      target = this.targetPlayback(
+        playback.queueItemId,
+        playback.state === 'idle' ? 'idle' : 'paused',
+        0,
+        nowMs,
+        currentIdentity,
+      );
     } else if (command.type === 'seek') {
       if (playback.state === 'idle') return { error: 'NO_MEDIA', status: 409 };
       target = this.targetPlayback(
@@ -11573,6 +11655,62 @@ export class MusixquareProRoom {
       suspensionReason: this.activeRoom.suspensionReason,
       changed,
     });
+  }
+
+  async handleInternalStatusProjection(request: Request) {
+    const parsed = await readJsonBody(request, SMALL_REQUEST_MAX_BYTES);
+    if ('error' in parsed) return errorResponse(parsed.error, parsed.status || 400);
+    const body = 'value' in parsed ? parsed.value : undefined;
+    if (
+      !hasExactKeys(body, ['status', 'suspensionReason', 'roomGeneration']) ||
+      exactInternalRoomGeneration(request, body) !== this.activeRoom.roomGeneration
+    ) {
+      return errorResponse('INVALID_REQUEST', 400);
+    }
+    const room = this.activeRoom;
+    if (
+      !room.provisioned ||
+      !['unactivated', 'active', 'suspended'].includes(room.status) ||
+      body.status !== room.status ||
+      body.suspensionReason !== room.suspensionReason
+    )
+      return errorResponse('PRO_ROOM_STATE_CONFLICT', 409);
+    const db = this.env.MUSIXQUARE_ADMIN_DB || this.env.ADMIN_METRICS_DB;
+    if (!db?.prepare) return errorResponse('PRO_ROOM_REGISTRY_UNAVAILABLE', 503);
+    try {
+      // The state comparison and D1 write share the canonical mutation lane.
+      // App response delivery order cannot reapply an earlier operational state.
+      const result = await db
+        .prepare(
+          `UPDATE mxqr_pro_room_registry
+            SET status = ?3, suspension_reason = ?4,
+                activation_state = ?5, updated_at = ?6
+          WHERE room_code = ?1 AND room_generation = ?2
+            AND status NOT IN ('decommissioning', 'decommissioned')`,
+        )
+        .bind(
+          room.roomCode,
+          room.roomGeneration,
+          room.status === 'suspended' ? 'suspended' : 'registered',
+          room.suspensionReason,
+          room.status === 'unactivated' ? 'unactivated' : 'active',
+          Date.now(),
+        )
+        .run();
+      if (!isRecord(result) || !isRecord(result.meta) || result.meta.changes !== 1) {
+        return errorResponse('PRO_ROOM_STATE_CONFLICT', 409);
+      }
+      return jsonResponse({
+        ok: true,
+        projected: true,
+        roomCode: room.roomCode,
+        roomGeneration: room.roomGeneration,
+        status: room.status,
+        suspensionReason: room.suspensionReason,
+      });
+    } catch {
+      return errorResponse('PRO_ROOM_REGISTRY_UNAVAILABLE', 503);
+    }
   }
 
   async handleInternalSuspend() {
@@ -12570,6 +12708,14 @@ export class MusixquareProRoom {
     // of leaving an unreachable owner presence behind until TTL expiry. Other
     // devices of the same proven account remain live and are upgraded below.
     const recoveringSession = await this.authenticate(request);
+    const remainingPresence = Object.values(this.activeRoom.presence.participants).filter(
+      (participant) =>
+        participant.sessionHash !== recoveringSession?.tokenHash &&
+        this.activeRoom.sessions[participant.sessionHash]?.role !== 'owner',
+    ).length;
+    // Recovery replaces the caller and prior owner sessions. Reserve that
+    // resulting live slot before consuming the claim or revoking credentials.
+    if (remainingPresence >= PRESENCE_MAX_ITEMS) return errorResponse('ROOM_FULL', 409);
     if (recoveringSession) {
       this.removePresence(recoveringSession.session.participantId, nowMs);
       this.removeSessionRecord(recoveringSession.tokenHash);

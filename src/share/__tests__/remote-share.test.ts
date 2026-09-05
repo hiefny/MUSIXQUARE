@@ -1980,6 +1980,57 @@ describe('host-side completion-time broadcast gate (HET-3)', () => {
     expect(getState('share.remote').upload.error).toBe('share.remote.quota_reached');
   });
 
+  it.each([false, true])(
+    'keeps a targeted upload failure scoped to its original recipient (closed=%s)',
+    async (closed) => {
+      const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
+      const { bus } = await import('../../core/events.ts');
+      const { safeSend } = await import('../../network/peer.ts');
+      const { sendSystemMessage } = await import('../../chat/protocol.ts');
+      const target = remotePeer();
+      const other = {
+        ...remotePeer(),
+        id: 'guest-remote-2',
+        conn: dataConnection('guest-remote-2'),
+      };
+      const targetConn = target.conn!;
+      const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });
+      setState('network.appRole', 'host');
+      setState('network.connectedPeers', [target, other]);
+      setState('playlist.items', [fileItem(file, Q0)]);
+      setHostFile(file, Q0, 7);
+      let rejectUpload!: (error: Error) => void;
+      mocks.uploadRemoteFile.mockImplementationOnce(
+        () =>
+          new Promise<RemoteFileSharePayload>((_resolve, reject) => {
+            rejectUpload = reject;
+          }),
+      );
+      const share = shareRemoteFileIfNeeded(file, 7, targetConn, { queueItemId: Q0 });
+      await vi.waitFor(() => expect(mocks.uploadRemoteFile).toHaveBeenCalledOnce());
+      if (closed) {
+        targetConn.open = false;
+        setState('network.connectedPeers', [other]);
+        bus.emit('network:peer-disconnected', target.id);
+      }
+
+      rejectUpload(new Error('REMOTE_SHARE_UPLOAD_NETWORK'));
+      await share;
+
+      expect(safeSend).not.toHaveBeenCalledWith(
+        other.conn,
+        expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE }),
+      );
+      expect(sendSystemMessage).not.toHaveBeenCalledWith(other.conn, expect.anything());
+      if (closed) expect(safeSend).not.toHaveBeenCalled();
+      else
+        expect(safeSend).toHaveBeenCalledWith(
+          targetConn,
+          expect.objectContaining({ type: MSG.REMOTE_FILE_UNAVAILABLE }),
+        );
+    },
+  );
+
   it('shows a friendly network error when the room quota check is temporarily unavailable', async () => {
     const { shareRemoteFileIfNeeded } = await import('../remote-share.ts');
     const file = new File(['aaaa'], 'track-a.mp3', { type: 'audio/mpeg' });

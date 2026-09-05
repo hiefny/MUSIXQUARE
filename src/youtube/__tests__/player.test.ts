@@ -2006,7 +2006,7 @@ describe('YouTube Player', () => {
         type: MSG.YOUTUBE_PLAYLIST_INFO,
         playlistId: 'PL_GESTURE_STANDARD',
         ids: ['AAAAAAAAAAA', 'BBBBBBBBBBB', 'CCCCCCCCCCC'],
-        titles: [],
+        titles: ['', '', ''],
       });
       expect(broadcast).toHaveBeenCalledWith(
         expect.objectContaining({

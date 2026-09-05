@@ -25,6 +25,7 @@ const _activeUnicasts = new Map<string, SessionScope>();
 
 /** Broadcast-level scope for cancellation */
 let _broadcastScope: SessionScope | null = null;
+let _broadcastGeneration = 0;
 
 type PeerTransferKind = 'broadcast' | 'unicast';
 
@@ -308,12 +309,21 @@ export async function broadcastFile(
     return;
   }
 
+  const generation = ++_broadcastGeneration;
   // Cancel previous broadcast and yield so its loop can exit cleanly
   // before we send the new FILE_START header (prevents chunk interleaving)
   if (activeBroadcast) {
     setState('transfer.activeBroadcastSession', null);
     await delay(0);
   }
+  // Cancellation or a successor can run while the predecessor is yielding.
+  // Recheck before installing a scope or announcing any bytes to receivers.
+  if (
+    generation !== _broadcastGeneration ||
+    getState('playlist.currentQueueItemId') !== queueItemId ||
+    getState('files.current')?.blob !== file
+  )
+    return;
   setState('transfer.activeBroadcastSession', sessionId);
 
   _broadcastScope = SessionScope.replace(_broadcastScope);
@@ -634,6 +644,7 @@ export function cancelOutgoingFileTransferForPeer(peerId: string): void {
 }
 
 export function cancelOutgoingFileTransfers(): void {
+  _broadcastGeneration++;
   // A broadcast still parked in the debounce window is an outgoing transfer
   // too — drop it first so it can't fire after this teardown and resurrect
   // a chunk stream for a file the caller just discarded.

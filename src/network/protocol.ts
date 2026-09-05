@@ -56,7 +56,7 @@ export function validateMessage(
 // classified below, while authority-guarded no-payload frames remain rolling
 // compatible instead of requiring one monolithic exact schema.
 
-const isArrayBufferLike = (v: unknown): boolean =>
+export const isArrayBufferLike = (v: unknown): boolean =>
   v instanceof ArrayBuffer ||
   v instanceof Uint8Array ||
   (v != null &&
@@ -99,7 +99,7 @@ const isPositiveSafeInt = (v: unknown): v is number =>
 const isNonNegFiniteSafeNumber = (v: unknown): v is number =>
   isFiniteNumber(v) && v >= 0 && v <= Number.MAX_SAFE_INTEGER;
 
-function isSafeOperatorUploadFileName(value: unknown): value is string {
+export function isSafeOperatorUploadFileName(value: unknown): value is string {
   if (
     typeof value !== 'string' ||
     value.length === 0 ||
@@ -111,9 +111,15 @@ function isSafeOperatorUploadFileName(value: unknown): value is string {
     return false;
   }
   return ![...value].some((character) => {
-    const codePoint = character.codePointAt(0) ?? 0;
+    const codePoint = character.charCodeAt(0);
     return codePoint <= 31 || codePoint === 127;
   });
+}
+
+export function isOperatorUploadMime(value: unknown): value is string {
+  return (
+    typeof value === 'string' && value.length > 0 && value.length <= 128 && value.trim() === value
+  );
 }
 
 function hasExactKeys(
@@ -639,10 +645,7 @@ const PROTOCOL_VALIDATORS: Partial<Record<MsgType, (data: Record<string, unknown
     typeof d.sessionId === 'string' &&
     OPERATOR_FILE_UPLOAD_ID_RE.test(d.sessionId) &&
     isSafeOperatorUploadFileName(d.name) &&
-    typeof d.mime === 'string' &&
-    d.mime.length > 0 &&
-    d.mime.length <= 128 &&
-    d.mime.trim() === d.mime &&
+    isOperatorUploadMime(d.mime) &&
     isPositiveSafeInt(d.size) &&
     (d.size as number) <= REMOTE_SHARE_MAX_BYTES &&
     isPositiveSafeInt(d.total) &&

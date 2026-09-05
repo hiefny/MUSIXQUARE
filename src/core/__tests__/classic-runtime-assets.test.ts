@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { JSDOM } from 'jsdom';
+import { JSDOM, VirtualConsole } from 'jsdom';
 import { describe, expect, it, vi } from 'vitest';
 import { transformWithEsbuild } from 'vite';
 
@@ -70,6 +70,24 @@ async function classicRuntimeDevMiddleware(): Promise<DevMiddleware> {
 }
 
 describe('strict TypeScript classic browser runtimes', () => {
+  it('resolves the event page font to the deployed canonical Pretendard bytes', async () => {
+    const html = await readFile(join(REPO_ROOT, 'public/events/index.html'), 'utf8');
+    const document = new JSDOM(html, { url: 'https://musixquare.com/events/asamo' });
+    const stylesheet =
+      document.window.document.querySelector<HTMLLinkElement>('link[rel="stylesheet"]');
+    expect(stylesheet?.href).toBe('https://musixquare.com/events/event.css');
+    const css = await readFile(join(REPO_ROOT, 'public/events/event.css'), 'utf8');
+    const fontUrl = /@font-face\s*\{[^}]*src:\s*url\(['"]([^'"]+)['"]\)/u.exec(css)?.[1];
+    expect(fontUrl).toBeTruthy();
+    const assetUrl = new URL(fontUrl!, stylesheet!.href);
+    expect(assetUrl.origin).toBe('https://musixquare.com');
+    const deployedFont = await readFile(join(REPO_ROOT, 'public', assetUrl.pathname));
+    const canonicalFont = await readFile(join(REPO_ROOT, 'fonts/PretendardVariable.woff2'));
+    expect(deployedFont.subarray(0, 4).toString('ascii')).toBe('wOF2');
+    expect(deployedFont.equals(canonicalFont)).toBe(true);
+    document.window.close();
+  });
+
   it('owns every source and stable output through one complete manifest', async () => {
     expect(CLASSIC_RUNTIME_ASSETS).toEqual([
       {
@@ -408,47 +426,60 @@ describe('strict TypeScript classic browser runtimes', () => {
     expect(Object.fromEntries(secondWrites)).toEqual({ '--wt': '240ms' });
   });
 
-  it('paginates compiled editorial cards without changing the classic DOMContentLoaded boundary', async () => {
-    const { code } = await compiledAsset('blog-pagination.js');
-    const cards = Array.from(
-      { length: 12 },
-      (_, index) => `<article class="soro-blog-card" data-card="${index + 1}"></article>`,
-    ).join('');
-    const dom = new JSDOM(
-      `<!doctype html><html><body><section id="articles"><div id="soro-blog"><div class="soro-blog-list">${cards}</div></div></section></body></html>`,
-      { runScripts: 'outside-only', url: 'https://musixquare.com/blog' },
-    );
-    const frames: FrameRequestCallback[] = [];
-    Object.defineProperty(dom.window, 'requestAnimationFrame', {
-      configurable: true,
-      value: (callback: FrameRequestCallback) => {
-        frames.push(callback);
-        return frames.length;
-      },
-    });
-    dom.window.HTMLElement.prototype.scrollIntoView = vi.fn();
+  it.each([false, true])(
+    'paginates compiled editorial cards with reduced motion %s without changing the classic DOMContentLoaded boundary',
+    async (reducedMotion) => {
+      const { code } = await compiledAsset('blog-pagination.js');
+      const cards = Array.from(
+        { length: 12 },
+        (_, index) => `<article class="soro-blog-card" data-card="${index + 1}"></article>`,
+      ).join('');
+      const dom = new JSDOM(
+        `<!doctype html><html><body><section id="articles"><div id="soro-blog"><div class="soro-blog-list">${cards}</div></div></section></body></html>`,
+        { runScripts: 'outside-only', url: 'https://musixquare.com/blog' },
+      );
+      const frames: FrameRequestCallback[] = [];
+      Object.defineProperty(dom.window, 'requestAnimationFrame', {
+        configurable: true,
+        value: (callback: FrameRequestCallback) => {
+          frames.push(callback);
+          return frames.length;
+        },
+      });
+      dom.window.HTMLElement.prototype.scrollIntoView = vi.fn();
+      Object.defineProperty(dom.window, 'matchMedia', {
+        configurable: true,
+        value: (query: string) => ({
+          matches: query === '(prefers-reduced-motion: reduce)' && reducedMotion,
+        }),
+      });
 
-    dom.window.eval(code);
-    dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
-    frames.shift()?.(0);
+      dom.window.eval(code);
+      dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+      frames.shift()?.(0);
 
-    const renderedCards = Array.from(
-      dom.window.document.querySelectorAll<HTMLElement>('.soro-blog-card'),
-    );
-    expect(renderedCards.slice(0, 10).every((card) => !card.hidden)).toBe(true);
-    expect(renderedCards.slice(10).every((card) => card.hidden)).toBe(true);
-    expect(dom.window.document.querySelector('.soro-blog-page-status')?.textContent).toBe(
-      'Articles 1-10 of 12',
-    );
+      const renderedCards = Array.from(
+        dom.window.document.querySelectorAll<HTMLElement>('.soro-blog-card'),
+      );
+      expect(renderedCards.slice(0, 10).every((card) => !card.hidden)).toBe(true);
+      expect(renderedCards.slice(10).every((card) => card.hidden)).toBe(true);
+      expect(dom.window.document.querySelector('.soro-blog-page-status')?.textContent).toBe(
+        'Articles 1-10 of 12',
+      );
 
-    dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Next page"]')?.click();
-    expect(renderedCards.slice(0, 10).every((card) => card.hidden)).toBe(true);
-    expect(renderedCards.slice(10).every((card) => !card.hidden)).toBe(true);
-    expect(dom.window.document.querySelector('.soro-blog-page-status')?.textContent).toBe(
-      'Articles 11-12 of 12',
-    );
-    dom.window.close();
-  });
+      dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Next page"]')?.click();
+      expect(renderedCards.slice(0, 10).every((card) => card.hidden)).toBe(true);
+      expect(renderedCards.slice(10).every((card) => !card.hidden)).toBe(true);
+      expect(dom.window.document.querySelector('.soro-blog-page-status')?.textContent).toBe(
+        'Articles 11-12 of 12',
+      );
+      expect(dom.window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalledExactlyOnceWith({
+        behavior: reducedMotion ? 'auto' : 'smooth',
+        block: 'start',
+      });
+      dom.window.close();
+    },
+  );
 
   it('boots compiled editorial chrome and reveal behavior through the original parser boundary', async () => {
     const { code } = await compiledAsset('editorial-pages.js');
@@ -506,6 +537,91 @@ describe('strict TypeScript classic browser runtimes', () => {
     );
     dom.window.close();
   });
+
+  it.each([
+    { page: 'editorial', reducedMotion: false },
+    { page: 'editorial', reducedMotion: true },
+    { page: 'about', reducedMotion: false },
+    { page: 'about', reducedMotion: true },
+  ])(
+    '$page anchor navigation preserves modified browser gestures with reduced motion $reducedMotion',
+    async ({ page, reducedMotion }) => {
+      const { code } =
+        page === 'editorial'
+          ? await compiledAsset('editorial-pages.js')
+          : await transformWithEsbuild(
+              await readFile(resolve(REPO_ROOT, '.workshop/landing/main.ts'), 'utf8'),
+              'landing-main.ts',
+              { loader: 'ts', format: 'iife', target: 'es2018' },
+            );
+      const html = await readFile(
+        resolve(
+          REPO_ROOT,
+          page === 'editorial' ? 'public/blog/index.html' : '.workshop/landing/landing.html',
+        ),
+        'utf8',
+      );
+      const dom = new JSDOM(html, {
+        url: `https://musixquare.com/${page === 'editorial' ? 'blog' : 'about'}`,
+        runScripts: 'outside-only',
+      });
+      try {
+        Object.defineProperty(dom.window.document, 'readyState', {
+          configurable: true,
+          value: 'complete',
+        });
+        dom.window.requestAnimationFrame = vi.fn(() => 1);
+        Object.defineProperty(dom.window, 'matchMedia', {
+          configurable: true,
+          value: vi.fn((query: string) => ({
+            matches: query === '(prefers-reduced-motion: reduce)' ? reducedMotion : true,
+            addEventListener: vi.fn(),
+          })),
+        });
+        dom.window.scrollTo = vi.fn();
+        dom.window.HTMLElement.prototype.scrollIntoView = vi.fn();
+        dom.window.eval(code);
+        const link = dom.window.document.querySelector<HTMLAnchorElement>('a[href="#top"]')!;
+        expect(link).not.toBeNull();
+        for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey']) {
+          const gesture = new dom.window.MouseEvent('click', {
+            bubbles: true,
+            cancelable: true,
+            button: 0,
+            [modifier]: true,
+          });
+          link.dispatchEvent(gesture);
+          expect(gesture.defaultPrevented, modifier).toBe(false);
+          expect(dom.window.scrollTo).not.toHaveBeenCalled();
+        }
+        const cancelled = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true });
+        cancelled.preventDefault();
+        link.dispatchEvent(cancelled);
+        expect(dom.window.scrollTo).not.toHaveBeenCalled();
+        const ordinary = new dom.window.MouseEvent('click', { bubbles: true, cancelable: true });
+        link.dispatchEvent(ordinary);
+        expect(ordinary.defaultPrevented).toBe(true);
+        expect(dom.window.scrollTo).toHaveBeenCalledExactlyOnceWith({
+          top: 0,
+          behavior: reducedMotion ? 'auto' : 'smooth',
+        });
+        const sectionLink =
+          dom.window.document.querySelector<HTMLAnchorElement>('a.lp-btn[href^="#"]')!;
+        const sectionClick = new dom.window.MouseEvent('click', {
+          bubbles: true,
+          cancelable: true,
+        });
+        sectionLink.dispatchEvent(sectionClick);
+        expect(sectionClick.defaultPrevented).toBe(true);
+        expect(dom.window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalledExactlyOnceWith({
+          behavior: reducedMotion ? 'auto' : 'smooth',
+          block: 'start',
+        });
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
 
   it('preserves explicit and stored locale intent across editorial and app links', async () => {
     const { code } = await compiledAsset('editorial-pages.js');
@@ -586,6 +702,88 @@ describe('strict TypeScript classic browser runtimes', () => {
     english.window.close();
   });
 
+  it.each(['editorial', 'about'])(
+    'restores %s navigation after returning from the back-forward cache',
+    async (page) => {
+      const { code } =
+        page === 'editorial'
+          ? await compiledAsset('editorial-pages.js')
+          : await transformWithEsbuild(
+              await readFile(resolve(REPO_ROOT, '.workshop/landing/main.ts'), 'utf8'),
+              'landing-main.ts',
+              { loader: 'ts', format: 'iife', target: 'es2018' },
+            );
+      const dom = new JSDOM(
+        '<header class="lp-header"><a class="editorial-site-tab" href="/history">History</a></header>',
+        { url: 'https://musixquare.com/blog', runScripts: 'outside-only' },
+      );
+      const assign = vi.fn();
+      try {
+        executeClassicScript(code, {
+          window: {
+            location: {
+              href: dom.window.location.href,
+              origin: dom.window.location.origin,
+              assign,
+            },
+            addEventListener: dom.window.addEventListener.bind(dom.window),
+            requestAnimationFrame: (callback: () => void) => {
+              callback();
+              return 1;
+            },
+            setTimeout: dom.window.setTimeout.bind(dom.window),
+          },
+          document: dom.window.document,
+          location: dom.window.location,
+          navigator: dom.window.navigator,
+          localStorage: dom.window.localStorage,
+          requestAnimationFrame: (callback: () => void) => {
+            callback();
+            return 1;
+          },
+        });
+        dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+        const tab = dom.window.document.querySelector<HTMLAnchorElement>('.editorial-site-tab')!;
+        tab.click();
+        await vi.waitFor(() => expect(assign).toHaveBeenCalledOnce());
+        dom.window.dispatchEvent(
+          new dom.window.PageTransitionEvent('pageshow', { persisted: true }),
+        );
+        tab.click();
+        await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(2));
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
+
+  it('preserves keyboard pagination focus across rebuilt blog controls', async () => {
+    const { code } = await compiledAsset('blog-pagination.js');
+    const dom = new JSDOM(
+      `<div id="soro-blog"><div class="soro-blog-list">${Array.from({ length: 21 }, () => '<article class="soro-blog-card"></article>').join('')}</div></div>`,
+      { runScripts: 'outside-only', pretendToBeVisual: true, url: 'https://musixquare.com/blog' },
+    );
+    try {
+      dom.window.eval(code);
+      dom.window.document.dispatchEvent(new dom.window.Event('DOMContentLoaded'));
+      const { document } = dom.window;
+      await vi.waitFor(() =>
+        expect(document.querySelector('[data-blog-pagination]')).not.toBeNull(),
+      );
+      const next = () => document.querySelector<HTMLButtonElement>('[aria-label="Next page"]')!;
+      next().focus();
+      next().click();
+      expect(document.activeElement).toBe(next());
+      expect(document.querySelectorAll('.soro-blog-card:not([hidden])')).toHaveLength(10);
+      next().click();
+      expect(next().disabled).toBe(true);
+      expect(document.activeElement).toBe(document.querySelector('[aria-current="page"]'));
+      expect(document.activeElement?.textContent).toBe('3');
+    } finally {
+      dom.window.close();
+    }
+  });
+
   it('runs the deferred event runtime from compiled output against the parsed event document', async () => {
     const [{ code }, eventHtml] = await Promise.all([
       compiledAsset('events/event.js'),
@@ -625,6 +823,520 @@ describe('strict TypeScript classic browser runtimes', () => {
       dom.window.close();
     }
   });
+
+  it.each(['normal', 'late-anonymous', 'late-failure'])(
+    'observes compiled popup authentication after a %s session read',
+    async (scenario) => {
+      const [eventAsset, completionAsset, eventHtml, completionHtml] = await Promise.all([
+        compiledAsset('events/event.js'),
+        compiledAsset('account-complete.js'),
+        readFile(resolve(REPO_ROOT, 'public/events/index.html'), 'utf8'),
+        readFile(resolve(REPO_ROOT, 'public/account-complete.html'), 'utf8'),
+      ]);
+      const dom = new JSDOM(eventHtml, {
+        pretendToBeVisual: true,
+        runScripts: 'outside-only',
+        url: 'https://musixquare.com/events/asamo-2026',
+      });
+      const channels = new Set<TestChannel>();
+      let deliveredSignals = 0;
+      class TestChannel {
+        listeners: ((event: { data: unknown }) => void)[] = [];
+        constructor(readonly name: string) {
+          channels.add(this);
+        }
+        addEventListener(type: string, listener: (event: { data: unknown }) => void) {
+          if (type === 'message') this.listeners.push(listener);
+        }
+        postMessage(data: unknown) {
+          for (const target of channels) {
+            if (target === this || target.name !== this.name) continue;
+            for (const listener of target.listeners) {
+              queueMicrotask(() => {
+                listener({ data });
+                deliveredSignals += 1;
+              });
+            }
+          }
+        }
+        close() {
+          channels.delete(this);
+        }
+      }
+      let authenticated = false;
+      let releaseOldRead: (() => void) | undefined;
+      let loginUrl = '';
+      const popup = {
+        closed: false,
+        opener: null,
+        location: {
+          replace: (url: string) => {
+            loginUrl = url;
+          },
+        },
+        focus() {},
+        close() {
+          this.closed = true;
+        },
+      };
+      const fetchMock = vi.fn(async (path: string) => {
+        expect(path).toBe('/api/pro-grants/campaigns/asamo-2026/session');
+        // The server samples the cookie when the request starts, before its response arrives.
+        const snapshot = {
+          campaign: { slug: 'asamo-2026', status: 'active', title: 'MUSIXQUARE ASAMO' },
+          account: {
+            authenticated,
+            profileComplete: authenticated,
+            ...(authenticated ? { statsScope: 'A'.repeat(43) } : {}),
+          },
+          redemption: null,
+        };
+        if (scenario !== 'normal' && fetchMock.mock.calls.length === 2) {
+          await new Promise<void>((resolve) => {
+            releaseOldRead = resolve;
+          });
+          if (scenario === 'late-failure') throw new TypeError('Delayed network failure');
+        }
+        return Response.json(snapshot);
+      });
+      Object.assign(dom.window, {
+        BroadcastChannel: TestChannel,
+        open: () => popup,
+        fetch: fetchMock,
+      });
+      let completion: JSDOM | undefined;
+      try {
+        dom.window.eval(eventAsset.code);
+        const { document } = dom.window;
+        await vi.waitFor(() => expect(document.documentElement.dataset.view).toBe('login'));
+        document.getElementById('account-action')!.click();
+        expect(loginUrl).toMatch(/^\/api\/auth\/google\/start\?returnTo=/);
+        if (scenario !== 'normal') {
+          dom.window.dispatchEvent(new dom.window.Event('focus'));
+          await vi.waitFor(() => expect(releaseOldRead).toBeTypeOf('function'));
+        }
+        authenticated = true;
+        const returnTo = new URL(loginUrl, dom.window.location.origin).searchParams.get(
+          'returnTo',
+        )!;
+        completion = new JSDOM(completionHtml, {
+          runScripts: 'outside-only',
+          url: `https://musixquare.com${returnTo}&accountAuth=success`,
+        });
+        Object.assign(completion.window, { BroadcastChannel: TestChannel });
+        completion.window.eval(completionAsset.code);
+        await vi.waitFor(() => expect(deliveredSignals).toBe(1));
+        releaseOldRead?.();
+        await vi.waitFor(() => expect(document.documentElement.dataset.view).toBe('redeem'));
+        expect(fetchMock).toHaveBeenCalledTimes(scenario === 'normal' ? 2 : 3);
+        expect((document.getElementById('account-action') as HTMLButtonElement).disabled).toBe(
+          false,
+        );
+      } finally {
+        releaseOldRead?.();
+        completion?.window.close();
+        dom.window.close();
+      }
+    },
+  );
+
+  it.each(['normal', 'refresh', 'changed-cookie', 'replaced-dialog'])(
+    'fences the compiled event nickname intent through %s',
+    async (scenario) => {
+      const [{ code }, eventHtml] = await Promise.all([
+        compiledAsset('events/event.js'),
+        readFile(resolve(REPO_ROOT, 'public/events/index.html'), 'utf8'),
+      ]);
+      const dom = new JSDOM(eventHtml, {
+        pretendToBeVisual: true,
+        runScripts: 'outside-only',
+        url: 'https://musixquare.com/events/asamo-2026',
+      });
+      const scopeA = 'A'.repeat(43);
+      const scopeB = 'B'.repeat(43);
+      let serverScope = scopeA;
+      let profileComplete = false;
+      let resolveMutation: ((value: Response) => void) | null = null;
+      const fetchMock = vi.fn(async (path: string, options?: RequestInit) => {
+        if (path.endsWith('/session'))
+          return Response.json({
+            campaign: { slug: 'asamo-2026', status: 'active', title: 'MUSIXQUARE ASAMO' },
+            account: { authenticated: true, profileComplete, statsScope: serverScope },
+            redemption: null,
+          });
+        expect(path).toBe('/api/auth/profile');
+        expect(new Headers(options?.headers).get('X-MXQR-Account-Expected-Scope')).toBe(scopeA);
+        if (scenario === 'replaced-dialog')
+          return new Promise<Response>((resolve) => {
+            resolveMutation = resolve;
+          });
+        if (serverScope !== scopeA)
+          return Response.json({ error: 'ACCOUNT_SESSION_CHANGED' }, { status: 409 });
+        profileComplete = true;
+        return Response.json({ authenticated: true });
+      });
+      Object.defineProperty(dom.window, 'fetch', { configurable: true, value: fetchMock });
+      dom.window.HTMLDialogElement.prototype.showModal = function () {
+        this.setAttribute('open', '');
+      };
+      dom.window.HTMLDialogElement.prototype.close = function () {
+        this.removeAttribute('open');
+        this.dispatchEvent(new dom.window.Event('close'));
+      };
+      try {
+        dom.window.eval(code);
+        const dialog = dom.window.document.getElementById('nickname-dialog') as HTMLDialogElement;
+        const input = dom.window.document.getElementById('nickname-input') as HTMLInputElement;
+        const form = dom.window.document.getElementById('nickname-form') as HTMLFormElement;
+        await vi.waitFor(() => expect(dialog.open).toBe(true));
+        input.value = 'ConfirmedA';
+        const refresh = () =>
+          dom.window.dispatchEvent(
+            new dom.window.MessageEvent('message', {
+              origin: 'https://musixquare.com',
+              data: { type: 'refresh' },
+            }),
+          );
+        if (scenario === 'refresh') {
+          refresh();
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+          expect(input.value).toBe('ConfirmedA');
+        }
+        if (scenario === 'changed-cookie') serverScope = scopeB;
+        form.dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true }));
+        if (scenario === 'replaced-dialog') {
+          await vi.waitFor(() => expect(resolveMutation).not.toBeNull());
+          serverScope = scopeB;
+          refresh();
+          await vi.waitFor(() => {
+            expect(input.value).toBe('');
+            expect(input.disabled).toBe(false);
+            expect(dialog.open).toBe(true);
+          });
+          input.value = 'SuccessorB';
+          resolveMutation!(Response.json({ authenticated: true }));
+          await new Promise((resolve) => setTimeout(resolve, 20));
+          expect(dialog.open).toBe(true);
+          expect(input.value).toBe('SuccessorB');
+          expect(dom.window.document.getElementById('toast')?.textContent).not.toBe(
+            '닉네임을 설정했어요.',
+          );
+        } else if (scenario === 'changed-cookie') {
+          await vi.waitFor(() =>
+            expect(dom.window.document.getElementById('toast')?.textContent).toBe(
+              '로그인 상태를 다시 확인해 주세요.',
+            ),
+          );
+          expect(profileComplete).toBe(false);
+          await vi.waitFor(() => expect(dialog.open).toBe(true));
+          expect(input.value).toBe('');
+        } else {
+          await vi.waitFor(() =>
+            expect(dom.window.document.documentElement.dataset.view).toBe('redeem'),
+          );
+          expect(dialog.open).toBe(false);
+          expect(dom.window.document.getElementById('toast')?.textContent).toBe(
+            '닉네임을 설정했어요.',
+          );
+        }
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
+
+  it.each([
+    'normal-refresh',
+    'late-refresh',
+    'late-refresh-error',
+    'late-refresh-account-change',
+    'changed-cookie',
+    'stale-success',
+    'stale-error',
+  ])('keeps compiled event redemption with its captured account through %s', async (scenario) => {
+    const [{ code }, eventHtml] = await Promise.all([
+      compiledAsset('events/event.js'),
+      readFile(resolve(REPO_ROOT, 'public/events/index.html'), 'utf8'),
+    ]);
+    const dom = new JSDOM(eventHtml, {
+      pretendToBeVisual: true,
+      runScripts: 'outside-only',
+      url: 'https://musixquare.com/events/asamo-2026',
+    });
+    const scopeA = 'A'.repeat(43);
+    let serverScope = scopeA;
+    let finish: ((value: Response) => void) | null = null;
+    let finishRefresh: (() => void) | null = null;
+    let sessionReads = 0;
+    let redeemed = false;
+    const fetchMock = vi.fn(async (path: string, options?: RequestInit) => {
+      if (path.endsWith('/session')) {
+        const snapshot = Response.json({
+          campaign: { slug: 'asamo-2026', status: 'active', title: 'MUSIXQUARE ASAMO' },
+          account: { authenticated: true, profileComplete: true, statsScope: serverScope },
+          redemption:
+            redeemed && serverScope === scopeA
+              ? { status: 'redeemed', roomCode: '000100', roomGeneration: 0, setupRequired: false }
+              : null,
+        });
+        if (++sessionReads === 2 && scenario.startsWith('late-refresh')) {
+          await new Promise<void>((resolve) => {
+            finishRefresh = resolve;
+          });
+          if (scenario === 'late-refresh-error')
+            return Response.json({ error: 'SERVER_ERROR' }, { status: 503 });
+        }
+        return snapshot;
+      }
+      expect(path).toBe('/api/pro-grants/campaigns/asamo-2026/redeem');
+      expect(new Headers(options?.headers).get('X-MXQR-Account-Expected-Scope')).toBe(scopeA);
+      if (scenario === 'changed-cookie')
+        return Response.json({ error: 'ACCOUNT_SESSION_CHANGED' }, { status: 409 });
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    });
+    Object.defineProperty(dom.window, 'fetch', { value: fetchMock });
+    const refresh = () =>
+      dom.window.dispatchEvent(
+        new dom.window.MessageEvent('message', {
+          origin: 'https://musixquare.com',
+          data: { type: 'refresh' },
+        }),
+      );
+    try {
+      dom.window.eval(code);
+      const doc = dom.window.document;
+      const input = doc.getElementById('redeem-code') as HTMLInputElement;
+      const button = doc.getElementById('redeem-submit') as HTMLButtonElement;
+      await vi.waitFor(() => expect(doc.documentElement.dataset.view).toBe('redeem'));
+      input.value = 'ABCDEFGH';
+      if (scenario === 'changed-cookie') serverScope = 'B'.repeat(43);
+      button.click();
+      if (scenario === 'changed-cookie') {
+        await vi.waitFor(() =>
+          expect(doc.getElementById('toast')?.textContent).toBe(
+            '로그인 상태를 다시 확인해 주세요.',
+          ),
+        );
+        await vi.waitFor(() => expect(input.disabled).toBe(false));
+        expect(doc.documentElement.dataset.view).toBe('redeem');
+        return;
+      }
+      await vi.waitFor(() => expect(finish).not.toBeNull());
+      // Repeated Enter dispatch must not start a second operation while busy.
+      input.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      const sameAccount = scenario === 'normal-refresh' || scenario.startsWith('late-refresh');
+      if (!sameAccount) serverScope = 'B'.repeat(43);
+      if (scenario === 'late-refresh-account-change') serverScope = 'B'.repeat(43);
+      refresh();
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      if (!sameAccount) {
+        expect(input.disabled).toBe(false);
+        input.value = 'SUCCESSOR';
+      }
+      redeemed = true;
+      finish!(
+        scenario === 'stale-error'
+          ? Response.json({ error: 'REDEEM_CODE_USED' }, { status: 409 })
+          : Response.json({
+              outcome: 'redeemed',
+              roomCode: '000100',
+              roomGeneration: 0,
+              setupRequired: false,
+            }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (sameAccount) {
+        expect(doc.documentElement.dataset.view).toBe('success');
+        expect(doc.getElementById('success-room-inline')?.textContent).toBe('000100');
+        if (scenario.startsWith('late-refresh')) {
+          expect(finishRefresh).not.toBeNull();
+          finishRefresh!();
+          await vi.waitFor(() => expect(sessionReads).toBe(3));
+          if (scenario === 'late-refresh-account-change') {
+            await vi.waitFor(() => expect(doc.documentElement.dataset.view).toBe('redeem'));
+            expect(input.value).toBe('');
+          } else {
+            expect(doc.documentElement.dataset.view).toBe('success');
+            expect(doc.getElementById('success-room-inline')?.textContent).toBe('000100');
+          }
+        }
+      } else {
+        expect(doc.documentElement.dataset.view).toBe('redeem');
+        expect(input.value).toBe('SUCCESSOR');
+        expect(button.disabled).toBe(false);
+      }
+    } finally {
+      dom.window.close();
+    }
+  });
+
+  it.each(['current', 'replaced', 'logout'])(
+    'keeps compiled event setup navigation and copy feedback with %s ownership',
+    async (scenario) => {
+      const [{ code }, eventHtml] = await Promise.all([
+        compiledAsset('events/event.js'),
+        readFile(resolve(REPO_ROOT, 'public/events/index.html'), 'utf8'),
+      ]);
+      const navigation = vi.fn();
+      const virtualConsole = new VirtualConsole();
+      virtualConsole.on('jsdomError', (error) => {
+        if (error.message.includes('navigation')) navigation();
+        else throw error;
+      });
+      const dom = new JSDOM(eventHtml, {
+        pretendToBeVisual: true,
+        runScripts: 'outside-only',
+        url: 'https://musixquare.com/events/asamo-2026',
+        virtualConsole,
+      });
+      let serverScope: string | null = 'A'.repeat(43);
+      let finishSetup: ((value: Response) => void) | null = null;
+      let finishCopy: (() => void) | null = null;
+      const fetchMock = vi.fn(async (path: string) => {
+        if (path.endsWith('/session'))
+          return Response.json({
+            campaign: { slug: 'asamo-2026', status: 'active', title: 'MUSIXQUARE ASAMO' },
+            account: {
+              authenticated: !!serverScope,
+              profileComplete: true,
+              statsScope: serverScope,
+            },
+            redemption: serverScope
+              ? {
+                  status: 'redeemed',
+                  roomCode: serverScope.startsWith('A') ? '000100' : '000101',
+                  roomGeneration: 0,
+                  setupRequired: true,
+                }
+              : null,
+          });
+        return new Promise<Response>((resolve) => {
+          finishSetup = resolve;
+        });
+      });
+      Object.defineProperty(dom.window, 'fetch', { value: fetchMock });
+      Object.defineProperty(dom.window.navigator, 'clipboard', {
+        value: {
+          writeText: vi.fn(
+            () =>
+              new Promise<void>((resolve) => {
+                finishCopy = resolve;
+              }),
+          ),
+        },
+      });
+      try {
+        dom.window.eval(code);
+        const doc = dom.window.document;
+        await vi.waitFor(() => expect(doc.documentElement.dataset.view).toBe('success'));
+        (doc.getElementById('open-room') as HTMLButtonElement).click();
+        (doc.getElementById('copy-room') as HTMLButtonElement).click();
+        await vi.waitFor(() => expect(finishSetup).not.toBeNull());
+        if (scenario !== 'current') {
+          serverScope = scenario === 'logout' ? null : 'B'.repeat(43);
+          dom.window.dispatchEvent(
+            new dom.window.MessageEvent('message', {
+              origin: 'https://musixquare.com',
+              data: { type: 'refresh' },
+            }),
+          );
+          await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+          await vi.waitFor(() => {
+            if (scenario === 'logout') expect(doc.documentElement.dataset.view).toBe('login');
+            else expect(doc.getElementById('success-room-inline')?.textContent).toBe('000101');
+          });
+        }
+        finishSetup!(
+          Response.json({
+            roomCode: '000100',
+            roomGeneration: 0,
+            setupRequired: true,
+            activationUrl: 'https://musixquare.com/000100#pro-claim=v1.claim.sig',
+            expiresAt: Date.now() + 60_000,
+          }),
+        );
+        finishCopy!();
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(navigation).toHaveBeenCalledTimes(scenario === 'current' ? 1 : 0);
+        if (scenario === 'current')
+          expect(doc.getElementById('toast')?.textContent).toBe('000100을 복사했어요.');
+        else expect(doc.getElementById('toast')?.textContent).toBe('');
+        expect((doc.getElementById('open-room') as HTMLButtonElement).disabled).toBe(false);
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
+
+  it.each([
+    ['/ko/about?lang=ja', 'ko', 'ltr'],
+    ['/ar/about', 'ar', 'rtl'],
+    ['/pt-br/about', 'pt-BR', 'ltr'],
+    ['/about?lang=ko', 'en', 'ltr'],
+  ])(
+    'preserves the About document language if its shared helper fails: %s',
+    async (path, lang, dir) => {
+      const [staticLanguage, bootstrap, translations, markup] = await Promise.all([
+        compiledAsset('static-language.js'),
+        compiledAsset('landing-bootstrap.js'),
+        compiledAsset('landing-i18n.js'),
+        readFile(resolve(REPO_ROOT, '.workshop/landing/landing.html'), 'utf8'),
+      ]);
+      const rendered: Array<{
+        language: string;
+        direction: string;
+        title: string;
+        heading: string;
+      }> = [];
+      for (const helperAvailable of [true, false]) {
+        const dom = new JSDOM(markup, {
+          runScripts: 'outside-only',
+          url: `https://musixquare.com${path}`,
+        });
+        try {
+          dom.window.localStorage.setItem('mxqr-landing-lang', 'fr');
+          Object.defineProperty(dom.window.navigator, 'languages', { value: ['de-DE'] });
+          // Same authored script order, with only the failed shared script omitted.
+          if (helperAvailable) dom.window.eval(staticLanguage.code);
+          dom.window.eval(bootstrap.code);
+          dom.window.eval(translations.code);
+          const doc = dom.window.document;
+          rendered.push({
+            language: doc.documentElement.lang,
+            direction: doc.documentElement.dir,
+            title: doc.title,
+            heading: doc.querySelector('[data-i18n="hero.h1"]')!.innerHTML,
+          });
+        } finally {
+          dom.window.close();
+        }
+      }
+      expect(rendered[0]).toMatchObject({ language: lang, direction: dir });
+      expect(rendered[1]).toEqual(rendered[0]);
+    },
+  );
+
+  it.each(['constructor', 'constructor-US'])(
+    'uses a valid language when the landing helper is unavailable and the query is %s',
+    async (input) => {
+      const { code } = await compiledAsset('landing-bootstrap.js');
+      const dom = new JSDOM('<!doctype html><html><head></head><body></body></html>', {
+        runScripts: 'outside-only',
+        url: `https://musixquare.com/.workshop/landing/landing.html?lang=${input}`,
+      });
+      try {
+        Object.defineProperty(dom.window.navigator, 'languages', { value: ['ko-KR'] });
+        dom.window.eval(code);
+        expect(dom.window.document.documentElement.lang).toBe('ko');
+        expect((dom.window as unknown as { __landingLang: string }).__landingLang).toBe('ko');
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
 
   it('applies compiled landing locale payloads and preserves the global change-listener contract', async () => {
     const [{ code }, landingHtml] = await Promise.all([

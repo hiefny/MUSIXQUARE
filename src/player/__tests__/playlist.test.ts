@@ -5,6 +5,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { log } from '../../core/log.ts';
+import * as audioContext from '../../audio/context.ts';
+import * as audioEngine from '../../audio/engine.ts';
 import { MSG, PLAYBACK_STATE } from '../../core/constants.ts';
 import { clearAllManagedTimers, getManagedTimer } from '../../core/timers.ts';
 import { handleData } from '../../network/protocol.ts';
@@ -56,6 +58,8 @@ import * as transport from '../transport.ts';
 import { transition } from '../lifecycle.ts';
 import { hasQueueAuthority } from '../../network/queue-authority.ts';
 import { registerProRoomMediaHooks, type ProRoomMediaHooks } from '../../pro-room/media-hooks.ts';
+import { ProRoomAssetCache } from '../../pro-room/media-cache.ts';
+import { PRO_ROOM_MAX_ASSET_BYTES } from '../../pro-room/contracts.ts';
 import {
   cancelProPlaybackPreparation,
   createProPlaybackAuthorityToken,
@@ -489,6 +493,129 @@ describe('coordinator-free PRO playback routing', () => {
   });
 });
 
+describe('server preparation native decode lifetime', () => {
+  it.each(['ready', 'failed'] as const)(
+    'keeps a current PRO native decode %s result and its own cleanup',
+    async (status) => {
+      const actualDecode = await vi.importActual<typeof import('../decode.ts')>('../decode.ts');
+      decodeMocks.loadAndBroadcastFile.mockImplementation(actualDecode.loadAndBroadcastFile);
+      vi.spyOn(audioEngine, 'initAudio').mockResolvedValue();
+      const buffer = { duration: 120 } as AudioBuffer;
+      const decodeAudioData = vi.fn();
+      if (status === 'ready') decodeAudioData.mockResolvedValue(buffer);
+      else decodeAudioData.mockRejectedValue(new Error('Unsupported current codec'));
+      vi.spyOn(audioContext, 'getAudioContext').mockReturnValue({
+        state: 'running',
+        currentTime: 100,
+        sampleRate: 48_000,
+        decodeAudioData,
+      } as unknown as AudioContext);
+      const item = fileItem(
+        'current-pro.mp3',
+        new File(['a'], 'current-pro.mp3', { type: 'audio/mpeg' }),
+      );
+      const next = fileItem('following-pro.mp3');
+      setCurrentAudioBuffer(null);
+      setState('playlist.items', [item, next]);
+      enterProRoom(['playback.control']);
+      initPlaylist();
+      const authority = createProPlaybackAuthorityToken({
+        roomId: '000001',
+        roomEpoch: 1,
+        basePlaybackRevision: 1,
+        transitionId: 'current-native',
+      });
+      await expect(
+        prepareProPlaybackAuthority({
+          authority,
+          queueItemId: item.queueItemId,
+          positionSeconds: 0,
+        }),
+      ).resolves.toMatchObject({ status, queueItemId: item.queueItemId });
+      expect(decodeAudioData).toHaveBeenCalledOnce();
+      expect(getManagedTimer('decode-fail-advance')).toBeNull();
+      expect(getState('playlist.currentQueueItemId')).toBe(item.queueItemId);
+      if (status === 'ready') {
+        expect(getCurrentAudioBuffer()).toBe(buffer);
+        expect(getState('files.current')?.queueItemId).toBe(item.queueItemId);
+      }
+    },
+  );
+
+  it.each(['resolve', 'reject'] as const)(
+    'keeps the successor Standard decode recovery when the cancelled PRO decoder later %s',
+    async (settlement) => {
+      vi.useFakeTimers();
+      const actualDecode = await vi.importActual<typeof import('../decode.ts')>('../decode.ts');
+      decodeMocks.loadAndBroadcastFile.mockImplementation(actualDecode.loadAndBroadcastFile);
+      vi.spyOn(audioEngine, 'initAudio').mockResolvedValue();
+      let resolveOld!: (buffer: AudioBuffer) => void;
+      let rejectOld!: (error: Error) => void;
+      const oldNativeDecode = new Promise<AudioBuffer>((resolve, reject) => {
+        resolveOld = resolve;
+        rejectOld = reject;
+      });
+      const decodeAudioData = vi
+        .fn()
+        .mockReturnValueOnce(oldNativeDecode)
+        .mockRejectedValueOnce(new Error('Unsupported successor codec'))
+        .mockResolvedValue({ duration: 120 } as AudioBuffer);
+      vi.spyOn(audioContext, 'getAudioContext').mockReturnValue({
+        state: 'running',
+        currentTime: 100,
+        sampleRate: 48_000,
+        decodeAudioData,
+      } as unknown as AudioContext);
+      const first = fileItem('old-pro.mp3', new File(['a'], 'old-pro.mp3', { type: 'audio/mpeg' }));
+      const failed = fileItem(
+        'failed-standard.mp3',
+        new File(['b'], 'failed-standard.mp3', { type: 'audio/mpeg' }),
+      );
+      const successor = fileItem(
+        'next-standard.mp3',
+        new File(['c'], 'next-standard.mp3', { type: 'audio/mpeg' }),
+      );
+      setCurrentAudioBuffer(null);
+      setState('playlist.items', [first]);
+      enterProRoom(['playback.control']);
+      initPlaylist();
+      const authority = createProPlaybackAuthorityToken({
+        roomId: '000001',
+        roomEpoch: 1,
+        basePlaybackRevision: 1,
+        transitionId: 'native-wait',
+      });
+      const oldPreparation = prepareProPlaybackAuthority({
+        authority,
+        queueItemId: first.queueItemId,
+        positionSeconds: 0,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(decodeAudioData).toHaveBeenCalledTimes(1);
+
+      // Room teardown invalidates the PRO preparation but cannot abort the
+      // browser's decodeAudioData promise. A new Standard host can load files.
+      expect(cancelProPlaybackPreparation(authority)).toBe(true);
+      resetState();
+      setState('network.appRole', 'host');
+      setState('setup.sessionStarted', true);
+      setState('playlist.items', [failed, successor]);
+      await playTrack(failed.queueItemId);
+      expect(decodeAudioData).toHaveBeenCalledTimes(2);
+      const recovery = getManagedTimer('decode-fail-advance');
+      expect(recovery).toBeTruthy();
+
+      if (settlement === 'resolve') resolveOld({ duration: 120 } as AudioBuffer);
+      else rejectOld(new Error('Old native decode failed'));
+      await expect(oldPreparation).resolves.toMatchObject({ status: 'superseded' });
+      expect(getManagedTimer('decode-fail-advance')).toBe(recovery);
+      await vi.advanceTimersByTimeAsync(601);
+      expect(getState('playlist.currentQueueItemId')).toBe(successor.queueItemId);
+      expect(decodeAudioData).toHaveBeenCalledTimes(3);
+    },
+  );
+});
+
 describe('setRepeatMode', () => {
   it('sets repeat mode 0 (off)', () => {
     setRepeatMode(0, false);
@@ -852,6 +979,51 @@ describe('PRO playlist mutation bridge', () => {
       expect.any(Number),
       expect.objectContaining({ queueItemId: unloaded.queueItemId, mime: 'audio/flac' }),
     );
+  });
+
+  it('releases the old encoded resident before a cold PRO selection enters its R2 receive budget', async () => {
+    const current = fileItem('large-old.flac');
+    const next = fileItem('next.flac');
+    setState('playlist.items', [current, next]);
+    setState('playlist.currentQueueItemId', current.queueItemId);
+    setState('files.current', {
+      queueItemId: current.queueItemId,
+      indexHint: 0,
+      name: current.name,
+      sessionId: 16,
+      blob: { size: PRO_ROOM_MAX_ASSET_BYTES } as Blob,
+      size: PRO_ROOM_MAX_ASSET_BYTES,
+      mime: 'audio/flac',
+    });
+    enterProRoom(['playback.control']);
+    const admitted = vi.fn();
+    const resolveFile = vi.fn(async () => {
+      // The runtime resolves its canonical R2 source before taking this exact
+      // retained-encoded snapshot. Exercise the real receive-budget guard.
+      await Promise.resolve();
+      new ProRoomAssetCache().prepareForIncoming(4, getState('files.current')?.blob.size ?? 0);
+      admitted();
+      return null;
+    });
+    registerProRoomMediaHooks(
+      proMediaHooks({
+        resolveFile,
+        handlesPersistentFile: (id) => id === next.queueItemId,
+      }),
+    );
+    initPlaylist();
+    await prepareProPlaybackAuthority({
+      authority: createProPlaybackAuthorityToken({
+        roomId: '000001',
+        roomEpoch: 1,
+        basePlaybackRevision: 0,
+        transitionId: 'cold-file-budget',
+      }),
+      queueItemId: next.queueItemId,
+      positionSeconds: 0,
+    });
+    expect(resolveFile).toHaveBeenCalledOnce();
+    expect(admitted).toHaveBeenCalledOnce();
   });
 
   it('adopts an in-flight PRO preload resolver during server PREPARE without a second download', async () => {

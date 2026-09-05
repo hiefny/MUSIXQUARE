@@ -167,6 +167,7 @@ export function createPlaylistReorderController(
   let scopedClickSuppression: ScopedClickSuppression | null = null;
   let touchSequenceBlocked = false;
   let pendingFocusId: string | null = null;
+  let pendingFocusOrigin: Element | null = null;
   let destroyed = false;
   const reflowAnimations = new Map<HTMLElement, Animation>();
   const reflowFrames = new Map<HTMLElement, number>();
@@ -725,7 +726,7 @@ export function createPlaylistReorderController(
     suppressClicksUntil = performance.now() + CLICK_SUPPRESSION_MS;
     beginSettling(ghost, targetRect, shouldCommit, state.sourceEntry, releaseRect);
     if (shouldCommit) {
-      pendingFocusId = sourceId;
+      requestHandleFocus(sourceId);
       options.onCommit(sourceId, beforeId);
       announce(sourceId, beforeId);
     }
@@ -804,7 +805,7 @@ export function createPlaylistReorderController(
       state.beforeId = state.originalBeforeId;
     }
     settleEntriesToLayout(state.sourceEntry);
-    pendingFocusId = sourceId;
+    requestHandleFocus(sourceId);
     cleanupKeyboard();
     suppressClicksUntil = performance.now() + CLICK_SUPPRESSION_MS;
     beginSettling(null, null, shouldCommit);
@@ -812,12 +813,27 @@ export function createPlaylistReorderController(
     announce(sourceId, announcedBeforeId);
   }
 
+  function clearPendingFocus(): void {
+    pendingFocusId = null;
+    pendingFocusOrigin = null;
+  }
+
+  function requestHandleFocus(sourceId: string): void {
+    pendingFocusId = sourceId;
+    pendingFocusOrigin = document.activeElement;
+  }
+
   function focusPendingHandle(): void {
     if (!pendingFocusId || destroyed) return;
+    const active = document.activeElement;
+    if (!isVisible() || (active !== document.body && active !== pendingFocusOrigin)) {
+      clearPendingFocus();
+      return;
+    }
     const entry = entryForId(pendingFocusId);
     const handle = entry?.querySelector<HTMLElement>(HANDLE_SELECTOR);
     if (!handle) return;
-    pendingFocusId = null;
+    clearPendingFocus();
     handle.focus({ preventScroll: true });
   }
 
@@ -828,6 +844,11 @@ export function createPlaylistReorderController(
     if (drag) finishDrag(false);
     if (keyboard) finishKeyboard(false);
     else if (settling) finishSettling();
+  }
+
+  function cancelForFocusDeparture(): void {
+    cancel();
+    clearPendingFocus();
   }
 
   function scheduleTouchHint(clientX: number, clientY: number): void {
@@ -1071,6 +1092,7 @@ export function createPlaylistReorderController(
         // Let focus advance normally, but never leave a hidden keyboard grab
         // active after its owning handle loses focus.
         finishKeyboard(false);
+        clearPendingFocus();
         break;
     }
   }
@@ -1125,11 +1147,20 @@ export function createPlaylistReorderController(
   document.addEventListener('touchend', onDocumentTouchFinish, { capture: true, signal });
   document.addEventListener('touchcancel', onDocumentTouchFinish, { capture: true, signal });
   document.addEventListener('keydown', onDocumentKeyDown, { signal });
-  window.addEventListener('blur', cancel, { signal });
+  document.addEventListener('pointerdown', clearPendingFocus, { capture: true, signal });
+  document.addEventListener('keydown', clearPendingFocus, { capture: true, signal });
+  document.addEventListener(
+    'focusin',
+    () => {
+      if (document.activeElement !== pendingFocusOrigin) clearPendingFocus();
+    },
+    { capture: true, signal },
+  );
+  window.addEventListener('blur', cancelForFocusDeparture, { signal });
   document.addEventListener(
     'visibilitychange',
     () => {
-      if (document.visibilityState !== 'visible') cancel();
+      if (document.visibilityState !== 'visible') cancelForFocusDeparture();
     },
     { signal },
   );
@@ -1168,7 +1199,7 @@ export function createPlaylistReorderController(
       showGlobalHint();
     },
     notifyPlaylistHidden() {
-      cancel();
+      cancelForFocusDeparture();
       clearTouchHint();
     },
   };

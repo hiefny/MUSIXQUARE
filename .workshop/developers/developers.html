@@ -714,6 +714,10 @@ await Promise.all(workers);</code></pre>
             <dt><code>COORDINATOR_INCOMPATIBLE</code> &middot; 409 &middot; retryable: false</dt>
             <dd>Legacy v1 compatibility value. Current PRO rooms are server-authoritative and do not use a browser coordinator. If an older or transitioning backend returns this code, read current state and update the integration before retrying.</dd>
           </div>
+          <div data-api-error-code="DEVELOPER_API_AUTHORITY_STALE">
+            <dt><code>DEVELOPER_API_AUTHORITY_STALE</code> &middot; 409 &middot; retryable: false</dt>
+            <dd>The room authority advanced after this key was issued. Ask the operator to issue a new key for the current room authority; repeating the request with the stale key cannot restore authority.</dd>
+          </div>
           <div data-api-error-code="FORBIDDEN">
             <dt><code>FORBIDDEN</code> &middot; 403 &middot; retryable: false</dt>
             <dd>The key lacks a required scope. Use a key issued with the required permission; repeating the same request will not help.</dd>

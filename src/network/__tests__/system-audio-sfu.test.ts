@@ -1007,6 +1007,71 @@ describe('bounded large-room SFU failure policy', () => {
 });
 
 describe('guest SFU teardown and successor ownership (F-2402)', () => {
+  it.each(['closed', 'failed'])(
+    'ignores a retired guest PC %s event while preserving current failure cleanup',
+    async (retiredState) => {
+      const mod = await import('../system-audio-sfu.ts');
+      mod.registerSystemAudioSfuListeners();
+      bus.emit('system-audio:stop');
+      const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', hostConn);
+      setState('network.connectionType', 'remote');
+      const { registerHandler } = await import('../protocol.ts');
+      const handler = vi
+        .mocked(registerHandler)
+        .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)?.[1] as
+        | ((data: unknown, conn?: DataConnection) => void)
+        | undefined;
+      expect(handler).toBeDefined();
+
+      handler!(
+        {
+          version: 2,
+          audience: 'remote',
+          sessionId: 'retired-host-publication',
+          track: { trackName: 'retired-host-track', mid: '0' },
+        },
+        hostConn,
+      );
+      await waitForNewSessionCalls(1);
+      const retiredPc = pcInstances[0];
+      bus.emit('system-audio:stop');
+      handler!(
+        {
+          version: 2,
+          audience: 'remote',
+          sessionId: 'successor-host-publication',
+          track: { trackName: 'successor-host-track', mid: '0' },
+        },
+        hostConn,
+      );
+      await waitForNewSessionCalls(2);
+      const currentPc = pcInstances[1];
+      const currentSignal = fetchMock.mock.calls.at(-1)?.[2]?.signal;
+      const currentState = mod.getSystemAudioSfuDebugSnapshot().guest;
+      expect(currentPc.close).not.toHaveBeenCalled();
+      expect(currentSignal?.aborted).toBe(false);
+      expect(currentState.connectInFlight).toBe(true);
+
+      retiredPc.connectionState = retiredState;
+      retiredPc._emit('connectionstatechange');
+      expect(currentPc.close).not.toHaveBeenCalled();
+      expect(currentSignal?.aborted).toBe(false);
+      expect(mod.getSystemAudioSfuDebugSnapshot().guest).toEqual(currentState);
+
+      currentPc.connectionState = 'failed';
+      currentPc._emit('connectionstatechange');
+      expect(currentPc.close).toHaveBeenCalledOnce();
+      expect(currentSignal?.aborted).toBe(true);
+      expect(mod.getSystemAudioSfuDebugSnapshot().guest).toMatchObject({
+        pcState: null,
+        subscriptionKey: null,
+        connectInFlight: false,
+      });
+    },
+  );
+
   it('does not let a late guest session response resurrect a stopped subscription', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();
@@ -1756,6 +1821,90 @@ describe('LAN SFU audience negotiation', () => {
 });
 
 describe('guest SFU receive limit', () => {
+  it.each(['unchanged', 'failed receiver', 'new publication', 'new host connection'])(
+    'keeps the receiver and its original limit on duplicate READY, then handles %s',
+    async (next) => {
+      const mod = await import('../system-audio-sfu.ts');
+      mod.registerSystemAudioSfuListeners();
+      bus.emit('system-audio:stop');
+      const hostConn = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+      setState('network.appRole', 'guest');
+      setState('network.hostConn', hostConn);
+      setState('network.connectionType', 'remote');
+      const engine = await import('../../audio/engine.ts');
+      const ctxMod = await import('../../audio/context.ts');
+      const source = { connect: vi.fn(), disconnect: vi.fn() };
+      vi.mocked(engine.getWidener).mockReturnValue({ input: {} } as never);
+      vi.mocked(ctxMod.getAudioContext).mockReturnValue({
+        state: 'running',
+        createMediaStreamSource: vi.fn(() => source),
+      } as never);
+      (globalThis as Record<string, unknown>).MediaStream = class {
+        constructor(_tracks?: unknown) {}
+      };
+      const { registerHandler } = await import('../protocol.ts');
+      const handler = vi
+        .mocked(registerHandler)
+        .mock.calls.find((call) => call[0] === MSG.SYSTEM_AUDIO_SFU_READY)![1];
+      const ready = {
+        type: MSG.SYSTEM_AUDIO_SFU_READY,
+        version: 2 as const,
+        audience: 'remote' as const,
+        sessionId: 'stable-host-publication',
+        track: { trackName: 'stable-audio', mid: '0' },
+      };
+      await handler(ready, hostConn);
+      await resolveRealtime('new-session', {
+        sessionId: 'stable-guest-session',
+        sessionOwnerToken: 'stable-guest-owner',
+      });
+      await resolveRealtime('tracks-new', {
+        sessionDescription: { type: 'offer', sdp: 'o' },
+        tracks: [{ mid: '0', trackName: 'stable-audio' }],
+      });
+      await resolveRealtime('renegotiate', {});
+      await vi.waitFor(() => {
+        expect(mod.getSystemAudioSfuDebugSnapshot().guest.receiving).toBe(true);
+      });
+      // Let the successful subscribe promise settle before the host's next
+      // peer-evaluated announcement of its unchanged publication.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const receivingPc = pcInstances[0];
+      await handler(ready, hostConn);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(countNewSessionCalls()).toBe(1);
+      expect(receivingPc.close).not.toHaveBeenCalled();
+      expect(source.disconnect).not.toHaveBeenCalled();
+      expect(mod.getSystemAudioSfuDebugSnapshot().guest.receiving).toBe(true);
+      expect(
+        vi
+          .mocked(setManagedTimer)
+          .mock.calls.filter(([name]) => name === 'system-audio-sfu-guest-limit'),
+      ).toHaveLength(1);
+      if (next !== 'unchanged') {
+        let nextHost = hostConn;
+        let nextReady = ready;
+        if (next === 'failed receiver') {
+          receivingPc.connectionState = 'failed';
+          receivingPc._emit('connectionstatechange');
+        } else if (next === 'new publication') {
+          nextReady = { ...ready, sessionId: 'next-host-publication' };
+        } else {
+          nextHost = { open: true, send: vi.fn(), peer: 'host' } as unknown as DataConnection;
+          setState('network.hostConn', nextHost);
+          await handler(ready, hostConn);
+          expect(countNewSessionCalls()).toBe(1);
+        }
+        await handler(nextReady, nextHost);
+        await waitForNewSessionCalls(2);
+        expect(receivingPc.close).toHaveBeenCalled();
+      }
+      bus.emit('system-audio:stop');
+      await rejectAllRealtimeCalls();
+    },
+  );
+
   it('limits local-overflow SFU reception and blocks the same host connection until rejoin', async () => {
     const mod = await import('../system-audio-sfu.ts');
     mod.registerSystemAudioSfuListeners();

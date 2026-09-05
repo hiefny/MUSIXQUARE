@@ -361,10 +361,7 @@ export class RetainedYouTubePlayerController {
     parking.acceptedPlaylistIndex = null;
     parking.releaseAccepted = false;
     parking.pauseBackObserved = false;
-    parking.stableVideoId = null;
-    parking.stablePlaylistIndex = null;
-    parking.stableState = null;
-    parking.stableSamples = 0;
+    this.resetTargetStableProof(parking);
     parking.pollCount = 0;
     parking.releaseLoadInProgressOnTargetProof = false;
     setYtPrimeReady(false);

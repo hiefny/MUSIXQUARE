@@ -142,6 +142,7 @@ function handleOverlayKeydown(event: KeyboardEvent): void {
   const overlay = document.getElementById('manual-sync-overlay');
   if (!overlay?.classList.contains('show')) return;
   if (event.key === 'Escape') {
+    if (event.isComposing || event.keyCode === 229) return;
     event.preventDefault();
     event.stopPropagation();
     close();
@@ -230,6 +231,10 @@ function bindEditor(editor: HTMLElement): void {
       return;
     }
     if (event.key !== 'Escape') return;
+    if (event.isComposing || event.keyCode === 229 || isComposing) {
+      event.stopPropagation();
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     skipNextBlurCommit = true;

@@ -1538,7 +1538,7 @@ export async function readAdminAnnouncementControl(
           (result.status === 'ok'
             ? ADMIN_ANNOUNCEMENT_CACHE_TTL_MS
             : ADMIN_ANNOUNCEMENT_FAILURE_CACHE_TTL_MS);
-        return result;
+        return cache.value;
       })
       .finally(() => {
         // A mutation can advance the cache generation and start a replacement

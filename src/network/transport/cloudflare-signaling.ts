@@ -3479,20 +3479,31 @@ export class CloudflareSignalingPeer extends TinyEmitter implements TransportPee
       return;
     }
     if (message.type === 'peer-left') {
-      // Signaling departure ends trickle for this socket identity even when an
-      // already-established data channel is deliberately kept alive.
       this.peerDepartureSequences.set(message.peerId, sequence);
       const inFlightNegotiation = this.iceNegotiations.get(message.peerId);
-      this.clearIcePeerState(message.peerId);
-      this.peerIdentityProjections.delete(message.peerId);
-      if (inFlightNegotiation && !inFlightNegotiation.settled) {
-        try {
-          inFlightNegotiation.pc.close();
-        } catch {
-          /* noop */
+      const conn = this.connections.get(message.peerId);
+      if (
+        inFlightNegotiation?.purpose === 'media' &&
+        inFlightNegotiation.pc === conn?.peerConnection &&
+        this.isDataConnectionAlive(conn)
+      ) {
+        // Signaling loss does not retire a live shared RTC connection. Keep its
+        // exact SDP owner so a later media answer or rollback can still settle
+        // the offer; discard only trickle queued before this socket departure.
+        this.pendingCandidates.delete(message.peerId);
+        inFlightNegotiation.candidates = [];
+        inFlightNegotiation.bytes = 0;
+      } else {
+        this.clearIcePeerState(message.peerId);
+        if (inFlightNegotiation && !inFlightNegotiation.settled) {
+          try {
+            inFlightNegotiation.pc.close();
+          } catch {
+            /* noop */
+          }
         }
       }
-      const conn = this.connections.get(message.peerId);
+      this.peerIdentityProjections.delete(message.peerId);
       if (this.isDataConnectionAlive(conn)) {
         log.info(
           `[Transport] Ignoring signaling peer-left for ${message.peerId}; data channel is still alive`,

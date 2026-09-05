@@ -9,7 +9,7 @@ import {
 import { t } from '../i18n/index.ts';
 import { AccountApiError } from './api.ts';
 import { saveAccountNickname } from './session.ts';
-import { isAccountAuthenticated } from './state.ts';
+import { getAccountStatsScope, isAccountAuthenticated } from './state.ts';
 
 export const ACCOUNT_NICKNAME_MAX_CODE_POINTS = 12;
 
@@ -84,7 +84,10 @@ export function accountNicknameMutationErrorMessage(error: unknown): string {
   return t('account.action_failed');
 }
 
-export async function updateCurrentAccountNickname(value: string): Promise<string> {
+export async function updateCurrentAccountNickname(
+  value: string,
+  expectedScope = getAccountStatsScope(),
+): Promise<string> {
   if (!isAccountAuthenticated()) throw new Error('ACCOUNT_LOGIN_REQUIRED');
   const validationError = validateAccountNickname(value);
   if (validationError) throw new Error(validationError);
@@ -92,5 +95,5 @@ export async function updateCurrentAccountNickname(value: string): Promise<strin
   // Both standard and PRO rooms project account identity from a signed server
   // assertion. saveAccountNickname updates the account snapshot; its
   // subscriber refreshes the live assertion.
-  return (await saveAccountNickname(nickname)).nickname;
+  return (await saveAccountNickname(nickname, expectedScope)).nickname;
 }

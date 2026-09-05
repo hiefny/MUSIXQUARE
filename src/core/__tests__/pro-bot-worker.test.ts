@@ -1878,6 +1878,150 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
     ).rejects.toThrow('BOT_INVALID_PLAN');
   });
 
+  it.each([
+    {
+      prompt: 'Remove the song named "First Track" from this room queue.',
+      names: ['Hello', 'First Track'],
+      indices: [1],
+      accepted: true,
+    },
+    {
+      prompt: 'Remove the song named "First Track" from this room queue.',
+      names: ['Hello', 'First Track'],
+      indices: [0, 1],
+      accepted: false,
+    },
+    {
+      prompt: 'Remove the song named "Hello World" from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [1],
+      accepted: true,
+    },
+    {
+      prompt: 'Remove the song named "Hello World" from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [0, 1],
+      accepted: false,
+    },
+    {
+      prompt: 'Remove the songs named "Hello" and "Hello World" from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [0, 1],
+      accepted: true,
+    },
+    {
+      prompt: 'Remove the song named "Hello World" from this room queue.',
+      names: ['Hello World', 'Hello World'],
+      indices: [0],
+      accepted: false,
+    },
+    {
+      prompt: 'Remove the song named Hello World from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [1],
+      accepted: true,
+    },
+    {
+      prompt: 'Remove the song named Hello World from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [0, 1],
+      accepted: false,
+    },
+    {
+      prompt: 'Remove the songs named Hello and Hello World from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [0, 1],
+      accepted: true,
+    },
+    {
+      prompt: 'Remove the song named Hello World from this room queue.',
+      names: ['Hello', 'Hello World', 'Hello World'],
+      indices: [0],
+      accepted: false,
+    },
+    {
+      prompt: 'Remove the song named “안녕하세요 세상” from this room queue.',
+      names: ['안녕하세요', '안녕하세요 세상'],
+      indices: [1],
+      accepted: true,
+    },
+    {
+      prompt: 'Remove the song named 안녕하세요세상 from this room queue.',
+      names: ['안녕하세요', '안녕하세요세상'],
+      indices: [0],
+      accepted: false,
+    },
+    {
+      prompt: 'Remove the song named "Ｈｅｌｌｏ　Ｗｏｒｌｄ" from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [1],
+      accepted: true,
+    },
+    {
+      prompt: 'Remove the song named éHello World from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [1],
+      accepted: false,
+    },
+    {
+      prompt: 'Remove the first track from this room queue.',
+      names: ['Hello', 'Hello World'],
+      indices: [0],
+      accepted: true,
+    },
+  ])(
+    'binds named removal to exact user title spans: $prompt / $indices',
+    async ({ prompt, names, indices, accepted }) => {
+      const ids = [QUEUE_ITEM_ID_1, QUEUE_ITEM_ID_2, '33333333-3333-4333-8333-333333333333'];
+      const executed: unknown[] = [];
+      const namespace = roomNamespace(async (request) => {
+        if (new URL(request.url).pathname === '/internal/bot/context') {
+          return Response.json({
+            leaseToken: LEASE_TOKEN,
+            room: {
+              playlistRevision: 3,
+              playlist: names.map((name, index) => ({ queueItemId: ids[index], name })),
+            },
+          });
+        }
+        executed.push(((await request.json()) as { plan: unknown }).plan);
+        return Response.json({
+          ok: true,
+          summary: 'Removed.',
+          addedCount: 0,
+          playbackChanged: false,
+        });
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          geminiPlanResponse({
+            intent: 'remove_items',
+            queueItemIds: indices.map((index) => ids[index]),
+            answer: 'Removed.',
+          }),
+        ),
+      );
+      const response = await appWorker.fetch(
+        botRequest({ body: { prompt, requestId: REQUEST_ID } }),
+        appBotEnvironment(namespace, { GEMINI_API_KEY: GEMINI_KEY }),
+      );
+      expect(response.status).toBe(accepted ? 200 : 503);
+      if (accepted)
+        expect(executed).toEqual([
+          {
+            intent: 'remove_items',
+            queueItemIds: indices.map((index) => ids[index]),
+            answer: /[가-힣]/u.test(prompt) ? '트랙을 삭제했어요.' : 'Tracks removed.',
+          },
+        ]);
+      else {
+        expect(executed).toEqual([]);
+        await expect(response.json()).resolves.toEqual({ error: 'BOT_INVALID_PLAN' });
+      }
+    },
+  );
+
   it('never treats external account, app, device, or service deletion as a queue mutation', () => {
     const { planMatchesPromptScope } = proBotInternalsForTests;
     const removePlan = {
@@ -2104,6 +2248,46 @@ describe('PRO BOT Gemini plan and YouTube normalization', () => {
         trackQueries: ['one', 'two', 'three', 'four'],
         playAddedIndex: -1,
         answer: 'too many',
+      }),
+    ).toBeNull();
+  });
+
+  it.each([
+    [0, 0],
+    [1, 0],
+    [2, 1],
+    [-1, -1],
+    [undefined, -1],
+  ])('preserves track target %s after equivalent query deduplication', (requested, expected) => {
+    expect(
+      proBotInternalsForTests.parsePlan({
+        intent: 'add_youtube',
+        trackQueries: ['A official audio', ' a   OFFICIAL audio ', 'B official audio'],
+        playAddedIndex: requested,
+      }),
+    ).toEqual({
+      intent: 'add_youtube',
+      trackQueries: ['A official audio', 'B official audio'],
+      playAddedIndex: expected,
+    });
+  });
+
+  it.each([3, -2, 1.5])('rejects original query index %s outside the valid range', (index) => {
+    expect(
+      proBotInternalsForTests.parsePlan({
+        intent: 'add_youtube',
+        trackQueries: ['A', 'a', 'B'],
+        playAddedIndex: index,
+      }),
+    ).toBeNull();
+  });
+
+  it('rejects empty normalized query material without silently changing its target', () => {
+    expect(
+      proBotInternalsForTests.parsePlan({
+        intent: 'add_youtube',
+        trackQueries: ['A', ' \t\n ', 'B'],
+        playAddedIndex: 1,
       }),
     ).toBeNull();
   });

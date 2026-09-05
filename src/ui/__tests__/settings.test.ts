@@ -637,6 +637,7 @@ describe('initSettings language controls', () => {
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     trigger.focus();
     trigger.click();
+    await vi.dynamicImportSettled();
 
     expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontOptions.length);
     expect(document.getElementById('language-dialog-overlay')?.classList.contains('show')).toBe(
@@ -677,6 +678,7 @@ describe('initSettings language controls', () => {
     expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontCount * 2);
 
     trigger.click();
+    await vi.dynamicImportSettled();
     expect(preloadLocaleFontGlyphsMock).toHaveBeenCalledTimes(selfHostedFontCount * 2);
   });
 

@@ -245,6 +245,127 @@ afterEach(() => {
 });
 
 describe('custom-scrollbar ownership', () => {
+  function dispatchTouches(
+    thumb: HTMLElement,
+    type: 'touchstart' | 'touchmove' | 'touchend' | 'touchcancel',
+    touches: Array<{ identifier: number; clientY: number }>,
+    changedTouches: Array<{ identifier: number; clientY: number }>,
+  ): void {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+      touches: { value: touches },
+      changedTouches: { value: changedTouches },
+    });
+    thumb.dispatchEvent(event);
+  }
+
+  it.each(['touchend', 'touchcancel'] as const)(
+    'keeps the first thumb drag when a second finger triggers %s',
+    (endType) => {
+      const box = createScrollbox(`touch-owner-${endType}`);
+      initCustomScrollbar(box.container);
+      const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+      const owner = { identifier: 1, clientY: 0 };
+      const second = { identifier: 2, clientY: 20 };
+      dispatchTouches(thumb, 'touchstart', [owner], [owner]);
+      dispatchTouches(thumb, 'touchstart', [owner, second], [second]);
+      dispatchTouches(thumb, endType, [owner], [second]);
+      expect(thumb.classList.contains('dragging')).toBe(true);
+      dispatchTouches(thumb, 'touchmove', [{ ...owner, clientY: 40 }], [owner]);
+      expect(box.container.scrollTop).toBe(200);
+      dispatchTouches(thumb, 'touchend', [], [owner]);
+      expect(thumb.classList.contains('dragging')).toBe(false);
+      dispatchTouches(thumb, 'touchmove', [{ ...owner, clientY: 80 }], [owner]);
+      expect(box.container.scrollTop).toBe(200);
+    },
+  );
+
+  it('tracks the local thumb touch independently of a contact elsewhere on the document', () => {
+    const box = createScrollbox('local-touch-owner');
+    initCustomScrollbar(box.container);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    const outside = { identifier: 1, clientY: 300 };
+    const owner = { identifier: 2, clientY: 0 };
+    dispatchTouches(thumb, 'touchstart', [outside, owner], [owner]);
+    dispatchTouches(thumb, 'touchmove', [outside, { ...owner, clientY: 40 }], [owner]);
+    expect(box.container.scrollTop).toBe(200);
+    dispatchTouches(thumb, 'touchcancel', [outside], [owner]);
+    expect(thumb.classList.contains('dragging')).toBe(false);
+    dispatchTouches(thumb, 'touchmove', [outside, { ...owner, clientY: 80 }], [owner]);
+    expect(box.container.scrollTop).toBe(200);
+
+    dispatchTouches(thumb, 'touchstart', [owner], [owner]);
+    thumb.dispatchEvent(new Event('touchcancel'));
+    expect(thumb.classList.contains('dragging')).toBe(false);
+    dispatchTouches(thumb, 'touchstart', [owner], [owner]);
+    dispatchTouches(thumb, 'touchmove', [{ ...owner, clientY: 40 }], [owner]);
+    expect(box.container.scrollTop).toBe(400);
+    window.dispatchEvent(new Event('blur'));
+    expect(thumb.classList.contains('dragging')).toBe(false);
+  });
+
+  it('keeps an active thumb touch through a mouse click on a hybrid device', () => {
+    const box = createScrollbox('hybrid-touch-owner');
+    initCustomScrollbar(box.container);
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    const owner = { identifier: 1, clientY: 0 };
+    dispatchTouches(thumb, 'touchstart', [owner], [owner]);
+    thumb.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientY: 0 }));
+    window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }));
+    expect(thumb.classList.contains('dragging')).toBe(true);
+    dispatchTouches(thumb, 'touchmove', [{ ...owner, clientY: 40 }], [owner]);
+    expect(box.container.scrollTop).toBe(200);
+    window.dispatchEvent(new Event('blur'));
+    expect(thumb.classList.contains('dragging')).toBe(false);
+  });
+
+  it.each([0, 1, 2])('only starts thumb dragging with the primary mouse button (%i)', (button) => {
+    const box = createScrollbox(`thumb-button-${button}`);
+    initCustomScrollbar(box.container);
+    box.container.scrollTop = 100;
+    const thumb = box.track().querySelector<HTMLElement>('.cscroll-thumb')!;
+    const down = new MouseEvent('mousedown', {
+      bubbles: true,
+      cancelable: true,
+      button,
+      clientY: 0,
+    });
+
+    thumb.dispatchEvent(down);
+    window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientY: 40 }));
+    const observed = {
+      scrollTop: box.container.scrollTop,
+      dragging: thumb.classList.contains('dragging'),
+      userSelect: document.body.style.userSelect,
+      prevented: down.defaultPrevented,
+    };
+    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button }));
+
+    expect(observed).toEqual({
+      scrollTop: button === 0 ? 300 : 100,
+      dragging: button === 0,
+      userSelect: button === 0 ? 'none' : '',
+      prevented: button === 0,
+    });
+    expect(thumb.classList.contains('dragging')).toBe(false);
+    expect(document.body.style.userSelect).toBe('');
+  });
+
+  it.each([0, 1, 2])('only jumps along the track with the primary mouse button (%i)', (button) => {
+    const box = createScrollbox(`track-button-${button}`);
+    initCustomScrollbar(box.container);
+    box.container.scrollTop = 100;
+    box.track().getBoundingClientRect = () => makeRect(200);
+
+    box
+      .track()
+      .dispatchEvent(
+        new MouseEvent('mousedown', { bubbles: true, cancelable: true, button, clientY: 150 }),
+      );
+
+    expect(box.container.scrollTop).toBe(button === 0 ? 600 : 100);
+  });
+
   it('keeps the custom track on coarse mobile surfaces and hides native bars globally', async () => {
     _mqlMatches.set('(pointer: coarse)', true);
     _mqlMatches.set('(any-pointer: coarse)', true);

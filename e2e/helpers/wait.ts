@@ -443,6 +443,9 @@ export async function openChatDrawer(page: Page, timeout = 5_000): Promise<void>
     undefined,
     { timeout },
   );
+  if (await page.locator('#chat-drawer').evaluate((drawer) => drawer.classList.contains('open'))) {
+    return;
+  }
   const chatBtn = page.locator('#chat-preview-btn, .nav-item[data-tab="chat"]').first();
   try {
     await chatBtn.waitFor({ state: 'visible', timeout: 3_000 });

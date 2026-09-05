@@ -79,6 +79,12 @@ let _playlistRaf = 0;
 let _subPlaylistRenderGeneration = 0;
 const _subPlaylistRenderFrames = new Set<number>();
 const _renderedSubPlaylistIds = new WeakMap<HTMLUListElement, readonly string[]>();
+let _pendingProgressiveFocus: {
+  list: HTMLElement;
+  snapshot: PlaylistFocusSnapshot;
+  generation: number;
+  controller: AbortController;
+} | null = null;
 let _domAbort: AbortController | null = null;
 let _reorderController: PlaylistReorderController | null = null;
 let _removalController: PlaylistRemovalController | null = null;
@@ -323,6 +329,7 @@ function renderFileTrackIcon(): string {
 }
 
 function cancelSubPlaylistProgressiveRenders(): void {
+  clearProgressiveFocusRestore();
   _subPlaylistRenderGeneration += 1;
   for (const frame of _subPlaylistRenderFrames) cancelAnimationFrame(frame);
   _subPlaylistRenderFrames.clear();
@@ -413,6 +420,7 @@ function scheduleSubPlaylistBatch(
     } else {
       subUl.removeAttribute('aria-busy');
     }
+    restoreProgressiveFocus();
   });
   _subPlaylistRenderFrames.add(frame);
 }
@@ -586,8 +594,8 @@ function capturePlaylistFocus(list: HTMLElement): PlaylistFocusSnapshot | null {
   return action ? { owner: 'queue', queueItemId, kind: 'action', action } : null;
 }
 
-function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot | null): void {
-  if (!snapshot) return;
+function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot | null): boolean {
+  if (!snapshot) return false;
   if (snapshot.owner === 'upload') {
     const entry = Array.from(list.querySelectorAll<HTMLElement>('[data-pro-upload-id]')).find(
       (candidate) => candidate.dataset.proUploadId === snapshot.uploadId,
@@ -602,13 +610,13 @@ function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot
       committedEntry?.querySelector<HTMLElement>('.track-name') ??
       document.getElementById('tab-playlist');
     target?.focus({ preventScroll: true });
-    return;
+    return !!target;
   }
   const entry = Array.from(list.children).find(
     (child): child is HTMLElement =>
       child instanceof HTMLElement && child.dataset.queueItemId === snapshot.queueItemId,
   );
-  if (!entry) return;
+  if (!entry) return false;
 
   let target: HTMLElement | null;
   if (snapshot.kind === 'sub-track') {
@@ -625,6 +633,49 @@ function restorePlaylistFocus(list: HTMLElement, snapshot: PlaylistFocusSnapshot
       ) ?? null;
   }
   target?.focus({ preventScroll: true });
+  return !!target;
+}
+
+function clearProgressiveFocusRestore(): void {
+  _pendingProgressiveFocus?.controller.abort();
+  _pendingProgressiveFocus = null;
+}
+
+function deferProgressiveFocusRestore(list: HTMLElement, snapshot: PlaylistFocusSnapshot): void {
+  clearProgressiveFocusRestore();
+  const controller = new AbortController();
+  _pendingProgressiveFocus = {
+    list,
+    snapshot,
+    controller,
+    generation: _subPlaylistRenderGeneration,
+  };
+  // Losing the focused row during replacement is temporary. Any subsequent
+  // user interaction owns focus instead, even if the old row is still loading.
+  for (const event of ['pointerdown', 'keydown', 'focusin']) {
+    document.addEventListener(event, clearProgressiveFocusRestore, {
+      capture: true,
+      signal: controller.signal,
+    });
+  }
+}
+
+function restoreProgressiveFocus(): void {
+  const pending = _pendingProgressiveFocus;
+  if (!pending) return;
+  const active = document.activeElement;
+  if (
+    pending.generation !== _subPlaylistRenderGeneration ||
+    !pending.list.isConnected ||
+    !playlistIsVisible() ||
+    (active !== document.body && active !== document.documentElement)
+  ) {
+    clearProgressiveFocusRestore();
+    return;
+  }
+  if (restorePlaylistFocus(pending.list, pending.snapshot) || _subPlaylistRenderFrames.size === 0) {
+    clearProgressiveFocusRestore();
+  }
 }
 
 function createProRoomUploadCancel(row: ProRoomUploadRow): HTMLButtonElement {
@@ -807,7 +858,17 @@ export function updatePlaylistUI(): void {
   });
   uploads.forEach((upload) => appendProRoomUploadRow(list, upload));
   syncPlaylistPlaybackIndicator(list);
-  if (playlistIsVisible()) restorePlaylistFocus(list, focusSnapshot);
+  if (playlistIsVisible()) {
+    const restored = restorePlaylistFocus(list, focusSnapshot);
+    if (
+      !restored &&
+      focusSnapshot?.owner === 'queue' &&
+      focusSnapshot.kind === 'sub-track' &&
+      _subPlaylistRenderFrames.size > 0
+    ) {
+      deferProgressiveFocusRestore(list, focusSnapshot);
+    }
+  }
 
   // Preserve manual browsing across a full DOM replacement. When a follow
   // owns the viewport, writing even the same scrollTop cancels Chromium's

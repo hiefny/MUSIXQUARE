@@ -99,7 +99,16 @@ describe('tooling reproducibility contracts', () => {
     const schema = readFileSync('cloudflare/admin-metrics.schema.sql', 'utf8');
     const tableCount = schema.match(/^CREATE TABLE IF NOT EXISTS\b/gmu)?.length ?? 0;
 
-    expect(tableCount).toBe(19);
+    expect(tableCount).toBe(22);
+    for (const table of [
+      'mxqr_soro_article_visibility',
+      'mxqr_pro_room_owner_transfer_intent_admissions',
+      'mxqr_pro_room_retirement_cursor',
+    ]) {
+      expect(schema).toContain(`CREATE TABLE IF NOT EXISTS ${table} (`);
+      expect(readFileSync('cloudflare/admin-dashboard-ops.md', 'utf8')).toContain(`\`${table}\``);
+      expect(readFileSync('cloudflare/config-drift-ops.md', 'utf8')).toContain(`\`${table}\``);
+    }
     for (const runbookPath of [
       'cloudflare/admin-dashboard-ops.md',
       'cloudflare/config-drift-ops.md',

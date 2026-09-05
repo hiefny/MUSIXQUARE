@@ -24,7 +24,8 @@ the licensing and copyright information distributed with those components.
 
 - **License**: Apache License 2.0
 - **Source**: https://github.com/cozmo/jsQR
-- **License text**: See “Apache License 2.0” under License Summaries below.
+- **License text**:
+  [Apache License 2.0](public/licenses/material-icons-apache-2.0.txt)
 
 ## 5. Google Material Icons (Selected Inline SVG Paths)
 

@@ -622,6 +622,43 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     );
   });
 
+  it('does not reopen the demo overlay when entry fails before its curtain covers the page', async () => {
+    setState('network.appRole', 'host');
+    setState('setup.sessionStarted', true);
+    document.body.innerHTML = `
+      <div id="demo-overlay" aria-hidden="true"></div>
+      <div id="demo-curtain" style="opacity: 0"></div>
+    `;
+    const curtain = document.getElementById('demo-curtain')!;
+    const entryAnimation = {
+      cancel: vi.fn(),
+      onfinish: null,
+      oncancel: null,
+    } as unknown as Animation;
+    Object.defineProperty(curtain, 'animate', {
+      configurable: true,
+      value: vi.fn(() => entryAnimation),
+    });
+
+    bus.emit('demo:enter');
+    await flush();
+    const staleFinish = entryAnimation.onfinish;
+    expect(staleFinish).toBeTypeOf('function');
+    FakeXHR.pending[0]?.failNetwork();
+    await flush(20);
+    expect(getState('demo.active')).toBe(false);
+
+    staleFinish?.call(entryAnimation, new Event('finish') as AnimationPlaybackEvent);
+    await flush(50);
+
+    expect(document.getElementById('demo-overlay')?.classList.contains('active')).toBe(false);
+    expect(document.getElementById('demo-overlay')?.getAttribute('aria-hidden')).toBe('true');
+    expect(document.body.classList.contains('mode-demo')).toBe(false);
+    expect(document.body.classList.contains('demo-chrome-hiding')).toBe(false);
+    expect(curtain.style.opacity).toBe('0');
+    expect(entryAnimation.cancel).toHaveBeenCalled();
+  });
+
   it('initializes demo effect controls from the live audio settings', async () => {
     setState('network.appRole', 'host');
     setState('setup.sessionStarted', true);
@@ -760,6 +797,24 @@ describe('demo recovery pins (DEMO-1 / DEMO-4)', () => {
     expect(getState('audio.stereoWidth')).toBe(1.05);
     expect(getState('audio.virtualBass')).toBe(20);
     expect(getState('audio.exciter')).toBe(false);
+  });
+
+  it('keeps the newest host effect flags when they arrive during an in-flight guest load', async () => {
+    const hostConn = { open: true, peer: 'host-1' } as DataConnection;
+    setState('network.hostConn', hostConn);
+    setState('network.appRole', 'guest');
+    markQueueAuthorityReady(hostConn);
+    const flags = { reverbOn: false, bassBoostOn: false, trebleBoostOn: false, surroundOn: false };
+    await handleData({ type: MSG.DEMO_ENTER, index: 0, ...flags }, hostConn);
+    await flush();
+    expect(getState('demo.loading')).toBe(true);
+    await handleData({ type: MSG.DEMO_ENTER, index: 0, ...flags, reverbOn: true }, hostConn);
+    FakeXHR.pending[0].resolveOk();
+    await flush(50);
+    expect(getState('demo.loading')).toBe(false);
+    expect(getState('demo.reverbOn')).toBe(true);
+    bus.emit('demo:authority-reset');
+    await flush(300);
   });
 
   it('re-dispatches a host track advance that arrived during an in-flight guest load (DEMO-1)', async () => {

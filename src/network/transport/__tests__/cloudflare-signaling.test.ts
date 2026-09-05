@@ -4933,6 +4933,104 @@ describe('Cloudflare signaling/data-channel boundary', () => {
   });
 
   describe('shared media negotiation lifecycle', () => {
+    it('preserves established data while a media offer crosses guest signaling departure', async () => {
+      const { peer, conn, socket, pc } = await establishHostWithSignalingState();
+      const onClose = vi.fn();
+      conn.on('close', onClose);
+      const media = peer.call('guest-media', fakeAudioStream('guest-signaling-departure'));
+      const onOpen = vi.fn();
+      media.on('open', onOpen);
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+      expect(pc.signalingState).toBe('have-local-offer');
+
+      socket.dispatch('message', JSON.stringify({ type: 'peer-left', peerId: 'guest-media' }));
+      await flushAsync();
+
+      expect(pc.connectionState).toBe('connected');
+      expect(onClose).not.toHaveBeenCalled();
+      expect(conn.open).toBe(true);
+      const offer = sentOfType(socket, 'media-offer')[0]!;
+      socket.dispatch(
+        'message',
+        JSON.stringify({
+          type: 'media-answer',
+          from: 'guest-media',
+          callId: offer.callId,
+          negotiationId: offer.negotiationId,
+          sdp: { type: 'answer', sdp: 'reconnected-guest-answer' },
+        }),
+      );
+      await vi.waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
+      expect(pc.signalingState).toBe('stable');
+      peer.destroy();
+      expect(pc.connectionState).toBe('closed');
+    });
+
+    it('rolls back a media offer after guest signaling departure without retiring data', async () => {
+      const { peer, conn, socket, pc } = await establishHostWithSignalingState();
+      const media = peer.call('guest-media', fakeAudioStream('departed-cancelled-offer'));
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+      socket.dispatch('message', JSON.stringify({ type: 'peer-left', peerId: 'guest-media' }));
+      await flushAsync();
+      media.close();
+      await vi.waitFor(() => expect(pc.rollbackCount).toBe(1));
+      expect(pc.signalingState).toBe('stable');
+      expect(conn.open).toBe(true);
+      peer.call('guest-media', fakeAudioStream('successor-offer'));
+      await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(2));
+      expect(FakeRTCPeerConnection.instances).toHaveLength(1);
+      peer.destroy();
+    });
+
+    it.each(['cancel', 'data-close', 'destroy', 'replacement'] as const)(
+      'settles a deferred media offer after guest signaling departure and %s',
+      async (completion) => {
+        const { peer, conn, socket, pc } = await establishHostWithSignalingState();
+        const pendingOffer = deferred<RTCSessionDescriptionInit>();
+        const createOffer = vi.spyOn(pc, 'createOffer').mockReturnValueOnce(pendingOffer.promise);
+        const media = peer.call('guest-media', fakeAudioStream('deferred-departed-offer'));
+        await vi.waitFor(() => expect(createOffer).toHaveBeenCalledTimes(1));
+        socket.dispatch('message', JSON.stringify({ type: 'peer-left', peerId: 'guest-media' }));
+        await flushAsync();
+        expect(pc.connectionState).toBe('connected');
+
+        if (completion === 'cancel') media.close();
+        else if (completion === 'data-close') conn.close();
+        else if (completion === 'destroy') peer.destroy();
+        else {
+          socket.dispatch(
+            'message',
+            JSON.stringify({
+              type: 'signal-offer',
+              from: 'guest-media',
+              negotiationId: NEXT_NEGOTIATION_ID,
+              sdp: { type: 'offer', sdp: 'replacement-after-departure' },
+            }),
+          );
+          await vi.waitFor(() => expect(sentOfType(socket, 'signal-answer')).toHaveLength(2));
+          const replacementPc = FakeRTCPeerConnection.instances[1]!;
+          replacementPc.dispatch('datachannel', {
+            channel: new FakeDataChannel('musixquare-data'),
+          });
+          replacementPc.dispatch('datachannel', {
+            channel: new FakeDataChannel('musixquare-control'),
+          });
+          await flushAsync();
+          expect(replacementPc.connectionState).toBe('connected');
+        }
+
+        pendingOffer.resolve({ type: 'offer', sdp: 'late-departed-offer' });
+        await flushAsync();
+        expect(sentOfType(socket, 'media-offer')).toHaveLength(0);
+        expect(pc.connectionState).toBe(completion === 'cancel' ? 'connected' : 'closed');
+        if (completion === 'cancel') {
+          peer.call('guest-media', fakeAudioStream('successor-after-cancel'));
+          await vi.waitFor(() => expect(sentOfType(socket, 'media-offer')).toHaveLength(1));
+        }
+        peer.destroy();
+      },
+    );
+
     it('waits for reopened host admission before sending an in-flight media offer', async () => {
       const { peer, socket, pc } = await establishHostWithSignalingState();
       const pendingOffer = deferred<RTCSessionDescriptionInit>();

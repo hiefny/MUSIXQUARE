@@ -730,8 +730,8 @@ function handleYouTubeSync(data: Record<string, unknown>, conn?: DataConnection)
         // Host time is moving again
         if (_rt.hostAdPauseActive) {
           _rt.hostAdPauseActive = false;
-          if (player.playVideo) player.playVideo();
-          log.debug('[YouTube Sync] Host ad ended. Resuming guest');
+          if (!isLocalYouTubePaused() && player.playVideo) player.playVideo();
+          log.debug('[YouTube Sync] Host ad ended');
         }
         _rt.hostTimeStaleCount = 0;
       }
@@ -1167,6 +1167,10 @@ function finishRendezvous(): void {
  * disruptive action (pause/seek/video-change) during the guest's wait.
  */
 export function cancelGuestRendezvous(): void {
+  // A newer pause/seek also retires work waiting for readiness or cooldown,
+  // before that work has entered the active rendezvous phase.
+  clearPendingManualRendezvous();
+  clearPendingManualOffsetApply();
   if (!_rt.rendezvousInProgress) return;
   log.debug('[Rendezvous] Cancelled');
   clearManagedTimer('yt-rendezvous-calibrate');

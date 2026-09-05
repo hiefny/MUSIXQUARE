@@ -73,6 +73,7 @@ interface ContractCutoverOptions {
   readonly queryCurrent?: QueryCurrentFunction;
   readonly queryOptions?: QueryCurrentOptions;
   readonly requireCheckpointInventory?: boolean;
+  readonly requiredMarkerContent?: string;
 }
 
 interface CompatibilityOptions {
@@ -258,6 +259,7 @@ const EMERGENCY_EXTERNAL_STATE_PATHS = Object.freeze([
     'cloudflare/remote-share-contract-version.txt',
     'cloudflare/service-control-contract-version.txt',
     'cloudflare/standard-room-pin-storage-contract-version.txt',
+    'cloudflare/soro-article-visibility-contract-version.txt',
     ...Object.values({
       remoteShare: 'cloudflare/wrangler.remote-share.toml',
       proRoom: 'cloudflare/wrangler.pro-room.toml',
@@ -382,6 +384,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'cloudflare/wrangler.developer-api.toml',
   ],
   app: [
+    'cloudflare/soro-article-visibility-contract-version.txt',
     'cloudflare/pro-system-audio-contract-version.txt',
     'cloudflare/remote-share-contract-version.txt',
     'cloudflare/service-control-contract-version.txt',
@@ -393,6 +396,7 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'browser',
     'public',
     'css',
+    'fonts/noto',
     '.workshop/landing',
     '.workshop/privacy',
     '.workshop/terms',
@@ -411,8 +415,12 @@ const TARGET_RUNTIME_PATHS = Object.freeze({
     'scripts/classic-runtime-assets.ts',
     'scripts/auxiliary-browser-assets.ts',
     'scripts/service-worker-asset.ts',
+    'scripts/service-worker-app-shell-guard-lib.mts',
     'scripts/ui-kit-asset.ts',
     'scripts/materialize-app-static-headers.mts',
+    'scripts/materialize-localized-html.mts',
+    'scripts/localized-html-lib.mts',
+    'scripts/locale-seo-metadata.mts',
     'cloudflare/app-worker.ts',
     'cloudflare/signaling-protocol.ts',
     'cloudflare/service-maintenance.ts',
@@ -489,6 +497,16 @@ function contractCutoverRequiresForwardRepair(
     throw new Error('A full 40-character release Git SHA is required for cutover-floor checks.');
   }
   const normalizedHeadSha = headSha.toLowerCase();
+  if (options.requiredMarkerContent !== undefined) {
+    try {
+      const marker = (options.runner || runGit)(['show', `${normalizedHeadSha}:${markerPath}`], {
+        capture: true,
+      });
+      if (String(marker) !== options.requiredMarkerContent) return true;
+    } catch {
+      return true;
+    }
+  }
   const query = options.queryCurrent || queryCurrent;
   const immutableCheckpointPath = resolve(directory, 'recovery-checkpoint.json');
   let checkpointTargets = null;
@@ -2000,7 +2018,8 @@ function main(): void {
       : mode === 'service-control-forward-floor' ||
           mode === 'remote-share-forward-floor' ||
           mode === 'pro-system-audio-forward-floor' ||
-          mode === 'standard-room-pin-forward-floor'
+          mode === 'standard-room-pin-forward-floor' ||
+          mode === 'soro-article-visibility-forward-floor'
         ? valueArgument || DEFAULT_DIRECTORY
         : mode === 'checkpoint' || mode === 'emergency-code-only'
           ? valueArgument || DEFAULT_DIRECTORY
@@ -2073,6 +2092,21 @@ function main(): void {
         ? 'true'
         : 'false',
     );
+  } else if (mode === 'soro-article-visibility-forward-floor') {
+    process.stdout.write(
+      contractCutoverRequiresForwardRepair(
+        target,
+        'cloudflare/soro-article-visibility-contract-version.txt',
+        ['app'],
+        directory,
+        {
+          requireCheckpointInventory: Boolean(valueArgument),
+          requiredMarkerContent: 'soro-article-visibility-d1-v1\n',
+        },
+      )
+        ? 'true'
+        : 'false',
+    );
   } else if (mode === 'verify-current') verifyCurrentRelease(directory);
   else if (mode === 'verify-recovery') verifyRecoveryBoundary(directory);
   else if (mode === 'rollback') {
@@ -2081,7 +2115,7 @@ function main(): void {
   } else if (mode === 'summary') summary(directory);
   else {
     throw new Error(
-      'Usage: node scripts/release-deployment-state.mts <prepare|preflight|attempt|record|version> <target> [directory] | checkpoint <release-target> [directory] | emergency-code-only <git-sha> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | <service-control-forward-floor|remote-share-forward-floor|pro-system-audio-forward-floor|standard-room-pin-forward-floor> <git-sha> [directory] | <verify-current|verify-recovery|rollback|summary> [directory]',
+      'Usage: node scripts/release-deployment-state.mts <prepare|preflight|attempt|record|version> <target> [directory] | checkpoint <release-target> [directory] | emergency-code-only <git-sha> [directory] | <compatibility|compatibility-recheck> <release-target> <git-sha> [directory] | <service-control-forward-floor|remote-share-forward-floor|pro-system-audio-forward-floor|standard-room-pin-forward-floor|soro-article-visibility-forward-floor> <git-sha> [directory] | <verify-current|verify-recovery|rollback|summary> [directory]',
     );
   }
 }

@@ -1,13 +1,34 @@
-function readAssignment(line: string, flag: string): string | null {
+/** Read a file assignment without treating a quoted # as an inline comment. */
+export function readConfigurationAssignment(line: string, flag: string): string | null {
   const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = line.match(new RegExp(`^\\s*${escaped}\\s*=\\s*(.+?)\\s*$`));
-  return match?.[1] ?? null;
+  const value = match?.[1];
+  if (value === undefined) return null;
+  let quote: string | null = null;
+  let escapedCharacter = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (escapedCharacter) {
+      escapedCharacter = false;
+      continue;
+    }
+    if (quote === '"' && character === '\\') {
+      escapedCharacter = true;
+    } else if (quote !== null) {
+      if (character === quote) quote = null;
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === '#') {
+      return value.slice(0, index).trim();
+    }
+  }
+  return value;
 }
 
 function activeAssignment(text: string, flag: string): string | null {
   for (const line of text.split(/\r?\n/)) {
     if (line.trimStart().startsWith('#')) continue;
-    const value = readAssignment(line, flag);
+    const value = readConfigurationAssignment(line, flag);
     if (value !== null) {
       return String(value)
         .trim()

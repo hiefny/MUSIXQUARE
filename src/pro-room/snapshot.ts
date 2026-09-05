@@ -2,6 +2,7 @@ import type { DevicePlatform, QueueItemId } from '../types/index.ts';
 import {
   capabilitiesForProRoomRole,
   PRO_ROOM_MAX_ASSET_BYTES,
+  PRO_ROOM_MAX_ADMINISTRATOR_ITEMS,
   PRO_ROOM_MAX_PLAYLIST_ITEMS,
   PRO_ROOM_MAX_PRESENCE_ITEMS,
   PRO_ROOM_MAX_YOUTUBE_MANIFEST_ITEMS,
@@ -818,7 +819,7 @@ export function parseProRoomSnapshot(value: unknown): ProRoomSnapshot | null {
   const administrators: ProRoomAdministrator[] = [];
   if (
     !Array.isArray(value.administrators) ||
-    value.administrators.length > PRO_ROOM_MAX_PRESENCE_ITEMS
+    value.administrators.length > PRO_ROOM_MAX_ADMINISTRATOR_ITEMS
   ) {
     return null;
   }

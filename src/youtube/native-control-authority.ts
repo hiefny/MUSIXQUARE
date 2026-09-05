@@ -299,6 +299,11 @@ export function initYouTubeNativeControlAuthority(): void {
   clearManagedTimer(LOCAL_REJOIN_TIMER);
 
   scope.on('youtube:player-ready', handlePlayerReady);
+  scope.on('youtube:set-local-paused', (paused) => {
+    if (!paused) return;
+    pendingLocalRejoin = null;
+    clearManagedTimer(LOCAL_REJOIN_TIMER);
+  });
   scope.on('state:playback.mode', () => {
     const player = getYouTubePlayer();
     if (getState('playback.mode') !== 'youtube') {

@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { bus } from '../../core/events.ts';
 import { PLAYBACK_STATE } from '../../core/constants.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
@@ -20,6 +21,7 @@ import type { DataConnection } from '../../types/index.ts';
 import { broadcastYouTubeSync, guestRendezvousSync } from '../../youtube/sync.ts';
 import { showToast } from '../toast.ts';
 import { __resetAccountStateForTests, applyAccountSession } from '../../account/state.ts';
+import { initSettings } from '../settings.ts';
 import {
   getRoleLabelByChannelMode,
   getStandardRolePreset,
@@ -32,6 +34,7 @@ const PLAY_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000001';
 const PAUSE_QUEUE_ITEM_ID = '00000000-0000-4000-8000-000000000002';
 
 const zeroStartFacade = vi.hoisted(() => ({ active: false, inFlight: false }));
+const platform = vi.hoisted(() => ({ android: false }));
 const youtubePrimer = vi.hoisted(() => ({
   prime: vi.fn((_options?: { retryPending?: boolean }) => false),
   wait: vi.fn(async () => true),
@@ -69,6 +72,13 @@ const proSystemAudio = vi.hoisted(() => ({
 vi.mock('../../youtube/sync.ts', () => ({
   broadcastYouTubeSync: vi.fn(),
   guestRendezvousSync: vi.fn(),
+}));
+
+vi.mock('../../core/platform.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../core/platform.ts')>()),
+  get IS_ANDROID() {
+    return platform.android;
+  },
 }));
 
 vi.mock('../../youtube/zero-start.ts', () => ({
@@ -135,6 +145,7 @@ beforeEach(() => {
   proSystemAudio.ownerName = null;
   proSystemAudio.coordinatorCompatible = true;
   zeroStartFacade.active = false;
+  platform.android = false;
   zeroStartFacade.inFlight = false;
   proPlaybackRuntime.reconcile.mockResolvedValue(true);
   hardResetNavigation.activatePendingServiceWorkerForHardReset.mockResolvedValue(undefined);
@@ -158,6 +169,156 @@ function setActiveStandardHost(): void {
   setState('network.sessionCode', '123456');
   setState('setup.sessionStarted', true);
 }
+
+describe('Android range scroll ownership', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', () => ({
+      matches: false,
+      addEventListener() {},
+      removeEventListener() {},
+    }));
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  function openActualEqualizer() {
+    const markup = readFileSync('index.html', 'utf8');
+    document.body.innerHTML = new DOMParser().parseFromString(markup, 'text/html').body.innerHTML;
+    platform.android = true;
+    setActiveStandardHost();
+    initPlayerControls();
+    initSettings();
+    document.querySelector<HTMLElement>('#grid-eq [data-eq-type="advanced"]')!.click();
+    expect(document.getElementById('eq-sliders-area')!.classList.contains('collapsed')).toBe(false);
+    const first = document.getElementById('eq-slider-0') as HTMLInputElement;
+    const second = document.getElementById('eq-slider-1') as HTMLInputElement;
+    const parent = first.closest<HTMLElement>('.tab-content')!;
+    expect(second.closest('.tab-content')).toBe(parent);
+    expect(first.disabled || second.disabled).toBe(false);
+    parent.style.overflowY = 'auto';
+    return { first, second, parent };
+  }
+
+  function touch(identifier: number, target: HTMLInputElement): Touch {
+    // jsdom has TouchEvent but no Touch constructor. Keep native list/target semantics.
+    return {
+      identifier,
+      target,
+      clientX: 10,
+      clientY: 10,
+      pageX: 10,
+      pageY: 10,
+      screenX: 10,
+      screenY: 10,
+      radiusX: 1,
+      radiusY: 1,
+      rotationAngle: 0,
+      force: 1,
+    };
+  }
+
+  function dispatchTouch(
+    target: HTMLInputElement,
+    type: 'touchstart' | 'touchend' | 'touchcancel',
+    touches: Touch[],
+    changedTouches: Touch[],
+  ): void {
+    target.dispatchEvent(
+      new TouchEvent(type, {
+        bubbles: true,
+        touches,
+        targetTouches: touches.filter((point) => point.target === target),
+        changedTouches,
+      }),
+    );
+  }
+
+  it('keeps the settings parent locked until both touched equalizer ranges release', () => {
+    const { first, second, parent } = openActualEqualizer();
+    const a = touch(1, first);
+    const b = touch(2, second);
+    dispatchTouch(first, 'touchstart', [a], [a]);
+    dispatchTouch(second, 'touchstart', [a, b], [b]);
+    expect(parent.style.overflowY).toBe('hidden');
+    dispatchTouch(first, 'touchend', [b], [a]);
+    expect.soft(parent.style.overflowY).toBe('hidden');
+    dispatchTouch(second, 'touchend', [], [b]);
+    expect(parent.style.overflowY).toBe('auto');
+  });
+
+  it('keeps a range locked while a second contact on that range remains', () => {
+    const { first, parent } = openActualEqualizer();
+    const a = touch(1, first);
+    const b = touch(2, first);
+    dispatchTouch(first, 'touchstart', [a], [a]);
+    dispatchTouch(first, 'touchstart', [a, b], [b]);
+    dispatchTouch(first, 'touchend', [b], [a]);
+    expect.soft(parent.style.overflowY).toBe('hidden');
+    dispatchTouch(first, 'touchend', [], [b]);
+    expect(parent.style.overflowY).toBe('auto');
+  });
+
+  it('restores the original parent style for a single completed touch', () => {
+    const { first, parent } = openActualEqualizer();
+    const a = touch(1, first);
+    dispatchTouch(first, 'touchstart', [a], [a]);
+    expect(parent.style.overflowY).toBe('hidden');
+    dispatchTouch(first, 'touchend', [], [a]);
+    expect(parent.style.overflowY).toBe('auto');
+  });
+
+  it('preserves shared ownership when the newer range cancels first', () => {
+    const { first, second, parent } = openActualEqualizer();
+    parent.style.overflowY = '';
+    const a = touch(1, first);
+    const b = touch(2, second);
+    dispatchTouch(first, 'touchstart', [a], [a]);
+    dispatchTouch(second, 'touchstart', [a, b], [b]);
+    dispatchTouch(second, 'touchcancel', [a], [b]);
+    expect(parent.style.overflowY).toBe('hidden');
+    dispatchTouch(first, 'touchend', [], [a]);
+    expect(parent.style.overflowY).toBe('');
+  });
+
+  it('keeps a surviving contact on a range locked after another contact cancels', () => {
+    const { first, parent } = openActualEqualizer();
+    const a = touch(1, first);
+    const b = touch(2, first);
+    dispatchTouch(first, 'touchstart', [a], [a]);
+    dispatchTouch(first, 'touchstart', [a, b], [b]);
+    dispatchTouch(first, 'touchcancel', [b], [a]);
+    expect(parent.style.overflowY).toBe('hidden');
+    dispatchTouch(first, 'touchcancel', [], [b]);
+    expect(parent.style.overflowY).toBe('auto');
+  });
+
+  it('restores overlapping owners on reinitialization and allows a fresh touch', () => {
+    const { first, second, parent } = openActualEqualizer();
+    const a = touch(1, first);
+    const b = touch(2, second);
+    dispatchTouch(first, 'touchstart', [a], [a]);
+    dispatchTouch(second, 'touchstart', [a, b], [b]);
+    expect(parent.style.overflowY).toBe('hidden');
+    initPlayerControls();
+    expect(parent.style.overflowY).toBe('auto');
+    // Ending the retired gesture cannot undo the restored parent style.
+    dispatchTouch(first, 'touchend', [b], [a]);
+    dispatchTouch(second, 'touchend', [], [b]);
+    expect(parent.style.overflowY).toBe('auto');
+    const c = touch(3, first);
+    dispatchTouch(first, 'touchstart', [c], [c]);
+    expect(parent.style.overflowY).toBe('hidden');
+    dispatchTouch(first, 'touchend', [], [c]);
+    expect(parent.style.overflowY).toBe('auto');
+  });
+});
 
 describe('initPlayerControls storage errors', () => {
   it('uses the active non-English unknown label when a filename is missing', async () => {
@@ -184,6 +345,67 @@ describe('initPlayerControls storage errors', () => {
 });
 
 describe('logo hard reset update hand-off', () => {
+  it.each(['resolve', 'reject'])(
+    'ignores activation %s after the reset attempt recovered',
+    async (outcome) => {
+      vi.useFakeTimers();
+      const coordinator = await vi.importActual<typeof import('../../core/session-reset.ts')>(
+        '../../core/session-reset.ts',
+      );
+      let resolveActivation!: (value: undefined) => void;
+      let rejectActivation!: (reason: Error) => void;
+      hardResetNavigation.activatePendingServiceWorkerForHardReset.mockReturnValueOnce(
+        new Promise((resolve, reject) => {
+          resolveActivation = resolve;
+          rejectActivation = reject;
+        }),
+      );
+      hardResetNavigation.scheduleSessionReset.mockImplementationOnce(
+        coordinator.scheduleSessionReset,
+      );
+      document.body.innerHTML =
+        '<button id="app-logo">MUSIXQUARE</button><div id="setup-overlay"></div>';
+      initPlayerControls();
+      try {
+        document.getElementById('app-logo')?.click();
+        await vi.advanceTimersByTimeAsync(120);
+        expect(hardResetNavigation.activatePendingServiceWorkerForHardReset).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(coordinator.isSessionResetPending()).toBe(false);
+
+        // A successor reset does not reauthorize this recovered attempt.
+        coordinator.scheduleSessionReset('Successor', vi.fn());
+        if (outcome === 'resolve') resolveActivation(undefined);
+        else rejectActivation(new Error('late activation failure'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(hardResetNavigation.navigateToAppHome).not.toHaveBeenCalled();
+      } finally {
+        coordinator.__resetSessionResetForTests();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('skips activation when the reset recovers before the lazy import completes', async () => {
+    let recover!: () => void;
+    hardResetNavigation.scheduleSessionReset.mockReturnValueOnce({
+      onRecovered: (listener: () => void) => {
+        recover = listener;
+      },
+    });
+    document.body.innerHTML =
+      '<button id="app-logo">MUSIXQUARE</button><div id="setup-overlay"></div>';
+    initPlayerControls();
+    document.getElementById('app-logo')?.click();
+    await vi.waitFor(() => expect(hardResetNavigation.scheduleSessionReset).toHaveBeenCalledOnce());
+    const resetAction = hardResetNavigation.scheduleSessionReset.mock.calls[0]?.[1] as () => void;
+    resetAction();
+    recover();
+    await vi.dynamicImportSettled();
+    expect(hardResetNavigation.activatePendingServiceWorkerForHardReset).not.toHaveBeenCalled();
+    expect(hardResetNavigation.navigateToAppHome).not.toHaveBeenCalled();
+  });
+
   it('hands service-worker activation to the reset coordinator before navigating home', async () => {
     document.body.innerHTML = `
       <button id="app-logo" type="button">MUSIXQUARE</button>
@@ -823,6 +1045,28 @@ describe('PRO room media-source capabilities', () => {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 
     expect(submit).not.toHaveBeenCalled();
+  });
+
+  it.each(['composing', 'legacy'])('keeps the YouTube query during %s IME Escape', (mode) => {
+    document.body.innerHTML =
+      '<div id="youtube-url-overlay" class="active"><div id="youtube-url-input" contenteditable="true">한글</div><button id="btn-yt-cancel"></button></div>';
+    initPlayerControls();
+    const input = document.getElementById('youtube-url-input')!;
+    input.focus();
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'Escape',
+        isComposing: mode === 'composing',
+        keyCode: mode === 'legacy' ? 229 : 0,
+        bubbles: true,
+      }),
+    );
+    expect(document.getElementById('youtube-url-overlay')!.classList.contains('active')).toBe(true);
+    expect(input.textContent).toBe('한글');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(document.getElementById('youtube-url-overlay')!.classList.contains('active')).toBe(
+      false,
+    );
   });
 
   it('waits for a gesture-bound iOS prime proof before submitting the real video load', async () => {
@@ -2473,6 +2717,41 @@ describe('initPlayerControls sync button', () => {
 
     expect(document.getElementById('manual-sync-overlay')?.classList.contains('show')).toBe(false);
   });
+
+  it.each(['composing', 'legacy', 'editor-state'])(
+    'keeps the manual draft during %s IME Escape',
+    async (mode) => {
+      renderSyncControls();
+      setState('network.hostConn', makeConnection('host-1'));
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      setCurrentAudioBuffer({ duration: 120 } as AudioBuffer);
+      initPlayerControls();
+      document.getElementById('btn-sync')!.focus();
+      document.getElementById('btn-sync')!.click();
+      await settleManualSyncOverlayOpen();
+      const input = document.getElementById('manual-sync-value')!;
+      input.focus();
+      input.textContent = '１';
+      if (mode === 'editor-state') input.dispatchEvent(new Event('compositionstart'));
+      input.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Escape',
+          isComposing: mode === 'composing',
+          keyCode: mode === 'legacy' ? 229 : 0,
+          bubbles: true,
+        }),
+      );
+      expect(document.getElementById('manual-sync-overlay')!.classList.contains('show')).toBe(true);
+      expect(input.textContent).toBe('１');
+      if (mode === 'editor-state') input.dispatchEvent(new Event('compositionend'));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      expect(document.getElementById('manual-sync-overlay')!.classList.contains('show')).toBe(
+        false,
+      );
+      expect(document.activeElement).toBe(document.getElementById('btn-sync'));
+    },
+  );
 
   it('makes the manual panel modal, traps Tab, closes on Escape, and restores focus', async () => {
     renderSyncControls();

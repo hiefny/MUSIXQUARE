@@ -83,28 +83,39 @@ function snapshot(videoIds: string[]): ProRoomSnapshot {
 describe('PRO YouTube manifest runtime projection', () => {
   beforeEach(() => resetState());
 
-  it('hydrates canonical IDs without discarding richer endpoint-local titles', () => {
-    setState('youtube.subItemsMap', {
-      PL_MANIFEST: {
-        ids: ['OLDVIDEO001', 'OLDVIDEO002'],
-        titles: ['Resolved first title', 'Resolved second title'],
+  it.each([
+    {
+      ids: ['OLDVIDEO002', 'OLDVIDEO001'],
+      titles: ['Resolved second title', 'Resolved first title'],
+    },
+    { ids: ['NEWVIDEO001', 'NEWVIDEO002'], titles: ['', ''] },
+    { ids: ['OLDVIDEO002', 'NEWVIDEO001'], titles: ['Resolved second title', ''] },
+  ])(
+    'hydrates canonical IDs $ids with titles bound to the same video identity',
+    ({ ids, titles }) => {
+      setState('youtube.subItemsMap', {
+        PL_MANIFEST: {
+          ids: ['OLDVIDEO001', 'OLDVIDEO002'],
+          titles: ['Resolved first title', 'Resolved second title'],
+          loadError: true,
+        },
+      });
+      const authoritative = snapshot(ids);
+
+      hydrateProRoomYouTubeManifests(authoritative);
+
+      expect(getState('youtube.subItemsMap').PL_MANIFEST).toEqual({
+        ids,
+        titles,
         loadError: true,
-      },
-    });
-    const authoritative = snapshot(['NEWVIDEO001', 'NEWVIDEO002']);
-
-    hydrateProRoomYouTubeManifests(authoritative);
-
-    expect(getState('youtube.subItemsMap').PL_MANIFEST).toEqual({
-      ids: ['NEWVIDEO001', 'NEWVIDEO002'],
-      titles: ['Resolved first title', 'Resolved second title'],
-      loadError: true,
-      manifestComplete: true,
-    });
-    if (authoritative.playlist[0]?.source.kind !== 'youtube') throw new Error('fixture');
-    authoritative.playlist[0].source.videoIds![0] = 'MUTATED0001';
-    expect(getState('youtube.subItemsMap').PL_MANIFEST?.ids[0]).toBe('NEWVIDEO001');
-  });
+        manifestComplete: true,
+      });
+      if (authoritative.playlist[0]?.source.kind !== 'youtube') throw new Error('fixture');
+      const firstVideoId = ids[0];
+      authoritative.playlist[0].source.videoIds![0] = 'MUTATED0001';
+      expect(getState('youtube.subItemsMap').PL_MANIFEST?.ids[0]).toBe(firstVideoId);
+    },
+  );
 
   it('promotes an identical one-item placeholder to a complete server manifest', () => {
     setState('youtube.subItemsMap', {

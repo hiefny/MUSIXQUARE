@@ -3,6 +3,7 @@ import { expect, test, type Page, type Route } from '@playwright/test';
 const SESSION_URL = '**/api/pro-grants/campaigns/asamo-0/session';
 const REDEEM_URL = '**/api/pro-grants/campaigns/asamo-0/redeem';
 const SETUP_LINK_URL = '**/api/pro-grants/campaigns/asamo-0/setup-link';
+const ACCOUNT_SCOPE = 's'.repeat(43);
 
 function activeSession(overrides: Record<string, unknown> = {}) {
   return {
@@ -13,7 +14,7 @@ function activeSession(overrides: Record<string, unknown> = {}) {
       startsAt: null,
       endsAt: null,
     },
-    account: { authenticated: true, profileComplete: true },
+    account: { authenticated: true, profileComplete: true, statsScope: ACCOUNT_SCOPE },
     redemption: null,
     ...overrides,
   };
@@ -133,6 +134,7 @@ test.describe('ASAMO PRO grant event', () => {
       const body = route.request().postDataJSON() as { code?: string };
       submittedCode = body.code ?? '';
       expect(route.request().headers()['x-mxqr-account-csrf']).toBe('1');
+      expect(route.request().headers()['x-mxqr-account-expected-scope']).toBe(ACCOUNT_SCOPE);
       await fulfillJson(
         route,
         {
@@ -187,20 +189,21 @@ test.describe('ASAMO PRO grant event', () => {
       fulfillJson(
         route,
         activeSession({
-          account: { authenticated: true, profileComplete },
+          account: { authenticated: true, profileComplete, statsScope: ACCOUNT_SCOPE },
         }),
       ),
     );
     await page.route('**/api/auth/profile', async (route) => {
       expect(route.request().method()).toBe('PATCH');
       expect(route.request().headers()['x-mxqr-account-csrf']).toBe('1');
+      expect(route.request().headers()['x-mxqr-account-expected-scope']).toBe(ACCOUNT_SCOPE);
       expect(route.request().postDataJSON()).toEqual({ nickname: '아사모회원' });
       profileComplete = true;
       await fulfillJson(route, {
         configured: true,
         authenticated: true,
         account: { nickname: '아사모회원', profileComplete: true },
-        statsScope: null,
+        statsScope: ACCOUNT_SCOPE,
       });
     });
 

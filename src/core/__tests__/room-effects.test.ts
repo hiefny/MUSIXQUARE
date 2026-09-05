@@ -74,7 +74,7 @@ describe('room-wide effects contract', () => {
     expect(parseRoomEffectsState({ ...effects, localVolume: 0.5 })).toBeNull();
     expect(
       parseProRoomEffectsSnapshot({
-        schemaVersion: 1,
+        schemaVersion: 2,
         view: 'effects',
         roomCode: '000001',
         revision: 0,

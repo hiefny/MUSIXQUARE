@@ -1975,9 +1975,19 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
   if (hostConn?.open) {
     // Short jitter to avoid thundering herd, but not too long to cause stale track
     const jitter = Math.random() * 300 + 50;
+    const recoverySessionId = getState('transfer.localSessionId');
     setManagedTimer(
       'preload-recovery-jitter',
       () => {
+        // The delayed intent belongs to this exact host and receive owner.
+        // Check before a late cache hit or any successor loading UI is touched.
+        if (
+          getState('network.hostConn') !== hostConn ||
+          getState('playlist.currentQueueItemId') !== queueItemId ||
+          getState('transfer.localSessionId') !== recoverySessionId
+        ) {
+          return;
+        }
         // Double-check: did preload arrive during wait?
         const nowReady = getState('preload.ready');
         const nowIdentity = identityFromMeta(nowReady);
@@ -1988,17 +1998,8 @@ function handlePlayPreloaded(data: Record<string, unknown>, conn?: DataConnectio
           return;
         }
 
-        // Check if host already moved past this track — don't request stale file
-        const currentQueueItemId = getState('playlist.currentQueueItemId');
-        if (currentQueueItemId !== queueItemId) {
-          log.debug('[Guest] Queue item changed; skipping stale recovery request');
-          showLoader(false);
-          return;
-        }
-
-        const currentHostConn = getState('network.hostConn');
-        if (!currentHostConn?.open) return;
-        const owner = beginFileRequest(currentHostConn, queueItemId);
+        if (!hostConn.open) return;
+        const owner = beginFileRequest(hostConn, queueItemId);
         if (
           sendFileRequest(owner, {
             type: MSG.REQUEST_DATA_RECOVERY,
@@ -2156,8 +2157,13 @@ export function initPreload(): void {
           ...(identityMeta.objectId ? { objectId: identityMeta.objectId } : {}),
           blob: file,
         };
-        setState('preload.nextQueueItemId', queueItemId);
-        setState('preload.ready', readyEntry);
+        const shouldActivate = isExactAwaitedPreload(completionIdentity);
+        const ownsPreloadSnapshot = isCurrentPreloadSnapshot(completionIdentity);
+        const awaitedHandoff = shouldActivate && !ownsPreloadSnapshot;
+        if (!awaitedHandoff) {
+          setState('preload.nextQueueItemId', queueItemId);
+          setState('preload.ready', readyEntry);
+        }
         const currentHostConn = getState('network.hostConn');
         if (currentHostConn && completeFileRequest(currentHostConn, queueItemId, sessionId)) {
           clearManagedTimer('fileWaitTimeout');
@@ -2177,19 +2183,24 @@ export function initPreload(): void {
         }
 
         // Hide preload loader (background preload complete)
-        showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
+        if (ownsPreloadSnapshot) showLoader(false, undefined, PRELOAD_RECEIVE_LOADER_ID);
 
         // If guest was waiting for this preloaded file, trigger playback.
         // Lifecycle is authoritative for the wait gate; pendingRecoveryTarget
         // confirms the exact queue item and session match.
-        const shouldActivate = isExactAwaitedPreload(completionIdentity);
         if (shouldActivate) {
           log.debug('[Preload] Guest was waiting for this track. Playing now.');
           // Lifecycle: the blob we were AWAITING_PRELOAD for
           // is now assembled → promote to DECODING. No-op if we're in any other
           // state (e.g. background preload for next track while currently PLAYING).
           transition({ type: 'PRELOAD_FILE_READY', queueItemId });
-          bus.emit('storage:use-preloaded', queueItemId, filename, completionIdentity.sessionId);
+          bus.emit(
+            'storage:use-preloaded',
+            queueItemId,
+            filename,
+            completionIdentity.sessionId,
+            awaitedHandoff ? readyEntry : undefined,
+          );
           if (samePreloadIdentity(_awaitedPreloadIdentity, completionIdentity)) {
             _awaitedPreloadIdentity = null;
           }

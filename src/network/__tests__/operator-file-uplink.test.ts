@@ -113,6 +113,91 @@ afterEach(() => {
 });
 
 describe('standard operator file uplink host receiver', () => {
+  it('keeps strict metadata and own-key admission before reserving an upload', async () => {
+    const { conn, send } = makeConnection('admin-metadata-boundaries');
+    enterHost([{ conn }]);
+    const invalid = [
+      { name: 42 },
+      { name: '' },
+      { name: ' leading.mp3' },
+      { name: 'path/file.mp3' },
+      { name: 'path\\file.mp3' },
+      { name: 'control\u001f.mp3' },
+      { name: 'control\u007f.mp3' },
+      { name: `${'a'.repeat(252)}.mp3` },
+      { mime: null },
+      { mime: '' },
+      { mime: 'audio/mpeg ' },
+      { mime: `audio/${'a'.repeat(123)}` },
+    ];
+    for (const fields of invalid) await handleData(startMessage(1, fields), conn);
+    const inheritedName = startMessage(1) as Record<string, unknown>;
+    delete inheritedName.name;
+    Object.setPrototypeOf(inheritedName, { name: 'inherited.mp3' });
+    await handleData(inheritedName, conn);
+    expect(sentStatuses(send)).toEqual([]);
+
+    // UTF-16 length and MIME limits retain their inclusive boundaries; the
+    // parser must not normalize metadata into a different admission policy.
+    await handleData(
+      startMessage(1, {
+        name: `🎵${'a'.repeat(249)}.mp3`,
+        mime: `audio/${'a'.repeat(122)}`,
+      }),
+      conn,
+    );
+    expect(sentStatuses(send).at(-1)).toMatchObject({ status: 'ready', loaded: 0, total: 1 });
+  });
+
+  it('accepts real cross-realm buffers after rejecting unsupported and out-of-bounds chunks', async () => {
+    const iframe = document.createElement('iframe');
+    document.body.appendChild(iframe);
+    const foreign = iframe.contentWindow as unknown as {
+      ArrayBuffer: new (length: number) => ArrayBuffer;
+      Uint8Array: new (buffer: ArrayBuffer) => Uint8Array;
+    };
+    const chunk = new foreign.ArrayBuffer(3);
+    new foreign.Uint8Array(chunk).set([4, 5, 6]);
+    expect(chunk instanceof ArrayBuffer).toBe(false);
+    const { conn, send } = makeConnection('admin-cross-realm');
+    enterHost([{ conn }]);
+    const received = vi.fn((_file: File, acknowledge: (accepted: boolean) => void) => {
+      acknowledge(true);
+    });
+    const off = bus.on('standard-room:operator-file-received', received);
+    try {
+      await handleData(startMessage(3), conn);
+      for (const candidate of [
+        new DataView(new ArrayBuffer(3)),
+        new Uint8Array(0),
+        new Uint8Array(CHUNK_SIZE + 1),
+        chunk,
+      ]) {
+        await handleData(
+          {
+            type: MSG.OPERATOR_FILE_UPLOAD_CHUNK,
+            requestId: REQUEST_ID,
+            sessionId: SESSION_ID,
+            chunkIndex: 0,
+            chunk: candidate,
+          },
+          conn,
+        );
+      }
+      await handleData(
+        { type: MSG.OPERATOR_FILE_UPLOAD_FINISH, requestId: REQUEST_ID, sessionId: SESSION_ID },
+        conn,
+      );
+      expect(received).toHaveBeenCalledTimes(1);
+      const file = received.mock.calls[0]![0];
+      expect([...new Uint8Array(await file.arrayBuffer())]).toEqual([4, 5, 6]);
+      expect(sentStatuses(send).at(-1)).toMatchObject({ status: 'complete', loaded: 3, total: 3 });
+    } finally {
+      off();
+      iframe.remove();
+    }
+  });
+
   it('appends only after strict full assembly and ACKs after synchronous commit', async () => {
     const order: string[] = [];
     const { conn, send } = makeConnection('admin-1', (message) => {

@@ -51,7 +51,7 @@ function hasFontPreload(html: string): boolean {
     const tag = match[0];
     return (
       /\brel=["']preload["']/iu.test(tag) &&
-      tag.includes(`href="${fontUrl}"`) &&
+      /\bhref=["']([^"']+)["']/iu.exec(tag)?.[1] === fontUrl &&
       /\bas=["']font["']/iu.test(tag) &&
       /\btype=["']font\/woff2["']/iu.test(tag) &&
       /\bcrossorigin(?:\s|=|>)/iu.test(tag)
@@ -148,6 +148,7 @@ const [
   primaryFontCss,
   primaryFontRuntime,
   styleCss,
+  bootstrapAuthoredSource,
   bootstrapSource,
   appHtml,
   landingHtml,
@@ -164,6 +165,7 @@ const [
   readFile(path.join(repoRoot, 'public', 'primary-font.css'), 'utf8'),
   compileClassicRuntimeAsset(repoRoot, primaryFontRuntimeAsset).then(({ code }) => code),
   readFile(path.join(repoRoot, 'css', 'style.css'), 'utf8'),
+  readFile(path.join(repoRoot, bootstrapRuntimeAsset.sourcePath), 'utf8'),
   compileClassicRuntimeAsset(repoRoot, bootstrapRuntimeAsset).then(({ code }) => code),
   readFile(path.join(repoRoot, 'index.html'), 'utf8'),
   readFile(path.join(repoRoot, '.workshop', 'landing', 'landing.html'), 'utf8'),
@@ -218,18 +220,20 @@ check(
   ),
   'app HTML links Pretendard CSS in the initial graph',
 );
+// Scheduler bindings belong to the authored source contract; release output
+// renames them and is checked against the exact compiler output below.
 check(
-  bootstrapSource.includes('/primary-font-loader.js') &&
-    /RUNTIME_TIMEOUT_MS/u.test(bootstrapSource) &&
-    /retryTimer\s*=\s*window\.setTimeout/u.test(bootstrapSource) &&
-    /Math\.min\((?:30000|3e4)/u.test(bootstrapSource),
+  bootstrapAuthoredSource.includes('/primary-font-loader.js') &&
+    /RUNTIME_TIMEOUT_MS/u.test(bootstrapAuthoredSource) &&
+    /retryTimer\s*=\s*window\.setTimeout/u.test(bootstrapAuthoredSource) &&
+    /Math\.min\((?:30000|3e4)/u.test(bootstrapAuthoredSource),
   'bootstrap font scheduler lacks bounded retryable loading for the lazy font runtime',
 );
 check(
-  /addEventListener\(['"]load['"]/u.test(bootstrapSource) &&
-    /requestIdleCallback/u.test(bootstrapSource) &&
-    /addEventListener\(['"]online['"],\s*retryNow\)/u.test(bootstrapSource) &&
-    /document\.addEventListener\(['"]visibilitychange/u.test(bootstrapSource),
+  /addEventListener\(['"]load['"]/u.test(bootstrapAuthoredSource) &&
+    /requestIdleCallback/u.test(bootstrapAuthoredSource) &&
+    /addEventListener\(['"]online['"],\s*retryNow\)/u.test(bootstrapAuthoredSource) &&
+    /document\.addEventListener\(['"]visibilitychange/u.test(bootstrapAuthoredSource),
   'bootstrap font scheduler must wait for load/idle and recover on connectivity or visibility',
 );
 check(

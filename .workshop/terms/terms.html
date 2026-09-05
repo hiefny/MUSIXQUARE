@@ -96,10 +96,12 @@
             deleted, or the room is deleted; an anonymous grant ends with that user's room presence.
           </p>
           <p>
-            Deleting an account removes account-linked room permissions but does not decommission a
-            PRO room, invalidate its separate room-recovery credential, or automatically delete
-            media already shared in a collaborative room. Shared media follows the applicable room
-            retention and cleanup rules described in the
+            Deleting an account removes account-linked room permissions. If the account owns a PRO
+            room, deletion suspends that room and revokes its sessions, delegated authority, PIN,
+            and owner-recovery credential. An operator must transfer ownership before a new owner
+            can activate the room. Account deletion does not decommission the room or automatically
+            delete media already shared in it. Shared media follows the applicable room retention
+            and cleanup rules described in the
             <a href="/privacy">Privacy Policy</a>.
           </p>
         </section>

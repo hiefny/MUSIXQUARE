@@ -318,9 +318,7 @@ function requestLocalOutputRejoin(request: RejoinRequest): Promise<boolean> {
   return operation;
 }
 
-export function initLocalOutputRejoin(): void {
-  scope?.dispose();
-  scope = createBusScope();
+function resetLocalOutputRejoinState(): void {
   rejoinGeneration += 1;
   rejoinInFlight = null;
   pendingRejoinRequest = null;
@@ -329,21 +327,28 @@ export function initLocalOutputRejoin(): void {
   awaitingAuthoritativeResumeMode = null;
   lastSuccessfulRejoinAt = 0;
   lastSuccessfulRejoinIdentity = null;
+}
+
+export function initLocalOutputRejoin(): void {
+  scope?.dispose();
+  scope = createBusScope();
+  resetLocalOutputRejoinState();
 
   scope.on('playback:local-output-rejoin', (request) => {
     return requestLocalOutputRejoin(captureRequest(request));
   });
+  scope.on('youtube:set-local-paused', (paused) => {
+    if (!paused || getState('playback.mode') !== 'youtube') return;
+    // An explicit PAUSE also retires a PLAY whose busy/failed attempt has
+    // already returned and left a timer behind. A later PLAY captures anew.
+    rejoinGeneration += 1;
+    pendingRejoinRequest = null;
+    scheduledRetryRequest = null;
+    clearManagedTimer(RETRY_TIMER);
+    awaitingAuthoritativeResumeMode = null;
+  });
   scope.on('state:setup.sessionStarted', (started) => {
-    if (!started) {
-      rejoinGeneration += 1;
-      rejoinInFlight = null;
-      pendingRejoinRequest = null;
-      scheduledRetryRequest = null;
-      clearManagedTimer(RETRY_TIMER);
-      awaitingAuthoritativeResumeMode = null;
-      lastSuccessfulRejoinAt = 0;
-      lastSuccessfulRejoinIdentity = null;
-    }
+    if (!started) resetLocalOutputRejoinState();
   });
   scope.on('state:playback.activity', (activity) => {
     if (activity === 'playing' || activity === 'idle') awaitingAuthoritativeResumeMode = null;

@@ -1,6 +1,6 @@
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
-  PRO_ROOM_MAX_PRESENCE_ITEMS,
+  PRO_ROOM_MAX_ADMINISTRATOR_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
   type ProRoomAdministrator,
   type ProRoomPlaybackCheckpoint,
@@ -64,6 +64,9 @@ const MAX_REQUEST_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_RESPONSE_JSON_BYTES = 4 * 1024 * 1024;
 const MAX_ERROR_JSON_BYTES = 16 * 1024;
 const MAX_BOOTSTRAP_JSON_BYTES = 8 * 1024;
+// 201 rows with 128-character IDs, 64-character UTF-8 names and all permission
+// fields fit below 116 KiB. Keep this separate from small bootstrap responses.
+const MAX_ADMINISTRATOR_JSON_BYTES = 128 * 1024;
 const MAX_BOT_RESPONSE_JSON_BYTES = 8 * 1024;
 const MAX_NAME_LENGTH = 2048;
 const MAX_DISPLAY_NAME_LENGTH = 64;
@@ -776,7 +779,7 @@ function parseAdministratorDirectory(value: unknown): ProRoomAdministratorDirect
     !hasExactKeys(value, ['authorityVersion', 'administrators']) ||
     value.authorityVersion !== 1 ||
     !Array.isArray(value.administrators) ||
-    value.administrators.length > PRO_ROOM_MAX_PRESENCE_ITEMS
+    value.administrators.length > PRO_ROOM_MAX_ADMINISTRATOR_ITEMS
   ) {
     return null;
   }
@@ -1541,7 +1544,7 @@ export class ProRoomApiClient {
       signal,
       activeRoomCode: code,
       parser: parseAdministratorDirectory,
-      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      maxResponseBytes: MAX_ADMINISTRATOR_JSON_BYTES,
     });
   }
 
@@ -1559,7 +1562,7 @@ export class ProRoomApiClient {
       signal,
       activeRoomCode: code,
       parser: parseAdministratorDirectory,
-      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      maxResponseBytes: MAX_ADMINISTRATOR_JSON_BYTES,
     });
   }
 
@@ -1575,7 +1578,7 @@ export class ProRoomApiClient {
       signal,
       activeRoomCode: code,
       parser: parseAdministratorDirectory,
-      maxResponseBytes: MAX_BOOTSTRAP_JSON_BYTES,
+      maxResponseBytes: MAX_ADMINISTRATOR_JSON_BYTES,
     });
   }
 

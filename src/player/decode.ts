@@ -255,6 +255,7 @@ interface PreloadActivation {
   readonly epoch: number;
   readonly queueItemId: QueueItemId;
   readonly sessionId: number;
+  readonly blob: Blob;
 }
 
 let _activePreloadActivation: PreloadActivation | null = null;
@@ -263,13 +264,14 @@ function beginPreloadActivation(
   epoch: number,
   queueItemId: QueueItemId,
   sessionId: number,
+  blob: Blob,
 ): PreloadActivation {
   if (_activePreloadActivation && _activePreloadActivation.epoch === epoch) {
     log.warn(
       '[Preload] Two activations share one load epoch. A caller skipped its entry-point epoch allocation',
     );
   }
-  const owner: PreloadActivation = { epoch, queueItemId, sessionId };
+  const owner: PreloadActivation = { epoch, queueItemId, sessionId, blob };
   _activePreloadActivation = owner;
   setPlayPreloadedInProgress(true);
   return owner;
@@ -326,7 +328,9 @@ export async function loadAndBroadcastFile(
       // Don't let audio initialization block the whole activation if it hangs (e.g. autoplay blocked)
       await Promise.race([initAudio(), delay(2000)]);
     }
+    if (!isCurrentOwner()) return false;
     if (getAudioContext().state !== 'running') await ensureRunning();
+    if (!isCurrentOwner()) return false;
 
     log.debug('[BufferMode] Decoding audio for high-precision sync...');
     showToast(t('toast.hprecision_sync'));
@@ -491,6 +495,10 @@ export async function loadAndBroadcastFile(
 export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: number): Promise<void> {
   const myLoadId = incrementLoadSessionId();
   const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
+  const isCurrentOwner = (): boolean =>
+    myLoadId === getActiveLoadSessionId() &&
+    (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
+    !isExternalOwner();
 
   showLoader(true, t('transfer.demo_loading_short'));
   stopAllMedia({ silent: true });
@@ -507,7 +515,9 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
     if (!isSystemAudioActive()) {
       await Promise.race([initAudio(), delay(2000)]);
     }
+    if (!isCurrentOwner()) return;
     if (getAudioContext().state !== 'running') await ensureRunning();
+    if (!isCurrentOwner()) return;
 
     if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
     const decoded = await decodeBlobToAudioBuffer(
@@ -515,10 +525,7 @@ export async function loadDemoFile(file: File, meta: TrackMeta, loadEpoch?: numb
       'demo-load',
       file.name,
       null,
-      () =>
-        myLoadId === getActiveLoadSessionId() &&
-        (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
-        !isExternalOwner(),
+      isCurrentOwner,
     );
     const audioBuffer = decoded.audioBuffer;
     try {
@@ -766,9 +773,26 @@ export function initDecodeHandlers(): void {
 
 // ─── Load Preloaded Track ───────────────────────────────────────────
 
+/** Keep an explicit retry attached to the exact still-pending encoded owner. */
+export function getPreloadActivationResident(
+  queueItemId: QueueItemId,
+): Readonly<ResidentFile> | null {
+  const ready = getState('preload.ready');
+  if (ready?.queueItemId === queueItemId) return ready;
+  const current = getState('files.current');
+  const active = _activePreloadActivation;
+  return current?.queueItemId === queueItemId &&
+    active?.queueItemId === queueItemId &&
+    current.sessionId === active.sessionId &&
+    current.blob === active.blob
+    ? current
+    : null;
+}
+
 function exactPreloadIdentity(
   ready: Readonly<ResidentFile>,
   targetQueueItemId: QueueItemId,
+  isAwaitedHandoff = false,
 ): boolean {
   if (
     ready.queueItemId !== targetQueueItemId ||
@@ -777,17 +801,28 @@ function exactPreloadIdentity(
   ) {
     return false;
   }
-  if (getState('preload.ready') !== ready) return false;
-  if (getState('preload.nextQueueItemId') !== targetQueueItemId) return false;
+  if (!isAwaitedHandoff) {
+    if (getState('preload.ready') !== ready) return false;
+    if (getState('preload.nextQueueItemId') !== targetQueueItemId) return false;
+  }
 
   const activeTarget = getState('preload.activeTarget');
   if (
     activeTarget &&
-    (activeTarget.queueItemId !== targetQueueItemId || activeTarget.sessionId !== ready.sessionId)
+    (activeTarget.queueItemId === targetQueueItemId
+      ? activeTarget.sessionId !== ready.sessionId
+      : !isAwaitedHandoff)
   ) {
     return false;
   }
 
+  return matchesPreloadQueueItem(ready, targetQueueItemId);
+}
+
+function matchesPreloadQueueItem(
+  ready: Readonly<ResidentFile>,
+  targetQueueItemId: QueueItemId,
+): boolean {
   const playlistItem = getQueueItemById(targetQueueItemId);
   if (!playlistItem) return false;
   if (playlistItem.file && playlistItem.file !== ready.blob) return false;
@@ -861,8 +896,11 @@ function requestFreshQueueItem(queueItemId: QueueItemId, reason: string): void {
 export async function loadPreloadedTrack(
   queueItemId: QueueItemId,
   loadEpoch?: number,
+  awaitedResident?: Readonly<ResidentFile>,
 ): Promise<boolean> {
-  const ready = getState('preload.ready');
+  // An older exact awaited receive can finish behind a future preload. Its
+  // synchronous internal handoff must not replace that speculative cache.
+  const ready = awaitedResident ?? getPreloadActivationResident(queueItemId);
   const myEpoch = loadEpoch ?? getCurrentLoadEpoch();
 
   if (!ready || ready.queueItemId !== queueItemId) {
@@ -875,37 +913,128 @@ export async function loadPreloadedTrack(
   if (getCurrentQueueItemId() !== queueItemId || !getQueueItemById(queueItemId)) {
     return false;
   }
-  if (!exactPreloadIdentity(ready, queueItemId)) {
+  const alreadyPromoted = getState('files.current') === ready;
+  if (
+    !(alreadyPromoted
+      ? matchesPreloadQueueItem(ready, queueItemId)
+      : exactPreloadIdentity(ready, queueItemId, !!awaitedResident))
+  ) {
     rejectMismatchedPreload(ready, queueItemId);
     return false;
   }
 
   const localBlob = ready.blob;
+  let promotedResident: ResidentFile | null = null;
   const ownsPublishedTarget = (): boolean => {
     const resident = getState('files.current');
+    const activeTarget = getState('preload.activeTarget');
     return (
       resident?.queueItemId === queueItemId &&
       resident.sessionId === ready.sessionId &&
       resident.blob === localBlob &&
       getCurrentQueueItemId() === queueItemId &&
-      !!getQueueItemById(queueItemId) &&
+      matchesPreloadQueueItem(ready, queueItemId) &&
+      (activeTarget?.queueItemId !== queueItemId || activeTarget.sessionId === ready.sessionId) &&
       (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
       !isExternalOwner()
     );
   };
-  const activationOwner = beginPreloadActivation(myEpoch, queueItemId, ready.sessionId);
+  const activationOwner = beginPreloadActivation(myEpoch, queueItemId, ready.sessionId, localBlob);
   let published = false;
   const ownsTarget = (): boolean =>
     isCurrentPreloadActivation(activationOwner) &&
     activationOwner.queueItemId === queueItemId &&
     activationOwner.sessionId === ready.sessionId &&
-    getCurrentQueueItemId() === queueItemId &&
-    !!getQueueItemById(queueItemId) &&
-    (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
-    exactPreloadIdentity(ready, queueItemId) &&
-    !isExternalOwner();
+    (promotedResident
+      ? ownsPublishedTarget()
+      : getCurrentQueueItemId() === queueItemId &&
+        !!getQueueItemById(queueItemId) &&
+        (loadEpoch === undefined || isCurrentLoadEpoch(myEpoch)) &&
+        exactPreloadIdentity(ready, queueItemId, !!awaitedResident) &&
+        !isExternalOwner());
 
   try {
+    if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
+
+    const priorResident = getState('files.current');
+    if (priorResident && priorResident.blob !== localBlob) {
+      if (getState('files.current') === priorResident) setState('files.current', null);
+      discardResidentStoredFileAdmission(priorResident.blob);
+    }
+
+    const indexHint = findQueueItemIndex(queueItemId);
+    const item = getQueueItemById(queueItemId);
+    if (indexHint < 0 || !item) return false;
+
+    if (
+      priorResident &&
+      (priorResident.queueItemId !== queueItemId || priorResident.sessionId !== ready.sessionId)
+    ) {
+      cleanupStoredFile(
+        priorResident.queueItemId,
+        priorResident.name,
+        false,
+        priorResident.sessionId,
+      );
+    }
+
+    const isAdmissionBoundPreload = encodedReceiveReservationIdForBlob(localBlob) !== undefined;
+    const promoted =
+      alreadyPromoted ||
+      promoteStoredFileAdmission(queueItemId, ready.name, ready.sessionId, localBlob);
+    if (isAdmissionBoundPreload && !promoted) {
+      throw new Error('PRELOAD_RESIDENT_PROMOTION_FAILED');
+    }
+
+    const mime = ready.mime || localBlob.type || 'application/octet-stream';
+    const size = ready.size || localBlob.size;
+    const activeTarget = getState('preload.activeTarget');
+    const total =
+      activeTarget?.queueItemId === queueItemId &&
+      Number.isSafeInteger(activeTarget.total) &&
+      Number(activeTarget.total) > 0
+        ? Number(activeTarget.total)
+        : Math.max(1, Math.ceil(size / CHUNK_SIZE));
+    const resident: ResidentFile = {
+      queueItemId,
+      indexHint,
+      name: ready.name,
+      sessionId: ready.sessionId,
+      blob: localBlob,
+      mime,
+      size,
+      ...(ready.objectId ? { objectId: ready.objectId } : {}),
+    };
+    const meta: FileMeta = {
+      queueItemId,
+      indexHint,
+      name: ready.name,
+      sessionId: ready.sessionId,
+      type: mime,
+      mime,
+      size,
+      total,
+      ...(ready.objectId ? { objectId: ready.objectId } : {}),
+    };
+
+    // Promotion is one state publication: consumers never observe the blob
+    // under preload and current ownership simultaneously.
+    batchSetState({
+      'files.current': resident,
+      'transfer.meta': meta,
+      ...(!alreadyPromoted && !awaitedResident
+        ? {
+            'preload.ready': null,
+            'preload.activeTarget': null,
+            'preload.nextQueueItemId': null,
+            'preload.isPreloading': false,
+          }
+        : {}),
+    });
+    promotedResident = resident;
+
+    // The selected encoded file owns current storage before any native await.
+    // A faster host may already send the next preload while this device decodes.
     if (!isSystemAudioActive()) {
       await Promise.race([initAudio(), delay(2000)]);
       if (getAudioContext().state !== 'running') await ensureRunning();
@@ -918,14 +1047,6 @@ export async function loadPreloadedTrack(
         showLoader(false);
       }
       return false;
-    }
-
-    if (getCurrentAudioBuffer()) setCurrentAudioBuffer(null);
-
-    const priorResident = getState('files.current');
-    if (priorResident && priorResident.blob !== localBlob) {
-      if (getState('files.current') === priorResident) setState('files.current', null);
-      discardResidentStoredFileAdmission(priorResident.blob);
     }
 
     log.debug('[Preload] Decoding audio for Buffer Mode...');
@@ -944,77 +1065,8 @@ export async function loadPreloadedTrack(
         log.debug('[Preload] Queue/session/epoch owner changed during decode');
         return false;
       }
-
-      const indexHint = findQueueItemIndex(queueItemId);
-      const item = getQueueItemById(queueItemId);
-      if (indexHint < 0 || !item) return false;
-
-      if (
-        priorResident &&
-        (priorResident.queueItemId !== queueItemId || priorResident.sessionId !== ready.sessionId)
-      ) {
-        cleanupStoredFile(
-          priorResident.queueItemId,
-          priorResident.name,
-          false,
-          priorResident.sessionId,
-        );
-      }
-
-      const isAdmissionBoundPreload = encodedReceiveReservationIdForBlob(localBlob) !== undefined;
-      const promoted = promoteStoredFileAdmission(
-        queueItemId,
-        ready.name,
-        ready.sessionId,
-        localBlob,
-      );
-      if (isAdmissionBoundPreload && !promoted) {
-        throw new Error('PRELOAD_RESIDENT_PROMOTION_FAILED');
-      }
-
-      const mime = ready.mime || localBlob.type || 'application/octet-stream';
-      const size = ready.size || localBlob.size;
-      const activeTarget = getState('preload.activeTarget');
-      const total =
-        activeTarget?.queueItemId === queueItemId &&
-        Number.isSafeInteger(activeTarget.total) &&
-        Number(activeTarget.total) > 0
-          ? Number(activeTarget.total)
-          : Math.max(1, Math.ceil(size / CHUNK_SIZE));
-      const resident: ResidentFile = {
-        queueItemId,
-        indexHint,
-        name: ready.name,
-        sessionId: ready.sessionId,
-        blob: localBlob,
-        mime,
-        size,
-        ...(ready.objectId ? { objectId: ready.objectId } : {}),
-      };
-      const meta: FileMeta = {
-        queueItemId,
-        indexHint,
-        name: ready.name,
-        sessionId: ready.sessionId,
-        type: mime,
-        mime,
-        size,
-        total,
-        ...(ready.objectId ? { objectId: ready.objectId } : {}),
-      };
-
-      // Promotion is one state publication: consumers never observe the blob
-      // under preload and current ownership simultaneously.
-      batchSetState({
-        'files.current': resident,
-        'transfer.meta': meta,
-        'preload.ready': null,
-        'preload.activeTarget': null,
-        'preload.nextQueueItemId': null,
-        'preload.isPreloading': false,
-      });
       setCurrentAudioBuffer(audioBuffer);
-      setPlaybackTrackMeta(item);
+      setPlaybackTrackMeta(getQueueItemById(queueItemId)!);
       published = true;
     } finally {
       decoded.release();
@@ -1032,7 +1084,7 @@ export async function loadPreloadedTrack(
     clearManagedTimer('prepareWatchdog');
     clearManagedTimer('chunkWatchdog');
     clearManagedTimer('preloadRecoveryWatchdog');
-    clearManagedTimer('preloadUiWatchdog');
+    if (!getState('preload.activeTarget')) clearManagedTimer('preloadUiWatchdog');
 
     const hostConn = getState('network.hostConn');
     if (hostConn?.open) {
@@ -1082,12 +1134,12 @@ export async function loadPreloadedTrack(
       bus.emit('sync:request-immediate-ping');
     }
 
-    showLoader(false);
+    if (ownsPublishedTarget()) showLoader(false);
     return true;
   } catch (error: unknown) {
     if (published) {
       log.warn('[Preload] Post-publication side effect failed; resident remains active', error);
-      showLoader(false);
+      if (ownsPublishedTarget()) showLoader(false);
       return true;
     }
     if (!isCurrentPreloadActivation(activationOwner)) {
@@ -1124,7 +1176,7 @@ export async function loadPreloadedTrack(
       discardResidentStoredFileAdmission(localBlob);
     }
     clearManagedTimer('preloadRecoveryWatchdog');
-    clearManagedTimer('preloadUiWatchdog');
+    if (!getState('preload.activeTarget')) clearManagedTimer('preloadUiWatchdog');
 
     const hostConn = getState('network.hostConn');
     if (!hostConn) {
@@ -1150,6 +1202,12 @@ export async function loadPreloadedTrack(
     showToast(t('transfer.preload_fail'));
     requestFreshQueueItem(queueItemId, 'preload_activation_failed');
     return false;
+  } finally {
+    finishPreloadActivation(activationOwner);
+    if (!published && promotedResident && getState('files.current') === promotedResident) {
+      batchSetState({ 'files.current': null, 'transfer.meta': null });
+      discardResidentStoredFileAdmission(localBlob);
+    }
   }
 }
 
@@ -1454,6 +1512,10 @@ export async function finalizeGuestFile(
     ) {
       setCurrentAudioBuffer(detachedPreviousBuffer);
     }
-    showLoader(false);
+    // Native decode cannot be cancelled. A replacement PREPARE/START may
+    // already own the default loader before it starts another finalizer (M2),
+    // so fence cleanup by the exact queue/transfer owner as well. ownsTarget
+    // intentionally ignores load-epoch bumps: they do not cancel this pipeline.
+    if (ownsTarget()) showLoader(false);
   }
 }

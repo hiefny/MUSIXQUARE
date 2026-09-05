@@ -7,6 +7,9 @@ export const PRO_ROOM_MAX_PLAYLIST_ITEMS = 1000;
 export const PRO_ROOM_MAX_YOUTUBE_MANIFEST_ITEMS = 5000;
 /** At most 100 equal connected participants. */
 export const PRO_ROOM_MAX_PRESENCE_ITEMS = 100;
+// Persistent account grants and live anonymous grants have independent server
+// budgets of 100. The owner is separate only in legacy anonymous-owner rooms.
+export const PRO_ROOM_MAX_ADMINISTRATOR_ITEMS = 201;
 
 export type ProRoomStatus = 'unactivated' | 'active' | 'suspended';
 export type ProRoomRuntimeStatus = 'awake' | 'sleeping';

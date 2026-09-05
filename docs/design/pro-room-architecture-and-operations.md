@@ -243,8 +243,9 @@ matched provider data/code checkpoint.
   respective explicit toggles; disabling the playback toggle removes
   `playback.control`. Media management is one coherent queue capability: it
   permits persistent-media addition and deletion, queue reorder and clear, and
-  shuffle/repeat mutations. Effects, PIN/recovery, and other room configuration
-  remain owner-only. BOT commands
+  shuffle/repeat mutations. Room-wide settings synchronization uses
+  `effects.control`, which every delegated administrator receives without a
+  separate toggle. PIN/recovery and other room configuration remain owner-only. BOT commands
   are checked as the initiating room member and cannot bypass those capability
   boundaries. Developer API keys are instead independent room-authoritative
   principals within their issued scopes; integrations own requester identity
@@ -318,8 +319,11 @@ and idempotently purges the account member, delegated authority, owner
 association, presence, and room sessions from awake or sleeping room objects.
 Every purge installs an expiring room tombstone longer than the assertion window
 so a late pre-deletion assertion cannot restore the record. The App account and
-reverse index are removed only after every room confirms cleanup; a partial
-failure returns a retryable error and preserves the account/index. Media still
+reverse index are removed only after every room confirms cleanup. A failure
+before account disable/session revocation returns a retryable error. Once that
+transaction commits, partial cleanup returns `202 { ok:true, pending:true }`;
+the account stays disabled with its remaining reverse edges while background
+cleanup retries. See the account authentication runbook for the full boundary. Media still
 referenced by a collaborative playlist follows the room's normal R2 retention
 rules rather than being deleted merely because one account is removed.
 
@@ -476,6 +480,16 @@ order only when order changes and upserts only rows whose metadata/source
 changed. Playback-anchor and metadata-only changes omit order entirely. There is
 no full-snapshot mutation endpoint or mutation fallback. Public Developer API
 routes use the same canonical v2 queue projection.
+
+The browser preserves FIFO ordering for its own file/YouTube additions and
+queue edits. Incoming canonical snapshots use an independent serialized
+validation/projection lane, so long uploads, object cleanup, CAS requests and
+first-append playback recovery cannot delay the 15-second presence heartbeat.
+Only projection and its sink share that lane; network work never holds it. A
+valid delayed mutation response that advanced its CAS base may return an
+already accepted newer snapshot without projecting the older state. Equal
+revision conflicts remain errors, and ambiguous upload recovery still checks
+the exact queue-item and asset identity before treating the append as committed.
 
 When the final participant leaves, the room becomes `sleeping` and freezes the
 playing position at server time. If playback had been active, the first
@@ -726,9 +740,13 @@ Also verify:
 
 ## Deployment Order
 
-Production databases must already match the tracked canonical schemas before a
-release starts. The immutable `*.migration.sql` and `*.rollback.sql` files and
-the migration manifest are audit history, not launch-time upgrade steps.
+Production databases must match the tracked canonical schemas before dependent
+Workers deploy. Completed launch migrations and rollback SQL remain immutable
+audit history and must not be replayed as routine upgrades. The release workflow
+explicitly applies and verifies approved additive migrations, including article
+visibility, room-retirement progress, and owner-transfer intent admission,
+before the App deployment. Use the current workflow and D1 migration manifest
+for the exact files and recovery contract; do not run every historical migration.
 
 Every full release proves that the immutable `floor_release_sha` commit is
 available and is an ancestor of the candidate commit. It then fences room-code
@@ -749,11 +767,15 @@ dependency that is absent:
 5. App Worker, same-origin PRO service binding, admin control plane, and static
    build last.
 
-Room-effects reads have one launch contract: callers must send
-`X-MXQR-Effects-Version: 2`, and the response contains all five effect groups,
-including `virtualTreble`, in schema version 2. Effects live in the canonical v2
-room core; there is no version 1 projection or sidecar rollback path. Keep the
-App/static and PRO Worker on a matched version that implements this contract.
+The browser synchronizes master volume and all five effect groups through
+`/settings-sync`, whose writes require `effects.control`. The retained
+effects-only `/effects` endpoint requires `X-MXQR-Pro-Effects-Version: 2` and
+keeps its owner-only write restriction. Public Developer API effects reads use
+`X-MXQR-Effects-Version: 2` instead. Both effects-only read contracts return
+schema version 2, including `virtualTreble`. Effects live in the canonical v2
+room core; there is no version 1 effects projection or sidecar rollback path.
+Keep the App/static and PRO Worker on a matched version that implements these
+contracts.
 
 Production releases use the repository's `Production Release` GitHub workflow
 for the exact reviewed `main` commit. Select `all` for a cross-Worker contract
@@ -874,9 +896,8 @@ that exact room before sharing its invite.
 
 ## Owner Recovery After Browser Data Loss
 
-Use recovery only when the owner cookie is unavailable. A normal PIN login
-creates a controller session but deliberately cannot grant owner-only room
-configuration rights.
+Use recovery only when the owner cookie is unavailable. Knowing the PIN alone
+cannot grant owner-only room configuration rights.
 
 First sign in to MUSIXQUARE with the account that should own the room. Then open
 `/admin`, expand the active PRO room, and select **Issue owner recovery link**.

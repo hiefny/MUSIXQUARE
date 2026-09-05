@@ -77,6 +77,67 @@ async function createPickerHarness(
 }
 
 describe('static page language picker', () => {
+  it.each(['Escape', 'backdrop', 'trigger', 'outside'] as const)(
+    'removes closed options from keyboard and accessibility navigation after %s',
+    async (closeMethod) => {
+      const { dom } = await createPickerHarness(true);
+      try {
+        const { document } = dom.window;
+        const trigger = document.querySelector<HTMLButtonElement>('[data-static-lang-trigger]')!;
+        const menu = document.querySelector<HTMLElement>('[data-static-lang-menu]')!;
+        const options = [...menu.querySelectorAll<HTMLAnchorElement>('[data-lang-set]')];
+        const hrefs = options.map((option) => option.href);
+        expect(options).toHaveLength(LANGUAGE_OPTIONS.length);
+        expect(menu.getAttribute('tabindex')).toBe('-1');
+        expect(menu.getAttribute('aria-hidden')).toBe('true');
+        expect(options.every((option) => option.tabIndex === -1)).toBe(true);
+
+        trigger.click();
+        expect(menu.getAttribute('aria-hidden')).toBe('false');
+        expect(options.every((option) => option.tabIndex === 0)).toBe(true);
+
+        if (closeMethod === 'Escape') {
+          menu.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }),
+          );
+        } else if (closeMethod === 'backdrop') {
+          document.querySelector<HTMLElement>('[data-static-lang-backdrop]')!.click();
+        } else if (closeMethod === 'trigger') {
+          trigger.click();
+        } else {
+          document.body.click();
+        }
+        expect(trigger.getAttribute('aria-expanded')).toBe('false');
+        expect(menu.getAttribute('aria-hidden')).toBe('true');
+        expect(options.every((option) => option.tabIndex === -1)).toBe(true);
+        expect(options.map((option) => option.href)).toEqual(hrefs);
+
+        trigger.click();
+        expect(menu.getAttribute('aria-hidden')).toBe('false');
+        expect(options.every((option) => option.tabIndex === 0)).toBe(true);
+        expect(options.map((option) => option.href)).toEqual(hrefs);
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
+
+  it.each(['constructor', 'constructor-US'])(
+    'rejects inherited language keys: %s',
+    async (input) => {
+      const { dom } = await createPickerHarness(false);
+      try {
+        const api = languageApi(dom);
+        expect(api.normalize(input)).toBeNull();
+        expect(api.htmlLang(input)).toBe('en');
+        api.ensureFont(input);
+        expect(dom.window.document.querySelectorAll('[data-static-lang-font]')).toHaveLength(0);
+      } finally {
+        dom.window.close();
+      }
+    },
+  );
+
   it('enables the Vite-authored font URL instead of inventing a production path', async () => {
     const { dom } = await createPickerHarness(
       false,
@@ -290,6 +351,7 @@ describe('static page language picker', () => {
     const { document } = dom.window;
     const options = [...document.querySelectorAll<HTMLAnchorElement>('[data-lang-set]')];
 
+    document.querySelector<HTMLButtonElement>('[data-static-lang-trigger]')!.click();
     options[0].focus();
     options[0].dispatchEvent(
       new dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'End' }),

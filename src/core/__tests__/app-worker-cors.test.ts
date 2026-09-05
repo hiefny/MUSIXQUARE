@@ -2,6 +2,8 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import appWorker, {
   cleanupExpiredProRoomAdminAuditForTests,
@@ -10,12 +12,17 @@ import appWorker, {
   readResponseBodyLimitedForTests,
   purgeProRoomAccountAuthorityForTests,
   reconcileOwnerTransferSagasForTests,
+  recordOwnerTransferIntentForTests,
   reconcileStaleAdminProRoomActivationsForTests,
   retireDecommissionedAccountProRoomEdgesForTests,
   sanitizeSoroArticleHtmlForTests,
 } from '../../../cloudflare/app-worker.ts';
 import { deriveDeveloperApiKeyDigest } from '../../../cloudflare/developer-api-worker.ts';
-import { MusixquareServiceControl } from '../../../cloudflare/pro-room-worker.ts';
+import { runDeveloperApiKeyCli } from '../../../scripts/developer-api-key.mts';
+import {
+  MusixquareProRoom,
+  MusixquareServiceControl,
+} from '../../../cloudflare/pro-room-worker.ts';
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 
@@ -42,10 +49,40 @@ const authSchema = await readFile(
   new URL('../../../cloudflare/auth.schema.sql', import.meta.url),
   'utf8',
 );
+const soroVisibilityMigration = await readFile(
+  new URL(
+    '../../../cloudflare/admin-metrics.soro-article-visibility.migration.sql',
+    import.meta.url,
+  ),
+  'utf8',
+);
 const sqlite = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
 const centralEntitlementDatabases = new Set<DatabaseSync>();
 const CENTRAL_ENTITLEMENT_SQL_RE =
   /mxqr_pro_(?:grant(?:_|\b)|account_entitlements\b|account_deletion_fences\b)/i;
+
+function projectCanonicalAdminStatusFixture(
+  request: Request,
+  db: unknown,
+  status: string,
+  suspensionReason: string | null = null,
+) {
+  // Reuse the real projection SQL/validation for single-state service fixtures;
+  // full DO-lane ordering is exercised in pro-room-worker.test.ts.
+  return MusixquareProRoom.prototype.handleInternalStatusProjection.call(
+    {
+      activeRoom: {
+        roomCode: request.headers.get('x-mxqr-pro-room-code'),
+        roomGeneration: Number(request.headers.get('x-mxqr-pro-room-generation')),
+        provisioned: true,
+        status,
+        suspensionReason,
+      },
+      env: { MUSIXQUARE_ADMIN_DB: db },
+    } as never,
+    request,
+  );
+}
 
 function createAnnouncementControlBinding(
   beforeFetch?: (request: Request) => void | Promise<void>,
@@ -130,6 +167,619 @@ interface CentralEntitlementSeed {
     | 'orphaned'
     | 'revoked';
 }
+
+function createSoroVisibilityDatabase() {
+  const database = new sqlite.DatabaseSync(':memory:');
+  database.exec(soroVisibilityMigration);
+  centralEntitlementDatabases.add(database);
+  return { prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)) };
+}
+
+function ownerTransferClaimFixture(input: {
+  roomCode: string;
+  roomGeneration: number;
+  targetAccountId: string;
+  claimGeneration: number;
+}) {
+  const payload = {
+    v: 1,
+    purpose: 'pro-room-owner-transfer',
+    ...input,
+    ownerAuthorityEpoch: 1,
+    iat: Date.now(),
+    exp: Date.now() + 5 * 60_000,
+    nonce: 'N'.repeat(22),
+  };
+  return `v1.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.${'S'.repeat(43)}`;
+}
+
+type OwnerTransferIssuanceRecorder = (
+  db: unknown,
+  input: {
+    roomCode: string;
+    roomGeneration: number;
+    claimGeneration: number;
+    targetAccountId: string;
+    expiresAtMs: number;
+  },
+  nowMs: number,
+) => Promise<boolean>;
+
+interface AppOwnershipTimestampHelpers {
+  recordOwnerTransferIssuance: OwnerTransferIssuanceRecorder;
+  revokeDeveloperApiKeysForAuthorityChange: (
+    env: unknown,
+    roomCode: string,
+    roomGeneration: number,
+    actorId: string,
+    result: string,
+    suspensionReason: string,
+    fenceDigest: string,
+    expectedFenceDigest?: string | null,
+  ) => Promise<{ revokedAtMs: number; revokedKeyCount: number; fenceStatus: string }>;
+}
+
+let ownershipTimestampHelpers: Promise<AppOwnershipTimestampHelpers> | undefined;
+function loadAppOwnershipTimestampHelpers() {
+  return (ownershipTimestampHelpers ??= (async () => {
+    const sourceUrl = new URL('../../../cloudflare/app-worker.ts', import.meta.url);
+    const result = await build({
+      stdin: {
+        contents: `${await readFile(sourceUrl, 'utf8')}\nexport { recordOwnerTransferIssuance, revokeDeveloperApiKeysForAuthorityChange };`,
+        resolveDir: fileURLToPath(new URL('.', sourceUrl)),
+        sourcefile: 'app-worker-issuance-test.ts',
+        loader: 'ts',
+      },
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      target: 'es2022',
+      write: false,
+    });
+    const source = result.outputFiles[0]?.text;
+    if (!source) throw new Error('Missing compiled App Worker issuance helper');
+    return (await import(
+      /* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`
+    )) as AppOwnershipTimestampHelpers;
+  })());
+}
+
+async function loadOwnerTransferIssuanceRecorder() {
+  return (await loadAppOwnershipTimestampHelpers()).recordOwnerTransferIssuance;
+}
+
+describe('owner-transfer issuance generation ordering', () => {
+  it('records the newer claim when its earlier-started D1 update follows the older response', async () => {
+    const record = await loadOwnerTransferIssuanceRecorder();
+    const now = Date.now();
+    const database = new sqlite.DatabaseSync(':memory:');
+    database.exec(adminMetricsSchema);
+    centralEntitlementDatabases.add(database);
+    let arrived!: () => void;
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const db = {
+      prepare: (sql: string) => {
+        const statement = new CentralEntitlementStatement(database.prepare(sql));
+        if (!sql.includes("SET state = 'superseded', updated_at")) return statement;
+        return {
+          bind: (...values: CentralSqlValue[]) => ({
+            run: async () => {
+              if (values[2] === 2) {
+                arrived();
+                await gate;
+              }
+              return statement.bind(...values).run();
+            },
+          }),
+        };
+      },
+    };
+    const identity = {
+      roomCode: '000123',
+      roomGeneration: 7,
+      targetAccountId: `acct_${'a'.repeat(22)}`,
+      expiresAtMs: now + 300_000,
+    };
+    // An older DO response reaches App later while the newer response's D1
+    // UPDATE is still in flight. Both rows use actual tracked CHECK constraints.
+    const newer = record(db, { ...identity, claimGeneration: 2 }, now);
+    await waiting;
+    try {
+      expect(await record(db, { ...identity, claimGeneration: 1 }, now + 1)).toBe(true);
+    } finally {
+      release();
+    }
+    await expect(newer).resolves.toBe(true);
+    expect(
+      database
+        .prepare(
+          'SELECT claim_generation, state, issued_at, updated_at FROM mxqr_pro_room_owner_transfer_issuances ORDER BY claim_generation',
+        )
+        .all(),
+    ).toEqual([
+      { claim_generation: 1, state: 'superseded', issued_at: now + 1, updated_at: now + 1 },
+      { claim_generation: 2, state: 'issued', issued_at: now, updated_at: now },
+    ]);
+  });
+
+  it.each([
+    [1, 2],
+    [2, 1],
+  ])('preserves the newest claim when App records arrive %i then %i', async (...order) => {
+    const record = await loadOwnerTransferIssuanceRecorder();
+    vi.useFakeTimers();
+    const now = Date.parse('2026-09-05T00:00:00Z');
+    vi.setSystemTime(now);
+    const database = new sqlite.DatabaseSync(':memory:');
+    database.exec(adminMetricsSchema);
+    centralEntitlementDatabases.add(database);
+    const db = { prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)) };
+    const identity = {
+      roomCode: '000123',
+      roomGeneration: 7,
+      targetAccountId: `acct_${'a'.repeat(22)}`,
+      expiresAtMs: now + 5 * 60_000,
+    };
+    let newest = 0;
+    for (const [index, claimGeneration] of order.entries()) {
+      // DO generations were issued 1 then 2. Only their App response/ledger
+      // arrival order differs, which must never invalidate the newer claim.
+      expect(await record(db, { ...identity, claimGeneration }, now + index)).toBe(
+        claimGeneration >= newest,
+      );
+      newest = Math.max(newest, claimGeneration);
+    }
+    const rows = () =>
+      database
+        .prepare(
+          'SELECT claim_generation, state FROM mxqr_pro_room_owner_transfer_issuances WHERE room_code = ? AND room_generation = ? ORDER BY claim_generation',
+        )
+        .all(identity.roomCode, identity.roomGeneration);
+    expect(rows().find((row) => row.claim_generation === 2)?.state).toBe('issued');
+    expect(rows().find((row) => row.claim_generation === 1)?.state).not.toBe('issued');
+    expect(await record(db, { ...identity, claimGeneration: 2 }, now + 3)).toBe(true);
+    expect(await record(db, { ...identity, claimGeneration: 1 }, now + 4)).toBe(false);
+    expect(rows().find((row) => row.claim_generation === 2)?.state).toBe('issued');
+    const claimToken = ownerTransferClaimFixture({
+      roomCode: identity.roomCode,
+      roomGeneration: identity.roomGeneration,
+      targetAccountId: identity.targetAccountId,
+      claimGeneration: 2,
+    });
+    await expect(
+      recordOwnerTransferIntentForTests(
+        db,
+        {
+          ...identity,
+          body: new TextEncoder().encode(
+            JSON.stringify({ claimToken, newPin: '12345678', requestId: 'request_current_12345' }),
+          ),
+        },
+        now + 5,
+      ),
+    ).resolves.toMatchObject({ state: 'intent' });
+    // Claim counters are scoped to the immutable room incarnation.
+    expect(await record(db, { ...identity, roomGeneration: 8, claimGeneration: 1 }, now + 6)).toBe(
+      true,
+    );
+    expect(await record(db, { ...identity, roomCode: '000124', claimGeneration: 1 }, now + 7)).toBe(
+      true,
+    );
+    expect(rows().find((row) => row.claim_generation === 2)?.state).toBe('issued');
+  });
+});
+
+describe('owner-transfer authority fence timestamp ordering', () => {
+  it.each([null, 'P'.repeat(43)])(
+    'keeps a successor transfer fence when old cleanup captured %s',
+    async (capturedDigest) => {
+      const { revokeDeveloperApiKeysForAuthorityChange: revoke } =
+        await loadAppOwnershipTimestampHelpers();
+      const database = new sqlite.DatabaseSync(':memory:');
+      database.exec(
+        await readFile(
+          new URL('../../../cloudflare/developer-api.schema.sql', import.meta.url),
+          'utf8',
+        ),
+      );
+      centralEntitlementDatabases.add(database);
+      const db = {
+        prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)),
+        batch: async (statements: CentralEntitlementStatement[]) => {
+          database.exec('BEGIN IMMEDIATE');
+          try {
+            const results = [];
+            for (const statement of statements) results.push(await statement.run());
+            database.exec('COMMIT');
+            return results;
+          } catch (error) {
+            database.exec('ROLLBACK');
+            throw error;
+          }
+        },
+      };
+      const now = Date.now();
+      const successorDigest = 'T'.repeat(43);
+      database
+        .prepare(
+          `INSERT INTO mxqr_developer_api_room_authority_fences
+        (room_code, room_generation, status, reason, fence_digest, fenced_at, updated_at)
+        VALUES ('000123', 7, 'cleared', 'ownership_transfer_pending', ?, ?, ?)`,
+        )
+        .run(successorDigest, now, now);
+      database
+        .prepare(
+          `INSERT INTO mxqr_developer_api_keys
+        (key_id, room_code, room_generation, authority_epoch, label, secret_digest, scope_mask,
+         status, created_at, updated_at, expires_at)
+        VALUES (?, '000123', 7, 3, 'New owner key', ?, 1, 'active', ?, ?, ?)`,
+        )
+        .run('K'.repeat(16), 'S'.repeat(43), now, now, now + 60000);
+      const oldRemovalDigest = 'R'.repeat(43);
+      const invoke = (expected: string | null) =>
+        revoke(
+          { DEVELOPER_API_DB: db },
+          '000123',
+          7,
+          'system:account-delete',
+          'owner_account_deleted',
+          'owner_account_deleted',
+          oldRemovalDigest,
+          expected,
+        );
+      await expect(invoke(capturedDigest)).rejects.toThrow('authority fence was not confirmed');
+      expect(
+        database
+          .prepare('SELECT status, fence_digest FROM mxqr_developer_api_room_authority_fences')
+          .get(),
+      ).toEqual({ status: 'cleared', fence_digest: successorDigest });
+      expect(database.prepare('SELECT status FROM mxqr_developer_api_keys').get()?.status).toBe(
+        'active',
+      );
+      // A current deletion may replace the captured predecessor. Its exact
+      // retry stays valid, including after that same removal was cleared.
+      await expect(invoke(successorDigest)).resolves.toMatchObject({
+        fenceStatus: 'active',
+        revokedKeyCount: 1,
+      });
+      await expect(invoke(successorDigest)).resolves.toMatchObject({
+        fenceStatus: 'active',
+        revokedKeyCount: 0,
+      });
+      database
+        .prepare("UPDATE mxqr_developer_api_room_authority_fences SET status = 'cleared'")
+        .run();
+      await expect(invoke(successorDigest)).resolves.toMatchObject({
+        fenceStatus: 'cleared',
+        revokedKeyCount: 0,
+      });
+    },
+  );
+
+  it.each(['active', 'cleared'] as const)(
+    'keeps a late identical retry durable after its successor fence becomes %s',
+    async (finalStatus) => {
+      const { revokeDeveloperApiKeysForAuthorityChange: revoke } =
+        await loadAppOwnershipTimestampHelpers();
+      vi.useFakeTimers();
+      const now = Date.parse('2026-09-05T00:00:00Z');
+      vi.setSystemTime(now);
+      const database = new sqlite.DatabaseSync(':memory:');
+      database.exec(
+        await readFile(
+          new URL('../../../cloudflare/developer-api.schema.sql', import.meta.url),
+          'utf8',
+        ),
+      );
+      centralEntitlementDatabases.add(database);
+      let arrived!: () => void;
+      let release!: () => void;
+      const waiting = new Promise<void>((resolve) => {
+        arrived = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let batches = 0;
+      const db = {
+        prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)),
+        batch: async (statements: CentralEntitlementStatement[]) => {
+          if (batches++ === 0) {
+            arrived();
+            await gate;
+          }
+          database.exec('BEGIN IMMEDIATE');
+          try {
+            const results = [];
+            for (const statement of statements) results.push(await statement.run());
+            database.exec('COMMIT');
+            return results;
+          } catch (error) {
+            database.exec('ROLLBACK');
+            throw error;
+          }
+        },
+      };
+      const invoke = () =>
+        revoke(
+          { DEVELOPER_API_DB: db },
+          '000123',
+          7,
+          'system:owner-transfer',
+          'ownership_transfer',
+          'ownership_transfer_pending',
+          'F'.repeat(43),
+        );
+      const earlier = invoke();
+      await waiting;
+      try {
+        vi.setSystemTime(now + 1);
+        await expect(invoke()).resolves.toMatchObject({
+          fenceStatus: 'active',
+          revokedKeyCount: 0,
+        });
+        if (finalStatus === 'cleared') {
+          database
+            .prepare(
+              "UPDATE mxqr_developer_api_room_authority_fences SET status = 'cleared', updated_at = ?",
+            )
+            .run(now + 2);
+        }
+      } finally {
+        release();
+      }
+      await expect(earlier).resolves.toMatchObject({
+        fenceStatus: finalStatus,
+        revokedKeyCount: 0,
+      });
+      expect(
+        database
+          .prepare(
+            'SELECT status, fenced_at, updated_at FROM mxqr_developer_api_room_authority_fences',
+          )
+          .get(),
+      ).toEqual({
+        status: finalStatus,
+        fenced_at: now + 1,
+        updated_at: now + (finalStatus === 'cleared' ? 2 : 1),
+      });
+    },
+  );
+});
+
+describe('owner-transfer intent allocation admission', () => {
+  it('keeps repeated unissued public claims out of the saga and records only one fixed failure audit', async () => {
+    const database = new sqlite.DatabaseSync(':memory:');
+    database.exec(adminMetricsSchema);
+    centralEntitlementDatabases.add(database);
+    database
+      .prepare(
+        `INSERT INTO mxqr_pro_room_registry
+      (room_code, label, status, activation_state, room_generation, created_at, updated_at)
+      VALUES ('000123', 'Audit room', 'registered', 'active', 0, 1, 1)`,
+      )
+      .run();
+    const accountId = `acct_${'a'.repeat(22)}`;
+    const publicFetch = vi.fn(async () =>
+      Response.json({ error: 'OWNER_TRANSFER_CLAIM_INVALID' }, { status: 401 }),
+    );
+    const env = {
+      GOOGLE_OAUTH_CLIENT_ID: 'test-client.apps.googleusercontent.com',
+      GOOGLE_OAUTH_CLIENT_SECRET: 'client-secret',
+      MXQR_AUTH_SESSION_PEPPER: 'session-pepper-for-tests-at-least-32-bytes',
+      MXQR_AUTH_SUBJECT_PEPPER: 'subject-pepper-for-tests-at-least-32-bytes',
+      MXQR_OAUTH_STATE_SECRET: 'state-secret-for-tests-at-least-32-bytes',
+      MXQR_PRO_ROOM_ACCOUNT_ASSERTION_SECRET: 'assertion-secret-for-tests-at-least-32-bytes',
+      MUSIXQUARE_ADMIN_DB: {
+        prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)),
+      },
+      MUSIXQUARE_AUTH_DB: {
+        prepare: (sql: string) => ({
+          bind: () => ({
+            first: async () =>
+              /FROM mxqr_account_sessions s/i.test(sql)
+                ? {
+                    session_hash: 'session-hash',
+                    account_id: accountId,
+                    last_seen_at: Date.now(),
+                    expires_at: Date.now() + 60_000,
+                    nickname: 'Target owner',
+                    profile_complete: 1,
+                    status: 'active',
+                  }
+                : null,
+            run: async () => ({ meta: { changes: 0 } }),
+          }),
+        }),
+      },
+      PRO_ROOM_PUBLIC_API: { fetch: publicFetch },
+    };
+    const requests = Array.from({ length: 20 }, (_, index) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/pro-room/v1/rooms/000123/owner-transfer', {
+          method: 'POST',
+          headers: {
+            Origin: 'https://musixquare.com',
+            'Content-Type': 'application/json',
+            Cookie: `__Host-mxqr_account=${'S'.repeat(43)}`,
+          },
+          body: JSON.stringify({
+            claimToken: 'invalid-claim-with-at-least-32-characters',
+            newPin: '12345678',
+            requestId: `invalid_request_${String(index).padStart(2, '0')}`,
+          }),
+        }),
+        env,
+      ),
+    );
+    expect((await Promise.all(requests)).map((response) => response.status)).toEqual(
+      Array(20).fill(401),
+    );
+    expect(publicFetch).not.toHaveBeenCalled();
+    expect(
+      database.prepare('SELECT COUNT(*) AS n FROM mxqr_pro_room_owner_transfer_sagas').get()?.n,
+    ).toBe(0);
+    expect(
+      database
+        .prepare('SELECT COUNT(*) AS n FROM mxqr_pro_room_owner_transfer_intent_admissions')
+        .get()?.n,
+    ).toBe(0);
+    expect(database.prepare('SELECT action, result FROM mxqr_pro_room_admin_audit').all()).toEqual([
+      { action: 'owner_transfer.prepare', result: 'denied_invalid' },
+    ]);
+  });
+
+  it('atomically bounds new request IDs per issued claim while preserving exact retries and legacy sagas', async () => {
+    vi.useFakeTimers();
+    const now = Date.parse('2026-09-05T00:00:00Z');
+    vi.setSystemTime(now);
+    const database = new sqlite.DatabaseSync(':memory:');
+    database.exec(adminMetricsSchema);
+    centralEntitlementDatabases.add(database);
+    const db = { prepare: (sql: string) => new CentralEntitlementStatement(database.prepare(sql)) };
+    const identity = {
+      roomCode: '000123',
+      roomGeneration: 7,
+      targetAccountId: `acct_${'a'.repeat(22)}`,
+    };
+    const claimToken = ownerTransferClaimFixture({ ...identity, claimGeneration: 4 });
+    const body = (requestId: string, token = claimToken) =>
+      new TextEncoder().encode(
+        JSON.stringify({ claimToken: token, newPin: '12345678', requestId }),
+      );
+    const admit = (
+      requestId: string,
+      token = claimToken,
+      targetAccountId = identity.targetAccountId,
+    ) =>
+      recordOwnerTransferIntentForTests(
+        db,
+        { ...identity, targetAccountId, body: body(requestId, token) },
+        Date.now(),
+      );
+    await expect(admit('request_unissued_01')).rejects.toThrow('OWNER_TRANSFER_CLAIM_INVALID');
+    expect(
+      database
+        .prepare('SELECT COUNT(*) AS n FROM mxqr_pro_room_owner_transfer_intent_admissions')
+        .get()?.n,
+    ).toBe(0);
+    database
+      .prepare(
+        `INSERT INTO mxqr_pro_room_owner_transfer_issuances
+      (room_code, room_generation, claim_generation, target_account_id, state, issued_at, expires_at, updated_at)
+      VALUES (?, ?, 4, ?, 'issued', ?, ?, ?)`,
+      )
+      .run(
+        identity.roomCode,
+        identity.roomGeneration,
+        identity.targetAccountId,
+        now,
+        now + 5 * 60_000,
+        now,
+      );
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, (_, index) =>
+        admit(`request_parallel_${String(index).padStart(2, '0')}`),
+      ),
+    );
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(10);
+    expect(
+      results
+        .filter((result) => result.status === 'rejected')
+        .map((result) => String((result as PromiseRejectedResult).reason)),
+    ).toEqual(Array(10).fill('Error: RATE_LIMITED'));
+    expect(
+      database.prepare('SELECT COUNT(*) AS n FROM mxqr_pro_room_owner_transfer_sagas').get()?.n,
+    ).toBe(10);
+    expect(
+      database
+        .prepare('SELECT COUNT(*) AS n FROM mxqr_pro_room_owner_transfer_intent_admissions')
+        .get()?.n,
+    ).toBe(10);
+    await expect(admit('request_parallel_00')).resolves.toMatchObject({ state: 'intent' });
+    await expect(
+      admit('request_parallel_00', claimToken, `acct_${'b'.repeat(22)}`),
+    ).resolves.toBeNull();
+    vi.setSystemTime(now + 20 * 60_000);
+    database
+      .prepare(
+        `UPDATE mxqr_pro_room_owner_transfer_sagas SET state='complete', claim_generation=4,
+      transfer_id=?, fence_digest=?, prepared_at=? WHERE request_id='request_parallel_00'`,
+      )
+      .run(`transfer_${'t'.repeat(22)}`, 'f'.repeat(43), now);
+    await expect(admit('request_parallel_00')).resolves.toMatchObject({ state: 'complete' });
+    await expect(admit('request_after_expiry')).rejects.toThrow('OWNER_TRANSFER_CLAIM_INVALID');
+    database
+      .prepare(
+        `INSERT INTO mxqr_pro_room_owner_transfer_sagas
+      (room_code, room_generation, request_id, target_account_id, state, intent_at, expires_at, updated_at)
+      VALUES (?, ?, 'legacy_request_0001', ?, 'intent', ?, ?, ?)`,
+      )
+      .run(
+        identity.roomCode,
+        identity.roomGeneration,
+        identity.targetAccountId,
+        now,
+        now + 15 * 60_000,
+        now,
+      );
+    await expect(
+      admit('legacy_request_0001', 'opaque-legacy-claim-with-at-least-32-characters'),
+    ).resolves.toMatchObject({ state: 'intent' });
+    database
+      .prepare(
+        "UPDATE mxqr_pro_room_owner_transfer_sagas SET state='expired' WHERE request_id='legacy_request_0001'",
+      )
+      .run();
+    await expect(admit('legacy_request_0001')).resolves.toBeNull();
+    expect(
+      database
+        .prepare('SELECT COUNT(*) AS n FROM mxqr_pro_room_owner_transfer_intent_admissions')
+        .get()?.n,
+    ).toBe(10);
+    for (const token of [
+      'v1.!!!!.' + 'S'.repeat(43),
+      'v1.wK8.' + 'S'.repeat(43),
+      'v1.' +
+        Buffer.from(JSON.stringify({ purpose: 'pro-room-owner-transfer' })).toString('base64url') +
+        '.' +
+        'S'.repeat(43),
+    ]) {
+      await expect(admit('malformed_request_01', token)).rejects.toThrow();
+    }
+  });
+});
+
+describe('legacy locale aliases', () => {
+  it.each([
+    '/constructor/',
+    '/__proto__/',
+    '/constructor/about',
+    '/about?lang=constructor',
+    '/about?lang=__proto__',
+  ])('does not interpret prototype names as locale aliases: %s', async (pathname) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<rss><channel></channel></rss>')),
+    );
+    const response = await appWorker.fetch(new Request(`https://musixquare.com${pathname}`), {
+      ASSETS: {
+        fetch: async () =>
+          new Response('<html><head></head><body>Content</body></html>', {
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      },
+    });
+    expect(response.headers.get('Location')).toBeNull();
+    expect(response.status).not.toBe(301);
+  });
+});
 
 function withCentralEntitlementLedger(
   delegate: Record<string, any>,
@@ -400,6 +1050,9 @@ describe('Cloudflare app Worker PRO activation projection repair', () => {
         idFromName: vi.fn((roomCode: string) => roomCode),
         get: vi.fn(() => ({
           fetch: vi.fn(async (request: Request) => {
+            if (new URL(request.url).pathname === '/internal/admin/status/project') {
+              return projectCanonicalAdminStatusFixture(request, db, 'active');
+            }
             const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
             statusReads.push(roomCode);
             return Response.json({
@@ -494,6 +1147,260 @@ function requestWithOrigin(origin: string): Request {
     headers: { Origin: origin },
   });
 }
+
+describe('bounded complete PRO retirement repair', () => {
+  function fixture(count = 5001) {
+    const admin = new sqlite.DatabaseSync(':memory:');
+    const auth = new sqlite.DatabaseSync(':memory:');
+    centralEntitlementDatabases.add(admin);
+    centralEntitlementDatabases.add(auth);
+    admin.exec('PRAGMA foreign_keys = ON');
+    admin.exec(adminMetricsSchema);
+    auth.exec(authSchema);
+    const hooks: {
+      admin?: (sql: string, values: CentralSqlValue[]) => Promise<void> | void;
+      auth?: (sql: string, values: CentralSqlValue[]) => Promise<void> | void;
+    } = {};
+    const database = (sql: DatabaseSync, side: 'admin' | 'auth') => {
+      let batchTail: Promise<unknown> = Promise.resolve();
+      const prepare = (query: string, values: CentralSqlValue[] = []) => ({
+        bind: (...bound: CentralSqlValue[]) => prepare(query, bound),
+        first: async () => sql.prepare(query).get(...values) ?? null,
+        all: async () => ({ results: sql.prepare(query).all(...values) }),
+        run: async () => {
+          await hooks[side]?.(query, values);
+          return {
+            success: true,
+            meta: { changes: Number(sql.prepare(query).run(...values).changes) },
+          };
+        },
+      });
+      return {
+        prepare,
+        batch: (statements: ReturnType<typeof prepare>[]) => {
+          const operation = batchTail.then(async () => {
+            sql.exec('BEGIN IMMEDIATE');
+            try {
+              const results = [];
+              for (const statement of statements) results.push(await statement.run());
+              sql.exec('COMMIT');
+              return results;
+            } catch (error) {
+              sql.exec('ROLLBACK');
+              throw error;
+            }
+          });
+          batchTail = operation.catch(() => undefined);
+          return operation;
+        },
+      };
+    };
+    admin
+      .prepare(
+        "UPDATE mxqr_pro_room_generation_cutover SET status='ready', release_sha=?, ever_enabled=1, floor_release_sha=?",
+      )
+      .run('a'.repeat(40), 'a'.repeat(40));
+    admin
+      .prepare(
+        "INSERT INTO mxqr_pro_room_registry (room_code,label,status,activation_state,room_generation,created_at,updated_at) VALUES ('000123','Retired','decommissioned','active',0,1,1000)",
+      )
+      .run();
+    const advance = admin.prepare(
+      "UPDATE mxqr_pro_room_registry SET room_generation=?, status='provisioning', activation_state='unactivated' WHERE room_code='000123'",
+    );
+    const complete = admin.prepare(
+      "UPDATE mxqr_pro_room_registry SET status='decommissioned', activation_state='active' WHERE room_code='000123'",
+    );
+    const history = admin.prepare(
+      "INSERT INTO mxqr_pro_room_generation_history (room_code,room_generation,status,decommissioned_at) VALUES ('000123',?,'decommissioned',1000)",
+    );
+    for (let generation = 0; generation < count; generation++) {
+      if (generation > 0) {
+        advance.run(generation);
+      }
+      history.run(generation);
+      if (generation > 0) complete.run();
+    }
+    // Same completion timestamp and duplicate history/registry representation
+    // must still produce one deterministic cursor slot per incarnation.
+    const link = (generation: number, label: string) => {
+      const accountId = `acct_${label.repeat(22)}`;
+      auth
+        .prepare(
+          'INSERT OR IGNORE INTO mxqr_accounts (account_id,google_subject_hash,created_at,updated_at) VALUES (?,?,1,1)',
+        )
+        .run(accountId, label.repeat(43));
+      auth
+        .prepare(
+          "INSERT INTO mxqr_account_pro_room_generations (account_id,room_code,room_generation,first_linked_at,last_seen_at) VALUES (?,'000123',?,1,1)",
+        )
+        .run(accountId, generation);
+      return accountId;
+    };
+    const entitlement = (generation: number, label: string) => {
+      admin
+        .prepare(
+          "INSERT INTO mxqr_pro_account_entitlements (account_id,room_code,room_generation,source_kind,source_ref,status,created_at,updated_at) VALUES (?,'000123',?,'legacy_activation',?,'active',1,1)",
+        )
+        .run(`acct_${label.repeat(22)}`, generation, label);
+    };
+    return {
+      admin,
+      auth,
+      hooks,
+      link,
+      entitlement,
+      env: {
+        MUSIXQUARE_ADMIN_DB: database(admin, 'admin'),
+        MUSIXQUARE_AUTH_DB: database(auth, 'auth'),
+      },
+      cursor: () => admin.prepare('SELECT * FROM mxqr_pro_room_retirement_cursor').get(),
+      edges: () =>
+        auth
+          .prepare(
+            'SELECT room_generation FROM mxqr_account_pro_room_generations ORDER BY room_generation',
+          )
+          .all(),
+    };
+  }
+
+  it('covers more than 5000 incarnations and revisits late edges after wrapping', async () => {
+    const { env, link, entitlement, admin, cursor, edges } = fixture();
+    link(0, 'a');
+    link(5000, 'b');
+    entitlement(0, 'a');
+    entitlement(5000, 'b');
+    await expect(retireDecommissionedAccountProRoomEdgesForTests(env)).resolves.toMatchObject({
+      retired: true,
+      entitlementsRevoked: true,
+    });
+    expect(edges()).toEqual([{ room_generation: 5000 }]);
+    expect(cursor()).toMatchObject({
+      revision: 1,
+      completed_at: 1000,
+      room_code: '000123',
+      room_generation: 4999,
+    });
+    await expect(retireDecommissionedAccountProRoomEdgesForTests(env)).resolves.toMatchObject({
+      retired: true,
+      entitlementsRevoked: true,
+    });
+    expect(edges()).toEqual([]);
+    expect(cursor()).toMatchObject({
+      revision: 2,
+      completed_at: null,
+      room_code: null,
+      room_generation: null,
+    });
+    expect(
+      admin
+        .prepare(
+          "SELECT COUNT(*) AS n FROM mxqr_pro_account_entitlements WHERE status <> 'revoked'",
+        )
+        .get()?.n,
+    ).toBe(0);
+
+    link(0, 'a');
+    await retireDecommissionedAccountProRoomEdgesForTests(env);
+    expect(edges()).toEqual([]);
+  });
+
+  it('attempts later chunks/pages after failures and retries failed cleanup on the next cycle', async () => {
+    const { env, hooks, link, entitlement, admin, edges, cursor } = fixture();
+    link(0, 'a');
+    link(40, 'b');
+    link(5000, 'c');
+    entitlement(0, 'a');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    hooks.admin = (query, values) => {
+      if (query.includes('UPDATE mxqr_pro_account_entitlements') && values[1] === 0)
+        throw new Error('central unavailable');
+    };
+    hooks.auth = (_query, values) => {
+      if (values[1] === 0) throw new Error('first auth chunk unavailable');
+    };
+    await expect(retireDecommissionedAccountProRoomEdgesForTests(env)).resolves.toMatchObject({
+      retired: false,
+      entitlementsRevoked: false,
+    });
+    expect(edges()).toEqual([{ room_generation: 0 }, { room_generation: 5000 }]);
+    expect(cursor()?.room_generation).toBe(4999);
+    await retireDecommissionedAccountProRoomEdgesForTests(env);
+    expect(edges()).toEqual([{ room_generation: 0 }]);
+    expect(cursor()?.completed_at).toBeNull();
+    delete hooks.admin;
+    delete hooks.auth;
+    await expect(retireDecommissionedAccountProRoomEdgesForTests(env)).resolves.toMatchObject({
+      retired: true,
+      entitlementsRevoked: true,
+    });
+    expect(edges()).toEqual([]);
+    expect(admin.prepare('SELECT status FROM mxqr_pro_account_entitlements').get()?.status).toBe(
+      'revoked',
+    );
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('does not let an overlapping older sweep move the cursor backwards after a wrap', async () => {
+    const { env, hooks, cursor } = fixture();
+    let reached!: () => void;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let blocked = false;
+    hooks.admin = async (query) => {
+      if (query.includes('UPDATE mxqr_pro_room_retirement_cursor') && !blocked) {
+        blocked = true;
+        reached();
+        await gate;
+      }
+    };
+    const older = retireDecommissionedAccountProRoomEdgesForTests(env);
+    await pending;
+    await retireDecommissionedAccountProRoomEdgesForTests(env);
+    await retireDecommissionedAccountProRoomEdgesForTests(env);
+    expect(cursor()).toMatchObject({ revision: 2, completed_at: null });
+    release();
+    await older;
+    expect(cursor()).toMatchObject({ revision: 2, completed_at: null });
+  });
+
+  it('keeps the recent-completion sweep independent and preserves cursor progress when the migration is reapplied', async () => {
+    const { env, admin, cursor } = fixture(2);
+    admin
+      .prepare(
+        "UPDATE mxqr_pro_room_retirement_cursor SET revision=7, completed_at=1000, room_code='000123', room_generation=0",
+      )
+      .run();
+    await retireDecommissionedAccountProRoomEdgesForTests(env, { sinceMs: 1000 });
+    expect(cursor()).toMatchObject({ revision: 7, room_generation: 0 });
+    const migration = await readFile(
+      new URL(
+        '../../../cloudflare/admin-metrics.pro-room-retirement-cursor.migration.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    );
+    admin.exec(migration);
+    expect(cursor()).toMatchObject({ revision: 7, room_generation: 0 });
+    expect(() =>
+      admin
+        .prepare('INSERT INTO mxqr_pro_room_retirement_cursor(singleton,revision) VALUES (2,0)')
+        .run(),
+    ).toThrow();
+    expect(() =>
+      admin.prepare('UPDATE mxqr_pro_room_retirement_cursor SET room_code=NULL').run(),
+    ).toThrow();
+    expect(() =>
+      admin.prepare('UPDATE mxqr_pro_room_retirement_cursor SET revision=-1').run(),
+    ).toThrow();
+  });
+});
 
 function adminMutationHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return {
@@ -917,12 +1824,125 @@ describe('Cloudflare app worker scheduled maintenance', () => {
       expect.objectContaining({ redirect: 'error', signal: expect.any(AbortSignal) }),
     );
     expect(imagePut).toHaveBeenCalledWith(
-      'featured/scheduled-article.webp',
+      `featured/scheduled-article.${createHash('sha256').update(imageSource).digest('base64url')}.webp`,
       imageBytes,
       expect.objectContaining({
+        onlyIf: { etagDoesNotMatch: '*' },
         customMetadata: expect.objectContaining({ sourceUrl: imageSource }),
       }),
     );
+  });
+
+  it('publishes a new image URL when a source changes and preserves the earlier immutable object', async () => {
+    let imageSource = 'https://app.trysoro.com/old.webp';
+    let imageByte = 1;
+    let headFails = false;
+    const objects = new Map<
+      string,
+      {
+        bytes: Uint8Array;
+        httpMetadata: { contentType: string; cacheControl: string };
+        customMetadata: Record<string, string>;
+      }
+    >();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (resource: RequestInfo | URL) =>
+        String(resource) === imageSource
+          ? new Response(new Uint8Array([imageByte]), {
+              headers: { 'Content-Type': 'image/webp' },
+            })
+          : new Response(rssWithImage(imageSource), {
+              headers: { 'Content-Type': 'application/rss+xml' },
+            }),
+      ),
+    );
+    const { env } = createScheduledEnv(vi.fn(async () => ({ success: true })));
+    const scheduledDb = env.MUSIXQUARE_ADMIN_DB;
+    Object.assign(env, {
+      MUSIXQUARE_ADMIN_DB: {
+        ...scheduledDb,
+        prepare: (sql: string) =>
+          sql.includes('mxqr_soro_article_visibility')
+            ? { all: async () => ({ results: [] }) }
+            : scheduledDb.prepare(sql),
+      },
+      ASSETS: {
+        fetch: async () =>
+          new Response('<html><head></head><body><div id="soro-blog"></div></body></html>', {
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      },
+      SORO_IMAGE_BUCKET: {
+        head: async (key: string) => {
+          if (headFails) throw new Error('HEAD unavailable');
+          return objects.get(key) || null;
+        },
+        put: async (
+          key: string,
+          bytes: Uint8Array,
+          metadata: Omit<NonNullable<ReturnType<typeof objects.get>>, 'bytes'> & {
+            onlyIf?: { etagDoesNotMatch: string };
+          },
+        ) => {
+          if (metadata.onlyIf?.etagDoesNotMatch === '*' && objects.has(key)) return null;
+          objects.set(key, { bytes, ...metadata });
+          return objects.get(key);
+        },
+        get: async (key: string) => {
+          const object = objects.get(key);
+          return object
+            ? { ...object, body: new Response(new Uint8Array(object.bytes).buffer).body }
+            : null;
+        },
+      },
+    });
+    await Promise.all((await runScheduled(env)).pending);
+    const firstKey = [...objects.keys()][0]!;
+    const firstIndex = await appWorker.fetch(new Request('https://musixquare.com/blog'), env);
+    expect(await firstIndex.text()).toContain(`/soro-images/${firstKey}`);
+
+    imageSource = 'https://app.trysoro.com/new.webp';
+    imageByte = 2;
+    await Promise.all((await runScheduled(env)).pending);
+    const secondKey = [...objects.keys()].find((key) => key !== firstKey)!;
+    expect(objects.size).toBe(2);
+    const secondIndex = await appWorker.fetch(new Request('https://musixquare.com/blog'), env);
+    expect(await secondIndex.text()).toContain(`/soro-images/${secondKey}`);
+    // An unavailable HEAD must not let a retry overwrite a published version,
+    // even if the provider serves different bytes behind the same source URL.
+    headFails = true;
+    imageByte = 3;
+    const originalSecondObject = structuredClone(objects.get(secondKey));
+    await Promise.all((await runScheduled(env)).pending);
+    headFails = false;
+    expect(objects.size).toBe(2);
+    expect(objects.get(secondKey)).toEqual(originalSecondObject);
+    for (const [key, byte] of [
+      [firstKey, 1],
+      [secondKey, 2],
+    ] as const) {
+      const image = await appWorker.fetch(
+        new Request(`https://musixquare.com/soro-images/${key}`),
+        env,
+      );
+      expect(image.headers.get('Cache-Control')).toBe('public, max-age=31536000, immutable');
+      expect(new Uint8Array(await image.arrayBuffer())).toEqual(new Uint8Array([byte]));
+    }
+    const legacy = await appWorker.fetch(
+      new Request('https://musixquare.com/soro-images/featured/scheduled-article.webp'),
+      env,
+    );
+    expect(legacy.status).toBe(302);
+    expect(legacy.headers.get('Location')).toBe(`https://musixquare.com/soro-images/${secondKey}`);
+    expect(legacy.headers.get('Cache-Control')).toBe('no-store');
+    objects.set('featured/scheduled-article.webp', objects.get(firstKey)!);
+    const retainedLegacy = await appWorker.fetch(
+      new Request('https://musixquare.com/soro-images/featured/scheduled-article.webp'),
+      env,
+    );
+    expect(retainedLegacy.status).toBe(200);
+    expect(retainedLegacy.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
   });
 
   it.each([
@@ -1367,6 +2387,9 @@ describe('Cloudflare app worker sensitive endpoint rate limit', () => {
   });
 
   it('uses one atomic pair for valid TURN limits without charging invalid tokens to a shared IP bucket', async () => {
+    // All consumes in this assertion must belong to one fixed rate window.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_800_000_000_000);
     const control = createAtomicRateControlBinding();
     const ip = '203.0.113.121';
     const env = {
@@ -3002,7 +4025,7 @@ describe('Cloudflare app worker YouTube search proxy', () => {
               id: { videoId: 'dQw4w9WgXcQ' },
               snippet: {
                 title: 'Ain&#39;t &amp; &quot;Too Cool&quot; &lt;Live&gt; &rsquo;',
-                channelTitle: 'LunchMoney &amp; Crew',
+                channelTitle: 'LunchMoney &amp; Crew &constructor; &unknown;',
                 publishedAt: '2026-01-01T00:00:00Z',
                 thumbnails: {
                   medium: { url: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg' },
@@ -3032,7 +4055,7 @@ describe('Cloudflare app worker YouTube search proxy', () => {
 
     expect(response.status).toBe(200);
     expect(payload.results?.[0]?.title).toBe('Ain\'t & "Too Cool" <Live> \u2019');
-    expect(payload.results?.[0]?.channelTitle).toBe('LunchMoney & Crew');
+    expect(payload.results?.[0]?.channelTitle).toBe('LunchMoney & Crew &constructor; &unknown;');
   });
 });
 
@@ -3795,6 +4818,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
       SORO_RSS_BACKUP: createKvStore(),
       ASSETS: {
         fetch: vi.fn(
@@ -3888,6 +4912,107 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(backupXml).toContain('Hidden Article');
   });
 
+  it('preserves concurrent per-article visibility and explicit legacy unhides in D1', async () => {
+    const env = {
+      MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+      MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
+      SORO_RSS_BACKUP: createKvStore(),
+      ASSETS: {
+        fetch: async () =>
+          new Response('<html><head></head><body><div id="soro-blog"></div></body></html>', {
+            headers: { 'Content-Type': 'text/html' },
+          }),
+      },
+    };
+    await env.SORO_RSS_BACKUP.put('soro-rss-latest-good.xml', createSoroRss());
+    await env.SORO_RSS_BACKUP.put('soro-hidden-slugs.json', JSON.stringify(['hidden-article']));
+    const login = await appWorker.fetch(
+      new Request('https://musixquare.com/api/admin/login', {
+        method: 'POST',
+        headers: adminMutationHeaders(),
+        body: JSON.stringify({ password: 'admin-password-strong' }),
+      }),
+      env,
+    );
+    const cookie = login.headers.get('Set-Cookie')?.split(';')[0] || '';
+    const mutate = (slug: string, hidden: boolean) =>
+      appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/articles/visibility', {
+          method: 'POST',
+          headers: adminMutationHeaders({ Cookie: cookie }),
+          body: JSON.stringify({ slug, hidden }),
+        }),
+        env,
+      );
+    const responses = await Promise.all([
+      mutate('visible-article', true),
+      mutate('hidden-article', false),
+    ]);
+    expect(responses.map((response) => response.status)).toEqual([200, 200]);
+    expect(await env.SORO_RSS_BACKUP.get('soro-hidden-slugs.json')).toBe('["hidden-article"]');
+    expect(
+      (
+        await env.MUSIXQUARE_ADMIN_DB.prepare(
+          'SELECT slug, hidden FROM mxqr_soro_article_visibility ORDER BY slug',
+        ).all()
+      ).results,
+    ).toEqual([
+      { slug: 'hidden-article', hidden: 0 },
+      { slug: 'visible-article', hidden: 1 },
+    ]);
+    const blog = await appWorker.fetch(new Request('https://musixquare.com/blog'), env);
+    const html = await blog.text();
+    expect(html).toContain('Hidden Article');
+    expect(html).not.toContain('Visible Article');
+    expect(
+      (await appWorker.fetch(new Request('https://musixquare.com/blog/visible-article'), env))
+        .status,
+    ).toBe(404);
+    expect(
+      (await appWorker.fetch(new Request('https://musixquare.com/blog/hidden-article'), env))
+        .status,
+    ).toBe(200);
+  });
+
+  it.each(['unavailable', 'missing-table'])(
+    'fails closed for Soro visibility when D1 is %s',
+    async (failure) => {
+      const database = new sqlite.DatabaseSync(':memory:');
+      centralEntitlementDatabases.add(database);
+      const env = {
+        SORO_RSS_BACKUP: createKvStore(),
+        MUSIXQUARE_ADMIN_DB: {
+          prepare: (sql: string) => {
+            if (failure === 'unavailable') throw new Error('D1 unavailable');
+            return new CentralEntitlementStatement(database.prepare(sql));
+          },
+        },
+        ASSETS: {
+          fetch: async () =>
+            new Response('<html><body><div id="soro-blog"></div></body></html>', {
+              headers: { 'Content-Type': 'text/html' },
+            }),
+        },
+      };
+      await env.SORO_RSS_BACKUP.put('soro-rss-latest-good.xml', createSoroRss());
+      for (const pathname of [
+        '/blog',
+        '/blog/visible-article',
+        '/visible-article',
+        '/blog?post=visible-article',
+      ]) {
+        const response = await appWorker.fetch(
+          new Request(`https://musixquare.com${pathname}`),
+          env,
+        );
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({ error: 'SORO_VISIBILITY_UNAVAILABLE' });
+        expect(response.headers.get('Cache-Control')).toContain('no-store');
+      }
+    },
+  );
+
   it('serves the public blog from RSS backup without blocking on live RSS or image R2 checks', async () => {
     vi.stubGlobal(
       'fetch',
@@ -3899,6 +5024,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       ),
     );
     const env = {
+      MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
       SORO_RSS_BACKUP: createKvStore(),
       SORO_IMAGE_BUCKET: {
         head: vi.fn(async () => {
@@ -3928,13 +5054,14 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('X-Soro-Backup-Status')).toBe('cached');
     expect(response.headers.get('X-Soro-Image-Status')).toBe('mapped:1');
     expect(html).toContain('Fast Article');
-    expect(html).toContain('/soro-images/featured/fast-article.webp');
+    expect(html).toMatch(/\/soro-images\/featured\/fast-article\.[A-Za-z0-9_-]{43}\.webp/);
     expect(env.SORO_IMAGE_BUCKET.head).not.toHaveBeenCalled();
     expect(waitUntil).toHaveBeenCalledTimes(1);
   });
 
   it('sanitizes untrusted RSS article HTML before inserting it into the blog shell', async () => {
     const env = {
+      MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
       SORO_RSS_BACKUP: createKvStore(),
       ASSETS: {
         fetch: vi.fn(
@@ -3968,6 +5095,55 @@ describe('Cloudflare app worker admin dashboard', () => {
   });
 
   it.each([
+    { renderer: 'blog index', path: '/blog', fallback: false },
+    { renderer: 'article shell', path: '/blog/literal-article', fallback: false },
+    { renderer: 'article fallback', path: '/blog/literal-article', fallback: true },
+  ])('preserves replacement-like RSS text in the $renderer', async ({ path, fallback }) => {
+    const title = "Use $$ $& $` $' <tag>";
+    const description = "Price $$5; match $&; prefix $`; suffix $'.";
+    const shell =
+      '<html><head><title>Original title</title><meta name="description" content="Original description"></head><body><div id="soro-blog"></div><footer>Unique footer</footer></body></html>';
+    const env = {
+      MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
+      SORO_RSS_BACKUP: createKvStore(),
+      ASSETS: {
+        fetch: vi.fn(
+          async () =>
+            new Response(fallback ? '' : shell, {
+              headers: { 'Content-Type': fallback ? 'application/octet-stream' : 'text/html' },
+            }),
+        ),
+      },
+    };
+    await env.SORO_RSS_BACKUP.put(
+      'soro-rss-latest-good.xml',
+      `<rss><channel><item>
+      <title><![CDATA[${title}]]></title>
+      <description><![CDATA[${description}]]></description>
+      <link>https://musixquare.com/blog/literal-article</link>
+      <pubDate>Fri, 04 Sep 2026 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[<p>${description}</p>]]></content:encoded>
+    </item></channel></rss>`,
+    );
+    const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
+    const html = await response.text();
+    expect(response.status).toBe(200);
+    expect(html.match(/<html\b/g)).toHaveLength(1);
+    expect(html.match(/<body\b/g)).toHaveLength(1);
+    expect(html).toContain("Use $$ $&amp; $` $' &lt;tag&gt;");
+    expect(html).toContain("Price $$5; match $&amp;; prefix $`; suffix $'.");
+    if (!fallback) expect(html.match(/Unique footer/g)).toHaveLength(1);
+    if (path !== '/blog') {
+      expect(html).toContain(`<p>${description}</p>`);
+      const serialized = html.match(
+        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+      )?.[1];
+      expect(JSON.parse(serialized || '')).toMatchObject({ headline: title, description });
+      expect(html).toContain(`<title>Use $$ $&amp; $\` $' &lt;tag&gt; · MUSIXQUARE</title>`);
+    }
+  });
+
+  it.each([
     {
       renderer: 'blog shell template',
       contentType: 'text/html',
@@ -3982,6 +5158,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     'escapes JSON-LD script boundaries in the $renderer renderer',
     async ({ contentType, shell }) => {
       const env = {
+        MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
         SORO_RSS_BACKUP: createKvStore(),
         ASSETS: {
           fetch: vi.fn(
@@ -4030,10 +5207,54 @@ describe('Cloudflare app worker admin dashboard', () => {
     },
   );
 
+  it.each([false, true])(
+    'renders an RSS article with an invalid date (fallback: %s)',
+    async (fallback) => {
+      const env = {
+        MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
+        SORO_RSS_BACKUP: createKvStore(),
+        ASSETS: {
+          fetch: vi.fn(
+            async () =>
+              new Response(
+                fallback ? '' : '<html><head></head><body><div id="soro-blog"></div></body></html>',
+                {
+                  headers: { 'Content-Type': fallback ? 'application/octet-stream' : 'text/html' },
+                },
+              ),
+          ),
+        },
+      };
+      await env.SORO_RSS_BACKUP.put(
+        'soro-rss-latest-good.xml',
+        createSoroRss().replace(
+          /<pubDate>[^<]*<\/pubDate>/g,
+          '<pubDate>date unavailable</pubDate>',
+        ),
+      );
+      const index = await appWorker.fetch(new Request('https://musixquare.com/blog'), env);
+      expect(index.status).toBe(200);
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/blog/visible-article'),
+        env,
+      );
+      const html = await response.text();
+      expect(response.status).toBe(200);
+      expect(html).toContain('Visible Article');
+      expect(html).toContain('<p>Visible body</p>');
+      expect(html).not.toContain('<time');
+      const serialized = html.match(
+        /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+      )?.[1];
+      expect(JSON.parse(serialized || '')).not.toHaveProperty('datePublished');
+    },
+  );
+
   it('lets admins publish a session announcement for active clients', async () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
       SORO_RSS_BACKUP: createKvStore(),
       MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding(),
     };
@@ -4205,6 +5426,7 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = {
       MXQR_ADMIN_PASSWORD: 'admin-password-strong',
       MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+      MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
       SORO_RSS_BACKUP: createKvStore(),
       MUSIXQUARE_SERVICE_CONTROL: createAnnouncementControlBinding((request) => {
         if (
@@ -4707,8 +5929,8 @@ describe('Cloudflare app worker admin dashboard', () => {
               } else if (/SET status = \?3/i.test(sql)) {
                 row.status = String(values[2]);
                 row.suspension_reason = values[3] == null ? null : String(values[3]);
-                row.activation_state = 'active';
-                row.updated_at = Number(values[4]);
+                row.activation_state = String(values[4]);
+                row.updated_at = Number(values[5]);
               } else if (/SET status = 'suspended'/i.test(sql)) {
                 row.status = 'suspended';
                 row.suspension_reason = String(values[2]);
@@ -4747,6 +5969,7 @@ describe('Cloudflare app worker admin dashboard', () => {
       authorization: string;
     }> = [];
     const provisionAttempts = new Map<string, number>();
+    const canonicalOperationalStates = new Map<string, string>();
     const namespace = {
       idFromName: vi.fn((roomCode: string) => roomCode),
       get: vi.fn((objectName: string) => ({
@@ -4755,6 +5978,19 @@ describe('Cloudflare app worker admin dashboard', () => {
           const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
           const generationHeader = request.headers.get('x-mxqr-pro-room-generation');
           const roomGeneration = Number(generationHeader ?? '0');
+          if (url.pathname === '/internal/admin/status/project') {
+            const status = canonicalOperationalStates.get(roomCode) ?? 'unactivated';
+            return projectCanonicalAdminStatusFixture(
+              request,
+              db,
+              status,
+              status === 'suspended'
+                ? roomCode === '000006'
+                  ? 'owner_account_deleted'
+                  : 'operator_suspended'
+                : null,
+            );
+          }
           expect(generationHeader).toBe('0');
           seen.push({
             roomCode: objectName,
@@ -4776,6 +6012,10 @@ describe('Cloudflare app worker admin dashboard', () => {
             });
           }
           if (url.pathname === '/internal/admin/status') {
+            canonicalOperationalStates.set(
+              roomCode,
+              roomCode === '000006' ? 'suspended' : 'active',
+            );
             if (roomCode === '000006') {
               return Response.json({
                 roomCode,
@@ -4796,6 +6036,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             });
           }
           if (url.pathname === '/internal/admin/suspend') {
+            canonicalOperationalStates.set(roomCode, 'suspended');
             return Response.json({
               ok: true,
               roomCode,
@@ -4806,6 +6047,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             });
           }
           if (url.pathname === '/internal/admin/resume') {
+            canonicalOperationalStates.set(roomCode, 'active');
             return Response.json({
               ok: true,
               roomCode,
@@ -5925,10 +7167,12 @@ describe('Cloudflare app worker admin dashboard', () => {
             row.updated_at = timestamp;
             return { meta: { changes: 1 } };
           }
-          if (/SET status = 'registered'/i.test(sql)) {
-            const [code, generation, activationState, timestamp] = values as [
+          if (/SET status = \?3/i.test(sql)) {
+            const [code, generation, status, , activationState, timestamp] = values as [
               string,
               number,
+              string,
+              null,
               string,
               number,
             ];
@@ -5940,7 +7184,7 @@ describe('Cloudflare app worker admin dashboard', () => {
             ) {
               return { meta: { changes: 0 } };
             }
-            row.status = 'registered';
+            row.status = status;
             row.activation_state = activationState;
             row.updated_at = timestamp;
             return { meta: { changes: 1 } };
@@ -6008,6 +7252,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     let activeObjectName = '';
     const proRoomFetch = vi.fn(async (request: Request) => {
       const pathname = new URL(request.url).pathname;
+      if (pathname === '/internal/admin/status/project') {
+        return projectCanonicalAdminStatusFixture(request, adminDb, 'unactivated');
+      }
       const roomGeneration = Number(request.headers.get('x-mxqr-pro-room-generation') ?? '0');
       proRoomCalls.push({
         objectName: activeObjectName,
@@ -6366,11 +7613,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.62');
-    expect(html).toContain('/clearable-editors.js?v=8.4.62');
-    expect(html).toContain('/admin.js?v=8.4.62');
+    expect(html).toContain('/admin.css?v=8.4.63');
+    expect(html).toContain('/clearable-editors.js?v=8.4.63');
+    expect(html).toContain('/admin.js?v=8.4.63');
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.62"');
+    expect(html).toContain('data-admin-asset-version="8.4.63"');
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -6391,9 +7638,9 @@ describe('Cloudflare app worker admin dashboard', () => {
     const env = { ASSETS: { fetch: assetFetch } };
 
     for (const path of [
-      '/admin.js?v=8.4.62',
-      '/admin.css?v=8.4.62',
-      '/clearable-editors.js?v=8.4.62',
+      '/admin.js?v=8.4.63',
+      '/admin.css?v=8.4.63',
+      '/clearable-editors.js?v=8.4.63',
     ]) {
       const response = await appWorker.fetch(new Request(`https://musixquare.com${path}`), env);
       expect(response.status).toBe(200);
@@ -6517,8 +7764,8 @@ describe('Cloudflare app worker Developer API key administration', () => {
               } else if (/SET status = \?3/i.test(sql)) {
                 row.status = String(values[2]);
                 row.suspension_reason = values[3] == null ? null : String(values[3]);
-                row.activation_state = 'active';
-                row.updated_at = Number(values[4]);
+                row.activation_state = String(values[4]);
+                row.updated_at = Number(values[5]);
               }
               return { meta: { changes: 1 } };
             }
@@ -6806,7 +8053,6 @@ describe('Cloudflare app worker Developer API key administration', () => {
           idFromName: vi.fn((roomCode: string) => roomCode),
           get: vi.fn((objectName: string) => ({
             fetch: vi.fn(async (request: Request) => {
-              expect(new URL(request.url).pathname).toBe('/internal/admin/status');
               const roomCode = request.headers.get('x-mxqr-pro-room-code') || '';
               const roomGeneration = Number(
                 request.headers.get('x-mxqr-pro-room-generation') ?? '0',
@@ -6820,6 +8066,15 @@ describe('Cloudflare app worker Developer API key administration', () => {
                   : row.activation_state === 'active'
                     ? 'active'
                     : 'unactivated';
+              if (new URL(request.url).pathname === '/internal/admin/status/project') {
+                return projectCanonicalAdminStatusFixture(
+                  request,
+                  registryDb,
+                  status,
+                  row.suspension_reason ?? null,
+                );
+              }
+              expect(new URL(request.url).pathname).toBe('/internal/admin/status');
               return Response.json({
                 roomCode,
                 roomGeneration,
@@ -7054,6 +8309,47 @@ describe('Cloudflare app worker Developer API key administration', () => {
     expect(listText).not.toContain(secret);
     expect(listText).not.toContain(stored.secret_digest);
     expect(listText).not.toContain('secret_digest');
+  });
+
+  it('issues the CLI key at the current canonical owner epoch and recovers a lost response', async () => {
+    const { env, keyRows, audits } = createDeveloperApiAdminEnv({
+      roomGeneration: 7,
+      developerAuthorityEpoch: 4,
+    });
+    const cookie = await loginDeveloperApiAdmin(env);
+    let output = '';
+    let posts = 0;
+    const directD1 = vi.fn(() => []);
+    const issued = await runDeveloperApiKeyCli({
+      argv: ['issue', '--room', '000001', '--label', 'CLI canonical owner', '--days', '30'],
+      env: {
+        CF_ACCESS_CLIENT_ID: 'fixture-access-id',
+        CF_ACCESS_CLIENT_SECRET: 'fixture-access-secret',
+        MXQR_ADMIN_SESSION_COOKIE: cookie,
+      },
+      execute: directD1,
+      fetcher: async (input, init) => {
+        const response = await appWorker.fetch(new Request(String(input), init), env);
+        if (init?.method === 'POST' && ++posts === 1) {
+          expect(response.status).toBe(201);
+          await response.body?.cancel();
+          throw new TypeError('simulated response loss after canonical commit');
+        }
+        return response;
+      },
+      stdout: {
+        write: (value) => {
+          output += value;
+        },
+      },
+    });
+    expect(directD1).not.toHaveBeenCalled();
+    expect(posts).toBe(2);
+    expect(keyRows.size).toBe(1);
+    expect(keyRows.get(issued.keyId)).toMatchObject({ room_generation: 7, authority_epoch: 4 });
+    expect(audits).toHaveLength(1);
+    expect(JSON.parse(output).apiKey).toBe(issued.apiKey);
+    expect(output.split(issued.apiKey)).toHaveLength(2);
   });
 
   it('never exposes a key when owner authority advances across issuance or replay', async () => {
@@ -7555,6 +8851,14 @@ describe('Cloudflare app worker PRO room facade', () => {
       const room = canonicalRooms.get(roomCode);
       expect(room).toBeDefined();
       const pathname = new URL(request.url).pathname;
+      if (pathname === '/internal/admin/status/project' && room) {
+        return projectCanonicalAdminStatusFixture(
+          request,
+          centralDb,
+          room.status,
+          room.suspensionReason,
+        );
+      }
       if (pathname === '/internal/admin/status') {
         statusCalls.push(roomCode);
         return Response.json({
@@ -8461,8 +9765,8 @@ describe('Cloudflare app worker PRO room facade', () => {
             registryWrites += 1;
             registryRow.status = String(values[2]);
             registryRow.suspension_reason = values[3] == null ? null : String(values[3]);
-            registryRow.activation_state = 'active';
-            registryRow.updated_at = Number(values[4]);
+            registryRow.activation_state = String(values[4]);
+            registryRow.updated_at = Number(values[5]);
             return { meta: { changes: 1 } };
           }
           return { meta: { changes: 0 } };
@@ -8609,6 +9913,14 @@ describe('Cloudflare app worker PRO room facade', () => {
         return Response.json({ error: 'OWNER_AUTHORITY_REMOVAL_MISMATCH' }, { status: 409 });
       }
       const changed = !removal.acked;
+      if (changed) {
+        // The canonical ACK now owns the registry/audit projection under its
+        // same serialized owner-removal check.
+        registryWrites += 1;
+        auditWrites += 1;
+        registryRow.status = 'suspended';
+        registryRow.suspension_reason = 'owner_account_deleted';
+      }
       removal.acked = true;
       return Response.json({
         ok: true,
@@ -8679,8 +9991,8 @@ describe('Cloudflare app worker PRO room facade', () => {
     ).resolves.toBe(false);
     expect(removal?.acked).toBe(false);
     expect(registryRow).toMatchObject({
-      status: 'suspended',
-      suspension_reason: 'owner_account_deleted',
+      status: 'registered',
+      suspension_reason: null,
     });
     expect(authorityFence).toMatchObject({ status: 'active', reason: 'owner_account_deleted' });
     expect(developerKeyStatus).toBe('revoked');
@@ -8863,8 +10175,8 @@ describe('Cloudflare app worker PRO room facade', () => {
             if (/SET status = \?3/i.test(sql)) {
               registryRow.status = String(values[2]);
               registryRow.suspension_reason = values[3] == null ? null : String(values[3]);
-              registryRow.activation_state = 'active';
-              registryRow.updated_at = Number(values[4]);
+              registryRow.activation_state = String(values[4]);
+              registryRow.updated_at = Number(values[5]);
               return { meta: { changes: 1 } };
             }
           }
@@ -8882,6 +10194,8 @@ describe('Cloudflare app worker PRO room facade', () => {
           bind: vi.fn((...values: unknown[]) => ({
             run: vi.fn(async () => executeRun(...values)),
             first: vi.fn(async () => {
+              if (/FROM mxqr_pro_room_owner_transfer_intent_admissions/i.test(sql))
+                return { claim_generation: 11 };
               if (/FROM mxqr_pro_room_registry/i.test(sql) && values[0] === roomCode) {
                 return { ...registryRow };
               }
@@ -9006,6 +10320,14 @@ describe('Cloudflare app worker PRO room facade', () => {
       get: vi.fn(() => ({
         fetch: vi.fn(async (request: Request) => {
           const pathname = new URL(request.url).pathname;
+          if (pathname === '/internal/admin/status/project') {
+            return projectCanonicalAdminStatusFixture(
+              request,
+              adminDb,
+              durableStatus,
+              durableSuspensionReason,
+            );
+          }
           if (pathname === '/internal/admin/status') {
             return Response.json({
               roomCode,
@@ -9064,6 +10386,9 @@ describe('Cloudflare app worker PRO room facade', () => {
             });
           }
           expect(pathname).toBe('/internal/admin/account-authority/purge/ack');
+          registryRow.status = 'suspended';
+          registryRow.suspension_reason = 'owner_account_deleted';
+          registryAudits.push({ action: 'room.suspend', result: 'owner_account_deleted' });
           return Response.json({
             ok: true,
             roomCode,
@@ -9169,7 +10494,12 @@ describe('Cloudflare app worker PRO room facade', () => {
           Cookie: `__Host-mxqr_account=${'S'.repeat(43)}`,
         },
         body: JSON.stringify({
-          claimToken: `v1.${'C'.repeat(43)}.${'D'.repeat(43)}`,
+          claimToken: ownerTransferClaimFixture({
+            roomCode,
+            roomGeneration,
+            targetAccountId,
+            claimGeneration: 11,
+          }),
           newPin: '20020924',
           requestId: 'request_12345678',
         }),
@@ -9338,8 +10668,8 @@ describe('Cloudflare app worker PRO room facade', () => {
             if (/SET status = \?3/i.test(sql)) {
               registryRow.status = String(values[2]);
               registryRow.suspension_reason = values[3] == null ? null : String(values[3]);
-              registryRow.activation_state = 'active';
-              registryRow.updated_at = Number(values[4]);
+              registryRow.activation_state = String(values[4]);
+              registryRow.updated_at = Number(values[5]);
               return { meta: { changes: 1 } };
             }
           }
@@ -9366,11 +10696,13 @@ describe('Cloudflare app worker PRO room facade', () => {
             return {
               run: vi.fn(async () => executeRun(...values)),
               first: vi.fn(async () => {
+                if (/FROM mxqr_pro_room_owner_transfer_intent_admissions/i.test(sql))
+                  return values[2] === originalRequestId ? { claim_generation: 12 } : null;
                 if (/FROM mxqr_pro_room_registry/i.test(sql) && values[0] === roomCode) {
                   return { ...registryRow };
                 }
                 if (/FROM mxqr_pro_room_owner_transfer_sagas/i.test(sql)) {
-                  return sagaRow ? { ...sagaRow } : null;
+                  return sagaRow?.request_id === values[2] ? { ...sagaRow } : null;
                 }
                 return null;
               }),
@@ -9497,6 +10829,14 @@ describe('Cloudflare app worker PRO room facade', () => {
       get: vi.fn(() => ({
         fetch: vi.fn(async (request: Request) => {
           const pathname = new URL(request.url).pathname;
+          if (pathname === '/internal/admin/status/project') {
+            return projectCanonicalAdminStatusFixture(
+              request,
+              adminDb,
+              durableStatus,
+              durableSuspensionReason,
+            );
+          }
           if (pathname === '/internal/admin/status') {
             return Response.json({
               roomCode,
@@ -9663,7 +11003,12 @@ describe('Cloudflare app worker PRO room facade', () => {
           Cookie: `__Host-mxqr_account=${'S'.repeat(43)}`,
         },
         body: JSON.stringify({
-          claimToken: `v1.${'C'.repeat(43)}.${'D'.repeat(43)}`,
+          claimToken: ownerTransferClaimFixture({
+            roomCode,
+            roomGeneration,
+            targetAccountId,
+            claimGeneration: 12,
+          }),
           newPin: '20020924',
           requestId,
         }),
@@ -9721,15 +11066,15 @@ describe('Cloudflare app worker PRO room facade', () => {
     );
 
     const differentRequest = await appWorker.fetch(transferRequest('request_abcdefgh'), env);
-    expect(differentRequest.status).toBe(409);
+    expect(differentRequest.status).toBe(401);
     await expect(differentRequest.json()).resolves.toEqual({
-      error: 'OWNER_TRANSFER_CLAIM_USED',
+      error: 'OWNER_TRANSFER_CLAIM_INVALID',
     });
     expect(differentRequest.headers.get('Set-Cookie')).toBeNull();
     expect(commitCalls).toBe(1);
     expect(reconcileCalls).toBe(1);
     expect(authorityFence).toMatchObject({ status: 'cleared' });
-    expect(prepareRequestIds).toEqual([originalRequestId, originalRequestId, 'request_abcdefgh']);
+    expect(prepareRequestIds).toEqual([originalRequestId, originalRequestId]);
     const serializedBinds = JSON.stringify(adminDbBinds);
     expect(serializedBinds).not.toContain('20020924');
     expect(serializedBinds).not.toContain('P'.repeat(43));
@@ -11008,6 +12353,65 @@ describe('Cloudflare app worker PRO room facade', () => {
 });
 
 describe('Cloudflare app worker invite route', () => {
+  it.each(['/123456', '/blog', '/blog/conditional-article'])(
+    'rewrites a complete shell for %s despite public validators and ranges',
+    async (pathname) => {
+      const rss = `<rss><channel><item><title>Conditional article</title><link>https://musixquare.com/blog/conditional-article</link><content:encoded><![CDATA[<p>Complete article body</p>]]></content:encoded></item></channel></rss>`;
+      const shell =
+        '<html><head><meta property="og:title" content="MUSIXQUARE"></head><body>Complete shell<div id="soro-blog"></div></body></html>';
+      const fetchAsset = vi.fn(async (request: Request) => {
+        if (request.headers.has('If-None-Match')) {
+          return new Response(null, { status: 304, headers: { 'Content-Type': 'text/html' } });
+        }
+        if (request.headers.has('Range')) {
+          return new Response('<htm', {
+            status: 206,
+            headers: { 'Content-Type': 'text/html', 'Content-Range': 'bytes 0-3/999' },
+          });
+        }
+        return new Response(request.method === 'HEAD' ? null : shell, {
+          headers: {
+            'Content-Type': 'text/html',
+            ETag: '"static-shell"',
+            'Last-Modified': 'Mon, 01 Jun 2026 00:00:00 GMT',
+            'Accept-Ranges': 'bytes',
+          },
+        });
+      });
+      const env = {
+        ASSETS: { fetch: fetchAsset },
+        MUSIXQUARE_ADMIN_DB: createSoroVisibilityDatabase(),
+        SORO_RSS_BACKUP: {
+          get: async (key: string) => (key === 'soro-rss-latest-good.xml' ? rss : null),
+        },
+      };
+      const conditionalHeaders: Record<string, string>[] = [
+        { 'If-None-Match': '"static-shell"', 'If-Modified-Since': 'Mon, 01 Jun 2026 00:00:00 GMT' },
+        { Range: 'bytes=0-3', 'If-Range': '"static-shell"' },
+      ];
+      for (const headers of conditionalHeaders) {
+        const response = await appWorker.fetch(
+          new Request(`https://musixquare.com${pathname}`, { headers }),
+          env,
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('ETag')).not.toBe('"static-shell"');
+        expect(response.headers.get('Last-Modified')).toBeNull();
+        expect(response.headers.get('Content-Range')).toBeNull();
+        expect(response.headers.get('Accept-Ranges')).toBeNull();
+        const html = await response.text();
+        expect(html).toContain(pathname === '/123456' ? 'Complete shell' : 'Conditional article');
+        if (pathname.endsWith('conditional-article'))
+          expect(html).toContain('Complete article body');
+      }
+      for (const [request] of fetchAsset.mock.calls) {
+        for (const name of ['If-None-Match', 'If-Modified-Since', 'If-Range', 'Range']) {
+          expect(request.headers.has(name)).toBe(false);
+        }
+      }
+    },
+  );
+
   function createAssetEnv() {
     return {
       ASSETS: {

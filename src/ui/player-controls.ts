@@ -18,6 +18,8 @@ import { showToast } from './toast.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
 import { switchTab } from './tabs.ts';
 import {
+  cycleFocusWithin,
+  getUiElement,
   syncOverlayState,
   animateTransition,
   copyTextToClipboard,
@@ -120,7 +122,7 @@ function clearMediaSourceAttentionHint(): void {
 }
 
 function revealMediaSourceButton(): void {
-  const button = document.getElementById('btn-media-source') as HTMLButtonElement | null;
+  const button = getUiElement<HTMLButtonElement>('btn-media-source');
   if (!button) return;
 
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
@@ -159,7 +161,7 @@ function isFilePlayButtonLoading(): boolean {
 }
 
 function syncPlayButtonLoadingClass(): void {
-  const btn = document.getElementById('play-btn');
+  const btn = getUiElement('play-btn');
   const iframeOwnedLoading =
     _ytPlayButtonLoading || _proPlaybackControlLoading || _proPlaybackTransitionLoading;
   const systemAudioPendingLoading =
@@ -172,8 +174,8 @@ function syncPlayButtonLoadingClass(): void {
   bus.emit('ui:play-loading-state', loading);
 
   const videoWrapper = document.querySelector<HTMLElement>('.video-wrapper');
-  const youtubeContainer = document.getElementById('youtube-player-container');
-  const overlay = document.getElementById('youtube-sync-loading-overlay');
+  const youtubeContainer = getUiElement('youtube-player-container');
+  const overlay = getUiElement('youtube-sync-loading-overlay');
   // File preparation never makes the YouTube iframe inert. The iframe shield
   // is owned only by YouTube and PRO transition feedback.
   const showYouTubeOverlay = iframeOwnedLoading && getState('playback.mode') === 'youtube';
@@ -188,20 +190,17 @@ function syncPlayButtonLoadingClass(): void {
 }
 
 function syncPlayButtonAuthority(): void {
-  const btn = document.getElementById('play-btn');
   const context = getRoomContext();
   const roomAuthorityApplies = context.kind === 'pro' || getState('network.appRole') !== 'idle';
   const hasAuthority = !roomAuthorityApplies || hasRoomCapability('playback.control');
   const authorityMessage = roomCapabilityRequiredMessage('playback.control');
-  if (btn) {
-    btn.setAttribute('aria-disabled', String(!_playButtonMediaEnabled || !hasAuthority));
-    if (!hasAuthority) btn.title = authorityMessage;
-    else btn.removeAttribute('title');
-  }
-  for (const id of ['btn-prev', 'btn-next']) {
-    const transportButton = document.getElementById(id);
+  for (const id of ['play-btn', 'btn-prev', 'btn-next']) {
+    const transportButton = getUiElement(id);
     if (!transportButton) continue;
-    transportButton.setAttribute('aria-disabled', String(!hasAuthority));
+    transportButton.setAttribute(
+      'aria-disabled',
+      String(!hasAuthority || (id === 'play-btn' && !_playButtonMediaEnabled)),
+    );
     if (!hasAuthority) transportButton.title = authorityMessage;
     else transportButton.removeAttribute('title');
   }
@@ -213,7 +212,7 @@ function refreshFilePlayButtonLoading(): void {
 }
 
 export function getRoleLabelByChannelMode(mode: number): string {
-  return t((STANDARD_ROLE_MAP[String(mode)] || STANDARD_ROLE_MAP['0']).labelKey);
+  return t(getStandardRolePreset(mode).labelKey);
 }
 
 export function getStandardRolePreset(mode: number): {
@@ -232,7 +231,7 @@ export function showPlacementToastForChannel(mode: number): void {
 let _preMuteVolume = 0.5;
 
 function updateVolumeIcon(): void {
-  const icon = document.getElementById('vol-icon-btn');
+  const icon = getUiElement('vol-icon-btn');
   if (!icon) return;
 
   const vol = getState('audio.masterVolume') ?? 1;
@@ -282,7 +281,7 @@ function getTrackSubtitle(item: TrackMeta): string {
 }
 
 function updateTrackSubtitle(item: TrackMeta | null): void {
-  const artistEl = document.getElementById('track-artist');
+  const artistEl = getUiElement('track-artist');
   if (!artistEl) return;
 
   const subtitle = item ? getTrackSubtitle(item) : t('player.select_file_hint');
@@ -393,8 +392,8 @@ function toggleMute(): void {
 // — treated as a brand/UI label, not translatable content.
 
 export function updateRoleBadge(): void {
-  const badge = document.getElementById('role-badge');
-  const text = document.getElementById('role-text');
+  const badge = getUiElement('role-badge');
+  const text = getUiElement('role-text');
   if (!badge || !text) return;
 
   const snapshot = getAccountSnapshot();
@@ -429,11 +428,8 @@ export function updateRoleBadge(): void {
 // ─── Invite Code ─────────────────────────────────────────────────
 
 export function getInviteCode(): string {
-  const sessionCode = getState('network.sessionCode') || '';
-  const lastJoinCode = getState('network.lastJoinCode') || '';
-  if (sessionCode && /^\d{6}$/.test(sessionCode)) return sessionCode;
-  if (lastJoinCode && /^\d{6}$/.test(lastJoinCode)) return lastJoinCode;
-  return '------';
+  const codes = [getState('network.sessionCode') || '', getState('network.lastJoinCode') || ''];
+  return codes.find((code) => /^\d{6}$/.test(code)) || '------';
 }
 
 export function updateInviteCodeUI(): void {
@@ -494,7 +490,7 @@ async function copyInviteCode(): Promise<void> {
 function rememberOverlayOpener(fallbackId: string): HTMLElement | null {
   const active = document.activeElement;
   if (active instanceof HTMLElement && active !== document.body) return active;
-  return document.getElementById(fallbackId);
+  return getUiElement(fallbackId);
 }
 
 function restoreOverlayOpener(opener: HTMLElement | null, overlay: HTMLElement): void {
@@ -529,6 +525,7 @@ function handleFullscreenOverlayKeydown(
   onClose: () => void,
 ): void {
   if (event.key === 'Escape') {
+    if (event.isComposing || event.keyCode === 229) return;
     event.preventDefault();
     event.stopPropagation();
     onClose();
@@ -536,22 +533,7 @@ function handleFullscreenOverlayKeydown(
   }
   if (event.key !== 'Tab') return;
 
-  const focusable = getOverlayFocusableElements(overlay);
-  if (focusable.length === 0) {
-    event.preventDefault();
-    overlay.focus({ preventScroll: true });
-    return;
-  }
-  const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
-  const nextIndex = event.shiftKey
-    ? currentIndex <= 0
-      ? focusable.length - 1
-      : currentIndex - 1
-    : currentIndex < 0 || currentIndex === focusable.length - 1
-      ? 0
-      : currentIndex + 1;
-  event.preventDefault();
-  focusable[nextIndex]?.focus({ preventScroll: true });
+  cycleFocusWithin(event, getOverlayFocusableElements(overlay), overlay);
 }
 
 function isKeyboardLikeActivation(event: Event): boolean {
@@ -563,7 +545,7 @@ function openMediaSourcePopup(focusFirstAction = true): void {
     showRoomCapabilityRequired('media.add');
     return;
   }
-  const systemAudioButton = document.getElementById('btn-system-audio');
+  const systemAudioButton = getUiElement('btn-system-audio');
   if (systemAudioButton) {
     systemAudioButton.hidden =
       !hasRoomCapability('system-audio.publish') ||
@@ -572,7 +554,7 @@ function openMediaSourcePopup(focusFirstAction = true): void {
   _mediaSourcePreviousFocus = rememberOverlayOpener('btn-media-source');
   syncSystemAudioSourceButton();
   animateTransition(() => {
-    const overlay = document.getElementById('media-source-overlay');
+    const overlay = getUiElement('media-source-overlay');
     if (overlay) {
       overlay.classList.add('active');
       syncOverlayState('media-source-overlay');
@@ -605,7 +587,7 @@ function showProSystemAudioOwnerToast(): void {
 }
 
 function syncSystemAudioSourceButton(): void {
-  const button = document.getElementById('btn-system-audio') as HTMLButtonElement | null;
+  const button = getUiElement<HTMLButtonElement>('btn-system-audio');
   if (!button) return;
   const label = button.querySelector<HTMLElement>('.media-source-label-text');
   const isProRoom = getRoomContext().kind === 'pro';
@@ -620,7 +602,7 @@ function syncSystemAudioSourceButton(): void {
 }
 
 function syncMainMediaSourceButtonLabel(): void {
-  const button = document.getElementById('btn-media-source');
+  const button = getUiElement('btn-media-source');
   const label = button?.querySelector<HTMLElement>('span');
   if (!button || !label) return;
   const isSystemAudio = isPlaybackModeSystemAudio();
@@ -644,7 +626,7 @@ function syncMediaSourceButtonAuthority(): void {
   syncMainMediaSourceButtonLabel();
   const canSelectMedia = hasRoomCapability('media.add') || hasRoomCapability('asset.upload');
   for (const id of ['btn-media-source', 'btn-add-media']) {
-    const mediaBtn = document.getElementById(id);
+    const mediaBtn = getUiElement(id);
     if (!mediaBtn) continue;
     const canStopSystemAudio =
       id === 'btn-media-source' &&
@@ -676,7 +658,7 @@ function canConfigureQueueMode(): boolean {
 function syncQueueModeButtonAuthority(): void {
   const enabled = canConfigureQueueMode();
   for (const id of ['btn-repeat', 'btn-shuffle']) {
-    const button = document.getElementById(id);
+    const button = getUiElement(id);
     if (!button) continue;
     button.setAttribute('aria-disabled', String(!enabled));
   }
@@ -687,7 +669,7 @@ function closeMediaSourcePopup(restoreFocus = true): void {
   const returnFocus = _mediaSourcePreviousFocus;
   _mediaSourcePreviousFocus = null;
   animateTransition(() => {
-    const overlay = document.getElementById('media-source-overlay');
+    const overlay = getUiElement('media-source-overlay');
     if (overlay) {
       overlay.classList.remove('active');
       syncOverlayState();
@@ -709,13 +691,13 @@ function openYouTubePopup(returnFocus?: HTMLElement | null): void {
   // out), retry it here before the user spends time entering a URL.
   primeYouTubePlayer();
   animateTransition(() => {
-    const overlay = document.getElementById('youtube-url-overlay');
+    const overlay = getUiElement('youtube-url-overlay');
     if (overlay) {
       overlay.classList.add('active');
       syncOverlayState('youtube-url-overlay');
     }
     clearYouTubeInputState();
-    const input = document.getElementById('youtube-url-input') as HTMLElement | null;
+    const input = getUiElement('youtube-url-input') as HTMLElement | null;
     if (input) setManagedTimer('yt-url-focus', () => input.focus(), 100);
   });
 }
@@ -726,11 +708,11 @@ let youtubeGestureSubmitOwner: number | null = null;
 function invalidateYouTubeGestureSubmit(): void {
   youtubeGestureSubmitGeneration++;
   youtubeGestureSubmitOwner = null;
-  document.getElementById('youtube-play-btn')?.removeAttribute('aria-busy');
+  getUiElement('youtube-play-btn')?.removeAttribute('aria-busy');
 }
 
 function submitYouTubeSearch(input: HTMLElement): void {
-  const searchButton = document.getElementById('youtube-search-btn') as HTMLButtonElement | null;
+  const searchButton = getUiElement<HTMLButtonElement>('youtube-search-btn');
   if (!searchButton || searchButton.disabled) return;
   bus.emit('youtube:search-from-input');
   if (IS_IOS || IS_ANDROID) input.blur();
@@ -758,7 +740,7 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
   const submitGeneration = ++youtubeGestureSubmitGeneration;
   youtubeGestureSubmitOwner = submitGeneration;
   const submittedText = input.textContent || '';
-  const playButton = document.getElementById('youtube-play-btn') as HTMLButtonElement | null;
+  const playButton = getUiElement<HTMLButtonElement>('youtube-play-btn');
   if (playButton) {
     playButton.disabled = true;
     playButton.setAttribute('aria-busy', 'true');
@@ -773,7 +755,7 @@ function submitYouTubeFromGesture(input: HTMLElement): void {
       ) {
         return;
       }
-      const overlay = document.getElementById('youtube-url-overlay');
+      const overlay = getUiElement('youtube-url-overlay');
       if (overlay && !overlay.classList.contains('active')) return;
       if ((input.textContent || '') !== submittedText) return;
       bus.emit('youtube:load-from-input');
@@ -804,12 +786,12 @@ function closeYouTubePopup(): void {
   clearManagedTimer('yt-url-focus');
   clearPreviewDebounce();
   clearYouTubeInputState();
-  const ytInput = document.getElementById('youtube-url-input');
+  const ytInput = getUiElement('youtube-url-input');
   if (ytInput) ytInput.textContent = '';
   const returnFocus = _youtubePopupPreviousFocus;
   _youtubePopupPreviousFocus = null;
   animateTransition(() => {
-    const overlay = document.getElementById('youtube-url-overlay');
+    const overlay = getUiElement('youtube-url-overlay');
     if (overlay) {
       overlay.classList.remove('active');
       syncOverlayState();
@@ -825,7 +807,7 @@ function openFileSelector(): void {
     showRoomCapabilityRequired('asset.upload');
     return;
   }
-  const input = document.getElementById('file-input') as HTMLInputElement | null;
+  const input = getUiElement<HTMLInputElement>('file-input');
   if (!input) {
     log.warn('[UI] #file-input not found');
     showToast(t('toast.cant_select_file'));
@@ -891,7 +873,7 @@ function getMainSyncUnavailableMessage(reason: MainSyncUnavailableReason): strin
 }
 
 function syncMainSyncButtonState(): void {
-  const button = document.getElementById('btn-sync');
+  const button = getUiElement('btn-sync');
   if (!button) return;
   const reason = getMainSyncUnavailableReason();
   button.setAttribute('aria-disabled', String(reason !== null));
@@ -960,7 +942,7 @@ async function handleLogoReturnToMain(): Promise<void> {
   _logoNavBusy = true;
 
   try {
-    const setupOverlay = document.getElementById('setup-overlay');
+    const setupOverlay = getUiElement('setup-overlay');
     const isOnMain = !!(setupOverlay && setupOverlay.classList.contains('active'));
     if (isOnMain) {
       switchTab('play');
@@ -983,10 +965,19 @@ async function handleLogoReturnToMain(): Promise<void> {
 
     // A hard same-origin replacement clears in-memory media without leaving an
     // invite/PRO auto-join route behind in browser history.
-    scheduleSessionReset(t('dialog.leaving_session'), () => {
+    let resetCurrent = true;
+    const navigateIfCurrent = () => {
+      if (resetCurrent) navigateToAppHome();
+    };
+    const resetHandle = scheduleSessionReset(t('dialog.leaving_session'), () => {
       void import('../core/sw-hard-reset.ts')
-        .then((module) => module.default())
-        .then(navigateToAppHome, () => navigateToAppHome());
+        .then((module) => {
+          if (resetCurrent) return module.default();
+        })
+        .then(navigateIfCurrent, navigateIfCurrent);
+    });
+    resetHandle?.onRecovered(() => {
+      resetCurrent = false;
     });
   } finally {
     _logoNavBusy = false;
@@ -998,26 +989,31 @@ async function handleLogoReturnToMain(): Promise<void> {
 function installAndroidRangeScrollFix(signal: AbortSignal): void {
   if (!IS_ANDROID) return;
   try {
-    const ranges = Array.from(document.querySelectorAll('input[type="range"]'));
-    ranges.forEach((range) => {
+    const locks = new Map<HTMLElement, { count: number; overflowY: string }>();
+    const options = { passive: true, signal };
+    document.querySelectorAll('input[type="range"]').forEach((range) => {
       const scrollParent = range.closest('.tab-content') as HTMLElement | null;
       if (!scrollParent) return;
 
-      let prevOverflowY: string | null = null;
-      const lock = () => {
-        if (prevOverflowY === null) prevOverflowY = scrollParent.style.overflowY;
-        scrollParent.style.overflowY = 'hidden';
-      };
-      const unlock = () => {
-        if (prevOverflowY === null) return;
-        scrollParent.style.overflowY = prevOverflowY;
-        prevOverflowY = null;
+      const owner = locks.get(scrollParent) ?? { count: 0, overflowY: '' };
+      locks.set(scrollParent, owner);
+      let active = false;
+      const onTouch = (event: Event) => {
+        if (event.type === 'touchstart') {
+          if (active) return;
+          active = true;
+          if (owner.count++ === 0) owner.overflowY = scrollParent.style.overflowY;
+          scrollParent.style.overflowY = 'hidden';
+        } else if (active && !(event as TouchEvent).targetTouches?.length) {
+          active = false;
+          if (--owner.count === 0) scrollParent.style.overflowY = owner.overflowY;
+        }
       };
 
-      range.addEventListener('touchstart', lock, { passive: true, signal });
-      range.addEventListener('touchend', unlock, { passive: true, signal });
-      range.addEventListener('touchcancel', unlock, { passive: true, signal });
-      signal.addEventListener('abort', unlock, { once: true });
+      for (const type of ['touchstart', 'touchend', 'touchcancel']) {
+        range.addEventListener(type, onTouch, options);
+      }
+      signal.addEventListener('abort', onTouch, { once: true });
     });
   } catch (e) {
     log.debug('[Android] Range scroll fix init failed:', e);
@@ -1030,7 +1026,7 @@ function installAndroidRangeScrollFix(signal: AbortSignal): void {
 
 function syncVolumeSlider(): void {
   const vol = getState('audio.masterVolume') ?? 1;
-  const vSlider = document.getElementById('volume-slider') as HTMLInputElement | null;
+  const vSlider = getUiElement<HTMLInputElement>('volume-slider');
   if (vSlider) {
     vSlider.value = String(vol * 100);
     syncRangeProgress(vSlider);
@@ -1040,15 +1036,11 @@ function syncVolumeSlider(): void {
 
 function syncVolumeAuthorityUI(): void {
   const locked = isSynchronizedVolumeLocked();
-  const slider = document.getElementById('volume-slider') as HTMLInputElement | null;
-  const mute = document.getElementById('vol-icon-btn') as HTMLButtonElement | null;
-  if (slider) {
-    slider.disabled = locked;
-    slider.setAttribute('aria-disabled', locked ? 'true' : 'false');
-  }
-  if (mute) {
-    mute.disabled = locked;
-    mute.setAttribute('aria-disabled', locked ? 'true' : 'false');
+  for (const id of ['volume-slider', 'vol-icon-btn']) {
+    const control = getUiElement(id) as HTMLInputElement | HTMLButtonElement | null;
+    if (!control) continue;
+    control.disabled = locked;
+    control.setAttribute('aria-disabled', String(locked));
   }
 }
 
@@ -1075,33 +1067,27 @@ export function initPlayerControls(): void {
   _proPlaybackTransitionLoading = false;
   _proPlaybackControlToken = null;
   _proPlaybackControlKind = null;
-  _playButtonMediaEnabled =
-    document.getElementById('play-btn')?.getAttribute('aria-disabled') === 'false';
+  _playButtonMediaEnabled = getUiElement('play-btn')?.getAttribute('aria-disabled') === 'false';
   // Re-initialization must never inherit an interaction shield owned by a
   // disposed subscription scope.
   syncPlayButtonLoadingClass();
   initTabTitleMarquee(getTabTitleSnapshot);
 
   const $on = (id: string, evt: string, fn: EventListener) => {
-    const el = document.getElementById(id);
+    const el = getUiElement(id);
     if (el) el.addEventListener(evt, fn, { signal: domSignal });
   };
 
-  const mediaSourceOverlay = document.getElementById('media-source-overlay');
-  if (mediaSourceOverlay && mediaSourceOverlay.dataset.keyboardBound !== '1') {
-    mediaSourceOverlay.dataset.keyboardBound = '1';
-    mediaSourceOverlay.addEventListener('keydown', (event) => {
-      handleFullscreenOverlayKeydown(mediaSourceOverlay, event, () => closeMediaSourcePopup());
+  const bindOverlayKeyboard = (id: string, close: () => void) => {
+    const overlay = getUiElement(id);
+    if (!overlay || overlay.dataset.keyboardBound === '1') return;
+    overlay.dataset.keyboardBound = '1';
+    overlay.addEventListener('keydown', (event) => {
+      handleFullscreenOverlayKeydown(overlay, event, close);
     });
-  }
-
-  const youtubeUrlOverlay = document.getElementById('youtube-url-overlay');
-  if (youtubeUrlOverlay && youtubeUrlOverlay.dataset.keyboardBound !== '1') {
-    youtubeUrlOverlay.dataset.keyboardBound = '1';
-    youtubeUrlOverlay.addEventListener('keydown', (event) => {
-      handleFullscreenOverlayKeydown(youtubeUrlOverlay, event, () => closeYouTubePopup());
-    });
-  }
+  };
+  bindOverlayKeyboard('media-source-overlay', closeMediaSourcePopup);
+  bindOverlayKeyboard('youtube-url-overlay', closeYouTubePopup);
 
   // Header
   $on('btn-help', 'click', () => switchTab('guide'));
@@ -1179,7 +1165,7 @@ export function initPlayerControls(): void {
   });
 
   // Role badge
-  const roleBadge = document.getElementById('role-badge');
+  const roleBadge = getUiElement('role-badge');
   if (roleBadge) {
     roleBadge.addEventListener(
       'click',
@@ -1193,7 +1179,7 @@ export function initPlayerControls(): void {
   }
 
   // Logo — native <button>, so Enter/Space auto-fires click (no keydown handler needed)
-  const logo = document.getElementById('app-logo') || document.querySelector('.app-logo');
+  const logo = getUiElement('app-logo') || document.querySelector('.app-logo');
   if (logo) {
     logo.addEventListener(
       'click',
@@ -1296,7 +1282,7 @@ export function initPlayerControls(): void {
     }
   });
   if (!canCaptureSystemAudio()) {
-    document.getElementById('btn-system-audio')?.classList.add('unsupported');
+    getUiElement('btn-system-audio')?.classList.add('unsupported');
   }
   $on('btn-close-media-popup', 'click', () => closeMediaSourcePopup());
 
@@ -1309,7 +1295,7 @@ export function initPlayerControls(): void {
   });
 
   // YouTube popup (contenteditable)
-  const ytInput = document.getElementById('youtube-url-input');
+  const ytInput = getUiElement('youtube-url-input');
   if (ytInput) {
     ytInput.addEventListener(
       'input',
@@ -1319,9 +1305,7 @@ export function initPlayerControls(): void {
         normalizeEmptyContentEditable(ytInput, e);
         const inputText = ytInput.textContent || '';
         applyUserTextFontFallback(ytInput, inputText);
-        const searchButton = document.getElementById(
-          'youtube-search-btn',
-        ) as HTMLButtonElement | null;
+        const searchButton = getUiElement('youtube-search-btn') as HTMLButtonElement | null;
         if (searchButton) {
           searchButton.disabled = getYouTubeInputIntent(inputText).kind !== 'search-query';
           searchButton.removeAttribute('aria-busy');
@@ -1336,9 +1320,7 @@ export function initPlayerControls(): void {
         if (e.key === 'Enter') {
           if (e.isComposing || e.keyCode === 229) return;
           e.preventDefault();
-          const searchButton = document.getElementById(
-            'youtube-search-btn',
-          ) as HTMLButtonElement | null;
+          const searchButton = getUiElement('youtube-search-btn') as HTMLButtonElement | null;
           if (searchButton && !searchButton.disabled) {
             submitYouTubeSearch(ytInput);
             return;
@@ -1347,9 +1329,7 @@ export function initPlayerControls(): void {
           // playlist manifest is being prefetched. A fast Enter press must
           // honor the same gate as a physical button click, otherwise iOS falls
           // back to the asynchronous iframe indexer and loses this gesture.
-          const playButton = document.getElementById(
-            'youtube-play-btn',
-          ) as HTMLButtonElement | null;
+          const playButton = getUiElement('youtube-play-btn') as HTMLButtonElement | null;
           if (playButton?.disabled) return;
           submitYouTubeFromGesture(ytInput);
         }
@@ -1394,25 +1374,20 @@ export function initPlayerControls(): void {
   _busScope.on('audio:volume-changed', () => {
     syncVolumeSlider();
   });
-  _busScope.on('settings-sync:changed', () => syncVolumeAuthorityUI());
-  _busScope.on('state:network.standardRoomCapabilities', () => syncVolumeAuthorityUI());
-  _busScope.on('state:room.context', () => syncVolumeAuthorityUI());
-  _busScope.on('state:setup.sessionStarted', () => syncVolumeAuthorityUI());
+  _busScope.on('settings-sync:changed', syncVolumeAuthorityUI);
+  _busScope.on('state:network.standardRoomCapabilities', syncVolumeAuthorityUI);
+  _busScope.on('state:room.context', syncVolumeAuthorityUI);
+  _busScope.on('state:setup.sessionStarted', syncVolumeAuthorityUI);
 
   // Role badge update events
   _busScope.on('network:role-badge-update', () => {
     updateRoleBadge();
     syncVolumeAuthorityUI();
   });
-  _busScope.on('state:network.myDeviceLabel', () => {
-    updateRoleBadge();
-  });
-
   // Latency update → refresh role badge. Automatic clock correction remains
   // active but is intentionally no longer exposed as a second panel column.
-  _busScope.on('sync:latency-update', () => {
-    updateRoleBadge();
-  });
+  _busScope.on('state:network.myDeviceLabel', updateRoleBadge);
+  _busScope.on('sync:latency-update', updateRoleBadge);
 
   // Connection type updated (e.g. ICE resolved) → Re-trigger title update to check for Wi-Fi warning
   _busScope.on('state:network.connectionType', () => {
@@ -1455,14 +1430,18 @@ export function initPlayerControls(): void {
 
   // Language switch → refresh translated track title + tab title
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
-  const refreshPlayerText = () => {
+  _busScope.on('i18n:changed', () => {
     refreshTrackTitle();
     setTabTitleTrack(getTabTitleTrack());
     syncMediaSourceButtonAuthority();
     syncMainSyncButtonState();
-  };
-  _busScope.on('i18n:changed', refreshPlayerText);
-  _busScope.on('ui:player-panel-visible', refreshPlayerText);
+  });
+  _busScope.on('ui:player-panel-visible', () => {
+    refreshTrackTitle();
+    setTabTitleTrack(getTabTitleTrack());
+    syncMediaSourceButtonAuthority();
+    syncMainSyncButtonState();
+  });
 
   // Peer disconnected: update UI
   _busScope.on('network:peer-disconnected', (peerId) => {
@@ -1492,7 +1471,7 @@ export function initPlayerControls(): void {
   });
 
   // File input handler
-  const fileInput = document.getElementById('file-input') as HTMLInputElement | null;
+  const fileInput = getUiElement<HTMLInputElement>('file-input');
   if (fileInput) {
     fileInput.accept = AUDIO_FILE_ACCEPT;
     fileInput.addEventListener(
@@ -1549,7 +1528,7 @@ export function initPlayerControls(): void {
     if (_proPlaybackControlKind === 'pause') {
       playing = false;
     }
-    const btn = document.getElementById('play-btn');
+    const btn = getUiElement('play-btn');
     const icon = btn?.querySelector('path');
     if (icon) {
       icon.setAttribute(

@@ -296,9 +296,9 @@ jobs:
 
       - name: Run production candidate browser and Service Worker smoke
         timeout-minutes: 6
-        # Playwright owns a 120-second server-start bound, a 30-second PeerJS
-        # readiness bound, and two serial 60-second test bounds. Leave teardown
-        # and reporter headroom so Actions never masks the actionable failure.
+        # Six serial tests share this six-minute wall-clock budget, including
+        # server startup and teardown. Individual tests retain their 60-second
+        # bounds; failure or cancellation artifacts are uploaded below.
         run: npm run test:e2e:candidate
 
       # This deterministic gate covers PRO owner recovery, OAuth callback
@@ -308,10 +308,10 @@ jobs:
       # release.yml so CI never needs production secrets.
       - name: Run critical browser paths
         timeout-minutes: 12
-        # This step includes the E2E rebuild, a 120-second preview-start bound,
-        # a 30-second PeerJS readiness bound, five serial 60-second tests, one
-        # 90-second background-resume test, and teardown/reporter headroom.
-        # Keep the outer Actions bound above every nested diagnostic path.
+        # This wall-clock budget includes the E2E rebuild, preview startup,
+        # nine serial 60-second tests, one 90-second background-resume test,
+        # and teardown. It bounds the entire step independently of those
+        # per-test limits; failure or cancellation artifacts are uploaded below.
         run: npm run test:e2e:critical
 
       - name: Upload critical browser failure artifacts

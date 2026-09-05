@@ -166,7 +166,9 @@ describe('account API client', () => {
       status: 0,
     });
 
-    const mutationResult = updateAccountProfile('Jisu').catch((error: unknown) => error);
+    const mutationResult = updateAccountProfile('Jisu', STATS_SCOPE).catch(
+      (error: unknown) => error,
+    );
     await vi.advanceTimersByTimeAsync(5_000);
     expect(vi.mocked(fetch).mock.calls[1]?.[1]?.signal?.aborted).toBe(false);
     await vi.advanceTimersByTimeAsync(10_000);
@@ -186,7 +188,7 @@ describe('account API client', () => {
       }),
     );
 
-    await updateAccountProfile('Jisu');
+    await updateAccountProfile('Jisu', STATS_SCOPE);
 
     expect(fetch).toHaveBeenCalledWith(
       '/api/auth/profile',
@@ -195,6 +197,7 @@ describe('account API client', () => {
         headers: expect.objectContaining({
           'Content-Type': 'application/json',
           'X-MXQR-Account-CSRF': '1',
+          'X-MXQR-Account-Expected-Scope': STATS_SCOPE,
         }),
         body: JSON.stringify({ nickname: 'Jisu' }),
       }),
@@ -214,7 +217,7 @@ describe('account API client', () => {
         }),
       );
 
-    await expect(getAccountStats()).resolves.toEqual({
+    await expect(getAccountStats(STATS_SCOPE)).resolves.toEqual({
       sessionCount: 7,
       listeningSeconds: 3_661,
       trackCount: 42,
@@ -237,7 +240,10 @@ describe('account API client', () => {
     expect(fetch).toHaveBeenNthCalledWith(
       1,
       '/api/auth/stats',
-      expect.objectContaining({ credentials: 'same-origin' }),
+      expect.objectContaining({
+        credentials: 'same-origin',
+        headers: expect.objectContaining({ 'X-MXQR-Account-Stats-Scope': STATS_SCOPE }),
+      }),
     );
     expect(fetch).toHaveBeenNthCalledWith(
       2,
@@ -265,10 +271,17 @@ describe('account API client', () => {
       }),
     );
 
-    await expect(getAccountStats()).rejects.toMatchObject({
+    await expect(getAccountStats(STATS_SCOPE)).rejects.toMatchObject({
       code: 'ACCOUNT_INVALID_RESPONSE',
       status: 502,
     });
+  });
+
+  it('refuses an aggregate read without a valid captured session scope', async () => {
+    await expect(getAccountStats('invalid')).rejects.toMatchObject({
+      code: 'ACCOUNT_STATS_SCOPE_INVALID',
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('fails closed before sending an aggregate write without a valid session scope', async () => {
@@ -291,7 +304,7 @@ describe('account API client', () => {
   it('requires explicit confirmation for account deletion', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true }));
 
-    await expect(deleteAccount()).resolves.toEqual({ pending: false });
+    await expect(deleteAccount(STATS_SCOPE)).resolves.toEqual({ pending: false });
 
     expect(fetch).toHaveBeenCalledWith(
       '/api/auth/account',
@@ -302,7 +315,7 @@ describe('account API client', () => {
   it('reports a 202 account deletion as pending instead of completed', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ ok: true, pending: true }, 202));
 
-    await expect(deleteAccount()).resolves.toEqual({ pending: true });
+    await expect(deleteAccount(STATS_SCOPE)).resolves.toEqual({ pending: true });
   });
 
   it('parses attach and deletion room assertions without confusing their authority', async () => {
@@ -338,7 +351,7 @@ describe('account API client', () => {
   it('preserves a server error code and status', async () => {
     vi.mocked(fetch).mockResolvedValue(jsonResponse({ error: 'ACCOUNT_NICKNAME_INVALID' }, 400));
 
-    await expect(updateAccountProfile('x')).rejects.toMatchObject({
+    await expect(updateAccountProfile('x', STATS_SCOPE)).rejects.toMatchObject({
       code: 'ACCOUNT_NICKNAME_INVALID',
       status: 400,
       retryAfterMs: null,
@@ -368,10 +381,16 @@ describe('account API client', () => {
         }),
       );
 
-    await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: 60_000 });
-    await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: 90_000 });
-    await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: 300_000 });
-    await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: 0 });
+    await expect(updateAccountProfile('x', STATS_SCOPE)).rejects.toMatchObject({
+      retryAfterMs: 60_000,
+    });
+    await expect(updateAccountProfile('x', STATS_SCOPE)).rejects.toMatchObject({
+      retryAfterMs: 90_000,
+    });
+    await expect(updateAccountProfile('x', STATS_SCOPE)).rejects.toMatchObject({
+      retryAfterMs: 300_000,
+    });
+    await expect(updateAccountProfile('x', STATS_SCOPE)).rejects.toMatchObject({ retryAfterMs: 0 });
   });
 
   it.each(['', '-1', '1.5', 'not-a-delay', 'Sun, 99 Nope 2026 99:99:99 GMT'])(
@@ -381,7 +400,9 @@ describe('account API client', () => {
         jsonResponse({ error: 'AUTH_RATE_LIMITED' }, 429, { 'Retry-After': retryAfter }),
       );
 
-      await expect(updateAccountProfile('x')).rejects.toMatchObject({ retryAfterMs: null });
+      await expect(updateAccountProfile('x', STATS_SCOPE)).rejects.toMatchObject({
+        retryAfterMs: null,
+      });
     },
   );
 

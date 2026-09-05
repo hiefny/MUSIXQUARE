@@ -957,7 +957,11 @@ async function cacheResponse(
       }
       // A later request for this URL has already observed a revoking no-store
       // response. An older response that arrived late must not resurrect it.
-      if (ticket.sequence <= ticket.state.latestNoStoreSequence) return;
+      if (
+        ticket.sequence <= ticket.state.latestNoStoreSequence ||
+        ticket.sequence < ticket.state.latestCommittedCacheSequence
+      )
+        return;
       const cache = await caches.open(cacheName);
       await cache.put(request, cacheCopy!);
       ticket.state.latestCommittedCacheSequence = Math.max(
@@ -1159,6 +1163,21 @@ function markCachedNavigationResponse(response: Response): Response {
   });
 }
 
+async function matchActiveStaticAsset(request: Request): Promise<Response | null> {
+  try {
+    return (
+      (await caches.match(request, { cacheName: STATIC_CACHE })) ||
+      (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
+      (await matchActiveOptionalAsset(request)) ||
+      null
+    );
+  } catch (_) {
+    // A browser can deny CacheStorage after this worker was installed. Keep
+    // public static assets reachable through the ordinary network fallback.
+    return null;
+  }
+}
+
 // Network-first for navigations, cache-first for static assets
 serviceWorker.addEventListener('fetch', (event) => {
   const request = event.request;
@@ -1224,14 +1243,7 @@ serviceWorker.addEventListener('fetch', (event) => {
   // revalidation; a failed/partial install falls through to network and the
   // successful retry is promoted into the active static cache.
   if (isOptionalPrimaryFontAsset(request)) {
-    const cachedResponse = (async () => {
-      return (
-        (await caches.match(request, { cacheName: STATIC_CACHE })) ||
-        (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
-        (await matchActiveOptionalAsset(request)) ||
-        null
-      );
-    })();
+    const cachedResponse = matchActiveStaticAsset(request);
     const networkResponse = cachedResponse.then((cached) => {
       if (cached) return null;
       return fetch(request).catch(() => null);
@@ -1258,13 +1270,7 @@ serviceWorker.addEventListener('fetch', (event) => {
   // that deliberately deferred reload can still import its old lazy chunks.
   if (isImmutableHashedAsset(request)) {
     const cachedResponse = (async () => {
-      return (
-        (await caches.match(request, { cacheName: STATIC_CACHE })) ||
-        (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
-        (await matchActiveOptionalAsset(request)) ||
-        (await matchRetiredAsset(request)) ||
-        null
-      );
+      return (await matchActiveStaticAsset(request)) || (await matchRetiredAsset(request)) || null;
     })();
     const networkResponse = cachedResponse.then((cached) => {
       if (cached) return null;
@@ -1292,10 +1298,7 @@ serviceWorker.addEventListener('fetch', (event) => {
   event.waitUntil(cacheUpdate);
   event.respondWith(
     (async () => {
-      const activeCached =
-        (await caches.match(request, { cacheName: STATIC_CACHE })) ||
-        (await caches.match(request, { cacheName: RUNTIME_CACHE })) ||
-        (await matchActiveOptionalAsset(request));
+      const activeCached = await matchActiveStaticAsset(request);
 
       if (activeCached) return activeCached;
 

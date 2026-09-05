@@ -35,7 +35,7 @@ import { showToast } from './toast.ts';
 import { showRoomCapabilityRequired } from '../rooms/permission-feedback.ts';
 import { syncAppThemeChrome, syncDemoThemeChrome } from './theme-chrome.ts';
 import { initCustomScrollbar } from './custom-scrollbar.ts';
-import { syncOverlayState } from './dom.ts';
+import { getUiElement, syncOverlayState } from './dom.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
 import { isUiSoundsEnabled, playUiTouchSound, setUiSoundsEnabled } from '../audio/ui-sounds.ts';
 import { applyUserTextFontFallback } from './user-text-font.ts';
@@ -137,7 +137,7 @@ function _handleHostCtrlLockedAttempt(event: Event): void {
 
 function _bindHostCtrlLockedAttemptToasts(): void {
   HOST_CTRL_LOCK_IDS.forEach((id) => {
-    const el = document.getElementById(id);
+    const el = getUiElement(id);
     if (!el || el.dataset.hostCtrlToastBound === '1') return;
     el.dataset.hostCtrlToastBound = '1';
     el.addEventListener('click', _handleHostCtrlLockedAttempt, { capture: true });
@@ -147,7 +147,7 @@ function _bindHostCtrlLockedAttemptToasts(): void {
 function _updateHostCtrlLockUI(): void {
   const locked = _isGuestLocked();
   HOST_CTRL_LOCK_IDS.forEach((id) => {
-    const el = document.getElementById(id);
+    const el = getUiElement(id);
     if (el) {
       el.classList.toggle('host-ctrl-locked', locked);
       el.setAttribute('aria-disabled', locked ? 'true' : 'false');
@@ -225,7 +225,7 @@ function standardRoleDescriptionKey(mode: number): I18nKey {
 
 function syncStandardRoleDescription(mode = selectedStandardRoleMode): void {
   selectedStandardRoleMode = [-1, 0, 1, 2].includes(mode) ? mode : 0;
-  const description = document.getElementById('settings-role-description');
+  const description = getUiElement('settings-role-description');
   if (!description) return;
 
   const key = standardRoleDescriptionKey(selectedStandardRoleMode);
@@ -241,7 +241,7 @@ export function selectStandardChannelButton(mode: number): void {
   syncRoleDiagrams(mode);
   syncStandardRoleDescription(mode);
 
-  const wooferCtrl = document.getElementById('woofer-cutoff-control');
+  const wooferCtrl = getUiElement('woofer-cutoff-control');
   if (wooferCtrl) {
     if (mode === 2) {
       wooferCtrl.classList.remove('collapsed');
@@ -268,7 +268,7 @@ function blockLocalSystemAudioRoleChange(): boolean {
 // ─── Value Display Helpers ────────────────────────────────────────
 
 function _setDisp(id: string, text: string): void {
-  const el = document.getElementById(id);
+  const el = getUiElement(id);
   if (el) el.innerText = text;
 }
 
@@ -278,7 +278,7 @@ function setRangeValue(slider: HTMLInputElement, value: number | string): void {
 }
 
 function setRangeValueById(id: string, value: number | string): HTMLInputElement | null {
-  const slider = document.getElementById(id) as HTMLInputElement | null;
+  const slider = getUiElement(id) as HTMLInputElement | null;
   if (slider) setRangeValue(slider, value);
   return slider;
 }
@@ -412,23 +412,22 @@ function clearReverbChipActive(): void {
  */
 function detectReverbPreset(): string {
   const mix = Number(
-    (document.getElementById('reverb-slider') as HTMLInputElement | null)?.value ??
-      REVERB_DEFAULTS.mix,
+    (getUiElement('reverb-slider') as HTMLInputElement | null)?.value ?? REVERB_DEFAULTS.mix,
   );
   const decay = Number(
-    (document.getElementById('reverb-decay-slider') as HTMLInputElement | null)?.value ??
+    (getUiElement('reverb-decay-slider') as HTMLInputElement | null)?.value ??
       REVERB_DEFAULTS.decay,
   );
   const predelay = Number(
-    (document.getElementById('reverb-predelay-slider') as HTMLInputElement | null)?.value ??
+    (getUiElement('reverb-predelay-slider') as HTMLInputElement | null)?.value ??
       REVERB_DEFAULTS.predelay,
   );
   const lowcut = Number(
-    (document.getElementById('reverb-lowcut-slider') as HTMLInputElement | null)?.value ??
+    (getUiElement('reverb-lowcut-slider') as HTMLInputElement | null)?.value ??
       REVERB_DEFAULTS.lowcut,
   );
   const highcut = Number(
-    (document.getElementById('reverb-highcut-slider') as HTMLInputElement | null)?.value ??
+    (getUiElement('reverb-highcut-slider') as HTMLInputElement | null)?.value ??
       REVERB_DEFAULTS.highcut,
   );
 
@@ -454,7 +453,7 @@ function detectReverbPreset(): string {
 }
 
 function setReverbSlidersVisible(visible: boolean): void {
-  const area = document.getElementById('reverb-sliders-area');
+  const area = getUiElement('reverb-sliders-area');
   if (!area) return;
   if (visible) {
     area.classList.remove('collapsed');
@@ -466,29 +465,13 @@ function setReverbSlidersVisible(visible: boolean): void {
 function syncReverbSlidersToPreset(type: string): void {
   clearReverbChipActive();
 
-  if (type === 'off') {
-    setRangeValueById('reverb-slider', REVERB_DEFAULTS.mix);
-    setRangeValueById('reverb-decay-slider', REVERB_DEFAULTS.decay);
-    setRangeValueById('reverb-predelay-slider', REVERB_DEFAULTS.predelay);
-    setRangeValueById('reverb-lowcut-slider', REVERB_DEFAULTS.lowcut);
-    setRangeValueById('reverb-highcut-slider', REVERB_DEFAULTS.highcut);
-    formatReverbValDisp('mix', REVERB_DEFAULTS.mix);
-    formatReverbValDisp('decay', REVERB_DEFAULTS.decay);
-    formatReverbValDisp('predelay', REVERB_DEFAULTS.predelay);
-    formatReverbValDisp('lowcut', REVERB_DEFAULTS.lowcut);
-    formatReverbValDisp('highcut', REVERB_DEFAULTS.highcut);
-    selectReverbChip('off');
-    setReverbSlidersVisible(false);
-    return;
-  }
-
   if (type === 'advanced') {
     selectReverbChip('advanced');
     setReverbSlidersVisible(true);
     return;
   }
 
-  const preset = REVERB_PRESETS[type];
+  const preset = type === 'off' ? REVERB_DEFAULTS : REVERB_PRESETS[type];
   if (!preset) return;
 
   setRangeValueById('reverb-slider', preset.mix);
@@ -537,7 +520,7 @@ function clearEqChipActive(): void {
 }
 
 function setEqSlidersVisible(visible: boolean): void {
-  const area = document.getElementById('eq-sliders-area');
+  const area = getUiElement('eq-sliders-area');
   if (!area) return;
   if (visible) {
     area.classList.remove('collapsed');
@@ -581,7 +564,7 @@ function syncEqSlidersToPreset(type: string): void {
 function readEqSliderValues(): number[] | null {
   const values: number[] = [];
   for (let i = 0; i < 5; i++) {
-    const slider = document.getElementById(`eq-slider-${i}`) as HTMLInputElement | null;
+    const slider = getUiElement(`eq-slider-${i}`) as HTMLInputElement | null;
     if (!slider) return null;
     const value = Number(slider.value);
     values.push(Number.isFinite(value) ? value : 0);
@@ -652,7 +635,7 @@ function isDeviceListRow(value: unknown): value is DeviceListRow {
 }
 
 function renderDeviceList(list: ReadonlyArray<DeviceListRow>): void {
-  const container = document.getElementById('device-list');
+  const container = getUiElement('device-list');
   if (!container) return;
 
   container.replaceChildren();
@@ -710,7 +693,7 @@ function refreshLanguageControls(): void {
 }
 
 function renderLanguageOptions(): void {
-  const list = document.getElementById('language-list');
+  const list = getUiElement('language-list');
   if (!list || list.dataset.rendered === 'true') return;
 
   const systemLanguage = getSupportedSystemLanguage();
@@ -774,7 +757,7 @@ function renderLanguageOptions(): void {
 }
 
 function updateLanguageScrollMask(): void {
-  const list = document.getElementById('language-list');
+  const list = getUiElement('language-list');
   if (!list) return;
 
   const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
@@ -786,7 +769,7 @@ function updateLanguageScrollMask(): void {
 }
 
 function bindLanguageScrollMask(): void {
-  const list = document.getElementById('language-list');
+  const list = getUiElement('language-list');
   if (!list || list.dataset.scrollMaskBound === '1') return;
 
   list.dataset.scrollMaskBound = '1';
@@ -878,12 +861,12 @@ export function openLanguageDialog(activationEvent?: Event): void {
   renderLanguageOptions();
   refreshLanguageControls();
 
-  const overlay = document.getElementById('language-dialog-overlay');
+  const overlay = getUiElement('language-dialog-overlay');
   if (!overlay) return;
   _languageDialogPreviousFocus =
     document.activeElement instanceof HTMLElement
       ? document.activeElement
-      : document.getElementById('btn-language-select');
+      : getUiElement('btn-language-select');
   overlay.classList.add('show');
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('language-dialog-overlay');
@@ -910,7 +893,7 @@ export function openLanguageDialog(activationEvent?: Event): void {
 }
 
 function closeLanguageDialog(): void {
-  const overlay = document.getElementById('language-dialog-overlay');
+  const overlay = getUiElement('language-dialog-overlay');
   if (!overlay) return;
   const wasShown = overlay.classList.contains('show');
   clearManagedTimer('language-dialog-focus');
@@ -923,7 +906,7 @@ function closeLanguageDialog(): void {
   _languageDialogPreviousFocus = null;
   if (!wasShown) return;
 
-  const fallback = document.getElementById('btn-language-select');
+  const fallback = getUiElement('btn-language-select');
   const target = previousFocus?.isConnected ? previousFocus : fallback;
   target?.focus();
 }
@@ -931,7 +914,7 @@ function closeLanguageDialog(): void {
 export function initSettings(): void {
   _busScope.dispose();
   const $on = (id: string, evt: string, fn: EventListener) => {
-    const el = document.getElementById(id);
+    const el = getUiElement(id);
     if (el) el.addEventListener(evt, fn);
   };
 
@@ -975,13 +958,13 @@ export function initSettings(): void {
   _languagePickerPreparationRequest = 0;
   _languagePickerFontsReady = false;
   renderLanguageOptions();
-  const languageSelectButton = document.getElementById('btn-language-select');
+  const languageSelectButton = getUiElement('btn-language-select');
   languageSelectButton?.addEventListener('pointerdown', prepareLanguagePickerFonts);
   languageSelectButton?.addEventListener('focus', prepareLanguagePickerFonts);
   $on('btn-language-select', 'click', (event) => openLanguageDialog(event));
   $on('btn-language-system', 'click', () => setLanguageMode('system'));
   $on('btn-language-dialog-done', 'click', () => closeLanguageDialog());
-  const languageOverlay = document.getElementById('language-dialog-overlay');
+  const languageOverlay = getUiElement('language-dialog-overlay');
   languageOverlay?.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     e.preventDefault();
@@ -1103,7 +1086,7 @@ export function initSettings(): void {
     $on(`eq-slider-${i}`, 'dblclick', () => {
       if (_guardHostCtrl()) return;
       setEQ(i, 0);
-      const el = document.getElementById(`eq-slider-${i}`) as HTMLInputElement;
+      const el = getUiElement(`eq-slider-${i}`) as HTMLInputElement;
       if (el) setRangeValue(el, 0);
     });
   }
@@ -1172,7 +1155,7 @@ export function initSettings(): void {
   // EQ band slider/label sync (from audio module via bus, avoids audio→DOM coupling)
   _busScope.on('ui:sync-eq-band', (bandIdx: number, value: number) => {
     _setDisp(`eq-val-${bandIdx}`, value > 0 ? `+${value}` : String(value));
-    const slider = document.getElementById(`eq-slider-${bandIdx}`) as HTMLInputElement | null;
+    const slider = getUiElement(`eq-slider-${bandIdx}`) as HTMLInputElement | null;
     if (slider && parseFloat(slider.value) !== value) setRangeValue(slider, value);
     syncEqPresetFromCurrentSliders();
   });
@@ -1244,6 +1227,6 @@ function switchSettingsSubtab(id: string): void {
   document
     .querySelectorAll<HTMLElement>('.settings-subtab-panel')
     .forEach((p) => p.classList.toggle('active', p.dataset.panel === id));
-  const settingsPanel = document.getElementById('tab-settings');
+  const settingsPanel = getUiElement('tab-settings');
   if (settingsPanel) bus.emit('ui:scrollbar-reveal', settingsPanel);
 }

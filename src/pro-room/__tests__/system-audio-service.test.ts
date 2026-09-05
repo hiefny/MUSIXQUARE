@@ -737,6 +737,85 @@ describe('PRO system-audio service orchestration', () => {
     );
   });
 
+  it.each(['activation', 'reconciliation'] as const)(
+    'does not complete a stopped direct publication after delayed %s',
+    async (boundary) => {
+      const pending = deferred<boolean>();
+      mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+      const delayed = boundary === 'activation' ? mocks.activateDirect : mocks.reconcileDirect;
+      delayed.mockReturnValue(pending.promise);
+      api.getSystemAudioState.mockResolvedValueOnce(idle());
+      api.acquireSystemAudioLease.mockResolvedValueOnce({
+        systemAudio: preparing(),
+        leaseId: LEASE_ID,
+      });
+      api.commitSystemAudioPublication.mockImplementationOnce(async (request) =>
+        localLiveWithPublication(request.publication),
+      );
+      api.releaseSystemAudioLease.mockResolvedValueOnce(idle(1));
+      await refreshProSystemAudioState();
+      await acquireLocalProSystemAudioLease();
+      const publishing = publishLocalProSystemAudio({ id: 'capture-a' } as MediaStreamTrack);
+      const outcome = publishing.then(
+        () => 'published',
+        () => 'superseded',
+      );
+      await vi.waitFor(() => expect(delayed.mock.calls.length).toBeGreaterThanOrEqual(2));
+      await releaseLocalProSystemAudioLease();
+      mocks.broadcastSystemMessage.mockClear();
+      pending.resolve(false);
+
+      expect(await outcome).toBe('superseded');
+      expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
+      expect(getProSystemAudioViewState().phase).toBe('idle');
+      expect(getManagedTimer('pro-system-audio-lease-heartbeat')).toBeNull();
+    },
+  );
+
+  it('does not promote a replacement direct publication when a stale activation fails', async () => {
+    const staleActivation = deferred<boolean>();
+    mocks.attemptDirect.mockImplementation(async (options) => directDescriptor(options));
+    mocks.activateDirect.mockImplementation((activation) =>
+      activation.generation === 1 ? staleActivation.promise : Promise.resolve(true),
+    );
+    api.getSystemAudioState.mockResolvedValueOnce(idle()).mockResolvedValueOnce(idle(1));
+    api.acquireSystemAudioLease
+      .mockResolvedValueOnce({ systemAudio: preparing(), leaseId: LEASE_ID })
+      .mockResolvedValueOnce({ systemAudio: preparing(2), leaseId: LEASE_ID });
+    api.commitSystemAudioPublication.mockImplementation(async (request) =>
+      localLiveWithPublication(request.publication, request.generation),
+    );
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    const publishing = publishLocalProSystemAudio({ id: 'capture-a' } as MediaStreamTrack);
+    const outcome = publishing.then(
+      () => 'published',
+      () => 'superseded',
+    );
+    await vi.waitFor(() =>
+      expect(mocks.activateDirect.mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
+
+    bindProSystemAudioSession(snapshot('presence_local_02'));
+    await refreshProSystemAudioState();
+    await acquireLocalProSystemAudioLease();
+    const replacement = await publishLocalProSystemAudio({ id: 'capture-b' } as MediaStreamTrack);
+    mocks.broadcastSystemMessage.mockClear();
+    mocks.resetDirect.mockClear();
+    mocks.stopPublisher.mockClear();
+    const heartbeat = getManagedTimer('pro-system-audio-lease-heartbeat');
+    expect(heartbeat).not.toBeNull();
+    staleActivation.resolve(false);
+
+    expect(await outcome).toBe('superseded');
+    expect(mocks.publish).not.toHaveBeenCalled();
+    expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
+    expect(mocks.resetDirect).not.toHaveBeenCalled();
+    expect(mocks.stopPublisher).not.toHaveBeenCalled();
+    expect(getProSystemAudioViewState().generation).toBe(replacement.generation);
+    expect(getManagedTimer('pro-system-audio-lease-heartbeat')).toBe(heartbeat);
+  });
+
   it('fences an authoritative local-direct activation to the latest known presence snapshot', async () => {
     const authority = deferred<ProRoomSystemAudioState>();
     api.getSystemAudioState.mockReturnValueOnce(authority.promise);
@@ -1359,6 +1438,47 @@ describe('PRO system-audio service orchestration', () => {
       track: { trackName: 'audio-stereo', mid: '0' },
     });
   });
+
+  it.each(['trusted-boundary', 'audio-resume'] as const)(
+    'does not resurrect a failed SFU subscriber after its %s wait settles',
+    async (boundary) => {
+      const graph = installAudioGraphHarness();
+      const pending = deferred<void>();
+      if (boundary === 'trusted-boundary') {
+        mocks.awaitTrustedReceptionBoundary.mockReturnValueOnce(pending.promise.then(() => true));
+      } else {
+        mocks.initAudio.mockReturnValueOnce(pending.promise);
+      }
+      api.getSystemAudioState.mockResolvedValueOnce(live());
+      await refreshProSystemAudioState();
+      await vi.waitFor(() => expect(mocks.subscribe).toHaveBeenCalledTimes(1));
+      const descriptor = mocks.subscribe.mock.calls[0][0];
+      let current = true;
+      mocks.sfuListener?.({
+        type: 'subscriber-track',
+        descriptor,
+        track: { id: 'failed-stereo' } as MediaStreamTrack,
+        isCurrent: () => current,
+      });
+      await vi.waitFor(() =>
+        expect(
+          boundary === 'trusted-boundary' ? mocks.awaitTrustedReceptionBoundary : mocks.initAudio,
+        ).toHaveBeenCalledOnce(),
+      );
+      current = false;
+      mocks.sfuListener?.({ type: 'subscriber-state', state: 'failed', descriptor });
+      expect(mocks.stopSubscriber).toHaveBeenCalled();
+      mocks.setSystemAudioReceiving.mockClear();
+      mocks.claimPlaybackOwner.mockClear();
+      pending.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      expect(graph.sources).toHaveLength(0);
+      expect(mocks.setSystemAudioReceiving).not.toHaveBeenCalledWith(true);
+      expect(mocks.claimPlaybackOwner).not.toHaveBeenCalled();
+      if (boundary === 'trusted-boundary') expect(mocks.initAudio).not.toHaveBeenCalled();
+    },
+  );
 
   it('returns a failed playing SFU subscription to pending until the retry track attaches', async () => {
     const graph = installAudioGraphHarness();

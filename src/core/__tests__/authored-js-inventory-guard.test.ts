@@ -78,12 +78,21 @@ describe('authored JavaScript inventory shrink-only guard', () => {
       'node --eval="console.log(1)"',
       'node -p "require(\'pkg\').version"',
       'node --input-type=module -e "await import(\'./tool.js\')"',
+      'node --no-warnings -e "console.log(1)"',
+      'node --trace-warnings --input-type module --eval="console.log(1)"',
+      'node.exe --no-deprecation --print "1"',
     ]) {
       expect(checkInlineNodeJavaScript('package.json', command)).toEqual([
         'Inline Node.js JavaScript is forbidden in package.json; use a typed script file.',
       ]);
     }
     expect(checkInlineNodeJavaScript('package.json', 'node scripts/check.mts')).toEqual([]);
+    expect(
+      checkInlineNodeJavaScript('package.json', 'node --no-warnings scripts/check.mts --eval text'),
+    ).toEqual([]);
+    expect(
+      checkInlineNodeJavaScript('package.json', 'node --title=--eval scripts/check.mts -p text'),
+    ).toEqual([]);
     expect(checkInlineNodeJavaScript('release.yml', 'npm exec wrangler --version')).toEqual([]);
   });
 

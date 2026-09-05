@@ -6,6 +6,7 @@ import { createDefaultRoomEffectsState } from '../../core/room-effects.ts';
 import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { getManagedTimer } from '../../core/timers.ts';
+import { capturePlaylistQueueModeState } from '../../player/playlist.ts';
 import type { QueueItemId } from '../../types/index.ts';
 import {
   ProRoomApiClient,
@@ -36,6 +37,8 @@ import { requestProRoomTransportRecovery } from '../transport-recovery.ts';
 import {
   acceptProRoomRealtimeFrameForTests,
   joinProRoom,
+  kickActiveProRoomMember,
+  kickActiveProRoomPresence,
   requestActiveProRoomPlaybackReconciliation,
   requestFirstAppendSelectionForTests,
 } from '../runtime.ts';
@@ -1007,6 +1010,204 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
     );
   });
 
+  it.each(['before', 'during'] as const)(
+    'preserves a repeat edit made %s an invalidation queue-mode read',
+    async (timing) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const mode = {
+        schemaVersion: 1 as const,
+        view: 'queue-mode' as const,
+        roomCode: ROOM_CODE,
+        revision: 1,
+        playlistRevision: 1,
+        updatedAtMs: 2,
+        repeatMode: 0 as const,
+        shuffleEnabled: false,
+        shuffleOrder: [],
+      };
+      let resolveRead!: (value: typeof mode) => void;
+      vi.mocked(ProRoomApiClient.prototype.getQueueMode).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveRead = resolve;
+          }),
+      );
+      const update = vi
+        .spyOn(ProRoomApiClient.prototype, 'updateQueueMode')
+        .mockImplementation(async (input) => ({
+          ...mode,
+          revision: 2,
+          repeatMode: input.repeatMode,
+          shuffleEnabled: input.shuffleEnabled,
+          shuffleOrder: input.shuffleOrder,
+        }));
+      restoreSpies.push(update);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue({
+        ...snapshot(),
+        revision: 2,
+        queueModeRevision: 1,
+        presence: { ...snapshot().presence, revision: 2 },
+      });
+      if (timing === 'before') setState('playlist.repeatMode', 1);
+      acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+      await vi.waitFor(() => expect(resolveRead).toBeTypeOf('function'));
+      if (timing === 'during') setState('playlist.repeatMode', 1);
+      resolveRead(mode);
+      await vi.waitFor(() => expect(update).toHaveBeenCalled());
+      expect(update.mock.calls.at(-1)?.[0].repeatMode).toBe(1);
+      expect(getState('playlist.repeatMode')).toBe(1);
+    },
+  );
+
+  it.each([false, true])(
+    'preserves a newer repeat edit after the preceding checkpoint (conflict=%s)',
+    async (conflict) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const mode = {
+        schemaVersion: 1 as const,
+        view: 'queue-mode' as const,
+        roomCode: ROOM_CODE,
+        revision: 1,
+        playlistRevision: 1,
+        updatedAtMs: 2,
+        repeatMode: 1 as const,
+        shuffleEnabled: false,
+        shuffleOrder: [],
+      };
+      let resolveUpdate!: (value: typeof mode) => void;
+      let rejectUpdate!: (error: unknown) => void;
+      const update = vi
+        .spyOn(ProRoomApiClient.prototype, 'updateQueueMode')
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              resolveUpdate = resolve;
+              rejectUpdate = reject;
+            }),
+        )
+        .mockImplementation(async (input) => ({
+          ...mode,
+          revision: 2,
+          repeatMode: input.repeatMode,
+        }));
+      restoreSpies.push(update);
+      setState('playlist.repeatMode', 1);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+      setState('playlist.repeatMode', 2);
+      vi.mocked(ProRoomApiClient.prototype.getQueueMode).mockResolvedValue(mode);
+      vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue({
+        ...snapshot(),
+        revision: 2,
+        queueModeRevision: 1,
+        presence: { ...snapshot().presence, revision: 2 },
+      });
+      acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      if (conflict) rejectUpdate(new ProRoomApiError('QUEUE_MODE_REVISION_CONFLICT', 409));
+      else resolveUpdate(mode);
+      await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+      expect(update.mock.calls[1]?.[0].repeatMode).toBe(2);
+      expect(getState('playlist.repeatMode')).toBe(2);
+    },
+  );
+
+  it.each([false, true])(
+    'applies canonical queue mode without newer local intent (conflict=%s)',
+    async (conflict) => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const mode = {
+        schemaVersion: 1 as const,
+        view: 'queue-mode' as const,
+        roomCode: ROOM_CODE,
+        revision: 1,
+        playlistRevision: 1,
+        updatedAtMs: 2,
+        repeatMode: 2 as const,
+        shuffleEnabled: true,
+        shuffleOrder: [QUEUE_ITEM_ID],
+      };
+      vi.mocked(ProRoomApiClient.prototype.getQueueMode).mockResolvedValue(mode);
+      const update = vi
+        .spyOn(ProRoomApiClient.prototype, 'updateQueueMode')
+        .mockRejectedValue(new ProRoomApiError('QUEUE_MODE_REVISION_CONFLICT', 409));
+      restoreSpies.push(update);
+      if (conflict) {
+        setState('playlist.repeatMode', 1);
+        await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+      } else {
+        vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue({
+          ...snapshot(),
+          revision: 2,
+          queueModeRevision: 1,
+          presence: { ...snapshot().presence, revision: 2 },
+        });
+        acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+      }
+      await vi.waitFor(() => expect(getState('playlist.repeatMode')).toBe(2));
+      expect(getState('playlist.isShuffle')).toBe(true);
+      expect(capturePlaylistQueueModeState().shuffleOrder).toEqual([QUEUE_ITEM_ID]);
+      if (!conflict) expect(update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('preserves a newer shuffle-off edit while keeping the incoming repeat setting', async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const mode = {
+      schemaVersion: 1 as const,
+      view: 'queue-mode' as const,
+      roomCode: ROOM_CODE,
+      revision: 1,
+      playlistRevision: 1,
+      updatedAtMs: 2,
+      repeatMode: 0 as 0 | 1 | 2,
+      shuffleEnabled: true,
+      shuffleOrder: [QUEUE_ITEM_ID],
+    };
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    const read = vi.mocked(ProRoomApiClient.prototype.getQueueMode).mockResolvedValue(mode);
+    heartbeat.mockResolvedValue({
+      ...snapshot(),
+      revision: 2,
+      queueModeRevision: 1,
+      presence: { ...snapshot().presence, revision: 2 },
+    });
+    acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+    await vi.waitFor(() => expect(getState('playlist.isShuffle')).toBe(true));
+    let resolveRead!: (value: typeof mode) => void;
+    read.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve;
+        }),
+    );
+    const update = vi
+      .spyOn(ProRoomApiClient.prototype, 'updateQueueMode')
+      .mockImplementation(async (input) => ({
+        ...mode,
+        revision: 3,
+        repeatMode: input.repeatMode,
+        shuffleEnabled: input.shuffleEnabled,
+        shuffleOrder: input.shuffleOrder,
+      }));
+    restoreSpies.push(update);
+    heartbeat.mockResolvedValue({
+      ...snapshot(),
+      revision: 3,
+      queueModeRevision: 2,
+      presence: { ...snapshot().presence, revision: 3 },
+    });
+    acceptProRoomRealtimeFrameForTests(serverFrame({ type: 'pro-room-invalidated' }));
+    await vi.waitFor(() => expect(resolveRead).toBeTypeOf('function'));
+    setState('playlist.isShuffle', false);
+    resolveRead({ ...mode, revision: 2, repeatMode: 2 });
+    await vi.waitFor(() => expect(update).toHaveBeenCalled());
+    expect(update.mock.calls.at(-1)?.[0]).toMatchObject({
+      repeatMode: 2,
+      shuffleEnabled: false,
+      shuffleOrder: [],
+    });
+  });
+
   it('coalesces pending effects and queue-mode GETs then follows the newest revision once', async () => {
     const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
     const getSettingsSync = vi.mocked(ProRoomApiClient.prototype.getSettingsSync);
@@ -1746,6 +1947,95 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       baseRevision: 0,
     });
   });
+
+  it.each([
+    ['kickMember', 'SESSION_REQUIRED', 401],
+    ['kickMember', 'PERMISSION_REQUIRED', 403],
+    ['kickPresence', 'SESSION_REQUIRED', 401],
+    ['kickPresence', 'PERMISSION_REQUIRED', 403],
+  ] as const)('fences a stale %s failure %s after rejoining', async (method, code, status) => {
+    let rejectKick!: (reason: unknown) => void;
+    const kick = vi.spyOn(ProRoomApiClient.prototype, method).mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectKick = reject;
+        }),
+    );
+    restoreSpies.push(kick);
+    const operation =
+      method === 'kickMember'
+        ? kickActiveProRoomMember('member_target_0001')
+        : kickActiveProRoomPresence('participant_target_0001');
+    const rejected = expect(operation).rejects.toMatchObject({
+      code: 'PRO_ROOM_SESSION_SUPERSEDED',
+    });
+    await vi.waitFor(() => expect(kick).toHaveBeenCalledOnce());
+    requestProRoomLeave();
+    await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    rejectKick(new ProRoomApiError(code, status));
+    await rejected;
+    expect(getState('room.context')).toMatchObject({ kind: 'pro', roomId: ROOM_CODE });
+  });
+
+  it.each([
+    ['kickMember', 'SESSION_REQUIRED', 401],
+    ['kickMember', 'PERMISSION_REQUIRED', 403],
+    ['kickPresence', 'SESSION_REQUIRED', 401],
+    ['kickPresence', 'PERMISSION_REQUIRED', 403],
+  ] as const)('preserves the current session %s failure %s', async (method, code, status) => {
+    const failure = new ProRoomApiError(code, status);
+    const kick = vi.spyOn(ProRoomApiClient.prototype, method).mockRejectedValueOnce(failure);
+    restoreSpies.push(kick);
+    const operation =
+      method === 'kickMember'
+        ? kickActiveProRoomMember('member_target_0001')
+        : kickActiveProRoomPresence('participant_target_0001');
+    await expect(operation).rejects.toBe(failure);
+  });
+
+  it.each([false, true])(
+    'recovers a terminal chat kick only while its session remains current (rejoined=%s)',
+    async (rejoined) => {
+      requestProRoomLeave();
+      await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+      const withTarget = snapshot();
+      withTarget.presence.participants.push({
+        participantId: 'participant_target_0001',
+        memberId: 'member_target_0001',
+        memberDisplayNumber: 1,
+        isAuthenticated: false,
+        displayName: 'Target',
+        devicePlatform: 'other',
+        role: 'member',
+        capabilities: [],
+        joinedAtMs: 2,
+      });
+      vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(withTarget);
+      await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      let rejectKick!: (reason: unknown) => void;
+      const kick = vi.spyOn(ProRoomApiClient.prototype, 'kickMember').mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectKick = reject;
+          }),
+      );
+      restoreSpies.push(kick);
+      bus.emit('pro-room:kick-member', 'member_target_0001');
+      await vi.waitFor(() => expect(kick).toHaveBeenCalledOnce());
+      if (rejoined) {
+        requestProRoomLeave();
+        await vi.waitFor(() => expect(getState('room.context').kind).toBe('standard'));
+        await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+      }
+      const closeSession = vi.mocked(ProRoomApiClient.prototype.closeSessionFenced);
+      const closeCallsBeforeFailure = closeSession.mock.calls.length;
+      rejectKick(new ProRoomApiError('SESSION_REQUIRED', 401));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(getState('room.context').kind).toBe(rejoined ? 'pro' : 'standard');
+      if (rejoined) expect(closeSession).toHaveBeenCalledTimes(closeCallsBeforeFailure);
+    },
+  );
 
   it('does not let a late terminal command error close a new room incarnation', async () => {
     let rejectAbandoned!: (reason: unknown) => void;
@@ -2779,8 +3069,8 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       playback: playback(1),
       serverTimeMs: 10_200,
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    // Drain the command tail through a full task turn before asserting no HTTP submission.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     expect(executeCommand).toHaveBeenCalledTimes(1);
     expect(executeCommand.mock.calls[0]?.[0].command).toEqual({
@@ -2837,8 +3127,8 @@ describe.sequential('coordinator-free PRO playback runtime', () => {
       playback: playback(1),
       serverTimeMs: 10_200,
     });
-    await Promise.resolve();
-    await Promise.resolve();
+    // Drain the command tail through a full task turn before asserting no HTTP submission.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
     // A buggy queue would submit ENDED with baseRevision 2 here. The exact
     // observation fence drops it before HTTP instead.

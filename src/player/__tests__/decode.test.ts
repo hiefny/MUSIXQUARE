@@ -10,6 +10,7 @@ import { DEMO_TRACK } from '../../demo/tracks.ts';
 import { handleData } from '../../network/protocol.ts';
 import {
   getCurrentLoadEpoch,
+  getCurrentAudioBuffer,
   getPendingPlayTime,
   newLoadEpoch,
   setCurrentAudioBuffer,
@@ -553,8 +554,97 @@ describe('guest file finalization sync', () => {
     expect(mocks.sendRecoveryRequest).not.toHaveBeenCalled();
     expect(getState('player.decodeFailureCount')).toBe(0); // counter untouched
     expect(getState('transfer.receivedCount')).toBe(7); // successor transfer state untouched
-    expect(mocks.showLoader).toHaveBeenLastCalledWith(false); // finally still runs
+    expect(mocks.showLoader).not.toHaveBeenCalledWith(false); // successor owns the loader
   });
+
+  it.each(['prepare', 'receiving', 'finalizing'] as const)(
+    'preserves a successor loader while %s when an older native decode settles',
+    async (successorPhase) => {
+      const first = makeTrack('first.mp3');
+      const second = makeTrack('second.mp3');
+      const firstFile = new File([new Uint8Array([1, 2, 3])], first.name);
+      const secondFile = new File([new Uint8Array([4, 5, 6])], second.name);
+      setState('network.hostConn', makeConnection('host'));
+      setState('playlist.items', [first, second]);
+      setCurrentIndex(0);
+      stageMainTransfer(first, firstFile, 1);
+
+      let finishFirst!: (value: AudioBuffer) => void;
+      let finishSecond!: (value: AudioBuffer) => void;
+      mocks.decodeAudioData
+        .mockReset()
+        .mockImplementationOnce(
+          () =>
+            new Promise<AudioBuffer>((resolve) => {
+              finishFirst = resolve;
+            }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise<AudioBuffer>((resolve) => {
+              finishSecond = resolve;
+            }),
+        );
+      const { finalizeGuestFile } = await import('../decode.ts');
+      const firstFinalize = finalizeGuestFile(firstFile, first.queueItemId, 1);
+      await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
+
+      // PREPARE/START replace transfer ownership without allocating M2. A
+      // second finalizer also replaces M2; all three own the default loader.
+      setCurrentIndex(1);
+      stageMainTransfer(second, secondFile, 2);
+      setState('transfer.state', successorPhase === 'prepare' ? 'IDLE' : 'RECEIVING');
+      mocks.showLoader(true, 'second is loading');
+      const secondFinalize =
+        successorPhase === 'finalizing'
+          ? finalizeGuestFile(secondFile, second.queueItemId, 2)
+          : null;
+      if (secondFinalize) {
+        await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
+      }
+      mocks.showLoader.mockClear();
+
+      finishFirst({ duration: 120 } as AudioBuffer);
+      await firstFinalize;
+      expect(mocks.showLoader).not.toHaveBeenCalledWith(false);
+
+      if (secondFinalize) {
+        finishSecond({ duration: 120 } as AudioBuffer);
+        await secondFinalize;
+        expect(mocks.showLoader).toHaveBeenLastCalledWith(false);
+      }
+    },
+  );
+
+  it.each(['success', 'failure'] as const)(
+    'releases its own loader after %s even when the load epoch changes',
+    async (outcome) => {
+      const item = makeTrack('current.mp3');
+      const file = new File([new Uint8Array([1, 2, 3])], item.name);
+      setState('network.hostConn', makeConnection('host'));
+      setState('playlist.items', [item]);
+      setCurrentIndex(0);
+      stageMainTransfer(item, file, 7);
+      let finish!: (value: AudioBuffer) => void;
+      let fail!: (reason: Error) => void;
+      mocks.decodeAudioData.mockReset().mockImplementationOnce(
+        () =>
+          new Promise<AudioBuffer>((resolve, reject) => {
+            finish = resolve;
+            fail = reject;
+          }),
+      );
+      const { finalizeGuestFile } = await import('../decode.ts');
+      const finalizing = finalizeGuestFile(file, item.queueItemId, 7);
+      await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1));
+      newLoadEpoch(); // watchdog/cancelInFlight does not supersede guest-finalize ownership.
+      mocks.showLoader.mockClear();
+      if (outcome === 'success') finish({ duration: 120 } as AudioBuffer);
+      else fail(new Error('decode failed'));
+      await finalizing;
+      expect(mocks.showLoader).toHaveBeenLastCalledWith(false);
+    },
+  );
 });
 
 describe('host preload activation result (SA-05)', () => {
@@ -1203,6 +1293,49 @@ describe('native decoder deadline policy', () => {
 // Superseded host loads are inert on both success and failure. Neither path may
 // publish, fail, auto-advance, or restore a track after playlist teardown.
 describe('superseded host load is inert (rapid-click / remove-track supersession)', () => {
+  it.each(['host', 'demo'] as const)(
+    'does not clear a successor buffer when the old %s audio initialization settles late',
+    async (kind) => {
+      const { initAudio } = await import('../../audio/engine.ts');
+      let finishOldInit!: () => void;
+      // An already-built graph resumes its context without the graph-creation
+      // single flight. A later gesture can leave it running while the older
+      // native resume promise is still pending.
+      vi.mocked(initAudio).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            finishOldInit = resolve;
+          }),
+      );
+      const fileA = new File([new Uint8Array([1])], 'old.mp3', { type: 'audio/mpeg' });
+      const fileB = new File([new Uint8Array([2])], 'current.mp3', { type: 'audio/mpeg' });
+      const itemA = makeFileTrack(fileA);
+      const itemB = makeFileTrack(fileB);
+      setState('playlist.items', [itemA, itemB]);
+      setCurrentIndex(0);
+      const { loadAndBroadcastFile, loadDemoFile } = await import('../decode.ts');
+      const oldLoad =
+        kind === 'host'
+          ? loadAndBroadcastFile(fileA, itemA.queueItemId, 1, getCurrentLoadEpoch())
+          : loadDemoFile(fileA, itemA, getCurrentLoadEpoch());
+      const nextEpoch = newLoadEpoch();
+      setCurrentIndex(1);
+      const nextBuffer = { duration: 120 } as AudioBuffer;
+      mocks.decodeAudioData.mockResolvedValueOnce(nextBuffer);
+      expect(await loadAndBroadcastFile(fileB, itemB.queueItemId, 2, nextEpoch)).toBe(true);
+      expect(getCurrentAudioBuffer()).toBe(nextBuffer);
+      mocks.showToast.mockClear();
+
+      finishOldInit();
+      await oldLoad;
+
+      expect(getCurrentAudioBuffer()).toBe(nextBuffer);
+      expect(getState('files.current')?.blob).toBe(fileB);
+      expect(mocks.decodeAudioData).toHaveBeenCalledTimes(1);
+      expect(mocks.showToast).not.toHaveBeenCalled();
+    },
+  );
+
   function deferredDecode(): {
     promise: Promise<{ duration: number }>;
     resolve: (v: { duration: number }) => void;
@@ -1302,9 +1435,8 @@ describe('superseded host load is inert (rapid-click / remove-track supersession
   it('starts a superseding decode immediately when both native leases fit together', async () => {
     const makeProjectedFile = (name: string): File => {
       const file = new File([new Uint8Array([1])], name, { type: 'audio/mpeg' });
-      // Unknown-duration desktop admission projects each 4 MiB file to a
-      // 264 MiB decode footprint. Two fit the 768 MiB standard budget, while
-      // counting A's global lease twice would falsely project 792 MiB.
+      // Unknown-duration accounting projects each 4 MiB file to a 264 MiB
+      // decode footprint. Its diagnostic reservation must not delay B.
       Object.defineProperty(file, 'size', { configurable: true, value: 4 * 1024 * 1024 });
       vi.spyOn(file, 'arrayBuffer').mockResolvedValue(new Uint8Array([1]).buffer);
       return file;
@@ -1328,8 +1460,7 @@ describe('superseded host load is inert (rapid-click / remove-track supersession
     setCurrentIndex(1);
     const pB = loadAndBroadcastFile(fileB, itemB.queueItemId, 2, epochB);
 
-    // B must enter native decode while superseded A is still settling. A
-    // double-counted reservation would leave B waiting here for A's release.
+    // B must enter native decode while superseded A is still settling.
     await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
     await expect(pB).resolves.toBe(true);
 
@@ -1338,11 +1469,12 @@ describe('superseded host load is inert (rapid-click / remove-track supersession
     expect(getState('files.current')?.blob).toBe(fileB);
   });
 
-  it('waits for a superseded native decode reservation instead of failing the next track', async () => {
+  it('starts a superseding decode above the former predictive budget while the old decode is pending', async () => {
     const makeProjectedFile = (name: string): File => {
       const file = new File([new Uint8Array([1])], name, { type: 'audio/mpeg' });
       // A 6 MiB unknown-duration input projects to 384 MiB PCM plus 12 MiB
-      // encoded working copies. Each fits the standard tier alone; two do not.
+      // encoded working copies. Together they exceed the former 768 MiB budget,
+      // which remains diagnostic and must not delay the next track.
       Object.defineProperty(file, 'size', { configurable: true, value: 6 * 1024 * 1024 });
       vi.spyOn(file, 'arrayBuffer').mockResolvedValue(new Uint8Array([1]).buffer);
       return file;
@@ -1365,28 +1497,17 @@ describe('superseded host load is inert (rapid-click / remove-track supersession
     const epochB = newLoadEpoch();
     setCurrentIndex(1);
     const pB = loadAndBroadcastFile(fileB, itemB.queueItemId, 2, epochB);
-    let bSettled = false;
-    void pB.then(
-      () => {
-        bSettled = true;
-      },
-      () => {
-        bSettled = true;
-      },
-    );
-    await Promise.resolve();
-
-    expect(fileB.arrayBuffer).not.toHaveBeenCalled();
-    expect(mocks.decodeAudioData).toHaveBeenCalledOnce();
-    expect(bSettled).toBe(false);
-
-    // Supersession does not cancel decodeAudioData. Only native settlement
-    // releases A's reservation; B then re-runs admission and decodes normally.
-    decodeA.resolve({ duration: 120 });
-    await expect(pA).resolves.toBe(false);
-    await expect(pB).resolves.toBe(true);
-    expect(fileB.arrayBuffer).toHaveBeenCalledOnce();
-    expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2);
+    try {
+      // Observe B's real decode and completion before allowing native A to
+      // settle, so an early microtask cannot masquerade as admission waiting.
+      await vi.waitFor(() => expect(mocks.decodeAudioData).toHaveBeenCalledTimes(2));
+      await expect(pB).resolves.toBe(true);
+      expect(fileB.arrayBuffer).toHaveBeenCalledOnce();
+    } finally {
+      decodeA.resolve({ duration: 120 });
+      await expect(pA).resolves.toBe(false);
+      await pB;
+    }
     expect(getState('files.current')?.blob).toBe(fileB);
     expect(mocks.broadcastSystemMessage).not.toHaveBeenCalled();
   });

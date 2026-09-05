@@ -12,7 +12,7 @@ export const DEFAULT_INVENTORY_PATH =
 const AUTHORED_JAVASCRIPT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.jsx']);
 const SOURCE_STATUSES = new Set(['remaining', 'retired']);
 const INLINE_NODE_JAVASCRIPT_PATTERN =
-  /(?:^|[\s;&|()"'`])node(?:\.exe)?\s+(?:(?:--input-type(?:=|\s+)\S+)\s+)*(?:-e|--eval|-p|--print)(?=\s|=)/u;
+  /(?:^|[\s;&|()"'`])node(?:\.exe)?\s+(?:(?:--input-type(?:=|\s+)\S+|--[a-z][a-z0-9-]*(?:=\S+)?)\s+)*(?:-e|--eval|-p|--print)(?=\s|=)/u;
 
 export type AuthoredJavaScriptStatus = 'remaining' | 'retired';
 

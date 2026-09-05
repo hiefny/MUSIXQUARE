@@ -33,6 +33,7 @@ import {
   type ProRoomPlaylistStateApiForTests,
 } from '../playlist-state-manager.ts';
 import { parseProRoomSnapshot } from '../snapshot.ts';
+import { createAtomicRateControlBinding } from '../../core/__tests__/service-control-rate-limit-fixture.ts';
 
 interface ProMediaCorsRule {
   allowed: {
@@ -100,6 +101,15 @@ class LazyEntitlementD1 {
         room_generation INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE mxqr_pro_room_admin_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        actor_id TEXT NOT NULL,
+        action TEXT NOT NULL,
+        result TEXT NOT NULL,
+        room_code TEXT NOT NULL,
+        room_generation INTEGER NOT NULL DEFAULT 0 CHECK (room_generation >= 0),
+        created_at INTEGER NOT NULL
       );
     `);
     database
@@ -885,6 +895,77 @@ describe('PRO room server-authoritative playback', () => {
       await expect(response.json()).resolves.toEqual({ error: 'PLAYLIST_MANIFEST_REQUIRED' });
     }
   });
+
+  it.each([
+    { initialState: 'idle', positionSeconds: 0, commandType: 'stop' },
+    { initialState: 'paused', positionSeconds: 0, commandType: 'stop' },
+    { initialState: 'paused', positionSeconds: 17, commandType: 'pause' },
+  ] as const)(
+    'supersedes pending playback with $commandType while canonically $initialState',
+    async ({ initialState, positionSeconds, commandType }) => {
+      const context = await activatedRoom();
+      const realtime = installRealtimeRecorder(context);
+      expect(
+        (await replacePlaylist(context, duplicateVideoPlaylist, 'authority-sound-off')).status,
+      ).toBe(200);
+      if (initialState === 'paused') {
+        await selectAndCommit(context, firstQueueItemId, {
+          state: 'paused',
+          positionSeconds,
+        });
+      }
+      const baseRevision = realtime.internal.room.playback.revision;
+      const preparing = await context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          { type: 'select', baseRevision, queueItemId: secondQueueItemId },
+          context.ownerCookie,
+          'authority-pending-sound-on',
+        ),
+      );
+      expect(preparing.status).toBe(202);
+      const pending = await responseJson(preparing);
+      const soundOff = () =>
+        context.worker.fetch(
+          jsonRequest(
+            '/playback/commands',
+            'POST',
+            { type: commandType, baseRevision },
+            context.ownerCookie,
+            'authority-pending-sound-off',
+          ),
+        );
+      const stopped = await soundOff();
+      expect(stopped.status).toBe(200);
+      const result = await responseJson(stopped);
+      expect(result.playback).toMatchObject({
+        state: initialState,
+        positionSeconds: commandType === 'stop' ? 0 : positionSeconds,
+      });
+      const lateReady = await context.worker.fetch(
+        jsonRequest(
+          `/playback/transitions/${pending.transition.transitionId}/ready`,
+          'POST',
+          { basePlaybackRevision: baseRevision, status: 'ready' },
+          context.ownerCookie,
+        ),
+      );
+      expect(lateReady.status).toBe(404);
+      expect(realtime.internal.room.pendingPlaybackTransition).toBeNull();
+      expect(realtime.internal.room.playback.state).toBe(initialState);
+      expect(
+        realtime.messages.filter(
+          (message) =>
+            message.event?.type === 'pro-playback-cancel' &&
+            message.event.transitionId === pending.transition.transitionId,
+        ),
+      ).toHaveLength(1);
+      const eventCount = realtime.messages.length;
+      await expect((await soundOff()).json()).resolves.toEqual(result);
+      expect(realtime.messages).toHaveLength(eventCount);
+    },
+  );
 
   it('rendezvous-loads once, coalesces duplicate ended observations, and commits at the deadline', async () => {
     const context = await activatedRoom();
@@ -2062,6 +2143,87 @@ describe('PRO room server-authoritative playback', () => {
     ).toEqual([]);
   });
 
+  it.each([200, 503])(
+    'preserves playback dispatch state when a snapshot queues during signaling HTTP %i',
+    async (dispatchStatus) => {
+      vi.useFakeTimers();
+      const startedAtMs = Date.UTC(2026, 8, 5);
+      vi.setSystemTime(startedAtMs);
+      const context = await activatedRoom();
+      const internal = context.worker as unknown as {
+        env: Record<string, any>;
+        room: Record<string, any>;
+        ensureReady(request: Request): Promise<boolean>;
+        withMutation<T>(operation: () => Promise<T>): Promise<T>;
+      };
+      internal.room.pendingPresenceBroadcast = null;
+      expect(
+        (await replacePlaylist(context, duplicateVideoPlaylist, 'outbox-queued-normalization'))
+          .status,
+      ).toBe(200);
+      let enteredDispatch!: () => void;
+      const dispatchStarted = new Promise<void>((resolve) => {
+        enteredDispatch = resolve;
+      });
+      let finishDispatch!: (response: Response) => void;
+      const dispatchResponse = new Promise<Response>((resolve) => {
+        finishDispatch = resolve;
+      });
+      internal.env.PRO_SIGNALING_ROOMS = {
+        idFromName: (value: string) => value,
+        get: () => ({
+          fetch: () => {
+            enteredDispatch();
+            return dispatchResponse;
+          },
+        }),
+      };
+      const command = context.worker.fetch(
+        jsonRequest(
+          '/playback/commands',
+          'POST',
+          {
+            type: 'select',
+            baseRevision: internal.room.playback.revision,
+            queueItemId: firstQueueItemId,
+          },
+          context.ownerCookie,
+          'outbox-queued-normalization-command',
+        ),
+      );
+      await dispatchStarted;
+      const currentRecord = internal.room.pendingPlaybackBroadcasts[0];
+      const normalization = vi.spyOn(internal, 'ensureReady');
+      const mutation = vi.spyOn(internal, 'withMutation');
+      const snapshot = context.worker.fetch(request('/snapshot', {}, context.ownerCookie));
+      await vi.waitFor(() => expect(mutation).toHaveBeenCalled());
+      expect(normalization).not.toHaveBeenCalled();
+      expect(internal.room.pendingPlaybackBroadcasts[0]).toBe(currentRecord);
+      finishDispatch(
+        Response.json({ broadcast: true, eligible: 1, sent: 1 }, { status: dispatchStatus }),
+      );
+      expect((await command).status).toBe(202);
+      expect((await snapshot).status).toBe(200);
+      const stored = context.state.storage.data.get('pro-room:v2:core') as {
+        core: Record<string, any>;
+      };
+      if (dispatchStatus === 200) {
+        expect(internal.room.pendingPlaybackBroadcasts).toEqual([]);
+        expect(stored.core.pendingPlaybackBroadcasts).toEqual([]);
+      } else {
+        expect(internal.room.pendingPlaybackBroadcasts[0]).toMatchObject({
+          attempts: 1,
+          retryAtMs: startedAtMs + 1_000,
+        });
+        expect(stored.core.pendingPlaybackBroadcasts[0]).toMatchObject({
+          attempts: 1,
+          retryAtMs: startedAtMs + 1_000,
+        });
+        expect(context.state.storage.alarm).toBe(startedAtMs + 1_000);
+      }
+    },
+  );
+
   it('keeps a failed playback dispatch durable and clears it after a restarted alarm retry', async () => {
     vi.useFakeTimers();
     const startedAtMs = Date.UTC(2026, 6, 20, 1, 2, 3);
@@ -2609,6 +2771,179 @@ function detachRequest(cookie: string): Request {
 }
 
 describe('PRO room Worker health', () => {
+  it.each(['status', 'suspend'] as const)(
+    'preserves a completed admin resume when an earlier canonical %s response arrives late',
+    async (delayedRoute) => {
+      const context = await activatedRoom();
+      const internal = context.worker as unknown as {
+        env: ReturnType<typeof environment>;
+      };
+      let holdStatus = false;
+      let statusCaptured!: () => void;
+      let releaseStatus!: () => void;
+      const captured = new Promise<void>((resolve) => {
+        statusCaptured = resolve;
+      });
+      const released = new Promise<void>((resolve) => {
+        releaseStatus = resolve;
+      });
+      const namespace = {
+        idFromName: (name: string) => name,
+        get: () => ({
+          async fetch(input: Request) {
+            // The real DO mutation lane has already completed before the binding
+            // response is delayed; a later admin operation can legally proceed.
+            const response = await context.worker.fetch(input);
+            if (holdStatus && new URL(input.url).pathname === `/internal/admin/${delayedRoute}`) {
+              holdStatus = false;
+              await expect(response.clone().json()).resolves.toMatchObject({ status: 'suspended' });
+              statusCaptured();
+              await released;
+            }
+            return response;
+          },
+        }),
+      };
+      const env = {
+        ...internal.env,
+        MXQR_ADMIN_PASSWORD: 'admin-password-strong',
+        MXQR_ADMIN_SESSION_SECRET: 'test-admin-session-secret-at-least-32',
+        MUSIXQUARE_SERVICE_CONTROL: createAtomicRateControlBinding().binding,
+        PRO_ROOM_ADMIN_ROOMS: namespace,
+        PRO_ROOMS: namespace,
+      };
+      const headers = {
+        Origin: 'https://musixquare.com',
+        'Content-Type': 'application/json',
+        'X-MXQR-Admin-CSRF': '1',
+        'CF-Connecting-IP': '203.0.113.212',
+      };
+      const login = await appWorker.fetch(
+        new Request('https://musixquare.com/api/admin/login', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ password: env.MXQR_ADMIN_PASSWORD }),
+        }),
+        env as never,
+      );
+      expect(login.status).toBe(200);
+      const adminHeaders = { ...headers, Cookie: cookieFrom(login) };
+      const changeState = (status: string) =>
+        appWorker.fetch(
+          new Request(`https://musixquare.com/api/admin/pro-rooms/${ROOM_CODE}/state`, {
+            method: 'POST',
+            headers: adminHeaders,
+            body: JSON.stringify({ roomGeneration: 0, status }),
+          }),
+          env as never,
+        );
+      if (delayedRoute === 'status') {
+        expect((await changeState('suspended')).status).toBe(200);
+        const registeredAgain = await appWorker.fetch(
+          new Request('https://musixquare.com/api/admin/pro-rooms', {
+            method: 'POST',
+            headers: adminHeaders,
+            body: JSON.stringify({ roomCode: ROOM_CODE }),
+          }),
+          env as never,
+        );
+        expect(registeredAgain.status).toBe(200);
+        await expect(registeredAgain.json()).resolves.toMatchObject({
+          room: {
+            status: 'suspended',
+            suspensionReason: 'operator_suspended',
+          },
+        });
+      }
+      holdStatus = true;
+      const oldList =
+        delayedRoute === 'suspend'
+          ? changeState('suspended')
+          : appWorker.fetch(
+              new Request('https://musixquare.com/api/admin/pro-rooms', {
+                headers: adminHeaders,
+              }),
+              env as never,
+            );
+      await captured;
+      expect((await changeState('active')).status).toBe(200);
+      releaseStatus();
+      expect((await oldList).status).toBe(delayedRoute === 'status' ? 200 : 409);
+      const row = await env.MUSIXQUARE_ADMIN_DB.prepare(
+        'SELECT status, suspension_reason FROM mxqr_pro_room_registry WHERE room_code = ?1',
+      )
+        .bind(ROOM_CODE)
+        .first();
+      expect.soft(row).toMatchObject({ status: 'registered', suspension_reason: null });
+      const admitted = await proRoomWorker.fetch(
+        new Request(`https://pro.musixquare.com/v1/rooms/${ROOM_CODE}/sessions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ pin: '12345678', requestId: 'fresh-session-after-resume' }),
+        }),
+        env as never,
+      );
+      expect(admitted.status).toBe(200);
+    },
+  );
+
+  it('keeps operational projections private, exact, and closed on D1 failure or terminal rows', async () => {
+    const context = await activatedRoom();
+    const internal = context.worker as unknown as { env: ReturnType<typeof environment> };
+    const db = internal.env.MUSIXQUARE_ADMIN_DB;
+    const projection = (body: unknown, generation = '0') =>
+      context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/status/project', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': generation,
+          },
+          body: JSON.stringify(body),
+        }),
+      );
+    const active = { status: 'active', suspensionReason: null, roomGeneration: 0 };
+    expect((await projection({ ...active, extra: true })).status).toBe(400);
+    expect((await projection({ ...active, roomGeneration: 1 })).status).toBe(400);
+    expect((await projection(active, '1')).status).toBe(404);
+    expect(
+      (await projection({ ...active, status: 'suspended', suspensionReason: 'operator_suspended' }))
+        .status,
+    ).toBe(409);
+    const original = db.prepare.bind(db);
+    const unavailable = vi.spyOn(db, 'prepare').mockImplementation((sql) => {
+      if (/UPDATE mxqr_pro_room_registry/.test(sql)) throw new Error('D1 unavailable');
+      return original(sql);
+    });
+    expect((await projection(active)).status).toBe(503);
+    unavailable.mockRestore();
+    expect((await projection(active)).status).toBe(200);
+    await db
+      .prepare("UPDATE mxqr_pro_room_registry SET status = 'decommissioning' WHERE room_code = ?1")
+      .bind(ROOM_CODE)
+      .run();
+    expect((await projection(active)).status).toBe(409);
+    await expect(
+      db
+        .prepare('SELECT status FROM mxqr_pro_room_registry WHERE room_code = ?1')
+        .bind(ROOM_CODE)
+        .first(),
+    ).resolves.toMatchObject({ status: 'decommissioning' });
+    const exposed = await proRoomWorker.fetch(
+      new Request(
+        `https://pro.musixquare.com/v1/rooms/${ROOM_CODE}/internal/admin/status/project`,
+        {
+          method: 'POST',
+          headers: { Origin: 'https://musixquare.com', 'content-type': 'application/json' },
+          body: JSON.stringify(active),
+        },
+      ),
+      internal.env as never,
+    );
+    expect(exposed.status).toBe(404);
+  });
+
   it('publishes the exact deployed Worker version for release readiness checks', async () => {
     const response = await proRoomWorker.fetch(new Request('https://pro.musixquare.com/health'), {
       ...environment(),
@@ -3854,6 +4189,118 @@ describe('PRO room server BOT boundary', () => {
     await expect(conflict.json()).resolves.toEqual({ error: 'IDEMPOTENCY_CONFLICT' });
     expect(internal.room.playlist).toHaveLength(1);
   });
+
+  it('rejects a BOT execution before publishing a queue commit when its terminal receipt has no capacity', async () => {
+    const { worker, state, ownerCookie } = await activatedRoom();
+    const requestId = 'bot-execute-terminal-capacity';
+    const context = await responseJson(
+      await internalBotRequest(
+        worker,
+        'context',
+        {
+          roomCode: ROOM_CODE,
+          requestId,
+          prompt: 'add a song',
+        },
+        ownerCookie,
+      ),
+    );
+    for (let index = 0; Object.keys(worker.room!.idempotency).length < 256; index += 1) {
+      worker.storeIdempotency(
+        `participant:existing-${index}:compact`,
+        `existing-receipt-${index}`,
+        'f'.repeat(43),
+        { ok: true },
+      );
+    }
+    await worker.persist();
+    const before = storedCanonicalRoom(state);
+    const committedRevisions: number[] = [];
+    const put = state.storage.put.bind(state.storage);
+    const putSpy = vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
+      await put(key, value);
+      if (key === 'pro-room:v2:core')
+        committedRevisions.push(storedCanonicalRoom(state).playlistRevision);
+    });
+    const result = await internalBotRequest(
+      worker,
+      'execute',
+      {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken: context.leaseToken,
+        plan: { intent: 'add_youtube', trackQueries: ['one song'], playAddedIndex: -1 },
+        tracks: [{ videoId: 'dQw4w9WgXcQ', name: 'Capacity song' }],
+      },
+      ownerCookie,
+    );
+    putSpy.mockRestore();
+    expect(result.status).toBe(409);
+    expect(committedRevisions.every((revision) => revision === before.playlistRevision)).toBe(true);
+    expect(storedCanonicalRoom(state).playlist).toEqual(before.playlist);
+  });
+
+  it.each(['queue', 'terminal'] as const)(
+    'restores only the failed BOT %s transaction and retries without ghost receipts',
+    async (failureStage) => {
+      const { worker, state, ownerCookie } = await activatedRoom();
+      const requestId = `bot-execute-transaction-${failureStage}`;
+      const context = await responseJson(
+        await internalBotRequest(
+          worker,
+          'context',
+          {
+            roomCode: ROOM_CODE,
+            requestId,
+            prompt: 'add a song',
+          },
+          ownerCookie,
+        ),
+      );
+      const body = {
+        roomCode: ROOM_CODE,
+        requestId,
+        leaseToken: context.leaseToken,
+        plan: { intent: 'add_youtube', trackQueries: ['one song'], playAddedIndex: -1 },
+        tracks: [{ videoId: 'dQw4w9WgXcQ', name: 'Transaction song' }],
+      };
+      const put = state.storage.put.bind(state.storage);
+      let failed = false;
+      const putSpy = vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
+        const terminal = Object.keys(worker.room!.idempotency).some((entry) =>
+          entry.startsWith('bot-execute:'),
+        );
+        if (
+          key === 'pro-room:v2:core' &&
+          !failed &&
+          worker.room!.playlist.length === 1 &&
+          terminal === (failureStage === 'terminal')
+        ) {
+          failed = true;
+          throw new Error(`BOT ${failureStage} transaction failed`);
+        }
+        return put(key, value);
+      });
+      await expect(internalBotRequest(worker, 'execute', body, ownerCookie)).rejects.toThrow(
+        `BOT ${failureStage} transaction failed`,
+      );
+      putSpy.mockRestore();
+      const durable = storedCanonicalRoom(state);
+      expect(worker.room!.playlist).toEqual(durable.playlist);
+      expect(worker.room!.idempotency).toEqual(durable.idempotency);
+      expect(worker.room!.developerMutationIdempotency).toEqual(
+        durable.developerMutationIdempotency,
+      );
+      expect(durable.playlist).toHaveLength(failureStage === 'terminal' ? 1 : 0);
+      expect((await internalBotRequest(worker, 'execute', body, ownerCookie)).status).toBe(200);
+      expect(storedCanonicalRoom(state).playlist).toHaveLength(1);
+      expect(
+        Object.keys(storedCanonicalRoom(state).idempotency).some((entry) =>
+          entry.startsWith('bot-execute:'),
+        ),
+      ).toBe(true);
+    },
+  );
 
   it('dispatches the newly added item when add-and-play starts from an empty queue', async () => {
     const { worker, ownerCookie } = await activatedRoom();
@@ -6728,6 +7175,139 @@ describe('PRO room private Developer API projections', () => {
     });
   });
 
+  it('preserves repeat and shuffle when a Developer upload appends a queue item', async () => {
+    const { worker, state, bucket, ownerCookie } = await activatedRoom();
+    const keyId = 'W'.repeat(16);
+    const added = await responseJson(
+      await mutateInternalDeveloperQueue(worker, keyId, 'upload-shuffle-existing-0001', {
+        type: 'add_youtube',
+        videoId: 'dQw4w9WgXcQ',
+        name: 'Existing',
+      }),
+    );
+    const existingId = added.items[0].queueItemId;
+    expect(
+      (
+        await updateInternalDeveloperQueueMode(worker, keyId, 'upload-shuffle-mode-0001', {
+          baseRevision: 0,
+          repeatMode: 'all',
+          shuffleEnabled: true,
+        })
+      ).status,
+    ).toBe(200);
+    const reserved = await responseJson(
+      await createInternalDeveloperUpload(worker, keyId, 'upload-shuffle-reserve-0001', {
+        name: 'New.wav',
+        byteLength: 44,
+        mime: 'audio/wav',
+      }),
+    );
+    const asset = worker.room!.assets[reserved.assetId]!;
+    bucket.objects.set(asset.stagingObjectKey!, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-generation': '0',
+        'mxqr-asset': asset.assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+    expect(
+      (
+        await completeInternalDeveloperUpload(
+          worker,
+          keyId,
+          'upload-shuffle-complete-0001',
+          reserved.assetId,
+        )
+      ).status,
+    ).toBe(201);
+    const mode = await responseJson(await worker.fetch(request('/queue-mode', {}, ownerCookie)));
+    expect(mode).toMatchObject({
+      revision: 2,
+      repeatMode: 1,
+      shuffleEnabled: true,
+      shuffleOrder: [existingId, reserved.queueItemId],
+    });
+    const restarted = new MusixquareProRoom(state, worker.env);
+    const reloaded = await responseJson(
+      await restarted.fetch(request('/queue-mode', {}, ownerCookie)),
+    );
+    expect(reloaded).toEqual(mode);
+  });
+
+  it('retries a Developer upload in the same object after its final state transaction fails', async () => {
+    const { worker, state, bucket } = await activatedRoom();
+    const keyId = 'W'.repeat(16);
+    const reserved = await responseJson(
+      await createInternalDeveloperUpload(worker, keyId, 'upload-commit-failure-reserve', {
+        name: 'Retry.wav',
+        byteLength: 44,
+        mime: 'audio/wav',
+      }),
+    );
+    const asset = structuredClone(worker.room!.assets[reserved.assetId]!);
+    bucket.objects.set(asset.stagingObjectKey!, {
+      size: asset.byteLength,
+      httpMetadata: { contentType: asset.mime },
+      customMetadata: {
+        'mxqr-room': ROOM_CODE,
+        'mxqr-generation': '0',
+        'mxqr-asset': asset.assetId,
+        'mxqr-version': String(asset.version),
+        'mxqr-bytes': String(asset.byteLength),
+      },
+    });
+    const put = state.storage.put.bind(state.storage);
+    let failed = false;
+    const putSpy = vi.spyOn(state.storage, 'put').mockImplementation(async (key, value) => {
+      if (
+        key === 'pro-room:v2:core' &&
+        !failed &&
+        worker.room!.assets[asset.assetId]!.status === 'ready'
+      ) {
+        failed = true;
+        throw new Error('developer completion transaction failed');
+      }
+      return put(key, value);
+    });
+    await expect(
+      completeInternalDeveloperUpload(
+        worker,
+        keyId,
+        'upload-commit-failure-complete',
+        asset.assetId,
+      ),
+    ).rejects.toThrow('developer completion transaction failed');
+    putSpy.mockRestore();
+    expect(bucket.objects.has(asset.objectKey)).toBe(true);
+    expect(worker.room!.assets[asset.assetId]!.status).toBe('reserved');
+    expect(storedCanonicalRoom(state).assets[asset.assetId]!.status).toBe('reserved');
+    const recovered = await completeInternalDeveloperUpload(
+      worker,
+      keyId,
+      'upload-commit-failure-complete',
+      asset.assetId,
+    );
+    expect(recovered.status).toBe(201);
+    expect(storedCanonicalRoom(state).assets[asset.assetId]!.status).toBe('ready');
+    expect(storedCanonicalRoom(state).playlist).toHaveLength(1);
+    expect(storedCanonicalRoom(state).quota).toMatchObject({ reservedBytes: 0, usedBytes: 44 });
+    expect(
+      (
+        await completeInternalDeveloperUpload(
+          worker,
+          keyId,
+          'upload-commit-failure-complete',
+          asset.assetId,
+        )
+      ).status,
+    ).toBe(201);
+    expect(storedCanonicalRoom(state).playlist).toHaveLength(1);
+  });
+
   it('recovers a Developer API completion when the final object exists but staging cleanup already ran', async () => {
     const { worker, bucket } = await activatedRoom();
     const internal = worker as unknown as { room: Record<string, any> };
@@ -7806,6 +8386,30 @@ describe('persistent PRO room bootstrap and activation', () => {
     expect(limiterFetch).toHaveBeenCalledTimes(1);
     expect(registryStatus).toBe('decommissioning');
 
+    const assertLateAccountPurgeIsInert = async () => {
+      const persistedBefore = structuredClone(context.state.storage.data);
+      const latePurge = await context.worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/account-authority/purge', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({ accountId: ACTIVATION_OWNER_ACCOUNT_ID, roomGeneration: 0 }),
+        }),
+      );
+      // Account cleanup may have passed its App preflight just before room
+      // deletion. Its late delivery must not retain the deleted account again.
+      expect(internal.room.accountDeletionTombstones).toEqual({});
+      expect(context.state.storage.data).toEqual(persistedBefore);
+      expect(latePurge.status).toBe(410);
+      await expect(latePurge.json()).resolves.toEqual({
+        error: 'PRO_ROOM_PERMANENTLY_DECOMMISSIONED',
+      });
+    };
+    await assertLateAccountPurgeIsInert();
+
     const lateObjectKey = `pro-room-incarnations/${ROOM_CODE}/generation-0/assets/late/v1/staging_late`;
     context.bucket.objects.set(lateObjectKey, { size: 29 });
     const purgeAfterMs = internal.room.decommission.purgeAfterMs as number;
@@ -7846,6 +8450,7 @@ describe('persistent PRO room bootstrap and activation', () => {
     });
 
     const postCompletionKey = `pro-room-incarnations/${ROOM_CODE}/generation-0/assets/post-completion/v1/straggler`;
+    await assertLateAccountPurgeIsInert();
     context.bucket.objects.set(postCompletionKey, { size: 37 });
     const maintenanceAtMs = internal.room.decommission.maintenanceAtMs as number;
     vi.setSystemTime(maintenanceAtMs);
@@ -8078,6 +8683,7 @@ describe('persistent PRO room bootstrap and activation', () => {
       roomCode,
       roomGeneration: 0,
       status: 'unactivated',
+      suspensionReason: null,
     });
 
     const after = await worker.fetch(requestForRoom(roomCode, '/bootstrap'));
@@ -10912,6 +11518,100 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(ownerOffline.slice(1, 3).map(({ memberId }) => memberId)).toEqual(reenteredOnlineIds);
   });
 
+  it.each([false, true])(
+    'publishes both complete administrator budgets with legacy anonymous owner %s',
+    async (legacyAnonymousOwner) => {
+      const context = await activatedRoom();
+      const anonymous = await addAuthorityMember(context);
+      const memberId = anonymous.envelope.snapshot.viewer.memberId as string;
+      expect(
+        (
+          await context.worker.fetch(
+            jsonRequest(
+              `/administrators/${memberId}`,
+              'PUT',
+              { permissions: fullDelegatedPermissions },
+              context.ownerCookie,
+            ),
+          )
+        ).status,
+      ).toBe(200);
+      await context.worker.fetch(
+        request('/presence/current', { method: 'DELETE' }, context.ownerCookie),
+      );
+      const room = context.worker.room!;
+      const ownerAccount = room.accountMembers[ACTIVATION_OWNER_ACCOUNT_ID]!;
+      // These persisted account grants represent earlier grant + explicit-leave
+      // operations, which preserve account authority without consuming presence.
+      if (legacyAnonymousOwner) {
+        room.accountMembers = {};
+        room.ownerAccountId = null;
+        for (const session of Object.values(room.sessions)) {
+          if (session.role === 'owner') delete session.accountId;
+        }
+      }
+      for (let index = 0; index < (legacyAnonymousOwner ? 100 : 99); index += 1) {
+        room.accountMembers[`acct_${String(index).padStart(22, '0')}`] = {
+          ...ownerAccount,
+          memberId: `offline_${String(index).padStart(24, '0')}`,
+          displayNumber: (index % 100) + 1,
+          displayName: `Saved administrator ${index}`,
+          role: 'controller',
+          permissions: { ...fullDelegatedPermissions },
+        };
+      }
+      const participant =
+        room.presence.participants[anonymous.envelope.snapshot.viewer.participantId]!;
+      const session = room.sessions[participant.sessionHash]!;
+      const grant = room.anonymousAdministrators[memberId]!;
+      // Fill the remaining 99 live anonymous slots from the accepted session
+      // shape, avoiding unrelated admission-rate limits in this capacity test.
+      for (let index = 2; index <= 100; index += 1) {
+        const nextMemberId = `anonymous_${String(index).padStart(24, '0')}`;
+        const participantId = `participant_${String(index).padStart(24, '0')}`;
+        const sessionHash = `session_${String(index).padStart(35, '0')}`;
+        const presenceIncarnationId = `presence_${String(index).padStart(24, '0')}`;
+        const displayName = `Peer ${index}`;
+        room.sessions[sessionHash] = {
+          ...session,
+          participantId,
+          memberId: nextMemberId,
+          memberDisplayNumber: index,
+          peerOrdinal: index,
+          displayName,
+          presenceIncarnationId,
+        };
+        room.presence.participants[participantId] = {
+          ...participant,
+          participantId,
+          memberId: nextMemberId,
+          memberDisplayNumber: index,
+          sessionHash,
+          presenceIncarnationId,
+          displayName,
+        };
+        room.anonymousAdministrators[nextMemberId] = {
+          ...grant,
+          memberId: nextMemberId,
+          displayNumber: index,
+          displayName,
+        };
+      }
+      await context.worker.persist();
+      const directory = await responseJson(context.worker.administratorResponse());
+      expect(directory.administrators).toHaveLength(legacyAnonymousOwner ? 201 : 200);
+      const snapshotResponse = await context.worker.fetch(
+        request('/snapshot', {}, anonymous.cookie),
+      );
+      expect(snapshotResponse.status).toBe(200);
+      const envelope = await responseJson(snapshotResponse);
+      expect(envelope.snapshot.presence.participants).toHaveLength(100);
+      expect(parseProRoomSnapshot(envelope.snapshot)?.administrators).toHaveLength(
+        legacyAnonymousOwner ? 201 : 200,
+      );
+    },
+  );
+
   it('persists account delegation offline while anonymous delegation dies with its session', async () => {
     const context = await activatedRoom();
     const accountId = 'acct_persistent0123456789ab';
@@ -12099,6 +12799,73 @@ describe('persistent PRO room authentication, presence, and state', () => {
     ).toBe(false);
   });
 
+  it.each(['registry', 'audit'] as const)(
+    'keeps the exact owner-removal fence pending when its %s projection fails',
+    async (failedProjection) => {
+      const context = await activatedRoom();
+      const internal = context.worker as unknown as {
+        room: Record<string, any>;
+        env: { MUSIXQUARE_ADMIN_DB: LazyEntitlementD1 };
+      };
+      const internalRequest = (suffix: string, body: Record<string, unknown>) =>
+        new Request(`https://pro-room.internal/internal/admin/account-authority/purge${suffix}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({
+            roomGeneration: 0,
+            accountId: ACTIVATION_OWNER_ACCOUNT_ID,
+            ...body,
+          }),
+        });
+      const removed = await responseJson(await context.worker.fetch(internalRequest('', {})));
+      const ack = () =>
+        internalRequest('/ack', {
+          removalId: removed.removalId,
+          removedOwnerAuthorityEpoch: removed.removedOwnerAuthorityEpoch,
+          fencedCoordinatorEpoch: removed.fencedCoordinatorEpoch,
+        });
+      const database = internal.env.MUSIXQUARE_ADMIN_DB;
+      const prepare = database.prepare.bind(database);
+      const spy = vi.spyOn(database, 'prepare').mockImplementation((sql) => {
+        if (
+          failedProjection === 'registry'
+            ? /UPDATE mxqr_pro_room_registry/.test(sql)
+            : /INSERT INTO mxqr_pro_room_admin_audit/.test(sql)
+        ) {
+          throw new Error('D1 projection temporarily unavailable');
+        }
+        return prepare(sql);
+      });
+      const failed = await context.worker.fetch(ack());
+      expect(failed.status).toBe(503);
+      await expect(failed.json()).resolves.toEqual({
+        error: 'OWNER_AUTHORITY_PROJECTION_UNAVAILABLE',
+      });
+      expect(internal.room.ownerAuthorityRemoval.projectionAcked).toBe(false);
+      spy.mockRestore();
+      const retry = await context.worker.fetch(ack());
+      expect(retry.status).toBe(200);
+      await expect(retry.json()).resolves.toMatchObject({ projectionAcked: true, changed: true });
+      expect(
+        await database
+          .prepare('SELECT status, suspension_reason FROM mxqr_pro_room_registry')
+          .first(),
+      ).toMatchObject({ status: 'suspended', suspension_reason: 'owner_account_deleted' });
+      expect(
+        (await database.prepare('SELECT action, result FROM mxqr_pro_room_admin_audit').all())
+          .results,
+      ).toContainEqual(
+        expect.objectContaining({ action: 'room.suspend', result: 'owner_account_deleted' }),
+      );
+      const replay = await context.worker.fetch(ack());
+      await expect(replay.json()).resolves.toMatchObject({ projectionAcked: true, changed: false });
+    },
+  );
+
   it('purges every owner-account device and removes the durable owner association', async () => {
     const context = await activatedRoom();
     const internal = context.worker as unknown as { room: Record<string, any> };
@@ -12341,7 +13108,61 @@ describe('persistent PRO room authentication, presence, and state', () => {
     });
     expect(internal.room.ownerAuthorityRemoval.projectionAcked).toBe(false);
 
-    const acknowledged = await acknowledgeRemoval();
+    const projectionDatabase = (
+      context.worker as unknown as { env: { MUSIXQUARE_ADMIN_DB: LazyEntitlementD1 } }
+    ).env.MUSIXQUARE_ADMIN_DB;
+    const prepareProjection = projectionDatabase.prepare.bind(projectionDatabase);
+    let projectionReached!: () => void;
+    let releaseProjection!: () => void;
+    const waitingForProjection = new Promise<void>((resolve) => {
+      projectionReached = resolve;
+    });
+    const projectionGate = new Promise<void>((resolve) => {
+      releaseProjection = resolve;
+    });
+    const prepareSpy = vi.spyOn(projectionDatabase, 'prepare').mockImplementation((sql) => {
+      const statement = prepareProjection(sql);
+      if (/UPDATE mxqr_pro_room_registry/.test(sql)) {
+        const bind = statement.bind.bind(statement);
+        vi.spyOn(statement, 'bind').mockImplementation((...values) => {
+          const bound = bind(...values);
+          const run = bound.run.bind(bound);
+          vi.spyOn(bound, 'run').mockImplementation(async () => {
+            projectionReached();
+            await projectionGate;
+            return run();
+          });
+          return bound;
+        });
+      }
+      return statement;
+    });
+    const acknowledgement = acknowledgeRemoval();
+    await waitingForProjection;
+    let claimSettled = false;
+    const queuedClaim = context.worker
+      .fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-transfer-claim', {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+          body: JSON.stringify({ targetAccountId: replacementAccountId, roomGeneration: 0 }),
+        }),
+      )
+      .then((response) => {
+        claimSettled = true;
+        return response;
+      });
+    await Promise.resolve();
+    expect(claimSettled).toBe(false);
+    expect(internal.room.ownerAuthorityRemoval.projectionAcked).toBe(false);
+    releaseProjection();
+    const acknowledged = await acknowledgement;
+    prepareSpy.mockRestore();
+    expect((await queuedClaim).status).toBe(200);
     expect(acknowledged.status).toBe(200);
     await expect(acknowledged.json()).resolves.toMatchObject({
       ok: true,
@@ -12441,11 +13262,13 @@ describe('persistent PRO room authentication, presence, and state', () => {
       ownerMemberId,
       ownerAccountId: replacementAccountId,
     });
+    const projection = vi.spyOn(context.worker, 'projectOwnerAccountDeletedSuspension');
     const staleAck = await acknowledgeRemoval();
     expect(staleAck.status).toBe(409);
     await expect(staleAck.json()).resolves.toEqual({
       error: 'OWNER_AUTHORITY_REMOVAL_MISMATCH',
     });
+    expect(projection).not.toHaveBeenCalled();
   });
 
   it('detaches one exact owner authority without deleting the account or room data', async () => {
@@ -13345,6 +14168,84 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(internal.room.revision).toBe(Number.MAX_SAFE_INTEGER);
     expect(internal.room.presence.revision).toBe(Number.MAX_SAFE_INTEGER);
   });
+
+  it.each(['absent', 'owner', 'member'] as const)(
+    'preserves full-room recovery capacity and slot reuse for an %s caller',
+    async (caller) => {
+      const { worker, ownerCookie } = await activatedRoom();
+      if (caller !== 'owner') {
+        expect(
+          (await worker.fetch(request('/presence/current', { method: 'DELETE' }, ownerCookie)))
+            .status,
+        ).toBe(200);
+      }
+      const memberCookies: string[] = [];
+      for (let index = 0; index < (caller === 'owner' ? 99 : 100); index += 1) {
+        const joined = await worker.fetch(jsonRequest('/sessions', 'POST', { pin: '12345678' }));
+        expect(joined.status).toBe(200);
+        const cookie = cookieFrom(joined);
+        bindCookiePresence(cookie, await responseJson(joined));
+        memberCookies.push(cookie);
+      }
+      const issued = await worker.fetch(
+        new Request('https://pro-room.internal/internal/admin/owner-recovery-claim', {
+          method: 'POST',
+          headers: {
+            'x-mxqr-pro-room-code': ROOM_CODE,
+            'x-mxqr-pro-room-generation': '0',
+          },
+        }),
+      );
+      expect(issued.status).toBe(200);
+      const claimToken = decodeURIComponent(
+        new URL((await responseJson(issued)).recoveryUrl).hash.slice('#pro-recovery='.length),
+      );
+      const internal = worker as unknown as { room: Record<string, any> };
+      const originalCredential = internal.room.ownerCredentialHash;
+      const originalEpoch = internal.room.ownerAuthorityEpoch;
+      const recoveringCookie =
+        caller === 'owner' ? ownerCookie : caller === 'member' ? memberCookies[0] : undefined;
+      const recover = () =>
+        withAccountAssertion(
+          jsonRequest('/owner-recovery', 'POST', { claimToken }, recoveringCookie),
+          ACTIVATION_OWNER_ACCOUNT_ID,
+          'Recovered owner',
+        ).then((incoming) => worker.fetch(incoming));
+
+      const full = await recover();
+      if (caller !== 'absent') {
+        expect(full.status).toBe(200);
+        const snapshot = parseProRoomSnapshot((await responseJson(full)).snapshot);
+        expect(snapshot?.presence.participants).toHaveLength(100);
+        expect(snapshot?.viewer).toMatchObject({ role: 'owner', isAuthenticated: true });
+        expect(internal.room.ownerCredentialHash).not.toBe(originalCredential);
+        expect(internal.room.ownerAuthorityEpoch).toBe(originalEpoch + 1);
+        expect(Object.keys(internal.room.consumedRecoveryNonces)).toHaveLength(1);
+        expect((await worker.fetch(request('/snapshot', {}, recoveringCookie))).status).toBe(401);
+        return;
+      }
+      expect.soft(full.status).toBe(409);
+      expect.soft(await responseJson(full)).toEqual({ error: 'ROOM_FULL' });
+      expect.soft(full.headers.getSetCookie()).toEqual([]);
+      expect.soft(internal.room.ownerCredentialHash).toBe(originalCredential);
+      expect.soft(internal.room.ownerAuthorityEpoch).toBe(originalEpoch);
+      expect.soft(internal.room.consumedRecoveryNonces).toEqual({});
+      expect(Object.keys(internal.room.presence.participants)).toHaveLength(100);
+
+      expect(
+        (await worker.fetch(request('/presence/current', { method: 'DELETE' }, memberCookies[0])))
+          .status,
+      ).toBe(200);
+      const recovered = await recover();
+      expect(recovered.status).toBe(200);
+      const recoveredSnapshot = parseProRoomSnapshot((await responseJson(recovered)).snapshot);
+      expect(recoveredSnapshot?.presence.participants).toHaveLength(100);
+      expect(recoveredSnapshot?.viewer).toMatchObject({
+        role: 'owner',
+        isAuthenticated: true,
+      });
+    },
+  );
 
   it('redeems a short-lived owner recovery claim once and revokes prior owner credentials', async () => {
     const context = await activatedRoom();
@@ -15189,6 +16090,88 @@ describe('persistent PRO room authentication, presence, and state', () => {
     expect(internal.alarmMaintenanceDirty).toBe(false);
     expect(internal.alarmMaintenanceRetryAttempt).toBe(0);
     expect(state.storage.alarm).not.toBeNull();
+  });
+
+  it.each([500, 1_000])(
+    'recovers an alarm whose cleanup deadline became due during a scheduling outage (%i ms)',
+    async (windowMs) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-05T00:00:00.000Z'));
+      const state = new FakeState();
+      const worker = new MusixquareProRoom(state as never, {});
+      const internal = worker as unknown as {
+        room: { rateLimits: Record<string, unknown> };
+        alarmMaintenanceDirty: boolean;
+        ensureReady(request: Request): Promise<boolean>;
+        applyRateLimit(
+          request: Request,
+          kind: string,
+          limit: number,
+          windowMs: number,
+        ): Promise<unknown>;
+        alarm(): Promise<void>;
+      };
+      const bootstrap = new Request(`https://pro-room.internal/v1/rooms/${ROOM_CODE}/bootstrap`, {
+        headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+      });
+      expect(await internal.ensureReady(bootstrap)).toBe(true);
+      vi.spyOn(state.storage, 'setAlarm').mockRejectedValueOnce(new Error('alarm unavailable'));
+
+      await internal.applyRateLimit(bootstrap, 'activation', 3, windowMs);
+      expect(internal.alarmMaintenanceDirty).toBe(true);
+      expect(state.storage.alarm).toBeNull();
+      expect(Object.keys(storedCanonicalRoom(state).rateLimits)).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(internal.alarmMaintenanceDirty).toBe(false);
+      expect(state.storage.alarm).toBe(Date.now() + 1);
+      await vi.advanceTimersByTimeAsync(1);
+      state.storage.alarm = null;
+      await internal.alarm();
+      expect(internal.room.rateLimits).toEqual({});
+      expect(storedCanonicalRoom(state).rateLimits).toEqual({});
+      expect(state.storage.alarm).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it('uses the current cleanup retry after historical decommission and command boundaries pass', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-09-05T00:00:00.000Z'));
+    const state = new FakeState();
+    const worker = new MusixquareProRoom(state as never, {});
+    const internal = worker as unknown as {
+      room: {
+        status: string;
+        decommission: { retryAtMs: number; purgeAfterMs: number } | null;
+        developerCommands: Record<string, unknown>;
+      };
+      ensureReady(request: Request): Promise<boolean>;
+      scheduleAlarm(): Promise<void>;
+    };
+    expect(
+      await internal.ensureReady(
+        new Request(`https://pro-room.internal/v1/rooms/${ROOM_CODE}/bootstrap`, {
+          headers: { 'x-mxqr-pro-room-code': ROOM_CODE, 'x-mxqr-pro-room-generation': '0' },
+        }),
+      ),
+    ).toBe(true);
+    const nowMs = Date.now();
+    internal.room.status = 'decommissioning';
+    internal.room.decommission = { retryAtMs: nowMs + 60_000, purgeAfterMs: nowMs - 1 };
+    await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(nowMs + 60_000);
+
+    internal.room.status = 'active';
+    internal.room.decommission = null;
+    internal.room.developerCommands['legacy-command'] = {
+      status: 'dispatched',
+      attempts: 1,
+      nextAttemptAtMs: nowMs - 1,
+      expiresAtMs: nowMs + 60_000,
+    };
+    await internal.scheduleAlarm();
+    expect(state.storage.alarm).toBe(nowMs + 60_000);
   });
 
   it('alarms and durably prunes idle idempotency and rate-limit ledgers at their deadlines', async () => {

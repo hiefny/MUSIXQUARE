@@ -17,8 +17,10 @@ import {
 import { requestProRoomLeave } from '../lifecycle-hook.ts';
 import {
   captureProRoomMediaHookSession,
+  handleProRoomFiles,
   isProRoomMediaHookSessionCurrent,
 } from '../media-hooks.ts';
+import { ProRoomMediaTransfer, type ProRoomMediaUploadResult } from '../media-transfer.ts';
 import { ServerProRoomNetworkBridge } from '../network-bridge.ts';
 import { acceptProRoomRealtimeFrameForTests, joinProRoom } from '../runtime.ts';
 
@@ -1229,5 +1231,79 @@ describe.sequential('PRO runtime account identity lease', () => {
 
     newRenewal.resolve({ leaseExpiresAtMs: Date.now() + 120_000 });
     await Promise.resolve();
+  });
+
+  it('keeps presence heartbeats running while a progressing upload owns the playlist mutation queue', async () => {
+    let reportProgress: ((fraction: number) => void) | undefined;
+    const transfer = vi
+      .spyOn(ProRoomMediaTransfer.prototype, 'upload')
+      .mockImplementation((input) => {
+        reportProgress = input.onProgress;
+        return new Promise<ProRoomMediaUploadResult>((_resolve, reject) => {
+          input.signal?.addEventListener(
+            'abort',
+            () => reject(new DOMException('Aborted', 'AbortError')),
+            { once: true },
+          );
+        });
+      });
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.advanceTimersByTimeAsync(0);
+    const heartbeat = vi.mocked(ProRoomApiClient.prototype.heartbeat);
+    heartbeat.mockClear();
+
+    expect(handleProRoomFiles([new File(['audio'], 'slow.flac', { type: 'audio/flac' })])).toBe(
+      true,
+    );
+    await vi.advanceTimersByTimeAsync(0);
+    expect(transfer).toHaveBeenCalledTimes(1);
+    for (let interval = 1; interval <= 5; interval += 1) {
+      await vi.advanceTimersByTimeAsync(15_000);
+      reportProgress?.(interval / 10);
+    }
+
+    // A healthy direct R2 PUT can take minutes while continuing to make byte
+    // progress. The room's 45-second presence lease still needs its normal
+    // 15-second heartbeat cadence throughout that independent transfer.
+    expect(heartbeat.mock.calls.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('does not append a late upload completion into a rejoined room incarnation', async () => {
+    const upload = deferred<ProRoomMediaUploadResult>();
+    const transfer = vi
+      .spyOn(ProRoomMediaTransfer.prototype, 'upload')
+      .mockReturnValue(upload.promise);
+    const update = vi.spyOn(ProRoomApiClient.prototype, 'updateCompactSnapshot');
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    await vi.advanceTimersByTimeAsync(0);
+    handleProRoomFiles([new File(['audio'], 'departing.flac', { type: 'audio/flac' })]);
+    await vi.advanceTimersByTimeAsync(0);
+    const oldSignal = transfer.mock.calls[0]?.[0].signal;
+    expect(oldSignal?.aborted).toBe(false);
+    requestProRoomLeave();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(oldSignal?.aborted).toBe(true);
+    const successor = snapshot('presence_successor_1');
+    vi.mocked(ProRoomApiClient.prototype.createSession).mockResolvedValue(successor);
+    vi.mocked(ProRoomApiClient.prototype.heartbeat).mockResolvedValue(successor);
+    vi.mocked(ProRoomApiClient.prototype.attachCurrentAccount).mockResolvedValue(successor);
+    vi.mocked(ProRoomApiClient.prototype.createSignalingTicket).mockResolvedValue(
+      signalingAccess('presence_successor_1'),
+    );
+    await joinProRoom({ code: ROOM_CODE, pin: '12345678' });
+    upload.resolve({
+      asset: {
+        kind: 'pro-r2',
+        assetId: 'asset_late_upload_1',
+        version: 1,
+        byteLength: 5,
+        mime: 'audio/flac',
+      },
+      quota: successor.quota,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(update).not.toHaveBeenCalled();
+    expect(getState('playlist.items')).toEqual([]);
+    expect(getState('room.context').kind).toBe('pro');
   });
 });

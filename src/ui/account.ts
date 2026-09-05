@@ -3,6 +3,7 @@
 import { bus, createBusScope } from '../core/events.ts';
 import {
   buildGoogleLoginUrl,
+  AccountApiError,
   getAccountStats,
   type AccountSessionResponse,
   type AccountStats,
@@ -83,8 +84,8 @@ const ACCOUNT_CLIENT_ID = createAccountClientId();
 
 let _unsubscribeAccount: (() => void) | null = null;
 let _previousFocus: HTMLElement | null = null;
-let _profilePromptShown = false;
-let _profilePromptActive = false;
+let _profilePromptShownScope: string | null | undefined;
+let _profilePromptActive: ReturnType<typeof captureAccountMutationIntent> | null = null;
 let _accountActionPending = false;
 let _accountLoginPopup: Window | null = null;
 let _accountLoginPopupMonitor: ReturnType<typeof setInterval> | null = null;
@@ -170,7 +171,7 @@ function getAccountStatsOwner(snapshot: Readonly<AccountSnapshot>): AccountStats
   if (!getCompletedAccount(snapshot)) return null;
 
   const statsScope = getAccountStatsScope();
-  return statsScope ? `scope:${statsScope}` : null;
+  return statsScope;
 }
 
 function focusWithoutScroll(element: HTMLElement | null): void {
@@ -421,9 +422,17 @@ async function loadAccountStats(owner: AccountStatsOwner, requestId: number): Pr
     if (flushResult.status === 'updated') {
       stats = flushResult.stats;
     } else if (flushResult.status === 'idle') {
-      stats = await getAccountStats();
+      stats = await getAccountStats(owner);
     }
-  } catch {
+  } catch (error) {
+    if (
+      error instanceof AccountApiError &&
+      error.code === 'ACCOUNT_STATS_SCOPE_MISMATCH' &&
+      requestId === _accountStatsRequestId &&
+      getAccountStatsOwner(getAccountSnapshot()) === owner
+    ) {
+      startAccountSessionRefresh();
+    }
     // Account statistics are optional and never gate account or playback UI.
   }
 
@@ -593,7 +602,7 @@ function observeAccountLoginPopupAttempt(snapshot: Readonly<AccountSnapshot>): v
     // owns this result. Keep the incomplete account usable from Account
     // Center, but do not stack or schedule a nickname prompt over the claim's
     // identity guidance.
-    _profilePromptShown = true;
+    _profilePromptShownScope = getAccountStatsScope();
     _accountLoginPopup = null;
     stopAccountLoginPopupMonitor();
     settleAccountLoginPopupAttempt('profile-incomplete');
@@ -798,10 +807,11 @@ function requestAccountLoginPopupOnly(
   ) {
     if (options.acceptIncompleteProfile) return Promise.resolve('profile-incomplete');
     const promise = createAccountLoginPopupAttempt(null, options);
-    _profilePromptShown = true;
+    const attempt = _accountLoginPopupAttempt;
+    if (!_profilePromptActive) _profilePromptShownScope = getAccountStatsScope();
     requestAccountNicknameChange()
       .then((outcome) => {
-        if (!_accountLoginPopupAttempt) return;
+        if (_accountLoginPopupAttempt !== attempt) return;
         if (outcome === 'completed') {
           observeAccountLoginPopupAttempt(getAccountSnapshot());
           return;
@@ -810,7 +820,7 @@ function requestAccountLoginPopupOnly(
       })
       .catch((error) => {
         log.warn('[Account] Required nickname prompt failed', error);
-        if (_accountLoginPopupAttempt) settleAccountLoginPopupAttempt('error');
+        if (_accountLoginPopupAttempt === attempt) settleAccountLoginPopupAttempt('error');
       });
     return promise;
   }
@@ -1138,13 +1148,35 @@ export function openAccountDialog(): void {
   });
 }
 
+function captureAccountMutationIntent() {
+  const expectedScope = getAccountStatsScope();
+  const controller = new AbortController();
+  const matchesSession = () => isAccountAuthenticated() && getAccountStatsScope() === expectedScope;
+  const unsubscribe = subscribeAccount(() => {
+    if (!matchesSession()) controller.abort();
+  });
+  return {
+    expectedScope,
+    signal: controller.signal,
+    isCurrent: () => !controller.signal.aborted && matchesSession(),
+    dispose: unsubscribe,
+  };
+}
+
+function refreshChangedAccountSession(error: unknown): void {
+  if (error instanceof AccountApiError && error.code === 'ACCOUNT_SESSION_CHANGED') {
+    startAccountSessionRefresh();
+  }
+}
+
 export async function requestAccountNicknameChange(): Promise<AccountNicknameChangeOutcome> {
   if (!isAccountAuthenticated()) {
     openAccountDialog();
     return 'cancelled';
   }
   if (_profilePromptActive) return 'cancelled';
-  _profilePromptActive = true;
+  const intent = captureAccountMutationIntent();
+  _profilePromptActive = intent;
 
   try {
     const account = getAccountSnapshot().account;
@@ -1169,13 +1201,20 @@ export async function requestAccountNicknameChange(): Promise<AccountNicknameCha
         secondaryText: account?.profileComplete ? t('common.cancel') : t('common.later'),
         defaultFocus: 'primary',
         dismissible: true,
+        signal: intent.signal,
       });
-      if (result.action !== 'ok') return 'cancelled';
+      if (result.action !== 'ok' || !intent.isCurrent()) return 'cancelled';
       try {
-        const nickname = await updateCurrentAccountNickname(result.inputValue || '');
+        const nickname = await updateCurrentAccountNickname(
+          result.inputValue || '',
+          intent.expectedScope,
+        );
+        if (!intent.isCurrent()) return 'cancelled';
         showToast(t('account.nickname_saved', { name: nickname }));
         return 'completed';
       } catch (error) {
+        if (!intent.isCurrent()) return 'cancelled';
+        refreshChangedAccountSession(error);
         const message = accountNicknameMutationErrorMessage(error);
         showToast(message);
         if (!isAccountNicknameTakenError(error)) return 'error';
@@ -1187,7 +1226,15 @@ export async function requestAccountNicknameChange(): Promise<AccountNicknameCha
       }
     }
   } finally {
-    _profilePromptActive = false;
+    intent.dispose();
+    if (_profilePromptActive === intent) {
+      _profilePromptActive = null;
+      // A successor account waits for the predecessor's dialog to retire.
+      // Same-session cancellation still keeps the existing Later deferral.
+      if (_unsubscribeAccount && getAccountStatsScope() !== intent.expectedScope) {
+        handleAccountState(getAccountSnapshot());
+      }
+    }
   }
 }
 
@@ -1316,22 +1363,32 @@ function bindAccountDialog(): void {
     const removeCurrentAccount = async (): Promise<void> => {
       if (_accountActionPending) return;
       closeAccountDialog();
-      const confirmation = await showDialog({
-        title: t('account.delete_confirm_title'),
-        message: t('account.delete_confirm_message'),
-        buttonText: t('account.delete_account'),
-        secondaryText: t('common.cancel'),
-        defaultFocus: 'secondary',
-      });
-      if (confirmation.action !== 'ok') return;
-      setPending(true);
+      const intent = captureAccountMutationIntent();
       try {
-        const result = await removeAccount();
-        setPending(false);
-        if (result.pending) showToast(t('account.delete_pending'));
-      } catch {
-        setPending(false);
-        showToast(t('account.action_failed'));
+        const confirmation = await showDialog({
+          title: t('account.delete_confirm_title'),
+          message: t('account.delete_confirm_message'),
+          buttonText: t('account.delete_account'),
+          secondaryText: t('common.cancel'),
+          defaultFocus: 'secondary',
+          signal: intent.signal,
+        });
+        if (confirmation.action !== 'ok' || !intent.isCurrent()) return;
+        setPending(true);
+        try {
+          const result = await removeAccount(intent.expectedScope);
+          setPending(false);
+          if (result.pending && getAccountSnapshot().status === 'anonymous') {
+            showToast(t('account.delete_pending'));
+          }
+        } catch (error) {
+          setPending(false);
+          if (!intent.isCurrent()) return;
+          refreshChangedAccountSession(error);
+          showToast(t('account.action_failed'));
+        }
+      } finally {
+        intent.dispose();
       }
     };
     removeCurrentAccount().catch(reportUnhandledAccountDialogAction);
@@ -1372,7 +1429,7 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
   ) {
     // A later Google account in the same tab must still receive its own first
     // nickname prompt after the previous account signed out or was deleted.
-    _profilePromptShown = false;
+    _profilePromptShownScope = undefined;
     return;
   }
   if (_accountLoginPopupAttempt?.acceptIncompleteProfile) {
@@ -1381,23 +1438,34 @@ function handleAccountState(snapshot: Readonly<AccountSnapshot>): void {
     // nickname flow turns an accidental identity into a second account.
     return;
   }
+  const promptScope = getAccountStatsScope();
   if (
-    !_profilePromptShown &&
+    !_profilePromptActive &&
+    _profilePromptShownScope !== promptScope &&
     (typeof document === 'undefined' || document.visibilityState !== 'hidden')
   ) {
-    _profilePromptShown = true;
+    _profilePromptShownScope = promptScope;
+    const popupAttempt = _accountLoginPopupAttempt;
     // Popup OAuth leaves the account dialog open in the source tab. Replace
     // it with the first-login nickname dialog instead of stacking two modal
     // focus traps over each other.
     closeAccountDialog();
     requestAccountNicknameChange()
       .then((outcome) => {
-        if (!_accountLoginPopupAttempt || outcome === 'completed') return;
+        if (
+          !popupAttempt ||
+          _accountLoginPopupAttempt !== popupAttempt ||
+          getAccountStatsScope() !== promptScope ||
+          outcome === 'completed'
+        )
+          return;
         settleAccountLoginPopupAttempt(outcome === 'cancelled' ? 'cancelled' : 'error');
       })
       .catch((error) => {
         log.warn('[Account] Profile completion prompt failed', error);
-        if (_accountLoginPopupAttempt) settleAccountLoginPopupAttempt('error');
+        if (_accountLoginPopupAttempt === popupAttempt && getAccountStatsScope() === promptScope) {
+          settleAccountLoginPopupAttempt('error');
+        }
       });
   }
 }
@@ -1443,8 +1511,8 @@ export function __resetAccountUiForTests(): void {
   _unsubscribeAccount = null;
   _busScope.dispose();
   _previousFocus = null;
-  _profilePromptShown = false;
-  _profilePromptActive = false;
+  _profilePromptShownScope = undefined;
+  _profilePromptActive = null;
   _accountActionPending = false;
   _accountStats = null;
   _accountStatsOwner = null;

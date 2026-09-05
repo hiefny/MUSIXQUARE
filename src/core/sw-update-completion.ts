@@ -1,4 +1,4 @@
-import type { LanguageCode } from '../i18n/locales.ts';
+import { LANGUAGE_OPTIONS, type LanguageCode } from '../i18n/locales.ts';
 
 const COMPLETION_MARKER = 'mxqr-swu';
 const COMPLETION_MESSAGES = {
@@ -48,12 +48,12 @@ const COMPLETION_MESSAGES = {
 
 /** Remember a localized completion message across the imminent same-tab navigation. */
 export function recordServiceWorkerUpdateCompletion(): void {
-  const language = document.documentElement.lang.toLowerCase() as LanguageCode;
+  const htmlLanguage = document.documentElement.lang.toLowerCase();
+  const language = LANGUAGE_OPTIONS.find(
+    ({ code, htmlLang }) => code === htmlLanguage || htmlLang.toLowerCase() === htmlLanguage,
+  )?.code;
   try {
-    sessionStorage.setItem(
-      COMPLETION_MARKER,
-      COMPLETION_MESSAGES[language] ?? COMPLETION_MESSAGES.en,
-    );
+    sessionStorage.setItem(COMPLETION_MARKER, COMPLETION_MESSAGES[language ?? 'en']);
   } catch {
     // Storage may be unavailable; the update itself must still complete.
   }

@@ -537,6 +537,22 @@ export async function assertDeveloperApiCanary(
   const beforeYouTubeIds = new Set<string | null>(
     queue.items.map((item) => stringField(item, 'queueItemId')),
   );
+  const youtubeSmokeName = `MUSIXQUARE API smoke ${crypto.randomUUID()}`;
+  const ownYouTubeItemId = (projection: QueueProjection): string | null => {
+    const matches = projection.items.filter(
+      (item) =>
+        isJsonObject(item) &&
+        item.kind === 'youtube' &&
+        item.name === youtubeSmokeName &&
+        item.addedBy === 'current_api_key' &&
+        typeof item.queueItemId === 'string' &&
+        !beforeYouTubeIds.has(item.queueItemId),
+    );
+    if (matches.length > 1) {
+      throw new Error('Developer API YouTube smoke cleanup identity is ambiguous');
+    }
+    return stringField(matches[0], 'queueItemId');
+  };
   let youtubeQueueItemId: string | null = null;
   try {
     const { payload: addedPayload } = await apiJson(
@@ -544,25 +560,16 @@ export async function assertDeveloperApiCanary(
       apiKey,
       jsonWrite('POST', apiKey, 'youtube-add', {
         videoId: 'dQw4w9WgXcQ',
-        name: 'MUSIXQUARE API smoke',
+        name: youtubeSmokeName,
         title: 'MUSIXQUARE API smoke',
       }),
       201,
     );
     const added = assertQueueProjection(addedPayload, roomCode, 'Developer API YouTube add');
-    const newItems = added.items.filter(
-      (item) => !beforeYouTubeIds.has(stringField(item, 'queueItemId')),
-    );
-    const newItem = newItems[0];
-    if (
-      newItems.length !== 1 ||
-      !isJsonObject(newItem) ||
-      newItem.kind !== 'youtube' ||
-      typeof newItem.queueItemId !== 'string'
-    ) {
+    youtubeQueueItemId = ownYouTubeItemId(added);
+    if (!youtubeQueueItemId) {
       throw new Error('Developer API YouTube add did not create exactly one queue item');
     }
-    youtubeQueueItemId = newItem.queueItemId;
     const { payload: reorderedPayload } = await apiJson(
       `/v1/rooms/${roomCode}/queue/order`,
       apiKey,
@@ -573,6 +580,15 @@ export async function assertDeveloperApiCanary(
     );
     assertQueueProjection(reorderedPayload, roomCode, 'Developer API queue reorder');
   } finally {
+    if (!youtubeQueueItemId) {
+      // The add may already be durable when its response is lost. Recover only
+      // this invocation's item through a read; never replay the mutation or
+      // infer ownership from every item added since the initial snapshot.
+      const { payload } = await apiJson(`/v1/rooms/${roomCode}/queue`, apiKey);
+      youtubeQueueItemId = ownYouTubeItemId(
+        assertQueueProjection(payload, roomCode, 'Developer API YouTube cleanup lookup'),
+      );
+    }
     if (youtubeQueueItemId) {
       await deleteQueueItem(apiKey, roomCode, youtubeQueueItemId, 'youtube-cleanup');
     }

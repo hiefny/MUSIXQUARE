@@ -7,7 +7,7 @@ import { useAsyncConnectMiddleware } from './async-connect-middleware.ts';
 export interface ClassicRuntimeAsset {
   readonly sourcePath: string;
   readonly outputPath: string;
-  /** Compact an early synchronous runtime without obscuring its audited identifiers. */
+  /** Compact an early synchronous runtime. */
   readonly minify?: boolean;
   /** Preserve an older execution floor when the historic runtime requires it. */
   readonly target?: 'es2018' | 'es2022';
@@ -242,7 +242,7 @@ export async function compileClassicRuntimeAsset(
     sourcemap: false,
     minifyWhitespace: asset.minify ?? false,
     minifySyntax: asset.minify ?? false,
-    minifyIdentifiers: false,
+    minifyIdentifiers: asset.minify ?? false,
     legalComments: 'inline',
     charset: 'utf8',
   });

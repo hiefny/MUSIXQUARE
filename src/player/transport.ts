@@ -603,6 +603,19 @@ interface StopMediaOptions {
 
 let _offsetResetQueued = false;
 
+function hasFileTimelineAnchor(startedAt: unknown): startedAt is number {
+  if (!Number.isFinite(startedAt)) return false;
+  if (startedAt !== 0) return true;
+  // Zero is also a valid now - seekPosition anchor. Distinguish it from
+  // teardown's zero sentinel through the installed source/resident owner.
+  const buffer = getCurrentAudioBuffer();
+  return (
+    buffer !== null &&
+    getPlayerNode()?.buffer === buffer &&
+    (getState('demo.active') || getState('files.current')?.queueItemId === getCurrentQueueItemId())
+  );
+}
+
 function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   const ownership = getPlaybackOwnership();
   const pausedAt = getState('player.pausedAt') || 0;
@@ -632,8 +645,7 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
   const manualOffset = getState('sync.localOffset') || 0;
   const localOffset = getEffectiveLocalFileOutputOffset();
 
-  const startedAtValid =
-    typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0;
+  const startedAtValid = hasFileTimelineAnchor(startedAt);
   const audioNow = getCurrentTime();
   if (startedAtValid && audioNow > 0) {
     // Recover an out-of-range manual offset asynchronously so this getter does
@@ -650,7 +662,7 @@ function readTrackPosition(repairOutOfRangeOffset: boolean): number {
         // Recalculate startedAt to remove the encoded offset — prevents position
         // jump on next getTrackPosition() call after offset is zeroed.
         const sa = getState('player.startedAt');
-        if (sa) setState('player.startedAt', sa - lo);
+        if (hasFileTimelineAnchor(sa)) setState('player.startedAt', sa - lo);
       });
       pos = audioNow - startedAt;
     } else {
@@ -985,7 +997,6 @@ export async function play(
   } else if (recoveryGeneration !== failedPlayRecoveryGeneration) {
     return false;
   }
-  const ownedRecoveryGeneration = failedPlayRecoveryGeneration;
   if (isPlayLocked()) {
     const recovery = recoverStalePlayLock('blocked-play');
     if (!recovery.recovered) {
@@ -996,12 +1007,13 @@ export async function play(
         scheduleDeadlineMs,
         shouldApply,
         recoveryOptions,
-        recoveryGeneration: ownedRecoveryGeneration,
+        recoveryGeneration: failedPlayRecoveryGeneration,
       });
       return false;
     }
     log.warn('[Play] Stale owner discarded; retrying current request', recovery.snapshot);
   }
+  const ownedRecoveryGeneration = failedPlayRecoveryGeneration;
   // Source-level guard for callers that reach play during a file load. The
   // resident buffer belongs to the previous track, so queue the requested time
   // for the pipeline-completion path instead of starting stale audio.
@@ -1934,7 +1946,7 @@ export function stopPlayback(): void {
 
 // ─── Skip Time ─────────────────────────────────────────────────────
 
-export function skipTime(sec: number): void {
+export function skipTime(sec: number, shouldApply?: () => boolean): void {
   if (isGuestBlocked()) return;
 
   const hostConn = getState('network.hostConn');
@@ -1989,6 +2001,7 @@ export function skipTime(sec: number): void {
     startHostFileAndBroadcastPlay({
       time: target,
       queueItemId,
+      shouldApply,
       context: 'host skip',
     }).catch((error) => {
       log.warn('[Skip] Host start escaped its transport boundary', error);
@@ -2030,7 +2043,7 @@ export function setLocalManualSyncOffset(nextOffset: number): number {
   // the same delta before that replay lands.
   if (!isFileTransportInactive()) {
     const startedAt = getState('player.startedAt');
-    if (typeof startedAt === 'number' && Number.isFinite(startedAt) && startedAt !== 0) {
+    if (hasFileTimelineAnchor(startedAt)) {
       setState('player.startedAt', startedAt + (next - prevOffset));
     }
   }

@@ -473,6 +473,144 @@ afterEach(() => {
 });
 
 describe('PRO system-audio LAN-direct publisher probe', () => {
+  it('retires a timed-out native offer without sending its late result into a successor', async () => {
+    vi.useFakeTimers();
+    configureCallbacks();
+    const gate = deferred<void>();
+    const original = MockRTCPeerConnection.prototype.createOffer;
+    const spy = vi
+      .spyOn(MockRTCPeerConnection.prototype, 'createOffer')
+      .mockImplementationOnce(async function (this: MockRTCPeerConnection) {
+        await gate.promise;
+        return original.call(this);
+      });
+    try {
+      const old = direct.attemptProSystemAudioDirectPublication({
+        track: audioTrack('old-capture'),
+        generation: 7,
+        publicationId,
+        targets: [target(receiverA)],
+      });
+      await vi.advanceTimersByTimeAsync(2_001);
+      await expect(old).resolves.toBeNull();
+      const successor = direct.attemptProSystemAudioDirectPublication({
+        track: audioTrack('new-capture'),
+        generation: 8,
+        publicationId,
+        targets: [target(receiverB)],
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(successor).resolves.not.toBeNull();
+      gate.resolve(undefined);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+      expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+      expect(peerConnections[1]?.close).not.toHaveBeenCalled();
+      expect(
+        bridgeMocks.sent.some((frame) => frame.payload.targetParticipantId === receiverA),
+      ).toBe(false);
+    } finally {
+      gate.resolve(undefined);
+      spy.mockRestore();
+    }
+  });
+
+  it.each(['activation', 'periodic'] as const)(
+    'fails closed when the %s native locality reproof exceeds the existing budget',
+    async (phase) => {
+      vi.useFakeTimers();
+      const callbacks = configureCallbacks();
+      const initial = direct.attemptProSystemAudioDirectPublication({
+        track: audioTrack('capture-stereo'),
+        generation: 7,
+        publicationId,
+        targets: [target(receiverA)],
+      });
+      await vi.advanceTimersByTimeAsync(100);
+      await expect(initial).resolves.not.toBeNull();
+      const publication = { ownerParticipantId: publisherId, generation: 7, publicationId };
+      if (phase === 'periodic') {
+        await expect(direct.activateProSystemAudioDirectPublication(publication)).resolves.toBe(
+          true,
+        );
+      }
+      const pc = peerConnections[0]!;
+      const stats = await pc.getStats();
+      const gate = deferred<RTCStatsReport>();
+      const spy = vi.spyOn(pc, 'getStats').mockReturnValue(gate.promise);
+      try {
+        const activation =
+          phase === 'activation'
+            ? direct.activateProSystemAudioDirectPublication(publication)
+            : null;
+        await vi.advanceTimersByTimeAsync(phase === 'activation' ? 2_001 : 7_001);
+        if (activation) await expect(activation).resolves.toBe(false);
+        expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+        expect(pc.close).toHaveBeenCalledTimes(1);
+        gate.resolve(stats);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(1);
+        expect(pc.close).toHaveBeenCalledTimes(1);
+      } finally {
+        gate.resolve(stats);
+        spy.mockRestore();
+      }
+    },
+  );
+
+  it.each(['initial', 'late-join'] as const)(
+    'bounds an awaited native stats proof during %s negotiation and ignores late settlement',
+    async (phase) => {
+      vi.useFakeTimers();
+      const callbacks = configureCallbacks();
+      if (phase === 'late-join') {
+        await direct.attemptProSystemAudioDirectPublication({
+          track: audioTrack('capture-stereo'),
+          generation: 7,
+          publicationId,
+          targets: [],
+        });
+        await direct.activateProSystemAudioDirectPublication({
+          ownerParticipantId: publisherId,
+          generation: 7,
+          publicationId,
+        });
+      }
+      const stats = deferred<void>();
+      nextStatsGates.push(stats.promise);
+      let settled = false;
+      const attempt =
+        phase === 'initial'
+          ? direct.attemptProSystemAudioDirectPublication({
+              track: audioTrack('capture-stereo'),
+              generation: 7,
+              publicationId,
+              targets: [target(receiverA)],
+            })
+          : direct.reconcileProSystemAudioDirectTargets([target(receiverA)]);
+      void attempt.then(
+        () => {
+          settled = true;
+        },
+        () => undefined,
+      );
+      await vi.advanceTimersByTimeAsync(30);
+      expect(peerConnections[0]?.statsCallCount).toBe(1);
+      try {
+        await vi.advanceTimersByTimeAsync(5_001);
+        expect(settled).toBe(true);
+        expect(await attempt).toBe(phase === 'initial' ? null : false);
+        expect(peerConnections[0]?.close).toHaveBeenCalledTimes(1);
+        expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+        expect(callbacks.onLiveRouteFallback).toHaveBeenCalledTimes(phase === 'initial' ? 0 : 1);
+      } finally {
+        stats.resolve(undefined);
+        await vi.advanceTimersByTimeAsync(30);
+      }
+      expect(peerConnections[0]?.addTrack).not.toHaveBeenCalled();
+    },
+  );
+
   it('publishes only after every parallel route proves a selected host-to-host pair', async () => {
     const callbacks = configureCallbacks();
     nextLocalities.push('host-host', 'host-host');

@@ -9,6 +9,33 @@ import { log } from '../core/log.ts';
 import { bus } from '../core/events.ts';
 import { setManagedTimer } from '../core/timers.ts';
 
+/** Look up replaceable UI elements when each operation runs; never cache nodes. */
+export function getUiElement<T extends HTMLElement = HTMLElement>(id: string): T | null {
+  return document.getElementById(id) as T | null;
+}
+
+export function cycleFocusWithin(
+  event: KeyboardEvent,
+  focusable: HTMLElement[],
+  fallback: HTMLElement,
+): void {
+  if (focusable.length === 0) {
+    event.preventDefault();
+    fallback.focus({ preventScroll: true });
+    return;
+  }
+  const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+  const nextIndex = event.shiftKey
+    ? currentIndex <= 0
+      ? focusable.length - 1
+      : currentIndex - 1
+    : currentIndex < 0 || currentIndex === focusable.length - 1
+      ? 0
+      : currentIndex + 1;
+  event.preventDefault();
+  focusable[nextIndex]?.focus({ preventScroll: true });
+}
+
 // ─── Batch View Transition ───────────────────────────────────────
 
 let _batchedTransitionCb: (() => void) | null = null;
@@ -129,11 +156,16 @@ const OVERLAYS = [
   { id: 'administrator-permissions-overlay', cls: 'show', fullscreen: false },
   { id: 'language-dialog-overlay', cls: 'show', fullscreen: false },
   { id: 'manual-sync-overlay', cls: 'show', fullscreen: false },
+  {
+    id: 'onboarding-diagnostics-overlay',
+    cls: 'onboarding-diagnostics-overlay',
+    fullscreen: false,
+  },
 ] as const satisfies readonly OverlayDef[];
 type OverlayId = (typeof OVERLAYS)[number]['id'];
 
 function isShown(o: OverlayDef): boolean {
-  const el = document.getElementById(o.id);
+  const el = getUiElement(o.id);
   return !!el?.classList.contains(o.cls);
 }
 
@@ -149,7 +181,7 @@ function isShown(o: OverlayDef): boolean {
 export function isAnyOverlayShown(): boolean {
   if (OVERLAYS.some(isShown)) return true;
   if (document.querySelector('#chat-drawer.open[aria-modal="true"]')) return true;
-  if (document.getElementById('youtube-ios-sync-overlay')) return true;
+  if (getUiElement('youtube-ios-sync-overlay')) return true;
   return document.querySelector('.debug-memory-overlay') !== null;
 }
 
@@ -243,7 +275,7 @@ let _topModalId: OverlayId | null = null;
 let _legacyInertGuardInstalled = false;
 
 function topModalElement(): HTMLElement | null {
-  return _topModalId ? document.getElementById(_topModalId) : null;
+  return _topModalId ? getUiElement(_topModalId) : null;
 }
 
 function focusTopModal(): void {
@@ -323,7 +355,7 @@ function promoteOverlayToTop(id: OverlayId | undefined): void {
 function applyCenteredOverlayZIndexes(): void {
   for (const o of OVERLAYS) {
     if (o.fullscreen) continue;
-    const el = document.getElementById(o.id);
+    const el = getUiElement(o.id);
     if (!el) continue;
 
     const stackIndex = _modalStack.indexOf(o.id);
@@ -371,6 +403,12 @@ function syncModalStack(preferredTopOverlayId?: OverlayId): void {
   for (const child of Array.from(document.body.children)) {
     if (!(child instanceof HTMLElement)) continue;
     setElementInertForOwner(child, OVERLAY_INERT_OWNER, top !== null && child.id !== top);
+    // A covered overlay can open or close while inert. Its current visibility
+    // owns accessibility after release, not the hidden value captured earlier.
+    const overlay = OVERLAYS.find((candidate) => candidate.id === child.id);
+    if (overlay && !child.hasAttribute('inert')) {
+      child.setAttribute('aria-hidden', String(!isShown(overlay)));
+    }
   }
   const activeElement = document.activeElement;
   if (activeElement instanceof HTMLElement && activeElement.closest('[inert]')) focusTopModal();
@@ -380,7 +418,7 @@ export function syncOverlayState(preferredTopOverlayId?: OverlayId): void {
   updateOverlayOpenClass();
   syncModalStack(preferredTopOverlayId);
   if (preferredTopOverlayId) {
-    const overlay = document.getElementById(preferredTopOverlayId);
+    const overlay = getUiElement(preferredTopOverlayId);
     const definition = OVERLAYS.find((candidate) => candidate.id === preferredTopOverlayId);
     if (overlay && definition && overlay.classList.contains(definition.cls)) {
       // Opening a previously hidden surface can change both its scroll owner
@@ -415,7 +453,7 @@ export function initOverlayObservers(): void {
       syncOverlayState();
     });
     for (const o of OVERLAYS) {
-      const el = document.getElementById(o.id);
+      const el = getUiElement(o.id);
       if (el) _overlayObserver.observe(el, { attributes: true, attributeFilter: ['class'] });
     }
   } catch (e) {
@@ -501,7 +539,7 @@ function onMarqueeResize(): void {
     'marquee-resize',
     () => {
       if (!_currentMarqueeText) return;
-      const el = document.getElementById('track-title');
+      const el = getUiElement('track-title');
       if (!el) return;
       applyMarquee(el);
     },
@@ -510,7 +548,7 @@ function onMarqueeResize(): void {
 }
 
 export function updateTitleWithMarquee(text: string): void {
-  const el = document.getElementById('track-title');
+  const el = getUiElement('track-title');
   if (!el) return;
 
   // Skip if text hasn't changed — prevents marquee animation restart flicker

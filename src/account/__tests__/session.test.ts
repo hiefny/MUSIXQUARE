@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bus } from '../../core/events.ts';
 import { resetState } from '../../core/state.ts';
 import { setPeer } from '../../network/peer-state.ts';
+import { updateCurrentAccountNickname } from '../nickname.ts';
 import {
   __resetAccountSessionForTests,
   reconcileAccountLoginResult,
@@ -78,6 +79,327 @@ afterEach(() => {
 });
 
 describe('account session mutation ordering', () => {
+  it.each([
+    ['logout', false],
+    ['logout', true],
+    ['delete', false],
+    ['delete', true],
+  ] as const)(
+    'reconciles %s after a reachable nickname retry overtakes it (retry settles first=%s)',
+    async (action, retrySettlesFirst) => {
+      const { readFile } = await import('node:fs/promises');
+      const { initAccount, __resetAccountUiForTests } = await import('../../ui/account.ts');
+      const { closeDialog } = await import('../../ui/dialog.ts');
+      const { initOverlayObservers, __resetModalStackForTests } = await import('../../ui/dom.ts');
+      const html = await readFile('index.html', 'utf8');
+      document.body.innerHTML = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)![1]!;
+      vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+      vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(function (
+        this: HTMLElement,
+      ) {
+        return this.closest('[hidden]') ? null : this.parentElement;
+      });
+      const firstPatch = deferred<Response>();
+      const retryPatch = deferred<Response>();
+      const mutationResponse = deferred<Response>();
+      let cookieSession: typeof AUTHENTICATED_OLD | typeof ANONYMOUS = AUTHENTICATED_OLD;
+      let patches = 0;
+      let mutationStarted = false;
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/auth/session') return Promise.resolve(jsonResponse(cookieSession));
+        if (path === '/api/auth/stats') {
+          return Promise.resolve(
+            jsonResponse({ stats: { sessionCount: 1, listeningSeconds: 1, trackCount: 1 } }),
+          );
+        }
+        if (path === '/api/auth/profile') {
+          expect(new Headers(init?.headers).get('X-MXQR-Account-Expected-Scope')).toBe(
+            AUTHENTICATED_OLD.statsScope,
+          );
+          patches += 1;
+          return patches === 1 ? firstPatch.promise : retryPatch.promise;
+        }
+        if (path === (action === 'logout' ? '/api/auth/logout' : '/api/auth/account')) {
+          mutationStarted = true;
+          cookieSession = ANONYMOUS;
+          return mutationResponse.promise;
+        }
+        throw new Error(`Unexpected account request: ${path}`);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const submitNickname = (nickname: string): void => {
+        const editor = document.querySelector<HTMLElement>('#dialog-message [role="textbox"]')!;
+        expect(editor).not.toBeNull();
+        expect(document.getElementById('dialog-overlay')!.hasAttribute('inert')).toBe(false);
+        editor.textContent = nickname;
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        (document.getElementById('btn-dialog-ok') as HTMLButtonElement).click();
+      };
+      try {
+        initOverlayObservers();
+        initAccount();
+        await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+        bus.emit('account:open');
+        document.getElementById('btn-account-title-edit')!.click();
+        submitNickname('New');
+        await vi.waitFor(() => expect(patches).toBe(1));
+        // Submission closes the generic prompt; the account control is reachable again.
+        bus.emit('account:open');
+        const button = document.getElementById(`btn-account-${action}`) as HTMLButtonElement;
+        expect(button.disabled).toBe(false);
+        button.click();
+        if (action === 'delete') document.getElementById('btn-dialog-ok')!.click();
+        await vi.waitFor(() => expect(mutationStarted).toBe(true));
+        // The earlier uniqueness conflict can reopen its actual retry prompt above
+        // the pending account action. Its captured account scope is still current.
+        firstPatch.resolve(jsonResponse({ error: 'NICKNAME_TAKEN' }, 409));
+        await vi.waitFor(() =>
+          expect(document.getElementById('dialog-overlay')!.classList.contains('show')).toBe(true),
+        );
+        submitNickname('Next');
+        await vi.waitFor(() => expect(patches).toBe(2));
+        const settleRetry = () => retryPatch.resolve(jsonResponse({ error: 'UNAUTHORIZED' }, 401));
+        const settleMutation = () => mutationResponse.resolve(jsonResponse({ ok: true }));
+        if (retrySettlesFirst) {
+          settleRetry();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          settleMutation();
+        } else {
+          settleMutation();
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          settleRetry();
+        }
+        await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+        expect(getAccountStatsScope()).toBeNull();
+        expect(fetchMock.mock.calls.filter(([path]) => path === '/api/auth/session')).toHaveLength(
+          2,
+        );
+      } finally {
+        closeDialog();
+        __resetAccountUiForTests();
+        __resetModalStackForTests();
+        document.body.innerHTML = '';
+      }
+    },
+  );
+
+  it.each(['failed', 'network-failed', 'successful', 'new-account'] as const)(
+    'reconciles a submitted nickname after a newer %s logout without reviving old identity',
+    async (outcome) => {
+      const { readFile } = await import('node:fs/promises');
+      const { initAccount, __resetAccountUiForTests } = await import('../../ui/account.ts');
+      const { closeDialog } = await import('../../ui/dialog.ts');
+      const { setState } = await import('../../core/state.ts');
+      const accountApi = await import('../api.ts');
+      const profileUpdate = vi.spyOn(accountApi, 'updateAccountProfile');
+      const { initAccountRoomIdentity, __resetAccountRoomIdentityForTests } =
+        await import('../room-identity.ts');
+      const html = await readFile('index.html', 'utf8');
+      document.body.innerHTML = html.match(/<body[^>]*>([\s\S]*)<\/body>/i)![1]!;
+      vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+      const oldAccount = {
+        ...AUTHENTICATED_OLD,
+        account: { nickname: 'Old', profileComplete: true },
+      };
+      const savedAccount = { ...oldAccount, account: { nickname: 'New', profileComplete: true } };
+      let cookieSession = oldAccount as typeof oldAccount | typeof ANONYMOUS;
+      const patchResponse = deferred<Response>();
+      const projectedNicknames: Array<string | undefined> = [];
+      const refreshStandardRoomIdentity = vi.fn(() => {
+        projectedNicknames.push(getAccountSnapshot().account?.nickname);
+      });
+      setPeer({ refreshStandardRoomIdentity } as unknown as Parameters<typeof setPeer>[0]);
+      setState('setup.sessionStarted', true);
+      const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        switch (String(input)) {
+          case '/api/auth/session':
+            return Promise.resolve(jsonResponse(cookieSession));
+          case '/api/auth/stats':
+            return Promise.resolve(
+              jsonResponse({ stats: { sessionCount: 1, listeningSeconds: 1, trackCount: 1 } }),
+            );
+          case '/api/auth/profile':
+            expect(new Headers(init?.headers).get('X-MXQR-Account-Expected-Scope')).toBe(
+              oldAccount.statsScope,
+            );
+            expect(JSON.parse(String(init?.body))).toEqual({ nickname: 'New' });
+            // The server committed the rename; only this response body is delayed.
+            cookieSession = savedAccount;
+            return patchResponse.promise;
+          case '/api/auth/logout':
+            if (outcome === 'failed')
+              return Promise.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+            if (outcome === 'network-failed')
+              return Promise.reject(new TypeError('network disconnected'));
+            cookieSession = ANONYMOUS;
+            return Promise.resolve(jsonResponse({ ok: true }));
+          default:
+            throw new Error(`Unexpected account request: ${String(input)}`);
+        }
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        initAccountRoomIdentity();
+        initAccount();
+        await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Old'));
+        bus.emit('account:open');
+        document.getElementById('btn-account-title-edit')!.click();
+        const editor = document.querySelector<HTMLElement>('#dialog-message [role="textbox"]')!;
+        editor.textContent = 'New';
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+        document.getElementById('btn-dialog-ok')!.click();
+        await vi.waitFor(() =>
+          expect(fetchMock.mock.calls.some(([path]) => path === '/api/auth/profile')).toBe(true),
+        );
+        expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(false);
+        // The submitted prompt is closed, so the actual account action remains reachable.
+        bus.emit('account:open');
+        const logoutButton = document.getElementById('btn-account-logout') as HTMLButtonElement;
+        expect(logoutButton.disabled).toBe(false);
+        logoutButton.click();
+        await vi.waitFor(() => expect(logoutButton.disabled).toBe(false));
+        if (outcome === 'new-account') {
+          cookieSession = AUTHENTICATED_NEW;
+          window.dispatchEvent(
+            new MessageEvent('message', {
+              origin: window.location.origin,
+              data: {
+                type: 'refresh',
+                accountAuth: 'success',
+                id: 'result:after-overlapping-logout',
+              },
+            }),
+          );
+        }
+        const sessionReadsBeforePatch = fetchMock.mock.calls.filter(
+          ([path]) => path === '/api/auth/session',
+        ).length;
+        patchResponse.resolve(jsonResponse(savedAccount));
+        await profileUpdate.mock.results[0]!.value;
+        if (outcome === 'failed' || outcome === 'network-failed') {
+          // A read of the real API proves server state differs from the stale client projection.
+          await expect(accountApi.getAccountSession()).resolves.toMatchObject({
+            account: { nickname: 'New' },
+          });
+          await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('New'));
+          expect(document.getElementById('account-dialog-title-edit-label')?.textContent).toBe(
+            'New',
+          );
+          expect(projectedNicknames.at(-1)).toBe('New');
+        } else if (outcome === 'successful') {
+          await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+          expect(projectedNicknames.at(-1)).toBeUndefined();
+        } else {
+          await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Minsu'));
+          expect(getAccountStatsScope()).toBe(AUTHENTICATED_NEW.statsScope);
+          expect(projectedNicknames.at(-1)).toBe('Minsu');
+        }
+        expect(fetchMock.mock.calls.filter(([path]) => path === '/api/auth/session')).toHaveLength(
+          sessionReadsBeforePatch + (outcome === 'failed' || outcome === 'network-failed' ? 2 : 1),
+        );
+      } finally {
+        closeDialog();
+        __resetAccountRoomIdentityForTests();
+        __resetAccountUiForTests();
+        document.body.innerHTML = '';
+      }
+    },
+  );
+
+  it.each([false, true])(
+    'preserves a successor profile refresh when mutation settled before old Retry: %s',
+    async (mutationSettlesFirst) => {
+      vi.useFakeTimers();
+      const automaticRead = deferred<Response>();
+      const profileWrite = deferred<Response>();
+      const followUpRead = deferred<Response>();
+      const incomplete = {
+        ...AUTHENTICATED_NEW,
+        account: { nickname: '', profileComplete: false },
+      };
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockRejectedValueOnce(new TypeError('initial connection failed'))
+        .mockReturnValueOnce(automaticRead.promise)
+        .mockResolvedValueOnce(jsonResponse(incomplete))
+        .mockReturnValueOnce(profileWrite.promise)
+        .mockReturnValueOnce(followUpRead.promise);
+      vi.stubGlobal('fetch', fetchMock);
+      startAccountSessionRefresh();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getAccountSnapshot().status).toBe('unavailable');
+      await vi.advanceTimersByTimeAsync(1_000);
+      const retry = retryAccountSessionRefresh();
+
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          origin: window.location.origin,
+          data: {
+            type: 'refresh',
+            accountAuth: 'success',
+            id: 'result:retry-profile-success-0001',
+          },
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getAccountSnapshot().account?.profileComplete).toBe(false);
+      // The account subscriber opens first-login nickname completion even while
+      // the old account-panel Retry remains pending. Its submit owns this PATCH.
+      const profile = updateCurrentAccountNickname('Minsu', AUTHENTICATED_NEW.statsScope);
+      expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/auth/profile');
+      window.dispatchEvent(
+        new StorageEvent('storage', {
+          key: 'mxqr-account-refresh',
+          newValue: JSON.stringify({ type: 'refresh', id: 'refresh:later-cookie-change-0001' }),
+        }),
+      );
+
+      if (mutationSettlesFirst) {
+        profileWrite.resolve(jsonResponse(AUTHENTICATED_NEW));
+        await profile;
+      }
+      automaticRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+      await retry;
+      if (!mutationSettlesFirst) {
+        profileWrite.resolve(jsonResponse(AUTHENTICATED_NEW));
+        await profile;
+      }
+      expect(fetchMock.mock.calls.filter(([input]) => input === '/api/auth/session')).toHaveLength(
+        4,
+      );
+      followUpRead.resolve(jsonResponse(ANONYMOUS));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getAccountSnapshot().status).toBe('anonymous');
+    },
+  );
+
+  it('discards only the pre-click generic follow-up when a later login result owns the session', async () => {
+    vi.useFakeTimers();
+    const automaticRead = deferred<Response>();
+    const loginRead = deferred<Response>();
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockRejectedValueOnce(new TypeError('initial connection failed'))
+      .mockReturnValueOnce(automaticRead.promise)
+      .mockReturnValueOnce(loginRead.promise);
+    vi.stubGlobal('fetch', fetchMock);
+    startAccountSessionRefresh();
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(1_000);
+    startAccountSessionRefresh();
+    const retry = retryAccountSessionRefresh();
+    const login = reconcileAccountLoginResult('result:owns-after-retry-0001');
+    automaticRead.resolve(jsonResponse({ error: 'ACCOUNT_REQUEST_FAILED' }, 503));
+    await retry;
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    loginRead.resolve(jsonResponse(AUTHENTICATED_NEW));
+    await login;
+    expect(getAccountSnapshot().account?.nickname).toBe('Minsu');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
   it('recovers a failed initial session with bounded 1s, 3s, and 10s retries', async () => {
     vi.useFakeTimers();
     const fetchMock = vi
@@ -1178,6 +1500,7 @@ describe('account session mutation ordering', () => {
   });
 
   it('always emits local account deletion after an overlapping stale read', async () => {
+    applyAccountSession(AUTHENTICATED_OLD);
     const oldRead = deferred<Response>();
     const deletion = deferred<Response>();
     const reconciledRead = deferred<Response>();
@@ -1230,6 +1553,7 @@ describe('account session mutation ordering', () => {
   });
 
   it('keeps a saved nickname authoritative over a read started before the save', async () => {
+    applyAccountSession(AUTHENTICATED_OLD);
     const oldRead = deferred<Response>();
     const save = deferred<Response>();
     const reconciledRead = deferred<Response>();

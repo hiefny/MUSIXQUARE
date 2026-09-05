@@ -52,6 +52,56 @@ afterEach(() => {
 });
 
 describe('admin PRO room claim lifecycle', () => {
+  it.each(['anonymous', 'authenticated', 'failure', 'expired'] as const)(
+    'keeps a successful explicit login when the initial session check returns %s late',
+    async (initialResult) => {
+      installAdminDom();
+      let finishSession!: (response: Response) => void;
+      const pendingSession = new Promise<Response>((resolve) => {
+        finishSession = resolve;
+      });
+      let loginRequests = 0;
+      const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), location.origin).pathname;
+        if (path === '/api/admin/session') return pendingSession;
+        if (path === '/api/admin/login') {
+          loginRequests += 1;
+          return Response.json({ ok: true });
+        }
+        return Response.json({ generatedAt: new Date().toISOString(), cards: [], summary: {} });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      window.eval(adminScript);
+      const form = document.querySelector<HTMLFormElement>('[data-login-form]')!;
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await vi.waitFor(() => {
+        expect(loginRequests).toBe(1);
+        expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+      });
+      const metricsBefore = fetchMock.mock.calls.filter(
+        ([input]) => input === '/api/admin/metrics',
+      ).length;
+      finishSession(
+        initialResult === 'failure' || initialResult === 'expired'
+          ? Response.json(
+              { error: 'OLD_SESSION_CHECK_FAILED' },
+              { status: initialResult === 'expired' ? 401 : 503 },
+            )
+          : Response.json({ authenticated: initialResult === 'authenticated', configured: true }),
+      );
+      // The initial request has resolved; allow its stream/JSON and init continuation to finish.
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
+      expect(document.querySelector('[data-login-status]')?.textContent).not.toContain(
+        'OLD_SESSION',
+      );
+      expect(fetchMock.mock.calls.filter(([input]) => input === '/api/admin/metrics')).toHaveLength(
+        metricsBefore,
+      );
+      window.dispatchEvent(new Event('pagehide'));
+    },
+  );
+
   it('filters registered rooms by room code or administrator label', async () => {
     installAdminDom();
     const listStatus = document.querySelector('[data-pro-room-list-status]');
@@ -2471,6 +2521,78 @@ describe('admin PRO room operations dashboard', () => {
     expect(panel.querySelector<HTMLElement>('[data-pro-grant-export]')?.hidden).toBe(true);
   });
 
+  it.each(['logout', 'pagehide'] as const)(
+    'discards a voucher file read that completes after %s',
+    async (action) => {
+      installAdminDom();
+      const proView = document.querySelector<HTMLElement>('[data-admin-view="pro-rooms"]')!;
+      const roomForm = document.querySelector<HTMLFormElement>('[data-pro-room-form]')!;
+      const registerPanel = document.createElement('section');
+      registerPanel.className = 'panel pro-room-register-panel';
+      proView.insertBefore(registerPanel, roomForm);
+      registerPanel.appendChild(roomForm);
+      const fetchMock = vi.fn(async (input: string) => {
+        if (input === '/api/admin/session') return Response.json({ authenticated: true });
+        if (input === '/api/admin/metrics') return Response.json({ cards: [], summary: {} });
+        if (input === '/api/admin/pro-grants/campaigns') return Response.json({ campaigns: [] });
+        if (input === '/api/admin/pro-rooms') return Response.json({ rooms: [] });
+        return Response.json({ ok: true });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      window.eval(adminScript);
+      await vi.waitFor(() =>
+        expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false),
+      );
+      document.querySelector<HTMLButtonElement>('[data-admin-tab="pro-rooms"]')!.click();
+      await vi.waitFor(() =>
+        expect(document.querySelector<HTMLButtonElement>('[data-pro-grant-import]')?.disabled).toBe(
+          false,
+        ),
+      );
+      const json = JSON.stringify({
+        format: 'mxqr-pro-grant-vouchers-v1',
+        warning: 'PLAINTEXT VOUCHER CODES. Store and distribute securely.',
+        exportedAt: '2026-08-09T00:00:00.000Z',
+        requestId: `batch_${'Z'.repeat(22)}`,
+        campaign: {
+          slug: 'recovery-4',
+          title: 'Recovery',
+          startsAt: 1,
+          endsAt: null,
+          perAccountLimit: 1,
+        },
+        pool: { firstRoomCode: '000400', lastRoomCode: '000400', roomCount: 1 },
+        roomLabelPrefix: 'Recovery',
+        vouchers: [{ roomCode: '000400', code: 'MXQ-AAAAA-BBBBB-CCCCC-DDDDD' }],
+      });
+      let release: ((value: string) => void) | undefined;
+      const text = vi.fn(
+        () =>
+          new Promise<string>((resolve) => {
+            release = resolve;
+          }),
+      );
+      const importInput = document.querySelector<HTMLInputElement>(
+        '[data-pro-grant-import-input]',
+      )!;
+      Object.defineProperty(importInput, 'files', {
+        configurable: true,
+        value: [{ size: json.length, text }],
+      });
+      importInput.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(text).toHaveBeenCalledOnce();
+      if (action === 'logout') document.querySelector<HTMLButtonElement>('[data-logout]')!.click();
+      else window.dispatchEvent(new Event('pagehide'));
+      const requestsAfterExit = fetchMock.mock.calls.length;
+      release!(json);
+      await vi.waitFor(() => expect(importInput.value).toBe(''));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(fetchMock.mock.calls.length).toBe(requestsAfterExit);
+      expect(document.querySelector<HTMLElement>('[data-pro-grant-export]')?.hidden).toBe(true);
+      expect(document.body.textContent).not.toContain('Loaded 1 codes');
+    },
+  );
+
   it('imports a strict saved voucher file and resumes a partially created campaign', async () => {
     installAdminDom();
     const proView = document.querySelector<HTMLElement>('[data-admin-view="pro-rooms"]')!;
@@ -2638,6 +2760,41 @@ describe('admin PRO room operations dashboard', () => {
     expect(registeredRooms.size).toBe(2);
     expect(voucherMutations[0].requestId).toBe(artifact.requestId);
     expect(panel.textContent).not.toContain(artifact.vouchers[1].code);
+
+    await vi.waitFor(() =>
+      expect(panel.querySelector('[data-pro-grant-apply]')?.textContent).toBe('3. Event started'),
+    );
+    let downloadedBlob: Blob | undefined;
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn((blob: Blob) => {
+        downloadedBlob = blob;
+        return 'blob:applied-voucher-export';
+      }),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-download]')?.click();
+    expect(downloadedBlob).toBeDefined();
+    const downloadedText = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = reject;
+      reader.readAsText(downloadedBlob!);
+    });
+    const downloaded = JSON.parse(downloadedText);
+    expect(downloaded).toEqual(artifact);
+    expect(downloaded).not.toHaveProperty('applied');
+    setImportFile(downloaded);
+    await vi.waitFor(() =>
+      expect(panel.querySelector('[data-pro-grant-status]')?.textContent).toContain(
+        'Loaded 2 codes for “복구 이벤트” into memory',
+      ),
+    );
+    panel.querySelector<HTMLButtonElement>('[data-pro-grant-apply]')?.click();
+    await vi.waitFor(() =>
+      expect(panel.querySelector('[data-pro-grant-apply]')?.textContent).toBe('3. Event started'),
+    );
 
     setImportFile({
       ...artifact,

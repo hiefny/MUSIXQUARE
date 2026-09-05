@@ -103,7 +103,7 @@ export function parseMessageContent(text: string): string {
     const matchedText = match[0];
 
     if (_ytTestRegex.test(matchedText)) {
-      const cleanUrl = matchedText.startsWith('http') ? matchedText : 'https://' + matchedText;
+      const cleanUrl = /^https?:\/\//i.test(matchedText) ? matchedText : 'https://' + matchedText;
       const uniqueId = 'yt-' + Math.random().toString(36).substring(2, 11);
 
       result += `
@@ -192,6 +192,49 @@ function pruneOldMessages(container: HTMLElement): void {
   }
 }
 
+function prepareChatMessageContainer(container: HTMLElement): boolean {
+  const isAtBottom = isContainerAtBottom(container);
+  const empty = container.querySelector('.chat-empty');
+  if (empty) empty.remove();
+
+  // Desktop: hide chat title when messages exist.
+  const drawer = document.getElementById('chat-drawer');
+  if (drawer) drawer.classList.add('has-messages');
+  return isAtBottom;
+}
+
+function appendUserChatRowContents(
+  row: HTMLElement,
+  text: string,
+  isMine: boolean,
+  timeStr: string,
+): void {
+  const bubble = document.createElement('div');
+  bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
+  const chatTextDiv = document.createElement('div');
+  chatTextDiv.className = 'chat-text';
+  renderParsedChatContent(chatTextDiv, text);
+  bubble.appendChild(chatTextDiv);
+  makeUserChatBubbleCopyable(bubble, text);
+  try {
+    if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
+  } catch {
+    /* ignore */
+  }
+
+  const timeNode = document.createElement('div');
+  timeNode.className = 'chat-time';
+  timeNode.innerText = timeStr;
+
+  if (isMine) {
+    row.appendChild(timeNode);
+    row.appendChild(bubble);
+  } else {
+    row.appendChild(bubble);
+    row.appendChild(timeNode);
+  }
+}
+
 // ─── Render: Regular Chat Message ────────────────────────────────
 
 export function addChatMessage(
@@ -205,13 +248,7 @@ export function addChatMessage(
   const container = document.getElementById('chat-messages');
 
   if (container) {
-    const isAtBottom = isContainerAtBottom(container);
-    const empty = container.querySelector('.chat-empty');
-    if (empty) empty.remove();
-
-    // Desktop: hide chat title when messages exist
-    const drawer = document.getElementById('chat-drawer');
-    if (drawer) drawer.classList.add('has-messages');
+    const isAtBottom = prepareChatMessageContainer(container);
 
     const now = new Date();
     const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -248,30 +285,7 @@ export function addChatMessage(
       // Without this class only the first bubble from a sender ever animates.
       row.className = 'chat-row chat-enter';
 
-      const bubble = document.createElement('div');
-      bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
-      const chatTextDiv = document.createElement('div');
-      chatTextDiv.className = 'chat-text';
-      renderParsedChatContent(chatTextDiv, text);
-      bubble.appendChild(chatTextDiv);
-      makeUserChatBubbleCopyable(bubble, text);
-      try {
-        if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
-      } catch {
-        /* ignore */
-      }
-
-      const timeNode = document.createElement('div');
-      timeNode.className = 'chat-time';
-      timeNode.innerText = timeStr;
-
-      if (isMine) {
-        row.appendChild(timeNode);
-        row.appendChild(bubble);
-      } else {
-        row.appendChild(bubble);
-        row.appendChild(timeNode);
-      }
+      appendUserChatRowContents(row, text, isMine, timeStr);
 
       lastGroup.appendChild(row);
       lastGroup.dataset.timeStr = timeStr;
@@ -303,30 +317,7 @@ export function addChatMessage(
       const row = document.createElement('div');
       row.className = 'chat-row';
 
-      const bubble = document.createElement('div');
-      bubble.className = `chat-bubble ${isMine ? 'mine' : 'others'}`;
-      const chatTextDiv = document.createElement('div');
-      chatTextDiv.className = 'chat-text';
-      renderParsedChatContent(chatTextDiv, text);
-      bubble.appendChild(chatTextDiv);
-      makeUserChatBubbleCopyable(bubble, text);
-      try {
-        if (bubble.querySelector('.chat-youtube-btn')) bubble.classList.add('has-youtube');
-      } catch {
-        /* ignore */
-      }
-
-      const timeNode = document.createElement('div');
-      timeNode.className = 'chat-time';
-      timeNode.innerText = timeStr;
-
-      if (isMine) {
-        row.appendChild(timeNode);
-        row.appendChild(bubble);
-      } else {
-        row.appendChild(bubble);
-        row.appendChild(timeNode);
-      }
+      appendUserChatRowContents(row, text, isMine, timeStr);
 
       group.appendChild(row);
       container.appendChild(group);
@@ -360,12 +351,7 @@ export function addSystemChatMessage(text: string): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
 
-  const isAtBottom = isContainerAtBottom(container);
-  const empty = container.querySelector('.chat-empty');
-  if (empty) empty.remove();
-
-  const drawer = document.getElementById('chat-drawer');
-  if (drawer) drawer.classList.add('has-messages');
+  const isAtBottom = prepareChatMessageContainer(container);
 
   const now = new Date();
   const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -496,13 +482,7 @@ export function upsertBotChatMessage(
 
   const container = document.getElementById('chat-messages');
   if (!container) return;
-  const isAtBottom = isContainerAtBottom(container);
-
-  const empty = container.querySelector('.chat-empty');
-  if (empty) empty.remove();
-
-  const drawer = document.getElementById('chat-drawer');
-  if (drawer) drawer.classList.add('has-messages');
+  const isAtBottom = prepareChatMessageContainer(container);
 
   let group = findBotChatGroup(container, normalizedRequestId);
   if (!group) {
@@ -536,12 +516,7 @@ export function upsertBotChatMessage(
 export function addWhisperMessage(peerLabel: string, text: string, isSent: boolean): void {
   const container = document.getElementById('chat-messages');
   if (!container) return;
-  const isAtBottom = isContainerAtBottom(container);
-  const empty = container.querySelector('.chat-empty');
-  if (empty) empty.remove();
-
-  const drawer = document.getElementById('chat-drawer');
-  if (drawer) drawer.classList.add('has-messages');
+  const isAtBottom = prepareChatMessageContainer(container);
 
   const now = new Date();
   const timeStr = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;

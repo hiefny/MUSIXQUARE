@@ -8,6 +8,7 @@ import {
 } from '../api.ts';
 import {
   PRO_ROOM_MAX_ASSET_BYTES,
+  PRO_ROOM_MAX_ADMINISTRATOR_ITEMS,
   PRO_ROOM_QUOTA_BYTES,
   type ProRoomCapability,
   type ProRoomPermissionSet,
@@ -1418,6 +1419,85 @@ describe('PRO room cookie session API', () => {
 });
 
 describe('PRO room administrator API', () => {
+  it.each(['get', 'update', 'revoke'] as const)(
+    'accepts the complete maximum-sized administrator directory after %s',
+    async (operation) => {
+      const directory = administratorDirectory();
+      directory.administrators = [
+        directory.administrators[0]!,
+        ...Array.from({ length: PRO_ROOM_MAX_ADMINISTRATOR_ITEMS - 1 }, (_, index) => ({
+          ...directory.administrators[1]!,
+          memberId: `member_${String(index).padStart(121, '0')}`,
+          memberDisplayNumber: (index % 100) + 1,
+          displayName: '漢'.repeat(64),
+          onlineDeviceCount: 0,
+        })),
+      ];
+      const bytes = new TextEncoder().encode(JSON.stringify(directory)).byteLength;
+      expect(bytes).toBeGreaterThan(8 * 1024);
+      expect(bytes).toBeLessThan(128 * 1024);
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValueOnce(jsonResponse(directory));
+      const result =
+        operation === 'get'
+          ? client.getAdministrators(ROOM_CODE)
+          : operation === 'update'
+            ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+            : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+      await expect(result).resolves.toEqual(directory);
+    },
+  );
+
+  it('rejects a directory beyond its independent administrator count budget', async () => {
+    const directory = administratorDirectory();
+    directory.administrators = [
+      directory.administrators[0]!,
+      ...Array.from({ length: PRO_ROOM_MAX_ADMINISTRATOR_ITEMS }, (_, index) => ({
+        ...directory.administrators[1]!,
+        memberId: `member_${String(index).padStart(10, '0')}`,
+        memberDisplayNumber: (index % 100) + 1,
+      })),
+    ];
+    const fetchMock = vi.fn<typeof fetch>();
+    const client = new ProRoomApiClient({ fetch: fetchMock });
+    await establishPresence(client, fetchMock);
+    fetchMock.mockResolvedValueOnce(jsonResponse(directory));
+    await expect(client.getAdministrators(ROOM_CODE)).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+    });
+  });
+
+  it.each(['get', 'update', 'revoke'] as const)(
+    'bounds an endless administrator %s response even if cancellation never settles',
+    async (operation) => {
+      const cancel = vi.fn(() => new Promise<void>(() => undefined));
+      const fetchMock = vi.fn<typeof fetch>();
+      const client = new ProRoomApiClient({ fetch: fetchMock });
+      await establishPresence(client, fetchMock);
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              controller.enqueue(new Uint8Array(16 * 1024));
+            },
+            cancel,
+          }),
+          { headers: { 'content-type': 'application/json' } },
+        ),
+      );
+      const result =
+        operation === 'get'
+          ? client.getAdministrators(ROOM_CODE)
+          : operation === 'update'
+            ? client.updateAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID, DELEGATED_PERMISSIONS)
+            : client.revokeAdministrator(ROOM_CODE, DELEGATED_MEMBER_ID);
+      await expect(result).rejects.toMatchObject({ code: 'RESPONSE_TOO_LARGE', status: 200 });
+      expect(cancel).toHaveBeenCalledOnce();
+    },
+  );
+
   it('reads and mutates the room-scoped administrator directory with the active presence lease', async () => {
     const fetchMock = vi.fn<typeof fetch>();
     const client = new ProRoomApiClient({ fetch: fetchMock });

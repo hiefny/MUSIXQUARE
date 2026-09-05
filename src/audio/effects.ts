@@ -20,6 +20,7 @@ import { registerHandlers, verifyOperator } from '../network/protocol.ts';
 import { broadcast } from '../network/peer.ts';
 import type { DataConnection, AnyProtocolMsg, RoomSettingsSyncState } from '../types/index.ts';
 import {
+  applyMasterVolume,
   getMasterGain,
   getReverb,
   getRvbLowCut,
@@ -165,11 +166,7 @@ export async function applySettings(deferReverbImpulse = false): Promise<void> {
   }
 
   // Master Volume
-  const mg = getMasterGain();
-  if (mg) {
-    const masterVolume = getState('audio.masterVolume');
-    rampParam(mg.gain, masterVolume, RAMP_TIME);
-  }
+  applyMasterVolume(RAMP_TIME);
 
   // Decay/pre-delay previews arrive at pointer-event cadence. Mix, damping,
   // EQ, and every other cheap AudioParam above still apply immediately, while
@@ -418,6 +415,13 @@ function hasRetainedStandardSettingsAuthority(): boolean {
     return false;
   }
   return getState('network.standardRoomCapabilities')?.includes('effects.control') === true;
+}
+
+function hasPendingStandardSettingsIntent(): boolean {
+  return (
+    pendingStandardSettingsPublish?.roomKey === currentSettingsRoomKey() &&
+    hasRetainedStandardSettingsAuthority()
+  );
 }
 
 function rememberPendingStandardSettingsPublish(settings: RoomSettingsSyncState): void {
@@ -1213,12 +1217,7 @@ function handleSettingsSyncSnapshot(data: Record<string, unknown>, conn?: DataCo
   // A disconnected administrator that explicitly opted back in owns a frozen
   // local takeover intent. Cache bootstrap authority for later, but do not
   // overwrite that local surface before it can be published on reconnect.
-  if (
-    pendingStandardSettingsPublish?.roomKey === currentSettingsRoomKey() &&
-    hasRetainedStandardSettingsAuthority()
-  ) {
-    return;
-  }
+  if (hasPendingStandardSettingsIntent()) return;
   if (isSettingsSyncEnabled()) applySettingsSyncState(settings);
 }
 
@@ -1249,7 +1248,12 @@ function handlePublishSettingsSyncSnapshot(
 }
 
 function shouldApplyLegacySettingsFrame(conn?: DataConnection): boolean {
-  return usesStandardSettingsSyncTransport() && isSettingsSyncEnabled() && isHostBroadcast(conn);
+  return (
+    usesStandardSettingsSyncTransport() &&
+    isSettingsSyncEnabled() &&
+    isHostBroadcast(conn) &&
+    !hasPendingStandardSettingsIntent()
+  );
 }
 
 function handleVolume(data: Record<string, unknown>, conn?: DataConnection): void {

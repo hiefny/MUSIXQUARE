@@ -133,6 +133,11 @@ describe('service-worker CACHE_VERSION guard', () => {
     ['scripts/classic-runtime-assets.ts', 'export const target = "wordmark-anim.js";\n'],
     ['browser/ui-kit/app/entry.tsx', 'document.body.dataset.kit = "ready";\n'],
     ['scripts/ui-kit-asset.ts', 'export const target = "app.js";\n'],
+    ['scripts/materialize-localized-html.mts', 'export const output = "localized.html";\n'],
+    ['scripts/localized-html-lib.mts', 'export const title = "changed";\n'],
+    ['scripts/locale-seo-metadata.mts', 'export const locale = "changed";\n'],
+    ['scripts/service-worker-app-shell-guard-lib.mts', 'export const worker = "changed.js";\n'],
+    ['fonts/noto/noto-sans-devanagari/devanagari.woff2', 'updated locale font bytes'],
     ['tsconfig.ui-kit.json', '{"compilerOptions":{"strict":true}}\n'],
   ])('tracks the browser build input %s as a PWA runtime change', (filePath, source) => {
     const repository = createRepository();
@@ -174,6 +179,7 @@ describe('service-worker CACHE_VERSION guard', () => {
     const repository = createRepository();
     write(repository, 'cloudflare/app-worker.ts', 'export default {};\n');
     write(repository, 'docs/runbook.md', '# Runbook\n');
+    write(repository, 'fonts/README.md', '# Font licensing and maintenance\n');
     write(repository, 'src/core/__tests__/only.test.ts', 'it("passes", () => {});\n');
     write(repository, 'e2e/release.test.ts', 'export {};\n');
     write(repository, '.workshop/promo/render.ts', 'export {};\n');

@@ -27,6 +27,7 @@ import {
 import {
   readPlaybackProjection,
   readState,
+  waitForFilePlaybackReady,
   waitForPlaybackProjection,
   waitForPlaylistCount,
   waitForState,
@@ -53,52 +54,49 @@ test.describe('Advanced Playback', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const repeatBtn = pair.hostPage.locator('#btn-repeat');
-    if (await repeatBtn.isVisible()) {
-      let mode = (await readState(pair.hostPage, 'playlist.repeatMode')) as number;
-      expect(mode).toBe(0);
+    await expect(repeatBtn).toBeVisible();
+    let mode = (await readState(pair.hostPage, 'playlist.repeatMode')) as number;
+    expect(mode).toBe(0);
 
-      await repeatBtn.click();
-      await waitForState(pair.hostPage, 'playlist.repeatMode', 1);
-      mode = (await readState(pair.hostPage, 'playlist.repeatMode')) as number;
-      expect(mode).toBe(1);
+    await repeatBtn.click();
+    await waitForState(pair.hostPage, 'playlist.repeatMode', 1);
+    mode = (await readState(pair.hostPage, 'playlist.repeatMode')) as number;
+    expect(mode).toBe(1);
 
-      await repeatBtn.click();
-      await waitForState(pair.hostPage, 'playlist.repeatMode', 2);
-      mode = (await readState(pair.hostPage, 'playlist.repeatMode')) as number;
-      expect(mode).toBe(2);
+    await repeatBtn.click();
+    await waitForState(pair.hostPage, 'playlist.repeatMode', 2);
+    mode = (await readState(pair.hostPage, 'playlist.repeatMode')) as number;
+    expect(mode).toBe(2);
 
-      await repeatBtn.click();
-      await waitForState(pair.hostPage, 'playlist.repeatMode', 0);
-      mode = (await readState(pair.hostPage, 'playlist.repeatMode')) as number;
-      expect(mode).toBe(0);
-    }
+    await repeatBtn.click();
+    await waitForState(pair.hostPage, 'playlist.repeatMode', 0);
+    mode = (await readState(pair.hostPage, 'playlist.repeatMode')) as number;
+    expect(mode).toBe(0);
   });
 
   test('repeat all shows active class on button', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const repeatBtn = pair.hostPage.locator('#btn-repeat');
-    if (await repeatBtn.isVisible()) {
-      await repeatBtn.click(); // → all
-      await waitForState(pair.hostPage, 'playlist.repeatMode', 1);
+    await expect(repeatBtn).toBeVisible();
+    await repeatBtn.click(); // → all
+    await waitForState(pair.hostPage, 'playlist.repeatMode', 1);
 
-      const hasActive = await repeatBtn.evaluate((el) => el.classList.contains('active'));
-      expect(hasActive).toBe(true);
-    }
+    const hasActive = await repeatBtn.evaluate((el) => el.classList.contains('active'));
+    expect(hasActive).toBe(true);
   });
 
   test('repeat one shows active-one class on button', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const repeatBtn = pair.hostPage.locator('#btn-repeat');
-    if (await repeatBtn.isVisible()) {
-      await repeatBtn.click(); // → all
-      await repeatBtn.click(); // → one
-      await waitForState(pair.hostPage, 'playlist.repeatMode', 2);
+    await expect(repeatBtn).toBeVisible();
+    await repeatBtn.click(); // → all
+    await repeatBtn.click(); // → one
+    await waitForState(pair.hostPage, 'playlist.repeatMode', 2);
 
-      const hasActiveOne = await repeatBtn.evaluate((el) => el.classList.contains('active-one'));
-      expect(hasActiveOne).toBe(true);
-    }
+    const hasActiveOne = await repeatBtn.evaluate((el) => el.classList.contains('active-one'));
+    expect(hasActiveOne).toBe(true);
   });
 
   // ── Shuffle Mode Tests ──────────────────────────────────────
@@ -107,23 +105,22 @@ test.describe('Advanced Playback', () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
     const shuffleBtn = pair.hostPage.locator('#btn-shuffle');
-    if (await shuffleBtn.isVisible()) {
-      let shuffle = (await readState(pair.hostPage, 'playlist.isShuffle')) as boolean;
-      expect(shuffle).toBe(false);
+    await expect(shuffleBtn).toBeVisible();
+    let shuffle = (await readState(pair.hostPage, 'playlist.isShuffle')) as boolean;
+    expect(shuffle).toBe(false);
 
-      await shuffleBtn.click();
-      await waitForState(pair.hostPage, 'playlist.isShuffle', true);
-      shuffle = (await readState(pair.hostPage, 'playlist.isShuffle')) as boolean;
-      expect(shuffle).toBe(true);
+    await shuffleBtn.click();
+    await waitForState(pair.hostPage, 'playlist.isShuffle', true);
+    shuffle = (await readState(pair.hostPage, 'playlist.isShuffle')) as boolean;
+    expect(shuffle).toBe(true);
 
-      const hasActive = await shuffleBtn.evaluate((el) => el.classList.contains('active'));
-      expect(hasActive).toBe(true);
+    const hasActive = await shuffleBtn.evaluate((el) => el.classList.contains('active'));
+    expect(hasActive).toBe(true);
 
-      await shuffleBtn.click();
-      await waitForState(pair.hostPage, 'playlist.isShuffle', false);
-      shuffle = (await readState(pair.hostPage, 'playlist.isShuffle')) as boolean;
-      expect(shuffle).toBe(false);
-    }
+    await shuffleBtn.click();
+    await waitForState(pair.hostPage, 'playlist.isShuffle', false);
+    shuffle = (await readState(pair.hostPage, 'playlist.isShuffle')) as boolean;
+    expect(shuffle).toBe(false);
   });
 
   // ── Real Audio Playback Tests ──────────────────────────────
@@ -282,6 +279,7 @@ test.describe('Advanced Playback', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
     await waitForPlaylistCount(pair.guestPage, 1, 20_000);
+    await waitForFilePlaybackReady(pair.guestPage, 20_000);
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
@@ -292,19 +290,10 @@ test.describe('Advanced Playback', () => {
     await pair.hostPage.click('#play-btn');
     await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 15_000);
 
-    await pair.guestPage.waitForFunction(
-      () => {
-        const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
-        if (typeof projected !== 'function') return false;
-        const state = projected();
-        return state === 'PLAYING_AUDIO' || state === 'PAUSED' || state === 'IDLE';
-      },
-      undefined,
-      { timeout: 15_000 },
-    );
+    await waitForPlaybackProjection(pair.guestPage, 'PLAYING_AUDIO', 15_000);
 
     const guestState = await readPlaybackProjection(pair.guestPage);
-    expect(['PLAYING_AUDIO', 'PAUSED', 'IDLE']).toContain(guestState);
+    expect(guestState).toBe('PLAYING_AUDIO');
   });
 
   test('guest state updates when host pauses', async () => {
@@ -312,6 +301,7 @@ test.describe('Advanced Playback', () => {
 
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
+    await waitForFilePlaybackReady(pair.guestPage, 20_000);
 
     await pair.hostPage.waitForFunction(
       () => (window as any).__MUSIXQUARE_GET_STATE__?.('files.current') !== null,
@@ -321,13 +311,16 @@ test.describe('Advanced Playback', () => {
 
     await pair.hostPage.click('#play-btn');
     await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 15_000);
+    await waitForPlaybackProjection(pair.guestPage, 'PLAYING_AUDIO', 15_000);
 
     await pair.hostPage.click('#play-btn'); // pause
 
     await waitForPlaybackProjection(pair.hostPage, 'PAUSED', 10_000);
+    await waitForPlaybackProjection(pair.guestPage, 'PAUSED', 10_000);
 
     const hostState = await readPlaybackProjection(pair.hostPage);
     expect(hostState).toBe('PAUSED');
+    expect(await readPlaybackProjection(pair.guestPage)).toBe('PAUSED');
   });
 
   // ── Next Track Navigation Tests ────────────────────────────

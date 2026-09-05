@@ -16,7 +16,11 @@ import {
   openAccountDialog,
   requestAccountNicknameChange,
 } from '../account.ts';
-import { __resetAccountSessionForTests, requestAccountLoginPopup } from '../../account/session.ts';
+import {
+  __resetAccountSessionForTests,
+  reconcileAccountLoginSession,
+  requestAccountLoginPopup,
+} from '../../account/session.ts';
 import { updateCurrentAccountNickname } from '../../account/nickname.ts';
 import { clearIntentionalNav, isIntentionalNav } from '../../core/page-lifecycle.ts';
 import {
@@ -131,6 +135,218 @@ afterEach(() => {
 });
 
 describe('optional account UI', () => {
+  it('rejects cookie B statistics under snapshot A and reconciles the changed session', async () => {
+    let cookieOwner = 'A';
+    let resolveRefresh!: (response: Response) => void;
+    const sessionResponse = () =>
+      jsonResponse({
+        configured: true,
+        authenticated: true,
+        account: { nickname: cookieOwner, profileComplete: true },
+        statsScope: (cookieOwner === 'A' ? 's' : 'n').repeat(43),
+      });
+    const requestedScopes: (string | null)[] = [];
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input) === '/api/auth/session') {
+        if (cookieOwner === 'A') return sessionResponse();
+        return new Promise<Response>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      }
+      if (String(input) === '/api/auth/stats') {
+        const scope = new Headers(init?.headers).get('X-MXQR-Account-Stats-Scope');
+        requestedScopes.push(scope);
+        if (scope !== (cookieOwner === 'A' ? 's' : 'n').repeat(43)) {
+          return jsonResponse({ error: 'ACCOUNT_STATS_SCOPE_MISMATCH' }, 409);
+        }
+        return jsonResponse({
+          stats: {
+            sessionCount: cookieOwner === 'A' ? 11 : 987,
+            listeningSeconds: 60,
+            trackCount: 9,
+          },
+        });
+      }
+      throw new Error('unexpected request');
+    });
+    initAccount();
+    await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('A'));
+    // Another tab completed OAuth before this tab receives a refresh pulse.
+    cookieOwner = 'B';
+    openAccountDialog();
+    await vi.waitFor(() => expect(resolveRefresh).toBeTypeOf('function'));
+    expect(document.getElementById('account-dialog-title-edit-label')?.textContent).toBe('A');
+    expect(document.getElementById('account-stats-session-count')?.textContent).toBe('-');
+    expect(requestedScopes).toEqual([STATS_SCOPE]);
+    resolveRefresh(sessionResponse());
+    await vi.waitFor(() =>
+      expect(document.getElementById('account-stats-session-count')?.textContent).toBe('987'),
+    );
+    expect(document.getElementById('account-dialog-title-edit-label')?.textContent).toBe('B');
+    expect(requestedScopes).toEqual([STATS_SCOPE, 'n'.repeat(43)]);
+  });
+
+  it.each(['pending', 'deferred'] as const)(
+    'offers incomplete B its own prompt after incomplete A was %s, preserving same-scope Later',
+    async (firstPrompt) => {
+      let cookieScope = STATS_SCOPE;
+      vi.mocked(fetch).mockImplementation(async () =>
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: '', profileComplete: false },
+          statsScope: cookieScope,
+        }),
+      );
+      vi.mocked(showDialog).mockResolvedValue({ action: 'secondary' });
+      let firstSignal: AbortSignal | undefined;
+      if (firstPrompt === 'pending') {
+        vi.mocked(showDialog).mockImplementationOnce(
+          (options) =>
+            new Promise((resolve) => {
+              if (typeof options !== 'object') throw new Error('expected dialog options');
+              firstSignal = options.signal;
+              firstSignal?.addEventListener('abort', () => resolve({ action: 'superseded' }), {
+                once: true,
+              });
+            }),
+        );
+      }
+      initAccount();
+      await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(1));
+      cookieScope = 'n'.repeat(43);
+      await reconcileAccountLoginSession();
+      await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(2));
+      if (firstPrompt === 'pending') expect(firstSignal?.aborted).toBe(true);
+      await reconcileAccountLoginSession();
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+      expect(showDialog).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(['rename', 'delete'])(
+    'retires a pending %s confirmation after account replacement',
+    async (action) => {
+      vi.mocked(fetch).mockResolvedValue(
+        jsonResponse({
+          configured: true,
+          authenticated: true,
+          account: { nickname: 'First', profileComplete: true },
+          statsScope: STATS_SCOPE,
+        }),
+      );
+      initAccount();
+      await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+      let answer!: (result: { action: string; inputValue?: string }) => void;
+      vi.mocked(showDialog).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+      const operation = action === 'rename' ? requestAccountNicknameChange() : null;
+      if (action === 'delete') document.getElementById('btn-account-delete')!.click();
+      const options = vi.mocked(showDialog).mock.calls.at(-1)![0];
+      if (!options || typeof options === 'string') throw new Error('Expected dialog options');
+      applyAccountSession({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Second', profileComplete: true },
+        statsScope: 'n'.repeat(43),
+      });
+      expect(options.signal?.aborted).toBe(true);
+      vi.mocked(fetch).mockClear();
+      answer({ action: 'ok', inputValue: 'OldIntent' });
+      if (operation) expect(await operation).toBe('cancelled');
+      else await Promise.resolve();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['rename', 'delete'])(
+    'keeps a %s confirmation valid through a same-session refresh',
+    async (action) => {
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === '/api/auth/session')
+          return jsonResponse({
+            configured: true,
+            authenticated: true,
+            account: { nickname: 'First', profileComplete: true },
+            statsScope: STATS_SCOPE,
+          });
+        expect(new Headers(init?.headers).get('X-MXQR-Account-Expected-Scope')).toBe(STATS_SCOPE);
+        return action === 'rename'
+          ? jsonResponse({
+              configured: true,
+              authenticated: true,
+              account: { nickname: 'NewName', profileComplete: true },
+              statsScope: STATS_SCOPE,
+            })
+          : jsonResponse({ ok: true, pending: true }, 202);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      initAccount();
+      await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+      let answer!: (result: { action: string; inputValue?: string }) => void;
+      vi.mocked(showDialog).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+      const operation = action === 'rename' ? requestAccountNicknameChange() : null;
+      if (action === 'delete') document.getElementById('btn-account-delete')!.click();
+      applyAccountSession({
+        configured: true,
+        authenticated: true,
+        account: { nickname: 'Refreshed', profileComplete: true },
+        statsScope: STATS_SCOPE,
+      });
+      const options = vi.mocked(showDialog).mock.calls.at(-1)![0];
+      if (!options || typeof options === 'string') throw new Error('Expected dialog options');
+      expect(options.signal?.aborted).toBe(false);
+      answer({ action: 'ok', inputValue: 'NewName' });
+      if (operation) expect(await operation).toBe('completed');
+      else await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('anonymous'));
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(showToast).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(['rename', 'delete'])(
+    'carries the %s intent fence while a changed cookie has not reached the UI',
+    async (action) => {
+      let serverScope = STATS_SCOPE;
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input) === '/api/auth/session')
+          return jsonResponse({
+            configured: true,
+            authenticated: true,
+            account: {
+              nickname: serverScope === STATS_SCOPE ? 'First' : 'Second',
+              profileComplete: true,
+            },
+            statsScope: serverScope,
+          });
+        expect(new Headers(init?.headers).get('X-MXQR-Account-Expected-Scope')).toBe(STATS_SCOPE);
+        return jsonResponse({ error: 'ACCOUNT_SESSION_CHANGED' }, 409);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      initAccount();
+      await vi.waitFor(() => expect(getAccountSnapshot().status).toBe('authenticated'));
+      vi.mocked(showDialog).mockResolvedValueOnce({ action: 'ok', inputValue: 'OldIntent' });
+      serverScope = 'n'.repeat(43);
+      if (action === 'rename') expect(await requestAccountNicknameChange()).toBe('error');
+      else document.getElementById('btn-account-delete')!.click();
+      await vi.waitFor(() => expect(getAccountSnapshot().account?.nickname).toBe('Second'));
+      expect(showToast).toHaveBeenCalledWith('Could not update your account. Please try again.');
+      expect(
+        fetchMock.mock.calls.filter(([input]) => String(input) !== '/api/auth/session'),
+      ).toHaveLength(1);
+    },
+  );
+
   it('fails closed without same-tab storage when the protected login popup is blocked', async () => {
     applyAccountSession({
       configured: true,
@@ -2033,6 +2249,40 @@ describe('optional account UI', () => {
       '/api/auth/profile',
       expect.objectContaining({ method: 'PATCH' }),
     );
+  });
+
+  it('retires the whole nickname retry flow even if the original account session returns', async () => {
+    const original = {
+      configured: true,
+      authenticated: true,
+      account: { nickname: 'Old', profileComplete: true },
+      statsScope: STATS_SCOPE,
+    };
+    applyAccountSession(original);
+    let answer!: (result: { action: string; inputValue?: string }) => void;
+    vi.mocked(showDialog)
+      .mockResolvedValueOnce({ action: 'ok', inputValue: 'Taken' })
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            answer = resolve;
+          }),
+      );
+    vi.mocked(fetch).mockResolvedValueOnce(jsonResponse({ error: 'NICKNAME_TAKEN' }, 409));
+    const operation = requestAccountNicknameChange();
+    await vi.waitFor(() => expect(showDialog).toHaveBeenCalledTimes(2));
+    expect(await requestAccountNicknameChange()).toBe('cancelled');
+    applyAccountSession({
+      configured: true,
+      authenticated: false,
+      account: null,
+      statsScope: null,
+    });
+    applyAccountSession(original);
+    answer({ action: 'ok', inputValue: 'Retry' });
+    expect(await operation).toBe('cancelled');
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(showToast).toHaveBeenCalledOnce();
   });
 
   it('reopens a rename prompt with the attempted value when the nickname is taken', async () => {

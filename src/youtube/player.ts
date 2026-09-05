@@ -1327,6 +1327,59 @@ function populateSubItemsForQueueItem(queueItemId: QueueItemId): void {
   }
 }
 
+type YouTubeFallbackAudioIntent = { muted: boolean; volume: number };
+
+function seekYouTubeFromApp(player: YouTubePlayerInstance, seconds: number): void {
+  const hostConn = getState('network.hostConn');
+  if (!hostConn) {
+    const state = player.getPlayerState?.() ?? -1;
+    // A pending rendezvous can report PAUSED while logically still playing.
+    // Both relative skip and absolute seek must replace that pending target.
+    const midSync =
+      isYouTubeZeroStartProtocolActive() ||
+      !!getManagedTimer('yt-auto-sync') ||
+      isStandardHostManualOffsetTransactionPending();
+    if (state === 1 || midSync) {
+      scheduleYtAutoSync(seconds);
+    } else {
+      const resolvedTarget = resolveCoordinatorLocalTarget(player, seconds);
+      markYtStateBroadcast();
+      const queueItemId = getCurrentQueueItemId();
+      if (queueItemId) {
+        broadcast({
+          type: MSG.YOUTUBE_STATE,
+          queueItemId,
+          state: 2,
+          time: resolvedTarget.canonicalTime,
+          subIndex: getState('youtube.currentSubIndex') ?? -1,
+          videoId: player.getVideoData?.()?.video_id || '',
+          hostClock: getHostNow(),
+        });
+      }
+      player.seekTo(resolvedTarget.localTime, true);
+      markYtStateBroadcast();
+    }
+  } else {
+    player.seekTo(seconds, true);
+  }
+}
+
+function restoreFallbackAudio(
+  player: YouTubeZeroStartPlayer,
+  intent: YouTubeFallbackAudioIntent,
+): void {
+  player.setVolume(intent.volume);
+  if (intent.muted) player.mute();
+  else player.unMute();
+}
+
+function isFallbackAudioRestored(
+  player: YouTubeZeroStartPlayer,
+  intent: YouTubeFallbackAudioIntent,
+): boolean {
+  return player.isMuted() === intent.muted && Math.abs(player.getVolume() - intent.volume) <= 1;
+}
+
 export function initYouTube(): void {
   configureYouTubeHandlerRuntimeHooks({ scheduleYtAutoSync, tryBeginYouTubeZeroStart });
 
@@ -1359,6 +1412,21 @@ export function initYouTube(): void {
     desiredVolume?: number | null;
     targetLoadIssued?: boolean;
     handedOffPlayer?: YouTubeZeroStartPlayer | null;
+  };
+  let zeroStartFallbackAudioIntent: YouTubeFallbackAudioIntent | null = null;
+  const captureFallbackAudioIntent = (
+    target: Pick<ZeroStartLegacyTarget, 'desiredMuted' | 'desiredVolume'>,
+  ): YouTubeFallbackAudioIntent => {
+    const appVolume = Math.max(
+      0,
+      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
+    );
+    // Each fallback keeps its own object. Slider updates follow the current
+    // owner without turning the temporary hard mute into the user's intent.
+    return (zeroStartFallbackAudioIntent = {
+      muted: target.desiredMuted ?? appVolume === 0,
+      volume: target.desiredVolume ?? appVolume,
+    });
   };
   let pendingReplacementFallback:
     | (ZeroStartLegacyTarget & { peerId: string; token: number })
@@ -1409,12 +1477,7 @@ export function initYouTube(): void {
       target.targetLoadIssued || target.mediaAction === 'resident-reposition'
         ? (target.handedOffPlayer ?? null)
         : null;
-    const appVolume = Math.max(
-      0,
-      Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-    );
-    const desiredMuted = target.desiredMuted ?? appVolume === 0;
-    const desiredVolume = target.desiredVolume ?? appVolume;
+    const desiredAudio = captureFallbackAudioIntent(target);
     let recoveryPlayer: YouTubeZeroStartPlayer | null = null;
     let loadIssued = false;
     let settleIssued = false;
@@ -1425,17 +1488,11 @@ export function initYouTube(): void {
       setManagedTimer('yt-zero-start-host-fallback', callback, delayMs);
     };
 
-    const restoreDesiredAudio = (player: YouTubeZeroStartPlayer): void => {
-      player.setVolume(desiredVolume);
-      if (desiredMuted) player.mute();
-      else player.unMute();
-    };
-
     const cleanupExactPlayer = (player: YouTubeZeroStartPlayer): void => {
       setYtAutoplayIntent(false);
       player.pauseVideo();
       player.seekTo(0, true);
-      restoreDesiredAudio(player);
+      restoreFallbackAudio(player, desiredAudio);
     };
 
     const finishUnavailable = (): void => {
@@ -1459,9 +1516,7 @@ export function initYouTube(): void {
         cleanupAttempts += 1;
         try {
           cleanupExactPlayer(ownedPlayer);
-          const restored =
-            ownedPlayer.isMuted() === desiredMuted &&
-            Math.abs(ownedPlayer.getVolume() - desiredVolume) <= 1;
+          const restored = isFallbackAudioRestored(ownedPlayer, desiredAudio);
           if (restored || cleanupAttempts >= 8) {
             youtubeZeroStartExternalFallbackOwnsPlayerState = false;
             clearManagedTimer('yt-zero-start-host-fallback');
@@ -1563,9 +1618,8 @@ export function initYouTube(): void {
           return;
         }
 
-        restoreDesiredAudio(player);
-        const audioRestored =
-          player.isMuted() === desiredMuted && Math.abs(player.getVolume() - desiredVolume) <= 1;
+        restoreFallbackAudio(player, desiredAudio);
+        const audioRestored = isFallbackAudioRestored(player, desiredAudio);
         if (!audioRestored) {
           scheduleHostFallback(attemptRecovery, 50);
           return;
@@ -1812,29 +1866,18 @@ export function initYouTube(): void {
         videoId: event.videoId,
         subIndex: getState('youtube.currentSubIndex') ?? null,
       };
-      const appVolume = Math.max(
-        0,
-        Math.min(100, Math.round((getState('audio.masterVolume') ?? 1) * 100)),
-      );
-      const desiredMuted = event.desiredMuted ?? appVolume === 0;
-      const desiredVolume = event.desiredVolume ?? appVolume;
+      const desiredAudio = captureFallbackAudioIntent(event);
       let loadIssued = false;
       let fallbackPlayer: YouTubeZeroStartPlayer | null = null;
       let settleIssued = false;
       let releasePlayIssued = false;
       let releaseAckDeadline = 0;
 
-      const restoreDesiredAudio = (player: YouTubeZeroStartPlayer): void => {
-        player.setVolume(desiredVolume);
-        if (desiredMuted) player.mute();
-        else player.unMute();
-      };
-
       const cleanupExactPlayer = (player: YouTubeZeroStartPlayer): void => {
         setYtAutoplayIntent(false);
         player.pauseVideo();
         player.seekTo(resolveZeroStartLocalTarget(0, context), true);
-        restoreDesiredAudio(player);
+        restoreFallbackAudio(player, desiredAudio);
       };
 
       const abandonFallback = (verifyAudioRestore = false): void => {
@@ -1861,9 +1904,7 @@ export function initYouTube(): void {
           cleanupAttempts += 1;
           try {
             cleanupExactPlayer(ownedPlayer);
-            const restored =
-              ownedPlayer.isMuted() === desiredMuted &&
-              Math.abs(ownedPlayer.getVolume() - desiredVolume) <= 1;
+            const restored = isFallbackAudioRestored(ownedPlayer, desiredAudio);
             if (restored || cleanupAttempts >= 8) {
               youtubeZeroStartExternalFallbackOwnsPlayerState = false;
               clearManagedTimer('yt-zero-start-external-fallback');
@@ -2058,9 +2099,8 @@ export function initYouTube(): void {
             return;
           }
 
-          restoreDesiredAudio(player);
-          const audioRestored =
-            player.isMuted() === desiredMuted && Math.abs(player.getVolume() - desiredVolume) <= 1;
+          restoreFallbackAudio(player, desiredAudio);
+          const audioRestored = isFallbackAudioRestored(player, desiredAudio);
           if (!audioRestored) {
             if (Date.now() < deadline) {
               setManagedTimer('yt-zero-start-external-fallback', attemptFallback, 50);
@@ -2079,7 +2119,7 @@ export function initYouTube(): void {
           const localTarget = resolveZeroStartLocalTarget(canonicalTarget, context);
           player.pauseVideo();
           player.seekTo(localTarget, true);
-          restoreDesiredAudio(player);
+          restoreFallbackAudio(player, desiredAudio);
           setYtAutoplayIntent(true);
           youtubeZeroStartExternalFallbackOwnsPlayerState = false;
           try {
@@ -2665,6 +2705,25 @@ export function initYouTube(): void {
 
     if (needsIndex) {
       log.info(`[YouTube] Deferred playlist navigation. Indexing ${playlistIdStr} before play`);
+      const loadIndexedVideo = (resolvedVideoId: string, resolvedSubIndex: number): void => {
+        // Indexing and the resolved video are one selection, but the physical
+        // load replaces its session. Carry only an intent still owned by the
+        // indexing session; a pause, stop, or newer selection must stay canceled.
+        const pending =
+          _pendingAutoSyncOnReady && pendingAutoSyncMatchesCurrentOwner()
+            ? (_pendingAutoSyncOptions ?? {})
+            : null;
+        loadYouTubeVideo(resolvedVideoId, null, autoplay as boolean, resolvedSubIndex);
+        if (pending) {
+          setPendingAutoSyncOnReady(true, {
+            ...pending,
+            videoId: resolvedVideoId,
+            subIndex: resolvedSubIndex,
+          });
+        }
+        // Title fetching belongs to the resolved load, after any stop boundary.
+        populateSubItemsForQueueItem(queueItemId);
+      };
       const indexingCallback = (ids: string[]): void => {
         if (queueItemId !== getCurrentQueueItemId() || !getQueueItemById(queueItemId)) return;
         showLoader(false);
@@ -2677,8 +2736,7 @@ export function initYouTube(): void {
           // the user can at least play that one track. The playlist row
           // stays in the queue but its sub-items list will remain empty
           // until a subsequent successful index attempt.
-          loadYouTubeVideo(videoId as string, null, autoplay as boolean, 0);
-          populateSubItemsForQueueItem(queueItemId);
+          loadIndexedVideo(videoId as string, 0);
           return;
         }
         log.info(`[YouTube] Deferred indexing complete: ${ids.length} items for ${playlistIdStr}`);
@@ -2721,10 +2779,7 @@ export function initYouTube(): void {
         // Re-enter loadYouTubeVideo with playlistId=null — the cued playlist
         // is replaced with a single-video load. Sub-item navigation works
         // from here on because subItemsMap is populated.
-        loadYouTubeVideo(targetVideoId, null, autoplay as boolean, targetSubIdx);
-        // Populate only after loadYouTubeVideo has crossed any destructive
-        // stop-mode boundary; otherwise that boundary can cancel this fetch.
-        populateSubItemsForQueueItem(queueItemId);
+        loadIndexedVideo(targetVideoId, targetSubIdx);
       };
       // Trigger the iframe to cue the playlist. loadYouTubeVideo arms the
       // indexing session (and shows its loader) itself, AFTER the transient
@@ -3072,42 +3127,7 @@ export function initYouTube(): void {
       if (target < 0) target = 0;
       if (target > duration) target = duration;
 
-      const hostConn = getState('network.hostConn');
-      if (!hostConn) {
-        const state = player.getPlayerState?.() ?? -1;
-        // See youtube:seek-to for why we need the midSync check — a pending
-        // yt-auto-sync stage-2 delay keeps the player PAUSED while logically
-        // we are still in a play session, so a bare seek during that window
-        // would skip re-syncing and let the stale target's playVideo fire.
-        const midSync =
-          isYouTubeZeroStartProtocolActive() ||
-          !!getManagedTimer('yt-auto-sync') ||
-          isStandardHostManualOffsetTransactionPending();
-        if (state === 1 || midSync) {
-          // Playing (or mid-rendezvous) → (re)schedule auto-sync
-          scheduleYtAutoSync(target);
-        } else {
-          // Actually paused by user → seek immediately, no delay
-          const resolvedTarget = resolveCoordinatorLocalTarget(player, target);
-          markYtStateBroadcast();
-          const queueItemId = getCurrentQueueItemId();
-          if (queueItemId) {
-            broadcast({
-              type: MSG.YOUTUBE_STATE,
-              queueItemId,
-              state: 2,
-              time: resolvedTarget.canonicalTime,
-              subIndex: getState('youtube.currentSubIndex') ?? -1,
-              videoId: player.getVideoData?.()?.video_id || '',
-              hostClock: getHostNow(),
-            });
-          }
-          player.seekTo(resolvedTarget.localTime, true);
-          markYtStateBroadcast();
-        }
-      } else {
-        player.seekTo(target, true);
-      }
+      seekYouTubeFromApp(player, target);
     } catch (e) {
       log.error('[YouTube] Skip time error:', e);
     }
@@ -3118,44 +3138,7 @@ export function initYouTube(): void {
     const player = getYouTubePlayer();
     if (!player?.seekTo || !Number.isFinite(seconds)) return;
     try {
-      const hostConn = getState('network.hostConn');
-      if (!hostConn) {
-        const state = player.getPlayerState?.() ?? -1;
-        // Mid-sync detection: yt-auto-sync is the stage-2 rendezvous delay
-        // before playVideo(). A seek landing in that window (re)schedules a
-        // fresh sync instead of slipping through as a bare seek+state=2
-        // while the player's reported state is still lying about being PAUSED.
-        const midSync =
-          isYouTubeZeroStartProtocolActive() ||
-          !!getManagedTimer('yt-auto-sync') ||
-          isStandardHostManualOffsetTransactionPending();
-        if (state === 1 || midSync) {
-          // Playing (or mid-sync) → (re)schedule auto-sync. scheduleYtAutoSync
-          // clears any pending yt-auto-sync up-front, so the old one is
-          // naturally superseded.
-          scheduleYtAutoSync(seconds);
-        } else {
-          // Actually paused by user → seek immediately, no delay
-          const resolvedTarget = resolveCoordinatorLocalTarget(player, seconds);
-          markYtStateBroadcast();
-          const queueItemId = getCurrentQueueItemId();
-          if (queueItemId) {
-            broadcast({
-              type: MSG.YOUTUBE_STATE,
-              queueItemId,
-              state: 2,
-              time: resolvedTarget.canonicalTime,
-              subIndex: getState('youtube.currentSubIndex') ?? -1,
-              videoId: player.getVideoData?.()?.video_id || '',
-              hostClock: getHostNow(),
-            });
-          }
-          player.seekTo(resolvedTarget.localTime, true);
-          markYtStateBroadcast();
-        }
-      } else {
-        player.seekTo(seconds, true);
-      }
+      seekYouTubeFromApp(player, seconds);
     } catch (e) {
       log.error('[YouTube] Seek error:', e);
     }
@@ -3786,18 +3769,17 @@ export function initYouTube(): void {
 
   // YouTube set volume (from audio engine)
   bus.on('youtube:set-volume', (volumePercent) => {
+    if (!Number.isFinite(volumePercent)) return;
+    const clampedVolume = Math.max(0, Math.min(100, Math.round(volumePercent)));
+    const shouldMute = clampedVolume === 0;
+    if (zeroStartFallbackAudioIntent) {
+      zeroStartFallbackAudioIntent.muted = shouldMute;
+      zeroStartFallbackAudioIntent.volume = clampedVolume;
+    }
+    updateYouTubeZeroStartDesiredAudioState({ muted: shouldMute, volume: clampedVolume });
+    updateProYouTubeAuthorityDesiredAudioState({ muted: shouldMute, volume: clampedVolume });
     const player = getYouTubePlayer();
-    if (player?.setVolume && Number.isFinite(volumePercent)) {
-      const clampedVolume = Math.max(0, Math.min(100, Math.round(volumePercent)));
-      const shouldMute = clampedVolume === 0;
-      updateYouTubeZeroStartDesiredAudioState({
-        muted: shouldMute,
-        volume: clampedVolume,
-      });
-      updateProYouTubeAuthorityDesiredAudioState({
-        muted: shouldMute,
-        volume: clampedVolume,
-      });
+    if (player?.setVolume) {
       player.setVolume(clampedVolume);
 
       // Volume remains a desired app setting while the persistent iframe is

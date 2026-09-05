@@ -36,6 +36,7 @@ import { resetState, setState } from '../../core/state.ts';
 import { setLocalYouTubePaused, isLocalYouTubePaused } from '../../youtube/_state.ts';
 import { setLocalFilePaused, isLocalFilePaused } from '../_state.ts';
 import { initLocalOutputRejoin } from '../local-output-rejoin.ts';
+import { initMediaSession } from '../media-session.ts';
 import {
   setPlaybackFilePaused,
   setPlaybackFilePlaying,
@@ -81,6 +82,70 @@ beforeEach(() => {
 });
 
 describe('participant-local output rejoin', () => {
+  it('cancels a reserved PRO retry when a later hardware PAUSE arrives after the miss', async () => {
+    vi.useFakeTimers();
+    try {
+      const handlers = new Map<MediaSessionAction, MediaSessionActionHandler>();
+      Object.defineProperty(navigator, 'mediaSession', {
+        configurable: true,
+        value: {
+          setActionHandler: (
+            action: MediaSessionAction,
+            handler: MediaSessionActionHandler | null,
+          ) => {
+            if (handler) handlers.set(action, handler);
+          },
+        },
+      });
+      initMediaSession();
+      startSession();
+      setProRoom();
+      setPlaybackFilePaused();
+      setState('playlist.currentQueueItemId', '00000000-0000-4000-8000-000000000001');
+      setLocalFilePaused(true);
+      mocks.reconcilePro.mockResolvedValueOnce(false).mockResolvedValue(true);
+      handlers.get('play')!({ action: 'play' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+      expect(isLocalFilePaused()).toBe(true);
+      handlers.get('pause')!({ action: 'pause' });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.reconcilePro).toHaveBeenCalledOnce();
+      expect(isLocalFilePaused()).toBe(true);
+      handlers.get('play')!({ action: 'play' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.reconcilePro).toHaveBeenCalledTimes(2);
+      expect(isLocalFilePaused()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels a busy YouTube retry on explicit PAUSE and permits the next PLAY', async () => {
+    vi.useFakeTimers();
+    try {
+      startSession();
+      setStandardGuest();
+      setPlaybackYouTubePlaying();
+      setLocalYouTubePaused(true);
+      mocks.rendezvous.mockReturnValueOnce({ status: 'busy', retryAfterMs: 250 });
+      bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.rendezvous).toHaveBeenCalledOnce();
+      setLocalYouTubePaused(true);
+      bus.emit('youtube:set-local-paused', true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.rendezvous).toHaveBeenCalledOnce();
+      expect(isLocalYouTubePaused()).toBe(true);
+      bus.emit('playback:local-output-rejoin', { reason: 'media-session-play', mode: 'youtube' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.rendezvous).toHaveBeenCalledTimes(2);
+      expect(isLocalYouTubePaused()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejoins a standard file guest through a fresh SYNC_PONG, never pausedAt', async () => {
     startSession();
     setStandardGuest();

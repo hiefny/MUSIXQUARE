@@ -123,6 +123,7 @@ let guestPc: RTCPeerConnection | null = null;
 let guestSessionId: string | null = null;
 let guestSessionOwnerToken: string | null = null;
 let guestSubscriptionKey: string | null = null;
+let guestSubscriptionHostConn: DataConnection | null = null;
 let guestConnectPromise: Promise<void> | null = null;
 let guestConnectAbortController: AbortController | null = null;
 let guestPendingReadyPayload: SfuReadyPayload | null = null;
@@ -183,10 +184,6 @@ export function getSystemAudioSfuDebugSnapshot() {
   };
 }
 
-function shouldUseRealtimeSfu(): boolean {
-  return true;
-}
-
 function buildCorrelationId(prefix: string): string {
   const room = getState('network.sessionCode') || getState('network.lastJoinCode') || 'session';
   const id = typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now());
@@ -244,10 +241,6 @@ function isGuestLimitedForHost(hostConn: DataConnection | null): boolean {
   return false;
 }
 
-function getRealtimeEndpoints(): string[] {
-  return localFirstApiEndpoints('/api/cloudflare-realtime');
-}
-
 async function loadSfuRtcConfig(signal?: AbortSignal): Promise<RTCConfiguration> {
   const turnCredentials = await getStandardRoomTurnCredentials(signal);
 
@@ -269,7 +262,7 @@ async function callRealtime(
 ): Promise<RealtimeResponse> {
   let lastError: unknown = null;
 
-  for (const url of getRealtimeEndpoints()) {
+  for (const url of localFirstApiEndpoints('/api/cloudflare-realtime')) {
     try {
       const result = await withRequestDeadline(
         async (requestSignal) => {
@@ -435,35 +428,10 @@ function hasLocalSfuHostPeers(): boolean {
   return getSfuHostPeers().some((peer) => peer.audience === 'all');
 }
 
-function broadcastSfuReady(publication: HostPublication): void {
+function broadcastSfuReady(publication: HostPublication, localOnly = false): void {
   for (const peer of getSfuHostPeers()) {
-    const handoffFromDirect = directFailureHandoffPeerIds.has(peer.id);
-    const fenceFailedDirectRoute = isSystemAudioDirectFailurePeer(peer.id);
-    if (
-      safeSend(
-        peer.conn,
-        makeReadyMessage(publication, peer.audience, handoffFromDirect, fenceFailedDirectRoute),
-      )
-    ) {
-      directFailureHandoffPeerIds.delete(peer.id);
-    }
-  }
-}
-
-function broadcastSfuReadyToLocalPeers(publication: HostPublication): void {
-  for (const peer of getSfuHostPeers()) {
-    if (peer.audience === 'all') {
-      const handoffFromDirect = directFailureHandoffPeerIds.has(peer.id);
-      const fenceFailedDirectRoute = isSystemAudioDirectFailurePeer(peer.id);
-      if (
-        safeSend(
-          peer.conn,
-          makeReadyMessage(publication, peer.audience, handoffFromDirect, fenceFailedDirectRoute),
-        )
-      ) {
-        directFailureHandoffPeerIds.delete(peer.id);
-      }
-    }
+    if (!localOnly || peer.audience === 'all')
+      sendSfuReady(peer.id, peer.conn, peer.audience, publication);
   }
 }
 
@@ -478,11 +446,20 @@ function sendSfuReadyToPeer(peerId: string, publication: HostPublication): void 
   if (!audience) return;
   const peer = getState('network.connectedPeers').find((p) => p.id === peerId);
   if (!peer) return;
+  sendSfuReady(peerId, peer.conn, audience, publication);
+}
+
+function sendSfuReady(
+  peerId: string,
+  conn: DataConnection | null,
+  audience: 'remote' | 'all',
+  publication: HostPublication,
+): void {
   const handoffFromDirect = directFailureHandoffPeerIds.has(peerId);
   const fenceFailedDirectRoute = isSystemAudioDirectFailurePeer(peerId);
   if (
     safeSend(
-      peer.conn,
+      conn,
       makeReadyMessage(publication, audience, handoffFromDirect, fenceFailedDirectRoute),
     )
   ) {
@@ -734,8 +711,7 @@ function runBoundedHostRetry(localOnly: boolean): void {
   ensureHostPublication()
     .then((publication) => {
       if (!publication) return;
-      if (localOnly) broadcastSfuReadyToLocalPeers(publication);
-      else broadcastSfuReady(publication);
+      broadcastSfuReady(publication, localOnly);
     })
     .catch((error) => log.warn('[SysAudioSFU] Bounded host retry failed:', error));
 }
@@ -898,6 +874,7 @@ function cleanupGuestSfu(updateState = true): void {
   guestSessionId = null;
   guestSessionOwnerToken = null;
   guestSubscriptionKey = null;
+  guestSubscriptionHostConn = null;
   guestConnectPromise = null;
   guestPendingReadyPayload = null;
   guestSubscribedTrackMids = [];
@@ -974,7 +951,6 @@ function normalizeSfuReadyPayload(
 async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal): Promise<void> {
   if (!isPayloadOnFrozenGuestRoute(payload)) return;
   const subscriptionKey = buildSubscriptionKey(payload);
-  if (guestSubscriptionKey === subscriptionKey && guestPc) return;
   const subscriptionEpoch = guestSubscriptionEpoch;
 
   // The subscriber session does not depend on TURN credentials. Resolve both
@@ -995,6 +971,7 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
   const publishedTrack = payload.track;
 
   pc.addEventListener('connectionstatechange', () => {
+    if (guestPc !== pc) return;
     log.info(`[SysAudioSFU] Guest SFU connection: ${pc.connectionState}`);
     if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
       cleanupGuestSfu();
@@ -1125,10 +1102,20 @@ async function subscribeGuestToSfu(payload: SfuReadyPayload, signal: AbortSignal
 
 function beginGuestSfuSubscription(payload: SfuReadyPayload): void {
   if (!isPayloadOnFrozenGuestRoute(payload)) return;
+  const hostConn = getState('network.hostConn');
+  // Peer reevaluation can announce an unchanged publication. Preserve the
+  // live receiver and its original receive deadline for this exact owner.
+  if (
+    guestPc &&
+    guestSubscriptionHostConn === hostConn &&
+    guestSubscriptionKey === buildSubscriptionKey(payload)
+  )
+    return;
   // Tear down the previous owner before publishing the successor controller.
   // subscribeGuestToSfu used to perform this cleanup after registration, which
   // made the new attempt abort itself synchronously.
   cleanupGuestSfu(false);
+  guestSubscriptionHostConn = hostConn;
   const abortController = new AbortController();
   guestConnectAbortController = abortController;
   const connectPromise = subscribeGuestToSfu(payload, abortController.signal);
@@ -1180,8 +1167,6 @@ function handleSfuReady(
   data: ProtocolMsg<typeof MSG.SYSTEM_AUDIO_SFU_READY>,
   conn?: DataConnection,
 ): void {
-  if (!shouldUseRealtimeSfu()) return;
-
   const hostConn = getState('network.hostConn');
   if (!hostConn || conn !== hostConn) return;
   if (isGuestLimitedForHost(hostConn)) {
@@ -1243,7 +1228,6 @@ function handleSfuCapability(
 }
 
 function publishToEligiblePeer(peerId: string): void {
-  if (!shouldUseRealtimeSfu()) return;
   if (!isSystemAudioActive()) return;
   if (getState('network.appRole') !== 'host') return;
   const peer = getState('network.connectedPeers').find((item) => item.id === peerId);
@@ -1276,7 +1260,6 @@ export function registerSystemAudioSfuListeners(): void {
 
   bus.on('system-audio:streams-ready', () => {
     if (getRoomContext().kind === 'pro') return;
-    if (!shouldUseRealtimeSfu()) return;
     if (getState('network.appRole') !== 'host') return;
     beginSystemAudioShareDelivery(getState('network.connectedPeers'));
     if (!hasSfuHostPeers()) {

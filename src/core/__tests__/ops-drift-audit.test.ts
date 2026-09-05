@@ -682,6 +682,75 @@ describe('operations drift audit', () => {
     expect(JSON.stringify(names)).not.toContain(secretValue);
   });
 
+  it.each([
+    { metadata: undefined, status: 'pass' },
+    { metadata: null, status: 'pass' },
+    { metadata: {}, status: 'pass' },
+    {
+      metadata: { page: 1, total_pages: 1, count: 100, total_count: 100, per_page: 100 },
+      status: 'pass',
+    },
+    { metadata: { page: 2 }, status: 'error' },
+    { metadata: { total_pages: 3 }, status: 'error' },
+    { metadata: { count: 99 }, status: 'error' },
+    { metadata: { total_count: 101 }, status: 'error' },
+    { metadata: { per_page: 99 }, status: 'error' },
+    { metadata: { total_pages: '1' }, status: 'error' },
+    { metadata: [], status: 'error' },
+  ])('reads the complete SinglePage domain inventory: %j', async (scenario) => {
+    const contract = loadOpsDriftContract();
+    const expected = contract.workerSurfaces.flatMap((surface) =>
+      surface.customDomains.map((hostname) => ({ hostname, service: surface.worker })),
+    );
+    const filler = (index: number) => ({
+      hostname: `outside-${index}.example.org`,
+      service: 'other',
+    });
+    const inventory = [
+      ...expected,
+      ...Array.from({ length: 100 - expected.length }, (_, index) => filler(index)),
+    ];
+    const fetcher = vi.fn(async (url: string) => {
+      const request = new URL(url);
+      if (request.pathname.endsWith('/workers/domains') && !request.searchParams.has('service')) {
+        return jsonResponse({
+          success: true,
+          result: inventory,
+          result_info: scenario.metadata,
+        });
+      }
+      return matchingLiveResponse(contract, url);
+    });
+    const report = await runOpsDriftAudit({ contract, fetcher, env: AUDIT_ENV });
+    expect(report.checks.find((check) => check.id === 'worker-domain-inventory')).toMatchObject({
+      status: scenario.status,
+    });
+    if (scenario.status === 'error') expect(report.status).toBe('attention-required');
+    const domainRequests = fetcher.mock.calls
+      .map(([url]) => new URL(url))
+      .filter((url) => url.pathname.endsWith('/workers/domains'));
+    expect(domainRequests.filter((url) => !url.searchParams.has('service'))).toHaveLength(1);
+    for (const url of domainRequests) {
+      expect(url.searchParams.has('page')).toBe(false);
+      expect(url.searchParams.has('per_page')).toBe(false);
+    }
+  });
+
+  it('recognizes spaced TOML route headers instead of hiding public exposure', () => {
+    const source = readFileSync('cloudflare/wrangler.remote-share.toml', 'utf8');
+    const exposed = `${source}\n[[ routes ]] # valid TOML\npattern = "unexpected.example.com/*"\n`;
+    expect(workerSurfaceFromToml(exposed).routes).toEqual(['unexpected.example.com/*']);
+  });
+
+  it.each([
+    '[[ "routes" ]]\npattern = "unexpected.example.com/*"',
+    '[ "env" . "preview" ]\nworkers_dev = true',
+    '"pattern" = "unexpected.example.com/*"',
+  ])('fails closed on an unsupported TOML header or quoted assignment: %s', (unsupported) => {
+    const source = readFileSync('cloudflare/wrangler.remote-share.toml', 'utf8');
+    expect(() => workerSurfaceFromToml(`${source}\n${unsupported}\n`)).toThrow(/unsupported TOML/i);
+  });
+
   it('canonicalizes source-only Worker surface fixtures without retaining secrets or opaque IDs', () => {
     const source = `name = "fixture-worker"
 workers_dev = false

@@ -323,7 +323,7 @@ export function registerServiceWorker(): void {
         handlePassiveControllerChange();
       };
 
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
+      const handleControllerChange = () => {
         const controller = navigator.serviceWorker.controller;
         if (!hadController) {
           hadController = true;
@@ -377,7 +377,11 @@ export function registerServiceWorker(): void {
           .catch((error) => {
             log.warn('[SW] Controller generation handling failed', error);
           });
-      });
+      };
+      navigator.serviceWorker.addEventListener('controllerchange', handleControllerChange);
+      // Another tab can activate a controller while register() is pending.
+      // Reconcile the current identity after subscribing so that change is not lost.
+      if (navigator.serviceWorker.controller !== pageController) handleControllerChange();
 
       const handleWaitingWorker = async (worker: ServiceWorker): Promise<void> => {
         if (!navigator.serviceWorker.controller || handledWaitingWorker === worker) return;

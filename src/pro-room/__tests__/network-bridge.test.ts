@@ -14,6 +14,7 @@ import {
   onProRoomRealtimeConnection,
   onProRoomRealtimeEvent,
 } from '../network-bridge.ts';
+import { ProRoomSessionController, type ProRoomSessionApiForTests } from '../session-controller.ts';
 
 type SocketListener = (event: { data?: unknown; reason?: string }) => void;
 
@@ -214,6 +215,169 @@ async function openBridge(bridge: ServerProRoomNetworkBridge): Promise<FakeWebSo
   await connecting;
   return socket;
 }
+
+it.each(['same epoch', 'advanced epoch'] as const)(
+  'keeps the latest socket when an older concurrent ticket response arrives late in the %s',
+  async (epochCase) => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const renamedSnapshot = snapshot();
+    renamedSnapshot.revision += 1;
+    renamedSnapshot.presence.revision += 1;
+    renamedSnapshot.viewer!.displayName = 'Updated owner';
+    renamedSnapshot.presence.participants[0]!.displayName = 'Updated owner';
+    renamedSnapshot.administrators[0]!.displayName = 'Updated owner';
+    const latestSnapshot = snapshot();
+    const latestAccess = { ...access(), ticketSequence: 3 };
+    if (epochCase === 'advanced epoch') {
+      // A completed nickname edit triggers account attachment and a new ticket.
+      // Owner PIN rotation can then advance the room while that response waits.
+      Object.assign(latestSnapshot, structuredClone(renamedSnapshot));
+      latestSnapshot.revision += 1;
+      latestSnapshot.presence.revision += 1;
+      latestSnapshot.presence.coordinatorEpoch += 1;
+      latestSnapshot.playback.coordinatorEpoch += 1;
+      latestAccess.coordinatorEpoch += 1;
+      latestAccess.ticketSequence = 1;
+    }
+    let releaseOlderTicket!: (value: ProRoomSignalingAccess) => void;
+    const api = {
+      createSession: vi.fn(async () => snapshot()),
+      attachCurrentAccount: vi.fn(async () => renamedSnapshot),
+      heartbeat: vi.fn(async () => latestSnapshot),
+      createSignalingTicket: vi
+        .fn()
+        .mockResolvedValueOnce(access())
+        .mockImplementationOnce(
+          () =>
+            new Promise<ProRoomSignalingAccess>((resolve) => {
+              releaseOlderTicket = resolve;
+            }),
+        )
+        .mockResolvedValueOnce(latestAccess),
+      clearPresenceIdentity: vi.fn(),
+      closeSessionFenced: vi.fn(async () => {}),
+    } as unknown as ProRoomSessionApiForTests;
+    const controller = new ProRoomSessionController(api, bridge, {
+      snapshot: () => {},
+      authority: () => {},
+      cleared: () => {},
+    });
+    const joined = controller.join({ code: ROOM_CODE, pin: '12345678' });
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    FakeWebSocket.instances[0]!.dispatch('open');
+    await joined;
+    if (epochCase === 'same epoch') {
+      FakeWebSocket.instances[0]!.dispatch('close');
+      controller.invalidateControlChannel();
+    }
+    const olderRefresh = (
+      epochCase === 'advanced epoch'
+        ? controller.attachCurrentAccount()
+        : controller.refreshSignaling()
+    ).catch((error) => error);
+    await vi.waitFor(() => expect(releaseOlderTicket).toBeTypeOf('function'));
+    const heartbeat = controller.heartbeat();
+    await vi.waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2));
+    const latest = FakeWebSocket.instances[1]!;
+    latest.dispatch('open');
+    await heartbeat;
+    releaseOlderTicket({ ...access(), ticketSequence: 2 });
+    await vi.advanceTimersByTimeAsync(0);
+    // A real server rejects sequence 2 after accepting sequence 3. Deliver that
+    // native handshake failure if the old response incorrectly opened a socket.
+    if (FakeWebSocket.instances.length > 2) FakeWebSocket.instances[2]!.dispatch('error');
+    await olderRefresh;
+    expect(latest.closeCount).toBe(0);
+    expect(bridge.connected).toBe(true);
+    bridge.disconnect();
+  },
+);
+
+it.each(['connecting', 'open'] as const)(
+  'rejects a duplicate ticket before replacing its %s socket',
+  async (phase) => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const opening = bridge.connect(snapshot(), access());
+    const socket = FakeWebSocket.instances[0]!;
+    if (phase === 'open') {
+      socket.dispatch('open');
+      await opening;
+    }
+    await expect(bridge.reconfigure(snapshot(), access())).rejects.toThrow(
+      'PRO_ROOM_SIGNALING_TICKET_SUPERSEDED',
+    );
+    expect(socket.closeCount).toBe(0);
+    expect(FakeWebSocket.instances).toHaveLength(1);
+    if (phase === 'connecting') {
+      socket.dispatch('open');
+      await opening;
+    }
+    expect(bridge.connected).toBe(true);
+    bridge.disconnect();
+  },
+);
+
+it('reconnects with a new ticket and permits a sequence reset in a new room epoch', async () => {
+  const bridge = new ServerProRoomNetworkBridge();
+  const oldSocket = await openBridge(bridge);
+  oldSocket.dispatch('close');
+  const nextAccess = { ...access(), ticketSequence: 2 };
+  expect(bridge.refreshCredentials(snapshot(), nextAccess)).toBe(false);
+  const reconnecting = bridge.reconfigure(snapshot(), nextAccess);
+  const reconnectedSocket = FakeWebSocket.instances[1]!;
+  reconnectedSocket.dispatch('open');
+  await reconnecting;
+  expect(bridge.connected).toBe(true);
+  const nextSnapshot = snapshot();
+  nextSnapshot.presence.coordinatorEpoch = 3;
+  nextSnapshot.playback.coordinatorEpoch = 3;
+  const nextEpochAccess = { ...access(), coordinatorEpoch: 3 };
+  expect(bridge.refreshCredentials(nextSnapshot, nextEpochAccess)).toBe(false);
+  const replacing = bridge.reconfigure(nextSnapshot, nextEpochAccess);
+  FakeWebSocket.instances[2]!.dispatch('open');
+  await replacing;
+  expect(reconnectedSocket.closeCount).toBe(1);
+  expect(bridge.connected).toBe(true);
+  bridge.disconnect();
+});
+
+it('allows the same ticket to retry after a failed opening without an active socket', async () => {
+  const bridge = new ServerProRoomNetworkBridge();
+  const opening = bridge.connect(snapshot(), access());
+  FakeWebSocket.instances[0]!.dispatch('error');
+  await expect(opening).rejects.toThrow('PRO_SIGNALING_START_FAILED');
+  const retrying = bridge.reconfigure(snapshot(), access());
+  FakeWebSocket.instances[1]!.dispatch('open');
+  await retrying;
+  expect(bridge.connected).toBe(true);
+  bridge.disconnect();
+});
+
+it.each(['new room', 'new presence'] as const)(
+  'allows a fresh ticket identity for a %s',
+  async (replacement) => {
+    const bridge = new ServerProRoomNetworkBridge();
+    const oldSocket = await openBridge(bridge);
+    const nextSnapshot = snapshot();
+    const nextAccess = access();
+    if (replacement === 'new room') {
+      nextSnapshot.roomCode = '000002';
+      nextSnapshot.presence.coordinatorEpoch = 1;
+      nextSnapshot.playback.coordinatorEpoch = 1;
+      nextAccess.coordinatorEpoch = 1;
+    } else {
+      nextSnapshot.viewer!.presenceIncarnationId = 'presence_0000000002';
+      nextAccess.presenceIncarnationId = nextSnapshot.viewer!.presenceIncarnationId;
+    }
+    const connecting = bridge.reconfigure(nextSnapshot, nextAccess);
+    const nextSocket = FakeWebSocket.instances[1]!;
+    nextSocket.dispatch('open');
+    await connecting;
+    expect(oldSocket.closeCount).toBe(1);
+    expect(bridge.connected).toBe(true);
+    bridge.disconnect();
+  },
+);
 
 function clockRequests(socket: FakeWebSocket): Array<Record<string, unknown>> {
   return socket.sent

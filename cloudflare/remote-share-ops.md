@@ -235,6 +235,10 @@ Do not broaden the rule to upload, completion, cleanup, or download routes.
 Those are normal follow-up traffic inside an already-admitted session. Revisit
 the threshold only with production 429 evidence.
 
+The Worker accepts allocation only at the exact `/session` path. Trailing-slash
+aliases such as `/session/` return 404 before maintenance, authentication, or
+allocation work, so they cannot reach storage outside this WAF path match.
+
 ## Notes
 
 - WAF does not replace the Worker-side allocation rate limits.

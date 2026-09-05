@@ -11,7 +11,7 @@ import { getState, setState } from '../core/state.ts';
 import { t } from '../i18n/index.ts';
 import { showDialog } from './dialog.ts';
 import { showToast } from './toast.ts';
-import { copyTextToClipboard, syncOverlayState } from './dom.ts';
+import { copyTextToClipboard, getUiElement, syncOverlayState } from './dom.ts';
 import { scheduleSessionReset } from '../core/session-reset.ts';
 import { navigateToAppHome } from '../core/navigation.ts';
 import { getRoomContext, hasRoomCapability } from '../rooms/authority.ts';
@@ -138,7 +138,7 @@ async function generateQR(containerId: string): Promise<void> {
   const gen = (_qrGeneration.get(containerId) ?? 0) + 1;
   _qrGeneration.set(containerId, gen);
 
-  const container = document.getElementById(containerId);
+  const container = getUiElement(containerId);
   if (!container) return;
 
   const sessionCode = getState('network.sessionCode') || '';
@@ -321,7 +321,7 @@ function syncSignalingInviteButtons(): void {
 }
 
 function closeSignalingRecoveryDialog(focusRecoveryButton = false): void {
-  const overlay = document.getElementById(SIGNALING_RECOVERY_OVERLAY_ID);
+  const overlay = getUiElement(SIGNALING_RECOVERY_OVERLAY_ID);
   if (overlay) {
     overlay.classList.remove('show');
     overlay.setAttribute('aria-hidden', 'true');
@@ -355,12 +355,10 @@ function closeSignalingRecoveryDialog(focusRecoveryButton = false): void {
 
 function syncSignalingRecoveryDialogCopy(): void {
   if (_signalingRecoveryDialogState === 'closed') return;
-  const title = document.getElementById('signaling-recovery-title');
-  const message = document.getElementById('signaling-recovery-message');
-  const confirm = document.getElementById(
-    'btn-signaling-recovery-confirm',
-  ) as HTMLButtonElement | null;
-  const retry = document.getElementById('btn-signaling-recovery-retry') as HTMLButtonElement | null;
+  const title = getUiElement('signaling-recovery-title');
+  const message = getUiElement('signaling-recovery-message');
+  const confirm = getUiElement('btn-signaling-recovery-confirm') as HTMLButtonElement | null;
+  const retry = getUiElement('btn-signaling-recovery-retry') as HTMLButtonElement | null;
   if (!title || !message || !confirm || !retry) return;
 
   const titleText = t('connect.signaling_failed');
@@ -377,15 +375,13 @@ function setSignalingRecoveryDialogState(
   state: Exclude<SignalingRecoveryDialogState, 'closed'>,
   boundary = signalingRecoveryBoundary(),
 ): void {
-  const overlay = document.getElementById(SIGNALING_RECOVERY_OVERLAY_ID);
-  const dialog = document.getElementById('signaling-recovery-dialog');
-  const title = document.getElementById('signaling-recovery-title');
-  const message = document.getElementById('signaling-recovery-message');
-  const actions = document.getElementById('signaling-recovery-actions');
-  const confirm = document.getElementById(
-    'btn-signaling-recovery-confirm',
-  ) as HTMLButtonElement | null;
-  const retry = document.getElementById('btn-signaling-recovery-retry') as HTMLButtonElement | null;
+  const overlay = getUiElement(SIGNALING_RECOVERY_OVERLAY_ID);
+  const dialog = getUiElement('signaling-recovery-dialog');
+  const title = getUiElement('signaling-recovery-title');
+  const message = getUiElement('signaling-recovery-message');
+  const actions = getUiElement('signaling-recovery-actions');
+  const confirm = getUiElement('btn-signaling-recovery-confirm') as HTMLButtonElement | null;
+  const retry = getUiElement('btn-signaling-recovery-retry') as HTMLButtonElement | null;
 
   if (!overlay || !dialog || !title || !message || !actions || !confirm || !retry) {
     if (state === 'failed') {
@@ -433,12 +429,10 @@ function setSignalingRecoveryDialogState(
 }
 
 function initSignalingRecoveryDialog(): void {
-  const overlay = document.getElementById(SIGNALING_RECOVERY_OVERLAY_ID);
-  const dialog = document.getElementById('signaling-recovery-dialog');
-  const confirm = document.getElementById(
-    'btn-signaling-recovery-confirm',
-  ) as HTMLButtonElement | null;
-  const retry = document.getElementById('btn-signaling-recovery-retry') as HTMLButtonElement | null;
+  const overlay = getUiElement(SIGNALING_RECOVERY_OVERLAY_ID);
+  const dialog = getUiElement('signaling-recovery-dialog');
+  const confirm = getUiElement('btn-signaling-recovery-confirm') as HTMLButtonElement | null;
+  const retry = getUiElement('btn-signaling-recovery-retry') as HTMLButtonElement | null;
   if (!overlay || !dialog || !confirm || !retry || overlay.dataset.bound === 'true') return;
   overlay.dataset.bound = 'true';
 
@@ -628,7 +622,7 @@ function syncRoomPasswordControls(): void {
     });
 
   ROOM_PASSWORD_TOGGLE_IDS.forEach((id) => {
-    const toggle = document.getElementById(id) as HTMLButtonElement | null;
+    const toggle = getUiElement(id) as HTMLButtonElement | null;
     if (!toggle) return;
     toggle.hidden = isProRoom;
     toggle.classList.toggle('active', active);
@@ -644,12 +638,12 @@ function syncRoomPasswordControls(): void {
   });
 
   ROOM_PASSWORD_CODE_ROW_IDS.forEach((id) => {
-    const row = document.getElementById(id) as HTMLElement | null;
+    const row = getUiElement(id) as HTMLElement | null;
     if (row) row.hidden = false;
   });
 
   ROOM_PASSWORD_CODE_IDS.forEach((id) => {
-    const code = document.getElementById(id);
+    const code = getUiElement(id);
     if (!code) return;
     code.textContent = isProRoom
       ? PRO_ROOM_PASSWORD_MASKED_TEXT
@@ -660,7 +654,7 @@ function syncRoomPasswordControls(): void {
   });
 
   ROOM_PASSWORD_REFRESH_IDS.forEach((id) => {
-    const button = document.getElementById(id) as HTMLButtonElement | null;
+    const button = getUiElement(id) as HTMLButtonElement | null;
     if (!button) return;
     const ariaKey = isProRoom ? 'pro.pin_change_title' : 'connect.room_password_refresh_aria';
     button.setAttribute('data-i18n-aria-label', ariaKey);
@@ -735,7 +729,7 @@ async function changeProRoomPin(): Promise<void> {
 
 function initRoomPasswordControls(): void {
   ROOM_PASSWORD_TOGGLE_IDS.forEach((id) => {
-    const toggle = document.getElementById(id);
+    const toggle = getUiElement(id);
     if (!toggle) return;
     toggle.addEventListener('click', () => {
       if (_guardRoomPasswordCtrl()) return;
@@ -751,7 +745,7 @@ function initRoomPasswordControls(): void {
   });
 
   ROOM_PASSWORD_REFRESH_IDS.forEach((id) => {
-    const button = document.getElementById(id);
+    const button = getUiElement(id);
     if (!button) return;
     button.addEventListener('click', () => {
       if (_isProRoom()) {
@@ -803,6 +797,7 @@ interface AdministratorView {
 }
 
 let _permissionDialogTarget: AdministratorView | null = null;
+let _permissionDialogGeneration = 0;
 let _permissionDialogPreviousFocus: HTMLElement | null = null;
 let _permissionDialogPreviousContainerId: string | null = null;
 let _permissionDialogBusy = false;
@@ -815,6 +810,21 @@ let _permissionDialogRoomBoundary: {
 
 function memberAuthorityKey(member: ConnectedRoomMember): string {
   return member.memberId || `peer:${member.deviceIds[0] || member.key}`;
+}
+
+function canKickRoomMember(
+  member: ConnectedRoomMember,
+  isRoomOwner: boolean,
+  isAdministrator: boolean,
+): boolean {
+  return (
+    hasRoomCapability('members.manage') &&
+    !member.isCurrent &&
+    !member.isHost &&
+    !isRoomOwner &&
+    (!isAdministrator || _canManageAdministrators()) &&
+    member.status === 'connected'
+  );
 }
 
 function clonePermissions(
@@ -949,7 +959,7 @@ function _administratorListTitle(count: number): string {
 function _updateDeviceTitles(): void {
   const titleText = _deviceListTitle(_lastDeviceCount);
   ['connect-device-title', 'desktop-device-title'].forEach((id) => {
-    const el = document.getElementById(id);
+    const el = getUiElement(id);
     if (el) el.textContent = titleText;
   });
 }
@@ -987,11 +997,11 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
   const containerIds = ['connect-administrator-list', 'desktop-administrator-list'];
 
   sectionIds.forEach((id) => {
-    const section = document.getElementById(id) as HTMLElement | null;
+    const section = getUiElement(id) as HTMLElement | null;
     if (section) section.hidden = administrators.length === 0;
   });
   titleIds.forEach((id) => {
-    const title = document.getElementById(id);
+    const title = getUiElement(id);
     // The owner is visibly the first yellow-crown row, so include that person
     // in the section count instead of presenting the confusing "0 admins"
     // state beside a non-empty list.
@@ -999,7 +1009,7 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
   });
 
   containerIds.forEach((id) => {
-    const container = document.getElementById(id);
+    const container = getUiElement(id);
     if (!container) return;
     container.setAttribute('role', 'list');
     container.replaceChildren();
@@ -1065,9 +1075,11 @@ function renderAdministratorLists(members: readonly ConnectedRoomMember[]): void
 async function updateAdministrator(
   memberId: string,
   permissions: ProRoomPermissionSet,
+  isCurrent: () => boolean,
 ): Promise<void> {
   if (_isProRoom()) {
     const { updateActiveProRoomAdministrator } = await import('../pro-room/runtime.ts');
+    if (!isCurrent()) return;
     await updateActiveProRoomAdministrator(memberId, permissions);
     return;
   }
@@ -1242,8 +1254,11 @@ function syncPermissionDialogRows(administrator: AdministratorView): void {
 
 function closeAdministratorPermissionsDialogInternal(ignoreBusy: boolean): void {
   if (_permissionDialogBusy && !ignoreBusy) return;
-  const overlay = document.getElementById('administrator-permissions-overlay');
+  const overlay = getUiElement('administrator-permissions-overlay');
   if (!overlay?.classList.contains('show')) return;
+  const generation = ++_permissionDialogGeneration;
+  _permissionDialogBusy = false;
+  getUiElement('administrator-permissions-dialog')?.setAttribute('aria-busy', 'false');
   overlay.classList.remove('show');
   overlay.setAttribute('aria-hidden', 'true');
   syncOverlayState();
@@ -1255,17 +1270,16 @@ function closeAdministratorPermissionsDialogInternal(ignoreBusy: boolean): void 
   _permissionDialogPreviousContainerId = null;
   _permissionDialogRoomBoundary = null;
   queueMicrotask(() => {
+    if (_permissionDialogGeneration !== generation || overlay.classList.contains('show')) return;
     if (previousFocus?.isConnected) {
       previousFocus.focus();
       return;
     }
-    const preferredContainer = previousContainerId
-      ? document.getElementById(previousContainerId)
-      : null;
+    const preferredContainer = previousContainerId ? getUiElement(previousContainerId) : null;
     const containers = [
       preferredContainer,
-      document.getElementById('connect-administrator-list'),
-      document.getElementById('desktop-administrator-list'),
+      getUiElement('connect-administrator-list'),
+      getUiElement('desktop-administrator-list'),
     ].filter((container, index, all): container is HTMLElement =>
       Boolean(container && all.indexOf(container) === index),
     );
@@ -1282,7 +1296,7 @@ function closeAdministratorPermissionsDialogInternal(ignoreBusy: boolean): void 
       }
     }
     const fallbackTitleId = previousContainerId?.replace(/-list$/, '-title');
-    const fallback = fallbackTitleId ? document.getElementById(fallbackTitleId) : null;
+    const fallback = fallbackTitleId ? getUiElement(fallbackTitleId) : null;
     if (fallback && fallback.offsetParent !== null) {
       fallback.tabIndex = -1;
       fallback.focus();
@@ -1294,7 +1308,7 @@ function closeAdministratorPermissionsDialogInternal(ignoreBusy: boolean): void 
     // connection UI instead.
     const connectionFallbacks = [
       ...document.querySelectorAll<HTMLElement>('[data-subtab="connect"].active'),
-      document.getElementById('nav-connect'),
+      getUiElement('nav-connect'),
     ];
     const connectionControl = connectionFallbacks.find(
       (candidate): candidate is HTMLElement => !!candidate && candidate.offsetParent !== null,
@@ -1328,7 +1342,7 @@ function inheritedPermissionsEqual(
 }
 
 function syncAdministratorPermissionsDialogTitle(administrator: AdministratorView): void {
-  const title = document.getElementById('administrator-permissions-title');
+  const title = getUiElement('administrator-permissions-title');
   if (!title) return;
   const displayName = administrator.displayName || t('common.peer');
   const text = t('connect.permissions_title', { name: displayName });
@@ -1339,7 +1353,7 @@ function syncAdministratorPermissionsDialogTitle(administrator: AdministratorVie
 function reconcileAdministratorPermissionsDialog(
   administrators: readonly AdministratorView[],
 ): void {
-  const overlay = document.getElementById('administrator-permissions-overlay');
+  const overlay = getUiElement('administrator-permissions-overlay');
   const target = _permissionDialogTarget;
   if (!target || !overlay?.classList.contains('show')) return;
 
@@ -1370,9 +1384,12 @@ function reconcileAdministratorPermissionsDialog(
 
 function openAdministratorPermissionsDialog(administrator: AdministratorView): void {
   if (!_canManageAdministrators() || administrator.isOwner) return;
-  const overlay = document.getElementById('administrator-permissions-overlay');
-  const title = document.getElementById('administrator-permissions-title');
+  const overlay = getUiElement('administrator-permissions-overlay');
+  const title = getUiElement('administrator-permissions-title');
   if (!overlay || !title) return;
+  const generation = ++_permissionDialogGeneration;
+  _permissionDialogBusy = false;
+  getUiElement('administrator-permissions-dialog')?.setAttribute('aria-busy', 'false');
   _permissionDialogTarget = {
     ...administrator,
     permissions: clonePermissions(administrator.permissions),
@@ -1394,6 +1411,7 @@ function openAdministratorPermissionsDialog(administrator: AdministratorView): v
   overlay.setAttribute('aria-hidden', 'false');
   syncOverlayState('administrator-permissions-overlay');
   queueMicrotask(() => {
+    if (_permissionDialogGeneration !== generation || !overlay.classList.contains('show')) return;
     const firstEditableRow = permissionRows().find((row) => !row.disabled);
     try {
       firstEditableRow?.focus({ preventScroll: true });
@@ -1406,6 +1424,8 @@ function openAdministratorPermissionsDialog(administrator: AdministratorView): v
 async function saveAdministratorPermissions(): Promise<void> {
   const target = _permissionDialogTarget;
   if (!target || _permissionDialogBusy || !_canManageAdministrators()) return;
+  const generation = _permissionDialogGeneration;
+  const isCurrent = () => _permissionDialogGeneration === generation;
   const permissions = clonePermissions(target.permissions);
   for (const row of permissionRows()) {
     const key = row.dataset.administratorPermission as ProRoomPermission | undefined;
@@ -1413,15 +1433,17 @@ async function saveAdministratorPermissions(): Promise<void> {
     permissions[key] = row.getAttribute('aria-checked') === 'true';
   }
 
-  const dialog = document.getElementById('administrator-permissions-dialog');
+  const dialog = getUiElement('administrator-permissions-dialog');
   _permissionDialogBusy = true;
   dialog?.setAttribute('aria-busy', 'true');
   try {
-    await updateAdministrator(target.memberId, permissions);
+    await updateAdministrator(target.memberId, permissions, isCurrent);
+    if (!isCurrent()) return;
     _permissionDialogBusy = false;
     dialog?.setAttribute('aria-busy', 'false');
     closeAdministratorPermissionsDialog();
   } catch (error) {
+    if (!isCurrent()) return;
     _permissionDialogBusy = false;
     dialog?.setAttribute('aria-busy', 'false');
     log.warn('[Connect] Could not update administrator permissions', error);
@@ -1430,7 +1452,7 @@ async function saveAdministratorPermissions(): Promise<void> {
 }
 
 function initAdministratorPermissionsDialog(): void {
-  const overlay = document.getElementById('administrator-permissions-overlay');
+  const overlay = getUiElement('administrator-permissions-overlay');
   if (!overlay || _permissionDialogInitializedFor === overlay) return;
   _permissionDialogInitializedFor = overlay;
 
@@ -1446,7 +1468,7 @@ function initAdministratorPermissionsDialog(): void {
   document
     .getElementById('btn-administrator-permissions-cancel')
     ?.addEventListener('click', closeAdministratorPermissionsDialog);
-  document.getElementById('btn-administrator-permissions-save')?.addEventListener('click', () => {
+  getUiElement('btn-administrator-permissions-save')?.addEventListener('click', () => {
     saveAdministratorPermissions().catch((error) => {
       log.warn('[Connect] Administrator permission save failed', error);
       showToast(t('error.network_generic'));
@@ -1514,8 +1536,8 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
   renderAdministratorLists(members);
 
   const containers = [
-    document.getElementById('connect-device-list'),
-    document.getElementById('desktop-device-list'),
+    getUiElement('connect-device-list'),
+    getUiElement('desktop-device-list'),
   ].filter(Boolean) as HTMLElement[];
 
   containers.forEach((container) => {
@@ -1568,13 +1590,7 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
         !member.isHost &&
         !isAdministrator &&
         (!isProRoom || !!member.memberId);
-      const canKick =
-        hasRoomCapability('members.manage') &&
-        !member.isCurrent &&
-        !member.isHost &&
-        !isRoomOwner &&
-        (!isAdministrator || canManageAdministrators) &&
-        member.status === 'connected';
+      const canKick = canKickRoomMember(member, isRoomOwner, isAdministrator);
       const canExpand = member.deviceCount > 1;
 
       if (canGrant || canKick || canExpand) {
@@ -1639,21 +1655,34 @@ function renderConnectDeviceList(list: readonly unknown[]): void {
             event.preventDefault();
             event.stopPropagation();
             const confirmAndKickMember = async (): Promise<void> => {
+              if (deviceExpansionRoomBoundary() !== renderBoundary) return;
               const result = await showDialog({
                 title: t('connect.kick_title'),
                 message: t('connect.kick_member_message', { name: member.label }),
                 buttonText: t('connect.kick_yes'),
                 secondaryText: t('common.cancel'),
               });
-              if (
-                result.action !== 'ok' ||
-                !hasRoomCapability('members.manage') ||
-                isRoomOwner ||
-                (isAdministrator && !_canManageAdministrators())
-              ) {
+              if (result.action !== 'ok' || deviceExpansionRoomBoundary() !== renderBoundary) {
                 return;
               }
-              await kickRoomMember(member);
+              const latestMembers = groupConnectedRoomMembers(
+                _lastDeviceList,
+                getState('network.myId') || '',
+              );
+              const latestMember = latestMembers.find((candidate) => candidate.key === member.key);
+              if (!latestMember) return;
+              const administrator = _administratorsForMembers(latestMembers).find(
+                (candidate) => candidate.memberId === memberAuthorityKey(latestMember),
+              );
+              if (
+                canKickRoomMember(
+                  latestMember,
+                  administrator?.isOwner === true,
+                  latestMember.isAdministrator || !!administrator,
+                )
+              ) {
+                await kickRoomMember(latestMember);
+              }
             };
             confirmAndKickMember().catch((error) => {
               log.warn('[Connect] Could not remove member', error);
@@ -1973,8 +2002,8 @@ export function initConnect(): void {
         log.warn('[Connect] Leave-session dialog failed', error);
       });
   };
-  document.getElementById('btn-leave-session')?.addEventListener('click', leaveHandler);
-  document.getElementById('desktop-btn-leave-session')?.addEventListener('click', leaveHandler);
+  getUiElement('btn-leave-session')?.addEventListener('click', leaveHandler);
+  getUiElement('desktop-btn-leave-session')?.addEventListener('click', leaveHandler);
 
   // Account nickname buttons (mobile + desktop)
   const nicknameChangeHandler = () => {
@@ -1983,7 +2012,7 @@ export function initConnect(): void {
       showToast(t('error.network_generic'));
     });
   };
-  document.getElementById('btn-change-nickname')?.addEventListener('click', nicknameChangeHandler);
+  getUiElement('btn-change-nickname')?.addEventListener('click', nicknameChangeHandler);
   document
     .getElementById('desktop-btn-change-nickname')
     ?.addEventListener('click', nicknameChangeHandler);

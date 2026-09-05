@@ -97,6 +97,37 @@ describe('switchTab', () => {
 });
 
 describe('initTabs', () => {
+  it.each([
+    [true, 'auto'],
+    [false, 'smooth'],
+  ] as const)(
+    'uses %s reduced motion preference when returning to the top',
+    (reduced, behavior) => {
+      vi.stubGlobal(
+        'matchMedia',
+        (query: string) =>
+          ({
+            matches: query === '(prefers-reduced-motion: reduce)' && reduced,
+            addEventListener: vi.fn(),
+          }) as unknown as MediaQueryList,
+      );
+      try {
+        const body = document.querySelector<HTMLElement>('#tab-play .tab-body')!;
+        const scrollTo = vi.fn();
+        body.scrollTo = scrollTo;
+        body.scrollTop = 1200;
+        initTabs();
+
+        document.querySelector<HTMLButtonElement>('.bottom-nav [data-tab="play"]')!.click();
+
+        expect(scrollTo).toHaveBeenCalledExactlyOnceWith({ top: 0, behavior });
+        expect(document.getElementById('tab-play')!.classList.contains('active')).toBe(true);
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    },
+  );
+
   it('initializes without error', () => {
     expect(() => initTabs()).not.toThrow();
   });

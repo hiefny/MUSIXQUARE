@@ -23,6 +23,7 @@ import { handleProRoomTrackMetadata } from '../pro-room/media-hooks.ts';
 import { routeProPlaybackCommand } from '../pro-room/playback-authority-hooks.ts';
 import {
   isPlaybackModeYouTube,
+  isPlaybackPlayingYouTube,
   setPlaybackIdle,
   setPlaybackYouTubePaused,
   setPlaybackYouTubePlaying,
@@ -44,6 +45,8 @@ import {
   getYtScope,
   isYtLoadInProgress,
   setYtLoadInProgress,
+  isLocalYouTubePaused,
+  setLocalYouTubePaused,
   isYtIndexing,
   getYtIndexingSession,
   beginYtIndexingSession,
@@ -64,7 +67,6 @@ import {
   setCachedYtPlaylistIdx,
   setYouTubeSubIndex,
   updateSubItemIds,
-  setSubItemsData,
 } from './_state.ts';
 import { showToast, showLoader } from '../ui/toast.ts';
 import { fetchPlaylistSubTitles } from './search.ts';
@@ -2108,7 +2110,7 @@ function onYouTubePlayerReady(event: { target: YouTubePlayerInstance }): void {
 
   if (_ifr.guestRendezvousAfterReady) {
     _ifr.guestRendezvousAfterReady = false;
-    if (getState('network.hostConn')) {
+    if (getState('network.hostConn') && !isLocalYouTubePaused()) {
       const result = guestRendezvousSync({ silent: true, suppressProgressToast: true });
       if (result.status !== 'started' && result.status !== 'completed') {
         log.debug(`[YouTube] Guest crash recovery rendezvous deferred: ${result.status}`);
@@ -2843,6 +2845,8 @@ function updateYouTubeUI(): void {
       }
       const recoveryTime = _ifr.lastRecoverableTime;
       const hostConn = getState('network.hostConn');
+      const recoveryState = isPlaybackPlayingYouTube() ? 1 : 2;
+      const locallyPaused = isLocalYouTubePaused();
 
       // Destroy dead player and rebuild
       try {
@@ -2872,9 +2876,11 @@ function updateYouTubeUI(): void {
             subIndex,
             videoId: videoId || undefined,
             skipSeek: false,
+            state: recoveryState,
           });
         } else {
           loadYouTubeVideo(videoId || null, playlistId || null, false, subIndex);
+          setLocalYouTubePaused(locallyPaused);
           _ifr.guestRendezvousAfterReady = true;
         }
       }
@@ -3426,11 +3432,9 @@ function _triggerPlaylistSnapshot(pid: string, isRetry = false): void {
     _snapshotRetryCounts.delete(pid);
     log.info(`[YouTube Snapshot] Captured ${ids.length} items:`, pid);
 
-    // Preserve any titles already fetched or cached
-    const existingTitles = subMap[pid]?.titles || [];
-    const titles = ids.map((_, idx) => existingTitles[idx] || '');
-
-    setSubItemsData(pid, ids, titles);
+    // Preserve fetched titles by video identity when the playlist has changed.
+    updateSubItemIds(pid, ids);
+    const titles = getState('youtube.subItemsMap')[pid]?.titles || [];
 
     // Broadcast to guests so they use this static list for sub-navigation
     broadcast({

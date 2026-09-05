@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('../engine.ts', () => ({
+  applyMasterVolume: vi.fn(),
   getMasterGain: () => ({ gain: {} }),
   getReverb: () => mocks.reverb,
   getRvbLowCut: () => null,

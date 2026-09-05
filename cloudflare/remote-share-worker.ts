@@ -3209,6 +3209,7 @@ export class RemoteShareQuota {
       (candidate) => candidate.expiresAt > now && candidate.operationId === operationId,
     );
     if (replay) {
+      await this.scheduleAlarm(state);
       return quotaJson({ found: true, reservation: replay });
     }
     if (
@@ -3419,6 +3420,12 @@ export default {
   ): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
+
+    // The edge allocation burst guard matches the exact /session path.
+    // Do not admit slash aliases outside that guard into any allocation work.
+    if (request.method === 'POST' && path === '/session' && url.pathname !== path) {
+      return json(request, env, { error: 'not found' }, 404);
+    }
 
     if (request.method === 'OPTIONS') {
       if (requiresAllowedOrigin(path)) {

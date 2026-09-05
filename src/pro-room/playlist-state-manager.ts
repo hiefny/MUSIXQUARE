@@ -301,6 +301,7 @@ export class ProRoomPlaylistStateManager {
   readonly #issuedIdempotencyKeyOrder: string[] = [];
   #snapshot: ProRoomSnapshot | null = null;
   #operationTail: Promise<void> = Promise.resolve();
+  #acceptanceTail: Promise<void> = Promise.resolve();
 
   constructor(options: ProRoomPlaylistStateManagerOptions) {
     if (!isProRoomCode(options.code)) {
@@ -324,7 +325,7 @@ export class ProRoomPlaylistStateManager {
   }
 
   acceptSnapshot(snapshot: ProRoomSnapshot): Promise<ProRoomSnapshot> {
-    return this.#enqueue(() => this.#accept(snapshot));
+    return this.#accept(snapshot);
   }
 
   addYouTube(input: AddProRoomYouTubeInput): Promise<ProRoomSnapshot> {
@@ -505,7 +506,7 @@ export class ProRoomPlaylistStateManager {
       // trailing the dragged view needs an eager refresh.
       if (options.baseRevision !== undefined && local.revision < options.baseRevision) {
         const refreshed = await this.#api.getSnapshot(this.#code, options.signal);
-        const accepted = await this.#accept(refreshed);
+        const accepted = await this.#accept(refreshed, true);
         if (accepted.revision < options.baseRevision) {
           throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_CONFLICT_REFRESH_STALE');
         }
@@ -767,7 +768,7 @@ export class ProRoomPlaylistStateManager {
     let accepted = this.#requireSnapshot();
     if (options.refreshBeforeUpload) {
       const refreshed = await this.#api.getSnapshot(this.#code, options.signal);
-      accepted = await this.#accept(refreshed);
+      accepted = await this.#accept(refreshed, true);
     }
     const queueItemId =
       input.queueItemId === undefined
@@ -808,7 +809,7 @@ export class ProRoomPlaylistStateManager {
       if (!options.signal?.aborted) {
         try {
           const refreshed = await this.#api.getSnapshot(this.#code, options.signal);
-          const reconciled = await this.#accept(refreshed);
+          const reconciled = await this.#accept(refreshed, true);
           const committed = reconciled.playlist.find(
             (candidate) => candidate.queueItemId === queueItemId,
           );
@@ -840,7 +841,7 @@ export class ProRoomPlaylistStateManager {
 
     assertNotAborted(signal);
     const refreshed = await this.#api.getSnapshot(this.#code, signal);
-    const accepted = await this.#accept(refreshed);
+    const accepted = await this.#accept(refreshed, true);
     if (accepted.revision <= base.revision) {
       throw new ProRoomPlaylistStateError('PRO_ROOM_PLAYLIST_CONFLICT_REFRESH_STALE');
     }
@@ -882,11 +883,38 @@ export class ProRoomPlaylistStateManager {
       if (isRevisionConflict(error)) return { outcome: 'conflict', error };
       throw error;
     }
-    return { outcome: 'accepted', snapshot: await this.#accept(incoming) };
+    return {
+      outcome: 'accepted',
+      snapshot: await this.#accept(incoming, incoming.revision > base.revision),
+    };
   }
 
-  async #accept(incoming: ProRoomSnapshot): Promise<ProRoomSnapshot> {
+  #accept(incoming: ProRoomSnapshot, acceptSuperseded = false): Promise<ProRoomSnapshot> {
+    // Preserve user-action FIFO, but never make presence/authority acceptance
+    // wait for an upload, cleanup request, CAS network round or a first-append
+    // playback follow-up that can itself need a heartbeat. Only projection and
+    // its transactional sink share this short independent lane.
+    const operation = () => this.#acceptSerial(incoming, acceptSuperseded);
+    const result = this.#acceptanceTail.then(operation, operation);
+    this.#acceptanceTail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  async #acceptSerial(
+    incoming: ProRoomSnapshot,
+    acceptSuperseded: boolean,
+  ): Promise<ProRoomSnapshot> {
     const result = applyProRoomSnapshotMonotonically(this.#snapshot, incoming);
+    if (result.outcome === 'stale' && acceptSuperseded && result.snapshot) {
+      // A validated response from this room can arrive after a newer heartbeat
+      // already projected its commit (or a later mutation). Retain that state;
+      // malformed/equal-revision conflicts still fail, and upload recovery
+      // still checks the exact queue/asset reference in the returned snapshot.
+      return cloneSnapshot(result.snapshot);
+    }
     if (
       result.outcome === 'invalid' ||
       result.outcome === 'stale' ||

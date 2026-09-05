@@ -708,7 +708,9 @@ export function initCustomScrollbar(container: HTMLElement): void {
     if (state.hasOverflow) showTrack(state);
   });
 
+  let dragTouchId: number | null = null;
   thumb.addEventListener('mousedown', (e) => {
+    if (e.button !== 0 || state.isDragging) return;
     e.preventDefault();
     e.stopPropagation();
     state.isDragging = true;
@@ -731,20 +733,23 @@ export function initCustomScrollbar(container: HTMLElement): void {
   const onThumbTouchStart = (e: TouchEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    const touch = e.changedTouches[0];
+    if (!touch || state.isDragging) return;
+    dragTouchId = touch.identifier;
     state.isDragging = true;
     cancelScrollTimeline(state);
     state.renderedThumbTop = Number.NaN;
     updateScroll(state);
     cancelFade(state);
     setTrackVisible(state, true);
-    state.dragStartY = e.touches[0].clientY;
+    state.dragStartY = touch.clientY;
     state.dragStartScroll = container.scrollTop;
     state.dragRenderedScale = getBodyRenderedScale();
     thumb.classList.add('dragging');
   };
 
   const onMouseMove = (e: MouseEvent) => {
-    if (!state.isDragging) return;
+    if (!state.isDragging || dragTouchId !== null) return;
     const { scrollHeight, clientHeight } = container;
     const maxScroll = scrollHeight - clientHeight;
     const trackHeight = state.visibleHeight - state.thumbHeight;
@@ -757,19 +762,21 @@ export function initCustomScrollbar(container: HTMLElement): void {
   // the gesture, even if the finger wanders off — so binding on `thumb` (not
   // window) is sufficient and lets us keep non-passive scoped locally.
   const onThumbTouchMove = (e: TouchEvent) => {
-    if (!state.isDragging) return;
+    const touch = Array.from(e.touches).find((item) => item.identifier === dragTouchId);
+    if (!state.isDragging || !touch) return;
     e.preventDefault();
     const { scrollHeight, clientHeight } = container;
     const maxScroll = scrollHeight - clientHeight;
     const trackHeight = state.visibleHeight - state.thumbHeight;
     if (trackHeight <= 0) return;
-    const localDeltaY = (e.touches[0].clientY - state.dragStartY) / state.dragRenderedScale;
+    const localDeltaY = (touch.clientY - state.dragStartY) / state.dragRenderedScale;
     container.scrollTop = state.dragStartScroll + (localDeltaY / trackHeight) * maxScroll;
   };
 
-  const onDragEnd = () => {
-    if (!state.isDragging) return;
+  const onDragEnd = (e: Event) => {
+    if (!state.isDragging || (e.type === 'mouseup' && dragTouchId !== null)) return;
     state.isDragging = false;
+    dragTouchId = null;
     thumb.classList.remove('dragging');
     document.body.style.userSelect = '';
     updateScroll(state);
@@ -777,10 +784,19 @@ export function initCustomScrollbar(container: HTMLElement): void {
     showTrack(state);
   };
 
+  const onThumbTouchEnd = (e: TouchEvent) => {
+    if (
+      (e.type === 'touchcancel' && !e.changedTouches?.length) ||
+      Array.from(e.changedTouches).some((touch) => touch.identifier === dragTouchId)
+    ) {
+      onDragEnd(e);
+    }
+  };
+
   thumb.addEventListener('touchstart', onThumbTouchStart, { passive: false });
   thumb.addEventListener('touchmove', onThumbTouchMove, { passive: false });
-  thumb.addEventListener('touchend', onDragEnd);
-  thumb.addEventListener('touchcancel', onDragEnd);
+  thumb.addEventListener('touchend', onThumbTouchEnd);
+  thumb.addEventListener('touchcancel', onThumbTouchEnd);
 
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('mouseup', onDragEnd);
@@ -793,8 +809,8 @@ export function initCustomScrollbar(container: HTMLElement): void {
     () => container.removeEventListener('scroll', onScroll),
     () => thumb.removeEventListener('touchstart', onThumbTouchStart),
     () => thumb.removeEventListener('touchmove', onThumbTouchMove),
-    () => thumb.removeEventListener('touchend', onDragEnd),
-    () => thumb.removeEventListener('touchcancel', onDragEnd),
+    () => thumb.removeEventListener('touchend', onThumbTouchEnd),
+    () => thumb.removeEventListener('touchcancel', onThumbTouchEnd),
     () => window.removeEventListener('mousemove', onMouseMove),
     () => window.removeEventListener('mouseup', onDragEnd),
     () => window.removeEventListener('blur', onDragEnd),
@@ -803,6 +819,7 @@ export function initCustomScrollbar(container: HTMLElement): void {
   ];
 
   track.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
     if (e.target === thumb) return;
     const rect = track.getBoundingClientRect();
     const clickRatio = (e.clientY - rect.top) / rect.height;

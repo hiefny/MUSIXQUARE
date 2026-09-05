@@ -400,6 +400,12 @@ export function updateSubItemIds(
   const subMap = _getSubMap();
   const nextIds = [...ids];
   const existingIds = subMap[playlistId]?.ids || [];
+  const existingTitles = subMap[playlistId]?.titles || [];
+  const titlesById = new Map<string, string>();
+  existingIds.forEach((id, index) => {
+    const title = existingTitles[index];
+    if (title && !titlesById.has(id)) titlesById.set(id, title);
+  });
   const preservesExistingProof =
     subMap[playlistId]?.manifestComplete === true &&
     existingIds.length === nextIds.length &&
@@ -407,7 +413,7 @@ export function updateSubItemIds(
   const manifestComplete = options.manifestComplete === true || preservesExistingProof;
   const nextEntry: SubItemsMap[string] = {
     ids: nextIds,
-    titles: (subMap[playlistId]?.titles || []).slice(0, nextIds.length),
+    titles: nextIds.map((id) => titlesById.get(id) || ''),
     loadError: subMap[playlistId]?.loadError,
   };
   if (manifestComplete) nextEntry.manifestComplete = true;

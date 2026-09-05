@@ -248,8 +248,10 @@ requiredElement('copy-btn').addEventListener('click', () => {
         text += `\`\`\`\n${test.error.split('\n').slice(0, 3).join('\n')}\n\`\`\`\n\n`;
       }
     });
-  } else {
+  } else if (report.finalStatus === 'passed' && report.failed === 0) {
     text += 'All tests passed.\n';
+  } else {
+    text += 'The test run did not pass. No individual failed test entries were recorded.\n';
   }
 
   navigator.clipboard

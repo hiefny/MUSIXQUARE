@@ -2,6 +2,20 @@
 -- reads or writes this table, so keeping it only creates schema drift.
 DROP TABLE IF EXISTS mxqr_api_rate_limits;
 
+-- Per-article overrides preserve the existing KV visibility snapshot without
+-- read/modify/write races. An explicit unhide must remain a hidden=0 row.
+CREATE TABLE IF NOT EXISTS mxqr_soro_article_visibility (
+  slug TEXT PRIMARY KEY NOT NULL CHECK (
+    length(slug) BETWEEN 1 AND 120
+    AND slug NOT GLOB '*[^a-z0-9-]*'
+    AND substr(slug, 1, 1) GLOB '[a-z0-9]'
+    AND substr(slug, -1, 1) GLOB '[a-z0-9]'
+    AND instr(slug, '--') = 0
+  ),
+  hidden INTEGER NOT NULL CHECK (hidden IN (0, 1)),
+  updated_at INTEGER NOT NULL CHECK (updated_at >= 0)
+);
+
 CREATE TABLE IF NOT EXISTS mxqr_metric_buckets (
   bucket_minute INTEGER NOT NULL,
   event TEXT NOT NULL,
@@ -148,6 +162,31 @@ CREATE TABLE IF NOT EXISTS mxqr_pro_room_generation_history (
   request_id TEXT,
   PRIMARY KEY (room_code, room_generation)
 );
+
+-- Bounded full repair must revisit every immutable room incarnation, including
+-- delayed reverse-edge writes after an earlier successful cleanup. This cursor
+-- is progress only; it never changes room authority or marks cleanup permanent.
+CREATE TABLE IF NOT EXISTS mxqr_pro_room_retirement_cursor (
+  singleton INTEGER PRIMARY KEY NOT NULL CHECK (singleton = 1),
+  revision INTEGER NOT NULL DEFAULT 0 CHECK (
+    typeof(revision) = 'integer' AND revision BETWEEN 0 AND 9007199254740991
+  ),
+  completed_at INTEGER,
+  room_code TEXT,
+  room_generation INTEGER,
+  CHECK (
+    (completed_at IS NULL AND room_code IS NULL AND room_generation IS NULL)
+    OR (
+      completed_at IS NOT NULL AND typeof(completed_at) = 'integer' AND completed_at >= 0
+      AND room_code IS NOT NULL AND length(room_code) = 6
+      AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'
+      AND room_generation IS NOT NULL AND typeof(room_generation) = 'integer'
+      AND room_generation BETWEEN 0 AND 9007199254740991
+    )
+  )
+);
+
+INSERT OR IGNORE INTO mxqr_pro_room_retirement_cursor (singleton, revision) VALUES (1, 0);
 
 -- Append-only allocation ledger for every incarnation, including the active
 -- generation. The registry is only a mutable public-code pointer; this ledger
@@ -668,6 +707,23 @@ BEGIN
     ('system:owner-transfer', 'owner_transfer.prepare', 'expired',
      NEW.room_code, NEW.room_generation, NEW.updated_at);
 END;
+
+-- A finite allocation per admin-issued claim; retries retain the same row.
+-- No bearer token, signature, nonce, PIN, cookie or claim hash is retained.
+CREATE TABLE IF NOT EXISTS mxqr_pro_room_owner_transfer_intent_admissions (
+  room_code TEXT NOT NULL CHECK (length(room_code) = 6 AND room_code GLOB '0[0-9][0-9][0-9][0-9][0-9]'),
+  room_generation INTEGER NOT NULL CHECK (room_generation >= 0),
+  request_id TEXT NOT NULL CHECK (length(request_id) BETWEEN 16 AND 64 AND request_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+  claim_generation INTEGER NOT NULL CHECK (claim_generation >= 0),
+  target_account_id TEXT NOT NULL CHECK (length(target_account_id) = 27 AND substr(target_account_id, 1, 5) = 'acct_' AND target_account_id NOT GLOB '*[^A-Za-z0-9_-]*'),
+  admitted_at INTEGER NOT NULL CHECK (admitted_at >= 0),
+  PRIMARY KEY (room_code, room_generation, request_id),
+  FOREIGN KEY (room_code, room_generation, claim_generation)
+    REFERENCES mxqr_pro_room_owner_transfer_issuances(room_code, room_generation, claim_generation)
+);
+
+CREATE INDEX IF NOT EXISTS idx_mxqr_pro_room_owner_transfer_intent_admissions_claim
+ON mxqr_pro_room_owner_transfer_intent_admissions(room_code, room_generation, claim_generation);
 
 -- Generic PRO entitlement control plane. Campaigns are acquisition sources,
 -- never room types; room authority remains bound to (room_code, room_generation).

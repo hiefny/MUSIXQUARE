@@ -30,6 +30,7 @@ const ACCOUNT_A = `acct_${'A'.repeat(22)}`;
 const ACCOUNT_B = `acct_${'B'.repeat(22)}`;
 const ACCOUNT_C = `acct_${'C'.repeat(22)}`;
 const PEPPER = 'pro-grant-test-pepper-that-is-at-least-32-bytes';
+const ACCOUNT_SCOPE = 'S'.repeat(43);
 const MAX_PRO_GRANT_BODY_BYTES = 32 * 1024;
 
 type SqlValue = string | number | bigint | Uint8Array | null;
@@ -101,7 +102,11 @@ class D1 {
 }
 
 function request(path: string, init: RequestInit = {}) {
-  return new Request(`https://musixquare.com${path}`, init);
+  const headers = new Headers(init.headers);
+  if (path.endsWith('/redeem') && !headers.has('X-MXQR-Account-Expected-Scope')) {
+    headers.set('X-MXQR-Account-Expected-Scope', ACCOUNT_SCOPE);
+  }
+  return new Request(`https://musixquare.com${path}`, { ...init, headers });
 }
 
 async function body(response: Response) {
@@ -916,10 +921,12 @@ describe('generic PRO grant redemption', () => {
       MXQR_PRO_GRANT_VOUCHER_PEPPER: PEPPER,
     };
     let accountId = ACCOUNT_A;
+    let accountScope = ACCOUNT_SCOPE;
     let handoff = 0;
     const dependencies = {
       resolveAccountSession: async () => ({
         accountId,
+        statsScope: accountScope,
         nickname: 'Owner',
         profileComplete: true,
       }),
@@ -1033,6 +1040,46 @@ describe('generic PRO grant redemption', () => {
         },
         body: JSON.stringify({ code: '2345-6789-ABCD-EFGH-JKMN' }),
       });
+    const batchWrites = vi.spyOn(db, 'batch');
+    for (const expectedScope of [null, 'malformed', 'B'.repeat(43)]) {
+      const staleRequest = redeemRequest();
+      if (expectedScope === null) staleRequest.headers.delete('X-MXQR-Account-Expected-Scope');
+      else staleRequest.headers.set('X-MXQR-Account-Expected-Scope', expectedScope);
+      const refused = await handleProGrantPublicRequest(
+        staleRequest,
+        env,
+        new URL('https://musixquare.com/api/pro-grants/campaigns/asamo-0/redeem'),
+        dependencies,
+      );
+      expect(refused?.status).toBe(409);
+      expect(await body(refused!)).toEqual({ error: 'ACCOUNT_SESSION_CHANGED' });
+      expect(batchWrites).not.toHaveBeenCalled();
+      expect(db.database.prepare('SELECT status FROM mxqr_pro_grant_vouchers').get()).toMatchObject(
+        {
+          status: 'available',
+        },
+      );
+      expect(
+        db.database.prepare('SELECT COUNT(*) AS count FROM mxqr_pro_grants').get(),
+      ).toMatchObject({
+        count: 0,
+      });
+    }
+    // A fresh server session may already belong to B while the displayed
+    // voucher intent still carries A's scope.
+    accountId = ACCOUNT_B;
+    accountScope = 'B'.repeat(43);
+    const changedCookie = await handleProGrantPublicRequest(
+      redeemRequest(),
+      env,
+      new URL('https://musixquare.com/api/pro-grants/campaigns/asamo-0/redeem'),
+      dependencies,
+    );
+    expect(changedCookie?.status).toBe(409);
+    expect(await body(changedCookie!)).toEqual({ error: 'ACCOUNT_SESSION_CHANGED' });
+    expect(batchWrites).not.toHaveBeenCalled();
+    accountId = ACCOUNT_A;
+    accountScope = ACCOUNT_SCOPE;
     const redeemed = await handleProGrantPublicRequest(
       redeemRequest(),
       env,
@@ -1059,8 +1106,11 @@ describe('generic PRO grant redemption', () => {
     expect(handoff).toBe(0);
 
     accountId = ACCOUNT_B;
+    accountScope = 'B'.repeat(43);
+    const confirmedB = redeemRequest();
+    confirmedB.headers.set('X-MXQR-Account-Expected-Scope', accountScope);
     const stolen = await handleProGrantPublicRequest(
-      redeemRequest(),
+      confirmedB,
       env,
       new URL('https://musixquare.com/api/pro-grants/campaigns/asamo-0/redeem'),
       dependencies,
@@ -1110,11 +1160,14 @@ describe('generic PRO grant redemption', () => {
     let issued = 0;
     const env = { MUSIXQUARE_ADMIN_DB: db, MUSIXQUARE_AUTH_DB: db };
     const dependencies = {
-      resolveAccountSession: async () => ({
-        accountId: ACCOUNT_A,
-        nickname: 'Owner',
-        profileComplete: true,
-      }),
+      resolveAccountSession: vi.fn(
+        async (_request: Request, _env: unknown, options?: { includeStatsScope?: boolean }) => ({
+          accountId: ACCOUNT_A,
+          nickname: 'Owner',
+          profileComplete: true,
+          ...(options?.includeStatsScope ? { statsScope: 's'.repeat(43) } : {}),
+        }),
+      ),
       inspectRoom: async () => ({ status: 'unactivated', ownerAccountId: null }),
       issueActivationHandoff: async () => ({
         roomCode: '000100',
@@ -1131,6 +1184,14 @@ describe('generic PRO grant redemption', () => {
     );
     const sessionBody = await body(session!);
     expect(session?.status).toBe(200);
+    expect(sessionBody.account).toEqual({
+      authenticated: true,
+      profileComplete: true,
+      statsScope: 's'.repeat(43),
+    });
+    expect(dependencies.resolveAccountSession).toHaveBeenLastCalledWith(expect.any(Request), env, {
+      includeStatsScope: true,
+    });
     expect(sessionBody.campaign).toMatchObject({
       slug: 'asamo-0',
       title: 'ASAMO',
@@ -1157,6 +1218,9 @@ describe('generic PRO grant redemption', () => {
       dependencies,
     );
     expect(setup?.status).toBe(200);
+    expect(dependencies.resolveAccountSession).toHaveBeenLastCalledWith(expect.any(Request), env, {
+      includeStatsScope: false,
+    });
     expect(await body(setup!)).toMatchObject({
       roomCode: '000100',
       roomGeneration: 0,
@@ -1213,6 +1277,7 @@ describe('generic PRO grant redemption', () => {
       )
       .run();
     allowPreflight = false;
+    db.database.exec(`UPDATE mxqr_pro_grant_campaigns SET status = 'ended'`);
     const replay = await call();
     expect(replay?.status).toBe(200);
     expect(await body(replay!)).toMatchObject({ replayed: true, count: 1 });
@@ -1350,6 +1415,7 @@ describe('generic PRO grant redemption', () => {
     const dependencies = {
       resolveAccountSession: async () => ({
         accountId: ACCOUNT_A,
+        statsScope: ACCOUNT_SCOPE,
         nickname: 'Owner',
         profileComplete: true,
       }),
@@ -1427,6 +1493,7 @@ describe('generic PRO grant redemption', () => {
     const dependencies = {
       resolveAccountSession: async (incoming: Request) => ({
         accountId: incoming.headers.get('x-test-account'),
+        statsScope: ACCOUNT_SCOPE,
         nickname: 'Owner',
         profileComplete: true,
       }),
@@ -1544,6 +1611,85 @@ describe('generic PRO grant redemption', () => {
       db.database.prepare('SELECT status FROM mxqr_pro_grant_redemptions').get(),
     ).toMatchObject({ status: 'fulfilled' });
   });
+
+  it.each(['revoked', 'expires-at-commit', 'just-before-expiry'])(
+    'checks the campaign inside voucher issuance: %s',
+    async (scenario) => {
+      db = new D1();
+      const now = Date.now();
+      const endsAt = now + 1000;
+      vi.spyOn(Date, 'now').mockReturnValue(now);
+      expect(db.database.prepare('PRAGMA foreign_keys').get()).toMatchObject({ foreign_keys: 1 });
+      db.database.exec(`
+        INSERT INTO mxqr_pro_room_registry VALUES
+          ('000100','Event','registered',NULL,'unactivated',0,${now},${now});
+        INSERT INTO mxqr_pro_grant_campaigns VALUES
+          ('campaign_${'A'.repeat(22)}','race-0','Race','active',${now - 1},${endsAt},1,${now},${now});
+      `);
+      const env = { MUSIXQUARE_ADMIN_DB: db, MXQR_PRO_GRANT_VOUCHER_PEPPER: PEPPER };
+      const result = await handleProGrantAdminRequest(
+        request('/api/admin/pro-grants/campaigns/race-0/vouchers', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            requestId: `batch_${'B'.repeat(22)}`,
+            dryRun: false,
+            vouchers: [{ roomCode: '000100', code: '23456789ABCDEFGHJKMN' }],
+          }),
+        }),
+        env,
+        new URL('https://musixquare.com/api/admin/pro-grants/campaigns/race-0/vouchers'),
+        {
+          preflightVoucherRoom: async () => {
+            if (scenario === 'revoked') {
+              const revoked = await handleProGrantAdminRequest(
+                request('/api/admin/pro-grants/campaigns/race-0/revoke', {
+                  method: 'POST',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({
+                    requestId: 'revoke_race_00001',
+                    reason: 'operator_revoked',
+                  }),
+                }),
+                env,
+                new URL('https://musixquare.com/api/admin/pro-grants/campaigns/race-0/revoke'),
+                {},
+              );
+              expect(revoked?.status).toBe(200);
+            } else {
+              vi.mocked(Date.now).mockReturnValue(
+                scenario === 'expires-at-commit' ? endsAt : endsAt - 1,
+              );
+            }
+            return {
+              roomCode: '000100',
+              roomGeneration: 0,
+              status: 'registered',
+              activationState: 'unactivated',
+            };
+          },
+        },
+      );
+      const expectedCount = scenario === 'just-before-expiry' ? 1 : 0;
+      expect(result?.status).toBe(expectedCount ? 201 : 409);
+      if (!expectedCount) {
+        expect(await body(result!)).toMatchObject({ error: 'CAMPAIGN_NOT_MUTABLE' });
+      }
+      for (const table of ['mxqr_pro_grant_voucher_batches', 'mxqr_pro_grant_vouchers']) {
+        expect(db.database.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get()).toMatchObject({
+          count: expectedCount,
+        });
+      }
+      expect(
+        db.database
+          .prepare(
+            `SELECT COUNT(*) AS count FROM mxqr_pro_grant_audit WHERE action = 'voucher.batch.issue'`,
+          )
+          .get(),
+      ).toMatchObject({ count: expectedCount });
+      expect(await hasReservedProGrantAllocation(env, '000100', 0)).toBe(expectedCount > 0);
+    },
+  );
 
   it('rolls back the whole voucher batch when the room changes after preflight', async () => {
     db = new D1();
@@ -2040,6 +2186,7 @@ describe('generic PRO grant redemption', () => {
     const dependencies = {
       resolveAccountSession: async () => ({
         accountId: ACCOUNT_A,
+        statsScope: ACCOUNT_SCOPE,
         nickname: 'Owner',
         profileComplete: true,
       }),
@@ -2157,6 +2304,7 @@ describe('generic PRO grant redemption', () => {
       {
         resolveAccountSession: async () => ({
           accountId: ACCOUNT_A,
+          statsScope: ACCOUNT_SCOPE,
           nickname: 'Source',
           profileComplete: true,
         }),

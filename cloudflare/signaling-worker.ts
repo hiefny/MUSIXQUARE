@@ -546,6 +546,10 @@ const MAX_PENDING_GUEST_SOCKETS = MAX_ROOM_GUESTS;
 const GUEST_MESSAGE_BUCKET_CAPACITY = 120;
 const GUEST_MESSAGE_REFILL_PER_MS = GUEST_MESSAGE_BUCKET_CAPACITY / 60_000;
 const PRO_REALTIME_INGRESS_PENDING_LIMIT = 32;
+// Bound retained Standard authority frames before maintenance or storage can
+// yield. Ordinary ICE/media signaling does not join this ordered queue.
+const STANDARD_ORDERED_INGRESS_PENDING_LIMIT = 32;
+const STANDARD_ORDERED_INGRESS_MAX_BYTES = WS_MESSAGE_MAX_BYTES;
 const PRO_SYSTEM_AUDIO_SIGNAL_PENDING_LIMIT = 16;
 // A legitimate room may allocate up to 120 Remote Share uploads per hour, so
 // retain that full burst while bounding the HMAC work an authenticated (or
@@ -2474,6 +2478,10 @@ export class MusixquareRoom {
   private proOwnerAccountDeletionFence: ProOwnerAccountDeletionFence | null | undefined;
   private standardAdmissionSync: Promise<unknown>;
   private standardOrderedIngressSync: Promise<unknown>;
+  private readonly standardOrderedIngressBudgets: WeakMap<
+    SocketPort,
+    { count: number; bytes: number; rejected: boolean }
+  >;
   private proAdmissionSync: Promise<unknown>;
   private proChatMutationSync: Promise<unknown>;
   private readonly proRealtimeIngressDepth: WeakMap<SocketPort, number>;
@@ -2558,6 +2566,7 @@ export class MusixquareRoom {
     // gate. They later join the admission queue only for their authoritative
     // read/verify/write section, so ordinary signaling remains independent.
     this.standardOrderedIngressSync = Promise.resolve();
+    this.standardOrderedIngressBudgets = new WeakMap();
     this.proAdmissionSync = Promise.resolve();
     this.proChatMutationSync = Promise.resolve();
     this.proRealtimeIngressDepth = new WeakMap();
@@ -4886,6 +4895,7 @@ export class MusixquareRoom {
   private currentStandardRoomAttachment(
     ws: SocketPort,
   ): StandardHostOkAttachment | StandardGuestOkAttachment | null {
+    if (this.standardOrderedIngressBudgets.get(ws)?.rejected) return null;
     const attachment = readAttachment(ws);
     if (!attachment || attachment.roomKind === 'pro' || attachment.auth !== 'ok') return null;
     if (attachment.role === 'host') return this.host === ws ? attachment : null;
@@ -5195,28 +5205,11 @@ export class MusixquareRoom {
         // Keep the tombstone read in the same queue as ticket consumption and
         // permanent decommission. A connection that passed an earlier check
         // must never repopulate signaling storage after the deletion sweep.
-        const storedDecommissioned = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
-        const decommissioned =
-          storedDecommissioned === undefined || storedDecommissioned === null
-            ? null
-            : normalizeProDecommissioned(storedDecommissioned);
-        if (
-          storedDecommissioned !== undefined &&
-          storedDecommissioned !== null &&
-          !decommissioned
-        ) {
-          return json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, 503);
-        }
-        if (
-          decommissioned &&
-          (decommissioned.roomCode !== proRoomId ||
-            decommissioned.roomGeneration !== ticket.roomGeneration)
-        ) {
-          return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
-        }
-        if (decommissioned) {
-          return json({ error: 'PRO_ROOM_DECOMMISSIONED' }, 410);
-        }
+        const decommissioned = await this.proDecommissionedResponse(
+          proRoomId,
+          ticket.roomGeneration,
+        );
+        if (decommissioned) return decommissioned;
         let ownerAccountDeletionFence;
         try {
           ownerAccountDeletionFence = await this.loadProOwnerAccountDeletionFence();
@@ -5263,6 +5256,22 @@ export class MusixquareRoom {
     }
 
     return webSocketUpgradeResponse(client);
+  }
+
+  private async proDecommissionedResponse(
+    roomCode: string,
+    roomGeneration: number,
+  ): Promise<Response | null> {
+    const stored = await this.state.storage.get(PRO_DECOMMISSIONED_KEY);
+    if (stored === undefined || stored === null) return null;
+    const decommissioned = normalizeProDecommissioned(stored);
+    if (!decommissioned) {
+      return json({ error: 'PRO_SIGNALING_ROOM_STATE_UNAVAILABLE' }, 503);
+    }
+    if (decommissioned.roomCode !== roomCode || decommissioned.roomGeneration !== roomGeneration) {
+      return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
+    }
+    return json({ error: 'PRO_ROOM_DECOMMISSIONED' }, 410);
   }
 
   private async handleInternalAdminDecommission(request: Request): Promise<Response> {
@@ -5400,6 +5409,8 @@ export class MusixquareRoom {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
     const roomCode = value.roomCode;
+    const decommissioned = await this.proDecommissionedResponse(roomCode, roomGeneration);
+    if (decommissioned) return decommissioned;
     const meta = await this.loadProRoomMeta();
     if (meta && (meta.roomId !== roomCode || meta.roomGeneration !== roomGeneration)) {
       return json({ error: 'PRO_ROOM_GENERATION_MISMATCH' }, 409);
@@ -5442,11 +5453,13 @@ export class MusixquareRoom {
         }
         this.proMembers.clear();
         this.proSocketsValidated = true;
-        await this.state.storage.put(
-          PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY,
-          persistedProGenerationRecord(fence, roomGeneration),
-        );
       }
+      // A prior failed write can leave this deny fence only in memory. A
+      // successful replay must also prove the fence will survive hibernation.
+      await this.state.storage.put(
+        PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY,
+        persistedProGenerationRecord(fence, roomGeneration),
+      );
       return json({
         ok: true,
         roomCode,
@@ -5512,6 +5525,10 @@ export class MusixquareRoom {
       existing.removedOwnerAuthorityEpoch === exactValue.removedOwnerAuthorityEpoch &&
       existing.fencedCoordinatorEpoch === requestedCoordinatorEpoch;
     if (exactExisting) {
+      await this.state.storage.put(
+        PRO_OWNER_ACCOUNT_DELETION_FENCE_KEY,
+        persistedProGenerationRecord(existing, roomGeneration),
+      );
       return exactResponse('installed', false, requestedCoordinatorEpoch);
     }
     if (existing?.v === 2 && existing.fencedCoordinatorEpoch === requestedCoordinatorEpoch) {
@@ -5575,6 +5592,11 @@ export class MusixquareRoom {
       return json({ error: 'INVALID_REQUEST' }, 400);
     }
 
+    // Delayed server deliveries share the admission queue with permanent
+    // deletion. They must not recreate presence or other state after its
+    // tombstone commits, including after the object restarts.
+    const decommissioned = await this.proDecommissionedResponse(value.roomCode, roomGeneration);
+    if (decommissioned) return decommissioned;
     let ownerAccountDeletionFence;
     try {
       ownerAccountDeletionFence = await this.loadProOwnerAccountDeletionFence();
@@ -6461,6 +6483,7 @@ export class MusixquareRoom {
 
   webSocketMessage(ws: SocketPort, raw: unknown): Promise<void> {
     if (this.standardHttpBridgeOnly) return Promise.resolve();
+    if (this.standardOrderedIngressBudgets.get(ws)?.rejected) return Promise.resolve();
     // Production Durable Objects answer this exact frame without waking the
     // object. Keep a fallback for local tests and runtimes without auto-response.
     if (raw === SIGNALING_LIVENESS_PING) {
@@ -6498,6 +6521,23 @@ export class MusixquareRoom {
     }
     const ingress = this.classifyStandardOrderedIngress(ws, raw);
     if (ingress) {
+      const budget = this.standardOrderedIngressBudgets.get(ws) ?? {
+        count: 0,
+        bytes: 0,
+        rejected: false,
+      };
+      this.standardOrderedIngressBudgets.set(ws, budget);
+      const frameBytes = rawBytes ?? 0;
+      if (
+        budget.count >= STANDARD_ORDERED_INGRESS_PENDING_LIMIT ||
+        frameBytes > STANDARD_ORDERED_INGRESS_MAX_BYTES - budget.bytes
+      ) {
+        budget.rejected = true;
+        closeWithError(ws, 'rate-limited', 'SIGNALING_RATE_LIMITED', 1008);
+        this.defer(this.webSocketClose(ws), 'closed socket cleanup');
+        this.recordMetric('ws_message_rate_limited');
+        return Promise.resolve();
+      }
       if (ingress.pinConfigurationMutationId) {
         const attachment = this.currentStandardRoomAttachment(ws);
         if (!attachment || attachment.role !== 'host') {
@@ -6530,9 +6570,15 @@ export class MusixquareRoom {
         // but cannot overtake this frame and become the authentication attempt.
         serializeSocketAttachment(ws, { ...attachment, authStarted: true });
       }
+      budget.count += 1;
+      budget.bytes += frameBytes;
       return this.enqueueStandardOrderedIngress(() =>
-        this.processWebSocketMessage(ws, raw, ingress),
-      );
+        budget.rejected ? Promise.resolve() : this.processWebSocketMessage(ws, raw, ingress),
+      ).finally(() => {
+        budget.count -= 1;
+        budget.bytes -= frameBytes;
+        if (budget.count === 0 && !budget.rejected) this.standardOrderedIngressBudgets.delete(ws);
+      });
     }
     return this.processWebSocketMessage(ws, raw);
   }
@@ -6563,6 +6609,8 @@ export class MusixquareRoom {
       closeWithError(ws, 'service-maintenance', 'SERVICE_MAINTENANCE', 1012);
       return;
     }
+
+    if (this.standardOrderedIngressBudgets.get(ws)?.rejected) return;
 
     if (
       attachment.auth === 'ok' &&
@@ -6675,14 +6723,15 @@ export class MusixquareRoom {
 
     if (attachment.roomKind !== 'pro') await this.loadRoomMeta();
 
-    if (this.guests.get(attachment.peerId) !== ws) return;
+    const currentGuest = this.currentStandardRoomAttachment(ws);
+    if (currentGuest?.role !== 'guest') return;
     if (isStandardRoomIdentityMutation(message)) {
       await this.enqueueStandardAdmission(() =>
         this.handleStandardRoomIdentityMutation(ws, message),
       );
       return;
     }
-    this.handleGuestMessage(attachment.peerId, message, attachment);
+    this.handleGuestMessage(currentGuest.peerId, message, currentGuest);
   }
 
   private handleProRealtimeMessage(

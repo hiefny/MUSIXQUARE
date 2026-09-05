@@ -961,10 +961,99 @@ describe('i18n functions', () => {
     });
   });
 
+  describe('optional font runtime failure', () => {
+    afterEach(() => {
+      vi.doUnmock('../locale-fonts.ts');
+    });
+
+    it.each(['startup', 'selection'] as const)(
+      'still translates the DOM and publishes the locale after a font runtime chunk failure at %s',
+      async (boundary) => {
+        localStorage.setItem('musixquare-lang', boundary === 'startup' ? 'ja' : 'en');
+        document.body.innerHTML = '<button data-i18n="setup.host_button">Previous copy</button>';
+        vi.doMock('../locale-fonts.ts', () => {
+          throw new Error('simulated font runtime chunk 404');
+        });
+
+        const { initI18n, setLanguageMode, getResolvedLanguage, t } = await import('../index.ts');
+        const { bus } = await import('../../core/events.ts');
+        const { default: ja } = await vi.importActual<typeof import('../ja.ts')>('../ja.ts');
+        const changed = vi.fn();
+        const off = bus.on('i18n:changed', changed);
+        try {
+          await initI18n();
+          if (boundary === 'selection') setLanguageMode('ja');
+          await vi.waitFor(() => {
+            expect(changed).toHaveBeenCalledWith('ja');
+            expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']);
+          });
+          expect(getResolvedLanguage()).toBe('ja');
+          expect(t('setup.host_button')).toBe(ja['setup.host_button']);
+          expect(document.documentElement.lang).toBe('ja');
+        } finally {
+          off();
+        }
+      },
+    );
+  });
+
   describe('lazy locale chunk failure (no negative cache)', () => {
     afterEach(() => {
       vi.doUnmock('../ja.ts');
+      vi.doUnmock('../ru.ts');
     });
+
+    it.each([
+      ['ja', 1, '1 Connected Device', '1台の接続中デバイス'],
+      ['ru', 21, '21 Connected Devices', 'Подключено 21 устройство'],
+    ] as const)(
+      'uses English plural rules in the live device titles while %s is unavailable',
+      async (language, count, fallbackTitle, restoredTitle) => {
+        localStorage.setItem('musixquare-lang', language);
+        let failLocale = true;
+        const loadLocale = async (importOriginal: () => Promise<unknown>) => {
+          if (failLocale) throw new Error('simulated lazy chunk 404');
+          return importOriginal();
+        };
+        if (language === 'ja') vi.doMock('../ja.ts', loadLocale);
+        else vi.doMock('../ru.ts', loadLocale);
+        document.body.innerHTML =
+          '<div id="connect-device-title"></div><div id="desktop-device-title"></div>';
+
+        const { initI18n, setLanguageMode, getResolvedLanguage } = await import('../index.ts');
+        const { initConnect } = await import('../../ui/connect.ts');
+        const { bus } = await import('../../core/events.ts');
+        await initI18n();
+        initConnect();
+        // The public projection consumed by both Connect panels, including
+        // the host at index zero, comes from the normal device-list event.
+        bus.emit(
+          'network:device-list-update',
+          Array.from({ length: count }, (_, index) => ({
+            id: `device-${index}`,
+            label: `Device ${index}`,
+            isOp: index === 0,
+            isHost: index === 0,
+            status: 'connected',
+          })),
+        );
+
+        expect(getResolvedLanguage()).toBe(language);
+        expect(document.documentElement.lang).toBe('en');
+        for (const id of ['connect-device-title', 'desktop-device-title']) {
+          expect(document.getElementById(id)?.textContent).toBe(fallbackTitle);
+        }
+
+        failLocale = false;
+        setLanguageMode(language);
+        await vi.waitFor(() => {
+          for (const id of ['connect-device-title', 'desktop-device-title']) {
+            expect(document.getElementById(id)?.textContent).toBe(restoredTitle);
+          }
+        });
+        expect(document.documentElement.lang).toBe(language);
+      },
+    );
 
     it('falls back to English on a failed lazy chunk and genuinely retries on re-select', async () => {
       localStorage.setItem('musixquare-lang', 'ja');

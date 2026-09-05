@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import ts from 'typescript';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,6 +39,8 @@ import { emergencyDeploymentPlan } from '../../../scripts/emergency-deploy.mts';
 const SCRIPT_PATH = resolve('scripts/release-deployment-state.mts');
 const CANONICAL_RELEASE_MESSAGE = `git:${'a'.repeat(40)}`;
 const temporaryDirectories: string[] = [];
+const jqExecutable = process.env.MXQR_TEST_JQ_PATH || 'jq';
+const jqAvailable = spawnSync(jqExecutable, ['--version'], { encoding: 'utf8' }).status === 0;
 
 function createDirectory(): string {
   const directory = mkdtempSync(resolve(tmpdir(), 'mxqr-release-deployment-'));
@@ -78,6 +81,62 @@ afterEach(() => {
 });
 
 describe('release deployment rollback state', () => {
+  it.skipIf(!jqAvailable && !process.env.CI)(
+    'classifies the exact coherent commit marker only from a complete GitHub inventory',
+    () => {
+      const workflow = readFileSync(resolve('.github/workflows/release-recovery.yml'), 'utf8');
+      const step = workflowStepSource(workflow, 'Classify coherent-production marker');
+      expect(step).toContain('artifacts?per_page=100&name=${artifact_name}');
+      expect(step).toContain(")\" || artifact_state='indeterminate'");
+      const classifier = step.match(
+        /jq -er --arg name "\$artifact_name"\s+\\\s+'([\s\S]*?)'\s+\\/u,
+      )?.[1];
+      expect(classifier).toBeDefined();
+      const name = `production-commit-${'a'.repeat(40)}-123-2`;
+      const exact = { name, expired: false };
+      for (const [payload, expected] of [
+        [{ total_count: 0, artifacts: [] }, 'absent'],
+        [{ total_count: 1, artifacts: [exact] }, 'committed'],
+        [{ total_count: 2, artifacts: [exact, exact] }, 'indeterminate'],
+        [
+          {
+            total_count: 101,
+            artifacts: Array.from({ length: 100 }, (_, index) => ({
+              name: `prior-attempt-${index}`,
+              expired: false,
+            })),
+          },
+          'indeterminate',
+        ],
+        [{ total_count: 1, artifacts: [] }, 'indeterminate'],
+        [{ total_count: 0, artifacts: [exact] }, 'indeterminate'],
+        [{ total_count: '0', artifacts: [] }, 'indeterminate'],
+        [{ total_count: -1, artifacts: [] }, 'indeterminate'],
+        [{ total_count: 0.5, artifacts: [] }, 'indeterminate'],
+        [{ artifacts: [] }, 'indeterminate'],
+        [{ total_count: 0, artifacts: null }, 'indeterminate'],
+        [{ total_count: 1, artifacts: [{ ...exact, name: 'another-attempt' }] }, 'indeterminate'],
+        [{ total_count: 1, artifacts: [{ ...exact, expired: true }] }, 'indeterminate'],
+        [{ total_count: 1, artifacts: [null] }, 'indeterminate'],
+        [null, 'indeterminate'],
+      ] as const) {
+        const result = spawnSync(jqExecutable, ['-er', '--arg', 'name', name, classifier!], {
+          input: JSON.stringify(payload),
+          encoding: 'utf8',
+          timeout: 10_000,
+        });
+        expect(result.status, result.stderr).toBe(0);
+        expect(result.stdout.trim()).toBe(expected);
+      }
+      const malformed = spawnSync(jqExecutable, ['-er', '--arg', 'name', name, classifier!], {
+        input: '{broken-json',
+        encoding: 'utf8',
+        timeout: 10_000,
+      });
+      expect(malformed.status).not.toBe(0);
+    },
+  );
+
   it('rechecks unselected Workers before the selected Worker preflight and every deploy', () => {
     const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
     const workflowLines = workflow.split(/\r?\n/u);
@@ -394,6 +453,60 @@ describe('release deployment rollback state', () => {
     expect(runtimePathsForWorker('app')).toContain(marker);
   });
 
+  it('keeps Soro visibility on an App-only forward-repair boundary in both recovery paths', () => {
+    const marker = 'cloudflare/soro-article-visibility-contract-version.txt';
+    expect(readFileSync(resolve(marker), 'utf8')).toBe('soro-article-visibility-d1-v1\n');
+    expect(EMERGENCY_EXTERNAL_STATE_PATHS).toContain(marker);
+    expect(runtimePathsForWorker('app')).toContain(marker);
+    for (const target of [
+      'pro-room',
+      'signaling',
+      'remote-share',
+      'developer-api',
+      'developer-api-facade',
+    ]) {
+      expect(runtimePathsForWorker(target)).not.toContain(marker);
+    }
+    for (const file of [
+      '.github/workflows/release.yml',
+      '.github/workflows/release-recovery.yml',
+    ]) {
+      const workflow = readFileSync(resolve(file), 'utf8');
+      expect(workflow).toContain(
+        'soro-article-visibility-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',
+      );
+      expect(workflow).toContain(
+        'MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR="$soro_article_visibility_forward_floor"',
+      );
+    }
+    const migrationStep = workflowStepSource(
+      readFileSync(resolve('.github/workflows/release.yml'), 'utf8'),
+      'Apply and verify Soro article visibility D1 contract',
+    );
+    expect(migrationStep).toContain(`git show "$GITHUB_SHA:${marker}"`);
+    expect(migrationStep).toContain(`cat ${marker}`);
+
+    const checkpoint = createDirectory();
+    for (const markerContent of [null, '', 'wrong-contract\n']) {
+      expect(
+        contractCutoverRequiresForwardRepair('d'.repeat(40), marker, ['app'], checkpoint, {
+          requiredMarkerContent: 'soro-article-visibility-d1-v1\n',
+          runner: () => {
+            if (markerContent === null) throw new Error('release source marker missing');
+            return markerContent;
+          },
+        }),
+      ).toBe(true);
+    }
+    expect(
+      contractCutoverRequiresForwardRepair('d'.repeat(40), marker, ['app'], checkpoint, {
+        requiredMarkerContent: 'soro-article-visibility-d1-v1\n',
+        requireCheckpointInventory: true,
+        runner: () => 'soro-article-visibility-d1-v1\n',
+      }),
+    ).toBe(true);
+  });
+
   it('requires a full release when the app-to-service-control contract changes', () => {
     const marker = 'cloudflare/service-control-contract-version.txt';
     expect(runtimePathsForWorker('pro-room')).toContain(marker);
@@ -502,6 +615,7 @@ describe('release deployment rollback state', () => {
 
   it.each([
     ['service-control', 'cloudflare/service-control-contract-version.txt', ['pro-room', 'app']],
+    ['Soro article visibility', 'cloudflare/soro-article-visibility-contract-version.txt', ['app']],
     [
       'PRO system-audio',
       'cloudflare/pro-system-audio-contract-version.txt',
@@ -601,6 +715,7 @@ describe('release deployment rollback state', () => {
   it.each([
     ['service-control', 'cloudflare/service-control-contract-version.txt', ['pro-room', 'app']],
     ['remote-share', 'cloudflare/remote-share-contract-version.txt', ['remote-share', 'app']],
+    ['Soro article visibility', 'cloudflare/soro-article-visibility-contract-version.txt', ['app']],
     [
       'PRO system-audio',
       'cloudflare/pro-system-audio-contract-version.txt',
@@ -1107,6 +1222,64 @@ describe('release deployment rollback state', () => {
       }),
     ).toThrow('app has undeployed production-source changes');
   });
+
+  it('blocks an unselected app when a localized build input changes', () => {
+    const repository = createDirectory();
+    const git = (args: string[], options: { capture?: boolean } = {}): string =>
+      execFileSync('git', ['-C', repository, ...args], {
+        encoding: 'utf8',
+        stdio: options.capture ? ['ignore', 'pipe', 'inherit'] : 'pipe',
+      });
+    const helpers = [
+      'scripts/materialize-localized-html.mts',
+      'scripts/localized-html-lib.mts',
+      'scripts/locale-seo-metadata.mts',
+      'scripts/service-worker-app-shell-guard-lib.mts',
+      'fonts/noto/noto-sans-devanagari/devanagari.woff2',
+    ];
+    git(['init', '--quiet']);
+    git(['config', 'user.email', 'release-test@musixquare.invalid']);
+    git(['config', 'user.name', 'MUSIXQUARE Release Test']);
+    mkdirSync(resolve(repository, 'scripts'), { recursive: true });
+    for (const helper of helpers) {
+      mkdirSync(resolve(repository, helper, '..'), { recursive: true });
+      writeFileSync(resolve(repository, helper), 'export const value = 1;\n');
+    }
+    writeFileSync(resolve(repository, 'package.json'), '{"private":true}\n');
+    writeFileSync(resolve(repository, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    git(['add', '.']);
+    git(['commit', '--quiet', '-m', 'build helpers baseline']);
+    const baseSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+    for (const changedHelper of helpers) {
+      for (const helper of helpers) {
+        writeFileSync(
+          resolve(repository, helper),
+          `export const value = ${helper === changedHelper ? 2 : 1};\n`,
+        );
+      }
+      git(['add', '.']);
+      git(['commit', '--quiet', '-m', 'build helper change']);
+      const headSha = git(['rev-parse', 'HEAD'], { capture: true }).trim();
+      expect(() =>
+        verifyPartialReleaseCompatibility('signaling', headSha, repository, {
+          queryCurrent: (target: string) => ({
+            deploymentId: `deployment-${target}`,
+            versionId: `version-${target}`,
+            message: `git:${baseSha}`,
+          }),
+          changedRuntimePaths: (from, to, paths) =>
+            changedRuntimePaths(from, to, paths, { runner: git }),
+          gitRunner: git,
+        }),
+      ).toThrow('app has undeployed production-source changes');
+      const report = JSON.parse(
+        readFileSync(resolve(repository, 'partial-release-compatibility.json'), 'utf8'),
+      ) as { results: Array<{ target: string; changedPaths: string[] }> };
+      expect(report.results.find((result) => result.target === 'app')?.changedPaths).toEqual([
+        changedHelper,
+      ]);
+    }
+  }, 30_000);
 
   it('invokes npm through its JavaScript CLI on Windows', () => {
     expect(
@@ -2018,6 +2191,74 @@ describe('release deployment rollback state', () => {
     expect(step).toContain('daily_guest_joins');
     expect(step).toContain('invalid_day_count');
     expect(step).toContain('capture-wrangler-d1-json.mts');
+  });
+
+  it.each([
+    ['Soro article visibility', 'soro-article-visibility', 'mxqr_soro_article_visibility'],
+    ['PRO retirement cursor', 'pro-room-retirement-cursor', 'mxqr_pro_room_retirement_cursor'],
+    [
+      'owner-transfer intent admission',
+      'owner-transfer-intent-admission',
+      'mxqr_pro_room_owner_transfer_intent_admissions',
+    ],
+  ])('installs the %s D1 contract before every app rollout', (name, migration, table) => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const migrationStep = workflow.indexOf(`Apply and verify ${name} D1 contract`);
+    const nextStep = workflow.indexOf('\n      - name:', migrationStep + 1);
+    const step = workflow.slice(migrationStep, nextStep);
+    expect(migrationStep).toBeGreaterThan(-1);
+    expect(migrationStep).toBeLessThan(
+      workflow.indexOf('Deploy and record app Worker with immutable dist'),
+    );
+    expect(step).toContain("if: inputs.target == 'all' || inputs.target == 'app'");
+    expect(step).toContain(`--file cloudflare/admin-metrics.${migration}.migration.sql`);
+    expect(step).toContain('CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_API_TOKEN }}');
+    expect(step).toContain(table);
+    expect(step).toContain('capture-wrangler-d1-json.mts');
+    expect(step).toContain('exit 1');
+  });
+
+  it('verifies the actual retirement cursor schema and retained progress before rollout', () => {
+    const workflow = readFileSync(resolve('.github/workflows/release.yml'), 'utf8');
+    const start = workflow.indexOf('Apply and verify PRO retirement cursor D1 contract');
+    const step = workflow.slice(start, workflow.indexOf('\n      - name:', start + 1));
+    const verificationSql = step.match(/verify_sql=\$\(cat <<'SQL'\n([\s\S]+?)\n\s+SQL\n/)?.[1];
+    expect(verificationSql).toBeTruthy();
+    const db = new DatabaseSync(':memory:');
+    const migration = readFileSync(
+      resolve('cloudflare/admin-metrics.pro-room-retirement-cursor.migration.sql'),
+      'utf8',
+    );
+    try {
+      db.exec(migration);
+      const expected = {
+        table_count: 1,
+        column_count: 5,
+        required_column_count: 5,
+        row_count: 1,
+        valid_row_count: 1,
+      };
+      expect(db.prepare(verificationSql!).get()).toEqual(expected);
+      db.exec(
+        "UPDATE mxqr_pro_room_retirement_cursor SET revision = 4, completed_at = 1234, room_code = '012345', room_generation = 6",
+      );
+      db.exec(migration);
+      expect(db.prepare('SELECT revision FROM mxqr_pro_room_retirement_cursor').get()).toEqual({
+        revision: 4,
+      });
+      expect(db.prepare(verificationSql!).get()).toEqual(expected);
+      db.exec('PRAGMA ignore_check_constraints = ON');
+      db.exec('UPDATE mxqr_pro_room_retirement_cursor SET room_generation = NULL');
+      expect(db.prepare(verificationSql!).get()).toEqual({ ...expected, valid_row_count: 0 });
+      db.exec('DELETE FROM mxqr_pro_room_retirement_cursor');
+      expect(db.prepare(verificationSql!).get()).toEqual({
+        ...expected,
+        row_count: 0,
+        valid_row_count: 0,
+      });
+    } finally {
+      db.close();
+    }
   });
 
   it('installs and verifies the secret-free generic PRO grant ledger before app rollouts', () => {

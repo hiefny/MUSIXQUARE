@@ -6,12 +6,19 @@ import { getState, resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import { initSeekBar } from '../seekbar.ts';
+import { installRangeDragGuard } from '../range-drag.ts';
 import { getTrackPosition, isFilePipelineBusyForPlay, seekTo } from '../../player/transport.ts';
 import { isProPlaybackTrackSelectionPending } from '../../pro-room/playback-authority-hooks.ts';
 import { STANDARD_ROOM_OWNER_PRODUCT_CAPABILITIES } from '../../network/standard-room-authority.ts';
 import { t } from '../../i18n/index.ts';
 
 const QUEUE_ITEM_ID = '10000000-0000-4000-8000-000000000001';
+
+function seekPointer(type: string, pointerId: number, clientX = 200): MouseEvent {
+  const event = new MouseEvent(type, { button: 0, clientX, bubbles: true, cancelable: true });
+  Object.defineProperty(event, 'pointerId', { value: pointerId });
+  return event;
+}
 
 const zeroStartFacade = vi.hoisted(() => ({ active: false, inFlight: false }));
 
@@ -49,6 +56,88 @@ beforeEach(() => {
 });
 
 describe('initSeekBar playback mode gates', () => {
+  it('cancels its animation without cancelling an unrelated timer with the same handle', () => {
+    vi.useFakeTimers();
+    const unrelatedTimer = vi.fn();
+    const timerId = window.setTimeout(unrelatedTimer, 20);
+    const cancelFrame = vi.fn();
+    vi.stubGlobal(
+      'requestAnimationFrame',
+      vi.fn(() => timerId),
+    );
+    vi.stubGlobal('cancelAnimationFrame', cancelFrame);
+    try {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      initSeekBar();
+      bus.emit('ui:loop-start');
+      bus.emit('ui:seek-reset');
+
+      expect(cancelFrame).toHaveBeenCalledWith(timerId);
+      vi.advanceTimersByTime(20);
+      expect(unrelatedTimer).toHaveBeenCalledOnce();
+    } finally {
+      bus.emit('ui:seek-reset');
+      clearAllManagedTimers();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels its system-audio timer without cancelling an unrelated animation with the same handle', () => {
+    vi.useFakeTimers();
+    const frames = new Map<number, FrameRequestCallback>();
+    let nextFrameId = 17;
+    const requestFrame = vi.fn((callback: FrameRequestCallback) => {
+      const id = nextFrameId++;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal('requestAnimationFrame', requestFrame);
+    vi.stubGlobal(
+      'cancelAnimationFrame',
+      vi.fn((id: number) => frames.delete(id)),
+    );
+    const scheduleTimeout = window.setTimeout.bind(window);
+    // Vitest can expose Node-style timer objects; browsers return numeric IDs.
+    const timeouts = vi
+      .spyOn(window, 'setTimeout')
+      .mockImplementation(
+        (handler, delay) =>
+          Number(scheduleTimeout(handler, delay)) as unknown as ReturnType<
+            typeof window.setTimeout
+          >,
+      );
+    try {
+      setState('playback.mode', 'system-audio');
+      setState('playback.activity', 'playing');
+      initSeekBar();
+      bus.emit('ui:loop-start');
+      const firstFrame = frames.get(17)!;
+      frames.delete(17);
+      firstFrame(0);
+      const pollIndex = timeouts.mock.calls.findIndex(([, delay]) => delay === 1000);
+      expect(pollIndex).toBeGreaterThanOrEqual(0);
+      const pollTimerId = timeouts.mock.results[pollIndex]!.value as number;
+      nextFrameId = pollTimerId;
+      const unrelatedAnimation = vi.fn();
+      requestAnimationFrame(unrelatedAnimation);
+
+      bus.emit('ui:seek-reset');
+      expect(frames.has(pollTimerId)).toBe(true);
+      frames.get(pollTimerId)!(20);
+      expect(unrelatedAnimation).toHaveBeenCalledOnce();
+      vi.advanceTimersByTime(1000);
+      expect(requestFrame).toHaveBeenCalledTimes(2);
+    } finally {
+      bus.emit('ui:seek-reset');
+      clearAllManagedTimers();
+      timeouts.mockRestore();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it('blocks seek interaction while system audio owns playback', () => {
     setState('playback.mode', 'system-audio');
     setState('playback.activity', 'playing');
@@ -307,10 +396,10 @@ describe('initSeekBar playback mode gates', () => {
       initSeekBar();
 
       const slider = document.getElementById('seek-slider') as HTMLInputElement;
-      slider.dispatchEvent(new Event('pointerdown'));
+      slider.dispatchEvent(seekPointer('pointerdown', 1));
       slider.value = '33';
       slider.dispatchEvent(new Event('input'));
-      slider.dispatchEvent(new Event('pointerup'));
+      slider.dispatchEvent(seekPointer('pointerup', 1));
 
       expect(getState('player.isSeeking')).toBe(true);
       vi.advanceTimersByTime(349);
@@ -320,6 +409,81 @@ describe('initSeekBar playback mode gates', () => {
       expect(seekTo).toHaveBeenCalledWith(33);
       expect(getState('player.isSeeking')).toBe(false);
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['pointerup', 'lostpointercapture', 'pointercancel'])(
+    'keeps the current seek draft when a second finger emits %s',
+    (terminalEvent) => {
+      vi.useFakeTimers();
+      vi.stubGlobal('PointerEvent', MouseEvent);
+      try {
+        setState('playback.mode', 'file');
+        setState('playback.activity', 'playing');
+        initSeekBar();
+        installRangeDragGuard();
+        const slider = document.getElementById('seek-slider') as HTMLInputElement;
+        vi.spyOn(slider, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 400, 40));
+        slider.dispatchEvent(seekPointer('pointerdown', 1));
+        slider.dispatchEvent(seekPointer('pointerdown', 2, 320));
+        slider.dispatchEvent(seekPointer(terminalEvent, 2, 320));
+        // Native pointer-enabled browsers also emit compatibility touchend.
+        slider.dispatchEvent(new Event('touchend'));
+        vi.advanceTimersByTime(850);
+
+        expect(slider.classList.contains('is-dragging')).toBe(true);
+        expect(getState('player.isSeeking')).toBe(true);
+        expect(slider.value).toBe('60');
+        expect(seekTo).not.toHaveBeenCalled();
+
+        slider.dispatchEvent(seekPointer('pointerup', 1));
+        expect(slider.classList.contains('is-dragging')).toBe(false);
+        expect(getState('player.isSeeking')).toBe(false);
+        expect(seekTo).toHaveBeenCalledExactlyOnceWith(60);
+      } finally {
+        clearAllManagedTimers();
+        vi.restoreAllMocks();
+        vi.unstubAllGlobals();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('releases the owning cancelled pointer and accepts the next gesture', () => {
+    setState('playback.mode', 'file');
+    setState('playback.activity', 'playing');
+    initSeekBar();
+    const slider = document.getElementById('seek-slider') as HTMLInputElement;
+    slider.dispatchEvent(seekPointer('pointerdown', 1));
+    slider.dispatchEvent(seekPointer('pointercancel', 1));
+    expect(getState('player.isSeeking')).toBe(false);
+    slider.dispatchEvent(seekPointer('pointerdown', 2));
+    expect(getState('player.isSeeking')).toBe(true);
+    slider.dispatchEvent(seekPointer('pointercancel', 2));
+    expect(getState('player.isSeeking')).toBe(false);
+  });
+
+  it('preserves touch release and cancel when PointerEvent is unavailable', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('PointerEvent', undefined);
+    try {
+      setState('playback.mode', 'file');
+      setState('playback.activity', 'playing');
+      initSeekBar();
+      const slider = document.getElementById('seek-slider') as HTMLInputElement;
+      slider.dispatchEvent(new Event('touchstart'));
+      slider.dispatchEvent(new Event('touchend'));
+      vi.advanceTimersByTime(349);
+      expect(getState('player.isSeeking')).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(getState('player.isSeeking')).toBe(false);
+      slider.dispatchEvent(new Event('touchstart'));
+      slider.dispatchEvent(new Event('touchcancel'));
+      expect(getState('player.isSeeking')).toBe(false);
+    } finally {
+      clearAllManagedTimers();
+      vi.unstubAllGlobals();
       vi.useRealTimers();
     }
   });

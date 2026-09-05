@@ -935,17 +935,21 @@ export async function fetchPlaylistSubTitles(
   }
   const abort = new AbortController();
   _subTitleAbort = abort;
+  const expectedIds = [...ids];
 
   const currentSubIndex = getState('youtube.currentSubIndex') ?? 0;
 
   // Collect all indices that need fetching (missing titles)
-  const pendingIndices = ids
+  const pendingIndices = expectedIds
     .map((_, index) => index)
     .filter((index) => !data.titles[index])
     // Priority sort: closest to current playback first
     .sort((a, b) => Math.abs(a - currentSubIndex) - Math.abs(b - currentSubIndex));
 
-  if (pendingIndices.length === 0) return;
+  if (pendingIndices.length === 0) {
+    if (_subTitleAbort === abort) _subTitleAbort = null;
+    return;
+  }
 
   log.debug(
     `[YouTube Feed] Background title fetch for ${playlistId}: ${pendingIndices.length} items pending`,
@@ -955,6 +959,31 @@ export async function fetchPlaylistSubTitles(
     let processedCount = 0;
     let batchBuffer: { index: number; title: string }[] = [];
     const lastPendingIdx = pendingIndices[pendingIndices.length - 1];
+    const flushBatch = (): void => {
+      if (abort.signal.aborted || _subTitleAbort !== abort) return;
+      const currentEntry = getState('youtube.subItemsMap')?.[playlistId];
+      if (!currentEntry) return;
+      // A manifest may be replaced while oEmbed is pending. Titles describe
+      // the captured video, so an old index must never label its successor.
+      const updates = batchBuffer.filter(
+        (update) => currentEntry.ids[update.index] === expectedIds[update.index],
+      );
+      batchBuffer = [];
+      if (updates.length === 0) return;
+      updateSubItemTitlesBulk(playlistId, updates);
+
+      const hostConn = getState('network.hostConn');
+      if (!hostConn) {
+        for (const update of updates) {
+          broadcast({
+            type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
+            playlistId,
+            subIdx: update.index,
+            title: update.title,
+          });
+        }
+      }
+    };
 
     for (const i of pendingIndices) {
       if (abort.signal.aborted) return;
@@ -968,7 +997,7 @@ export async function fetchPlaylistSubTitles(
       if (currentData.titles[i]) continue;
 
       try {
-        const videoId = ids[i];
+        const videoId = expectedIds[i];
         const response = await fetchWithTimeout(
           `https://www.youtube.com/oembed?url=${encodeURIComponent('https://www.youtube.com/watch?v=' + videoId)}&format=json`,
           OEMBED_FETCH_TIMEOUT_MS,
@@ -996,20 +1025,7 @@ export async function fetchPlaylistSubTitles(
           const isInitialPhase = processedCount < OEMBED_INITIAL_BATCH_SIZE;
           const isLast = i === lastPendingIdx;
           if (isInitialPhase || batchBuffer.length >= OEMBED_INITIAL_BATCH_SIZE || isLast) {
-            updateSubItemTitlesBulk(playlistId, batchBuffer);
-
-            const hostConn = getState('network.hostConn');
-            if (!hostConn) {
-              for (const update of batchBuffer) {
-                broadcast({
-                  type: MSG.YOUTUBE_SUB_TITLE_UPDATE,
-                  playlistId,
-                  subIdx: update.index,
-                  title: update.title,
-                });
-              }
-            }
-            batchBuffer = [];
+            flushBatch();
           }
         }
       } catch (e) {
@@ -1028,6 +1044,9 @@ export async function fetchPlaylistSubTitles(
         await delay(waitTime);
       }
     }
+    // A final unavailable/untitled video (or a title supplied by another
+    // path) must not discard earlier successful results in a partial batch.
+    flushBatch();
   } finally {
     if (_subTitleAbort === abort) _subTitleAbort = null;
   }

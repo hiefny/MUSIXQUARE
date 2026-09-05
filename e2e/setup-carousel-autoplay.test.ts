@@ -57,21 +57,20 @@ async function expectAutoplayDotLabel(dot: Locator, position: string): Promise<v
 async function dispatchTouch(viewport: Locator, startX: number, endX: number): Promise<void> {
   await viewport.evaluate(
     (element, { startX: touchStartX, endX: touchEndX }) => {
-      const dispatch = (
-        type: 'touchstart' | 'touchend',
-        property: 'touches' | 'changedTouches',
-        clientX: number,
-      ) => {
+      const dispatch = (type: 'touchstart' | 'touchend', clientX: number) => {
+        const touch = { identifier: 1, target: element, clientX, clientY: 120 };
+        const activeTouches = type === 'touchstart' ? [touch] : [];
         const event = new Event(type, { bubbles: true, cancelable: true });
-        Object.defineProperty(event, property, {
-          configurable: true,
-          value: [{ clientX, clientY: 120 }],
+        Object.defineProperties(event, {
+          touches: { configurable: true, value: activeTouches },
+          targetTouches: { configurable: true, value: activeTouches },
+          changedTouches: { configurable: true, value: [touch] },
         });
         element.dispatchEvent(event);
       };
 
-      dispatch('touchstart', 'touches', touchStartX);
-      dispatch('touchend', 'changedTouches', touchEndX);
+      dispatch('touchstart', touchStartX);
+      dispatch('touchend', touchEndX);
     },
     { startX, endX },
   );

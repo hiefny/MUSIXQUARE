@@ -9,6 +9,7 @@ import { bus } from '../core/events.ts';
 import { isPlaybackModeYouTube } from '../player/ownership.ts';
 import { setManagedTimer } from '../core/timers.ts';
 import { animateTransition } from './dom.ts';
+import { scrollToWithPreferredMotion } from './scroll-motion.ts';
 
 // ─── Tab Switching ───────────────────────────────────────────────
 
@@ -117,8 +118,8 @@ export function initTabs(): void {
         }
       }
       if (el.classList.contains('active')) {
-        const tabBody = document.querySelector(`#tab-${el.dataset.tab} .tab-body`);
-        if (tabBody) tabBody.scrollTo({ top: 0, behavior: 'smooth' });
+        const tabBody = document.querySelector<HTMLElement>(`#tab-${el.dataset.tab} .tab-body`);
+        if (tabBody) scrollToWithPreferredMotion(tabBody, 0);
       } else {
         if (el.dataset.tab) switchTab(el.dataset.tab);
       }

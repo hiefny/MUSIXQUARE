@@ -331,6 +331,7 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
   refreshCredentials(snapshot: ProRoomSnapshot, access: ProRoomSignalingAccess): boolean {
     const activeDisplayName = this.#snapshot?.viewer?.displayName;
     if (
+      !this.connected ||
       !this.#matchesActiveIdentity(snapshot, access) ||
       snapshot.viewer?.displayName !== activeDisplayName ||
       (this.#access !== null && access.ticketSequence <= this.#access.ticketSequence)
@@ -406,6 +407,8 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       activeViewer &&
       snapshot.roomCode === this.#snapshot?.roomCode &&
       viewer.participantId === activeViewer.participantId &&
+      viewer.presenceIncarnationId === activeViewer.presenceIncarnationId &&
+      snapshot.presence.coordinatorEpoch === this.#snapshot.presence.coordinatorEpoch &&
       access.presenceIncarnationId === viewer.presenceIncarnationId &&
       access.coordinatorEpoch === snapshot.presence.coordinatorEpoch
     );
@@ -427,6 +430,28 @@ export class ServerProRoomNetworkBridge implements ProRoomTransportBridge {
       access.coordinatorEpoch !== snapshot.presence.coordinatorEpoch
     ) {
       throw new Error('PRO_ROOM_SIGNALING_TICKET_MISMATCH');
+    }
+
+    // Ticket responses may complete out of order across heartbeat/account and
+    // reconnect lanes. Reject a superseded ticket before closing the socket
+    // that already installed its successor. An equal ticket may retry only
+    // after a failed/disconnected attempt; the server still owns single use.
+    if (
+      this.#snapshot?.roomCode === snapshot.roomCode &&
+      access.coordinatorEpoch < this.#snapshot.presence.coordinatorEpoch
+    ) {
+      throw new Error('PRO_ROOM_SIGNALING_TICKET_SUPERSEDED');
+    }
+    const currentSequence = this.#access?.ticketSequence;
+    if (
+      currentSequence !== undefined &&
+      this.#matchesActiveIdentity(snapshot, access) &&
+      (access.ticketSequence < currentSequence ||
+        (access.ticketSequence === currentSequence &&
+          (this.#socket?.readyState === WebSocket.OPEN ||
+            this.#socket?.readyState === WebSocket.CONNECTING)))
+    ) {
+      throw new Error('PRO_ROOM_SIGNALING_TICKET_SUPERSEDED');
     }
 
     const generation = ++this.#generation;

@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect } from 'vitest';
-import { t, getResolvedLanguage, type I18nKey } from '../index.ts';
+import { t, tHtml, getResolvedLanguage, type I18nKey } from '../index.ts';
 
 describe('t() translation function', () => {
   it('returns Korean value for known key', () => {
@@ -17,6 +17,16 @@ describe('t() translation function', () => {
       'nonexistent.key.that.does.not.exist',
     );
   });
+
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])(
+    'keeps inherited object name %s as an unknown translation key',
+    (key) => {
+      for (const translate of [t, tHtml]) {
+        expect(translate(key as I18nKey)).toBe(key);
+        expect(translate(key as I18nKey, { count: 1, name: '<peer>' })).toBe(key);
+      }
+    },
+  );
 
   it('interpolates {{name}} parameter', () => {
     const result = t('toast.device_connected', { name: 'iPhone' });

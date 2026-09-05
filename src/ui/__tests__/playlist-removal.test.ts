@@ -134,6 +134,74 @@ describe('playlist removal controller', () => {
     expect(onSelectionEnd).toHaveBeenCalledOnce();
   });
 
+  function beginDelayedDeletion() {
+    let items = [item(A, 'Alpha'), item(B, 'Beta')];
+    const list = document.getElementById('playlist-ui')!;
+    const onDelete = vi.fn();
+    controller = createPlaylistRemovalController({
+      list,
+      canRemove: () => true,
+      isPlaylistVisible: () => true,
+      getItems: () => items,
+      onDelete,
+    });
+    controller.toggle(A);
+    document.querySelector<HTMLButtonElement>('[data-selection-action="delete"]')!.click();
+    expect(onDelete).toHaveBeenCalledWith([A]);
+    expect((document.activeElement as HTMLElement).dataset.queueItemId).toBe(B);
+    return {
+      list,
+      renderResponse: () => {
+        // PRO and Standard operator removal rebuild only after the canonical
+        // response arrives, leaving time for another user interaction.
+        items = items.filter((entry) => entry.queueItemId !== A);
+        list.innerHTML = row(B);
+        controller!.afterRender();
+      },
+    };
+  }
+
+  it('restores the survivor after the canonical rebuild removes the focused button', async () => {
+    const { list, renderResponse } = beginDelayedDeletion();
+    renderResponse();
+    expect(document.activeElement).toBe(document.body);
+    await Promise.resolve();
+    expect(document.activeElement).toBe(list.querySelector('.btn-playlist-remove'));
+  });
+
+  it.each(['chat', 'other-row', 'pointerdown', 'keydown'] as const)(
+    'preserves newer %s intent while a deletion response is pending',
+    async (intent) => {
+      const { list, renderResponse } = beginDelayedDeletion();
+      const chat = document.createElement('input');
+      document.body.appendChild(chat);
+      if (intent === 'chat') chat.focus();
+      else if (intent === 'other-row') {
+        list.querySelector<HTMLButtonElement>(`[data-queue-item-id="${A}"] button`)!.focus();
+      } else if (intent === 'pointerdown') {
+        document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      } else {
+        document.activeElement!.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }),
+        );
+      }
+      renderResponse();
+      await Promise.resolve();
+      expect(document.activeElement).toBe(intent === 'chat' ? chat : document.body);
+    },
+  );
+
+  it.each(['cancel', 'destroy'] as const)(
+    'retires a queued restore when %s happens before its microtask',
+    async (action) => {
+      const { renderResponse } = beginDelayedDeletion();
+      renderResponse();
+      controller![action]();
+      await Promise.resolve();
+      expect(document.activeElement).toBe(document.body);
+    },
+  );
+
   it('does not resume playlist follow when the view hides before the release microtask', async () => {
     const items = [item(A, 'Alpha'), item(B, 'Beta')];
     const list = document.getElementById('playlist-ui')!;

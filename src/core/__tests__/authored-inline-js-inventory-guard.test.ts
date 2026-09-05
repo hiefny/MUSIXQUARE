@@ -122,4 +122,71 @@ describe('authored inline JavaScript shrink-only guard', () => {
       `Inline baseline regressed from retired to remaining: ${regressed.sources[0]!.path}.`,
     );
   });
+
+  it.each(['regression', 'regression-followup', 'progress'])(
+    'checks committed manifest history in a clean checkout: %s',
+    (scenario) => {
+      const repository = mkdtempSync(resolve(tmpdir(), 'mxqr-inline-history-'));
+      const git = (...args: string[]) =>
+        execFileSync('git', args, {
+          cwd: repository,
+          stdio: 'ignore',
+        });
+      const commit = (message: string) => {
+        git('add', '.');
+        git(
+          '-c',
+          'user.name=Audit Fixture',
+          '-c',
+          'user.email=audit@example.invalid',
+          'commit',
+          '-m',
+          message,
+        );
+      };
+      try {
+        git('init', '--quiet');
+        const manifest: AuthoredInlineManifest = {
+          schemaVersion: 1,
+          capturedAt: '2026-01-01',
+          policy: 'authored-inline-js-shrink-only',
+          historicalBlocks: 1,
+          remainingBlocks: scenario === 'progress' ? 1 : 0,
+          sources: [
+            {
+              path: 'page.html',
+              baselineBlocks: 1,
+              status: scenario === 'progress' ? 'remaining' : 'retired',
+            },
+          ],
+        };
+        const inventoryPath = resolve(repository, 'manifest.json');
+        const writeCurrent = () => {
+          writeFileSync(inventoryPath, JSON.stringify(manifest));
+          writeFileSync(
+            resolve(repository, 'page.html'),
+            manifest.remainingBlocks ? '<script>boot()</script>' : '<p>Typed runtime</p>',
+          );
+        };
+        writeCurrent();
+        commit('initial baseline');
+        manifest.remainingBlocks = scenario === 'progress' ? 0 : 1;
+        manifest.sources[0]!.status = scenario === 'progress' ? 'retired' : 'remaining';
+        writeCurrent();
+        commit('change inline inventory');
+        if (scenario === 'regression-followup') {
+          writeFileSync(resolve(repository, 'README.md'), 'Unrelated follow-up');
+          commit('unrelated follow-up');
+        }
+        const result = runInlineInventoryGuard(repository, inventoryPath);
+        if (scenario === 'progress') expect(result.errors).toEqual([]);
+        else
+          expect(result.errors).toContain(
+            'Inline baseline regressed from retired to remaining: page.html.',
+          );
+      } finally {
+        rmSync(repository, { force: true, recursive: true });
+      }
+    },
+  );
 });

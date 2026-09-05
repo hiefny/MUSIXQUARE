@@ -13,6 +13,7 @@ const PUBLIC_ERROR_CONTRACT = [
   ['BROWSER_ORIGIN_FORBIDDEN', 403, false],
   ['COMMAND_CAPACITY_EXCEEDED', 409, false],
   ['COORDINATOR_INCOMPATIBLE', 409, false],
+  ['DEVELOPER_API_AUTHORITY_STALE', 409, false],
   ['FORBIDDEN', 403, false],
   ['IDEMPOTENCY_CONFLICT', 409, false],
   ['IDEMPOTENCY_KEY_REQUIRED', 400, false],
@@ -355,7 +356,15 @@ describe('Developer API public documentation', () => {
       'const ERROR_MESSAGES = Object.freeze({',
       '\n});',
     );
-    const runtimeErrorCodes = [...errorMessages.matchAll(/^\s{2}([A-Z][A-Z0-9_]+):/gm)]
+    const additionalErrorCodes = extractDeclarationBlock(
+      worker,
+      'type DeveloperApiErrorCode = ',
+      ';',
+    );
+    const runtimeErrorCodes = [
+      ...errorMessages.matchAll(/^\s{2}([A-Z][A-Z0-9_]+):/gm),
+      ...additionalErrorCodes.matchAll(/'([A-Z][A-Z0-9_]+)'/g),
+    ]
       .map((match) => match[1])
       .sort();
     expect(runtimeErrorCodes).toEqual(PUBLIC_ERROR_CONTRACT.map(([code]) => code).sort());
@@ -387,6 +396,24 @@ describe('Developer API public documentation', () => {
     expect(html).toContain('inspect its lowercase <code>resultCode</code>');
     expect(spec).toContain("code: { $ref: '#/components/schemas/ApiErrorCode' }");
     expect(spec).toContain("resultCode: { $ref: '#/components/schemas/CommandResultCode' }");
+  });
+
+  it('documents authority-fence conflicts on every authenticated read', async () => {
+    const [html, spec] = await Promise.all([
+      readFile(DOC_PATH, 'utf8'),
+      readFile(OPENAPI_PATH, 'utf8'),
+    ]);
+    const authenticatedReads = [
+      ...spec.matchAll(/^ {4}get:\n([\s\S]*?)(?=^ {2}\/|^ {4}(?:put|post|delete):|^components:)/gm),
+    ]
+      .map((match) => match[1] ?? '')
+      .filter((operation) => !operation.includes('operationId: getHealth'));
+    expect(authenticatedReads).toHaveLength(6);
+    for (const operation of authenticatedReads) {
+      expect(operation).toContain("'409': { $ref: '#/components/responses/Conflict' }");
+    }
+    expect(html).toContain('issue a new key for the current room authority');
+    expect(spec).toContain('issue a new key for the current room authority');
   });
 
   it('links to the Developer API page from each shared document footer', async () => {

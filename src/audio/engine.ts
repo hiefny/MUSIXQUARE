@@ -226,6 +226,13 @@ export function isAudioReady(): boolean {
   return _graph.masterGain !== null;
 }
 
+/** Apply the saved volume through the current local pause gate. */
+export function applyMasterVolume(rampTime: number): void {
+  if (!_graph.masterGain) return;
+  const volume = Math.max(0, Math.min(1, getState('audio.masterVolume') ?? 1));
+  rampParam(_graph.masterGain.gain, _proPlaybackPauseGateToken === null ? volume : 0, rampTime);
+}
+
 // Public audio-domain facade for the shared context helpers.
 export { getAudioContext } from './context.ts';
 
@@ -608,9 +615,7 @@ bus.on('audio:set-volume', (volume) => {
   if (!Number.isFinite(volume)) return;
   const clamped = Math.max(0, Math.min(1, volume));
   setState('audio.masterVolume', clamped);
-  if (_graph.masterGain) {
-    rampParam(_graph.masterGain.gain, _proPlaybackPauseGateToken === null ? clamped : 0, 0.1);
-  }
+  applyMasterVolume(0.1);
   bus.emit('audio:volume-changed', clamped);
   bus.emit('youtube:set-volume', Math.round(clamped * 100));
 });
@@ -622,14 +627,13 @@ bus.on('audio:set-volume', (volume) => {
 bus.on('pro-playback:ui-control-pending', (event) => {
   if (event.kind !== 'pause') return;
   _proPlaybackPauseGateToken = event.token;
-  if (_graph.masterGain) rampParam(_graph.masterGain.gain, 0, 0.015);
+  applyMasterVolume(0.015);
 });
 
 bus.on('pro-playback:ui-control-settled', (event) => {
   if (event.kind !== 'pause' || _proPlaybackPauseGateToken !== event.token) return;
   _proPlaybackPauseGateToken = null;
-  const volume = Math.max(0, Math.min(1, getState('audio.masterVolume') ?? 1));
-  if (_graph.masterGain) rampParam(_graph.masterGain.gain, volume, 0.03);
+  applyMasterVolume(0.03);
 });
 
 /** Apply volume to YouTube player */

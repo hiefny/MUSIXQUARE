@@ -57,7 +57,12 @@ import {
   startHostFileAndBroadcastPlay,
 } from './transport.ts';
 
-import { loadPreloadedTrack, clearPreviousTrackState, finalizeGuestFile } from './decode.ts';
+import {
+  loadPreloadedTrack,
+  getPreloadActivationResident,
+  clearPreviousTrackState,
+  finalizeGuestFile,
+} from './decode.ts';
 import { showLoader, updateLoader, showToast } from '../ui/toast.ts';
 import {
   isProRoomPersistentPlaylistFile,
@@ -197,7 +202,10 @@ interface ActivePreloadTarget {
 
 let _activePreloadTarget: ActivePreloadTarget | null = null;
 
-function activatePreloadedTrack(resident: Readonly<ResidentFile>): void {
+function activatePreloadedTrack(
+  resident: Readonly<ResidentFile>,
+  awaitedResident?: Readonly<ResidentFile>,
+): void {
   const { queueItemId, blob } = resident;
   const active = _activePreloadTarget;
   // Teardown may clear the public in-progress flag while an uncancellable
@@ -222,7 +230,7 @@ function activatePreloadedTrack(resident: Readonly<ResidentFile>): void {
   const newEpoch = newLoadEpoch();
   const target: ActivePreloadTarget = { resident, epoch: newEpoch };
   _activePreloadTarget = target;
-  loadPreloadedTrack(queueItemId, newEpoch)
+  loadPreloadedTrack(queueItemId, newEpoch, awaitedResident)
     .finally(() => {
       if (_activePreloadTarget === target) _activePreloadTarget = null;
     })
@@ -232,6 +240,34 @@ function activatePreloadedTrack(resident: Readonly<ResidentFile>): void {
 }
 
 // ─── Network Message Handlers ──────────────────────────────────────
+
+function handleRemoteGuestPlay(
+  data: Record<string, unknown>,
+  incomingQueueItemId: QueueItemId,
+  incomingItem: { name?: string },
+  time: number,
+): void {
+  if (shouldWaitForRemoteShare()) {
+    const waitName = (typeof data.name === 'string' && data.name) || incomingItem.name || '';
+    // Only escalate to the host when this PLAY arms a new descriptor wait.
+    const recoveryTarget = getState('playback.pendingRecoveryTarget');
+    const alreadyWaiting =
+      getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD &&
+      recoveryTarget?.queueItemId === incomingQueueItemId &&
+      recoveryTarget.name === waitName;
+    prepareRemoteShareWait(incomingQueueItemId, waitName, getRemoteWaitSessionId());
+    setPendingPlayTime(time);
+    if (!alreadyWaiting) {
+      requestCurrentFile(incomingQueueItemId, waitName, 'remote_share_wait');
+    }
+    log.info('[Guest] Remote guest: waiting for remote share descriptor');
+    return;
+  }
+  setFileTrackMetaFromPlaylist(incomingQueueItemId, data.name as string | undefined);
+  showLoader(false);
+  showToast(t('share.remote.unavailable'));
+  log.info('[Guest] Remote guest: remote share unavailable');
+}
 
 async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnection): Promise<void> {
   // PLAY is an authoritative host→guest command. Host-local changes bypass
@@ -382,29 +418,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
       (awaitedGuestConnectionType === null && isRemoteGuest()) ||
       isGuestR2FileDelivery(incomingQueueItemId)
     ) {
-      if (shouldWaitForRemoteShare()) {
-        const waitName = (typeof data.name === 'string' && data.name) || incomingItem.name || '';
-        // Dedup mirror of prepareRemoteShareWait's alreadyWaiting check —
-        // only escalate to the host when this PLAY arms a NEW wait.
-        const recoveryTarget = getState('playback.pendingRecoveryTarget');
-        const alreadyWaiting =
-          getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD &&
-          recoveryTarget?.queueItemId === incomingQueueItemId &&
-          recoveryTarget.name === waitName;
-        prepareRemoteShareWait(incomingQueueItemId, waitName, getRemoteWaitSessionId());
-        setPendingPlayTime(time);
-        if (!alreadyWaiting) {
-          // Tell the host about a newly armed wait so it can resend the cached
-          // remote-share descriptor to this guest.
-          requestCurrentFile(incomingQueueItemId, waitName, 'remote_share_wait');
-        }
-        log.info('[Guest] Remote guest: waiting for remote share descriptor');
-        return;
-      }
-      setFileTrackMetaFromPlaylist(incomingQueueItemId, data.name as string | undefined);
-      showLoader(false);
-      showToast(t('share.remote.unavailable'));
-      log.info('[Guest] Remote guest: remote share unavailable');
+      handleRemoteGuestPlay(data, incomingQueueItemId, incomingItem, time);
       return;
     }
 
@@ -558,27 +572,7 @@ async function handlePlayMsg(data: Record<string, unknown>, conn?: DataConnectio
 
     // Remote guest: no queue file arrives via P2P; wait for remote share.
     if (isRemoteGuest() || isGuestR2FileDelivery(incomingQueueItemId)) {
-      if (shouldWaitForRemoteShare()) {
-        const waitName = (typeof data.name === 'string' && data.name) || incomingItem.name || '';
-        // Dedup mirror of prepareRemoteShareWait's alreadyWaiting check.
-        const recoveryTarget = getState('playback.pendingRecoveryTarget');
-        const alreadyWaiting =
-          getState('playback.lifecycle') === PLAYBACK_STATE.AWAITING_PRELOAD &&
-          recoveryTarget?.queueItemId === incomingQueueItemId &&
-          recoveryTarget.name === waitName;
-        prepareRemoteShareWait(incomingQueueItemId, waitName, getRemoteWaitSessionId());
-        setPendingPlayTime(time);
-        if (!alreadyWaiting) {
-          // Ask the host to resend the descriptor for this newly armed wait.
-          requestCurrentFile(incomingQueueItemId, waitName, 'remote_share_wait');
-        }
-        log.info('[Guest] Remote guest: waiting for remote share descriptor');
-        return;
-      }
-      setFileTrackMetaFromPlaylist(incomingQueueItemId, data.name as string | undefined);
-      showLoader(false);
-      showToast(t('share.remote.unavailable'));
-      log.info('[Guest] Remote guest: remote share unavailable');
+      handleRemoteGuestPlay(data, incomingQueueItemId, incomingItem, time);
       return;
     }
     setPendingPlayTime(time);
@@ -866,7 +860,7 @@ function handleRequestSkipTime(data: Record<string, unknown>, conn: DataConnecti
 
   const sec = Number(data.sec);
   if (!Number.isFinite(sec)) return;
-  skipTime(sec);
+  skipTime(sec, () => verifyOperator(conn, data));
 }
 
 // ─── Init ──────────────────────────────────────────────────────────
@@ -1031,7 +1025,7 @@ export function initPlayback(): void {
   });
 
   // Use preloaded track (skip download, decode from preload cache)
-  bus.on('storage:use-preloaded', (queueItemId, name, sessionId) => {
+  bus.on('storage:use-preloaded', (queueItemId, name, sessionId, awaitedResident) => {
     if (
       !isQueueItemId(queueItemId) ||
       !getQueueItemById(queueItemId) ||
@@ -1052,15 +1046,15 @@ export function initPlayback(): void {
     // (lifecycle is already AWAITING_PRELOAD or DECODING+PRELOAD_PROMOTED
     //  by the caller's transition() — shouldSkipIncomingFile() returns true.)
 
-    // Try to activate immediately if blob is already available
-    const ready = getState('preload.ready');
+    // A cancelled native decode may still own the promoted current Blob.
+    const ready = awaitedResident ?? getPreloadActivationResident(queueItemId);
     const readyMatches =
       ready?.queueItemId === queueItemId &&
       (sessionId === undefined || ready.sessionId === sessionId);
     if (ready && readyMatches) {
       // activatePreloadedTrack deduplicates a repeated notification for the
       // exact Blob and supersedes only when the target really changed.
-      activatePreloadedTrack(ready);
+      activatePreloadedTrack(ready, awaitedResident);
     } else {
       // Blob not ready yet — set progress-aware watchdog. Will be triggered
       // by storage:file-ready → storage:preload-file-ready → use-preloaded re-emit.

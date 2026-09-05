@@ -31,17 +31,25 @@ import { trackPageErrors, getPageErrors } from './helpers/context-factory.ts';
 import { setupHostAndStart, setupGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
 import {
+  installLocalYouTube,
+  submitYouTubeSource,
+  waitForYouTubePlayback,
+} from './helpers/youtube-source.ts';
+import {
   readCurrentQueueItemId,
   readQueueSnapshot,
   waitForCurrentQueueItemId,
 } from './helpers/queue-state.ts';
 import {
-  isVisible,
   navigateToTab,
+  navigateToSubtab,
+  openChatDrawer,
   readPlaybackProjection,
   readState,
+  sendChat,
   VALID_PLAYBACK_PROJECTIONS,
   waitForDeviceCount,
+  waitForFilePlaybackReady,
   waitForPlaybackProjection,
   waitForPlaylistCount,
   waitForState,
@@ -99,11 +107,14 @@ function assertNoPageErrors(setup: ChaosSetup): void {
 }
 
 async function cleanupChaosSetup(setup: ChaosSetup): Promise<void> {
-  assertNoPageErrors(setup);
-  for (const ctx of setup.guestContexts) {
-    await ctx.close().catch(() => {});
+  try {
+    assertNoPageErrors(setup);
+  } finally {
+    for (const ctx of setup.guestContexts) {
+      await ctx.close().catch(() => {});
+    }
+    await setup.hostContext.close().catch(() => {});
   }
-  await setup.hostContext.close().catch(() => {});
 }
 
 interface LateGuest {
@@ -122,18 +133,48 @@ async function joinAsLateGuest(browser: Browser, sessionCode: string): Promise<L
 }
 
 async function sendChatMessage(page: Page, text: string): Promise<void> {
-  if (await isVisible(page, '#chat-preview-btn')) {
-    await page.locator('#chat-preview-btn').click();
-    await page.waitForFunction(
-      () => document.getElementById('chat-drawer')?.classList.contains('open') ?? false,
-      undefined,
-      { timeout: 5_000 },
-    );
+  await openChatDrawer(page);
+  await sendChat(page, text);
+}
+
+/** Exercise the actual seek control; an arbitrary state field cannot seek transport. */
+async function seekFile(page: Page, seconds: number, verifyPosition = true): Promise<number> {
+  await waitForFilePlaybackReady(page);
+  const slider = page.locator('#seek-slider');
+  await expect(slider).toBeVisible();
+  await expect(slider).toHaveAttribute('aria-disabled', 'false');
+  const target = await slider.evaluate((element, requested) => {
+    const input = element as HTMLInputElement;
+    input.value = String(requested);
+    const target = Number(input.value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return target;
+  }, seconds);
+  if (verifyPosition) {
+    await expect.poll(() => readState(page, 'player.pausedAt')).toBeCloseTo(target, 1);
   }
-  if (await isVisible(page, '#chat-input')) {
-    await page.locator('#chat-input').fill(text);
-    await page.locator('#btn-chat-send').click();
+  return target;
+}
+
+async function installChaosYouTubeFixtures(setup: ChaosSetup): Promise<void> {
+  await Promise.all([setup.hostPage, ...setup.guestPages].map(installLocalYouTube));
+}
+
+async function loadYouTube(setup: ChaosSetup, url: string): Promise<void> {
+  const page = setup.hostPage;
+  await submitYouTubeSource(page, url);
+  const videoId = new URL(url).pathname.slice(1);
+  for (const participant of [page, ...setup.guestPages]) {
+    await waitForYouTubePlayback(participant, videoId);
   }
+}
+
+async function removeFirstTrack(page: Page, remaining: number): Promise<void> {
+  await navigateToTab(page, 'playlist');
+  await page.locator('.btn-playlist-remove').first().click();
+  await page.locator('.playlist-selection-delete').click();
+  await waitForPlaylistCount(page, remaining);
 }
 
 /** Give hard-disconnect cleanup a brief chance, then continue with behavior checks. */
@@ -387,10 +428,7 @@ test.describe('Seek Position Chaos', () => {
 
       await waitForPlaybackProjection(hostPage, 'PLAYING_AUDIO');
 
-      const seekPromise = hostPage.evaluate(() => {
-        const set = (window as any).__MUSIXQUARE_SET_STATE__;
-        if (set) set('audio.seekTo', 5.0);
-      });
+      const seekPromise = seekFile(hostPage, 5.0);
       const joinPromise = joinAsLateGuest(browser, code);
 
       await seekPromise;
@@ -421,10 +459,7 @@ test.describe('Seek Position Chaos', () => {
       await startPlayback(setup.hostPage);
 
       for (let i = 0; i < 10; i++) {
-        await setup.hostPage.evaluate((pos) => {
-          const set = (window as any).__MUSIXQUARE_SET_STATE__;
-          if (set) set('audio.seekTo', pos);
-        }, i * 0.5);
+        await seekFile(setup.hostPage, i * 0.5);
         await setup.hostPage.waitForTimeout(200); // intentional rapid-fire delay
       }
 
@@ -690,23 +725,10 @@ test.describe('Shuffle Repeat + Late Join', () => {
       await uploadFixture(hostPage, 'test03');
       await waitForPlaylistCount(hostPage, 3);
 
-      if (await isVisible(hostPage, '#btn-shuffle')) {
-        await hostPage.locator('#btn-shuffle').click();
-        await hostPage.waitForFunction(
-          () => document.getElementById('btn-shuffle')?.classList.contains('active') ?? false,
-          undefined,
-          { timeout: 5_000 },
-        );
-      }
-
-      if (await isVisible(hostPage, '#btn-repeat')) {
-        await hostPage.locator('#btn-repeat').click();
-        await hostPage.waitForFunction(
-          () => document.getElementById('btn-repeat')?.classList.contains('active') ?? false,
-          undefined,
-          { timeout: 5_000 },
-        );
-      }
+      await hostPage.locator('#btn-shuffle').click();
+      await waitForState(hostPage, 'playlist.isShuffle', true);
+      await hostPage.locator('#btn-repeat').click();
+      await waitForState(hostPage, 'playlist.repeatMode', 1);
 
       await startPlayback(hostPage);
 
@@ -717,6 +739,8 @@ test.describe('Shuffle Repeat + Late Join', () => {
         () => document.getElementById('playlist-ui')?.children.length ?? 0,
       );
       expect(guestItems).toBe(3);
+      await waitForState(lateGuest.guestPage, 'playlist.isShuffle', true);
+      await waitForState(lateGuest.guestPage, 'playlist.repeatMode', 1);
 
       await assertHostAlive(hostPage);
     } finally {
@@ -740,15 +764,15 @@ test.describe('Shuffle Repeat + Late Join', () => {
       await uploadFixture(hostPage, 'test01');
       await waitForPlaylistCount(hostPage, 1);
 
-      if (await isVisible(hostPage, '#btn-repeat')) {
-        for (let i = 0; i < 5; i++) {
-          await hostPage.locator('#btn-repeat').click();
-          await hostPage.waitForTimeout(200); // intentional rapid-fire delay
-        }
+      for (let i = 0; i < 5; i++) {
+        await hostPage.locator('#btn-repeat').click();
+        await waitForState(hostPage, 'playlist.repeatMode', (i + 1) % 3);
+        await hostPage.waitForTimeout(200); // intentional rapid-fire delay
       }
 
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForPlaylistCount(lateGuest.guestPage, 1, 30_000);
+      await waitForState(lateGuest.guestPage, 'playlist.repeatMode', 2);
 
       await assertHostAlive(hostPage);
       const guestState = await readPlaybackProjection(lateGuest.guestPage);
@@ -832,16 +856,15 @@ test.describe('Concurrent Chat Flood', () => {
         sendChatMessage(setup.guestPages[1], 'guest2-simultaneous-msg'),
       ]);
 
-      await setup.hostPage.waitForFunction(
-        () => (document.getElementById('chat-messages')?.textContent?.length ?? 0) > 0,
-        undefined,
-        { timeout: 10_000 },
-      );
-
-      const hostChat = await setup.hostPage.evaluate(
-        () => document.getElementById('chat-messages')?.textContent || '',
-      );
-      expect(hostChat.length).toBeGreaterThan(0);
+      for (const page of [setup.hostPage, ...setup.guestPages]) {
+        for (const text of [
+          'host-simultaneous-msg',
+          'guest1-simultaneous-msg',
+          'guest2-simultaneous-msg',
+        ]) {
+          await expect(page.locator('#chat-messages')).toContainText(text);
+        }
+      }
 
       await assertHostAlive(setup.hostPage);
     } finally {
@@ -858,24 +881,19 @@ test.describe('Concurrent Chat Flood', () => {
       await setupGuest(setup.guestPages[0], code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      for (let i = 0; i < 10; i++) {
-        await sendChatMessage(setup.hostPage, `rapid-${i}`);
-        await setup.hostPage.waitForTimeout(100); // intentional rapid-fire delay
-      }
+      await Promise.all([
+        (async () => {
+          for (let i = 0; i < 10; i++) {
+            await sendChatMessage(setup.hostPage, `rapid-${i}`);
+            await setup.hostPage.waitForTimeout(100); // intentional rapid-fire delay
+          }
+        })(),
+        sendChatMessage(setup.guestPages[0], 'guest-concurrent'),
+      ]);
 
-      await sendChatMessage(setup.guestPages[0], 'guest-concurrent');
-
-      await setup.guestPages[0].waitForFunction(
-        () => (document.getElementById('chat-messages')?.textContent?.length ?? 0) > 0,
-        undefined,
-        { timeout: 10_000 },
-      );
-
+      await expect(setup.guestPages[0].locator('#chat-messages')).toContainText('rapid-0');
+      await expect(setup.hostPage.locator('#chat-messages')).toContainText('guest-concurrent');
       await assertHostAlive(setup.hostPage);
-      const guestChat = await setup.guestPages[0].evaluate(
-        () => document.getElementById('chat-messages')?.textContent || '',
-      );
-      expect(guestChat.length).toBeGreaterThan(0);
     } finally {
       await cleanupChaosSetup(setup);
     }
@@ -942,10 +960,7 @@ test.describe('Triple Combo Operations', () => {
       await startPlayback(setup.hostPage);
 
       await Promise.all([
-        setup.hostPage.evaluate(() => {
-          const set = (window as any).__MUSIXQUARE_SET_STATE__;
-          if (set) set('audio.seekTo', 3.0);
-        }),
+        seekFile(setup.hostPage, 3.0, false),
         setup.hostPage.evaluate(() => {
           const set = (window as any).__MUSIXQUARE_SET_STATE__;
           if (set) set('audio.masterVolume', 0.3);
@@ -1059,6 +1074,7 @@ test.describe('Mode Toggle Storm', () => {
     test.setTimeout(90_000);
 
     const setup = await createChaosSetup(browser, 1);
+    await installChaosYouTubeFixtures(setup);
     try {
       const code = await setupHostAndStart(setup.hostPage);
       await setupGuest(setup.guestPages[0], code);
@@ -1067,20 +1083,17 @@ test.describe('Mode Toggle Storm', () => {
       await uploadFixture(setup.hostPage, 'test01');
       await waitForPlaylistCount(setup.hostPage, 1);
 
-      if (await isVisible(setup.hostPage, '#media-source-btn')) {
-        for (let i = 0; i < 3; i++) {
-          await setup.hostPage.locator('#media-source-btn').click();
-          await setup.hostPage.waitForTimeout(500); // intentional rapid-fire delay
-
-          if (await isVisible(setup.hostPage, '#media-youtube-btn, .media-opt-youtube')) {
-            await setup.hostPage.locator('#media-youtube-btn, .media-opt-youtube').first().click();
-            await setup.hostPage.waitForTimeout(500); // intentional rapid-fire delay
-          }
-
-          if (await isVisible(setup.hostPage, '#media-file-btn, .media-opt-file')) {
-            await setup.hostPage.locator('#media-file-btn, .media-opt-file').first().click();
-            await setup.hostPage.waitForTimeout(500); // intentional rapid-fire delay
-          }
+      for (let i = 0; i < 3; i++) {
+        await loadYouTube(setup, i % 2 ? YT_VIDEO_2 : YT_VIDEO);
+        await navigateToTab(setup.hostPage, 'playlist');
+        const localTrack = setup.hostPage
+          .locator('#playlist-ui > .playlist-entry > .track-item')
+          .filter({ hasText: 'test-01' });
+        await expect(localTrack).toBeVisible();
+        await localTrack.click();
+        for (const page of [setup.hostPage, ...setup.guestPages]) {
+          await waitForState(page, 'playback.mode', 'file');
+          await waitForPlaybackProjectionIn(page, ['PLAYING_AUDIO', 'PAUSED']);
         }
       }
 
@@ -1100,56 +1113,14 @@ test.describe('YouTube URL Switch', () => {
     test.setTimeout(90_000);
 
     const setup = await createChaosSetup(browser, 1);
+    await installChaosYouTubeFixtures(setup);
     try {
       const code = await setupHostAndStart(setup.hostPage);
       await setupGuest(setup.guestPages[0], code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      if (await isVisible(setup.hostPage, '#media-source-btn')) {
-        await setup.hostPage.locator('#media-source-btn').click();
-        await setup.hostPage.waitForTimeout(500); // intentional rapid-fire delay
-      }
-      if (await isVisible(setup.hostPage, '#media-youtube-btn, .media-opt-youtube')) {
-        await setup.hostPage.locator('#media-youtube-btn, .media-opt-youtube').first().click();
-        await setup.hostPage.waitForFunction(
-          () =>
-            document.body.classList.contains('mode-youtube') ||
-            document.getElementById('youtube-url-input') !== null,
-          undefined,
-          { timeout: 5_000 },
-        );
-      }
-
-      if (await isVisible(setup.hostPage, '#youtube-url-input')) {
-        const ytInput = setup.hostPage.locator('#youtube-url-input');
-        const playBtn = setup.hostPage.locator('#youtube-play-btn, #btn-yt-play');
-
-        await ytInput.fill(YT_VIDEO);
-        if (await isVisible(setup.hostPage, '#youtube-play-btn, #btn-yt-play')) {
-          await playBtn.first().click();
-        }
-
-        await setup.hostPage
-          .waitForFunction(
-            () => {
-              const get = (window as any).__MUSIXQUARE_GET_STATE__;
-              const projected = (window as any).__MUSIXQUARE_GET_PLAYBACK_PROJECTION__;
-              return (
-                typeof projected === 'function' &&
-                (projected() === 'PLAYING_YOUTUBE' || get?.('youtube.videoId'))
-              );
-            },
-            undefined,
-            { timeout: 10_000 },
-          )
-          .catch(() => {}); // YouTube may not actually load in test env
-
-        await ytInput.fill('');
-        await ytInput.fill(YT_VIDEO_2);
-        if (await isVisible(setup.hostPage, '#youtube-play-btn, #btn-yt-play')) {
-          await playBtn.first().click();
-        }
-      }
+      await loadYouTube(setup, YT_VIDEO);
+      await loadYouTube(setup, YT_VIDEO_2);
 
       await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
 
@@ -1281,41 +1252,11 @@ test.describe('Playlist Clear + Join', () => {
       await uploadFixture(hostPage, 'test02');
       await waitForPlaylistCount(hostPage, 2);
 
-      for (let i = 0; i < 2; i++) {
-        if (await isVisible(hostPage, '.btn-playlist-remove')) {
-          await hostPage.locator('.btn-playlist-remove').first().click();
-          await hostPage.locator('.playlist-selection-delete').click();
-          await hostPage
-            .waitForFunction(
-              (expectedMax) => {
-                const list = document.getElementById('playlist-ui');
-                return list ? list.children.length <= expectedMax : true;
-              },
-              1 - i, // first removal: expect <=1, second: expect <=0
-              { timeout: 5_000 },
-            )
-            .catch(() => {}); // May already be at target
-        }
-      }
-
-      const hostCount = await hostPage.evaluate(
-        () => document.getElementById('playlist-ui')?.children.length ?? 0,
-      );
-
+      await removeFirstTrack(hostPage, 1);
+      await removeFirstTrack(hostPage, 0);
       lateGuest = await joinAsLateGuest(browser, code);
-      await lateGuest.guestPage.waitForFunction(
-        (expected) => {
-          const list = document.getElementById('playlist-ui');
-          return list !== null && list.children.length === expected;
-        },
-        hostCount,
-        { timeout: 15_000 },
-      );
-
-      const guestCount = await lateGuest.guestPage.evaluate(
-        () => document.getElementById('playlist-ui')?.children.length ?? 0,
-      );
-      expect(guestCount).toBe(hostCount);
+      await waitForPlaylistCount(lateGuest.guestPage, 0, 30_000);
+      expect((await readQueueSnapshot(lateGuest.guestPage)).items).toEqual([]);
 
       await assertHostAlive(hostPage);
     } finally {
@@ -1628,32 +1569,16 @@ test.describe('Late Join During Track Removal', () => {
       await uploadFixture(hostPage, 'test03');
       await waitForPlaylistCount(hostPage, 3);
 
-      let removePromise = Promise.resolve();
-      if (await isVisible(hostPage, '.btn-playlist-remove')) {
-        removePromise = (async () => {
-          await hostPage.locator('.btn-playlist-remove').first().click();
-          await hostPage.locator('.playlist-selection-delete').click();
-        })();
-      }
-      const joinPromise = joinAsLateGuest(browser, code);
-
-      await removePromise;
-      lateGuest = await joinPromise;
-
-      await hostPage.waitForFunction(
-        () => {
-          const list = document.getElementById('playlist-ui');
-          return list && list.children.length >= 1;
-        },
-        undefined,
-        { timeout: 10_000 },
-      );
-
-      const hostCount = await hostPage.evaluate(
-        () => document.getElementById('playlist-ui')?.children.length ?? 0,
-      );
-
-      await waitForPlaylistCount(lateGuest.guestPage, hostCount, 30_000);
+      const removedId = (await readQueueSnapshot(hostPage)).items[0].queueItemId;
+      const [joined] = await Promise.all([
+        joinAsLateGuest(browser, code),
+        removeFirstTrack(hostPage, 2),
+      ]);
+      lateGuest = joined;
+      await waitForPlaylistCount(lateGuest.guestPage, 2, 30_000);
+      expect(
+        (await readQueueSnapshot(lateGuest.guestPage)).items.map((item) => item.queueItemId),
+      ).not.toContain(removedId);
 
       await assertHostAlive(hostPage);
     } finally {
@@ -1749,33 +1674,22 @@ test.describe('Upload During YouTube Mode', () => {
     test.setTimeout(90_000);
 
     const setup = await createChaosSetup(browser, 1);
+    await installChaosYouTubeFixtures(setup);
     try {
       const code = await setupHostAndStart(setup.hostPage);
       await setupGuest(setup.guestPages[0], code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      if (await isVisible(setup.hostPage, '#media-source-btn')) {
-        await setup.hostPage.locator('#media-source-btn').click();
-        await setup.hostPage.waitForTimeout(500); // intentional rapid-fire delay
-        if (await isVisible(setup.hostPage, '#media-youtube-btn, .media-opt-youtube')) {
-          await setup.hostPage.locator('#media-youtube-btn, .media-opt-youtube').first().click();
-          await setup.hostPage
-            .waitForFunction(
-              () =>
-                document.body.classList.contains('mode-youtube') ||
-                document.getElementById('youtube-url-input') !== null,
-              undefined,
-              { timeout: 5_000 },
-            )
-            .catch(() => {}); // Mode may not fully switch in test env
-        }
-      }
+      await loadYouTube(setup, YT_VIDEO);
 
       await uploadFixture(setup.hostPage, 'test01');
       await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
 
-      // Upload may queue the file or switch playback mode; either is a valid
-      // non-error outcome.
+      for (const page of [setup.hostPage, ...setup.guestPages]) {
+        await waitForPlaylistCount(page, 2, 30_000);
+        await expect(page.locator('#playlist-ui')).toContainText('test-01');
+        await waitForPlaybackProjection(page, 'PLAYING_YOUTUBE');
+      }
       await assertHostAlive(setup.hostPage);
       const guestState = await readPlaybackProjection(setup.guestPages[0]);
       expect(VALID_PLAYBACK_PROJECTIONS).toContain(guestState);
@@ -1795,11 +1709,26 @@ test.describe('Rapid Operator Toggle', () => {
       await setupGuest(setup.guestPages[0], code);
       await waitForDeviceCount(setup.hostPage, 2);
 
-      if (await isVisible(setup.hostPage, '.d-op-btn')) {
-        for (let i = 0; i < 5; i++) {
-          await setup.hostPage.locator('.d-op-btn').first().click();
-          await setup.hostPage.waitForTimeout(300); // intentional rapid-fire delay
+      await navigateToTab(setup.hostPage, 'settings');
+      await navigateToSubtab(setup.hostPage, 'connect');
+      const guestId = await readState(setup.guestPages[0], 'network.myId');
+      expect(typeof guestId).toBe('string');
+      for (let i = 0; i < 5; i++) {
+        const grant = i % 2 === 0;
+        const button = grant
+          ? setup.hostPage.locator('.d-op-btn:visible').first()
+          : setup.hostPage.locator(
+              '.administrator-row[data-member-id="peer:' +
+                guestId +
+                '"]:visible .administrator-action-button.revoke',
+            );
+        await expect(button).toBeVisible();
+        await button.click();
+        if (!grant) {
+          await expect(setup.hostPage.locator('#dialog-overlay.show')).toBeVisible();
+          await setup.hostPage.locator('#btn-dialog-ok').click();
         }
+        await waitForState(setup.guestPages[0], 'network.isOperator', grant);
       }
 
       await waitForPlaybackProjectionReady(setup.hostPage, 10_000);
@@ -1840,10 +1769,7 @@ test.describe('Late Join During Pause + Seek', () => {
       await hostPage.click('#play-btn');
       await waitForPlaybackProjectionIn(hostPage, ['PAUSED', 'IDLE'], 10_000);
 
-      await hostPage.evaluate(() => {
-        const set = (window as any).__MUSIXQUARE_SET_STATE__;
-        if (set) set('audio.seekTo', 3.5);
-      });
+      await seekFile(hostPage, 3.5);
 
       lateGuest = await joinAsLateGuest(browser, code);
       await waitForPlaylistCount(lateGuest.guestPage, 1, 30_000);
@@ -2061,10 +1987,7 @@ test.describe('Host Solo Stress', () => {
       await hostPage.evaluate(() => (document.getElementById('btn-prev') as HTMLElement)?.click());
       await hostPage.waitForTimeout(300); // intentional rapid-fire delay
 
-      await hostPage.evaluate(() => {
-        const set = (window as any).__MUSIXQUARE_SET_STATE__;
-        if (set) set('audio.seekTo', 2.0);
-      });
+      await seekFile(hostPage, 2.0, false);
 
       await hostPage.evaluate(() => {
         const set = (window as any).__MUSIXQUARE_SET_STATE__;
@@ -2085,10 +2008,7 @@ test.describe('Host Solo Stress', () => {
 
       await hostPage.evaluate(() => (document.getElementById('play-btn') as HTMLElement)?.click());
       await waitForPlaybackProjectionIn(hostPage, ['PAUSED', 'IDLE'], 15_000).catch(() => {});
-      await hostPage.evaluate(() => {
-        const set = (window as any).__MUSIXQUARE_SET_STATE__;
-        if (set) set('audio.seekTo', 1.0);
-      });
+      await seekFile(hostPage, 1.0);
       await hostPage.evaluate(() => (document.getElementById('play-btn') as HTMLElement)?.click());
       // Headless audio may not resume after the control burst; any non-error
       // state is valid.
@@ -2142,10 +2062,7 @@ test.describe('Nuclear Meltdown v2', () => {
       await waitForPlaylistCount(g2.guestPage, 3, 30_000);
 
       await Promise.all([
-        hostPage.evaluate(() => {
-          const set = (window as any).__MUSIXQUARE_SET_STATE__;
-          if (set) set('audio.seekTo', 2.0);
-        }),
+        seekFile(hostPage, 2.0, false),
         hostPage.evaluate(() => {
           const set = (window as any).__MUSIXQUARE_SET_STATE__;
           if (set) {
@@ -2281,10 +2198,7 @@ test.describe('Playback End + Late Join', () => {
       await startPlayback(hostPage);
 
       // Seeking near the end keeps the test duration bounded.
-      await hostPage.evaluate(() => {
-        const set = (window as any).__MUSIXQUARE_SET_STATE__;
-        if (set) set('audio.seekTo', 999.0); // Seek past end
-      });
+      await seekFile(hostPage, 999.0, false);
 
       await waitForPlaybackProjectionIn(hostPage, ['IDLE', 'PAUSED'], 30_000).catch(() => {}); // May stay PLAYING if looping
 

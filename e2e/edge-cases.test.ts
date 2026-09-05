@@ -21,9 +21,13 @@ import {
 } from './helpers/context-factory.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import { uploadFixture, uploadFixtures } from './helpers/file-upload.ts';
-import { readCurrentQueueIndex } from './helpers/queue-state.ts';
 import {
-  isVisible,
+  readCurrentQueueIndex,
+  readCurrentQueueItemId,
+  waitForCurrentQueueIndex,
+} from './helpers/queue-state.ts';
+import {
+  waitForState,
   navigateToTab,
   openChatDrawer,
   readPlaybackProjection,
@@ -184,7 +188,9 @@ test.describe('Edge Cases', () => {
     );
 
     await pair.hostPage.click('#play-btn');
-    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO', 5_000).catch(() => {});
+    await waitForPlaybackProjection(pair.hostPage, 'PLAYING_AUDIO');
+    const playingId = await readCurrentQueueItemId(pair.hostPage);
+    expect(playingId).not.toBeNull();
 
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
@@ -195,7 +201,8 @@ test.describe('Edge Cases', () => {
     expect(count).toBe(2);
 
     const stateAfter = (await readPlaybackProjection(pair.hostPage)) as string;
-    expect(['IDLE', 'PAUSED', 'PLAYING_AUDIO']).toContain(stateAfter);
+    expect(stateAfter).toBe('PLAYING_AUDIO');
+    expect(await readCurrentQueueItemId(pair.hostPage)).toBe(playingId);
   });
 
   // ── Duplicate File Upload ──────────────────────────────────
@@ -220,89 +227,72 @@ test.describe('Edge Cases', () => {
   test('empty chat message is not sent', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
-      await openChatDrawer(pair.hostPage);
+    await openChatDrawer(pair.hostPage);
 
-      const chatInput = pair.hostPage.locator('#chat-input');
-      await chatInput.fill('');
-      await pair.hostPage.locator('#btn-chat-send').click();
+    const chatInput = pair.hostPage.locator('#chat-input');
+    await chatInput.fill('');
+    await pair.hostPage.locator('#btn-chat-send').click();
 
-      // A negative assertion needs a bounded observation window because no DOM
-      // event fires when an empty message is correctly ignored.
-      await pair.hostPage.waitForTimeout(300); // intentional brief settle for negative assertion
-      const msgCount = await pair.hostPage.evaluate(() => {
-        const msgs = document.getElementById('chat-messages');
-        return msgs?.children.length ?? 0;
-      });
-      expect(msgCount).toBe(0);
+    // A negative assertion needs a bounded observation window because no DOM
+    // event fires when an empty message is correctly ignored.
+    await pair.hostPage.waitForTimeout(300); // intentional brief settle for negative assertion
+    for (const page of [pair.hostPage, pair.guestPage]) {
+      await expect(page.locator('#chat-messages .chat-group:not(.system) .chat-text')).toHaveCount(
+        0,
+      );
     }
   });
 
   test('long chat message is handled (500+ chars)', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
-      await openChatDrawer(pair.hostPage);
+    await openChatDrawer(pair.hostPage);
 
-      const longMsg = 'A'.repeat(600);
-      await sendChat(pair.hostPage, longMsg);
+    const longMsg = 'A'.repeat(600);
+    await sendChat(pair.hostPage, longMsg);
 
-      await pair.hostPage.waitForFunction(
-        () => {
-          const msgs = document.getElementById('chat-messages');
-          return (msgs?.textContent?.length ?? 0) > 0;
-        },
-        undefined,
-        { timeout: 5_000 },
-      );
-
-      const msgText = await pair.hostPage.evaluate(() => {
-        const msgs = document.getElementById('chat-messages');
-        return msgs?.textContent || '';
-      });
-      expect(msgText.length).toBeGreaterThan(0);
+    for (const page of [pair.hostPage, pair.guestPage]) {
+      await expect(page.locator('#chat-messages .chat-group:not(.system) .chat-text')).toHaveText([
+        'A'.repeat(500),
+      ]);
     }
   });
 
   test('special characters in chat are preserved', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
-      await openChatDrawer(pair.hostPage);
+    await openChatDrawer(pair.hostPage);
 
-      const specialMsg = '<script>alert(1)</script> & "quotes" 한국어 🎵';
-      await sendChat(pair.hostPage, specialMsg);
-      await waitForChatMessage(pair.hostPage, '한국어');
+    const specialMsg = '<script>alert(1)</script> & "quotes" 한국어 🎵';
+    await sendChat(pair.hostPage, specialMsg);
+    await waitForChatMessage(pair.hostPage, '한국어');
 
-      const msgText = await pair.hostPage.evaluate(() => {
-        const msgs = document.getElementById('chat-messages');
-        return msgs?.textContent || '';
-      });
-      expect(msgText).toContain('한국어');
-    }
+    const msgText = await pair.hostPage.evaluate(() => {
+      const msgs = document.getElementById('chat-messages');
+      return msgs?.textContent || '';
+    });
+    expect(msgText).toContain('한국어');
   });
 
   test('rapid chat messages do not lose messages', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
-      await openChatDrawer(pair.hostPage);
+    await openChatDrawer(pair.hostPage);
 
-      for (let i = 1; i <= 5; i++) {
-        await sendChat(pair.hostPage, `Rapid msg ${i}`);
-        await pair.hostPage.waitForTimeout(200); // intentional rapid-fire delay
-      }
+    for (let i = 1; i <= 5; i++) {
+      await sendChat(pair.hostPage, `Rapid msg ${i}`);
+      await pair.hostPage.waitForTimeout(200); // intentional rapid-fire delay
+    }
 
-      await waitForChatMessage(pair.hostPage, 'Rapid msg 5');
+    await waitForChatMessage(pair.hostPage, 'Rapid msg 5');
 
-      const msgText = await pair.hostPage.evaluate(() => {
-        const msgs = document.getElementById('chat-messages');
-        return msgs?.textContent || '';
-      });
+    const msgText = await pair.hostPage.evaluate(() => {
+      const msgs = document.getElementById('chat-messages');
+      return msgs?.textContent || '';
+    });
 
-      for (let i = 1; i <= 5; i++) {
-        expect(msgText).toContain(`Rapid msg ${i}`);
-      }
+    for (let i = 1; i <= 5; i++) {
+      expect(msgText).toContain(`Rapid msg ${i}`);
     }
   });
 
@@ -311,23 +301,21 @@ test.describe('Edge Cases', () => {
   test('volume slider at 0 does not crash', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#volume-slider')) {
-      await pair.hostPage.locator('#volume-slider').fill('0');
+    await pair.hostPage.locator('#volume-slider').fill('0');
+    await waitForState(pair.hostPage, 'audio.masterVolume', 0);
 
-      const state = await readPlaybackProjection(pair.hostPage);
-      expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
-    }
+    const state = await readPlaybackProjection(pair.hostPage);
+    expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
   });
 
   test('volume slider at max does not crash', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#volume-slider')) {
-      await pair.hostPage.locator('#volume-slider').fill('100');
+    await pair.hostPage.locator('#volume-slider').fill('100');
+    await waitForState(pair.hostPage, 'audio.masterVolume', 1);
 
-      const state = await readPlaybackProjection(pair.hostPage);
-      expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
-    }
+    const state = await readPlaybackProjection(pair.hostPage);
+    expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
   });
 
   // ── Seek Slider Edge Cases ──────────────────────────────────
@@ -371,11 +359,8 @@ test.describe('Edge Cases', () => {
 
     for (let round = 0; round < 5; round++) {
       for (const tab of tabs) {
-        const navItem = pair.hostPage.locator(`.nav-item[data-tab="${tab}"]`);
-        if (await navItem.isVisible()) {
-          await navItem.click();
-          await pair.hostPage.waitForTimeout(50); // intentional rapid-fire delay
-        }
+        await navigateToTab(pair.hostPage, tab);
+        await pair.hostPage.waitForTimeout(50); // intentional rapid-fire delay
       }
     }
 
@@ -411,14 +396,11 @@ test.describe('Edge Cases', () => {
   test('guest file input is not visible or disabled', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // UI variants may hide the guest media-source button. When visible, the
-    // role guard blocks at click time rather than through `disabled`, so assert
-    // the guest remains valid instead of pinning one presentation mechanism.
-    const mediaBtnVisible = await isVisible(pair.guestPage, '#btn-media-source');
-    if (mediaBtnVisible) {
-      const state = await readPlaybackProjection(pair.guestPage);
-      expect(VALID_PLAYBACK_PROJECTIONS).toContain(state);
-    }
+    const mediaButton = pair.guestPage.locator('#btn-media-source');
+    await expect(mediaButton).toHaveAttribute('aria-disabled', 'true');
+    await mediaButton.evaluate((button) => (button as HTMLButtonElement).click());
+    await expect(pair.guestPage.locator('#media-source-overlay')).not.toHaveClass(/active/);
+    expect(await readState(pair.guestPage, 'playlist.items')).toEqual([]);
   });
 
   // ── Host Leaves — Guest Gets Notified ──────────────────────
@@ -482,20 +464,18 @@ test.describe('Edge Cases', () => {
     await uploadFixture(pair.hostPage, 'test01');
     await waitForPlaylistCount(pair.hostPage, 1);
 
-    await navigateToTab(pair.hostPage, 'play');
+    await navigateToTab(pair.hostPage, 'playlist');
 
-    if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
-      await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
-      await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
-      await expect(pair.hostPage.locator('#dialog-overlay')).toBeHidden();
-      await pair.hostPage.locator('[data-selection-action="cancel"]').click();
-      await expect(pair.hostPage.locator('.playlist-selection-pill')).not.toHaveClass(/is-visible/);
+    await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
+    await expect(pair.hostPage.locator('.playlist-selection-pill')).toHaveClass(/is-visible/);
+    await expect(pair.hostPage.locator('#dialog-overlay')).toBeHidden();
+    await pair.hostPage.locator('[data-selection-action="cancel"]').click();
+    await expect(pair.hostPage.locator('.playlist-selection-pill')).not.toHaveClass(/is-visible/);
 
-      const count = await pair.hostPage.evaluate(() => {
-        return document.getElementById('playlist-ui')?.children.length ?? 0;
-      });
-      expect(count).toBe(1);
-    }
+    const count = await pair.hostPage.evaluate(() => {
+      return document.getElementById('playlist-ui')?.children.length ?? 0;
+    });
+    expect(count).toBe(1);
   });
 
   // ── Concurrent Upload and Navigation ──────────────────────
@@ -522,34 +502,11 @@ test.describe('Edge Cases', () => {
     test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Use a DOM click because responsive CSS may hide the desktop control.
-    const repeatExists = await pair.hostPage.evaluate(
-      () => !!document.getElementById('btn-repeat'),
-    );
-    if (repeatExists) {
-      await pair.hostPage.evaluate(() =>
-        (document.getElementById('btn-repeat') as HTMLElement)?.click(),
-      );
-
-      await pair.hostPage
-        .waitForFunction(
-          () => {
-            const get = (window as any).__MUSIXQUARE_GET_STATE__;
-            return get && get('playlist.repeatMode') !== 0;
-          },
-          undefined,
-          { timeout: 5_000 },
-        )
-        .catch(() => {});
-
-      const repeatAfterClick = await readState(pair.hostPage, 'playlist.repeatMode');
-
-      await navigateToTab(pair.hostPage, 'settings', 15_000);
-      await navigateToTab(pair.hostPage, 'play', 15_000);
-
-      const repeatAfterSwitch = await readState(pair.hostPage, 'playlist.repeatMode');
-      expect(repeatAfterSwitch).toBe(repeatAfterClick);
-    }
+    await pair.hostPage.locator('#btn-repeat').click();
+    await waitForState(pair.hostPage, 'playlist.repeatMode', 1);
+    await navigateToTab(pair.hostPage, 'settings', 15_000);
+    await navigateToTab(pair.hostPage, 'play', 15_000);
+    expect(await readState(pair.hostPage, 'playlist.repeatMode')).toBe(1);
   });
 
   // ── Shuffle Mode State Persistence ──────────────────────────
@@ -558,34 +515,11 @@ test.describe('Edge Cases', () => {
     test.setTimeout(90_000);
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    // Use a DOM click because responsive CSS may hide the desktop control.
-    const shuffleExists = await pair.hostPage.evaluate(
-      () => !!document.getElementById('btn-shuffle'),
-    );
-    if (shuffleExists) {
-      await pair.hostPage.evaluate(() =>
-        (document.getElementById('btn-shuffle') as HTMLElement)?.click(),
-      );
-
-      await pair.hostPage
-        .waitForFunction(
-          () => {
-            const get = (window as any).__MUSIXQUARE_GET_STATE__;
-            return get && get('playlist.isShuffle') === true;
-          },
-          undefined,
-          { timeout: 5_000 },
-        )
-        .catch(() => {});
-
-      const shuffleAfterClick = await readState(pair.hostPage, 'playlist.isShuffle');
-
-      await navigateToTab(pair.hostPage, 'settings', 15_000);
-      await navigateToTab(pair.hostPage, 'play', 15_000);
-
-      const shuffleAfterSwitch = await readState(pair.hostPage, 'playlist.isShuffle');
-      expect(shuffleAfterSwitch).toBe(shuffleAfterClick);
-    }
+    await pair.hostPage.locator('#btn-shuffle').click();
+    await waitForState(pair.hostPage, 'playlist.isShuffle', true);
+    await navigateToTab(pair.hostPage, 'settings', 15_000);
+    await navigateToTab(pair.hostPage, 'play', 15_000);
+    expect(await readState(pair.hostPage, 'playlist.isShuffle')).toBe(true);
   });
 
   // ── Guest Playlist UI Read-Only ──────────────────────────
@@ -631,43 +565,13 @@ test.describe('Edge Cases', () => {
   test('volume icon toggles mute state', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#vol-icon-btn')) {
-      await pair.hostPage.locator('#vol-icon-btn').click();
-
-      await pair.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get !== undefined;
-        },
-        undefined,
-        { timeout: 3_000 },
-      );
-
-      const volAfterMute = await pair.hostPage
-        .locator('#volume-slider')
-        .inputValue()
-        .catch(() => '50');
-
-      await pair.hostPage.locator('#vol-icon-btn').click();
-
-      await pair.hostPage.waitForFunction(
-        () => {
-          const get = (window as any).__MUSIXQUARE_GET_STATE__;
-          return get !== undefined;
-        },
-        undefined,
-        { timeout: 3_000 },
-      );
-
-      const volAfterUnmute = await pair.hostPage
-        .locator('#volume-slider')
-        .inputValue()
-        .catch(() => '50');
-
-      const muteVal = Number(volAfterMute);
-      const unmuteVal = Number(volAfterUnmute);
-      expect(muteVal === 0 || muteVal !== unmuteVal).toBe(true);
-    }
+    const before = await readState(pair.hostPage, 'audio.masterVolume');
+    expect(before).toBeGreaterThan(0);
+    await pair.hostPage.locator('#vol-icon-btn').click();
+    await waitForState(pair.hostPage, 'audio.masterVolume', 0);
+    await expect(pair.hostPage.locator('#volume-slider')).toHaveValue('0');
+    await pair.hostPage.locator('#vol-icon-btn').click();
+    await waitForState(pair.hostPage, 'audio.masterVolume', before);
   });
 
   // ── Chat Cross-Talk ──────────────────────────────────────
@@ -675,43 +579,35 @@ test.describe('Edge Cases', () => {
   test('host message appears on guest chat', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
-      await openChatDrawer(pair.hostPage);
-      await sendChat(pair.hostPage, 'Hello from host edge-case');
-      await waitForChatMessage(pair.hostPage, 'Hello from host edge-case');
+    await openChatDrawer(pair.hostPage);
+    await sendChat(pair.hostPage, 'Hello from host edge-case');
+    await waitForChatMessage(pair.hostPage, 'Hello from host edge-case');
 
-      if (await isVisible(pair.guestPage, '#chat-preview-btn')) {
-        await openChatDrawer(pair.guestPage);
+    await openChatDrawer(pair.guestPage);
 
-        await waitForChatMessage(pair.guestPage, 'Hello from host edge-case', 15_000);
-        const guestMsgs = await pair.guestPage.evaluate(() => {
-          const el = document.getElementById('chat-messages');
-          return el?.textContent || '';
-        });
-        expect(guestMsgs).toContain('Hello from host edge-case');
-      }
-    }
+    await waitForChatMessage(pair.guestPage, 'Hello from host edge-case', 15_000);
+    const guestMsgs = await pair.guestPage.evaluate(() => {
+      const el = document.getElementById('chat-messages');
+      return el?.textContent || '';
+    });
+    expect(guestMsgs).toContain('Hello from host edge-case');
   });
 
   test('guest message appears on host chat', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.guestPage, '#chat-preview-btn')) {
-      await openChatDrawer(pair.guestPage);
-      await sendChat(pair.guestPage, 'Hello from guest edge-case');
-      await waitForChatMessage(pair.guestPage, 'Hello from guest edge-case');
+    await openChatDrawer(pair.guestPage);
+    await sendChat(pair.guestPage, 'Hello from guest edge-case');
+    await waitForChatMessage(pair.guestPage, 'Hello from guest edge-case');
 
-      if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
-        await openChatDrawer(pair.hostPage);
+    await openChatDrawer(pair.hostPage);
 
-        await waitForChatMessage(pair.hostPage, 'Hello from guest edge-case', 15_000);
-        const hostMsgs = await pair.hostPage.evaluate(() => {
-          const el = document.getElementById('chat-messages');
-          return el?.textContent || '';
-        });
-        expect(hostMsgs).toContain('Hello from guest edge-case');
-      }
-    }
+    await waitForChatMessage(pair.hostPage, 'Hello from guest edge-case', 15_000);
+    const hostMsgs = await pair.hostPage.evaluate(() => {
+      const el = document.getElementById('chat-messages');
+      return el?.textContent || '';
+    });
+    expect(hostMsgs).toContain('Hello from guest edge-case');
   });
 
   // ── Connection Info Consistency ──────────────────────────
@@ -767,37 +663,13 @@ test.describe('Stress Tests', () => {
     await uploadFixture(pair.hostPage, 'test03');
     await waitForPlaylistCount(pair.hostPage, 3);
 
-    // Three transitions visit indices 0, 1, and 2; a fourth would reach the
-    // end-of-playlist sentinel.
     const indices: number[] = [];
     for (let i = 0; i < 3; i++) {
-      const idx = await readCurrentQueueIndex(pair.hostPage);
-      indices.push(idx);
-      await pair.hostPage.click('#btn-next');
-      await pair.hostPage
-        .waitForFunction(
-          (prevIdx) => {
-            const get = (window as any).__MUSIXQUARE_GET_STATE__;
-            if (!get) return false;
-            const items = get('playlist.items');
-            const currentQueueItemId = get('playlist.currentQueueItemId');
-            const current = Array.isArray(items)
-              ? items.findIndex(
-                  (item: { queueItemId?: string }) => item.queueItemId === currentQueueItemId,
-                )
-              : -1;
-            return current !== prevIdx;
-          },
-          idx,
-          { timeout: 5_000 },
-        )
-        .catch(() => {});
+      await waitForCurrentQueueIndex(pair.hostPage, i);
+      indices.push(await readCurrentQueueIndex(pair.hostPage));
+      if (i < 2) await pair.hostPage.click('#btn-next');
     }
-
-    for (const idx of indices) {
-      expect(idx).toBeGreaterThanOrEqual(0);
-      expect(idx).toBeLessThan(3);
-    }
+    expect(indices).toEqual([0, 1, 2]);
   });
 
   test('remove all tracks one by one reduces playlist count', async () => {
@@ -809,59 +681,58 @@ test.describe('Stress Tests', () => {
     await uploadFixture(pair.hostPage, 'test02');
     await waitForPlaylistCount(pair.hostPage, 2);
 
-    await navigateToTab(pair.hostPage, 'play');
+    await navigateToTab(pair.hostPage, 'playlist');
 
     const countBefore = await pair.hostPage.evaluate(() => {
       return document.getElementById('playlist-ui')?.children.length ?? 0;
     });
 
-    if (await isVisible(pair.hostPage, '#playlist-ui .btn-playlist-remove')) {
-      await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
-      await pair.hostPage.locator('.playlist-selection-delete').click();
+    await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
+    await pair.hostPage.locator('.playlist-selection-delete').click();
 
-      await pair.hostPage.waitForFunction(
-        (before) => {
-          const list = document.getElementById('playlist-ui');
-          return list ? list.children.length < before : false;
-        },
-        countBefore,
-        { timeout: 10_000 },
-      );
+    await pair.hostPage.waitForFunction(
+      (before) => {
+        const list = document.getElementById('playlist-ui');
+        return list ? list.children.length < before : false;
+      },
+      countBefore,
+      { timeout: 10_000 },
+    );
 
-      const countAfter = await pair.hostPage.evaluate(() => {
-        return document.getElementById('playlist-ui')?.children.length ?? 0;
-      });
-      expect(countAfter).toBeLessThan(countBefore);
-    }
+    const countAfter = await pair.hostPage.evaluate(() => {
+      return document.getElementById('playlist-ui')?.children.length ?? 0;
+    });
+    expect(countAfter).toBe(1);
+    await pair.hostPage.locator('#playlist-ui .btn-playlist-remove').first().click();
+    await pair.hostPage.locator('.playlist-selection-delete').click();
+    await waitForPlaylistCount(pair.hostPage, 0);
   });
 
   test('chat messages maintain order with many messages', async () => {
     await connectHostAndGuest(pair.hostPage, pair.guestPage);
 
-    if (await isVisible(pair.hostPage, '#chat-preview-btn')) {
-      await openChatDrawer(pair.hostPage);
+    await openChatDrawer(pair.hostPage);
 
-      for (let i = 1; i <= 10; i++) {
-        await sendChat(pair.hostPage, `Order test #${i}`);
-        await pair.hostPage.waitForTimeout(300); // intentional rapid-fire delay
-      }
+    for (let i = 1; i <= 10; i++) {
+      await sendChat(pair.hostPage, `Order test #${i}`);
+      await pair.hostPage.waitForTimeout(300); // intentional rapid-fire delay
+    }
 
-      await waitForChatMessage(pair.hostPage, 'Order test #10');
+    await waitForChatMessage(pair.hostPage, 'Order test #10');
 
-      const msgText = await pair.hostPage.evaluate(() => {
-        const msgs = document.getElementById('chat-messages');
-        return msgs?.textContent || '';
-      });
+    const msgText = await pair.hostPage.evaluate(() => {
+      const msgs = document.getElementById('chat-messages');
+      return msgs?.textContent || '';
+    });
 
-      for (let i = 1; i <= 10; i++) {
-        expect(msgText).toContain(`Order test #${i}`);
-      }
+    for (let i = 1; i <= 10; i++) {
+      expect(msgText).toContain(`Order test #${i}`);
+    }
 
-      const pos1 = msgText.indexOf('Order test #1');
-      const pos10 = msgText.indexOf('Order test #10');
-      if (pos1 !== -1 && pos10 !== -1) {
-        expect(pos1).toBeLessThan(pos10);
-      }
+    const pos1 = msgText.indexOf('Order test #1');
+    const pos10 = msgText.indexOf('Order test #10');
+    if (pos1 !== -1 && pos10 !== -1) {
+      expect(pos1).toBeLessThan(pos10);
     }
   });
 });

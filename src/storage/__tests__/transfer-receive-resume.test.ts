@@ -179,6 +179,78 @@ describe('handleFileResume — store-authoritative baseline (STO-RESUME)', () =>
     });
   });
 
+  it.each(['handleFileStart', 'handleFileResume'] as const)(
+    '%s for an old failed occurrence preserves recovery for a newer bulk stream',
+    async (handlerName) => {
+      vi.useFakeTimers();
+      const timers = await import('../../core/timers.ts');
+      const actualTimers =
+        await vi.importActual<typeof import('../../core/timers.ts')>('../../core/timers.ts');
+      vi.mocked(timers.setManagedTimer).mockImplementation(actualTimers.setManagedTimer);
+      vi.mocked(timers.clearManagedTimer).mockImplementation(actualTimers.clearManagedTimer);
+      const { markTrackFailed } = await import('../../player/_state.ts');
+      const receive = await import('../transfer-receive.ts');
+      const { showLoader } = await import('../../ui/toast.ts');
+      const recover = vi.fn();
+      bus.on('storage:request-recovery', recover);
+
+      try {
+        markTrackFailed(`queue:${Q[0]}`);
+        // Bulk and control use separate ordered RTCDataChannels. New B bytes
+        // may establish SID 6 before an already-sent A control frame arrives.
+        receive.handleFileChunk(
+          {
+            type: 'file-chunk',
+            queueItemId: Q[1],
+            name: 'track-1.mp3',
+            sessionId: 6,
+            total: 2,
+            size: TWO_CHUNK_FILE_SIZE,
+            chunkIndex: 0,
+            chunk: new Uint8Array(CHUNK_SIZE),
+          },
+          conn,
+        );
+        await Promise.resolve();
+        const watchdog = actualTimers.getManagedTimer('chunkWatchdog');
+        expect(watchdog).not.toBeNull();
+        expect(getState('transfer.receivedCount')).toBe(1);
+        vi.mocked(showLoader).mockClear();
+
+        receive[handlerName](resumeMsg({ sessionId: 5 }), conn);
+
+        expect(actualTimers.getManagedTimer('chunkWatchdog')).toBe(watchdog);
+        expect(showLoader).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(13_001);
+        expect(recover).toHaveBeenCalledTimes(1);
+        expect(getState('transfer.meta')?.queueItemId).toBe(Q[1]);
+      } finally {
+        actualTimers.clearAllManagedTimers();
+        vi.mocked(timers.setManagedTimer).mockReset();
+        vi.mocked(timers.clearManagedTimer).mockReset();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each(['handleFileStart', 'handleFileResume'] as const)(
+    '%s still stops receive UI and watchdogs for the current failed occurrence',
+    async (handlerName) => {
+      const { markTrackFailed } = await import('../../player/_state.ts');
+      const receive = await import('../transfer-receive.ts');
+      const { clearManagedTimer } = await import('../../core/timers.ts');
+      const { showLoader } = await import('../../ui/toast.ts');
+      const { postCommand } = await import('../storage.ts');
+      markTrackFailed(`queue:${Q[0]}`);
+
+      receive[handlerName](resumeMsg({ sessionId: 5 }), conn);
+
+      expect(clearManagedTimer).toHaveBeenCalledWith('chunkWatchdog');
+      expect(showLoader).toHaveBeenCalledWith(false);
+      expect(postCommand).not.toHaveBeenCalled();
+    },
+  );
+
   it('accepts a replacement host SID 1 after resetting the previous SID 92 authority', async () => {
     const { handleFileStart, resetIncomingTransferAuthority } =
       await import('../transfer-receive.ts');

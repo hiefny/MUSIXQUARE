@@ -123,12 +123,12 @@ export function getSupportedSystemLanguage(): LanguageCode | null {
   }
 }
 
-function _pluralCategory(value: number): PluralCategory {
+function _pluralCategory(value: number, code: LanguageCode): PluralCategory {
   try {
-    let rules = _pluralRules.get(_resolved);
+    let rules = _pluralRules.get(code);
     if (!rules) {
-      rules = new Intl.PluralRules(_htmlLangFor(_resolved));
-      _pluralRules.set(_resolved, rules);
+      rules = new Intl.PluralRules(_htmlLangFor(code));
+      _pluralRules.set(code, rules);
     }
     return rules.select(value) as PluralCategory;
   } catch {
@@ -138,29 +138,22 @@ function _pluralCategory(value: number): PluralCategory {
   }
 }
 
-function _pluralFormsFor(code: LanguageCode): LocalePluralMessages | undefined {
-  return _pluralMessages[code];
-}
-
 function _translationTemplate(key: I18nKey, params?: TranslationParams): string {
-  const dict = _dicts[_resolved];
+  if (!Object.prototype.hasOwnProperty.call(en, key)) return key;
+  // Keep grammar and copy in the same locale when a lazy dictionary fails.
+  const code = _dicts[_resolved] ? _resolved : 'en';
+  const dict = _dicts[code];
+  const template = dict?.[key] ?? en[key] ?? key;
   const pluralKey = key as PluralI18nKey;
   const pluralParam = PLURAL_PARAM_BY_KEY[pluralKey];
   const pluralValue = pluralParam ? params?.[pluralParam] : undefined;
 
   if (typeof pluralValue === 'number' && Number.isFinite(pluralValue)) {
-    const category = _pluralCategory(pluralValue);
-
-    // Only use a locale-specific grammatical variant when that locale's main
-    // dictionary loaded successfully. Otherwise keep the established all-
-    // English fallback instead of rendering a mixed-language sentence.
-    if (dict) {
-      return _pluralFormsFor(_resolved)?.[pluralKey]?.[category] ?? dict[key] ?? en[key] ?? key;
-    }
-    return _pluralFormsFor('en')?.[pluralKey]?.[category] ?? en[key] ?? key;
+    const category = _pluralCategory(pluralValue, code);
+    return _pluralMessages[code]?.[pluralKey]?.[category] ?? template;
   }
 
-  return dict?.[key] ?? en[key] ?? key;
+  return template;
 }
 
 function _interpolate(str: string, params?: TranslationParams): string {
@@ -528,9 +521,13 @@ async function _applyLanguage(resolved: LanguageCode): Promise<void> {
 
   const needsFontLoad = hasLocaleFont(resolved);
   const fontLoad = needsFontLoad
-    ? import('./locale-fonts.ts').then(({ default: localeFonts }) =>
-        localeFonts.loadLocaleFont(resolved),
-      )
+    ? import('./locale-fonts.ts')
+        .then(({ default: localeFonts }) => localeFonts.loadLocaleFont(resolved))
+        .catch((error) => {
+          // The optional runtime chunk can fail before its CSS loader runs.
+          // Keep the selected dictionary and DOM in sync using system fonts.
+          log.warn(`[i18n] Failed to load font runtime for "${resolved}"`, error);
+        })
     : Promise.resolve();
 
   if (_dicts[resolved]) {

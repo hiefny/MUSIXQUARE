@@ -77,9 +77,9 @@ export function setChannelMode(mode: number): void {
     gR.connect(merge, 0, 1);
   } else if (mode === 2) {
     // Sub: L+R summed to both, with lowpass
-    // Set gain BEFORE connecting to prevent +6dB spike
-    gL.gain.value = 0.5;
-    gR.gain.value = 0.5;
+    // Cancel earlier role ramps before connecting the immediate summing gain.
+    rampParam(gL.gain, 0.5, 0);
+    rampParam(gR.gain, 0.5, 0);
     if (lowPass) rampParam(lowPass.frequency, subFreq, RAMP_TIME_FAST);
     gL.connect(merge, 0, 0);
     gL.connect(merge, 0, 1);
@@ -195,7 +195,7 @@ async function setChannel(mode: number): Promise<void> {
   setChannelMode(mode);
   if (!getMasterGain()) {
     await initAudio();
-    setChannelMode(mode);
+    setChannelMode(getState('audio.channelMode'));
   }
 }
 

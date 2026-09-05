@@ -758,25 +758,30 @@ function parsePlan(value: unknown): ProBotPlan | null {
     ) {
       return null;
     }
-    const trackQueries: string[] = [];
-    const seen = new Set<string>();
-    for (const candidate of value.trackQueries) {
-      const query = boundedText(candidate, 160);
-      if (!query) return null;
-      const fingerprint = query.toLocaleLowerCase('en-US');
-      if (seen.has(fingerprint)) continue;
-      seen.add(fingerprint);
-      trackQueries.push(query);
-    }
-    if (trackQueries.length < 1) return null;
-    const playAddedIndex = value.playAddedIndex === undefined ? -1 : value.playAddedIndex;
+    const requestedPlayIndex = value.playAddedIndex === undefined ? -1 : value.playAddedIndex;
     if (
-      !isSafeInteger(playAddedIndex) ||
-      playAddedIndex < -1 ||
-      playAddedIndex >= trackQueries.length
+      !isSafeInteger(requestedPlayIndex) ||
+      requestedPlayIndex < -1 ||
+      requestedPlayIndex >= value.trackQueries.length
     ) {
       return null;
     }
+    const trackQueries: string[] = [];
+    const queryIndices = new Map<string, number>();
+    let playAddedIndex = -1;
+    for (const [index, candidate] of value.trackQueries.entries()) {
+      const query = boundedText(candidate, 160);
+      if (!query) return null;
+      const fingerprint = query.toLocaleLowerCase('en-US');
+      let normalizedIndex = queryIndices.get(fingerprint);
+      if (normalizedIndex === undefined) {
+        normalizedIndex = trackQueries.length;
+        queryIndices.set(fingerprint, normalizedIndex);
+        trackQueries.push(query);
+      }
+      if (index === requestedPlayIndex) playAddedIndex = normalizedIndex;
+    }
+    if (trackQueries.length < 1) return null;
     return { intent: value.intent, trackQueries, playAddedIndex, ...(answer ? { answer } : {}) };
   }
   if (value.intent === 'play_existing') {
@@ -939,6 +944,8 @@ function explicitlySelectedRemovalIds(prompt: string, roomState: unknown): Set<s
   const roomPlaylist = property(roomState, 'playlist');
   const playlist: unknown[] = Array.isArray(roomPlaylist) ? roomPlaylist : [];
   const selected = new Set<string>();
+  const quotedTitleExpression = /["“]([^"”\r\n]{1,160})["”]/gu;
+  const selectorPrompt = prompt.replace(quotedTitleExpression, ' ');
   const queueItemIdAt = (ordinal: unknown): void => {
     if (!isSafeInteger(ordinal) || ordinal < 1 || ordinal > playlist.length) return;
     const candidate = property(playlist[ordinal - 1], 'queueItemId');
@@ -946,7 +953,7 @@ function explicitlySelectedRemovalIds(prompt: string, roomState: unknown): Set<s
     if (queueItemId && queueItemId === candidate) selected.add(queueItemId);
   };
 
-  for (const match of prompt.matchAll(ENGLISH_DELETION_ORDINAL_RE)) {
+  for (const match of selectorPrompt.matchAll(ENGLISH_DELETION_ORDINAL_RE)) {
     const ordinalName = match[1]?.toLocaleLowerCase('en-US') ?? '';
     queueItemIdAt(property(ENGLISH_ORDINALS, ordinalName));
   }
@@ -955,38 +962,38 @@ function explicitlySelectedRemovalIds(prompt: string, roomState: unknown): Set<s
     ENGLISH_DELETION_NUMBER_AFTER_RE,
     KOREAN_DELETION_NUMBER_RE,
   ]) {
-    for (const match of prompt.matchAll(expression)) queueItemIdAt(Number(match[1]));
+    for (const match of selectorPrompt.matchAll(expression)) queueItemIdAt(Number(match[1]));
   }
   if (
     /(?:\bfirst\s+(?:queue\s+)?(?:track|song|item)\b|(?:\uCCAB|\uCCAB\s*\uBC88\uC9F8)\s*(?:\uACE1|\uB178\uB798|\uD2B8\uB799(?:\uC73C\uB85C|\uC5D0\uC11C|\uBD80\uD130|\uAE4C\uC9C0|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uC758|\uB3C4|\uB9CC|\uC5D0|\uB85C|\uACFC|\uC640)?(?![\p{L}\p{N}_])))/iu.test(
-      prompt,
+      selectorPrompt,
     )
   ) {
     queueItemIdAt(1);
   }
   if (
     /(?:\bsecond\s+(?:queue\s+)?(?:track|song|item)\b|\uB450\s*\uBC88\uC9F8\s*(?:\uACE1|\uB178\uB798|\uD2B8\uB799(?:\uC73C\uB85C|\uC5D0\uC11C|\uBD80\uD130|\uAE4C\uC9C0|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uC758|\uB3C4|\uB9CC|\uC5D0|\uB85C|\uACFC|\uC640)?(?![\p{L}\p{N}_])))/iu.test(
-      prompt,
+      selectorPrompt,
     )
   ) {
     queueItemIdAt(2);
   }
   if (
     /(?:\bthird\s+(?:queue\s+)?(?:track|song|item)\b|\uC138\s*\uBC88\uC9F8\s*(?:\uACE1|\uB178\uB798|\uD2B8\uB799(?:\uC73C\uB85C|\uC5D0\uC11C|\uBD80\uD130|\uAE4C\uC9C0|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uC758|\uB3C4|\uB9CC|\uC5D0|\uB85C|\uACFC|\uC640)?(?![\p{L}\p{N}_])))/iu.test(
-      prompt,
+      selectorPrompt,
     )
   ) {
     queueItemIdAt(3);
   }
   if (
     /(?:\b(?:last)\s+(?:queue\s+)?(?:track|song|item)\b|\uB9C8\uC9C0\uB9C9\s*(?:\uACE1|\uB178\uB798|\uD2B8\uB799(?:\uC73C\uB85C|\uC5D0\uC11C|\uBD80\uD130|\uAE4C\uC9C0|\uC740|\uB294|\uC774|\uAC00|\uC744|\uB97C|\uC758|\uB3C4|\uB9CC|\uC5D0|\uB85C|\uACFC|\uC640)?(?![\p{L}\p{N}_])))/iu.test(
-      prompt,
+      selectorPrompt,
     )
   ) {
     queueItemIdAt(playlist.length);
   }
 
-  if (CURRENT_DELETION_SELECTOR_RE.test(prompt)) {
+  if (CURRENT_DELETION_SELECTOR_RE.test(selectorPrompt)) {
     const current = property(roomState, 'currentQueueItemId');
     const currentQueueItemId = boundedText(current, 128);
     if (
@@ -1026,9 +1033,53 @@ function explicitlySelectedRemovalIds(prompt: string, roomState: unknown): Set<s
         idsByLabel.set(label, ids);
       }
     }
+    const quotedLabels = new Set<string>();
+    const unquotedPrompt = promptKey.replace(quotedTitleExpression, (_match, label: string) => {
+      quotedLabels.add(normalizedSelectionText(label));
+      return ' ';
+    });
+    const namedMarker = /\b(?:named|called|titled)\b/iu.exec(unquotedPrompt);
+    const namedText = namedMarker
+      ? unquotedPrompt.slice(namedMarker.index + namedMarker[0].length)
+      : '';
+    const wordCharacter = /[\p{L}\p{M}\p{N}_]/u;
+    const matches: Array<{ label: string; start: number; end: number }> = [];
+    for (const label of idsByLabel.keys()) {
+      for (
+        let start = namedText.indexOf(label);
+        start !== -1;
+        start = namedText.indexOf(label, start + 1)
+      ) {
+        const end = start + label.length;
+        const before = Array.from(namedText.slice(0, start)).at(-1) ?? '';
+        const after = Array.from(namedText.slice(end))[0] ?? '';
+        if (
+          (wordCharacter.test(Array.from(label)[0] ?? '') && wordCharacter.test(before)) ||
+          (wordCharacter.test(Array.from(label).at(-1) ?? '') && wordCharacter.test(after))
+        )
+          continue;
+        matches.push({ label, start, end });
+      }
+    }
+    const namedLabels = new Set(
+      matches
+        .filter(
+          (match) =>
+            !matches.some(
+              (other) =>
+                other !== match &&
+                other.start <= match.start &&
+                other.end >= match.end &&
+                (other.start < match.start || other.end > match.end),
+            ),
+        )
+        .map((match) => match.label),
+    );
     for (const [label, ids] of idsByLabel) {
       const onlyId = [...ids][0];
-      if (promptKey.includes(label) && ids.size === 1 && onlyId) selected.add(onlyId);
+      if ((quotedLabels.has(label) || namedLabels.has(label)) && ids.size === 1 && onlyId) {
+        selected.add(onlyId);
+      }
     }
   }
   return selected;

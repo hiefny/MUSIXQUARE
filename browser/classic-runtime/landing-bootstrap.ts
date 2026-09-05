@@ -71,7 +71,7 @@ interface LandingRuntimeWindow extends Window {
       .toLowerCase()
       .replace(/_/gu, '-');
     if (!raw || raw === 'system') return null;
-    if (fallbackHtmlLang[raw]) return raw;
+    if (Object.prototype.hasOwnProperty.call(fallbackHtmlLang, raw)) return raw;
     if (raw === 'zh-hans' || raw.startsWith('zh-hans-')) return 'zh-hans';
     if (raw === 'zh-hant' || raw.startsWith('zh-hant-')) return 'zh-hant';
     if (raw.startsWith('zh')) {
@@ -83,15 +83,26 @@ interface LandingRuntimeWindow extends Window {
     if (raw === 'no' || raw.startsWith('no-')) return 'nb';
     if (raw === 'tl' || raw.startsWith('tl-')) return 'fil';
     const [primary] = raw.split('-');
-    return primary && fallbackHtmlLang[primary] ? primary : null;
+    return primary && Object.prototype.hasOwnProperty.call(fallbackHtmlLang, primary)
+      ? primary
+      : null;
   }
 
   try {
     if (landingWindow.MXQRStaticLang) {
       lang = landingWindow.MXQRStaticLang.resolve('en');
     } else {
+      // Localized About URLs own their language even when the shared resolver fails.
+      const pathname = location.pathname.toLowerCase().replace(/\/+$/gu, '') || '/';
+      const pathLanguage = normalizeFallback(/^\/([^/]+)\/about(?:\.html)?$/u.exec(pathname)?.[1]);
+      const fromPath =
+        pathname === '/about' || pathname === '/about.html'
+          ? 'en'
+          : pathLanguage !== 'en'
+            ? pathLanguage
+            : null;
       const qLang = new URLSearchParams(location.search).get('lang');
-      let resolved = normalizeFallback(qLang);
+      let resolved = fromPath || normalizeFallback(qLang);
       if (!resolved) {
         try {
           resolved =

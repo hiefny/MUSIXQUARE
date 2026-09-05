@@ -4,13 +4,17 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { setLanguageMode } from '../../i18n/index.ts';
 import { bus } from '../../core/events.ts';
+import { getState, setState } from '../../core/state.ts';
+import * as peerState from '../../network/peer-state.ts';
 import {
+  cancelSubTitleFetch,
   clearPreviewDebounce,
   clearYouTubeInputState,
   extractYouTubeVideoId,
   extractYouTubePlaylistId,
   fetchYouTubePreview,
   fetchYouTubeSearchResults,
+  fetchPlaylistSubTitles,
   getPrefetchedYouTubePlaylistManifest,
   getSelectedYouTubeSearchResult,
   getYouTubeInputIntent,
@@ -20,11 +24,103 @@ import {
   searchYouTubeFromInput,
 } from '../search.ts';
 import { fetchOEmbedTitle, fetchWithTimeout } from '../oembed.ts';
+import { OEMBED_INITIAL_BATCH_SIZE } from '../constants.ts';
 
 afterEach(() => {
   clearPreviewDebounce();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe('YouTube playlist title batch completion', () => {
+  const playlistId = 'PLauditTitleBatch';
+  const ids = Array.from(
+    { length: OEMBED_INITIAL_BATCH_SIZE + 2 },
+    (_, index) => `video${index.toString().padStart(6, '0')}`,
+  );
+  const partialIndex = OEMBED_INITIAL_BATCH_SIZE;
+  const lastIndex = ids.length - 1;
+
+  afterEach(() => {
+    cancelSubTitleFetch();
+    setState('youtube.subItemsMap', {});
+    vi.restoreAllMocks();
+  });
+
+  function prepareTitleFetch(
+    responseForIndex: (index: number) => Response = (index) =>
+      Response.json({ title: `Title ${index}` }),
+  ) {
+    vi.useFakeTimers();
+    setState('network.hostConn', null);
+    setState('youtube.currentSubIndex', 0);
+    setState('youtube.subItemsMap', { [playlistId]: { ids: [...ids], titles: [] } });
+    const broadcast = vi.spyOn(peerState, 'broadcast').mockImplementation(() => undefined);
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const target = new URL(new URL(String(input)).searchParams.get('url')!);
+      return responseForIndex(ids.indexOf(target.searchParams.get('v')!));
+    });
+    vi.stubGlobal('fetch', fetch);
+    return { broadcast, fetch };
+  }
+
+  it.each(['success', 'unavailable', 'empty-title', 'failure', 'already-known'] as const)(
+    'flushes successful partial results when the final item is %s',
+    async (ending) => {
+      const { broadcast, fetch } = prepareTitleFetch((index) => {
+        if (ending === 'already-known' && index === partialIndex) {
+          const titles: string[] = [];
+          titles[lastIndex] = 'Known final title';
+          setState('youtube.subItemsMap', { [playlistId]: { ids: [...ids], titles } });
+        }
+        if (index === lastIndex) {
+          if (ending === 'unavailable') return new Response('', { status: 404 });
+          if (ending === 'empty-title') return Response.json({ title: '' });
+          if (ending === 'failure') throw new Error('oEmbed unavailable');
+        }
+        return Response.json({ title: `Title ${index}` });
+      });
+      const pending = fetchPlaylistSubTitles(playlistId, ids);
+      await vi.runAllTimersAsync();
+      await pending;
+
+      expect(getState('youtube.subItemsMap')[playlistId]?.titles[partialIndex]).toBe(
+        `Title ${partialIndex}`,
+      );
+      expect(broadcast).toHaveBeenCalledWith({
+        type: 'youtube-sub-title-update',
+        playlistId,
+        subIdx: partialIndex,
+        title: `Title ${partialIndex}`,
+      });
+      expect(fetch).toHaveBeenCalledTimes(ids.length - (ending === 'already-known' ? 1 : 0));
+    },
+  );
+
+  it.each(['cancelled', 'replaced', 'removed'] as const)(
+    'does not flush buffered titles after their owner is %s',
+    async (ending) => {
+      const { broadcast } = prepareTitleFetch((index) => {
+        if (index === lastIndex) {
+          if (ending === 'cancelled') cancelSubTitleFetch();
+          else if (ending === 'removed') setState('youtube.subItemsMap', {});
+          else {
+            setState('youtube.subItemsMap', {
+              [playlistId]: { ids: ids.map(() => 'replacement'), titles: [] },
+            });
+          }
+          return new Response('', { status: 404 });
+        }
+        return Response.json({ title: `Title ${index}` });
+      });
+      const pending = fetchPlaylistSubTitles(playlistId, ids);
+      await vi.runAllTimersAsync();
+      await pending;
+
+      expect(getState('youtube.subItemsMap')[playlistId]?.titles[partialIndex]).toBeUndefined();
+      expect(broadcast).not.toHaveBeenCalledWith(expect.objectContaining({ subIdx: partialIndex }));
+    },
+  );
 });
 
 describe('YouTube request lifetime', () => {

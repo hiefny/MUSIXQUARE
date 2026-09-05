@@ -2,6 +2,7 @@
  * @vitest-environment jsdom
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { resetState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
@@ -118,6 +119,441 @@ afterEach(() => {
 });
 
 describe('Chat Module', () => {
+  it.each([0, 1, 2])(
+    'handles command suggestion mouse button %s without losing draft intent',
+    async (button) => {
+      const page = new DOMParser().parseFromString(readFileSync('index.html', 'utf8'), 'text/html');
+      document.body.innerHTML = page.body.innerHTML;
+      setState('network.appRole', 'host');
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      const drawer = document.getElementById('chat-drawer')!;
+      if (!drawer.classList.contains('open')) toggleChatDrawer();
+      try {
+        const input = document.getElementById('chat-input')!;
+        input.focus();
+        input.textContent = '/';
+        const selection = window.getSelection()!;
+        const caret = document.createRange();
+        caret.setStart(input.firstChild!, 1);
+        caret.collapse(true);
+        selection.removeAllRanges();
+        selection.addRange(caret);
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        const suggest = document.getElementById('chat-command-suggestions')!;
+        const options = suggest.querySelectorAll<HTMLElement>('[role="option"]');
+        expect(options.length).toBeGreaterThan(1);
+        expect(input.getAttribute('aria-activedescendant')).toBe(options[0].id);
+        const draftNode = input.firstChild;
+        expect(options[1].querySelector('.chat-cmd-usage')!.textContent).toBe('chat.cmd_u_users');
+        const press = new MouseEvent('mousedown', {
+          button,
+          buttons: button === 0 ? 1 : button === 1 ? 4 : 2,
+          bubbles: true,
+          cancelable: true,
+        });
+        options[1].querySelector('.chat-cmd-usage')!.dispatchEvent(press);
+
+        expect(sendToHost).not.toHaveBeenCalled();
+        expect(document.activeElement).toBe(input);
+        if (button === 0) {
+          expect(input.textContent).toBe('/users ');
+          expect(input.getAttribute('aria-expanded')).toBe('false');
+          expect(input.hasAttribute('aria-activedescendant')).toBe(false);
+          expect(suggest.style.display).toBe('none');
+          expect(press.defaultPrevented).toBe(true);
+        } else {
+          expect(input.textContent).toBe('/');
+          expect(input.getAttribute('aria-expanded')).toBe('true');
+          expect(input.getAttribute('aria-activedescendant')).toBe(options[0].id);
+          expect(options[0].getAttribute('aria-selected')).toBe('true');
+          expect(options[1].getAttribute('aria-selected')).toBe('false');
+          expect(suggest.style.display).toBe('');
+          expect(selection.anchorNode).toBe(draftNode);
+          expect(selection.anchorOffset).toBe(1);
+          expect(press.defaultPrevented).toBe(false);
+        }
+      } finally {
+        if (drawer.classList.contains('open')) toggleChatDrawer();
+      }
+    },
+  );
+
+  it.each([1, 2])('preserves the unsent draft on pointer button %s', async (button) => {
+    const page = new DOMParser().parseFromString(readFileSync('index.html', 'utf8'), 'text/html');
+    document.body.innerHTML = page.body.innerHTML;
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'pointer-guest');
+    setState('network.hostConn', { open: true, peer: 'pointer-host' } as DataConnection);
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const input = document.getElementById('chat-input')!;
+    const draft = `Unsent pointer draft ${button}`;
+    input.textContent = draft;
+    const press = new MouseEvent('pointerdown', {
+      button,
+      buttons: button === 1 ? 4 : 2,
+      bubbles: true,
+      cancelable: true,
+    });
+    document.getElementById('btn-chat-send')!.dispatchEvent(press);
+
+    expect(sendToHost).not.toHaveBeenCalled();
+    expect(input.textContent).toBe(draft);
+    expect(press.defaultPrevented).toBe(false);
+  });
+
+  it.each(['pointer', 'keyboard'])(
+    'keeps the normal %s send activation and synchronous editor reset',
+    async (activation) => {
+      const page = new DOMParser().parseFromString(readFileSync('index.html', 'utf8'), 'text/html');
+      document.body.innerHTML = page.body.innerHTML;
+      setState('network.appRole', 'guest');
+      setState('network.myId', 'pointer-guest');
+      setState('network.hostConn', { open: true, peer: 'pointer-host' } as DataConnection);
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      const input = document.getElementById('chat-input')!;
+      for (const pointerType of activation === 'pointer' ? ['mouse', 'touch'] : ['keyboard']) {
+        const draft = `Send activation ${pointerType}`;
+        input.textContent = draft;
+        const press = new MouseEvent(activation === 'pointer' ? 'pointerdown' : 'click', {
+          button: 0,
+          detail: activation === 'pointer' ? 1 : 0,
+          bubbles: true,
+          cancelable: true,
+        });
+        // PointerEvent inherits MouseEvent; jsdom represents its native
+        // mouse/touch button properties at this listener boundary.
+        if (activation === 'pointer')
+          Object.defineProperty(press, 'pointerType', { value: pointerType });
+        const previousCalls = vi.mocked(sendToHost).mock.calls.length;
+        document.getElementById('btn-chat-send')!.dispatchEvent(press);
+
+        expect(sendToHost).toHaveBeenCalledTimes(previousCalls + 1);
+        expect(sendToHost).toHaveBeenLastCalledWith(expect.objectContaining({ text: draft }));
+        expect(input.textContent).toBe('');
+        expect(press.defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(input);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    'keeps command completion focus in the actual mobile editor (Shift=%s)',
+    async (shiftKey) => {
+      const page = new DOMParser().parseFromString(readFileSync('index.html', 'utf8'), 'text/html');
+      document.body.innerHTML = page.body.innerHTML;
+      vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+      vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+      document.documentElement.style.setProperty('--app-height', '844px');
+      setState('network.appRole', 'host');
+      const { initChat, toggleChatDrawer } = await import('../chat.ts');
+      initChat();
+      const drawer = document.getElementById('chat-drawer')!;
+      if (!drawer.classList.contains('open')) toggleChatDrawer();
+      try {
+        const input = document.getElementById('chat-input')!;
+        input.focus();
+        input.textContent = '/';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        expect(input.getAttribute('aria-expanded')).toBe('true');
+        const complete = new KeyboardEvent('keydown', {
+          key: 'Tab',
+          shiftKey,
+          bubbles: true,
+          cancelable: true,
+        });
+        input.dispatchEvent(complete);
+        expect(complete.defaultPrevented).toBe(true);
+        expect(input.textContent).toMatch(/^\/\w+ $/);
+        expect(input.getAttribute('aria-expanded')).toBe('false');
+        expect(document.activeElement).toBe(input);
+
+        // Once completion closes, the next ordinary Tab belongs to the modal.
+        input.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Tab',
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        expect(document.activeElement).toBe(document.getElementById('btn-chat-send'));
+      } finally {
+        if (drawer.classList.contains('open')) toggleChatDrawer();
+        document.documentElement.style.removeProperty('--app-height');
+      }
+    },
+  );
+
+  it('keeps a background drawer open when a later account dialog owns Escape', async () => {
+    document.body.innerHTML = `
+      <div id="chat-drawer" tabindex="-1"><div class="chat-drawer-header"></div></div>
+      <div id="dialog-overlay"><h2 id="dialog-title"></h2><div id="dialog-message"></div>
+        <button id="btn-dialog-ok"></button><button id="btn-dialog-secondary"></button></div>`;
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+    const { initChat, toggleChatDrawer } = await import('../chat.ts');
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    initChat();
+    const drawer = document.getElementById('chat-drawer')!;
+    if (!drawer.classList.contains('open')) toggleChatDrawer();
+    const pending = showDialog({ title: 'Nickname', message: 'Complete your profile' });
+    try {
+      expect(drawer.hasAttribute('inert')).toBe(true);
+      const ok = document.getElementById('btn-dialog-ok')!;
+      ok.focus();
+      ok.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }),
+      );
+      expect(document.activeElement).toBe(ok);
+      document
+        .getElementById('btn-dialog-ok')!
+        .dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+      expect(drawer.classList.contains('open')).toBe(true);
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
+    } finally {
+      closeDialog();
+      await pending;
+      if (drawer.classList.contains('open')) toggleChatDrawer();
+    }
+  });
+  it.each(['local command', 'ordinary fallback', 'ordinary dummy'] as const)(
+    'preserves synchronous truncation, editor reset and focus order for %s',
+    async (mode) => {
+      document.body.innerHTML =
+        '<div id="chat-messages"></div><div id="chat-input" contenteditable="true"></div>' +
+        (mode === 'ordinary dummy' ? '<input id="chat-ime-dummy">' : '');
+      const input = document.getElementById('chat-input') as HTMLDivElement;
+      input.textContent = (mode === 'local command' ? '/notice ' : `${mode} `) + 'x'.repeat(501);
+      setState('network.appRole', 'host');
+      const { sendChatMessage } = await import('../chat.ts');
+      const order: string[] = [];
+      let editable = 'true';
+      Object.defineProperties(input, {
+        contentEditable: {
+          configurable: true,
+          get: () => editable,
+          set: (value: string) => {
+            editable = value;
+            order.push(`editable:${value}`);
+          },
+        },
+        offsetHeight: {
+          configurable: true,
+          get: () => {
+            order.push('reflow');
+            return 0;
+          },
+        },
+      });
+      const replaceChildren = input.replaceChildren.bind(input);
+      vi.spyOn(input, 'replaceChildren').mockImplementation((...nodes) => {
+        order.push('clear');
+        replaceChildren(...nodes);
+      });
+      vi.spyOn(input, 'focus').mockImplementation(() => order.push('focus'));
+      const dummy = document.getElementById('chat-ime-dummy');
+      if (dummy) vi.spyOn(dummy, 'focus').mockImplementation(() => order.push('dummy-focus'));
+      input.addEventListener('input', () => {
+        expect(input.textContent).toBe('');
+        expect(input.contentEditable).toBe('true');
+        order.push('input');
+      });
+      vi.mocked(showToast).mockImplementation((message) => {
+        if (message === 'chat.msg_truncated') order.push('truncate');
+      });
+      try {
+        sendChatMessage();
+        const reset = ['editable:false', 'clear', 'reflow', 'editable:true'];
+        expect(order).toEqual(
+          mode === 'local command'
+            ? ['truncate', ...reset, 'input', 'focus']
+            : mode === 'ordinary fallback'
+              ? ['truncate', ...reset, 'focus', 'input']
+              : ['truncate', 'dummy-focus', 'clear', 'focus', 'input'],
+        );
+      } finally {
+        vi.mocked(showToast).mockReset();
+      }
+    },
+  );
+
+  it('bounds a pasted notice before its local command intercept', async () => {
+    const { MAX_MSG_LENGTH, MSG } = await import('../../core/constants.ts');
+    document.body.innerHTML =
+      '<div class="chat-input-wrapper"><div id="chat-input" contenteditable="true">/notice </div></div>';
+    setState('network.appRole', 'host');
+    const { initChat, sendChatMessage } = await import('../chat.ts');
+    initChat();
+    const input = document.getElementById('chat-input')!;
+    const original = Object.getOwnPropertyDescriptor(document, 'execCommand');
+    Object.defineProperty(document, 'execCommand', {
+      configurable: true,
+      value: (_command: string, _showUi: boolean, text: string) => input.append(text),
+    });
+    const sent = vi.fn();
+    bus.on('network:broadcast', sent);
+    try {
+      for (let index = 0; index < 2; index += 1) {
+        const paste = new Event('paste', { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, 'clipboardData', {
+          value: { getData: () => 'x'.repeat(MAX_MSG_LENGTH) },
+        });
+        input.dispatchEvent(paste);
+      }
+      sendChatMessage();
+      const notice = sent.mock.calls.find(([frame]) => frame.type === MSG.CHAT_NOTICE)?.[0];
+      expect(notice).toBeDefined();
+      expect(notice.text).toBe('x'.repeat(MAX_MSG_LENGTH - '/notice '.length));
+      expect(showToast).toHaveBeenCalledWith('chat.msg_truncated');
+    } finally {
+      if (original) Object.defineProperty(document, 'execCommand', original);
+      else Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
+  it.each(['w', 'whisper'])(
+    'bounds /%s while preserving the target and message spaces',
+    async (name) => {
+      const { MAX_MSG_LENGTH, MSG } = await import('../../core/constants.ts');
+      document.body.innerHTML =
+        '<div id="chat-messages"></div><div id="chat-input" contenteditable="true"></div>';
+      const prefix = `/${name} #0 `;
+      const message = 'hello  there ' + 'x'.repeat(MAX_MSG_LENGTH);
+      document.getElementById('chat-input')!.textContent = prefix + message;
+      setState('network.appRole', 'guest');
+      setState('network.myId', 'guest-bounded-whisper');
+      setState('network.myJoinOrder', 1);
+      setState('network.hostConn', { open: true, peer: 'host-bounded-whisper' } as DataConnection);
+      const { sendChatMessage } = await import('../chat.ts');
+      sendChatMessage();
+      const expected = message.slice(0, MAX_MSG_LENGTH - prefix.length);
+      expect(sendToHost).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: MSG.CHAT_WHISPER,
+          targetId: 'host-bounded-whisper',
+          text: expected,
+        }),
+      );
+      expect(document.querySelector('.chat-bubble')?.textContent).toContain(expected);
+    },
+  );
+
+  it('still rejects a long notice for a guest without notice permission', async () => {
+    document.body.innerHTML =
+      '<div id="chat-messages"></div><div id="chat-input" contenteditable="true"></div>';
+    document.getElementById('chat-input')!.textContent = '/notice ' + 'denied '.repeat(100);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'host-denied-notice' } as DataConnection);
+    const sent = vi.fn();
+    bus.on('network:broadcast', sent);
+    const { sendChatMessage } = await import('../chat.ts');
+    sendChatMessage();
+    expect(sendToHost).not.toHaveBeenCalled();
+    expect(sent).not.toHaveBeenCalled();
+    expect(document.getElementById('chat-messages')?.textContent).toContain(
+      'toast.chat_notice_required',
+    );
+  });
+
+  it('keeps a frozen long ordinary message intact before the length check', async () => {
+    document.body.innerHTML =
+      '<div id="chat-messages"></div><div id="chat-input" contenteditable="true"></div>';
+    const draft = 'frozen ordinary '.repeat(100);
+    document.getElementById('chat-input')!.textContent = draft;
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', { open: true, peer: 'host-frozen-long' } as DataConnection);
+    setState('network.chatFrozen', true);
+    const { sendChatMessage } = await import('../chat.ts');
+    sendChatMessage();
+    expect(sendToHost).not.toHaveBeenCalled();
+    expect(document.getElementById('chat-input')?.textContent).toBe(draft);
+    expect(showToast).not.toHaveBeenCalledWith('chat.msg_truncated');
+    expect(document.getElementById('chat-messages')?.textContent).toContain(
+      'chat.cmd_frozen_blocked',
+    );
+  });
+
+  it.each([
+    ['whole input', false],
+    ['partial input', false],
+    ['collapsed cursor', true],
+    ['outside input', true],
+    ['crossing input boundary', true],
+    ['IME composition', false],
+  ] as const)(
+    'bounds replacement with %s selected at the message limit',
+    async (scope, prevented) => {
+      const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+      document.body.innerHTML =
+        '<div id="outside">external text</div><div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div>';
+      const { initChat } = await import('../chat.ts');
+      initChat();
+      const input = document.getElementById('chat-input')!;
+      input.textContent = 'a'.repeat(MAX_MSG_LENGTH);
+      const range = document.createRange();
+      range.selectNodeContents(input);
+      if (scope === 'partial input') {
+        range.setStart(input.firstChild!, 5);
+        range.setEnd(input.firstChild!, 10);
+      } else if (scope === 'collapsed cursor') {
+        range.collapse(false);
+      } else if (scope === 'outside input') {
+        range.selectNodeContents(document.getElementById('outside')!);
+      } else if (scope === 'crossing input boundary') {
+        range.setStart(document.getElementById('outside')!.firstChild!, 0);
+      }
+      const selection = window.getSelection()!;
+      selection.removeAllRanges();
+      selection.addRange(range);
+      const beforeInput = new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: scope === 'IME composition' ? 'insertCompositionText' : 'insertText',
+        data: 'b',
+      });
+      input.dispatchEvent(beforeInput);
+      expect(beforeInput.defaultPrevented).toBe(prevented);
+      selection.removeAllRanges();
+    },
+  );
+
+  it('clips replacement text to the room left by the selected characters', async () => {
+    const { MAX_MSG_LENGTH } = await import('../../core/constants.ts');
+    document.body.innerHTML =
+      '<div class="chat-input-wrapper"><div id="chat-input" contenteditable="true"></div></div>';
+    const { initChat } = await import('../chat.ts');
+    initChat();
+    const input = document.getElementById('chat-input')!;
+    input.textContent = 'a'.repeat(MAX_MSG_LENGTH);
+    const range = document.createRange();
+    range.setStart(input.firstChild!, 5);
+    range.setEnd(input.firstChild!, 10);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const original = Object.getOwnPropertyDescriptor(document, 'execCommand');
+    const insert = vi.fn();
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: insert });
+    try {
+      const event = new InputEvent('beforeinput', {
+        bubbles: true,
+        cancelable: true,
+        inputType: 'insertText',
+        data: '12345678',
+      });
+      input.dispatchEvent(event);
+      expect(event.defaultPrevented).toBe(true);
+      expect(insert).toHaveBeenCalledWith('insertText', false, '12345');
+    } finally {
+      selection.removeAllRanges();
+      if (original) Object.defineProperty(document, 'execCommand', original);
+      else Reflect.deleteProperty(document, 'execCommand');
+    }
+  });
+
   it('installs bubble copy gestures when the desktop chat starts already visible', async () => {
     const desktopMedia = window.matchMedia('(min-width: 1280px)');
     Object.defineProperty(desktopMedia, 'matches', { configurable: true, value: true });
@@ -433,6 +869,43 @@ describe('Chat Module', () => {
       expect(scrollTo).toHaveBeenCalledWith({ top: 1_000, behavior: 'auto' });
     });
 
+    it.each(['composing', 'legacy'])(
+      'preserves the chat drawer and suggestions during %s IME Escape',
+      async (mode) => {
+        renderChatShell();
+        vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+        const { initChat, toggleChatDrawer } = await import('../chat.ts');
+        initChat();
+        toggleChatDrawer();
+        const input = document.getElementById('chat-input')!;
+        const drawer = document.getElementById('chat-drawer')!;
+        drawer.appendChild(input);
+        input.focus();
+        input.textContent = '/';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key: 'Escape',
+            isComposing: mode === 'composing',
+            keyCode: mode === 'legacy' ? 229 : 0,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        expect(drawer.classList.contains('open')).toBe(true);
+        expect(input.getAttribute('aria-expanded')).toBe('true');
+        input.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+        expect(input.getAttribute('aria-expanded')).toBe('false');
+        expect(drawer.classList.contains('open')).toBe(true);
+        input.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+        );
+        expect(drawer.classList.contains('open')).toBe(false);
+      },
+    );
+
     it('exposes command suggestions as an active-descendant combobox', async () => {
       renderChatShell();
       const { initChat } = await import('../chat.ts');
@@ -520,6 +993,99 @@ describe('Chat Module', () => {
 
       toggleChatDrawer();
     });
+
+    it.each(['touchend', 'touchcancel', 'mouse'] as const)(
+      'keeps the first drawer touch through another input %s and accepts the next gesture',
+      async (otherEnd) => {
+        const page = new DOMParser().parseFromString(
+          readFileSync('index.html', 'utf8'),
+          'text/html',
+        );
+        document.body.innerHTML = page.body.innerHTML;
+        vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(390);
+        vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(844);
+        document.documentElement.style.setProperty('--app-height', '844px');
+        const drawer = document.getElementById('chat-drawer')!;
+        drawer.getBoundingClientRect = vi.fn(() => {
+          const height =
+            Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height')) ||
+            (drawer.dataset.chatSnap === 'full' ? 844 : 422);
+          return {
+            x: 0,
+            y: 844 - height,
+            width: 390,
+            height,
+            top: 844 - height,
+            right: 390,
+            bottom: 844,
+            left: 0,
+            toJSON: () => ({}),
+          };
+        });
+        const { initChat, toggleChatDrawer } = await import('../chat.ts');
+        initChat();
+        if (!drawer.classList.contains('open')) toggleChatDrawer();
+        const header = drawer.querySelector<HTMLElement>('.chat-drawer-header')!;
+        const point = (identifier: number, clientY: number): Touch => ({
+          identifier,
+          target: header,
+          clientX: 0,
+          clientY,
+          pageX: 0,
+          pageY: clientY,
+          screenX: 0,
+          screenY: clientY,
+          radiusX: 1,
+          radiusY: 1,
+          rotationAngle: 0,
+          force: 1,
+        });
+        const touch = (type: string, touches: Touch[], changedTouches: Touch[]) => {
+          header.dispatchEvent(
+            new TouchEvent(type, { bubbles: true, cancelable: true, touches, changedTouches }),
+          );
+        };
+        try {
+          touch('touchstart', [point(1, 600)], [point(1, 600)]);
+          touch('touchmove', [point(1, 560)], [point(1, 560)]);
+          expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'))).toBe(462);
+          if (otherEnd === 'mouse') {
+            header.dispatchEvent(
+              new MouseEvent('mousedown', { bubbles: true, button: 0, clientY: 560 }),
+            );
+            window.dispatchEvent(new MouseEvent('mousemove', { clientY: 700 }));
+            window.dispatchEvent(new MouseEvent('mouseup', { clientY: 700 }));
+          } else {
+            touch('touchstart', [point(1, 560), point(2, 560)], [point(2, 560)]);
+            touch(otherEnd, [point(1, 560)], [point(2, 560)]);
+          }
+          expect(drawer.classList.contains('is-dragging')).toBe(true);
+          touch('touchmove', [point(1, 500)], [point(1, 500)]);
+          expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'))).toBe(522);
+          touch('touchend', [], [point(1, 500)]);
+          expect(drawer.dataset.chatSnap).toBe('full');
+          expect(drawer.classList.contains('is-dragging')).toBe(false);
+
+          toggleChatDrawer();
+          toggleChatDrawer();
+          // A touch elsewhere on the document is first in touches, but only the
+          // changed local touch starts this header's next gesture.
+          touch('touchstart', [point(3, 100), point(4, 600)], [point(4, 600)]);
+          touch('touchmove', [point(3, 100), point(4, 500)], [point(4, 500)]);
+          expect(Number.parseFloat(drawer.style.getPropertyValue('--chat-live-height'))).toBe(522);
+          touch('touchcancel', [point(3, 100)], [point(4, 500)]);
+          expect(drawer.dataset.chatSnap).toBe('half');
+          expect(drawer.classList.contains('is-dragging')).toBe(false);
+          touch('touchstart', [point(5, 600)], [point(5, 600)]);
+          touch('touchcancel', [], []);
+          expect(drawer.classList.contains('is-dragging')).toBe(false);
+          expect(drawer.dataset.chatSnap).toBe('half');
+        } finally {
+          if (drawer.classList.contains('open')) toggleChatDrawer();
+          document.documentElement.style.removeProperty('--app-height');
+        }
+      },
+    );
 
     it('uses adjacent detents normally and supports a deliberate full-height dismiss', async () => {
       renderChatShell();
@@ -1672,6 +2238,8 @@ describe('Chat Module', () => {
       'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
       'https://youtu.be/dQw4w9WgXcQ',
       'https://youtube.com/shorts/dQw4w9WgXcQ',
+      'HTTPS://youtu.be/dQw4w9WgXcQ',
+      'HtTpS://www.youtube.com/watch?v=dQw4w9WgXcQ',
     ])('renders a production YouTube action for %s', async (url) => {
       const { parseMessageContent } = await import('../chat-render.ts');
       const root = document.createElement('div');
@@ -1680,6 +2248,31 @@ describe('Chat Module', () => {
       expect(root.querySelector<HTMLButtonElement>('.chat-youtube-btn')?.dataset.youtubeUrl).toBe(
         url,
       );
+    });
+
+    it.each([
+      ['HTTP://youtu.be/dQw4w9WgXcQ', 'HTTP://youtu.be/dQw4w9WgXcQ'],
+      ['HtTpS://youtu.be/dQw4w9WgXcQ', 'HtTpS://youtu.be/dQw4w9WgXcQ'],
+      ['youtu.be/dQw4w9WgXcQ', 'https://youtu.be/dQw4w9WgXcQ'],
+    ])('uses the same valid URL for the %s button and title request', async (wireUrl, expected) => {
+      vi.useFakeTimers();
+      try {
+        document.body.innerHTML = '<div id="chat-messages"></div>';
+        const { fetchOEmbedTitle } = await import('../../youtube/oembed.ts');
+        vi.mocked(fetchOEmbedTitle).mockClear();
+        const { addChatMessage } = await import('../chat-render.ts');
+        addChatMessage('Peer 1', wireUrl, false);
+
+        const button = document.querySelector<HTMLButtonElement>('.chat-youtube-btn')!;
+        const displayedWireUrl = button.querySelector('.chat-yt-title')?.textContent;
+        await vi.advanceTimersByTimeAsync(100);
+        expect(fetchOEmbedTitle).toHaveBeenCalledExactlyOnceWith(expected);
+        expect(button.dataset.youtubeUrl).toBe(expected);
+        expect(new URL(button.dataset.youtubeUrl!).hostname).toBe('youtu.be');
+        expect(displayedWireUrl).toBe(wireUrl);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('leaves non-YouTube URLs and bare numbers as text', async () => {

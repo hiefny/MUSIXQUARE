@@ -45,4 +45,9 @@ describe('localized canonical paths', () => {
     expect(appLanguageFromPathname('/123456')).toBeNull();
     expect(appLanguageFromPathname('/blog')).toBeNull();
   });
+
+  it.each(['/constructor/', '/__proto__/', '/constructor/index.html'])(
+    'does not treat inherited object property %s as a language alias',
+    (path) => expect(appLanguageFromPathname(path)).toBeNull(),
+  );
 });

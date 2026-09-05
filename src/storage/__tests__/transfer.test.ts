@@ -131,6 +131,116 @@ describe('transfer state reset', () => {
 });
 
 describe('host outgoing transfer routing', () => {
+  it.each([false, true])(
+    'does not restart a debounced broadcast canceled during its predecessor yield (clear source: %s)',
+    async (clearSource) => {
+      vi.useFakeTimers();
+      const { broadcastFileDebounced, cancelOutgoingFileTransfers } =
+        await import('../transfer.ts');
+      try {
+        cancelOutgoingFileTransfers();
+        const conn = {
+          open: true,
+          peer: 'yield-cancel-peer',
+          send: vi.fn(),
+          peerConnection: { connectionState: 'connected', iceConnectionState: 'connected' },
+          dataChannel: { readyState: 'open', bufferedAmount: 0 },
+        } as unknown as DataConnection;
+        setState('network.connectedPeers', [connectedPeer(conn.peer, conn)]);
+        const first = new File(['old'], 'old.mp3', { type: 'audio/mpeg' });
+        const second = new File(['new'], 'new.mp3', { type: 'audio/mpeg' });
+        let resolveRead!: (bytes: ArrayBuffer) => void;
+        const pendingRead = new Promise<ArrayBuffer>((resolve) => {
+          resolveRead = resolve;
+        });
+        vi.spyOn(first, 'slice').mockReturnValue({ arrayBuffer: () => pendingRead } as Blob);
+        publishHostFile(first, Q0, 1);
+        broadcastFileDebounced(first, Q0, 1);
+        await vi.advanceTimersByTimeAsync(301);
+        expect(getState('transfer.activeBroadcastSession')).toBe(1);
+        publishHostFile(second, Q1, 2);
+        broadcastFileDebounced(second, Q1, 2);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(getState('transfer.activeBroadcastSession')).toBeNull();
+        cancelOutgoingFileTransfers();
+        if (clearSource) {
+          setState('playlist.currentQueueItemId', null);
+          setState('files.current', null);
+        }
+        vi.mocked(conn.send).mockClear();
+        resolveRead(new ArrayBuffer(3));
+        await vi.advanceTimersByTimeAsync(100);
+        expect(conn.send).not.toHaveBeenCalled();
+      } finally {
+        cancelOutgoingFileTransfers();
+        clearAllManagedTimers();
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it('does not let a yielded broadcast replace or cancel its successor stream', async () => {
+    vi.useFakeTimers();
+    const { broadcastFile, broadcastFileDebounced, cancelOutgoingFileTransfers } =
+      await import('../transfer.ts');
+    let resolveFirst!: (bytes: ArrayBuffer) => void;
+    let resolveSuccessor!: (bytes: ArrayBuffer) => void;
+    const firstRead = new Promise<ArrayBuffer>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const successorRead = new Promise<ArrayBuffer>((resolve) => {
+      resolveSuccessor = resolve;
+    });
+    try {
+      cancelOutgoingFileTransfers();
+      const conn = {
+        open: true,
+        peer: 'yield-successor-peer',
+        send: vi.fn(),
+        peerConnection: { connectionState: 'connected', iceConnectionState: 'connected' },
+        dataChannel: { readyState: 'open', bufferedAmount: 0 },
+      } as unknown as DataConnection;
+      setState('network.connectedPeers', [connectedPeer(conn.peer, conn)]);
+      const first = new File(['old'], 'old.mp3', { type: 'audio/mpeg' });
+      const yielded = new File(['middle'], 'middle.mp3', { type: 'audio/mpeg' });
+      const successor = new File(['latest'], 'latest.mp3', { type: 'audio/mpeg' });
+      vi.spyOn(first, 'slice').mockReturnValue({ arrayBuffer: () => firstRead } as Blob);
+      vi.spyOn(successor, 'slice').mockReturnValue({ arrayBuffer: () => successorRead } as Blob);
+      publishHostFile(first, Q0, 1);
+      broadcastFileDebounced(first, Q0, 1);
+      await vi.advanceTimersByTimeAsync(301);
+      publishHostFile(yielded, Q1, 2);
+      broadcastFileDebounced(yielded, Q1, 2);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(getState('transfer.activeBroadcastSession')).toBeNull();
+
+      publishHostFile(successor, Q0, 3);
+      vi.mocked(conn.send).mockClear();
+      const successorTransfer = broadcastFile(successor, Q0, 3);
+      resolveFirst(new ArrayBuffer(3));
+      await vi.advanceTimersByTimeAsync(100);
+      expect(getState('transfer.activeBroadcastSession')).toBe(3);
+      expect(vi.mocked(conn.send).mock.calls.map(([message]) => message)).toEqual([
+        expect.objectContaining({ type: MSG.FILE_START, name: 'latest.mp3', sessionId: 3 }),
+      ]);
+      resolveSuccessor(new ArrayBuffer(6));
+      await vi.advanceTimersByTimeAsync(100);
+      await successorTransfer;
+      expect(vi.mocked(conn.send).mock.calls.map(([message]) => message)).toEqual([
+        expect.objectContaining({ type: MSG.FILE_START, sessionId: 3 }),
+        expect.objectContaining({ type: MSG.FILE_CHUNK, sessionId: 3, chunkIndex: 0 }),
+        expect.objectContaining({ type: MSG.FILE_END, sessionId: 3 }),
+      ]);
+      expect(getState('transfer.activeBroadcastSession')).toBeNull();
+    } finally {
+      resolveFirst(new ArrayBuffer(3));
+      resolveSuccessor(new ArrayBuffer(6));
+      cancelOutgoingFileTransfers();
+      clearAllManagedTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it('marks capable mixed-room peers for R2 and rejects unadvertised overflow explicitly', async () => {
     const { sendFilePrepareByDelivery } = await import('../transfer.ts');
     const peers = Array.from({ length: 10 }, (_, index) => {

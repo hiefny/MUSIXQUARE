@@ -820,6 +820,7 @@ const COMMANDS_DEF: Record<
 
 // Resolve i18n at access time
 function _resolveCommand(name: string): CommandDef | undefined {
+  if (!Object.prototype.hasOwnProperty.call(COMMANDS_DEF, name)) return undefined;
   const def = COMMANDS_DEF[name];
   if (!def) return undefined;
   return {

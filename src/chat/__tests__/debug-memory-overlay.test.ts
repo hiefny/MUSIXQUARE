@@ -87,6 +87,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
   document.getElementById('debug-memory-overlay')?.click();
   document.body.innerHTML = '';
   vi.restoreAllMocks();
@@ -94,6 +95,62 @@ afterEach(() => {
 });
 
 describe('/debug memory live overlay', () => {
+  it('does not copy a text snapshot after its view has been dismissed', async () => {
+    cmdDebug(['console']);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.getElementById('debug-console-overlay')).toBeNull();
+    expect(uiMocks.clipboardWriteText).not.toHaveBeenCalled();
+    expect(uiMocks.showToast).not.toHaveBeenCalled();
+  });
+
+  it('cancels pending memory collection when the current view is dismissed', async () => {
+    const slowEstimate = deferred<StorageEstimate>();
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: { estimate: vi.fn(() => slowEstimate.promise) },
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext());
+    cmdDebug(['console']);
+    cmdDebug(['memory']);
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    slowEstimate.resolve(storageEstimate(2));
+    await slowEstimate.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.querySelector('.debug-memory-overlay')).toBeNull();
+    expect(uiMocks.clipboardWriteText).not.toHaveBeenCalled();
+  });
+
+  it('does not replace a newer debug view when an earlier initial memory snapshot finishes', async () => {
+    const slowEstimate = deferred<StorageEstimate>();
+    Object.defineProperty(navigator, 'storage', {
+      configurable: true,
+      value: { estimate: vi.fn(() => slowEstimate.promise) },
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(canvasContext());
+
+    cmdDebug(['memory']);
+    cmdDebug(['console']);
+    await vi.waitFor(() => expect(uiMocks.clipboardWriteText).toHaveBeenCalledOnce());
+    const currentOverlay = document.getElementById('debug-console-overlay');
+    expect(currentOverlay).not.toBeNull();
+
+    slowEstimate.resolve(storageEstimate(2));
+    // Let the discarded storage read finish without waiting for a UI mutation.
+    await slowEstimate.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.getElementById('debug-console-overlay')).toBe(currentOverlay);
+    expect(document.getElementById('debug-memory-overlay')).toBeNull();
+    expect(uiMocks.clipboardWriteText).toHaveBeenCalledOnce();
+    expect(timerMocks.callbacks.has('debug-memory-poll')).toBe(false);
+  });
+
   it('keeps slow memory collection single-flight and resumes after it settles', async () => {
     const slowEstimate = deferred<StorageEstimate>();
     const estimate = vi

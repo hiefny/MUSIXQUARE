@@ -692,21 +692,20 @@ function conditionalInitialRegistration(
               )
               .get(),
           ).toEqual({ state: 'issued', transfer_id: null, request_id: null });
-          expect(
-            db
-              .prepare(`SELECT name FROM pragma_table_info('mxqr_pro_room_owner_transfer_sagas')`)
-              .all()
-              .map((row) => row.name),
-          ).not.toEqual(
-            expect.arrayContaining([
-              'claim_token',
-              'claim_nonce',
-              'commit_proof',
-              'pin',
-              'cookie',
-              'revocation_receipt',
-            ]),
-          );
+          const columns = db
+            .prepare(`SELECT name FROM pragma_table_info('mxqr_pro_room_owner_transfer_sagas')`)
+            .all()
+            .map((row) => row.name);
+          for (const forbiddenColumn of [
+            'claim_token',
+            'claim_nonce',
+            'commit_proof',
+            'pin',
+            'cookie',
+            'revocation_receipt',
+          ]) {
+            expect(columns).not.toContain(forbiddenColumn);
+          }
           db.exec(`
             UPDATE mxqr_pro_room_owner_transfer_issuances
                SET state = 'expired', updated_at = 200

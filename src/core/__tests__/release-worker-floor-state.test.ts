@@ -1067,6 +1067,9 @@ describe('Worker compatibility-floor recovery', () => {
       expect(step).toContain(
         'standard-room-pin-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',
       );
+      expect(step).toContain(
+        'soro-article-visibility-forward-floor "$GITHUB_SHA" release-artifacts/recovery-checkpoint',
+      );
       expect(step).not.toMatch(/generation_floor[^\n]*== ['"]true['"]/u);
     }
     expect(recoveryPlan).toContain(

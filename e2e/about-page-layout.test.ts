@@ -14,10 +14,7 @@ test.describe('About page closing divider', () => {
       page,
     }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
-      // Vite preview's canonical-page middleware rewrites `/about.html` to the
-      // development-only workshop path. Encode one character so the static
-      // server decodes and serves the flattened build artifact directly.
-      await page.goto('/%61bout.html');
+      await page.goto('/about.html');
 
       const cta = page.locator('.lp-cta');
       const divider = page.locator('hr.lp-divider.lp-divider--full');

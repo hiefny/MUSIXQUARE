@@ -38,6 +38,7 @@ type ToneOptions = {
 
 let outputGraph: OutputGraph | null = null;
 let enabledCache: boolean | null = null;
+let enabledWriteFailed = false;
 let lastUiTouchAt = Number.NEGATIVE_INFINITY;
 let lastSessionSoundAt = Number.NEGATIVE_INFINITY;
 let lastSelfJoinAt = Number.NEGATIVE_INFINITY;
@@ -56,11 +57,15 @@ function nowMs(): number {
   return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
-function canPlayWhileVisible(): boolean {
-  return typeof document === 'undefined' || document.visibilityState !== 'hidden';
+function canPlayUiSound(force = false): boolean {
+  return (
+    (force || readEnabled()) &&
+    (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+  );
 }
 
 function readEnabled(): boolean {
+  if (enabledWriteFailed) return enabledCache ?? false;
   try {
     enabledCache = localStorage.getItem(STORAGE_KEY) === '1';
   } catch {
@@ -77,7 +82,9 @@ export function setUiSoundsEnabled(enabled: boolean): void {
   enabledCache = enabled;
   try {
     localStorage.setItem(STORAGE_KEY, enabled ? '1' : '0');
+    enabledWriteFailed = false;
   } catch {
+    enabledWriteFailed = true;
     /* Local preference remains active for this page even if storage is blocked. */
   }
   bus.emit('ui:ui-sounds-changed', enabled);
@@ -120,7 +127,7 @@ function ensureOutputGraph(context: AudioContext): OutputGraph {
 }
 
 function resumeFromGesture(): void {
-  if (!readEnabled() || !canPlayWhileVisible()) return;
+  if (!canPlayUiSound()) return;
   try {
     const context = getAudioContext();
     if (context.state !== 'running') void context.resume().catch(() => undefined);
@@ -130,13 +137,15 @@ function resumeFromGesture(): void {
 }
 
 async function readyOutput(force = false): Promise<OutputGraph | null> {
-  if ((!force && !readEnabled()) || !canPlayWhileVisible()) return null;
+  if (!canPlayUiSound(force)) return null;
   try {
     const context = getAudioContext();
     if (context.state !== 'running') {
       await context.resume().catch(() => undefined);
     }
-    if (context.state !== 'running') return null;
+    if (context.state !== 'running' || !canPlayUiSound(force)) {
+      return null;
+    }
     return ensureOutputGraph(context);
   } catch {
     return null;
@@ -393,6 +402,7 @@ export function resetUiSoundsForTests(): void {
   busScope.dispose();
   initialized = false;
   enabledCache = null;
+  enabledWriteFailed = false;
   outputGraph = null;
   lastUiTouchAt = Number.NEGATIVE_INFINITY;
   lastSessionSoundAt = Number.NEGATIVE_INFINITY;

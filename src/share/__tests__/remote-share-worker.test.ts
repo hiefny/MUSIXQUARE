@@ -857,6 +857,47 @@ afterEach(() => {
 });
 
 describe('remote-share Worker capability gate', () => {
+  it('rejects allocation aliases outside the exact WAF session path before touching storage', async () => {
+    const token = await createCapabilityToken();
+    const bucket = createQuotaBucket();
+    const workerEnv = directUploadQuotaEnv({
+      REMOTE_SHARE_BUCKET: bucket,
+      ROOM_STORAGE_QUOTA_BYTES: '32',
+      ROOM_UPLOAD_ASSERTION_MODE: 'required',
+      MXQR_REMOTE_SHARE_UPLOAD_ASSERTION_SECRET: UPLOAD_ASSERTION_SECRET,
+    });
+    const body = sessionRequestBody({
+      actorId: `rsa_${'a'.repeat(43)}`,
+      requestId: `rs3_${'b'.repeat(43)}`,
+    });
+    const assertion = await createTestUploadAssertion(body);
+    const send = (path: string) =>
+      workerModule.default.fetch(
+        request(path, {
+          method: 'POST',
+          body,
+          headers: {
+            'cf-connecting-ip': CLIENT_IP,
+            'content-type': 'application/json',
+            'x-mxqr-capability': token,
+            'x-mxqr-room-upload-assertion': assertion,
+          },
+        }),
+        workerEnv,
+      );
+
+    for (const path of ['/session/', '/session////']) {
+      const response = await send(path);
+      expect(response.status, path).toBe(404);
+      expect(bucket.put).not.toHaveBeenCalled();
+      expect(bucket.list).not.toHaveBeenCalled();
+    }
+
+    const canonical = await send('/session');
+    expect(canonical.status).toBe(200);
+    expect(bucket.put).toHaveBeenCalledOnce();
+  });
+
   it('keeps the live smoke inside the same standard-room namespace', () => {
     expect(liveSmokeSource).toContain('randomInt(100_000, 1_000_000)');
     expect(liveSmokeSource).not.toContain('`live-smoke-${');
@@ -3229,71 +3270,98 @@ describe('remote-share Worker capability gate', () => {
     expect(retried.status).toBe(200);
   });
 
-  it('retains the placeholder when ambiguous reserve and compensating release both fail', async () => {
-    const token = await createCapabilityToken();
-    const bucket = createQuotaBucket();
-    const workerEnv = directUploadQuotaEnv({
-      REMOTE_SHARE_BUCKET: bucket,
-      ROOM_STORAGE_QUOTA_BYTES: '32',
-    });
-    const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
-    const quotaInstance = namespace.instance('123456');
-    vi.spyOn(quotaInstance.storage, 'setAlarm').mockRejectedValueOnce(
-      new Error('alarm unavailable after storage put'),
-    );
-    const originalGet = namespace.get;
-    let rejectRelease = true;
-    vi.spyOn(namespace, 'get').mockImplementation((id) => {
-      const stub = originalGet(id);
-      return {
-        fetch: async (quotaRequest) => {
-          if (rejectRelease && new URL(quotaRequest.url).pathname === '/release') {
-            rejectRelease = false;
-            throw new Error('compensating release unavailable');
-          }
-          return stub.fetch(quotaRequest);
-        },
-      };
-    });
-    const body = sessionRequestBody({
-      requestId: `rs3_${'Y'.repeat(43)}`,
-      actorId: `rsa_${'Y'.repeat(43)}`,
-    });
-    const createSession = () =>
-      workerModule.default.fetch(
-        request('/session', {
-          method: 'POST',
-          headers: {
-            'cf-connecting-ip': CLIENT_IP,
-            'content-type': 'application/json',
-            'x-mxqr-capability': token,
+  it.each([false, true])(
+    'repairs the retained receipt alarm before replay success (repair fails: %s)',
+    async (repairFails) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-08-09T00:00:00.000Z'));
+      const token = await createCapabilityToken();
+      const bucket = createQuotaBucket();
+      const workerEnv = directUploadQuotaEnv({
+        REMOTE_SHARE_BUCKET: bucket,
+        ROOM_STORAGE_QUOTA_BYTES: '32',
+      });
+      const namespace = workerEnv.REMOTE_SHARE_QUOTA as FakeQuotaNamespace;
+      const quotaInstance = namespace.instance('123456');
+      const setAlarm = vi
+        .spyOn(quotaInstance.storage, 'setAlarm')
+        .mockRejectedValueOnce(new Error('alarm unavailable after storage put'));
+      const originalGet = namespace.get;
+      let rejectRelease = true;
+      vi.spyOn(namespace, 'get').mockImplementation((id) => {
+        const stub = originalGet(id);
+        return {
+          fetch: async (quotaRequest) => {
+            if (rejectRelease && new URL(quotaRequest.url).pathname === '/release') {
+              rejectRelease = false;
+              throw new Error('compensating release unavailable');
+            }
+            return stub.fetch(quotaRequest);
           },
-          body,
-        }),
-        workerEnv,
+        };
+      });
+      const body = sessionRequestBody({
+        requestId: `rs3_${'Y'.repeat(43)}`,
+        actorId: `rsa_${'Y'.repeat(43)}`,
+      });
+      const createSession = () =>
+        workerModule.default.fetch(
+          request('/session', {
+            method: 'POST',
+            headers: {
+              'cf-connecting-ip': CLIENT_IP,
+              'content-type': 'application/json',
+              'x-mxqr-capability': token,
+            },
+            body,
+          }),
+          workerEnv,
+        );
+
+      const failed = await createSession();
+      expect(failed.status).toBe(503);
+      const stored = quotaInstance.storage.values.get('quota-state') as {
+        reservations: Record<string, { objectId: string; uploadEtag: string; expiresAt: number }>;
+      };
+      const reservation = Object.values(stored.reservations)[0];
+      expect(reservation).toMatchObject({
+        objectId: expect.any(String),
+        uploadEtag: expect.stringMatching(/^"[^"]+"$/),
+      });
+      expect(bucket.objects.get(`room/123456/${reservation.objectId}`)?.httpEtag).toBe(
+        reservation.uploadEtag,
       );
+      expect(quotaInstance.storage.alarmAt).toBeNull();
 
-    const failed = await createSession();
-    expect(failed.status).toBe(503);
-    const stored = quotaInstance.storage.values.get('quota-state') as {
-      reservations: Record<string, { objectId: string; uploadEtag: string }>;
-    };
-    const reservation = Object.values(stored.reservations)[0];
-    expect(reservation).toMatchObject({
-      objectId: expect.any(String),
-      uploadEtag: expect.stringMatching(/^"[^"]+"$/),
-    });
-    expect(bucket.objects.get(`room/123456/${reservation.objectId}`)?.httpEtag).toBe(
-      reservation.uploadEtag,
-    );
+      if (repairFails) {
+        setAlarm.mockRejectedValueOnce(new Error('receipt alarm repair unavailable'));
+        const failedRepair = await createSession();
+        expect(failedRepair.status).toBe(503);
+        expect(await failedRepair.json()).toEqual({ error: 'room storage quota unavailable' });
+        expect(quotaInstance.storage.alarmAt).toBeNull();
+        expect(bucket.objects.size).toBe(1);
+      }
 
-    const retried = await createSession();
-    const retriedPayload = (await retried.json()) as SessionResponse;
-    expect(retried.status).toBe(200);
-    expect(retriedPayload.objectId).toBe(reservation.objectId);
-    expect(retriedPayload.uploadHeaders['if-match']).toBe(reservation.uploadEtag);
-    expect(bucket.objects.size).toBe(1);
-  });
+      const retried = await createSession();
+      const retriedPayload = (await retried.json()) as SessionResponse;
+      expect(retried.status).toBe(200);
+      expect(retriedPayload.objectId).toBe(reservation.objectId);
+      expect(retriedPayload.uploadHeaders['if-match']).toBe(reservation.uploadEtag);
+      expect(retriedPayload.expiresAt).toBe(reservation.expiresAt);
+      expect(bucket.objects.size).toBe(1);
+      expect(quotaInstance.storage.alarmAt).toBe(reservation.expiresAt);
+
+      vi.setSystemTime(reservation.expiresAt + 1);
+      await quotaInstance.object.alarm();
+      expect(bucket.objects.size).toBe(0);
+      expect(quotaInstance.storage.alarmAt).toBe(Date.now() + 60_000);
+
+      vi.setSystemTime(Date.now() + 60 * 60_000 + 1);
+      await quotaInstance.object.alarm();
+      expect(quotaInstance.storage.values.size).toBe(0);
+      expect(quotaInstance.storage.alarmAt).toBeNull();
+    },
+  );
 
   it('retains a usable placeholder when presigning and its compensating release both fail', async () => {
     const token = await createCapabilityToken();

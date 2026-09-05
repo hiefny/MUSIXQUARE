@@ -176,6 +176,114 @@ async function startHostSessionWithQR(): Promise<HTMLButtonElement> {
 }
 
 describe('connect signaling health status', () => {
+  it.each(['unchanged', 'current-account', 'room-epoch', 'target-account', 'disconnected'])(
+    'rechecks person removal after the actual confirmation dialog: %s',
+    async (transition) => {
+      const actualDialog = await vi.importActual<typeof import('../dialog.ts')>('../dialog.ts');
+      mockedShowDialog.mockImplementationOnce(actualDialog.showDialog);
+      const page = new DOMParser().parseFromString(
+        await readFile('index.html', 'utf8'),
+        'text/html',
+      );
+      document.body.innerHTML = page.body.innerHTML;
+      setState('network.appRole', 'host');
+      setState('network.myId', 'standard-host-current');
+      setState('network.hostConn', null);
+      const room: RoomContext = {
+        kind: 'standard',
+        roomId: '123456',
+        role: 'coordinator',
+        coordinatorId: 'standard-host-current',
+        epoch: 0,
+        snapshotRevision: 0,
+        capabilities: [],
+      };
+      setState('room.context', room);
+      const requestKick = vi.fn();
+      bus.on('network:request-kick-standard-room-member', requestKick);
+      initConnect();
+      const devices = [
+        {
+          id: 'standard-host-current',
+          label: 'HOST',
+          joinOrder: 0,
+          status: 'connected',
+          isHost: true,
+          isOp: true,
+          isAuthenticated: false,
+        },
+        {
+          id: 'guest-account-a',
+          label: 'Account A',
+          joinOrder: 1,
+          status: 'connected',
+          isHost: false,
+          isOp: false,
+          memberId: 'account-a',
+          memberDisplayNumber: 1,
+          isAuthenticated: true,
+        },
+      ];
+      bus.emit('network:device-list-update', devices);
+      const targetSelector = '#connect-device-list .device-entry[data-member-id="account-a"]';
+      const button = document.querySelector<HTMLButtonElement>(
+        `${targetSelector} .btn-kick-device`,
+      );
+      expect(button).not.toBeNull();
+      button!.click();
+      expect(document.getElementById('dialog-overlay')!.classList.contains('show')).toBe(true);
+
+      if (transition === 'current-account') {
+        // Verified room-identity updates the physical host before its next directory projection.
+        setState('network.myMemberId', 'account-a');
+        setState('network.myMemberAuthenticated', true);
+        bus.emit(
+          'network:device-list-update',
+          devices.map((device) =>
+            device.isHost
+              ? {
+                  ...device,
+                  label: 'Account A',
+                  memberId: 'account-a',
+                  memberDisplayNumber: 1,
+                  isAuthenticated: true,
+                }
+              : device,
+          ),
+        );
+        const entry = document.querySelector(targetSelector)!;
+        expect(entry.querySelector('.device-row')!.classList.contains('is-current-member')).toBe(
+          true,
+        );
+        expect(entry.querySelector('.btn-kick-device')).toBeNull();
+      } else if (transition === 'room-epoch') {
+        setState('room.context', { ...room, epoch: 1 });
+      } else if (transition === 'target-account' || transition === 'disconnected') {
+        bus.emit(
+          'network:device-list-update',
+          devices.map((device) =>
+            device.isHost
+              ? device
+              : {
+                  ...device,
+                  ...(transition === 'target-account'
+                    ? { memberId: 'account-b' }
+                    : { status: 'disconnected' }),
+                },
+          ),
+        );
+      }
+      document.getElementById('btn-dialog-ok')!.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      if (transition === 'unchanged') {
+        expect(requestKick).toHaveBeenCalledExactlyOnceWith({ memberId: 'account-a' });
+      } else {
+        expect(requestKick).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it('keeps a shared Material Elastic spinner in generated recovery buttons', async () => {
     const button = await startHostSessionWithQR();
     const spinner = button.querySelector<HTMLElement>(
@@ -2928,13 +3036,8 @@ describe('connect host-owned room password controls', () => {
 
 describe('connect lazy PRO authority refresh', () => {
   it('contains a runtime load/read failure and clears the stale presentation', async () => {
-    const error = new Error('runtime chunk unavailable');
-    mockedGetActiveProRoomAdministrators.mockImplementationOnce(() => {
-      throw error;
-    });
-    initConnect();
-
-    setState('room.context', {
+    await vi.dynamicImportSettled();
+    const context: RoomContext = {
       kind: 'pro',
       roomId: '000001',
       role: 'member',
@@ -2942,7 +3045,29 @@ describe('connect lazy PRO authority refresh', () => {
       epoch: 1,
       snapshotRevision: 1,
       capabilities: ['room.configure'],
+    };
+    setState('room.context', context);
+    initConnect();
+    bus.emit('pro-room:administrators-updated', [
+      {
+        memberId: 'stale-admin',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Stale administrator',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ]);
+    const rows = () => document.querySelectorAll('.administrator-row');
+    expect(rows()).toHaveLength(2);
+    const error = new Error('runtime chunk unavailable');
+    mockedGetActiveProRoomAdministrators.mockImplementationOnce(() => {
+      throw error;
     });
+
+    setState('room.context', { ...context, roomId: '000002' });
 
     await vi.waitFor(() =>
       expect(log.warn).toHaveBeenCalledWith(
@@ -2951,7 +3076,122 @@ describe('connect lazy PRO authority refresh', () => {
       ),
     );
     expect(showToast).toHaveBeenCalledWith(expect.any(String));
-    expect(document.querySelectorAll('.administrator-list-item')).toHaveLength(0);
+    expect(rows()).toHaveLength(0);
+  });
+});
+
+describe('administrator permission operation ownership', () => {
+  function startPermissionDraft() {
+    setState('network.appRole', 'guest');
+    setState('network.myId', 'owner-device');
+    const context: RoomContext = {
+      kind: 'pro',
+      roomId: '000001',
+      role: 'member',
+      coordinatorId: null,
+      epoch: 1,
+      snapshotRevision: 1,
+      capabilities: ['room.configure'],
+    };
+    setState('room.context', context);
+    const administrators: ProRoomAdministrator[] = [
+      {
+        memberId: 'admin-member',
+        memberDisplayNumber: 1,
+        isAuthenticated: true,
+        displayName: 'Admin',
+        role: 'controller',
+        permissions: { ...FULL_ADMIN_PERMISSIONS_FOR_TEST },
+        inheritedPermissions: [],
+        onlineDeviceCount: 1,
+      },
+    ];
+    initConnect();
+    bus.emit('pro-room:administrators-updated', administrators);
+    const open = () =>
+      document
+        .querySelector<HTMLButtonElement>(
+          '#connect-administrator-list .administrator-action-button.settings',
+        )!
+        .click();
+    open();
+    return { context, administrators, open };
+  }
+
+  it.each(['resolve', 'reject'])(
+    'keeps a successor save owned when the retired save %s settles',
+    async (outcome) => {
+      await vi.dynamicImportSettled();
+      mockedUpdateActiveProRoomAdministrator.mockReset();
+      const { administrators, open } = startPermissionDraft();
+      let resolveOld!: (value: ProRoomAdministrator[]) => void;
+      let rejectOld!: (error: Error) => void;
+      let resolveNew!: (value: ProRoomAdministrator[]) => void;
+      mockedUpdateActiveProRoomAdministrator
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve, reject) => {
+              resolveOld = resolve;
+              rejectOld = reject;
+            }),
+        )
+        .mockImplementationOnce(
+          () =>
+            new Promise((resolve) => {
+              resolveNew = resolve;
+            }),
+        );
+      document.getElementById('btn-administrator-permissions-save')!.click();
+      await vi.waitFor(() => expect(mockedUpdateActiveProRoomAdministrator).toHaveBeenCalledOnce());
+
+      const updated = administrators.map((admin) => ({
+        ...admin,
+        permissions: { ...admin.permissions, 'chat.notice': false },
+      }));
+      bus.emit('pro-room:administrators-updated', updated);
+      const overlay = document.getElementById('administrator-permissions-overlay')!;
+      const dialog = document.getElementById('administrator-permissions-dialog')!;
+      expect(overlay.classList.contains('show')).toBe(false);
+      expect(dialog.getAttribute('aria-busy')).toBe('false');
+      open();
+      const media = document.querySelector<HTMLButtonElement>(
+        '[data-administrator-permission="media.add"]',
+      )!;
+      media.click();
+      expect(media.getAttribute('aria-checked')).toBe('false');
+      document.getElementById('btn-administrator-permissions-save')!.click();
+      await vi.waitFor(() =>
+        expect(mockedUpdateActiveProRoomAdministrator).toHaveBeenCalledTimes(2),
+      );
+      if (outcome === 'resolve') resolveOld(administrators);
+      else rejectOld(new Error('retired save failed'));
+      await vi.dynamicImportSettled();
+      expect(overlay.classList.contains('show')).toBe(true);
+      expect(dialog.getAttribute('aria-busy')).toBe('true');
+      expect(showToast).not.toHaveBeenCalled();
+
+      resolveNew(updated);
+      await vi.waitFor(() => expect(overlay.classList.contains('show')).toBe(false));
+      expect(dialog.getAttribute('aria-busy')).toBe('false');
+    },
+  );
+
+  it('retires activation and focus work before a delayed import dispatches', async () => {
+    await vi.dynamicImportSettled();
+    mockedUpdateActiveProRoomAdministrator.mockReset();
+    const { context } = startPermissionDraft();
+    const firstRow = document.querySelector<HTMLButtonElement>(
+      '[data-administrator-permission="media.add"]',
+    )!;
+    const focus = vi.spyOn(firstRow, 'focus');
+    document.getElementById('btn-administrator-permissions-save')!.click();
+    setState('room.context', { ...context, epoch: 2 });
+    await vi.dynamicImportSettled();
+    expect(mockedUpdateActiveProRoomAdministrator).not.toHaveBeenCalled();
+    expect(focus).not.toHaveBeenCalled();
+    expect(
+      document.getElementById('administrator-permissions-overlay')!.classList.contains('show'),
+    ).toBe(false);
   });
 });
 

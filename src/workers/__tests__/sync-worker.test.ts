@@ -1,211 +1,151 @@
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// These local replicas describe the expected worker behavior but do not import
-// the production implementation. A follow-up should extract shared pure
-// helpers or exercise the worker module itself so the test cannot drift.
-function toId(v: unknown): string {
-  if (v === null || v === undefined) return '';
-  return String(v);
+// Exercise the authored worker handlers against isolated self/timer boundaries.
+// This replaces local replicas; it does not claim browser scheduling accuracy.
+const workerCode = ts.transpileModule(
+  readFileSync(new URL('../sync.worker.ts', import.meta.url), 'utf8'),
+  { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None } },
+).outputText;
+
+type WorkerOutput = { type: string; id?: string; command?: string; error?: string };
+type WorkerEvent = { message?: string; reason?: unknown };
+function createWorker() {
+  const messages: WorkerOutput[] = [];
+  const listeners = new Map<string, (event: WorkerEvent) => void>();
+  const self = {
+    onmessage: null as ((event: { data: unknown }) => void) | null,
+    postMessage: vi.fn((message: WorkerOutput) => messages.push(message)),
+    addEventListener: (type: string, listener: (event: WorkerEvent) => void) => {
+      listeners.set(type, listener);
+    },
+  };
+  runInNewContext(workerCode, { self, setInterval, clearInterval });
+  return {
+    messages,
+    post: (data: unknown) => self.onmessage!({ data }),
+    event: (type: string, event: WorkerEvent = {}) => listeners.get(type)!(event),
+    postMessage: self.postMessage,
+  };
 }
-
-function normalizeIntervalMs(v: unknown, fallback = 1000): number {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(1, Math.floor(n));
-}
-
-// ─── Tests ───────────────────────────────────────────────────────────────
-
-describe('Sync Worker — toId()', () => {
-  it('converts null to empty string', () => {
-    expect(toId(null)).toBe('');
-  });
-
-  it('converts undefined to empty string', () => {
-    expect(toId(undefined)).toBe('');
-  });
-
-  it('converts number 0 to "0"', () => {
-    expect(toId(0)).toBe('0');
-  });
-
-  it('converts number to string', () => {
-    expect(toId(42)).toBe('42');
-  });
-
-  it('converts string to same string', () => {
-    expect(toId('hello')).toBe('hello');
-  });
-
-  it('converts false to "false"', () => {
-    expect(toId(false)).toBe('false');
-  });
-
-  it('converts empty string to empty string', () => {
-    expect(toId('')).toBe('');
-  });
+let worker: ReturnType<typeof createWorker>;
+beforeEach(() => {
+  vi.useFakeTimers();
+  worker = createWorker();
+});
+afterEach(() => {
+  worker.post({ command: 'STOP_ALL' });
+  vi.useRealTimers();
 });
 
-describe('Sync Worker — normalizeIntervalMs()', () => {
-  it('returns value for valid positive number', () => {
-    expect(normalizeIntervalMs(100)).toBe(100);
-  });
-
-  it('returns fallback for NaN', () => {
-    expect(normalizeIntervalMs(NaN)).toBe(1000);
-  });
-
-  it('returns fallback for Infinity', () => {
-    expect(normalizeIntervalMs(Infinity)).toBe(1000);
-  });
-
-  it('returns fallback for -Infinity', () => {
-    expect(normalizeIntervalMs(-Infinity)).toBe(1000);
-  });
-
-  it('clamps negative values to 1', () => {
-    expect(normalizeIntervalMs(-500)).toBe(1);
-  });
-
-  it('clamps zero to 1', () => {
-    expect(normalizeIntervalMs(0)).toBe(1);
-  });
-
-  it('floors fractional values', () => {
-    expect(normalizeIntervalMs(99.9)).toBe(99);
-  });
-
-  it('clamps 0.5 (floors to 0, then clamps to 1)', () => {
-    expect(normalizeIntervalMs(0.5)).toBe(1);
-  });
-
-  it('uses custom fallback', () => {
-    expect(normalizeIntervalMs('abc', 500)).toBe(500);
-  });
-
-  it('handles string numbers', () => {
-    expect(normalizeIntervalMs('200')).toBe(200);
-  });
-});
-
-describe('Sync Worker — Timer Management (integration)', () => {
-  let timers: Map<string, ReturnType<typeof setInterval>>;
-  let messages: Array<{ type: string; id?: string }>;
-
-  function startTimer(id: string, intervalMs: number): void {
-    if (!id) return;
-    stopTimer(id);
-    const ms = normalizeIntervalMs(intervalMs);
-    const handle = setInterval(() => {
-      messages.push({ type: 'TICK', id });
-    }, ms);
-    timers.set(id, handle);
-  }
-
-  function stopTimer(id: string): void {
-    const handle = timers.get(id);
-    if (handle !== undefined) {
-      clearInterval(handle);
-      timers.delete(id);
-    }
-  }
-
-  function stopAllTimers(): void {
-    for (const [, handle] of timers.entries()) {
-      clearInterval(handle);
-    }
-    timers.clear();
-  }
-
-  beforeEach(() => {
-    vi.useFakeTimers();
-    timers = new Map();
-    messages = [];
-  });
-
-  afterEach(() => {
-    stopAllTimers();
-    vi.useRealTimers();
-  });
-
-  it('starts a timer that sends TICK messages', () => {
-    startTimer('test', 100);
-    vi.advanceTimersByTime(350);
-    expect(messages.filter((m) => m.id === 'test')).toHaveLength(3);
-  });
-
-  it('stops a timer by id', () => {
-    startTimer('test', 100);
-    vi.advanceTimersByTime(200);
-    stopTimer('test');
-    vi.advanceTimersByTime(200);
-    expect(messages.filter((m) => m.id === 'test')).toHaveLength(2);
-  });
-
-  it('replaces timer when starting same id', () => {
-    startTimer('dup', 100);
-    vi.advanceTimersByTime(150);
-    startTimer('dup', 200);
-    vi.advanceTimersByTime(250);
-    expect(messages.filter((m) => m.id === 'dup')).toHaveLength(2);
-  });
-
-  it('runs multiple independent timers', () => {
-    startTimer('A', 100);
-    startTimer('B', 200);
-    vi.advanceTimersByTime(400);
-
-    expect(messages.filter((m) => m.id === 'A')).toHaveLength(4);
-    expect(messages.filter((m) => m.id === 'B')).toHaveLength(2);
-  });
-
-  it('stops all timers at once', () => {
-    startTimer('A', 100);
-    startTimer('B', 200);
+describe('Sync Worker — actual START_TIMER normalization', () => {
+  it.each([
+    [null, null],
+    [undefined, null],
+    ['', null],
+    [0, '0'],
+    [42, '42'],
+    ['hello', 'hello'],
+    [false, 'false'],
+  ])('normalizes message id %j to %j', (id, expected) => {
+    worker.post({ command: 'START_TIMER', id, interval: 100 });
     vi.advanceTimersByTime(100);
-    stopAllTimers();
-    vi.advanceTimersByTime(500);
-
-    expect(messages.filter((m) => m.id === 'A')).toHaveLength(1);
-    expect(messages.filter((m) => m.id === 'B')).toHaveLength(0);
-    expect(timers.size).toBe(0);
+    expect(worker.messages).toEqual(expected === null ? [] : [{ type: 'TICK', id: expected }]);
+    expect(vi.getTimerCount()).toBe(expected === null ? 0 : 1);
   });
-
-  it('stopAllTimers is idempotent', () => {
-    startTimer('A', 100);
-    stopAllTimers();
-    stopAllTimers();
-    expect(timers.size).toBe(0);
-  });
-
-  it('ignores empty id', () => {
-    startTimer('', 100);
-    vi.advanceTimersByTime(500);
-    expect(messages).toHaveLength(0);
-    expect(timers.size).toBe(0);
-  });
-
-  it('stopTimer on non-existent id is a no-op', () => {
-    stopTimer('nonexistent');
-    expect(timers.size).toBe(0);
-  });
-
-  it('applies interval normalization', () => {
-    startTimer('fast', NaN as unknown as number);
-    vi.advanceTimersByTime(2500);
-    expect(messages.filter((m) => m.id === 'fast')).toHaveLength(2);
+  it.each([
+    [100, 100],
+    [NaN, 1000],
+    [Infinity, 1000],
+    [-Infinity, 1000],
+    [-500, 1],
+    [0, 1],
+    [99.9, 99],
+    [0.5, 1],
+    ['abc', 1000],
+    ['200', 200],
+  ])('normalizes interval %j to %j milliseconds', (interval, expected) => {
+    worker.post({ command: 'START_TIMER', id: 'clock', interval });
+    vi.advanceTimersByTime(Number(expected) - 1);
+    expect(worker.messages).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(worker.messages).toEqual([{ type: 'TICK', id: 'clock' }]);
   });
 });
 
-describe('Sync Worker — Message Handler', () => {
-  it('handles missing command gracefully', () => {
-    const data = {} as { command?: string };
-    const command = data.command;
-    expect(command).toBeUndefined();
+describe('Sync Worker — actual timer management', () => {
+  it('starts and stops through the same normalized message identity', () => {
+    worker.post({ command: 'START_TIMER', id: 0, interval: 100 });
+    vi.advanceTimersByTime(200);
+    worker.post({ command: 'STOP_TIMER', id: '0' });
+    vi.advanceTimersByTime(200);
+    expect(worker.messages).toEqual([
+      { type: 'TICK', id: '0' },
+      { type: 'TICK', id: '0' },
+    ]);
+    expect(vi.getTimerCount()).toBe(0);
   });
+  it('replaces a repeated id without retaining the old interval', () => {
+    worker.post({ command: 'START_TIMER', id: 'dup', interval: 100 });
+    vi.advanceTimersByTime(150);
+    worker.post({ command: 'START_TIMER', id: 'dup', interval: 200 });
+    vi.advanceTimersByTime(250);
+    expect(worker.messages).toEqual([
+      { type: 'TICK', id: 'dup' },
+      { type: 'TICK', id: 'dup' },
+    ]);
+    expect(vi.getTimerCount()).toBe(1);
+  });
+  it('runs independent timers and stops all idempotently', () => {
+    worker.post({ command: 'START_TIMER', id: 'A', interval: 100 });
+    worker.post({ command: 'START_TIMER', id: 'B', interval: 200 });
+    vi.advanceTimersByTime(400);
+    expect(worker.messages.filter((message) => message.id === 'A')).toHaveLength(4);
+    expect(worker.messages.filter((message) => message.id === 'B')).toHaveLength(2);
+    worker.post({ command: 'STOP_ALL' });
+    worker.post({ command: 'STOP_ALL' });
+    vi.advanceTimersByTime(500);
+    expect(worker.messages).toHaveLength(6);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it.each([
+    null,
+    {},
+    { command: 'INIT_INSTANCE' },
+    { command: 'unknown' },
+    { command: 'STOP_TIMER', id: 'missing' },
+  ])('ignores %j without changing a live timer', (message) => {
+    worker.post({ command: 'START_TIMER', id: 'live', interval: 100 });
+    worker.post(message);
+    expect(worker.messages).toEqual([]);
+    expect(vi.getTimerCount()).toBe(1);
+    vi.advanceTimersByTime(100);
+    expect(worker.messages).toEqual([{ type: 'TICK', id: 'live' }]);
+  });
+  it('contains failed tick delivery and retains subsequent progress', () => {
+    worker.postMessage.mockImplementationOnce(() => {
+      throw new Error('delivery failed');
+    });
+    worker.post({ command: 'START_TIMER', id: 'live', interval: 100 });
+    expect(() => vi.advanceTimersByTime(100)).not.toThrow();
+    vi.advanceTimersByTime(100);
+    expect(worker.messages).toEqual([{ type: 'TICK', id: 'live' }]);
+  });
+});
 
-  it('handles INIT_INSTANCE as no-op', () => {
-    const command = 'INIT_INSTANCE';
-    expect(command).toBe('INIT_INSTANCE');
+describe('Sync Worker — actual worker failure events', () => {
+  it.each([
+    ['error', { message: 'worker failed' }, 'WORKER_ERROR', 'worker failed'],
+    ['unhandledrejection', { reason: new Error('rejected') }, 'UNHANDLED_REJECTION', 'rejected'],
+    ['messageerror', {}, 'MESSAGE_ERROR', 'Message deserialization failed'],
+  ] as const)('reports %s and contains a failed error report', (type, event, command, error) => {
+    worker.event(type, event);
+    expect(worker.messages).toEqual([{ type: 'WORKER_ERROR', scope: 'sync', command, error }]);
+    worker.postMessage.mockImplementationOnce(() => {
+      throw new Error('report failed');
+    });
+    expect(() => worker.event(type, event)).not.toThrow();
   });
 });

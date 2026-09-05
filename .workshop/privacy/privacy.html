@@ -355,13 +355,14 @@
             from PRO rooms. If cleanup fails before deletion is accepted, the account remains active
             and deletion can be retried. If linked-room cleanup cannot finish after deletion is
             accepted, sign-in remains disabled and MUSIXQUARE retries automatically; the remaining
-            account record and cumulative totals are removed after cleanup finishes. Account
-            deletion does not decommission a PRO room or invalidate its separate room-recovery
-            credential, and it does not automatically delete media already shared in that room. The
-            media follows the room's retention rules. Account deletion does not erase the retained
-            PRO grant/security ledger described above; an internal account ID retained there cannot
-            be used to sign in. Provider-managed point-in-time recovery data may remain for the
-            applicable backup-retention period.
+            account record and cumulative totals are removed after cleanup finishes. Deleting a PRO
+            owner's account suspends the room and revokes its sessions, delegated authority, PIN,
+            and owner-recovery credential. An operator must transfer ownership before a new owner
+            can activate the room. Account deletion does not decommission the room or automatically
+            delete media already shared in it. The media follows the room's retention rules. Account
+            deletion does not erase the retained PRO grant/security ledger described above; an
+            internal account ID retained there cannot be used to sign in. Provider-managed
+            point-in-time recovery data may remain for the applicable backup-retention period.
           </p>
           <p>
             Short-lived rate-limit records used to protect Remote Share, signaling connection opens,

@@ -16,6 +16,7 @@ import {
 import { getTrackPosition, pause, play, stopAllMedia } from '../player/transport.ts';
 import { cancelOutgoingFileTransfers } from '../storage/transfer.ts';
 import { applySettingsAsync } from '../audio/effects.ts';
+import { setChannelMode } from '../audio/channel.ts';
 import { getHostNow, isClockCalibrated } from '../network/shared-clock.ts';
 import { broadcast, safeSend } from '../network/peer.ts';
 import { registerHandlers } from '../network/protocol.ts';
@@ -301,7 +302,7 @@ function restoreSnapshot(
   const restoreMedia = options.media ?? true;
 
   if (restoreAudio) {
-    setState('audio.channelMode', snapshot.channelMode);
+    setChannelMode(snapshot.channelMode);
     setState('audio.reverbMix', snapshot.reverbMix);
     setState('audio.reverbDecay', snapshot.reverbDecay);
     setState('audio.reverbPreDelay', snapshot.reverbPreDelay);
@@ -834,6 +835,11 @@ function setDemoDomActive(active: boolean, options: { afterCovered?: () => void 
         DEMO_OVERLAY_FADE_MS * 2 + 240,
       );
     } else {
+      // Entry can fail before its covering animation publishes the overlay.
+      // Retire that callback too, or it can reopen an already exited demo.
+      stopDemoCurtainAnimation();
+      const curtain = getDemoCurtain();
+      if (curtain) curtain.style.opacity = '0';
       options.afterCovered?.();
       applyDemoDomInactive(overlay);
     }
@@ -1554,11 +1560,12 @@ function handleDemoEnterMessage(data: Record<string, unknown>, conn?: DataConnec
     return;
   }
 
-  void enterDemoMode({ index, autoplay: false, broadcastEntry: false })
-    .then((result) => {
-      if (isCurrentDemoResult(result)) applyEffectFlags();
-    })
-    .catch((error: unknown) => log.warn('[Demo] Guest demo enter failed:', error));
+  const entry = enterDemoMode({ index, autoplay: false, broadcastEntry: false });
+  // Entry publishes demo.active synchronously before fetching media. Apply
+  // host flags at this message boundary, including while a track is loading,
+  // so an older fetch completion cannot overwrite a newer effect update.
+  applyEffectFlags();
+  void entry.catch((error: unknown) => log.warn('[Demo] Guest demo enter failed:', error));
 }
 
 function handleDemoPlayMessage(data: Record<string, unknown>, conn?: DataConnection): void {

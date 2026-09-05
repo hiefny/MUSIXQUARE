@@ -118,6 +118,10 @@ export function releaseRecoverySkipTargets(
     environment.MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR,
     'MXQR_STANDARD_ROOM_PIN_FORWARD_FLOOR',
   );
+  const soroArticleVisibilityForwardFloor = exactBoolean(
+    environment.MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR,
+    'MXQR_SORO_ARTICLE_VISIBILITY_FORWARD_FLOOR',
+  );
 
   const skip = new Set(
     r2Outcome === 'success'
@@ -155,6 +159,9 @@ export function releaseRecoverySkipTargets(
   }
   if (standardRoomPinForwardFloor) {
     skip.add('signaling');
+  }
+  if (soroArticleVisibilityForwardFloor) {
+    skip.add('app');
   }
   if (
     (releaseTarget === 'all' || releaseTarget === 'signaling') &&

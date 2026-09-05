@@ -6,6 +6,7 @@ import { resetState, getState, setState } from '../../core/state.ts';
 import { bus } from '../../core/events.ts';
 import { MSG } from '../../core/constants.ts';
 import { handleData } from '../../network/protocol.ts';
+import { CloudflareDataConnection } from '../../network/transport/cloudflare-signaling.ts';
 import { clearAllManagedTimers } from '../../core/timers.ts';
 import {
   setPreamp,
@@ -462,6 +463,84 @@ describe('atomic settings synchronization', () => {
     });
   });
 
+  it('preserves a retained administrator publish through complete host snapshot frames', async () => {
+    const delivered: unknown[] = [];
+    const recipient = {
+      peer: 'bootstrap-recipient',
+      open: true,
+      send: (frame: unknown) => delivered.push(frame),
+    } as unknown as DataConnection;
+    setState('network.appRole', 'host');
+    bus.emit('effects:resync-peer', recipient);
+    expect(delivered).toContainEqual({ type: MSG.VBASS, value: 0, _bootstrap: true });
+    expect(delivered[0]).toMatchObject({ type: MSG.SETTINGS_SYNC_SNAPSHOT });
+
+    const send = vi.fn<(data: string) => void>().mockImplementationOnce(() => {
+      throw new DOMException('RTCDataChannel send buffer full', 'OperationError');
+    });
+    const newHost = new CloudflareDataConnection('host');
+    const nativeClose = vi.fn();
+    const nativePeer = Object.assign(new EventTarget(), {
+      connectionState: 'connected',
+      close: nativeClose,
+    });
+    const channel = (label: string, nativeSend: (data: string) => void) =>
+      Object.assign(new EventTarget(), {
+        label,
+        readyState: 'open',
+        binaryType: 'arraybuffer',
+        send: nativeSend,
+        close: nativeClose,
+      });
+    newHost.attach(
+      nativePeer as unknown as RTCPeerConnection,
+      channel('musixquare-data', vi.fn()) as unknown as RTCDataChannel,
+    );
+    newHost.attach(
+      nativePeer as unknown as RTCPeerConnection,
+      channel('musixquare-control', send) as unknown as RTCDataChannel,
+    );
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(newHost.open).toBe(true);
+    setState('network.appRole', 'guest');
+    setState('network.hostConn', newHost);
+    setState('network.isOperator', true);
+    setState('network.standardRoomCapabilities', ['effects.control']);
+    resetSettingsSyncAuthorityForTests();
+    setSettingsSyncEnabled(false);
+    setState('audio.masterVolume', 0.28);
+    applyRoomEffectsState(synchronizedEffects);
+    setSettingsSyncEnabled(true);
+    expect(send).toHaveBeenCalledOnce();
+    expect(newHost.open).toBe(true);
+    expect(nativeClose).not.toHaveBeenCalled();
+    send.mockClear();
+
+    // Preserve the exact host emission order, including its legacy companions.
+    // The existing live channel can still receive while its send buffer is full.
+    for (const frame of delivered) await handleData(frame, newHost);
+    expect.soft(captureRoomEffectsState()).toEqual(synchronizedEffects);
+    expect(send).not.toHaveBeenCalled();
+
+    // A newer local volume commit must not adopt the bootstrap's unrelated DSP.
+    setState('audio.masterVolume', 0.44);
+    expect(publishLocalSettingsAuthority()).toBe(true);
+    expect(send).toHaveBeenCalledOnce();
+    expect(JSON.parse(send.mock.calls[0]![0]) as unknown).toEqual({
+      type: MSG.PUBLISH_SETTINGS_SYNC_SNAPSHOT,
+      version: 1,
+      settings: { masterVolume: 0.44, effects: synchronizedEffects },
+    });
+    // Successful delivery releases the local hold; ordinary snapshots apply again.
+    for (const frame of delivered) await handleData(frame, newHost);
+    expect(getState('audio.virtualBass')).toBe(0);
+    setSettingsSyncEnabled(false);
+    setVirtualBass(60);
+    for (const frame of delivered) await handleData(frame, newHost);
+    expect(getState('audio.virtualBass')).toBe(0.6);
+    newHost.close();
+  });
+
   it('retains the latest takeover until the application connection boundary', () => {
     const send = vi.fn();
     const host = { peer: 'host', open: false, send } as unknown as DataConnection;
@@ -642,7 +721,7 @@ describe('atomic settings synchronization', () => {
     expect(getState('audio.masterVolume')).toBe(0.63);
   });
 
-  it('discards a disconnected pending publish on explicit revoke or room change', () => {
+  it('discards a disconnected pending publish on explicit revoke or room change', async () => {
     const send = vi.fn();
     const host = { peer: 'host', open: false, send } as unknown as DataConnection;
     setState('room.context', { ...getState('room.context'), roomId: '123456' });
@@ -657,6 +736,8 @@ describe('atomic settings synchronization', () => {
     (host as { open: boolean }).open = true;
     bus.emit('network:peer-connected', host);
     expect(send).not.toHaveBeenCalled();
+    await handleData({ type: MSG.VBASS, value: 20, _bootstrap: true }, host);
+    expect(getState('audio.virtualBass')).toBe(0.2);
 
     (host as { open: boolean }).open = false;
     setSettingsSyncEnabled(false);
@@ -665,6 +746,8 @@ describe('atomic settings synchronization', () => {
     (host as { open: boolean }).open = true;
     bus.emit('network:peer-connected', host);
     expect(send).not.toHaveBeenCalled();
+    await handleData({ type: MSG.VBASS, value: 30, _bootstrap: true }, host);
+    expect(getState('audio.virtualBass')).toBe(0.3);
   });
 
   it('preserves a bootstrap accepted before sessionStarted and resets it only on leave', async () => {

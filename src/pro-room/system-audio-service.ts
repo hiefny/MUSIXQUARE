@@ -774,6 +774,7 @@ async function ensureCoordinatorSubscription(
       );
       if (activeLocalDirectPublicationKey === publicationKey) {
         const reconciled = await reconcileProSystemAudioDirectTargets(targets);
+        if (!coordinatorPublicationMatches(identity)) return;
         if (!reconciled) requestDirectPromotion('direct-target-fallback');
         return;
       }
@@ -784,12 +785,14 @@ async function ensureCoordinatorSubscription(
         publicationId: state.publication.publicationId,
         targets: activationTargets,
       });
+      if (!coordinatorPublicationMatches(identity)) return;
       if (!activated) {
         requestDirectPromotion('direct-activation-failed');
         return;
       }
       activeLocalDirectPublicationKey = publicationKey;
       const reconciled = await reconcileProSystemAudioDirectTargets(currentDirectTargets());
+      if (!coordinatorPublicationMatches(identity)) return;
       if (!reconciled) requestDirectPromotion('direct-target-fallback');
     } else {
       resetProSystemAudioDirectTransport({ notifyPeers: false });
@@ -808,6 +811,7 @@ async function ensureCoordinatorSubscription(
       generation: state.generation,
       publicationId: state.publication.publicationId,
     });
+    if (!coordinatorPublicationMatches(identity)) return;
     subscriberFailureGeneration = null;
     return;
   }
@@ -1480,6 +1484,9 @@ export async function publishLocalProSystemAudio(
         publicationId: state.publication.publicationId,
         targets: activationTargets,
       });
+      if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
+        throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
+      }
       if (!activated) requestDirectPromotion('post-commit-activation-failed');
       else {
         activeLocalDirectPublicationKey = directPublicationKey(
@@ -1488,6 +1495,9 @@ export async function publishLocalProSystemAudio(
           state.publication.publicationId,
         );
         const reconciled = await reconcileProSystemAudioDirectTargets(currentDirectTargets());
+        if (!ownsLocalPublishFlight(flight) || !isLocalLeaseCurrent(flight.identity)) {
+          throw new ProRoomSystemAudioControllerError('OPERATION_SUPERSEDED');
+        }
         if (!reconciled) requestDirectPromotion('post-commit-target-fallback');
       }
     }
@@ -1754,8 +1764,8 @@ export function registerProSystemAudioServiceListeners(): void {
       const identity = captureCoordinatorPublicationIdentity(state);
       const descriptorTrack = event.descriptor.track;
       if (!identity || !descriptorTrack) return;
-      void attachCoordinatorTrack(identity, descriptorTrack, event.track).catch((error) =>
-        log.warn('[PRO SystemAudio] Track attach failed', error),
+      void attachCoordinatorTrack(identity, descriptorTrack, event.track, event.isCurrent).catch(
+        (error) => log.warn('[PRO SystemAudio] Track attach failed', error),
       );
       return;
     }

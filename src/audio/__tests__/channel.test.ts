@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { resetState, getState } from '../../core/state.ts';
 
 const engineMocks = vi.hoisted(() => ({
+  getMasterGain: vi.fn(() => null as GainNode | null),
   getGainL: vi.fn(() => null as GainNode | null),
   getGainR: vi.fn(() => null as GainNode | null),
   getToneMerge: vi.fn(() => null as ChannelMergerNode | null),
@@ -33,6 +34,7 @@ import { setChannelMode, toggleSurroundMode, setSurroundChannel } from '../chann
 
 beforeEach(() => {
   vi.clearAllMocks();
+  engineMocks.getMasterGain.mockReturnValue(null);
   engineMocks.getGainL.mockReturnValue(null);
   engineMocks.getGainR.mockReturnValue(null);
   engineMocks.getToneMerge.mockReturnValue(null);
@@ -41,6 +43,54 @@ beforeEach(() => {
 });
 
 describe('setChannelMode', () => {
+  it('cancels prior role gain ramps before installing the Sub summing gain', async () => {
+    const contextModule = await import('../context.ts');
+    const context = vi
+      .spyOn(contextModule, 'getAudioContext')
+      .mockReturnValue({ currentTime: 0 } as AudioContext);
+    const effects = await import('../effects.ts');
+    const apply = vi.spyOn(effects, 'applySettingsAsync').mockImplementation(() => undefined);
+    const helpers = await vi.importActual<typeof import('../helpers.ts')>('../helpers.ts');
+    helperMocks.rampParam.mockImplementation(helpers.rampParam);
+    const createGain = () => {
+      const futureRamps: number[] = [];
+      const gain = {
+        value: 1,
+        cancelScheduledValues: vi.fn(() => {
+          futureRamps.length = 0;
+        }),
+        setValueAtTime: vi.fn(),
+        linearRampToValueAtTime: vi.fn((value: number) => {
+          futureRamps.push(value);
+        }),
+      };
+      return { gain, futureRamps, connect: vi.fn(), disconnect: vi.fn() };
+    };
+    const left = createGain();
+    const right = createGain();
+    engineMocks.getMasterGain.mockReturnValue({} as GainNode);
+    engineMocks.getGainL.mockReturnValue(left as unknown as GainNode);
+    engineMocks.getGainR.mockReturnValue(right as unknown as GainNode);
+    engineMocks.getToneMerge.mockReturnValue({} as ChannelMergerNode);
+    try {
+      setChannelMode(0);
+      expect(left.futureRamps).toEqual([1]);
+      expect(right.futureRamps).toEqual([1]);
+      setChannelMode(2);
+      for (const node of [left, right]) {
+        expect(node.gain.value).toBe(0.5);
+        expect(node.futureRamps).toEqual([]);
+      }
+      setChannelMode(1);
+      expect(left.futureRamps).toEqual([1]);
+      expect(right.futureRamps).toEqual([1]);
+    } finally {
+      context.mockRestore();
+      apply.mockRestore();
+      helperMocks.rampParam.mockReset();
+    }
+  });
+
   it('mode 0 (Stereo) updates audio.channelMode in state', () => {
     setChannelMode(0);
     expect(getState('audio.channelMode')).toBe(0);

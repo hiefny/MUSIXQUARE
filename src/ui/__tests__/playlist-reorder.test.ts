@@ -162,6 +162,66 @@ describe('playlist reorder interaction controller', () => {
     };
   }
 
+  it.each(['tab', 'hidden', 'blur'])(
+    'preserves focus after %s retires keyboard reorder',
+    (reason) => {
+      const { controller, list, setVisible } = create();
+      const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+      handle.focus();
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      if (reason === 'tab')
+        handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }));
+      else if (reason === 'hidden') {
+        setVisible(false);
+        controller.notifyPlaylistHidden();
+      } else window.dispatchEvent(new Event('blur'));
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      outside.focus();
+      vi.advanceTimersByTime(500);
+      controller.afterRender();
+      expect(document.activeElement).toBe(outside);
+    },
+  );
+
+  it.each(['focus', 'pointer'])(
+    'retires completed reorder focus after a new %s intent',
+    (intent) => {
+      const { controller, list } = create();
+      const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+      handle.focus();
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      const outside = document.createElement('button');
+      document.body.appendChild(outside);
+      if (intent === 'focus') outside.focus();
+      else document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      list.replaceChildren(...Array.from(list.children, (child) => child.cloneNode(true)));
+      vi.advanceTimersByTime(500);
+      controller.afterRender();
+      expect(document.activeElement).toBe(intent === 'focus' ? outside : document.body);
+    },
+  );
+
+  it.each(['Enter', 'Escape'])(
+    'restores the current handle after keyboard %s and a render',
+    (key) => {
+      const { controller, list } = create();
+      const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;
+      handle.focus();
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+      handle.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      list.replaceChildren(...Array.from(list.children, (child) => child.cloneNode(true)));
+      vi.advanceTimersByTime(500);
+      controller.afterRender();
+      expect(document.activeElement).toBe(
+        list.querySelector(`[data-queue-item-id="${IDS.a}"] .playlist-reorder-handle`),
+      );
+    },
+  );
+
   it('commits a direct handle drag once using source and before IDs', () => {
     const { commit, controller, list } = create();
     const handle = list.querySelector<HTMLElement>('.playlist-reorder-handle')!;

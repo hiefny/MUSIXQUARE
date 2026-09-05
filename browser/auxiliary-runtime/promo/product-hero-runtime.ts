@@ -538,42 +538,42 @@ export function startProductHero(config: ProductHeroConfig): void {
     renderer.getSize(origSize);
     const origAspect = camera.aspect;
 
-    // Resize renderer + camera for capture (don't touch canvas style)
-    renderer.setPixelRatio(1);
-    renderer.setSize(w, h, false);
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-    renderer.render(scene, camera);
+    try {
+      // Resize renderer + camera for capture (don't touch canvas style)
+      renderer.setPixelRatio(1);
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.render(scene, camera);
 
-    // Composite: bg gradient onto 2D canvas, then draw WebGL result on top
-    const out = document.createElement('canvas');
-    out.width = w;
-    out.height = h;
-    const ctx = out.getContext('2d');
-    if (!ctx) throw new Error('Unable to create the export canvas context.');
-    if (bgState.radial) {
-      const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.hypot(w, h) / 2);
-      g.addColorStop(0, bgState.top);
-      g.addColorStop(1, bgState.bottom);
-      ctx.fillStyle = g;
-    } else {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, bgState.top);
-      g.addColorStop(1, bgState.bottom);
-      ctx.fillStyle = g;
+      // Composite: bg gradient onto 2D canvas, then draw WebGL result on top
+      const out = document.createElement('canvas');
+      out.width = w;
+      out.height = h;
+      const ctx = out.getContext('2d');
+      if (!ctx) throw new Error('Unable to create the export canvas context.');
+      if (bgState.radial) {
+        const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.hypot(w, h) / 2);
+        g.addColorStop(0, bgState.top);
+        g.addColorStop(1, bgState.bottom);
+        ctx.fillStyle = g;
+      } else {
+        const g = ctx.createLinearGradient(0, 0, 0, h);
+        g.addColorStop(0, bgState.top);
+        g.addColorStop(1, bgState.bottom);
+        ctx.fillStyle = g;
+      }
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(canvas, 0, 0);
+
+      return out.toDataURL('image/png');
+    } finally {
+      renderer.setPixelRatio(origRatio);
+      renderer.setSize(origSize.x, origSize.y, false);
+      camera.aspect = origAspect;
+      camera.updateProjectionMatrix();
+      window.dispatchEvent(new Event('resize'));
     }
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(canvas, 0, 0);
-
-    const dataUrl = out.toDataURL('image/png');
-
-    renderer.setPixelRatio(origRatio);
-    renderer.setSize(origSize.x, origSize.y, false);
-    camera.aspect = origAspect;
-    camera.updateProjectionMatrix();
-    window.dispatchEvent(new Event('resize'));
-
-    return dataUrl;
   }
 
   function downloadPng(dataUrl: string, name: string): void {

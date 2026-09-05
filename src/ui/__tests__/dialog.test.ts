@@ -59,6 +59,61 @@ afterEach(() => {
 });
 
 describe('Dialog System', () => {
+  it('exposes the active dialog to assistive technology when opened above setup', async () => {
+    const { initOverlayObservers, syncOverlayState, __resetModalStackForTests } =
+      await import('../dom.ts');
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const setup = document.createElement('div');
+    setup.id = 'setup-overlay';
+    setup.classList.add('active');
+    document.body.appendChild(setup);
+    __resetModalStackForTests();
+    initOverlayObservers();
+    const overlay = document.getElementById('dialog-overlay')!;
+    expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    const result = showDialog({ title: 'PIN', message: 'Enter PIN' });
+    try {
+      expect(overlay.classList.contains('show')).toBe(true);
+      expect(overlay.hasAttribute('inert')).toBe(false);
+      expect(overlay.getAttribute('aria-hidden')).toBe('false');
+    } finally {
+      closeDialog('close');
+      await result;
+      setup.classList.remove('active');
+      syncOverlayState();
+      __resetModalStackForTests();
+    }
+  });
+
+  it('keeps a dismissed dialog hidden when its covering modal closes later', async () => {
+    const { initOverlayObservers, syncOverlayState, __resetModalStackForTests } =
+      await import('../dom.ts');
+    const { showDialog, closeDialog } = await import('../dialog.ts');
+    const language = document.createElement('div');
+    language.id = 'language-dialog-overlay';
+    language.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(language);
+    __resetModalStackForTests();
+    initOverlayObservers();
+    const overlay = document.getElementById('dialog-overlay')!;
+    const result = showDialog({ title: 'Audio recovery', message: 'Restore playback' });
+    language.classList.add('show');
+    language.setAttribute('aria-hidden', 'false');
+    syncOverlayState('language-dialog-overlay');
+    closeDialog('superseded');
+    await result;
+    language.classList.remove('show');
+    language.setAttribute('aria-hidden', 'true');
+    syncOverlayState();
+    try {
+      expect(overlay.classList.contains('show')).toBe(false);
+      expect(overlay.hasAttribute('inert')).toBe(false);
+      expect(overlay.getAttribute('aria-hidden')).toBe('true');
+    } finally {
+      __resetModalStackForTests();
+    }
+  });
+
   it('keeps common actions accessible and lets intrinsic text width choose row wrapping', () => {
     const dialogMarkup = INDEX_SOURCE.slice(
       INDEX_SOURCE.indexOf('id="dialog-overlay"'),
@@ -387,6 +442,47 @@ describe('Dialog System', () => {
   });
 
   describe('Keyboard Handling', () => {
+    it.each([
+      { key: 'Enter', isComposing: true, keyCode: 0 },
+      { key: 'Enter', isComposing: false, keyCode: 229 },
+      { key: 'Escape', isComposing: true, keyCode: 0 },
+      { key: 'Escape', isComposing: false, keyCode: 229 },
+    ])('keeps IME $key local to composition ($isComposing/$keyCode)', async (options) => {
+      const { showDialog } = await import('../dialog.ts');
+      const onPrimaryActivation = vi.fn();
+      const resolved = vi.fn();
+      const promise = showDialog({
+        title: 'Rename',
+        dismissible: true,
+        inputField: { defaultValue: '한' },
+        onPrimaryActivation,
+      });
+      const observed = promise.then(resolved);
+      vi.advanceTimersByTime(10);
+      const input = document.querySelector('.dialog-input')!;
+      const compositionKey = new KeyboardEvent('keydown', {
+        ...options,
+        bubbles: true,
+        cancelable: true,
+      });
+      input.dispatchEvent(compositionKey);
+      await Promise.resolve();
+      expect(compositionKey.defaultPrevented).toBe(false);
+      expect(resolved).not.toHaveBeenCalled();
+      expect(onPrimaryActivation).not.toHaveBeenCalled();
+      expect(document.getElementById('dialog-overlay')?.classList.contains('show')).toBe(true);
+
+      input.textContent = '한글';
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: options.key, bubbles: true }));
+      expect(await promise).toEqual({
+        action: options.key === 'Enter' ? 'ok' : 'escape',
+        inputValue: '한글',
+      });
+      await observed;
+      expect(onPrimaryActivation).toHaveBeenCalledTimes(options.key === 'Enter' ? 1 : 0);
+      vi.advanceTimersByTime(10);
+    });
+
     it('Escape closes dismissible dialog', async () => {
       const { showDialog } = await import('../dialog.ts');
       const promise = showDialog({ title: 'Esc Test', dismissible: true });
@@ -435,6 +531,50 @@ describe('Dialog System', () => {
       closeDialog('ok');
       vi.advanceTimersByTime(10);
       await observedResolution;
+    });
+  });
+
+  describe('Deferred focus ownership', () => {
+    it.each(['abort', 'close'])('preserves restored focus after immediate %s', async (action) => {
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const launcher = document.createElement('button');
+      document.body.appendChild(launcher);
+      launcher.focus();
+      const controller = new AbortController();
+      const promise = showDialog({ title: 'Pending', signal: controller.signal });
+      if (action === 'abort') controller.abort();
+      else closeDialog();
+      await promise;
+      expect(document.activeElement).toBe(launcher);
+      vi.advanceTimersByTime(10);
+      expect(document.activeElement).toBe(launcher);
+    });
+
+    it('ignores an obsolete callback while the successor keeps its default focus', async () => {
+      const timers = await import('../../core/timers.ts');
+      const timerSpy = vi.spyOn(timers, 'setManagedTimer');
+      const { showDialog, closeDialog } = await import('../dialog.ts');
+      const first = showDialog({
+        title: 'First',
+        secondaryText: 'Cancel',
+        defaultFocus: 'secondary',
+      });
+      const oldFocus = timerSpy.mock.calls.find(([name]) => name === 'dialog-focus')![1];
+      closeDialog();
+      await first;
+      const second = showDialog({
+        title: 'Second',
+        secondaryText: 'Cancel',
+        defaultFocus: 'primary',
+      });
+      vi.advanceTimersByTime(10);
+      const ok = document.getElementById('btn-dialog-ok');
+      expect(document.activeElement).toBe(ok);
+      oldFocus();
+      expect(document.activeElement).toBe(ok);
+      closeDialog();
+      await second;
+      vi.advanceTimersByTime(10);
     });
   });
 });

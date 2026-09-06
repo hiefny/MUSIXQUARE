@@ -22,6 +22,76 @@ test.describe('Production release smoke', () => {
     pair = undefined;
   });
 
+  for (const initialView of [
+    { path: '/', language: 'en', host: 'Create a Room', guest: 'Join a Room', width: 1440 },
+    { path: '/ko/', language: 'ko', host: '방 만들기', guest: '방 참여하기', width: 390 },
+  ]) {
+    test(`shows prepared ${initialView.language} onboarding while view transitions are stalled`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: initialView.width, height: 844 });
+      await page.addInitScript(() => {
+        localStorage.setItem('musixquare-lang', 'en');
+        const original = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+        const queued: (() => void)[] = [];
+        Object.defineProperty(document, 'startViewTransition', {
+          configurable: true,
+          value: (update: () => void) => {
+            queued.push(update);
+            const pending = new Promise<void>(() => {});
+            return { ready: pending, finished: pending, updateCallbackDone: pending };
+          },
+        });
+        document.addEventListener(
+          'test:resume-view-transitions',
+          () => {
+            if (original) Object.defineProperty(document, 'startViewTransition', original);
+            else Reflect.deleteProperty(document, 'startViewTransition');
+            for (const update of queued) update();
+          },
+          { once: true },
+        );
+      });
+
+      await page.goto(initialView.path);
+      await waitForBootstrapReady(page);
+
+      // Read the ready state directly: the boot failure timeout must not be
+      // able to make a delayed first reveal satisfy these assertions later.
+      expect(
+        await page.evaluate(() => ({
+          blocked: document.documentElement.classList.contains('setup-boot-block'),
+          active: document.getElementById('setup-overlay')?.classList.contains('active'),
+          welcome: document.getElementById('setup-welcome-area')?.style.display,
+          code: document.getElementById('setup-code-area')?.style.display,
+          join: document.getElementById('setup-join-area')?.style.display,
+          autoJoin: document.getElementById('setup-auto-join-area')?.style.display,
+          role: document.getElementById('setup-role-area')?.style.display,
+        })),
+      ).toEqual({
+        blocked: false,
+        active: true,
+        welcome: 'flex',
+        code: 'none',
+        join: 'none',
+        autoJoin: 'none',
+        role: 'none',
+      });
+      await expect(page.locator('html')).toHaveAttribute('lang', initialView.language);
+      await expect(page.locator('#setup-overlay')).toBeVisible();
+      await expect(page.locator('#setup-overlay')).toHaveAttribute('aria-hidden', 'false');
+      await expect(page.locator('#btn-setup-host')).toHaveText(initialView.host);
+      await expect(page.locator('#btn-setup-guest')).toHaveText(initialView.guest);
+
+      await page.evaluate(() => document.dispatchEvent(new Event('test:resume-view-transitions')));
+      await page.locator('#btn-setup-guest').click();
+      await expect(page.locator('#setup-join-area')).toBeVisible();
+      await page.locator('#btn-setup-back').click();
+      await expect(page.locator('#setup-welcome-area')).toBeVisible();
+      await expect(page.locator('#btn-setup-host')).toHaveText(initialView.host);
+    });
+  }
+
   test('forces English on the explicit alias without overwriting the saved app language', async ({
     page,
   }) => {

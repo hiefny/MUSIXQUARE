@@ -36,7 +36,7 @@ import {
   clearPendingRoomPasswordJoin,
   restoreGuestJoinControlsAfterFailure,
 } from './setup-guest.ts';
-import { animateTransition } from './dom.ts';
+import { animateTransition, runWithoutViewTransitions } from './dom.ts';
 import { scheduleDocumentReload, scheduleSessionReset } from '../core/session-reset.ts';
 import { cancelPendingSessionSetup } from '../network/peer.ts';
 import {
@@ -271,6 +271,12 @@ function armSetupGreeting(signal: AbortSignal): void {
     SETUP_GREETING_DELAY_MS +
     SETUP_GREETING_FALLBACK_BUFFER_MS;
   setManagedTimer(SETUP_GREETING_FALLBACK_TIMER, revealSetupGreeting, fallbackMs);
+}
+
+/** First-paint preparation and reveal must finish together, including invite entry. */
+function runSetupEntry(callback: () => void): void {
+  if (getSetupOverlayEverShown()) callback();
+  else runWithoutViewTransitions(callback);
 }
 
 function initSetupOverlay(): void {
@@ -710,21 +716,23 @@ export function initSetup(): void {
       // immediately instead of letting the 200ms auto-join delay flash it.
       _applyEntranceClasses();
 
-      // Show the overlay, then open the URL-code guest flow.
+      // Prepare the complete invite surface in one synchronous first-paint scope.
       setManagedTimer(
         'auto-join-start',
         () => {
-          showSetupOverlay();
-          startGuestFlow();
+          runSetupEntry(() => {
+            showSetupOverlay();
+            startGuestFlow();
+          });
         },
         200,
       );
     } else {
       // Normal flow: show setup overlay
-      initSetupOverlay();
+      runSetupEntry(initSetupOverlay);
     }
   } catch {
-    initSetupOverlay();
+    runSetupEntry(initSetupOverlay);
   }
 
   log.info('[Setup] Initialized');

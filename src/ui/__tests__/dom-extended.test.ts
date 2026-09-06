@@ -9,6 +9,7 @@ import {
   copyTextToClipboard,
   copyTextToClipboardWithoutFocus,
   animateTransition,
+  runWithoutViewTransitions,
   updateOverlayOpenClass,
   syncOverlayState,
   initOverlayObservers,
@@ -76,6 +77,76 @@ describe('animateTransition', () => {
     const cb = vi.fn();
     animateTransition(cb);
     expect(cb).toHaveBeenCalled();
+  });
+});
+
+describe('a synchronous first-paint transition scope', () => {
+  let descriptor: PropertyDescriptor | undefined;
+  let updates: Array<() => void>;
+  let nativeTransition: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    descriptor = Object.getOwnPropertyDescriptor(document, 'startViewTransition');
+    updates = [];
+    nativeTransition = vi.fn((update: () => void) => {
+      updates.push(update);
+      return {};
+    });
+    Object.defineProperty(document, 'startViewTransition', {
+      configurable: true,
+      value: nativeTransition,
+    });
+  });
+
+  afterEach(() => {
+    if (descriptor) Object.defineProperty(document, 'startViewTransition', descriptor);
+    else Reflect.deleteProperty(document, 'startViewTransition');
+  });
+
+  it('runs nested setup updates synchronously and leaves later transitions animated', async () => {
+    const applied: string[] = [];
+    runWithoutViewTransitions(() => {
+      animateTransition(() => applied.push('outer-before'));
+      runWithoutViewTransitions(() => animateTransition(() => applied.push('inner')));
+      animateTransition(() => applied.push('outer-after'));
+    });
+    expect(applied).toEqual(['outer-before', 'inner', 'outer-after']);
+    expect(nativeTransition).not.toHaveBeenCalled();
+
+    animateTransition(() => applied.push('later'));
+    await Promise.resolve();
+    expect(nativeTransition).toHaveBeenCalledOnce();
+    expect(applied).toEqual(['outer-before', 'inner', 'outer-after']);
+    updates[0]?.();
+    expect(applied).toEqual(['outer-before', 'inner', 'outer-after', 'later']);
+  });
+
+  it('restores the outer scope and normal transitions when an inner update throws', async () => {
+    const failed = new Error('setup preparation failed');
+    const withinOuter = vi.fn();
+    expect(() =>
+      runWithoutViewTransitions(() => {
+        expect(() =>
+          runWithoutViewTransitions(() => {
+            animateTransition(() => {
+              throw failed;
+            });
+          }),
+        ).toThrow(failed);
+        animateTransition(withinOuter);
+        throw failed;
+      }),
+    ).toThrow(failed);
+    expect(withinOuter).toHaveBeenCalledOnce();
+    expect(nativeTransition).not.toHaveBeenCalled();
+
+    const later = vi.fn();
+    animateTransition(later);
+    await Promise.resolve();
+    expect(nativeTransition).toHaveBeenCalledOnce();
+    expect(later).not.toHaveBeenCalled();
+    updates[0]?.();
+    expect(later).toHaveBeenCalledOnce();
   });
 });
 

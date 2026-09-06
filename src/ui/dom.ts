@@ -41,6 +41,7 @@ export function cycleFocusWithin(
 let _batchedTransitionCb: (() => void) | null = null;
 
 let _suppressViewTransitionUntil = 0;
+let _immediateTransitionDepth = 0;
 
 interface ViewTransitionLike {
   ready?: Promise<void>;
@@ -57,12 +58,26 @@ export function suppressViewTransitions(durationMs: number): void {
   _suppressViewTransitionUntil = Date.now() + durationMs;
 }
 
+/** Apply a prepared initial view synchronously; later transitions keep their own scheduling. */
+export function runWithoutViewTransitions(callback: () => void): void {
+  _immediateTransitionDepth += 1;
+  try {
+    callback();
+  } finally {
+    _immediateTransitionDepth -= 1;
+  }
+}
+
 export function animateTransition(callback: () => void): void {
   const transitionDocument = document as DocumentWithViewTransition;
   // Skip View Transitions while the header loading-bar CSS transition
   // is in progress — startViewTransition snapshots replay CSS transitions,
   // causing the loading animation to appear twice.
-  if (Date.now() < _suppressViewTransitionUntil || !transitionDocument.startViewTransition) {
+  if (
+    _immediateTransitionDepth > 0 ||
+    Date.now() < _suppressViewTransitionUntil ||
+    !transitionDocument.startViewTransition
+  ) {
     callback();
     return;
   }

@@ -338,7 +338,7 @@ const de: Record<I18nKey, string> = {
   'demo.step_role': '2. Rolle festlegen',
   'demo.step_effects': '3. Audioeffekte',
   'demo.step_finish': '4. Tour beenden',
-  'demo.session_title': 'Das ist Raum {{code}}.',
+  'demo.session_title': 'Dein Raum: {{code}}',
   'demo.session_subtitle': 'Du kannst jederzeit ein weiteres Gerät einladen.',
   'demo.session_body_connected':
     '{{count}} Geräte sind gerade verbunden.\nLege für jedes Gerät eine Rolle fest.',
@@ -370,7 +370,7 @@ const de: Record<I18nKey, string> = {
   'setup.camera_not_found': 'Keine verwendbare Kamera gefunden',
   'setup.camera_unavailable': 'Kamera konnte nicht gestartet werden',
   'setup.camera_stream_stalled':
-    'Die Kameravorschau wurde nicht gestartet.\nÖffne sie im Browser oder gib den Code ein.',
+    'Die Kameravorschau wurde nicht gestartet.\nÖffne die App im Browser oder gib den Code ein.',
   'setup.connect_devices': 'Verbinde jetzt weitere Geräte.',
   'setup.enter_code_connect': 'Einladungscode',
   'setup.last_step': 'Los geht’s!',

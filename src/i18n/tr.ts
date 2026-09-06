@@ -120,7 +120,7 @@ const tr: Record<I18nKey, string> = {
   'player.repeat_mode': 'Tekrar Modunu Değiştir',
   'player.shuffle_mode': 'Karışık Çalma Modunu Değiştir',
   'player.sync_compact': 'Eşitle',
-  'player.syncing_compact': 'Eşit…',
+  'player.syncing_compact': 'Eşitleniyor…',
   'player.play_media': 'Medyayı Oynat',
   'player.play_media_compact': 'Medya',
   'player.play_media_action': 'Medyayı Oynat',
@@ -330,7 +330,7 @@ const tr: Record<I18nKey, string> = {
   'demo.step_role': '2. Rolü belirle',
   'demo.step_effects': '3. Ses Efektleri',
   'demo.step_finish': '4. Turu Sonlandır',
-  'demo.session_title': 'Burası {{code}} Numaralı Oda',
+  'demo.session_title': 'Odan: {{code}}',
   'demo.session_subtitle': 'İstediğin zaman yeni bir cihaz davet edebilirsin',
   'demo.session_body_connected': 'Şu anda {{count}} cihaz bağlı.\nHer cihaz için bir rol belirle.',
   'demo.session_body_alone':

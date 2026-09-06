@@ -131,8 +131,8 @@ const he: Record<I18nKey, string> = {
   'player.select_media': 'בחירת מדיה להפעלה',
   'player.play_together': 'הפעלה מסונכרנת',
   'player.play_speakers': 'שימוש כרמקול',
-  'player.auto_sync_label': 'אוטומטי (מ״ש)',
-  'player.manual_sync_label': 'ידני (מ״ש)',
+  'player.auto_sync_label': 'אוטומטי (ms)',
+  'player.manual_sync_label': 'ידני (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'פתיחה או סגירה של רשימת ההשמעה',
@@ -234,8 +234,8 @@ const he: Record<I18nKey, string> = {
   'settings.subwoofer_cutoff': 'תדר החיתוך של הסאב-וופר',
   'settings.default_0pct': 'ברירת מחדל 0%',
   'settings.default_01s': 'ברירת מחדל 0.1 שנ׳',
-  'settings.default_20khz': 'ברירת מחדל 20.0 קה״ץ',
-  'settings.default_20hz': 'ברירת מחדל 20 הרץ',
+  'settings.default_20khz': 'ברירת מחדל 20.0 kHz',
+  'settings.default_20hz': 'ברירת מחדל 20 Hz',
   'settings.default_5s': 'ברירת מחדל 5.0 שנ׳',
   'settings.invite_code': 'קוד הזמנה',
   'settings.leave_session': 'יציאה מהחדר',
@@ -329,7 +329,7 @@ const he: Record<I18nKey, string> = {
   'demo.step_role': '2. הגדרת תפקיד',
   'demo.step_effects': '3. אפקטי שמע',
   'demo.step_finish': '4. סיום ההדגמה',
-  'demo.session_title': 'זהו חדר {{code}}.',
+  'demo.session_title': 'החדר שלך: {{code}}',
   'demo.session_subtitle': 'אפשר להזמין מכשיר נוסף בכל זמן.',
   'demo.session_body_connected': '{{count}} מכשירים מחוברים עכשיו.\nיש להגדיר תפקיד לכל מכשיר.',
   'demo.session_body_alone': 'רק המכשיר הזה מנגן כרגע.\nאפשר להזמין עכשיו מכשיר נוסף.',
@@ -600,7 +600,7 @@ const he: Record<I18nKey, string> = {
   'toast.operator_required': 'רק מנהלים יכולים לשנות הגדרות כלליות',
   'toast.connection_closing': 'החיבור אבד, ההגדרה לא סונכרנה',
   'toast.host_changed_setting': 'ההגדרות שונו',
-  'toast.session_mismatch': 'החדר אינו תואם.\nהעברת הקובץ תנסה שוב.',
+  'toast.session_mismatch': 'החדר אינו תואם.\nהעברת הקובץ תתבצע שוב.',
   'toast.receiving_pct': 'מתקבל... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
@@ -687,9 +687,9 @@ const he: Record<I18nKey, string> = {
     'השמע במכשיר לא התאושש לאחר החזרה מהרקע. החדר יישאר מחובר בזמן ש-MUSIXQUARE מסנכרן מחדש את צליל המכשיר.',
   'dialog.audio_recovery_action': 'שחזור השמע',
   'dialog.background_resume_message':
-    'אם הסנכרון כבוי או שלא מתנגן שמע, יש לסגור את האפליקציה לגמרי ולפתוח אותה מחדש.',
+    'אם השמע אינו מסונכרן או שאינו מתנגן, יש לסגור את האפליקציה לגמרי ולפתוח אותה מחדש.',
   'dialog.background_resume_sync_fallback_message':
-    'אם הסנכרון כבוי או שלא מתנגן שמע, יש לסגור את האפליקציה לגמרי ולפתוח אותה מחדש.',
+    'אם השמע אינו מסונכרן או שאינו מתנגן, יש לסגור את האפליקציה לגמרי ולפתוח אותה מחדש.',
   'dialog.got_it': 'הבנתי',
   'dialog.continue_using': 'המשך',
   'dialog.leave_session': 'יציאה',
@@ -770,7 +770,7 @@ const he: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'שיתוף השמע יציב ביותר כשכולם מחוברים לאותה רשת.<ul class="help-list"><li>משתתפים מרוחקים יכולים להשתמש באותן תכונות.</li><li>משתתפים מרוחקים משתמשים בנתיבי Cloudflare, ולכן זמן ההשהיה עלול לגדול או שהקליטה עלולה להיכשל בהתאם לתנאי הרשת.</li><li>VPN או רשת מוגבלת עלולים להפוך את החיבור לבלתי יציב.</li></ul>',
   'setup.how_to_connect_html':
-    'כדי להתחבר, יש להזין את <strong>הקוד בן 6 הספרות</strong> שמופיע אצל המארח.<ul class="help-list"><li><strong>מארח:</strong> „אני המארח” ← הצגת הקוד</li><li><strong>משתתף:</strong> „הצטרפות לחדר” ← הזנת הקוד</li><li>אפשר לחבר עד <strong>100 מכשירים, כולל המארח</strong>.</li></ul>',
+    'כדי להתחבר, יש להזין את <strong>הקוד בן 6 הספרות</strong> שמופיע אצל המארח.<ul class="help-list"><li><strong>מארח:</strong> „יצירת חדר” ← הצגת הקוד</li><li><strong>משתתף:</strong> „הצטרפות לחדר” ← הזנת הקוד</li><li>אפשר לחבר עד <strong>100 מכשירים, כולל המארח</strong>.</li></ul>',
   'player.play_speakers_html':
     'כל משתתף בוחר <strong>תפקיד (ערוץ פלט)</strong>.<ul class="help-list"><li><strong>מרכז:</strong> פלט סטריאו (ברירת מחדל)</li><li><strong>שמאל:</strong> פלט ערוץ <bdi dir="ltr">L</bdi></li><li><strong>ימין:</strong> פלט ערוץ <bdi dir="ltr">R</bdi></li><li><strong>סאב-וופר:</strong> פלט מיקס של תדרים נמוכים</li></ul>אפשר לשנות תפקידים בכל זמן דרך <strong>הגדרות</strong>.',
   'player.play_media_action_html':

@@ -126,7 +126,7 @@ const kn: Record<I18nKey, string> = {
   'player.sync_compact': 'ಸಿಂಕ್',
   'player.syncing_compact': 'ಸಿಂಕ್…',
   'player.play_media': 'ಮೀಡಿಯಾ ಪ್ಲೇ ಮಾಡಿ',
-  'player.play_media_compact': 'Media',
+  'player.play_media_compact': 'ಮೀಡಿಯಾ',
   'player.play_media_action': 'ಮೀಡಿಯಾ ಪ್ಲೇ ಮಾಡಿ',
   'player.add_media': 'ಮೀಡಿಯಾ ಸೇರಿಸಿ',
   'player.play_start': 'ಸರತಿಗೆ ಸೇರಿಸಿ',
@@ -711,9 +711,9 @@ const kn: Record<I18nKey, string> = {
     'ಹಿನ್ನೆಲೆಯಿಂದ ಮರಳಿದ ನಂತರ ಈ ಸಾಧನದ ಆಡಿಯೊ ಮರುಸ್ಥಾಪನೆಯಾಗಲಿಲ್ಲ. MUSIXQUARE ಈ ಸಾಧನದ ಧ್ವನಿಯನ್ನು ಮರುಹೊಂದಿಸುವವರೆಗೆ ನಿಮ್ಮ ರೂಮ್ ಸಂಪರ್ಕದಲ್ಲೇ ಇರುತ್ತದೆ.',
   'dialog.audio_recovery_action': 'ಆಡಿಯೊ ಮರುಸ್ಥಾಪಿಸಿ',
   'dialog.background_resume_message':
-    'ಸಿಂಕ್ ಆಫ್ ಆಗಿದ್ದರೆ ಅಥವಾ ಆಡಿಯೊ ಪ್ಲೇ ಆಗದಿದ್ದರೆ ಆ್ಯಪ್ ಅನ್ನು ಸಂಪೂರ್ಣವಾಗಿ ಮುಚ್ಚಿ ಮತ್ತೆ ತೆರೆಯಿರಿ.',
+    'ಸಿಂಕ್ ಸರಿಯಾಗಿರದಿದ್ದರೆ ಅಥವಾ ಆಡಿಯೊ ಪ್ಲೇ ಆಗದಿದ್ದರೆ ಆ್ಯಪ್ ಅನ್ನು ಸಂಪೂರ್ಣವಾಗಿ ಮುಚ್ಚಿ ಮತ್ತೆ ತೆರೆಯಿರಿ.',
   'dialog.background_resume_sync_fallback_message':
-    'ಸಿಂಕ್ ಆಫ್ ಆಗಿದ್ದರೆ ಅಥವಾ ಆಡಿಯೊ ಪ್ಲೇ ಆಗದಿದ್ದರೆ ಆ್ಯಪ್ ಅನ್ನು ಸಂಪೂರ್ಣವಾಗಿ ಮುಚ್ಚಿ ಮತ್ತೆ ತೆರೆಯಿರಿ.',
+    'ಸಿಂಕ್ ಸರಿಯಾಗಿರದಿದ್ದರೆ ಅಥವಾ ಆಡಿಯೊ ಪ್ಲೇ ಆಗದಿದ್ದರೆ ಆ್ಯಪ್ ಅನ್ನು ಸಂಪೂರ್ಣವಾಗಿ ಮುಚ್ಚಿ ಮತ್ತೆ ತೆರೆಯಿರಿ.',
   'dialog.got_it': 'ಅರ್ಥವಾಯಿತು',
   'dialog.continue_using': 'ಮುಂದುವರಿಸಿ',
   'dialog.leave_session': 'ಹೊರಡಿ',
@@ -798,7 +798,7 @@ const kn: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'ಒಂದೇ ನೆಟ್‌ವರ್ಕ್‌ನಲ್ಲಿ ಆಡಿಯೊ ಹಂಚಿಕೆ ಅತ್ಯಂತ ಸ್ಥಿರವಾಗಿರುತ್ತದೆ.<ul class="help-list"><li>ದೂರಸ್ಥ ಭಾಗವಹಿಸುವವರೂ ಅದೇ ವೈಶಿಷ್ಟ್ಯಗಳನ್ನು ಬಳಸಬಹುದು.</li><li>ದೂರಸ್ಥ ಭಾಗವಹಿಸುವವರು Cloudflare ಮಾರ್ಗಗಳನ್ನು ಬಳಸುತ್ತಾರೆ, ಆದ್ದರಿಂದ ನೆಟ್‌ವರ್ಕ್ ಪರಿಸ್ಥಿತಿಗೆ ಅನುಗುಣವಾಗಿ ವಿಳಂಬ ಹೆಚ್ಚಬಹುದು ಅಥವಾ ಆಡಿಯೊ ಸ್ವೀಕಾರ ವಿಫಲವಾಗಬಹುದು.</li><li>VPN ಅಥವಾ ನಿರ್ಬಂಧಿತ ನೆಟ್‌ವರ್ಕ್ ಸಂಪರ್ಕವನ್ನು ಅಸ್ಥಿರಗೊಳಿಸಬಹುದು.</li></ul>',
   'setup.how_to_connect_html':
-    'ಸಂಪರ್ಕಿಸಲು ಹೋಸ್ಟ್‌ನ <strong>6-ಅಂಕಿಯ ಕೋಡ್</strong> ನಮೂದಿಸಿ.<ul class="help-list"><li><strong>ಹೋಸ್ಟ್:</strong> “ನಾನು ಹೋಸ್ಟ್ ಆಗುತ್ತೇನೆ” → ಕೋಡ್ ಪರಿಶೀಲಿಸಿ</li><li><strong>ಭಾಗವಹಿಸುವವರು:</strong> “ಸೆಷನ್‌ಗೆ ಸೇರಿ” → ಕೋಡ್ ನಮೂದಿಸಿ</li><li><strong>ಹೋಸ್ಟ್ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು</strong> ಸಂಪರ್ಕಿಸಬಹುದು.</li></ul>',
+    'ಸಂಪರ್ಕಿಸಲು ಹೋಸ್ಟ್‌ನ <strong>6-ಅಂಕಿಯ ಕೋಡ್</strong> ನಮೂದಿಸಿ.<ul class="help-list"><li><strong>ಹೋಸ್ಟ್:</strong> “ರೂಮ್ ರಚಿಸಿ” → ಕೋಡ್ ಪರಿಶೀಲಿಸಿ</li><li><strong>ಭಾಗವಹಿಸುವವರು:</strong> “ರೂಮ್‌ಗೆ ಸೇರಿ” → ಕೋಡ್ ನಮೂದಿಸಿ</li><li><strong>ಹೋಸ್ಟ್ ಸೇರಿ ಗರಿಷ್ಠ 100 ಸಾಧನಗಳು</strong> ಸಂಪರ್ಕಿಸಬಹುದು.</li></ul>',
   'player.play_speakers_html':
     'ಪ್ರತಿ ಭಾಗವಹಿಸುವವರು ಒಂದು <strong>ಪಾತ್ರ (ಔಟ್‌ಪುಟ್ ಚಾನಲ್)</strong> ಆರಿಸುತ್ತಾರೆ.<ul class="help-list"><li><strong>ಮಧ್ಯ:</strong> ಸ್ಟೀರಿಯೊ (ಡೀಫಾಲ್ಟ್) ಔಟ್‌ಪುಟ್</li><li><strong>ಎಡ:</strong> <bdi dir="ltr">L</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಬಲ:</strong> <bdi dir="ltr">R</bdi> ಚಾನಲ್ ಔಟ್‌ಪುಟ್</li><li><strong>ಸಬ್‌ವೂಫರ್:</strong> ಕಡಿಮೆ ಆವರ್ತನದ ಮಿಶ್ರ ಔಟ್‌ಪುಟ್</li></ul><strong>ಸೆಟ್ಟಿಂಗ್‌ಗಳಲ್ಲಿ</strong> ಪಾತ್ರಗಳನ್ನು ಯಾವಾಗ ಬೇಕಾದರೂ ಬದಲಿಸಬಹುದು.',
   'player.play_media_action_html':

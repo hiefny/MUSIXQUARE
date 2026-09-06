@@ -235,7 +235,7 @@ const cs: Record<I18nKey, string> = {
   'settings.bass_title': 'Virtuální basy',
   'settings.exciter_title': 'Virtuální výšky',
   'settings.subwoofer_adjust': 'Ořez subwooferu',
-  'settings.subwoofer_cutoff': 'Dělicí frekvence subwooferu',
+  'settings.subwoofer_cutoff': 'Mezní frekvence subwooferu',
   'settings.default_0pct': 'Výchozí: 0 %',
   'settings.default_01s': 'Výchozí: 0,1 s',
   'settings.default_20khz': 'Výchozí: 20,0 kHz',
@@ -335,7 +335,7 @@ const cs: Record<I18nKey, string> = {
   'demo.step_role': '2. Nastavení role',
   'demo.step_effects': '3. Zvukové efekty',
   'demo.step_finish': '4. Ukončení ukázky',
-  'demo.session_title': 'Toto je místnost {{code}}.',
+  'demo.session_title': 'Vaše místnost: {{code}}',
   'demo.session_subtitle': 'Další zařízení můžete pozvat kdykoli.',
   'demo.session_body_connected':
     'Právě připojeno: {{count}} zařízení.\nNastavte roli každého zařízení.',
@@ -352,7 +352,7 @@ const cs: Record<I18nKey, string> = {
   'setup.how_to_connect': 'Jak se připojit',
   'setup.set_role': 'Nastavte roli tohoto zařízení',
   'setup.what_sound': 'Co má toto zařízení přehrávat?',
-  'setup.change_later': 'Nastavení můžete kdykoli změnit.',
+  'setup.change_later': 'Můžete to kdykoli změnit v Nastavení.',
   'setup.welcome_title': 'Vítejte',
   'setup.join_session_subtitle': 'Chystáte se připojit k relaci {{code}}.',
   'setup.select_role': 'Vyberte roli',
@@ -800,7 +800,7 @@ const cs: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Sdílení zvuku je nejstabilnější ve stejné síti.<ul class="help-list"><li>Vzdálení účastníci mohou používat stejné funkce.</li><li>Vzdálení účastníci používají trasy Cloudflare, takže se podle podmínek sítě může zvýšit latence nebo může selhat příjem.</li><li>VPN nebo omezená síť může způsobit nestabilní připojení.</li></ul>',
   'setup.how_to_connect_html':
-    'Připojte se zadáním <strong>šestimístného kódu</strong> od hostitele.<ul class="help-list"><li><strong>Hostitel:</strong> „Budu hostitelem“ → zobrazit kód</li><li><strong>Účastník:</strong> „Připojit se k relaci“ → zadat kód</li><li>Připojit se může až <strong>100 zařízení včetně hostitele</strong>.</li></ul>',
+    'Připojte se zadáním <strong>šestimístného kódu</strong> od hostitele.<ul class="help-list"><li><strong>Hostitel:</strong> „Vytvořit místnost“ → zobrazit kód</li><li><strong>Účastník:</strong> „Připojit se k místnosti“ → zadat kód</li><li>Připojit se může až <strong>100 zařízení včetně hostitele</strong>.</li></ul>',
   'player.play_speakers_html':
     'Každý účastník si vybere <strong>roli (výstupní kanál)</strong>.<ul class="help-list"><li><strong>Střed:</strong> stereofonní výstup (výchozí)</li><li><strong>Levý (Left):</strong> výstup kanálu <bdi dir="ltr">L</bdi></li><li><strong>Pravý (Right):</strong> výstup kanálu <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> smíšený výstup nízkých frekvencí</li></ul>Role můžete kdykoli změnit v <strong>Nastavení</strong>.',
   'player.play_media_action_html':

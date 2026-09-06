@@ -54,7 +54,7 @@ const fa: Record<I18nKey, string> = {
   'account.privacy': 'حریم خصوصی',
   'account.unavailable': 'ورود موقتاً در دسترس نیست. می‌توانید بدون آن ادامه دهید.',
   'account.account_title': 'حساب',
-  'account.stats_sessions_label': 'جلسه‌هایی که پیوسته‌اید',
+  'account.stats_sessions_label': 'جلسه‌هایی که به آن‌ها پیوسته‌اید',
   'account.stats_listening_label': 'زمان گوش دادن',
   'account.stats_tracks_label': 'رسانه‌های پخش‌شده',
   'account.stats_count_value': '{{count}}',
@@ -131,8 +131,8 @@ const fa: Record<I18nKey, string> = {
   'player.select_media': 'رسانه‌ای برای پخش انتخاب کنید',
   'player.play_together': 'پخش همگام',
   'player.play_speakers': 'استفاده به‌عنوان بلندگو',
-  'player.auto_sync_label': 'خودکار (میلی‌ثانیه)',
-  'player.manual_sync_label': 'دستی (میلی‌ثانیه)',
+  'player.auto_sync_label': 'خودکار (ms)',
+  'player.manual_sync_label': 'دستی (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'باز یا بسته کردن فهرست پخش',
@@ -235,8 +235,8 @@ const fa: Record<I18nKey, string> = {
   'settings.subwoofer_cutoff': 'فرکانس قطع ساب‌ووفر',
   'settings.default_0pct': 'پیش‌فرض 0%',
   'settings.default_01s': 'پیش‌فرض 0.1 ثانیه',
-  'settings.default_20khz': 'پیش‌فرض 20.0 کیلوهرتز',
-  'settings.default_20hz': 'پیش‌فرض 20 هرتز',
+  'settings.default_20khz': 'پیش‌فرض 20.0 kHz',
+  'settings.default_20hz': 'پیش‌فرض 20 Hz',
   'settings.default_5s': 'پیش‌فرض 5.0 ثانیه',
   'settings.invite_code': 'کد دعوت',
   'settings.leave_session': 'خروج از جلسه',
@@ -330,7 +330,7 @@ const fa: Record<I18nKey, string> = {
   'demo.step_role': '2. تنظیم نقش',
   'demo.step_effects': '3. جلوه‌های صوتی',
   'demo.step_finish': '4. پایان دمو',
-  'demo.session_title': 'این اتاق {{code}} است.',
+  'demo.session_title': 'اتاق شما: {{code}}',
   'demo.session_subtitle': 'هر زمان خواستید می‌توانید دستگاه دیگری دعوت کنید.',
   'demo.session_body_connected':
     'اکنون {{count}} دستگاه متصل است.\nبرای هر دستگاه یک نقش تعیین کنید.',
@@ -698,9 +698,9 @@ const fa: Record<I18nKey, string> = {
     'صدای این دستگاه پس از بازگشت از پس‌زمینه بازیابی نشد. هنگام همگام‌سازی دوبارهٔ صدای دستگاه توسط MUSIXQUARE، اتاق متصل می‌ماند.',
   'dialog.audio_recovery_action': 'بازیابی صدا',
   'dialog.background_resume_message':
-    'اگر همگام‌سازی خاموش است یا صدایی پخش نمی‌شود، برنامه را کامل ببندید و دوباره باز کنید.',
+    'اگر صدا همگام نیست یا پخش نمی‌شود، برنامه را کامل ببندید و دوباره باز کنید.',
   'dialog.background_resume_sync_fallback_message':
-    'اگر همگام‌سازی خاموش است یا صدایی پخش نمی‌شود، برنامه را کامل ببندید و دوباره باز کنید.',
+    'اگر صدا همگام نیست یا پخش نمی‌شود، برنامه را کامل ببندید و دوباره باز کنید.',
   'dialog.got_it': 'متوجه شدم',
   'dialog.continue_using': 'ادامه',
   'dialog.leave_session': 'خروج',
@@ -783,7 +783,7 @@ const fa: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'اشتراک‌گذاری صدا در یک شبکهٔ مشترک پایدارتر است.<ul class="help-list"><li>شرکت‌کنندگان راه دور می‌توانند از همان امکانات استفاده کنند.</li><li>شرکت‌کنندگان راه دور از مسیرهای Cloudflare استفاده می‌کنند؛ بنابراین بسته به وضعیت شبکه ممکن است تأخیر افزایش یابد یا دریافت انجام نشود.</li><li>VPN یا شبکهٔ محدود ممکن است اتصال را ناپایدار کند.</li></ul>',
   'setup.how_to_connect_html':
-    'برای اتصال، <strong>کد 6 رقمی</strong> میزبان را وارد کنید.<ul class="help-list"><li><strong>میزبان:</strong> «من میزبان می‌شوم» ← مشاهدهٔ کد</li><li><strong>شرکت‌کننده:</strong> «پیوستن به جلسه» ← وارد کردن کد</li><li>تا <strong>100 دستگاه، با احتساب میزبان</strong> می‌توانند متصل شوند.</li></ul>',
+    'برای اتصال، <strong>کد 6 رقمی</strong> میزبان را وارد کنید.<ul class="help-list"><li><strong>میزبان:</strong> «ساخت اتاق» ← مشاهدهٔ کد</li><li><strong>شرکت‌کننده:</strong> «پیوستن به اتاق» ← وارد کردن کد</li><li>تا <strong>100 دستگاه، با احتساب میزبان</strong> می‌توانند متصل شوند.</li></ul>',
   'player.play_speakers_html':
     'هر شرکت‌کننده یک <strong>نقش (کانال خروجی)</strong> انتخاب می‌کند.<ul class="help-list"><li><strong>مرکز:</strong> خروجی استریو (پیش‌فرض)</li><li><strong>چپ:</strong> خروجی کانال <bdi dir="ltr">L</bdi></li><li><strong>راست:</strong> خروجی کانال <bdi dir="ltr">R</bdi></li><li><strong>ساب‌ووفر:</strong> خروجی میکس فرکانس‌های پایین</li></ul>هر زمان خواستید می‌توانید نقش‌ها را در <strong>تنظیمات</strong> تغییر دهید.',
   'player.play_media_action_html':

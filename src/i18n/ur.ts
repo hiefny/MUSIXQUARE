@@ -603,7 +603,7 @@ const ur: Record<I18nKey, string> = {
   'toast.yt_manual_sync_prompt':
     'ابھی خودکار سنک کی کوشش کی گئی۔\nاگر اب بھی تاخیر محسوس ہو تو قدر ایڈجسٹ کریں',
   'toast.playlist_ended': 'آخری میڈیا آئٹم ختم ہو گیا',
-  'toast.operator_required': 'صرف منتظم عمومی ترتیبات بدل سکتے ہیں',
+  'toast.operator_required': 'صرف منتظم گلوبل ترتیبات بدل سکتے ہیں',
   'toast.connection_closing': 'کنکشن ختم ہو گیا، ترتیب سنک نہیں ہوئی',
   'toast.host_changed_setting': 'ترتیبات بدل دی گئی ہیں',
   'toast.session_mismatch': 'سیشن مختلف ہے۔\nفائل منتقلی دوبارہ آزمائی جائے گی۔',
@@ -696,9 +696,9 @@ const ur: Record<I18nKey, string> = {
     'پس منظر سے واپس آنے کے بعد اس آلے کی آڈیو بحال نہیں ہوئی۔ MUSIXQUARE اس آلے کی آواز دوبارہ سنک کرے گا، اور کمرہ منسلک رہے گا۔',
   'dialog.audio_recovery_action': 'آڈیو بحال کریں',
   'dialog.background_resume_message':
-    'اگر سنک بند ہو یا آڈیو نہ چلے تو ایپ مکمل بند کر کے دوبارہ کھولیں۔',
+    'اگر سنک درست نہ ہو یا آڈیو نہ چلے تو ایپ مکمل بند کر کے دوبارہ کھولیں۔',
   'dialog.background_resume_sync_fallback_message':
-    'اگر سنک بند ہو یا آڈیو نہ چلے تو ایپ مکمل بند کر کے دوبارہ کھولیں۔',
+    'اگر سنک درست نہ ہو یا آڈیو نہ چلے تو ایپ مکمل بند کر کے دوبارہ کھولیں۔',
   'dialog.got_it': 'سمجھ آگئی',
   'dialog.continue_using': 'جاری رکھیں',
   'dialog.leave_session': 'چھوڑیں',
@@ -783,7 +783,7 @@ const ur: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'ایک ہی نیٹ ورک پر آڈیو شیئرنگ سب سے زیادہ مستحکم ہوتی ہے۔<ul class="help-list"><li>دور کے شرکا بھی یہی خصوصیات استعمال کر سکتے ہیں۔</li><li>دور کے شرکا Cloudflare کے راستے استعمال کرتے ہیں، اس لیے نیٹ ورک کے حالات کے مطابق تاخیر بڑھ سکتی ہے یا وصولی ناکام ہو سکتی ہے۔</li><li>VPN یا محدود نیٹ ورک کنکشن کو غیر مستحکم بنا سکتا ہے۔</li></ul>',
   'setup.how_to_connect_html':
-    'منسلک ہونے کے لیے میزبان کا <strong>6 ہندسوں کا کوڈ</strong> درج کریں۔<ul class="help-list"><li><strong>میزبان:</strong> ”میں میزبان ہوں گا“ ← کوڈ دیکھیں</li><li><strong>شریک:</strong> ”سیشن میں شامل ہوں“ ← کوڈ درج کریں</li><li><strong>میزبان سمیت 100 آلات</strong> تک منسلک ہو سکتے ہیں۔</li></ul>',
+    'منسلک ہونے کے لیے میزبان کا <strong>6 ہندسوں کا کوڈ</strong> درج کریں۔<ul class="help-list"><li><strong>میزبان:</strong> ”کمرہ بنائیں“ ← کوڈ دیکھیں</li><li><strong>شریک:</strong> ”کمرے میں شامل ہوں“ ← کوڈ درج کریں</li><li><strong>میزبان سمیت 100 آلات</strong> تک منسلک ہو سکتے ہیں۔</li></ul>',
   'player.play_speakers_html':
     'ہر شریک ایک <strong>کردار (آؤٹ پٹ چینل)</strong> منتخب کرتا ہے۔<ul class="help-list"><li><strong>مرکز:</strong> اسٹیریو (ڈیفالٹ) آؤٹ پٹ</li><li><strong>بائیں:</strong> <bdi dir="ltr">L</bdi> چینل آؤٹ پٹ</li><li><strong>دائیں:</strong> <bdi dir="ltr">R</bdi> چینل آؤٹ پٹ</li><li><strong>سب ووفر:</strong> کم فریکوئنسی مکس آؤٹ پٹ</li></ul>آپ کسی بھی وقت <strong>ترتیبات</strong> میں کردار بدل سکتے ہیں۔',
   'player.play_media_action_html':

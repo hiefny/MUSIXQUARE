@@ -221,7 +221,7 @@ const ja: Record<I18nKey, string> = {
   'player.add_media': 'メディアを追加',
   'player.play_start': 'キューに追加',
   'player.select_media': '再生するメディアを選択',
-  'player.play_together': '同時に再生',
+  'player.play_together': '同期再生',
   'player.play_speakers': 'スピーカーとして使う',
   'player.auto_sync_label': '自動（ms）',
   'player.manual_sync_label': '手動（ms）',
@@ -336,7 +336,7 @@ const ja: Record<I18nKey, string> = {
   'demo.step_role': '2. 役割を設定',
   'demo.step_effects': '3. オーディオ効果',
   'demo.step_finish': '4. デモを終了',
-  'demo.session_title': 'ここはルーム{{code}}です。',
+  'demo.session_title': 'あなたのルーム：{{code}}',
   'demo.session_subtitle': 'いつでも別のデバイスを招待できます。',
   'demo.session_body_connected':
     '現在{{count}}台のデバイスが接続されています。\n各デバイスの役割を設定してください。',
@@ -725,7 +725,7 @@ const ja: Record<I18nKey, string> = {
   'chat.placeholder': 'メッセージ、または「/」でコマンドを入力...',
   'chat.input_label': 'チャットメッセージを入力',
   'chat.send': 'メッセージを送信',
-  'chat.start': 'メッセージを送ってチャットを始めましょう！',
+  'chat.start': 'メッセージを送ってみましょう！',
   'chat.muted_placeholder': 'チャットが制限されています',
   'chat.cmd_frozen': 'チャットをロックしました',
   'chat.cmd_unfrozen': 'チャットのロックを解除しました',
@@ -757,7 +757,7 @@ const ja: Record<I18nKey, string> = {
   'chat.device_track_unavailable_system_message':
     'このデバイスでは現在のトラックを再生できません。',
   'chat.system_audio_started_system_message':
-    'システムオーディオの共有を開始しました。ホストと参加者の間には一定の遅延が発生するため、ハウリングを防ぐためにホストデバイスの音量をできるだけ下げてご使用ください。',
+    'システムオーディオの共有を開始しました。ホストと参加者のデバイス間に少し遅延があるのは正常です。音が二重に聞こえるのを防ぐため、ホストデバイスの音量を下げることをおすすめします。',
   'chat.system_audio_stopped_system_message':
     'システムオーディオの共有を終了しました。ホストデバイスの音量を戻して、スピーカーとして再生してください。',
   'chat.remote_upload_limited_system_message':
@@ -835,7 +835,7 @@ const ja: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'オーディオ共有は同じネットワーク上で最も安定します。<ul class="help-list"><li>リモート参加者も同じ機能を利用できます。</li><li>リモート参加者はCloudflare経路を使用するため、ネットワーク状況によって遅延や受信失敗が発生する場合があります。</li><li>VPNや制限されたネットワークでは接続が不安定になることがあります。</li></ul>',
   'setup.how_to_connect_html':
-    'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ホストとして開始」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>ホストを含む<strong>最大100台</strong>まで接続できます。</li></ul>',
+    'ホストの<strong>6桁コード</strong>を入力して接続します。<ul class="help-list"><li><strong>ホスト:</strong> 「ルームを作成」→ コードを確認</li><li><strong>参加者:</strong> 「ルームに参加」→ コードを入力</li><li>ホストを含む<strong>最大100台</strong>まで接続できます。</li></ul>',
   'player.play_speakers_html':
     '各参加者が<strong>役割（出力チャンネル）</strong>を選択します。<ul class="help-list"><li><strong>中央:</strong> ステレオ（標準）出力</li><li><strong>左:</strong> Lチャンネル出力</li><li><strong>右:</strong> Rチャンネル出力</li><li><strong>サブウーファー:</strong> 低域ミックス出力</li></ul>役割はいつでも<strong>設定</strong>で変更できます。',
   'player.play_media_action_html':

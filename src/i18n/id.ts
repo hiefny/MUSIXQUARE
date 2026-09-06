@@ -337,7 +337,7 @@ const id: Record<I18nKey, string> = {
   'demo.step_role': '2. Atur peran',
   'demo.step_effects': '3. Efek audio',
   'demo.step_finish': '4. Akhiri tur',
-  'demo.session_title': 'Ini adalah ruang {{code}}.',
+  'demo.session_title': 'Ruang Anda: {{code}}',
   'demo.session_subtitle': 'Anda bisa mengundang perangkat lain kapan saja.',
   'demo.session_body_connected':
     '{{count}} perangkat sedang tersambung.\nAtur peran untuk setiap perangkat.',
@@ -524,7 +524,7 @@ const id: Record<I18nKey, string> = {
   'toast.email_copied': 'Alamat email disalin!',
   'toast.settings_sync_enabled': 'Sinkronisasi pengaturan aktif.',
   'toast.settings_sync_admin_required':
-    'Sinkronisasi pengaturan aktif.\nHanya admin ruang yang dapat mengubahnya.',
+    'Sinkronisasi pengaturan aktif.\nHanya admin ruang dapat mengubah pengaturan audio.',
   'toast.virtual_bass_on': 'Bass virtual aktif.',
   'toast.virtual_bass_off': 'Bass virtual nonaktif.',
   'toast.virtual_treble_on': 'Treble virtual aktif.',

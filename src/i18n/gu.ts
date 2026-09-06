@@ -724,7 +724,7 @@ const gu: Record<I18nKey, string> = {
   'pro.claim_login_title': 'પહેલા સાઇન ઇન કરો',
   'pro.claim_login_button': 'સાઇન ઇન કરો',
   'pro.claim_login_message':
-    'આ PRO રૂમનું માલિક બનનાર ખાતાથી સાઇન ઇન કરો અને ઉપનામ નક્કી કરવાનું પૂરું કરો. આગળ વધતાં લિંક ફક્ત આ ટૅબની મેમરીમાં રહે છે.',
+    'આ PRO રૂમનો માલિક બનનાર ખાતાથી સાઇન ઇન કરો અને ઉપનામ નક્કી કરવાનું પૂરું કરો. આગળ વધતાં લિંક ફક્ત આ ટૅબની મેમરીમાં રહે છે.',
   'pro.claim_popup_blocked_message':
     'તમારા બ્રાઉઝરે સાઇન-ઇન વિન્ડો અવરોધી. MUSIXQUARE માટે પૉપ-અપ મંજૂર કરો અને ફરી પ્રયાસ કરો.',
   'pro.claim_existing_account_title': 'જોડાયેલા ખાતાથી સાઇન ઇન કરો',
@@ -779,7 +779,7 @@ const gu: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'એક જ નેટવર્ક પર ઑડિયો શેરિંગ સૌથી સ્થિર હોય છે.<ul class="help-list"><li>દૂરસ્થ સહભાગીઓ પણ એ જ સુવિધાઓ વાપરી શકે છે.</li><li>દૂરસ્થ સહભાગીઓ Cloudflare માર્ગ વાપરે છે, તેથી નેટવર્કની સ્થિતિ પ્રમાણે વિલંબ વધી શકે અથવા ઑડિયો મળવામાં નિષ્ફળતા આવી શકે છે.</li><li>VPN અથવા નિયંત્રિત નેટવર્ક જોડાણને અસ્થિર બનાવી શકે છે.</li></ul>',
   'setup.how_to_connect_html':
-    'જોડાવા માટે હોસ્ટનો <strong>6-અંકનો કોડ</strong> દાખલ કરો.<ul class="help-list"><li><strong>હોસ્ટ:</strong> “હું હોસ્ટ બનીશ” → કોડ તપાસો</li><li><strong>સહભાગી:</strong> “સત્રમાં જોડાઓ” → કોડ દાખલ કરો</li><li><strong>હોસ્ટ સહિત વધુમાં વધુ 100 ડિવાઇસ</strong> જોડાઈ શકે છે.</li></ul>',
+    'જોડાવા માટે હોસ્ટનો <strong>6-અંકનો કોડ</strong> દાખલ કરો.<ul class="help-list"><li><strong>હોસ્ટ:</strong> “રૂમ બનાવો” → કોડ તપાસો</li><li><strong>સહભાગી:</strong> “રૂમમાં જોડાઓ” → કોડ દાખલ કરો</li><li><strong>હોસ્ટ સહિત વધુમાં વધુ 100 ડિવાઇસ</strong> જોડાઈ શકે છે.</li></ul>',
   'player.play_speakers_html':
     'દરેક સહભાગી એક <strong>ભૂમિકા (આઉટપુટ ચૅનલ)</strong> પસંદ કરે છે.<ul class="help-list"><li><strong>મધ્ય:</strong> સ્ટીરિયો (મૂળભૂત) આઉટપુટ</li><li><strong>ડાબું:</strong> <bdi dir="ltr">L</bdi> ચૅનલ આઉટપુટ</li><li><strong>જમણું:</strong> <bdi dir="ltr">R</bdi> ચૅનલ આઉટપુટ</li><li><strong>સબવૂફર:</strong> ઓછી આવર્તનનું મિશ્રિત આઉટપુટ</li></ul><strong>સેટિંગ્સ</strong>માં ભૂમિકા ગમે ત્યારે બદલી શકો છો.',
   'player.play_media_action_html':
@@ -849,7 +849,7 @@ export default gu;
 
 export const pluralMessages = {
   'playlist.delete_selected': {
-    one: 'કાઢી નાખવાના પસંદ કરેલા ટ્રૅકની સંખ્યા: {{count}}',
+    one: 'પસંદ કરેલા ટ્રૅક કાઢી નાખો ({{count}})',
   },
   'connect.device_list': {
     one: 'જોડાયેલા ડિવાઇસની સંખ્યા: {{count}}',

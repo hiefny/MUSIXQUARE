@@ -332,7 +332,7 @@ const vi: Record<I18nKey, string> = {
   'demo.step_role': '2. Đặt vai trò',
   'demo.step_effects': '3. Hiệu ứng âm thanh',
   'demo.step_finish': '4. Thoát bản demo',
-  'demo.session_title': 'Đây là phòng {{code}}.',
+  'demo.session_title': 'Phòng của bạn: {{code}}',
   'demo.session_subtitle': 'Bạn có thể mời thiết bị khác bất cứ lúc nào.',
   'demo.session_body_connected':
     'Hiện có {{count}} thiết bị đang kết nối.\nHãy đặt vai trò cho từng thiết bị.',
@@ -517,7 +517,7 @@ const vi: Record<I18nKey, string> = {
   'toast.email_copied': 'Đã sao chép địa chỉ email!',
   'toast.settings_sync_enabled': 'Đồng bộ cài đặt đang bật.',
   'toast.settings_sync_admin_required':
-    'Đồng bộ cài đặt đang bật.\nChỉ quản trị viên phòng mới có thể thay đổi.',
+    'Đồng bộ cài đặt đang bật.\nChỉ quản trị viên phòng được đổi cài đặt âm thanh.',
   'toast.virtual_bass_on': 'Âm trầm ảo đang bật.',
   'toast.virtual_bass_off': 'Âm trầm ảo đang tắt.',
   'toast.virtual_treble_on': 'Âm cao ảo đang bật.',

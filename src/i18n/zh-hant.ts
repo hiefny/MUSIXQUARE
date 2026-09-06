@@ -324,7 +324,7 @@ const zhHant: Record<I18nKey, string> = {
   'demo.step_role': '2. 設定角色',
   'demo.step_effects': '3. 音訊效果',
   'demo.step_finish': '4. 結束體驗',
-  'demo.session_title': '這裡是房間 {{code}}。',
+  'demo.session_title': '你的房間：{{code}}',
   'demo.session_subtitle': '你可以隨時邀請另一台裝置。',
   'demo.session_body_connected': '目前已連線 {{count}} 台裝置。\n請為每台裝置設定角色。',
   'demo.session_body_alone': '目前只有這台裝置在播放。\n現在邀請另一台裝置吧。',
@@ -368,7 +368,7 @@ const zhHant: Record<I18nKey, string> = {
   'help.load_local': '載入本機檔案',
   'help.youtube_compat': 'YouTube（相容模式）',
   'help.youtube_no_effects': '在 YouTube 模式下，角色設定和音訊效果無法使用。',
-  'help.media_synced_detail': '所選媒體會在所有已連線裝置上同步播放。',
+  'help.media_synced_detail': '所有已連線裝置同步播放。',
   'help.wifi_hotspot': '熱點也可以讓所有裝置處於同一網路',
 
   // YouTube

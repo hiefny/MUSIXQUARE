@@ -337,7 +337,7 @@ const ro: Record<I18nKey, string> = {
   'demo.step_role': '2. Setează rolul',
   'demo.step_effects': '3. Efecte audio',
   'demo.step_finish': '4. Încheie demonstrația',
-  'demo.session_title': 'Aceasta este camera {{code}}.',
+  'demo.session_title': 'Camera ta: {{code}}',
   'demo.session_subtitle': 'Poți invita oricând un alt dispozitiv.',
   'demo.session_body_connected':
     'În acest moment sunt conectate {{count}} dispozitive.\nSetează un rol pentru fiecare.',
@@ -625,7 +625,7 @@ const ro: Record<I18nKey, string> = {
   'toast.operator_required': 'Numai administratorii pot schimba setările globale',
   'toast.connection_closing': 'Conexiune pierdută; setarea nu a fost sincronizată',
   'toast.host_changed_setting': 'Setările au fost modificate',
-  'toast.session_mismatch': 'Sesiunile nu corespund.\nTransferul fișierului va reîncerca.',
+  'toast.session_mismatch': 'Sesiunile nu corespund.\nTransferul fișierului va fi reluat.',
   'toast.receiving_pct': 'Se primește... {{pct}}%',
 
   // ─── Transfer ────────────────────────────────────────────────────
@@ -809,7 +809,7 @@ const ro: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Partajarea sunetului este cea mai stabilă în aceeași rețea.<ul class="help-list"><li>Participanții de la distanță pot folosi aceleași funcții.</li><li>Participanții de la distanță folosesc rute Cloudflare, astfel încât latența poate crește sau recepția poate eșua în funcție de starea rețelei.</li><li>Un VPN sau o rețea restricționată poate destabiliza conexiunea.</li></ul>',
   'setup.how_to_connect_html':
-    'Introdu <strong>codul din 6 cifre</strong> primit de la gazdă pentru a te conecta.<ul class="help-list"><li><strong>Gazdă:</strong> „Voi fi gazda” → verifică codul</li><li><strong>Participant:</strong> „Intră într-o sesiune” → introdu codul</li><li>Se pot conecta până la <strong>100 de dispozitive, inclusiv gazda</strong>.</li></ul>',
+    'Introdu <strong>codul din 6 cifre</strong> primit de la gazdă pentru a te conecta.<ul class="help-list"><li><strong>Gazdă:</strong> „Creează o cameră” → verifică codul</li><li><strong>Participant:</strong> „Intră într-o cameră” → introdu codul</li><li>Se pot conecta până la <strong>100 de dispozitive, inclusiv gazda</strong>.</li></ul>',
   'player.play_speakers_html':
     'Fiecare participant selectează un <strong>rol (canal de ieșire)</strong>.<ul class="help-list"><li><strong>Centru:</strong> ieșire stereo (implicită)</li><li><strong>Stânga (Left):</strong> ieșire pe canalul <bdi dir="ltr">L</bdi></li><li><strong>Dreapta (Right):</strong> ieșire pe canalul <bdi dir="ltr">R</bdi></li><li><strong>Subwoofer:</strong> ieșire mixtă de joasă frecvență</li></ul>Poți schimba oricând rolurile din <strong>Setări</strong>.',
   'player.play_media_action_html':

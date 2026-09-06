@@ -334,7 +334,7 @@ const hu: Record<I18nKey, string> = {
   'demo.step_role': '2. Szerep beállítása',
   'demo.step_effects': '3. Hangeffektusok',
   'demo.step_finish': '4. Bemutató bezárása',
-  'demo.session_title': 'Ez a {{code}} kódú szoba.',
+  'demo.session_title': 'Szobád: {{code}}',
   'demo.session_subtitle': 'Bármikor meghívhatsz egy másik eszközt.',
   'demo.session_body_connected':
     'Jelenleg {{count}} eszköz csatlakozik.\nÁllíts be mindegyikhez egy szerepet.',
@@ -802,7 +802,7 @@ const hu: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'A hangmegosztás azonos hálózaton a legstabilabb.<ul class="help-list"><li>A távoli résztvevők ugyanazokat a funkciókat használhatják.</li><li>A távoli résztvevők Cloudflare-útvonalakat használnak, ezért a hálózati viszonyoktól függően nőhet a késés vagy meghiúsulhat a fogadás.</li><li>A VPN vagy a korlátozott hálózat instabillá teheti a kapcsolatot.</li></ul>',
   'setup.how_to_connect_html':
-    'A kapcsolódáshoz add meg a házigazdától kapott <strong>hatjegyű kódot</strong>.<ul class="help-list"><li><strong>Házigazda:</strong> „Én leszek a házigazda” → kód megtekintése</li><li><strong>Résztvevő:</strong> „Csatlakozás munkamenethez” → kód megadása</li><li>Legfeljebb <strong>100 eszköz csatlakozhat a házigazdával együtt</strong>.</li></ul>',
+    'A kapcsolódáshoz add meg a házigazdától kapott <strong>hatjegyű kódot</strong>.<ul class="help-list"><li><strong>Házigazda:</strong> „Szoba létrehozása” → kód megtekintése</li><li><strong>Résztvevő:</strong> „Csatlakozás szobához” → kód megadása</li><li>Legfeljebb <strong>100 eszköz csatlakozhat a házigazdával együtt</strong>.</li></ul>',
   'player.play_speakers_html':
     'Minden résztvevő kiválaszt egy <strong>szerepet (kimeneti csatornát)</strong>.<ul class="help-list"><li><strong>Közép:</strong> sztereó (alapértelmezett) kimenet</li><li><strong>Bal (Left):</strong> <bdi dir="ltr">L</bdi> csatorna kimenete</li><li><strong>Jobb (Right):</strong> <bdi dir="ltr">R</bdi> csatorna kimenete</li><li><strong>Mélynyomó:</strong> kevert mélyfrekvenciás kimenet</li></ul>A szerepek bármikor módosíthatók a <strong>Beállításokban</strong>.',
   'player.play_media_action_html':

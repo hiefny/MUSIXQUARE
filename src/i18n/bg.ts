@@ -334,7 +334,7 @@ const bg: Record<I18nKey, string> = {
   'demo.step_role': '2. Задаване на роля',
   'demo.step_effects': '3. Звукови ефекти',
   'demo.step_finish': '4. Край на демонстрацията',
-  'demo.session_title': 'Това е стая {{code}}.',
+  'demo.session_title': 'Твоята стая: {{code}}',
   'demo.session_subtitle': 'Можеш да поканиш друго устройство по всяко време.',
   'demo.session_body_connected':
     'Свързани устройства в момента: {{count}}.\nЗадай роля на всяко устройство.',
@@ -800,7 +800,7 @@ const bg: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Споделянето на звук е най-стабилно в една и съща мрежа.<ul class="help-list"><li>Отдалечените участници могат да използват същите функции.</li><li>Отдалечените участници използват маршрути през Cloudflare, затова според състоянието на мрежата закъснението може да се увеличи или получаването да е неуспешно.</li><li>VPN или ограничена мрежа може да направи връзката нестабилна.</li></ul>',
   'setup.how_to_connect_html':
-    'За да се свържеш, въведи <strong>6-цифрения код</strong> от хоста.<ul class="help-list"><li><strong>Хост:</strong> „Аз ще бъда хост“ → преглед на кода</li><li><strong>Участник:</strong> „Присъединяване към сесия“ → въвеждане на кода</li><li>Могат да се свържат до <strong>100 устройства, включително хостът</strong>.</li></ul>',
+    'За да се свържеш, въведи <strong>6-цифрения код</strong> от хоста.<ul class="help-list"><li><strong>Хост:</strong> „Създаване на стая“ → преглед на кода</li><li><strong>Участник:</strong> „Присъединяване към стая“ → въвеждане на кода</li><li>Могат да се свържат до <strong>100 устройства, включително хостът</strong>.</li></ul>',
   'player.play_speakers_html':
     'Всеки участник избира <strong>роля (изходен канал)</strong>.<ul class="help-list"><li><strong>Център (Center):</strong> стерео изход (по подразбиране)</li><li><strong>Ляво (Left):</strong> изход на <bdi dir="ltr">L</bdi> канал</li><li><strong>Дясно (Right):</strong> изход на <bdi dir="ltr">R</bdi> канал</li><li><strong>Субуфер:</strong> смесен нискочестотен изход</li></ul>Можеш да променяш ролите по всяко време в <strong>Настройки</strong>.',
   'player.play_media_action_html':

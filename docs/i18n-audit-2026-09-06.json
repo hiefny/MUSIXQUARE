@@ -531,14 +531,15 @@
   },
   "validation": {
     "targetedTests": {
-      "files": 19,
-      "passed": 278
+      "files": 20,
+      "passed": 328
     },
     "typecheck": "passed",
     "lint": "passed",
     "format": "passed",
     "productionBuild": "build:checked passed, including source-complexity, release-identity, initial-transfer budget, font and PWA guards",
-    "ci": "The committed audit records local candidate verification. PR/main CI and production workflow records are the authoritative subsequent release evidence."
+    "ci": "The committed audit records local candidate verification. PR/main CI and production workflow records are the authoritative subsequent release evidence.",
+    "ciCopyExpectationCorrection": "The first full CI run found one stale Malay account-completion expected string. Updated only that literal; all 50 account-completion tests pass with unchanged assertions."
   },
   "layout": {
     "viewports": [320, 360, 390, 1440],
@@ -874,7 +875,7 @@
         }
       ]
     },
-    "retainedRationale": "At 320px, the System Audio label has only 28px of width; further semantic shortening is not appropriate. RU/UK/ML invite-code labels wrap to two lines without clipping. Existing geometry and CSS are preserved. Other raw detector signals include scrolling containers, offscreen content and intentional metadata truncation; they are not counted as translation errors.",
+    "retainedRationale": "The 320px System Audio signal is from a desktop Chromium layout fixture with the BETA badge visible. Actual unsupported mobile capture adds the unsupported class and hides the badge (src/core/platform.ts, src/ui/player-controls.ts, css/style.css). This is not evidence of mobile clipping. The user explicitly requested no further shortening of System Audio and accepts KO/EN-level clarity. RU/UK/ML invite-code labels wrap to two lines without clipping. Geometry and CSS are preserved. Other raw signals include scrolling containers, offscreen content and intentional metadata truncation.",
     "visualSampling": [
       "Tamil About 320px",
       "Chinese media dialog 320px",

@@ -6,23 +6,42 @@ Date: 2026-08-16
 ## Decision
 
 The source-size guard is a generous accident detector, not an architecture
-target and not a signal that a file should be split. Its limits intentionally
-leave substantial room above the current production sources:
+target and not a signal that a file should be split. Its generous limits catch
+accidental growth; a boundary approaching its limit calls for review:
 
-| Source boundary | Safety limit |
-| --- | ---: |
-| App and PRO Workers | 20,000 lines |
-| Signaling Worker, PRO browser runtime, and admin runtime | 10,000 lines |
-| Service Control Durable Object | 2,000 lines |
-| Signaling wire protocol | 1,000 lines |
-| Shared bounded request-body helper | 500 lines |
-| Production/recovery workflows | 2,000 / 1,000 lines |
-| Largest inline workflow `run` block | 200 lines |
+| Source boundary                                          |        Safety limit |
+| -------------------------------------------------------- | ------------------: |
+| App and PRO Workers                                      |        20,000 lines |
+| Signaling Worker, PRO browser runtime, and admin runtime |        10,000 lines |
+| Service Control Durable Object                           |         2,000 lines |
+| Signaling wire protocol                                  |         1,000 lines |
+| Shared bounded request-body helper                       |           500 lines |
+| Production/recovery workflows                            | 2,000 / 1,000 lines |
+| Largest inline workflow `run` block                      |           200 lines |
 
 These round limits are deliberately not tight ratchets. Approaching one means
 that ownership should be reviewed; it does not prescribe extraction. Raising a
 limit is an acceptable outcome when co-location preserves a clearer lifecycle,
 transaction, or recovery path.
+
+## Readability and transfer budgets (2026-09-06 clarification)
+
+Source line limits and compressed transfer limits measure different costs.
+Neither justifies removing explanatory comments, obscuring cancellation or
+ownership checks, or making a shared behavior harder to update. Prefer named
+operations and explicit lifecycle transitions. Share code when it expresses
+the same contract, rather than only because an extraction changes gzip output.
+
+When a correctness or readability improvement approaches a guard, first review
+the final source and the actual emitted graph. If retaining the clearer source
+requires more capacity, update the relevant documented limit with measured
+evidence. Do not iterate through equivalent-looking source rewrites merely to
+recover a few bytes. Generated production minification remains appropriate;
+hand-written source should remain readable without mentally reversing it.
+
+This clarification does not raise any source line limit. Initial-transfer
+capacity and its separate 5% reserve are governed by
+`initial-bundle-loading-policy.md` and its shared budget configuration.
 
 ## Co-location policy
 

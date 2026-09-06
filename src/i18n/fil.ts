@@ -341,7 +341,7 @@ const fil: Record<I18nKey, string> = {
   'demo.step_role': '2. Itakda ang gampanin',
   'demo.step_effects': '3. Mga audio effect',
   'demo.step_finish': '4. Tapusin ang demo',
-  'demo.session_title': 'Ito ang kuwartong {{code}}.',
+  'demo.session_title': 'Kuwarto mo: {{code}}',
   'demo.session_subtitle': 'Maaari kang mag-imbita ng isa pang device anumang oras.',
   'demo.session_body_connected':
     '{{count}} device ang nakakonekta ngayon.\nMagtakda ng gampanin para sa bawat device.',
@@ -813,7 +813,7 @@ const fil: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Pinaka-stable ang pagbabahagi ng audio sa iisang network.<ul class="help-list"><li>Magagamit ng mga kalahok na nakakonekta sa malayo ang parehong mga feature.</li><li>Gumagamit ng mga Cloudflare path ang mga kalahok na nakakonekta sa malayo, kaya maaaring tumaas ang latency o hindi makatanggap depende sa kondisyon ng network.</li><li>Maaaring maging hindi stable ang koneksyon sa VPN o pinaghihigpitang network.</li></ul>',
   'setup.how_to_connect_html':
-    'Ilagay ang <strong>6-digit na code</strong> mula sa host para kumonekta.<ul class="help-list"><li><strong>Host:</strong> “Ako ang magiging host” → tingnan ang code</li><li><strong>Kalahok:</strong> “Sumali sa session” → ilagay ang code</li><li>Hanggang <strong>100 device, kasama ang host</strong>, ang maaaring kumonekta.</li></ul>',
+    'Ilagay ang <strong>6-digit na code</strong> mula sa host para kumonekta.<ul class="help-list"><li><strong>Host:</strong> “Gumawa ng Kuwarto” → tingnan ang code</li><li><strong>Kalahok:</strong> “Sumali sa Kuwarto” → ilagay ang code</li><li>Hanggang <strong>100 device, kasama ang host</strong>, ang maaaring kumonekta.</li></ul>',
   'player.play_speakers_html':
     'Pumipili ang bawat kalahok ng <strong>gampanin (output channel)</strong>.<ul class="help-list"><li><strong>Gitna:</strong> Stereo (default) na output</li><li><strong>Kaliwa:</strong> Output ng <bdi dir="ltr">L</bdi> channel</li><li><strong>Kanan:</strong> Output ng <bdi dir="ltr">R</bdi> channel</li><li><strong>Subwoofer:</strong> Output ng low-frequency mix</li></ul>Maaari mong palitan ang mga gampanin anumang oras sa <strong>Mga Setting</strong>.',
   'player.play_media_action_html':

@@ -126,7 +126,7 @@ const ml: Record<I18nKey, string> = {
   'player.sync_compact': 'സിങ്ക്',
   'player.syncing_compact': 'സിങ്ക്…',
   'player.play_media': 'മീഡിയ പ്ലേ ചെയ്യുക',
-  'player.play_media_compact': 'Media',
+  'player.play_media_compact': 'മീഡിയ',
   'player.play_media_action': 'മീഡിയ പ്ലേ ചെയ്യുക',
   'player.add_media': 'മീഡിയ ചേർക്കുക',
   'player.play_start': 'ക്യൂവിൽ ചേർക്കുക',
@@ -250,7 +250,7 @@ const ml: Record<I18nKey, string> = {
   'connect.rename_reserved': 'ഈ വിളിപ്പേര് സംവരണം ചെയ്തതാണ്.',
   'connect.rename_profanity': 'അനുചിതമായ വാക്കുകൾ കണ്ടെത്തി.',
   'settings.devices_title': 'ബന്ധിപ്പിച്ച ഡിവൈസുകൾ',
-  'settings.invite_share': 'ക്ഷണിക്കുകയും പങ്കിടുകയും ചെയ്യുക',
+  'settings.invite_share': 'ക്ഷണിക്കൂ, പങ്കിടൂ',
   'settings.subtab.general': 'പൊതുവായത്',
   'settings.subtab.audio': 'ഓഡിയോ',
   'settings.subtab.connect': 'ബന്ധിപ്പിക്കുക',
@@ -621,7 +621,7 @@ const ml: Record<I18nKey, string> = {
   'toast.yt_manual_sync_prompt':
     'സ്വയമേവ സിങ്ക് ചെയ്യാൻ ഇപ്പോൾ ശ്രമിച്ചു.\nഇപ്പോഴും കാലതാമസം തോന്നുന്നെങ്കിൽ മൂല്യം ക്രമീകരിക്കുക',
   'toast.playlist_ended': 'അവസാന മീഡിയ ഇനം അവസാനിച്ചു',
-  'toast.operator_required': 'അഡ്മിനുകൾക്ക് മാത്രമേ പൊതുവായ ക്രമീകരണങ്ങൾ മാറ്റാനാകൂ',
+  'toast.operator_required': 'അഡ്മിനുകൾക്ക് മാത്രമേ എല്ലാവർക്കും ബാധകമായ ക്രമീകരണങ്ങൾ മാറ്റാനാകൂ',
   'toast.connection_closing': 'ബന്ധം നഷ്ടപ്പെട്ടു; ക്രമീകരണം സിങ്ക് ചെയ്തില്ല',
   'toast.host_changed_setting': 'ക്രമീകരണങ്ങൾ മാറ്റി',
   'toast.session_mismatch': 'സെഷൻ പൊരുത്തപ്പെടുന്നില്ല.\nഫയൽ കൈമാറ്റം വീണ്ടും ശ്രമിക്കും.',
@@ -807,7 +807,7 @@ const ml: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'ഒരേ നെറ്റ്‌വർക്കിലാണ് ഓഡിയോ പങ്കിടൽ ഏറ്റവും സ്ഥിരതയോടെ പ്രവർത്തിക്കുന്നത്.<ul class="help-list"><li>റിമോട്ട് പങ്കാളികൾക്കും അതേ സവിശേഷതകൾ ഉപയോഗിക്കാം.</li><li>റിമോട്ട് പങ്കാളികൾ Cloudflare പാതകൾ ഉപയോഗിക്കുന്നതിനാൽ നെറ്റ്‌വർക്ക് സാഹചര്യങ്ങൾക്കനുസരിച്ച് കാലതാമസം കൂടുകയോ സ്വീകരിക്കൽ പരാജയപ്പെടുകയോ ചെയ്യാം.</li><li>VPN അല്ലെങ്കിൽ നിയന്ത്രിത നെറ്റ്‌വർക്ക് ബന്ധം അസ്ഥിരമാക്കിയേക്കാം.</li></ul>',
   'setup.how_to_connect_html':
-    'ബന്ധിപ്പിക്കാൻ ഹോസ്റ്റിൽ നിന്നുള്ള <strong>6 അക്ക കോഡ്</strong> നൽകുക.<ul class="help-list"><li><strong>ഹോസ്റ്റ്:</strong> “ഞാൻ ഹോസ്റ്റാകും” → കോഡ് പരിശോധിക്കുക</li><li><strong>പങ്കാളി:</strong> “ഒരു സെഷനിൽ ചേരുക” → കോഡ് നൽകുക</li><li><strong>ഹോസ്റ്റ് ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾക്ക്</strong> ബന്ധിപ്പിക്കാം.</li></ul>',
+    'ബന്ധിപ്പിക്കാൻ ഹോസ്റ്റിൽ നിന്നുള്ള <strong>6 അക്ക കോഡ്</strong> നൽകുക.<ul class="help-list"><li><strong>ഹോസ്റ്റ്:</strong> “റൂം സൃഷ്ടിക്കുക” → കോഡ് പരിശോധിക്കുക</li><li><strong>പങ്കാളി:</strong> “റൂമിൽ ചേരുക” → കോഡ് നൽകുക</li><li><strong>ഹോസ്റ്റ് ഉൾപ്പെടെ പരമാവധി 100 ഡിവൈസുകൾക്ക്</strong> ബന്ധിപ്പിക്കാം.</li></ul>',
   'player.play_speakers_html':
     'ഓരോ പങ്കാളിയും ഒരു <strong>റോൾ (ഔട്ട്‌പുട്ട് ചാനൽ)</strong> തിരഞ്ഞെടുക്കുന്നു.<ul class="help-list"><li><strong>മധ്യം:</strong> സ്റ്റീരിയോ (ഡിഫോൾട്ട്) ഔട്ട്‌പുട്ട്</li><li><strong>ഇടത്:</strong> <bdi dir="ltr">L</bdi> ചാനൽ ഔട്ട്‌പുട്ട്</li><li><strong>വലത്:</strong> <bdi dir="ltr">R</bdi> ചാനൽ ഔട്ട്‌പുട്ട്</li><li><strong>സബ്‌വൂഫർ:</strong> താഴ്ന്ന ആവൃത്തി മിക്സ് ഔട്ട്‌പുട്ട്</li></ul><strong>ക്രമീകരണങ്ങളിൽ</strong> എപ്പോൾ വേണമെങ്കിലും റോളുകൾ മാറ്റാം.',
   'player.play_media_action_html':
@@ -851,7 +851,7 @@ const ml: Record<I18nKey, string> = {
   'system_audio.capture_denied': 'ഓഡിയോ പങ്കിടൽ റദ്ദാക്കി.',
   'system_audio.no_audio_track': '“ഓഡിയോ പങ്കിടുക” പ്രവർത്തനക്ഷമമാക്കിയില്ല.\nവീണ്ടും ശ്രമിക്കുക.',
   'system_audio.stop': 'പങ്കിടൽ നിർത്തുക',
-  'system_audio.stop_compact': 'Stop',
+  'system_audio.stop_compact': 'നിർത്തുക',
   'system_audio.started':
     'സിസ്റ്റം ഓഡിയോയിൽ നേരിയ കാലതാമസം ഉണ്ടാകാം.\nകഴിയുമെങ്കിൽ ഉറവിടത്തിന്റെ ശബ്ദനില കുറയ്ക്കുക.',
   'system_audio.stopped': 'സിസ്റ്റം ഓഡിയോ പങ്കിടൽ അവസാനിച്ചു.\nപ്ലേലിസ്റ്റ് തുടരുന്നു.',

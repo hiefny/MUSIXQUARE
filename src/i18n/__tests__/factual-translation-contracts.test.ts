@@ -173,9 +173,12 @@ describe('completed translation factual contracts', () => {
         'Beta',
       );
       if (!Object.prototype.hasOwnProperty.call(completedLanguageContracts, language)) {
-        expect(dictionary['standin.caveat'], `${language}.standin.caveat room tier`).toMatch(
-          /Standard/iu,
-        );
+        // The two-hour limit follows remote/SFU delivery. Standard LAN-only
+        // sharing remains active, as covered by system-capture-stop.test.ts.
+        expect(
+          dictionary['standin.caveat'],
+          `${language}.standin.caveat duration scope`,
+        ).not.toMatch(/\bStandard\b/iu);
         for (const token of ['Cloudflare', 'SFU', 'PRO', 'LAN-direct']) {
           expect(dictionary['standin.caveat'], `${language}.standin.caveat ${token}`).toContain(
             token,

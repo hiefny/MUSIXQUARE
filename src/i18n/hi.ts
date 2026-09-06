@@ -789,7 +789,7 @@ const hi: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'एक ही नेटवर्क पर ऑडियो शेयरिंग सबसे स्थिर रहती है।<ul class="help-list"><li>दूर से जुड़े प्रतिभागी भी वही फ़ीचर इस्तेमाल कर सकते हैं।</li><li>दूर से जुड़े प्रतिभागियों का डेटा Cloudflare के रास्तों से जाता है, इसलिए नेटवर्क की स्थिति के अनुसार देरी बढ़ सकती है या ऑडियो मिलना बंद हो सकता है।</li><li>VPN या पाबंदी वाला नेटवर्क कनेक्शन को अस्थिर कर सकता है।</li></ul>',
   'setup.how_to_connect_html':
-    'कनेक्ट करने के लिए होस्ट से मिला <strong>6 अंकों का कोड</strong> दर्ज करें।<ul class="help-list"><li><strong>होस्ट:</strong> “मैं होस्ट बनूँगा” → कोड देखें</li><li><strong>प्रतिभागी:</strong> “सेशन में शामिल हों” → कोड दर्ज करें</li><li>होस्ट समेत अधिकतम <strong>100 डिवाइस</strong> कनेक्ट हो सकते हैं।</li></ul>',
+    'कनेक्ट करने के लिए होस्ट से मिला <strong>6 अंकों का कोड</strong> दर्ज करें।<ul class="help-list"><li><strong>होस्ट:</strong> “रूम बनाएँ” → कोड देखें</li><li><strong>प्रतिभागी:</strong> “रूम में शामिल हों” → कोड दर्ज करें</li><li>होस्ट समेत अधिकतम <strong>100 डिवाइस</strong> कनेक्ट हो सकते हैं।</li></ul>',
   'player.play_speakers_html':
     'हर प्रतिभागी एक <strong>भूमिका (आउटपुट चैनल)</strong> चुनता है।<ul class="help-list"><li><strong>सेंटर:</strong> स्टीरियो (डिफ़ॉल्ट) आउटपुट</li><li><strong>बायाँ (Left):</strong> <bdi dir="ltr">L</bdi> चैनल आउटपुट</li><li><strong>दायाँ (Right):</strong> <bdi dir="ltr">R</bdi> चैनल आउटपुट</li><li><strong>सबवूफ़र:</strong> कम फ़्रीक्वेंसी वाले मिक्स का आउटपुट</li></ul>आप <strong>सेटिंग्स</strong> में भूमिका कभी भी बदल सकते हैं।',
   'player.play_media_action_html':

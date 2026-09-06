@@ -262,7 +262,7 @@ const ptBr: Record<I18nKey, string> = {
   'connect.administrator_role': 'Administrador',
   'connect.administrator_settings_aria': 'Editar permissões de administrador de {{name}}',
   'connect.administrator_revoke_aria': 'Revogar permissões de administrador de {{name}}',
-  'connect.administrator_revoke_title': 'Revogar administrador?',
+  'connect.administrator_revoke_title': 'Revogar permissões de administrador?',
   'connect.administrator_revoke_message': 'Revogar as permissões de administrador de {{name}}?',
   'connect.permissions_title': 'Permissões de {{name}}',
   'connect.permission_media_add': 'Gerenciar mídia',

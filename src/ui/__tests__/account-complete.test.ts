@@ -37,7 +37,7 @@ const localizedCompletionCopy = [
   ['bn', 'bn-BD', 'সাইন-ইন সম্পন্ন হয়েছে। এখন এই উইন্ডোটি বন্ধ করতে পারেন।', 'বন্ধ করুন'],
   ['ta', 'ta-IN', 'உள்நுழைவு முடிந்தது. இப்போது இந்தச் சாளரத்தை மூடலாம்.', 'மூடு'],
   ['te', 'te-IN', 'సైన్ ఇన్ పూర్తయింది. ఇప్పుడు ఈ విండోను మూసివేయవచ్చు.', 'మూసివేయి'],
-  ['ms', 'ms-MY', 'Daftar masuk selesai. Anda boleh menutup tetingkap ini.', 'Tutup'],
+  ['ms', 'ms-MY', 'Log masuk selesai. Anda boleh menutup tetingkap ini.', 'Tutup'],
   ['fil', 'fil-PH', 'Tapos na ang pag-sign in. Maaari mo nang isara ang window na ito.', 'Isara'],
   ['ar', 'ar', 'اكتمل تسجيل الدخول. يمكنك إغلاق هذه النافذة الآن.', 'إغلاق'],
   ['ur', 'ur-PK', 'سائن اِن مکمل ہو گیا۔ اب آپ یہ ونڈو بند کر سکتے ہیں۔', 'بند کریں'],

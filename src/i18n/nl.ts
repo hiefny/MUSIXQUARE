@@ -163,9 +163,9 @@ const nl: Record<I18nKey, string> = {
   'transfer.host_busy': 'De host verwerkt een ander bestand. Probeer het zo opnieuw.',
 
   // Role
-  'role.center': 'Middenluidspreker',
+  'role.center': 'Centrale luidspreker',
   'role.left': 'Linkerluidspreker',
-  'role.right': 'Rechterluidspreker',
+  'role.right': 'Luidspreker rechts',
   'role.subwoofer': 'Subwoofer',
   'role.center_placement': 'Plaats dit apparaat in het midden',
   'role.left_placement': 'Plaats dit apparaat links',
@@ -336,7 +336,7 @@ const nl: Record<I18nKey, string> = {
   'demo.step_role': '2. Rol instellen',
   'demo.step_effects': '3. Audio-effecten',
   'demo.step_finish': '4. Demo verlaten',
-  'demo.session_title': 'Dit is kamer {{code}}.',
+  'demo.session_title': 'Je kamer: {{code}}',
   'demo.session_subtitle': 'Je kunt altijd nog een apparaat uitnodigen.',
   'demo.session_body_connected':
     'Er zijn nu {{count}} apparaten verbonden.\nStel voor elk apparaat een rol in.',
@@ -478,9 +478,9 @@ const nl: Record<I18nKey, string> = {
   'chat.cmd_d_nick': 'Bijnaam wijzigen',
   'chat.cmd_d_kick': 'Apparaat verwijderen',
   'chat.cmd_d_op': 'Beheerder maken',
-  'chat.cmd_d_deop': 'Beheerder intrekken',
+  'chat.cmd_d_deop': 'Beheerdersrechten intrekken',
   'chat.cmd_d_mute': 'Apparaat in de chat dempen',
-  'chat.cmd_d_unmute': 'Dempen van apparaat opheffen',
+  'chat.cmd_d_unmute': 'Chat van apparaat vrijgeven',
   'chat.cmd_u_debug': '/debug',
   'chat.cmd_d_debug': 'Systeemdebug-info',
   'chat.debug_copied':
@@ -526,7 +526,7 @@ const nl: Record<I18nKey, string> = {
   'youtube.search_prompt': "Druk op Enter of Zoeken om video's te vinden",
   'youtube.searching': 'Zoeken op YouTube...',
   'youtube.search_no_results': "Geen video's gevonden",
-  'youtube.search_failed': 'YouTube zoeken is niet beschikbaar',
+  'youtube.search_failed': 'Zoeken op YouTube is niet beschikbaar',
   'youtube.search_selected': 'Gekozen video klaar om toe te voegen',
   'youtube.search_results': 'YouTube-zoekresultaten',
   'youtube.live_sync_warning': 'Livestreams zijn moeilijk precies te synchroniseren.',
@@ -617,7 +617,7 @@ const nl: Record<I18nKey, string> = {
   'toast.yt_manual_sync_prompt':
     'Automatische synchronisatie is zojuist geprobeerd.\nPas de waarde nu aan als je nog vertraging merkt',
   'toast.playlist_ended': 'Het laatste medium is afgelopen',
-  'toast.operator_required': 'Alleen beheerders kunnen algemene instellingen wijzigen',
+  'toast.operator_required': 'Alleen beheerders kunnen globale instellingen wijzigen',
   'toast.connection_closing': 'Verbinding verloren, instelling niet gesynchroniseerd',
   'toast.host_changed_setting': 'Instellingen zijn gewijzigd',
   'toast.session_mismatch':

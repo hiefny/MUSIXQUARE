@@ -526,7 +526,7 @@ describe('Translation key integrity', () => {
       de: 'Die Einstellungssynchronisierung ist aktiviert.\nNur Raumadmins können Audioeinstellungen ändern.',
       es: 'La sincronización de ajustes está activada.\nSolo admins de la sala pueden cambiarlos.',
       fr: 'La synchronisation des réglages est activée.\nSeuls les admins du salon peuvent les modifier.',
-      id: 'Sinkronisasi pengaturan aktif.\nHanya admin ruang yang dapat mengubahnya.',
+      id: 'Sinkronisasi pengaturan aktif.\nHanya admin ruang dapat mengubah pengaturan audio.',
       italian:
         'La sincronizzazione delle impostazioni è attiva.\nSolo gli admin della stanza possono cambiarle.',
       ja: '設定の同期がオンです。\n音響設定を変更できるのはルーム管理者だけです。',
@@ -534,9 +534,9 @@ describe('Translation key integrity', () => {
       pl: 'Synchronizacja ustawień jest włączona.\nTylko administratorzy pokoju mogą je zmieniać.',
       ptBr: 'A sincronização de configurações está ativada.\nSó administradores da sala podem alterar o áudio.',
       ru: 'Синхронизация настроек включена.\nТолько администраторы комнаты могут менять звук.',
-      th: 'เปิดการซิงก์การตั้งค่าอยู่\nเฉพาะผู้ดูแลห้องเท่านั้นที่เปลี่ยนได้',
+      th: 'เปิดการซิงก์การตั้งค่าอยู่\nผู้ดูแลห้องเท่านั้นที่เปลี่ยนการตั้งค่าเสียงได้',
       tr: 'Ayar senkronizasyonu açık.\nYalnızca oda yöneticileri değiştirebilir.',
-      vi: 'Đồng bộ cài đặt đang bật.\nChỉ quản trị viên phòng mới có thể thay đổi.',
+      vi: 'Đồng bộ cài đặt đang bật.\nChỉ quản trị viên phòng được đổi cài đặt âm thanh.',
       zhHans: '设置同步已开启。\n只有房间管理员可以更改音频设置。',
       zhHant: '設定同步已開啟。\n只有房間管理員可以變更音訊設定。',
     };

@@ -703,9 +703,9 @@ const pa: Record<I18nKey, string> = {
     'ਬੈਕਗ੍ਰਾਊਂਡ ਵਿੱਚੋਂ ਵਾਪਸ ਆਉਣ ਤੋਂ ਬਾਅਦ ਇਸ ਡਿਵਾਈਸ ਦਾ ਆਡੀਓ ਬਹਾਲ ਨਹੀਂ ਹੋਇਆ। MUSIXQUARE ਜਦੋਂ ਇਸ ਡਿਵਾਈਸ ਦੀ ਆਵਾਜ਼ ਮੁੜ ਮਿਲਾਏਗਾ, ਤੁਹਾਡਾ ਰੂਮ ਕਨੈਕਟ ਰਹੇਗਾ।',
   'dialog.audio_recovery_action': 'ਆਡੀਓ ਬਹਾਲ ਕਰੋ',
   'dialog.background_resume_message':
-    'ਜੇ ਸਿੰਕ ਬੰਦ ਹੋਵੇ ਜਾਂ ਆਡੀਓ ਨਾ ਚੱਲੇ ਤਾਂ ਐਪ ਪੂਰੀ ਤਰ੍ਹਾਂ ਬੰਦ ਕਰਕੇ ਮੁੜ ਖੋਲ੍ਹੋ।',
+    'ਜੇ ਸਿੰਕ ਠੀਕ ਨਾ ਹੋਵੇ ਜਾਂ ਆਡੀਓ ਨਾ ਚੱਲੇ ਤਾਂ ਐਪ ਪੂਰੀ ਤਰ੍ਹਾਂ ਬੰਦ ਕਰਕੇ ਮੁੜ ਖੋਲ੍ਹੋ।',
   'dialog.background_resume_sync_fallback_message':
-    'ਜੇ ਸਿੰਕ ਬੰਦ ਹੋਵੇ ਜਾਂ ਆਡੀਓ ਨਾ ਚੱਲੇ ਤਾਂ ਐਪ ਪੂਰੀ ਤਰ੍ਹਾਂ ਬੰਦ ਕਰਕੇ ਮੁੜ ਖੋਲ੍ਹੋ।',
+    'ਜੇ ਸਿੰਕ ਠੀਕ ਨਾ ਹੋਵੇ ਜਾਂ ਆਡੀਓ ਨਾ ਚੱਲੇ ਤਾਂ ਐਪ ਪੂਰੀ ਤਰ੍ਹਾਂ ਬੰਦ ਕਰਕੇ ਮੁੜ ਖੋਲ੍ਹੋ।',
   'dialog.got_it': 'ਸਮਝ ਆ ਗਈ',
   'dialog.continue_using': 'ਅੱਗੇ ਵਧੋ',
   'dialog.leave_session': 'ਬਾਹਰ ਜਾਓ',
@@ -791,7 +791,7 @@ const pa: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'ਇੱਕੋ ਨੈੱਟਵਰਕ ਉੱਤੇ ਆਡੀਓ ਸਾਂਝਾ ਕਰਨਾ ਸਭ ਤੋਂ ਸਥਿਰ ਹੁੰਦਾ ਹੈ।<ul class="help-list"><li>ਦੂਰੋਂ ਜੁੜੇ ਭਾਗੀਦਾਰ ਵੀ ਉਹੀ ਖ਼ੂਬੀਆਂ ਵਰਤ ਸਕਦੇ ਹਨ।</li><li>ਦੂਰੋਂ ਜੁੜੇ ਭਾਗੀਦਾਰ Cloudflare ਰਾਹ ਵਰਤਦੇ ਹਨ, ਇਸ ਲਈ ਨੈੱਟਵਰਕ ਹਾਲਾਤ ਅਨੁਸਾਰ ਦੇਰੀ ਵਧ ਸਕਦੀ ਹੈ ਜਾਂ ਆਡੀਓ ਮਿਲਣ ਵਿੱਚ ਨਾਕਾਮੀ ਹੋ ਸਕਦੀ ਹੈ।</li><li>VPN ਜਾਂ ਪਾਬੰਦੀ ਵਾਲਾ ਨੈੱਟਵਰਕ ਕਨੈਕਸ਼ਨ ਨੂੰ ਅਸਥਿਰ ਕਰ ਸਕਦਾ ਹੈ।</li></ul>',
   'setup.how_to_connect_html':
-    'ਕਨੈਕਟ ਕਰਨ ਲਈ ਹੋਸਟ ਦਾ <strong>6-ਅੰਕਾਂ ਵਾਲਾ ਕੋਡ</strong> ਦਾਖਲ ਕਰੋ।<ul class="help-list"><li><strong>ਹੋਸਟ:</strong> “ਮੈਂ ਹੋਸਟ ਬਣਾਂਗਾ” → ਕੋਡ ਵੇਖੋ</li><li><strong>ਭਾਗੀਦਾਰ:</strong> “ਸੈਸ਼ਨ ਵਿੱਚ ਸ਼ਾਮਲ ਹੋਵੋ” → ਕੋਡ ਦਾਖਲ ਕਰੋ</li><li><strong>ਹੋਸਟ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ</strong> ਕਨੈਕਟ ਹੋ ਸਕਦੀਆਂ ਹਨ।</li></ul>',
+    'ਕਨੈਕਟ ਕਰਨ ਲਈ ਹੋਸਟ ਦਾ <strong>6-ਅੰਕਾਂ ਵਾਲਾ ਕੋਡ</strong> ਦਾਖਲ ਕਰੋ।<ul class="help-list"><li><strong>ਹੋਸਟ:</strong> “ਰੂਮ ਬਣਾਓ” → ਕੋਡ ਵੇਖੋ</li><li><strong>ਭਾਗੀਦਾਰ:</strong> “ਰੂਮ ਵਿੱਚ ਸ਼ਾਮਲ ਹੋਵੋ” → ਕੋਡ ਦਾਖਲ ਕਰੋ</li><li><strong>ਹੋਸਟ ਸਮੇਤ ਵੱਧ ਤੋਂ ਵੱਧ 100 ਡਿਵਾਈਸਾਂ</strong> ਕਨੈਕਟ ਹੋ ਸਕਦੀਆਂ ਹਨ।</li></ul>',
   'player.play_speakers_html':
     'ਹਰ ਭਾਗੀਦਾਰ ਇੱਕ <strong>ਭੂਮਿਕਾ (ਆਉਟਪੁੱਟ ਚੈਨਲ)</strong> ਚੁਣਦਾ ਹੈ।<ul class="help-list"><li><strong>ਵਿਚਕਾਰ:</strong> ਸਟੀਰੀਓ (ਡਿਫਾਲਟ) ਆਉਟਪੁੱਟ</li><li><strong>ਖੱਬਾ:</strong> <bdi dir="ltr">L</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸੱਜਾ:</strong> <bdi dir="ltr">R</bdi> ਚੈਨਲ ਆਉਟਪੁੱਟ</li><li><strong>ਸਬਵੂਫ਼ਰ:</strong> ਘੱਟ ਫ੍ਰੀਕੁਐਂਸੀ ਦਾ ਮਿਸ਼ਰਤ ਆਉਟਪੁੱਟ</li></ul>ਤੁਸੀਂ <strong>ਸੈਟਿੰਗਾਂ</strong> ਵਿੱਚ ਭੂਮਿਕਾਵਾਂ ਕਦੇ ਵੀ ਬਦਲ ਸਕਦੇ ਹੋ।',
   'player.play_media_action_html':

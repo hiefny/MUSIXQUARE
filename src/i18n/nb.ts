@@ -235,8 +235,8 @@ const nb: Record<I18nKey, string> = {
   'settings.surround_title': 'Virtuell surroundlyd',
   'settings.bass_title': 'Virtuell bass',
   'settings.exciter_title': 'Virtuell diskant',
-  'settings.subwoofer_adjust': 'Subwooferens delefrekvens',
-  'settings.subwoofer_cutoff': 'Subwooferens delefrekvens',
+  'settings.subwoofer_adjust': 'Subwooferens grensefrekvens',
+  'settings.subwoofer_cutoff': 'Subwooferens grensefrekvens',
   'settings.default_0pct': 'Standard 0 %',
   'settings.default_01s': 'Standard 0,1 s',
   'settings.default_20khz': 'Standard 20,0 kHz',
@@ -335,7 +335,7 @@ const nb: Record<I18nKey, string> = {
   'demo.step_role': '2. Angi rolle',
   'demo.step_effects': '3. Lydeffekter',
   'demo.step_finish': '4. Avslutt demoen',
-  'demo.session_title': 'Dette er rom {{code}}.',
+  'demo.session_title': 'Rommet ditt: {{code}}',
   'demo.session_subtitle': 'Du kan invitere en annen enhet når som helst.',
   'demo.session_body_connected':
     '{{count}} enheter er tilkoblet nå.\nAngi en rolle for hver enhet.',
@@ -444,7 +444,7 @@ const nb: Record<I18nKey, string> = {
   'chat.cmd_already_op': '{{name}} er allerede administrator',
   'chat.cmd_not_op': '{{name}} er ikke administrator',
   'chat.cmd_help_title': 'Tilgjengelige kommandoer',
-  'chat.cmd_help_target_hint': '* [device] er et unikt nummer (f.eks. #1)',
+  'chat.cmd_help_target_hint': '* [enhet] er et unikt nummer (f.eks. #1)',
   'chat.cmd_unknown': 'Ukjent kommando: /{{cmd}}',
   'chat.cmd_usage': 'Bruk: {{usage}}',
   'chat.cmd_users_title': 'Tilkoblede brukere',
@@ -453,20 +453,20 @@ const nb: Record<I18nKey, string> = {
   // ─── Command usage & description (i18n) ────────────────────────
   'chat.cmd_u_help': '/help',
   'chat.cmd_u_users': '/users',
-  'chat.cmd_u_bot': '/bot [request]',
+  'chat.cmd_u_bot': '/bot [forespørsel]',
   'chat.cmd_u_clear': '/clear',
   'chat.cmd_u_filter': '/filter [on | off]',
   'chat.cmd_u_freeze': '/freeze [on | off]',
-  'chat.cmd_u_slowmode': '/slowmode [seconds]',
-  'chat.cmd_u_w': '/w [device] [message]',
-  'chat.cmd_u_whisper': '/whisper [device] [message]',
-  'chat.cmd_u_notice': '/notice [message]',
-  'chat.cmd_u_nick': '/nick [new name]',
-  'chat.cmd_u_kick': '/kick [device]',
-  'chat.cmd_u_op': '/op [device]',
-  'chat.cmd_u_deop': '/deop [device]',
-  'chat.cmd_u_mute': '/mute [device]',
-  'chat.cmd_u_unmute': '/unmute [device]',
+  'chat.cmd_u_slowmode': '/slowmode [sekunder]',
+  'chat.cmd_u_w': '/w [enhet] [melding]',
+  'chat.cmd_u_whisper': '/whisper [enhet] [melding]',
+  'chat.cmd_u_notice': '/notice [melding]',
+  'chat.cmd_u_nick': '/nick [nytt navn]',
+  'chat.cmd_u_kick': '/kick [enhet]',
+  'chat.cmd_u_op': '/op [enhet]',
+  'chat.cmd_u_deop': '/deop [enhet]',
+  'chat.cmd_u_mute': '/mute [enhet]',
+  'chat.cmd_u_unmute': '/unmute [enhet]',
   'chat.cmd_d_help': 'Kommandoliste',
   'chat.cmd_d_users': 'Vis tilkoblede brukere',
   'chat.cmd_d_bot': 'Be AI om å administrere spillelisten',
@@ -487,7 +487,7 @@ const nb: Record<I18nKey, string> = {
   'chat.debug_copied':
     'Feilsøkingsinformasjonen er kopiert.\nSend den til utvikleren hvis du har funnet en feil.',
   'chat.seek_to': 'Spol til {{time}}',
-  'chat.copied': 'Chatten er kopiert',
+  'chat.copied': 'Chatmelding kopiert',
   'chat.copy_hint': 'Trykk på Enter for å kopiere denne chatmeldingen',
 
   // ─── YouTube ─────────────────────────────────────────────────────
@@ -794,7 +794,7 @@ const nb: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Lyddeling er mest stabil på samme nettverk.<ul class="help-list"><li>Fjerndeltakere kan bruke de samme funksjonene.</li><li>Fjerndeltakere bruker tilkoblingsveier via Cloudflare, så forsinkelsen kan øke eller mottaket mislykkes avhengig av nettverksforholdene.</li><li>En VPN-tilkobling eller et begrenset nettverk kan gjøre tilkoblingen ustabil.</li></ul>',
   'setup.how_to_connect_html':
-    'Skriv inn vertens <strong>6-sifrede kode</strong> for å koble til.<ul class="help-list"><li><strong>Vert:</strong> «Jeg vil være vert» → se koden</li><li><strong>Deltaker:</strong> «Bli med i en økt» → skriv inn koden</li><li>Opptil <strong>100 enheter inkludert verten</strong> kan koble til.</li></ul>',
+    'Skriv inn vertens <strong>6-sifrede kode</strong> for å koble til.<ul class="help-list"><li><strong>Vert:</strong> «Opprett et rom» → se koden</li><li><strong>Deltaker:</strong> «Bli med i et rom» → skriv inn koden</li><li>Opptil <strong>100 enheter inkludert verten</strong> kan koble til.</li></ul>',
   'player.play_speakers_html':
     'Hver deltaker velger en <strong>rolle (utgangskanal)</strong>.<ul class="help-list"><li><strong>Senter:</strong> Stereo (standardutgang)</li><li><strong>Venstre:</strong> <bdi dir="ltr">L</bdi>-kanalutgang</li><li><strong>Høyre:</strong> <bdi dir="ltr">R</bdi>-kanalutgang</li><li><strong>Subwoofer:</strong> Miks av lave frekvenser</li></ul>Du kan når som helst endre roller under <strong>Innstillinger</strong>.',
   'player.play_media_action_html':

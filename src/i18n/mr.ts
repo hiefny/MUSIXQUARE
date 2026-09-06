@@ -418,9 +418,9 @@ const mr: Record<I18nKey, string> = {
   'chat.bot_rate_limited': 'BOT विनंतीची मर्यादा गाठली. {{duration}} थांबा आणि पुन्हा प्रयत्न करा',
   'chat.decode_skip_system_message': 'ट्रॅक वगळत आहे: काही डिव्हाइसवर हे स्वरूप समर्थित नाही.',
   'chat.large_local_track_system_message':
-    'या ट्रॅकची फाइल खूप मोठी आहे आणि काही डिव्हाइसवर तो प्ले होणार नाही.',
+    'या ट्रॅकची फाइल खूप मोठी आहे आणि काही डिव्हाइसवर तो कदाचित प्ले होणार नाही.',
   'chat.decode_memory_risk_system_message':
-    'डीकोड करताना हा ट्रॅक सुमारे {{estimatedMiB}} MiB मेमरी वापरू शकतो आणि या डिव्हाइसवर प्ले होणार नाही.',
+    'डीकोड करताना हा ट्रॅक सुमारे {{estimatedMiB}} MiB मेमरी वापरू शकतो आणि या डिव्हाइसवर कदाचित प्ले होणार नाही.',
   'chat.device_track_unavailable_system_message': 'हे डिव्हाइस सध्याचा ट्रॅक प्ले करू शकत नाही.',
   'chat.system_audio_started_system_message':
     'सिस्टम ऑडिओ शेअरिंग सुरू झाले आहे. होस्ट आणि अतिथी डिव्हाइसदरम्यान थोडा विलंब होणे सामान्य आहे. प्रतिध्वनी टाळण्यासाठी होस्ट डिव्हाइसचा आवाज कमी ठेवण्याची शिफारस केली जाते.',
@@ -787,7 +787,7 @@ const mr: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'एकाच नेटवर्कवर ऑडिओ शेअरिंग सर्वाधिक स्थिर असते.<ul class="help-list"><li>दूरस्थ सहभागीही तीच वैशिष्ट्ये वापरू शकतात.</li><li>दूरस्थ सहभागी Cloudflare मार्ग वापरतात, त्यामुळे नेटवर्कच्या स्थितीनुसार विलंब वाढू शकतो किंवा ऑडिओ मिळण्यात अपयश येऊ शकते.</li><li>VPN किंवा निर्बंध असलेल्या नेटवर्कमुळे कनेक्शन अस्थिर होऊ शकते.</li></ul>',
   'setup.how_to_connect_html':
-    'कनेक्ट होण्यासाठी होस्टकडील <strong>6-अंकी कोड</strong> प्रविष्ट करा.<ul class="help-list"><li><strong>होस्ट:</strong> “मी होस्ट असेन” → कोड तपासा</li><li><strong>सहभागी:</strong> “सत्रात सामील व्हा” → कोड प्रविष्ट करा</li><li><strong>होस्टसह जास्तीत जास्त 100 डिव्हाइस</strong> कनेक्ट होऊ शकतात.</li></ul>',
+    'कनेक्ट होण्यासाठी होस्टकडील <strong>6-अंकी कोड</strong> प्रविष्ट करा.<ul class="help-list"><li><strong>होस्ट:</strong> “रूम तयार करा” → कोड तपासा</li><li><strong>सहभागी:</strong> “रूममध्ये सामील व्हा” → कोड प्रविष्ट करा</li><li><strong>होस्टसह जास्तीत जास्त 100 डिव्हाइस</strong> कनेक्ट होऊ शकतात.</li></ul>',
   'player.play_speakers_html':
     'प्रत्येक सहभागी एक <strong>भूमिका (आउटपुट चॅनल)</strong> निवडतो.<ul class="help-list"><li><strong>मध्य:</strong> स्टिरिओ (डीफॉल्ट) आउटपुट</li><li><strong>डावा:</strong> <bdi dir="ltr">L</bdi> चॅनल आउटपुट</li><li><strong>उजवा:</strong> <bdi dir="ltr">R</bdi> चॅनल आउटपुट</li><li><strong>सबवूफर:</strong> कमी वारंवारतेचे मिश्रित आउटपुट</li></ul><strong>सेटिंग्ज</strong>मध्ये भूमिका कधीही बदलू शकता.',
   'player.play_media_action_html':

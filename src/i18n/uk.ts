@@ -132,8 +132,8 @@ const uk: Record<I18nKey, string> = {
   'player.select_media': 'Виберіть медіа для відтворення',
   'player.play_together': 'Синхронне відтворення',
   'player.play_speakers': 'Використовувати як динамік',
-  'player.auto_sync_label': 'Авто (мс)',
-  'player.manual_sync_label': 'Вручну (мс)',
+  'player.auto_sync_label': 'Авто (ms)',
+  'player.manual_sync_label': 'Вручну (ms)',
 
   // ─── Плейліст ────────────────────────────────────────────────────
   'playlist.toggle': 'Розгорнути або згорнути плейліст',
@@ -239,8 +239,8 @@ const uk: Record<I18nKey, string> = {
   'settings.subwoofer_cutoff': 'Частота зрізу сабвуфера',
   'settings.default_0pct': 'За замовчуванням: 0%',
   'settings.default_01s': 'За замовчуванням: 0.1 с',
-  'settings.default_20khz': 'За замовчуванням: 20.0 кГц',
-  'settings.default_20hz': 'За замовчуванням: 20 Гц',
+  'settings.default_20khz': 'За замовчуванням: 20.0 kHz',
+  'settings.default_20hz': 'За замовчуванням: 20 Hz',
   'settings.default_5s': 'За замовчуванням: 5.0 с',
   'settings.invite_code': 'Код запрошення',
   'settings.leave_session': 'Вийти із сеансу',
@@ -336,7 +336,7 @@ const uk: Record<I18nKey, string> = {
   'demo.step_role': '2. Вибір ролі',
   'demo.step_effects': '3. Звукові ефекти',
   'demo.step_finish': '4. Завершення демонстрації',
-  'demo.session_title': 'Це кімната {{code}}.',
+  'demo.session_title': 'Ваша кімната: {{code}}',
   'demo.session_subtitle': 'Інший пристрій можна запросити будь-коли.',
   'demo.session_body_connected':
     'Зараз підключено пристроїв: {{count}}.\nЗадайте роль для кожного пристрою.',
@@ -800,7 +800,7 @@ const uk: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Найстабільніше обмін аудіо працює в одній мережі.<ul class="help-list"><li>Віддалені учасники можуть користуватися тими самими функціями.</li><li>Віддалені учасники використовують маршрути Cloudflare, тому залежно від стану мережі затримка може зрости, а отримання даних може завершитися помилкою.</li><li>VPN або мережа з обмеженнями може зробити з’єднання нестабільним.</li></ul>',
   'setup.how_to_connect_html':
-    'Щоб підключитися, введіть <strong>6-значний код</strong> хоста.<ul class="help-list"><li><strong>Хост:</strong> «Я буду хостом» → переглянути код</li><li><strong>Учасник:</strong> «Приєднатися до сеансу» → ввести код</li><li>Можна підключити до <strong>100 пристроїв разом із хостом</strong>.</li></ul>',
+    'Щоб підключитися, введіть <strong>6-значний код</strong> хоста.<ul class="help-list"><li><strong>Хост:</strong> «Створити кімнату» → переглянути код</li><li><strong>Учасник:</strong> «Приєднатися до кімнати» → ввести код</li><li>Можна підключити до <strong>100 пристроїв разом із хостом</strong>.</li></ul>',
   'player.play_speakers_html':
     'Кожен учасник вибирає <strong>роль (вихідний канал)</strong>.<ul class="help-list"><li><strong>Центр:</strong> стереовихід (за замовчуванням)</li><li><strong>Лівий:</strong> вихід каналу <bdi dir="ltr">L</bdi></li><li><strong>Правий:</strong> вихід каналу <bdi dir="ltr">R</bdi></li><li><strong>Сабвуфер:</strong> вихід міксу низьких частот</li></ul>Роль можна будь-коли змінити в <strong>налаштуваннях</strong>.',
   'player.play_media_action_html':

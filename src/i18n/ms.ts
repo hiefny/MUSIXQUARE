@@ -339,7 +339,7 @@ const ms: Record<I18nKey, string> = {
   'demo.step_role': '2. Tetapkan peranan',
   'demo.step_effects': '3. Kesan audio',
   'demo.step_finish': '4. Tamatkan demo',
-  'demo.session_title': 'Ini bilik {{code}}.',
+  'demo.session_title': 'Bilik anda: {{code}}',
   'demo.session_subtitle': 'Anda boleh menjemput peranti lain pada bila-bila masa.',
   'demo.session_body_connected':
     '{{count}} peranti sedang disambungkan.\nTetapkan peranan bagi setiap peranti.',
@@ -349,7 +349,7 @@ const ms: Record<I18nKey, string> = {
   'demo.effects_step_subtitle':
     'Anda boleh memperhalus tetapan akustik lanjutan ini pada bila-bila masa dalam Tetapan.',
   'demo.finish_step_title': 'Semua sudah siap!',
-  'demo.finish_step_subtitle': 'Teruskan dan mula bermain bersama.',
+  'demo.finish_step_subtitle': 'Teruskan dan mula memainkan audio bersama-sama.',
   'demo.track_list_label': 'Senarai trek demo',
   'demo.host_only_exit': 'Hanya hos boleh menekan butang ini.',
   'demo.external_playback_stopped':
@@ -806,7 +806,7 @@ const ms: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'Perkongsian audio paling stabil pada rangkaian yang sama.<ul class="help-list"><li>Peserta jarak jauh boleh menggunakan ciri yang sama.</li><li>Peserta jarak jauh menggunakan laluan Cloudflare, jadi kependaman mungkin meningkat atau penerimaan mungkin gagal bergantung pada keadaan rangkaian.</li><li>VPN atau rangkaian terhad boleh menyebabkan sambungan tidak stabil.</li></ul>',
   'setup.how_to_connect_html':
-    'Masukkan <strong>kod 6 digit</strong> daripada hos untuk menyambung.<ul class="help-list"><li><strong>Hos:</strong> “Saya akan menjadi hos” → semak kod</li><li><strong>Peserta:</strong> “Sertai sesi” → masukkan kod</li><li>Sehingga <strong>100 peranti, termasuk hos</strong>, boleh disambungkan.</li></ul>',
+    'Masukkan <strong>kod 6 digit</strong> daripada hos untuk menyambung.<ul class="help-list"><li><strong>Hos:</strong> “Cipta Bilik” → semak kod</li><li><strong>Peserta:</strong> “Sertai Bilik” → masukkan kod</li><li>Sehingga <strong>100 peranti, termasuk hos</strong>, boleh disambungkan.</li></ul>',
   'player.play_speakers_html':
     'Setiap peserta memilih <strong>peranan (saluran output)</strong>.<ul class="help-list"><li><strong>Tengah:</strong> Output stereo (lalai)</li><li><strong>Kiri:</strong> Output saluran <bdi dir="ltr">L</bdi></li><li><strong>Kanan:</strong> Output saluran <bdi dir="ltr">R</bdi></li><li><strong>Subwufer:</strong> Output campuran frekuensi rendah</li></ul>Anda boleh menukar peranan pada bila-bila masa dalam <strong>Tetapan</strong>.',
   'player.play_media_action_html':
@@ -828,7 +828,7 @@ const ms: Record<I18nKey, string> = {
   'setup.invite_share_desc_html':
     'Sambungkan berbilang peranti secara wayarles<br>untuk membina sistem audio yang hebat.<br>Gunakan kod jemputan 6 digit untuk menyambung.',
   'setup.play_together_desc_html':
-    'Apabila hos memainkan media,<br>semua peranti yang disambungkan bermain secara serentak.<br>Tekan butang segerak untuk menyelaraskannya.',
+    'Apabila hos memainkan media,<br>semua peranti yang disambungkan memainkan media secara segerak.<br>Tekan butang segerak untuk menyelaraskannya.',
   'setup.spatial_audio_desc_html':
     'Tetapkan peranan bagi setiap peranti.<br>Mainkan audio kiri dan kanan secara berasingan<br>dan rasai bass yang mendalam daripada subwufer.',
   'setup.advanced_audio_desc_html':

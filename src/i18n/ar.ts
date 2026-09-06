@@ -130,8 +130,8 @@ const ar: Record<I18nKey, string> = {
   'player.select_media': 'اختر وسائط لتشغيلها',
   'player.play_together': 'تشغيل متزامن',
   'player.play_speakers': 'استخدامه كمكبر صوت',
-  'player.auto_sync_label': 'تلقائي (مللي ثانية)',
-  'player.manual_sync_label': 'يدوي (مللي ثانية)',
+  'player.auto_sync_label': 'تلقائي (ms)',
+  'player.manual_sync_label': 'يدوي (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'توسيع قائمة التشغيل أو طيّها',
@@ -232,8 +232,8 @@ const ar: Record<I18nKey, string> = {
   'settings.subwoofer_cutoff': 'تردد القطع لمضخم الصوت',
   'settings.default_0pct': 'الافتراضي 0%',
   'settings.default_01s': 'الافتراضي 0.1 ثانية',
-  'settings.default_20khz': 'الافتراضي 20.0 كيلوهرتز',
-  'settings.default_20hz': 'الافتراضي 20 هرتز',
+  'settings.default_20khz': 'الافتراضي 20.0 kHz',
+  'settings.default_20hz': 'الافتراضي 20 Hz',
   'settings.default_5s': 'الافتراضي 5.0 ثوانٍ',
   'settings.invite_code': 'رمز الدعوة',
   'settings.leave_session': 'مغادرة الجلسة',
@@ -327,7 +327,7 @@ const ar: Record<I18nKey, string> = {
   'demo.step_role': '2. تعيين الدور',
   'demo.step_effects': '3. المؤثرات الصوتية',
   'demo.step_finish': '4. إنهاء العرض',
-  'demo.session_title': 'هذه هي الغرفة {{code}}.',
+  'demo.session_title': 'غرفتك: {{code}}',
   'demo.session_subtitle': 'يمكنك دعوة جهاز آخر في أي وقت.',
   'demo.session_body_connected': 'هناك {{count}} من الأجهزة المتصلة الآن.\nعيّن دورًا لكل جهاز.',
   'demo.session_body_alone': 'هذا الجهاز وحده يعمل الآن.\nادعُ جهازًا آخر الآن.',
@@ -687,9 +687,9 @@ const ar: Record<I18nKey, string> = {
     'لم يستعد هذا الجهاز الصوت بعد الرجوع من الخلفية. ستظل الغرفة متصلة بينما يعيد MUSIXQUARE محاذاة صوت هذا الجهاز.',
   'dialog.audio_recovery_action': 'استعادة الصوت',
   'dialog.background_resume_message':
-    'إذا توقفت المزامنة أو لم يعمل الصوت، فأغلق التطبيق بالكامل ثم افتحه مجددًا.',
+    'إذا اختلت المزامنة أو لم يعمل الصوت، فأغلق التطبيق بالكامل ثم افتحه مجددًا.',
   'dialog.background_resume_sync_fallback_message':
-    'إذا توقفت المزامنة أو لم يعمل الصوت، فأغلق التطبيق بالكامل ثم افتحه مجددًا.',
+    'إذا اختلت المزامنة أو لم يعمل الصوت، فأغلق التطبيق بالكامل ثم افتحه مجددًا.',
   'dialog.got_it': 'فهمت',
   'dialog.continue_using': 'متابعة',
   'dialog.leave_session': 'مغادرة',
@@ -773,7 +773,7 @@ const ar: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'تكون مشاركة الصوت أكثر استقرارًا على الشبكة نفسها.<ul class="help-list"><li>يمكن للمشاركين عن بُعد استخدام الميزات نفسها.</li><li>يستخدم المشاركون عن بُعد مسارات Cloudflare، لذلك قد يزداد زمن الاستجابة أو يفشل الاستقبال بحسب ظروف الشبكة.</li><li>قد تجعل شبكة VPN أو الشبكة المقيّدة الاتصال غير مستقر.</li></ul>',
   'setup.how_to_connect_html':
-    'أدخل <strong>الرمز المؤلف من 6 أرقام</strong> الذي يظهر لدى المضيف للاتصال.<ul class="help-list"><li><strong>المضيف:</strong> «سأكون المضيف» ← راجع الرمز</li><li><strong>المشارك:</strong> «الانضمام إلى جلسة» ← أدخل الرمز</li><li>يمكن اتصال ما يصل إلى <strong>100 جهاز، بما فيها جهاز المضيف</strong>.</li></ul>',
+    'أدخل <strong>الرمز المؤلف من 6 أرقام</strong> الذي يظهر لدى المضيف للاتصال.<ul class="help-list"><li><strong>المضيف:</strong> «إنشاء غرفة» ← راجع الرمز</li><li><strong>المشارك:</strong> «الانضمام إلى غرفة» ← أدخل الرمز</li><li>يمكن اتصال ما يصل إلى <strong>100 جهاز، بما فيها جهاز المضيف</strong>.</li></ul>',
   'player.play_speakers_html':
     'يختار كل مشارك <strong>دورًا (قناة إخراج)</strong>.<ul class="help-list"><li><strong>الوسط:</strong> خرج ستيريو (افتراضي)</li><li><strong>اليسار:</strong> خرج قناة <bdi dir="ltr">L</bdi></li><li><strong>اليمين:</strong> خرج قناة <bdi dir="ltr">R</bdi></li><li><strong>مضخم الصوت:</strong> خرج مزيج الترددات المنخفضة</li></ul>يمكنك تغيير الأدوار في أي وقت من <strong>الإعدادات</strong>.',
   'player.play_media_action_html':

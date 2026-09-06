@@ -368,7 +368,7 @@ const zhHans: Record<I18nKey, string> = {
   'help.load_local': '加载本地文件',
   'help.youtube_compat': 'YouTube（兼容模式）',
   'help.youtube_no_effects': '在 YouTube 模式下，角色设置和音频效果不可用。',
-  'help.media_synced_detail': '所选媒体会在所有已连接设备上同步播放。',
+  'help.media_synced_detail': '所有已连接设备同步播放。',
   'help.wifi_hotspot': '热点也可以让所有设备处于同一网络',
 
   // YouTube

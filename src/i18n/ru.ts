@@ -130,8 +130,8 @@ const ru: Record<I18nKey, string> = {
   'player.select_media': 'Выберите материал для воспроизведения',
   'player.play_together': 'Синхронное воспроизведение',
   'player.play_speakers': 'Использовать как динамик',
-  'player.auto_sync_label': 'Автосинхронизация (мс)',
-  'player.manual_sync_label': 'Ручная синхронизация (мс)',
+  'player.auto_sync_label': 'Автосинхронизация (ms)',
+  'player.manual_sync_label': 'Ручная синхронизация (ms)',
 
   // ─── Playlist ────────────────────────────────────────────────────
   'playlist.toggle': 'Показать/скрыть плейлист',
@@ -239,13 +239,13 @@ const ru: Record<I18nKey, string> = {
   'settings.subwoofer_cutoff': 'Частота среза',
   'settings.default_0pct': 'По умолчанию: 0%',
   'settings.default_01s': 'По умолчанию: 0,1 с',
-  'settings.default_20khz': 'По умолчанию: 20,0 кГц',
-  'settings.default_20hz': 'По умолчанию: 20 Гц',
+  'settings.default_20khz': 'По умолчанию: 20,0 kHz',
+  'settings.default_20hz': 'По умолчанию: 20 Hz',
   'settings.default_5s': 'По умолчанию: 5,0 с',
   'settings.invite_code': 'Код приглашения',
   'settings.leave_session': 'Выйти из комнаты',
   'connect.rename_reserved': 'Этот псевдоним зарезервирован.',
-  'connect.rename_profanity': 'Обнаружен недопустимый псевдоним.',
+  'connect.rename_profanity': 'Обнаружена ненормативная лексика.',
   'settings.devices_title': 'Подключённые устройства',
   'settings.invite_share': 'Приглашения и общий доступ',
   'settings.subtab.general': 'Общие',
@@ -335,7 +335,7 @@ const ru: Record<I18nKey, string> = {
   'demo.step_role': '2. Выбор роли',
   'demo.step_effects': '3. Аудиоэффекты',
   'demo.step_finish': '4. Завершить тур',
-  'demo.session_title': 'Вы находитесь в комнате {{code}}.',
+  'demo.session_title': 'Ваша комната: {{code}}',
   'demo.session_subtitle': 'Вы можете пригласить другие устройства в любое время.',
   'demo.session_body_connected':
     'Сейчас подключено устройств: {{count}}.\nНазначьте роль каждому устройству.',
@@ -848,7 +848,7 @@ const ru: Record<I18nKey, string> = {
   'system_audio.stop': 'Остановить трансляцию',
   'system_audio.stop_compact': 'Стоп',
   'system_audio.started':
-    'Системный звук может воспроизводиться с небольшой задержкой.\nРекомендуем хосту снизить громкость исходного устройства до минимума.',
+    'Системный звук может воспроизводиться с небольшой задержкой.\nПо возможности уменьшите громкость источника.',
   'system_audio.stopped':
     'Трансляция системного звука завершена.\nВоспроизведение плейлиста возобновлено.',
   'system_audio.host_channel_locked':

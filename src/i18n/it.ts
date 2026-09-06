@@ -215,7 +215,7 @@ const it: Record<I18nKey, string> = {
   'settings.spatial_audio': 'Audio spaziale',
   'settings.reverb_title': 'Riverbero',
   'settings.rvb_studio': 'Studio',
-  'settings.rvb_arena': 'Sala da concerto',
+  'settings.rvb_arena': 'Arena',
   'settings.rvb_advanced': 'Avanzato',
   'settings.rvb_off': 'Disattivo',
   'settings.reverb_mix': 'Mix riverbero',
@@ -336,7 +336,7 @@ const it: Record<I18nKey, string> = {
   'demo.step_role': '2. Imposta il ruolo',
   'demo.step_effects': '3. Effetti audio',
   'demo.step_finish': '4. Termina il tour',
-  'demo.session_title': 'Ti trovi nella stanza {{code}}',
+  'demo.session_title': 'La tua stanza: {{code}}',
   'demo.session_subtitle': 'Puoi invitare altri dispositivi in qualsiasi momento',
   'demo.session_body_connected':
     'Attualmente ci sono {{count}} dispositivi connessi.\nAssegna un ruolo a ciascun dispositivo.',
@@ -386,7 +386,7 @@ const it: Record<I18nKey, string> = {
   'help.load_local': 'Carica file locale',
   'help.youtube_compat': 'YouTube (Modalità compatibilità)',
   'help.youtube_no_effects':
-    'In modalità YouTube, gli effetti audio avanzati e la gestione dei ruoli non sono disponibili.',
+    'In modalità YouTube, le impostazioni dei ruoli e gli effetti audio non sono disponibili.',
   'help.media_synced_detail':
     'Il contenuto selezionato viene riprodotto contemporaneamente su tutti i dispositivi connessi.',
   'help.wifi_hotspot':
@@ -485,7 +485,7 @@ const it: Record<I18nKey, string> = {
   'chat.cmd_d_nick': 'Cambia nickname',
   'chat.cmd_d_kick': 'Rimuovi dispositivo',
   'chat.cmd_d_op': 'Nomina amministratore',
-  'chat.cmd_d_deop': 'Revoca amministratore',
+  'chat.cmd_d_deop': 'Revoca i permessi di amministratore',
   'chat.cmd_d_mute': 'Silenzia il dispositivo in chat',
   'chat.cmd_d_unmute': 'Riattiva il dispositivo in chat',
   'chat.cmd_u_debug': '/debug',
@@ -590,7 +590,7 @@ const it: Record<I18nKey, string> = {
   'toast.no_tracks': 'Nessuna traccia da riprodurre',
   'toast.add_media_to_play': 'Aggiungi contenuti da riprodurre',
   'toast.no_invite_code': "Codice d'invito non ancora generato",
-  'toast.invite_code_settings': "Puoi condividere il link d'invito dalla scheda Connessione.",
+  'toast.invite_code_settings': "Puoi condividere il link d'invito dalla scheda Connetti.",
   'toast.click_copy_invite': 'Tocca per copiare il codice d’invito',
   'toast.cant_select_file': 'Impossibile selezionare il file',
   'toast.unsupported_files_excluded': 'File non supportati esclusi: {{count}}',
@@ -624,7 +624,7 @@ const it: Record<I18nKey, string> = {
   'toast.yt_rendezvous_timeout': 'Sincronizzazione non riuscita. Riprova tra qualche istante',
   'toast.yt_host_sync_sent': 'Segnale di sincronizzazione automatica inviato ai partecipanti',
   'toast.yt_manual_sync_prompt':
-    'Sincronizzazione automatica appena eseguita.\nSe noti ancora latenza, regola il valore manualmente.',
+    'È appena stata tentata la sincronizzazione automatica.\nSe noti ancora latenza, regola il valore manualmente.',
   'toast.playlist_ended': "La riproduzione dell'ultimo contenuto è terminata",
   'toast.operator_required': 'Solo gli amministratori possono modificare le impostazioni globali',
   'toast.connection_closing': 'Connessione interrotta. Impostazioni non sincronizzate',
@@ -719,7 +719,7 @@ const it: Record<I18nKey, string> = {
   'dialog.leaving_session': 'Uscita in corso...',
   'dialog.refreshing_session': 'Aggiornamento della stanza...',
   'dialog.background_resume_title': 'L’applicazione è passata brevemente in background',
-  'dialog.audio_recovery_title': 'L’audio si è interrotto per un momento',
+  'dialog.audio_recovery_title': 'L’audio si è interrotto inaspettatamente',
   'dialog.audio_recovery_message':
     'Dopo il ritorno dal background, l’audio di questo dispositivo non è stato ripristinato. La stanza resterà connessa mentre riallineiamo solo il suono di questo dispositivo.',
   'dialog.audio_recovery_action': 'Ripristina audio',

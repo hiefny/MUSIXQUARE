@@ -789,7 +789,7 @@ const bn: Record<I18nKey, string> = {
   'help.local_recommended_html':
     'একই নেটওয়ার্কে অডিও শেয়ারিং সবচেয়ে স্থিতিশীল থাকে।<ul class="help-list"><li>দূর থেকে যুক্ত অংশগ্রহণকারীরাও একই ফিচার ব্যবহার করতে পারবেন।</li><li>দূর থেকে যুক্ত অংশগ্রহণকারীদের ডেটা Cloudflare-এর মাধ্যমে যায়, তাই নেটওয়ার্কের অবস্থার ওপর নির্ভর করে বিলম্ব বাড়তে পারে বা অডিও নাও আসতে পারে।</li><li>VPN বা সীমাবদ্ধ নেটওয়ার্ক সংযোগকে অস্থিতিশীল করতে পারে।</li></ul>',
   'setup.how_to_connect_html':
-    'সংযোগ করতে হোস্টের দেওয়া <strong>6 সংখ্যার কোড</strong> লিখুন।<ul class="help-list"><li><strong>হোস্ট:</strong> “আমি হোস্ট হব” → কোড দেখুন</li><li><strong>অংশগ্রহণকারী:</strong> “সেশনে যোগ দিন” → কোড লিখুন</li><li>হোস্টসহ সর্বোচ্চ <strong>100টি ডিভাইস</strong> সংযুক্ত হতে পারে।</li></ul>',
+    'সংযোগ করতে হোস্টের দেওয়া <strong>6 সংখ্যার কোড</strong> লিখুন।<ul class="help-list"><li><strong>হোস্ট:</strong> “রুম তৈরি করুন” → কোড দেখুন</li><li><strong>অংশগ্রহণকারী:</strong> “রুমে যোগ দিন” → কোড লিখুন</li><li>হোস্টসহ সর্বোচ্চ <strong>100টি ডিভাইস</strong> সংযুক্ত হতে পারে।</li></ul>',
   'player.play_speakers_html':
     'প্রতিটি অংশগ্রহণকারী একটি <strong>ভূমিকা (আউটপুট চ্যানেল)</strong> বেছে নেন।<ul class="help-list"><li><strong>সেন্টার:</strong> স্টেরিও (ডিফল্ট) আউটপুট</li><li><strong>বাম (Left):</strong> <bdi dir="ltr">L</bdi> চ্যানেলের আউটপুট</li><li><strong>ডান (Right):</strong> <bdi dir="ltr">R</bdi> চ্যানেলের আউটপুট</li><li><strong>সাবউফার:</strong> নিম্ন ফ্রিকোয়েন্সির মিক্স আউটপুট</li></ul><strong>সেটিংস</strong> থেকে যেকোনো সময় ভূমিকা পরিবর্তন করতে পারবেন।',
   'player.play_media_action_html':

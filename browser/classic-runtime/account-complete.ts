@@ -174,11 +174,11 @@
       'సైన్ ఇన్ చేయడం సాధ్యపడలేదు. మళ్లీ ప్రయత్నించండి.',
     ],
     ms: [
-      'Daftar masuk selesai. Anda boleh menutup tetingkap ini.',
+      'Log masuk selesai. Anda boleh menutup tetingkap ini.',
       'Tutup',
       'ms-MY',
-      'Daftar masuk dibatalkan.',
-      'Tidak dapat mendaftar masuk. Sila cuba lagi.',
+      'Log masuk dibatalkan.',
+      'Tidak dapat log masuk. Sila cuba lagi.',
     ],
     fil: [
       'Tapos na ang pag-sign in. Maaari mo nang isara ang window na ito.',

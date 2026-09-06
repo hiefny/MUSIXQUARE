@@ -1340,6 +1340,8 @@ function seekYouTubeFromApp(player: YouTubePlayerInstance, seconds: number): voi
       !!getManagedTimer('yt-auto-sync') ||
       isStandardHostManualOffsetTransactionPending();
     if (state === 1 || midSync) {
+      // A bare seek would leave the old Stage-2 PLAY rendezvous armed.
+      // Rescheduling clears it before setting up the new rendezvous.
       scheduleYtAutoSync(seconds);
     } else {
       const resolvedTarget = resolveCoordinatorLocalTarget(player, seconds);

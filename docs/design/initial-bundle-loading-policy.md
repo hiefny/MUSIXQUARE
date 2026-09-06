@@ -146,6 +146,76 @@ The final checked production build for this addendum measured:
 Future compatibility or feature changes must update this decision again with
 fresh measurements; the new ceilings are not spendable targets.
 
+### 2026-09-06 readability and maintenance addendum
+
+The audited 8.4.63 candidate (`7cb2577d`) measured 493,942 B eager gzip:
+only 58 B below the enforced 494,000 B ceiling. Entry-script gzip had 1,221 B
+available. Preserving that envelope encouraged repeated source rewrites for
+very small gzip differences, including duplicating a named refresh callback
+and making touch/abort cleanup less explicit. A passing build no longer left
+useful working room for ordinary maintenance.
+
+This reviewed re-baseline raises each positive architectural limit by exactly
+10% from the Chromium 79 addendum. It supersedes those numeric limits while
+retaining the 5% protected reserve, the zero-byte eager-font contract, the
+500,000 B secondary JavaScript chunk limit, and all eager/deferred readiness
+and offline-installation boundaries. It is a capacity decision, not a target
+to add 10% more JavaScript or permission for automatic future increases.
+
+The 8.4.64 checked build restores the shared player-text callback, gives
+Android range cancellation an explicit release operation, and clarifies why
+YouTube seek reschedules the pending rendezvous. It retains useful semantic
+deduplication and generated production minification. Product/version mirrors
+and the service-worker epoch advance together to 8.4.64 / v552.
+
+| Metric                | 8.4.63 actual B | 8.4.64 actual B | Revised limit B | 95% ceiling B | Working room B |
+| --------------------- | --------------: | --------------: | --------------: | ------------: | -------------: |
+| Entry script raw      |       1,436,383 |       1,436,380 |       1,677,500 |     1,593,625 |        157,245 |
+| Entry script gzip     |         418,679 |         418,721 |         486,200 |       461,890 |         43,169 |
+| Eager JavaScript gzip |         423,698 |         423,740 |         492,800 |       468,160 |         44,420 |
+| Eager total raw       |       1,819,457 |       1,819,454 |       2,161,500 |     2,053,425 |        233,971 |
+| Eager total gzip      |         493,942 |         493,984 |         572,000 |       543,400 |         49,416 |
+| Eager fonts           |               0 |               0 |               0 |             0 |        fixed 0 |
+
+Working room is the distance to the enforced 95% ceiling. It is separate from
+the protected 5% reserve: eager gzip now has 49,416 B working room plus
+28,600 B protected reserve. The actual eager transfer change is only +42 B
+gzip and -3 B raw; increasing a guard does not itself increase transfer cost.
+Both figures come from the current deterministic gzip9 HTML-graph measurement,
+not all service-worker installation traffic or field network usage.
+
+A local cold-start comparison used Chromium 147.0.7727.15, 4x CDP CPU slowdown,
+150 ms network latency, 1.6 Mbit/s download and 0.75 Mbit/s upload, gzip static
+responses, and a 390x844 viewport. Five fresh browser contexts per build were
+run in alternating order with browser cache disabled. API calls returned the
+same local 503 in both variants, external requests were blocked, and service
+workers were allowed. Bootstrap reached all 52 steps with zero failures,
+fallbacks, or page errors in all ten observations.
+
+| Median observation     |     8.4.63 |     8.4.64 | Difference |
+| ---------------------- | ---------: | ---------: | ---------: |
+| Bootstrap ready        | 3,175.7 ms | 3,180.5 ms |    +4.8 ms |
+| First contentful paint |   3,428 ms |   3,432 ms |      +4 ms |
+
+These observations show a small difference within the ranges of these runs;
+they are not a statistical performance guarantee. This simulation is not a
+physical low-end TV measurement, a room-entry benchmark, or an adopted field
+SLO. In particular, it does not establish that spending the entire new
+envelope would preserve current performance. Raw observations and settings are
+recorded in `docs/performance/readability-budget-2026-09-06.json`.
+
+For future changes, keep readable names, explanatory comments, and explicit
+cancellation/ownership paths. Share a behavior when it expresses the same
+contract, not merely when a particular source spelling compresses better.
+Before changing capacity again, record the affected source boundary, before/
+after raw and gzip output, representative startup or room-entry observations,
+and required cold-cache/offline regression evidence in a new dated decision.
+Review all affected metrics together; increasing total gzip alone can leave
+the entry or raw-byte guards as the next bottleneck. Do not lower the reserve,
+hide eager work behind unconditional imports, or silently revise limits to
+make a failing build pass. Source line limits remain a separate policy in
+`source-complexity-ratchet.md`.
+
 ## Consequences
 
 Setup, local/offline recovery, demo protocol/UI, visualizer, file-drop, and

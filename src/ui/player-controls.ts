@@ -998,6 +998,11 @@ function installAndroidRangeScrollFix(signal: AbortSignal): void {
       const owner = locks.get(scrollParent) ?? { count: 0, overflowY: '' };
       locks.set(scrollParent, owner);
       let active = false;
+      const release = () => {
+        if (!active) return;
+        active = false;
+        if (--owner.count === 0) scrollParent.style.overflowY = owner.overflowY;
+      };
       const onTouch = (event: Event) => {
         if (event.type === 'touchstart') {
           if (active) return;
@@ -1005,15 +1010,15 @@ function installAndroidRangeScrollFix(signal: AbortSignal): void {
           if (owner.count++ === 0) owner.overflowY = scrollParent.style.overflowY;
           scrollParent.style.overflowY = 'hidden';
         } else if (active && !(event as TouchEvent).targetTouches?.length) {
-          active = false;
-          if (--owner.count === 0) scrollParent.style.overflowY = owner.overflowY;
+          release();
         }
       };
 
       for (const type of ['touchstart', 'touchend', 'touchcancel']) {
         range.addEventListener(type, onTouch, options);
       }
-      signal.addEventListener('abort', onTouch, { once: true });
+      // Retiring this scope releases its lock even while a finger remains down.
+      signal.addEventListener('abort', release, { once: true });
     });
   } catch (e) {
     log.debug('[Android] Range scroll fix init failed:', e);
@@ -1430,18 +1435,14 @@ export function initPlayerControls(): void {
 
   // Language switch → refresh translated track title + tab title
   // i18n:changed fires after DOM translation, so playback metadata wins over placeholders.
-  _busScope.on('i18n:changed', () => {
+  const refreshPlayerText = () => {
     refreshTrackTitle();
     setTabTitleTrack(getTabTitleTrack());
     syncMediaSourceButtonAuthority();
     syncMainSyncButtonState();
-  });
-  _busScope.on('ui:player-panel-visible', () => {
-    refreshTrackTitle();
-    setTabTitleTrack(getTabTitleTrack());
-    syncMediaSourceButtonAuthority();
-    syncMainSyncButtonState();
-  });
+  };
+  _busScope.on('i18n:changed', refreshPlayerText);
+  _busScope.on('ui:player-panel-visible', refreshPlayerText);
 
   // Peer disconnected: update UI
   _busScope.on('network:peer-disconnected', (peerId) => {

@@ -6410,6 +6410,10 @@
     color: var(--text-main);
   }
 
+  #btn-close-media-popup > svg {
+    display: none;
+  }
+
   .btn-ob-text-link {
     background: transparent;
     color: var(--text-sub);
@@ -10067,11 +10071,19 @@
       }
     }
 
-    #media-source-overlay #btn-close-media-popup::after {
-      content: '✕' !important;
-      font-size: 16px !important;
-      font-weight: 600 !important;
-      line-height: 1 !important;
+    #media-source-overlay #btn-close-media-popup > span {
+      display: none;
+    }
+
+    #media-source-overlay #btn-close-media-popup > svg {
+      display: block;
+      width: 20px;
+      height: 20px;
+      flex-shrink: 0;
+      fill: currentColor;
+      stroke: currentColor;
+      stroke-width: 0.5;
+      stroke-linejoin: round;
     }
 
     /* Keep sidebar & nav visible behind overlays */

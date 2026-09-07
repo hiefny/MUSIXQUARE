@@ -2192,8 +2192,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    /* Align the previous glyph with the seek rail, keeping its 48px hit area. */
-    transform: translateX(-16px);
+    /* Keep a 2px optical inset from the seek rail without shrinking the hit area. */
+    transform: translateX(-14px);
   }
 
   .vol-group-playback {

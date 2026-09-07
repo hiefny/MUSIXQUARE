@@ -184,13 +184,19 @@ test.describe('Playback controls in the authored application layout', () => {
         expect(layout.separation).toBeGreaterThan(0);
         if (direction === 'ltr') {
           expect(
-            Math.abs(layout.glyphLeft - layout.seekLeft - 2 * layout.scale),
+            Math.abs(layout.glyphLeft - layout.seekLeft - 3 * layout.scale),
           ).toBeLessThanOrEqual(0.75);
-          expect(Math.abs(layout.volumeRight - layout.seekRight)).toBeLessThanOrEqual(0.75);
-          expect(Math.abs(layout.volumeSliderRight - layout.seekRight)).toBeLessThanOrEqual(0.75);
+          expect(
+            Math.abs(layout.volumeRight - layout.seekRight + layout.scale),
+          ).toBeLessThanOrEqual(0.75);
+          expect(
+            Math.abs(layout.volumeSliderRight - layout.seekRight + layout.scale),
+          ).toBeLessThanOrEqual(0.75);
         } else {
           // The localized row mirrors, but the transport and volume axes do not.
-          expect(Math.abs(layout.volumeLeft - layout.seekLeft)).toBeLessThanOrEqual(0.75);
+          expect(Math.abs(layout.volumeLeft - layout.seekLeft + layout.scale)).toBeLessThanOrEqual(
+            0.75,
+          );
         }
 
         await page.locator('#seek-slider').focus();

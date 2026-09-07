@@ -2192,8 +2192,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    /* Keep a 2px optical inset from the seek rail without shrinking the hit area. */
-    transform: translateX(-14px);
+    /* Optical optimization: balance the visible transport icons with the seek rail. */
+    transform: translateX(-13px);
   }
 
   .vol-group-playback {
@@ -2203,6 +2203,8 @@
     margin-inline-start: auto;
     width: 100px;
     min-width: 80px;
+    /* Optical optimization: nudge the volume group 1px left for visual balance. */
+    transform: translateX(-1px);
   }
 
   .vol-group-playback svg {

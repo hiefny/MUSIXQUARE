@@ -2192,7 +2192,8 @@
     display: flex;
     align-items: center;
     gap: 12px;
-    transform: translateX(-10px);
+    /* Align the previous glyph with the seek rail, keeping its 48px hit area. */
+    transform: translateX(-16px);
   }
 
   .vol-group-playback {
@@ -2202,7 +2203,6 @@
     margin-inline-start: auto;
     width: 100px;
     min-width: 80px;
-    transform: translateX(-2px);
   }
 
   .vol-group-playback svg {

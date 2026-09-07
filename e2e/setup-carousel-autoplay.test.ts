@@ -2,7 +2,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 
 const AUTOPLAY_DWELL_MS = 6_000;
-const EARLY_TRANSITION_GUARD_MS = 5_000;
+const FIRST_DWELL_MS = 3_000;
+const FIRST_EARLY_TRANSITION_GUARD_MS = 2_000;
 const TRANSITION_TOLERANCE_MS = 2_000;
 const STICKY_STOP_GUARD_MS = AUTOPLAY_DWELL_MS + 350;
 
@@ -19,7 +20,7 @@ async function openSetupCarousel(page: Page): Promise<void> {
   const slider = page.locator('#ob-slider-area');
   const nav = slider.locator('.ob-nav-row');
   await expect(slider).toBeVisible();
-  await expect(page.locator('.setup-greeting-row').first()).toHaveClass(/is-visible/);
+  // The carousel is already visible while the independent logo/greeting runs.
 
   // The four-slide welcome surface intentionally exposes only direct
   // navigation. Autoplay has no separate control or visual state badge.
@@ -28,6 +29,41 @@ async function openSetupCarousel(page: Page): Promise<void> {
   await expect(nav.locator('button')).toHaveCount(6);
   await expect(nav.locator('#ob-prev, #ob-next')).toHaveCount(2);
   await expect(nav.locator('#ob-dots .ob-dot')).toHaveCount(4);
+}
+
+interface CarouselTimingSample {
+  index: number;
+  at: number;
+}
+type CarouselTimingWindow = Window & { __mxqrCarouselSamples?: CarouselTimingSample[] };
+
+async function observeVisibleCarouselTiming(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const samples: CarouselTimingSample[] = [];
+    (window as CarouselTimingWindow).__mxqrCarouselSamples = samples;
+    const observer = new MutationObserver(() => {
+      const overlay = document.getElementById('setup-overlay');
+      const area = document.getElementById('ob-slider-area');
+      if (
+        !overlay?.classList.contains('active') ||
+        document.documentElement.classList.contains('setup-boot-block') ||
+        !area ||
+        area.getBoundingClientRect().width === 0 ||
+        getComputedStyle(area).visibility !== 'visible'
+      )
+        return;
+      const active = document.querySelector<HTMLElement>('#ob-dots .ob-dot[aria-current="true"]');
+      const index = Number(active?.dataset.idx);
+      if (!Number.isInteger(index) || samples.at(-1)?.index === index) return;
+      samples.push({ index, at: performance.now() });
+    });
+    observer.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['class', 'aria-current', 'style'],
+    });
+  });
 }
 
 async function currentSlideIndex(page: Page): Promise<number> {
@@ -77,24 +113,42 @@ async function dispatchTouch(viewport: Locator, startX: number, endX: number): P
 }
 
 test.describe('setup carousel unobtrusive autoplay', () => {
-  test('advances every six seconds, wraps, and keeps rotating while untouched', async ({
+  test('advances after three visible seconds, then keeps six-second reading intervals through wrapping', async ({
     page,
   }) => {
+    await observeVisibleCarouselTiming(page);
     await openSetupCarousel(page);
 
     const track = page.locator('#ob-slider-track');
     await expect(track).toHaveAttribute('aria-live', 'off');
-    expect(await currentSlideIndex(page)).toBe(0);
 
-    // The first dwell starts only after the logo hands off to the greeting.
-    // Guard the configured delay in real time; unit tests own fake-timer edges.
-    await page.waitForTimeout(EARLY_TRANSITION_GUARD_MS);
-    expect(await currentSlideIndex(page)).toBe(0);
+    // Capture the initial index before page.goto/load/driver waits can consume
+    // part of the shorter first dwell. Observe the sequence instead of assuming
+    // that the browser is still on slide zero when the test process catches up.
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => (window as CarouselTimingWindow).__mxqrCarouselSamples?.length ?? 0),
+        { timeout: FIRST_DWELL_MS + 4 * AUTOPLAY_DWELL_MS + TRANSITION_TOLERANCE_MS },
+      )
+      .toBeGreaterThanOrEqual(6);
 
-    for (const expectedIndex of [1, 2, 3, 0, 1]) {
-      await expect
-        .poll(() => currentSlideIndex(page), { timeout: TRANSITION_TOLERANCE_MS + 6_000 })
-        .toBe(expectedIndex);
+    const samples = await page.evaluate(() =>
+      (window as CarouselTimingWindow).__mxqrCarouselSamples?.slice(0, 6),
+    );
+    await test.info().attach('carousel-visible-dwell-timings.json', {
+      body: JSON.stringify(samples, null, 2),
+      contentType: 'application/json',
+    });
+    expect(samples?.map(({ index }) => index)).toEqual([0, 1, 2, 3, 0, 1]);
+    if (!samples) throw new Error('Missing visible carousel timing samples');
+    for (let index = 1; index < samples.length; index++) {
+      const elapsed = samples[index]!.at - samples[index - 1]!.at;
+      const expectedDwell = index === 1 ? FIRST_DWELL_MS : AUTOPLAY_DWELL_MS;
+      // DOM observations can land on adjacent frames; allow scheduling delay
+      // but reject both an early transition and the former greeting+6s gate.
+      expect(elapsed).toBeGreaterThanOrEqual(expectedDwell - 100);
+      expect(elapsed).toBeLessThanOrEqual(expectedDwell + TRANSITION_TOLERANCE_MS);
     }
 
     // 4 -> 1 wrapped and a fifth transition still occurred, proving the
@@ -160,7 +214,7 @@ test.describe('setup carousel unobtrusive autoplay', () => {
     await expect(track).toHaveAttribute('aria-live', 'off');
 
     await page.mouse.move(0, 0);
-    await page.waitForTimeout(EARLY_TRANSITION_GUARD_MS);
+    await page.waitForTimeout(FIRST_EARLY_TRANSITION_GUARD_MS);
     expect(await currentSlideIndex(page)).toBe(0);
     await expect.poll(() => currentSlideIndex(page), { timeout: TRANSITION_TOLERANCE_MS }).toBe(1);
     await expect(track).toHaveAttribute('aria-live', 'off');

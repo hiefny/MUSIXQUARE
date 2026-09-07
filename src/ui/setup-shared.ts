@@ -28,6 +28,7 @@ import { setCurrentState } from '../core/aria-state.ts';
 // ─── Constants ───────────────────────────────────────────────────
 const TOTAL_OB_SLIDES = 4;
 const OB_CAROUSEL_AUTOPLAY_DELAY_MS = 6000;
+const OB_CAROUSEL_FIRST_DWELL_MS = 3000;
 const OB_CAROUSEL_AUTOPLAY_TIMER = 'setup-ob-carousel-autoplay';
 const OB_CAROUSEL_SWIPE_THRESHOLD_PX = 50;
 
@@ -46,7 +47,7 @@ let _obCarouselInitialized = false;
 let _obCarouselUserStopped = false;
 let _obCarouselHoverPaused = false;
 let _obCarouselReducedMotion = false;
-let _obCarouselGreetingReady = false;
+let _obCarouselHasAutoAdvanced = false;
 
 // ─── State Accessors ─────────────────────────────────────────────
 
@@ -469,7 +470,6 @@ function isObCarouselWelcomeVisible(): boolean {
 function canScheduleObCarouselAutoplay(): boolean {
   return (
     _obCarouselInitialized &&
-    _obCarouselGreetingReady &&
     !_obCarouselUserStopped &&
     !_obCarouselReducedMotion &&
     !_obCarouselHoverPaused &&
@@ -501,8 +501,9 @@ function updateObCarouselA11y(): void {
 }
 
 function scheduleObCarouselAutoplay(): void {
-  // A named one-shot timer gives every resume a fresh dwell and cannot catch
-  // up multiple slides after a background-tab throttle.
+  // Give the already-visible first card a short introduction, independently
+  // of the logo/greeting animation. Later cards keep their full reading time.
+  // Every resume gets a fresh dwell, without catching up backgrounded slides.
   clearObCarouselAutoplayTimer();
   if (!canScheduleObCarouselAutoplay()) return;
 
@@ -510,9 +511,10 @@ function scheduleObCarouselAutoplay(): void {
     OB_CAROUSEL_AUTOPLAY_TIMER,
     () => {
       if (!canScheduleObCarouselAutoplay()) return;
+      _obCarouselHasAutoAdvanced = true;
       nextObSlide(true);
     },
-    OB_CAROUSEL_AUTOPLAY_DELAY_MS,
+    _obCarouselHasAutoAdvanced ? OB_CAROUSEL_AUTOPLAY_DELAY_MS : OB_CAROUSEL_FIRST_DWELL_MS,
   );
 }
 
@@ -520,11 +522,6 @@ function stopObCarouselForUser(): void {
   _obCarouselUserStopped = true;
   updateObCarouselA11y();
   clearObCarouselAutoplayTimer();
-}
-
-export function notifyObCarouselGreetingReady(): void {
-  _obCarouselGreetingReady = true;
-  scheduleObCarouselAutoplay();
 }
 
 /**
@@ -537,10 +534,7 @@ export function initObCarousel(signal: AbortSignal): void {
   _obCarouselInitialized = true;
   _obCarouselUserStopped = false;
   _obCarouselHoverPaused = false;
-  const greetingRows = document.querySelectorAll<HTMLElement>('.setup-greeting-row');
-  _obCarouselGreetingReady =
-    greetingRows.length === 0 ||
-    Array.from(greetingRows).some((row) => row.classList.contains('is-visible'));
+  _obCarouselHasAutoAdvanced = false;
 
   let reducedMotionQuery: MediaQueryList | null = null;
   try {
@@ -681,7 +675,6 @@ export function initObCarousel(signal: AbortSignal): void {
     _obCarouselInitialized = false;
     _obCarouselHoverPaused = false;
     activeTouch = undefined;
-    _obCarouselGreetingReady = false;
   };
   signal.addEventListener('abort', dispose, { once: true });
   if (signal.aborted) {

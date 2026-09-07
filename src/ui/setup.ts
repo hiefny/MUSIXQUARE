@@ -53,7 +53,6 @@ import {
   setupSetGuestJoinError,
   setupRenderActions,
   initObCarousel,
-  notifyObCarouselGreetingReady,
   updateObSlider,
   handleSetupRolePreview,
   // State accessors
@@ -208,7 +207,6 @@ function revealSetupGreeting(): void {
     row.classList.add('is-visible');
     row.setAttribute('aria-hidden', 'false');
   });
-  notifyObCarouselGreetingReady();
 }
 
 function armSetupGreeting(signal: AbortSignal): void {

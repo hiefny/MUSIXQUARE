@@ -77,6 +77,12 @@
       max-height: var(--desktop-viewport-height);
     }
 
+    /* RTL anchors the reduced logical body to the right edge. Scale from
+       that same edge so QHD/4K controls and focus rings stay in the viewport. */
+    html[dir='rtl'] body {
+      transform-origin: top right;
+    }
+
     header {
       grid-area: header;
       position: relative;
@@ -161,6 +167,11 @@
     }
 
     #tab-play .tab-body {
+      /* Keep the rail in place while the scroller includes the transport
+         buttons' outer hit area and keyboard focus ring. */
+      width: calc(100% + 40px);
+      padding-inline: 20px;
+      box-sizing: border-box;
       padding-top: 0;
       padding-bottom: 0;
     }

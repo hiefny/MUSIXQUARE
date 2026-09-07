@@ -47,7 +47,6 @@ vi.mock('../../i18n/index.ts', () => ({
 
 import {
   initObCarousel,
-  notifyObCarouselGreetingReady,
   setCurrentObSlide,
   setupHighlightJoinRole,
   setupRenderActions,
@@ -59,6 +58,7 @@ import {
 } from '../setup-shared.ts';
 
 const OB_CAROUSEL_AUTOPLAY_DELAY_MS = 6000;
+const OB_CAROUSEL_FIRST_DWELL_MS = 3000;
 
 function installMatchMedia(
   options: { reduced?: boolean; anyHover?: boolean; primaryHover?: boolean } = {},
@@ -313,27 +313,30 @@ describe('onboarding carousel motion preference', () => {
     expect(slides[0]?.hasAttribute('inert')).toBe(true);
   });
 
-  it('uses a continuous six-second one-shot timer and wraps after slide four', () => {
+  it('uses three seconds for the first advance, then six seconds even after wrapping', () => {
     renderCarouselFixture();
     const controller = new AbortController();
+    onTestFinished(() => controller.abort());
 
     initObCarousel(controller.signal);
 
     const timerCall = mocks.setManagedTimer.mock.calls.at(-1);
     expect(timerCall?.[0]).toBe('setup-ob-carousel-autoplay');
-    expect(timerCall?.[2]).toBe(OB_CAROUSEL_AUTOPLAY_DELAY_MS);
+    expect(timerCall?.[2]).toBe(OB_CAROUSEL_FIRST_DWELL_MS);
     expect(timerCall?.[3]).toBeUndefined();
 
     latestAutoplayCallback()();
 
     expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
     expect(autoplayScheduleCount()).toBe(2);
+    expect(mocks.setManagedTimer.mock.calls.at(-1)?.[2]).toBe(OB_CAROUSEL_AUTOPLAY_DELAY_MS);
 
     latestAutoplayCallback()();
     latestAutoplayCallback()();
     latestAutoplayCallback()();
     expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-0%)');
     expect(autoplayScheduleCount()).toBe(5);
+    expect(mocks.setManagedTimer.mock.calls.at(-1)?.[2]).toBe(OB_CAROUSEL_AUTOPLAY_DELAY_MS);
 
     latestAutoplayCallback()();
     expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
@@ -342,7 +345,7 @@ describe('onboarding carousel motion preference', () => {
     expect(mocks.clearManagedTimer).toHaveBeenCalledWith('setup-ob-carousel-autoplay');
   });
 
-  it('starts the first full dwell only after the greeting reveal finishes', () => {
+  it('starts the first visible dwell while the separate greeting animation is still pending', () => {
     renderCarouselFixture();
     document
       .getElementById('setup-welcome-area')
@@ -351,12 +354,16 @@ describe('onboarding carousel motion preference', () => {
         '<div class="setup-greeting-row" aria-hidden="true"></div>',
       );
     const controller = new AbortController();
+    onTestFinished(() => controller.abort());
 
     initObCarousel(controller.signal);
-    expect(autoplayScheduleCount()).toBe(0);
-
-    notifyObCarouselGreetingReady();
     expect(autoplayScheduleCount()).toBe(1);
+    expect(mocks.setManagedTimer.mock.calls.at(-1)?.[2]).toBe(OB_CAROUSEL_FIRST_DWELL_MS);
+    latestAutoplayCallback()();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
+    expect(document.querySelector('.setup-greeting-row')?.classList.contains('is-visible')).toBe(
+      false,
+    );
     expect(mocks.setManagedTimer.mock.calls.at(-1)?.[2]).toBe(OB_CAROUSEL_AUTOPLAY_DELAY_MS);
     controller.abort();
   });
@@ -394,24 +401,38 @@ describe('onboarding carousel motion preference', () => {
   it('temporarily suspends hover and visibility with a fresh dwell on return', () => {
     renderCarouselFixture();
     const controller = new AbortController();
+    onTestFinished(() => controller.abort());
     initObCarousel(controller.signal);
     const area = document.getElementById('ob-slider-area') as HTMLElement;
 
     area.dispatchEvent(new MouseEvent('mouseenter'));
     expect(mocks.clearManagedTimer).toHaveBeenLastCalledWith('setup-ob-carousel-autoplay');
+    // A callback already queued by the browser cannot consume the first dwell
+    // while a hover pause owns the carousel.
+    latestAutoplayCallback()();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-0%)');
     area.dispatchEvent(new MouseEvent('mouseleave'));
     expect(autoplayScheduleCount()).toBe(2);
+    expect(mocks.setManagedTimer.mock.calls.at(-1)?.[2]).toBe(OB_CAROUSEL_FIRST_DWELL_MS);
 
     Object.defineProperty(document, 'hidden', { configurable: true, value: true });
     document.dispatchEvent(new Event('visibilitychange'));
+    latestAutoplayCallback()();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-0%)');
     Object.defineProperty(document, 'hidden', { configurable: true, value: false });
     document.dispatchEvent(new Event('visibilitychange'));
     expect(autoplayScheduleCount()).toBe(3);
+    expect(mocks.setManagedTimer.mock.calls.at(-1)?.[2]).toBe(OB_CAROUSEL_FIRST_DWELL_MS);
 
     setupShowWelcome(false);
     expect(mocks.clearManagedTimer).toHaveBeenLastCalledWith('setup-ob-carousel-autoplay');
     setupShowWelcome(true);
     expect(autoplayScheduleCount()).toBe(4);
+    latestAutoplayCallback()();
+    expect(document.getElementById('ob-slider-track')?.style.transform).toBe('translateX(-100%)');
+    area.dispatchEvent(new MouseEvent('mouseenter'));
+    area.dispatchEvent(new MouseEvent('mouseleave'));
+    expect(mocks.setManagedTimer.mock.calls.at(-1)?.[2]).toBe(OB_CAROUSEL_AUTOPLAY_DELAY_MS);
     controller.abort();
   });
 

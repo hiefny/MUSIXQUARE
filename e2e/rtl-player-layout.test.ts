@@ -167,6 +167,7 @@ test.describe('Playback controls in the authored application layout', () => {
             play: play.x,
             next: next.x,
             glyphLeft: bounds('#btn-prev svg path').left,
+            scale: prev.width / document.querySelector<HTMLElement>('#btn-prev')!.offsetWidth,
             seekLeft: seek.left,
             seekRight: seek.right,
             volumeLeft: volume.left,
@@ -182,7 +183,9 @@ test.describe('Playback controls in the authored application layout', () => {
         expect(layout.play).toBeLessThan(layout.next);
         expect(layout.separation).toBeGreaterThan(0);
         if (direction === 'ltr') {
-          expect(Math.abs(layout.glyphLeft - layout.seekLeft)).toBeLessThanOrEqual(0.75);
+          expect(
+            Math.abs(layout.glyphLeft - layout.seekLeft - 2 * layout.scale),
+          ).toBeLessThanOrEqual(0.75);
           expect(Math.abs(layout.volumeRight - layout.seekRight)).toBeLessThanOrEqual(0.75);
           expect(Math.abs(layout.volumeSliderRight - layout.seekRight)).toBeLessThanOrEqual(0.75);
         } else {

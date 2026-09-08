@@ -5,7 +5,7 @@ import {
   currentAppPathMatchesLanguage,
   updateLocalizedAppPath,
 } from '../localized-app-document.ts';
-import { LANGUAGE_OPTIONS, localizedAppEntryPath, localizedAppPath } from '../locales.ts';
+import { LANGUAGE_OPTIONS, localizedAppEntryPath } from '../locales.ts';
 
 beforeEach(() => {
   window.history.replaceState({ guard: 'locale-matrix' }, '', '/');
@@ -16,28 +16,32 @@ beforeEach(() => {
 });
 
 describe('localized app document URL ownership', () => {
-  it('projects both root aliases across every supported locale without adding history', () => {
+  it('keeps both root aliases and the root canonical for every supported UI locale', () => {
     for (const rootPath of ['/', '/index.html']) {
       for (const option of LANGUAGE_OPTIONS) {
         const historyState = { rootPath, code: option.code };
         window.history.replaceState(historyState, '', `${rootPath}?campaign=matrix#player`);
         const historyLength = window.history.length;
-        const expectedPath =
-          option.code === 'en' ? localizedAppPath('en') : localizedAppEntryPath(option.code);
+
+        // A previous room or locale document can leave stale URL metadata behind.
+        document.querySelector<HTMLLinkElement>('link[rel="canonical"]')!.href =
+          'https://musixquare.com/123456';
+        document.querySelector<HTMLMetaElement>('meta[property="og:url"]')!.content =
+          'https://musixquare.com/123456';
 
         const outcome = updateLocalizedAppPath(option.code);
 
-        expect(window.location.pathname, `${rootPath} → ${option.code}`).toBe(expectedPath);
+        expect(window.location.pathname, `${rootPath} → ${option.code}`).toBe(rootPath);
         expect(window.location.search).toBe('?campaign=matrix');
         expect(window.location.hash).toBe('#player');
         expect(window.history.state).toEqual(historyState);
         expect(window.history.length).toBe(historyLength);
-        expect(outcome).toBe(rootPath === '/' && option.code === 'en' ? 'unchanged' : 'replaced');
+        expect(outcome).toBe('unchanged');
         expect(document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href).toBe(
-          `https://musixquare.com${localizedAppPath(option.code)}`,
+          'https://musixquare.com/',
         );
         expect(document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.content).toBe(
-          `https://musixquare.com${localizedAppPath(option.code)}`,
+          'https://musixquare.com/',
         );
       }
     }
@@ -49,8 +53,11 @@ describe('localized app document URL ownership', () => {
       expect(currentAppPathMatchesLanguage(option.code), option.code).toBe(true);
     }
 
-    window.history.replaceState(null, '', '/');
-    expect(currentAppPathMatchesLanguage('en')).toBe(true);
+    for (const rootPath of ['/', '/index.html']) {
+      window.history.replaceState(null, '', rootPath);
+      expect(currentAppPathMatchesLanguage('en'), rootPath).toBe(true);
+      expect(currentAppPathMatchesLanguage('ko'), rootPath).toBe(false);
+    }
   });
 
   it.each([

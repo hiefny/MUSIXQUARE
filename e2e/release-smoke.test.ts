@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import {
   cleanupContexts,
   createHostGuestContexts,
@@ -9,12 +9,34 @@ import { waitForBootstrapReady } from './helpers/bootstrap.ts';
 import { connectHostAndGuest } from './helpers/setup-flow.ts';
 import {
   openChatDrawer,
+  navigateToTab,
   sendChat,
   waitForChatMessage,
   waitForDeviceCount,
 } from './helpers/wait.ts';
 
 let pair: HostGuestPair | undefined;
+
+async function expectRootSearchIdentity(page: Page): Promise<void> {
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+    'href',
+    'https://musixquare.com/',
+  );
+  await expect(page.locator('meta[property="og:url"]')).toHaveAttribute(
+    'content',
+    'https://musixquare.com/',
+  );
+  const websiteSchema = page.locator('script[data-mxqr-website-schema]');
+  await expect(websiteSchema).toHaveCount(1);
+  expect(
+    await websiteSchema.evaluate((node) => JSON.parse(node.textContent || '{}')),
+  ).toMatchObject({
+    '@type': 'WebSite',
+    '@id': 'https://musixquare.com/#website',
+    url: 'https://musixquare.com/',
+    name: 'MUSIXQUARE',
+  });
+}
 
 test.describe('Production release smoke', () => {
   test.afterEach(async () => {
@@ -78,6 +100,11 @@ test.describe('Production release smoke', () => {
         role: 'none',
       });
       await expect(page.locator('html')).toHaveAttribute('lang', initialView.language);
+      await expect(page).toHaveURL((url) => url.pathname === initialView.path);
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+        'href',
+        `https://musixquare.com${initialView.path}`,
+      );
       await expect(page.locator('#setup-overlay')).toBeVisible();
       await expect(page.locator('#setup-overlay')).toHaveAttribute('aria-hidden', 'false');
       await expect(page.locator('#btn-setup-host')).toHaveText(initialView.host);
@@ -125,9 +152,11 @@ test.describe('Production release smoke', () => {
     await expect(page.locator('footer a', { hasText: 'App' })).toHaveAttribute('href', '/');
   });
 
-  test('projects a saved non-English root onto its locale URL without reloading', async ({
-    page,
-  }) => {
+  test('keeps a saved non-English root at its original URL without reloading', async ({ page }) => {
+    let documentRequests = 0;
+    page.on('request', (request) => {
+      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) documentRequests++;
+    });
     await page.addInitScript(() => {
       localStorage.setItem('musixquare-lang', 'ko');
     });
@@ -135,7 +164,10 @@ test.describe('Production release smoke', () => {
     await page.goto('/?campaign=returning#player');
     await waitForBootstrapReady(page);
 
-    await expect(page).toHaveURL(/\/ko\/\?campaign=returning#player$/u);
+    await expect(page).toHaveURL(
+      (url) =>
+        url.pathname === '/' && url.search === '?campaign=returning' && url.hash === '#player',
+    );
     await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
     await expect(page.locator('#btn-setup-host')).toHaveText('방 만들기');
     await expect(page.locator('#app-manifest')).toHaveAttribute(
@@ -143,7 +175,37 @@ test.describe('Production release smoke', () => {
       '/manifests/ko.webmanifest',
     );
     await expect.poll(() => page.title()).toBe('MUSIXQUARE');
-    expect(await page.evaluate(() => performance.getEntriesByType('navigation').length)).toBe(1);
+    await expectRootSearchIdentity(page);
+    expect(documentRequests).toBe(1);
+  });
+
+  test('keeps a fresh Korean browser at root while applying its browser language', async ({
+    browser,
+    baseURL,
+  }) => {
+    const context = await browser.newContext({ baseURL, locale: 'ko-KR' });
+    try {
+      const page = await context.newPage();
+      let documentRequests = 0;
+      page.on('request', (request) => {
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame())
+          documentRequests++;
+      });
+
+      await page.goto('/?campaign=browser#player');
+      await waitForBootstrapReady(page);
+
+      await expect(page).toHaveURL(
+        (url) =>
+          url.pathname === '/' && url.search === '?campaign=browser' && url.hash === '#player',
+      );
+      await expect(page.locator('html')).toHaveAttribute('lang', 'ko');
+      await expect(page.locator('#btn-setup-host')).toHaveText('방 만들기');
+      await expectRootSearchIdentity(page);
+      expect(documentRequests).toBe(1);
+    } finally {
+      await context.close();
+    }
   });
 
   test('preserves the About locale across English-only editorial pages', async ({ page }) => {
@@ -164,12 +226,47 @@ test.describe('Production release smoke', () => {
     await expect(page).toHaveTitle('MUSIXQUARE 소개');
   });
 
-  test('boots, joins a host and guest, and exchanges chat both ways', async ({ browser }) => {
+  test('keeps a host and guest connected across a manual root language change', async ({
+    browser,
+  }) => {
     pair = await createHostGuestContexts(browser);
 
     const code = await connectHostAndGuest(pair.hostPage, pair.guestPage);
     expect(code).toMatch(/^\d{6}$/);
 
+    await Promise.all([
+      waitForDeviceCount(pair.hostPage, 2),
+      waitForDeviceCount(pair.guestPage, 2),
+    ]);
+
+    await pair.hostPage.evaluate((sentinel) => {
+      (document as Document & { __releaseLocaleSentinel?: string }).__releaseLocaleSentinel =
+        sentinel;
+      window.history.replaceState(
+        { ...window.history.state, releaseLocaleSentinel: sentinel },
+        '',
+        window.location.href,
+      );
+    }, code);
+    await navigateToTab(pair.hostPage, 'settings');
+    await pair.hostPage.locator('#btn-language-select').click();
+    await expect(pair.hostPage.locator('#language-dialog-overlay')).toHaveClass(/show/);
+    await pair.hostPage.locator('.language-option[data-lang="ko"]').click();
+    await expect(pair.hostPage.locator('html')).toHaveAttribute('lang', 'ko');
+    await expect(pair.hostPage.locator('.section-title[data-i18n="settings.theme"]')).toHaveText(
+      '테마',
+    );
+    await expect(pair.hostPage).toHaveURL((url) => url.pathname === '/');
+    await expectRootSearchIdentity(pair.hostPage);
+    expect(
+      await pair.hostPage.evaluate(() => ({
+        document: (document as Document & { __releaseLocaleSentinel?: string })
+          .__releaseLocaleSentinel,
+        history: window.history.state?.releaseLocaleSentinel,
+      })),
+    ).toEqual({ document: code, history: code });
+    await pair.hostPage.locator('#btn-language-dialog-done').click();
+    await navigateToTab(pair.hostPage, 'play');
     await Promise.all([
       waitForDeviceCount(pair.hostPage, 2),
       waitForDeviceCount(pair.guestPage, 2),

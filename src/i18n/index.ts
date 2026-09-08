@@ -226,7 +226,7 @@ function _loadLocalizedAppHead(): Promise<LocalizedAppHead | undefined> {
 }
 
 function _synchronizeLocalizedHead(
-  resolved: LanguageCode,
+  documentLanguage: LanguageCode,
   intent: number,
   options: { forceDocumentTitle?: boolean } = {},
 ): void {
@@ -234,8 +234,8 @@ function _synchronizeLocalizedHead(
     .then((head) => {
       if (!head || intent !== _localizedHeadIntent) return;
       return head.synchronizeLocalizedAppHead(
-        resolved,
-        () => intent === _localizedHeadIntent && _resolved === resolved,
+        documentLanguage,
+        () => intent === _localizedHeadIntent,
         options,
       );
     })
@@ -247,20 +247,27 @@ function _synchronizeLocalizedHead(
 
 /** Restore canonical app metadata after an invite-room URL is cleaned in place. */
 export function synchronizeCurrentLocalizedAppHead(): void {
-  const resolved = _resolved;
-  if (!currentAppPathMatchesLanguage(resolved)) return;
+  // Root metadata belongs to the shared app, even when its visible UI uses a
+  // saved or browser language. Explicit locale entries keep their own head.
+  const documentLanguage =
+    currentAppPathLanguage() ?? (currentAppPathMatchesLanguage('en') ? 'en' : null);
+  if (!documentLanguage) return;
 
-  updateKnownLocalizedAppUrlMetadata(resolved);
+  updateKnownLocalizedAppUrlMetadata(documentLanguage);
   const headIntent = ++_localizedHeadIntent;
   _localizedAppHead?.cancelLocalizedAppHeadSync();
-  if (_dicts[resolved]) {
-    _synchronizeLocalizedHead(resolved, headIntent, { forceDocumentTitle: true });
+  if (_dicts[documentLanguage]) {
+    _synchronizeLocalizedHead(documentLanguage, headIntent, { forceDocumentTitle: true });
   }
 }
 
 async function _setLanguageMode(mode: string): Promise<void> {
-  const headIntent = ++_localizedHeadIntent;
-  _localizedAppHead?.cancelLocalizedAppHeadSync();
+  // A shared-root UI change must not cancel its pending room-metadata cleanup:
+  // that English head still belongs to `/`, regardless of the selected UI language.
+  const keepsRootMetadata =
+    currentAppPathLanguage() === null && currentAppPathMatchesLanguage('en');
+  const headIntent = keepsRootMetadata ? _localizedHeadIntent : ++_localizedHeadIntent;
+  if (!keepsRootMetadata) _localizedAppHead?.cancelLocalizedAppHeadSync();
   const normalizedMode = _normalizeLanguageMode(mode);
   const resolved = normalizedMode === 'system' ? _resolveSystem() : normalizedMode;
   _mode = normalizedMode;

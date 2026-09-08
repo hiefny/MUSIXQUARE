@@ -12,8 +12,7 @@
 
 import { log } from '../core/log.ts';
 import { isLazyFeatureLoadError } from '../core/lazy-feature-failure.ts';
-import { getResolvedLanguage, synchronizeCurrentLocalizedAppHead, t } from '../i18n/index.ts';
-import { localizedAppPath } from '../i18n/locales.ts';
+import { synchronizeCurrentLocalizedAppHead, t } from '../i18n/index.ts';
 import { bus } from '../core/events.ts';
 import { getState, setState } from '../core/state.ts';
 import { cancelCapabilityChallenge } from '../core/capability.ts';
@@ -472,11 +471,7 @@ export function initSetup(): void {
     setPendingAutoJoinCode(null);
     try {
       if (!isProRoom && /^\/\d{6}\/?$/.test(window.location.pathname)) {
-        window.history.replaceState(
-          {},
-          '',
-          localizedAppPath(getResolvedLanguage()) + window.location.hash,
-        );
+        window.history.replaceState({}, '', '/' + window.location.hash);
         synchronizeCurrentLocalizedAppHead();
       }
     } catch {

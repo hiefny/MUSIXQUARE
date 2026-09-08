@@ -57,6 +57,7 @@ describe('i18n functions', () => {
       lang: 'en',
       canonical: 'https://musixquare.com/',
       title: 'MUSIXQUARE',
+      websiteSchema: true,
     });
     document.body.innerHTML = '';
     document.documentElement.removeAttribute('lang');
@@ -417,56 +418,52 @@ describe('i18n functions', () => {
       },
     );
 
-    it('moves the canonical root to a selected non-English locale without adding history', async () => {
-      const historyState = { guard: 'root-app-session' };
-      window.history.replaceState(historyState, '', '/?source=homepage#player');
-      Object.defineProperty(navigator, 'languages', {
-        value: ['en-US'],
-        configurable: true,
-      });
-      const navigationRequest = vi.fn((event: Event) => event.preventDefault());
-      window.addEventListener('mxqr:locale-navigation-request', navigationRequest);
-      const rootI18n = await import('../index.ts');
-      await rootI18n.initI18n();
-      document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
-      const fetchHead = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(
-          localizedDocument({
-            lang: 'ko',
-            canonical: 'https://musixquare.com/ko/',
-            title: 'MUSIXQUARE',
-            ogLocale: 'ko_KR',
-          }),
-          { status: 200, headers: { 'Content-Type': 'text/html' } },
-        ),
-      );
-      const replaceState = vi.spyOn(window.history, 'replaceState');
-      const historyLength = window.history.length;
+    it.each(['/', '/index.html'])(
+      'keeps %s and its English head while changing the visible language',
+      async (rootPath) => {
+        const historyState = { guard: 'root-app-session' };
+        window.history.replaceState(historyState, '', `${rootPath}?source=homepage#player`);
+        Object.defineProperty(navigator, 'languages', {
+          value: ['en-US'],
+          configurable: true,
+        });
+        const navigationRequest = vi.fn((event: Event) => event.preventDefault());
+        window.addEventListener('mxqr:locale-navigation-request', navigationRequest);
+        const rootI18n = await import('../index.ts');
+        await rootI18n.initI18n();
+        document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
+        const button = document.querySelector('button');
+        const headMarkup = document.head.innerHTML;
+        const fetchHead = vi.spyOn(globalThis, 'fetch');
+        const replaceState = vi.spyOn(window.history, 'replaceState');
+        const historyLength = window.history.length;
 
-      rootI18n.setLanguageMode('ko');
+        rootI18n.setLanguageMode('ko');
 
-      expect(window.location.pathname).toBe('/ko/');
-      expect(window.location.search).toBe('?source=homepage');
-      expect(window.location.hash).toBe('#player');
-      expect(window.history.state).toEqual(historyState);
-      expect(window.history.length).toBe(historyLength);
-      expect(replaceState).toHaveBeenCalledWith(historyState, '', '/ko/?source=homepage#player');
-      const { default: ko } = await import('../ko.ts');
-      await vi.waitFor(() => {
-        expect(rootI18n.getResolvedLanguage()).toBe('ko');
-        expect(document.querySelector('button')?.textContent).toBe(ko['setup.host_button']);
-        expect(document.title).toBe('MUSIXQUARE');
-        expect(fetchHead).toHaveBeenCalledWith(
-          '/ko/',
-          expect.objectContaining({ credentials: 'same-origin' }),
-        );
-      });
-      expect(navigationRequest).not.toHaveBeenCalled();
-      window.removeEventListener('mxqr:locale-navigation-request', navigationRequest);
-    });
+        expect(window.location.pathname).toBe(rootPath);
+        expect(window.location.search).toBe('?source=homepage');
+        expect(window.location.hash).toBe('#player');
+        expect(window.history.state).toEqual(historyState);
+        expect(window.history.length).toBe(historyLength);
+        expect(replaceState).not.toHaveBeenCalled();
+        const { default: ko } = await import('../ko.ts');
+        await vi.waitFor(() => {
+          expect(rootI18n.getResolvedLanguage()).toBe('ko');
+          expect(document.querySelector('button')?.textContent).toBe(ko['setup.host_button']);
+          expect(document.documentElement.lang).toBe('ko');
+        });
+        expect(document.querySelector('button')).toBe(button);
+        expect(localStorage.getItem('musixquare-lang')).toBe('ko');
+        expect(document.head.innerHTML).toBe(headMarkup);
+        expect(document.querySelector('[data-mxqr-website-schema]')).not.toBeNull();
+        expect(fetchHead).not.toHaveBeenCalled();
+        expect(navigationRequest).not.toHaveBeenCalled();
+        window.removeEventListener('mxqr:locale-navigation-request', navigationRequest);
+      },
+    );
 
     it.each(['throw', 'noop'] as const)(
-      'falls back to a full-document request when root history replacement %s',
+      'changes root UI language without navigation when history replacement would %s',
       async (behavior) => {
         window.history.replaceState(null, '', '/?campaign=launch#player');
         Object.defineProperty(navigator, 'languages', {
@@ -476,16 +473,9 @@ describe('i18n functions', () => {
         const { getResolvedLanguage, initI18n, setLanguageMode } = await import('../index.ts');
         await initI18n();
 
-        const navigationRequests: string[] = [];
-        window.addEventListener(
-          'mxqr:locale-navigation-request',
-          (event) => {
-            navigationRequests.push((event as CustomEvent<{ href: string }>).detail.href);
-            event.preventDefault();
-          },
-          { once: true },
-        );
-        vi.spyOn(window.history, 'replaceState').mockImplementation(() => {
+        const navigationRequest = vi.fn((event: Event) => event.preventDefault());
+        window.addEventListener('mxqr:locale-navigation-request', navigationRequest);
+        const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {
           if (behavior === 'throw') throw new DOMException('History unavailable', 'SecurityError');
         });
         const fetchHead = vi.spyOn(globalThis, 'fetch');
@@ -493,11 +483,16 @@ describe('i18n functions', () => {
         setLanguageMode('ko');
 
         await vi.waitFor(() => {
-          expect(navigationRequests).toEqual(['/ko/?campaign=launch#player']);
+          expect(getResolvedLanguage()).toBe('ko');
+          expect(document.documentElement.lang).toBe('ko');
         });
         expect(window.location.pathname).toBe('/');
-        expect(getResolvedLanguage()).toBe('en');
+        expect(window.location.search).toBe('?campaign=launch');
+        expect(window.location.hash).toBe('#player');
+        expect(replaceState).not.toHaveBeenCalled();
+        expect(navigationRequest).not.toHaveBeenCalled();
         expect(fetchHead).not.toHaveBeenCalled();
+        window.removeEventListener('mxqr:locale-navigation-request', navigationRequest);
       },
     );
 
@@ -522,22 +517,33 @@ describe('i18n functions', () => {
       {
         code: 'en' as const,
         targetPath: '/',
+        fetchPath: '/',
         canonical: 'https://musixquare.com/',
         title: 'MUSIXQUARE',
         lang: 'en',
         websiteSchema: true,
       },
+      ...['/', '/index.html'].map((targetPath) => ({
+        code: 'ko' as const,
+        targetPath,
+        fetchPath: '/',
+        canonical: 'https://musixquare.com/',
+        title: 'MUSIXQUARE',
+        lang: 'en',
+        websiteSchema: true,
+      })),
       {
         code: 'ko' as const,
         targetPath: '/ko/',
+        fetchPath: '/ko/',
         canonical: 'https://musixquare.com/ko/',
         title: 'MUSIXQUARE',
         lang: 'ko',
         websiteSchema: false,
       },
     ])(
-      'restores $code app metadata after a joined room URL is cleaned in place',
-      async ({ code, targetPath, canonical, title, lang, websiteSchema }) => {
+      'restores $targetPath metadata with $code UI after a joined room URL is cleaned in place',
+      async ({ code, targetPath, fetchPath, canonical, title, lang, websiteSchema }) => {
         window.history.replaceState(null, '', '/123456?source=invite#queue');
         document.head.innerHTML = localizedHeadMarkup({
           lang: 'en',
@@ -561,6 +567,7 @@ describe('i18n functions', () => {
         document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')!.content =
           'https://musixquare.com/og-invite.png';
         localStorage.setItem('musixquare-lang', code);
+        document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
         Object.defineProperty(navigator, 'languages', {
           value: ['en-US'],
           configurable: true,
@@ -569,6 +576,8 @@ describe('i18n functions', () => {
           await import('../index.ts');
         await initI18n();
         expect(getResolvedLanguage()).toBe(code);
+        const visibleContent = document.body.innerHTML;
+        const historyState = { guard: 'joined-session', roomId: '123456' };
 
         vi.mocked(fetch).mockResolvedValue(
           new Response(
@@ -577,12 +586,13 @@ describe('i18n functions', () => {
               canonical,
               title,
               websiteSchema,
-              ogLocale: code === 'ko' ? 'ko_KR' : 'en_US',
+              ogLocale: lang === 'ko' ? 'ko_KR' : 'en_US',
             }),
             { status: 200, headers: { 'Content-Type': 'text/html' } },
           ),
         );
-        window.history.replaceState(null, '', `${targetPath}#queue`);
+        window.history.replaceState(historyState, '', `${targetPath}?source=invite#queue`);
+        const historyLength = window.history.length;
 
         synchronizeCurrentLocalizedAppHead();
 
@@ -606,9 +616,21 @@ describe('i18n functions', () => {
           expect(
             document.querySelector<HTMLMetaElement>('meta[name="twitter:image"]')?.content,
           ).toBe('https://musixquare.com/og-image.png');
+          expect(
+            document.querySelector<HTMLMetaElement>('meta[property="og:locale"]')?.content,
+          ).toBe(lang === 'ko' ? 'ko_KR' : 'en_US');
+          expect(document.querySelector('[data-mxqr-website-schema]') !== null).toBe(websiteSchema);
         });
+        expect(getResolvedLanguage()).toBe(code);
+        expect(document.documentElement.lang).toBe(code);
+        expect(document.body.innerHTML).toBe(visibleContent);
+        expect(window.location.pathname).toBe(targetPath);
+        expect(window.location.search).toBe('?source=invite');
+        expect(window.location.hash).toBe('#queue');
+        expect(window.history.state).toEqual(historyState);
+        expect(window.history.length).toBe(historyLength);
         expect(fetch).toHaveBeenCalledWith(
-          targetPath,
+          fetchPath,
           expect.objectContaining({ credentials: 'same-origin' }),
         );
       },
@@ -646,6 +668,120 @@ describe('i18n functions', () => {
         );
       });
     });
+
+    it.each([
+      { laterPath: '/', expectedCanonical: 'https://musixquare.com/', expectedOgLocale: 'en_US' },
+      {
+        laterPath: '/en/',
+        expectedCanonical: 'https://musixquare.com/ja/',
+        expectedOgLocale: 'ja_JP',
+      },
+    ])(
+      'keeps delayed root recovery consistent after a Japanese selection on $laterPath',
+      async ({ laterPath, expectedCanonical, expectedOgLocale }) => {
+        window.history.replaceState(null, '', '/123456?source=invite#queue');
+        document.head.innerHTML = localizedHeadMarkup({
+          lang: 'en',
+          canonical: 'https://musixquare.com/123456',
+          title: 'MUSIXQUARE',
+          description: 'Join session 123456 on MUSIXQUARE.',
+        });
+        document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
+        localStorage.setItem('musixquare-lang', 'ko');
+        const englishRequest: { resolve?: (response: Response) => void } = {};
+        vi.mocked(fetch).mockImplementation((input) => {
+          if (String(input) === '/') {
+            return new Promise<Response>((resolve) => {
+              englishRequest.resolve = resolve;
+            });
+          }
+          return Promise.resolve(
+            new Response(
+              localizedDocument({
+                lang: 'ja',
+                canonical: 'https://musixquare.com/ja/',
+                title: 'MUSIXQUARE',
+                description: 'Japanese app description',
+                ogLocale: 'ja_JP',
+              }),
+              { status: 200 },
+            ),
+          );
+        });
+        const {
+          getResolvedLanguage,
+          initI18n,
+          setLanguageMode,
+          synchronizeCurrentLocalizedAppHead,
+        } = await import('../index.ts');
+        await initI18n();
+        const historyState = { guard: 'joined-session', roomId: '123456' };
+        window.history.replaceState(historyState, '', '/?source=invite#queue');
+        synchronizeCurrentLocalizedAppHead();
+        await vi.waitFor(() => expect(englishRequest.resolve).toBeTypeOf('function'));
+
+        if (laterPath !== '/') {
+          window.history.replaceState(historyState, '', `${laterPath}?source=invite#queue`);
+        }
+        const historyLength = window.history.length;
+        setLanguageMode('ja');
+        const { default: ja } = await import('../ja.ts');
+        await vi.waitFor(() => {
+          expect(getResolvedLanguage()).toBe('ja');
+          expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']);
+          if (laterPath !== '/') {
+            expect(
+              document.querySelector<HTMLMetaElement>('meta[property="og:locale"]')?.content,
+            ).toBe('ja_JP');
+          }
+        });
+
+        const releaseEnglish = englishRequest.resolve;
+        if (typeof releaseEnglish !== 'function')
+          throw new Error('Root head request was not captured');
+        releaseEnglish(
+          new Response(
+            localizedDocument({
+              lang: 'en',
+              canonical: 'https://musixquare.com/',
+              title: 'MUSIXQUARE',
+              description: 'English app description',
+              websiteSchema: true,
+            }),
+            { status: 200 },
+          ),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+
+        await vi.waitFor(() => {
+          expect(document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content).toBe(
+            laterPath === '/' ? 'English app description' : 'Japanese app description',
+          );
+        });
+        expect(document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href).toBe(
+          expectedCanonical,
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.content).toBe(
+          expectedCanonical,
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:locale"]')?.content).toBe(
+          expectedOgLocale,
+        );
+        expect(document.querySelector('[data-mxqr-website-schema]') !== null).toBe(
+          laterPath === '/',
+        );
+        expect(getResolvedLanguage()).toBe('ja');
+        expect(document.documentElement.lang).toBe('ja');
+        expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']);
+        expect(localStorage.getItem('musixquare-lang')).toBe('ja');
+        expect(window.location.pathname).toBe(laterPath === '/' ? '/' : '/ja/');
+        expect(window.location.search).toBe('?source=invite');
+        expect(window.location.hash).toBe('#queue');
+        expect(window.history.state).toEqual(historyState);
+        expect(window.history.length).toBe(historyLength);
+        expect(fetch).toHaveBeenCalledTimes(laterPath === '/' ? 1 : 2);
+      },
+    );
 
     it('keeps the translated app and target URL when background head synchronization fails', async () => {
       window.history.replaceState(null, '', '/ko/?campaign=offline#player');
@@ -824,32 +960,50 @@ describe('i18n functions', () => {
   });
 
   describe('initI18n()', () => {
-    it('projects a saved non-English root app onto its locale URL at startup', async () => {
-      const historyState = { guard: 'startup-session' };
-      window.history.replaceState(historyState, '', '/?campaign=returning#player');
-      localStorage.setItem('musixquare-lang', 'ja');
-      Object.defineProperty(navigator, 'languages', {
-        value: ['en-US'],
-        configurable: true,
-      });
-      const historyLength = window.history.length;
-      const { getResolvedLanguage, initI18n } = await import('../index.ts');
+    it.each(['/', '/index.html'])(
+      'keeps %s and its English head when starting with a saved non-English preference',
+      async (rootPath) => {
+        const historyState = { guard: 'startup-session' };
+        window.history.replaceState(historyState, '', `${rootPath}?campaign=returning#player`);
+        localStorage.setItem('musixquare-lang', 'ja');
+        document.body.innerHTML = '<button data-i18n="setup.host_button"></button>';
+        Object.defineProperty(navigator, 'languages', {
+          value: ['en-US'],
+          configurable: true,
+        });
+        const historyLength = window.history.length;
+        const replaceState = vi.spyOn(window.history, 'replaceState');
+        const { getResolvedLanguage, initI18n } = await import('../index.ts');
 
-      await initI18n();
+        await initI18n();
 
-      expect(getResolvedLanguage()).toBe('ja');
-      expect(window.location.pathname).toBe('/ja/');
-      expect(window.location.search).toBe('?campaign=returning');
-      expect(window.location.hash).toBe('#player');
-      expect(window.history.state).toEqual(historyState);
-      expect(window.history.length).toBe(historyLength);
-      await vi.waitFor(() => {
-        expect(fetch).toHaveBeenCalledWith(
-          '/ja/',
-          expect.objectContaining({ credentials: 'same-origin' }),
+        expect(getResolvedLanguage()).toBe('ja');
+        const { default: ja } = await import('../ja.ts');
+        expect(document.querySelector('button')?.textContent).toBe(ja['setup.host_button']);
+        expect(document.documentElement.lang).toBe('ja');
+        expect(localStorage.getItem('musixquare-lang')).toBe('ja');
+        expect(window.location.pathname).toBe(rootPath);
+        expect(window.location.search).toBe('?campaign=returning');
+        expect(window.location.hash).toBe('#player');
+        expect(window.history.state).toEqual(historyState);
+        expect(window.history.length).toBe(historyLength);
+        expect(replaceState).not.toHaveBeenCalled();
+        expect(document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href).toBe(
+          'https://musixquare.com/',
         );
-      });
-    });
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.content).toBe(
+          'https://musixquare.com/',
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:locale"]')?.content).toBe(
+          'en_US',
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content).toBe(
+          'MUSIXQUARE description',
+        );
+        expect(document.querySelector('[data-mxqr-website-schema]')).not.toBeNull();
+        expect(fetch).not.toHaveBeenCalled();
+      },
+    );
 
     it('keeps the English root canonical and skips localized head loading', async () => {
       window.history.replaceState(null, '', '/?campaign=english#player');
@@ -880,18 +1034,37 @@ describe('i18n functions', () => {
       expect(getResolvedLanguage()).toBe('en');
     });
 
-    it('uses system language when no saved preference', async () => {
-      Object.defineProperty(navigator, 'languages', {
-        value: ['ko-KR'],
-        configurable: true,
-      });
-      const { getResolvedLanguage, initI18n } = await import('../index.ts');
-      await initI18n();
-      expect(getResolvedLanguage()).toBe('ko');
-      expect(window.location.pathname).toBe('/ko/');
-    });
+    it.each([
+      { rootPath: '/', savedPreference: null },
+      { rootPath: '/index.html', savedPreference: null },
+      { rootPath: '/', savedPreference: 'system' },
+      { rootPath: '/index.html', savedPreference: 'system' },
+    ])(
+      'keeps $rootPath while resolving the $savedPreference system preference',
+      async ({ rootPath, savedPreference }) => {
+        window.history.replaceState(null, '', rootPath);
+        if (savedPreference !== null) localStorage.setItem('musixquare-lang', savedPreference);
+        Object.defineProperty(navigator, 'languages', {
+          value: ['ko-KR'],
+          configurable: true,
+        });
+        const { getLanguageMode, getResolvedLanguage, initI18n } = await import('../index.ts');
+        await initI18n();
+        expect(getLanguageMode()).toBe('system');
+        expect(getResolvedLanguage()).toBe('ko');
+        expect(document.documentElement.lang).toBe('ko');
+        expect(window.location.pathname).toBe(rootPath);
+        expect(document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.href).toBe(
+          'https://musixquare.com/',
+        );
+        expect(document.querySelector<HTMLMetaElement>('meta[property="og:locale"]')?.content).toBe(
+          'en_US',
+        );
+        expect(fetch).not.toHaveBeenCalled();
+      },
+    );
 
-    it.each(['system', 'ko'])(
+    it.each(['system', 'ko', 'en'])(
       'lets a non-English pathname control this document without replacing the saved %s preference',
       async (savedPreference) => {
         window.history.replaceState(null, '', '/ja/');

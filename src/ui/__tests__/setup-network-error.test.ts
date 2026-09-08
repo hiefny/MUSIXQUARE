@@ -39,7 +39,6 @@ vi.mock('../../player/ownership.ts', () => ({
 
 vi.mock('../../i18n/index.ts', () => ({
   t: vi.fn((key: string) => key),
-  getResolvedLanguage: vi.fn(() => 'en'),
   synchronizeCurrentLocalizedAppHead: vi.fn(),
 }));
 
@@ -113,7 +112,7 @@ import { bus } from '../../core/events.ts';
 import { getState, resetState, setState } from '../../core/state.ts';
 import { cancelPendingSessionSetup } from '../../network/peer.ts';
 import { createLazyFeatureLoadError } from '../../core/lazy-feature-failure.ts';
-import { getResolvedLanguage, synchronizeCurrentLocalizedAppHead } from '../../i18n/index.ts';
+import { synchronizeCurrentLocalizedAppHead } from '../../i18n/index.ts';
 import { isPlaybackModeYouTube } from '../../player/ownership.ts';
 import { registerProRoomSignalingEpochAdvanceHandler } from '../../pro-room/lifecycle-hook.ts';
 import { markProRoomTransportRecovered } from '../../pro-room/transport-recovery.ts';
@@ -136,6 +135,7 @@ beforeEach(() => {
   markProRoomTransportRecovered();
   sessionStorage.clear();
   document.body.innerHTML = '';
+  document.documentElement.lang = 'en';
   window.history.replaceState({}, '', '/');
   Object.defineProperty(window, 'matchMedia', {
     configurable: true,
@@ -150,7 +150,6 @@ beforeEach(() => {
   vi.mocked(showDialog).mockClear();
   vi.mocked(isPlaybackModeYouTube).mockClear();
   vi.mocked(isPlaybackModeYouTube).mockReturnValue(false);
-  vi.mocked(getResolvedLanguage).mockReturnValue('en');
   vi.mocked(synchronizeCurrentLocalizedAppHead).mockClear();
   startJoining();
 });
@@ -250,16 +249,42 @@ describe('setup network error messages', () => {
     expect(getState('setup.sessionStarted')).toBe(true);
   });
 
-  it('returns a joined non-English room to its matching locale URL', () => {
-    window.history.replaceState({}, '', '/123456#queue');
-    vi.mocked(getResolvedLanguage).mockReturnValue('ko');
+  it('returns a joined room to root while preserving its displayed language and hash', () => {
+    window.history.replaceState({}, '', '/123456?invite=share#queue');
+    document.documentElement.lang = 'ko';
     setState('network.lastJoinCode', '123456');
 
     bus.emit('setup:guest-join-success');
 
-    expect(window.location.pathname).toBe('/ko/');
+    expect(window.location.pathname).toBe('/');
+    expect(window.location.search).toBe('');
     expect(window.location.hash).toBe('#queue');
+    expect(document.documentElement.lang).toBe('ko');
     expect(synchronizeCurrentLocalizedAppHead).toHaveBeenCalledOnce();
+  });
+
+  it('preserves an explicit locale URL after a standard room join', () => {
+    window.history.replaceState({}, '', '/ko/?panel=connect#queue');
+    setState('network.lastJoinCode', '123456');
+
+    bus.emit('setup:guest-join-success');
+
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/ko/?panel=connect#queue',
+    );
+    expect(synchronizeCurrentLocalizedAppHead).not.toHaveBeenCalled();
+  });
+
+  it('preserves a PRO room URL after joining', () => {
+    window.history.replaceState({}, '', '/000001?panel=connect#queue');
+    setState('network.lastJoinCode', '000001');
+
+    bus.emit('setup:guest-join-success');
+
+    expect(window.location.pathname + window.location.search + window.location.hash).toBe(
+      '/000001?panel=connect#queue',
+    );
+    expect(synchronizeCurrentLocalizedAppHead).not.toHaveBeenCalled();
   });
 
   it('refuses to downgrade an active session through a setup back callback', () => {

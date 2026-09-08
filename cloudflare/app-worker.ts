@@ -35,6 +35,7 @@ import {
   readAdminAnnouncementControl,
   readCachedServiceMaintenance,
   readServiceMaintenance,
+  readServiceMaintenanceHistory,
   serviceMaintenancePreviewResponse,
   serviceMaintenanceResponse,
   ServiceMaintenanceState,
@@ -344,7 +345,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.4';
+const ADMIN_ASSET_VERSION = '8.6.5';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11181,6 +11182,7 @@ function isServiceMaintenanceAdminBypass(request: Request, url: URL) {
     pathname === '/api/admin/logout' ||
     pathname === '/api/admin/session' ||
     pathname === '/api/admin/service-status' ||
+    pathname === '/api/admin/service-status/history' ||
     pathname === ADMIN_MAINTENANCE_PREVIEW_PATH
   ) {
     return true;
@@ -11212,6 +11214,28 @@ function serviceStatusAdminPayload(state: ServiceMaintenanceState) {
     activatedAt: timestamp(state.activatedAt),
     settlesAt: timestamp(state.settlesAt),
   };
+}
+
+async function handleAdminServiceStatusHistory(request: Request, env: AppEnv) {
+  const methodError = adminApiMethodAllowed(request, ['GET', 'HEAD']);
+  if (methodError) return methodError;
+  if (!(await verifyAdminSession(request, env))) return json({ error: 'UNAUTHORIZED' }, 401);
+  const result = await readServiceMaintenanceHistory(env);
+  if (result.status !== 'ok') {
+    return json({ error: 'SERVICE_CONTROL_HISTORY_UNAVAILABLE' }, 503);
+  }
+  const response = json({
+    generatedAt: new Date().toISOString(),
+    history: result.history.map((entry) => ({
+      enabled: entry.enabled,
+      revision: entry.revision,
+      updatedAt: new Date(entry.updatedAt).toISOString(),
+    })),
+    truncated: result.truncated,
+  });
+  return request.method === 'HEAD'
+    ? new Response(null, { status: response.status, headers: response.headers })
+    : response;
 }
 
 async function handleAdminServiceStatus(request: Request, env: AppEnv) {
@@ -11731,48 +11755,67 @@ function renderAdminPage(request: Request, env: AppEnv) {
           <button type="button" data-logout>Logout</button>
         </div>
       </header>
-      <dialog class="service-status-dialog" aria-labelledby="service-status-title" data-service-status-dialog>
-        <div class="service-status-dialog-card">
-          <div class="service-status-dialog-head">
-            <div class="service-status-heading">
-              <span class="service-status-dialog-dot" aria-hidden="true"></span>
-              <div>
-                <h2 id="service-status-title" data-service-status-state>Checking status</h2>
-              </div>
-            </div>
-            <button class="service-status-close" type="button" aria-label="Close service status" data-service-status-cancel>&times;</button>
-          </div>
-          <p class="service-status-description" data-service-status-description>
-            Reading the current public service state.
-          </p>
-          <p data-service-status-updated></p>
-          <div class="service-status-preview" aria-label="Maintenance page preview">
-            <span>PUBLIC MESSAGE</span>
-            <strong>MUSIXQUARE is temporarily unavailable.</strong>
-            <p>Visitors receive this page in English with a second line in their system language.</p>
-          </div>
-          <p class="service-status-warning">
-            Maintenance mode asks public App, API, realtime, and scheduled work to stop. The App refreshes this state in the background so a broken control binding cannot stall users; a cold edge isolate can briefly admit traffic before its first refresh. Direct R2 uploads authorized before activation can also finish. Use a pre-Worker edge/deployment control plus a storage drain or credential rotation for a strict traffic or write freeze. This dashboard remains available so you can safely end maintenance.
-          </p>
-          <p class="service-status-error" role="alert" data-service-status-error></p>
-          <div class="service-status-dialog-actions">
-            <button class="is-secondary" type="button" data-service-status-preview>Preview page</button>
-            <button class="is-secondary" type="button" data-service-status-cancel>Cancel</button>
-            <button class="service-status-confirm" type="button" data-service-status-confirm disabled>Enter maintenance mode</button>
-          </div>
-        </div>
-      </dialog>
       <nav class="admin-tabs" aria-label="Admin sections">
-        <button class="service-status-trigger is-loading" type="button" aria-haspopup="dialog" data-service-status-trigger>
-          <span class="service-status-dot" aria-hidden="true" data-service-status-dot></span>
-          <span data-service-status-label>Maintenance</span>
-        </button>
         <button class="is-active" type="button" aria-pressed="true" data-admin-tab="operations">Analytics</button>
         <button type="button" data-admin-tab="pro-rooms">PRO Rooms</button>
         <button type="button" data-admin-tab="articles">Articles</button>
         <button type="button" data-admin-tab="translations">Translations</button>
         <button type="button" data-admin-tab="announcements">Announcements</button>
+        <button class="service-status-trigger is-loading" type="button" aria-pressed="false" data-admin-tab="maintenance" data-service-status-trigger>
+          <span class="service-status-dot" aria-hidden="true" data-service-status-dot></span>
+          <span data-service-status-label>Maintenance</span>
+        </button>
       </nav>
+      <section class="admin-view" data-admin-view="maintenance" hidden>
+        <div class="maintenance-overview">
+          <section class="panel service-status-panel" aria-labelledby="service-status-title" data-state="unknown" data-service-status-panel>
+            <div class="service-status-heading">
+              <span class="service-status-panel-dot" aria-hidden="true"></span>
+              <div>
+                <h2 id="service-status-title" data-service-status-state>Checking status</h2>
+                <p data-service-status-updated></p>
+              </div>
+            </div>
+            <p data-service-status-description>Reading the current public service state.</p>
+            <div class="service-status-actions">
+              <button type="button" aria-controls="service-status-confirmation" aria-expanded="false" data-service-status-change disabled>Enter maintenance mode</button>
+            </div>
+            <div id="service-status-confirmation" class="service-status-confirmation" aria-labelledby="service-status-confirmation-title" data-service-status-confirmation hidden>
+              <p id="service-status-confirmation-title" data-service-status-confirmation-copy></p>
+              <div class="service-status-actions">
+                <button type="button" data-service-status-confirm disabled>Confirm</button>
+                <button type="button" data-service-status-cancel>Cancel</button>
+              </div>
+            </div>
+            <p role="alert" data-service-status-error hidden></p>
+            <details class="service-status-details">
+              <summary>How maintenance works</summary>
+              <p class="service-status-warning">
+                Maintenance mode asks public App, API, realtime, and scheduled work to stop. The App refreshes this state in the background so a broken control binding cannot stall users; a cold edge isolate can briefly admit traffic before its first refresh. Direct R2 uploads authorized before activation can also finish. Use a pre-Worker edge/deployment control plus a storage drain or credential rotation for a strict traffic or write freeze. This dashboard remains available so you can safely end maintenance.
+              </p>
+            </details>
+          </section>
+          <section class="panel service-status-preview-panel" aria-labelledby="maintenance-preview-title">
+            <div class="panel-head">
+              <h2 id="maintenance-preview-title">Visitor page</h2>
+              <button type="button" data-service-status-preview>Preview page</button>
+            </div>
+            <div class="service-status-preview">
+              <span>MAINTENANCE</span>
+              <strong>MUSIXQUARE is temporarily unavailable.</strong>
+              <p>Shown in English and the visitor’s system language.</p>
+            </div>
+          </section>
+        </div>
+        <section class="panel service-history-panel" aria-labelledby="maintenance-history-title">
+          <div class="panel-head">
+            <h2 id="maintenance-history-title">History</h2>
+            <button type="button" data-service-history-refresh>Refresh</button>
+          </div>
+          <p role="status" data-service-history-status></p>
+          <ol class="service-history-list" data-service-history-list></ol>
+        </section>
+      </section>
       <section class="admin-view is-active" data-admin-view="operations">
         <section class="panel account-overview-panel" aria-labelledby="admin-account-overview-title">
           <div class="panel-head account-overview-head">
@@ -15960,6 +16003,8 @@ export default {
         return handleAdminMaintenancePreview(request, env);
       case '/api/admin/service-status':
         return handleAdminServiceStatus(request, env);
+      case '/api/admin/service-status/history':
+        return handleAdminServiceStatusHistory(request, env);
       case '/api/admin/metrics':
         return handleAdminMetrics(request, env);
       case '/api/admin/articles':

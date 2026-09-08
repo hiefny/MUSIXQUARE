@@ -11,6 +11,8 @@ import {
   ADMIN_ANNOUNCEMENT_MIGRATION_HEADER,
   ADMIN_ANNOUNCEMENT_STATE_PATH,
   ADMIN_ANNOUNCEMENT_STATUS_PATH,
+  SERVICE_CONTROL_HISTORY_LIMIT,
+  SERVICE_CONTROL_HISTORY_PATH,
   SERVICE_CONTROL_STATE_PATH,
   SERVICE_CONTROL_STATUS_ACTIVATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_ENABLED_HEADER,
@@ -19,6 +21,7 @@ import {
   SERVICE_CONTROL_STATUS_UPDATED_AT_HEADER,
   SERVICE_CONTROL_STATUS_VERSION_HEADER,
   normalizeServiceMaintenanceState,
+  type ServiceMaintenanceHistoryEntry,
 } from './service-maintenance.ts';
 
 /**
@@ -31,7 +34,7 @@ import {
 const INTERNAL_REQUEST_BODY_TIMEOUT_MS = 2_000;
 const SERVICE_CONTROL_STATE_KEY = 'service-maintenance-state';
 const SERVICE_CONTROL_REQUESTS_KEY = 'service-maintenance-requests';
-const SERVICE_CONTROL_REQUEST_HISTORY_LIMIT = 64;
+const SERVICE_CONTROL_REQUEST_HISTORY_LIMIT = SERVICE_CONTROL_HISTORY_LIMIT;
 const SERVICE_CONTROL_REQUEST_ID_RE = /^[A-Za-z0-9_-]{8,128}$/;
 // Keep these in lockstep with service-maintenance.ts. Named abuse-rate
 // Durable Objects own only their counter state, so loading unrelated global
@@ -307,6 +310,43 @@ function serviceControlJson(body: unknown, status: number = 200): Response {
       'X-Content-Type-Options': 'nosniff',
     },
   });
+}
+
+function serviceControlHistoryResponse(
+  current: StoredServiceControlState,
+  requests: ServiceControlRequestRecord[],
+): Response {
+  const revisions = new Map<number, ServiceMaintenanceHistoryEntry>();
+  // The current durable state preserves the latest change even when an older
+  // deployment has no request journal. Replays and no-ops share that revision.
+  for (const state of [current, ...requests.map((entry) => entry.state)]) {
+    if (state.revision === 0) continue;
+    if (
+      state.revision > current.revision ||
+      state.updatedAt === null ||
+      !Number.isFinite(new Date(state.updatedAt).getTime())
+    ) {
+      return serviceControlJson({ error: 'SERVICE_CONTROL_HISTORY_INVALID' }, 503);
+    }
+    const previous = revisions.get(state.revision);
+    if (
+      previous &&
+      (previous.enabled !== state.enabled || previous.updatedAt !== state.updatedAt)
+    ) {
+      return serviceControlJson({ error: 'SERVICE_CONTROL_HISTORY_INVALID' }, 503);
+    }
+    revisions.set(state.revision, {
+      enabled: state.enabled,
+      revision: state.revision,
+      updatedAt: state.updatedAt,
+    });
+  }
+  const history = [...revisions.values()]
+    .sort((left, right) => right.revision - left.revision)
+    .slice(0, SERVICE_CONTROL_HISTORY_LIMIT);
+  // The journal retains requests rather than events; repeated no-op requests
+  // can evict older changes. Report incomplete history instead of filling gaps.
+  return serviceControlJson({ history, truncated: history.length !== current.revision });
 }
 
 function abuseRateResponse(request: Request, body: unknown, status: number = 200): Response {
@@ -1329,6 +1369,9 @@ export class MusixquareServiceControl {
     }
     if (request.method === 'POST' && url.pathname === ADMIN_ANNOUNCEMENT_STATE_PATH) {
       return this.handleAnnouncementMutation(request);
+    }
+    if (request.method === 'GET' && url.pathname === SERVICE_CONTROL_HISTORY_PATH) {
+      return serviceControlHistoryResponse(this.serviceStatus, this.requests);
     }
     if (
       (request.method === 'GET' || request.method === 'HEAD') &&

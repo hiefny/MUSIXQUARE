@@ -15,21 +15,26 @@ function installDom(): void {
       </section>
       <section data-dashboard hidden>
         <h1 data-dashboard-title>Analytics</h1><p data-updated-at></p>
-        <button data-service-status-trigger>
+        <button data-admin-tab="maintenance" data-service-status-trigger>
           <span data-service-status-dot></span><span data-service-status-label></span>
         </button>
         <button data-refresh>Refresh</button><button data-logout>Logout</button>
-        <dialog data-service-status-dialog>
+        <section data-admin-view="maintenance" hidden><section data-service-status-panel>
           <h2 data-service-status-state></h2>
-          <button type="button" aria-label="Close service status" data-service-status-cancel>×</button>
           <p data-service-status-description></p><p data-service-status-updated></p>
           <p data-service-status-error></p>
-          <div class="service-status-dialog-actions">
+          <div class="service-status-actions">
             <button type="button" data-service-status-preview>Preview page</button>
+            <button type="button" data-service-status-change>Change</button>
+          </div>
+          <div data-service-status-confirmation hidden><p data-service-status-confirmation-copy></p>
             <button type="button" data-service-status-cancel>Cancel</button>
             <button type="button" data-service-status-confirm>Change</button>
           </div>
-        </dialog>
+        </section><section>
+          <button data-service-history-refresh>Refresh history</button>
+          <p data-service-history-status></p><ol data-service-history-list></ol>
+        </section></section>
         <nav>
           <button data-admin-tab="operations">Analytics</button>
           <button data-admin-tab="announcements">Announcements</button>
@@ -61,6 +66,281 @@ afterEach(() => {
 });
 
 describe('admin maintenance status UI', () => {
+  it.each(['stable', 'settling', 'moved', 'failure'] as const)(
+    'restores inline confirmation focus after browser disable-blur without stealing it: %s',
+    async (outcome) => {
+      installDom();
+      let releaseMutation!: (response: Response) => void;
+      const mutation = new Promise<Response>((resolve) => {
+        releaseMutation = resolve;
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+          const path = new URL(String(input), location.origin).pathname;
+          if (path === '/api/admin/session') return Response.json({ authenticated: true });
+          if (path === '/api/admin/service-status') {
+            if (init?.method === 'POST') return mutation;
+            return Response.json({ serviceStatus: { enabled: false, revision: 0 } });
+          }
+          if (path === '/api/admin/service-status/history') {
+            return Response.json({ history: [], truncated: false });
+          }
+          return Response.json({ revision: 0, announcement: {}, cards: [], summary: {} });
+        }),
+      );
+      window.eval(adminScript);
+      const trigger = document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!;
+      const change = document.querySelector<HTMLButtonElement>('[data-service-status-change]')!;
+      const confirm = document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')!;
+      const preview = document.querySelector<HTMLButtonElement>('[data-service-status-preview]')!;
+      const disabled = Object.getOwnPropertyDescriptor(HTMLButtonElement.prototype, 'disabled')!;
+      Object.defineProperty(confirm, 'disabled', {
+        configurable: true,
+        get: () => disabled.get!.call(confirm),
+        set: (value: boolean) => {
+          // jsdom keeps disabled buttons focused; Chromium moves focus to body.
+          if (value && document.activeElement === confirm) confirm.blur();
+          disabled.set!.call(confirm, value);
+        },
+      });
+      await vi.waitFor(() => expect(trigger.dataset.state).toBe('operational'));
+      trigger.click();
+      change.click();
+      confirm.focus();
+      confirm.click();
+      expect(confirm.disabled).toBe(true);
+      expect(document.activeElement).toBe(document.body);
+      if (outcome === 'moved') preview.focus();
+      releaseMutation(
+        outcome === 'failure'
+          ? Response.json({ error: 'CONTROL_UNAVAILABLE' }, { status: 503 })
+          : Response.json({
+              serviceStatus: {
+                enabled: true,
+                revision: 1,
+                settlesAt:
+                  outcome === 'settling' ? new Date(Date.now() + 30_000).toISOString() : null,
+              },
+            }),
+      );
+      await vi.waitFor(() => {
+        expect(
+          document.querySelector('[data-service-status-panel]')!.hasAttribute('aria-busy'),
+        ).toBe(false);
+        const expectedFocus =
+          outcome === 'moved'
+            ? preview
+            : outcome === 'settling'
+              ? trigger
+              : outcome === 'failure'
+                ? confirm
+                : change;
+        expect(document.activeElement).toBe(expectedFocus);
+      });
+      expect(
+        document.querySelector<HTMLElement>('[data-service-status-confirmation]')!.hidden,
+      ).toBe(outcome !== 'failure');
+    },
+  );
+
+  it('keeps history independent and requires a current inline confirmation to change service', async () => {
+    installDom();
+    let status = { enabled: true, revision: 4, updatedAt: '2030-01-02T01:00:00Z' };
+    let historyReads = 0;
+    let failHistory = false;
+    const writes: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), location.origin).pathname;
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/service-status') {
+          if (init?.method === 'POST') writes.push(JSON.parse(String(init.body)));
+          return Response.json({ serviceStatus: status });
+        }
+        if (path === '/api/admin/service-status/history') {
+          historyReads += 1;
+          return failHistory
+            ? Response.json({ error: 'SERVICE_CONTROL_HISTORY_UNAVAILABLE' }, { status: 503 })
+            : Response.json({
+                history: [
+                  status,
+                  { enabled: false, revision: 3, updatedAt: '2030-01-01T01:00:00Z' },
+                ],
+                truncated: false,
+              });
+        }
+        return Response.json({ revision: 0, announcement: {}, cards: [], summary: {} });
+      }),
+    );
+    window.eval(adminScript);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!;
+    const change = document.querySelector<HTMLButtonElement>('[data-service-status-change]')!;
+    const confirm = document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')!;
+    const confirmation = document.querySelector<HTMLElement>('[data-service-status-confirmation]')!;
+    const history = document.querySelector<HTMLElement>('[data-service-history-list]')!;
+    const historyStatus = document.querySelector<HTMLElement>('[data-service-history-status]')!;
+    await vi.waitFor(() => expect(trigger.dataset.state).toBe('maintenance'));
+    expect(historyReads).toBe(0);
+    trigger.click();
+    await vi.waitFor(() => expect(history.childElementCount).toBe(2));
+    expect(history.textContent).toContain('Entered maintenance');
+    expect(history.textContent).toContain('Service resumed');
+    expect(history.querySelector('time')?.dateTime).toBe('2030-01-02T01:00:00Z');
+    expect(confirm.disabled).toBe(true);
+    change.click();
+    expect(confirmation.hidden).toBe(false);
+    expect(document.querySelector('[data-service-status-confirmation-copy]')?.textContent).toBe(
+      'Resume service?',
+    );
+    expect(writes).toEqual([]);
+    const announcements = document.querySelector<HTMLButtonElement>(
+      '[data-admin-tab="announcements"]',
+    )!;
+    announcements.focus();
+    announcements.click();
+    expect(confirmation.hidden).toBe(true);
+    expect(document.activeElement).toBe(announcements);
+    confirm.click();
+    expect(writes).toEqual([]);
+
+    trigger.click();
+    await vi.waitFor(() => expect(historyReads).toBe(2));
+    change.click();
+    failHistory = true;
+    status = { ...status, revision: 5 };
+    document.querySelector<HTMLButtonElement>('[data-refresh]')!.click();
+    await vi.waitFor(() => expect(historyStatus.dataset.state).toBe('error'));
+    expect(historyStatus.textContent).toBe('History is temporarily unavailable. Try again.');
+    expect(history.childElementCount).toBe(2);
+    expect(historyReads).toBe(3);
+    expect(trigger.dataset.state).toBe('maintenance');
+    expect(change.disabled).toBe(false);
+    expect(confirmation.hidden).toBe(true);
+    expect(document.activeElement).toBe(change);
+    expect(document.querySelector<HTMLElement>('[data-service-status-error]')!.hidden).toBe(true);
+    change.click();
+    expect(confirm.disabled).toBe(false);
+    document.querySelector<HTMLButtonElement>('[data-service-status-cancel]')!.click();
+    expect(confirmation.hidden).toBe(true);
+    expect(document.activeElement).toBe(change);
+    confirm.click();
+    expect(writes).toEqual([]);
+  });
+
+  it('does not let an older history response overwrite the history fetched after a change', async () => {
+    installDom();
+    let status = { enabled: true, revision: 1, updatedAt: '2030-01-01T01:00:00Z' };
+    let releaseHistory!: (response: Response) => void;
+    const oldHistory = new Promise<Response>((resolve) => {
+      releaseHistory = resolve;
+    });
+    let historyReads = 0;
+    const writes: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = new URL(String(input), location.origin).pathname;
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/service-status') {
+          if (init?.method === 'POST') {
+            writes.push(JSON.parse(String(init.body)));
+            status = { enabled: false, revision: 2, updatedAt: '2030-01-02T01:00:00Z' };
+          }
+          return Response.json({ serviceStatus: status });
+        }
+        if (path === '/api/admin/service-status/history') {
+          if (++historyReads === 1) return oldHistory;
+          return Response.json({ history: [status], truncated: false });
+        }
+        return Response.json({
+          revision: 0,
+          rooms: [],
+          articles: [],
+          announcement: {},
+          cards: [],
+          summary: {},
+        });
+      }),
+    );
+    window.eval(adminScript);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!;
+    const confirm = document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')!;
+    const history = document.querySelector<HTMLElement>('[data-service-history-list]')!;
+    await vi.waitFor(() => expect(trigger.dataset.state).toBe('maintenance'));
+    trigger.click();
+    await vi.waitFor(() => expect(historyReads).toBe(1));
+    document.querySelector<HTMLButtonElement>('[data-service-status-change]')!.click();
+    confirm.click();
+    await vi.waitFor(() => expect(history.textContent).toContain('Service resumed'));
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ enabled: false, expectedRevision: 1 });
+    releaseHistory(
+      Response.json({
+        history: [{ enabled: true, revision: 1, updatedAt: '2030-01-01T01:00:00Z' }],
+        truncated: false,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(history.textContent).not.toContain('Entered maintenance');
+    expect(history.querySelector('time')?.dateTime).toBe('2030-01-02T01:00:00Z');
+    expect(document.querySelector<HTMLElement>('[data-service-status-confirmation]')!.hidden).toBe(
+      true,
+    );
+    expect(document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')!.hidden).toBe(
+      false,
+    );
+    expect(
+      document.querySelector<HTMLButtonElement>('[data-service-history-refresh]')!.disabled,
+    ).toBe(false);
+  });
+
+  it('clears maintenance history at logout and ignores a late history response', async () => {
+    installDom();
+    let historyReads = 0;
+    let releaseHistory!: (response: Response) => void;
+    const pendingHistory = new Promise<Response>((resolve) => {
+      releaseHistory = resolve;
+    });
+    const entry = { enabled: true, revision: 1, updatedAt: '2030-01-01T01:00:00Z' };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = new URL(String(input), location.origin).pathname;
+        if (path === '/api/admin/session') return Response.json({ authenticated: true });
+        if (path === '/api/admin/service-status') return Response.json({ serviceStatus: entry });
+        if (path === '/api/admin/service-status/history') {
+          if (++historyReads === 2) return pendingHistory;
+          return Response.json({ history: [entry], truncated: false });
+        }
+        return Response.json({ ok: true });
+      }),
+    );
+    window.eval(adminScript);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!;
+    const history = document.querySelector<HTMLElement>('[data-service-history-list]')!;
+    await vi.waitFor(() => expect(trigger.dataset.state).toBe('maintenance'));
+    trigger.click();
+    await vi.waitFor(() => expect(history.childElementCount).toBe(1));
+    document.querySelector<HTMLButtonElement>('[data-service-history-refresh]')!.click();
+    await vi.waitFor(() => expect(historyReads).toBe(2));
+    document.querySelector<HTMLButtonElement>('[data-service-status-change]')!.click();
+    document.querySelector<HTMLButtonElement>('[data-logout]')!.click();
+    await vi.waitFor(() =>
+      expect(document.querySelector<HTMLElement>('[data-dashboard]')!.hidden).toBe(true),
+    );
+    expect(history.childElementCount).toBe(0);
+    expect(document.querySelector('[data-service-history-status]')!.textContent).toBe('');
+    expect(document.querySelector<HTMLElement>('[data-service-status-confirmation]')!.hidden).toBe(
+      true,
+    );
+    releaseHistory(Response.json({ history: [entry], truncated: false }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(history.childElementCount).toBe(0);
+    expect(document.querySelector('[data-service-history-status]')!.textContent).toBe('');
+  });
+
   it.each(['2031-02-29 12:00', '2032-02-30 12:00', '2031-04-31', '2031-12-31 24:00'])(
     'does not publish an announcement with a rolled-over expiry: %s',
     async (invalidExpiry) => {
@@ -135,6 +415,7 @@ describe('admin maintenance status UI', () => {
     });
     let mutationCount = 0;
     let metricsCount = 0;
+    let serviceReads = 0;
     let status = {
       enabled: true,
       revision: 1,
@@ -154,7 +435,7 @@ describe('admin maintenance status UI', () => {
             mutationCount += 1;
             if (mutationCount === 2) return secondMutation;
             status = { ...status, enabled: false, revision: 2 };
-          }
+          } else serviceReads += 1;
           return Response.json({ serviceStatus: status });
         }
         if (url.pathname === '/api/admin/metrics') {
@@ -167,21 +448,31 @@ describe('admin maintenance status UI', () => {
     window.eval(adminScript);
     const trigger = document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!;
     const confirm = document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')!;
-    const dialog = document.querySelector<HTMLDialogElement>('[data-service-status-dialog]')!;
+    const panel = document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')!;
+    const confirmation = document.querySelector<HTMLElement>('[data-service-status-confirmation]')!;
+    const change = document.querySelector<HTMLButtonElement>('[data-service-status-change]')!;
     await vi.waitFor(() => expect(trigger.dataset.state).toBe('maintenance'));
     expect(trigger.textContent).toContain('Maintenance');
     trigger.click();
+    change.click();
     await vi.waitFor(() => expect(confirm.disabled).toBe(false));
     confirm.click();
     await vi.waitFor(() => {
       expect(metricsCount).toBe(1);
-      expect(dialog.open).toBe(false);
+      expect(confirmation.hidden).toBe(true);
+      expect(panel.hidden).toBe(false);
     });
     trigger.click();
+    change.click();
     await vi.waitFor(() => expect(confirm.disabled).toBe(false));
     confirm.click();
     await vi.waitFor(() => expect(mutationCount).toBe(2));
     expect(confirm.disabled).toBe(true);
+    const readsDuringMutation = serviceReads;
+    trigger.click();
+    await Promise.resolve();
+    expect(serviceReads).toBe(readsDuringMutation);
+    expect(trigger.disabled).toBe(false);
     resolveMetrics(
       Response.json({ generatedAt: new Date().toISOString(), cards: [], summary: {} }),
     );
@@ -190,14 +481,15 @@ describe('admin maintenance status UI', () => {
     );
     try {
       expect(confirm.disabled).toBe(true);
-      expect(dialog.open).toBe(true);
+      expect(confirmation.hidden).toBe(false);
+      expect(panel.hidden).toBe(false);
       confirm.click();
       expect(mutationCount).toBe(2);
     } finally {
       resolveSecondMutation(
         Response.json({ serviceStatus: { ...status, enabled: true, revision: 3 } }),
       );
-      await vi.waitFor(() => expect(dialog.open).toBe(false));
+      await vi.waitFor(() => expect(confirmation.hidden).toBe(true));
     }
   });
 
@@ -276,19 +568,22 @@ describe('admin maintenance status UI', () => {
     expect(openPreview).toHaveBeenCalledWith('/admin/maintenance-preview', '_blank', 'noopener');
 
     document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')?.click();
+    const change = document.querySelector<HTMLButtonElement>('[data-service-status-change]')!;
     await vi.waitFor(() => {
-      expect(document.querySelector<HTMLDialogElement>('[data-service-status-dialog]')?.open).toBe(
-        true,
+      expect(document.querySelector<HTMLElement>('[data-admin-view="maintenance"]')?.hidden).toBe(
+        false,
       );
-      expect(
-        document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')?.disabled,
-      ).toBe(false);
+      expect(change.disabled).toBe(false);
     });
+    expect(document.querySelector('dialog')).toBeNull();
+    expect(document.querySelector<HTMLElement>('[data-admin-view="operations"]')?.hidden).toBe(
+      true,
+    );
+    expect(document.querySelector('[data-dashboard-title]')?.textContent).toBe('Maintenance');
+    change.click();
     await vi.waitFor(() => {
       expect(document.activeElement).toBe(
-        document.querySelector<HTMLButtonElement>(
-          '.service-status-dialog-actions [data-service-status-cancel]',
-        ),
+        document.querySelector<HTMLButtonElement>('[data-service-status-cancel]'),
       );
     });
     document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')?.click();
@@ -300,6 +595,7 @@ describe('admin maintenance status UI', () => {
       );
       expect(trigger.dataset.state).toBe('activating');
       expect(label.textContent).toBe('Maintenance');
+      expect(document.activeElement).toBe(trigger);
     });
     await vi.waitFor(
       () => {

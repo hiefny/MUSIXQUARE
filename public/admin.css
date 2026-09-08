@@ -255,32 +255,9 @@ p {
   color: var(--text-main);
 }
 
-.header-actions [data-admin-tab].is-active {
-  background: rgba(var(--primary-rgb), 0.16);
-  color: var(--primary);
-}
-
 .header-actions button:focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 3px;
-}
-
-.header-actions [data-service-status-trigger] {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-main);
-}
-
-[data-service-status-trigger][data-state='maintenance'] {
-  background: rgba(248, 113, 113, 0.12);
-  color: var(--fail);
-}
-
-[data-service-status-trigger][data-state='activating'],
-[data-service-status-trigger][data-state='resuming'],
-[data-service-status-trigger][data-state='unknown'] {
-  color: var(--warn);
 }
 
 [data-service-status-trigger]:disabled {
@@ -289,29 +266,14 @@ p {
 }
 
 [data-service-status-dot] {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 auto;
-  border-radius: 50%;
-  background: var(--text-muted);
-  box-shadow: 0 0 0 3px rgba(113, 113, 122, 0.12);
+  display: none;
 }
 
-[data-service-status-dot][data-state='operational'] {
-  background: var(--pass);
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.12);
-}
-
-[data-service-status-dot][data-state='maintenance'] {
-  background: var(--fail);
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.14);
-}
-
+[data-service-status-dot][data-state='maintenance'],
 [data-service-status-dot][data-state='activating'],
 [data-service-status-dot][data-state='resuming'],
 [data-service-status-dot][data-state='unknown'] {
-  background: var(--warn);
-  box-shadow: 0 0 0 3px rgba(250, 204, 21, 0.12);
+  display: block;
 }
 
 .admin-tabs {
@@ -337,6 +299,7 @@ p {
   color: var(--text-muted);
   font-size: 13px;
   font-weight: 800;
+  white-space: nowrap;
   transition:
     color 0.2s,
     background 0.2s;
@@ -353,11 +316,13 @@ p {
   outline-offset: -2px;
 }
 
-[data-admin-tab='announcements'] {
+[data-admin-tab='announcements'],
+[data-service-status-trigger] {
   position: relative;
 }
 
-[data-admin-tab='announcements'].has-active-announcement::after {
+[data-admin-tab='announcements'].has-active-announcement::after,
+[data-service-status-dot] {
   content: '';
   position: absolute;
   top: 5px;
@@ -370,8 +335,15 @@ p {
   box-sizing: content-box;
 }
 
-[data-admin-tab='announcements'].is-active.has-active-announcement::after {
+[data-admin-tab='announcements'].is-active.has-active-announcement::after,
+[data-admin-tab='announcements']:hover::after,
+[data-service-status-trigger]:hover [data-service-status-dot] {
   border-color: var(--surface-2);
+}
+
+[data-service-status-dot][data-state='resuming'],
+[data-service-status-dot][data-state='unknown'] {
+  background: var(--warn);
 }
 
 .admin-view {
@@ -2842,20 +2814,28 @@ p {
   }
 }
 
+@media (max-width: 720px) {
+  .admin-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 3px;
+    border-radius: 14px;
+    overflow: visible;
+  }
+
+  .admin-tabs button {
+    min-width: 0;
+    min-height: 40px;
+    padding: 9px 12px;
+    border-radius: 11px;
+  }
+}
+
 @media (max-width: 560px) {
   .admin-shell,
   .admin-shell.is-login {
     width: min(100vw - 24px, 1100px);
-  }
-
-  .header-actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-  }
-
-  .header-actions [data-service-status-trigger] {
-    justify-content: center;
   }
 
   [data-service-status-dialog] {
@@ -3063,23 +3043,6 @@ p {
     align-items: start;
     flex-direction: column;
     gap: 4px;
-  }
-
-  .admin-tabs {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-    gap: 3px;
-    border-radius: 14px;
-    overflow: visible;
-  }
-
-  .admin-tabs button {
-    min-width: 0;
-    min-height: 40px;
-    padding: 9px 12px;
-    border-radius: 11px;
-    font-size: 13px;
   }
 
   .spectrum-chart {

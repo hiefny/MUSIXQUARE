@@ -121,7 +121,8 @@ describe('admin reads crossing a mutation', () => {
       const confirm = document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')!;
       const label = document.querySelector('[data-service-status-label]')!;
       const error = document.querySelector<HTMLElement>('[data-service-status-error]')!;
-      await vi.waitFor(() => expect(label.textContent).toBe('Operational'));
+      await vi.waitFor(() => expect(trigger.dataset.state).toBe('operational'));
+      expect(label.textContent).toBe('Maintenance');
       trigger.click();
       await vi.waitFor(() => expect(held).toBeDefined());
       expect(confirm.disabled).toBe(false);
@@ -135,7 +136,7 @@ describe('admin reads crossing a mutation', () => {
       expect(confirm.disabled).toBe(true);
       releaseMutation();
       if (outcome === 'success') {
-        await vi.waitFor(() => expect(label.textContent).toBe('Activating...'));
+        await vi.waitFor(() => expect(trigger.dataset.state).toBe('activating'));
         expect(status).toMatchObject({ enabled: true, revision: 1 });
       } else {
         await vi.waitFor(() => expect(error.textContent).toBe('CONTROL_UNAVAILABLE'));
@@ -144,7 +145,8 @@ describe('admin reads crossing a mutation', () => {
       const acceptedError = error.textContent;
       held!.finish();
       await new Promise((resolve) => setTimeout(resolve, 20));
-      expect(label.textContent).toBe(outcome === 'success' ? 'Activating...' : 'Operational');
+      expect(trigger.dataset.state).toBe(outcome === 'success' ? 'activating' : 'operational');
+      expect(label.textContent).toBe('Maintenance');
       expect(confirm.disabled).toBe(outcome === 'success');
       expect(error.textContent).toBe(acceptedError);
       expect(writes).toHaveLength(1);
@@ -154,12 +156,14 @@ describe('admin reads crossing a mutation', () => {
       document.querySelector<HTMLButtonElement>('[data-service-status-cancel]')!.click();
       status = { enabled: true, revision: 2, updatedAt: new Date().toISOString(), settlesAt: null };
       trigger.click();
-      await vi.waitFor(() => expect(label.textContent).toBe('Maintenance'));
+      await vi.waitFor(() => expect(trigger.dataset.state).toBe('maintenance'));
+      expect(label.textContent).toBe('Maintenance');
       expect(confirm.disabled).toBe(false);
       confirm.click();
       await vi.waitFor(() => expect(writes).toHaveLength(2));
       expect(writes[1]).toMatchObject({ enabled: false, expectedRevision: 2 });
-      await vi.waitFor(() => expect(label.textContent).toBe('Resuming...'));
+      await vi.waitFor(() => expect(trigger.dataset.state).toBe('resuming'));
+      expect(label.textContent).toBe('Maintenance');
       expect(status).toMatchObject({ enabled: false, revision: 3 });
     },
   );
@@ -198,12 +202,12 @@ describe('admin reads crossing a mutation', () => {
       const target = endpoint === 'unchanged' ? 'operations' : 'announcements';
       const button = document.querySelector<HTMLButtonElement>(`[data-admin-tab="${target}"]`)!;
       if (endpoint !== 'unchanged') button.click();
-      expect(button.getAttribute('aria-selected')).toBe('true');
+      expect(button.getAttribute('aria-pressed')).toBe('true');
       held!.finish();
       await vi.waitFor(() =>
         expect(document.querySelector('[data-updated-at]')!.textContent).toMatch(/^Updated /),
       );
-      expect(button.getAttribute('aria-selected')).toBe('true');
+      expect(button.getAttribute('aria-pressed')).toBe('true');
       expect(document.querySelector<HTMLElement>(`[data-admin-view="${target}"]`)!.hidden).toBe(
         false,
       );
@@ -273,14 +277,14 @@ describe('admin reads crossing a mutation', () => {
       await vi.waitFor(() => expect(held).toBeDefined());
       if (scenario !== 'unchanged') announcements.click();
       const selected = scenario === 'unchanged' ? rooms : announcements;
-      expect(selected.getAttribute('aria-selected')).toBe('true');
+      expect(selected.getAttribute('aria-pressed')).toBe('true');
       held!.finish();
       await vi.waitFor(() =>
         expect(document.querySelector('[data-updated-at]')?.textContent).toMatch(
           /^(Updated |Maintenance active|Service status unavailable)/,
         ),
       );
-      expect(selected.getAttribute('aria-selected')).toBe('true');
+      expect(selected.getAttribute('aria-pressed')).toBe('true');
       expect(
         document.querySelector<HTMLElement>(`[data-admin-view="${selected.dataset.adminTab}"]`)
           ?.hidden,

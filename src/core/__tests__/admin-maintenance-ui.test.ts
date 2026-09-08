@@ -168,7 +168,8 @@ describe('admin maintenance status UI', () => {
     const trigger = document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!;
     const confirm = document.querySelector<HTMLButtonElement>('[data-service-status-confirm]')!;
     const dialog = document.querySelector<HTMLDialogElement>('[data-service-status-dialog]')!;
-    await vi.waitFor(() => expect(trigger.textContent).toContain('Maintenance'));
+    await vi.waitFor(() => expect(trigger.dataset.state).toBe('maintenance'));
+    expect(trigger.textContent).toContain('Maintenance');
     trigger.click();
     await vi.waitFor(() => expect(confirm.disabled).toBe(false));
     confirm.click();
@@ -258,11 +259,12 @@ describe('admin maintenance status UI', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     window.eval(adminScript);
+    const trigger = document.querySelector<HTMLButtonElement>('[data-service-status-trigger]')!;
+    const label = document.querySelector('[data-service-status-label]')!;
     await vi.waitFor(() => {
       expect(document.querySelector<HTMLElement>('[data-dashboard]')?.hidden).toBe(false);
-      expect(document.querySelector('[data-service-status-label]')?.textContent).toBe(
-        'Operational',
-      );
+      expect(trigger.dataset.state).toBe('operational');
+      expect(label.textContent).toBe('Maintenance');
       expect(
         document
           .querySelector('[data-admin-tab="announcements"]')
@@ -296,15 +298,13 @@ describe('admin maintenance status UI', () => {
       expect(String(mutationBody?.requestId)).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
       );
-      expect(document.querySelector('[data-service-status-label]')?.textContent).toBe(
-        'Activating...',
-      );
+      expect(trigger.dataset.state).toBe('activating');
+      expect(label.textContent).toBe('Maintenance');
     });
     await vi.waitFor(
       () => {
-        expect(document.querySelector('[data-service-status-label]')?.textContent).toBe(
-          'Maintenance',
-        );
+        expect(trigger.dataset.state).toBe('maintenance');
+        expect(label.textContent).toBe('Maintenance');
       },
       { timeout: 1_500 },
     );

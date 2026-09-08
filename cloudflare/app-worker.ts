@@ -344,7 +344,7 @@ const ADMIN_ANNOUNCEMENT_HISTORY_KEY = 'admin-announcement-history.json';
 const ADMIN_ANNOUNCEMENT_HISTORY_LIMIT = 100;
 const ADMIN_ANNOUNCEMENT_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/;
 const ADMIN_MAINTENANCE_PREVIEW_PATH = '/admin/maintenance-preview';
-const ADMIN_ASSET_VERSION = '8.6.3';
+const ADMIN_ASSET_VERSION = '8.6.4';
 const SORO_RSS_MAX_BYTES = 20 * 1024 * 1024;
 const SORO_RSS_FETCH_TIMEOUT_MS = 2500;
 const SORO_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 5 * 60 * 1000;
@@ -11727,11 +11727,6 @@ function renderAdminPage(request: Request, env: AppEnv) {
           <p data-updated-at>Loading metrics...</p>
         </div>
         <div class="header-actions">
-          <button class="is-active" type="button" aria-pressed="true" data-admin-tab="operations">Analytics</button>
-          <button class="service-status-trigger is-loading" type="button" aria-haspopup="dialog" data-service-status-trigger>
-            <span class="service-status-dot" aria-hidden="true" data-service-status-dot></span>
-            <span data-service-status-label>Checking status</span>
-          </button>
           <button type="button" data-refresh>Refresh</button>
           <button type="button" data-logout>Logout</button>
         </div>
@@ -11768,6 +11763,11 @@ function renderAdminPage(request: Request, env: AppEnv) {
         </div>
       </dialog>
       <nav class="admin-tabs" aria-label="Admin sections">
+        <button class="service-status-trigger is-loading" type="button" aria-haspopup="dialog" data-service-status-trigger>
+          <span class="service-status-dot" aria-hidden="true" data-service-status-dot></span>
+          <span data-service-status-label>Maintenance</span>
+        </button>
+        <button class="is-active" type="button" aria-pressed="true" data-admin-tab="operations">Analytics</button>
         <button type="button" data-admin-tab="pro-rooms">PRO Rooms</button>
         <button type="button" data-admin-tab="articles">Articles</button>
         <button type="button" data-admin-tab="translations">Translations</button>

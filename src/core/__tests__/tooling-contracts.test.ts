@@ -53,6 +53,7 @@ describe('tooling reproducibility contracts', () => {
     expect([...toolingConfig.include].sort()).toEqual(
       [
         '.workshop/promo/render.ts',
+        '.workshop/translate/dev/**/*.ts',
         'eslint.config.ts',
         'eslint.tooling.config.ts',
         'scripts/async-connect-middleware.ts',
@@ -61,6 +62,8 @@ describe('tooling reproducibility contracts', () => {
         'scripts/live-app-session-smoke.ts',
         'scripts/live-remote-share-smoke.ts',
         'scripts/service-worker-asset.ts',
+        'scripts/translation-catalog-assets.ts',
+        'scripts/translation-catalog.ts',
         'scripts/ui-kit-asset.ts',
         'vite.config.ts',
         'vitest.config.ts',

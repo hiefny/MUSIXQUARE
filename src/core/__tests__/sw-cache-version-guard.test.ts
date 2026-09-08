@@ -260,14 +260,20 @@ describe('service-worker CACHE_VERSION guard', () => {
     expect(result.stderr).toContain(filePath);
   });
 
-  it('treats public pages and built workshop inputs as PWA runtime changes', () => {
+  it.each([
+    '.workshop/faq/faq.html',
+    '.workshop/translate/translate.html',
+    '.workshop/translate/catalog-client.ts',
+    'scripts/translation-catalog.ts',
+    'scripts/translation-catalog-assets.ts',
+  ])('treats public pages and built translation input %s as PWA runtime changes', (filePath) => {
     const repository = createRepository();
-    write(repository, '.workshop/faq/faq.html', '<p>Updated FAQ</p>\n');
+    write(repository, filePath, '<p>Updated public content</p>\n');
     commit(repository, 'update public FAQ');
 
     const result = runGuard(repository);
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('.workshop/faq/faq.html');
+    expect(result.stderr).toContain(filePath);
   });
 
   it('rejects service-worker behavior changes without a version bump', () => {

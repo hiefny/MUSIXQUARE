@@ -766,6 +766,13 @@ function hasSensitiveNavigationQuery(request: Request): boolean {
 
 function canonicalNavigationShell(request: Request): string {
   const url = new URL(request.url);
+  if (
+    url.origin === serviceWorker.location.origin &&
+    /^\/translate(?:\.html)?\/*$/iu.test(url.pathname)
+  ) {
+    // Reuse a previously visited editor, or fail offline; never substitute the room App UI.
+    return './translate.html';
+  }
   return url.origin === serviceWorker.location.origin && url.pathname === ACCOUNT_COMPLETION_PATH
     ? ACCOUNT_COMPLETION_SHELL
     : './index.html';

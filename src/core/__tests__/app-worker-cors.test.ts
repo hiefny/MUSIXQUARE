@@ -26,6 +26,11 @@ import {
 import { createAtomicRateControlBinding } from './service-control-rate-limit-fixture.ts';
 import { LANGUAGE_OPTIONS } from '../../i18n/locales.ts';
 
+const PRODUCT_VERSION = (
+  JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as {
+    version: string;
+  }
+).version;
 const NON_ENGLISH_LOCALE_CODES = LANGUAGE_OPTIONS.filter(({ code }) => code !== 'en').map(
   ({ code }) => code,
 );
@@ -7613,11 +7618,11 @@ describe('Cloudflare app worker admin dashboard', () => {
     expect(response.headers.get('Cloudflare-CDN-Cache-Control')).toBe('no-store');
     expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
     expect(html).toContain('<meta name="robots" content="noindex, nofollow">');
-    expect(html).toContain('/admin.css?v=8.4.70');
-    expect(html).toContain('/clearable-editors.js?v=8.4.70');
-    expect(html).toContain('/admin.js?v=8.4.70');
+    expect(html).toContain(`/admin.css?v=${PRODUCT_VERSION}`);
+    expect(html).toContain(`/clearable-editors.js?v=${PRODUCT_VERSION}`);
+    expect(html).toContain(`/admin.js?v=${PRODUCT_VERSION}`);
     expect(html.indexOf('/clearable-editors.js')).toBeLessThan(html.indexOf('/admin.js'));
-    expect(html).toContain('data-admin-asset-version="8.4.70"');
+    expect(html).toContain(`data-admin-asset-version="${PRODUCT_VERSION}"`);
     expect(html).not.toContain('<script>');
     expect(html).not.toContain('window.__MXQR_ADMIN_SCRIPT_VERSION__');
     expect(html).toContain('a cold edge isolate can briefly admit traffic');
@@ -12445,6 +12450,26 @@ describe('Cloudflare app worker invite route', () => {
               headers: { 'Content-Type': 'text/html; charset=utf-8' },
             });
           }
+          if (url.pathname === '/translate.html') {
+            return new Response(
+              request.method === 'HEAD'
+                ? null
+                : '<!doctype html><html lang="en"><head><link rel="canonical" href="https://musixquare.com/translate"></head><body>Translation workspace</body></html>',
+              {
+                status: 200,
+                headers: { 'Content-Type': 'text/html; charset=utf-8' },
+              },
+            );
+          }
+          if (
+            url.pathname === '/translation-catalogs.json' ||
+            url.pathname === '/assets/translation-catalog-pt-br-aBcD1234.json'
+          ) {
+            return new Response(request.method === 'HEAD' ? null : '{"version":1}', {
+              status: 200,
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            });
+          }
           if (url.pathname === '/404.html') {
             return new Response(request.method === 'HEAD' ? null : CUSTOM_404_HTML, {
               status: 200,
@@ -12873,6 +12898,68 @@ describe('Cloudflare app worker invite route', () => {
     expect(response.headers.get('Location')).toBe('https://musixquare.com/developers');
     expect(env.ASSETS.fetch).not.toHaveBeenCalled();
   });
+
+  it.each(['GET', 'HEAD'])(
+    'serves the English translation workspace for %s with document security and cache headers',
+    async (method) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request('https://musixquare.com/translate', { method }),
+        env,
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get('X-Robots-Tag')).toBeNull();
+      expect(response.headers.get('Content-Security-Policy')).toContain("connect-src 'self'");
+      expect(response.headers.get('Content-Security-Policy')).toContain("form-action 'self'");
+      expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+      expect(response.headers.get('Cache-Control')).toBe(
+        'public, max-age=300, s-maxage=86400, stale-while-revalidate=604800',
+      );
+      expect(await response.text()).toBe(
+        method === 'HEAD'
+          ? ''
+          : '<!doctype html><html lang="en"><head><link rel="canonical" href="https://musixquare.com/translate"></head><body>Translation workspace</body></html>',
+      );
+      expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+      expect(new URL((env.ASSETS.fetch.mock.calls[0]![0] as Request).url).pathname).toBe(
+        '/translate.html',
+      );
+    },
+  );
+
+  it.each(['/translate/', '/Translate', '/TRANSLATE.HTML', '/translate.html/'])(
+    'canonicalizes translation workspace %s and preserves query/fragment state',
+    async (pathname) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(
+        new Request(`https://musixquare.com${pathname}?locale=pt-br#workspace`),
+        env,
+      );
+      expect(response.status).toBe(301);
+      expect(response.headers.get('Location')).toBe(
+        'https://musixquare.com/translate?locale=pt-br#workspace',
+      );
+      expect(env.ASSETS.fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['/translation-catalogs.json', 'no-store'],
+    ['/assets/translation-catalog-pt-br-aBcD1234.json', 'public, max-age=31536000, immutable'],
+  ])(
+    'serves translation catalog %s with %s and existing security headers',
+    async (pathname, cacheControl) => {
+      const env = createAssetEnv();
+      const response = await appWorker.fetch(new Request(`https://musixquare.com${pathname}`), env);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('application/json; charset=utf-8');
+      expect(response.headers.get('Cache-Control')).toBe(cacheControl);
+      expect(response.headers.get('Access-Control-Allow-Origin')).toBeNull();
+      expect(response.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+      expect(await response.json()).toEqual({ version: 1 });
+      expect(env.ASSETS.fetch).toHaveBeenCalledOnce();
+    },
+  );
 
   it('serves invite pages for GET with fresh app-shell cache semantics', async () => {
     const env = createAssetEnv();

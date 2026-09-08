@@ -1146,8 +1146,11 @@ describe('release deployment rollback state', () => {
         expect(paths).toContain('browser');
         expect(paths).toContain('css');
         expect(paths).toContain('.workshop/privacy');
+        expect(paths).toContain('.workshop/translate');
         expect(paths).toContain('cloudflare/app-static-assets/_headers');
         expect(paths).toContain('scripts/classic-runtime-assets.ts');
+        expect(paths).toContain('scripts/translation-catalog.ts');
+        expect(paths).toContain('scripts/translation-catalog-assets.ts');
         expect(paths).toContain('scripts/auxiliary-browser-assets.ts');
         expect(paths).toContain('scripts/service-worker-asset.ts');
         expect(paths).toContain('scripts/ui-kit-asset.ts');
@@ -1232,6 +1235,9 @@ describe('release deployment rollback state', () => {
       });
     const helpers = [
       'scripts/materialize-localized-html.mts',
+      '.workshop/translate/catalog-client.ts',
+      'scripts/translation-catalog.ts',
+      'scripts/translation-catalog-assets.ts',
       'scripts/localized-html-lib.mts',
       'scripts/locale-seo-metadata.mts',
       'scripts/service-worker-app-shell-guard-lib.mts',

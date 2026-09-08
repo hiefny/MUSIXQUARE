@@ -6,8 +6,8 @@ const workerTypescriptFiles = ['cloudflare/**/*.ts'];
 const browserTypescriptFiles = ['browser/**/*.{ts,tsx}'];
 const nodeTypescriptFiles = ['scripts/**/*.{ts,mts}', '*.config.ts'];
 const e2eTypescriptFiles = ['e2e/**/*.ts'];
-const workshopBrowserTypescriptFiles = ['.workshop/landing/**/*.ts'];
-const workshopNodeTypescriptFiles = ['.workshop/promo/**/*.ts'];
+const workshopBrowserTypescriptFiles = ['.workshop/landing/**/*.ts', '.workshop/translate/*.ts'];
+const workshopNodeTypescriptFiles = ['.workshop/promo/**/*.ts', '.workshop/translate/dev/**/*.ts'];
 const typescriptFiles = [
   ...browserTypescriptFiles,
   ...workerTypescriptFiles,
@@ -105,7 +105,7 @@ const typeAwarePromiseProjects = defineConfig(
   },
   {
     files: [
-      '.workshop/promo/**/*.ts',
+      ...workshopNodeTypescriptFiles,
       'scripts/**/*.ts',
       'eslint*.config.ts',
       'vite.config.ts',
@@ -121,7 +121,7 @@ const typeAwarePromiseProjects = defineConfig(
     rules: promiseOwnershipRules,
   },
   {
-    files: ['.workshop/landing/**/*.ts'],
+    files: workshopBrowserTypescriptFiles,
     languageOptions: {
       parserOptions: {
         project: './tsconfig.workshop-landing.json',

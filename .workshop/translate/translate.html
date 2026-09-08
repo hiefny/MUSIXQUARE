@@ -1,0 +1,310 @@
+<!doctype html>
+<!-- MUSIXQUARE-authored file: AGPLv3 section 7 terms are in ADDITIONAL_TERMS.md; trademark use is addressed separately in TRADEMARKS.md. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="canonical" href="https://musixquare.com/translate" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#121212" />
+    <title>Translate · MUSIXQUARE</title>
+    <meta name="description" content="Help make MUSIXQUARE feel natural in your language." />
+    <meta property="og:title" content="Translate · MUSIXQUARE" />
+    <meta
+      property="og:description"
+      content="Review MUSIXQUARE translations and prepare clearer wording in your language."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="MUSIXQUARE" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://musixquare.com/translate" />
+    <meta property="og:image" content="https://musixquare.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MUSIXQUARE" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Translate · MUSIXQUARE" />
+    <meta
+      name="twitter:description"
+      content="Help make MUSIXQUARE feel natural in your language."
+    />
+    <meta name="twitter:image" content="https://musixquare.com/og-image.png" />
+    <link rel="icon" href="/designsystem/assets/favicon.svg" />
+    <link rel="stylesheet" href="/css/pretendard.css" />
+    <link rel="stylesheet" href="/legal-pages.css" />
+    <link rel="stylesheet" href="/.workshop/translate/translate.css" />
+    <script type="module" src="/.workshop/translate/main.ts"></script>
+  </head>
+  <body id="top">
+    <a class="translation-skip" href="#workspace">Skip to translation editor</a>
+    <header class="policy-header">
+      <a class="policy-logo" href="/" aria-label="MUSIXQUARE home">
+        <span class="policy-wordmark" aria-hidden="true"></span>
+      </a>
+      <a class="policy-home" href="#guidelines">Translation guide</a>
+    </header>
+
+    <main class="policy-shell">
+      <section class="policy-hero">
+        <h1>Translate</h1>
+        <p>
+          Help MUSIXQUARE feel natural in your language.<br />A clearer word can make all the
+          difference.
+        </p>
+        <p class="policy-date">Suggestions stay in this browser until you export them.</p>
+      </section>
+
+      <article class="policy-doc translation-doc">
+        <section id="workspace" aria-labelledby="choose-heading">
+          <div class="translation-section-heading">
+            <h2 id="choose-heading">1. Choose a phrase</h2>
+            <a class="translation-draft-link" href="#saved"
+              >My suggestions <span id="draft-count">0</span></a
+            >
+          </div>
+          <p>Choose a language you know well. Search for a phrase that could sound more natural.</p>
+
+          <div class="translation-filters">
+            <label class="translation-field" for="language">
+              <span>Language</span>
+              <select id="language" disabled>
+                <option>Loading languages…</option>
+              </select>
+            </label>
+            <label class="translation-field" for="surface">
+              <span>Page</span>
+              <select id="surface" disabled>
+                <option value="about" selected>About</option>
+                <option value="app">App</option>
+                <option value="all">App &amp; About</option>
+              </select>
+            </label>
+          </div>
+          <label class="translation-field translation-search" for="search">
+            <span>Find a phrase</span>
+            <input
+              id="search"
+              type="search"
+              placeholder="Search text or key"
+              autocomplete="off"
+              disabled
+            />
+          </label>
+          <div class="translation-results-meta">
+            <p id="result-count" role="status">Loading the current translations…</p>
+            <label class="translation-checkbox"
+              ><input id="drafts-only" type="checkbox" /> My drafts only</label
+            >
+          </div>
+          <p id="load-error" class="translation-alert" role="alert" hidden></p>
+          <button id="retry" class="translation-button" type="button" hidden>Try again</button>
+          <ul
+            id="phrases"
+            class="translation-phrases"
+            aria-label="Translation phrases"
+            aria-busy="true"
+          ></ul>
+          <div class="translation-pagination" id="pagination" hidden>
+            <button
+              class="translation-button translation-button--quiet"
+              id="previous-page"
+              type="button"
+            >
+              Previous
+            </button>
+            <span id="page-number"></span>
+            <button
+              class="translation-button translation-button--quiet"
+              id="next-page"
+              type="button"
+            >
+              Next
+            </button>
+          </div>
+          <p class="translation-note">
+            English and Korean are reference languages. This editor covers App and About text;
+            plural forms and account messages are not included yet.
+          </p>
+        </section>
+
+        <section id="editor" aria-labelledby="editor-heading" hidden>
+          <div class="translation-section-heading">
+            <h2 id="editor-heading">2. Suggest a revision</h2>
+            <a class="translation-draft-link" href="#workspace">Choose another phrase</a>
+          </div>
+          <div class="translation-keyline">
+            <span id="selected-surface"></span><code id="selected-key"></code>
+          </div>
+
+          <div class="translation-reference">
+            <div class="translation-reference-label">English reference</div>
+            <p id="source-en" lang="en" dir="ltr"></p>
+            <details class="translation-korean">
+              <summary>Korean reference</summary>
+              <p id="source-ko" lang="ko" dir="ltr"></p>
+            </details>
+          </div>
+          <div class="translation-reference translation-reference--current">
+            <div class="translation-reference-label" id="current-label">Current translation</div>
+            <p id="current" dir="auto"></p>
+          </div>
+          <p id="phrase-context" class="translation-note"></p>
+
+          <label class="translation-field translation-proposal" for="proposal">
+            <span
+              >Your suggestion
+              <span class="translation-field-meta" id="character-count">0 characters</span></span
+            >
+            <textarea
+              id="proposal"
+              rows="4"
+              placeholder="Write a natural translation…"
+              aria-describedby="proposal-help proposal-issues"
+              dir="auto"
+            ></textarea>
+          </label>
+          <p id="proposal-help" class="translation-note">
+            Keep the meaning, numbers, variables, and any HTML tags. A longer phrase is fine when it
+            needs the space.
+          </p>
+          <ul id="proposal-issues" class="translation-issues" aria-live="polite" hidden></ul>
+
+          <label class="translation-field translation-reason" for="reason">
+            <span>Why this reads better <span class="translation-field-meta">Optional</span></span>
+            <textarea
+              id="reason"
+              rows="2"
+              maxlength="2000"
+              placeholder="Explain a nuance, a correction, or where the phrase feels too long."
+            ></textarea>
+          </label>
+
+          <div class="translation-editor-actions">
+            <p id="save-status" class="translation-note" role="status">
+              Your work is saved on this device as you type.
+            </p>
+            <button
+              id="review-source"
+              class="translation-button translation-button--quiet"
+              type="button"
+              hidden
+            >
+              Use these references
+            </button>
+            <button
+              id="clear-draft"
+              class="translation-button translation-button--quiet"
+              type="button"
+              disabled
+            >
+              Clear draft
+            </button>
+          </div>
+          <details class="translation-text-preview">
+            <summary>Preview the wording</summary>
+            <p class="translation-note">
+              A text-only preview at up to 320px wide. The final layout depends on where the phrase
+              appears.
+            </p>
+            <div id="wording-preview" class="translation-preview-box" dir="auto"></div>
+          </details>
+        </section>
+
+        <section id="saved" aria-labelledby="saved-heading">
+          <div class="translation-section-heading">
+            <h2 id="saved-heading">3. My suggestions</h2>
+            <span id="ready-count" class="translation-note">0 ready to export</span>
+          </div>
+          <p>
+            Review your drafts and download a copy to keep. Exporting does not submit them to
+            MUSIXQUARE.
+          </p>
+          <p id="storage-warning" class="translation-alert" role="alert" hidden></p>
+          <ul id="saved-drafts" class="translation-saved" aria-label="Saved suggestions"></ul>
+          <p id="empty-drafts" class="translation-empty">Your suggestions will appear here.</p>
+          <div class="translation-export-actions">
+            <button
+              id="export"
+              class="translation-button translation-button--primary"
+              type="button"
+              disabled
+            >
+              Export suggestions
+            </button>
+            <span id="export-status" class="translation-note" role="status"
+              >No account needed.</span
+            >
+          </div>
+          <p class="translation-note">
+            Public submissions and reviewer approval are not connected yet. Drafts are stored only
+            in this browser; clearing browser data will remove them.
+          </p>
+          <details id="export-copy" class="translation-text-preview" hidden>
+            <summary>View exported JSON</summary>
+            <p class="translation-note">
+              If the download does not start, you can copy this JSON into a file.
+            </p>
+            <textarea id="export-json" rows="8" readonly aria-label="Exported JSON"></textarea>
+          </details>
+        </section>
+
+        <section id="guidelines" aria-labelledby="guidelines-heading">
+          <h2 id="guidelines-heading">4. A few translation notes</h2>
+          <dl>
+            <div>
+              <dt>Write for people using the app</dt>
+              <dd>
+                Keep the tone friendly and direct. Buttons should be easy to understand, even
+                without the surrounding explanation.
+              </dd>
+            </div>
+            <div>
+              <dt>Use the right meaning</dt>
+              <dd>
+                Left and Right describe speaker positions. A chat mute limits messages; it does not
+                mute audio. Use the same terms for the same features.
+              </dd>
+            </div>
+            <div>
+              <dt>Keep product details intact</dt>
+              <dd>
+                Keep names such as MUSIXQUARE and YouTube, variables such as <code>{{count}}</code>,
+                units, and feature conditions. Report unclear source wording in your explanation.
+              </dd>
+            </div>
+            <div>
+              <dt>Clarity comes before a shorter sentence</dt>
+              <dd>
+                Shorten a phrase when it feels natural. Do not remove a useful condition just to fit
+                a button. Length checks help reviewers; they are not a translation verdict.
+              </dd>
+            </div>
+          </dl>
+        </section>
+      </article>
+      <noscript
+        ><p class="translation-alert">
+          JavaScript is needed to load phrases and edit suggestions. The translation guide above is
+          still available.
+        </p></noscript
+      >
+    </main>
+    <footer class="policy-footer">
+      <div class="policy-footer__inner">
+        <span>© 2026 MUSIXQUARE</span>
+        <nav aria-label="Footer">
+          <a href="/about">About</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+          <a href="/faq">FAQ</a>
+          <a href="/developers">Developers</a>
+          <a href="/history">History</a>
+          <a href="/designsystem">Design System</a>
+          <a href="https://github.com/hiefny/MUSIXQUARE" target="_blank" rel="noopener noreferrer"
+            >GitHub</a
+          >
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

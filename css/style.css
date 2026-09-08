@@ -5271,7 +5271,8 @@
     margin-top: 0;
   }
 
-  .account-legal-links {
+  .account-legal-links,
+  .language-translate-link {
     margin-top: 16px;
     display: flex;
     align-items: center;
@@ -5281,7 +5282,8 @@
     font-size: 12px;
   }
 
-  .account-legal-links a {
+  .account-legal-links a,
+  .language-translate-link a {
     color: inherit;
     text-underline-offset: 3px;
   }
@@ -5736,7 +5738,18 @@
     flex-shrink: 0;
     margin-top: 16px;
     padding-top: 0;
+    padding-bottom: 0;
     justify-content: stretch;
+  }
+
+  .language-translate-link {
+    flex: 0 0 auto;
+    margin: 16px 32px 30px;
+    text-align: center;
+  }
+
+  .language-translate-link a {
+    text-decoration: underline;
   }
 
   .language-dialog .dialog-primary {
